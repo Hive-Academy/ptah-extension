@@ -92,6 +92,11 @@ export class CompactionLifecycleService {
    * Tracks the independent PostCompact signal without inventing a boundary.
    * A late real boundary after the fallback may enrich marker metrics, but it
    * must never replay the destructive completion/reload a second time.
+   *
+   * `generation` records which compaction generation the advisory (or its
+   * applied fallback) belongs to. A fallback record only counts as
+   * "already applied" while it matches the session's current generation —
+   * after a new compaction starts, its late boundary must reload normally.
    */
   private readonly postCompactAdvisories = new Map<
     SessionId,
@@ -99,8 +104,10 @@ export class CompactionLifecycleService {
       originTabId: TabId;
       timeoutId: ReturnType<typeof setTimeout> | null;
       fallbackApplied: boolean;
+      generation: number;
     }
   >();
+  private static readonly MAX_POST_COMPACT_ADVISORY_SESSIONS = 256;
 
   /**
    * Per-session compaction generations correlate the two independently ordered
@@ -237,7 +244,12 @@ export class CompactionLifecycleService {
       if (advisory.timeoutId) clearTimeout(advisory.timeoutId);
     }
     this.postCompactAdvisories.clear();
-    this.compactionGenerations.clear();
+    // `compactionGenerations` is deliberately NOT cleared: handleCompactionComplete
+    // marks a generation authoritative there, and this method runs on the
+    // CHAT_ERROR cleanup path — wiping it would let a later PostCompact
+    // advisory for the same generation schedule a fallback reload after the
+    // boundary already arrived. The map is already bounded by
+    // trimCompactionGenerations.
   }
 
   /**
@@ -357,15 +369,26 @@ export class CompactionLifecycleService {
   }): void {
     const compactionSid = SessionId.from(result.compactionSessionId);
     if (!result.advisoryFallback) {
+      // Snapshot the current generation BEFORE the authoritative stamp: the
+      // stamp resurrects a deleted entry with generation 1, which would break
+      // the match for an advisory armed before any compaction start (gen 0).
+      const generationAtBoundary = this.currentCompactionGeneration(compactionSid);
       this.markAuthoritativeCompactionGeneration(compactionSid);
       const advisory = this.postCompactAdvisories.get(compactionSid);
       if (advisory?.timeoutId) {
         clearTimeout(advisory.timeoutId);
         this.postCompactAdvisories.delete(compactionSid);
       } else if (advisory?.fallbackApplied) {
-        this.mergeLateCompactionBoundary(compactionSid, result);
+        if (advisory.generation === generationAtBoundary) {
+          // Same generation: merge the late boundary's metrics/context seed
+          // without a second reload or another compaction-count increment.
+          this.mergeLateCompactionBoundary(compactionSid, result);
+          this.postCompactAdvisories.delete(compactionSid);
+          return;
+        }
+        // The fallback belonged to an older generation; the boundary arriving
+        // now is for the current one and must take the full reload path.
         this.postCompactAdvisories.delete(compactionSid);
-        return;
       }
     }
     this.treeBuilder.clearCache();
@@ -678,7 +701,9 @@ export class CompactionLifecycleService {
       originTabId: tabs[0].id,
       timeoutId,
       fallbackApplied: false,
+      generation: this.currentCompactionGeneration(compactionSid),
     });
+    this.trimPostCompactAdvisories();
     console.info(
       '[ChatStore] PostCompact advisory received; waiting briefly for real compact_boundary',
       { sessionId: compactionSid },
@@ -742,6 +767,26 @@ export class CompactionLifecycleService {
     return state != null && state.authoritativeGeneration === state.generation;
   }
 
+  private currentCompactionGeneration(sessionId: SessionId): number {
+    return this.compactionGenerations.get(sessionId)?.generation ?? 0;
+  }
+
+  /**
+   * Bound the advisory map the same way the generation map is bounded: a
+   * `fallbackApplied` record whose session never sees another boundary used to
+   * accumulate without limit (PR #493 review D).
+   */
+  private trimPostCompactAdvisories(): void {
+    while (
+      this.postCompactAdvisories.size >
+      CompactionLifecycleService.MAX_POST_COMPACT_ADVISORY_SESSIONS
+    ) {
+      const oldestSessionId = this.postCompactAdvisories.keys().next().value;
+      if (!oldestSessionId) return;
+      this.postCompactAdvisories.delete(oldestSessionId);
+    }
+  }
+
   private trimCompactionGenerations(): void {
     while (
       this.compactionGenerations.size >
@@ -786,10 +831,22 @@ export class CompactionLifecycleService {
     const tab = this.tabManager.tabs().find((candidate) => candidate.id === tabId);
     if (tab?.claudeSessionId) {
       this.compactionGenerations.delete(tab.claudeSessionId);
-      const advisory = this.postCompactAdvisories.get(tab.claudeSessionId);
-      if (advisory?.originTabId === tabId && advisory.timeoutId) {
-        clearTimeout(advisory.timeoutId);
-        this.postCompactAdvisories.delete(tab.claudeSessionId);
+    }
+    // Drop advisories this tab originated. The sweep keys off the record's
+    // own `originTabId`, not off the live tab list — a CLOSED tab is already
+    // gone from `tabs()`, so its session is resolvable only through the
+    // record. A pending (timed) advisory dies with its tab; a `fallbackApplied`
+    // record survives only while another tab still owns the session, so a
+    // late boundary can merge its metrics there. Left alone these records
+    // accumulated without bound (PR #493 review D).
+    for (const [advisorySessionId, advisory] of this.postCompactAdvisories) {
+      if (advisory.originTabId !== tabId) continue;
+      if (advisory.timeoutId) clearTimeout(advisory.timeoutId);
+      const sessionStillOwnedByAnotherTab = this.tabManager
+        .findTabsBySessionId(advisorySessionId)
+        .some((candidate) => candidate.id !== tabId);
+      if (advisory.timeoutId || !sessionStillOwnedByAnotherTab) {
+        this.postCompactAdvisories.delete(advisorySessionId);
       }
     }
     const convId = this.tabSessionBinding.conversationFor(tabId);

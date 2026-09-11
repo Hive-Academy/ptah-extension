@@ -212,13 +212,41 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       },
     );
 
-    it('does not seed context for an unrecognized model with no usable window', () => {
+    it('retains the prior finite positive context window for an unrecognized model', () => {
+      // PR #493 review C: a proxied Codex model id (gpt-5.6-sol) is not in the
+      // pricing registry, so getModelContextWindow returns 0 — the tab's own
+      // prior window must keep the gauge alive instead of clearing it.
+      const tabId = service.createTab('compacting tab');
+      service.setLiveModelStats(tabId, {
+        model: 'gpt-5.6-sol',
+        contextUsed: 1234,
+        contextWindow: 200000,
+        contextPercent: 0.6,
+      });
+
+      service.applyCompactionComplete(tabId, {
+        preloadedStats: null,
+        compactionCount: 1,
+        postCompactionContextTokens: 1200,
+      });
+
+      expect(
+        service.tabs().find((tab) => tab.id === tabId)?.liveModelStats,
+      ).toEqual({
+        model: 'gpt-5.6-sol',
+        contextUsed: 1200,
+        contextWindow: 200000,
+        contextPercent: 0.6,
+      });
+    });
+
+    it('does not seed context when neither the prior window nor the model registry provides one', () => {
       const tabId = service.createTab('compacting tab');
       service.setLiveModelStats(tabId, {
         model: 'unrecognized-model',
         contextUsed: 1234,
-        contextWindow: 200000,
-        contextPercent: 0.6,
+        contextWindow: 0,
+        contextPercent: 0,
       });
 
       service.applyCompactionComplete(tabId, {

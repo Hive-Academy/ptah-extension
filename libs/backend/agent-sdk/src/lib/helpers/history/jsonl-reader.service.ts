@@ -660,6 +660,7 @@ export class JsonlReaderService {
       sessionId: line.sessionId,
       timestamp: line.timestamp,
       isMeta: line.isMeta,
+      isSynthetic: line.isSynthetic,
       slug: line.slug,
       message: line.message as SessionHistoryMessage['message'],
       model: line.model,

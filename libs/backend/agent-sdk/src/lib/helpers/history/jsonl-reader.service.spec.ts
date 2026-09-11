@@ -498,6 +498,33 @@ describe('JsonlReaderService', () => {
       expect(out[0].type).toBe('assistant');
     });
 
+    it('preserves isSynthetic so replay can suppress synthetic user records', async () => {
+      // Regression (PR #493 review A): convertToSessionHistoryMessage dropped
+      // isSynthetic, so the replay filter in session-replay.service never saw
+      // it and synthetic user records leaked into replayed history.
+      const jsonl = [
+        JSON.stringify({
+          uuid: 'u-synthetic',
+          type: 'user',
+          isSynthetic: true,
+          message: { role: 'user', content: 'synthetic cue' },
+        }),
+        JSON.stringify({
+          uuid: 'u-real',
+          type: 'user',
+          message: { role: 'user', content: 'real message' },
+        }),
+      ].join('\n');
+      mockedStat.mockResolvedValueOnce(statsWithSize(Buffer.byteLength(jsonl)));
+      primeFileContent(jsonl);
+
+      const out = await service.readJsonlMessages('/tmp/session.jsonl');
+
+      expect(out).toHaveLength(2);
+      expect(out[0].isSynthetic).toBe(true);
+      expect(out[1].isSynthetic).toBeUndefined();
+    });
+
     it('rejects files over the 50 MB cap with SdkError before reading content', async () => {
       // `await expect(...).rejects.toThrow(...)` invokes the thunk once, so we
       // need exactly one stat reply — any extra primed replies stay queued

@@ -177,7 +177,7 @@ describe('ElectronShellComponent — activity toast', () => {
     const classes = layer()?.getAttribute('class') ?? '';
 
     expect(classes).toContain('fixed');
-    expect(classes).toContain('top-6');
+    expect(classes).toContain('top-11');
     expect(classes).toContain('right-3');
     expect(classes).toContain('z-50');
   });

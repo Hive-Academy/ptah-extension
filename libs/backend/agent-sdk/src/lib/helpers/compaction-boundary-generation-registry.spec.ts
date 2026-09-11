@@ -107,6 +107,50 @@ describe('CompactionBoundaryGenerationRegistry', () => {
     expect(registry.inspect('session-y')).toBeUndefined();
   });
 
+  it('advances the expected count once per distinct boundary recorded before the next observation', () => {
+    // PR #493 review B: two distinct boundaries used to both write
+    // observedCount + 1, so a transcript holding only the first new boundary
+    // satisfied the second expectation.
+    const registry = new CompactionBoundaryGenerationRegistry();
+    registry.observeBoundaryCount('session-stack', 1);
+    registry.recordExpectedBoundary('session-stack', 'boundary-1');
+    registry.recordExpectedBoundary('session-stack', 'boundary-2');
+
+    expect(registry.capturePendingExpectation('session-stack')).toEqual({
+      kind: 'verified',
+      expectedCount: 3,
+    });
+  });
+
+  it('treats a duplicate delivery of the same boundary id as idempotent', () => {
+    const registry = new CompactionBoundaryGenerationRegistry();
+    registry.observeBoundaryCount('session-dup', 1);
+    registry.recordExpectedBoundary('session-dup', 'boundary-1');
+    registry.recordExpectedBoundary('session-dup', 'boundary-1');
+
+    expect(registry.capturePendingExpectation('session-dup')).toEqual({
+      kind: 'verified',
+      expectedCount: 2,
+    });
+  });
+
+  it('keeps an already pending expectation alive when a later boundary claims the observed one', () => {
+    // A history read observes boundary-0 with no expectation pending, then
+    // boundary-1 is recorded, then boundary-0's stream event finally arrives
+    // and claims the observed generation. boundary-1's expectation must
+    // survive the claim.
+    const registry = new CompactionBoundaryGenerationRegistry();
+    registry.observeBoundaryCount('session-claim', 1);
+    registry.observeBoundaryCount('session-claim', 2, 'boundary-0');
+    registry.recordExpectedBoundary('session-claim', 'boundary-1');
+    registry.recordExpectedBoundary('session-claim', 'boundary-0');
+
+    expect(registry.capturePendingExpectation('session-claim')).toEqual({
+      kind: 'verified',
+      expectedCount: 3,
+    });
+  });
+
   it('bounds the number of sessions and evicts the oldest', () => {
     const registry = new CompactionBoundaryGenerationRegistry(2);
     registry.observeBoundaryCount('session-1', 1);

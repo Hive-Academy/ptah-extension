@@ -48,6 +48,12 @@ interface CompactionBoundaryEntry {
    * side records this as fulfilled rather than expecting an additional boundary.
    */
   observedUnclaimedBoundaryId: string | null;
+  /**
+   * Distinct boundary ids recorded but not yet observed by a history parse.
+   * Each distinct boundary must advance the expected count by one; a duplicate
+   * delivery of the same id must not (PR #493 review B).
+   */
+  pendingBoundaryIds: Set<string>;
 }
 
 @injectable()
@@ -77,6 +83,12 @@ export class CompactionBoundaryGenerationRegistry {
    * claim that observed generation instead of expecting a fictitious next one.
    * Otherwise, a known baseline yields the next expected generation; without a
    * baseline the expectation remains explicitly unverified.
+   *
+   * Distinct boundaries stack: each one recorded before the next history
+   * observation advances the expected count from max(observedCount, the
+   * current pending expected count) + 1, so a transcript containing only the
+   * first of two boundaries stays stale. A duplicate of the same boundary id
+   * is idempotent.
    */
   recordExpectedBoundary(sessionId: string, boundaryId?: string): void {
     const entry = this.ensureEntry(sessionId);
@@ -84,18 +96,29 @@ export class CompactionBoundaryGenerationRegistry {
       this.recordOverflowUnverifiedExpectation(sessionId);
       return;
     }
-    if (
-      boundaryId !== undefined &&
-      entry.observedUnclaimedBoundaryId === boundaryId
-    ) {
-      entry.observedUnclaimedBoundaryId = null;
-      entry.pendingExpectation = null;
-      return;
+    if (boundaryId !== undefined) {
+      if (entry.observedUnclaimedBoundaryId === boundaryId) {
+        // Read-before-transform claim: the boundary is already persisted and
+        // counted, so it adds no expectation. An expectation still pending
+        // belongs to other boundaries and must survive the claim.
+        entry.observedUnclaimedBoundaryId = null;
+        entry.pendingBoundaryIds.delete(boundaryId);
+        return;
+      }
+      if (entry.pendingBoundaryIds.has(boundaryId)) {
+        // Duplicate delivery of the same boundary — idempotent no-op.
+        return;
+      }
+      entry.pendingBoundaryIds.add(boundaryId);
     }
     if (entry.baselineObserved) {
+      const currentExpectedCount =
+        entry.pendingExpectation?.kind === 'verified'
+          ? entry.pendingExpectation.expectedCount
+          : entry.observedCount;
       entry.pendingExpectation = {
         kind: 'verified',
-        expectedCount: entry.observedCount + 1,
+        expectedCount: Math.max(entry.observedCount, currentExpectedCount) + 1,
       };
     } else {
       entry.pendingExpectation = { kind: 'unverified' };
@@ -155,6 +178,7 @@ export class CompactionBoundaryGenerationRegistry {
     const entry = this.entries.get(sessionId);
     if (entry) {
       entry.pendingExpectation = null;
+      entry.pendingBoundaryIds.clear();
     }
     this.overflowUnverifiedSessions.delete(sessionId);
   }
@@ -164,12 +188,13 @@ export class CompactionBoundaryGenerationRegistry {
     sessionId: string,
   ): Omit<
     CompactionBoundaryEntry,
-    'observedUnclaimedBoundaryId'
+    'observedUnclaimedBoundaryId' | 'pendingBoundaryIds'
   > | undefined {
     const entry = this.entries.get(sessionId);
     if (!entry) return undefined;
     const {
       observedUnclaimedBoundaryId: _unclaimed,
+      pendingBoundaryIds: _pendingIds,
       ...inspection
     } = entry;
     return inspection;
@@ -189,6 +214,7 @@ export class CompactionBoundaryGenerationRegistry {
         observedCount: 0,
         pendingExpectation: null,
         observedUnclaimedBoundaryId: null,
+        pendingBoundaryIds: new Set<string>(),
       };
     } else {
       // Refresh LRU position.

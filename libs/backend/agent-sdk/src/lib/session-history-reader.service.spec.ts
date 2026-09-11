@@ -741,6 +741,93 @@ describe('SessionHistoryReaderService', () => {
       ).toBeUndefined();
     });
 
+    it('two distinct recorded boundaries: a transcript with only one new boundary stays stale', async () => {
+      // PR #493 review B: both boundaries used to write expectedCount =
+      // observedCount + 1, so a transcript holding just the first new
+      // boundary wrongly verified the second expectation.
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary(
+        'valid',
+        'b-new-1',
+      );
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary(
+        'valid',
+        'b-new-2',
+      );
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b2',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      // Expected 3, observed 2 — the transcript holds only one of the two
+      // promised new boundaries, so the snapshot must read as stale.
+      expect(result.staleSnapshot).toBe(true);
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toBeUndefined();
+    });
+
+    it('two distinct recorded boundaries: a transcript with both new boundaries verifies', async () => {
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary(
+        'valid',
+        'b-new-1',
+      );
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary(
+        'valid',
+        'b-new-2',
+      );
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b2',
+        } as SessionHistoryMessage,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b3',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBeUndefined();
+      expect(stubs.jsonlReader.readJsonlMessages).toHaveBeenCalledTimes(1);
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toBeUndefined();
+    });
+
     it('compaction-read exhausts retries and returns staleSnapshot: true when expectation is unmet', async () => {
       const stubs = makeStubs();
       stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);

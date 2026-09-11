@@ -1827,18 +1827,25 @@ export class TabManagerService {
     priorLiveStats: LiveModelStatsPayload | null | undefined,
     postTokens: number | undefined,
   ): LiveModelStatsPayload | null {
-    const contextWindow = priorLiveStats
-      ? getModelContextWindow(priorLiveStats.model)
-      : 0;
     if (
       typeof postTokens !== 'number' ||
       !Number.isFinite(postTokens) ||
       postTokens <= 0 ||
       priorLiveStats == null ||
-      priorLiveStats.model.length === 0 ||
-      !Number.isFinite(contextWindow) ||
-      contextWindow <= 0
+      priorLiveStats.model.length === 0
     ) {
+      return null;
+    }
+    // The prior finite positive window wins over the pricing lookup: for a
+    // model the registry does not recognize (proxied Codex ids such as
+    // gpt-5.6-sol), falling back to getModelContextWindow would return 0 and
+    // clear the context gauge even though the tab carried a usable window.
+    const priorWindow = priorLiveStats.contextWindow;
+    const contextWindow =
+      Number.isFinite(priorWindow) && priorWindow > 0
+        ? priorWindow
+        : getModelContextWindow(priorLiveStats.model);
+    if (!Number.isFinite(contextWindow) || contextWindow <= 0) {
       return null;
     }
     return {
