@@ -44,17 +44,21 @@ export class CompactionLifecycleService {
   private readonly tabSessionBinding = inject(TabSessionBinding);
 
   /**
-   * Timeout ID for compaction safety fallback.
+   * Recovery timers are owned by their compacting SDK session. A timer is UI
+   * lifecycle cleanup only; it is not evidence that the backend is ready.
    *
-   * DESIGN NOTE: This is intentionally stored as a class property rather than
-   * a signal because:
-   * 1. The timeout ID is not UI state - it's an internal cleanup mechanism
-   * 2. setTimeout returns a number/NodeJS.Timeout, not a serializable value
-   * 3. We only need to clear it, never read it in templates
-   *
-   * The associated `isCompacting` per-tab field IS the UI state that components observe.
+   * Keeping the captured tabs and conversations with the handle prevents a
+   * terminal path for session A from clearing the timer or banner state that
+   * belongs to session B.
    */
-  private compactionTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private readonly compactionRecoveryTimers = new Map<
+    SessionId,
+    {
+      timeoutId: ReturnType<typeof setTimeout>;
+      tabIds: readonly TabId[];
+      conversationIds: readonly ConversationId[];
+    }
+  >();
 
   /**
    * Safety fallback timeout for compaction notification (milliseconds).
@@ -76,6 +80,39 @@ export class CompactionLifecycleService {
    * this constant needs — not tightness.
    */
   private static readonly COMPACTION_SAFETY_TIMEOUT_MS = 600000;
+
+  /**
+   * PostCompact is advisory: the SDK hook proves compaction finished, but only
+   * the streamed compact_boundary carries authoritative token metadata. Give
+   * that stream a short turn before recovering the visible transcript.
+   */
+  private static readonly POST_COMPACT_BOUNDARY_WAIT_MS = 250;
+
+  /**
+   * Tracks the independent PostCompact signal without inventing a boundary.
+   * A late real boundary after the fallback may enrich marker metrics, but it
+   * must never replay the destructive completion/reload a second time.
+   */
+  private readonly postCompactAdvisories = new Map<
+    SessionId,
+    {
+      originTabId: TabId;
+      timeoutId: ReturnType<typeof setTimeout> | null;
+      fallbackApplied: boolean;
+    }
+  >();
+
+  /**
+   * Per-session compaction generations correlate the two independently ordered
+   * completion signals. A boundary completing generation N suppresses a later
+   * PostCompact for N; the next compaction start advances N and permits its own
+   * advisory. This is bounded state, not a time-based grace window.
+   */
+  private readonly compactionGenerations = new Map<
+    SessionId,
+    { generation: number; authoritativeGeneration: number | null }
+  >();
+  private static readonly MAX_COMPACTION_GENERATION_SESSIONS = 256;
 
   /**
    * One-tick auto-animate suppression flag.
@@ -117,10 +154,14 @@ export class CompactionLifecycleService {
       );
       return;
     }
-    if (this.compactionTimeoutId) {
-      clearTimeout(this.compactionTimeoutId);
-      this.compactionTimeoutId = null;
-    }
+    this.clearCompactionRecoveryTimer(compactionSid);
+    // A new compaction supersedes any advisory left by the previous one; a
+    // retained `fallbackApplied` entry would otherwise turn this generation's
+    // real boundary into a metrics-only merge and skip its reload.
+    const staleAdvisory = this.postCompactAdvisories.get(compactionSid);
+    if (staleAdvisory?.timeoutId) clearTimeout(staleAdvisory.timeoutId);
+    this.postCompactAdvisories.delete(compactionSid);
+    this.beginCompactionGeneration(compactionSid);
     const compactingConvIds = this.ensureConversationIdsForTabs(
       tabs.map((t) => t.id),
       compactionSid,
@@ -133,22 +174,70 @@ export class CompactionLifecycleService {
       });
     }
     const compactingTabIds = tabs.map((t) => t.id);
-    this.compactionTimeoutId = setTimeout(() => {
-      for (const tabId of compactingTabIds) {
+    const timeoutId = setTimeout(() => {
+      const recovery = this.compactionRecoveryTimers.get(compactionSid);
+      if (!recovery || recovery.timeoutId !== timeoutId) return;
+      this.compactionRecoveryTimers.delete(compactionSid);
+
+      const ownedConversationIds = new Set<ConversationId>();
+      for (const tabId of recovery.tabIds) {
+        const tab = this.tabManager
+          .tabs()
+          .find((candidate) => candidate.id === tabId);
+        if (tab?.claudeSessionId !== compactionSid) continue;
+        const conversationId = this.tabSessionBinding.conversationFor(tabId);
+        if (!conversationId || !recovery.conversationIds.includes(conversationId)) {
+          continue;
+        }
+        ownedConversationIds.add(conversationId);
         this.tabManager.applyCompactionTimeoutReset(tabId);
         this.tabManager.markTabIdle(tabId);
       }
-      for (const convId of compactingConvIds) {
-        this.conversationRegistry.setCompactionState(convId, {
+      for (const conversationId of ownedConversationIds) {
+        this.conversationRegistry.setCompactionState(conversationId, {
           inFlight: false,
         });
       }
-      this.sessionManager.setStatus('loaded');
-      this.compactionTimeoutId = null;
+      if (this.sessionManager.getCurrentSessionId() === compactionSid) {
+        this.sessionManager.setStatus('loaded');
+      }
       console.warn(
         '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
       );
     }, CompactionLifecycleService.COMPACTION_SAFETY_TIMEOUT_MS);
+    this.compactionRecoveryTimers.set(compactionSid, {
+      timeoutId,
+      tabIds: compactingTabIds,
+      conversationIds: compactingConvIds,
+    });
+  }
+
+  private clearCompactionRecoveryTimer(sessionId: SessionId): void {
+    const recovery = this.compactionRecoveryTimers.get(sessionId);
+    if (!recovery) return;
+    clearTimeout(recovery.timeoutId);
+    this.compactionRecoveryTimers.delete(sessionId);
+  }
+
+  private clearCompactionRecoveryTimerForTab(tabId: TabId): void {
+    const tab = this.tabManager.tabs().find((candidate) => candidate.id === tabId);
+    if (!tab?.claudeSessionId) return;
+    const sessionId = tab.claudeSessionId;
+    const recovery = this.compactionRecoveryTimers.get(sessionId);
+    if (!recovery || !recovery.tabIds.includes(tabId)) return;
+    this.clearCompactionRecoveryTimer(sessionId);
+  }
+
+  private clearAllCompactionRecoveryTimers(): void {
+    for (const recovery of this.compactionRecoveryTimers.values()) {
+      clearTimeout(recovery.timeoutId);
+    }
+    this.compactionRecoveryTimers.clear();
+    for (const advisory of this.postCompactAdvisories.values()) {
+      if (advisory.timeoutId) clearTimeout(advisory.timeoutId);
+    }
+    this.postCompactAdvisories.clear();
+    this.compactionGenerations.clear();
   }
 
   /**
@@ -264,13 +353,23 @@ export class CompactionLifecycleService {
     preTokens?: number;
     postTokens?: number;
     durationMs?: number;
+    advisoryFallback?: boolean;
   }): void {
-    if (this.compactionTimeoutId) {
-      clearTimeout(this.compactionTimeoutId);
-      this.compactionTimeoutId = null;
+    const compactionSid = SessionId.from(result.compactionSessionId);
+    if (!result.advisoryFallback) {
+      this.markAuthoritativeCompactionGeneration(compactionSid);
+      const advisory = this.postCompactAdvisories.get(compactionSid);
+      if (advisory?.timeoutId) {
+        clearTimeout(advisory.timeoutId);
+        this.postCompactAdvisories.delete(compactionSid);
+      } else if (advisory?.fallbackApplied) {
+        this.mergeLateCompactionBoundary(compactionSid, result);
+        this.postCompactAdvisories.delete(compactionSid);
+        return;
+      }
     }
     this.treeBuilder.clearCache();
-    const compactionSid = SessionId.from(result.compactionSessionId);
+    this.clearCompactionRecoveryTimer(compactionSid);
     const allTabs = this.tabManager.tabs();
     const originatingTab = allTabs.find((t) => t.id === result.tabId);
     const sessionTabs = this.tabManager.findTabsBySessionId(compactionSid);
@@ -318,8 +417,57 @@ export class CompactionLifecycleService {
       }
     }
 
+    // Only an originating tab that still owns the compacting session can
+    // establish the fallback conversation. A tab rebound before this completion
+    // is unrelated; using its new conversation here would contaminate it.
+    const compactionConversationId =
+      containingConv?.id ??
+      (originatingTab?.claudeSessionId === compactionSid
+        ? this.tabSessionBinding.conversationFor(originatingTab.id)
+        : null);
+    const sourceSessionByTab = new Map(
+      Array.from(fanoutMap.values())
+        .filter((tab): tab is NonNullable<typeof originatingTab> => tab != null)
+        .map((tab) => [tab.id, tab.claudeSessionId]),
+    );
+    // A direct compacting-session match in the initial lookup proves the
+    // completion belonged to this origin at dispatch time. If its current owner
+    // has since changed, it must be excluded rather than admitted by the
+    // session-rotation fallback. Older notifications whose initial lookup did
+    // not identify the origin retain the existing fallback behavior.
+    const originatingSnapshotOwnsCompactionSession = sessionTabs.some(
+      (tab) => tab.id === result.tabId && tab.claudeSessionId === compactionSid,
+    );
     const fanoutTabs = Array.from(fanoutMap.values()).filter(
-      (t): t is NonNullable<typeof originatingTab> => t != null,
+      (t): t is NonNullable<typeof originatingTab> => {
+        if (!t) return false;
+        // Re-read the tab's ownership immediately before mutating it. A
+        // compaction completion can race with a targeted rebind; only the
+        // compacting session itself, its still-bound conversation, or an
+        // unchanged snapshot owner may receive the reset, marker, seed, and
+        // reload. The last case preserves legitimate SDK session rotation.
+        const current = this.tabManager.tabs().find((tab) => tab.id === t.id);
+        if (!current) return false;
+        if (
+          t.id === result.tabId &&
+          originatingSnapshotOwnsCompactionSession &&
+          current.claudeSessionId !== compactionSid
+        ) {
+          return false;
+        }
+        if (current.claudeSessionId === compactionSid) return true;
+        if (
+          current.claudeSessionId === sourceSessionByTab.get(t.id) &&
+          (t.id !== result.tabId || !originatingSnapshotOwnsCompactionSession)
+        ) {
+          return true;
+        }
+        return (
+          compactionConversationId != null &&
+          this.tabSessionBinding.conversationFor(current.id) ===
+            compactionConversationId
+        );
+      },
     );
 
     // [compaction-diag] TEMPORARY — remove after the 2-tile stale-transcript
@@ -381,10 +529,13 @@ export class CompactionLifecycleService {
         this.tabManager.applyCompactionComplete(t.id, {
           preloadedStats,
           compactionCount: (t.compactionCount ?? 0) + 1,
+          postCompactionContextTokens: result.postTokens,
         });
         this.tabManager.markTabIdle(t.id);
       }
-      this.sessionManager.setStatus('loaded');
+      if (this.sessionManager.getCurrentSessionId() === compactionSid) {
+        this.sessionManager.setStatus('loaded');
+      }
       const reloadTargets = fanoutTabs.map((tab) => ({
         tabId: tab.id,
         sessionId: tab.claudeSessionId ?? compactionSid,
@@ -477,6 +628,129 @@ export class CompactionLifecycleService {
         );
       }
     }
+
+    // PostCompact is advisory. A compact_boundary may have completed this
+    // generation first; do not let its later hook delivery replay completion.
+    if (this.isAuthoritativelyCompletedGeneration(compactionSid)) {
+      console.info(
+        '[ChatStore] PostCompact advisory ignored; matching compact_boundary already completed',
+        { sessionId: compactionSid },
+      );
+      return;
+    }
+    // Deduplicate repeated hook deliveries and let a real compact_boundary own
+    // the normal authoritative completion path.
+    if (this.postCompactAdvisories.has(compactionSid)) return;
+    const timeoutId = setTimeout(() => {
+      const advisory = this.postCompactAdvisories.get(compactionSid);
+      if (!advisory || advisory.timeoutId !== timeoutId) return;
+      advisory.timeoutId = null;
+
+      // Re-read ownership immediately before fallback mutation. A closed or
+      // rebound tab is no longer an owner and cannot be reloaded by this hook.
+      const origin = this.tabManager
+        .tabs()
+        .find((tab) => tab.id === advisory.originTabId);
+      if (origin?.claudeSessionId !== compactionSid) {
+        this.postCompactAdvisories.delete(compactionSid);
+        console.info(
+          '[ChatStore] PostCompact advisory fallback skipped; originating tab no longer owns session',
+          { sessionId: compactionSid, tabId: advisory.originTabId },
+        );
+        return;
+      }
+
+      advisory.fallbackApplied = true;
+      console.info(
+        '[ChatStore] PostCompact advisory fallback applying one targeted reload without boundary metrics',
+        { sessionId: compactionSid, tabId: origin.id },
+      );
+      this.handleCompactionComplete({
+        tabId: origin.id,
+        compactionSessionId: compactionSid,
+        advisoryFallback: true,
+      });
+      // Retain the record so a later boundary can merge metrics without a
+      // second reload or another compaction-count increment.
+      this.postCompactAdvisories.set(compactionSid, advisory);
+    }, CompactionLifecycleService.POST_COMPACT_BOUNDARY_WAIT_MS);
+    this.postCompactAdvisories.set(compactionSid, {
+      originTabId: tabs[0].id,
+      timeoutId,
+      fallbackApplied: false,
+    });
+    console.info(
+      '[ChatStore] PostCompact advisory received; waiting briefly for real compact_boundary',
+      { sessionId: compactionSid },
+    );
+  }
+
+  private mergeLateCompactionBoundary(
+    sessionId: SessionId,
+    result: {
+      preTokens?: number;
+      postTokens?: number;
+      durationMs?: number;
+    },
+  ): void {
+    const ownedTabs = this.tabManager
+      .findTabsBySessionId(sessionId)
+      .filter((tab) => tab.claudeSessionId === sessionId);
+    for (const tab of ownedTabs) {
+      this.tabManager.seedPostCompactionContext(tab.id, result.postTokens);
+    }
+    const completedAt = Date.now();
+    for (const convId of this.collectConversationIdsForTabs(
+      ownedTabs.map((tab) => tab.id),
+    )) {
+      this.conversationRegistry.setCompactionMarkerTokens(convId, {
+        preTokens: result.preTokens ?? null,
+        postTokens: result.postTokens ?? null,
+        durationMs: result.durationMs ?? null,
+        completedAt,
+      });
+    }
+    console.info(
+      '[ChatStore] Late compact_boundary merged verified metrics after PostCompact fallback without reload',
+      { sessionId, ownedTabCount: ownedTabs.length },
+    );
+  }
+
+  private beginCompactionGeneration(sessionId: SessionId): void {
+    const prior = this.compactionGenerations.get(sessionId);
+    this.compactionGenerations.delete(sessionId);
+    this.compactionGenerations.set(sessionId, {
+      generation: (prior?.generation ?? 0) + 1,
+      authoritativeGeneration: null,
+    });
+    this.trimCompactionGenerations();
+  }
+
+  private markAuthoritativeCompactionGeneration(sessionId: SessionId): void {
+    const prior = this.compactionGenerations.get(sessionId);
+    this.compactionGenerations.delete(sessionId);
+    const generation = prior?.generation ?? 1;
+    this.compactionGenerations.set(sessionId, {
+      generation,
+      authoritativeGeneration: generation,
+    });
+    this.trimCompactionGenerations();
+  }
+
+  private isAuthoritativelyCompletedGeneration(sessionId: SessionId): boolean {
+    const state = this.compactionGenerations.get(sessionId);
+    return state != null && state.authoritativeGeneration === state.generation;
+  }
+
+  private trimCompactionGenerations(): void {
+    while (
+      this.compactionGenerations.size >
+      CompactionLifecycleService.MAX_COMPACTION_GENERATION_SESSIONS
+    ) {
+      const oldestSessionId = this.compactionGenerations.keys().next().value;
+      if (!oldestSessionId) return;
+      this.compactionGenerations.delete(oldestSessionId);
+    }
   }
 
   /**
@@ -509,8 +783,18 @@ export class CompactionLifecycleService {
    * banner UI reads from the registry.
    */
   clearCompactionStateForTab(tabId: TabId): void {
+    const tab = this.tabManager.tabs().find((candidate) => candidate.id === tabId);
+    if (tab?.claudeSessionId) {
+      this.compactionGenerations.delete(tab.claudeSessionId);
+      const advisory = this.postCompactAdvisories.get(tab.claudeSessionId);
+      if (advisory?.originTabId === tabId && advisory.timeoutId) {
+        clearTimeout(advisory.timeoutId);
+        this.postCompactAdvisories.delete(tab.claudeSessionId);
+      }
+    }
     const convId = this.tabSessionBinding.conversationFor(tabId);
     if (convId) {
+      this.clearCompactionRecoveryTimerForTab(tabId);
       this.conversationRegistry.setCompactionState(convId, { inFlight: false });
     }
   }
@@ -524,19 +808,17 @@ export class CompactionLifecycleService {
    * consulting `tab.isCompacting`.
    */
   clearCompactionState(tabId?: TabId): void {
-    if (this.compactionTimeoutId) {
-      clearTimeout(this.compactionTimeoutId);
-      this.compactionTimeoutId = null;
-    }
     if (tabId) {
       const convId = this.tabSessionBinding.conversationFor(tabId);
       if (convId) {
+        this.clearCompactionRecoveryTimerForTab(tabId);
         this.conversationRegistry.setCompactionState(convId, {
           inFlight: false,
         });
       }
       return;
     }
+    this.clearAllCompactionRecoveryTimers();
     for (const conv of this.conversationRegistry.conversations()) {
       if (conv.compactionInFlight) {
         this.conversationRegistry.setCompactionState(conv.id, {

@@ -1775,6 +1775,17 @@ export class TabManagerService {
   }
 
   /**
+   * Seed a verified post-compaction context usage value without touching
+   * transcript, reload, compaction count, or any other tab state.
+   */
+  seedPostCompactionContext(tabId: string, postTokens: number | undefined): void {
+    const tab = this.tabs().find((candidate) => candidate.id === tabId);
+    this.updateTabInternal(tabId, {
+      liveModelStats: this.postCompactionContextStats(tab?.liveModelStats, postTokens),
+    });
+  }
+
+  /**
    * Apply the post-compaction reload state: clear messages, install the
    * snapshot preloadedStats, increment compactionCount, reset streaming
    * state machine, and drop any queued message so the next user input is
@@ -1785,8 +1796,15 @@ export class TabManagerService {
     payload: {
       preloadedStats: PreloadedStatsPayload | null | undefined;
       compactionCount: number;
+      postCompactionContextTokens?: number;
     },
   ): void {
+    const tab = this.tabs().find((candidate) => candidate.id === tabId);
+    const liveModelStats = this.postCompactionContextStats(
+      tab?.liveModelStats,
+      payload.postCompactionContextTokens,
+    );
+
     this.updateTabInternal(tabId, {
       messages: [],
       preloadedStats: payload.preloadedStats,
@@ -1800,9 +1818,35 @@ export class TabManagerService {
       currentMessageId: null,
       queuedContent: null,
       queuedOptions: null,
-      liveModelStats: null,
+      liveModelStats,
       modelUsageList: [],
     });
+  }
+
+  private postCompactionContextStats(
+    priorLiveStats: LiveModelStatsPayload | null | undefined,
+    postTokens: number | undefined,
+  ): LiveModelStatsPayload | null {
+    const contextWindow = priorLiveStats
+      ? getModelContextWindow(priorLiveStats.model)
+      : 0;
+    if (
+      typeof postTokens !== 'number' ||
+      !Number.isFinite(postTokens) ||
+      postTokens <= 0 ||
+      priorLiveStats == null ||
+      priorLiveStats.model.length === 0 ||
+      !Number.isFinite(contextWindow) ||
+      contextWindow <= 0
+    ) {
+      return null;
+    }
+    return {
+      model: priorLiveStats.model,
+      contextUsed: postTokens,
+      contextWindow,
+      contextPercent: Math.round((postTokens / contextWindow) * 1000) / 10,
+    };
   }
 
   /**

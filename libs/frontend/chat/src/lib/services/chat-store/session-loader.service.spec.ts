@@ -1009,6 +1009,8 @@ describe('SessionLoaderService', () => {
       const markSessionActive = jest.fn();
       const setPreloadedStats = jest.fn();
       const setLiveModelStats = jest.fn();
+      const applyResumeFailure = jest.fn();
+      const markTabIdle = jest.fn();
 
       const tabManagerMock = {
         pendingSessionLoad: computed(() => null),
@@ -1025,7 +1027,8 @@ describe('SessionLoaderService', () => {
         switchTab: jest.fn(),
         openSessionTab,
         applyResumingSession,
-        applyResumeFailure: jest.fn(),
+        applyResumeFailure,
+        markTabIdle,
         applyResumedHistory,
         applyLoadedSessionStats,
         setLiveModelStats,
@@ -1078,6 +1081,9 @@ describe('SessionLoaderService', () => {
         markSessionActive,
         setPreloadedStats,
         setLiveModelStats,
+        applyResumeFailure,
+        markTabIdle,
+        sessionManagerMock,
       };
     }
 
@@ -1133,6 +1139,63 @@ describe('SessionLoaderService', () => {
         undefined,
       );
     });
+
+    it.each([
+      ['absent', undefined],
+      ['zero', { model: 'claude-sonnet-4-5', contextTokens: 0 }],
+      ['historical', { model: 'claude-sonnet-4-5', contextTokens: 85_000 }],
+    ])(
+      'preserves a fresh compaction context seed over %s history context stats',
+      async (_historyKind, contextSnapshot) => {
+        const seededLiveStats = {
+          model: 'claude-opus-5',
+          contextUsed: 1200,
+          contextWindow: 1_000_000,
+          contextPercent: 0.1,
+        };
+        const harness = makeTargetedService([
+          { id: TAB_A, claudeSessionId: SESSION, name: 'A' },
+          {
+            id: TAB_B,
+            claudeSessionId: SESSION,
+            name: 'B',
+            liveModelStats: seededLiveStats,
+          },
+        ]);
+        rpcCall.mockImplementation(async (method: string) =>
+          method === 'chat:resume'
+            ? {
+                success: true,
+                data: {
+                  events: [{ type: 'noop' }],
+                  stats: {
+                    totalCost: 4.2,
+                    tokens: {
+                      input: 10,
+                      output: 5,
+                      cacheRead: 2,
+                      cacheCreation: 1,
+                    },
+                    messageCount: 3,
+                    model: 'claude-sonnet-4-5',
+                    ...(contextSnapshot ? { contextSnapshot } : {}),
+                  },
+                },
+              }
+            : { success: true, data: {} },
+        );
+
+        await harness.service.switchSession(SESSION, {
+          reason: 'compaction',
+          targetTabId: TAB_B,
+        });
+
+        expect(harness.setLiveModelStats).toHaveBeenLastCalledWith(
+          TAB_B,
+          seededLiveStats,
+        );
+      },
+    );
 
     it('uses the dedicated context snapshot model instead of aggregate resume stats for the gauge', async () => {
       const harness = makeTargetedService();
@@ -1215,6 +1278,110 @@ describe('SessionLoaderService', () => {
       expect(harness.setPreloadedStats).not.toHaveBeenCalled();
     });
 
+    it('contains a stale targeted compaction snapshot and settles the tab idle', async () => {
+      const harness = makeTargetedService();
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                staleSnapshot: true as const,
+                events: [{ type: 'stale-event' }],
+                stats: { totalCost: 99 },
+                cliSessions: [{ agentId: 'stale-agent' }],
+                resumableSubagents: [{ toolCallId: 'stale-subagent' }],
+              },
+            }
+          : { success: true, data: {} },
+      );
+
+      await expect(
+        harness.service.switchSession(SESSION, {
+          reason: 'compaction',
+          targetTabId: TAB_B,
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(harness.applyResumeFailure).toHaveBeenCalledWith(TAB_B);
+      expect(harness.markTabIdle).toHaveBeenCalledWith(TAB_B);
+      expect(harness.sessionManagerMock.setStatus).toHaveBeenLastCalledWith(
+        'loaded',
+      );
+      expect(harness.applyLoadedSessionStats).not.toHaveBeenCalled();
+      expect(harness.applyResumedHistory).not.toHaveBeenCalled();
+      expect(harness.processStreamEvent).not.toHaveBeenCalled();
+      expect(harness.finalizeSessionHistory).not.toHaveBeenCalled();
+      expect(harness.setPreloadedStats).not.toHaveBeenCalled();
+    });
+
+    it('applies a staleSnapshot response on a normal resume', async () => {
+      const harness = makeTargetedService();
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                staleSnapshot: true as const,
+                messages: [
+                  {
+                    id: 'm-normal-stale',
+                    role: 'assistant',
+                    timestamp: 1,
+                    content: 'normal resume still applies',
+                  },
+                ],
+              },
+            }
+          : { success: true, data: {} },
+      );
+
+      await harness.service.switchSession(SESSION);
+
+      expect(harness.applyResumedHistory).toHaveBeenCalledWith(
+        TAB_A,
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'm-normal-stale' }),
+        ]),
+      );
+      expect(harness.applyResumeFailure).not.toHaveBeenCalled();
+    });
+
+    it('adopts a null-owned target for a compaction reload', async () => {
+      const harness = makeTargetedService([
+        {
+          id: TAB_A,
+          claudeSessionId: null as unknown as SessionId,
+          name: 'adoptable',
+        },
+      ]);
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                messages: [
+                  { id: 'm-adopt', role: 'assistant', timestamp: 1, content: 'ok' },
+                ],
+              },
+            }
+          : { success: true, data: {} },
+      );
+
+      await harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB_A,
+      });
+
+      expect(harness.applyResumingSession).toHaveBeenCalledWith(
+        TAB_A,
+        expect.objectContaining({ sessionId: SESSION }),
+      );
+      expect(harness.applyResumedHistory).toHaveBeenCalledWith(
+        TAB_A,
+        expect.anything(),
+      );
+    });
+
     it('fails loudly when the target does not own the requested session', async () => {
       const harness = makeTargetedService([
         {
@@ -1294,6 +1461,42 @@ describe('SessionLoaderService', () => {
       expect(harness.applyLoadedSessionStats).not.toHaveBeenCalled();
       expect(harness.processStreamEvent).not.toHaveBeenCalled();
       expect(harness.finalizeSessionHistory).not.toHaveBeenCalled();
+    });
+
+    it('deduplicates concurrent compaction reloads for the same target tab', async () => {
+      let resolveLoad!: (value: { success: true; data: object }) => void;
+      const load = new Promise<{ success: true; data: object }>((resolve) => {
+        resolveLoad = resolve;
+      });
+      const harness = makeTargetedService();
+      rpcCall.mockImplementation((method: string) =>
+        method === 'session:load'
+          ? load
+          : Promise.resolve({
+              success: true,
+              data: {
+                messages: [
+                  { id: 'm-dedupe', role: 'assistant', timestamp: 1, content: 'ok' },
+                ],
+              },
+            }),
+      );
+
+      const first = harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB_A,
+      });
+      const duplicate = harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB_A,
+      });
+
+      expect(
+        rpcCall.mock.calls.filter(([method]) => method === 'session:load'),
+      ).toHaveLength(1);
+      resolveLoad({ success: true, data: {} });
+      await Promise.all([first, duplicate]);
+      expect(harness.applyResumedHistory).toHaveBeenCalledTimes(1);
     });
 
     it('keys in-flight targeted loads by both session and tab', async () => {

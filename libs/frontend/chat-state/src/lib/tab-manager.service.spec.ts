@@ -131,14 +131,14 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       service.setLiveModelStatsAndUsageList(
         tabId,
         {
-          model: 'opus',
+          model: 'claude-sonnet-4-5',
           contextUsed: 1234,
           contextWindow: 200000,
           contextPercent: 0.6,
         },
         [
           {
-            model: 'opus',
+            model: 'claude-sonnet-4-5',
             inputTokens: 100,
             outputTokens: 50,
             contextWindow: 200000,
@@ -165,6 +165,194 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       expect(after?.liveModelStats).toBeNull();
       expect(after?.modelUsageList).toEqual([]);
     });
+
+    it('seeds post-compaction context only for a tab with a known model', () => {
+      const tabId = service.createTab('compacting tab');
+      service.setLiveModelStats(tabId, {
+        model: 'claude-sonnet-4-5',
+        contextUsed: 1234,
+        contextWindow: 200000,
+        contextPercent: 0.6,
+      });
+
+      service.applyCompactionComplete(tabId, {
+        preloadedStats: null,
+        compactionCount: 1,
+        postCompactionContextTokens: 1200,
+      });
+
+      expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toEqual({
+        model: 'claude-sonnet-4-5',
+        contextUsed: 1200,
+        contextWindow: 200000,
+        contextPercent: 0.6,
+      });
+    });
+
+    it.each([undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+      'does not synthesize context for an invalid post-compaction token value: %p',
+      (postCompactionContextTokens) => {
+        const tabId = service.createTab('compacting tab');
+        service.setLiveModelStats(tabId, {
+          model: 'claude-sonnet-4-5',
+          contextUsed: 1234,
+          contextWindow: 200000,
+          contextPercent: 0.6,
+        });
+
+        service.applyCompactionComplete(tabId, {
+          preloadedStats: null,
+          compactionCount: 1,
+          postCompactionContextTokens,
+        });
+
+        expect(
+          service.tabs().find((tab) => tab.id === tabId)?.liveModelStats,
+        ).toBeNull();
+      },
+    );
+
+    it('does not seed context for an unrecognized model with no usable window', () => {
+      const tabId = service.createTab('compacting tab');
+      service.setLiveModelStats(tabId, {
+        model: 'unrecognized-model',
+        contextUsed: 1234,
+        contextWindow: 200000,
+        contextPercent: 0.6,
+      });
+
+      service.applyCompactionComplete(tabId, {
+        preloadedStats: null,
+        compactionCount: 1,
+        postCompactionContextTokens: 1200,
+      });
+
+      expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toBeNull();
+    });
+
+    it('does not seed context when the tab has no existing model', () => {
+      const tabId = service.createTab('compacting tab');
+
+      service.applyCompactionComplete(tabId, {
+        preloadedStats: null,
+        compactionCount: 1,
+        postCompactionContextTokens: 1200,
+      });
+
+      expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toBeNull();
+    });
+
+    it('preserves cumulative preloaded stats while seeding only context', () => {
+      const tabId = service.createTab('compacting tab');
+      const preloadedStats = {
+        totalCost: 1.5,
+        tokens: { input: 100, output: 50, cacheRead: 25, cacheCreation: 10 },
+        messageCount: 3,
+      };
+      service.setLiveModelStats(tabId, {
+        model: 'claude-sonnet-4-5',
+        contextUsed: 1234,
+        contextWindow: 200000,
+        contextPercent: 0.6,
+      });
+
+      service.applyCompactionComplete(tabId, {
+        preloadedStats,
+        compactionCount: 1,
+        postCompactionContextTokens: 1200,
+      });
+
+      const tab = service.tabs().find((candidate) => candidate.id === tabId);
+      expect(tab?.preloadedStats).toEqual(preloadedStats);
+      expect(tab?.liveModelStats?.contextUsed).toBe(1200);
+    });
+
+    it('keeps context seeds isolated to the completed tab and lets live usage replace it', () => {
+      const compactedTabId = service.createTab('compacted tab');
+      const otherTabId = service.createTab('other tab');
+      service.setLiveModelStats(compactedTabId, {
+        model: 'claude-sonnet-4-5',
+        contextUsed: 1234,
+        contextWindow: 200000,
+        contextPercent: 0.6,
+      });
+      service.setLiveModelStats(otherTabId, {
+        model: 'claude-sonnet-4-5',
+        contextUsed: 5678,
+        contextWindow: 200000,
+        contextPercent: 2.8,
+      });
+
+      service.applyCompactionComplete(compactedTabId, {
+        preloadedStats: null,
+        compactionCount: 1,
+        postCompactionContextTokens: 1200,
+      });
+      service.setLiveModelStats(compactedTabId, {
+        model: 'claude-sonnet-4-5',
+        contextUsed: 1400,
+        contextWindow: 200000,
+        contextPercent: 0.7,
+      });
+
+      expect(
+        service.tabs().find((tab) => tab.id === compactedTabId)?.liveModelStats,
+      ).toEqual({
+        model: 'claude-sonnet-4-5',
+        contextUsed: 1400,
+        contextWindow: 200000,
+        contextPercent: 0.7,
+      });
+      expect(service.tabs().find((tab) => tab.id === otherTabId)?.liveModelStats)
+        .toEqual({
+          model: 'claude-sonnet-4-5',
+          contextUsed: 5678,
+          contextWindow: 200000,
+          contextPercent: 2.8,
+        });
+    });
+
+    it('seeds verified late boundary context without resetting messages or compaction count', () => {
+      const tabId = service.createTab('compacted tab');
+      service.setLiveModelStats(tabId, {
+        model: 'claude-sonnet-4-5',
+        contextUsed: 1234,
+        contextWindow: 200000,
+        contextPercent: 0.6,
+      });
+      const messagesBefore = service.tabs().find(
+        (candidate) => candidate.id === tabId,
+      )?.messages;
+
+      service.seedPostCompactionContext(tabId, 1600);
+
+      const tab = service.tabs().find((candidate) => candidate.id === tabId);
+      expect(tab?.messages).toBe(messagesBefore);
+      expect(tab?.compactionCount).toBeUndefined();
+      expect(tab?.liveModelStats).toEqual({
+        model: 'claude-sonnet-4-5',
+        contextUsed: 1600,
+        contextWindow: 200000,
+        contextPercent: 0.8,
+      });
+    });
+
+    it.each([undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+      'does not seed late boundary context for invalid token value: %p',
+      (postTokens) => {
+        const tabId = service.createTab('compacted tab');
+        service.setLiveModelStats(tabId, {
+          model: 'claude-sonnet-4-5',
+          contextUsed: 1234,
+          contextWindow: 200000,
+          contextPercent: 0.6,
+        });
+
+        service.seedPostCompactionContext(tabId, postTokens);
+
+        expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toBeNull();
+      },
+    );
 
     it('B3 — stamps lastCompactionAt at completion time', () => {
       const tabId = service.createTab('compacting tab');

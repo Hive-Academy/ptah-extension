@@ -51,6 +51,7 @@ import {
 // compactionSessionId), and `TabId.from()` on the tabId for the
 // closed-mid-compaction fallback path. Mint stable UUIDs once per spec run.
 const SESS_1 = SessionId.create();
+const SESS_2 = SessionId.create();
 const SESS_RELOAD = SessionId.create();
 const SESS_SHARED = SessionId.create();
 const SESS_UNKNOWN = SessionId.create();
@@ -100,9 +101,11 @@ describe('CompactionLifecycleService', () => {
   let tabs: TabState[];
   let applyCompactionTimeoutResetMock: jest.Mock;
   let applyCompactionCompleteMock: jest.Mock;
+  let seedPostCompactionContextMock: jest.Mock;
   let findTabsBySessionIdMock: jest.Mock;
   let markTabIdleMock: jest.Mock;
   let setStatusMock: jest.Mock;
+  let getCurrentSessionIdMock: jest.Mock;
   let clearCacheMock: jest.Mock;
   let switchSessionMock: jest.Mock;
   let setCompactionStateMock: jest.Mock;
@@ -116,6 +119,7 @@ describe('CompactionLifecycleService', () => {
   let findContainingSessionMock: jest.Mock;
   let createMock: jest.Mock;
   let warn: jest.SpyInstance;
+  let info: jest.SpyInstance;
 
   // Each tab maps to a synthetic conversation id so registry writes are
   // observable without standing up the real binding service. Rebuilt per test
@@ -136,12 +140,14 @@ describe('CompactionLifecycleService', () => {
     tabs = [makeTab()];
     applyCompactionTimeoutResetMock = jest.fn();
     applyCompactionCompleteMock = jest.fn();
+    seedPostCompactionContextMock = jest.fn();
     // Service uses plural fan-out lookup.
     findTabsBySessionIdMock = jest.fn((sessionId: string) =>
       tabs.filter((t) => t.claudeSessionId === sessionId),
     );
     markTabIdleMock = jest.fn();
     setStatusMock = jest.fn();
+    getCurrentSessionIdMock = jest.fn(() => SESS_1);
     clearCacheMock = jest.fn();
     switchSessionMock = jest.fn().mockResolvedValue(undefined);
     setCompactionStateMock = jest.fn();
@@ -175,6 +181,7 @@ describe('CompactionLifecycleService', () => {
     const tabManagerMock = {
       applyCompactionTimeoutReset: applyCompactionTimeoutResetMock,
       applyCompactionComplete: applyCompactionCompleteMock,
+      seedPostCompactionContext: seedPostCompactionContextMock,
       findTabsBySessionId: findTabsBySessionIdMock,
       markTabIdle: markTabIdleMock,
       tabs: () => tabs,
@@ -182,6 +189,7 @@ describe('CompactionLifecycleService', () => {
 
     const sessionManagerMock = {
       setStatus: setStatusMock,
+      getCurrentSessionId: getCurrentSessionIdMock,
     } as unknown as SessionManager;
 
     const treeBuilderMock = {
@@ -209,6 +217,7 @@ describe('CompactionLifecycleService', () => {
     } as unknown as TabSessionBinding;
 
     warn = jest.spyOn(console, 'warn').mockImplementation();
+    info = jest.spyOn(console, 'info').mockImplementation();
 
     TestBed.configureTestingModule({
       providers: [
@@ -226,6 +235,7 @@ describe('CompactionLifecycleService', () => {
 
   afterEach(() => {
     warn.mockRestore();
+    info.mockRestore();
     jest.useRealTimers();
     TestBed.resetTestingModule();
   });
@@ -248,12 +258,66 @@ describe('CompactionLifecycleService', () => {
       );
     });
 
-    it('clears prior timeout before scheduling new one', () => {
+    it('restarts only the same session timer without leaking its prior handle', () => {
       service.handleCompactionStart(SESS_1);
       service.handleCompactionStart(SESS_1);
-      // Advance time to verify only ONE timeout fires (the second one)
+      // Advance time to verify only ONE timeout fires (the second one).
       jest.advanceTimersByTime(SAFETY_TIMEOUT_MS);
       expect(applyCompactionTimeoutResetMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('arms recovery timers independently for concurrent sessions', () => {
+      tabs = [
+        makeTab({ id: 'tab-1', claudeSessionId: SESS_1 }),
+        makeTab({ id: 'tab-2', claudeSessionId: SESS_2 }),
+      ];
+
+      service.handleCompactionStart(SESS_1);
+      service.handleCompactionStart(SESS_2);
+      jest.advanceTimersByTime(SAFETY_TIMEOUT_MS);
+
+      expect(applyCompactionTimeoutResetMock).toHaveBeenCalledWith('tab-1');
+      expect(applyCompactionTimeoutResetMock).toHaveBeenCalledWith('tab-2');
+    });
+
+    it('expires only session A and leaves session B armed', () => {
+      tabs = [
+        makeTab({ id: 'tab-1', claudeSessionId: SESS_1 }),
+        makeTab({ id: 'tab-2', claudeSessionId: SESS_2 }),
+      ];
+
+      service.handleCompactionStart(SESS_1);
+      jest.advanceTimersByTime(1);
+      service.handleCompactionStart(SESS_2);
+      jest.advanceTimersByTime(SAFETY_TIMEOUT_MS - 1);
+
+      expect(applyCompactionTimeoutResetMock).toHaveBeenCalledWith('tab-1');
+      expect(applyCompactionTimeoutResetMock).not.toHaveBeenCalledWith('tab-2');
+
+      jest.advanceTimersByTime(1);
+      expect(applyCompactionTimeoutResetMock).toHaveBeenCalledWith('tab-2');
+    });
+
+    it('does not clear a shared conversation after its tab rebinds to session B', () => {
+      tabToConv['tab-2'] = tabToConv['tab-1'];
+      tabs = [
+        makeTab({ id: 'tab-1', claudeSessionId: SESS_1 }),
+        makeTab({ id: 'tab-2', claudeSessionId: SESS_2 }),
+      ];
+      service.handleCompactionStart(SESS_1);
+      tabs = [
+        makeTab({ id: 'tab-1', claudeSessionId: SESS_2 }),
+        makeTab({ id: 'tab-2', claudeSessionId: SESS_2 }),
+      ];
+      setCompactionStateMock.mockClear();
+
+      jest.advanceTimersByTime(SAFETY_TIMEOUT_MS);
+
+      expect(applyCompactionTimeoutResetMock).not.toHaveBeenCalled();
+      expect(markTabIdleMock).not.toHaveBeenCalled();
+      expect(setCompactionStateMock).not.toHaveBeenCalledWith(tabToConv['tab-1'], {
+        inFlight: false,
+      });
     });
 
     it('does NOT fire the safety net at the old 120s ceiling — a real large-session compaction takes ~2 minutes', () => {
@@ -279,6 +343,53 @@ describe('CompactionLifecycleService', () => {
   });
 
   describe('handleCompactionComplete', () => {
+    it('clears only the completed session timer and leaves another session armed', () => {
+      tabs = [
+        makeTab({ id: 'tab-1', claudeSessionId: SESS_1 }),
+        makeTab({ id: 'tab-2', claudeSessionId: SESS_2 }),
+      ];
+      service.handleCompactionStart(SESS_1);
+      service.handleCompactionStart(SESS_2);
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_1,
+      });
+      jest.advanceTimersByTime(SAFETY_TIMEOUT_MS);
+
+      expect(applyCompactionTimeoutResetMock).not.toHaveBeenCalledWith('tab-1');
+      expect(applyCompactionTimeoutResetMock).toHaveBeenCalledWith('tab-2');
+    });
+
+    it('does not reset or seed an originating tab rebound to another session', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_2 })];
+      findTabsBySessionIdMock.mockReturnValueOnce([
+        makeTab({ id: 'tab-1', claudeSessionId: SESS_1 }),
+      ]);
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_1,
+        postTokens: 1200,
+      });
+
+      expect(applyCompactionCompleteMock).not.toHaveBeenCalled();
+      expect(switchSessionMock).not.toHaveBeenCalled();
+      expect(setCompactionMarkerTokensMock).not.toHaveBeenCalled();
+    });
+
+    it('does not set global status loaded after the current session changes', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+      getCurrentSessionIdMock.mockReturnValue(SESS_2);
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_1,
+      });
+
+      expect(setStatusMock).not.toHaveBeenCalledWith('loaded');
+    });
+
     it('clears tree-builder cache, resets tab, increments compactionCount, switches session', () => {
       tabs = [
         makeTab({
@@ -293,12 +404,36 @@ describe('CompactionLifecycleService', () => {
       expect(clearCacheMock).toHaveBeenCalled();
       expect(applyCompactionCompleteMock).toHaveBeenCalledWith(
         'tab-1',
-        expect.objectContaining({ compactionCount: 3 }),
+        expect.objectContaining({
+          compactionCount: 3,
+          postCompactionContextTokens: undefined,
+        }),
       );
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_1, {
         reason: 'compaction',
         targetTabId: 'tab-1',
       });
+    });
+
+    it('forwards postTokens only to the matching post-compaction tab seed', () => {
+      tabs = [
+        makeTab({ id: 'tab-1', claudeSessionId: SESS_1 }),
+        makeTab({ id: 'tab-2', claudeSessionId: SESS_2 }),
+      ];
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_1,
+        postTokens: 1200,
+      });
+
+      expect(applyCompactionCompleteMock).toHaveBeenCalledWith(
+        'tab-1',
+        expect.objectContaining({ postCompactionContextTokens: 1200 }),
+      );
+      expect(applyCompactionCompleteMock).not.toHaveBeenCalledWith(
+        'tab-2',
+        expect.anything(),
+      );
     });
 
     it('snapshots preloadedStats when none exist and messages are present', () => {
@@ -923,6 +1058,170 @@ describe('CompactionLifecycleService', () => {
         }),
       );
     });
+
+    it('deduplicates repeated PostCompact advisories into one fallback reload', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+
+      service.handleCompactionCompleteNotification(makePayload());
+      service.handleCompactionCompleteNotification(makePayload());
+      jest.advanceTimersByTime(250);
+
+      expect(applyCompactionCompleteMock).toHaveBeenCalledTimes(1);
+      expect(switchSessionMock).toHaveBeenCalledTimes(1);
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_1, {
+        reason: 'compaction',
+        targetTabId: 'tab-1',
+      });
+    });
+
+    it('cancels the advisory fallback when a real boundary arrives first', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+
+      service.handleCompactionCompleteNotification(makePayload());
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_1,
+        preTokens: 8000,
+        postTokens: 1500,
+        durationMs: 1200,
+      });
+      jest.advanceTimersByTime(250);
+
+      expect(applyCompactionCompleteMock).toHaveBeenCalledTimes(1);
+      expect(switchSessionMock).toHaveBeenCalledTimes(1);
+      expect(setCompactionMarkerTokensMock).toHaveBeenCalledWith(
+        tabToConv['tab-1'],
+        expect.objectContaining({ preTokens: 8000, postTokens: 1500, durationMs: 1200 }),
+      );
+    });
+
+    it('does not schedule a fallback when the matching boundary completed before PostCompact', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+
+      service.handleCompactionStart(SESS_1);
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_1,
+        preTokens: 8000,
+        postTokens: 1500,
+      });
+      applyCompactionCompleteMock.mockClear();
+      switchSessionMock.mockClear();
+
+      service.handleCompactionCompleteNotification(makePayload());
+      jest.advanceTimersByTime(250);
+
+      expect(applyCompactionCompleteMock).not.toHaveBeenCalled();
+      expect(switchSessionMock).not.toHaveBeenCalled();
+      expect(info).toHaveBeenCalledWith(
+        '[ChatStore] PostCompact advisory ignored; matching compact_boundary already completed',
+        { sessionId: SESS_1 },
+      );
+    });
+
+    it('reloads once without boundary metrics when the advisory wait expires', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+
+      service.handleCompactionCompleteNotification(makePayload());
+      jest.advanceTimersByTime(250);
+
+      expect(applyCompactionCompleteMock).toHaveBeenCalledWith('tab-1', {
+        preloadedStats: null,
+        compactionCount: 1,
+        postCompactionContextTokens: undefined,
+      });
+      expect(setCompactionMarkerTokensMock).toHaveBeenCalledWith(
+        tabToConv['tab-1'],
+        expect.objectContaining({
+          preTokens: null,
+          postTokens: null,
+          durationMs: null,
+        }),
+      );
+      expect(info).toHaveBeenCalledWith(
+        '[ChatStore] PostCompact advisory fallback applying one targeted reload without boundary metrics',
+        { sessionId: SESS_1, tabId: 'tab-1' },
+      );
+    });
+
+    it('merges a late real boundary into the marker without another reload or count increment', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+
+      service.handleCompactionCompleteNotification(makePayload());
+      jest.advanceTimersByTime(250);
+      applyCompactionCompleteMock.mockClear();
+      switchSessionMock.mockClear();
+      setCompactionMarkerTokensMock.mockClear();
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_1,
+        preTokens: 9000,
+        postTokens: 1600,
+        durationMs: 1400,
+      });
+
+      expect(applyCompactionCompleteMock).not.toHaveBeenCalled();
+      expect(switchSessionMock).not.toHaveBeenCalled();
+      expect(seedPostCompactionContextMock).toHaveBeenCalledWith('tab-1', 1600);
+      expect(setCompactionMarkerTokensMock).toHaveBeenCalledWith(
+        tabToConv['tab-1'],
+        expect.objectContaining({
+          preTokens: 9000,
+          postTokens: 1600,
+          durationMs: 1400,
+        }),
+      );
+      expect(info).toHaveBeenCalledWith(
+        '[ChatStore] Late compact_boundary merged verified metrics after PostCompact fallback without reload',
+        { sessionId: SESS_1, ownedTabCount: 1 },
+      );
+    });
+
+    it('reloads a later compaction when the previous fallback never received its boundary', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+
+      service.handleCompactionCompleteNotification(makePayload());
+      jest.advanceTimersByTime(250);
+      applyCompactionCompleteMock.mockClear();
+      switchSessionMock.mockClear();
+      seedPostCompactionContextMock.mockClear();
+
+      service.handleCompactionStart(SESS_1);
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_1,
+        preTokens: 9000,
+        postTokens: 1600,
+        durationMs: 1400,
+      });
+
+      expect(applyCompactionCompleteMock).toHaveBeenCalledTimes(1);
+      expect(switchSessionMock).toHaveBeenCalledTimes(1);
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_1, {
+        reason: 'compaction',
+        targetTabId: 'tab-1',
+      });
+      expect(info).not.toHaveBeenCalledWith(
+        '[ChatStore] Late compact_boundary merged verified metrics after PostCompact fallback without reload',
+        expect.anything(),
+      );
+    });
+
+    it('skips the fallback when its originating tab closes or rebinds before the timer fires', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+
+      service.handleCompactionCompleteNotification(makePayload());
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_2 })];
+      jest.advanceTimersByTime(250);
+
+      expect(applyCompactionCompleteMock).not.toHaveBeenCalled();
+      expect(switchSessionMock).not.toHaveBeenCalled();
+      expect(info).toHaveBeenCalledWith(
+        '[ChatStore] PostCompact advisory fallback skipped; originating tab no longer owns session',
+        { sessionId: SESS_1, tabId: 'tab-1' },
+      );
+    });
   });
 
   describe('clearCompactionStateForTab', () => {
@@ -931,6 +1230,22 @@ describe('CompactionLifecycleService', () => {
       expect(setCompactionStateMock).toHaveBeenCalledWith(tabToConv['tab-1'], {
         inFlight: false,
       });
+    });
+
+    it('clears only the cleared tab session timer when sessions share a conversation', () => {
+      tabToConv['tab-2'] = tabToConv['tab-1'];
+      tabs = [
+        makeTab({ id: 'tab-1', claudeSessionId: SESS_1 }),
+        makeTab({ id: 'tab-2', claudeSessionId: SESS_2 }),
+      ];
+      service.handleCompactionStart(SESS_1);
+      service.handleCompactionStart(SESS_2);
+
+      service.clearCompactionStateForTab('tab-1');
+      jest.advanceTimersByTime(SAFETY_TIMEOUT_MS);
+
+      expect(applyCompactionTimeoutResetMock).not.toHaveBeenCalledWith('tab-1');
+      expect(applyCompactionTimeoutResetMock).toHaveBeenCalledWith('tab-2');
     });
   });
 
@@ -947,7 +1262,13 @@ describe('CompactionLifecycleService', () => {
       expect(applyCompactionTimeoutResetMock).not.toHaveBeenCalled();
     });
 
-    it('without tabId, sweeps all in-flight conversations', () => {
+    it('without tabId, sweeps all timers as well as in-flight conversations', () => {
+      tabs = [
+        makeTab({ id: 'tab-1', claudeSessionId: SESS_1 }),
+        makeTab({ id: 'tab-2', claudeSessionId: SESS_2 }),
+      ];
+      service.handleCompactionStart(SESS_1);
+      service.handleCompactionStart(SESS_2);
       const c1 = tabToConv['tab-1'];
       const c2 = tabToConv['tab-2'];
       const c3 = tabToConv['tab-3'];
@@ -966,6 +1287,8 @@ describe('CompactionLifecycleService', () => {
       expect(setCompactionStateMock).not.toHaveBeenCalledWith(c3, {
         inFlight: false,
       });
+      jest.advanceTimersByTime(SAFETY_TIMEOUT_MS);
+      expect(applyCompactionTimeoutResetMock).not.toHaveBeenCalled();
     });
   });
 });
