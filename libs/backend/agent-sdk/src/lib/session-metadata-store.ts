@@ -971,13 +971,25 @@ export class SessionMetadataStore {
     cursor: string | undefined,
     maxBytes: number,
   ): Promise<AgentOutputPage> {
-    for await (const page of storage.readJsonSequence<TaggedAgentOutputItem>(
+    // Take-first, stated as such. The caller searches for a budget by calling
+    // this again with a new one, so only the first page is ever wanted.
+    // Iterating by hand means the cleanup `for await`'s early exit performed
+    // implicitly has to be explicit: implementations are async generators over
+    // a file or a worker channel, and abandoning one without `return()` leaves
+    // its `finally` unrun.
+    const sequence = storage.readJsonSequence<TaggedAgentOutputItem>(
       agentOutputKey(agentId),
       { cursor, maxBytes },
-    )) {
-      return { items: page.items, nextCursor: page.nextCursor, done: page.done };
+    );
+    const pages = sequence[Symbol.asyncIterator]();
+    try {
+      const first = await pages.next();
+      if (first.done) return { items: [], nextCursor: null, done: true };
+      const { items, nextCursor, done } = first.value;
+      return { items, nextCursor, done };
+    } finally {
+      await pages.return?.(undefined);
     }
-    return { items: [], nextCursor: null, done: true };
   }
 
   /** Drop one agent's bulk output. Silent when there is nothing stored. */

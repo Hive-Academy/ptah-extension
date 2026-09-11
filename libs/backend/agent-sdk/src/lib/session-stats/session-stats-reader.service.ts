@@ -298,7 +298,12 @@ async function listAgentFiles(dir: string): Promise<readonly TranscriptFile[]> {
     return [];
   }
   const files: TranscriptFile[] = [];
-  for (const name of names.sort()) {
+  // An explicit comparator, and an explicit locale with it: the order is only
+  // ever a determinism guarantee (`owned` is filtered in this order, and the
+  // tallies below it are order-independent), so it must not vary with the
+  // host's locale.
+  const sorted = [...names].sort((a, b) => a.localeCompare(b, 'en'));
+  for (const name of sorted) {
     if (!name.startsWith('agent-') || !name.endsWith('.jsonl')) continue;
     const filePath = path.join(dir, name);
     const token = await statToken(filePath);

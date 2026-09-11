@@ -704,6 +704,39 @@ describe('SessionMetadataStore', () => {
       ).toBeLessThanOrEqual(256 * 1024);
     });
 
+    it('closes the page iterator rather than abandoning it', async () => {
+      // Only the first page is ever read. `for await` used to close the
+      // generator on its early exit; the explicit take-first must still run
+      // the implementation's `finally`, or a file handle or worker channel
+      // leaks once per page request.
+      let closed = false;
+      const readJsonSequence = jest.fn(async function* () {
+        try {
+          yield { items: [], nextCursor: null, done: true, approximateBytes: 1 };
+        } finally {
+          closed = true;
+        }
+      });
+      const asyncStorage = {
+        ...storage,
+        getAsync: jest.fn(async <T>(key: string, defaultValue?: T) =>
+          storage.get<T>(key, defaultValue),
+        ),
+        readJsonSequence:
+          readJsonSequence as unknown as IAsyncStateStorage['readJsonSequence'],
+        replaceJsonSequence: jest.fn(async () => undefined),
+      } satisfies IAsyncStateStorage;
+      const asyncStore = new SessionMetadataStore(
+        asyncStorage,
+        asLogger(logger),
+      );
+
+      await expect(
+        asyncStore.getAgentOutputPage(FAT_AGENT, undefined, 256 * 1024),
+      ).resolves.toEqual({ items: [], nextCursor: null, done: true });
+      expect(closed).toBe(true);
+    });
+
     it('rejects a worker page that violates the final RPC budget', async () => {
       const page = {
         items: [
