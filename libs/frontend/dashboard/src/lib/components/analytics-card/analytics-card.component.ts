@@ -15,6 +15,7 @@ import {
 import { MetricsCardsComponent } from '../session-analytics/metrics-cards.component';
 import { SessionStatsCardComponent } from '../session-analytics/session-stats-card.component';
 import { SessionDetailModalComponent } from '../session-analytics/session-detail-modal.component';
+import { ProviderAccountCardComponent } from '../provider-account-card/provider-account-card.component';
 
 /**
  * AnalyticsCardComponent
@@ -45,6 +46,7 @@ import { SessionDetailModalComponent } from '../session-analytics/session-detail
     SessionStatsCardComponent,
     SessionDetailModalComponent,
     LucideAngularModule,
+    ProviderAccountCardComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './analytics-card.component.html',

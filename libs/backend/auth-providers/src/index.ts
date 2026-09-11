@@ -91,11 +91,19 @@ export type {
 export {
   CodexAuthService,
   CodexTranslationProxy,
+  CodexHomeResolver,
+  CodexAccountUsageService,
   CODEX_PROVIDER_ENTRY,
   CODEX_DEFAULT_TIERS,
   CODEX_PROXY_TOKEN_PLACEHOLDER,
 } from './lib/providers/codex';
-export type { ICodexAuthService, CodexAuthFile } from './lib/providers/codex';
+export type {
+  ICodexAuthService,
+  CodexAuthFile,
+  ICodexAccountUsageService,
+  CodexAccountUsageResult,
+  CodexAccountUsageStatus,
+} from './lib/providers/codex';
 export {
   OpenRouterAuthService,
   OpenRouterTranslationProxy,

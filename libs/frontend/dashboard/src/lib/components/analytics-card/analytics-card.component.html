@@ -9,7 +9,7 @@
         <span
           class="badge badge-outline badge-sm gap-1 text-[10px] text-base-content-muted border-base-content/20"
         >
-          Real costs from JSONL
+          Estimated from recorded usage and current rate card
         </span>
       </div>
     </div>
@@ -47,6 +47,8 @@
         <p class="text-xs">No sessions found. Start a chat to see analytics.</p>
       </div>
     } @else {
+      <ptah-provider-account-card />
+
       <ptah-session-metrics-cards [aggregates]="aggregates()" />
 
       <div class="flex items-center gap-2 flex-wrap">

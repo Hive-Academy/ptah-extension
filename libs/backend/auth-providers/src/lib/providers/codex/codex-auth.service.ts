@@ -24,7 +24,6 @@ import { injectable, inject } from 'tsyringe';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { watch, existsSync, type FSWatcher } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
-import { homedir } from 'node:os';
 import axios from 'axios';
 import { z } from 'zod';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
@@ -38,9 +37,8 @@ import {
   type SdkAdapterEvents,
 } from '@ptah-extension/agent-sdk';
 import type { ICodexAuthService, CodexAuthFile } from './codex-provider.types';
-
-/** Path to the Codex auth file */
-const AUTH_FILE_PATH = join(homedir(), '.codex', 'auth.json');
+import { CodexHomeResolver } from './codex-home-resolver';
+import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
 
 /** Debounce window (ms) to coalesce the burst of fs events a single write emits. */
 const WATCH_DEBOUNCE_MS = 250;
@@ -108,7 +106,24 @@ export class CodexAuthService implements ICodexAuthService {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS)
     private readonly events: SdkAdapterEvents,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER)
+    private readonly codexHome: CodexHomeResolver = new CodexHomeResolver(),
   ) {}
+
+  private get authFilePath(): string {
+    return join(this.codexHome.path, 'auth.json');
+  }
+
+  async getAccountUsageEligibility(): Promise<'supported' | 'unsupported-auth' | 'unsupported-config'> {
+    const auth = await this.readAuthFile();
+    if (!auth || this.getApiKey(auth) || auth.auth_mode === 'ApiKey') {
+      return 'unsupported-auth';
+    }
+    if (auth.api_base_url || this.getOAuthApiEndpoint()) {
+      return 'unsupported-config';
+    }
+    return auth.tokens?.access_token ? 'supported' : 'unsupported-auth';
+  }
 
   /**
    * Begin watching ~/.codex/auth.json for external changes (e.g. the user
@@ -120,8 +135,8 @@ export class CodexAuthService implements ICodexAuthService {
   startWatchingAuthFile(): void {
     if (this.watcher) return;
 
-    const dir = dirname(AUTH_FILE_PATH);
-    const file = basename(AUTH_FILE_PATH);
+    const dir = dirname(this.authFilePath);
+    const file = basename(this.authFilePath);
     if (!existsSync(dir)) {
       this.logger.debug(
         '[CodexAuth] ~/.codex not present yet — auth file watch skipped.',
@@ -487,9 +502,9 @@ export class CodexAuthService implements ICodexAuthService {
 
     // Suppress the watcher: this write is ours, not an external `codex login`.
     this.suppressWatchUntil = Date.now() + WATCH_DEBOUNCE_MS * 4;
-    const tmpPath = `${AUTH_FILE_PATH}.tmp`;
+    const tmpPath = `${this.authFilePath}.tmp`;
     await writeFile(tmpPath, JSON.stringify(next, null, 2), 'utf-8');
-    await rename(tmpPath, AUTH_FILE_PATH);
+    await rename(tmpPath, this.authFilePath);
   }
 
   /** Read the OAuth token endpoint from settings, falling back to the default. */
@@ -556,7 +571,7 @@ export class CodexAuthService implements ICodexAuthService {
     }
 
     try {
-      const raw = await readFile(AUTH_FILE_PATH, 'utf-8');
+      const raw = await readFile(this.authFilePath, 'utf-8');
       const auth = JSON.parse(raw) as CodexAuthFile;
       this.cachedAuth = auth;
       this.cacheTimestamp = now;
@@ -590,7 +605,7 @@ export class CodexAuthService implements ICodexAuthService {
    */
   private async readAuthFileFromDisk(): Promise<CodexAuthFile | null> {
     try {
-      const raw = await readFile(AUTH_FILE_PATH, 'utf-8');
+      const raw = await readFile(this.authFilePath, 'utf-8');
       return JSON.parse(raw) as CodexAuthFile;
     } catch {
       return null;
