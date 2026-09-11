@@ -55,6 +55,17 @@ interface SwitchSessionOptions {
   targetTabId?: TabId;
 }
 
+interface CliOutputLoadState {
+  readonly sessionId: SessionId;
+  readonly agentId: string;
+  readonly generation: number;
+  readonly bindingTabIds: ReadonlySet<string>;
+  cursor: string | undefined;
+  done: boolean;
+  inFlight: Promise<void> | null;
+  abortController: AbortController | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SessionLoaderService {
   private readonly claudeRpcService = inject(ClaudeRpcService);
@@ -94,6 +105,8 @@ export class SessionLoaderService {
    * "Clear completed".
    */
   private readonly _cliSessionsRestored = new Set<string>();
+  private readonly cliOutputLoads = new Map<string, CliOutputLoadState>();
+  private cliOutputGeneration = 0;
   private static readonly SESSIONS_PAGE_SIZE = 30;
 
   /**
@@ -196,6 +209,13 @@ export class SessionLoaderService {
           this._resumableSubagentsSessionId = activeSessionId ?? null;
         }
       });
+    });
+    effect(() => {
+      const bindings = this.tabManager.tabs().map((tab) => ({
+        tabId: tab.id,
+        sessionId: tab.claudeSessionId,
+      }));
+      untracked(() => this.invalidateChangedCliOutputBindings(bindings));
     });
   }
 
@@ -798,7 +818,181 @@ export class SessionLoaderService {
   ): void {
     if (!cliSessions || cliSessions.length === 0) return;
     this._cliSessionsRestored.add(sessionId);
-    this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+    if (!this.hasCliOutputLoadState(sessionId, cliSessions)) {
+      this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+    }
+    void this.loadCliOutputPages(sessionId, cliSessions);
+  }
+
+  private cliOutputLoadKey(sessionId: SessionId, agentId: string): string {
+    return `${sessionId} ${agentId}`;
+  }
+
+  private currentBindingTabIds(sessionId: SessionId): ReadonlySet<string> {
+    return new Set(
+      this.tabManager
+        .tabs()
+        .filter((tab) => tab.claudeSessionId === sessionId)
+        .map((tab) => tab.id),
+    );
+  }
+
+  private sameBindings(
+    left: ReadonlySet<string>,
+    right: ReadonlySet<string>,
+  ): boolean {
+    return (
+      left.size === right.size && [...left].every((tabId) => right.has(tabId))
+    );
+  }
+
+  private isCliOutputLoadCurrent(state: CliOutputLoadState): boolean {
+    return (
+      this.cliOutputLoads.get(
+        this.cliOutputLoadKey(state.sessionId, state.agentId),
+      ) === state &&
+      this.sameBindings(
+        state.bindingTabIds,
+        this.currentBindingTabIds(state.sessionId),
+      )
+    );
+  }
+
+  private invalidateChangedCliOutputBindings(
+    bindings: readonly { readonly tabId: string; readonly sessionId: string | null }[],
+  ): void {
+    for (const [key, state] of this.cliOutputLoads) {
+      const current = new Set(
+        bindings
+          .filter((binding) => binding.sessionId === state.sessionId)
+          .map((binding) => binding.tabId),
+      );
+      if (this.sameBindings(state.bindingTabIds, current)) continue;
+      state.abortController?.abort();
+      this.cliOutputLoads.delete(key);
+    }
+  }
+
+  private hasCliOutputLoadState(
+    sessionId: SessionId,
+    cliSessions: readonly CliSessionReference[],
+  ): boolean {
+    return cliSessions.some(({ agentId }) => {
+      const key = this.cliOutputLoadKey(sessionId, agentId);
+      const state = this.cliOutputLoads.get(key);
+      if (!state) return false;
+      if (this.isCliOutputLoadCurrent(state)) return true;
+      state.abortController?.abort();
+      this.cliOutputLoads.delete(key);
+      return false;
+    });
+  }
+
+  private loadCliOutputPages(
+    sessionId: SessionId,
+    cliSessions: readonly CliSessionReference[],
+  ): Promise<void> {
+    return Promise.all(
+      cliSessions.map(({ agentId, segments, streamEvents }) => {
+        // Non-async adapters retain the established fully-hydrated response.
+        if ((segments?.length ?? 0) > 0 || (streamEvents?.length ?? 0) > 0) {
+          return Promise.resolve();
+        }
+        return this.loadCliOutputForAgent(sessionId, agentId);
+      }),
+    )
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        this._cliSessionsRestored.delete(sessionId);
+        console.warn('[SessionLoaderService] Failed to page CLI output', {
+          sessionId,
+          error,
+        });
+      });
+  }
+
+  private loadCliOutputForAgent(
+    sessionId: SessionId,
+    agentId: string,
+  ): Promise<void> {
+    const key = this.cliOutputLoadKey(sessionId, agentId);
+    let state = this.cliOutputLoads.get(key);
+    if (state && !this.isCliOutputLoadCurrent(state)) {
+      state.abortController?.abort();
+      this.cliOutputLoads.delete(key);
+      state = undefined;
+    }
+    if (!state) {
+      // A binding change drops the load state, not the card. Resume from what
+      // the card already merged so a restart never re-requests merged pages; a
+      // card rebuilt by `loadCliSessions` reports no progress and starts over.
+      const progress = this.agentMonitorStore.cliOutputProgress(
+        sessionId,
+        agentId,
+      );
+      state = {
+        sessionId,
+        agentId,
+        generation: ++this.cliOutputGeneration,
+        bindingTabIds: this.currentBindingTabIds(sessionId),
+        cursor: progress?.cursor,
+        done: progress?.done ?? false,
+        inFlight: null,
+        abortController: null,
+      };
+      this.cliOutputLoads.set(key, state);
+    }
+    if (state.done) return Promise.resolve();
+    if (state.inFlight) return state.inFlight;
+
+    const promise = this.runCliOutputLoad(state).finally(() => {
+      if (state?.inFlight === promise) state.inFlight = null;
+    });
+    state.inFlight = promise;
+    return promise;
+  }
+
+  private async runCliOutputLoad(state: CliOutputLoadState): Promise<void> {
+    while (!state.done && this.isCliOutputLoadCurrent(state)) {
+      const requestCursor = state.cursor;
+      const abortController = new AbortController();
+      state.abortController = abortController;
+      const result = await this.claudeRpcService.call(
+        'session:cli-output-page',
+        {
+          sessionId: state.sessionId,
+          agentId: state.agentId,
+          cursor: requestCursor,
+          maxBytes: 128 * 1024,
+        },
+        { signal: abortController.signal },
+      );
+      if (
+        !this.isCliOutputLoadCurrent(state) ||
+        state.generation !== this.cliOutputLoads.get(
+          this.cliOutputLoadKey(state.sessionId, state.agentId),
+        )?.generation ||
+        state.cursor !== requestCursor
+      ) {
+        return;
+      }
+      state.abortController = null;
+      if (!result.success || !result.data) {
+        throw new Error(result.error ?? 'CLI output page request failed');
+      }
+      const nextCursor = result.data.nextCursor ?? undefined;
+      if (!result.data.done && (!nextCursor || nextCursor === requestCursor)) {
+        throw new Error('CLI output page returned an invalid continuation cursor');
+      }
+      this.agentMonitorStore.appendCliOutputPage(
+        state.sessionId,
+        state.agentId,
+        result.data.items,
+        { requestCursor, nextCursor, done: result.data.done },
+      );
+      state.cursor = nextCursor;
+      state.done = result.data.done;
+    }
   }
 
   /**
@@ -838,7 +1032,10 @@ export class SessionLoaderService {
 
       const cliSessions = result.data?.cliSessions;
       if (result.success && cliSessions && cliSessions.length > 0) {
-        this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+        if (!this.hasCliOutputLoadState(sessionId, cliSessions)) {
+          this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+        }
+        void this.loadCliOutputPages(sessionId, cliSessions);
         return;
       }
       if (!result.success) {
