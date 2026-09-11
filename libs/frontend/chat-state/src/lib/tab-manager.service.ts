@@ -347,14 +347,6 @@ export class TabManagerService {
     { equal: (a, b) => a === b },
   );
 
-  /** Whether compaction is in progress for the active tab. */
-  readonly activeTabIsCompacting = computed(
-    () =>
-      this._tabs().find((t) => t.id === this._activeTabId())?.isCompacting ??
-      false,
-    { equal: (a, b) => a === b },
-  );
-
   /** Compaction count. Rarely changes. */
   readonly activeTabCompactionCount = computed(
     () =>
@@ -984,7 +976,6 @@ export class TabManagerService {
       liveModelStats: null,
       modelUsageList: undefined,
       hasLiveSession: false,
-      isCompacting: false,
       compactionCount: 0,
       lastCompactionAt: null,
       lastTerminalReason: undefined,
@@ -1750,24 +1741,13 @@ export class TabManagerService {
 
   // ----- Compaction -----
 
-  /** Mark compaction in progress for the tab. */
-  markCompactionStart(tabId: string): void {
-    this.updateTabInternal(tabId, { isCompacting: true });
-  }
-
-  /** Clear the per-tab `isCompacting` flag (no other state touched). */
-  clearCompactingFlag(tabId: string): void {
-    this.updateTabInternal(tabId, { isCompacting: false });
-  }
-
   /**
-   * Apply the compaction-safety-timeout reset: clear isCompacting and reset
-   * the streaming state machine so a stuck compaction banner doesn't leave
-   * the tab in a non-recoverable state.
+   * Apply the compaction-safety-timeout reset: reset the streaming state
+   * machine so a stuck compaction doesn't leave the tab in a non-recoverable
+   * state. Compaction in-flight state itself lives in `ConversationRegistry`.
    */
   applyCompactionTimeoutReset(tabId: string): void {
     this.updateTabInternal(tabId, {
-      isCompacting: false,
       status: 'loaded',
       streamingState: null,
       currentMessageId: null,
@@ -2020,7 +2000,6 @@ export class TabManagerService {
       preloadedStats: null,
       liveModelStats: null,
       modelUsageList: [],
-      isCompacting: false,
       compactionCount: 0,
     });
 

@@ -79,7 +79,6 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
     streamingState: null,
     currentMessageId: null,
     claudeSessionId: SESS_1,
-    isCompacting: false,
     queuedContent: null,
     queuedOptions: null,
     ...overrides,

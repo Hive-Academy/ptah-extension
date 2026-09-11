@@ -660,27 +660,17 @@ export class ChatViewComponent implements OnDestroy {
    * is conversation-scoped, so every tab bound to the conversation sees the
    * banner together (canvas-grid).
    *
-   * Reads ONLY from the conversation registry. The previous fallback to
-   * `tab.isCompacting` / `chatStore.isCompacting()` created a second source
-   * of truth: when StreamRouter had not yet registered the conversation by
-   * `compaction_complete` time, the registry stayed `inFlight=true` while
-   * the tab cleared (or vice versa) and the banner stuck on the 120s safety
-   * timeout. The lifecycle service now writes through the registry on every
-   * transition, so unresolved conversations simply render no banner — which
-   * is the correct state for an unrouted tab.
+   * Reads ONLY from the conversation registry, through
+   * `ChatStore.isCompactingForTab` — the same derivation the chat-input
+   * overlay uses, so banner and overlay cannot disagree. Unresolved
+   * conversations simply render no banner, which is the correct state for an
+   * unrouted tab.
    */
-  readonly resolvedIsCompacting = computed(() => {
-    const tab = this.resolvedTab();
-    const rawTabId = tab?.id ?? this._tabManager.activeTabId();
-    if (!rawTabId) return false;
-    const tabId = TabId.safeParse(rawTabId);
-    if (!tabId) return false;
-    const convId = this._tabSessionBinding.conversationFor(tabId);
-    if (!convId) return false;
-    return (
-      this._conversationRegistry.compactionStateFor(convId)?.inFlight ?? false
-    );
-  });
+  readonly resolvedIsCompacting = computed(() =>
+    this.chatStore.isCompactingForTab(
+      this.resolvedTab()?.id ?? this._tabManager.activeTabId(),
+    ),
+  );
 
   readonly resolvedCompactionMarker = computed(() => {
     const tab = this.resolvedTab();

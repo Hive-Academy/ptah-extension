@@ -84,7 +84,6 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       expect(service.activeTabPreloadedStats()).toBeNull();
       expect(service.activeTabLiveModelStats()).toBeNull();
       expect(service.activeTabModelUsageList()).toBeNull();
-      expect(service.activeTabIsCompacting()).toBe(false);
       expect(service.activeTabCompactionCount()).toBe(0);
       expect(service.activeTabViewMode()).toBe('full');
       expect(service.activeTabQueuedContent()).toBeNull();
@@ -99,10 +98,8 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
         contextPercent: 50,
       });
       service.setQueuedContent(id, 'queued');
-      service.markCompactionStart(id);
       expect(service.activeTabLiveModelStats()?.model).toBe('m');
       expect(service.activeTabQueuedContent()).toBe('queued');
-      expect(service.activeTabIsCompacting()).toBe(true);
     });
   });
 
@@ -168,7 +165,6 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
         contextPercent: 50,
       });
       service.setQueuedContent(id, 'queued');
-      service.markCompactionStart(id);
 
       service.resetTabToFresh(id);
 
@@ -182,7 +178,6 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       expect(tab?.liveModelStats ?? null).toBeNull();
       expect(service.isTabStreaming(id)).toBe(false);
       expect(service.activeTabQueuedContent()).toBeNull();
-      expect(service.activeTabIsCompacting()).toBe(false);
       expect(partition.unregisterSession).toHaveBeenCalledWith(SESS_X);
 
       const evt = service.closedTab();

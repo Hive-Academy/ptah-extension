@@ -21,7 +21,8 @@ import { SessionLoaderService } from './session-loader.service';
  * CompactionLifecycleService - Owns the SDK session-compaction state machine.
  *
  * Responsibilities:
- * - Per-tab `isCompacting` flag management
+ * - Conversation-registry compaction state (`isCompactingForTab` is the one
+ *   read every compaction surface uses — banner and input overlay alike)
  * - Compaction safety-fallback timeout (10 min) — dismisses banner if backend
  *   never sends `compaction_complete`
  * - Compaction-complete reload flow: tree-cache clear, preloadedStats
@@ -142,6 +143,25 @@ export class CompactionLifecycleService {
    */
   private readonly _suppressAnimateOnce = signal(false);
   readonly suppressAnimateOnce = this._suppressAnimateOnce.asReadonly();
+
+  /**
+   * Whether the conversation bound to `rawTabId` has a compaction in flight.
+   *
+   * The ONE derivation of "is this tab compacting". The chat-view banner and
+   * the chat-input overlay both read it, so they cannot disagree: a second
+   * per-tab flag lost its only writer when the registry became the source of
+   * truth and left the overlay dark while the banner showed. Reads signals
+   * only, so a caller's `computed()` stays reactive. An unknown, malformed or
+   * unbound tab id is simply not compacting.
+   */
+  isCompactingForTab(rawTabId: string | null | undefined): boolean {
+    if (!rawTabId) return false;
+    const tabId = TabId.safeParse(rawTabId);
+    if (!tabId) return false;
+    const convId = this.tabSessionBinding.conversationFor(tabId);
+    if (!convId) return false;
+    return this.conversationRegistry.compactionStateFor(convId)?.inFlight ?? false;
+  }
 
   /**
    * Handle compaction start event from backend (SDK Session Compaction).

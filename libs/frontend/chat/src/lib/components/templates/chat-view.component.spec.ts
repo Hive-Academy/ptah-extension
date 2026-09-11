@@ -173,7 +173,11 @@ function makeHarness(
   const switchSessionMock = jest.fn().mockResolvedValue(undefined);
   const upsertSessionSummaryMock = jest.fn();
   const removeSessionFromListMock = jest.fn();
+  const isCompactingForTabMock = jest.fn(
+    (_tabId: string | null | undefined): boolean => false,
+  );
   const chatStoreStub = {
+    isCompactingForTab: isCompactingForTabMock,
     currentSessionId: sessionIdSig.asReadonly(),
     sessionIsActive: sessionIsActiveSig.asReadonly(),
     // Other signals required by computed() inside the component
@@ -399,8 +403,29 @@ function makeHarness(
     activeTabIdSig,
     sessionVisibleSig,
     resumableSubagentsSig,
+    isCompactingForTabMock,
   };
 }
+
+describe('ChatViewComponent — compaction banner source', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('resolvedIsCompacting delegates to chatStore.isCompactingForTab with the resolved tab id', () => {
+    const h = makeHarness();
+    h.isCompactingForTabMock.mockImplementation((id) => id === 'tab-abc');
+    expect(h.component.resolvedIsCompacting()).toBe(true);
+    expect(h.isCompactingForTabMock).toHaveBeenCalledWith('tab-abc');
+  });
+
+  it('reports no banner when the shared derivation says the tab is not compacting', () => {
+    const h = makeHarness();
+    h.isCompactingForTabMock.mockReturnValue(false);
+    expect(h.component.resolvedIsCompacting()).toBe(false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Test suite

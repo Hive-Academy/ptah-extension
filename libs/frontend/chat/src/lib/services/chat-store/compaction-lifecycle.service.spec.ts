@@ -85,7 +85,6 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
     streamingState: null,
     currentMessageId: null,
     claudeSessionId: SESS_1,
-    isCompacting: false,
     compactionCount: 0,
     queuedContent: null,
     queuedOptions: null,
@@ -1602,6 +1601,107 @@ describe('CompactionLifecycleService — unbound-tab binding recovery (real regi
       expect.objectContaining({ inFlight: false }),
     );
     expect(registry.compactionMarkerFor(convId)?.summary).toBe('recap');
+  });
+
+  describe('isCompactingForTab (the one registry derivation every surface reads)', () => {
+    // Fuller tab-manager/session stubs than the suite default: these cases
+    // drive the completion, fallback and safety-timeout paths end to end.
+    let switchSession: jest.Mock;
+
+    beforeEach(() => {
+      TestBed.resetTestingModule();
+      switchSession = jest.fn().mockResolvedValue(undefined);
+      const tabManagerMock = {
+        applyCompactionTimeoutReset: jest.fn(),
+        applyCompactionComplete: jest.fn(),
+        seedPostCompactionContext: jest.fn(),
+        findTabsBySessionId: jest.fn((sessionId: string) =>
+          tabs.filter((t) => t.claudeSessionId === sessionId),
+        ),
+        markTabIdle: jest.fn(),
+        tabs: () => tabs,
+      } as unknown as TabManagerService;
+      TestBed.configureTestingModule({
+        providers: [
+          CompactionLifecycleService,
+          ConversationRegistry,
+          TabSessionBinding,
+          { provide: TabManagerService, useValue: tabManagerMock },
+          {
+            provide: SessionManager,
+            useValue: {
+              setStatus: jest.fn(),
+              getCurrentSessionId: jest.fn(() => null),
+            } as unknown as SessionManager,
+          },
+          {
+            provide: ExecutionTreeBuilderService,
+            useValue: {
+              clearCache: jest.fn(),
+            } as unknown as ExecutionTreeBuilderService,
+          },
+          {
+            provide: SessionLoaderService,
+            useValue: { switchSession } as unknown as SessionLoaderService,
+          },
+        ],
+      });
+      service = TestBed.inject(CompactionLifecycleService);
+      registry = TestBed.inject(ConversationRegistry);
+      binding = TestBed.inject(TabSessionBinding);
+      jest.spyOn(console, 'info').mockImplementation();
+    });
+
+    async function flushMicrotasks(): Promise<void> {
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    }
+
+    it('is true after handleCompactionStart for the bound tab', () => {
+      service.handleCompactionStart(SESS);
+      expect(service.isCompactingForTab(TAB_ID)).toBe(true);
+    });
+
+    it('is false after authoritative handleCompactionComplete settles', async () => {
+      service.handleCompactionStart(SESS);
+      service.handleCompactionComplete({
+        tabId: TAB_ID,
+        compactionSessionId: SESS,
+        postTokens: 1000,
+      });
+      await flushMicrotasks();
+      expect(switchSession).toHaveBeenCalledTimes(1);
+      expect(service.isCompactingForTab(TAB_ID)).toBe(false);
+    });
+
+    it('is false after PostCompact advisory fallback settles', async () => {
+      service.handleCompactionStart(SESS);
+      service.handleCompactionCompleteNotification({
+        sessionId: SESS,
+        cwd: '/workspace',
+        trigger: 'auto',
+        compactSummary: 'recap',
+        timestamp: 1_700_000_000_000,
+      });
+      jest.advanceTimersByTime(250);
+      await flushMicrotasks();
+      expect(switchSession).toHaveBeenCalledTimes(1);
+      expect(service.isCompactingForTab(TAB_ID)).toBe(false);
+    });
+
+    it('is false after the safety timeout fires', () => {
+      service.handleCompactionStart(SESS);
+      expect(service.isCompactingForTab(TAB_ID)).toBe(true);
+      jest.advanceTimersByTime(SAFETY_TIMEOUT_MS);
+      expect(service.isCompactingForTab(TAB_ID)).toBe(false);
+    });
+
+    it('is false for an unknown, malformed, null or unbound tab id', () => {
+      service.handleCompactionStart(SESS);
+      expect(service.isCompactingForTab(SharedTabId.create())).toBe(false);
+      expect(service.isCompactingForTab('not-a-tab-id')).toBe(false);
+      expect(service.isCompactingForTab(null)).toBe(false);
+      expect(service.isCompactingForTab(undefined)).toBe(false);
+    });
   });
 
   it('still no-ops when the session has no tab at all — that case is unchanged', () => {
