@@ -18,6 +18,34 @@ export type {
 export { FileType, PlatformType } from './types/platform.types';
 export type { IFileSystemProvider } from './interfaces/file-system-provider.interface';
 export type { IStateStorage } from './interfaces/state-storage.interface';
+export type {
+  IAsyncStateStorage,
+  StateStorageSequencePage,
+  StateStorageSequenceReadOptions,
+  StateStorageSequenceWriteChunk,
+} from './interfaces/async-state-storage.interface';
+export { isAsyncStateStorage } from './interfaces/async-state-storage.interface';
+export type {
+  IStateStorageReadiness,
+  StateStorageReadinessState,
+  StateStorageRecoveryReason,
+} from './interfaces/state-storage-readiness.interface';
+export { hasStateStorageReadiness } from './interfaces/state-storage-readiness.interface';
+export type {
+  IStateStorageMaintenance,
+  StateStorageArraySplitPlan,
+  StateStorageExtractionConflictPolicy,
+  StateStorageFieldProjection,
+  StateStorageJsonPath,
+  StateStorageJsonPathSegment,
+  StateStorageMigrationReceipt,
+  StateStorageNestedExtractionPlan,
+} from './interfaces/state-storage-maintenance.interface';
+export { hasStateStorageMaintenance } from './interfaces/state-storage-maintenance.interface';
+export {
+  StateStorageNotReadyError,
+  StateStorageRecoveryRequiredError,
+} from './state-storage-errors';
 export type { IWorkspaceScopedStateStorage } from './interfaces/workspace-scoped-state-storage.interface';
 export { isWorkspaceScopedStateStorage } from './interfaces/workspace-scoped-state-storage.interface';
 export type { ISecretStorage } from './interfaces/secret-storage.interface';

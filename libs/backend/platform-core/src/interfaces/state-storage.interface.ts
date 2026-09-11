@@ -3,7 +3,10 @@
  *
  * Replaces: vscode.Memento (ExtensionContext.globalState, workspaceState)
  *
- * Provides synchronous get (cached) and async update.
+ * Provides synchronous get (cached) and async update. Stores that need
+ * asynchronous initialization, bounded sequence I/O, or adapter-owned
+ * maintenance expose the optional structural capabilities declared alongside
+ * this interface; these signatures remain the compatibility baseline.
  */
 
 export interface IStateStorage {
