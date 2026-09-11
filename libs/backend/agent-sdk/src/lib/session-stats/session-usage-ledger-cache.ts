@@ -101,7 +101,7 @@ export class SessionUsageLedgerCache {
     if (cached) return cached;
 
     // NUL cannot occur in a path, so the key cannot collide across fields.
-    const key = `${filePath}0000${token.size}0000${token.mtimeMs}`;
+    const key = `${filePath}\u0000${token.size}\u0000${token.mtimeMs}`;
     for (let joins = 0; joins < MAX_COALESCE_ATTEMPTS; joins++) {
       signal?.throwIfAborted();
       // A projection that settled while this caller waited may have stored.
