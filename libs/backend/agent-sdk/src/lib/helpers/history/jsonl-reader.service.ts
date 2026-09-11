@@ -344,9 +344,9 @@ export class JsonlReaderService {
    *
    * ## The parse is memoised on `(path, size, mtimeMs)`
    *
-   * Three independent callers read the SAME transcript within a second of each
-   * other on the resume path: `chat:resume` calls `readSessionHistory()` and
-   * then `readHistoryAsMessages()` — two full parses of one file — and
+   * Two independent callers read the SAME transcript within a second of each
+   * other on the resume path: `chat:resume` now calls `readSessionHistory()`
+   * once and uses the single-parse `messages` it returns, and
    * `session:stats-batch` parses it again for the sidebar. Nothing about the
    * bytes changed between them.
    *

@@ -43,6 +43,7 @@ import type {
   SessionHistoryMessage,
 } from './history.types';
 import { isInterruptSentinelText } from '../../types/sdk-types/claude-sdk.types';
+import { isSkillOrMetaContent } from '../../message-transform/message-transform-helpers';
 
 /**
  * Service for replaying session history as stream events.
@@ -120,7 +121,7 @@ export class SessionReplayService {
       }
 
       if (msg.type === 'user' && msg.message?.content) {
-        if (msg.isMeta === true) continue;
+        if (msg.isMeta === true || msg.isSynthetic === true) continue;
         if (
           (msg as unknown as Record<string, unknown>)['sourceToolUseID'] !==
           undefined
@@ -128,6 +129,13 @@ export class SessionReplayService {
           continue;
         }
         const contentRaw = msg.message.content;
+        if (
+          isSkillOrMetaContent(
+            msg as unknown as Parameters<typeof isSkillOrMetaContent>[0],
+          )
+        ) {
+          continue;
+        }
         if (
           Array.isArray(contentRaw) &&
           contentRaw.length > 0 &&

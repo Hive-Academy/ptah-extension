@@ -39,6 +39,9 @@ export const SDK_TOKENS = {
   SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
 
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
+  SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY: Symbol.for(
+    'SdkCompactionBoundaryGenerationRegistry',
+  ),
 
   SDK_SESSION_END_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionEndCallbackRegistry',

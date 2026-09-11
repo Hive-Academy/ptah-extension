@@ -43,6 +43,10 @@ import { SdkError } from './errors';
 import type { IModelResolver } from './auth-env.port';
 import type { IPricingProvider } from './pricing.port';
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
+import type {
+  CompactionBoundaryGenerationRegistry,
+  PendingExpectation,
+} from './helpers/compaction-boundary-generation-registry';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import type { HistoryEventFactory } from './helpers/history/history-event-factory';
@@ -50,6 +54,12 @@ import type {
   SessionHistoryMessage,
   AgentSessionData,
 } from './helpers/history/history.types';
+
+const MAX_COMPACTION_RETRIES = 5;
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
 
 /**
  * Phrase used in the SdkError thrown by resolveNativeMessageId() when
@@ -101,6 +111,8 @@ export class SessionHistoryReaderService {
     private readonly pricingProvider: IPricingProvider,
     @inject(SDK_TOKENS.SDK_LIVE_USAGE_TRACKER)
     private readonly usageTracker: LiveUsageTracker,
+    @inject(SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY)
+    private readonly compactionBoundaryRegistry: CompactionBoundaryGenerationRegistry,
   ) {}
 
   /**
@@ -124,19 +136,31 @@ export class SessionHistoryReaderService {
   }
 
   /**
-   * Read session history and convert to FlatStreamEventUnion events with stats
+   * Read session history and convert to FlatStreamEventUnion events with stats.
    *
-   * Returns both events for UI rendering and aggregated usage stats from JSONL.
+   * Returns a single immutable snapshot containing events, messages, and
+   * aggregated usage stats from one JSONL parse. When `options.checkCompactionBoundary`
+   * is true the reader verifies the expected compact-boundary generation with a
+   * small bounded number of event-loop yields; if the expected count is not
+   * observed the snapshot carries `staleSnapshot: true`.
    *
    * @param sessionId - Session identifier
    * @param workspacePath - Workspace path for locating session files
-   * @returns Object with events and aggregated stats
+   * @param options - Optional read controls
+   * @returns Object with events, messages, aggregated stats, and optional stale flag
    */
   async readSessionHistory(
     sessionId: string,
     workspacePath: string,
+    options?: { checkCompactionBoundary?: boolean },
   ): Promise<{
     events: FlatStreamEventUnion[];
+    messages: {
+      id: string;
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp: number;
+    }[];
     stats: {
       totalCost: number | null;
       tokens: {
@@ -161,25 +185,61 @@ export class SessionHistoryReaderService {
         costUSD: number | null;
       }>;
     } | null;
+    staleSnapshot?: true;
   }> {
+    const checkCompactionBoundary = options?.checkCompactionBoundary ?? false;
+    let expectation: PendingExpectation | undefined;
+    let staleSnapshot: true | undefined;
+
     try {
       this.validateSessionId(sessionId);
+      if (checkCompactionBoundary) {
+        expectation =
+          this.compactionBoundaryRegistry.capturePendingExpectation(sessionId);
+      }
       const sessionsDir =
         await this.jsonlReader.findSessionsDirectory(workspacePath);
       if (!sessionsDir) {
         this.logger.warn('[SessionHistoryReader] Sessions directory not found');
-        return { events: [], stats: null };
+        this.consumeCompactionExpectation(sessionId, checkCompactionBoundary);
+        return {
+          events: [],
+          messages: [],
+          stats: null,
+          staleSnapshot:
+            checkCompactionBoundary && expectation !== undefined
+              ? true
+              : undefined,
+        };
       }
       const sessionPath = path.join(sessionsDir, `${sessionId}.jsonl`);
+
       let mainMessages: SessionHistoryMessage[];
       try {
-        mainMessages = await this.jsonlReader.readJsonlMessages(sessionPath);
+        const mainMessagesResult =
+          await this.readMainMessagesWithOptionalCompactionCheck(
+            sessionId,
+            sessionPath,
+            expectation,
+          );
+        staleSnapshot = mainMessagesResult.staleSnapshot;
+        mainMessages = mainMessagesResult.messages;
       } catch {
         this.logger.warn('[SessionHistoryReader] Session file not found', {
           sessionId,
         });
-        return { events: [], stats: null };
+        this.consumeCompactionExpectation(sessionId, checkCompactionBoundary);
+        return {
+          events: [],
+          messages: [],
+          stats: null,
+          staleSnapshot:
+            checkCompactionBoundary && expectation !== undefined
+              ? true
+              : undefined,
+        };
       }
+
       const agentSessions = await this.jsonlReader.loadAgentSessions(
         sessionsDir,
         sessionId,
@@ -194,23 +254,184 @@ export class SessionHistoryReaderService {
       }
       const stats = this.aggregateUsageStats(mainMessages, agentSessions);
       this.seedLiveUsageBaseline(sessionId, mainMessages);
+      const messages = this.projectHistoryMessages(mainMessages, (content) =>
+        this.eventFactory.extractTextContent(content),
+      );
+
+      this.consumeCompactionExpectation(sessionId, checkCompactionBoundary);
 
       this.logger.info('[SessionHistoryReader] Loaded session with stats', {
         sessionId,
         eventCount: events.length,
+        messageCount: messages.length,
         hasStats: !!stats,
         totalCost: stats?.totalCost,
         totalTokens: (stats?.tokens?.input ?? 0) + (stats?.tokens?.output ?? 0),
+        staleSnapshot,
       });
 
-      return { events, stats };
+      return { events, messages, stats, staleSnapshot };
     } catch (error) {
+      this.consumeCompactionExpectation(sessionId, checkCompactionBoundary);
       this.logger.error(
         '[SessionHistoryReader] Failed to read session history',
         error instanceof Error ? error : new Error(String(error)),
       );
-      return { events: [], stats: null };
+      return {
+        events: [],
+        messages: [],
+        stats: null,
+        staleSnapshot:
+          checkCompactionBoundary && expectation !== undefined
+            ? (staleSnapshot ?? true)
+            : undefined,
+      };
     }
+  }
+
+  /**
+   * Read the main transcript, optionally verifying that the expected
+   * compact-boundary generation is present. Captures the pending expectation
+   * before observing the count, records the observed count on every parse,
+   * and yields to the event loop a bounded number of times when the expectation
+   * is unmet.
+   */
+  private async readMainMessagesWithOptionalCompactionCheck(
+    sessionId: string,
+    sessionPath: string,
+    expectation: PendingExpectation | undefined,
+  ): Promise<{
+    messages: SessionHistoryMessage[];
+    staleSnapshot: true | undefined;
+  }> {
+    let mainMessages = await this.jsonlReader.readJsonlMessages(sessionPath);
+    let observedBoundaryCount = this.countCompactBoundaries(mainMessages);
+    this.compactionBoundaryRegistry.observeBoundaryCount(
+      sessionId,
+      observedBoundaryCount,
+      this.latestCompactBoundaryId(mainMessages),
+    );
+
+    if (expectation === undefined) {
+      return { messages: mainMessages, staleSnapshot: undefined };
+    }
+
+    if (expectation.kind === 'unverified') {
+      // A baseline-absent expectation can never be satisfied by the current
+      // parse: we do not know what the next boundary count should be.
+      return { messages: mainMessages, staleSnapshot: true };
+    }
+
+    if (observedBoundaryCount >= expectation.expectedCount) {
+      return { messages: mainMessages, staleSnapshot: undefined };
+    }
+
+    for (let attempt = 1; attempt <= MAX_COMPACTION_RETRIES; attempt++) {
+      await yieldToEventLoop();
+      mainMessages = await this.jsonlReader.readJsonlMessages(sessionPath);
+      observedBoundaryCount = this.countCompactBoundaries(mainMessages);
+      this.compactionBoundaryRegistry.observeBoundaryCount(
+        sessionId,
+        observedBoundaryCount,
+        this.latestCompactBoundaryId(mainMessages),
+      );
+      if (observedBoundaryCount >= expectation.expectedCount) {
+        return { messages: mainMessages, staleSnapshot: undefined };
+      }
+    }
+
+    return { messages: mainMessages, staleSnapshot: true };
+  }
+
+  private countCompactBoundaries(
+    mainMessages: readonly SessionHistoryMessage[],
+  ): number {
+    return mainMessages.filter(
+      (m) => m.type === 'system' && m.subtype === 'compact_boundary',
+    ).length;
+  }
+
+  private latestCompactBoundaryId(
+    mainMessages: readonly SessionHistoryMessage[],
+  ): string | undefined {
+    for (let index = mainMessages.length - 1; index >= 0; index--) {
+      const message = mainMessages[index];
+      if (
+        message.type === 'system' &&
+        message.subtype === 'compact_boundary' &&
+        message.uuid
+      ) {
+        return message.uuid;
+      }
+    }
+    return undefined;
+  }
+
+  private consumeCompactionExpectation(
+    sessionId: string,
+    checkCompactionBoundary: boolean,
+  ): void {
+    if (checkCompactionBoundary) {
+      this.compactionBoundaryRegistry.consumeExpectation(sessionId);
+    }
+  }
+
+  /**
+   * Project raw JSONL messages to the simple `{ id, role, content, timestamp }`
+   * shape shared by `chat:resume` and the legacy text/curation readers.
+   * Drops everything before the last `compact_boundary` and skips non-user/
+   * non-assistant roles, empty content, and task-notification content.
+   */
+  private projectHistoryMessages(
+    rawMessages: readonly SessionHistoryMessage[],
+    extractContent: (content: unknown) => string,
+  ): {
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: number;
+  }[] {
+    let startIndex = 0;
+    for (let i = rawMessages.length - 1; i >= 0; i--) {
+      if (
+        rawMessages[i].type === 'system' &&
+        rawMessages[i].subtype === 'compact_boundary'
+      ) {
+        startIndex = i + 1;
+        break;
+      }
+    }
+    const effectiveMessages =
+      startIndex > 0 ? rawMessages.slice(startIndex) : rawMessages;
+    const messages: {
+      id: string;
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp: number;
+    }[] = [];
+
+    for (const msg of effectiveMessages) {
+      if (!msg.message?.role) continue;
+
+      const role = msg.message.role;
+      if (role !== 'user' && role !== 'assistant') continue;
+      const content = extractContent(msg.message.content);
+      if (!content) continue;
+      if (content.trimStart().startsWith('<task-notification>')) continue;
+
+      const timestamp = msg.timestamp
+        ? new Date(msg.timestamp).getTime()
+        : Date.now();
+
+      messages.push({
+        id: msg.uuid || this.eventFactory.generateId(),
+        role: role as 'user' | 'assistant',
+        content,
+        timestamp,
+      });
+    }
+
+    return messages;
   }
 
   /**
@@ -376,50 +597,8 @@ export class SessionHistoryReaderService {
           : await this.jsonlReader.readJsonlMessages(sessionFile, {
               signal: options?.signal,
             });
-      let startIndex = 0;
-      for (let i = rawMessages.length - 1; i >= 0; i--) {
-        if (
-          rawMessages[i].type === 'system' &&
-          rawMessages[i].subtype === 'compact_boundary'
-        ) {
-          startIndex = i + 1;
-          this.logger.info(
-            `[SessionHistoryReader] Found compact_boundary at index ${i}, skipping pre-compaction messages`,
-          );
-          break;
-        }
-      }
-      const effectiveMessages =
-        startIndex > 0 ? rawMessages.slice(startIndex) : rawMessages;
-      const messages: {
-        id: string;
-        role: 'user' | 'assistant';
-        content: string;
-        timestamp: number;
-      }[] = [];
 
-      for (const msg of effectiveMessages) {
-        if (!msg.message?.role) continue;
-
-        const role = msg.message.role;
-        if (role !== 'user' && role !== 'assistant') continue;
-        const content = extractContent(msg.message.content);
-        if (!content) continue;
-        if (content.trimStart().startsWith('<task-notification>')) continue;
-
-        const timestamp = msg.timestamp
-          ? new Date(msg.timestamp).getTime()
-          : Date.now();
-
-        messages.push({
-          id: msg.uuid || this.eventFactory.generateId(),
-          role: role as 'user' | 'assistant',
-          content,
-          timestamp,
-        });
-      }
-
-      return messages;
+      return this.projectHistoryMessages(rawMessages, extractContent);
     } catch (error) {
       this.logger.error(
         '[SessionHistoryReader] Failed to read history as messages',

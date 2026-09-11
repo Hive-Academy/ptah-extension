@@ -48,6 +48,7 @@ export {
   isPostCompactHook,
 } from './compaction-hook-handler';
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
+export { CompactionBoundaryGenerationRegistry } from './compaction-boundary-generation-registry';
 export {
   SessionTurnStateRegistry,
   toTurnStateEvent,

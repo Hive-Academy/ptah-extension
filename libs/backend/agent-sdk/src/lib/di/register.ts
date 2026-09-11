@@ -45,6 +45,7 @@ import {
   CompactionConfigProvider,
   CompactionHookHandler,
   CompactionCallbackRegistry,
+  CompactionBoundaryGenerationRegistry,
   SessionIdResolvedCallbackRegistry,
   SessionMcpStatusCallbackRegistry,
   SessionTurnStateRegistry,
@@ -363,6 +364,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,
     { useClass: CompactionCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY,
+    { useClass: CompactionBoundaryGenerationRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 

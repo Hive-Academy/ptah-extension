@@ -78,6 +78,10 @@ function makeService(params: {
   resumeSession?: jest.Mock;
   isStreaming?: jest.Mock;
   mcpServerRunning?: boolean;
+  historyReader?: {
+    readSessionHistory?: jest.Mock;
+    readHistoryAsMessages?: jest.Mock;
+  };
 }): ChatSessionService {
   const noop = jest.fn();
   const stub = { then: undefined } as unknown;
@@ -93,10 +97,12 @@ function makeService(params: {
   } as unknown as IAgentAdapter;
 
   const historyReader = {
-    readSessionHistory: jest
-      .fn()
-      .mockResolvedValue({ events: [], stats: null }),
-    readHistoryAsMessages: jest.fn().mockResolvedValue([]),
+    readSessionHistory:
+      params.historyReader?.readSessionHistory ??
+      jest.fn().mockResolvedValue({ events: [], messages: [], stats: null }),
+    readHistoryAsMessages:
+      params.historyReader?.readHistoryAsMessages ??
+      jest.fn().mockResolvedValue([]),
   };
   const subagentRegistry = {
     registerFromHistoryEvents: jest.fn().mockReturnValue(0),
@@ -280,5 +286,73 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     expect(result.activated).toBe(false);
     expect(result.activationError).toBeUndefined();
     expect(result.activationErrorCode).toBeUndefined();
+  });
+
+  it('forwards staleSnapshot:true from the immutable resume read onto ChatResumeResult', async () => {
+    const svc = makeService({
+      isSessionActive: jest.fn().mockReturnValue(false),
+      historyReader: {
+        readSessionHistory: jest.fn().mockResolvedValue({
+          events: [],
+          messages: [],
+          stats: null,
+          staleSnapshot: true,
+        }),
+      },
+    });
+
+    const params: ChatResumeParams = {
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      workspacePath: OPEN_FOLDER,
+    };
+
+    const result = (await svc.resumeSession(params)) as ChatResumeResult;
+    expect(result.success).toBe(true);
+    expect(result.staleSnapshot).toBe(true);
+  });
+
+  it('uses a single readSessionHistory parse and never calls readHistoryAsMessages', async () => {
+    const readSessionHistory = jest.fn().mockResolvedValue({
+      events: [{ id: 'ev1', eventType: 'message_start' } as never],
+      messages: [
+        {
+          id: 'msg-1',
+          role: 'user' as const,
+          content: 'hello',
+          timestamp: 1,
+        },
+      ],
+      stats: null,
+    });
+    const readHistoryAsMessages = jest.fn().mockResolvedValue([]);
+
+    const svc = makeService({
+      isSessionActive: jest.fn().mockReturnValue(false),
+      historyReader: {
+        readSessionHistory,
+        readHistoryAsMessages,
+      },
+    });
+
+    const params: ChatResumeParams = {
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      workspacePath: OPEN_FOLDER,
+    };
+
+    const result = (await svc.resumeSession(params)) as ChatResumeResult;
+    expect(result.success).toBe(true);
+    expect(readSessionHistory).toHaveBeenCalledTimes(1);
+    expect(readSessionHistory).toHaveBeenCalledWith(
+      SESSION_ID,
+      OPEN_FOLDER,
+      { checkCompactionBoundary: true },
+    );
+    expect(readHistoryAsMessages).not.toHaveBeenCalled();
+    expect(result.messages).toEqual([
+      { id: 'msg-1', role: 'user', content: 'hello', timestamp: 1 },
+    ]);
+    expect(result.events).toEqual([{ id: 'ev1', eventType: 'message_start' }]);
   });
 });

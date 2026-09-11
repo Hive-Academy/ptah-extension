@@ -685,6 +685,42 @@ describe('JsonlReaderService', () => {
       expect(mockedCreateReadStream).toHaveBeenCalledTimes(2);
     });
 
+    it('re-parses when (size, mtimeMs) change and the new short transcript contains the expected boundary', async () => {
+      const short = JSON.stringify({
+        uuid: 'b1',
+        sessionId: 's1',
+        type: 'system',
+        subtype: 'compact_boundary',
+      });
+      const changed = [
+        short,
+        JSON.stringify({
+          uuid: 'b2',
+          sessionId: 's1',
+          type: 'system',
+          subtype: 'compact_boundary',
+        }),
+      ].join('\n');
+
+      mockedStat.mockResolvedValueOnce(statsOf(Buffer.byteLength(short), 1000));
+      mockedStat.mockResolvedValueOnce(statsOf(Buffer.byteLength(short), 1000));
+      mockedStat.mockResolvedValueOnce(
+        statsOf(Buffer.byteLength(changed), 2000),
+      );
+      primeFileContent(short, changed);
+
+      const first = await service.readJsonlMessages(FILE);
+      const second = await service.readJsonlMessages(FILE);
+      const third = await service.readJsonlMessages(FILE);
+
+      // First parse is cached; changed stats force a re-parse on the third call.
+      expect(mockedCreateReadStream).toHaveBeenCalledTimes(2);
+      expect(first).toHaveLength(1);
+      expect(second).toEqual(first);
+      expect(third).toHaveLength(2);
+      expect(third[1].uuid).toBe('b2');
+    });
+
     it('keys on the file path — one transcript never answers for another', async () => {
       mockedStat.mockResolvedValue(statsOf(SIZE, 5000));
       primeFileContentAlways(LINE);

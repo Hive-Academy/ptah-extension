@@ -17,6 +17,7 @@ import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
 import type { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
+import type { CompactionBoundaryGenerationRegistry } from './helpers/compaction-boundary-generation-registry';
 import {
   SDKMessage,
   isResultMessage,
@@ -86,6 +87,8 @@ export class SdkMessageTransformer implements TransformerState {
     private readonly usageTracker: LiveUsageTracker,
     @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
     private readonly turnState: SessionTurnStateRegistry,
+    @inject(SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY)
+    private readonly compactionBoundaryRegistry: CompactionBoundaryGenerationRegistry,
   ) {
     this.helpers = {
       logger: this.logger,
@@ -94,6 +97,7 @@ export class SdkMessageTransformer implements TransformerState {
       sessionLifecycle: this.sessionLifecycle,
       usageTracker: this.usageTracker,
       turnState: this.turnState,
+      compactionBoundaryRegistry: this.compactionBoundaryRegistry,
     };
     this.assistantTransformer = new AssistantMessageTransformer();
     this.userTransformer = new UserMessageTransformer();
@@ -111,6 +115,7 @@ export class SdkMessageTransformer implements TransformerState {
       this.sessionLifecycle,
       this.usageTracker,
       this.turnState,
+      this.compactionBoundaryRegistry,
     );
   }
 
