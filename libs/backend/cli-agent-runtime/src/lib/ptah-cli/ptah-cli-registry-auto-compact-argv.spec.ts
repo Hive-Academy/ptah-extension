@@ -15,7 +15,8 @@
 import 'reflect-metadata';
 
 import { spawnSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 
@@ -77,8 +78,14 @@ import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
 
 const PINNED_SDK_VERSION = '0.3.150';
 
+// The probe payload (system prompts across 7 cases routinely exceed 100 KB
+// combined) is read from stdin, never argv or env — both are capped by the
+// OS (Linux MAX_ARG_STRLEN is 131072 bytes per string; spawnSync fails with
+// E2BIG once argv+environ crosses ARG_MAX). See assertWithinArgLimit below.
 const PROBE_SCRIPT = `
-const { sdkUrl, runs } = JSON.parse(process.env.PTAH_SDK_ARGV_PROBE);
+const chunks = [];
+for await (const chunk of process.stdin) chunks.push(chunk);
+const { sdkUrl, runs } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
 const { query } = await import(sdkUrl);
 const { PassThrough } = await import('node:stream');
 const { EventEmitter } = await import('node:events');
@@ -129,31 +136,68 @@ function findPinnedSdk(): { entry: string; version: string } {
   }
 }
 
+// Linux caps a single argv/env string at MAX_ARG_STRLEN (131072 bytes) and
+// the whole argv+environ block at ARG_MAX; exceeding either fails spawnSync
+// with E2BIG (`child.status === null`, `child.error.code === 'E2BIG'`).
+// Windows enforces no such limit, so a regression here passes locally and
+// only fails in CI. Guarding argv/env directly — rather than only moving the
+// known-large payload off them — makes a future regression fail everywhere.
+const MAX_ARG_BYTES = 100_000;
+
+function assertWithinArgLimit(label: string, value: string): void {
+  const bytes = Buffer.byteLength(value, 'utf8');
+  if (bytes >= MAX_ARG_BYTES) {
+    throw new Error(
+      `${label} is ${bytes} bytes, at/over the ${MAX_ARG_BYTES}-byte guard ` +
+        '(Linux argv/env strings are capped at 131072 bytes and spawnSync ' +
+        'fails with E2BIG well before that on the full argv+env block). ' +
+        'Send this payload over stdin or a temp file instead.',
+    );
+  }
+}
+
 function runProbe(
   sdkEntry: string,
   runs: ReadonlyArray<Record<string, unknown>>,
 ): ProbeResult[] {
-  const child = spawnSync(
-    process.execPath,
-    ['--input-type=module', '-e', PROBE_SCRIPT],
-    {
+  const scriptPath = path.join(
+    os.tmpdir(),
+    `ptah-sdk-argv-probe-${process.pid}-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}.mjs`,
+  );
+  writeFileSync(scriptPath, PROBE_SCRIPT, 'utf8');
+  try {
+    const args = [scriptPath];
+    for (const arg of args) assertWithinArgLimit(`argv "${arg}"`, arg);
+    for (const [key, value] of Object.entries(process.env)) {
+      if (typeof value === 'string') {
+        assertWithinArgLimit(`env[${key}]`, value);
+      }
+    }
+    const payload = JSON.stringify({
+      sdkUrl: pathToFileURL(sdkEntry).href,
+      runs,
+    });
+    const child = spawnSync(process.execPath, args, {
       encoding: 'utf8',
       timeout: 120_000,
-      env: {
-        ...process.env,
-        PTAH_SDK_ARGV_PROBE: JSON.stringify({
-          sdkUrl: pathToFileURL(sdkEntry).href,
-          runs,
-        }),
-      },
-    },
-  );
-  if (child.status !== 0) {
-    throw new Error(
-      `SDK probe failed (${child.status}): ${child.stderr || child.error}`,
-    );
+      input: payload,
+      env: process.env,
+    });
+    if (child.status !== 0) {
+      throw new Error(
+        `SDK probe failed (${child.status}): ${child.stderr || child.error}`,
+      );
+    }
+    return JSON.parse(child.stdout) as ProbeResult[];
+  } finally {
+    try {
+      unlinkSync(scriptPath);
+    } catch {
+      // best-effort cleanup; a leftover temp file is not worth failing the test over
+    }
   }
-  return JSON.parse(child.stdout) as ProbeResult[];
 }
 
 function flagValue(args: readonly string[], flag: string): string | undefined {
