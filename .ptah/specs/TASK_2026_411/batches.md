@@ -178,7 +178,7 @@ Gate:
 - No global RPC timeout increase.
 - Dashboard tests/typecheck/lint pass.
 
-## B6 — Codex stream usage parity and proxy timing
+## B6 — Codex stream usage parity and proxy timing — COMPLETE (2026-09-12)
 
 Dependencies: B1 only.
 
@@ -202,7 +202,7 @@ Gate:
 - No response body, header, credential, prompt, or tool payload enters timing/log records.
 - Subscription request shape/model/system prompt and 600 s timeout are unchanged.
 
-## B7 — Codex home identity and account usage surface
+## B7 — Codex home identity and account usage surface — COMPLETE (2026-09-12)
 
 Dependencies: B1; B6 first if both need auth-provider registration/barrel files.
 
@@ -230,7 +230,7 @@ Gate:
 - No authenticated request, login, token refresh, or credential fixture.
 - Provider prefix registration and all three host RPC smoke tests pass.
 
-## B8 — Effective compaction settings and hook timing
+## B8 — Effective compaction settings and hook timing — MOVED TO PR #493 (TASK_2026_414)
 
 Dependencies: B1; B6 first if timing helpers share files.
 
@@ -257,7 +257,15 @@ Gate:
 - No `compactionControl` production reference remains.
 - A delayed 216 s fake compaction reaches PostCompact and clears state; watchdog remains overdue-but-continuing at 180 s.
 
-## B9 — Cross-host and performance closure
+## B9 — Cross-host and performance closure — BLOCKED (2026-09-12)
+
+Verification evidence: `b9-report.md`. Blocked on two pre-existing lint
+findings owned by B2 and B7 (not B9's to fix) and two `node_modules` install
+gaps in this worktree (`web-tree-sitter`, `prismjs`/`daisyui`) unrelated to
+this task's diff. B9's own deliverables — the deferred B3 fixture (256 MB
+migration, injected extraction failure, main-thread budget, write
+amplification) and the 200-session/20-id-page analytics fixture — both passed
+with real numbers against the real production worker artifact.
 
 Dependencies: B2–B8.
 
