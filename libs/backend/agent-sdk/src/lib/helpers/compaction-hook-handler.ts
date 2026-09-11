@@ -298,8 +298,21 @@ export class CompactionHookHandler {
                   );
                   return { continue: true };
                 }
-                const retryOfOpenCompaction =
+                // A retry needs BOTH halves: the hook-level marker for this
+                // same session still open (PostCompact has not closed it), AND
+                // an announcement the registry has not settled. The marker
+                // alone is not enough — a compaction whose PostCompact never
+                // fires leaves it set forever, and the NEXT genuine compaction
+                // was then mistaken for a retry and recorded no expectation, so
+                // its Post-only reload had nothing to verify (PR #493 review C).
+                const markerStillOpen =
                   preCompactSessionId === resolvedSessionId;
+                const retryOfOpenCompaction =
+                  markerStillOpen &&
+                  (this.boundaryRegistry?.hasUnsettledPreCompact(
+                    resolvedSessionId,
+                  ) ??
+                    true);
                 preCompactSessionId = resolvedSessionId;
                 // Interactive sessions only: a callback-less child compaction
                 // never drives a UI reload, and a pending expectation is never

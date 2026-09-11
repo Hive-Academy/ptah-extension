@@ -322,15 +322,70 @@ describe('CompactionBoundaryGenerationRegistry', () => {
       });
     });
 
-    it('a stale consume without a PreCompact claim still clears the expectation', () => {
+    it('a stale consume retains a verified boundary expectation for a bounded recovery budget', () => {
+      // PR #493 review C: clearing on the FIRST stale read meant the next read
+      // of the same still-incomplete transcript found no expectation at all and
+      // returned the incomplete snapshot WITHOUT `staleSnapshot`. The
+      // expectation survives two stale reads — the renderer's fallback reload
+      // plus its single retry — and is given up on after that.
       const registry = new CompactionBoundaryGenerationRegistry();
       registry.observeBoundaryCount('boundary-only', 1);
       registry.recordExpectedBoundary('boundary-only', 'boundary-2');
-      registry.consumeExpectation('boundary-only', 'stale');
 
+      registry.consumeExpectation('boundary-only', 'stale');
+      expect(registry.capturePendingExpectation('boundary-only')).toEqual({
+        kind: 'verified',
+        expectedCount: 2,
+      });
+
+      registry.consumeExpectation('boundary-only', 'stale');
+      expect(registry.capturePendingExpectation('boundary-only')).toEqual({
+        kind: 'verified',
+        expectedCount: 2,
+      });
+
+      registry.consumeExpectation('boundary-only', 'stale');
       expect(
         registry.capturePendingExpectation('boundary-only'),
       ).toBeUndefined();
+    });
+
+    it('a satisfied read settles the PreCompact claim so the session becomes evictable again', () => {
+      // PR #493 review C: `satisfied` cleared only the expectation and left
+      // `preCompactUnclaimed` above zero, which protected the entry from
+      // eviction permanently. Enough PostCompact-only sessions then filled the
+      // registry and every later expectation came back unverified.
+      const registry = new CompactionBoundaryGenerationRegistry(2);
+      registry.observeBoundaryCount('post-only', 1);
+      registry.recordPreCompact('post-only');
+      registry.observeBoundaryCount('post-only', 2);
+      registry.consumeExpectation('post-only', 'satisfied');
+
+      registry.observeBoundaryCount('ordinary-1', 1);
+      registry.observeBoundaryCount('ordinary-2', 1);
+
+      expect(registry.inspect('post-only')).toBeUndefined();
+
+      // The freed capacity is available to a real expectation.
+      registry.observeBoundaryCount('later', 3);
+      registry.recordExpectedBoundary('later');
+      expect(registry.capturePendingExpectation('later')).toEqual({
+        kind: 'verified',
+        expectedCount: 4,
+      });
+    });
+
+    it('hasUnsettledPreCompact is true only while the announcement is still pending', () => {
+      const registry = new CompactionBoundaryGenerationRegistry();
+      expect(registry.hasUnsettledPreCompact('pre')).toBe(false);
+
+      registry.observeBoundaryCount('pre', 1);
+      registry.recordPreCompact('pre');
+      expect(registry.hasUnsettledPreCompact('pre')).toBe(true);
+
+      registry.observeBoundaryCount('pre', 2);
+      registry.consumeExpectation('pre', 'satisfied');
+      expect(registry.hasUnsettledPreCompact('pre')).toBe(false);
     });
 
     it('two distinct compactions (Pre, Pre, boundary, boundary) expect +2 then settle', () => {

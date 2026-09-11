@@ -196,12 +196,16 @@ describe('SessionHistoryReaderService', () => {
       );
     });
 
+    // A VERIFIED expectation survives a stale read for a bounded recovery
+    // budget — the next reload of the same transcript must still be checked
+    // against it (PR #493 review C). An UNVERIFIED one can never be satisfied,
+    // so a stale read gives up on it immediately.
     it.each([
-      ['verified', true],
-      ['unverified', false],
+      ['verified', true, { kind: 'verified', expectedCount: 2 }],
+      ['unverified', false, undefined],
     ])(
       'consumes a %s pending compaction expectation and returns stale when sessions directory is missing',
-      async (_kind, hasBaseline) => {
+      async (_kind, hasBaseline, expectedAfterRead) => {
         const stubs = makeStubs();
         if (hasBaseline) {
           stubs.compactionBoundaryRegistry.observeBoundaryCount('valid-session-id', 1);
@@ -226,7 +230,7 @@ describe('SessionHistoryReaderService', () => {
           stubs.compactionBoundaryRegistry.capturePendingExpectation(
             'valid-session-id',
           ),
-        ).toBeUndefined();
+        ).toEqual(expectedAfterRead);
       },
     );
 
@@ -862,9 +866,42 @@ describe('SessionHistoryReaderService', () => {
       // Expected 3, observed 2 — the transcript holds only one of the two
       // promised new boundaries, so the snapshot must read as stale.
       expect(result.staleSnapshot).toBe(true);
+      // The expectation is RETAINED across the stale read (PR #493 review C):
+      // clearing it here made the next read of the same incomplete transcript
+      // return an incomplete snapshot with no `staleSnapshot` flag.
       expect(
         stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
-      ).toBeUndefined();
+      ).toEqual({ kind: 'verified', expectedCount: 3 });
+    });
+
+    it('a second read of the still-incomplete transcript is still reported stale', async () => {
+      // PR #493 review C: the reload that follows a stale snapshot must not
+      // silently become a clean read just because the first one consumed the
+      // expectation.
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid', 'b-new');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const first = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+      const second = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(first.staleSnapshot).toBe(true);
+      expect(second.staleSnapshot).toBe(true);
     });
 
     it('Post-only reload: PreCompact expectation with the boundary not yet on disk returns staleSnapshot true and keeps it for the retry', async () => {
@@ -1060,9 +1097,10 @@ describe('SessionHistoryReaderService', () => {
       });
 
       expect(result.staleSnapshot).toBe(true);
+      // Retained for the next read, not cleared (PR #493 review C).
       expect(
         stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
-      ).toBeUndefined();
+      ).toEqual({ kind: 'verified', expectedCount: 2 });
       expect(stubs.jsonlReader.readJsonlMessages).toHaveBeenCalledTimes(6);
     });
 

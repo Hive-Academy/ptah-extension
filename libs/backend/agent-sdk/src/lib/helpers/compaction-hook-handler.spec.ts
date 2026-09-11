@@ -408,6 +408,35 @@ describe('CompactionHookHandler — PreCompact → PostCompact correlation (TASK
       expectedCount: 3,
     });
   });
+
+  it('a distinct PreCompact after the previous compaction settled records its own expectation even with no PostCompact', async () => {
+    // PR #493 review C: the retry marker was the session id ALONE, so a
+    // compaction whose PostCompact never fired left it set forever and the
+    // NEXT genuine compaction was mistaken for a retry. That compaction
+    // recorded nothing, so its Post-only reload had no expectation to verify
+    // and the renderer accepted whatever was on disk.
+    const { handler, registry } = makeHandler();
+    registry.observeBoundaryCount('REAL-two', 1);
+    const hooks = handler.createHooks('TAB', '/repo', jest.fn());
+    const firePre = () =>
+      hooks.PreCompact?.[0]?.hooks?.[0]?.(pre('REAL-two'), undefined, {
+        signal,
+      });
+
+    await firePre();
+
+    // The first compaction's boundary lands and a history read verifies it.
+    // No PostCompact ever fires for it.
+    registry.observeBoundaryCount('REAL-two', 2);
+    registry.consumeExpectation('REAL-two', 'satisfied');
+
+    await firePre();
+
+    expect(registry.capturePendingExpectation('REAL-two')).toEqual({
+      kind: 'verified',
+      expectedCount: 3,
+    });
+  });
 });
 
 describe('CompactionHookHandler — attempt timing and the 180 s watchdog (TASK_2026_411 B8)', () => {

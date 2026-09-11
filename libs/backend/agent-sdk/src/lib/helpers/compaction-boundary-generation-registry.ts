@@ -72,6 +72,16 @@ interface CompactionBoundaryEntry {
    * boundary claims it rather than advancing the count again.
    */
   preCompactUnclaimed: number;
+  /**
+   * How many more `stale` reads a VERIFIED expectation survives before it is
+   * given up on. This is the recovery deadline, counted in reads rather than
+   * milliseconds: a stale read is not evidence that the promised boundary will
+   * never land, so clearing on the first one made the NEXT read of the same
+   * incomplete transcript return a snapshot with no `staleSnapshot` flag at all
+   * (PR #493 review C). Zero for an unverified expectation, which can never be
+   * satisfied and so is cleared on its first stale read.
+   */
+  staleRetainsRemaining: number;
 }
 
 @injectable()
@@ -90,6 +100,14 @@ export class CompactionBoundaryGenerationRegistry {
    * is no safe per-session fact left to retain without making memory unbounded.
    */
   private overflowSaturated = false;
+
+  /**
+   * How many consecutive `stale` reads a verified expectation survives. Two
+   * covers the renderer's own recovery shape — the advisory fallback reload
+   * plus its single stale retry — after which the expectation is given up on
+   * so the session can settle and become evictable again.
+   */
+  private static readonly STALE_RETAIN_BUDGET = 2;
 
   constructor(private readonly maxEntries = 256) {}
 
@@ -207,31 +225,61 @@ export class CompactionBoundaryGenerationRegistry {
   /**
    * Consume the pending expectation after the response is ready or exhausted.
    *
-   * One exception keeps an expectation alive: a VERIFIED expectation backed by
-   * an unclaimed PreCompact that a read found `stale`. That compaction was
-   * announced and its boundary is merely not on disk yet, so the next read (the
-   * renderer's single retry) must still be verified rather than accept whatever
-   * is on disk. It resolves on the first satisfied read or when the live
-   * boundary's claim is followed by one. An unverified expectation can never be
+   * A VERIFIED expectation survives a `stale` read while its recovery budget
+   * lasts. A stale read means the promised boundary is not on disk YET, not
+   * that it will never arrive; clearing on the first one made the next read of
+   * the same incomplete transcript find no expectation and return the
+   * incomplete snapshot with no `staleSnapshot` flag at all (PR #493 review C).
+   * The budget is the recovery deadline, counted in reads so this class keeps
+   * its no-clock design constraint. An UNVERIFIED expectation can never be
    * satisfied, so a stale read clears it and drops the PreCompact claim: the
    * eventual live boundary then opens a fresh, verifiable expectation.
+   *
+   * A `satisfied` read clears the expectation but KEEPS `preCompactUnclaimed`,
+   * which from that point is dedup state only — it lets the late live boundary
+   * of the same compaction claim its announcement instead of expecting a
+   * fictitious next generation. It no longer protects the entry from eviction
+   * (see {@link evictOldestNonPendingEntry}), so a run of PostCompact-only
+   * sessions can no longer fill the registry (PR #493 review C).
    */
   consumeExpectation(sessionId: string, outcome: ExpectationOutcome): void {
     const entry = this.entries.get(sessionId);
     if (entry) {
       const retainForRetry =
         outcome === 'stale' &&
-        entry.preCompactUnclaimed > 0 &&
-        entry.pendingExpectation?.kind === 'verified';
-      if (!retainForRetry) {
+        entry.pendingExpectation?.kind === 'verified' &&
+        entry.staleRetainsRemaining > 0;
+      if (retainForRetry) {
+        entry.staleRetainsRemaining -= 1;
+      } else {
         entry.pendingExpectation = null;
         entry.pendingBoundaryIds.clear();
+        entry.staleRetainsRemaining = 0;
         if (outcome === 'stale') {
           entry.preCompactUnclaimed = 0;
         }
       }
     }
     this.overflowUnverifiedSessions.delete(sessionId);
+  }
+
+  /**
+   * Whether a PreCompact announcement for `sessionId` is still open: it has an
+   * unclaimed announcement AND an expectation nothing has settled yet.
+   *
+   * `CompactionHookHandler` asks this before treating a second PreCompact as a
+   * retry of the first. Keying retry detection on the session id alone meant a
+   * compaction that completed without a PostCompact left the marker set
+   * forever, so the NEXT genuine compaction was mistaken for a retry and
+   * recorded no expectation at all (PR #493 review C).
+   */
+  hasUnsettledPreCompact(sessionId: string): boolean {
+    const entry = this.entries.get(sessionId);
+    return (
+      entry !== undefined &&
+      entry.preCompactUnclaimed > 0 &&
+      entry.pendingExpectation !== null
+    );
   }
 
   /**
@@ -266,6 +314,10 @@ export class CompactionBoundaryGenerationRegistry {
       to.observedUnclaimedBoundaryId ?? from.observedUnclaimedBoundaryId;
     for (const id of from.pendingBoundaryIds) to.pendingBoundaryIds.add(id);
     to.preCompactUnclaimed += from.preCompactUnclaimed;
+    to.staleRetainsRemaining = Math.max(
+      to.staleRetainsRemaining,
+      from.staleRetainsRemaining,
+    );
   }
 
   /** Test-only inspection. */
@@ -273,7 +325,10 @@ export class CompactionBoundaryGenerationRegistry {
     sessionId: string,
   ): Omit<
     CompactionBoundaryEntry,
-    'observedUnclaimedBoundaryId' | 'pendingBoundaryIds' | 'preCompactUnclaimed'
+    | 'observedUnclaimedBoundaryId'
+    | 'pendingBoundaryIds'
+    | 'preCompactUnclaimed'
+    | 'staleRetainsRemaining'
   > | undefined {
     const entry = this.entries.get(sessionId);
     if (!entry) return undefined;
@@ -281,6 +336,7 @@ export class CompactionBoundaryGenerationRegistry {
       observedUnclaimedBoundaryId: _unclaimed,
       pendingBoundaryIds: _pendingIds,
       preCompactUnclaimed: _preCompact,
+      staleRetainsRemaining: _staleRetains,
       ...inspection
     } = entry;
     return inspection;
@@ -297,8 +353,11 @@ export class CompactionBoundaryGenerationRegistry {
         kind: 'verified',
         expectedCount: Math.max(entry.observedCount, currentExpectedCount) + 1,
       };
+      entry.staleRetainsRemaining =
+        CompactionBoundaryGenerationRegistry.STALE_RETAIN_BUDGET;
     } else {
       entry.pendingExpectation = { kind: 'unverified' };
+      entry.staleRetainsRemaining = 0;
     }
   }
 
@@ -333,6 +392,7 @@ export class CompactionBoundaryGenerationRegistry {
         observedUnclaimedBoundaryId: null,
         pendingBoundaryIds: new Set<string>(),
         preCompactUnclaimed: 0,
+        staleRetainsRemaining: 0,
       };
     } else {
       // Refresh LRU position.
@@ -342,11 +402,18 @@ export class CompactionBoundaryGenerationRegistry {
     return entry;
   }
 
+  /**
+   * Evict the oldest entry that owes nothing. A PENDING expectation is the only
+   * thing worth protecting: an entry whose expectation is already settled holds
+   * at most a PreCompact claim kept for late-boundary dedup, and losing that to
+   * eviction costs one conservative extra expectation, never a false
+   * verification. Protecting the claim as well is what let a run of
+   * PostCompact-only sessions fill the registry permanently (PR #493 review C).
+   */
   private evictOldestNonPendingEntry(): void {
     while (this.entries.size >= this.maxEntries) {
       const evictable = [...this.entries.entries()].find(
-        ([, entry]) =>
-          entry.pendingExpectation === null && entry.preCompactUnclaimed === 0,
+        ([, entry]) => entry.pendingExpectation === null,
       );
       if (!evictable) {
         return;

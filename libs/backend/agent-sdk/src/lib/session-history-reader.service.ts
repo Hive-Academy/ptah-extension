@@ -432,6 +432,11 @@ export class SessionHistoryReaderService {
     }[] = [];
 
     for (const msg of effectiveMessages) {
+      // Synthetic records are an internal cue, not conversation. Replay already
+      // suppresses them (`session-replay.service.ts`), so projecting them here
+      // broke event/message parity: the one-read resume snapshot showed
+      // artifacts replay hides (PR #493 review C).
+      if (msg.isSynthetic === true) continue;
       if (!msg.message?.role) continue;
 
       const role = msg.message.role;
