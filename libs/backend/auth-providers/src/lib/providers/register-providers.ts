@@ -10,7 +10,7 @@
  * LocalNativeStrategy, LocalProxyStrategy) depend on these tokens.
  */
 
-import { DependencyContainer, Lifecycle } from 'tsyringe';
+import { DependencyContainer, Lifecycle, instanceCachingFactory } from 'tsyringe';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import { CopilotAuthService, CopilotTranslationProxy } from './copilot';
 import {
@@ -39,11 +39,15 @@ import {
  * previously occupied.
  */
 export function registerProviders(container: DependencyContainer): void {
-  container.register(
-    AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER,
-    { useClass: CodexHomeResolver },
-    { lifecycle: Lifecycle.Singleton },
-  );
+  // A factory, not `useClass`: `CodexHomeResolver`'s constructor parameters are
+  // test seams that nothing registers, so container construction only ever
+  // produced the no-argument instance this factory builds explicitly.
+  // `instanceCachingFactory` and not `{ lifecycle: Lifecycle.Singleton }`
+  // because tsyringe rejects a lifecycle on a factory provider — the same
+  // reasoning recorded in `agent-generation/src/lib/di/register.ts`.
+  container.register(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER, {
+    useFactory: instanceCachingFactory(() => new CodexHomeResolver()),
+  });
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
     { useClass: CopilotAuthService },
