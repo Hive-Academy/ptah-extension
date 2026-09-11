@@ -1287,7 +1287,7 @@ describe('CompactionLifecycleService', () => {
       expect(seedPostCompactionContextMock).toHaveBeenCalledWith('tab-2', 1600);
     });
 
-    it('reloads normally when a surviving fallback record no longer matches the session generation', () => {
+    it('keeps the shared generation while another tab owns the session, so a late boundary still merges', () => {
       tabs = [
         makeTab({ id: 'tab-1', claudeSessionId: SESS_SHARED }),
         makeTab({ id: 'tab-2', claudeSessionId: SESS_SHARED }),
@@ -1308,14 +1308,15 @@ describe('CompactionLifecycleService', () => {
       switchSessionMock.mockClear();
       seedPostCompactionContextMock.mockClear();
 
-      // tab-1 clears while tab-2 still owns the session, so the generation-2
-      // record survives — but the generation entry it belonged to is gone.
+      // tab-1 clears while tab-2 still owns the session. The generation is
+      // SHARED by every tab on the session, so it survives with the
+      // fallbackApplied record that belongs to it (PR #493 review C). Deleting
+      // it here made the record read generation 0, fail the generation check,
+      // and take the full reload path.
       service.clearCompactionStateForTab('tab-1');
 
-      // The boundary arriving now cannot be the one this fallback stood in
-      // for: the record's generation matches nothing, so the boundary takes
-      // the full reload path rather than a metrics-only merge. The fan-out
-      // applies per owned tab, so both tabs sharing the session reload.
+      // The boundary IS the one this fallback stood in for: same generation,
+      // so it merges its metrics instead of reloading the transcript again.
       service.handleCompactionComplete({
         tabId: 'tab-2',
         compactionSessionId: SESS_SHARED,
@@ -1323,9 +1324,9 @@ describe('CompactionLifecycleService', () => {
         postTokens: 1600,
       });
 
-      expect(applyCompactionCompleteMock).toHaveBeenCalledTimes(2);
-      expect(switchSessionMock).toHaveBeenCalledTimes(2);
-      expect(seedPostCompactionContextMock).not.toHaveBeenCalled();
+      expect(applyCompactionCompleteMock).not.toHaveBeenCalled();
+      expect(switchSessionMock).not.toHaveBeenCalled();
+      expect(seedPostCompactionContextMock).toHaveBeenCalledWith('tab-2', 1600);
     });
 
     it('bounds the advisory map: the oldest pending advisory is evicted past the cap', () => {

@@ -425,6 +425,20 @@ describe('ChatViewComponent — compaction banner source', () => {
     h.isCompactingForTabMock.mockReturnValue(false);
     expect(h.component.resolvedIsCompacting()).toBe(false);
   });
+
+  it('a tile whose SESSION_CONTEXT tab id is absent from tabs() asks about ITS id, not the active tab', () => {
+    // PR #493 review C: the banner derived its id from `resolvedTab()`, which
+    // is null for a context tab id missing from `tabs()` — a tile still
+    // resolving, or one whose tab just closed — and fell back to the GLOBAL
+    // active tab. ChatInputComponent reads the context id, so the banner and
+    // the input overlay could report different compaction states.
+    const h = makeHarness({ sessionContextTabId: 'tile-unknown' });
+    h.isCompactingForTabMock.mockImplementation((id) => id === 'tab-abc');
+
+    expect(h.component.resolvedIsCompacting()).toBe(false);
+    expect(h.isCompactingForTabMock).toHaveBeenCalledWith('tile-unknown');
+    expect(h.isCompactingForTabMock).not.toHaveBeenCalledWith('tab-abc');
+  });
 });
 
 // ---------------------------------------------------------------------------

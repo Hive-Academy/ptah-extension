@@ -665,16 +665,22 @@ export class ChatViewComponent implements OnDestroy {
    * overlay uses, so banner and overlay cannot disagree. Unresolved
    * conversations simply render no banner, which is the correct state for an
    * unrouted tab.
+   *
+   * Scoped by `resolvedTabId()`, the same derivation
+   * `ChatInputComponent.resolvedIsCompacting` uses. Deriving the id from
+   * `resolvedTab()` instead fell back to the GLOBAL active tab whenever
+   * SESSION_CONTEXT held a tab id absent from `tabs()` — a tile still
+   * resolving, or one whose tab had just closed — so the banner reported the
+   * active tab's compaction while the overlay reported the tile's
+   * (PR #493 review C).
    */
   readonly resolvedIsCompacting = computed(() =>
-    this.chatStore.isCompactingForTab(
-      this.resolvedTab()?.id ?? this._tabManager.activeTabId(),
-    ),
+    this.chatStore.isCompactingForTab(this.resolvedTabId()),
   );
 
+  /** Same tab scope as the banner above — the two must never disagree. */
   readonly resolvedCompactionMarker = computed(() => {
-    const tab = this.resolvedTab();
-    const rawTabId = tab?.id ?? this._tabManager.activeTabId();
+    const rawTabId = this.resolvedTabId();
     if (!rawTabId) return null;
     const tabId = TabId.safeParse(rawTabId);
     if (!tabId) return null;

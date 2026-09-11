@@ -889,6 +889,14 @@ export class CompactionLifecycleService {
    * of truth); banner and input overlay read from the registry. The
    * generation and timer are addressed through the tab's CURRENT session's
    * lifecycle key, so a rotated tab still clears its compaction's state.
+   *
+   * The generation is SHARED by every tab on the session, so it is deleted
+   * only when no other tab still owns it — the same ownership rule
+   * `CompactionAdvisoryCorrelator.dropForTab` applies to the advisory record.
+   * Deleting it unconditionally left a surviving `fallbackApplied` advisory
+   * reading generation 0, so the late boundary failed the generation check and
+   * took the full reload path instead of merging its metrics
+   * (PR #493 review C).
    */
   clearCompactionStateForTab(tabId: TabId): void {
     const tab = this.tabManager.tabs().find((candidate) => candidate.id === tabId);
@@ -897,7 +905,12 @@ export class CompactionLifecycleService {
         tab.claudeSessionId,
         this.hasLifecycleState,
       );
-      this.compactionGenerations.delete(key);
+      const ownedElsewhere = this.tabManager
+        .findTabsBySessionId(tab.claudeSessionId)
+        .some((candidate) => candidate.id !== tabId);
+      if (!ownedElsewhere) {
+        this.compactionGenerations.delete(key);
+      }
     }
     this.advisoryCorrelator.dropForTab(tabId);
     const convId = this.tabSessionBinding.conversationFor(tabId);
