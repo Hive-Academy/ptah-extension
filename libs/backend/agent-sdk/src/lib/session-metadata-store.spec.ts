@@ -39,6 +39,7 @@ import type {
   CliOutputSegment,
   CliSessionReference,
   FlatStreamEventUnion,
+  SubagentRecord,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SdkError } from './errors';
@@ -274,6 +275,67 @@ describe('SessionMetadataStore', () => {
       expect(after?.cliSessions?.map((c) => c.cliSessionId)).toEqual([
         'keep-me',
       ]);
+    });
+
+    it('preserves resume state when a later save omits it', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      const interrupted: SubagentRecord = {
+        toolCallId: 'tool-1',
+        agentType: 'backend',
+        status: 'interrupted',
+        startedAt: Date.now(),
+        interruptedAt: Date.now(),
+        parentSessionId: 'sess-1',
+        agentId: 'agent-1',
+      };
+      await store.saveResumeState('sess-1', {
+        workingDirectory: `${WORKSPACE}/.claude/worktrees/fix`,
+        resumableSdkSubagents: [interrupted],
+      });
+
+      const current = (await store.get('sess-1')) as NonNullable<
+        Awaited<ReturnType<typeof store.get>>
+      >;
+      await store.save({
+        ...current,
+        workingDirectory: undefined,
+        resumableSdkSubagents: undefined,
+        name: 'renamed',
+      });
+
+      const after = await store.get('sess-1');
+      expect(after?.workingDirectory).toBe(
+        `${WORKSPACE}/.claude/worktrees/fix`,
+      );
+      expect(after?.resumableSdkSubagents).toEqual([interrupted]);
+    });
+  });
+
+  describe('saveResumeState', () => {
+    it('stores only interrupted foreground SDK records for the canonical session', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      const base: SubagentRecord = {
+        toolCallId: 'kept',
+        agentType: 'backend',
+        status: 'interrupted',
+        startedAt: Date.now(),
+        interruptedAt: Date.now(),
+        parentSessionId: 'sess-1',
+        agentId: 'agent-kept',
+      };
+
+      await store.saveResumeState('sess-1', {
+        resumableSdkSubagents: [
+          base,
+          { ...base, toolCallId: 'running', status: 'running' },
+          { ...base, toolCallId: 'background', isBackground: true },
+          { ...base, toolCallId: 'cli', isCliAgent: true },
+          { ...base, toolCallId: 'other', parentSessionId: 'sess-2' },
+        ],
+      });
+
+      const after = await store.get('sess-1');
+      expect(after?.resumableSdkSubagents).toEqual([base]);
     });
   });
 
