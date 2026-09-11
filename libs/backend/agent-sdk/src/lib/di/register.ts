@@ -10,7 +10,7 @@
  * Registration uses singleton pattern to ensure consistent state across consumers.
  */
 
-import { DependencyContainer, Lifecycle } from 'tsyringe';
+import { DependencyContainer, instanceCachingFactory, Lifecycle } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
@@ -367,11 +367,22 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  container.register(
-    SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY,
-    { useClass: CompactionBoundaryGenerationRegistry },
-    { lifecycle: Lifecycle.Singleton },
-  );
+  // `instanceCachingFactory` rather than `useClass`: the registry's only
+  // constructor parameter is a defaulted primitive (`maxEntries = 256`) with
+  // no explicit type annotation, so TypeScript emits `Object` for its
+  // `design:paramtypes` entry and tsyringe's constructor auto-wiring tries
+  // (and fails) to resolve a dependency named "Object" — surfaced as
+  // "TypeInfo not known for \"Object\"" through every consumer's DI chain
+  // (`SdkMessageTransformer`, `SessionHistoryReaderService`, `PtahCliRegistry`
+  // in cli-agent-runtime). A factory sidesteps tsyringe's parameter
+  // resolution entirely and just calls the constructor directly, keeping the
+  // default-parameter API every existing spec constructs with `new
+  // CompactionBoundaryGenerationRegistry()` / `(n)`.
+  container.register(SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY, {
+    useFactory: instanceCachingFactory(
+      () => new CompactionBoundaryGenerationRegistry(),
+    ),
+  });
 
   container.register(
     SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
