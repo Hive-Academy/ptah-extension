@@ -452,14 +452,22 @@ export class StreamTransformer {
                     const knownContextWindow =
                       getModelContextWindow(resolvedModel);
                     const trackedContext = lastTurnContextByModel.get(model);
+                    // On a proxy the CLI cannot know a non-Claude model's
+                    // window and reports its generic 200000 fallback, so a
+                    // known window (e.g. discovered from the provider
+                    // catalogue) wins there. Direct Anthropic keeps the SDK
+                    // value, which is authoritative for `[1m]` and similar.
+                    const contextWindow =
+                      !isDirect && knownContextWindow > 0
+                        ? knownContextWindow
+                        : usage.contextWindow > 0
+                          ? usage.contextWindow
+                          : knownContextWindow;
                     modelUsageList.push({
                       model: resolvedModel,
                       inputTokens: usage.inputTokens,
                       outputTokens: usage.outputTokens,
-                      contextWindow:
-                        usage.contextWindow > 0
-                          ? usage.contextWindow
-                          : knownContextWindow,
+                      contextWindow,
                       costUSD,
                       cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
                       lastTurnContextTokens: trackedContext

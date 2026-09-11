@@ -25,7 +25,10 @@ import type {
   ProviderTierScope,
   ModelPricing,
 } from '@ptah-extension/shared';
-import { updatePricingMap } from '@ptah-extension/shared';
+import {
+  registerModelContextWindows,
+  updatePricingMap,
+} from '@ptah-extension/shared';
 import {
   SdkError,
   TIER_ENV_VAR_MAP,
@@ -188,7 +191,23 @@ export class ProviderModelsService {
         typeof (m as ProviderModelInfo).id === 'string' &&
         typeof (m as ProviderModelInfo).name === 'string',
     );
-    return valid.length > 0 ? valid : null;
+    if (valid.length === 0) return null;
+    this.recordContextWindows(valid);
+    return valid;
+  }
+
+  /**
+   * Feed discovered context windows into the shared exact-match registry.
+   * Unlike {@link feedPricingMap} this does not require a price: a provider
+   * that reports `context_window` for an unpriced model (every Codex
+   * subscription model) is still the authority on that model's window. Never
+   * called for `staticModels` — those are release-time literals, not the
+   * provider's own answer.
+   */
+  private recordContextWindows(models: readonly ProviderModelInfo[]): void {
+    registerModelContextWindows(
+      models.map((m) => ({ id: m.id, contextLength: m.contextLength })),
+    );
   }
 
   /**
@@ -245,6 +264,7 @@ export class ProviderModelsService {
         const models = await dynamicFetcher();
         if (models.length > 0) {
           this.modelCache.set(providerId, { models, timestamp: now });
+          this.recordContextWindows(models);
           void this.persistCatalog(providerId, models);
 
           const filtered = toolUseOnly
@@ -408,6 +428,7 @@ export class ProviderModelsService {
       }
       const models = this.transformApiModels(data.data);
       this.feedPricingMap(models);
+      this.recordContextWindows(models);
       this.modelCache.set(providerId, { models, timestamp: now });
 
       this.logger.info(

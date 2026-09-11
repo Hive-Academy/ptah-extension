@@ -268,6 +268,12 @@ export interface ChatResumeResult {
     contextSnapshot?: {
       model: string;
       contextTokens: number;
+      /**
+       * The model's context window as the backend knows it (including windows
+       * discovered from a provider catalogue). Absent when unknown; the
+       * renderer falls back to its own name lookup only then.
+       */
+      contextWindow?: number;
     };
     /** Number of agent/subagent JSONL files found for this session */
     agentSessionCount?: number;
@@ -277,6 +283,8 @@ export interface ChatResumeResult {
       inputTokens: number;
       outputTokens: number;
       costUSD: number | null;
+      /** Backend-known context window; absent when unknown. */
+      contextWindow?: number;
     }>;
   } | null;
   /**

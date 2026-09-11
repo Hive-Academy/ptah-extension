@@ -39,7 +39,10 @@ import { CompactionBoundaryGenerationRegistry } from './helpers/compaction-bound
 import type { IModelResolver } from './auth-env.port';
 import type { IPricingProvider } from './pricing.port';
 import type { AuthEnv, ModelPricing } from '@ptah-extension/shared';
-import { findModelPricing } from '@ptah-extension/shared';
+import {
+  findModelPricing,
+  registerModelContextWindows,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -407,6 +410,86 @@ describe('SessionHistoryReaderService', () => {
       expect(stats?.tokens.output).toBe(20);
       // Model was detected from the pre-compact init (metadata, not usage).
       expect(stats?.model).toBe('claude-sonnet-4-20250514');
+    });
+
+    it('contextSnapshot and modelUsageList carry contextWindow for a registered unpriced model', async () => {
+      const model = 'gpt-ctx-reader-registered-414';
+      registerModelContextWindows([{ id: model, contextLength: 400_000 }]);
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        { type: 'system', subtype: 'init', model, uuid: 'init' },
+        {
+          type: 'assistant',
+          uuid: 'a1',
+          message: {
+            role: 'assistant',
+            model,
+            content: [{ type: 'text', text: 'reply' }],
+          },
+          usage: {
+            input_tokens: 30_000,
+            output_tokens: 500,
+            cache_read_input_tokens: 10_000,
+            cache_creation_input_tokens: 0,
+          },
+        },
+      ] as SessionHistoryMessage[]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stats?.contextSnapshot).toEqual({
+        model,
+        contextTokens: 40_000,
+        contextWindow: 400_000,
+      });
+      expect(stats?.modelUsageList?.[0]).toMatchObject({
+        model,
+        contextWindow: 400_000,
+      });
+    });
+
+    it('omits contextWindow when the window is unknown', async () => {
+      const model = 'mystery-ctx-reader-unknown-414';
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        { type: 'system', subtype: 'init', model, uuid: 'init' },
+        {
+          type: 'assistant',
+          uuid: 'a1',
+          message: {
+            role: 'assistant',
+            model,
+            content: [{ type: 'text', text: 'reply' }],
+          },
+          usage: {
+            input_tokens: 100,
+            output_tokens: 10,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+        },
+      ] as SessionHistoryMessage[]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stats?.contextSnapshot).toEqual({ model, contextTokens: 100 });
+      expect(stats?.modelUsageList?.[0]).not.toHaveProperty('contextWindow');
     });
 
     it('uses the globally latest main-session model for the context snapshot regardless of aggregate cost', async () => {

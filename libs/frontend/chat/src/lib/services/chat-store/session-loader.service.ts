@@ -811,7 +811,7 @@ export class SessionLoaderService {
       tabId,
       (stats.modelUsageList ?? []).map((entry) => ({
         ...entry,
-        contextWindow: getModelContextWindow(entry.model),
+        contextWindow: this.wireContextWindow(entry.contextWindow, entry.model),
       })),
     );
 
@@ -830,7 +830,10 @@ export class SessionLoaderService {
       return;
     }
 
-    const contextWindow = getModelContextWindow(snapshot.model);
+    const contextWindow = this.wireContextWindow(
+      snapshot.contextWindow,
+      snapshot.model,
+    );
     this.tabManager.setLiveModelStats(tabId, {
       model: snapshot.model,
       contextUsed: snapshot.contextTokens,
@@ -840,6 +843,20 @@ export class SessionLoaderService {
           ? Math.round((snapshot.contextTokens / contextWindow) * 1000) / 10
           : 0,
     });
+  }
+
+  /**
+   * The backend carries the window it knows (including provider-discovered
+   * ones the renderer's bundled table cannot resolve). Reverse-resolving from
+   * the model name is only the fallback for an older payload or unknown model.
+   */
+  private wireContextWindow(
+    carried: number | undefined,
+    model: string,
+  ): number {
+    return typeof carried === 'number' && Number.isFinite(carried) && carried > 0
+      ? carried
+      : getModelContextWindow(model);
   }
 
   /**

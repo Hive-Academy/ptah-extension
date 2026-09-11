@@ -31,6 +31,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
 import {
   calculateMessageCost,
+  getModelContextWindow,
   pickPrimaryModel,
   isDirectAnthropic,
   registerProviderPricing,
@@ -174,6 +175,7 @@ export class SessionHistoryReaderService {
       contextSnapshot?: {
         model: string;
         contextTokens: number;
+        contextWindow?: number;
       };
       /** Number of agent/subagent JSONL files found for this session */
       agentSessionCount?: number;
@@ -183,6 +185,7 @@ export class SessionHistoryReaderService {
         inputTokens: number;
         outputTokens: number;
         costUSD: number | null;
+        contextWindow?: number;
       }>;
     } | null;
     staleSnapshot?: true;
@@ -853,6 +856,7 @@ export class SessionHistoryReaderService {
     contextSnapshot?: {
       model: string;
       contextTokens: number;
+      contextWindow?: number;
     };
     agentSessionCount?: number;
     modelUsageList?: Array<{
@@ -860,6 +864,7 @@ export class SessionHistoryReaderService {
       inputTokens: number;
       outputTokens: number;
       costUSD: number | null;
+      contextWindow?: number;
     }>;
   } | null {
     let totalInput = 0;
@@ -882,8 +887,15 @@ export class SessionHistoryReaderService {
       | {
           model: string;
           contextTokens: number;
+          contextWindow?: number;
         }
       | undefined;
+    // Carry the window on the wire so the renderer never reverse-resolves it
+    // from a name its bundled table cannot know (discovered proxy models).
+    const knownWindow = (model: string): { contextWindow?: number } => {
+      const contextWindow = getModelContextWindow(model);
+      return contextWindow > 0 ? { contextWindow } : {};
+    };
 
     const accumulatePerModel = (
       rawModel: string,
@@ -971,6 +983,7 @@ export class SessionHistoryReaderService {
                   tokens.input +
                   (tokens.cacheRead ?? 0) +
                   (tokens.cacheCreation ?? 0),
+                ...knownWindow(modelKey),
               };
             }
           }
@@ -1016,12 +1029,14 @@ export class SessionHistoryReaderService {
       inputTokens: number;
       outputTokens: number;
       costUSD: number | null;
+      contextWindow?: number;
     }> = Array.from(perModelUsage.entries())
       .map(([model, usage]) => ({
         model,
         inputTokens: usage.input,
         outputTokens: usage.output,
         costUSD: usage.hasCostContribution ? usage.cost : null,
+        ...knownWindow(model),
       }))
       .sort((a, b) => (b.costUSD ?? -1) - (a.costUSD ?? -1));
     const primaryModelEntries: ModelUsageEntry[] = modelUsageList.map((m) => ({

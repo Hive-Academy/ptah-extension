@@ -299,6 +299,98 @@ describe('SessionLoaderService', () => {
       ]);
     });
 
+    it('applyResumeStats uses snapshot.contextWindow (gpt-5.6-sol, 400000) instead of the name lookup', async () => {
+      const restoredTabId = TabId.from('0b1f7f7e-5b8a-4c7e-9d1a-4f2d6a3b8c11');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      const stats = {
+        totalCost: null,
+        tokens: { input: 40_000, output: 1_000, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 3,
+        model: 'gpt-5.6-sol',
+        modelUsageList: [
+          {
+            model: 'gpt-5.6-sol',
+            inputTokens: 40_000,
+            outputTokens: 1_000,
+            costUSD: null,
+            contextWindow: 400_000,
+          },
+        ],
+        contextSnapshot: {
+          model: 'gpt-5.6-sol',
+          contextTokens: 40_000,
+          contextWindow: 400_000,
+        },
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setLiveModelStats).toHaveBeenCalledWith(restoredTabId, {
+        model: 'gpt-5.6-sol',
+        contextUsed: 40_000,
+        contextWindow: 400_000,
+        contextPercent: 10,
+      });
+      expect(setModelUsageList).toHaveBeenCalledWith(restoredTabId, [
+        expect.objectContaining({
+          model: 'gpt-5.6-sol',
+          contextWindow: 400_000,
+        }),
+      ]);
+    });
+
+    it('falls back to getModelContextWindow when the field is absent or not positive', async () => {
+      const restoredTabId = TabId.from('3c9e2f4a-7d1b-4e6a-8b2c-5a9f0e1d7c22');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      const stats = {
+        totalCost: 1,
+        tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1,
+        model: 'claude-opus-5',
+        modelUsageList: [
+          {
+            model: 'claude-sonnet-4-5',
+            inputTokens: 10,
+            outputTokens: 2,
+            costUSD: 1,
+          },
+        ],
+        contextSnapshot: {
+          model: 'claude-opus-5',
+          contextTokens: 10_000,
+          contextWindow: 0,
+        },
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setLiveModelStats).toHaveBeenCalledWith(
+        restoredTabId,
+        expect.objectContaining({ contextWindow: 1_000_000 }),
+      );
+      expect(setModelUsageList).toHaveBeenCalledWith(restoredTabId, [
+        expect.objectContaining({ contextWindow: 200_000 }),
+      ]);
+    });
+
     it('clears stale restored-tab stats when a successful resume has no stats', async () => {
       const restoredTabId = TabId.from('c74b7af0-4c5c-4336-821c-e2fe28cd921d');
       activeTabSessionIdSignal.set(SESSION);
