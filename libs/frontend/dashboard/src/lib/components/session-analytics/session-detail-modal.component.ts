@@ -10,10 +10,13 @@ import { LucideAngularModule, Bot, X } from 'lucide-angular';
 import { DashboardSessionEntry } from '../../services/session-analytics-state.service';
 import {
   formatCost,
+  formatEstimatedCost,
+  formatSessionCost,
   formatTokenCount,
   formatRelativeTime,
   formatFullDate,
   formatDuration,
+  sessionCoverageNotes,
 } from '../../utils/format.utils';
 import { computeTokenSegments } from '../../utils/token-segments';
 
@@ -48,11 +51,24 @@ export class SessionDetailModalComponent {
   readonly BotIcon = Bot;
   readonly XIcon = X;
 
+  readonly estimateLabel = 'Estimated from recorded usage and current rate card';
+
   readonly formatCost = formatCost;
+  readonly formatEstimatedCost = formatEstimatedCost;
   readonly formatTokenCount = formatTokenCount;
   readonly formatRelativeTime = formatRelativeTime;
   readonly formatFullDate = formatFullDate;
   readonly formatDuration = formatDuration;
+
+  readonly costText = computed(() => {
+    const s = this.session();
+    return s ? formatSessionCost(s) : '';
+  });
+
+  readonly coverageNotes = computed(() => {
+    const s = this.session();
+    return s ? sessionCoverageNotes(s) : [];
+  });
 
   readonly totalTokens = computed(() => {
     const s = this.session();
