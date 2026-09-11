@@ -69,9 +69,12 @@ import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
   getAllAnthropicProviders,
-  getModelContextWindow,
   includesUserSettingSource,
 } from '@ptah-extension/shared';
+import {
+  resolveAutoCompactControl,
+  type AutoCompactSettings,
+} from './auto-compact-control';
 import {
   SdkModelService,
   TIER_ENV_VAR_MAP,
@@ -354,15 +357,34 @@ export function assertSingleOutputStylePath(
  * OUTRANKS user/project/local settings, so emitting the key when Ptah has no
  * opinion would silently clobber a style the user picked for their own Claude
  * Code CLI usage. Absence is the only correct "no opinion" value (G4b).
+ *
+ * The same rule governs auto compaction: `autoCompact` comes from
+ * `resolveAutoCompactControl`, which yields `{}` when Ptah has no opinion, and
+ * only its present keys are merged. With neither a style nor an auto-compact
+ * key, the shared constant is still returned untouched.
  */
 export function buildFlagSettings(
   sessionConfig?: OutputStyleActivationFields,
+  autoCompact?: AutoCompactSettings,
 ): Settings {
   assertSingleOutputStylePath(sessionConfig);
   const styleName = sessionConfig?.outputStyleName?.trim();
-  return styleName
-    ? { ...PTAH_DISABLE_SDK_AUTO_MEMORY, outputStyle: styleName }
-    : PTAH_DISABLE_SDK_AUTO_MEMORY;
+  const autoCompactKeys: AutoCompactSettings = {
+    ...(autoCompact?.autoCompactEnabled === false
+      ? { autoCompactEnabled: false }
+      : {}),
+    ...(autoCompact?.autoCompactWindow !== undefined
+      ? { autoCompactWindow: autoCompact.autoCompactWindow }
+      : {}),
+  };
+  if (!styleName && Object.keys(autoCompactKeys).length === 0) {
+    return PTAH_DISABLE_SDK_AUTO_MEMORY;
+  }
+  return {
+    ...PTAH_DISABLE_SDK_AUTO_MEMORY,
+    ...(styleName ? { outputStyle: styleName } : {}),
+    ...autoCompactKeys,
+  };
 }
 
 /**
@@ -760,6 +782,10 @@ export class SdkQueryOptionsBuilder {
       activityHold,
     );
     const compactionConfig = this.compactionConfigProvider.getConfig();
+    const autoCompact = resolveAutoCompactControl({
+      enabled: compactionConfig.enabled,
+      windowTokens: compactionConfig.contextTokenThreshold,
+    });
     this.logger.info('[SdkQueryOptionsBuilder] Building SDK query options', {
       cwd,
       model,
@@ -771,6 +797,7 @@ export class SdkQueryOptionsBuilder {
       hasCanUseToolCallback: !!canUseToolCallback,
       compactionEnabled: compactionConfig.enabled,
       compactionThreshold: compactionConfig.contextTokenThreshold,
+      autoCompact,
       mcpEnabled: mcpServerRunning,
       hasEnhancedPrompts: !!enhancedPromptsContent,
       mcpOverrideKeys: mcpServersOverride
@@ -791,8 +818,9 @@ export class SdkQueryOptionsBuilder {
         // Flag tier. Fresh per session when a style is active; the shared
         // PTAH_DISABLE_SDK_AUTO_MEMORY constant itself is never mutated (G4),
         // and the `outputStyle` key is absent entirely when no style is
-        // chosen so a CLI-chosen style is not clobbered (G4b).
-        settings: buildFlagSettings(sessionConfig),
+        // chosen so a CLI-chosen style is not clobbered (G4b). Auto-compaction
+        // keys ride the same tier under the same absence rule.
+        settings: buildFlagSettings(sessionConfig, autoCompact),
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
@@ -834,10 +862,8 @@ export class SdkQueryOptionsBuilder {
           ...effectiveAuthEnv,
           NO_PROXY: '127.0.0.1,localhost',
           ...experimentalBetaEnv(effectiveAuthEnv.ANTHROPIC_BASE_URL),
-          ...this.resolveContextWindowOverride(
-            model,
-            effectiveAuthEnv.ANTHROPIC_BASE_URL,
-          ),
+          // No CLAUDE_CODE_MAX_CONTEXT_TOKENS: the pinned CLI reads it only
+          // when DISABLE_COMPACT is also set (see auto-compact-control.ts).
           // Kill switch: disable the SDK's built-in workflows (ultracode/workflow
           // keyword) only when the persisted `workflows.disabled` config resolved
           // to true at the session origination point (chat-session.service). When
@@ -893,34 +919,6 @@ export class SdkQueryOptionsBuilder {
         forkSession: resumeSessionId ? forkSession : undefined,
       },
     };
-  }
-
-  /**
-   * Resolve a `CLAUDE_CODE_MAX_CONTEXT_TOKENS` override for proxied providers.
-   *
-   * The SDK only auto-detects a model's context window for first-party
-   * Anthropic base URLs; behind a translation proxy it falls back to a
-   * hardcoded 200k window, so auto-compaction triggers at the wrong point
-   * (too late for smaller models, which then overflow). When the selected
-   * model's real window is known, pin it explicitly so the SDK's
-   * auto-compaction threshold tracks the actual model.
-   *
-   * Skipped for first-party Anthropic (native detection is correct), when the
-   * window is unknown (window === 0 → leave the SDK default), and when the
-   * value is already set upstream (respect an explicit override).
-   */
-  private resolveContextWindowOverride(
-    model: string,
-    baseUrl: string | undefined,
-  ): Record<string, string> {
-    if (process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']) return {};
-    const trimmed = baseUrl?.trim();
-    const isFirstPartyAnthropic =
-      !trimmed || /^https?:\/\/api\.anthropic\.com\/?$/i.test(trimmed);
-    if (isFirstPartyAnthropic) return {};
-    const window = getModelContextWindow(model);
-    if (window <= 0) return {};
-    return { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(window) };
   }
 
   /**

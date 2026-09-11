@@ -118,7 +118,7 @@ function makeRunner(
   const compactionConfig = {
     getConfig: jest
       .fn()
-      .mockReturnValue({ enabled: true, contextTokenThreshold: 100_000 }),
+      .mockReturnValue({ enabled: true, contextTokenThreshold: null }),
   } as unknown as CompactionConfigProvider;
   const authEnv: AuthEnv = opts.authEnv ?? ({} as AuthEnv);
   // Mirrors the one branch of ModelResolver.resolve() these specs exercise: a

@@ -83,6 +83,46 @@ describe('buildFlagSettings — a style is active', () => {
   });
 });
 
+describe('buildFlagSettings — auto-compact keys (TASK_2026_414)', () => {
+  it('returns the shared constant when the auto-compact control has no opinion', () => {
+    expect(buildFlagSettings(undefined, {})).toBe(PTAH_DISABLE_SDK_AUTO_MEMORY);
+  });
+
+  it('merges autoCompactEnabled false into a fresh object', () => {
+    const settings = buildFlagSettings(undefined, {
+      autoCompactEnabled: false,
+    });
+    expect(settings).toEqual({
+      autoMemoryEnabled: false,
+      autoDreamEnabled: false,
+      autoCompactEnabled: false,
+    });
+    expect(settings).not.toBe(PTAH_DISABLE_SDK_AUTO_MEMORY);
+  });
+
+  it('merges autoCompactWindow alongside an output style without mutating the constant', () => {
+    const snapshot = { ...PTAH_DISABLE_SDK_AUTO_MEMORY };
+    const settings = buildFlagSettings(
+      { outputStyleName: 'Explanatory' },
+      { autoCompactWindow: 400_000 },
+    );
+    expect(settings).toEqual({
+      autoMemoryEnabled: false,
+      autoDreamEnabled: false,
+      outputStyle: 'Explanatory',
+      autoCompactWindow: 400_000,
+    });
+    expect(PTAH_DISABLE_SDK_AUTO_MEMORY).toEqual(snapshot);
+  });
+
+  it('never emits an autoCompactEnabled key for the enabled default', () => {
+    const settings = buildFlagSettings(undefined, {
+      autoCompactWindow: 200_000,
+    }) as Record<string, unknown>;
+    expect('autoCompactEnabled' in settings).toBe(false);
+  });
+});
+
 describe('buildFlagSettings — no style is active (G4b)', () => {
   it.each([
     ['undefined sessionConfig', undefined],
@@ -156,7 +196,10 @@ describe('build() wiring', () => {
     expect(existsSync(BUILDER_PATH)).toBe(true);
     const source = readFileSync(BUILDER_PATH, 'utf8');
 
-    expect(source).toContain('settings: buildFlagSettings(sessionConfig)');
+    // Auto-compaction keys ride the same builder call (TASK_2026_414).
+    expect(source).toContain(
+      'settings: buildFlagSettings(sessionConfig, autoCompact)',
+    );
     // The bare reference is what this task replaced. If it reappears on the
     // options object, the flag tier stops carrying the style.
     expect(source).not.toContain('settings: PTAH_DISABLE_SDK_AUTO_MEMORY');

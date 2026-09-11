@@ -42,6 +42,14 @@ export {
   type CompactionConfig,
 } from './compaction-config-provider';
 export {
+  resolveAutoCompactControl,
+  isValidAutoCompactWindow,
+  SDK_AUTO_COMPACT_WINDOW_MIN,
+  SDK_AUTO_COMPACT_WINDOW_MAX,
+  type AutoCompactSettings,
+  type AutoCompactControlInput,
+} from './auto-compact-control';
+export {
   CompactionHookHandler,
   type CompactionStartCallback,
   isPreCompactHook,

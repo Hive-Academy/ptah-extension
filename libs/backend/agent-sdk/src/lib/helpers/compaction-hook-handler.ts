@@ -103,8 +103,24 @@ export function isPostCompactHook(
  * const options = { ...otherOptions, hooks: { ...existingHooks, ...hooks } };
  * ```
  */
+/**
+ * Monotonic clock for attempt timing. `performance.now()` never jumps with the
+ * wall clock, so a duration is a duration even across an NTP correction.
+ */
+function monotonicNowMs(): number {
+  return performance.now();
+}
+
 @injectable()
 export class CompactionHookHandler {
+  /**
+   * Compaction attempts opened by PreCompact and not yet closed by PostCompact,
+   * across every query in this process. It is the only overlap signal we have:
+   * the hooks carry no request id, so pairing an attempt with a concurrent
+   * provider call is interval overlap, never an exact correlation.
+   */
+  private openCompactionAttempts = 0;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_LIVE_USAGE_TRACKER)
@@ -143,6 +159,74 @@ export class CompactionHookHandler {
     });
 
     const sdkAdapterEvents = this.sdkAdapterEvents;
+
+    // Metadata-only attempt timing (TASK_2026_411 B8). One query compacts one
+    // attempt at a time; a PreCompact that arrives while one is still open is
+    // a retry, and the open attempt is closed as superseded. Nothing here reads
+    // a prompt, summary, instruction, header or credential. Every step is
+    // wrapped: timing must never throw into the SDK's hook path.
+    let attemptOrdinal = 0;
+    let openAttempt: {
+      readonly ordinal: number;
+      readonly trigger: 'manual' | 'auto';
+      readonly startedAtMs: number;
+      readonly overlappingAtStart: number;
+    } | null = null;
+    const closeAttempt = (status: 'completed' | 'superseded'): void => {
+      if (!openAttempt) return;
+      this.openCompactionAttempts = Math.max(
+        0,
+        this.openCompactionAttempts - 1,
+      );
+      this.logger.info(
+        status === 'completed'
+          ? '[CompactionHookHandler] Compaction attempt completed'
+          : '[CompactionHookHandler] Compaction attempt superseded before PostCompact',
+        {
+          attempt: openAttempt.ordinal,
+          trigger: openAttempt.trigger,
+          status,
+          durationMs: Math.round(monotonicNowMs() - openAttempt.startedAtMs),
+          overlappingAttemptsAtStart: openAttempt.overlappingAtStart,
+          overlappingAttemptsAtEnd: this.openCompactionAttempts,
+          overlapCorrelation: { exact: false },
+        },
+      );
+      openAttempt = null;
+    };
+    const beginAttempt = (trigger: 'manual' | 'auto'): void => {
+      try {
+        closeAttempt('superseded');
+        attemptOrdinal += 1;
+        openAttempt = {
+          ordinal: attemptOrdinal,
+          trigger,
+          startedAtMs: monotonicNowMs(),
+          overlappingAtStart: this.openCompactionAttempts,
+        };
+        this.openCompactionAttempts += 1;
+        this.logger.info('[CompactionHookHandler] Compaction attempt started', {
+          attempt: attemptOrdinal,
+          trigger,
+          overlappingAttempts: openAttempt.overlappingAtStart,
+          overlapCorrelation: { exact: false },
+        });
+      } catch (error: unknown) {
+        this.logger.debug('[CompactionHookHandler] Attempt timing failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+    const endAttempt = (): void => {
+      try {
+        closeAttempt('completed');
+      } catch (error: unknown) {
+        this.logger.debug('[CompactionHookHandler] Attempt timing failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+
     return {
       PreCompact: [
         {
@@ -182,6 +266,7 @@ export class CompactionHookHandler {
                   );
                   return { continue: true };
                 }
+                beginAttempt(trigger);
                 const resolvedSessionId = resolveHookSessionId(
                   input.session_id,
                   sessionId,
@@ -304,6 +389,7 @@ export class CompactionHookHandler {
                   );
                   return { continue: true };
                 }
+                endAttempt();
 
                 if (sdkAdapterEvents) {
                   const resolvedSessionId = resolveHookSessionId(
