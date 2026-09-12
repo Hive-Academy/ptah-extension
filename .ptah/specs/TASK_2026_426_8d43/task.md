@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_426_8d43
-status: in_progress
+status: in_review
 type: feature
 title: Skills tab clone divergence control and in-app clone editing
 description: >-

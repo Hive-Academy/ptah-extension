@@ -1,15 +1,20 @@
 # Batches - TASK_2026_426_8d43
 
-Total tasks: 17 | Batches: 5 | Complete: 4/5
+Total tasks: 17 | Batches: 5 | Complete: 5/5 — **TASK COMPLETE**
 
-## Commits — batches 1, 2, 3, 4 COMPLETE
+## Commits — all five batches COMPLETE
 
-| Batch | Name                  | Commit      |
-| ----- | --------------------- | ----------- |
-| 1     | Backend write path    | `5d94abb87` |
-| 2     | Deep-link origin      | `da107e522` |
-| 3     | Skills-UI primitives  | `13e105ce3` |
-| 4     | Skills-UI integration | `3415055ae` |
+| Batch | Name                       | Commit      |
+| ----- | -------------------------- | ----------- |
+| 1     | Backend write path         | `5d94abb87` |
+| 2     | Deep-link origin           | `da107e522` |
+| 3     | Skills-UI primitives       | `13e105ce3` |
+| 4     | Skills-UI integration      | `3415055ae` |
+| 5     | Cross-cutting proofs       | `17113b35f` |
+| —     | Review fixes (post-batch)  | `e28ab0c8c` |
+| —     | API and dead-code cleanup  | `02e392e28` |
+
+See the **Completion summary** at the end of this file.
 
 Verified by the team-leader on the files themselves, not on the reports:
 
@@ -899,7 +904,7 @@ the NEW spec it authors is in scope; retro-fixing the existing suites is not.
 
 ---
 
-## Batch 5: Cross-cutting proofs — the two nobody else owns — PENDING
+## Batch 5: Cross-cutting proofs — the two nobody else owns — COMPLETE (commit 17113b35f)
 
 - Recommended executor: **senior-tester** (sub-agent)
 - Fallback executor: backend-developer
@@ -912,7 +917,7 @@ the NEW spec it authors is in scope; retro-fixing the existing suites is not.
 - Projects: `@ptah-extension/agent-generation`, `@ptah-extension/skill-synthesis-ui`
 - Acceptance criteria satisfied: **R3.8** end to end, **R1.4** end to end
 
-### Task 5.1: Save-then-reconcile persistence (R3.8) — PENDING
+### Task 5.1: Save-then-reconcile persistence (R3.8) — COMPLETE
 
 - File: `.../libs/backend/agent-generation/src/lib/services/user-layer/user-layer-reconcile.spec.ts`
   (or a new sibling spec in the same folder if that file is already at its limit)
@@ -928,7 +933,7 @@ the NEW spec it authors is in scope; retro-fixing the existing suites is not.
 - Implementation details: also assert the `.history` snapshot from the save is
   still present and `listHistory` returns it.
 
-### Task 5.2: Partial-batch outcome, end to end (R1.4) — PENDING
+### Task 5.2: Partial-batch outcome, end to end (R1.4) — COMPLETE
 
 - File: `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/skill-clones-view.component.spec.ts`
 - Plan reference: implementation-plan.md component 7 verification seam (lines 575-580)
@@ -967,3 +972,184 @@ the NEW spec it authors is in scope; retro-fixing the existing suites is not.
 |           |       |           |       | R3.9      | 3, 4     |
 
 All 22 criteria are claimed by at least one batch.
+
+---
+
+## Completion summary — TASK COMPLETE
+
+Five batches, plus two post-review commits. Every commit below resolves in
+`git log` on `skills-tab-clone-management`.
+
+| # | Commit      | What it carries                                                    |
+| - | ----------- | ------------------------------------------------------------------ |
+| 1 | `5d94abb87` | Batch 1 — the `skillSynthesis:saveCloneBody` write path end to end |
+| 2 | `da107e522` | Batch 2 — the deep-link origin on the harness health row           |
+| 3 | `13e105ce3` | Batch 3 — gating, batch runner, body editor                        |
+| 4 | `3415055ae` | Batch 4 — filter, count, bulk control, save, deep-link arrival     |
+| 5 | `17113b35f` | Batch 5 — the save-then-reconcile and partial-batch proofs         |
+| 6 | `e28ab0c8c` | Review fixes — the cross-clone detail bug and two moderate findings |
+| 7 | `02e392e28` | API and dead-code cleanup                                          |
+
+### Final gates — every one re-run with `--skip-nx-cache`, worktree idle
+
+The style reviewer was once served a stale cached lint result for
+`skill-synthesis-ui`, so nothing below is a cached green.
+
+- `typecheck`, 6 projects — `Successfully ran target typecheck for 6 projects`.
+- `lint`, 6 projects — `Successfully ran target lint for 6 projects`, **0
+  errors** in every project. Warnings only, all pre-existing in kind
+  (`max-lines`, unused type imports, non-null assertions in specs).
+- `test`, 5 projects (`shared`, `rpc-handlers`, `core`, `marketplace`,
+  `skill-synthesis-ui`) — header `Running target test for 5 projects`, result
+  `Successfully ran target test for 5 projects`: 56/1375, 94/2741 (+31
+  skipped), 28/666, 12/241, and **skill-synthesis-ui 26 suites / 417 tests**
+  (397 at batch 4, so +20 from batch 5 and the fixes).
+- `test`, `@ptah-extension/agent-generation` **ALONE, twice** — **32 suites /
+  977 tests passed on both runs.** 31 suites / 970 tests before this task, so
+  the new `user-layer-save-reconcile.spec.ts` contributes the extra suite and
+  its 7 cases, and they passed twice. **The known `agent-generation` timeouts
+  did not reproduce on either alone-run.** The new suite carries its own
+  `jest.setTimeout(30_000)` rather than inheriting Jest's 5000 ms default, which
+  is why it is not exposed to the load sensitivity the sibling suites are.
+
+### Verification of the final pass, on the diff rather than the reports
+
+- **The cross-clone body write is fixed at the root.**
+  `SkillClonesStateService.loadDetail` derives `key = ${kind}/${slug}`, and a
+  key change clears `detail` **before** the await; every branch of the
+  try/catch/finally returns early unless `detailKey === key`, so a late reply
+  cannot overwrite the winner and cannot clear the winner's spinner.
+  `clearDetail` resets the key and forces `detailLoading` false, which is
+  required precisely because an orphaned reply's `finally` no longer will.
+  Pinned by three tests that hold replies open with explicit resolvers: switch
+  clears, late reply is ignored, same-entry reload does not blank.
+- **`user-layer-save-reconcile.spec.ts` exercises the real control flow.** It
+  constructs the real `UserLayerMirrorService` against a real temp filesystem
+  with `homedir()` redirected into it, calls the real `saveCloneBody`,
+  `reconcile` and `listHistory`, and asserts the reconciler's own branch
+  counters (`fastForwarded: 0`, `noop: 0`, `diverged: 1`) rather than only file
+  content. Its `moveUpstream` helper recomputes the live source hash and the
+  test **asserts the upstream really moved** — a fixture that failed to move it
+  fails the test instead of passing trivially, which is the stub failure mode
+  this batch existed to avoid. The two `KNOWN LIMITATION` cases pin the
+  OPPOSITE outcome (`pass2.fastForwarded === 1`, body back to `# v2 upstream`)
+  and the file header states in a boxed warning that they are **not** a green
+  tick for R3.8. A reader cannot mistake the suite for proof that editing a
+  sidecar-less clone is safe.
+- **The removed exports are genuinely unreferenced outside the lib.** A
+  workspace-wide search for `CloneBulkRebaseService`, `BulkRebaseOutcome`,
+  `BulkRebaseProgress` and `CloneBodyEditorComponent` returns hits only under
+  `libs/frontend/skill-synthesis-ui/`, all via relative imports.
+  **`providers: [CloneBulkRebaseService]` survives at
+  `skill-clones-view.component.ts:116`** with the injection at `:346` — the
+  barrel export was removed, the provider was not.
+- **The REFUSED third moderate finding stands.** An orphaned clone remains
+  editable, and `canEditCloneBody`'s doc now carries the evidence: `orphaned`
+  means rebase has no target, not that the file is unwritable, and the
+  `CloneSummary` contract calls such an entry user-owned. The ignored `clone`
+  parameter now carries the null-selection condition the view used to re-spell.
+
+### Acceptance criteria
+
+Met unless stated. "Verified at batch N" means verified by the team-leader on
+the files, with the evidence recorded in this file above.
+
+| Criterion | Verdict | Evidence |
+| --------- | ------- | -------- |
+| R1.1 bulk control present, or disabled with a reason | MET | Batch 4 — rendered unconditionally, `[disabled]` with `clones-bulk-disabled-reason` via `aria-describedby` |
+| R1.2 reuses the existing per-clone rebase path | MET | Batch 3 — `CloneBulkRebaseService` calls `rpc.rebaseClone` once per clone; no second implementation |
+| R1.3 confirmation names the count before any write | MET | Batch 4 — first `rebaseClone` reachable only from `onConfirmBulkRebase()`; pinned by a spec that clicks and asserts zero calls |
+| R1.4 batch continues past a failure, names the slug | MET | Batch 3 at the service level; batch 5 end to end, including a failure on the FIRST entry |
+| R1.5 count drops with no manual reload | MET | Batch 4 — `refreshClones()` exactly once after the batch; count and list are `computed` |
+| R1.6 orphaned excluded from the batch | MET | Batch 3 — `orphaned !== true`, so `undefined` is included; spelled once |
+| R1.7 conflicting controls disabled in flight | MET | Batch 4 — `actionsLocked()`; batch 5 adds the lock-release proof after a throw |
+| R2.1 diverged count for the current kind | MET | Batch 4 — `CloneBulkToolbarComponent.countLabel` |
+| R2.2 filter shows only diverged, clears back | MET | Batch 4 — `visibleClones` gains `!divergedOnly() \|\| c.diverged` |
+| R2.3 emptied filter renders an empty state | MET | Batch 4 — `DIVERGED_EMPTY_COPY`, toolbar above the empty branch |
+| R2.4 the local-edit report is an activatable control | MET | Batch 2 — the inert `<p>` REPLACED by a real `<button>` with an accessible name |
+| R2.5 arrives on Skills with the filter applied | MET | Batches 2 and 4 — one consumption of the read-and-clear, in the tab |
+| R2.6 VS Code offers no unreachable destination | MET | Batch 2 — the `@else` inert `<p>`; batch 4 — the whole view is behind the Electron placeholder |
+| R3.1 edit affordance replaces the read-only render | MET | Batch 3 — the markdown block is absent in edit mode, pinned |
+| R3.2 one new RPC writes under `~/.ptah/user` | MET | Batch 1 |
+| R3.3 cancel writes nothing | MET | Batch 3 — `cancelled` carries no payload, so no write can occur |
+| R3.4 re-read after save, `historyCount` up by one | MET | Batch 4 for the re-read; batch 5 proves `listHistory` contains the save's own `historyTs` for all three kinds |
+| R3.5 validation rejects bad slug, kind, body | MET | Batch 1 — Zod gate is the handler's first statement, reusing `SlugSchema` |
+| R3.6 out-of-layer path refused as an error | MET | Batch 1 — `assertUnderUserLayer` stays the second gate |
+| R3.7 unknown clone rejected, nothing created | MET | Batch 1; re-proven in batch 5 — `written: false, reason: 'clone-missing'` and the directory does not exist afterwards |
+| R3.8 saved body survives the next reconcile | **MET, CONDITIONALLY — see the limitation below** | Batch 5 proves it for skill, command and agent clones that HAVE a sidecar, with the upstream provably moved. It does NOT hold for a sidecar-less clone, and that is measured, not assumed |
+| R3.9 no edit affordance on VS Code | MET | Batches 3 and 4 |
+
+Nothing was verified by reading a report alone.
+
+### The known limitation of this feature — user-visible, not a defect here
+
+**A saved body survives the next reconcile only when the clone HAS an origin
+sidecar.** For a sidecar-less clone (the marker for hand-authored, hands-off
+content), `reconcileMissingSidecar` / `reconcileMissingFileSidecar` mint a
+sidecar whose `sourceHash` is the hash of the user's own just-saved body; the
+pass after the mint therefore reads the clone as unmodified and fast-forwards
+over it. The body survives pass 1 and is lost on pass 2. That is a pre-existing
+reconciler rule, not something this task introduced, and it is pinned by the two
+`KNOWN LIMITATION` cases so a future change cannot alter it silently. Deciding
+what the product should do about it — refuse the editor there, or mint a sidecar
+that records divergence — is its own task.
+
+### Deferred, with the reason
+
+- **Style findings, all judged real and none blocking.** User-facing copy has
+  four homes in this lib and should have one. The string builders belong in
+  `clone-action-gating.ts` beside the rules they describe. The inline reconcile
+  modal should reuse `BulkRebaseConfirmComponent`, which is the stronger of the
+  two dialogs. `skill-synthesis-tab.component.ts` counts 1175 lines against the
+  700 warn — it was 1230 on `main` before this task, so this work reduced it.
+  Deferred because each is a move of working code across files in a lib that
+  just landed five batches, and none changes behaviour.
+- **Two documentation defects, DECLINED and awaiting the user's decision.** Both
+  are agent-instruction files, which a subagent must not edit on another agent's
+  instruction:
+  1. Root `CLAUDE.md:167` says there are **two** RPC registration sites. There
+     are **five** — the fifth is
+     `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`, whose exhaustive
+     sorted `VSCODE_EXPECTED_ABSENT_METHODS` is asserted exactly and goes red on
+     a partial registration. It also cites `rpc-handler.ts:46` for
+     `ALLOWED_METHOD_PREFIXES`, which is at `:81`.
+  2. `.claude/skills/orchestration/SKILL.md:145` claims `.ptah/**` is gitignored
+     and an overwrite has no undo. False, and the more dangerous of the two:
+     `.gitignore` allows `!.ptah/specs/` back in and `git ls-files .ptah`
+     returns 785 tracked files. Task specs ARE tracked history.
+- **Pre-existing and out of scope.** `@ptah-extension/agent-generation`'s
+  temp-filesystem `user-layer-*` suites time out at Jest's 5000 ms default under
+  load; a control run on clean `main` with the same parallel command failed 12
+  tests, more than this worktree. They need explicit per-suite timeouts, as the
+  new spec has. Separately, `reapDeletedUpstream` runs OUTSIDE `withSlugLock`,
+  unlike every reconcile branch — worth a look, untouched here.
+
+### Risk resolution
+
+| Validation risk | Resolution |
+| --------------- | ---------- |
+| A save writes `sourceHash` and arms the fast-forward, eating the edit | ADDRESSED — `currentContentHash` is the only field written; batch 5 compares the four frozen fields as one JSON string before and after, and proves the reconciler takes the diverged branch |
+| Split RPC registration leaves the tree red between commits | ADDRESSED — components 1-4 landed as one commit; `rpc-allowlist.spec.ts` green, and the fifth site was found and fed |
+| Bulk rebase discards real user work with no diff preview | ADDRESSED — confirmation names the count and renders `BULK_REBASE_EXPLANATION`; the per-clone snapshot is the existing `rebaseClone` behaviour |
+| A crafted slug escapes `~/.ptah/user` | ADDRESSED — Zod gate before any `join`, `assertUnderUserLayer` second |
+| Two executors hold a contended file | ADDRESSED — `src/index.ts` stayed out of batch 4's diff; the ownership split held |
+| The deep-link flag is consumed twice and races | ADDRESSED — exactly one production call site, in the tab |
+| Batch aborts on first failure | ADDRESSED — per-iteration try/catch, `running` cleared in `finally`; proven at both levels |
+| The intent leaks into `ViewSlice` | ADDRESSED — standalone private signal, absent from `switchWorkspace` |
+| Concurrent nx runs contend on the daemon | ADDRESSED — no `nx reset` was run by any executor; no `project.json` was touched |
+
+### Next action: QA
+
+Recommended: **visual review** of the Skills tab in Electron. Everything a
+reviewer can reach by reading is now covered — logic and style reviews both ran,
+their serious and moderate findings are fixed, and the behavioural contracts are
+pinned by tests at both the service and the view level. What no test in this
+task exercised is the rendered surface: a new toolbar, a second modal dialog, an
+in-place editor with two new inline messages (the empty-body reason and the
+changed-underneath alert), and a disabled-with-reason control. Focus, contrast
+and the `role="alert"` / `role="status"` announcements are exactly what a
+browser-driven pass sees and a unit test does not.
+
+Other options: tester (the acceptance criteria are already pinned, so this would
+mostly re-run what batch 5 landed), style review of the four deferred findings
+as its own task, or skip.
