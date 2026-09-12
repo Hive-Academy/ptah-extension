@@ -70,7 +70,12 @@ interface ProbeResult {
 function findPinnedSdk(): { entry: string; version: string } {
   let dir = __dirname;
   for (;;) {
-    const root = path.join(dir, 'node_modules', '@anthropic-ai', 'claude-agent-sdk');
+    const root = path.join(
+      dir,
+      'node_modules',
+      '@anthropic-ai',
+      'claude-agent-sdk',
+    );
     const entry = path.join(root, 'sdk.mjs');
     if (existsSync(entry)) {
       const pkg = JSON.parse(
@@ -331,21 +336,35 @@ describe('interactive path — compaction settings on the real SDK argv', () => 
     return settingsFromArgv(args);
   }
 
+  /**
+   * The keys every interactive session puts on the flag tier, whatever the
+   * compaction settings are.
+   *
+   * `crossSessionInbound: 'accept'` is here rather than in each case because it
+   * is not a compaction concern — it is what makes a turn injected by a peer
+   * session arrive instead of being held until it expires. It reaching the real
+   * argv is the point: the installed `Settings` interface does not model the
+   * key, so the value only survives because `buildFlagSettingsArg` serializes
+   * the whole tier and the SDK passes a non-object `settings` through to
+   * `--settings` untouched.
+   */
+  const ALWAYS = {
+    autoMemoryEnabled: false,
+    autoDreamEnabled: false,
+    crossSessionInbound: 'accept',
+  } as const;
+
   it('runs against the pinned SDK version', () => {
     expect(sdkVersion).toBe(PINNED_SDK_VERSION);
   });
 
   it('enabled + unset threshold → no autoCompactWindow and no autoCompactEnabled', () => {
-    expect(argvSettings('enabled-unset')).toEqual({
-      autoMemoryEnabled: false,
-      autoDreamEnabled: false,
-    });
+    expect(argvSettings('enabled-unset')).toEqual({ ...ALWAYS });
   });
 
   it('disabled → autoCompactEnabled false (auto compact off, no window)', () => {
     expect(argvSettings('disabled')).toEqual({
-      autoMemoryEnabled: false,
-      autoDreamEnabled: false,
+      ...ALWAYS,
       autoCompactEnabled: false,
     });
   });
@@ -363,10 +382,7 @@ describe('interactive path — compaction settings on the real SDK argv', () => 
   it.each(['invalid-low', 'invalid-high'] as const)(
     'invalid persisted threshold (%s) → warn + treated as unset',
     (name) => {
-      expect(argvSettings(name)).toEqual({
-        autoMemoryEnabled: false,
-        autoDreamEnabled: false,
-      });
+      expect(argvSettings(name)).toEqual({ ...ALWAYS });
       expect(results.get(name)?.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Invalid compaction threshold'),
         expect.anything(),
@@ -376,8 +392,7 @@ describe('interactive path — compaction settings on the real SDK argv', () => 
 
   it('output style and window coexist on the flag tier', () => {
     expect(argvSettings('style-and-window')).toEqual({
-      autoMemoryEnabled: false,
-      autoDreamEnabled: false,
+      ...ALWAYS,
       outputStyle: 'Explanatory',
       autoCompactWindow: 400_000,
     });

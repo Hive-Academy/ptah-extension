@@ -530,6 +530,27 @@ describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
     return cfg.options;
   }
 
+  /**
+   * `options.settings` is a STRING on the interactive path.
+   *
+   * `buildFlagSettingsArg` serializes the flag tier so `crossSessionInbound`
+   * can ride it — the installed `Settings` interface does not model that key.
+   * So these assertions parse the value instead of reading properties off it.
+   */
+  function parsedSettings(
+    options: Awaited<ReturnType<SdkQueryOptionsBuilder['build']>>['options'],
+  ): Record<string, unknown> {
+    expect(typeof options.settings).toBe('string');
+    return JSON.parse(options.settings as string) as Record<string, unknown>;
+  }
+
+  /** The keys every interactive session carries, whatever compaction says. */
+  const ALWAYS = {
+    autoMemoryEnabled: false,
+    autoDreamEnabled: false,
+    crossSessionInbound: 'accept',
+  } as const;
+
   it('never emits CLAUDE_CODE_MAX_CONTEXT_TOKENS, even for a proxied model with a known window', async () => {
     const saved = process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
     delete process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
@@ -552,9 +573,8 @@ describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
       enabled: true,
       contextTokenThreshold: 150_000,
     });
-    expect(opts.settings).toEqual({
-      autoMemoryEnabled: false,
-      autoDreamEnabled: false,
+    expect(parsedSettings(opts)).toEqual({
+      ...ALWAYS,
       autoCompactWindow: 150_000,
     });
   });
@@ -564,9 +584,8 @@ describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
       enabled: false,
       contextTokenThreshold: 150_000,
     });
-    expect(opts.settings).toEqual({
-      autoMemoryEnabled: false,
-      autoDreamEnabled: false,
+    expect(parsedSettings(opts)).toEqual({
+      ...ALWAYS,
       autoCompactEnabled: false,
     });
   });
@@ -579,21 +598,24 @@ describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
       { enabled: true, contextTokenThreshold: 1_000_000 },
       'Explanatory',
     );
-    expect(opts.settings).toEqual({
-      autoMemoryEnabled: false,
-      autoDreamEnabled: false,
+    expect(parsedSettings(opts)).toEqual({
+      ...ALWAYS,
       outputStyle: 'Explanatory',
       autoCompactWindow: 1_000_000,
     });
     expect(PTAH_DISABLE_SDK_AUTO_MEMORY).toEqual(snapshot);
   });
 
-  it('first-party with defaults sends neither key (the shared constant itself)', async () => {
+  it('first-party with defaults sends neither auto-compact key — the shared constant serialized, plus the inbound value', async () => {
+    const snapshot = { ...PTAH_DISABLE_SDK_AUTO_MEMORY };
     const opts = await buildOptions(
       'https://api.anthropic.com',
       'claude-sonnet-4-5',
     );
-    expect(opts.settings).toBe(PTAH_DISABLE_SDK_AUTO_MEMORY);
+    // No auto-compact key at all: absence is the only correct "no opinion"
+    // value, and serializing the tier must not invent one.
+    expect(parsedSettings(opts)).toEqual({ ...ALWAYS });
+    expect(PTAH_DISABLE_SDK_AUTO_MEMORY).toEqual(snapshot);
   });
 });
 
