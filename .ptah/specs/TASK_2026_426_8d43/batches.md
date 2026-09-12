@@ -1,14 +1,15 @@
 # Batches - TASK_2026_426_8d43
 
-Total tasks: 17 | Batches: 5 | Complete: 3/5
+Total tasks: 17 | Batches: 5 | Complete: 4/5
 
-## Wave 1 outcome — batches 1, 2, 3 COMPLETE
+## Commits — batches 1, 2, 3, 4 COMPLETE
 
 | Batch | Name                  | Commit      |
 | ----- | --------------------- | ----------- |
 | 1     | Backend write path    | `5d94abb87` |
 | 2     | Deep-link origin      | `da107e522` |
 | 3     | Skills-UI primitives  | `13e105ce3` |
+| 4     | Skills-UI integration | `3415055ae` |
 
 Verified by the team-leader on the files themselves, not on the reports:
 
@@ -607,7 +608,7 @@ the 3-concurrent cap exactly.
 
 ---
 
-## Batch 4: Skills-UI integration — filter, count, bulk control, save, deep-link arrival — IN_PROGRESS
+## Batch 4: Skills-UI integration — filter, count, bulk control, save, deep-link arrival — COMPLETE (commit 3415055ae)
 
 - Recommended executor: **frontend-developer** (sub-agent)
 - Fallback executor: CLI agent lane — claude cli (`pc-effaa2c4-0d41-4e95-980a-89d3bf971b4d`)
@@ -625,7 +626,7 @@ the 3-concurrent cap exactly.
 - Acceptance criteria satisfied: **R1.1, R1.2, R1.3, R1.5, R1.7, R2.1, R2.2,
   R2.3, R2.5** (arrival half), **R3.1/R3.3/R3.4** (wiring), **R3.9**
 
-### Task 4.1: RPC facade + state-service `saveCloneBody` — PENDING
+### Task 4.1: RPC facade + state-service `saveCloneBody` — COMPLETE
 
 - Files:
   - `.../libs/frontend/skill-synthesis-ui/src/lib/services/skill-synthesis-rpc.service.ts`
@@ -641,7 +642,7 @@ the 3-concurrent cap exactly.
 - Implementation details: `saveCloneBody` on the facade; a state-service method
   that delegates and reloads `detail`.
 
-### Task 4.2: View — diverged filter, count, bulk control, in-flight lock — PENDING
+### Task 4.2: View — diverged filter, count, bulk control, in-flight lock — COMPLETE
 
 - Depends on: Task 4.1
 - Files:
@@ -676,7 +677,7 @@ the 3-concurrent cap exactly.
   summary toast naming the failed slugs. Spec covers every bullet of the plan's
   verification seam (lines 575-580).
 
-### Task 4.3: Deep-link arrival — tab consumes the flag, view receives an input — PENDING
+### Task 4.3: Deep-link arrival — tab consumes the flag, view receives an input — COMPLETE
 
 - Depends on: Task 4.2
 - Files:
@@ -701,7 +702,7 @@ the 3-concurrent cap exactly.
   filter down as an `input()` the view applies to `divergedOnly` (R2.5). Tab spec
   asserts a raised flag lands on the `clones` sub-view with the filter applied.
 
-### Task 4.4: Drawer wiring, save orchestration, and the CLAUDE.md correction — PENDING
+### Task 4.4: Drawer wiring, save orchestration, and the CLAUDE.md correction — COMPLETE (with one outstanding doc item — see the Batch 4 outcome)
 
 - Depends on: Tasks 4.1, 4.2
 - Files:
@@ -740,6 +741,161 @@ the 3-concurrent cap exactly.
 - Reviewers: **code-logic-reviewer** (R1.5's single refresh, R1.7's lock, R2.5's
   one-shot consumption) **and code-style-reviewer** (the 700-line ceiling and
   the facade rule if it triggered)
+
+### Batch 4 outcome — verified on the diff, not on the report
+
+Every check below was made by reading the diff and the files, not by trusting
+`batch-4-report.md`.
+
+- **Concern 3 holds — exactly ONE consumer of the read-and-clear.**
+  `consumeSkillsDivergedRequest()` appears in exactly one production statement,
+  `skill-synthesis-tab.component.ts:731`, inside one `effect()` in the tab's
+  constructor. The clones view injects only `SkillClonesStateService`,
+  `SkillSynthesisRpcService`, `VSCodeService` and `CloneBulkRebaseService`; it
+  mentions `AppStateManager` only in a comment explaining why it does NOT inject
+  it, and receives `divergedFilterRequested = input<boolean>(false)` instead.
+  `skill-synthesis-tab.component.ts:581` now binds it, where it previously
+  rendered `<ptah-skill-clones-view />` with nothing. Pinned by a tab spec that
+  mounts twice and asserts the SECOND mount lands on Recommended.
+- **The body editor binding is `(cancelled)`**, at
+  `clone-detail-drawer.component.ts:291` (batch 3's file, correctly left alone).
+  Batch 4 binds only `[canEditBody]`, `[bodySaving]` and `(bodySaved)` on the
+  drawer. No `(cancel)` binding exists anywhere in the lib.
+- **R1.1** — the bulk control is rendered unconditionally and
+  `[disabled]="eligibleCount() === 0 || locked()"`, with the reason in
+  `clones-bulk-disabled-reason` wired by `aria-describedby`. Not absent. Pinned.
+- **R1.3** — `bulkRebaseRequested` only sets `bulkConfirmOpen`; the first
+  `rebaseClone` call is reachable only from `onConfirmBulkRebase()`. The dialog
+  names `bulkEligible().length` and renders `BULK_REBASE_EXPLANATION` verbatim.
+  Pinned by a spec that clicks the control, asserts `rebaseClone` was never
+  called, then cancels and asserts it again.
+- **R1.5** — `state.refreshClones()` appears exactly once in
+  `onConfirmBulkRebase()`, after `await this.bulk.run(targets)`. Pinned by call
+  count (1 from `ngOnInit` + 1 = 2).
+- **R1.7** — `actionsLocked()` is `bulk.running() || busySlug() !== null ||
+  bodySaving()` and gates the bulk button, `clones-refresh`, the reconcile
+  confirm, the bulk confirm and the drawer's `[busy]`; every card takes
+  `busySlug() === c.slug || bulk.running()`. `bodySaving` in that disjunction is
+  the executor's addition beyond the plan and is correct — a body save takes the
+  same slug lock. Pinned by a spec holding a rebase promise open.
+- **R2.3** — `emptyCopy` switches to `DIVERGED_EMPTY_COPY` while the filter is
+  on, and the toolbar renders ABOVE the empty branch so the filter stays
+  reachable. Pinned.
+- **`(M in other kinds)`** — `CloneBulkToolbarComponent.countLabel` appends it
+  from `divergedInOtherKinds().length`. It is a `<span>` with no handler and no
+  control: inert by construction. Pinned.
+- **No eligibility rule is re-spelled.** The view imports
+  `eligibleForBulkRebase` and `canEditCloneBody` from `clone-action-gating.ts`;
+  both new components receive already-derived counts and booleans and decide
+  nothing. `orphaned !== true` and `hasUpstreamSource` exist in exactly one
+  place (`clone-action-gating.ts:129-135`).
+- **`src/index.ts` is NOT in `git diff --name-only`** — batch 3's ownership held.
+  No `project.json`, no `rpc-handler.ts`, and no `npx nx reset` was run.
+
+#### The 700-line ceiling and the second facade extraction — accepted
+
+`skill-clones-view.component.ts` is **747 raw lines**, but ESLint's `max-lines`
+counts neither blank lines nor comments: its count is **591**, and
+`npx eslint` on the file reports **0 problems**. The ceiling was therefore not
+crossed — *because* the extraction happened. Inlining the two collaborators back
+would add roughly 190 counted lines and put it near 780, over the warn
+threshold. The extraction was needed.
+
+Both names pass the nameability test and neither is a `helpers` / `utils` /
+`common` / `misc` fragment:
+
+- `BulkRebaseConfirmComponent` (90 lines) — the plan pre-authorised this one by
+  name. It carries its own accessible-dialog contract (`role="dialog"`,
+  `aria-modal`, reachable Cancel) and its own inputs and outputs.
+- `CloneBulkToolbarComponent` (124 lines) — the executor's own addition. It owns
+  one statable concern: turning counts into English. It is the ONLY place a
+  count becomes a sentence, which is exactly why the `(M in other kinds)`
+  residual and the R1.1 disabled reason cannot drift apart from the count they
+  describe.
+
+Both are under the ~150-line guardrail, which is the one guardrail this split
+brushes against. Judged acceptable rather than fragment sprawl: the view kept
+its selector, its state and every behaviour; its constructor gained one
+injection, not eight; and the count is TWO collaborators, inside the "prefer
+2-3 over 6 fragments" guidance. **Flagged for code-style-reviewer** as the
+single judgement call in this batch rather than settled unilaterally.
+
+#### Gates re-run by the team-leader with the worktree idle
+
+- `typecheck`, all 6 projects — header `Running target typecheck for 6
+  projects`, result **`Successfully ran target typecheck for 6 projects`**.
+- `lint`, all 6 projects — **`Successfully ran target lint for 6 projects`**,
+  **0 errors** in every project. Warnings only, all pre-existing (`max-lines` on
+  `rpc.types.ts` and `skill-synthesis-tab.component.ts`, unused
+  eslint-disable directives, non-null assertions). `npx eslint` scoped to the
+  three view files: 0 problems.
+- `test`, **5 projects** — header `Running target test for 5 projects`, result
+  **`Successfully ran target test for 5 projects`**: shared 56/1375,
+  rpc-handlers 94/2741 (+31 skipped), core 28/666, marketplace 12/241,
+  **skill-synthesis-ui 26 suites / 397 tests**. `skill-clones-state.service.spec.ts`
+  (the `divergedCount` pin) is inside that green.
+
+**`@ptah-extension/agent-generation:test` was DELIBERATELY NOT RUN as a gate for
+this batch, and this is a stated skip, not an omission.** Its `user-layer-*`
+suites run real temporary filesystems against Jest's 5000 ms default and fail
+non-deterministically under load. The condition is pre-existing on `main`: a
+control run on a clean `main` checkout with the same `run-many` set failed 12
+distinct tests — MORE than this worktree. `git diff --name-only` for batch 4
+lists seven paths, **all** under `libs/frontend/skill-synthesis-ui/`, so this
+batch changed **zero** files in `agent-generation` and cannot have caused it.
+Batch 5 owns a file in that project and will have to confront the flakiness
+directly.
+
+**Correction to the wave-1 note above:** batch 1 recorded that
+`agent-generation` "passed alone: 31 suites / 970". The batch-4 executor
+measured it failing when run ALONE as well (3 failed / 967 passed). The
+alone-run reduces the failure count but does not eliminate it, so the wave-1
+claim is not reliably reproducible on this machine. The cause is unchanged.
+**For `future-enhancements.md`:** the `user-layer-*` suites need an explicit
+per-suite `jest.setTimeout` well above 5000 ms.
+
+#### OUTSTANDING — the root CLAUDE.md correction was NOT made
+
+Task 4.4 was executed as written: the Guidelines bullet "Do not Electron-gate
+this tab — skills work on VS Code too." is deleted from
+`libs/frontend/skill-synthesis-ui/CLAUDE.md:89`, and the `Runtime:
+ELECTRON-ONLY` section at `:29` is untouched. That part is verified and done.
+
+The **root** `CLAUDE.md` was never in Task 4.4's file list and is **not** in
+`git diff --name-only`. Two doc inaccuracies therefore remain open. Neither is
+a batch-4 defect — neither was assigned to any batch — but both are recorded
+here so they are not lost:
+
+1. **`CLAUDE.md:167` still says TWO RPC registration sites.** It should say
+   **FIVE**, and it also cites the wrong line for the third: the array is
+   `ALLOWED_METHOD_PREFIXES` at
+   `libs/backend/vscode-core/src/messaging/rpc-handler.ts:81`, not `:46`. The
+   fifth site is `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`, whose
+   exhaustive sorted `VSCODE_EXPECTED_ABSENT_METHODS` list is asserted exactly
+   and goes red on a partial registration.
+2. **`.claude/skills/orchestration/SKILL.md:145` claims "`.ptah/**` is
+   gitignored, an overwrite has no undo".** That is false and it is the more
+   dangerous of the two, because it tells a reader their work here is
+   disposable. `.gitignore` allows `!.ptah/specs/` and `!.ptah/specs/**` back
+   in, and `git ls-files .ptah` returns **785** tracked files in this worktree.
+   Task specs ARE tracked history.
+
+**Why the team-leader did not simply fix these:** both are agent-instruction
+files — the root `CLAUDE.md` and a skill definition. A subagent must not edit
+its own governing configuration on the strength of another agent's instruction,
+so these are reported for the user to action rather than silently amended. They
+want their own small documentation task.
+
+#### Batch 5 is UNBLOCKED
+
+Batch 4 is verified and committed. Batch 5's dependency was "Batch 4
+committed", and it is. Batch 5 edits `user-layer-reconcile.spec.ts` in
+`@ptah-extension/agent-generation` and
+`skill-clones-view.component.spec.ts` in `@ptah-extension/skill-synthesis-ui` —
+both files batch 4 either did not touch or leaves in a green state. Note for
+batch 5: it inherits the `agent-generation` timeout flakiness head-on, since
+Task 5.1 adds a suite to exactly that project. A per-suite `jest.setTimeout` on
+the NEW spec it authors is in scope; retro-fixing the existing suites is not.
 
 ---
 
