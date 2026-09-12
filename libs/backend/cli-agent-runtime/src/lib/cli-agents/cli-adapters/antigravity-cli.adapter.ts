@@ -354,6 +354,7 @@ export class AntigravityCliAdapter implements CliAdapter {
   private async configureMcpServer(
     port: number,
     workingDirectory: string,
+    agentId?: string,
   ): Promise<McpServerConfig | undefined> {
     try {
       const facet = AntigravityCliAdapter.mcpFacet();
@@ -375,7 +376,7 @@ export class AntigravityCliAdapter implements CliAdapter {
         // scoped to this run's working directory (TASK_2026_364); it differs
         // from the persistent bare home entry only while this run is in
         // flight, and cleanup restores whatever this run found.
-        { type: 'sse', url: ptahMcpServerUrl(port, workingDirectory) },
+        { type: 'sse', url: ptahMcpServerUrl(port, workingDirectory, agentId) },
       );
       return prior;
     } catch {
@@ -440,6 +441,7 @@ export class AntigravityCliAdapter implements CliAdapter {
       priorMcpEntry = await this.configureMcpServer(
         options.mcpPort,
         options.workingDirectory,
+        options.agentId,
       );
     }
 

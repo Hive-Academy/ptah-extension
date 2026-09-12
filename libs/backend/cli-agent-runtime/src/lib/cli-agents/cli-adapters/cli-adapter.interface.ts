@@ -41,6 +41,17 @@ export interface CliCommandOptions {
   readonly reasoningEffort?: string;
   /** Auto-approve all tool calls without user prompt (default: true). Maps to adapter-specific approval policies. */
   readonly autoApprove?: boolean;
+  /**
+   * The Ptah agent id this run belongs to (TASK_2026_402). Adapters that build
+   * an MCP URL forward it to `ptahMcpServerUrl`, which encodes it as the
+   * leading `/agent/{id}` segment — the only way the MCP server learns which
+   * spawned agent is calling, and the reason `ptah_agent_report` needs no
+   * (forgeable) caller-supplied id.
+   *
+   * Optional: absent yields today's URL byte for byte and an unattributed
+   * caller, which `ptah_agent_report` refuses with that reason.
+   */
+  readonly agentId?: string;
 }
 
 /**

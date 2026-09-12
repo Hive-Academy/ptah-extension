@@ -424,6 +424,9 @@ describe('ptah-cli spawn path — compaction settings on the real SDK argv', () 
     expect(argvSettings('enabled-unset')).toEqual({
       autoMemoryEnabled: false,
       autoDreamEnabled: false,
+      // TASK_2026_402: the spawn path now asks the CLI to ACCEPT a turn
+      // injected by a peer session instead of holding it until it expires.
+      crossSessionInbound: 'accept',
     });
   });
 
@@ -432,6 +435,7 @@ describe('ptah-cli spawn path — compaction settings on the real SDK argv', () 
       autoMemoryEnabled: false,
       autoDreamEnabled: false,
       autoCompactEnabled: false,
+      crossSessionInbound: 'accept',
     });
   });
 
@@ -451,6 +455,7 @@ describe('ptah-cli spawn path — compaction settings on the real SDK argv', () 
       expect(argvSettings(name)).toEqual({
         autoMemoryEnabled: false,
         autoDreamEnabled: false,
+        crossSessionInbound: 'accept',
       });
       expect(results.get(name)?.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Invalid compaction threshold'),
@@ -465,6 +470,7 @@ describe('ptah-cli spawn path — compaction settings on the real SDK argv', () 
       autoDreamEnabled: false,
       outputStyle: 'Terse',
       autoCompactWindow: 400_000,
+      crossSessionInbound: 'accept',
     });
   });
 

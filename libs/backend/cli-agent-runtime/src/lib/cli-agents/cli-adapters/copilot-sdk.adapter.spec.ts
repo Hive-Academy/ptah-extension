@@ -318,6 +318,26 @@ describe('CopilotSdkAdapter', () => {
       await handle.done;
     });
 
+    it('leads the MCP URL with /agent/{id} when one was reserved', async () => {
+      const handle = await adapter.runSdk({
+        ...defaultOptions,
+        mcpPort: 51820,
+        agentId: 'agent-7',
+      });
+      handle.onOutput(() => {});
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      const mcpJson = argsArg[argsArg.indexOf('--additional-mcp-config') + 1];
+      // The agent segment is how the server learns WHICH spawn is calling
+      // (TASK_2026_402) — the child never names itself.
+      expect(mcpJson).toContain(
+        'http://localhost:51820/agent/agent-7/workspace/%2Fproj',
+      );
+
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
     it('streams assistant.message_delta events as text output and segments', async () => {
       const handle = await adapter.runSdk(defaultOptions);
 

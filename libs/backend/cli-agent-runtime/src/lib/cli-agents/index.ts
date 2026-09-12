@@ -28,6 +28,18 @@ export type {
   ContinuationDispatcher,
   MessageRoutableAgent,
 } from './agent-message-router.service';
+export {
+  AgentReportRouter,
+  MAX_AGENT_REPORT_LENGTH,
+  AGENT_REPORT_BURST_LIMIT,
+  AGENT_REPORT_BURST_WINDOW_MS,
+  AGENT_REPORT_HISTORY_SIZE,
+} from './agent-report-router.service';
+export type {
+  AgentReportDelivery,
+  AgentReportInput,
+  AgentReportRefusalReason,
+} from './agent-report-router.service';
 export * from './cli-adapters';
 export {
   createContainerHarnessCliDetector,

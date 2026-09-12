@@ -73,6 +73,8 @@ interface PtahCliRegistryLike {
       parentSessionId?: string;
       modelTier?: 'opus' | 'sonnet' | 'haiku';
       model?: string;
+      /** Reserved agent id — rides the spawn's MCP URL as `/agent/{id}`. */
+      agentId?: string;
     },
   ): Promise<
     | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
@@ -104,6 +106,26 @@ export interface AgentNamespaceDependencies {
   getPreferredAgentOrder?: () => string[];
   /** Resolves a tab ID to its real SDK session UUID. Used for MCP session threading. */
   resolveSessionId?: (tabIdOrSessionId: string) => string;
+  /**
+   * Deliver a child agent's report to the session that spawned it
+   * (TASK_2026_402, Component 7). Structural rather than a concrete type so
+   * this lib keeps depending on `cli-agent-runtime`'s barrel only for types.
+   *
+   * Optional because a host that never registered `cli-agent-runtime`'s
+   * container has no router to resolve. The resolver in
+   * `ptah-api-builder.service.ts` supplies a function that throws a NAMED
+   * error in that case — absent wiring must be a clear error, never a silent
+   * no-op that reports a delivery nobody made.
+   */
+  deliverAgentReport?: (input: {
+    agentId: string;
+    message: string;
+    summary?: string;
+  }) => Promise<{
+    delivered: boolean;
+    reason?: string;
+    parentSessionId?: string;
+  }>;
 }
 
 /**
@@ -149,6 +171,13 @@ export function buildAgentNamespace(
         }
         const workingDirectory = request.workingDirectory ?? getWorkspaceRoot();
 
+        // ONE id, minted once, before the handle exists (TASK_2026_402).
+        // `spawnFromSdkHandle` would otherwise mint it AFTER the handle — and
+        // therefore after the MCP URL baked into that handle — so the URL could
+        // never name the record. Reserving here and passing the same value to
+        // both is what lets the child's `/agent/{id}` segment be true.
+        const agentId = agentProcessManager.reserveAgentId();
+
         const result = await registry.spawnAgent(
           request.ptahCliId,
           request.task,
@@ -159,6 +188,7 @@ export function buildAgentNamespace(
             parentSessionId: activeSessionId,
             modelTier: request.modelTier,
             model: request.model,
+            agentId,
           },
         );
         if ('status' in result) {
@@ -180,6 +210,7 @@ export function buildAgentNamespace(
             ptahCliId: request.ptahCliId,
             timeout: request.timeout,
             resumeSessionId: request.resumeSessionId,
+            agentId,
           },
         );
         result.setAgentId(spawnResult.agentId);

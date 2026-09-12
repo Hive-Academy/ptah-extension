@@ -36,6 +36,19 @@ export interface MCPRequest {
    * whose `.mcp.json` entry carries a workspace-scoped URL.
    */
   _callerWorkspaceRoot?: string;
+
+  /**
+   * Caller's SPAWNED-AGENT id extracted from the MCP URL path
+   * (`/agent/{encodeURIComponent(agentId)}`), stamped by
+   * `http-server.handler.ts` (TASK_2026_402).
+   *
+   * This is the only identity a spawned agent has, and it is deliberately not
+   * something the agent can supply: `ptah_agent_report` takes no `agentId`
+   * argument, so a child cannot report on another child's behalf. Absent means
+   * "unattributed caller" — the report is refused with that reason rather than
+   * attributed to a guess.
+   */
+  _callerAgentId?: string;
 }
 
 /**

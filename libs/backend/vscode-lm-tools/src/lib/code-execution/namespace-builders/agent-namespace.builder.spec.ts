@@ -36,6 +36,7 @@ import {
 interface ProcessManagerMock {
   spawn: jest.Mock;
   spawnFromSdkHandle: jest.Mock;
+  reserveAgentId: jest.Mock;
   getStatus: jest.Mock;
   readOutput: jest.Mock;
   sendToAgent: jest.Mock;
@@ -55,6 +56,9 @@ function createProcessManager(): ProcessManagerMock {
   return {
     spawn: jest.fn(),
     spawnFromSdkHandle: jest.fn(),
+    // One id per spawn, minted BEFORE the handle exists (TASK_2026_402), so
+    // the handle's MCP URL can carry it.
+    reserveAgentId: jest.fn().mockReturnValue('reserved-1'),
     getStatus: jest.fn(),
     readOutput: jest.fn(),
     sendToAgent: jest.fn().mockResolvedValue({ mode: 'queue-next-turn' }),
@@ -291,7 +295,17 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
     expect(mocks.registry!.spawnAgent).toHaveBeenCalledWith(
       'agent-a',
       'task body',
-      expect.objectContaining({ workingDirectory: 'D:/ws' }),
+      expect.objectContaining({
+        workingDirectory: 'D:/ws',
+        agentId: 'reserved-1',
+      }),
+    );
+    // The SAME reserved id reaches the tracker, so the record and the child's
+    // `/agent/{id}` URL cannot disagree.
+    expect(mocks.processManager.reserveAgentId).toHaveBeenCalledTimes(1);
+    expect(mocks.processManager.spawnFromSdkHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ agentId: 'reserved-1' }),
     );
     expect(setAgentId).toHaveBeenCalledWith('spawned-1');
   });

@@ -35,7 +35,9 @@ import {
   getProviderAuthEnvVar,
   seedStaticModelPricing,
   buildSafeEnv,
-  buildFlagSettings,
+  buildFlagSettingsArg,
+  buildSessionName,
+  deriveWorkspaceLabel,
   type AnthropicProvider,
   type IHarnessPreflight,
   type ModelTier,
@@ -570,6 +572,14 @@ export class PtahCliRegistry {
       /** Raw provider model id override (spawn-scoped). Wins over selectedModel and tier.
        *  Does NOT mutate the persisted agent config. */
       model?: string;
+      /**
+       * The agent id `AgentProcessManager` reserved for this spawn
+       * (TASK_2026_402). Threaded into the MCP URL as `/agent/{id}` so the MCP
+       * server can attribute this child's `ptah_agent_report` calls, and used
+       * as the uniqueness suffix of the session `--name`. Absent leaves both
+       * exactly as they were.
+       */
+      agentId?: string;
     },
   ): Promise<
     | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
@@ -653,6 +663,7 @@ export class PtahCliRegistry {
         // parent's — see `PtahSpawnSessionContext.ownSessionId`.
         ownSessionId: options?.resumeSessionId,
       },
+      options?.agentId,
     );
     const {
       outputCallbacks,
@@ -697,6 +708,41 @@ export class PtahCliRegistry {
       }
     };
 
+    // A session with no `--name` gets a CLI-derived one, which is what ANOTHER
+    // agent sees when it lists sessions — unstable and unhelpful there. The
+    // chat path composes its own name through the same builder; this is the
+    // spawn path's half of it (TASK_2026_402 Req 1.2). The uniqueness suffix is
+    // the reserved agent id, which is unique per spawn; the agent's configured
+    // name is user DATA and is slugified by the builder like any other input.
+    const extraArgs: Record<string, string | null> = {};
+    const sessionName = buildSessionName({
+      role: agentConfig.name,
+      workspaceLabel: deriveWorkspaceLabel(cwd),
+      uniqueSuffix: (options?.agentId ?? '').slice(0, 6),
+    });
+    if (sessionName) {
+      extraArgs['name'] = sessionName;
+    } else if (options?.agentId) {
+      // An id WAS reserved and the name still would not compose, so the inputs
+      // sanitised to nothing. That is a naming problem worth seeing — but it
+      // must never cost the session, hence the omission rather than a throw.
+      this.logger.warn(
+        '[PtahCliRegistry] Could not compose a session name — spawning without ' +
+          '--name, so the CLI derives one',
+        { agentConfigId: id },
+      );
+    } else {
+      // No id was reserved, which is simply a caller that does not go through
+      // `buildAgentNamespace.spawn` (the resume path is one). Nothing is wrong
+      // — there is just no uniqueness to build a stable name from — so this is
+      // `debug`, not a warning about a misconfiguration that does not exist.
+      this.logger.debug(
+        '[PtahCliRegistry] No reserved agent id for this spawn — the CLI ' +
+          'derives the session name',
+        { agentConfigId: id },
+      );
+    }
+
     const sdkQuery = queryFn({
       prompt: mailbox.prompt,
       options: {
@@ -731,10 +777,20 @@ export class PtahCliRegistry {
         // Auto-compaction keys ride the same builder: the pinned runtime reads
         // `autoCompactEnabled` / `autoCompactWindow` from this flag tier, and
         // there is no `Options.compactionControl` (see auto-compact-control.ts).
-        settings: buildFlagSettings(
+        // Serialized through `buildFlagSettingsArg` rather than
+        // `buildFlagSettings` so `crossSessionInbound: 'accept'` can ride
+        // along: the installed `Settings` interface models no such key, and
+        // `accept` is what makes a turn injected by a peer session ARRIVE
+        // instead of being held until it expires (TASK_2026_402 Req 1.1). The
+        // chat path already sends it; without it here, only half the fleet
+        // could receive one.
+        settings: buildFlagSettingsArg(
           { outputStyleName: assembly.outputStyleName },
+          'accept',
+          this.logger,
           assembly.autoCompact,
         ),
+        extraArgs,
         ...this.resolvePermissionOptions(
           blankToUndefined(options?.resumeSessionId) ??
             blankToUndefined(options?.parentSessionId) ??

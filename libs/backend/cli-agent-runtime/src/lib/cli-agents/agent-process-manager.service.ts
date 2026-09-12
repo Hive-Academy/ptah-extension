@@ -513,6 +513,11 @@ export class AgentProcessManager {
       systemPrompt: request.systemPrompt,
       reasoningEffort: this.resolveReasoningEffort(cli),
       autoApprove: this.resolveAutoApprove(cli),
+      // Minted above, BEFORE the CLI is asked to build its MCP config, so the
+      // `/agent/{id}` segment of the URL names this exact record
+      // (TASK_2026_402). The rival-CLI path needs no extra plumbing for this —
+      // the id already exists by the time `runSdk` is called.
+      agentId,
     });
     const initialCliSessionId = sdkHandle.getSessionId?.();
     const infoWithSession = initialCliSessionId
@@ -550,13 +555,25 @@ export class AgentProcessManager {
       /** Resume session ID. Pre-sets cliSessionId on the agent:spawned event
        *  so the frontend can deduplicate agent cards by CLI session. */
       resumeSessionId?: string;
+      /**
+       * The id this record must take, reserved by the caller with
+       * {@link reserveAgentId} (TASK_2026_402).
+       *
+       * Unlike `doSpawnSdk`, this method receives a handle that has ALREADY
+       * been built — and with it the MCP URL the child will call back on. If
+       * the id were minted here it would be minted after the URL, so the URL
+       * could never carry it. The caller therefore reserves one id and hands
+       * it to both the handle builder and this method, so the record and the
+       * URL agree.
+       */
+      agentId?: AgentId;
     },
   ): Promise<SpawnAgentResult> {
     await this.reserveSpawnSlot();
     try {
       await this.validateWorkingDirectory(meta.workingDirectory);
 
-      const agentId = AgentId.create();
+      const agentId = meta.agentId ?? AgentId.create();
       const startedAt = new Date().toISOString();
 
       const info: AgentProcessInfo = {
@@ -909,6 +926,60 @@ export class AgentProcessManager {
    */
   listTrackedAgents(): AgentProcessInfo[] {
     return Array.from(this.agents.values()).map((t) => ({ ...t.info }));
+  }
+
+  /**
+   * Reserve an agent id BEFORE anything that needs to embed it exists.
+   *
+   * `doSpawnSdk` mints its id before it calls `runSdk`, so the adapter can put
+   * it in the MCP URL. `spawnFromSdkHandle` cannot: it is handed a finished
+   * handle whose MCP URL was decided when the handle was built. Its caller
+   * therefore reserves the id here and passes the SAME value to the handle
+   * builder and to `spawnFromSdkHandle`'s `meta.agentId`, so exactly one id is
+   * minted per spawn and the URL names the record that will exist
+   * (TASK_2026_402).
+   *
+   * Reserving does not register anything: an id that is never spawned simply
+   * goes unused.
+   */
+  reserveAgentId(): AgentId {
+    return AgentId.create();
+  }
+
+  /**
+   * Unscoped, non-throwing lookup of one tracked record.
+   *
+   * Used by {@link AgentReportRouter} to resolve the parent of the agent the
+   * MCP URL named. It is deliberately NOT `getStatus`: that method is the
+   * caller-facing view and is scoped to the calling MCP request's workspace,
+   * and it throws. Here the "caller" IS the agent being looked up — it is
+   * reporting about itself, from its own working directory — so a workspace
+   * scope would only ever reject the agent's own record, and a throw would
+   * turn a refusal that must carry a reason into an exception.
+   */
+  findAgentInfo(agentId: string): AgentProcessInfo | undefined {
+    const tracked = this.agents.get(agentId);
+    return tracked ? { ...tracked.info } : undefined;
+  }
+
+  /**
+   * Write one synthetic segment onto this agent's own output stream, so a user
+   * watching the tile rather than the chat sees what the agent did
+   * (TASK_2026_402, Req 6.4).
+   *
+   * It rides the EXISTING `AgentOutputDelta` path — the same accumulate /
+   * throttled-flush funnel every adapter segment takes, broadcast to the tile
+   * at `wiring/agent-events.ts`. There is no new event, no new frontend
+   * plumbing, and no second broadcast channel to keep in step.
+   *
+   * Unknown agent is a silent no-op ON PURPOSE: the only caller already
+   * resolved the record and only writes the note after a delivery it made, so
+   * the record disappearing in between is a lifecycle race, not a failure to
+   * report.
+   */
+  recordAgentNote(agentId: string, segment: CliOutputSegment): void {
+    if (!this.agents.has(agentId)) return;
+    this.accumulateSegment(agentId, segment);
   }
 
   /**

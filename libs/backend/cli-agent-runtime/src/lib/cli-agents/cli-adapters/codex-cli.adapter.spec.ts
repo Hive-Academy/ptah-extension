@@ -1150,6 +1150,26 @@ describe('CodexCliAdapter', () => {
       });
     });
 
+    it('leads the MCP URL with /agent/{id} when one was reserved', async () => {
+      setupMockEvents([]);
+
+      await adapter.runSdk({
+        task: 'Task',
+        workingDirectory: '/project',
+        mcpPort: 51820,
+        agentId: 'agent-7',
+      });
+
+      // The agent segment is how the server learns WHICH spawn is calling
+      // (TASK_2026_402) — the child never names itself.
+      const config = mockCodexConstructor.mock.calls[0][0].config;
+      expect(config.mcp_servers).toEqual({
+        ptah: {
+          url: 'http://localhost:51820/agent/agent-7/workspace/%2Fproject',
+        },
+      });
+    });
+
     it('sets neither key when no MCP port is available', async () => {
       setupMockEvents([]);
 

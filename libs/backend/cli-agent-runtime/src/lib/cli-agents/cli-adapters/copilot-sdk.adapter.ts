@@ -337,7 +337,11 @@ export class CopilotSdkAdapter implements CliAdapter {
               // Scoped to the spawn's working directory so the server
               // attributes this agent's calls to the right workspace
               // (TASK_2026_364).
-              url: ptahMcpServerUrl(options.mcpPort, options.workingDirectory),
+              url: ptahMcpServerUrl(
+                options.mcpPort,
+                options.workingDirectory,
+                options.agentId,
+              ),
             },
           },
         });

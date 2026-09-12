@@ -335,6 +335,7 @@ export class CursorCliAdapter implements CliAdapter {
                 url: ptahMcpServerUrl(
                   options.mcpPort,
                   options.workingDirectory,
+                  options.agentId,
                 ),
               },
             };

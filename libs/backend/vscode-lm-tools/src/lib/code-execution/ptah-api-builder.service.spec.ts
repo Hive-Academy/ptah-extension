@@ -179,6 +179,12 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
   McpInstallService: class McpInstallServiceStub {},
   SmitheryRegistrySource: class SmitheryRegistrySourceStub {},
   SkillsShApiClient: class SkillsShApiClientStub {},
+  // A VALUE, not a type: the constructor's `@inject` decorator dereferences
+  // `CLI_AGENT_RUNTIME_TOKENS.AGENT_REPORT_ROUTER` at class-definition time,
+  // so the mocked barrel has to carry it (TASK_2026_402).
+  CLI_AGENT_RUNTIME_TOKENS: {
+    AGENT_REPORT_ROUTER: Symbol.for('AgentReportRouter'),
+  },
 }));
 
 import * as namespaceBuilders from './namespace-builders';
@@ -350,6 +356,7 @@ function buildTestBuilder(
     undefined, // authSecretsService
     undefined, // taskWriter
     undefined, // taskIndex
+    undefined, // agentReportRouter
     // diagnosticsCacheInvalidator — required, and started by the constructor.
     // This suite is about namespace root resolution, so the collaborator is a
     // stub; the subscription itself is covered by

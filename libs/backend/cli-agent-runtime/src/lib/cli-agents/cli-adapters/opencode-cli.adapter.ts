@@ -379,6 +379,7 @@ export class OpencodeCliAdapter implements CliAdapter {
   private buildMcpConfigContent(
     port: number,
     workingDirectory: string,
+    agentId?: string,
   ): string {
     return JSON.stringify({
       mcp: {
@@ -386,7 +387,7 @@ export class OpencodeCliAdapter implements CliAdapter {
           type: 'remote',
           // Scoped to the spawn's working directory so the server attributes
           // this agent's calls to the right workspace (TASK_2026_364).
-          url: ptahMcpServerUrl(port, workingDirectory),
+          url: ptahMcpServerUrl(port, workingDirectory, agentId),
           enabled: true,
         },
       },
@@ -445,6 +446,7 @@ export class OpencodeCliAdapter implements CliAdapter {
       env['OPENCODE_CONFIG_CONTENT'] = this.buildMcpConfigContent(
         options.mcpPort,
         options.workingDirectory,
+        options.agentId,
       );
     }
 

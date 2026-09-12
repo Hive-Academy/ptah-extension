@@ -536,4 +536,76 @@ describe('HTTP request handling', () => {
     const call = onMCPRequest.mock.calls[0][0];
     expect(call._callerWorkspaceRoot).toBe('ws-x');
   });
+
+  // --- /agent/{id} — spawned-agent identity (TASK_2026_402) ----------------
+
+  it('stamps both fields from /agent/{id}/workspace/{root} — the only combined order', async () => {
+    const windowsRoot = 'D:\\projects\\ptah-extension';
+    await fetchPath(
+      port,
+      'POST',
+      `/agent/agent-abc/workspace/${encodeURIComponent(windowsRoot)}`,
+      toolsCallBody,
+    );
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerAgentId).toBe('agent-abc');
+    expect(call._callerWorkspaceRoot).toBe(windowsRoot);
+    // A spawned agent carries no session id — the two leading kinds are
+    // mutually exclusive.
+    expect(call._callerSessionId).toBeUndefined();
+  });
+
+  it('stamps _callerAgentId from an agent-only URL', async () => {
+    await fetchPath(port, 'POST', '/agent/agent-abc', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerAgentId).toBe('agent-abc');
+    expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
+
+  it('URL-decodes an agent id containing encoded separators', async () => {
+    await fetchPath(
+      port,
+      'POST',
+      `/agent/${encodeURIComponent('a/b?c')}/workspace/ws-x`,
+      toolsCallBody,
+    );
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerAgentId).toBe('a/b?c');
+    expect(call._callerWorkspaceRoot).toBe('ws-x');
+  });
+
+  it('does not stamp _callerAgentId when the URL carries no /agent/ prefix', async () => {
+    await fetchPath(port, 'POST', '/workspace/ws-x', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerAgentId).toBeUndefined();
+  });
+
+  it('REJECTS the reversed order /workspace/{root}/agent/{id} entirely', async () => {
+    // Neither field parses: the agent segment is not leading and the workspace
+    // segment is not terminal. Half-parsing this shape would hand
+    // `ptah_agent_report` an identity the URL grammar never sanctioned.
+    await fetchPath(
+      port,
+      'POST',
+      '/workspace/ws-x/agent/agent-abc',
+      toolsCallBody,
+    );
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerAgentId).toBeUndefined();
+    expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
+
+  it('REJECTS an agent segment behind an unknown prefix', async () => {
+    await fetchPath(port, 'POST', '/other/agent/agent-abc', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerAgentId).toBeUndefined();
+  });
+
+  it('REJECTS /agent/{id}/session/{id} — the session segment must lead', async () => {
+    await fetchPath(port, 'POST', '/agent/agent-abc/session/tab-x', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerAgentId).toBe('agent-abc');
+    expect(call._callerSessionId).toBeUndefined();
+    expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
 });
