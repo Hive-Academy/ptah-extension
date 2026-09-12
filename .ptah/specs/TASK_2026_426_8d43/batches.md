@@ -117,8 +117,9 @@ settle them.
 > `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`. The indivisibility
 > conclusion stands.
 
-The plan's "FOUR registration sites" claim is correct, and so is its corollary
-that a partial registration fails CI rather than failing at runtime. Measured:
+The count is FIVE, not four — see the correction above. The plan's corollary
+holds either way: a partial registration fails CI rather than failing at
+runtime. Measured:
 
 - `libs/backend/rpc-handlers/src/lib/rpc-allowlist.spec.ts:42` calls
   `assertManifestInvariants(RPC_METHOD_NAMES)`.
@@ -204,9 +205,12 @@ covered through the badge spec, as the plan intends.
 
 ### Assumptions
 
-- **The four registration sites are exactly four, and `ALLOWED_METHOD_PREFIXES`
-  needs no edit.** — VERIFIED above against `manifest.ts`, `rpc-allowlist.spec.ts`
-  and `rpc-handler.ts:81`. No further check needed.
+- **The registration sites are exactly four, and `ALLOWED_METHOD_PREFIXES` needs
+  no edit.** — HALF WRONG, corrected during batch 1. The prefix indeed needs no
+  edit, but the count is FIVE: `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`
+  holds an exhaustive expected-absent list and went red until the new method was
+  added to it. The four verified against `manifest.ts`, `rpc-allowlist.spec.ts`
+  and `rpc-handler.ts:81` were real; the fifth was simply not looked for.
 - **Every project alias in the verification commands resolves.** — VERIFIED:
   `@ptah-extension/shared`, `@ptah-extension/rpc-handlers`,
   `@ptah-extension/agent-generation`, `@ptah-extension/core`,
