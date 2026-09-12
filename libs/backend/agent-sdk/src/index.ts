@@ -278,4 +278,25 @@ export {
   type WireSessionMetadataEventsContext,
   type SessionMetadataEventPlatform,
 } from './lib/wiring/session-metadata-events';
+export {
+  MAX_PEER_MESSAGE_LENGTH,
+  PEER_SEND_ACCEPTANCE_CAVEAT,
+  PeerSessionDirectory,
+  PeerSessionMessenger,
+  PeerSessionRecordSchema,
+  ProcessStartTimeProbe,
+  composePeerMessageRequest,
+  currentPidDomain,
+  decodeStartFingerprint,
+  peerSessionRegistryDirectory,
+  recordStartFingerprint,
+  resolveName,
+  resolveUnreachableReason,
+  scanPeerSessionRegistry,
+  type PeerMessageTarget,
+  type PeerSessionListOptions,
+  type PeerSessionRecord,
+  type PeerSessionSendInput,
+} from './lib/peer-sessions';
+
 export const AGENT_SDK_VERSION = '0.0.1';

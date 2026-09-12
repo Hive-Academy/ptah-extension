@@ -78,6 +78,9 @@ export class SessionTitleService {
       });
       return true;
     } catch (error: unknown) {
+      // degradation-audit: reported - the failure is logged at warn below and
+      // retitle() returns false by contract; a session title is a convenience,
+      // and Ptah's own metadata rename has already succeeded by this point.
       this.logger.warn(
         '[SessionTitleService] Could not update the session title — the ' +
           "rename of Ptah's own session metadata is unaffected",

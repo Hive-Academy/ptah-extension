@@ -149,6 +149,19 @@ export const SDK_TOKENS = {
   SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionMcpStatusCallbackRegistry',
   ),
+  /**
+   * The list of OTHER Claude Code sessions this user can reach, read from the
+   * CLI's own `~/.claude/sessions` registry (TASK_2026_402, Task 10.2). Not
+   * Ptah bookkeeping: Ptah does not know about sessions it did not start, and
+   * those are the ones this answers for.
+   */
+  SDK_PEER_SESSION_DIRECTORY: Symbol.for('SdkPeerSessionDirectory'),
+  /**
+   * Addressing one of those sessions (TASK_2026_402, Task 10.3). Reports
+   * ACCEPTANCE by the transport and never delivery — see
+   * `peer-session-messenger.service.ts`.
+   */
+  SDK_PEER_SESSION_MESSENGER: Symbol.for('SdkPeerSessionMessenger'),
 } as const;
 
 /**

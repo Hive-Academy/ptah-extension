@@ -34,6 +34,8 @@ export * from './rpc/rpc-output-style.types';
 
 export * from './rpc/rpc-plugin-marketplace.types';
 
+export * from './rpc/rpc-peer-session.types';
+
 import type {
   ExternalInstallParams,
   ExternalInstallResponse,
@@ -602,6 +604,12 @@ import type {
   OutputStyleDiagnoseParams,
   OutputStyleDiagnoseResult,
 } from './rpc/rpc-output-style.types';
+import type {
+  PeerSessionListParams,
+  PeerSessionListResult,
+  PeerSessionSendParams,
+  PeerSessionSendResult,
+} from './rpc/rpc-peer-session.types';
 
 /**
  * RPC Method Registry
@@ -2092,6 +2100,14 @@ export interface RpcMethodRegistry {
   'outputStyle:diagnose': {
     params: OutputStyleDiagnoseParams;
     result: OutputStyleDiagnoseResult;
+  };
+  'peerSession:list': {
+    params: PeerSessionListParams;
+    result: PeerSessionListResult;
+  };
+  'peerSession:send': {
+    params: PeerSessionSendParams;
+    result: PeerSessionSendResult;
   };
 }
 
@@ -3699,6 +3715,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'outputStyle:save': true,
   'outputStyle:delete': true,
   'outputStyle:diagnose': true,
+
+  'peerSession:list': true,
+  'peerSession:send': true,
 };
 
 /**

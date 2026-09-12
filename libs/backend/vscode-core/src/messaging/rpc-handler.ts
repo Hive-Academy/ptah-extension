@@ -86,6 +86,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'update:', // Desktop update dialog (get-state, check-now, mark-downloaded)
   'tasks:', // Task specs board (list, get, create, updateStatus, generateRegistry, board, reindex)
   'boot:', // Boot readiness probe (getReadiness) — the renderer's first read
+  'peerSession:', // Other Claude Code sessions on this machine (list, send)
 ] as const;
 
 export const RPC_SLOW_WARN_MS_ENV = 'PTAH_RPC_SLOW_WARN_MS';

@@ -83,6 +83,10 @@ import {
   SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
+import {
+  PeerSessionDirectory,
+  PeerSessionMessenger,
+} from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
@@ -536,6 +540,18 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_AGENT_ADAPTER,
     { useClass: SdkAgentAdapter },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PEER_SESSION_DIRECTORY,
+    { useClass: PeerSessionDirectory },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PEER_SESSION_MESSENGER,
+    { useClass: PeerSessionMessenger },
     { lifecycle: Lifecycle.Singleton },
   );
 

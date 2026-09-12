@@ -28,6 +28,7 @@ import {
   AgentRpcHandlers,
   AuthRpcHandlers,
   BootRpcHandlers,
+  PeerSessionRpcHandlers,
   AutocompleteRpcHandlers,
   ChatRpcHandlers,
   CommandRpcHandlers,
@@ -116,6 +117,18 @@ export const RPC_HANDLER_MANIFEST = [
     methods: BootRpcHandlers.METHODS,
     requires: [],
     handler: BootRpcHandlers,
+  },
+  {
+    // `requires: []` on purpose. Both methods read the Claude CLI's own
+    // per-user session registry under the home directory — no host port, no
+    // capability to gate. A host that cannot compose the relay turn learns so
+    // from `peerSession:send`'s `chat-runtime-unavailable` refusal, which is
+    // an honest answer; switching the whole namespace off would instead hide
+    // the list, which is useful on every host.
+    key: 'peerSession',
+    methods: PeerSessionRpcHandlers.METHODS,
+    requires: [],
+    handler: PeerSessionRpcHandlers,
   },
   {
     key: 'autocomplete',
