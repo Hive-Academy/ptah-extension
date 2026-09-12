@@ -10,13 +10,18 @@ export { SkillClonesViewComponent } from './lib/components/clones/skill-clones-v
 export { CloneCardComponent } from './lib/components/clones/clone-card.component';
 export { CloneDetailDrawerComponent } from './lib/components/clones/clone-detail-drawer.component';
 export type {
+  CloneBodySaveRequest,
   CloneHistoryDiff,
   CloneHistoryRequest,
 } from './lib/components/clones/clone-detail-drawer.component';
+export { CloneBodyEditorComponent } from './lib/components/clones/clone-body-editor.component';
 export { EnhancePreviewDrawerComponent } from './lib/components/clones/enhance-preview-drawer.component';
 export {
+  BULK_REBASE_EXPLANATION,
+  canEditCloneBody,
   cloneActionModel,
   cloneStatusLabel,
+  eligibleForBulkRebase,
   hasUpstreamSource,
   KEEP_MINE_EXPLANATION,
   REBASE_EXPLANATION,
@@ -31,5 +36,10 @@ export { SkillSynthesisRpcService } from './lib/services/skill-synthesis-rpc.ser
 export { SkillSynthesisStateService } from './lib/services/skill-synthesis-state.service';
 export { SkillSynthesisLiveService } from './lib/services/skill-synthesis-live.service';
 export { SkillClonesStateService } from './lib/services/skill-clones-state.service';
+export { CloneBulkRebaseService } from './lib/services/clone-bulk-rebase.service';
+export type {
+  BulkRebaseOutcome,
+  BulkRebaseProgress,
+} from './lib/services/clone-bulk-rebase.service';
 export type { SkillStatusFilter } from './lib/services/skill-synthesis-state.service';
 export type { SkillCloneDetail } from './lib/services/skill-clones-state.service';

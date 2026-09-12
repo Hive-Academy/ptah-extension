@@ -1,12 +1,16 @@
 import type { CloneSummary } from '@ptah-extension/shared';
 
 import {
+  BULK_REBASE_EXPLANATION,
+  canEditCloneBody,
   cloneActionModel,
   cloneStatusLabel,
+  eligibleForBulkRebase,
   formatHistoryTimestamp,
   formatSuccessRate,
   hasUpstreamSource,
   KEEP_MINE_EXPLANATION,
+  REBASE_EXPLANATION,
 } from './clone-action-gating';
 
 const NOW = Date.UTC(2026, 0, 1, 12, 0, 0);
@@ -156,6 +160,95 @@ describe('hasUpstreamSource', () => {
     ['synth', false],
   ] as const)('%s -> %s', (cloneStatus, expected) => {
     expect(hasUpstreamSource(clone({ cloneStatus }))).toBe(expected);
+  });
+});
+
+describe('eligibleForBulkRebase', () => {
+  const diverged = (overrides: Partial<CloneSummary> = {}): CloneSummary =>
+    clone({ diverged: true, cloneStatus: 'diverged', ...overrides });
+
+  it('keeps a diverged plugin clone of the requested kind', () => {
+    const entry = diverged({ slug: 'a' });
+    expect(eligibleForBulkRebase([entry], 'skill')).toEqual([entry]);
+  });
+
+  it('INCLUDES an entry whose `orphaned` flag is undefined', () => {
+    // The `=== true` trap. `orphaned` is optional; `undefined` means the
+    // producer never read the sidecars, not "this clone is orphaned".
+    const entry = diverged({ slug: 'no-flag' });
+    expect(entry.orphaned).toBeUndefined();
+    expect(eligibleForBulkRebase([entry], 'skill')).toEqual([entry]);
+  });
+
+  it('includes an entry whose `orphaned` flag is explicitly false', () => {
+    const entry = diverged({ slug: 'not-orphaned', orphaned: false });
+    expect(eligibleForBulkRebase([entry], 'skill')).toEqual([entry]);
+  });
+
+  it('excludes an orphaned entry — there is no upstream left to rebase onto', () => {
+    const entry = diverged({ slug: 'orphan', orphaned: true });
+    expect(eligibleForBulkRebase([entry], 'skill')).toEqual([]);
+  });
+
+  it('excludes authored and synth entries — the backend cannot resolve an upstream', () => {
+    const authored = diverged({ slug: 'mine', cloneStatus: 'authored' });
+    const synth = diverged({ slug: 'synthesised', cloneStatus: 'synth' });
+    expect(eligibleForBulkRebase([authored, synth], 'skill')).toEqual([]);
+  });
+
+  it('excludes a non-diverged entry', () => {
+    expect(eligibleForBulkRebase([clone({ diverged: false })], 'skill')).toEqual(
+      [],
+    );
+  });
+
+  it('excludes entries of another kind', () => {
+    const agent = diverged({ slug: 'planner', kind: 'agent' });
+    expect(eligibleForBulkRebase([agent], 'skill')).toEqual([]);
+    expect(eligibleForBulkRebase([agent], 'agent')).toEqual([agent]);
+  });
+
+  it('returns an empty array for an empty list rather than throwing', () => {
+    expect(eligibleForBulkRebase([], 'command')).toEqual([]);
+  });
+
+  it('filters a mixed list down to exactly the eligible members', () => {
+    const ok1 = diverged({ slug: 'ok-1' });
+    const ok2 = diverged({ slug: 'ok-2', orphaned: false });
+    const out = eligibleForBulkRebase(
+      [
+        ok1,
+        diverged({ slug: 'orphan', orphaned: true }),
+        diverged({ slug: 'authored', cloneStatus: 'authored' }),
+        clone({ slug: 'clean' }),
+        diverged({ slug: 'other-kind', kind: 'command' }),
+        ok2,
+      ],
+      'skill',
+    );
+    expect(out.map((c) => c.slug)).toEqual(['ok-1', 'ok-2']);
+  });
+});
+
+describe('canEditCloneBody', () => {
+  it('allows editing once a body has been loaded', () => {
+    expect(canEditCloneBody(clone(), '# body')).toBe(true);
+    expect(canEditCloneBody(clone(), '')).toBe(true);
+  });
+
+  it('refuses while the body is null — there is nothing to seed the draft from', () => {
+    expect(canEditCloneBody(clone(), null)).toBe(false);
+  });
+});
+
+describe('BULK_REBASE_EXPLANATION', () => {
+  it('composes the canonical rebase sentence rather than restating it', () => {
+    expect(BULK_REBASE_EXPLANATION.startsWith(REBASE_EXPLANATION)).toBe(true);
+  });
+
+  it('states that the batch is per-entry and survives an individual failure', () => {
+    expect(BULK_REBASE_EXPLANATION).toContain('every eligible entry');
+    expect(BULK_REBASE_EXPLANATION).toContain('keeps going');
   });
 });
 

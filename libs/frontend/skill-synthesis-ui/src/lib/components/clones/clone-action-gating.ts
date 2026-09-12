@@ -23,7 +23,11 @@
  * `authored` and `synth` entries can never be rebased and must never be offered
  * the action.
  */
-import type { CloneSummary, SkillCloneStatus } from '@ptah-extension/shared';
+import type {
+  CloneSummary,
+  SkillCloneKind,
+  SkillCloneStatus,
+} from '@ptah-extension/shared';
 
 /** Availability of one card action plus the reason when it is unavailable. */
 export interface CloneActionState {
@@ -70,6 +74,18 @@ export const REBASE_EXPLANATION =
   'Rebase replaces your local copy with the current upstream version. ' +
   'The pre-rebase body is snapshotted to history first, so it can be reverted.';
 
+/**
+ * What "Rebase all diverged" does, for the bulk confirmation surface.
+ *
+ * Composed from {@link REBASE_EXPLANATION} rather than restated: there is one
+ * canonical sentence for what a rebase costs, and the batch only adds the fact
+ * that it happens once per entry, sequentially.
+ */
+export const BULK_REBASE_EXPLANATION =
+  REBASE_EXPLANATION +
+  ' This runs once for every eligible entry in this kind, one at a time, and ' +
+  'keeps going if an individual entry fails.';
+
 const NO_UPSTREAM_NOTE: Partial<Record<SkillCloneStatus, string>> = {
   authored:
     'Authored here — this entry has no upstream source, so there is nothing ' +
@@ -85,6 +101,51 @@ const NO_UPSTREAM_NOTE: Partial<Record<SkillCloneStatus, string>> = {
  */
 export function hasUpstreamSource(clone: CloneSummary): boolean {
   return clone.cloneStatus === 'clone' || clone.cloneStatus === 'diverged';
+}
+
+/**
+ * The clones of ONE kind that a bulk rebase may act on.
+ *
+ * Deliberately derived here rather than spelled out in a template, so the bulk
+ * control and the per-card Rebase button can never disagree about what is
+ * eligible. Four conditions, all necessary:
+ *
+ * - `kind` matches the visible tab — the confirmation names a count the user
+ *   can see, and a control that acts on off-screen rows is a trap.
+ * - `diverged` — there is nothing to rebase onto otherwise.
+ * - `orphaned !== true` — an orphan HAS no upstream any more. Compared against
+ *   `true` explicitly: `CloneSummary.orphaned` is optional and `undefined`
+ *   means "this producer did not read the sidecars", which must be treated as
+ *   "not orphaned" (see the contract note on the field).
+ * - {@link hasUpstreamSource} — `authored` / `synth` entries have no
+ *   `originPluginId`, so `skillSynthesis:rebaseClone` answers
+ *   `Cannot resolve upstream source`. Firing those calls is the doomed-batch
+ *   bug.
+ */
+export function eligibleForBulkRebase(
+  clones: readonly CloneSummary[],
+  kind: SkillCloneKind,
+): CloneSummary[] {
+  return clones.filter(
+    (c) =>
+      c.kind === kind &&
+      c.diverged &&
+      c.orphaned !== true &&
+      hasUpstreamSource(c),
+  );
+}
+
+/**
+ * Whether the drawer may offer the body editor for this entry.
+ *
+ * A loaded body is required: the editor seeds its draft from it, and seeding
+ * from `null` would let a Save overwrite the file with text the user never saw.
+ */
+export function canEditCloneBody(
+  clone: CloneSummary,
+  body: string | null,
+): boolean {
+  return body !== null;
 }
 
 /** The status word shown on the card: divergence outranks the stored status. */
