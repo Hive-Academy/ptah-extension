@@ -12,7 +12,6 @@ import {
   SessionForkResult,
   SessionRewindResult,
   MessageAnchorHint,
-  FileOpenResult,
   MESSAGE_TYPES,
   SubagentQueryResult,
   SubagentCommandResult,
@@ -273,19 +272,6 @@ export class ClaudeRpcService implements MessageHandler {
     sessionId: SessionId,
   ): Promise<RpcResult<SessionLoadResult>> {
     return this.call('session:load', { sessionId });
-  }
-
-  /**
-   * Open a file in VS Code editor
-   * @param path - Absolute file path to open
-   * @param line - Optional line number to navigate to
-   * @returns Promise that resolves when file is opened
-   */
-  async openFile(
-    path: string,
-    line?: number,
-  ): Promise<RpcResult<FileOpenResult>> {
-    return this.call('file:open', { path, line });
   }
 
   /**

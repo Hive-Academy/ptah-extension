@@ -141,7 +141,9 @@ test.describe('read-only file tabs', () => {
     await expect(
       mainWindow.locator('[data-testid="file-view-editor"]'),
     ).not.toHaveClass(/invisible/);
-    await mainWindow.getByRole('button', { name: 'Close readme.md' }).click();
+    await mainWindow
+      .getByRole('button', { name: 'Close file readme.md' })
+      .click();
     await expect(
       mainWindow.getByRole('tab', { name: 'alpha.ts' }),
     ).toHaveAttribute('aria-selected', 'true');

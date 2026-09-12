@@ -16,6 +16,9 @@ import { SubagentTranscriptViewerService } from '../../services/subagent-transcr
 @Component({
   selector: 'ptah-subagent-transcript-overlay',
   standalone: true,
+  // Agent-output surface (subagent transcript markdown). No tab marker: the
+  // overlay is opened from a store and carries no session tab.
+  host: { 'data-ptah-file-links': '' },
   imports: [SubagentTranscriptViewerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `

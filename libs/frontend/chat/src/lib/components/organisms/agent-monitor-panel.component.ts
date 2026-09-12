@@ -138,6 +138,10 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
 @Component({
   selector: 'ptah-agent-monitor-panel',
   standalone: true,
+  // Agent-output surface (agent cards render model markdown). There is no tab
+  // marker: this panel is store-driven and not bound to one session tab, so a
+  // relative link resolves against the active workspace root.
+  host: { 'data-ptah-file-links': '' },
   imports: [
     NgClass,
     LucideAngularModule,

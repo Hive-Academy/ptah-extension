@@ -240,6 +240,34 @@ describe('provideMarkdownFileLinks', () => {
     );
   });
 
+  it('logs a rejected NON-native thenable, as Zone.js and cross-realm handlers return', async () => {
+    const errorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    const failure = new Error('thenable boom');
+    // Deliberately NOT a Promise of this realm: `instanceof Promise` is false,
+    // so an identity check would drop this rejection on the floor.
+    const thenable = {
+      then(
+        _onFulfilled?: ((value: void) => unknown) | null,
+        onRejected?: ((reason: unknown) => unknown) | null,
+      ): void {
+        setTimeout(() => onRejected?.(failure), 0);
+      },
+    };
+    expect(thenable).not.toBeInstanceOf(Promise);
+    handler.handleMarkdownFileLink.mockReturnValue(thenable);
+    install();
+    const host = renderMarkdown(fileLink('src/a.ts'));
+
+    expect(press(anchorIn(host))).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[MarkdownFileLinks]'),
+      failure,
+    );
+  });
+
   it('does not stop propagation', () => {
     install();
     const host = renderMarkdown(fileLink('src/a.ts'));

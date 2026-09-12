@@ -53,7 +53,12 @@ import type {
     CompactSessionActivityComponent,
     CompactSessionInputComponent,
   ],
-  host: { class: 'flex flex-col h-full' },
+  // Agent-output surface — see ChatTranscriptComponent for the marker contract.
+  host: {
+    class: 'flex flex-col h-full',
+    'data-ptah-file-links': '',
+    '[attr.data-ptah-tab-id]': 'tab().id',
+  },
   template: `
     <div
       class="flex flex-col h-full border overflow-hidden transition-colors duration-150"

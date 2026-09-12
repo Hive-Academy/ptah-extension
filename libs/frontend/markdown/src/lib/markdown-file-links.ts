@@ -133,7 +133,12 @@ function interceptFileLinkActivation(
   event.preventDefault();
   try {
     const pending = handler.handleMarkdownFileLink(target, anchor);
-    if (pending instanceof Promise) void pending.catch(reportHandlerFailure);
+    // A thenable check, NOT `instanceof Promise`: the webview shell is
+    // Zone-based, so a handler's async method returns a `ZoneAwarePromise`,
+    // and a handler resolved from another realm returns that realm's Promise.
+    // Neither is an instance of THIS realm's `Promise`, so an `instanceof`
+    // test would let their rejections escape unhandled.
+    if (isThenable(pending)) void pending.then(undefined, reportHandlerFailure);
   } catch (error: unknown) {
     reportHandlerFailure(error);
   }
@@ -147,6 +152,14 @@ function anchorFrom(target: EventTarget | null): HTMLAnchorElement | null {
       ? (node as Element)
       : node.parentElement;
   return element?.closest('a') ?? null;
+}
+
+function isThenable(value: unknown): value is PromiseLike<void> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as PromiseLike<void>).then === 'function'
+  );
 }
 
 function reportHandlerFailure(error: unknown): void {

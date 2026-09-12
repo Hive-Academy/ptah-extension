@@ -612,3 +612,34 @@ describe('TaskDetailComponent', () => {
     ).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Non-agent markdown stays plain (TASK_2026_413 R2)
+//
+// The task-detail panel renders a spec DOCUMENT, not agent output, and it has
+// no session tab — so a relative link inside it has no workspace to resolve
+// against, and hijacking it into the file viewer would open the wrong file or
+// nothing. The `data-ptah-file-links` opt-in is therefore deliberately ABSENT
+// here, and the document-level listener must ignore a link rendered in it.
+// ---------------------------------------------------------------------------
+describe('TaskDetailComponent — file-link opt-in', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({ imports: [TaskDetailComponent] });
+  });
+
+  it('renders no file-link opt-in marker anywhere in the panel', () => {
+    const fixture = TestBed.createComponent(TaskDetailComponent);
+    fixture.componentRef.setInput(
+      'detail',
+      makeDetail({ body: 'See [the plan](implementation-plan.md:3).' }),
+    );
+    fixture.componentRef.setInput('loading', false);
+    fixture.componentRef.setInput('graph', null);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.hasAttribute('data-ptah-file-links')).toBe(false);
+    expect(host.querySelector('[data-ptah-file-links]')).toBeNull();
+    expect(host.closest('[data-ptah-file-links]')).toBeNull();
+  });
+});

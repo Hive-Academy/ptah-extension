@@ -7,7 +7,11 @@
  */
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  FILE_LINK_OPENER,
+} from '@ptah-extension/core';
 import { TaskMetadataPatchSchema } from '@ptah-extension/shared/schemas';
 import {
   BULK_CHUNK_SIZE,
@@ -25,6 +29,13 @@ import {
   TASKS_CHANGED_MESSAGE_TYPE,
   normalizeRootKey,
 } from './tasks-store.service';
+
+/**
+ * `TasksStore` opens artifacts through the `FILE_LINK_OPENER` port. It is a
+ * required dependency with no default provider — the composition root binds it
+ * — so every TestBed that builds the store supplies this fake.
+ */
+const fileLinkOpener = { open: jest.fn(async () => undefined) };
 
 function makeTask(
   id: string,
@@ -142,6 +153,7 @@ describe('TasksStore', () => {
           provide: ClaudeRpcService,
           useValue: { call: rpcCall as unknown as ClaudeRpcService['call'] },
         },
+        { provide: FILE_LINK_OPENER, useValue: fileLinkOpener },
       ],
     });
     store = TestBed.inject(TasksStore);
@@ -1502,6 +1514,7 @@ describe('TasksStore — workspace awareness', () => {
           provide: ClaudeRpcService,
           useValue: { call: rpcCall as unknown as ClaudeRpcService['call'] },
         },
+        { provide: FILE_LINK_OPENER, useValue: fileLinkOpener },
         { provide: AppStateManager, useValue: { workspaceInfo } },
       ],
     });
@@ -1876,6 +1889,7 @@ describe('TasksStore — selection and bulk status', () => {
           provide: ClaudeRpcService,
           useValue: { call: rpcCall as unknown as ClaudeRpcService['call'] },
         },
+        { provide: FILE_LINK_OPENER, useValue: fileLinkOpener },
       ],
     });
     store = TestBed.inject(TasksStore);
@@ -3074,6 +3088,7 @@ describe('TasksStore — no workspace open', () => {
           provide: ClaudeRpcService,
           useValue: { call: rpcCall as unknown as ClaudeRpcService['call'] },
         },
+        { provide: FILE_LINK_OPENER, useValue: fileLinkOpener },
         { provide: AppStateManager, useValue: { workspaceInfo } },
       ],
     });
@@ -3218,5 +3233,75 @@ describe('TasksStore — no workspace open', () => {
     await flush();
 
     expect(rpcCall).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TasksStore — artifact opening (TASK_2026_413 Batch 8c-2)
+//
+// `openArtifact` routes through the `FILE_LINK_OPENER` port rather than a raw
+// `file:open` RPC, so the same click lands in Ptah's read-only viewer on
+// desktop and the native editor in VS Code. The error signal is set ONLY when
+// the opener rejects.
+// ---------------------------------------------------------------------------
+describe('TasksStore — openArtifact', () => {
+  let store: TasksStore;
+  let rpcCall: jest.Mock;
+  let open: jest.Mock;
+
+  const detail = {
+    folderName: 'TASK_2026_413',
+    artifacts: ['implementation-plan.md'],
+  };
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    rpcCall = jest.fn().mockResolvedValue(ok({ task: detail }));
+    open = jest.fn(async () => undefined);
+    TestBed.configureTestingModule({
+      providers: [
+        TasksStore,
+        {
+          provide: ClaudeRpcService,
+          useValue: { call: rpcCall as unknown as ClaudeRpcService['call'] },
+        },
+        { provide: FILE_LINK_OPENER, useValue: { open } },
+        {
+          provide: AppStateManager,
+          useValue: {
+            workspaceInfo: signal({
+              path: 'D:/ws',
+              name: 'ws',
+              type: 'workspace',
+            }),
+          },
+        },
+      ],
+    });
+    store = TestBed.inject(TasksStore);
+    await store.openTask('TASK_2026_413');
+  });
+
+  it('opens a listed artifact through FILE_LINK_OPENER', async () => {
+    await store.openArtifact('implementation-plan.md');
+
+    expect(open).toHaveBeenCalledWith({
+      path: 'D:/ws/.ptah/specs/TASK_2026_413/implementation-plan.md',
+    });
+    expect(store.error()).toBeNull();
+  });
+
+  it('ignores a file that is not in the detail artifact list', async () => {
+    await store.openArtifact('../../../etc/passwd');
+
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the error only when the opener rejects', async () => {
+    open.mockRejectedValue(new Error('outside the workspace'));
+
+    await store.openArtifact('implementation-plan.md');
+
+    expect(store.error()).toBe('outside the workspace');
   });
 });

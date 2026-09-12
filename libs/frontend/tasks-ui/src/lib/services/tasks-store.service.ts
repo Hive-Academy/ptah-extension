@@ -10,6 +10,7 @@ import {
 import {
   AppStateManager,
   ClaudeRpcService,
+  FILE_LINK_OPENER,
   type MessageHandler,
 } from '@ptah-extension/core';
 import {
@@ -416,6 +417,7 @@ export function normalizeRootKey(root: string): string {
 @Injectable({ providedIn: 'root' })
 export class TasksStore implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly fileLinkOpener = inject(FILE_LINK_OPENER);
   private readonly appState = inject(AppStateManager);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -1341,8 +1343,9 @@ export class TasksStore implements MessageHandler {
   }
 
   /**
-   * Open one of the currently-selected task's artifact files in the host editor
-   * (`file:open`). The absolute path is composed here from the webview's known
+   * Open one of the currently-selected task's artifact files through
+   * `FILE_LINK_OPENER` — Ptah's read-only viewer on desktop, the native editor
+   * in VS Code. The absolute path is composed here from the webview's known
    * workspace root plus the task folder — the backend never leaks abs paths
    * (R4.4), and the filename is validated against the detail's artifact list to
    * rule out traversal before it reaches the host.
@@ -1359,10 +1362,11 @@ export class TasksStore implements MessageHandler {
 
     const base = root.replace(/[\\/]+$/, '');
     const absPath = `${base}/.ptah/specs/${detail.folderName}/${file}`;
-    const result = await this.rpc.openFile(absPath);
-    if (!(result.isSuccess() && result.data?.success)) {
+    try {
+      await this.fileLinkOpener.open({ path: absPath });
+    } catch (error: unknown) {
       this._error.set(
-        result.data?.error ?? result.error ?? `Failed to open ${file}`,
+        error instanceof Error ? error.message : `Failed to open ${file}`,
       );
     }
   }
