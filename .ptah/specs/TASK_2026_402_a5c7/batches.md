@@ -1109,6 +1109,72 @@ though it can be checked.
 
 ---
 
+## Batch 11: The peer-session picker — PENDING
+
+Added 2026-09-12. Requirement 11. **Batch 10 shipped two RPC methods no human
+can reach; this is the correction.**
+
+- Requirement: task-description.md §11
+- Recommended executor: `frontend-developer` sub-agent
+- Execution mode: sequential
+- Tasks: 3 | Depends on: Batch 10 (the RPC surface it calls)
+- **R-8: file-disjoint from every remaining batch.** Batch 8 is an acceptance run
+  and writes no source. Nothing else is open. This batch may run alone at any time.
+
+### Task 11.1: a facade over the two RPC methods — PENDING
+
+- File: CREATE `libs\frontend\core\src\lib\services\peer-session.facade.ts` (+ spec),
+  exported from that lib's `src/index.ts`.
+- Pattern to copy: `agent-discovery.facade.ts` in the same folder. It is the closest
+  existing shape — a facade over an RPC namespace that returns a discovered list.
+  Read it before writing a new one.
+- Signals, not `BehaviorSubject`. `inject()`, not constructor params.
+- The facade returns what the backend returned. It must NOT re-derive reachability,
+  re-apply a workspace filter, or narrow `acceptanceCaveat` away. Every one of those
+  decisions is already made and justified on the backend; making it twice is how the
+  two answers drift.
+
+### Task 11.2: the picker component — PENDING
+
+- File: CREATE under `libs\frontend\ui\src\lib\native\peer-session-picker\`.
+- Pattern to copy: `libs\frontend\ui\src\lib\native\provider-model-picker\` — the
+  existing picker in this exact folder, built on the `dropdown` / `popover` / `option`
+  primitives beside it. Do not introduce a new overlay mechanism; Floating-UI
+  primitives are already the house style here.
+- `ChangeDetectionStrategy.OnPush` is mandatory. Standalone component.
+- An unreachable row renders disabled WITH its reason, never hidden (criterion 2).
+- A cross-workspace row is visibly marked from `inCurrentWorkspace` (criterion 3).
+- Refresh on open (criterion 6).
+
+### Task 11.3: the send affordance and its honest result — PENDING
+
+- Host surface: `libs\frontend\chat` — the orchestrator that owns a session's
+  chrome. Confirm against `libs/frontend/chat/CLAUDE.md` before placing it; if the
+  smart/dumb split puts the presentational half in `chat-ui`, follow that split
+  rather than fighting it.
+- **The result must read `accepted`, never `delivered`**, and `acceptanceCaveat`
+  must be SHOWN, not logged (criterion 4). The backend makes this hard to get wrong
+  — the field is required even on refusals — but a UI can still render a checkmark
+  and the word "sent" over it, and that would rebuild the exact defect this task
+  exists to fix.
+- `costsATurn` and `modelMayDecline` are surfaced BEFORE the send (criterion 5).
+- No `[innerHTML]` on any message text. Route through `libs/frontend/markdown` if
+  it needs rendering at all — it is the single XSS chokepoint.
+
+### Batch 11 verification
+
+```bash
+npx nx run-many -t test -p @ptah-extension/core @ptah-extension/ui @ptah-extension/chat --parallel=1
+npx nx run-many -t typecheck -p @ptah-extension/core @ptah-extension/ui @ptah-extension/chat --parallel=1
+```
+
+- Read the `Running target test for N projects` header and confirm N is 3.
+- A `visual-reviewer` pass is worth having here: this surface's whole job is telling
+  a user something honest about a thing that may not have arrived, and that is a
+  claim made in pixels, not in types.
+
+---
+
 ## Execution order summary
 
 | Wave | Batches | Mode | Note |

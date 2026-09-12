@@ -9,7 +9,7 @@ description: >-
   single-vendor steer path with a capability-driven router.
 ---
 
-Ten batches. Batches 1, 2 and 3 are committed on `feat/agent-two-way-messaging`.
+Eleven batches. Batches 1, 2 and 3 are committed on `feat/agent-two-way-messaging`.
 Batches 4, 5, 7 and 8 were never started. Batch 6 was implemented but never
 committed, and its code was lost when the worktree was removed — only
 `batch-6-report.md` survives, and it names every file and change.

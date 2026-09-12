@@ -373,6 +373,49 @@ Acceptance criteria:
 5. Sessions outside the current workspace are handled by an explicit, documented
    decision — included or excluded — not by accident.
 
+### 11. The addressing surface is reachable by a person
+
+Added 2026-09-12. **This is a correction, and the omission was in Requirement 10
+itself, not in the work that implemented it.**
+
+The record, so the next reader does not go looking for a culprit: the ORIGINAL
+task scoped its UI and delivered it. Track A required inbound peer turns
+"rendered in chat as inbound peer messages" — that is Batch 6, done. Track C
+required a child's report "shown in that agent's tile and in chat" — the tile
+note is in `AgentReportRouter`, done. Nothing was dropped.
+
+Requirement 10 was added later, on 2026-09-12, and is the one that says a user
+"can pick another live session by a name they recognise and send it a message".
+It then named no UI surface, and Batch 10's file list is backend-only. So
+`peerSession:list` and `peerSession:send` exist, are registered on all three
+required surfaces, and are tested — and no human being can reach either of them.
+That is a requirement written badly, not a batch executed badly.
+
+Requirement: a user can see the sessions they can reach and send one a message,
+without calling an RPC method by hand.
+
+Acceptance criteria:
+
+1. When a user opens the picker, it lists the reachable sessions by the name a
+   human recognises, with the workspace beside each.
+2. When a session is not reachable, the row says so and cannot be chosen. It is
+   never hidden, because a hidden row reads as "no such session" (criterion 3 of
+   Requirement 10, which this surface must not undo).
+3. When a row is from another workspace, that is visible. `peerSession:list`
+   already returns `inCurrentWorkspace` per row and `crossWorkspacePolicy` on the
+   response — the UI shows what the backend already decided, and does not invent
+   a second policy.
+4. When a message is sent, the result is reported as **accepted, not delivered**,
+   and the caveat is shown to the user, not logged. `acceptanceCaveat` is a
+   required field on every response including refusals precisely so this is not
+   optional. A UI that renders a checkmark and the word "sent" rebuilds the
+   defect this whole task exists to fix.
+5. When the send costs a turn and may be declined by the model, the user is told
+   BEFORE sending, not after. `costsATurn` and `modelMayDecline` are on the
+   response for this.
+6. The list is refreshed when it is opened, not cached across openings. A session
+   list is a liveness claim with a short shelf life.
+
 ## Non-functional requirements
 
 - Security: `crossSessionInbound: accept` means any same-user process reaching
