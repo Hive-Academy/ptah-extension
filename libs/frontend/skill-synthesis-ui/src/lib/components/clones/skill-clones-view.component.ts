@@ -708,7 +708,17 @@ export class SkillClonesViewComponent implements OnInit {
         req.clone.slug,
         req.body,
       );
-      if (result.reconcileProtected) {
+      if (result.metadataIncomplete) {
+        // Checked FIRST because both flags can be true at once: the sidecar is
+        // read — which is what proves the clone reconcile-protected — before
+        // the sidecar write that failed. Reporting only the protection would
+        // claim the edit is settled when its bookkeeping is not.
+        this.showToast(
+          `Saved "${req.clone.slug}", but some of its metadata could not be ` +
+            `updated. History keeps a snapshot you can restore.`,
+          'warning',
+        );
+      } else if (result.reconcileProtected) {
         this.showToast(`Saved "${req.clone.slug}".`, 'success');
       } else {
         this.showToast(

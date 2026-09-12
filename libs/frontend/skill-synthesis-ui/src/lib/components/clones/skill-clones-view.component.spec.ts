@@ -969,6 +969,32 @@ describe('SkillClonesViewComponent — body save', () => {
   });
 
   /**
+   * CodeRabbit re-review of the fix above. BOTH flags can be true at once: the
+   * mirror reads the sidecar — which is what makes the clone protected —
+   * before the sidecar write that then fails. Checking `reconcileProtected`
+   * first therefore reported a plain success over incomplete bookkeeping.
+   */
+  it('warns about incomplete metadata even on a protected save', async () => {
+    const harness = openDrawerWithBody('# body');
+    harness.state.saveCloneBody.mockResolvedValueOnce(
+      saveResult({ reconcileProtected: true, metadataIncomplete: true }),
+    );
+    await editAndSave(harness, '# edited');
+
+    const toast = harness.q('clones-toast');
+    const text = toast?.textContent ?? '';
+    const tone = Array.from(toast?.classList ?? []);
+    expect(text).toContain('Saved "deep-research"');
+    expect(text).toContain('metadata could not be');
+    expect(text).toContain('History keeps a snapshot');
+    // Still a success — the body was committed — so never an error tone, and
+    // never the unqualified success the protected branch would have shown.
+    expect(tone).toContain('alert-warning');
+    expect(tone).not.toContain('alert-error');
+    expect(tone).not.toContain('alert-success');
+  });
+
+  /**
    * Regression, TASK_2026_426 logic review finding 1.
    *
    * The whole sequence, against the REAL `SkillClonesStateService` — a stubbed
