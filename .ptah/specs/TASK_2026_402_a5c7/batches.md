@@ -1041,7 +1041,34 @@ Added 2026-09-12. Requirement 10.
 - **BLOCKED until task 10.1 answers the mechanism question.** Do not write the
   transport before the measurement exists.
 
-### Task 10.1: establish how a turn is delivered — PENDING, BLOCKING
+### The cited `research-report.md` does not exist — confirmed 2026-09-12
+
+`task-description.md` cites `research-report.md` §1.1, §1.3, §3.1, §6, §7.7, §7.9 and
+Appendices A1-A8 throughout. **That file is not in this folder, not in git history,
+and not recoverable.**
+
+This was checked properly, not assumed. The rest of this folder WAS recovered from the
+orchestration session transcript, so the same method was tried here: every `Write`
+tool call across every session transcript on this machine ending in
+`research-report.md` was enumerated, and not one targets `TASK_2026_402_a5c7`.
+`steering-research.md` was recovered because it was genuinely written to disk under
+`TASK_2026_393`; this one never was. The appendices are REFERENCED 13 times in the
+orchestration transcript and written nowhere.
+
+What this does and does not cost:
+
+- **Costs:** Appendices A5 and A6 (two measured message-loss incidents) and A8 (the
+  `crossSessionInbound: 'accept'` fix landing on the first try) are now second-hand.
+  They are the origin story of this task and cannot be re-read.
+- **Does NOT cost:** the fix itself is independently verified.
+  `sdk-query-options-builder.auto-compact-argv.spec.ts` runs the real pinned SDK and
+  asserts `crossSessionInbound: "accept"` reaches the actual CLI argv. The premise is
+  corroborated by evidence that still exists.
+
+Treat any claim sourced only to `research-report.md` as unverified. Do not cite it as
+though it can be checked.
+
+### Task 10.1: establish how a turn is delivered — ANSWERED 2026-09-12, see `research-report-addressing.md`
 
 - The SDK exports `listSessions()` and `renameSession()` but **no peer-send
   function**. Verified against the pinned `@anthropic-ai/claude-agent-sdk` 0.3.150
