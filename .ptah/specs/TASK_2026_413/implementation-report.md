@@ -396,3 +396,466 @@ There are exactly two Angular bootstraps in the repository: `apps/ptah-extension
 ### Out-of-scope defect found, reported and NOT fixed
 
 `apps/ptah-electron-e2e/src/specs/git/file-view-tab.spec.ts:144` (Batch 8b's file) asks for a button named `Close readme.md`, but `git-dock.component.ts:165-166` emits `Close file <name>` for a file tab and `Close diff for <name>` for a diff tab. The 8b product fix landed without updating this spec. Proven pre-existing at HEAD without `git stash`: `git diff --stat HEAD` is empty for both that spec and all of `libs/frontend/git-ui`, neither of which this batch touches, and `git show HEAD:` on each file reproduces the same mismatch. Left unfixed because both files are outside this batch's ownership.
+
+**Orchestrator correction (after the final logic review, finding L-2).** The spec WAS fixed, in this same commit `cfc7513e3` — the orchestrator made the one-line change to `Close file readme.md` before committing, so the sentence above is stale. The corrected spec has since been run twice on this branch and passes both times, including the close step. Batch 8b's own report of this spec as "1/1 passed" was false and is retracted at `test-report.md:131`.
+
+## Logic-review remediation (backend)
+
+Findings L-1, L-3, L-4 and L-6 from `code-logic-review-final.md`. L-2, L-5 and
+L-7 to L-13 are outside this batch's ownership and were not touched.
+
+### SHARED CONTRACT for L-6 — read this first
+
+SHARED CONTRACT: `FileOpenResult.cancelled?: true` — a new OPTIONAL field on the existing `FileOpenResult` interface in `libs/shared/src/lib/types/rpc/rpc-misc.types.ts:136-152`, exported unchanged from `@ptah-extension/shared`. It is present ONLY when the user declined the host's confirmation modal, and it is ALWAYS accompanied by `success: false` (nothing was opened). Its type is the literal `true`, so `result.data?.cancelled === true` is the whole detection; never match on `error`, which stays display copy and may be reworded. No other field changed, and no other outcome sets it.
+
+### L-1 [SERIOUS] — the confirm now names the file it will open
+
+Two halves, both in `apps/ptah-extension-vscode/src/services/rpc/handlers/file-rpc.handlers.ts`.
+
+- **The modal states the resolved target when it differs.**
+  `confirmOutsideWorkspace` takes both paths (`:175-178`) and builds its `detail`
+  at `:198-200`: the bare path when `samePath(requested, real)` holds, otherwise
+  `<requested>` then a blank line then `This is a link. It opens:` then
+  `<realPath>`. The ordinary case — an absolute link into an unregistered sibling
+  repo — is unchanged and still shows one path, so the extra line appears only
+  when there genuinely is a redirection to read. `samePath` (`:52-63`) normalises
+  first and compares case-insensitively on win32 only, so `D:\ws\.\a.ts` is not
+  reported as a redirection and neither is `D:\WS\a.ts`.
+- **The deliberate decision about the fallback, written where it is made**
+  (`:157-167`). A lexically-in-root path DOES still reach `resolveForHostReveal`.
+  Skipping the fallback for in-root paths is the cheaper guard the review offered,
+  and it was rejected: the only way an in-root path gets there is that
+  `resolveForView` already rejected it, and for an in-root path that is almost
+  always the realpath containment re-check — the path is a link out of the
+  workspace. A symlinked docs folder or a junctioned dependency tree is an
+  ordinary developer setup, so refusing outright would regress exactly the "a link
+  into a sibling checkout still opens" case Decision 3 exists to preserve, reached
+  through a link instead of an absolute path. It is CONFIRMED rather than refused,
+  and the confirm is now truthful, which is what makes the human gate real again.
+  The file header (`:16-22`) was corrected to match.
+
+Pinned by `file-rpc.handlers.spec.ts`, `describe('the confirmation detail')`:
+`names the resolved target when a link makes it differ` asserts the detail
+contains BOTH the in-workspace lexical path and the out-of-workspace target, and
+`shows the path alone when nothing redirects it` asserts the bare path is
+unchanged when the two are equal. The policy is doubled in those two cases on
+purpose — the assertion is about the modal's copy, and doubling is what lets them
+run on an account that cannot create a symlink. The real policy's half of the same
+scenario is pinned in `file-link-root-policy.spec.ts` (see L-4).
+
+### L-3 [MODERATE] — the rename class closed for every directory the list names
+
+`libs/backend/rpc-handlers/src/lib/handlers/file-link-root-policy.ts`.
+
+`directoryPrefixes` is REPLACED, not extended. A list of single-segment regexes
+could never describe the multi-segment entries, which is why
+`.config/gh.bak/hosts.yml` and `.claude.bak/.credentials.json` passed. In its
+place, `renameSuffixes: ['.', '-', '_']` (`:87-113`) is applied by `segmentMatches`
+(`:175-181`) to EVERY segment of EVERY run in both `directories` and `files`,
+through the shared `runMatchesAt` (`:183-189`) that `containsRun` and
+`endsWithRun` both use now. One rule, and no second list to keep in step with the
+first.
+
+Why this rather than the review's suggested
+`directoryPrefixes: /^\.(...|claude|codex|ptah)/`: that denies the whole of
+`~/.claude`, `~/.codex` and `~/.ptah`, and `resolveForExternalOpen`'s own header
+states those directories are the predominant agent reference and that making them
+openable is the point of the wider root set. `.claude` is deny-listed as the FILE
+run `.claude/.credentials.json`, so the suffix rule closes
+`.claude.bak/.credentials.json` while `~/.claude/settings.json` still opens.
+
+One basename widened: `/^credentials(\.|$)/i` became `/^\.?credentials(\.|$)/i`
+(`:154`) — the leading dot in `.credentials.json` was the anchor the old stem rule
+missed.
+
+Narrowness is pinned by specs, not asserted, in `file-link-root-policy.spec.ts`:
+
+- Positive, new: `denies %s behind a renamed parent directory` covers all four
+  named cases — `.claude.bak/.credentials.json`, `.codex-old/auth.json`,
+  `.ptah.bak/secrets.enc.json`, `.config/gh.bak/hosts.yml` — plus
+  `.config/gcloud-old`, `.config/git_backup` and
+  `AppData/Roaming/Microsoft/Credentials.bak`.
+- Negative, required: `.dockerignore`, `.sshrc`, `awsome` and `sshd-config` are in
+  the existing `still allows %s` block and still return `false`. `.dockerignore`
+  starts with `.docker`, but the next character is `i`, which is not in
+  `renameSuffixes`.
+- Negative, new: a second `still allows %s` block proves the rule does NOT widen a
+  directory the list names only through a file entry — `~/.claude/settings.json`,
+  `~/.claude.bak/skills/x/SKILL.md`, `~/.ptah/user/agents/x.md`,
+  `~/.codex/config.toml`.
+- Case behaviour is unchanged and still pinned: `.SSH.bak` denies on win32 and
+  allows on posix.
+
+`CREDENTIAL_DENY_LIST.directoryPrefixes` no longer exists; the
+non-empty-in-every-class case asserts `renameSuffixes` instead. The const is
+exported from the lib barrel but has no consumer outside this file and its spec.
+
+### L-4 [MODERATE] — the HIGH-1 regression test can now fail on this platform
+
+`libs/backend/rpc-handlers/src/lib/handlers/file-link-root-policy.spec.ts`.
+
+- **The silent `return` is gone.** `canCreateFileSymlink()` probes once at module
+  load using `node:fs` sync calls in a scratch directory, and
+  `const itWithSymlink = canCreateFileSymlink() ? it : it.skip` drives the two
+  real-filesystem symlink cases. On an unprivileged Windows account the runner now
+  PRINTS them as skipped instead of ticking them green having asserted nothing.
+- **A platform-independent case was added**:
+  `refuses an in-root path whose REALPATH is a private key, with no symlink`. A
+  `jest.mock('node:fs/promises')` factory delegates to the real module except for
+  exact paths placed in `mockRealpathOverrides`, so the temp trees the suite builds
+  still behave normally. The case writes a real regular file at
+  `<workspace>/seeded_note.md` inside the single REGISTERED root and maps its
+  `realpath` to `<home>/.ssh/id_ed25519`.
+
+Why that case fails if the deny-list is ever re-keyed onto the lexical root:
+`resolveLinkedFilePath` returns `root` as the LEXICAL match
+(`workspace-file-path.ts:392`, `:407`), which here is the registered workspace.
+The exemption is taken on `isInsideRegisteredRoots(resolution.realPath)`
+(`file-link-root-policy.ts:262`), and the real path is under home, not under the
+workspace, so the exemption does not apply, `isCredentialPath` fires, and the
+result is `{ kind: 'rejected', reason: 'outside-roots' }` with no `lexicalPath`.
+Re-key that one line to `resolution.root` and the same input takes the exemption
+and returns `kind: 'file'` WITH a `lexicalPath` — both assertions in the case
+flip. The seam is the one the policy actually uses (the policy and the mechanism
+below it both import `node:fs/promises`), so the override also covers the
+containment re-check, which is what makes the scenario reachable without a
+symlink at all.
+
+### L-6 [MODERATE] — cancelling is no longer reported as a failure
+
+- `libs/shared/src/lib/types/rpc/rpc-misc.types.ts:136-152` — the field described
+  under SHARED CONTRACT above, with the reason and the "detect the flag, never the
+  message" rule in its doc comment.
+- `apps/ptah-extension-vscode/src/services/rpc/handlers/file-rpc.handlers.ts:98-103`
+  — the cancel branch returns
+  `{ success: false, cancelled: true, error: MESSAGE.cancelled }`. `success` stays
+  `false` because nothing was opened; `cancelled` is what lets a renderer resolve
+  quietly instead of throwing.
+- The Electron `file:open` handler
+  (`libs/backend/rpc-handlers/src/lib/handlers/file-open-rpc.handlers.ts`) raises
+  no confirmation and therefore never sets the field. The contract was deliberately
+  not widened past this one outcome.
+- Pinned by `file-rpc.handlers.spec.ts`, `opens nothing when the confirmation is
+declined`, whose `toEqual` now includes `cancelled: true` — an exact-shape
+  assertion, so a handler that later drops the flag fails.
+- The renderer half (`file-link-router.service.ts`, `tasks-store.service.ts`,
+  `file-path-link.component.ts`) is `libs/frontend/**` and was NOT touched.
+
+### Files
+
+- MODIFIED `apps/ptah-extension-vscode/src/services/rpc/handlers/file-rpc.handlers.ts` — truthful confirm detail, the fallback decision comment, `cancelled: true`
+- MODIFIED `apps/ptah-extension-vscode/src/services/rpc/handlers/file-rpc.handlers.spec.ts` — confirmation-detail cases, exact cancel shape
+- MODIFIED `libs/backend/rpc-handlers/src/lib/handlers/file-link-root-policy.ts` — `renameSuffixes` replaces `directoryPrefixes`, applied to every segment of every run; `.?credentials` basename
+- MODIFIED `libs/backend/rpc-handlers/src/lib/handlers/file-link-root-policy.spec.ts` — rename-class positives and negatives, visible symlink skip, the fs-seam HIGH-1 case
+- MODIFIED `libs/shared/src/lib/types/rpc/rpc-misc.types.ts` — `FileOpenResult.cancelled?: true`
+
+### Verification
+
+Each command took the shared `ptah-413-nx.lock` directory first and released it
+with `rm -rf` immediately on return. `npx nx reset` was NOT run — a second
+executor is working in this worktree.
+
+- `npx nx run-many -t test -p @ptah-extension/rpc-handlers ptah-extension-vscode @ptah-extension/shared`
+  — header read `Running target test for 3 projects and 26 tasks they depend on`;
+  N = 3, the number asked for.
+  - `@ptah-extension/shared` — **56/56 suites, 1368/1368 tests passed**.
+  - `ptah-extension-vscode` — **6/6 suites, 62/62 tests passed** (includes the two
+    new confirmation-detail cases and the exact-shape cancel case).
+  - `@ptah-extension/rpc-handlers` — 96/97 suites passed, **1 failed**:
+    `skills-sh/skills-sh-source-root.service.spec.ts` ›
+    `writes every slug of a whole-repo install and unions the record on re-install`,
+    `Exceeded timeout of 5000 ms for a test`, in a suite that itself took 25.1 s.
+- **The failure is pre-existing and load-induced, proven without `git stash`.**
+  `git diff --name-only HEAD` does not list either
+  `libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.service.spec.ts`
+  or its service; `git show HEAD:<each path>` diffs byte-identical against the
+  working tree. It is a 5-second Jest timeout in a spec that ran concurrently with
+  the dependency builds of the same command, not an assertion failure, and it is
+  in a lib area (`skills-sh/`) that shares nothing with the files changed here.
+- `npx nx test @ptah-extension/rpc-handlers` re-run alone — **97/97 suites,
+  2891 passed, 33 skipped, 0 failed**, `Successfully ran target test`. The same
+  spec passes when it is not competing with the builds, which is what makes the
+  first result a flake rather than a regression. This is the run that covers the
+  L-3 and L-4 specs, and they pass.
+- `npx nx run-many -t lint typecheck -p @ptah-extension/rpc-handlers ptah-extension-vscode @ptah-extension/shared`
+  — `Successfully ran targets lint, typecheck for 3 projects`. **0 errors.**
+  20 warnings, all pre-existing `max-lines` / `no-unused-vars` /
+  `no-non-null-assertion` notices in files this work did not touch
+  (`harness/ai/*`, `harness/streaming/*`, `activation/post-init.ts`).
+- **The L-4 skip is real on this machine, and visible.** A direct probe of
+  `fs.symlinkSync` in this worktree returns `EPERM`, so both real-filesystem
+  symlink cases are reported as SKIPPED by the runner (part of the 33) rather than
+  returning green having asserted nothing. The platform-independent case that
+  replaces them RAN and passed. That is the whole point of the change: before it,
+  the single test guarding HIGH-1 could not fail here.
+- Not run: the Electron e2e (`ptah-electron-e2e`) — outside this batch's project
+  set and unaffected by these files. L-2, which asks for an e2e re-run, was not in
+  scope here.
+
+## Logic-review remediation (frontend)
+
+Findings L-5, L-6, L-7, L-8, L-9, L-11, L-12 and L-13 from
+`code-logic-review-final.md`. Nothing was committed, stashed, rebased or pushed,
+`npx nx reset` was never run, and nothing under `libs/backend/**`,
+`apps/ptah-extension-vscode/**` or `libs/shared/**` was edited. Every Nx and
+Playwright command held the shared lock for its whole duration.
+
+### L-5 [MODERATE] — the file-view request id is now monotonic per service
+
+- `libs/frontend/git-ui/src/lib/services/diff-tabs.service.ts:101-113` — a new
+  private `nextFileViewRequestId` counter, documented with the exact defect it
+  closes.
+- `:281` (`openFileView`, new-tab path) — `const requestId = ++this.nextFileViewRequestId;`
+  in place of the hardcoded `1`.
+- `:457-459` (`refreshFileView`) — draws from the same counter instead of
+  `tab.view.requestId + 1`, so a refresh id can never collide with an id a
+  previous tab already issued. Per-tab monotonicity is preserved, because the
+  counter only ever increases.
+- **Pinned by** `libs/frontend/git-ui/src/lib/services/diff-tabs.service.spec.ts`
+  -> `drops a closed tab's late response after the same file is re-opened`. It
+  drives the review's scenario directly: open at line 500 with the read still in
+  flight, close the tab, re-open the same file at line 10, resolve the SECOND
+  read, then resolve the FIRST. The assertion is on `reveal`, which is what the
+  stale response used to overwrite. Against the old code this test fails; the
+  existing `drops an older response after a newer refresh wins` case does not,
+  because it never closes the tab.
+
+### L-6 [MODERATE] — cancelling is no longer reported as a failure
+
+Wired to the backend executor's `SHARED CONTRACT` line above
+(`FileOpenResult.cancelled?: true`), read from `implementation-report.md:407`
+before this was written.
+
+- `libs/frontend/chat/src/lib/services/file-link-router.service.ts:154-160` —
+  after the success check, `if (result.data?.cancelled === true) return;`. The
+  router resolves, so `TasksStore.openArtifact` sets no error signal and
+  `FilePathLinkComponent` logs no `console.error` for a deliberate user action.
+  The flag is the whole detection; `error` is never matched on.
+- **Pinned by** `file-link-router.service.spec.ts` ->
+  `RESOLVES when the user cancelled the host confirmation`, which also asserts
+  `console.error` was not called.
+
+### L-7 [MODERATE] — both unmarked surfaces now publish their tab
+
+**Fixed rather than recorded as a limitation**, because the owning tab turned out
+to be genuinely available in both places through an existing public lookup,
+`TabManagerService.findTabBySessionIdAcrossWorkspaces` — no new marker and no
+invented identity. Where it resolves to nothing the attribute is simply absent
+and the router keeps its previous active-workspace fallback, so nothing regresses.
+
+- `libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts:141-150`
+  (host) and `:487-501` (`linkTabId`) — a SCOPED panel (`sessionId` input) maps
+  its session to the owning tab and publishes `data-ptah-tab-id`. The GLOBAL
+  panel (`sessionId === null`) renders the ACTIVE tab's agents, so its absent
+  marker was already the correct answer and is left alone.
+- `libs/frontend/chat/src/lib/components/organisms/subagent-transcript-overlay.component.ts:19-32`
+  (host + `linkTabId`) — the overlay is store-driven, but the store knows the
+  transcript's PARENT SESSION, so the tab is resolvable.
+  `libs/frontend/chat/src/lib/services/subagent-transcript-viewer.service.ts:33-40`,
+  `:52`, `:76`, `:93` expose that session as a readonly signal, set in `openFor`
+  and cleared in `close`.
+- **Pinned by** `agent-monitor-panel.scope.spec.ts` -> the `file-link tab context`
+  describe (scoped panel publishes the background tab; global panel publishes
+  nothing; a session with no tab publishes nothing), and the new
+  `subagent-transcript-overlay.component.spec.ts` (same three cases).
+
+### L-8 [MINOR] — success is asserted, not assumed
+
+- `file-link-router.service.ts:145-149` — `result.data?.success === true`
+  replaces `result.data?.success !== false`. A transport envelope with
+  `data: undefined` is now a rejection rather than a silent "opened".
+- **Pinned by** `file-link-router.service.spec.ts` ->
+  `rejects when the transport succeeded but the host returned no payload`.
+
+### L-9 [MINOR] — the size note states only a measured fact
+
+- `libs/frontend/git-ui/src/lib/file-view/file-view.component.ts:144` and the new
+  `previewSizeBlocked` computed at `:217-230` — the note renders only when
+  `sizeBytes !== null && sizeBytes > MAX_MARKDOWN_PREVIEW_BYTES`. A first-load
+  failure leaves `sizeBytes` null, which used to print "over 512 KB" beside an
+  unrelated error banner. `previewAvailable` is unchanged — an unknown size still
+  correctly disables the preview; only the CLAIM about why was wrong.
+- **Pinned by** `file-view.component.spec.ts` ->
+  `does NOT claim the file is over 512 KB when the size is unknown`. The existing
+  `disables preview over 512 KiB...` case still passes, so the real over-cap copy
+  is not lost.
+
+### L-11 [MINOR] — a failed dock open restores the previous dock state
+
+- `file-link-router.service.ts:108-137` — `openInDock` captures
+  `layout.editorPanelVisible()` before revealing, and the `catch` hides the dock
+  again only when it was hidden before. The reveal still happens FIRST, so the
+  dock chunk and the dynamic import keep fetching in parallel; only the failure
+  branch changed. An already-open dock is left open.
+- **Pinned by** two cases in `file-link-router.service.spec.ts`:
+  `hides the dock again when the open fails and the dock was hidden before`
+  (asserts the exact call sequence `[[true], [false]]`) and
+  `leaves an ALREADY-open dock open when the open fails`.
+
+### L-12 [MINOR] — the e2e test name now matches what the test proves
+
+- `apps/ptah-electron-e2e/src/specs/git/agent-file-links.spec.ts:329-333` —
+  retitled to `a link opens a tab, and a renderer reload returns to the same URL
+(A6/A7, D10)`, with a comment above it stating both things the old title
+  claimed and the body does not do: it clicks a markdown link rather than a
+  `FilePathLinkComponent` tool-call chip (that path has unit coverage only), and
+  it deliberately does not assert dock restore. The body is unchanged — renaming
+  was the honest fix, since the declining comment at `:365-367` is correct.
+
+### L-13 [MINOR] — a collapsed rail with no open tab has an affordance
+
+- `libs/frontend/git-ui/src/lib/git-dock/git-dock.component.ts:103-121` — the
+  `@else if (!diffTabs.activeDiffTab())` branch gains a final `@else` for the
+  case both existing conditions miss (git repo, not loading, rail collapsed):
+  "Source control is collapsed." plus a `Show changed files` button bound to the
+  existing `ElectronLayoutService.toggleGitRail()`. No new layout state and no
+  new primitive.
+- **Pinned by** `git-dock.mount.spec.ts` ->
+  `offers a way back when the rail is collapsed with no tab open`, which collapses
+  through the real header toggle, asserts the copy and the control, clicks it, and
+  asserts the rail is back.
+
+### Not fixed, and why
+
+- **L-1, L-2, L-3, L-4** — backend, VS Code host, and test-report corrections.
+  Owned by the parallel backend executor; untouched here by the brief's file
+  rules.
+- **L-10 and S-1 to S-3** — not in this assignment's finding list. L-10 (the
+  dynamic-import comment's bundle argument) and S-1 (no coalescing on view-tab
+  revalidation) both sit in files this work touched and are left exactly as they
+  were, deliberately rather than by oversight.
+
+### Deviation from the review's suggested fix — L-7
+
+The review offered two options and called the first "one line": when no marker
+resolves and the path is relative, send no `workspaceRoot` so the backend answers
+`no-base-root` and the user reads a refusal. That was NOT taken. It fails loudly,
+but it fails for the common case too — the global agent-monitor panel, which is
+scoped to the ACTIVE tab, would start refusing links it resolves correctly today.
+The second option (publish the tab) turned out to be available on both surfaces
+without inventing an identity, so it was taken instead, and the active-workspace
+fallback is kept for the genuinely unknowable cases.
+
+### Second review pass — final-review.md MEDIUM-1, LOW-1, LOW-2
+
+Three further deny-list findings, all in
+`libs/backend/rpc-handlers/src/lib/handlers/file-link-root-policy.ts`. They were
+raised against the pre-`renameSuffixes` code but re-checked against it; MEDIUM-1
+and LOW-1 still applied, LOW-2 was already closed and is now pinned.
+
+#### MEDIUM-1 [MEDIUM] — the deny-list was evadable on the whole macOS platform
+
+`segmentsOf` folded case only for win32. APFS and HFS+ ship case-INSENSITIVE and
+case-preserving, so `~/.AWS/config` and `~/.aws/config` are the SAME file on a
+stock Mac while the segment comparison treated them as different names:
+`isCredentialPath('/Users/u/.AWS/config', 'darwin')` returned `false`.
+
+Fixed by a named predicate rather than a second platform literal inline —
+`foldsCase(platform)` (`:166-181`), used by `segmentsOf` (`:183-187`). darwin now
+folds alongside win32; linux does not, because `.SSH` there is genuinely a
+different directory and folding it would refuse files that are not credentials.
+The comment records the one case this gets deliberately wrong: a darwin machine
+formatted case-sensitive (APFS-CS) is now over-refused slightly, which is the
+correct direction for a deny-list to err in.
+
+Pinned three ways, as asked:
+
+- `denies %s on darwin` — seven upper- and mixed-case forms: `.AWS/config`,
+  `.SSH/id_rsa`, `.DOCKER/config.json`, `.KUBE/config`, `.Aws.Bak/notes.md`
+  (rename rule + folding together), `.CONFIG/GH/hosts.yml` (multi-segment), and
+  `.Claude/.Credentials.json` (a `files` run).
+- `still allows %s on linux, where the name genuinely differs` — the same
+  upper-case forms must NOT match on linux.
+- `applies the rename rule case-insensitively on win32 only` — the pre-existing
+  win32 behaviour, unchanged.
+- `keeps the lower-case forms denied on every platform` — a loop over win32,
+  darwin and linux, so folding cannot be "fixed" later by dropping the ordinary
+  case.
+
+#### LOW-1 [LOW, false refusal] — a directory run matched a FILE basename
+
+The rename rule was applied to every segment including the LEAF, so
+`~/.docker-compose.yml` matched the `.docker` directory entry through the `-`
+suffix and an ordinary compose file outside the registered roots was refused as
+if it were a credential directory.
+
+`containsRun` is REPLACED by `containsDirectoryRun` (`:223-249`), which passes an
+`exactFinalSegment` flag into `runMatchesAt` (`:206-221`) when the run would end
+at the leaf. Ancestor segments keep the rename rule — a segment with something
+after it is unambiguously a directory, which is the case the rule exists for
+(`~/.docker-old/config.json`). The leaf may satisfy a directory run only by EXACT
+equality. `files` runs are untouched and still use the rename rule at the leaf,
+because there the leaf IS the file.
+
+The exact-leaf match is what preserves the case the brief warned about: `~/.ssh`,
+`~/.aws`, `~/.config/gh` and `AppData/Local/Microsoft/Credentials` as directory
+TARGETS are still refused. What the change trades away is refusing a RENAMED
+credential directory as a directory — `~/.ssh.bak` itself. Every path INSIDE it is
+still refused by the ancestor rule and revealing a directory discloses no bytes,
+so that is the cheap half of the pair; the comment at `:229-241` states it rather
+than leaving it to be discovered.
+
+Pinned by two new blocks:
+
+- `still allows %s, a FILE that merely starts with a run` —
+  `.docker-compose.yml`, `.docker-compose.yaml`, `.docker.env.sample`,
+  `.ssh-notes.md`, `.aws-setup.md`.
+- `still denies %s as a directory target` — `~/.ssh`, `~/.aws`, `~/.config/gh`,
+  `AppData/Local/Microsoft/Credentials`.
+
+#### LOW-2 [LOW] — already closed by the rename rule, now pinned
+
+All three named paths were already refused by the previous pass, so no production
+change was needed. Traced: `~/.npmrc.bak` and `~/.git-credentials.old` match a
+`files` run at the leaf (`.npmrc` / `.git-credentials` followed by `.`);
+`~/.config/gh.bak/hosts.yml` matches the `.config/gh` directory run at an
+ANCESTOR segment, which is the position the rename rule still applies to after
+LOW-1. Pinned as spec cases rather than left as an argument, together with
+`~/.netrc.backup` and `~/.config/gcloud.bak/creds.db`.
+
+The review's own suggested fix for LOW-2 — adding
+`/^\.(npmrc|git-credentials|netrc|pgpass)(\.|$)/i` to `basenames` — was NOT taken.
+It would be a second mechanism for a class the run rule already covers, and a
+basename rule matches at any depth including inside directories where these names
+are ordinary.
+
+#### Verification (second pass)
+
+Same locking discipline; each command took `ptah-413-nx.lock` with `mkdir`,
+wrote an `owner.txt`, and released with `rm -rf` on return. No `npx nx reset`.
+
+- `npx nx run-many -t test -p @ptah-extension/rpc-handlers ptah-extension-vscode @ptah-extension/shared`
+  — header `Running target test for 3 projects and 26 tasks they depend on`,
+  N = 3, and `Successfully ran target test for 3 projects`.
+  - `@ptah-extension/shared` — 56/56 suites, 1368/1368 passed.
+  - `@ptah-extension/rpc-handlers` — **97/97 suites, 2917 passed, 33 skipped,
+    0 failed** (2891 before this pass; the 26 new cases are the difference).
+  - `ptah-extension-vscode` — 6/6 suites, 62/62 passed.
+  - The `skills-sh-source-root` timeout seen in the FIRST pass did not recur.
+- `npx nx run-many -t lint typecheck -p @ptah-extension/rpc-handlers ptah-extension-vscode @ptah-extension/shared`
+  — `Successfully ran targets lint, typecheck for 3 projects`. **0 errors**, 22
+  warnings, all pre-existing: 19 in `rpc-handlers` (`harness/ai/*`,
+  `harness/streaming/*`), 1 in `ptah-extension-vscode` (`activation/post-init.ts`),
+  and 2 `max-lines` notices in `@ptah-extension/shared` on files of 810 and 3130
+  lines — both already past the 700-line ceiling before the 11-line
+  `FileOpenResult.cancelled` addition.
+- The 33 skipped are unchanged from the first pass: the two `itWithSymlink` cases,
+  visibly skipped because `fs.symlinkSync` returns `EPERM` on this account, plus
+  the 31 that pre-date this work.
+
+#### Coordination note
+
+While checking the lock after the first pass I saw a lock directory present,
+assumed it was my own un-released one, and deleted it — it belonged to the
+frontend executor (`owner.txt` read `logicfix-fe`). I recreated it immediately
+with its original contents. The gap was roughly twenty seconds and I started no Nx
+command inside it.
+
+What I can and cannot prove about the consequence: a process listing 22 minutes
+later showed a legitimate `nx run-many -t test` (PID 3460, started 15:19) holding
+the lock, and my own queued run then acquired it and completed normally, so the
+lock was not left stale. I cannot prove the holder was continuous across the
+20-second gap — if the frontend executor's own `rm -rf` happened to land inside
+it, my restored directory would have been an orphan until the next release.
+Noted because someone else may need to recognise that shape, not because a
+failure was observed.
