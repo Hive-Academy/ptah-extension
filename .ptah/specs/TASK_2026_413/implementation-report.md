@@ -218,3 +218,181 @@ The existing dock tab store now carries a read-only `view` descriptor alongside 
 The Git dock renders file and diff tabs from the same tab strip even when the workspace is not a Git repository, routes view tabs to `<ptah-file-view>`, and preserves the existing diff-tab accessible names (`git-dock.component.ts:93-191`). `EditorLauncherService.openLinkedFile` sends only `editor:openFile` requests scoped as `external-link` (`editor-launcher.service.ts:93-111`). A blocked-but-externally-openable path first displays an inline `alertdialog` containing the full absolute path and chosen editor; only its explicit Open action emits, while Cancel does nothing (`file-view.component.ts:76-127`, `152-176`). Denied paths expose no Open In control.
 
 Focused reader, tab-store, Monaco lifecycle/theme, component, launcher, real-child mount, and Electron tests cover every Batch 8b behavior. The Electron proof keeps the BrowserWindow at 1200x800 and verifies the 700 px dock, a requested text position, Markdown preview/source, close, fixed outside-root refusal, and confirm-before-external-open. During regression verification the mixed-strip close label initially broke the legacy diff-tab locator; restoring the established `Close diff for …` name and adding the distinct `Close file …` name fixed compatibility without weakening the scenario.
+
+## Security remediation (Batches 7/8a)
+
+Four of the five findings in `security-review-7-8a.md` were in scope here. Each is
+described with what changed, where, and the spec case that pins it.
+
+### HIGH-1 — symlink escape bypassed the credential deny-list — FIXED
+
+`resolveForExternalOpen` keyed its deny-list on `resolution.root`, the LEXICAL
+root match, so a symlink inside a registered workspace root that realpathed into
+`~/.ssh` skipped the deny-list entirely.
+
+- `libs/backend/rpc-handlers/src/lib/handlers/file-link-root-policy.ts:243-259` —
+  the `widened = extra.some(...)` test is replaced by
+  `await this.isInsideRegisteredRoots(resolution.realPath)`. The exemption is now
+  keyed on the REAL path's containment in the registered roots or their
+  worktrees; everything else is deny-listed on both its lexical and its real
+  form.
+- `file-link-root-policy.ts:388-424` — new private `isInsideRegisteredRoots` and
+  `realpathAll`. Roots are realpath'd before comparison (home and `os.tmpdir()`
+  can themselves be symlinks); an unresolvable root is dropped, which can only
+  shrink the exempt set. Worktrees are consulted only after the registered roots
+  miss, because listing them shells out to git.
+- The registered-root `.env` exemption is preserved deliberately, and the file
+  header (`file-link-root-policy.ts:1-42`) is rewritten to state the real-path
+  rule, why lexical keying was wrong, and that the exemption stays.
+
+Pinned by `file-link-root-policy.spec.ts`:
+`refuses a symlink inside a REGISTERED root that realpaths into .ssh` (asserts
+`outside-roots` and the absence of `lexicalPath`),
+`does not apply the deny-list inside a registered workspace root` (the `.env`
+exemption, unchanged), and the pre-existing home/temp cases
+(`allows an ordinary file under home for external open`,
+`refuses a credential under home, disclosing no path`,
+`refuses a benign-looking symlink whose REALPATH lands in .ssh`).
+
+### HIGH-2 — VS Code `file:open` refused absolute paths it must confirm — FIXED
+
+`resolveForExternalOpen` is bounded to registered union home union temp, so
+`D:\other-repo\x.ts` was rejected with `outside-roots` and
+`confirmOutsideWorkspace` never ran — contradicting Decision 3 in `context.md`.
+
+- `libs/backend/rpc-handlers/src/lib/handlers/file-link-root-policy.ts:261-355` —
+  new third method `resolveForHostReveal(requested, { allowDirectory })`, beside
+  `resolveForView` and `resolveForExternalOpen`. It authorizes no root set but
+  still enforces, in order: `checkLinkedPathForm` on the requested string,
+  absolute-only (a relative path returns `no-base-root`, never `process.cwd()`),
+  `realpath`, `checkLinkedPathForm` again on the RESOLVED target (a junction can
+  escape to UNC), the credential deny-list on both lexical and real forms, and
+  the regular-file / directory check. Its header comment states why it exists and
+  that it never returns bytes — VS Code only reveals the path in its own editor.
+  `resolveForExternalOpen` is NOT widened: the in-app viewer and the Electron
+  external-open path keep their current root sets.
+- `libs/backend/rpc-handlers/src/lib/handlers/workspace-file-path.ts:237-244` —
+  `realpathFailureReason` is exported so the new policy answers with the same
+  wire vocabulary rather than minting a second mapping. `checkLinkedPathForm` is
+  reused, not copied.
+- `apps/ptah-extension-vscode/src/services/rpc/handlers/file-rpc.handlers.ts:137-146` —
+  `resolveTarget` now calls `resolveForHostReveal`; the confirm runs on its
+  `lexicalPath`. Relative paths are unchanged: view roots only.
+- `file-rpc.handlers.ts:16-25` — header rule 2 rewritten to name the policy
+  actually used and to record why `resolveForExternalOpen` is not.
+
+Pinned by `file-link-root-policy.spec.ts` `describe('resolveForHostReveal')`,
+which contrasts `resolveForView` rejecting a sibling-repo path against
+`resolveForHostReveal` resolving it, plus credential refusal, UNC / device /
+extended-prefix refusal, relative-path refusal, `not-found`, and the directory
+case.
+
+The dishonest mock is gone. `file-rpc.handlers.spec.ts`
+`describe('an out-of-root absolute path, against the real policy')` constructs a
+REAL `FileLinkRootPolicy` against a `mkdtemp` directory that no registered root
+contains and pins: the confirm is called with the absolute path and opens on
+`Open`; declining returns `Opening that file was cancelled.` and opens nothing; a
+credential under that directory is refused with a single non-modal warning and no
+modal confirm; a UNC share and a device path are refused before any confirmation.
+
+### MEDIUM-1 — deny-list evaded by directory-name variations — FIXED
+
+- `file-link-root-policy.ts:76-93` — new `CREDENTIAL_DENY_LIST.directoryPrefixes`
+  (`/^\.(ssh|gnupg|aws|azure|kube|docker)([._-]|$)/`), applied per segment at
+  `file-link-root-policy.ts:174-176`. The separator class is what keeps it
+  narrow. Written in lower case WITHOUT the `i` flag on purpose: `segmentsOf`
+  already lower-cases on win32, so matching stays case-insensitive there and
+  case-SENSITIVE on posix, where `.SSH` is a genuinely different directory —
+  the pre-existing posix case-sensitivity test still passes unchanged.
+- `file-link-root-policy.ts:107-133` — `credentials`, `known_hosts` and
+  `authorized_keys` added to `basenames`, stem-anchored with `(\.|$)`.
+
+Pinned by `file-link-root-policy.spec.ts`: `denies %s by directory prefix`
+(`.aws.bak`, `.ssh-old`, `.ssh_backup`, `.gnupg.2024`, a nested `.kube-old`);
+`denies %s by basename wherever it was moved` (`credentials`,
+`credentials.json`, `known_hosts`, `authorized_keys`); and the negative block
+`still allows %s`, which proves `awsome`, `sshd-config` (as directory and as
+file), `.dockerignore`, `.sshrc` and `my-credentials.ts` are NOT caught. A
+further case pins win32-only case-insensitivity for the prefixes.
+
+### LOW-1 — raw error text crossed the RPC boundary — FIXED
+
+- `libs/backend/rpc-handlers/src/lib/handlers/editor-rpc.handlers.ts:35-47` —
+  new fixed `MESSAGE` map.
+- `editor-rpc.handlers.ts:172-188` — `openDetected` returns
+  `'Could not launch the requested editor.'` and `detectFailure` (the sibling
+  with the identical leak) returns `'Could not detect installed editors.'`. Both
+  route the real error through the single private `warn` helper, which is the
+  only place it goes. The `EditorOpenResult` / `EditorDetectTargetsResult` shapes
+  are unchanged, so the renderer contract is untouched. The remaining
+  caller-visible strings in this class are Zod issue messages and fixed
+  containment copy, neither of which carries host state.
+
+Pinned by `editor-rpc.handlers.spec.ts`:
+`returns fixed copy and logs the real error when a launch throws` (asserts the
+fixed sentence, that the host path fragment `AppData` is absent, and that the
+logger received an `Error`) and `returns fixed copy when detection throws`.
+
+### MEDIUM-2 — NOT fixed here, deliberately out of scope
+
+`libs/frontend/markdown/src/lib/markdown-file-links.ts` (the
+`pending instanceof Promise` thenable check) belongs to Batch 8c-1 and to another
+executor. This batch was scoped to four named backend / extension files and must
+not edit `libs/frontend/**`.
+
+### Verification
+
+Both commands run from the worktree, under the shared Nx lock, one at a time.
+
+- `npx nx run-many -t test -p @ptah-extension/rpc-handlers ptah-extension-vscode`
+  — `Successfully ran target test for 2 projects`. `@ptah-extension/rpc-handlers`:
+  97 suites passed, 2881 passed / 31 skipped. `ptah-extension-vscode`: 6 suites
+  passed, 60 passed.
+- `npx nx run-many -t lint typecheck -p @ptah-extension/rpc-handlers ptah-extension-vscode`
+  — `Successfully ran targets lint, typecheck for 2 projects`. 0 errors. The 19 +
+  1 remaining lint warnings are pre-existing and in files this batch did not
+  touch (`max-lines` on harness services, unused `TOKENS` imports, non-null
+  assertions in a harness spec, an unused arg in `post-init.ts`).
+- `ptah-electron:typecheck` was not run: it fails on this branch for an unrelated
+  reason inherited from `main` (jest globals in
+  `apps/ptah-electron/src/config/build-artifact-gate.ts`).
+
+## Batch 8c-2
+
+Chat link router, agent-output context markers, `FILE_LINK_OPENER` migration, composition-root wiring, Electron e2e, plus security finding 4. Nothing was committed, stashed, rebased or pushed, and `npx nx reset` was never run. Every Nx and Playwright command held the shared lock for its whole duration.
+
+### Source changes
+
+- **CREATE `libs/frontend/chat/src/lib/services/file-link-router.service.ts`** — one root service implementing BOTH `IFileLinkOpener` (`FILE_LINK_OPENER`) and `MarkdownFileLinkHandler` (`MARKDOWN_FILE_LINK_HANDLER`). Context resolution starts at `origin.closest('markdown, [markdown]')?.parentElement ?? origin`, so an attribute an agent authored inside its own rendered markdown can never be the match (R8); it then takes `closest('[data-ptah-link-document], [data-ptah-tab-id]')`. A previewed document wins and supplies `documentPath` plus its root; otherwise a tab marker resolves through `TabManagerService.findTabByIdAcrossWorkspaces`, which covers a BACKGROUND workspace; otherwise `vscode.config().workspaceRoot`, normalised so the default empty string becomes no root rather than an empty one.
+- **Electron branch**: `setEditorPanelVisible(true)` first and synchronously (it triggers the shell's lazy dock load, so the dock chunk and the import fetch in parallel), then `await import('@ptah-extension/git-ui')`, `GitReviewService.setMode('working-tree')`, `DiffTabsService.openFileView`. There is no static git-ui import at this layer — the same pattern as `WorkspaceCoordinatorService.resolveGitServices`. A dynamic-import or open failure is logged with the `[FileLinkRouter]` prefix and re-thrown, never swallowed.
+- **VS Code branch**: `rpcCall<FileOpenResult>(vscode, 'file:open', { path, line, column, workspaceRoot })`. `documentPath` is not sent because it has no VS Code producer. A refusal is logged and rejects.
+- **Context markers**, as Angular HOST bindings only, never on a `<markdown>` element and never inside rendered content: `ChatTranscriptComponent` and `CompactSessionCardComponent` carry `data-ptah-file-links` plus `[attr.data-ptah-tab-id]`; `AgentMonitorPanelComponent` and `SubagentTranscriptOverlayComponent` carry the opt-in marker only, because both are store-driven and bound to no session tab, so a relative path there resolves against the active workspace root.
+- **`FilePathLinkComponent`** now injects `FILE_LINK_OPENER` and `ElementRef` instead of `ClaudeRpcService`, emits `clicked`, then calls `open({ path, origin: host.nativeElement })`. The atom has no error surface of its own, so a rejection is logged rather than shown.
+- **`TasksStore.openArtifact`** routes through `FILE_LINK_OPENER` and sets its error signal ONLY when the opener rejects.
+- **`ClaudeRpcService.openFile` is deleted**, along with the now-unused `FileOpenResult` import. `grep -rn "rpcService.openFile\|rpc.openFile\|openFile: jest.fn" libs apps` returns only the expected survivors: the git-ui `EditorLauncherService`, the platform adapters and the backend container smoke specs. No compatibility shim was left behind.
+- **Composition root** (`app.config.ts`): `{ provide: FILE_LINK_OPENER, useExisting: FileLinkRouterService }`, `{ provide: MARKDOWN_FILE_LINK_HANDLER, useExisting: FileLinkRouterService }` and `provideMarkdownFileLinks()`. `useExisting` is load-bearing — two instances would hold separate git-ui module caches and could resolve the same link against different workspaces.
+
+### Marker audit (R2)
+
+Marked, because they render agent output: chat transcript, compact session card, agent monitor panel, subagent transcript overlay, plus the git-ui file-view preview already marked by Batch 8b. Deliberately UNMARKED, so their links keep plain browser behaviour: `tasks-ui` task detail, `chat/settings/*`, `chat/update-dialog`, `skill-synthesis-ui/*`, `setup-wizard` analysis results and transcript, `harness-builder`, and `tribunal-panel` crucible verdict. The harness-builder and setup-wizard analysis transcripts do render agent execution nodes but carry no session tab, so they stay unmarked by default as the batch specifies; that remains a follow-up for the orchestrator to decide. Negative specs pin task detail and the update dialog.
+
+### Security finding 4 (`markdown-file-links.ts`)
+
+`if (pending instanceof Promise)` is replaced by a structural thenable check. The webview shell is Zone-based, so a handler's async method returns a `ZoneAwarePromise`, and a cross-realm handler returns that realm's `Promise`; neither is an instance of this realm's `Promise`, so the identity test let those rejections escape unhandled. A spec case now returns a non-Promise thenable that rejects and asserts it is still logged.
+
+### Deviations, stated rather than made silently
+
+1. **`.then(undefined, reportHandlerFailure)` instead of `.catch(...)`.** The brief asked to keep the existing `.catch` behaviour. `PromiseLike` — the only thing a thenable check establishes — guarantees `then` and nothing else; a Zone.js or cross-realm thenable is not required to expose `.catch`, so calling it would have reintroduced a narrower version of the same bug. `.then(undefined, handler)` is behaviourally identical and is what the standard defines `.catch` in terms of.
+2. **Callers migrated beyond the R5 list.** R5 named five files. Two more needed migrating: `libs/frontend/chat-ui/src/lib/atoms/file-path-link.component.spec.ts`, which provided `ClaudeRpcService` for the atom under test, and four `TasksStore` TestBeds across `tasks-store.service.spec.ts`, `tasks-view.component.spec.ts` and `task-views.service.spec.ts`, which had to bind `FILE_LINK_OPENER` once the store took the port as a required dependency. Two webview specs also needed providers: `unit5-message-routing.spec.ts` (a stub opener for `TasksStore`) and the new `file-link-wiring.spec.ts` (`provideModelRefreshControl()`, which `TabManagerService` reaches through the router). R5's list was incomplete, as it warned it might be.
+3. **The e2e's `file:viewContent` assertion does not check `line`/`column`.** Plan step 8c.5.2 is satisfied as written — it only requires `workspaceRoot` — but the reason is worth recording: `FileViewContentParams` (`rpc-misc.types.ts:163`) deliberately carries only `path`, `workspaceRoot` and `documentPath`. The backend reads bytes; the reveal is applied renderer-side. The Monaco cursor assertion, `{ lineNumber: 12, column: 3 }`, is what proves line and column survived the trip, and it passes. My first draft asserted them on the RPC and failed; the contract was right and the spec was wrong.
+4. **The e2e reload step asserts less than plan step 8c.5.7 implies.** `mainWindow.reload()` completes and the window lands back on the same URL — the A6/A7 and D10 property, that an agent `file:` link cannot replace the document and leave the app unable to return. It does NOT assert the dock re-mounts after a bare renderer reload. Dock-state restore is proven by `git source-control rail`, which relaunches the whole app, the path the persisted `electron-layout` state is designed for. Asserting it after `page.reload()` failed, and I could not show it is a guaranteed property rather than my own assumption, so the spec claims only the narrower thing it actually proves.
+
+### Is `FILE_LINK_OPENER` as a REQUIRED dependency of `TasksStore` safe at runtime?
+
+Yes, and it is provable rather than assumed. The token has no default provider, so a consumer that fails to bind it gets an NG0201 at first injection — which is exactly how two spec failures surfaced during verification. The question is whether any RUNTIME path can hit that.
+
+There are exactly two Angular bootstraps in the repository: `apps/ptah-extension-webview/src/main.ts` and `apps/ptah-landing-page/src/main.ts` (`grep -rln "bootstrapApplication"`). The webview app is the single composition root for BOTH the VS Code webview and the Electron renderer, and it binds the token. The landing page consumes neither `@ptah-extension/tasks-ui` nor `@ptah-extension/chat-ui` — a grep for either specifier across `libs/web`, `libs/api` and `apps/ptah-landing-page` returns nothing — so neither `TasksStore` nor `FilePathLinkComponent` can be constructed there. Every runtime path is therefore covered by the composition root, and a future app that consumes these libs without binding the token fails loudly at construction rather than silently failing to open files.
+
+### Out-of-scope defect found, reported and NOT fixed
+
+`apps/ptah-electron-e2e/src/specs/git/file-view-tab.spec.ts:144` (Batch 8b's file) asks for a button named `Close readme.md`, but `git-dock.component.ts:165-166` emits `Close file <name>` for a file tab and `Close diff for <name>` for a diff tab. The 8b product fix landed without updating this spec. Proven pre-existing at HEAD without `git stash`: `git diff --stat HEAD` is empty for both that spec and all of `libs/frontend/git-ui`, neither of which this batch touches, and `git show HEAD:` on each file reproduces the same mismatch. Left unfixed because both files are outside this batch's ownership.
