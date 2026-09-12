@@ -42,12 +42,21 @@ export {
   type CompactionConfig,
 } from './compaction-config-provider';
 export {
+  resolveAutoCompactControl,
+  isValidAutoCompactWindow,
+  SDK_AUTO_COMPACT_WINDOW_MIN,
+  SDK_AUTO_COMPACT_WINDOW_MAX,
+  type AutoCompactSettings,
+  type AutoCompactControlInput,
+} from './auto-compact-control';
+export {
   CompactionHookHandler,
   type CompactionStartCallback,
   isPreCompactHook,
   isPostCompactHook,
 } from './compaction-hook-handler';
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
+export { CompactionBoundaryGenerationRegistry } from './compaction-boundary-generation-registry';
 export {
   SessionTurnStateRegistry,
   toTurnStateEvent,

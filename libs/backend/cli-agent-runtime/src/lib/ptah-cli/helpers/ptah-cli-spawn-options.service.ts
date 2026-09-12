@@ -30,6 +30,8 @@ import {
   CompactionConfigProvider,
   assembleSystemPrompt,
   getActiveProviderId,
+  resolveAutoCompactControl,
+  type AutoCompactSettings,
   type HookEvent,
   type HookCallbackMatcher,
   type McpHttpServerConfig,
@@ -52,9 +54,11 @@ export interface PtahSpawnAssembly {
   readonly systemPromptContent: string | undefined;
   readonly mcpServers: Record<string, McpHttpServerConfig>;
   readonly hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined;
-  readonly compactionControl:
-    | { enabled: boolean; contextTokenThreshold: number }
-    | undefined;
+  /**
+   * Flag-tier auto-compaction keys from `resolveAutoCompactControl`, merged by
+   * the caller through `buildFlagSettings`. `{}` when Ptah has no opinion.
+   */
+  readonly autoCompact: AutoCompactSettings;
   /**
    * Output-style name for the FLAG tier (TASK_2026_197), or `undefined` when
    * no style is active.
@@ -219,12 +223,12 @@ export class PtahCliSpawnOptions {
       }
     }
     const compactionConfig = this.compactionConfigProvider?.getConfig();
-    const compactionControl = compactionConfig?.enabled
-      ? {
-          enabled: true,
-          contextTokenThreshold: compactionConfig.contextTokenThreshold,
-        }
-      : undefined;
+    const autoCompact: AutoCompactSettings = compactionConfig
+      ? resolveAutoCompactControl({
+          enabled: compactionConfig.enabled,
+          windowTokens: compactionConfig.contextTokenThreshold ?? null,
+        })
+      : {};
 
     this.logger.info('[PtahCliSpawnOptions] Assembled spawn options', {
       cwd,
@@ -232,7 +236,8 @@ export class PtahCliSpawnOptions {
       mcpEnabled: Object.keys(mcpServers).length > 0,
       hasEnhancedPrompts: !!enhancedPromptsContent,
       hasHooks: !!hooks,
-      compactionEnabled: compactionConfig?.enabled ?? false,
+      compactionEnabled: compactionConfig?.enabled ?? true,
+      autoCompact,
       hasIdentityPrompt: !!activeProviderId,
       outputStyleName: outputStyle.outputStyleName ?? null,
       parentSessionId: parentSessionId ?? null,
@@ -244,7 +249,7 @@ export class PtahCliSpawnOptions {
       systemPromptContent: fullSystemPromptContent,
       mcpServers,
       hooks,
-      compactionControl,
+      autoCompact,
       outputStyleName: outputStyle.outputStyleName,
     };
   }

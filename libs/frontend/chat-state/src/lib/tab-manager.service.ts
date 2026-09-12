@@ -347,14 +347,6 @@ export class TabManagerService {
     { equal: (a, b) => a === b },
   );
 
-  /** Whether compaction is in progress for the active tab. */
-  readonly activeTabIsCompacting = computed(
-    () =>
-      this._tabs().find((t) => t.id === this._activeTabId())?.isCompacting ??
-      false,
-    { equal: (a, b) => a === b },
-  );
-
   /** Compaction count. Rarely changes. */
   readonly activeTabCompactionCount = computed(
     () =>
@@ -984,7 +976,6 @@ export class TabManagerService {
       liveModelStats: null,
       modelUsageList: undefined,
       hasLiveSession: false,
-      isCompacting: false,
       compactionCount: 0,
       lastCompactionAt: null,
       lastTerminalReason: undefined,
@@ -1750,27 +1741,27 @@ export class TabManagerService {
 
   // ----- Compaction -----
 
-  /** Mark compaction in progress for the tab. */
-  markCompactionStart(tabId: string): void {
-    this.updateTabInternal(tabId, { isCompacting: true });
-  }
-
-  /** Clear the per-tab `isCompacting` flag (no other state touched). */
-  clearCompactingFlag(tabId: string): void {
-    this.updateTabInternal(tabId, { isCompacting: false });
-  }
-
   /**
-   * Apply the compaction-safety-timeout reset: clear isCompacting and reset
-   * the streaming state machine so a stuck compaction banner doesn't leave
-   * the tab in a non-recoverable state.
+   * Apply the compaction-safety-timeout reset: reset the streaming state
+   * machine so a stuck compaction doesn't leave the tab in a non-recoverable
+   * state. Compaction in-flight state itself lives in `ConversationRegistry`.
    */
   applyCompactionTimeoutReset(tabId: string): void {
     this.updateTabInternal(tabId, {
-      isCompacting: false,
       status: 'loaded',
       streamingState: null,
       currentMessageId: null,
+    });
+  }
+
+  /**
+   * Seed a verified post-compaction context usage value without touching
+   * transcript, reload, compaction count, or any other tab state.
+   */
+  seedPostCompactionContext(tabId: string, postTokens: number | undefined): void {
+    const tab = this.tabs().find((candidate) => candidate.id === tabId);
+    this.updateTabInternal(tabId, {
+      liveModelStats: this.postCompactionContextStats(tab?.liveModelStats, postTokens),
     });
   }
 
@@ -1785,8 +1776,15 @@ export class TabManagerService {
     payload: {
       preloadedStats: PreloadedStatsPayload | null | undefined;
       compactionCount: number;
+      postCompactionContextTokens?: number;
     },
   ): void {
+    const tab = this.tabs().find((candidate) => candidate.id === tabId);
+    const liveModelStats = this.postCompactionContextStats(
+      tab?.liveModelStats,
+      payload.postCompactionContextTokens,
+    );
+
     this.updateTabInternal(tabId, {
       messages: [],
       preloadedStats: payload.preloadedStats,
@@ -1800,9 +1798,42 @@ export class TabManagerService {
       currentMessageId: null,
       queuedContent: null,
       queuedOptions: null,
-      liveModelStats: null,
+      liveModelStats,
       modelUsageList: [],
     });
+  }
+
+  private postCompactionContextStats(
+    priorLiveStats: LiveModelStatsPayload | null | undefined,
+    postTokens: number | undefined,
+  ): LiveModelStatsPayload | null {
+    if (
+      typeof postTokens !== 'number' ||
+      !Number.isFinite(postTokens) ||
+      postTokens <= 0 ||
+      priorLiveStats == null ||
+      priorLiveStats.model.length === 0
+    ) {
+      return null;
+    }
+    // The prior finite positive window wins over the pricing lookup: for a
+    // model the registry does not recognize (proxied Codex ids such as
+    // gpt-5.6-sol), falling back to getModelContextWindow would return 0 and
+    // clear the context gauge even though the tab carried a usable window.
+    const priorWindow = priorLiveStats.contextWindow;
+    const contextWindow =
+      Number.isFinite(priorWindow) && priorWindow > 0
+        ? priorWindow
+        : getModelContextWindow(priorLiveStats.model);
+    if (!Number.isFinite(contextWindow) || contextWindow <= 0) {
+      return null;
+    }
+    return {
+      model: priorLiveStats.model,
+      contextUsed: postTokens,
+      contextWindow,
+      contextPercent: Math.round((postTokens / contextWindow) * 1000) / 10,
+    };
   }
 
   /**
@@ -1969,7 +2000,6 @@ export class TabManagerService {
       preloadedStats: null,
       liveModelStats: null,
       modelUsageList: [],
-      isCompacting: false,
       compactionCount: 0,
     });
 

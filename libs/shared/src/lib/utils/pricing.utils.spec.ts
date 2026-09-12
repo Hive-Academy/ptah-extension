@@ -284,6 +284,100 @@ describe('pricing.utils', () => {
     });
   });
 
+  describe('registerModelContextWindows', () => {
+    // The registry is module state; isolate each case in a fresh module so
+    // registrations never leak between tests or into other describe blocks.
+    function freshModule(): typeof import('./pricing.utils') {
+      let mod!: typeof import('./pricing.utils');
+      jest.isolateModules(() => {
+        mod = jest.requireActual('./pricing.utils');
+      });
+      return mod;
+    }
+
+    it('unpriced discovered {id:"gpt-5.6-sol", contextLength:400000} → getModelContextWindow 400000', () => {
+      const mod = freshModule();
+      expect(mod.getModelContextWindow('gpt-5.6-sol')).toBe(0);
+      mod.registerModelContextWindows([
+        { id: 'gpt-5.6-sol', contextLength: 400_000 },
+      ]);
+      expect(mod.findModelPricing('gpt-5.6-sol')).toBeNull();
+      expect(mod.getModelContextWindow('gpt-5.6-sol')).toBe(400_000);
+    });
+
+    it('registry beats a partial pricing match', () => {
+      const mod = freshModule();
+      // `gpt-4o-ultra` partially matches the bundled `gpt-4o` (128k) entry.
+      expect(mod.getModelContextWindow('gpt-4o-ultra')).toBe(128_000);
+      mod.registerModelContextWindows([
+        { id: 'gpt-4o-ultra', contextLength: 512_000 },
+      ]);
+      expect(mod.getModelContextWindow('gpt-4o-ultra')).toBe(512_000);
+    });
+
+    it('matches exactly only — a shorter registered id never answers a longer one', () => {
+      const mod = freshModule();
+      mod.registerModelContextWindows([{ id: 'gpt-5', contextLength: 272_000 }]);
+      expect(mod.getModelContextWindow('gpt-5')).toBe(272_000);
+      expect(mod.getModelContextWindow('gpt-5.6-sol')).toBe(0);
+    });
+
+    it('provider-prefixed and dotted aliases resolve', () => {
+      const mod = freshModule();
+      mod.registerModelContextWindows([
+        { id: 'OpenAI/GPT-5.6-Sol', contextLength: 400_000 },
+      ]);
+      expect(mod.getModelContextWindow('openai/gpt-5.6-sol')).toBe(400_000);
+      expect(mod.getModelContextWindow('gpt-5.6-sol')).toBe(400_000);
+      expect(mod.getModelContextWindow('gpt-5-6-sol')).toBe(400_000);
+      expect(mod.getModelContextWindow('GPT-5.6-SOL')).toBe(400_000);
+    });
+
+    it('ignores 0, negative, NaN, Infinity', () => {
+      const mod = freshModule();
+      mod.registerModelContextWindows([
+        { id: 'ctx-zero', contextLength: 0 },
+        { id: 'ctx-negative', contextLength: -5 },
+        { id: 'ctx-nan', contextLength: Number.NaN },
+        { id: 'ctx-infinite', contextLength: Number.POSITIVE_INFINITY },
+      ]);
+      for (const id of ['ctx-zero', 'ctx-negative', 'ctx-nan', 'ctx-infinite']) {
+        expect(mod.getModelContextWindow(id)).toBe(0);
+      }
+    });
+
+    it('stores fractional lengths as integers', () => {
+      const mod = freshModule();
+      mod.registerModelContextWindows([
+        { id: 'ctx-fraction', contextLength: 131_072.9 },
+      ]);
+      expect(mod.getModelContextWindow('ctx-fraction')).toBe(131_072);
+    });
+
+    it('evicts oldest past the bound, and a re-register refreshes recency', () => {
+      const mod = freshModule();
+      mod.registerModelContextWindows([
+        { id: 'ctx-oldest', contextLength: 100_000 },
+        { id: 'ctx-refreshed', contextLength: 100_000 },
+      ]);
+      // Refresh `ctx-refreshed` so it is newer than the filler below.
+      const filler = Array.from({ length: 4094 }, (_, i) => ({
+        id: `ctx-filler-${i}`,
+        contextLength: 1_000,
+      }));
+      mod.registerModelContextWindows(filler);
+      mod.registerModelContextWindows([
+        { id: 'ctx-refreshed', contextLength: 200_000 },
+      ]);
+      expect(mod.getModelContextWindow('ctx-refreshed')).toBe(200_000);
+      // 4096 keys fit; the next registration evicts the oldest (`ctx-oldest`).
+      mod.registerModelContextWindows([{ id: 'ctx-newest', contextLength: 1 }]);
+      expect(mod.getModelContextWindow('ctx-oldest')).toBe(0);
+      expect(mod.getModelContextWindow('ctx-newest')).toBe(1);
+      expect(mod.getModelContextWindow('ctx-refreshed')).toBe(200_000);
+    });
+  });
+
   describe('getModelPricingDescription', () => {
     it('formats pricing as $X/1M per input/output', () => {
       expect(getModelPricingDescription('gpt-4o')).toBe(

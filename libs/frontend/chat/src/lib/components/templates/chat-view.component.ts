@@ -660,31 +660,27 @@ export class ChatViewComponent implements OnDestroy {
    * is conversation-scoped, so every tab bound to the conversation sees the
    * banner together (canvas-grid).
    *
-   * Reads ONLY from the conversation registry. The previous fallback to
-   * `tab.isCompacting` / `chatStore.isCompacting()` created a second source
-   * of truth: when StreamRouter had not yet registered the conversation by
-   * `compaction_complete` time, the registry stayed `inFlight=true` while
-   * the tab cleared (or vice versa) and the banner stuck on the 120s safety
-   * timeout. The lifecycle service now writes through the registry on every
-   * transition, so unresolved conversations simply render no banner — which
-   * is the correct state for an unrouted tab.
+   * Reads ONLY from the conversation registry, through
+   * `ChatStore.isCompactingForTab` — the same derivation the chat-input
+   * overlay uses, so banner and overlay cannot disagree. Unresolved
+   * conversations simply render no banner, which is the correct state for an
+   * unrouted tab.
+   *
+   * Scoped by `resolvedTabId()`, the same derivation
+   * `ChatInputComponent.resolvedIsCompacting` uses. Deriving the id from
+   * `resolvedTab()` instead fell back to the GLOBAL active tab whenever
+   * SESSION_CONTEXT held a tab id absent from `tabs()` — a tile still
+   * resolving, or one whose tab had just closed — so the banner reported the
+   * active tab's compaction while the overlay reported the tile's
+   * (PR #493 review C).
    */
-  readonly resolvedIsCompacting = computed(() => {
-    const tab = this.resolvedTab();
-    const rawTabId = tab?.id ?? this._tabManager.activeTabId();
-    if (!rawTabId) return false;
-    const tabId = TabId.safeParse(rawTabId);
-    if (!tabId) return false;
-    const convId = this._tabSessionBinding.conversationFor(tabId);
-    if (!convId) return false;
-    return (
-      this._conversationRegistry.compactionStateFor(convId)?.inFlight ?? false
-    );
-  });
+  readonly resolvedIsCompacting = computed(() =>
+    this.chatStore.isCompactingForTab(this.resolvedTabId()),
+  );
 
+  /** Same tab scope as the banner above — the two must never disagree. */
   readonly resolvedCompactionMarker = computed(() => {
-    const tab = this.resolvedTab();
-    const rawTabId = tab?.id ?? this._tabManager.activeTabId();
+    const rawTabId = this.resolvedTabId();
     if (!rawTabId) return null;
     const tabId = TabId.safeParse(rawTabId);
     if (!tabId) return null;

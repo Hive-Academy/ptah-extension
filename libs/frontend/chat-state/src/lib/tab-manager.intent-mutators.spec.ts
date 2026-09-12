@@ -701,21 +701,11 @@ describe('TabManagerService — intent-named mutators', () => {
   });
 
   describe('compaction', () => {
-    it('markCompactionStart/clearCompactingFlag toggle isCompacting', () => {
-      const id = service.createTab('compact');
-      service.markCompactionStart(id);
-      expect(service.tabs().find((t) => t.id === id)?.isCompacting).toBe(true);
-      service.clearCompactingFlag(id);
-      expect(service.tabs().find((t) => t.id === id)?.isCompacting).toBe(false);
-    });
-
     it('applyCompactionTimeoutReset clears state machine', () => {
       const id = service.createTab('timeout');
-      service.markCompactionStart(id);
       service.setStreamingState(id, createEmptyStreamingState());
       service.applyCompactionTimeoutReset(id);
       const tab = service.tabs().find((t) => t.id === id);
-      expect(tab?.isCompacting).toBe(false);
       expect(tab?.streamingState).toBeNull();
       expect(tab?.status).toBe('loaded');
     });

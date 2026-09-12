@@ -876,14 +876,13 @@ export class ChatSessionService {
       const result = await this.historyReader.readSessionHistory(
         sessionId,
         resolvedWorkspacePath,
+        { checkCompactionBoundary: true },
       );
       const events = result.events;
+      const messages = result.messages;
       const stats = result.stats;
+      const staleSnapshot = result.staleSnapshot;
 
-      const messages = await this.historyReader.readHistoryAsMessages(
-        sessionId,
-        resolvedWorkspacePath,
-      );
       const restoredFromMetadata =
         this.subagentRegistry.restoreResumableBySession(
           sessionId,
@@ -993,6 +992,7 @@ export class ChatSessionService {
         resumableSubagents,
         cliSessions,
         activated,
+        ...(staleSnapshot ? { staleSnapshot } : {}),
         ...(activationError ? { activationError } : {}),
         ...(activationErrorCode ? { activationErrorCode } : {}),
       };

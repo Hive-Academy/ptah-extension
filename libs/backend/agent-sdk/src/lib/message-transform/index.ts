@@ -1,5 +1,6 @@
 export {
   generateEventId,
+  isHiddenTranscriptRecord,
   isSkillOrMetaContent,
   userMessageHasToolResult,
 } from './message-transform-helpers';

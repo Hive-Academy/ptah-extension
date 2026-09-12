@@ -78,6 +78,10 @@ function makeService(params: {
   resumeSession?: jest.Mock;
   isStreaming?: jest.Mock;
   mcpServerRunning?: boolean;
+  historyReader?: {
+    readSessionHistory?: jest.Mock;
+    readHistoryAsMessages?: jest.Mock;
+  };
   metadata?: Record<string, unknown> | null;
   fileExists?: jest.Mock;
   readSessionHistory?: jest.Mock;
@@ -105,9 +109,12 @@ function makeService(params: {
   const historyReader = {
     readSessionHistory:
       params.readSessionHistory ??
-      jest.fn().mockResolvedValue({ events: [], stats: null }),
+      params.historyReader?.readSessionHistory ??
+      jest.fn().mockResolvedValue({ events: [], messages: [], stats: null }),
     readHistoryAsMessages:
-      params.readHistoryAsMessages ?? jest.fn().mockResolvedValue([]),
+      params.readHistoryAsMessages ??
+      params.historyReader?.readHistoryAsMessages ??
+      jest.fn().mockResolvedValue([]),
   };
   const subagentRegistry = {
     restoreResumableBySession:
@@ -309,16 +316,82 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     expect(result.activationErrorCode).toBeUndefined();
   });
 
+  it('forwards staleSnapshot:true from the immutable resume read onto ChatResumeResult', async () => {
+    const svc = makeService({
+      isSessionActive: jest.fn().mockReturnValue(false),
+      historyReader: {
+        readSessionHistory: jest.fn().mockResolvedValue({
+          events: [],
+          messages: [],
+          stats: null,
+          staleSnapshot: true,
+        }),
+      },
+    });
+
+    const params: ChatResumeParams = {
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      workspacePath: OPEN_FOLDER,
+    };
+
+    const result = (await svc.resumeSession(params)) as ChatResumeResult;
+    expect(result.success).toBe(true);
+    expect(result.staleSnapshot).toBe(true);
+  });
+
+  it('uses a single readSessionHistory parse and never calls readHistoryAsMessages', async () => {
+    const readSessionHistory = jest.fn().mockResolvedValue({
+      events: [{ id: 'ev1', eventType: 'message_start' } as never],
+      messages: [
+        {
+          id: 'msg-1',
+          role: 'user' as const,
+          content: 'hello',
+          timestamp: 1,
+        },
+      ],
+      stats: null,
+    });
+    const readHistoryAsMessages = jest.fn().mockResolvedValue([]);
+
+    const svc = makeService({
+      isSessionActive: jest.fn().mockReturnValue(false),
+      historyReader: {
+        readSessionHistory,
+        readHistoryAsMessages,
+      },
+    });
+
+    const params: ChatResumeParams = {
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      workspacePath: OPEN_FOLDER,
+    };
+
+    const result = (await svc.resumeSession(params)) as ChatResumeResult;
+    expect(result.success).toBe(true);
+    expect(readSessionHistory).toHaveBeenCalledTimes(1);
+    expect(readSessionHistory).toHaveBeenCalledWith(
+      SESSION_ID,
+      OPEN_FOLDER,
+      { checkCompactionBoundary: true },
+    );
+    expect(readHistoryAsMessages).not.toHaveBeenCalled();
+    expect(result.messages).toEqual([
+      { id: 'msg-1', role: 'user', content: 'hello', timestamp: 1 },
+    ]);
+    expect(result.events).toEqual([{ id: 'ev1', eventType: 'message_start' }]);
+  });
+
   it('restores a persisted worktree cwd before history, registry fallback, and activation', async () => {
     const worktree = `${OPEN_FOLDER}/.claude/worktrees/fix`;
     const calls: string[] = [];
+    // The merged resume path reads history once (messages come from the same
+    // readSessionHistory result), so readHistoryAsMessages is never called.
     const readSessionHistory = jest.fn(async (_id, cwd) => {
       calls.push(`history:${cwd}`);
-      return { events: [{ id: 'history' }], stats: null };
-    });
-    const readHistoryAsMessages = jest.fn(async (_id, cwd) => {
-      calls.push(`messages:${cwd}`);
-      return [];
+      return { events: [{ id: 'history' }], messages: [], stats: null };
     });
     const restoreResumableBySession = jest.fn(() => {
       calls.push('restore');
@@ -350,7 +423,6 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
       },
       fileExists: jest.fn().mockResolvedValue(true),
       readSessionHistory,
-      readHistoryAsMessages,
       restoreResumableBySession,
       registerFromHistoryEvents,
       resumeSession,
@@ -371,7 +443,6 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     ]);
     expect(calls).toEqual([
       `history:${worktree}`,
-      `messages:${worktree}`,
       'restore',
       'fallback',
       `activate:${worktree}`,
@@ -424,7 +495,7 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
   ])('falls back when persisted cwd is %s', async (_label, fileExists) => {
     const readSessionHistory = jest
       .fn()
-      .mockResolvedValue({ events: [], stats: null });
+      .mockResolvedValue({ events: [], messages: [], stats: null });
     const svc = makeService({
       metadata: {
         workingDirectory: `${OPEN_FOLDER}/.claude/worktrees/deleted`,
@@ -440,13 +511,17 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(readSessionHistory).toHaveBeenCalledWith(SESSION_ID, OPEN_FOLDER);
+    expect(readSessionHistory).toHaveBeenCalledWith(
+      SESSION_ID,
+      OPEN_FOLDER,
+      { checkCompactionBoundary: true },
+    );
   });
 
   it('keeps legacy metadata behavior when continuity fields are absent', async () => {
     const readSessionHistory = jest
       .fn()
-      .mockResolvedValue({ events: [], stats: null });
+      .mockResolvedValue({ events: [], messages: [], stats: null });
     const restoreResumableBySession = jest.fn().mockReturnValue(0);
     const svc = makeService({
       metadata: { workspaceId: OPEN_FOLDER },
@@ -460,7 +535,11 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
       workspacePath: OPEN_FOLDER,
     });
 
-    expect(readSessionHistory).toHaveBeenCalledWith(SESSION_ID, OPEN_FOLDER);
+    expect(readSessionHistory).toHaveBeenCalledWith(
+      SESSION_ID,
+      OPEN_FOLDER,
+      { checkCompactionBoundary: true },
+    );
     expect(restoreResumableBySession).toHaveBeenCalledWith(SESSION_ID, []);
   });
 });

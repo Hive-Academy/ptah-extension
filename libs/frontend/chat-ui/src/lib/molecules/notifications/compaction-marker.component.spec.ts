@@ -65,17 +65,26 @@ describe('CompactionMarkerComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Context compacted');
   });
 
-  it('renders the token-reduction line only when both counts are present', () => {
+  it('uses "shrank" only when context tokens decrease', () => {
     const fixture = setup({ preTokens: 5000, postTokens: 1200 });
     const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('shrank');
-    expect(text).toContain('5,000');
-    expect(text).toContain('1,200');
+    expect(text).toContain('shrank 5,000 → 1,200 tokens');
   });
 
-  it('omits the token line when only one count is present', () => {
+  it.each([
+    [1200, 1200],
+    [1200, 5000],
+  ])('uses neutral wording for non-shrinking values: %i → %i', (pre, post) => {
+    const fixture = setup({ preTokens: pre, postTokens: post });
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain(`${pre.toLocaleString()} → ${post.toLocaleString()} tokens`);
+    expect(text).not.toContain('shrank');
+  });
+
+  it('omits the token line when either endpoint is null', () => {
     const fixture = setup({ preTokens: 5000, postTokens: null });
     expect(fixture.nativeElement.textContent).not.toContain('shrank');
+    expect(fixture.nativeElement.textContent).not.toContain('5,000 →');
   });
 
   it('appends duration only when durationMs is present', () => {

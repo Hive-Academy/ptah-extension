@@ -548,11 +548,16 @@ export class SessionLoaderService {
    *
    * The backend returns FlatStreamEventUnion[] which we process exactly
    * like live streaming events, building the same execution tree.
+   *
+   * Resolves `staleSnapshot: true` only when a targeted compaction reload was
+   * contained because the backend could not verify its boundary; the
+   * compaction lifecycle uses it to retry that reload once. Every other
+   * completed or skipped path (including a coalesced duplicate) resolves false.
    */
   async switchSession(
     sessionId: SessionId,
     opts?: SwitchSessionOptions,
-  ): Promise<void> {
+  ): Promise<{ staleSnapshot: boolean }> {
     const targetTabId = opts?.targetTabId;
     const loadKey = targetTabId ? `${sessionId}:${targetTabId}` : sessionId;
     const targetedTab = targetTabId
@@ -564,7 +569,7 @@ export class SessionLoaderService {
         '[SessionLoaderService] Skipping duplicate switchSession for:',
         sessionId,
       );
-      return;
+      return { staleSnapshot: false };
     }
 
     const existingTab =
@@ -575,7 +580,7 @@ export class SessionLoaderService {
         .some((t) => t.id === existingTab.id);
       if (inActiveWorkspace) {
         this.tabManager.switchTab(existingTab.id);
-        return;
+        return { staleSnapshot: false };
       }
     }
 
@@ -631,12 +636,18 @@ export class SessionLoaderService {
       if (targetTabId) {
         this.streamingHandler.clearPendingUpdates(resolvedTabId);
       }
-      this.tabManager.applyResumingSession(resolvedTabId, {
-        sessionId,
-        name: title,
-        title,
-        streamingState: createEmptyStreamingState(),
-      });
+      // A targeted compaction reload must keep the compacted transcript visible
+      // until its immutable snapshot is known to be boundary-ready. Applying
+      // the normal resume initializer here would clear that transcript before a
+      // staleSnapshot response can be contained.
+      if (opts?.reason !== 'compaction' || !targetTabId) {
+        this.tabManager.applyResumingSession(resolvedTabId, {
+          sessionId,
+          name: title,
+          title,
+          streamingState: createEmptyStreamingState(),
+        });
+      }
       this.sessionManager.setNodeMaps(
         {
           agents: new Map(),
@@ -671,6 +682,29 @@ export class SessionLoaderService {
         this.requireTargetTab(sessionId, targetTabId);
       }
 
+      if (
+        opts?.reason === 'compaction' &&
+        targetTabId &&
+        resumeResult.data?.staleSnapshot === true
+      ) {
+        // The backend could not verify this compaction snapshot's boundary.
+        // Do not let its stale transcript, stats, or auxiliary state replace
+        // the compaction marker and preloaded totals already on this tab.
+        this.tabManager.applyResumeFailure(resolvedTabId);
+        this.tabManager.markTabIdle(resolvedTabId);
+        this.sessionManager.setStatus('loaded');
+        return { staleSnapshot: true };
+      }
+
+      if (opts?.reason === 'compaction' && targetTabId) {
+        this.tabManager.applyResumingSession(resolvedTabId, {
+          sessionId,
+          name: title,
+          title,
+          streamingState: createEmptyStreamingState(),
+        });
+      }
+
       const events = resumeResult.data?.events;
       const messages = resumeResult.data?.messages;
       const stats = resumeResult.data?.stats;
@@ -684,7 +718,10 @@ export class SessionLoaderService {
       // third branch below) therefore cost the whole Agents panel silently.
       this.applyCliSessions(cliSessions, sessionId);
       if (stats) {
-        this.applyResumeStats(resolvedTabId, stats);
+        this.applyResumeStats(resolvedTabId, stats, {
+          preserveCompactionContextSeed:
+            opts?.reason === 'compaction' && targetTabId != null,
+        });
       } else if (
         !targetTabId &&
         resumeResult.success &&
@@ -735,6 +772,7 @@ export class SessionLoaderService {
           }`,
         );
       }
+      return { staleSnapshot: false };
     } catch (error: unknown) {
       this._resumableSubagents.set([]);
       this._resumableSubagentsSessionId = null;
@@ -747,11 +785,15 @@ export class SessionLoaderService {
   private requireTargetTab(sessionId: SessionId, targetTabId: TabId): TabState {
     const target =
       this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab;
-    if (!target || target.claudeSessionId !== sessionId) {
+    const ownsDifferentSession =
+      target?.claudeSessionId != null && target.claudeSessionId !== sessionId;
+    if (!target || ownsDifferentSession) {
       throw new Error(
         `[SessionLoaderService] Compaction reload target ${targetTabId} no longer owns session ${sessionId}`,
       );
     }
+    // A null owner is adoptable. applyResumingSession binds it after the
+    // session-load re-check; later checks still reject a competing owner.
     return target;
   }
 
@@ -759,15 +801,34 @@ export class SessionLoaderService {
   private applyResumeStats(
     tabId: TabId,
     stats: NonNullable<ChatResumeResult['stats']>,
+    options?: { preserveCompactionContextSeed?: boolean },
   ): void {
+    // Capture before applying persisted stats: applyLoadedSessionStats creates a
+    // zero-valued live-model placeholder, which would otherwise erase the fresh
+    // post-compaction seed before this targeted-reload guard can preserve it.
+    const compactionContextSeed =
+      options?.preserveCompactionContextSeed === true
+        ? this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
+            .liveModelStats ?? null
+        : null;
+
     this.tabManager.applyLoadedSessionStats(tabId, stats, stats.model ?? null);
     this.tabManager.setModelUsageList(
       tabId,
       (stats.modelUsageList ?? []).map((entry) => ({
         ...entry,
-        contextWindow: getModelContextWindow(entry.model),
+        contextWindow: this.wireContextWindow(entry.contextWindow, entry.model),
       })),
     );
+
+    // A targeted compaction reload reads immutable history, which may still
+    // describe the pre-compaction generation. Its context snapshot must never
+    // displace the fresh post-compaction seed; the next live usage frame owns
+    // that replacement. Ordinary resumes retain their existing behavior.
+    if (compactionContextSeed) {
+      this.tabManager.setLiveModelStats(tabId, compactionContextSeed);
+      return;
+    }
 
     const snapshot = stats.contextSnapshot;
     if (!snapshot) {
@@ -775,7 +836,10 @@ export class SessionLoaderService {
       return;
     }
 
-    const contextWindow = getModelContextWindow(snapshot.model);
+    const contextWindow = this.wireContextWindow(
+      snapshot.contextWindow,
+      snapshot.model,
+    );
     this.tabManager.setLiveModelStats(tabId, {
       model: snapshot.model,
       contextUsed: snapshot.contextTokens,
@@ -785,6 +849,20 @@ export class SessionLoaderService {
           ? Math.round((snapshot.contextTokens / contextWindow) * 1000) / 10
           : 0,
     });
+  }
+
+  /**
+   * The backend carries the window it knows (including provider-discovered
+   * ones the renderer's bundled table cannot resolve). Reverse-resolving from
+   * the model name is only the fallback for an older payload or unknown model.
+   */
+  private wireContextWindow(
+    carried: number | undefined,
+    model: string,
+  ): number {
+    return typeof carried === 'number' && Number.isFinite(carried) && carried > 0
+      ? carried
+      : getModelContextWindow(model);
   }
 
   /**

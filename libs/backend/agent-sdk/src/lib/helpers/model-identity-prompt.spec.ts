@@ -129,7 +129,7 @@ function makeBuilder(): SdkQueryOptionsBuilder {
     {
       getConfig: jest
         .fn()
-        .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+        .mockReturnValue({ enabled: true, contextTokenThreshold: null }),
     },
     noopHooks,
     noopHooks,

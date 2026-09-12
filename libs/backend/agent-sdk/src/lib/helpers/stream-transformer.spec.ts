@@ -26,7 +26,10 @@ import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AuthEnv, ModelPricing, SessionId } from '@ptah-extension/shared';
-import { findModelPricing } from '@ptah-extension/shared';
+import {
+  findModelPricing,
+  registerModelContextWindows,
+} from '@ptah-extension/shared';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { IModelResolver } from '../auth-env.port';
 import type {
@@ -339,6 +342,76 @@ async function drain(iter: AsyncIterable<unknown>): Promise<void> {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe('StreamTransformer — discovered context windows on proxies (TASK_2026_414)', () => {
+  async function runResult(
+    authEnv: AuthEnv,
+    model: string,
+  ): Promise<ResultModelUsage[] | undefined> {
+    const { transformer } = makeHarness(authEnv);
+    let modelUsage: ResultModelUsage[] | undefined;
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          resultMessage(model, { inputTokens: 1000, outputTokens: 100 }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: model,
+        onResultStats: (stats) => {
+          modelUsage = stats.modelUsage;
+        },
+      }),
+    );
+    return modelUsage;
+  }
+
+  it('proxied result modelUsage contextWindow 200000 is replaced by the registered 400000', async () => {
+    const model = 'gpt-ctx-stream-proxy-414';
+    registerModelContextWindows([{ id: model, contextLength: 400_000 }]);
+
+    const usage = await runResult(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123' }),
+      model,
+    );
+
+    expect(usage?.[0]).toMatchObject({ model, contextWindow: 400_000 });
+  });
+
+  it('direct Anthropic keeps the SDK-reported window', async () => {
+    const model = 'claude-ctx-stream-direct-414';
+    registerModelContextWindows([{ id: model, contextLength: 1_000_000 }]);
+
+    const usage = await runResult(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'https://api.anthropic.com' }),
+      model,
+    );
+
+    expect(usage?.[0]).toMatchObject({ model, contextWindow: 200_000 });
+  });
+
+  it('proxied model with no known window keeps the SDK-reported window', async () => {
+    const usage = await runResult(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123' }),
+      'mystery-ctx-stream-414',
+    );
+
+    expect(usage?.[0]?.contextWindow).toBe(200_000);
+  });
+
+  it('a proxied model that only FUZZY-matches the bundled table keeps the SDK window', async () => {
+    // PR #493 review C: the override used getModelContextWindow(), whose
+    // pricing-table fallback matches partially — `gpt-4o-ultra-414` resolved
+    // to the bundled `gpt-4o` entry's 128000 and replaced the SDK value for a
+    // model provider discovery never registered. Only an EXACT discovered
+    // window may override the SDK.
+    const usage = await runResult(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123' }),
+      'gpt-4o-ultra-414',
+    );
+
+    expect(usage?.[0]?.contextWindow).toBe(200_000);
+  });
+});
 
 describe('StreamTransformer — lastTurnContextTokens (TASK_2026_109_FOLLOWUP)', () => {
   it('clears lastTurnContextByModel on compact_boundary — next result without message_start emits lastTurnContextTokens=undefined', async () => {
