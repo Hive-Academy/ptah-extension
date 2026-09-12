@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_413
-status: in_progress
+status: in_review
 type: FEATURE
 title: Restore Git controls and complete change-review UX
 depends_on: []
