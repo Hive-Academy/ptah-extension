@@ -125,6 +125,23 @@ test.describe('agent file links', () => {
     mainWindow,
     ui,
   }) => {
+    // A real `shell.openExternal()` launches xdg-open on Linux. In headless CI
+    // that process waits on the unavailable desktop portal and keeps Electron
+    // alive during fixture teardown. Capture the handoff in-process so this
+    // test still proves the URL was externalized without owning an OS browser.
+    await electronApp.evaluate(({ shell }) => {
+      const state = globalThis as unknown as {
+        __e2eExternalUrls?: string[];
+      };
+      state.__e2eExternalUrls = [];
+      Object.defineProperty(shell, 'openExternal', {
+        configurable: true,
+        value: async (url: string) => {
+          state.__e2eExternalUrls?.push(url);
+        },
+      });
+    });
+
     await ui.mockRpc({
       'git:info': {
         isGitRepo: true,
@@ -263,6 +280,16 @@ test.describe('agent file links', () => {
     expect(await ui.getObservedCalls('file:viewContent')).toHaveLength(
       readsBeforeHttp,
     );
+    await expect
+      .poll(() =>
+        electronApp.evaluate(() => {
+          const state = globalThis as unknown as {
+            __e2eExternalUrls?: string[];
+          };
+          return state.__e2eExternalUrls ?? [];
+        }),
+      )
+      .toEqual(['https://example.com/a.ts']);
     expect(mainWindow.url()).toBe(urlBefore);
   });
 

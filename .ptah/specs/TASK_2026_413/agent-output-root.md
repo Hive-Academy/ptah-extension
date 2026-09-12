@@ -35,3 +35,21 @@ Implemented read-only text/Markdown file tabs in the existing Git dock tab store
 Verification: exactly four projects passed all 12 test/lint/typecheck targets with 2,206 tests passed and 2 skipped; the file-view Electron proof passed 1/1 at 1200x800 with a measured 700 px dock; the full requested regression selection passed 12/12; e2e lint/typecheck passed 2/2 targets; `git diff --check` passed.
 
 BATCH8B: PASS read-only file/Markdown tabs complete; 2,206 unit tests and Electron 13/13 passed
+
+## CI remediation (PR #499)
+
+Status: PASS
+
+Removed the host-OS assumption from the Electron file-open handler spec by
+deriving native absolute fixtures through `node:path`. Prevented the HTTPS-link
+E2E from owning a real OS browser launch while preserving and strengthening its
+assertion: the Electron main-process handoff is captured and must equal the
+expected URL. The requested changed-spec sweep found no other accidental
+`path.isAbsolute` dependency; Windows-shaped parser and explicit-win32 cases
+were retained.
+
+Verification: the exact two-project unit command passed 97 rpc-handler suites
+and 6 VS Code suites; the exact E2E grep selected 4/4 passing tests, with the
+former teardown hang completing in 7.8 seconds; `git diff --check` passed.
+
+CIFIX: PASS platform-neutral path fixtures and headless-safe external-link handoff verified

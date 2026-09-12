@@ -859,3 +859,56 @@ lock was not left stale. I cannot prove the holder was continuous across the
 it, my restored directory would have been an orphan until the next release.
 Noted because someone else may need to recognise that shape, not because a
 failure was observed.
+
+## CI remediation (PR #499)
+
+### Changes
+
+- `libs/backend/rpc-handlers/src/lib/handlers/file-open-rpc.handlers.spec.ts`
+  now derives the workspace, inside file, and outside file with Node's host
+  `path.resolve` and asserts the resulting native path. This is preferable to
+  a win32/POSIX case table because `resolveWorkspaceFilePath` intentionally uses
+  the host `node:path` implementation and has no platform seam to stub; the
+  same absolute/contained/outside behavior is now exercised on every runner
+  without asking Linux to classify a Windows drive string. This holds on both
+  platforms because `/ws` is root-absolute under both Node path implementations
+  and `path.resolve` supplies the native drive/separators before the handler
+  calls `path.isAbsolute` and containment logic.
+- `apps/ptah-electron-e2e/src/specs/git/agent-file-links.spec.ts` intercepts
+  `shell.openExternal` inside the Electron main process for the one test that
+  clicks an HTTPS agent link, records the handoff, and asserts the exact URL.
+  The Linux CI log showed that all test assertions completed and only the
+  `electronApp` fixture teardown exceeded 60 seconds; the unique real external
+  handoff was waiting on Linux's unavailable desktop portal/`xdg-open` path and
+  kept Electron alive. This holds on both platforms because both execute the
+  same Electron navigation guard and verify the same `https://example.com/a.ts`
+  handoff without launching either OS's browser infrastructure.
+
+### Platform-assumption sweep
+
+The exact `origin/main...HEAD` changed-spec set was searched for drive paths,
+backslashes, UNC/device forms, and separator assumptions in the three requested
+areas. The only `path.isAbsolute` defect was the `file-open` spec above. The
+remaining Windows-shaped values are intentional: `workspace-file-path`, the VS
+Code file handler, and markdown specs pass explicit `win32` seams or exercise
+cross-platform parsers/form rejection; Git root matching explicitly normalizes
+slash direction; frontend service values and error strings are opaque RPC/UI
+data and never reach Node path classification. The Windows-shaped Electron
+markdown fixture was retained for the same reason: it proves a Windows link is
+parsed on every host, while the relative link's mocked workspace root is only
+renderer/RPC data. No deliberately cross-platform parser case was weakened.
+
+### Verification
+
+All commands acquired `ptah-413-nx.lock` before Nx and released the directory
+recursively immediately afterward.
+
+- `npx nx run-many -t test -p @ptah-extension/rpc-handlers ptah-extension-vscode`
+  printed `Running target test for 2 projects and 26 tasks they depend on` and
+  passed: rpc-handlers 97/97 suites (2,919 passed, 33 skipped) and VS Code 6/6
+  suites (62/62 passed).
+- `npx nx e2e ptah-electron-e2e -- --grep "agent file links|read-only file tabs"`
+  printed the one requested E2E project plus 2 dependency tasks and Playwright
+  `Running 4 tests using 1 worker`; all 4 passed in 30.0 seconds. The formerly
+  hanging test passed in 7.8 seconds and teardown completed normally.
+- `git diff --check` passed.
