@@ -31,6 +31,8 @@ export interface ElectronStateStorageWorkerOptions {
   readonly cacheExcludeKeyPrefixes?: readonly string[];
   readonly workerFactory?: ElectronStateWorkerFactory;
   readonly maxRestartAttempts?: number;
+  /** Upper bound on the worker's first-ready handshake. See the worker host. */
+  readonly handshakeTimeoutMs?: number;
 }
 
 /**
@@ -79,6 +81,7 @@ export class ElectronStateStorage
       cacheExcludeKeyPrefixes: workerOptions.cacheExcludeKeyPrefixes,
       workerFactory: workerOptions.workerFactory,
       maxRestartAttempts: workerOptions.maxRestartAttempts,
+      handshakeTimeoutMs: workerOptions.handshakeTimeoutMs,
     });
     this.readyPromise = this.workerHost.start().then(
       (data) => {

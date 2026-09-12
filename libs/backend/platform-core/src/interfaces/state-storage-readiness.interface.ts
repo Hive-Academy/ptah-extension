@@ -2,13 +2,23 @@
 
 import type { IStateStorage } from './state-storage.interface';
 
+/**
+ * Why a store cannot be read without explicit recovery.
+ *
+ * The first six are verdicts a store reaches by INSPECTING durable state, so
+ * they can travel over a worker protocol. `worker-unresponsive` is different in
+ * kind: it is reached by a host that gave up waiting, so it is always minted
+ * locally and never parsed off the wire (the worker protocol's own reason enum
+ * in `platform-electron` deliberately does not list it).
+ */
 export type StateStorageRecoveryReason =
   | 'current-pointer-invalid'
   | 'manifest-invalid'
   | 'blob-missing'
   | 'blob-length-mismatch'
   | 'blob-hash-mismatch'
-  | 'migration-failed';
+  | 'migration-failed'
+  | 'worker-unresponsive';
 
 export type StateStorageReadinessState =
   | { readonly status: 'not-ready' }

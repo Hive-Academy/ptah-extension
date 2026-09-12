@@ -47,7 +47,21 @@ export interface ElectronStateWorkerHostOptions {
   readonly cacheExcludeKeyPrefixes?: readonly string[];
   readonly workerFactory?: ElectronStateWorkerFactory;
   readonly maxRestartAttempts?: number;
+  /**
+   * Upper bound on the one-shot `initialize` handshake, which includes the
+   * v1 -> v2 migration the worker performs before it answers `ready`.
+   * Deliberately generous: this is a liveness backstop against a reply that
+   * never arrives, NOT a performance budget.
+   */
+  readonly handshakeTimeoutMs?: number;
 }
+
+/**
+ * 120 s. Long enough that a large but healthy profile migration finishes well
+ * inside it, short enough that a lost reply surfaces as an error screen rather
+ * than an app parked forever on the preparing shell.
+ */
+export const DEFAULT_STATE_WORKER_HANDSHAKE_TIMEOUT_MS = 120_000;
 
 interface PendingRequest {
   readonly resolve: (response: ElectronStateWorkerResponse) => void;
@@ -157,6 +171,7 @@ export function extractLargeStrings(
 export class ElectronStateStorageWorkerHost {
   private readonly workerFactory: ElectronStateWorkerFactory;
   private readonly maxRestartAttempts: number;
+  private readonly handshakeTimeoutMs: number;
   private worker: ElectronStateWorkerLike | null = null;
   private operationId = 0;
   private readonly pending = new Map<number, PendingRequest>();
@@ -169,6 +184,8 @@ export class ElectronStateStorageWorkerHost {
       options.workerFactory ??
       ((workerPath) => new Worker(workerPath) as ElectronStateWorkerLike);
     this.maxRestartAttempts = options.maxRestartAttempts ?? 1;
+    this.handshakeTimeoutMs =
+      options.handshakeTimeoutMs ?? DEFAULT_STATE_WORKER_HANDSHAKE_TIMEOUT_MS;
   }
 
   async start(): Promise<Record<string, JsonValue>> {
@@ -446,14 +463,61 @@ export class ElectronStateStorageWorkerHost {
         );
       }
     });
-    const response = await this.send({
-      type: 'initialize',
-      legacyFilePath: this.options.legacyFilePath,
-      v2RootPath: this.options.v2RootPath,
-      migrations: [...(this.options.migrations ?? [])],
+    // Bounded: `initialize` plus the first snapshot read IS the boot's
+    // "first ready" gate (`ElectronStateStorage.whenReady`), and every reply
+    // that settles it comes from a thread we do not control. Unbounded, a
+    // single lost reply parks the whole app with no log line and no error.
+    await this.withHandshakeBudget(worker, async () => {
+      const response = await this.send({
+        type: 'initialize',
+        legacyFilePath: this.options.legacyFilePath,
+        v2RootPath: this.options.v2RootPath,
+        migrations: [...(this.options.migrations ?? [])],
+      });
+      if (response.type !== 'ready') this.throwFailure(response);
+      await this.refreshSnapshot();
     });
-    if (response.type !== 'ready') this.throwFailure(response);
-    await this.refreshSnapshot();
+  }
+
+  /**
+   * Race `work` against the handshake budget.
+   *
+   * On expiry the worker is failed exactly as a crash would fail it (pending
+   * requests rejected, handle terminated) and a TYPED
+   * `StateStorageRecoveryRequiredError('worker-unresponsive')` is thrown.
+   * That type is deliberate on both counts: it is not an
+   * `ElectronStateWorkerCrashedError`, so `withRestart` does NOT retry a worker
+   * that has already proven unresponsive, and it is the one error shape
+   * `ElectronStateStorage` maps to `readinessState: 'recovery-required'` and
+   * `main.ts` renders as a recovery screen. The app fails loudly instead of
+   * sitting on the preparing shell.
+   */
+  private async withHandshakeBudget<T>(
+    worker: ElectronStateWorkerLike,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        this.onWorkerFailure(
+          worker,
+          new Error(
+            `State storage worker did not become ready within ${this.handshakeTimeoutMs}ms`,
+          ),
+        );
+        reject(new StateStorageRecoveryRequiredError('worker-unresponsive'));
+      }, this.handshakeTimeoutMs);
+      // A liveness backstop must never be the reason the process stays alive.
+      timer.unref?.();
+    });
+    try {
+      // `Promise.race` attaches handlers to BOTH, so the crash rejection that
+      // `onWorkerFailure` induces above is observed and never surfaces as an
+      // unhandled rejection.
+      return await Promise.race([work(), expiry]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private async refreshSnapshot(): Promise<void> {

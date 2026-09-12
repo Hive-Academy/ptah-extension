@@ -2,11 +2,44 @@ import { z } from 'zod';
 import type {
   StateStorageArraySplitPlan,
   StateStorageMigrationReceipt,
+  StateStorageRecoveryReason,
 } from '@ptah-extension/platform-core';
 
 export const ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES = 256 * 1024;
 export const MAX_PROTOCOL_DEPTH = 64;
 const MAX_PROTOCOL_NODES = ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES / 4;
+
+/**
+ * The recovery reasons a WORKER can legitimately report.
+ *
+ * A strict subset of `StateStorageRecoveryReason`: every member here is a
+ * verdict reached by inspecting durable state, which is the only kind of
+ * verdict a worker can reach. Host-only reasons — `worker-unresponsive`, minted
+ * when the host gives up waiting — are deliberately absent, so a compromised or
+ * confused worker cannot claim one and the host cannot accidentally forward one
+ * onto the wire. The `satisfies` clause keeps this list a subset of the port's
+ * union as that union grows.
+ */
+export const ELECTRON_STATE_WORKER_RECOVERY_REASONS = [
+  'current-pointer-invalid',
+  'manifest-invalid',
+  'blob-missing',
+  'blob-length-mismatch',
+  'blob-hash-mismatch',
+  'migration-failed',
+] as const satisfies readonly StateStorageRecoveryReason[];
+
+export type ElectronStateWorkerRecoveryReason =
+  (typeof ELECTRON_STATE_WORKER_RECOVERY_REASONS)[number];
+
+/** Narrow a port-level reason to one the worker protocol can carry. */
+export function isElectronStateWorkerRecoveryReason(
+  reason: StateStorageRecoveryReason,
+): reason is ElectronStateWorkerRecoveryReason {
+  return (
+    ELECTRON_STATE_WORKER_RECOVERY_REASONS as readonly StateStorageRecoveryReason[]
+  ).includes(reason);
+}
 
 export type JsonValue =
   | null
@@ -430,14 +463,7 @@ export const electronStateWorkerResponseSchema = z.discriminatedUnion('type', [
       operationId: operationIdSchema,
       code: safeFailureCodeSchema,
       recoveryReason: z
-        .enum([
-          'current-pointer-invalid',
-          'manifest-invalid',
-          'blob-missing',
-          'blob-length-mismatch',
-          'blob-hash-mismatch',
-          'migration-failed',
-        ])
+        .enum(ELECTRON_STATE_WORKER_RECOVERY_REASONS)
         .optional(),
     })
     .strict()

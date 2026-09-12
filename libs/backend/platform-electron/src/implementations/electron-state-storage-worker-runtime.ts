@@ -12,6 +12,7 @@ import type { ElectronStateManifest } from './electron-state-storage-manifest';
 import {
   assertElectronStateWorkerPayloadWithinBudget,
   generateSnapshotOperations,
+  isElectronStateWorkerRecoveryReason,
   setSnapshotPath,
   type ElectronStateWorkerRequest,
   type ElectronStateWorkerResponse,
@@ -404,16 +405,23 @@ export class ElectronStateWorkerRuntime {
         }
       }
     } catch (error: unknown) {
+      // Only a reason the PROTOCOL can carry may be reported as
+      // `recovery-required`. Every reason a worker can actually reach is a
+      // verdict about durable state and passes this guard; a host-only reason
+      // such as `worker-unresponsive` cannot be reached here and would be
+      // rejected by the response schema, so it degrades to a plain `io-failed`
+      // rather than being forwarded as an unparseable reply — which, on this
+      // code path, would itself be a lost reply.
+      const wireReason =
+        error instanceof StateStorageRecoveryRequiredError &&
+        isElectronStateWorkerRecoveryReason(error.reason)
+          ? error.reason
+          : undefined;
       return {
         type: 'failure',
         operationId: request.operationId,
-        code:
-          error instanceof StateStorageRecoveryRequiredError
-            ? 'recovery-required'
-            : 'io-failed',
-        ...(error instanceof StateStorageRecoveryRequiredError
-          ? { recoveryReason: error.reason }
-          : {}),
+        code: wireReason ? 'recovery-required' : 'io-failed',
+        ...(wireReason ? { recoveryReason: wireReason } : {}),
       };
     }
   }

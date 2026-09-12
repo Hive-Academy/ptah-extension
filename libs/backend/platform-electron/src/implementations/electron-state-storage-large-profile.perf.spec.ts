@@ -346,6 +346,12 @@ perfDescribe(
         try {
           storage = new ElectronStateStorage(dir, 'state.json', {
             workerPath: WORKER_ARTIFACT_PATH,
+            // This fixture is the deliberate outlier the default 120 s
+            // handshake budget is NOT sized for: a ~256 MB v1 migration on a
+            // loaded reference machine can legitimately outrun it. Raised here
+            // so the budget stays a liveness backstop rather than becoming a
+            // performance assertion this advisory spec would flake on.
+            handshakeTimeoutMs: 600_000,
             migrations: [SESSION_METADATA_MIGRATION_MIRROR],
             cacheExcludeKeyPrefixes: [
               SESSION_DETAIL_KEY_PREFIX,
