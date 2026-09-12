@@ -55,6 +55,9 @@ function sha256(bytes: Uint8Array): string {
 }
 
 async function exists(filePath: string): Promise<boolean> {
+  // degradation-audit: optional-capability - a rejection from `access` IS the
+  // answer this probe asked for: the path is not there. There is no second
+  // signal to lose, and every caller branches on the boolean.
   return fs
     .access(filePath)
     .then(() => true)
@@ -223,6 +226,10 @@ export class ElectronStateCommitStore {
     try {
       names = await fs.readdir(this.manifestsPath);
     } catch {
+      // degradation-audit: optional-capability - an unreadable manifests
+      // directory is not evidence that a mutation ever committed, which is the
+      // only question this predicate answers. The caller treats `false` as
+      // "safe to retry from v1", the conservative branch.
       return false;
     }
     for (const name of names) {
@@ -362,8 +369,15 @@ export class ElectronStateCommitStore {
           try {
             entries = await fs.readdir(directory);
           } catch {
+            // degradation-audit: optional-capability - this sweep runs AFTER
+            // the commit is durable. A directory that cannot be listed leaves
+            // stale `.tmp` files behind and nothing else; the next commit
+            // sweeps them again.
             return;
           }
+          // degradation-audit: optional-capability - removing a leftover
+          // staging file is best effort for the same reason: the commit has
+          // already landed, and a file that survives is retried next sweep.
           await Promise.all(
             entries
               .filter((entry) => entry.endsWith('.tmp'))

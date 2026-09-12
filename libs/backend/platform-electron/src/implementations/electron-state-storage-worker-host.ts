@@ -316,6 +316,11 @@ export class ElectronStateStorageWorkerHost {
         }),
       );
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the abort is best-effort
+      // cleanup of a half-staged write; the REAL failure is rethrown on the
+      // next line and nothing about it is lost. A worker that cannot even be
+      // told to abort has already crashed, and `onWorkerFailure` rejects every
+      // pending operation on that path.
       await this.send({
         type: 'abort-scalar-write',
         writeId,
@@ -429,6 +434,9 @@ export class ElectronStateStorageWorkerHost {
       );
       delete this.cache[key];
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - same contract as the scalar
+      // abort above: best-effort cleanup of a half-staged sequence, with the
+      // real failure rethrown on the next line.
       await this.send({
         type: 'abort-json-sequence-write',
         sequenceId,
@@ -611,6 +619,11 @@ export class ElectronStateStorageWorkerHost {
     try {
       response = parseElectronStateWorkerResponse(value);
     } catch (error: unknown) {
+      // degradation-audit: reported - the error is not swallowed, it is
+      // ROUTED: `onWorkerFailure` wraps it in ElectronStateWorkerCrashedError
+      // and rejects every pending operation with it, so each caller sees the
+      // failure. The bare `return` only ends this message callback, which has
+      // no caller to return a value to.
       this.onWorkerFailure(
         source,
         error instanceof Error ? error : new Error(String(error)),
@@ -638,6 +651,9 @@ export class ElectronStateStorageWorkerHost {
     const crashError = new ElectronStateWorkerCrashedError(error.message);
     for (const pending of this.pending.values()) pending.reject(crashError);
     this.pending.clear();
+    // degradation-audit: optional-capability - every waiter has already been
+    // rejected with the crash error on the line above. Terminating the corpse
+    // is housekeeping; a failure to reap it changes nothing a caller observes.
     void failedWorker.terminate().catch(() => undefined);
   }
 

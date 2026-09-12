@@ -90,6 +90,10 @@ export class WorkspaceAwareStateStorage
     const storage = this.workspaces.get(workspacePath);
     this.workspaces.delete(workspacePath);
     if (storage && hasStateStorageDisposal(storage)) {
+      // degradation-audit: optional-capability - the workspace is already out
+      // of the map and unreachable by the time this runs, so a failed dispose
+      // costs a released handle and nothing a caller can act on. Removal must
+      // not fail because a detached storage refused to close.
       void Promise.resolve(storage.dispose()).catch(() => undefined);
     }
     if (this.activeWorkspacePath === workspacePath) {

@@ -98,6 +98,10 @@ export class ElectronStateStorage
         throw error;
       },
     );
+    // degradation-audit: reported - this subscription exists ONLY to stop an
+    // unhandled-rejection warning on a promise nobody has awaited yet. The
+    // rejection itself is kept: `readinessState` records it above and every
+    // `whenReady()` / `assertReady()` caller still receives the same error.
     void this.readyPromise.catch(() => undefined);
   }
 

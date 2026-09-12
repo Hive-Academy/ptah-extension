@@ -444,6 +444,12 @@ export class SessionAnalyticsStateService {
         sessions.map((s) => s.id),
       );
     } catch (error: unknown) {
+      // degradation-audit: reported - the failure is surfaced, not swallowed:
+      // `_loadError` is what the analytics card renders its error state from.
+      // The bare `return` the audit sees guards only a SUPERSEDED load — a
+      // newer load (or `cancelLoad`) has already taken over the error surface,
+      // and writing this stale load's error into it would overwrite the live
+      // one with an aborted request's message.
       if (!this.isCurrent(load)) return;
       this._loadError.set(
         error instanceof Error ? error.message : 'Failed to load dashboard data',
