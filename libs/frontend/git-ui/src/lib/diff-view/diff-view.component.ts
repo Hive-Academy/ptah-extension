@@ -34,6 +34,10 @@ import {
   X,
 } from 'lucide-angular';
 import type * as monaco from 'monaco-editor';
+import {
+  detectMonacoTheme,
+  observeMonacoTheme,
+} from '../services/monaco-theme';
 import { rpcCall, VSCodeService } from '@ptah-extension/core';
 import { MonacoLoaderService } from '../services/monaco-loader.service';
 import type {
@@ -614,7 +618,7 @@ const APPLY_FAILED_MESSAGE =
               class="w-3 h-3"
               aria-hidden="true"
             />
-            {{ hunkActionText(action) }}
+            <span class="hunk-action-text">{{ hunkActionText(action) }}</span>
           </button>
         }
       </div>
@@ -682,6 +686,20 @@ const APPLY_FAILED_MESSAGE =
       z-index: 10;
       white-space: nowrap;
       font-size: 11px;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    :host ::ng-deep .ptah-hunk-widget .hunk-action-text {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -776,6 +794,7 @@ export class DiffViewComponent implements OnDestroy {
     null;
   /** Glyph-margin mouse binding, disposed with the component. */
   private glyphClickBinding: monaco.IDisposable | null = null;
+  private layoutBinding: monaco.IDisposable | null = null;
   /** Angular view backing the in-editor action cluster (TASK_2026_221). */
   private hunkWidgetView: EmbeddedViewRef<unknown> | null = null;
   /** The node handed to Monaco; the embedded view's roots live inside it. */
@@ -785,7 +804,7 @@ export class DiffViewComponent implements OnDestroy {
   /** The line the widget is currently anchored at; drives layout vs re-add. */
   private hunkWidgetLine = 0;
   private resizeObserver: ResizeObserver | null = null;
-  private themeObserver: MutationObserver | null = null;
+  private stopThemeObserver: (() => void) | null = null;
   private destroyed = false;
 
   /**
@@ -836,7 +855,10 @@ export class DiffViewComponent implements OnDestroy {
 
   protected readonly comparisonLabel = computed(() => {
     const d = this.diff();
-    return d ? diffComparisonLabel(d.comparison) : '';
+    if (!d) return '';
+    return d.provenance?.kind === 'historical'
+      ? `${d.provenance.base.name} … ${d.provenance.head.name}`
+      : diffComparisonLabel(d.comparison);
   });
 
   protected readonly isRename = computed(() => {
@@ -966,6 +988,7 @@ export class DiffViewComponent implements OnDestroy {
     if (!this.applyHunks()) return false;
     const d = this.diff();
     if (!d) return false;
+    if (d.provenance?.kind === 'historical') return false;
     if (d.isBinary) return false;
     if (d.status === 'error') return false;
     if (d.snapshotToken === '') return false;
@@ -1157,6 +1180,8 @@ export class DiffViewComponent implements OnDestroy {
   ngOnDestroy(): void {
     this.destroyed = true;
     this.glyphClickBinding?.dispose();
+    this.layoutBinding?.dispose();
+    this.layoutBinding = null;
     this.glyphClickBinding = null;
     this.removeHunkWidget();
     this.hunkWidgetView?.destroy();
@@ -1165,7 +1190,8 @@ export class DiffViewComponent implements OnDestroy {
     this.hunkDecorations?.clear();
     this.hunkDecorations = null;
     this.resizeObserver?.disconnect();
-    this.themeObserver?.disconnect();
+    this.stopThemeObserver?.();
+    this.stopThemeObserver = null;
     this.currentKey = null;
     for (const key of [...this.pairs.keys()]) this.disposePair(key);
     this.viewStates.clear();
@@ -1185,7 +1211,7 @@ export class DiffViewComponent implements OnDestroy {
 
     this.ngZone.runOutsideAngular(() => {
       const editor = monacoApi.editor.createDiffEditor(container, {
-        theme: this.detectMonacoTheme(),
+        theme: detectMonacoTheme(),
         automaticLayout: false,
         // `readOnly` and `renderMarginRevertIcon` are PERMANENT (plan §4.3):
         // Monaco's built-in revert arrow edits the modified BUFFER, which is
@@ -1212,32 +1238,17 @@ export class DiffViewComponent implements OnDestroy {
         },
       });
       this.editor = editor;
+      this.layoutBinding =
+        editor
+          .getModifiedEditor()
+          .onDidLayoutChange?.(() => this.syncHunkWidget()) ?? null;
       this.bindGlyphMargin(monacoApi, editor);
 
       this.resizeObserver = new ResizeObserver(() => {
         this.editor?.layout();
       });
       this.resizeObserver.observe(container);
-      if (typeof document !== 'undefined') {
-        this.themeObserver = new MutationObserver(() => {
-          monacoApi.editor.setTheme(this.detectMonacoTheme());
-        });
-        const themeAttributes = [
-          'data-vscode-theme-kind',
-          'data-theme',
-          'data-theme-mode',
-        ];
-        // Two targets, one observer: the VS Code host writes its kind onto
-        // <body>, ThemeService writes daisyUI's onto <html>.
-        this.themeObserver.observe(document.body, {
-          attributes: true,
-          attributeFilter: themeAttributes,
-        });
-        this.themeObserver.observe(document.documentElement, {
-          attributes: true,
-          attributeFilter: themeAttributes,
-        });
-      }
+      this.stopThemeObserver = observeMonacoTheme(monacoApi);
     });
   }
 
@@ -1608,6 +1619,9 @@ export class DiffViewComponent implements OnDestroy {
     }
 
     const host = this.hunkWidgetHost();
+    const contentWidth = modified.getLayoutInfo?.().contentWidth;
+    if (contentWidth !== undefined)
+      host.style.maxWidth = `${Math.max(32, contentWidth - 8)}px`;
     this.hunkWidgetLine = startLine;
     const preference = api.editor.ContentWidgetPositionPreference;
     const widgetId = `ptah.hunkActions.${this.instanceId}`;
@@ -1959,31 +1973,6 @@ export class DiffViewComponent implements OnDestroy {
    * theme NAME would send `cupcake`, `winter` and `anubis-light` to a dark
    * editor.
    */
-  private detectMonacoTheme(): string {
-    if (typeof document === 'undefined') return 'vs-dark';
-    const root = document.documentElement;
-
-    const vscodeKind =
-      document.body.getAttribute('data-vscode-theme-kind') ??
-      root.getAttribute('data-vscode-theme-kind');
-    if (vscodeKind === 'vscode-light') return 'vs';
-    if (vscodeKind === 'vscode-high-contrast') return 'hc-black';
-    if (vscodeKind === 'vscode-dark') return 'vs-dark';
-
-    const mode =
-      root.getAttribute('data-theme-mode') ??
-      document.body.getAttribute('data-theme-mode');
-    if (mode === 'light') return 'vs';
-    if (mode === 'dark') return 'vs-dark';
-
-    const dataTheme =
-      root.getAttribute('data-theme') ??
-      document.body.getAttribute('data-theme');
-    if (dataTheme === 'light') return 'vs';
-
-    return 'vs-dark';
-  }
-
   private detectLanguage(filePath: string): string {
     if (!filePath) return 'plaintext';
     const ext = filePath.split('.').pop()?.toLowerCase();
@@ -2035,5 +2024,10 @@ export class DiffViewComponent implements OnDestroy {
       svelte: 'html',
     };
     return languageMap[ext ?? ''] ?? 'plaintext';
+  }
+
+  /** Thin compatibility seam; theme detection itself lives in monaco-theme. */
+  private detectMonacoTheme(): string {
+    return detectMonacoTheme();
   }
 }

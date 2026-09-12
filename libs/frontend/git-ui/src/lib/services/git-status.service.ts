@@ -57,7 +57,11 @@ function filesEqual(a: GitFileStatus[], b: GitFileStatus[]): boolean {
       a[i].path !== b[i].path ||
       a[i].status !== b[i].status ||
       a[i].staged !== b[i].staged ||
-      a[i].isDirectory !== b[i].isDirectory
+      a[i].isDirectory !== b[i].isDirectory ||
+      a[i].origPath !== b[i].origPath ||
+      a[i].additions !== b[i].additions ||
+      a[i].deletions !== b[i].deletions ||
+      a[i].binary !== b[i].binary
     )
       return false;
   }

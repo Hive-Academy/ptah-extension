@@ -2,6 +2,10 @@ import { BrowserWindow, Menu, screen, shell } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import {
+  isSafeExternalUrl,
+  isSameDocumentNavigation,
+} from './navigation-policy';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -32,62 +36,40 @@ function isOnScreen(bounds: WindowBounds): boolean {
 }
 
 /**
- * Schemes that are safe to hand to the system browser when a link tries to
- * navigate the app away from its own document.
- */
-const EXTERNAL_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
-
-/**
- * Decide whether a navigation target is internal to the app shell.
- *
- * The renderer is loaded via `loadFile`, so its document lives on the
- * `file:` origin. Anything else (an `http(s)` link in rendered agent
- * markdown, a `mailto:`, etc.) must NOT replace the top-level window.
- */
-function isInternalNavigation(targetUrl: string): boolean {
-  try {
-    return new URL(targetUrl).protocol === 'file:';
-  } catch {
-    // degradation-audit: optional-capability - parsing an untrusted navigation
-    // target is optional; false classifies an unparseable URL as external, so
-    // the shell refuses to let it replace the top-level window.
-    return false;
-  }
-}
-
-/**
  * Open an external URL in the system browser, but only for known-safe
  * schemes. Prevents arbitrary-scheme handoff (e.g. `file:`, custom
  * protocol handlers) from `shell.openExternal`.
  */
 function openExternalSafely(targetUrl: string): void {
-  let protocol: string;
-  try {
-    protocol = new URL(targetUrl).protocol;
-  } catch {
-    // degradation-audit: optional-capability - opening a link externally is the
-    // optional action; returning early hands nothing to shell.openExternal,
-    // which is the safe answer for a URL whose scheme cannot be read.
-    return;
-  }
-  if (EXTERNAL_SCHEMES.has(protocol)) {
+  if (isSafeExternalUrl(targetUrl)) {
     void shell.openExternal(targetUrl);
   }
 }
 
 /**
- * Stop external links from hijacking the main window.
+ * Stop links from hijacking the main window.
  *
- * Without this guard, a normal `<a href="https://…">` in rendered agent
- * markdown triggers a top-level `will-navigate`, replacing the Angular
- * shell with the target page — the whole app turns into a blank browser.
+ * Two distinct attacks, one guard:
  *
- * - `will-navigate`: cancel any non-`file:` navigation and open it externally.
- * - `setWindowOpenHandler`: deny `window.open` / `target="_blank"`, open externally.
+ *  - A normal `<a href="https://…">` in rendered agent markdown triggers a
+ *    top-level `will-navigate` that would replace the Angular shell with the
+ *    target page, turning the app into a blank browser.
+ *  - A RELATIVE link in that same markdown resolves against the renderer's
+ *    own `file:` document, so it navigates the window to arbitrary local
+ *    content. The old guard classified every `file:` URL as internal and let
+ *    this through.
+ *
+ * The policy therefore allows exactly one thing — reloading the document
+ * already loaded — and cancels the rest. A cancelled `file:` navigation is
+ * NEVER handed to `shell.openExternal`; that would re-open the very path just
+ * refused, through the OS instead of the window.
+ *
+ * `loadFile` and `webContents.reload()` do not emit `will-navigate`, so the
+ * app's own startup load is unaffected.
  */
 function installNavigationGuard(window: BrowserWindow): void {
   window.webContents.on('will-navigate', (event, targetUrl) => {
-    if (isInternalNavigation(targetUrl)) {
+    if (isSameDocumentNavigation(window.webContents.getURL(), targetUrl)) {
       return;
     }
     event.preventDefault();

@@ -39,7 +39,10 @@ import {
   registerSdkServices,
   SdkMessageTransformer,
   SessionHistoryReaderService,
-} from '@ptah-extension/agent-sdk';
+  // Relative, not `@ptah-extension/agent-sdk`: a project may not import itself
+  // by alias (`@nx/enforce-module-boundaries`). This is still the public
+  // barrel, so the smoke test proves the same surface.
+} from '../../index';
 // `@ptah-extension/auth-providers-tokens` only, never the full
 // `@ptah-extension/auth-providers` lib: auth-providers depends on agent-sdk
 // one way (its own CLAUDE.md states this explicitly, to break what would

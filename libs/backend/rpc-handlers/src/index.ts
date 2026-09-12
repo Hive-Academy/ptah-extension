@@ -53,7 +53,25 @@ export {
   asAuthCommandRunner,
   ElectronFileOpenRpcHandlers,
   EditorRpcHandlers,
+  FileViewRpcHandlers,
+  FileLinkRootPolicy,
+  CREDENTIAL_DENY_LIST,
+  isCredentialPath,
 } from './lib/handlers';
+/**
+ * Path-policy surface exported for the HOSTS that must apply the same rules.
+ *
+ * `FileOpenRpcParamsSchema` and `checkLinkedPathForm` are consumed by the VS
+ * Code `file:open` handler, which lives in the app rather than this library.
+ * Exporting them keeps ONE definition of the wire shape and the form gate —
+ * a second copy in the host is exactly how the two drift into disagreeing
+ * about what a safe path looks like.
+ */
+export { FileOpenRpcParamsSchema } from './lib/handlers/file-open-rpc.schema';
+export {
+  checkLinkedPathForm,
+  type LinkedFileResolution,
+} from './lib/handlers/workspace-file-path';
 export type {
   DbHealthResult,
   DbHealthParams,

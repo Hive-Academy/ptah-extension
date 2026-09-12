@@ -1,7 +1,13 @@
 import 'reflect-metadata';
+import * as path from 'node:path';
 import { ElectronFileOpenRpcHandlers } from './file-open-rpc.handlers';
+import { FileType } from '@ptah-extension/platform-core';
 
 type RpcMethod = (params?: unknown) => unknown;
+
+const WORKSPACE = path.resolve('/ws');
+const WORKSPACE_FILE = path.resolve('/ws/a.ts');
+const OUTSIDE_FILE = path.resolve('/other/a.ts');
 
 describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () => {
   const vscode = {
@@ -37,11 +43,19 @@ describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () =
           methods.set(name, method),
       } as never,
       {
-        getWorkspaceFolders: () => options.workspaceFolders ?? ['C:/ws'],
+        getWorkspaceFolders: () => options.workspaceFolders ?? [WORKSPACE],
         getConfiguration: () => options.remembered,
       } as never,
       { notifyFileOpened },
       launcher as never,
+      {
+        stat: async () => ({
+          type: FileType.File,
+          ctime: 0,
+          mtime: 0,
+          size: 1,
+        }),
+      } as never,
     ).register();
     const method = methods.get('file:open');
     if (!method) throw new Error('file:open was not registered');
@@ -50,29 +64,45 @@ describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () =
 
   it('keeps VS Code as the default when no preference is stored', async () => {
     const { method, openFile, notifyFileOpened } = build();
-    await expect(method({ path: 'C:\\ws\\a.ts', line: 12 })).resolves.toEqual({
+    await expect(method({ path: WORKSPACE_FILE, line: 12 })).resolves.toEqual({
       success: true,
     });
-    expect(openFile).toHaveBeenCalledWith(vscode, 'C:\\ws\\a.ts', 12);
-    expect(notifyFileOpened).toHaveBeenCalledWith('C:\\ws\\a.ts');
+    expect(openFile).toHaveBeenCalledWith(vscode, WORKSPACE_FILE, 12);
+    expect(notifyFileOpened).toHaveBeenCalledWith(WORKSPACE_FILE);
   });
 
   it('opens a file without a line number when none is given', async () => {
     const { method, openFile } = build();
-    await expect(method({ path: 'C:\\ws\\a.ts' })).resolves.toEqual({
+    await expect(method({ path: WORKSPACE_FILE })).resolves.toEqual({
       success: true,
     });
+    expect(openFile).toHaveBeenCalledWith(vscode, WORKSPACE_FILE, undefined);
+  });
+
+  it('resolves a relative path from a registered workspace, independent of cwd', async () => {
+    const { method, openFile } = build();
+    await expect(
+      method({ path: 'src/a.ts', workspaceRoot: WORKSPACE }),
+    ).resolves.toEqual({ success: true });
     expect(openFile).toHaveBeenCalledWith(
       vscode,
-      'C:\\ws\\a.ts',
+      path.join(WORKSPACE, 'src', 'a.ts'),
       undefined,
     );
   });
 
+  it('rejects relative paths without a registered root', async () => {
+    const { method, openFile } = build();
+    await expect(method({ path: 'src/a.ts' })).resolves.toMatchObject({
+      success: false,
+    });
+    expect(openFile).not.toHaveBeenCalled();
+  });
+
   it('uses a detected remembered target', async () => {
     const { method, openFile } = build({ remembered: 'cursor' });
-    await method({ path: 'C:\\ws\\a.ts' });
-    expect(openFile).toHaveBeenCalledWith(cursor, 'C:\\ws\\a.ts', undefined);
+    await method({ path: WORKSPACE_FILE });
+    expect(openFile).toHaveBeenCalledWith(cursor, WORKSPACE_FILE, undefined);
   });
 
   it('falls back to VS Code when the remembered target is unavailable', async () => {
@@ -80,19 +110,19 @@ describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () =
       remembered: 'cursor',
       targets: [vscode],
     });
-    await method({ path: 'C:\\ws\\a.ts' });
-    expect(openFile).toHaveBeenCalledWith(vscode, 'C:\\ws\\a.ts', undefined);
+    await method({ path: WORKSPACE_FILE });
+    expect(openFile).toHaveBeenCalledWith(vscode, WORKSPACE_FILE, undefined);
   });
 
   it('falls back to the first detected editor when VS Code is unavailable', async () => {
     const { method, openFile } = build({ targets: [cursor] });
-    await method({ path: 'C:\\ws\\a.ts' });
-    expect(openFile).toHaveBeenCalledWith(cursor, 'C:\\ws\\a.ts', undefined);
+    await method({ path: WORKSPACE_FILE });
+    expect(openFile).toHaveBeenCalledWith(cursor, WORKSPACE_FILE, undefined);
   });
 
   it('refuses an outside path and never launches', async () => {
     const { method, openFile } = build();
-    await expect(method({ path: 'C:\\other\\a.ts' })).resolves.toEqual({
+    await expect(method({ path: OUTSIDE_FILE })).resolves.toEqual({
       success: false,
       error: 'Path is outside the workspace',
     });
@@ -104,7 +134,7 @@ describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () =
       throw new Error('launch failed');
     });
     const { method, notifyFileOpened } = build({ openFile });
-    await expect(method({ path: 'C:\\ws\\a.ts' })).resolves.toEqual({
+    await expect(method({ path: WORKSPACE_FILE })).resolves.toEqual({
       success: false,
       error: 'launch failed',
     });
@@ -119,9 +149,24 @@ describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () =
     expect(launcher.detect).not.toHaveBeenCalled();
   });
 
+  /**
+   * `column` is part of the shared `file:open` contract so the VS Code host
+   * can place a cursor. Electron launches an EXTERNAL editor through an argv
+   * array that carries no column, so the field must be accepted and then
+   * ignored here — not rejected by `.strict()`, which would break the very
+   * callers Batch 8a is adding.
+   */
+  it('accepts a column and does not forward it to the launcher', async () => {
+    const { method, openFile } = build();
+    await expect(
+      method({ path: WORKSPACE_FILE, line: 12, column: 3 }),
+    ).resolves.toEqual({ success: true });
+    expect(openFile).toHaveBeenCalledWith(vscode, WORKSPACE_FILE, 12);
+  });
+
   it('reports a line-specific error for an invalid line', async () => {
     const { method, launcher } = build();
-    const result = (await method({ path: 'C:\\ws\\a.ts', line: 0 })) as {
+    const result = (await method({ path: WORKSPACE_FILE, line: 0 })) as {
       success: boolean;
       error: string;
     };

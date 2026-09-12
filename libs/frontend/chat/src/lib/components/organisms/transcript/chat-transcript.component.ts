@@ -142,6 +142,14 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
   host: {
     '[class.hidden]': '!active()',
     class: 'flex-1 flex flex-col min-h-0 relative',
+    // Agent-output surface: file links in rendered markdown route into Ptah's
+    // viewer, and `data-ptah-tab-id` tells the router which workspace a
+    // relative path belongs to (this transcript may render a BACKGROUND
+    // workspace's tab). Both are host bindings by contract — never written on
+    // a `<markdown>` element and never inside rendered content, so agent HTML
+    // cannot opt a surface in or redirect one (TASK_2026_413 R2/R8).
+    'data-ptah-file-links': '',
+    '[attr.data-ptah-tab-id]': 'tabId()',
   },
 })
 export class ChatTranscriptComponent {

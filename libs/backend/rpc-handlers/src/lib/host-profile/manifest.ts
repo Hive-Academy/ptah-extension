@@ -40,6 +40,7 @@ import {
   EnhancedPromptsRpcHandlers,
   FilePickerRpcHandlers,
   FileSystemRpcHandlers,
+  FileViewRpcHandlers,
   GatewayRpcHandlers,
   GitRpcHandlers,
   HarnessRpcHandlers,
@@ -316,6 +317,12 @@ export const RPC_HANDLER_MANIFEST = [
     methods: FileSystemRpcHandlers.METHODS,
     requires: ['fileSystemAccess'],
     handler: FileSystemRpcHandlers,
+  },
+  {
+    key: 'fileView',
+    methods: FileViewRpcHandlers.METHODS,
+    requires: ['fileViewer'],
+    handler: FileViewRpcHandlers,
   },
   {
     key: 'skillSynthesis',

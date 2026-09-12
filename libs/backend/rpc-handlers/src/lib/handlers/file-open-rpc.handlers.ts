@@ -1,8 +1,8 @@
 import { inject, injectable } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
-  isPathWithinRoots,
   type IEditorLauncher,
+  type IFileSystemProvider,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import {
@@ -12,6 +12,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { FileOpenParams, FileOpenResult } from '@ptah-extension/shared';
 import { parseFileOpenParams } from './file-open-rpc.schema';
+import { resolveWorkspaceFilePath } from './workspace-file-path';
 
 interface EditorOpenedNotifier {
   notifyFileOpened(filePath: string): void;
@@ -31,6 +32,8 @@ export class ElectronFileOpenRpcHandlers {
     private readonly editorProvider: EditorOpenedNotifier,
     @inject(PLATFORM_TOKENS.EDITOR_LAUNCHER)
     private readonly launcher: IEditorLauncher,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fileSystem: IFileSystemProvider,
   ) {}
 
   register(): void {
@@ -46,10 +49,12 @@ export class ElectronFileOpenRpcHandlers {
     const parsed = parseFileOpenParams(params);
     if (!parsed.success) return { success: false, error: parsed.error };
 
-    const roots = this.workspace.getWorkspaceFolders();
-    if (!isPathWithinRoots(parsed.data.path, roots)) {
-      return { success: false, error: 'Path is outside the workspace' };
-    }
+    const resolved = await resolveWorkspaceFilePath(
+      parsed.data,
+      this.workspace.getWorkspaceFolders(),
+      this.fileSystem,
+    );
+    if (!resolved.success) return resolved;
 
     try {
       const targets = await this.launcher.detect();
@@ -64,7 +69,7 @@ export class ElectronFileOpenRpcHandlers {
       if (!target) {
         return { success: false, error: 'No supported editor found' };
       }
-      await this.launcher.openFile(target, parsed.data.path, parsed.data.line);
+      await this.launcher.openFile(target, resolved.path, parsed.data.line);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
@@ -74,7 +79,7 @@ export class ElectronFileOpenRpcHandlers {
       return { success: false, error: message };
     }
 
-    this.editorProvider.notifyFileOpened(parsed.data.path);
+    this.editorProvider.notifyFileOpened(resolved.path);
     return { success: true };
   }
 }

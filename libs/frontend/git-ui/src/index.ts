@@ -19,6 +19,8 @@ export {
 } from './lib/services/worktree.service';
 export { SourceControlService } from './lib/services/source-control.service';
 export { DiffTabsService } from './lib/services/diff-tabs.service';
+export { EditorLauncherService } from './lib/services/editor-launcher.service';
+export { GitReviewService } from './lib/services/git-review.service';
 
 // Components
 export { DiffViewComponent } from './lib/diff-view/diff-view.component';
@@ -36,10 +38,12 @@ export type {
 // Diff tab types + helpers
 export type {
   DiffComparison,
+  DiffProvenance,
   DiffSideRef,
   DiffTabState,
   DiffTabStatus,
   EditorTab,
+  FileViewOpenRequest,
   GitApplyHunksOperation,
   GitApplyHunksResult,
   GitDiffFileResult,

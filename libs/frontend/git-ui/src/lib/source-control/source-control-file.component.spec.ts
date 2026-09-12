@@ -194,6 +194,7 @@ describe('SourceControlFileComponent — row actions are siblings, not nested (D
       'Open diff for a.ts',
       'Stage file',
       'Discard changes',
+      'Choose editor',
     ]);
     expect(new Set(labels).size).toBe(labels.length);
 
@@ -201,7 +202,9 @@ describe('SourceControlFileComponent — row actions are siblings, not nested (D
     // what buys Enter/Space activation from the user agent unconditionally.
     // (jsdom does not implement that default action, so the key press itself
     // cannot be asserted here.)
-    for (const el of fixture.nativeElement.querySelectorAll('button')) {
+    for (const el of fixture.nativeElement.querySelectorAll(
+      'button:not(:disabled)',
+    )) {
       const btn = el as HTMLButtonElement;
       expect(btn.type).toBe('button');
       expect(btn.getAttribute('tabindex')).toBeNull();

@@ -284,6 +284,10 @@ import type {
 import type {
   GitInfoParams,
   GitInfoResult,
+  GitReviewChangesParams,
+  GitReviewChangesResult,
+  GitReviewFileParams,
+  GitReviewFileResult,
   GitWorktreesParams,
   GitWorktreesResult,
   GitAddWorktreeParams,
@@ -485,6 +489,8 @@ import type {
   AutocompleteCommandsResult,
   FileOpenParams,
   FileOpenResult,
+  FileViewContentParams,
+  FileViewContentResult,
   LicenseGetStatusParams,
   LicenseGetStatusResponse,
   LicenseSetKeyParams,
@@ -685,6 +691,10 @@ export interface RpcMethodRegistry {
     result: AutocompleteCommandsResult;
   };
   'file:open': { params: FileOpenParams; result: FileOpenResult };
+  'file:viewContent': {
+    params: FileViewContentParams;
+    result: FileViewContentResult;
+  };
   'editor:detectTargets': {
     params: EditorDetectTargetsParams;
     result: EditorDetectTargetsResult;
@@ -1419,6 +1429,14 @@ export interface RpcMethodRegistry {
     result: { success: boolean };
   };
   'git:info': { params: GitInfoParams; result: GitInfoResult };
+  'git:reviewChanges': {
+    params: GitReviewChangesParams;
+    result: GitReviewChangesResult;
+  };
+  'git:reviewFile': {
+    params: GitReviewFileParams;
+    result: GitReviewFileResult;
+  };
   'git:worktrees': { params: GitWorktreesParams; result: GitWorktreesResult };
   'git:addWorktree': {
     params: GitAddWorktreeParams;
@@ -3340,6 +3358,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'autocomplete:agents': true,
   'autocomplete:commands': true,
   'file:open': true,
+  'file:viewContent': true,
   'editor:detectTargets': true,
   'editor:openFile': true,
   'editor:openWorkspace': true,
@@ -3493,6 +3512,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'webSearch:getConfig': true,
   'webSearch:setConfig': true,
   'git:info': true,
+  'git:reviewChanges': true,
+  'git:reviewFile': true,
   'git:worktrees': true,
   'git:addWorktree': true,
   'git:removeWorktree': true,

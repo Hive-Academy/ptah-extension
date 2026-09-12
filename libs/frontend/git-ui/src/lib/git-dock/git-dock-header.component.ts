@@ -1,133 +1,200 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import {
   ArrowUpFromLine,
   GitBranch,
+  Info,
   LucideAngularModule,
+  PanelLeft,
+  PanelLeftClose,
 } from 'lucide-angular';
+import { ElectronLayoutService } from '@ptah-extension/core';
+import { BranchPickerDropdownComponent } from '../branch-picker/branch-picker-dropdown.component';
+import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-popover.component';
+import {
+  OpenInButtonComponent,
+  type OpenInRequest,
+} from '../open-in/open-in-button.component';
+import { EditorLauncherService } from '../services/editor-launcher.service';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitStatusService } from '../services/git-status.service';
+import { GitReviewService } from '../services/git-review.service';
 
-/**
- * GitDockHeaderComponent — branch name, ahead/behind, stash count and push,
- * hosted inside {@link GitDockComponent}.
- *
- * A direct port of `git-status-bar.component.ts:40-141` (TASK_2026_385
- * Batch 3.1), minus the branch-picker dropdown and details popover — those 7
- * RPCs stay in the contract for TASK_2026_386, which adds `activeTab` /
- * `tabChange` / `openInRequested` inputs/outputs here. This component ships
- * with none: it reads its state from the two injected services only.
- *
- * Arming `GitStatusService` / `GitBranchesService` is owned by the parent
- * {@link GitDockComponent}, not this component — mirroring how
- * `GitStatusBarComponent`'s constructor used to arm `GitBranchesService`
- * before that responsibility moved up to the dock host.
- */
 @Component({
   selector: 'ptah-git-dock-header',
   standalone: true,
-  imports: [LucideAngularModule],
-  template: `
-    @if (gitStatus.isGitRepo()) {
-      <div
-        class="relative flex items-center h-7 px-3 bg-base-200 border-b border-base-content/10
-               text-xs select-none flex-shrink-0"
-        data-testid="git-dock-header"
-        role="status"
-        aria-label="Git status"
-      >
-        <!-- Branch segment (read-only — the picker/details popover are
-             TASK_2026_386) -->
-        <div
-          class="flex items-center gap-1.5 text-base-content-muted px-1.5 py-0.5"
+  imports: [
+    LucideAngularModule,
+    BranchPickerDropdownComponent,
+    BranchDetailsPopoverComponent,
+    OpenInButtonComponent,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `@if (gitStatus.isGitRepo()) {
+    <div
+      class="relative flex h-8 flex-shrink-0 items-center gap-1 border-b border-base-content/10 bg-base-200 px-2 text-xs"
+      data-testid="git-dock-header"
+    >
+      @if (review.mode() === 'working-tree') {
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs px-1"
+          data-testid="git-rail-toggle"
+          aria-controls="git-source-control-rail"
+          [attr.aria-expanded]="!layout.gitRailCollapsed()"
+          [attr.aria-label]="
+            layout.gitRailCollapsed()
+              ? 'Show source control'
+              : 'Hide source control'
+          "
+          [title]="
+            layout.gitRailCollapsed()
+              ? 'Show source control'
+              : 'Hide source control'
+          "
+          (click)="layout.toggleGitRail()"
         >
           <lucide-angular
-            [img]="GitBranchIcon"
-            class="w-3.5 h-3.5 flex-shrink-0 opacity-70"
-          />
-          <span class="font-medium truncate max-w-[140px]">
-            {{ gitBranches.currentBranch() || gitStatus.branchName() }}
-          </span>
-
-          <!-- Sync status: ahead/behind inline -->
-          @if (gitStatus.branch().upstream) {
-            @if (
-              gitStatus.branch().ahead > 0 || gitStatus.branch().behind > 0
-            ) {
-              <span class="text-base-content-muted">
-                @if (gitStatus.branch().ahead > 0) {
-                  <span class="text-info">↑{{ gitStatus.branch().ahead }}</span>
-                }
-                @if (gitStatus.branch().behind > 0) {
-                  <span class="text-warning"
-                    >↓{{ gitStatus.branch().behind }}</span
-                  >
-                }
-              </span>
-            }
-          }
-        </div>
-
-        <!-- Stash count -->
-        @if (gitBranches.stashCount() > 0) {
-          <span
-            class="text-[11px] text-base-content-muted px-1 ml-0.5"
-            [title]="gitBranches.stashCount() + ' stash entries'"
-          >
-            stash {{ gitBranches.stashCount() }}
-          </span>
-        }
-
-        <!-- Spacer -->
-        <span class="ml-auto"></span>
-
-        <!-- Push button (only when there are unpushed commits) -->
-        @if (gitStatus.branch().ahead > 0) {
-          <button
-            type="button"
-            data-testid="git-push-button"
-            class="flex items-center gap-1.5 h-5 px-2 ml-1 rounded
-                   border border-base-content/20 bg-base-100
-                   text-[11px] font-medium text-base-content-muted
-                   hover:bg-base-content/5 hover:text-base-content
-                   active:translate-y-px transition-all disabled:opacity-50"
-            [disabled]="isPushing()"
-            [title]="
-              'Push ' + gitStatus.branch().ahead + ' commit(s) to remote'
+            [img]="
+              layout.gitRailCollapsed() ? PanelLeftIcon : PanelLeftCloseIcon
             "
-            aria-label="Push to remote"
-            (click)="onPush()"
-          >
-            <lucide-angular [img]="PushIcon" class="w-3.5 h-3.5" />
-            <span>Push</span>
-          </button>
-        }
+            class="h-3 w-3"
+          />
+        </button>
+      }
+      <div class="relative flex items-center">
+        <button
+          #branchTrigger
+          type="button"
+          class="btn btn-ghost btn-xs gap-1"
+          data-testid="current-branch-button"
+          aria-haspopup="dialog"
+          [attr.aria-expanded]="pickerOpen()"
+          (click)="pickerOpen.set(!pickerOpen())"
+        >
+          <lucide-angular [img]="BranchIcon" class="h-3 w-3" />{{
+            gitBranches.currentBranch() || gitStatus.branchName()
+          }}
+          @if (gitStatus.branch().ahead) {
+            <span class="text-info">↑{{ gitStatus.branch().ahead }}</span>
+          }
+          @if (gitStatus.branch().behind) {
+            <span class="text-warning">↓{{ gitStatus.branch().behind }}</span>
+          }
+        </button>
+        <button
+          #detailsTrigger
+          type="button"
+          class="btn btn-ghost btn-xs px-1"
+          aria-label="Branch details"
+          (click)="detailsOpen.set(!detailsOpen())"
+        >
+          <lucide-angular [img]="InfoIcon" class="h-3 w-3" />
+        </button>
+        <ptah-branch-picker-dropdown
+          [isOpen]="pickerOpen()"
+          (closed)="closePicker()"
+        />
+        <ptah-branch-details-popover
+          [isOpen]="detailsOpen()"
+          (closed)="closeDetails()"
+        />
+      </div>
+      <span role="status" aria-label="Git status" class="sr-only">{{
+        gitStatus.branchName()
+      }}</span>
+      @if (gitBranches.stashCount()) {
+        <span>stash {{ gitBranches.stashCount() }}</span>
+      }
+      <span class="ml-auto"></span>
+      <ptah-open-in-button
+        [targets]="launchers.targets()"
+        [root]="gitStatus.activeWorkspacePath() ?? ''"
+        (open)="openWorkspace($event)"
+      />
+      @if (gitStatus.branch().ahead > 0) {
+        <button
+          type="button"
+          data-testid="git-push-button"
+          class="btn btn-xs"
+          [disabled]="pushing()"
+          (click)="push()"
+        >
+          <lucide-angular [img]="PushIcon" class="h-3 w-3" />Push
+        </button>
+      }
+    </div>
+    @if (actionStatus(); as message) {
+      <div
+        role="status"
+        class="border-b border-base-content/10 px-3 py-1 text-xs"
+        [class.text-error]="message.kind === 'error'"
+      >
+        {{ message.message }}
+      </div>
+    } @else if (launchers.launchStatus(); as message) {
+      <div
+        role="status"
+        class="border-b border-base-content/10 px-3 py-1 text-xs"
+        [class.text-error]="message.kind === 'error'"
+      >
+        {{ message.message }}
       </div>
     }
-  `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+  }`,
 })
 export class GitDockHeaderComponent {
   protected readonly gitStatus = inject(GitStatusService);
   protected readonly gitBranches = inject(GitBranchesService);
-
-  protected readonly GitBranchIcon = GitBranch;
+  protected readonly launchers = inject(EditorLauncherService);
+  protected readonly review = inject(GitReviewService);
+  protected readonly layout = inject(ElectronLayoutService);
+  protected readonly BranchIcon = GitBranch;
+  protected readonly InfoIcon = Info;
   protected readonly PushIcon = ArrowUpFromLine;
-
-  /** Whether a `git:push` RPC is currently in flight. */
-  protected readonly isPushing = signal(false);
-
-  protected async onPush(): Promise<void> {
-    if (this.isPushing()) return;
-    this.isPushing.set(true);
+  protected readonly PanelLeftIcon = PanelLeft;
+  protected readonly PanelLeftCloseIcon = PanelLeftClose;
+  protected readonly pickerOpen = signal(false);
+  protected readonly detailsOpen = signal(false);
+  protected readonly pushing = signal(false);
+  private readonly branchTrigger =
+    viewChild<ElementRef<HTMLButtonElement>>('branchTrigger');
+  private readonly detailsTrigger =
+    viewChild<ElementRef<HTMLButtonElement>>('detailsTrigger');
+  protected readonly actionStatus = signal<{
+    kind: 'success' | 'error';
+    message: string;
+  } | null>(null);
+  protected async push(): Promise<void> {
+    if (this.pushing()) return;
+    this.pushing.set(true);
     try {
-      await this.gitBranches.push();
+      const result = await this.gitBranches.push();
+      this.actionStatus.set(
+        result.success
+          ? { kind: 'success', message: 'Push completed.' }
+          : { kind: 'error', message: result.error ?? 'Push failed.' },
+      );
     } finally {
-      this.isPushing.set(false);
+      this.pushing.set(false);
     }
+  }
+  protected openWorkspace(request: OpenInRequest): void {
+    const root = this.gitStatus.activeWorkspacePath();
+    if (root) void this.launchers.openWorkspace(request.target, root);
+  }
+  protected closePicker(): void {
+    this.pickerOpen.set(false);
+    this.branchTrigger()?.nativeElement.focus();
+  }
+  protected closeDetails(): void {
+    this.detailsOpen.set(false);
+    this.detailsTrigger()?.nativeElement.focus();
   }
 }

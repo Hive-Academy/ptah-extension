@@ -28,6 +28,13 @@ export class SubagentTranscriptViewerService {
   private readonly _error = signal<string | null>(null);
   private readonly _messages = signal<readonly SubagentTranscriptMessage[]>([]);
   private readonly _agentName = signal('');
+  /**
+   * Parent session of the open transcript. Exposed because the overlay host
+   * publishes the owning tab as `data-ptah-file-links`' companion marker, so a
+   * relative file link inside a subagent transcript resolves against the
+   * session's workspace and not against whichever one is active (L-7).
+   */
+  private readonly _sessionId = signal<string | null>(null);
 
   /** The agent currently being viewed (session + SDK agentId). */
   private current: { sessionId: string; agentId: string } | null = null;
@@ -44,6 +51,7 @@ export class SubagentTranscriptViewerService {
   readonly error = this._error.asReadonly();
   readonly messages = this._messages.asReadonly();
   readonly agentName = this._agentName.asReadonly();
+  readonly sessionId = this._sessionId.asReadonly();
 
   /**
    * Open the overlay for a specific subagent and fetch its transcript.
@@ -58,6 +66,7 @@ export class SubagentTranscriptViewerService {
     agentId: string,
   ): Promise<void> {
     this._agentName.set(agentName || 'Subagent');
+    this._sessionId.set(sessionId || null);
     this.current = { sessionId, agentId };
     this._messages.set([]);
     this._open.set(true);
@@ -75,6 +84,7 @@ export class SubagentTranscriptViewerService {
     this._open.set(false);
     this._messages.set([]);
     this._error.set(null);
+    this._sessionId.set(null);
     this.current = null;
     // Invalidate any in-flight load so a late response can't reopen content.
     this.loadToken++;

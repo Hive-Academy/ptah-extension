@@ -125,6 +125,16 @@ function buildMinimalContainer(): DependencyContainer {
       openWorkspace: jest.fn(async () => undefined),
     },
   });
+  c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
+    useValue: {},
+  });
+  // `EditorRpcHandlers` and `FileViewRpcHandlers` both inject
+  // `FileLinkRootPolicy`, which needs GitInfoService to widen the authorized
+  // root set to a registered folder's worktrees (TASK_2026_413 Batch 8a). The
+  // real Electron container binds this in `phase-4-handlers.ts`.
+  c.register(TOKENS.GIT_INFO_SERVICE, {
+    useValue: { getWorktrees: jest.fn(async () => []) },
+  });
 
   c.register(SDK_TOKENS.SDK_PLUGIN_LOADER, {
     useValue: {

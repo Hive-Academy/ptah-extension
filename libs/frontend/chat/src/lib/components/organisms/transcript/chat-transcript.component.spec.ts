@@ -714,3 +714,25 @@ describe('ChatTranscriptComponent — transcript ordering (TASK_2026_382 D1)', (
     expect(first.map((m) => m.id)).toEqual(['m1', 'live']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Agent-output link markers (TASK_2026_413 Batch 8c-2)
+//
+// The transcript IS agent output, so it opts its rendered markdown into
+// file-link routing and names the tab whose workspace a relative path belongs
+// to. Both are HOST bindings: they sit outside every `<markdown>` element, so
+// agent-authored HTML can neither opt a surface in nor point it at another
+// workspace (R2/R8). If either disappears, agent file links silently stop
+// working, or start resolving against the wrong root.
+// ---------------------------------------------------------------------------
+describe('ChatTranscriptComponent — agent-output link markers', () => {
+  it('carries the opt-in marker and the tab id on the HOST, not in content', () => {
+    const h = makeHarness();
+    h.fixture.detectChanges();
+    const host = h.fixture.nativeElement as HTMLElement;
+
+    expect(host.hasAttribute('data-ptah-file-links')).toBe(true);
+    expect(host.getAttribute('data-ptah-tab-id')).toBe('tab-1');
+    expect(host.querySelector('markdown[data-ptah-file-links]')).toBeNull();
+  });
+});

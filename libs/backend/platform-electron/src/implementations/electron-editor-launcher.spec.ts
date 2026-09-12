@@ -60,6 +60,22 @@ describe('ElectronEditorLauncher', () => {
     );
   });
 
+  it('uses the argv spawner for Kiro', async () => {
+    const launcher = new ElectronEditorLauncher({ spawnProcess } as never);
+    const executablePath = path.resolve('editors/kiro');
+    const filePath = path.resolve('workspace/a.ts');
+    await launcher.openFile(
+      { id: 'kiro', displayName: 'Kiro', executablePath },
+      filePath,
+    );
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: executablePath,
+        args: ['-g', filePath],
+      }),
+    );
+  });
+
   it('opens a workspace with the normalized root as argv and cwd', async () => {
     const launcher = new ElectronEditorLauncher({ spawnProcess } as never);
     const executablePath = path.resolve('editors/cursor');

@@ -40,6 +40,7 @@ import { TestBed } from '@angular/core/testing';
 import {
   AppStateManager,
   ClaudeRpcService,
+  FILE_LINK_OPENER,
   MESSAGE_HANDLERS,
   MessageRouterService,
   VSCodeService,
@@ -126,9 +127,15 @@ describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub 
     TestBed.configureTestingModule({
       providers: [
         { provide: VSCodeService, useValue: makeVscodeStub() },
+        // `TasksStore` opens artifacts through this port (TASK_2026_413). It is
+        // required and has no default provider — `app.config.ts` binds it to
+        // `FileLinkRouterService` — so the router is stubbed here rather than
+        // dragged in, which would defeat this spec's "no deferred component"
+        // premise.
+        { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
         {
           provide: ClaudeRpcService,
-          useValue: { call: rpcCall, openFile: jest.fn() },
+          useValue: { call: rpcCall },
         },
         // SetupWizardStateService registers a streaming surface on construction.
         {

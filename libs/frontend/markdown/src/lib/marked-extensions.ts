@@ -6,8 +6,11 @@
  * 3. Decorative Dividers — gold gradient hr with centered diamond ornament
  * 4. Enhanced Headings — gold dot for H1/H2, left-border accent for H3
  * 5. Step List — ordered lists rendered as step cards with numbered circles
+ * 6. File Links — links to files become inert anchors that carry the original
+ *    target in `data-ptah-file-href` for the document click listener
  */
 import { type MarkedExtension, type Tokens } from 'marked';
+import { MARKDOWN_FILE_HREF_ATTR, parseFileLinkHref } from './file-link-target';
 
 /* ==========================================================================
    Extension 1: Callout Cards (existing — unchanged)
@@ -313,6 +316,41 @@ function createListCardExtension(): MarkedExtension {
 }
 
 /* ==========================================================================
+   Extension 6: File Links
+   ========================================================================== */
+
+/**
+ * File Link Extension
+ *
+ * Renders a link whose destination names a file (see `parseFileLinkHref`) as
+ * `<a href="#" data-ptah-file-href="<original target>">`. The rewrite happens
+ * before DOMPurify runs, so the URI allowlist stays unchanged: the sentinel
+ * `#` passes it, and the original target travels in a data attribute. The
+ * anchor stays focusable, so Enter fires the click the document listener
+ * handles, and if interception ever fails `#` keeps navigation in-page.
+ *
+ * The data attribute is transport, not trust. Every other link returns
+ * `false` and keeps marked's default rendering.
+ */
+function createFileLinkExtension(): MarkedExtension {
+  return {
+    renderer: {
+      link(this: unknown, token: Tokens.Link): string | false {
+        if (!parseFileLinkHref(token.href)) return false;
+
+        const text = (
+          this as {
+            parser: { parseInline: (tokens: Tokens.Generic[]) => string };
+          }
+        ).parser.parseInline(token.tokens);
+        const target = escapeHtml(token.href);
+        return `<a href="#" ${MARKDOWN_FILE_HREF_ATTR}="${target}" title="${target}" class="ptah-file-link">${text}</a>`;
+      },
+    },
+  };
+}
+
+/* ==========================================================================
    Utilities
    ========================================================================== */
 
@@ -339,5 +377,6 @@ export function getMarkedExtensions(): MarkedExtension[] {
     createDecorativeDividerExtension(),
     createEnhancedHeadingsExtension(),
     createListCardExtension(),
+    createFileLinkExtension(),
   ];
 }

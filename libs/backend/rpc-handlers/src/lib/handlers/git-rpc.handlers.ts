@@ -44,10 +44,16 @@ import type {
 import {
   parseGitApplyHunksParams,
   parseGitDiffFileParams,
+  parseGitReviewChangesParams,
+  parseGitReviewFileParams,
 } from './git-rpc.schema';
 import type {
   GitInfoParams,
   GitInfoResult,
+  GitReviewChangesParams,
+  GitReviewChangesResult,
+  GitReviewFileParams,
+  GitReviewFileResult,
   GitWorktreesResult,
   GitAddWorktreeParams,
   GitAddWorktreeResult,
@@ -96,6 +102,8 @@ export class GitRpcHandlers {
    */
   static readonly METHODS = [
     'git:info',
+    'git:reviewChanges',
+    'git:reviewFile',
     'git:worktrees',
     'git:addWorktree',
     'git:removeWorktree',
@@ -130,6 +138,8 @@ export class GitRpcHandlers {
 
   register(): void {
     this.registerGitInfo();
+    this.registerGitReviewChanges();
+    this.registerGitReviewFile();
     this.registerGitWorktrees();
     this.registerAddWorktree();
     this.registerRemoveWorktree();
@@ -171,6 +181,72 @@ export class GitRpcHandlers {
         return this.gitInfo.getGitInfo(wsRoot);
       },
     );
+  }
+
+  private registerGitReviewChanges(): void {
+    this.rpcHandler.registerMethod<
+      GitReviewChangesParams,
+      GitReviewChangesResult
+    >('git:reviewChanges', async (rawParams) => {
+      const params = parseGitReviewChangesParams(rawParams);
+      if (!params) return this.reviewChangesFailure('Invalid review request.');
+      const root = this.resolveRoot(params.workspaceRoot, 'git:reviewChanges');
+      if (!root) return this.reviewChangesFailure('No workspace folder open.');
+      return this.gitInfo.reviewChanges(root, params.base, params.head);
+    });
+  }
+
+  private registerGitReviewFile(): void {
+    this.rpcHandler.registerMethod<GitReviewFileParams, GitReviewFileResult>(
+      'git:reviewFile',
+      async (rawParams) => {
+        const params = parseGitReviewFileParams(rawParams);
+        const invalid = this.reviewFileFailure(
+          params?.path ?? '',
+          params?.originalPath ?? params?.path ?? '',
+          params?.baseSha ?? '',
+          params?.headSha ?? '',
+          'Invalid review file request.',
+        );
+        if (!params) return invalid;
+        const root = this.resolveRoot(params.workspaceRoot, 'git:reviewFile');
+        if (!root) return { ...invalid, error: 'No workspace folder open.' };
+        return this.gitInfo.reviewFile(root, params);
+      },
+    );
+  }
+
+  private reviewChangesFailure(error: string): GitReviewChangesResult {
+    return {
+      success: false,
+      files: [],
+      totals: { additions: 0, deletions: 0, binaryFiles: 0 },
+      error,
+    };
+  }
+
+  private reviewFileFailure(
+    path: string,
+    originalPath: string,
+    baseSha: string,
+    headSha: string,
+    error: string,
+  ): GitReviewFileResult {
+    const read: GitBlobRead = {
+      outcome: 'error',
+      code: 'unknown',
+      message: error,
+    };
+    return {
+      success: false,
+      path,
+      originalPath,
+      baseSha,
+      headSha,
+      original: read,
+      modified: read,
+      error,
+    };
   }
 
   /**

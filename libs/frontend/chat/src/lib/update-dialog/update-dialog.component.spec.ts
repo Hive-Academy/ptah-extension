@@ -305,3 +305,23 @@ describe('UpdateDialogComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('timed out');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Release notes are NOT agent output (TASK_2026_413 R2)
+//
+// This dialog renders GitHub release markdown. A relative link in it points at
+// a file in the RELEASE, not in the user's workspace, so routing it into the
+// file viewer would open an unrelated local file. The opt-in marker is
+// deliberately absent, which leaves the link with plain browser behaviour.
+// ---------------------------------------------------------------------------
+describe('UpdateDialogComponent — file-link opt-in', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('renders no file-link opt-in marker', () => {
+    const { fixture } = setup({ stateSig: signal(availableState()) });
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(host.hasAttribute('data-ptah-file-links')).toBe(false);
+    expect(host.querySelector('[data-ptah-file-links]')).toBeNull();
+  });
+});

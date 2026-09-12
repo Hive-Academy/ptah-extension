@@ -435,7 +435,9 @@ describe('SourceControlPanelComponent — header controls are siblings, not nest
     );
     expect(github.getAttribute('aria-expanded')).toBe('false');
     expect(
-      fixture.nativeElement.querySelector('button[aria-label="Open diff for ci.yml"]'),
+      fixture.nativeElement.querySelector(
+        'button[aria-label="Open diff for ci.yml"]',
+      ),
     ).toBeNull();
 
     clickReal(github);
@@ -465,6 +467,19 @@ describe('SourceControlPanelComponent — header controls are siblings, not nest
     }
   });
 
+  it('renders every changed file that shares the same folder', () => {
+    fixture.componentInstance.files.set([
+      { path: 'src/a.ts', status: 'M', staged: false } as GitFileStatus,
+      { path: 'src/c.ts', status: 'M', staged: false } as GitFileStatus,
+    ]);
+    fixture.detectChanges();
+    clickReal(q<HTMLButtonElement>('button[aria-label="Toggle src folder"]'));
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('ptah-source-control-file'),
+    ).toHaveLength(2);
+  });
+
   it('turns a legacy directory status row into a folder control, never a file row', () => {
     fixture.componentInstance.files.set([
       {
@@ -483,7 +498,9 @@ describe('SourceControlPanelComponent — header controls are siblings, not nest
 
     expect(fixture.componentInstance.diffRequested).toEqual([]);
     expect(
-      fixture.nativeElement.querySelector('button[aria-label^="Open diff for"]'),
+      fixture.nativeElement.querySelector(
+        'button[aria-label^="Open diff for"]',
+      ),
     ).toBeNull();
   });
 

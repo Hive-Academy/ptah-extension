@@ -13,6 +13,8 @@ jest.mock('ngx-markdown', () => {
 });
 
 import DOMPurify from 'dompurify';
+import type { MarkedExtension, Tokens } from 'marked';
+import { parseFileLinkHref } from './file-link-target';
 import {
   provideMarkdownRendering,
   __resetMemberPurifierForTests,
@@ -216,6 +218,7 @@ describe('permissive sanitizer behavior (DOMPurify configuration)', () => {
         'onkeydown',
         'onkeyup',
         'onkeypress',
+        'data-ptah-file-links',
       ],
       ALLOW_DATA_ATTR: true,
       ALLOW_ARIA_ATTR: true,
@@ -262,5 +265,111 @@ describe('permissive sanitizer behavior (DOMPurify configuration)', () => {
   it('preserves data-* attributes used by marked extensions', () => {
     const out = sanitize('<div data-callout="note">x</div>');
     expect(out).toContain('data-callout="note"');
+  });
+});
+
+/**
+ * File links through the SHIPPED `'full'` pipeline: the link renderer the
+ * provider registers, then the sanitizer the provider installs. Nothing here
+ * re-states DOMPurify options, so a drift in either is caught.
+ */
+describe("file links through the shipped 'full' pipeline", () => {
+  interface FullPresetConfig extends CapturedMarkdownConfig {
+    markedExtensions: Array<{ useValue: MarkedExtension }>;
+  }
+
+  const fullConfig = (): FullPresetConfig =>
+    presetConfig('full') as FullPresetConfig;
+
+  const renderLink = (href: string): string | false => {
+    const link = fullConfig()
+      .markedExtensions.map((provider) => provider.useValue.renderer?.link)
+      .find((renderer) => typeof renderer === 'function');
+    if (!link) throw new Error("the 'full' preset registers no link renderer");
+    return (link as (this: unknown, token: Tokens.Link) => string | false).call(
+      { parser: { parseInline: () => 'open' } },
+      {
+        type: 'link',
+        raw: '',
+        href,
+        title: null,
+        text: 'open',
+        tokens: [],
+      } as Tokens.Link,
+    );
+  };
+
+  const firstAnchor = (html: string): HTMLAnchorElement => {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const anchor = template.content.querySelector('a');
+    if (!anchor) throw new Error('no anchor survived sanitizing');
+    return anchor;
+  };
+
+  let sanitize: (html: string) => string;
+
+  beforeEach(() => {
+    sanitize = fullConfig().sanitize.useFactory();
+  });
+
+  it('keeps a Windows drive target in data-ptah-file-href', () => {
+    const anchor = firstAnchor(sanitize(renderLink('C:\\x.ts:12:3') as string));
+    expect(anchor.getAttribute('data-ptah-file-href')).toBe('C:\\x.ts:12:3');
+    expect(anchor.getAttribute('href')).toBe('#');
+    expect(anchor.getAttribute('class')).toBe('ptah-file-link');
+  });
+
+  it('keeps a file URL target in data-ptah-file-href', () => {
+    const anchor = firstAnchor(
+      sanitize(renderLink('file:///C:/a%20b.ts') as string),
+    );
+    expect(anchor.getAttribute('data-ptah-file-href')).toBe(
+      'file:///C:/a%20b.ts',
+    );
+  });
+
+  it.each([
+    'C:\\x',
+    'file:///C:/x',
+    'javascript:alert(1)',
+    'JaVaScRiPt:alert(1)',
+  ])('still strips a raw href of %s', (href) => {
+    const anchor = firstAnchor(sanitize(`<a href="${href}">x</a>`));
+    expect(anchor.hasAttribute('href')).toBe(false);
+  });
+
+  it('leaves an http link to the default renderer, and the sanitizer keeps it', () => {
+    expect(renderLink('https://example.com/a.ts')).toBe(false);
+    const anchor = firstAnchor(
+      sanitize('<a href="https://example.com/a.ts">x</a>'),
+    );
+    expect(anchor.getAttribute('href')).toBe('https://example.com/a.ts');
+  });
+
+  it('strips the file-link opt-in marker from rendered content', () => {
+    const clean = sanitize(
+      '<div data-ptah-file-links=""><a href="#" data-ptah-file-href="src/a.ts" data-ptah-file-links>x</a></div>',
+    );
+    expect(clean).not.toContain('data-ptah-file-links');
+    expect(firstAnchor(clean).getAttribute('data-ptah-file-href')).toBe(
+      'src/a.ts',
+    );
+  });
+
+  it('strips the opt-in marker in any casing', () => {
+    const clean = sanitize('<p DATA-PTAH-FILE-LINKS="1">x</p>');
+    expect(clean.toLowerCase()).not.toContain('data-ptah-file-links');
+  });
+
+  it('treats an agent-authored data-ptah-file-href as transport, not trust', () => {
+    const anchor = firstAnchor(
+      sanitize('<a href="#" data-ptah-file-href="javascript:alert(1)">x</a>'),
+    );
+    const raw = anchor.getAttribute('data-ptah-file-href');
+    // The sanitizer keeps data attributes without URI checks...
+    expect(raw).toBe('javascript:alert(1)');
+    // ...so the parser, not the sanitizer, is what refuses it.
+    expect(parseFileLinkHref(raw)).toBeNull();
   });
 });

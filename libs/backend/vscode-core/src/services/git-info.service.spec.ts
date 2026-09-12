@@ -620,12 +620,12 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       );
 
       await Promise.all([service.getGitInfo(WS), service.getGitInfo(WS)]);
-      // rev-parse + status, once — not twice.
-      expect(mockSpawn).toHaveBeenCalledTimes(2);
+      // rev-parse + status + staged/worktree numstat, once — not twice.
+      expect(mockSpawn).toHaveBeenCalledTimes(4);
 
       await service.getGitInfo(WS);
 
-      expect(mockSpawn).toHaveBeenCalledTimes(4);
+      expect(mockSpawn).toHaveBeenCalledTimes(8);
     });
   });
 
@@ -1427,11 +1427,15 @@ describe('GitInfoService.parseFileStatus() — origPath (N3)', () => {
         path: '.github/workflows/ci.yml',
         status: '??',
         staged: false,
+        additions: null,
+        deletions: null,
       },
       {
         path: 'libs/new-lib/src/index.ts',
         status: '??',
         staged: false,
+        additions: null,
+        deletions: null,
       },
     ]);
   });

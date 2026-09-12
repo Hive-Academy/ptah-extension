@@ -124,8 +124,12 @@ export interface AutocompleteCommandsResult {
 export interface FileOpenParams {
   /** File path to open */
   path: string;
-  /** Optional line number to navigate to */
+  /** Optional line number to navigate to (1-based) */
   line?: number;
+  /** Optional column to navigate to (1-based). Honoured by in-IDE hosts only. */
+  column?: number;
+  /** Registered workspace used to resolve a relative path. */
+  workspaceRoot?: string;
 }
 
 /** Response from file:open RPC method */
@@ -133,7 +137,84 @@ export interface FileOpenResult {
   success: boolean;
   error?: string;
   isDirectory?: boolean;
+  /**
+   * The user declined the host's confirmation dialog.
+   *
+   * Present ONLY on that one outcome, and always alongside `success: false` —
+   * nothing was opened, so the call did not succeed. It exists because
+   * cancelling is a deliberate choice rather than a fault: a renderer that
+   * treats every `success: false` as an error shows a red banner and logs a
+   * `console.error` for a user who simply changed their mind. Detect this flag
+   * and return quietly; never match on `error`, which is display copy and may
+   * be reworded at any time.
+   */
+  cancelled?: true;
 }
+
+/**
+ * Why `file:viewContent` refused to return bytes.
+ *
+ * Every value maps to ONE fixed, sanitized sentence on the backend. The
+ * renderer picks its copy from this discriminant, never from a message the
+ * backend derived from an `Error` — a path, an `errno` or a realpath must
+ * never cross the RPC boundary for a file the caller was not allowed to read.
+ */
+export type FileViewFailureReason =
+  | 'invalid-request'
+  | 'unsupported-path'
+  | 'no-base-root'
+  | 'root-not-open'
+  | 'outside-roots'
+  | 'not-found'
+  | 'not-a-file'
+  | 'too-large'
+  | 'binary'
+  | 'unsupported-encoding'
+  | 'unreadable';
+
+export interface FileViewContentParams {
+  /** Decoded filesystem path: relative, POSIX absolute or drive absolute. Never a URL. */
+  path: string;
+  /** Originating session's workspace (tab partition root). Base-selection hint only. */
+  workspaceRoot?: string;
+  /** Absolute path of the document that contained the link (preview links). */
+  documentPath?: string;
+}
+
+export type FileViewContentResult =
+  | {
+      success: true;
+      absolutePath: string;
+      workspaceRoot: string;
+      relativePath: string;
+      content: string;
+      sizeBytes: number;
+      encoding: 'utf-8' | 'utf-16le' | 'utf-16be';
+    }
+  | {
+      success: false;
+      reason: FileViewFailureReason;
+      error: string;
+      /**
+       * Lexically resolved path; present only for outside-roots / too-large /
+       * binary / unsupported-encoding. Never a realpath — a symlink escape is
+       * refused WITHOUT this field, so the escaped target is never disclosed
+       * and never offered for external open.
+       */
+      absolutePath?: string;
+      sizeBytes?: number;
+      /** True when the external-link policy would accept `absolutePath`. */
+      externalOpenAllowed: boolean;
+    };
+
+/**
+ * Hard ceiling on a single `file:viewContent` read (2 MiB).
+ *
+ * The viewer is a read-only preview, not an editor: the cap bounds both the
+ * main-process read and the string that crosses the RPC boundary into the
+ * renderer.
+ */
+export const FILE_VIEW_MAX_BYTES = 2 * 1024 * 1024;
 
 /** Parameters for license:getStatus RPC method */
 export type LicenseGetStatusParams = Record<string, never>;

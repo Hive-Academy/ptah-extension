@@ -6,6 +6,7 @@
  */
 
 import * as path from 'path';
+import { readFile, stat as readStat } from 'fs/promises';
 import { resolveWorktreePath } from '../utils/worktree-path';
 import { createHash } from 'crypto';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
@@ -49,7 +50,13 @@ import {
   type GitApplyHunksOperation,
   type GitApplyHunksFailure,
   type GitApplyHunksResult,
+  type GitReviewChangesResult,
+  type GitReviewFileResult,
 } from '@ptah-extension/shared';
+import {
+  GitReviewReaderService,
+  type ReviewFileRequest,
+} from './git-review-reader.service';
 
 /**
  * git's own binary heuristic: a NUL byte anywhere in the first 8000 bytes.
@@ -244,6 +251,8 @@ export interface ApplyHunksRequest extends DiffFileRequest {
  * every invocation. That is a larger change and is deliberately not made here.
  */
 export class GitInfoService {
+  private readonly reviewReader: GitReviewReaderService;
+
   /**
    * @param spawner Optional `IProcessSpawner`. When a host supplies one, every
    * git invocation this service makes is launched on the spawner's thread
@@ -256,7 +265,11 @@ export class GitInfoService {
   constructor(
     private readonly logger: Logger,
     private readonly spawner?: IProcessSpawner,
-  ) {}
+    reviewReader?: GitReviewReaderService,
+  ) {
+    this.reviewReader =
+      reviewReader ?? new GitReviewReaderService(logger, spawner);
+  }
 
   /**
    * Settled results of the cheap-to-invalidate read methods, held until
@@ -300,6 +313,7 @@ export class GitInfoService {
    */
   invalidateReadCache(workspacePath?: string): void {
     this.cacheGeneration++;
+    this.reviewReader.invalidate(workspacePath);
     if (!workspacePath) {
       this.readCache.clear();
       this.inFlight.clear();
@@ -382,6 +396,20 @@ export class GitInfoService {
 
       const branch = this.parseBranchInfo(stdout);
       const files = this.parseFileStatus(stdout);
+      const [stagedStats, worktreeStats] = await Promise.all([
+        this.readNumstat(workspacePath, true),
+        this.readNumstat(workspacePath, false),
+      ]);
+      for (const file of files) {
+        const stat = (file.staged ? stagedStats : worktreeStats).get(file.path);
+        if (stat) Object.assign(file, stat);
+        else if (!file.staged && file.status === '??' && !file.isDirectory) {
+          Object.assign(
+            file,
+            await this.readUntrackedNumstat(workspacePath, file.path),
+          );
+        }
+      }
 
       return { isGitRepo: true, branch, files };
     } catch (error: unknown) {
@@ -403,6 +431,23 @@ export class GitInfoService {
         files: [],
       };
     }
+  }
+
+  /** Read a PR-style comparison without checking out either ref. */
+  async reviewChanges(
+    workspacePath: string,
+    baseName: string,
+    headName: string,
+  ): Promise<GitReviewChangesResult> {
+    return this.reviewReader.reviewChanges(workspacePath, baseName, headName);
+  }
+
+  /** Read two immutable blobs from a comparison previously issued above. */
+  async reviewFile(
+    workspacePath: string,
+    request: ReviewFileRequest,
+  ): Promise<GitReviewFileResult> {
+    return this.reviewReader.reviewFile(workspacePath, request);
   }
 
   async getWorktrees(workspacePath: string): Promise<GitWorktreeInfo[]> {
@@ -2332,6 +2377,80 @@ export class GitInfoService {
   private withSpawner(options?: ExecGitOptions): ExecGitOptions | undefined {
     if (!this.spawner) return options;
     return { ...options, spawner: options?.spawner ?? this.spawner };
+  }
+
+  private async readNumstat(
+    workspacePath: string,
+    staged: boolean,
+  ): Promise<
+    Map<string, Pick<GitFileStatus, 'additions' | 'deletions' | 'binary'>>
+  > {
+    const args = ['diff'];
+    if (staged) args.push('--cached');
+    args.push('--numstat', '-z', '--find-renames', '--find-copies', '--');
+    const result = await this.execGit(args, workspacePath);
+    return result.exitCode === 0 ? this.parseNumstat(result.stdout) : new Map();
+  }
+
+  private async readUntrackedNumstat(
+    workspacePath: string,
+    relativePath: string,
+  ): Promise<Pick<GitFileStatus, 'additions' | 'deletions' | 'binary'>> {
+    const absolutePath = path.resolve(workspacePath, relativePath);
+    const relative = path.relative(workspacePath, absolutePath);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      return { additions: null, deletions: null };
+    }
+    try {
+      if (!(await readStat(absolutePath)).isFile()) {
+        return { additions: null, deletions: null };
+      }
+      const bytes = await readFile(absolutePath);
+      if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
+        return { additions: null, deletions: null, binary: true };
+      }
+      const text = bytes.toString('utf8');
+      const additions =
+        text === ''
+          ? 0
+          : text.split(/\r\n|\r|\n/).length -
+            (/(?:\r\n|\r|\n)$/.test(text) ? 1 : 0);
+      return { additions, deletions: 0, binary: false };
+    } catch {
+      return { additions: null, deletions: null };
+    }
+  }
+
+  private parseNumstat(
+    output: string,
+  ): Map<
+    string,
+    { additions: number | null; deletions: number | null; binary: boolean }
+  > {
+    const result = new Map<
+      string,
+      { additions: number | null; deletions: number | null; binary: boolean }
+    >();
+    const fields = output.split('\0');
+    for (let index = 0; index < fields.length; index++) {
+      const field = fields[index];
+      if (!field) continue;
+      const match = /^(\d+|-)\t(\d+|-)\t(.*)$/s.exec(field);
+      if (!match) continue;
+      let filePath = match[3];
+      if (!filePath) {
+        index += 2; // skip original path and consume the new path
+        filePath = fields[index] ?? '';
+      }
+      if (!filePath) continue;
+      const binary = match[1] === '-' || match[2] === '-';
+      result.set(filePath, {
+        additions: binary ? null : Number.parseInt(match[1], 10),
+        deletions: binary ? null : Number.parseInt(match[2], 10),
+        binary,
+      });
+    }
+    return result;
   }
 
   /**
