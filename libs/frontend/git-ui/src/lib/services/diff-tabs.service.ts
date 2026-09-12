@@ -1,5 +1,9 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { VSCodeService, rpcCall } from '@ptah-extension/core';
+import {
+  ElectronLayoutService,
+  VSCodeService,
+  rpcCall,
+} from '@ptah-extension/core';
 import type { MessageHandler } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
@@ -15,6 +19,8 @@ import type {
   DiffComparison,
   DiffTabState,
   EditorTab,
+  FileViewOpenRequest,
+  FileViewTabState,
   HunkApplyFn,
   HunkApplyRequest,
   OpenDiffRequest,
@@ -23,6 +29,7 @@ import {
   diffComparisonLabel,
   diffTabKey,
   diffTabLabel,
+  fileViewTabKey,
   normalizeDiffPath,
 } from '../types/diff-tab.types';
 import {
@@ -31,8 +38,9 @@ import {
   GIT_READ_TRANSPORT_MESSAGE,
   readSideText,
 } from './git-read-error-messages';
+import { FileViewReaderService } from './file-view-reader.service';
 
-export type { OpenDiffRequest };
+export type { FileViewOpenRequest, OpenDiffRequest };
 
 /**
  * Copy for the one apply refusal this service decides for itself (D2 AC6).
@@ -68,6 +76,8 @@ function extractFileName(filePath: string): string {
 export class DiffTabsService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
   private readonly gitStatus = inject(GitStatusService);
+  private readonly fileViewReader = inject(FileViewReaderService);
+  private readonly layout = inject(ElectronLayoutService);
 
   /**
    * Coalescing window for `git:status-update`-driven revalidation. A single
@@ -93,10 +103,10 @@ export class DiffTabsService implements MessageHandler {
   private readonly _isLoading = signal(false);
   private readonly _errorMessage = signal<string | null>(null);
 
-  /** Every open diff tab, in the order the user opened them. */
+  /** Every open dock tab, in the order the user opened them. */
   readonly diffTabs = this._diffTabs.asReadonly();
 
-  /** The diff tab key the dock is currently showing, or `null`. */
+  /** The dock tab key currently shown, or `null`. */
   readonly activeDiffKey = this._activeDiffKey.asReadonly();
 
   /** True while a FIRST read for a newly-opened diff is in flight. */
@@ -115,9 +125,11 @@ export class DiffTabsService implements MessageHandler {
     return this._diffTabs().find((t) => t.filePath === key) ?? null;
   });
 
-  /** The keys `DiffViewComponent.openDiffKeys` is bound to. */
+  /** Diff-only keys bound to `DiffViewComponent.openDiffKeys`. */
   readonly openDiffKeys = computed<readonly string[]>(() =>
-    this._diffTabs().map((t) => t.filePath),
+    this._diffTabs()
+      .filter((tab) => tab.diff)
+      .map((tab) => tab.filePath),
   );
 
   /**
@@ -231,6 +243,55 @@ export class DiffTabsService implements MessageHandler {
     this._activeDiffKey.set(key);
   }
 
+  /** Open or refresh a read-only file view inside the existing dock tab set. */
+  public async openFileView(request: FileViewOpenRequest): Promise<void> {
+    this.layout.setEditorPanelVisible(true);
+    const requestedKey = fileViewTabKey(request.path);
+    const existingTab = this._diffTabs().find(
+      (tab) =>
+        tab.view &&
+        (fileViewTabKey(tab.view.absolutePath) === requestedKey ||
+          fileViewTabKey(tab.view.request.path) === requestedKey),
+    );
+
+    if (existingTab?.view) {
+      this._activeDiffKey.set(existingTab.filePath);
+      this.patchView(existingTab.filePath, (view) => ({
+        ...view,
+        request: { ...view.request, ...request },
+        reveal: this.revealFor(request),
+      }));
+      await this.refreshFileView(existingTab.filePath);
+      return;
+    }
+
+    const requestId = 1;
+    const loading: FileViewTabState = {
+      absolutePath: request.path,
+      workspaceRoot: request.workspaceRoot ?? null,
+      relativePath: null,
+      content: '',
+      sizeBytes: null,
+      isMarkdown: /\.(?:md|markdown|mdx)$/i.test(request.path),
+      reveal: this.revealFor(request),
+      status: 'loading',
+      request,
+      requestId,
+    };
+    const tab: EditorTab = {
+      filePath: requestedKey,
+      fileName: extractFileName(request.path),
+      content: '',
+      isDirty: false,
+      view: loading,
+    };
+    this._diffTabs.update((tabs) => [...tabs, tab]);
+    this._activeDiffKey.set(requestedKey);
+
+    const result = await this.fileViewReader.read(request, requestId);
+    this.applyFileViewResult(requestedKey, requestId, result);
+  }
+
   /**
    * Show an already-open diff without re-reading it from git.
    *
@@ -289,6 +350,13 @@ export class DiffTabsService implements MessageHandler {
    * working-tree diffs read the file on disk, so only those need revalidating.
    */
   public onFileContentChanged(absolutePath: string): void {
+    const changedKey = fileViewTabKey(absolutePath);
+    for (const tab of this._diffTabs()) {
+      if (tab.view && fileViewTabKey(tab.view.absolutePath) === changedKey) {
+        void this.refreshFileView(tab.filePath);
+      }
+    }
+
     const relative = this.toWorkspaceRelative(absolutePath);
     if (!relative) return;
 
@@ -367,6 +435,27 @@ export class DiffTabsService implements MessageHandler {
     }
 
     this.applyFreshDiff(key, next);
+  }
+
+  public async refreshFileView(key: string): Promise<void> {
+    const tab = this._diffTabs().find(
+      (candidate) => candidate.filePath === key,
+    );
+    if (!tab?.view) return;
+    const requestId = tab.view.requestId + 1;
+    const previous = tab.view;
+    this.patchView(key, (view) => ({
+      ...view,
+      status: 'refreshing',
+      requestId,
+      failure: undefined,
+    }));
+    const result = await this.fileViewReader.read(
+      previous.request,
+      requestId,
+      previous,
+    );
+    this.applyFileViewResult(key, requestId, result);
   }
 
   // -------------------------------------------------------------------------
@@ -627,6 +716,50 @@ export class DiffTabsService implements MessageHandler {
           : tab,
       ),
     );
+  }
+
+  private patchView(
+    key: string,
+    update: (view: FileViewTabState) => FileViewTabState,
+  ): void {
+    this._diffTabs.update((tabs) =>
+      tabs.map((tab) =>
+        tab.filePath === key && tab.view
+          ? { ...tab, view: update(tab.view) }
+          : tab,
+      ),
+    );
+  }
+
+  private applyFileViewResult(
+    key: string,
+    requestId: number,
+    result: FileViewTabState,
+  ): void {
+    const live = this._diffTabs().find((tab) => tab.filePath === key);
+    if (!live?.view || live.view.requestId !== requestId) return;
+    this._diffTabs.update((tabs) =>
+      tabs.map((tab) =>
+        tab.filePath === key
+          ? {
+              ...tab,
+              fileName: extractFileName(result.absolutePath),
+              content: result.content,
+              view: result,
+            }
+          : tab,
+      ),
+    );
+  }
+
+  private revealFor(
+    request: FileViewOpenRequest,
+  ): { line: number; column: number } | null {
+    if (request.line === undefined && request.column === undefined) return null;
+    return {
+      line: Math.max(1, request.line ?? 1),
+      column: Math.max(1, request.column ?? 1),
+    };
   }
 
   /**

@@ -15,6 +15,13 @@
  * `git-status.service.spec.ts` / `git-branches.service.spec.ts`.
  */
 
+jest.mock('ngx-markdown');
+jest.mock('@ptah-extension/markdown', () => ({
+  MarkdownBlockComponent: jest.requireActual(
+    '../../../../markdown/src/lib/markdown-block.component',
+  ).MarkdownBlockComponent,
+}));
+
 import { Component, computed, input, output, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
@@ -117,6 +124,7 @@ function makeDiffTabsStub() {
     activateDiff,
     closeDiff,
     refreshDiffTab: jest.fn(),
+    refreshFileView: jest.fn(),
     setTabs(nextTabs: EditorTab[], nextActiveKey: string | null): void {
       tabs.set(nextTabs);
       activeKey.set(nextActiveKey);
@@ -167,6 +175,14 @@ class DiffViewStubComponent {
   readonly retryRequested = output<string>();
 }
 
+@Component({ selector: 'ptah-file-view', standalone: true, template: '' })
+class FileViewStubComponent {
+  readonly tab = input.required<EditorTab>();
+  readonly editorTargets = input.required<readonly never[]>();
+  readonly retryRequested = output<string>();
+  readonly openExternal = output<OpenInRequest>();
+}
+
 describe('GitDockComponent', () => {
   let gitStatus: ReturnType<typeof makeGitStatusStub>;
   let gitBranches: ReturnType<typeof makeGitBranchesStub>;
@@ -194,6 +210,7 @@ describe('GitDockComponent', () => {
             gitRailCollapsed: jest.fn(() => false),
             setGitRailWidth: jest.fn(),
             commitGitRailWidth: jest.fn(),
+            setEditorPanelVisible: jest.fn(),
           },
         },
         {
@@ -209,6 +226,7 @@ describe('GitDockComponent', () => {
             targets: jest.fn(() => []),
             detect: jest.fn(),
             openFile: jest.fn(),
+            openLinkedFile: jest.fn(),
           },
         },
       ],
@@ -225,6 +243,7 @@ describe('GitDockComponent', () => {
           GitReviewToolbarStubComponent,
           GitReviewPanelStubComponent,
           RailResizeHandleComponent,
+          FileViewStubComponent,
         ],
       },
     });

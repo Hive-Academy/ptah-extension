@@ -17,6 +17,7 @@ import { EditorLauncherService } from '../services/editor-launcher.service';
 import type { OpenInRequest } from '../open-in/open-in-button.component';
 import { ElectronLayoutService } from '@ptah-extension/core';
 import { RailResizeHandleComponent } from './rail-resize-handle.component';
+import { FileViewComponent } from '../file-view/file-view.component';
 
 /**
  * GitDockComponent — live host for the git surface in the Electron shell's
@@ -51,25 +52,28 @@ import { RailResizeHandleComponent } from './rail-resize-handle.component';
     GitReviewToolbarComponent,
     GitReviewPanelComponent,
     RailResizeHandleComponent,
+    FileViewComponent,
   ],
   template: `
     <div class="flex flex-col h-full" data-testid="git-dock">
       <ptah-git-dock-header />
       <ptah-git-review-toolbar />
 
-      @if (gitStatus.isLoading()) {
-        <div class="p-4 text-sm">Loading repository…</div>
-      } @else if (!gitStatus.isGitRepo()) {
-        <div class="p-4 text-sm opacity-60">
-          The active workspace is not a Git repository.
-        </div>
-      } @else if (review.mode() === 'branch-review') {
+      @if (
+        !gitStatus.isLoading() &&
+        gitStatus.isGitRepo() &&
+        review.mode() === 'branch-review'
+      ) {
         <ptah-git-review-panel
           [workspaceRoot]="gitStatus.activeWorkspacePath() ?? ''"
         />
       } @else {
         <div class="flex-1 min-h-0 flex overflow-hidden">
-          @if (!layout.gitRailCollapsed()) {
+          @if (
+            !gitStatus.isLoading() &&
+            gitStatus.isGitRepo() &&
+            !layout.gitRailCollapsed()
+          ) {
             <div
               id="git-source-control-rail"
               class="flex-shrink-0 border-r border-base-content/10 overflow-hidden"
@@ -91,6 +95,17 @@ import { RailResizeHandleComponent } from './rail-resize-handle.component';
               (widthChange)="layout.setGitRailWidth($event)"
               (widthCommit)="layout.commitGitRailWidth()"
             />
+          } @else if (!diffTabs.activeDiffTab()) {
+            <div
+              class="flex-1 p-4 text-sm"
+              [class.opacity-60]="!gitStatus.isLoading()"
+            >
+              @if (gitStatus.isLoading()) {
+                Loading repository…
+              } @else if (!gitStatus.isGitRepo()) {
+                The active workspace is not a Git repository.
+              }
+            </div>
           }
 
           @if (diffTabs.activeDiffTab(); as activeDiffTab) {
@@ -145,7 +160,11 @@ import { RailResizeHandleComponent } from './rail-resize-handle.component';
                            focus-visible:outline focus-visible:outline-2
                            focus-visible:outline-offset-[-2px]
                            focus-visible:outline-[oklch(var(--s))]"
-                      [attr.aria-label]="'Close diff for ' + tab.fileName"
+                      [attr.aria-label]="
+                        tab.view
+                          ? 'Close file ' + tab.fileName
+                          : 'Close diff for ' + tab.fileName
+                      "
                       (click)="diffTabs.closeDiff(tab.filePath)"
                     >
                       <span aria-hidden="true">&times;</span>
@@ -160,12 +179,21 @@ import { RailResizeHandleComponent } from './rail-resize-handle.component';
                 [id]="diffPanelId"
                 [attr.aria-labelledby]="activeDiffTabId()"
               >
-                <ptah-diff-view
-                  [diffTab]="activeDiffTab"
-                  [openDiffKeys]="diffTabs.openDiffKeys()"
-                  [applyHunks]="diffTabs.applyHunksFn"
-                  (retryRequested)="diffTabs.refreshDiffTab($event)"
-                />
+                @if (activeDiffTab.view) {
+                  <ptah-file-view
+                    [tab]="activeDiffTab"
+                    [editorTargets]="launchers.targets()"
+                    (retryRequested)="diffTabs.refreshFileView($event)"
+                    (openExternal)="launchers.openLinkedFile($event)"
+                  />
+                } @else {
+                  <ptah-diff-view
+                    [diffTab]="activeDiffTab"
+                    [openDiffKeys]="diffTabs.openDiffKeys()"
+                    [applyHunks]="diffTabs.applyHunksFn"
+                    (retryRequested)="diffTabs.refreshDiffTab($event)"
+                  />
+                }
               </div>
             </div>
           }
@@ -200,7 +228,7 @@ export class GitDockComponent {
     });
   }
 
-  /** Route a file-name click from the source-control panel to the external editor. */
+  /** Route a working-tree row click to the external editor. */
   protected onFileClicked(request: OpenInRequest): void {
     const root = this.gitStatus.activeWorkspacePath();
     if (root && request.path)

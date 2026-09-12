@@ -43,6 +43,7 @@ export type {
   DiffTabState,
   DiffTabStatus,
   EditorTab,
+  FileViewOpenRequest,
   GitApplyHunksOperation,
   GitApplyHunksResult,
   GitDiffFileResult,

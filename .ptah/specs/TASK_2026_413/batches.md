@@ -13,6 +13,7 @@ Historical review uses merge-base(base, head)..head semantics.
 | 6     | Legacy Electron Git dock regression repair      | Complete    | Base classification 2/2 passed; Git dock 5/5; review/hunk gate 5/5; git-ui 21 suites / 285 tests; 4 lint/typecheck targets across 2 projects passed |
 | 6R    | Review fixes                                    | Complete    | 4-project tests passed (4,588 tests, 33 skipped); 6-project lint/typecheck passed; Electron 10/10; diff check clean                                 |
 | 7     | Collapsible, resizable, persisted Git dock rail | Complete    | 4-project test/lint/typecheck passed (2,173 tests, 2 skipped); Electron rail 1/1 and regression selection 9/9 at 1200x800; diff check clean         |
+| 8b    | Read-only file tab with Markdown preview        | Complete    | 4-project test/lint/typecheck passed (2,206 tests, 2 skipped); file-tab Electron 1/1 and regression selection 12/12 at 1200x800; diff check clean   |
 
 ## Progress log
 
@@ -41,6 +42,8 @@ Historical review uses merge-base(base, head)..head semantics.
 - 2026-09-12: Risk resolutions recorded. R1: deny-list enforced on the home/temp widening only, so a `.env` inside an open workspace stays openable; a deny-listed path reports no lexical path, so `externalOpenAllowed` is false and no Open In is offered. R3: resolved with NO regression per orchestrator decision 3 — an absolute out-of-root path is confirmed via a modal showing the absolute path, never refused. R4: both smoke containers now register `GitInfoService`, which `EditorRpcHandlers` reaches through `FileLinkRootPolicy`; A1 held and no BLOCKER was required. R9: pinned and documented — a query-only difference reloads the renderer's own document and cannot reach different content.
 - 2026-09-12: Batch 8a gates passed: exactly 7 projects with zero test failures and zero lint errors (259 suites, 5,783 passed, 31 skipped), a 2-project rpc-handlers/cli-engine run all green (3,027 passed), the new navigation-policy spec proven collected at 1/1 suite and 24 tests, and `git diff --check` clean. The only failed task, `ptah-electron:typecheck`, is pre-existing in `build-artifact-gate.ts` and was proven independent of this batch by a move-aside probe; it is left unfixed as outside this batch's ownership.
 - 2026-09-12: Eight Batch 8a test failures were all test-only defects in the new policy spec, not product defects: `jest.spyOn(os,'homedir')` cannot redefine a non-configurable `node:os` export (replaced with a module factory), one deny-list fixture was denied by the basename rule rather than the directory-casing rule under test, and the UNC-worktree test never reached the widening it claimed to exercise. All three were corrected and the suite passed 97/97.
+- 2026-09-12: Batch 8b added read-only file tabs to the existing dock tab store, with a named `FileViewReaderService`, stale-request protection, fixed refusal states, Monaco read-only/reveal behavior, and preview-first Markdown rendered only through `MarkdownBlockComponent`.
+- 2026-09-12: Batch 8b added the explicit blocked-path external-editor confirmation and retained the legacy diff-tab accessibility contract. Exactly 4 projects passed all 12 test/lint/typecheck targets (130 suites, 2,206 passed, 2 skipped); Electron passed the file-view proof 1/1 and the requested regression grep 12/12 at 1200x800; `git diff --check` passed.
 
 ## Batches 7-8 decomposition
 
@@ -50,7 +53,7 @@ Source: `implementation-plan.md` `## Addendum: Batches 7-8` (A.1-A.8), acceptanc
 | ----- | ------------------------------------------------------------------ | -------- | ------------ | --------------------------- | ---------- |
 | 7     | Collapsible, resizable, persisted source-control rail              | COMPLETE | 6R           | codex CLI                   | sequential |
 | 8a    | Backend contracts, contained read, link policy, hosts, nav guard   | COMPLETE | 6R           | backend-developer subagent  | sequential |
-| 8b    | Read-only file tab in the Git dock (Electron)                      | PENDING  | 6R, 7, 8a    | codex CLI                   | sequential |
+| 8b    | Read-only file tab in the Git dock (Electron)                      | COMPLETE | 6R, 7, 8a    | codex CLI                   | sequential |
 | 8c-1  | Markdown file-link parser/extension/listener + core opener token   | COMPLETE | none         | frontend-developer subagent | sequential |
 | 8c-2  | Chat link router, context markers, FilePathLink/tasks, wiring, e2e | PENDING  | 8a, 8b, 8c-1 | frontend-developer subagent | sequential |
 
@@ -284,7 +287,7 @@ Plan A.8 recommends one rebase after Batches 1-6 (+6R) are committed and before 
 - `git diff --check`
 - Reviewer: code-logic-reviewer, cross-vendor (codex CLI or antigravity CLI). Why: path-policy ordering, TOCTOU, the deny-list and error sanitization are behavioural and security risks. The review must confirm R1, R3, R4 and R9.
 
-## Batch 8b: Read-only file tab in the Git dock (Electron) — PENDING
+## Batch 8b: Read-only file tab in the Git dock (Electron) — COMPLETE
 
 - Recommended executor: codex CLI (`DiffTabsService`, the dock and Monaco lifecycle are its Batch 4-6R territory)
 - Fallback executor: frontend-developer subagent
@@ -294,7 +297,7 @@ Plan A.8 recommends one rebase after Batches 1-6 (+6R) are committed and before 
 - Acceptance criteria: 23, 25 (UI), 19 (dock side), 30 (partial)
 - File overlap: `git-dock.component.ts` / `.spec` / `.mount.spec` and `editor-launcher.service.ts` / `.spec` with 6R and 7; `src/index.ts` with 6R; `git-ui/CLAUDE.md` with none.
 
-### Task 8b.1: Tab model, FileViewReaderService, DiffTabsService view tabs — PENDING
+### Task 8b.1: Tab model, FileViewReaderService, DiffTabsService view tabs — COMPLETE
 
 - Files: MODIFY `D:/projects/ptah-extension/.claude/worktrees/git-review-controls/libs/frontend/git-ui/src/lib/types/diff-tab.types.ts`, `libs/frontend/git-ui/src/lib/services/diff-tabs.service.ts`, `libs/frontend/git-ui/src/lib/services/diff-tabs.service.spec.ts`; CREATE `libs/frontend/git-ui/src/lib/services/file-view-reader.service.ts`, `file-view-reader.service.spec.ts`
 - Plan reference: implementation-plan.md:661-698, D3 :433
@@ -305,7 +308,7 @@ Plan A.8 recommends one rebase after Batches 1-6 (+6R) are committed and before 
   - An authorization failure on refresh (`outside-roots`, `root-not-open`) clears content.
   - Only known reasons use backend copy.
 
-### Task 8b.2: FileViewComponent + monaco-theme extraction — PENDING
+### Task 8b.2: FileViewComponent + monaco-theme extraction — COMPLETE
 
 - Depends on: Task 8b.1
 - Files: CREATE `D:/projects/ptah-extension/.claude/worktrees/git-review-controls/libs/frontend/git-ui/src/lib/file-view/file-view.component.ts`, `file-view.component.spec.ts`, `libs/frontend/git-ui/src/lib/services/monaco-theme.ts`, `monaco-theme.spec.ts`; MODIFY `libs/frontend/git-ui/src/lib/diff-view/diff-view.component.ts` (replace inline theme detection at :1208-1259 with the extracted helper; no copy is left behind), `D:/projects/ptah-extension/.claude/worktrees/git-review-controls/libs/frontend/git-ui/CLAUDE.md`
@@ -320,7 +323,7 @@ Plan A.8 recommends one rebase after Batches 1-6 (+6R) are committed and before 
   - The body host carries `data-ptah-link-root`, `data-ptah-link-document` and the 8c-1 opt-in marker `data-ptah-file-links`.
 - Validation notes: A5 check. Language comes from `getLanguages()` extension match, falling back to `plaintext`. git-ui has no `package.json`, so the new `@ptah-extension/markdown` import needs no manifest edit. The lint `scope:webview → scope:shared` rule permits it.
 
-### Task 8b.3: Dock composition + launcher `openLinkedFile` + barrel addition — PENDING
+### Task 8b.3: Dock composition + launcher `openLinkedFile` + barrel addition — COMPLETE
 
 - Depends on: Task 8b.2; 7; 6R
 - Files: MODIFY `D:/projects/ptah-extension/.claude/worktrees/git-review-controls/libs/frontend/git-ui/src/lib/git-dock/git-dock.component.ts`, `git-dock.component.spec.ts`, `git-dock.mount.spec.ts`, `libs/frontend/git-ui/src/lib/services/editor-launcher.service.ts`, `editor-launcher.service.spec.ts`, `libs/frontend/git-ui/src/index.ts`
@@ -328,7 +331,7 @@ Plan A.8 recommends one rebase after Batches 1-6 (+6R) are committed and before 
 - Quality requirements: the tab strip renders whenever tabs exist, including in a non-git workspace. A view tab renders `<ptah-file-view>` and a diff tab renders `<ptah-diff-view>`. `openLinkedFile` sends `editor:openFile` with `scope:'external-link'` and reuses `launchStatus`. The barrel adds only `type FileViewOpenRequest`.
 - Validation notes: the mount spec uses real header, source-control, file-view (fake Monaco) and markdown-block children. It covers a view tab in a non-git workspace, a mixed strip with keyboard navigation, `.md` preview, and the blocked-tab Open In path.
 
-### Task 8b.4: External-open confirm on blocked tabs (R1 UI) — PENDING
+### Task 8b.4: External-open confirm on blocked tabs (R1 UI) — COMPLETE
 
 - Depends on: Task 8b.3
 - Files: MODIFY `D:/projects/ptah-extension/.claude/worktrees/git-review-controls/libs/frontend/git-ui/src/lib/file-view/file-view.component.ts`, `file-view.component.spec.ts`, `libs/frontend/git-ui/src/lib/git-dock/git-dock.mount.spec.ts`

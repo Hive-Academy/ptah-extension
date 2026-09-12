@@ -5,6 +5,7 @@ import type {
   EditorTargetId,
   EditorOpenResult,
 } from '@ptah-extension/shared';
+import type { OpenInRequest } from '../open-in/open-in-button.component';
 
 export interface LaunchStatus {
   kind: 'success' | 'error';
@@ -86,6 +87,26 @@ export class EditorLauncherService {
       'editor:openFile',
       { target, workspaceRoot, path, ...(line ? { line } : {}) },
       `Opened ${path} in ${target}.`,
+    );
+  }
+
+  async openLinkedFile(request: OpenInRequest): Promise<boolean> {
+    if (!request.path) {
+      this._launchStatus.set({
+        kind: 'error',
+        message: 'No file path was provided.',
+      });
+      return false;
+    }
+    return this.launch(
+      'editor:openFile',
+      {
+        target: request.target,
+        path: request.path,
+        ...(request.line ? { line: request.line } : {}),
+        scope: 'external-link',
+      },
+      `Opened ${request.path} in ${request.target}.`,
     );
   }
 

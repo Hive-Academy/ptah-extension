@@ -34,6 +34,10 @@ import {
   X,
 } from 'lucide-angular';
 import type * as monaco from 'monaco-editor';
+import {
+  detectMonacoTheme,
+  observeMonacoTheme,
+} from '../services/monaco-theme';
 import { rpcCall, VSCodeService } from '@ptah-extension/core';
 import { MonacoLoaderService } from '../services/monaco-loader.service';
 import type {
@@ -800,7 +804,7 @@ export class DiffViewComponent implements OnDestroy {
   /** The line the widget is currently anchored at; drives layout vs re-add. */
   private hunkWidgetLine = 0;
   private resizeObserver: ResizeObserver | null = null;
-  private themeObserver: MutationObserver | null = null;
+  private stopThemeObserver: (() => void) | null = null;
   private destroyed = false;
 
   /**
@@ -1186,7 +1190,8 @@ export class DiffViewComponent implements OnDestroy {
     this.hunkDecorations?.clear();
     this.hunkDecorations = null;
     this.resizeObserver?.disconnect();
-    this.themeObserver?.disconnect();
+    this.stopThemeObserver?.();
+    this.stopThemeObserver = null;
     this.currentKey = null;
     for (const key of [...this.pairs.keys()]) this.disposePair(key);
     this.viewStates.clear();
@@ -1206,7 +1211,7 @@ export class DiffViewComponent implements OnDestroy {
 
     this.ngZone.runOutsideAngular(() => {
       const editor = monacoApi.editor.createDiffEditor(container, {
-        theme: this.detectMonacoTheme(),
+        theme: detectMonacoTheme(),
         automaticLayout: false,
         // `readOnly` and `renderMarginRevertIcon` are PERMANENT (plan §4.3):
         // Monaco's built-in revert arrow edits the modified BUFFER, which is
@@ -1243,26 +1248,7 @@ export class DiffViewComponent implements OnDestroy {
         this.editor?.layout();
       });
       this.resizeObserver.observe(container);
-      if (typeof document !== 'undefined') {
-        this.themeObserver = new MutationObserver(() => {
-          monacoApi.editor.setTheme(this.detectMonacoTheme());
-        });
-        const themeAttributes = [
-          'data-vscode-theme-kind',
-          'data-theme',
-          'data-theme-mode',
-        ];
-        // Two targets, one observer: the VS Code host writes its kind onto
-        // <body>, ThemeService writes daisyUI's onto <html>.
-        this.themeObserver.observe(document.body, {
-          attributes: true,
-          attributeFilter: themeAttributes,
-        });
-        this.themeObserver.observe(document.documentElement, {
-          attributes: true,
-          attributeFilter: themeAttributes,
-        });
-      }
+      this.stopThemeObserver = observeMonacoTheme(monacoApi);
     });
   }
 
@@ -1987,31 +1973,6 @@ export class DiffViewComponent implements OnDestroy {
    * theme NAME would send `cupcake`, `winter` and `anubis-light` to a dark
    * editor.
    */
-  private detectMonacoTheme(): string {
-    if (typeof document === 'undefined') return 'vs-dark';
-    const root = document.documentElement;
-
-    const vscodeKind =
-      document.body.getAttribute('data-vscode-theme-kind') ??
-      root.getAttribute('data-vscode-theme-kind');
-    if (vscodeKind === 'vscode-light') return 'vs';
-    if (vscodeKind === 'vscode-high-contrast') return 'hc-black';
-    if (vscodeKind === 'vscode-dark') return 'vs-dark';
-
-    const mode =
-      root.getAttribute('data-theme-mode') ??
-      document.body.getAttribute('data-theme-mode');
-    if (mode === 'light') return 'vs';
-    if (mode === 'dark') return 'vs-dark';
-
-    const dataTheme =
-      root.getAttribute('data-theme') ??
-      document.body.getAttribute('data-theme');
-    if (dataTheme === 'light') return 'vs';
-
-    return 'vs-dark';
-  }
-
   private detectLanguage(filePath: string): string {
     if (!filePath) return 'plaintext';
     const ext = filePath.split('.').pop()?.toLowerCase();
@@ -2063,5 +2024,10 @@ export class DiffViewComponent implements OnDestroy {
       svelte: 'html',
     };
     return languageMap[ext ?? ''] ?? 'plaintext';
+  }
+
+  /** Thin compatibility seam; theme detection itself lives in monaco-theme. */
+  private detectMonacoTheme(): string {
+    return detectMonacoTheme();
   }
 }

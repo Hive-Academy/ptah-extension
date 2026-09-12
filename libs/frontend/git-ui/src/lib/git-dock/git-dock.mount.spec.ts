@@ -1,3 +1,10 @@
+jest.mock('ngx-markdown');
+jest.mock('@ptah-extension/markdown', () => ({
+  MarkdownBlockComponent: jest.requireActual(
+    '../../../../markdown/src/lib/markdown-block.component',
+  ).MarkdownBlockComponent,
+}));
+
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
@@ -109,6 +116,15 @@ describe('GitDockComponent mounted controls', () => {
           },
         ],
         totals: { additions: 2, deletions: 1, binaryFiles: 0 },
+      },
+      'file:viewContent': {
+        success: true,
+        absolutePath: '/ws/a/readme.md',
+        workspaceRoot: '/ws/a',
+        relativePath: 'readme.md',
+        content: '# Mounted preview',
+        sizeBytes: 17,
+        encoding: 'utf-8',
       },
     };
     mockRpcCall.mockImplementation((_vscode: unknown, method: string) => {
@@ -261,5 +277,97 @@ describe('GitDockComponent mounted controls', () => {
       fixture.nativeElement.querySelector('ptah-git-review-panel'),
     ).not.toBeNull();
     expect(fixture.nativeElement.textContent).toContain('a.ts');
+  });
+
+  it('renders a file tab in a non-git workspace and markdown through the real preview', async () => {
+    rpcData['git:info'] = { isGitRepo: false, files: [] };
+    const gitStatus = TestBed.inject(GitStatusService);
+    gitStatus.switchWorkspace('/ws/a');
+    await TestBed.inject(DiffTabsService).openFileView({
+      path: '/ws/a/readme.md',
+      workspaceRoot: '/ws/a',
+    });
+    const fixture = TestBed.createComponent(GitDockComponent);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-file-view'),
+    ).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-markdown-block'),
+    ).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Mounted preview');
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'The active workspace is not a Git repository.',
+    );
+  });
+
+  it('keeps mixed tabs keyboard-navigable', async () => {
+    const gitStatus = TestBed.inject(GitStatusService);
+    gitStatus.switchWorkspace('/ws/a');
+    const tabs = TestBed.inject(DiffTabsService);
+    await tabs.openDiff({ path: 'alpha.ts', comparison: 'worktree' });
+    await tabs.openFileView({
+      path: '/ws/a/readme.md',
+      workspaceRoot: '/ws/a',
+    });
+    const fixture = TestBed.createComponent(GitDockComponent);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const controls = fixture.nativeElement.querySelectorAll(
+      '[role="tab"]',
+    ) as NodeListOf<HTMLButtonElement>;
+    expect(controls).toHaveLength(2);
+    controls[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }),
+    );
+    fixture.detectChanges();
+    expect(controls[0].getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('confirms a blocked absolute path before one external-link launch', async () => {
+    rpcData['file:viewContent'] = {
+      success: false,
+      reason: 'outside-roots',
+      error: 'This file is outside the open workspaces.',
+      absolutePath: '/outside/a.ts',
+      externalOpenAllowed: true,
+    };
+    const tabs = TestBed.inject(DiffTabsService);
+    await tabs.openFileView({ path: '/outside/a.ts', workspaceRoot: '/ws/a' });
+    const fixture = TestBed.createComponent(GitDockComponent);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="open-in-primary"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+    const dialog = fixture.nativeElement.querySelector(
+      '[role="alertdialog"]',
+    ) as HTMLElement;
+    expect(dialog.textContent).toContain('/outside/a.ts');
+    expect(dialog.textContent).toContain('Kiro');
+    expect(
+      mockRpcCall.mock.calls.filter((call) => call[1] === 'editor:openFile'),
+    ).toHaveLength(0);
+    (
+      dialog.querySelector(
+        '[data-testid="confirm-external-open"]',
+      ) as HTMLButtonElement
+    ).click();
+    await fixture.whenStable();
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'editor:openFile',
+      {
+        target: 'kiro',
+        path: '/outside/a.ts',
+        scope: 'external-link',
+      },
+    );
   });
 });

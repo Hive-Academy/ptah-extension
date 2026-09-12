@@ -4,15 +4,15 @@
 
 ## Purpose
 
-The webview's entire git surface behind one public API: repository status, branches, worktrees, source control (stage / unstage / commit) and the Monaco diff view with hunk-level apply. Carved out of `@ptah-extension/editor` (TASK_2026_385) so the git experience survives that library's deletion and can be hosted by the Electron git dock without dragging Monaco's file-tree stack along.
+The webview's entire git surface behind one public API: repository status, branches, worktrees, source control (stage / unstage / commit), the Monaco diff view with hunk-level apply, and the Electron dock's read-only file/markdown tabs. Carved out of `@ptah-extension/editor` (TASK_2026_385) so the git experience survives that library's deletion and can be hosted by the Electron git dock without dragging Monaco's file-tree stack along.
 
 ## Boundaries
 
-**Belongs here**: git state services, the source-control panel, the worktree section, the diff view and its tab store, and the diff-tab types the wire contract is aliased to.
+**Belongs here**: git state services, the source-control panel, the worktree section, the diff/file views and their shared tab store, and the dock-tab types the wire contract is aliased to.
 
-**Does NOT belong**: the file tree, `CodeEditorComponent`, terminals, chat surfaces, backend git execution (that is `git:*` RPC, served by the host).
+**Does NOT belong**: a file tree, file editing, terminals, chat/link routing, or backend execution (served by host RPC handlers).
 
-**Dependency rule — enforced by review and by `nx graph`**: `git-ui → @ptah-extension/core → @ptah-extension/shared`. It must **never** import `@ptah-extension/editor`, `@ptah-extension/chat` or `@ptah-extension/ui`. The editor library may import this one; the reverse is a defect.
+**Dependency rule — enforced by review and by `nx graph`**: `git-ui` may depend on `@ptah-extension/core`, `@ptah-extension/shared`, and `@ptah-extension/markdown` for sanitized preview rendering. It must **never** import `@ptah-extension/editor`, `@ptah-extension/chat` or `@ptah-extension/ui`.
 
 ## Public API (from `src/index.ts`)
 
@@ -40,7 +40,7 @@ The webview's entire git surface behind one public API: repository status, branc
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/core` (`VSCodeService`, `rpcCall`, `MessageHandler`, `ElectronLayoutService`), `@ptah-extension/shared` (`MESSAGE_TYPES`, git wire types)
+**Internal**: `@ptah-extension/core` (`VSCodeService`, `rpcCall`, `MessageHandler`, `ElectronLayoutService`), `@ptah-extension/shared` (RPC contracts), `@ptah-extension/markdown` (`MarkdownBlockComponent`, the single sanitizer chokepoint)
 
 **External**: `@angular/core`, `@angular/common`, `@angular/forms`, `monaco-editor` (diff view), `lucide-angular`
 

@@ -33,4 +33,21 @@ describe('EditorLauncherService', () => {
     await service.openFile('kiro', '/ws', 'a.ts');
     expect(service.launchStatus()).toEqual({ kind: 'error', message: 'boom' });
   });
+
+  it('opens a blocked viewer path with the external-link policy', async () => {
+    rpc.mockResolvedValue({ success: true, data: { success: true } });
+    const service = TestBed.inject(EditorLauncherService);
+    await service.openLinkedFile({
+      target: 'kiro',
+      path: 'C:\\outside\\a.ts',
+      line: 12,
+    });
+    expect(rpc).toHaveBeenCalledWith({}, 'editor:openFile', {
+      target: 'kiro',
+      path: 'C:\\outside\\a.ts',
+      line: 12,
+      scope: 'external-link',
+    });
+    expect(service.launchStatus()?.kind).toBe('success');
+  });
 });

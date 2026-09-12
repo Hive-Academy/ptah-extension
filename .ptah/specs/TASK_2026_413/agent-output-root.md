@@ -25,3 +25,13 @@ Implemented the accessible collapsible/resizable working-tree Git rail, persiste
 Verification: exactly four projects passed all 12 unit/lint/typecheck targets with 2,173 tests passed and 2 skipped; Electron rail proof passed 1/1 and the combined regression selection passed 9/9 at 1200x800; e2e lint/typecheck passed 2/2 targets; `git diff --check` passed.
 
 BATCH7: PASS collapsible, resizable Git rail persists across restart; 2,173 unit tests and Electron 9/9 passed
+
+## Batch 8b agent output
+
+Status: PASS
+
+Implemented read-only text/Markdown file tabs in the existing Git dock tab store, isolated reads behind `FileViewReaderService`, added Monaco reveal and lifecycle handling, rendered preview only through `MarkdownBlockComponent`, and enforced an explicit absolute-path confirmation before permitted external opening. Fixed refusal states render in-tab and denied paths expose no launcher.
+
+Verification: exactly four projects passed all 12 test/lint/typecheck targets with 2,206 tests passed and 2 skipped; the file-view Electron proof passed 1/1 at 1200x800 with a measured 700 px dock; the full requested regression selection passed 12/12; e2e lint/typecheck passed 2/2 targets; `git diff --check` passed.
+
+BATCH8B: PASS read-only file/Markdown tabs complete; 2,206 unit tests and Electron 13/13 passed

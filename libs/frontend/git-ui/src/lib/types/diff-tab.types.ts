@@ -1,5 +1,6 @@
 import type {
   DiffSideRef,
+  FileViewFailureReason,
   GitApplyHunksOperation,
   GitApplyHunksResult,
   GitDiffComparison,
@@ -109,7 +110,40 @@ export interface DiffTabState {
   requestId: number;
 }
 
-/** Represents an open editor tab */
+export type FileViewTabStatus =
+  | 'loading'
+  | 'fresh'
+  | 'refreshing'
+  | 'blocked'
+  | 'error';
+
+export interface FileViewOpenRequest {
+  path: string;
+  line?: number;
+  column?: number;
+  workspaceRoot?: string;
+  documentPath?: string;
+}
+
+export interface FileViewTabState {
+  absolutePath: string;
+  workspaceRoot: string | null;
+  relativePath: string | null;
+  content: string;
+  sizeBytes: number | null;
+  isMarkdown: boolean;
+  reveal: { line: number; column: number } | null;
+  status: FileViewTabStatus;
+  failure?: {
+    reason: FileViewFailureReason;
+    message: string;
+    externalOpenAllowed: boolean;
+  };
+  request: FileViewOpenRequest;
+  requestId: number;
+}
+
+/** Represents an open dock tab. Exactly one of `diff` and `view` is present. */
 export interface EditorTab {
   filePath: string;
   fileName: string;
@@ -119,8 +153,17 @@ export interface EditorTab {
    */
   content: string;
   isDirty: boolean;
-  /** Present iff this tab is a diff view. Presence is the discriminant. */
+  /** Present iff this tab is a diff view. */
   diff?: DiffTabState;
+  /** Present iff this tab is a read-only file view. */
+  view?: FileViewTabState;
+}
+
+/** Key for a read-only file view, normalized without resolving the path. */
+export function fileViewTabKey(absoluteOrRequestPath: string): string {
+  const normalized = absoluteOrRequestPath.replace(/\\/g, '/');
+  const win32Shaped = /^[a-z]:\//i.test(normalized);
+  return `view:${win32Shaped ? normalized.toLowerCase() : normalized}`;
 }
 
 /**
