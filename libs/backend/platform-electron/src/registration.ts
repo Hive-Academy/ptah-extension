@@ -108,14 +108,28 @@ export function registerPlatformElectronServices(
       'global-state.json',
     ),
   });
+  // LAZY, and memoized to keep the single-instance semantics the previous
+  // `useValue` had. A worker-backed store spawns a thread and takes ownership
+  // of a v2 commit root the moment it is CONSTRUCTED, so eager construction
+  // here started a worker on `<userData>/workspace-storage/default` that the
+  // Electron host then immediately orphaned: `phase-1-infra.ts` overrides this
+  // very token with its own `ElectronStateStorage` over the identical
+  // directory — the authoritative one, the only one carrying `migrations` and
+  // `cacheExcludeKeyPrefixes`. Two live workers then raced on one commit root
+  // and the boot's readiness gate hung behind the loser.
+  //
+  // A host that does NOT override the token still resolves a working store,
+  // built on first resolve; a host that does override pays for nothing.
+  let workspaceStateStorage: ElectronStateStorage | null = null;
   container.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
-    useValue: new ElectronStateStorage(
-      workspaceStoragePath,
-      'workspace-state.json',
-      options.stateStorageWorkerPath
-        ? { workerPath: options.stateStorageWorkerPath }
-        : undefined,
-    ),
+    useFactory: () =>
+      (workspaceStateStorage ??= new ElectronStateStorage(
+        workspaceStoragePath,
+        'workspace-state.json',
+        options.stateStorageWorkerPath
+          ? { workerPath: options.stateStorageWorkerPath }
+          : undefined,
+      )),
   });
   container.register(PLATFORM_TOKENS.SECRET_STORAGE, {
     useValue: new ElectronSecretStorage(
