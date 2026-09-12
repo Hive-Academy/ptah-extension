@@ -736,6 +736,11 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       expect(result.written).toBe(true);
       expect(result.reason).toBeNull();
       expect(result.historyTs).not.toBeNull();
+      expect(result.metadataIncomplete).toBe(false);
+      // The clone HAS a sidecar, so the next reconcile sees
+      // `liveCloneHash !== sourceHash` and marks it diverged instead of
+      // fast-forwarding. This write is protected.
+      expect(result.reconcileProtected).toBe(true);
 
       // (a) the body landed
       expect(await readFile(cloneSkill, 'utf8')).toBe('# the user typed this');
@@ -785,6 +790,8 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       });
 
       expect(result.written).toBe(true);
+      expect(result.metadataIncomplete).toBe(false);
+      expect(result.reconcileProtected).toBe(true);
       expect(await readFile(cloneFile, 'utf8')).toBe('# the user typed this');
 
       // The flat-file snapshot layout is `<root>/.history/<slug>/<ts>/` and
@@ -858,6 +865,13 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       expect(await fileExists(join(cloneDir, ORIGIN_SIDECAR_FILENAME))).toBe(
         false,
       );
+      // No sidecar means the reconciler may mint one from the user's OWN
+      // content and fast-forward over this edit on a later pass, so the write
+      // is NOT reconcile-protected and the surface must not claim an
+      // unqualified success for it. Pinned by the two KNOWN LIMITATION cases
+      // in user-layer-save-reconcile.spec.ts.
+      expect(result.reconcileProtected).toBe(false);
+      expect(result.metadataIncomplete).toBe(false);
     });
 
     it('writes a sidecar-less flat-file clone without minting a sidecar', async () => {
@@ -877,6 +891,78 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       expect(
         await fileExists(join(roots.commands, 'hand-written.ptah-origin.json')),
       ).toBe(false);
+      expect(result.reconcileProtected).toBe(false);
+      expect(result.metadataIncomplete).toBe(false);
+    });
+
+    /**
+     * The body write is the COMMIT POINT. Every step after it — the content
+     * re-hash and the sidecar read/write that carries it — is bookkeeping, and
+     * a failure there may never be reported as a failed save: the atomic
+     * rename already happened and the user's edit is on disk.
+     *
+     * A sidecar holding invalid JSON is the real trigger, not a mock:
+     * `readSidecarAt` rethrows anything that is not `ENOENT`, so a corrupt
+     * sidecar throws INSIDE the post-write block.
+     */
+    describe('a post-write bookkeeping failure', () => {
+      it('reports written:true + metadataIncomplete for a corrupt sidecar (skill)', async () => {
+        await seedAndMirrorSkill('plugin-a', 'deep-research', '# v1 upstream');
+        const roots = service.getUserLayerRoots();
+        const cloneDir = join(roots.skills, 'deep-research');
+        const sidecarPath = join(cloneDir, ORIGIN_SIDECAR_FILENAME);
+        await writeFile(sidecarPath, '{ not json', 'utf8');
+        const historyBefore = await service.listHistory(
+          'skill',
+          'deep-research',
+        );
+
+        const result = await service.saveCloneBody({
+          kind: 'skill',
+          slug: 'deep-research',
+          body: '# the user typed this',
+        });
+
+        // The save is a SUCCESS with a caveat, never a failure.
+        expect(result.written).toBe(true);
+        expect(result.reason).toBeNull();
+        expect(result.metadataIncomplete).toBe(true);
+        // Nothing was learned about the sidecar, so the conservative answer.
+        expect(result.reconcileProtected).toBe(false);
+
+        // The body is committed and the snapshot still precedes it.
+        expect(await readFile(join(cloneDir, 'SKILL.md'), 'utf8')).toBe(
+          '# the user typed this',
+        );
+        const historyAfter = await service.listHistory('skill', 'deep-research');
+        expect(historyAfter).toHaveLength(historyBefore.length + 1);
+        expect(result.historyTs).not.toBeNull();
+
+        // The unreadable sidecar is left exactly as it was — the save does not
+        // overwrite state it could not read, least of all `sourceHash`.
+        expect(await readFile(sidecarPath, 'utf8')).toBe('{ not json');
+      });
+
+      it('reports written:true + metadataIncomplete for a corrupt sidecar (command flat file)', async () => {
+        await seedAndMirrorCommand('plugin-a', 'review', '# review v1');
+        const roots = service.getUserLayerRoots();
+        const cloneFile = join(roots.commands, 'review.md');
+        const sidecarPath = join(roots.commands, 'review.ptah-origin.json');
+        await writeFile(sidecarPath, 'not json at all', 'utf8');
+
+        const result = await service.saveCloneBody({
+          kind: 'command',
+          slug: 'review',
+          body: '# the user typed this',
+        });
+
+        expect(result.written).toBe(true);
+        expect(result.metadataIncomplete).toBe(true);
+        expect(result.reconcileProtected).toBe(false);
+        expect(result.historyTs).not.toBeNull();
+        expect(await readFile(cloneFile, 'utf8')).toBe('# the user typed this');
+        expect(await readFile(sidecarPath, 'utf8')).toBe('not json at all');
+      });
     });
   });
 });

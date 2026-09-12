@@ -407,14 +407,26 @@ const MAX_CLONE_BODY_CHARS = 1_048_576;
  * The FIRST gate on `skillSynthesis:saveCloneBody`. It runs before any path is
  * joined and before `assertUnderUserLayer`, which is the second gate.
  *
- * `.min(1)` is deliberate: an empty body would be reconciled outward as an
- * empty skill in every harness directory. Emptying a clone is not a capability
- * this surface offers, so it is a rejected input rather than a silent one.
+ * The non-empty rule is deliberate: an empty body would be reconciled outward
+ * as an empty skill in every harness directory. Emptying a clone is not a
+ * capability this surface offers, so it is a rejected input rather than a
+ * silent one.
+ *
+ * `.min(1)` alone is not that rule — a single space satisfies it, and a body of
+ * `'   '` is exactly the effectively-empty skill the check exists to stop. The
+ * `.refine` tests the TRIMMED length while the value the schema RETURNS is the
+ * original, untrimmed body: leading and trailing whitespace inside a real body
+ * (a trailing newline, most commonly) is the author's, and the write path must
+ * not silently reshape what the user typed.
  */
 export const SkillSaveCloneBodyParamsSchema = z.object({
   kind: SkillCloneKindSchema,
   slug: SlugSchema,
-  body: z.string().min(1).max(MAX_CLONE_BODY_CHARS),
+  body: z
+    .string()
+    .min(1)
+    .max(MAX_CLONE_BODY_CHARS)
+    .refine((b) => b.trim().length > 0, 'body must not be blank'),
 });
 
 export const SkillKeepCloneParamsSchema = z.object({

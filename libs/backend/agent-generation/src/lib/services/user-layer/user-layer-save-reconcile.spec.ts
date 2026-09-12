@@ -25,6 +25,11 @@ import { join } from 'path';
  * fast-forwards over it. That is a pre-existing reconciler rule, out of scope
  * for TASK_2026_426, and it is pinned here so nobody reads this suite as proof
  * that editing a sidecar-less clone is safe.
+ *
+ * What the save DOES owe the user in that case is honesty, and that is the
+ * `reconcileProtected` flag on `SaveCloneBodyResult`: `true` for every case in
+ * this file that survives, `false` for the two that do not. A surface rendering
+ * a `false` must qualify the success it reports.
  */
 
 let fakeHome: string;
@@ -209,6 +214,9 @@ describe('saveCloneBody + reconcile (R3.8)', () => {
     });
     expect(saved.written).toBe(true);
     expect(saved.historyTs).not.toBeNull();
+    // The clone has a sidecar, so the divergence branch below is guaranteed.
+    // This is the case the result reports as reconcile-protected.
+    expect(saved.reconcileProtected).toBe(true);
 
     const afterSave = await readSidecarJson(sidecarPath);
     const upstreamReallyMoved = await moveUpstream(
@@ -361,6 +369,8 @@ describe('saveCloneBody + reconcile (R3.8)', () => {
       historyTs: null,
       written: false,
       reason: 'clone-missing',
+      metadataIncomplete: false,
+      reconcileProtected: false,
     });
     expect(await fileExists(join(roots.skills, 'never-cloned'))).toBe(false);
   });
@@ -385,6 +395,11 @@ describe('saveCloneBody + reconcile (R3.8)', () => {
     expect(saved.written).toBe(true);
     // The save does not mint one — that part of the contract holds.
     expect(await fileExists(sidecarPath)).toBe(false);
+    // And the result SAYS the write is not protected, which is the whole
+    // difference between a recorded limitation and a silent loss: the surface
+    // has the flag it needs to stop claiming an unqualified success. The loss
+    // itself below is the reconciler's missing-sidecar rule, out of scope.
+    expect(saved.reconcileProtected).toBe(false);
 
     await writeFile(
       join(pluginPath, 'skills', 'dr', 'SKILL.md'),
@@ -427,12 +442,13 @@ describe('saveCloneBody + reconcile (R3.8)', () => {
 
     await rm(sidecarPath, { force: true });
 
-    await service.saveCloneBody({
+    const saved = await service.saveCloneBody({
       kind: 'command',
       slug: 'review',
       body: '# saved in the app',
     });
     expect(await fileExists(sidecarPath)).toBe(false);
+    expect(saved.reconcileProtected).toBe(false);
 
     await writeFile(
       join(pluginPath, 'commands', 'review.md'),

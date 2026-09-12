@@ -1325,6 +1325,12 @@ export class SkillsSynthesisRpcHandlers {
    *
    * No registry write. The mirror leaves `diverged` and `pendingSourceHash`
    * alone, so the columns `listClones` reads from are still correct.
+   *
+   * Only a write that did NOT happen becomes an error. `metadataIncomplete`
+   * and `reconcileProtected: false` are both committed writes with a caveat,
+   * and they travel on the successful result for the surface to state — a
+   * committed edit reported as a failure is the one outcome worse than an
+   * unqualified success.
    */
   private registerSaveCloneBody(): void {
     this.rpcHandler.registerMethod<
@@ -1359,15 +1365,29 @@ export class SkillsSynthesisRpcHandlers {
             'INVALID_PARAMS',
           );
         }
+        // `metadataIncomplete` is NOT an error branch. The body is committed;
+        // mapping it to an RpcUserError would tell the user their save failed
+        // while their edit sits on disk. It travels on the result so the
+        // surface can qualify the success it reports.
+        if (result.metadataIncomplete) {
+          this.logger.warn(
+            '[skill-synthesis] clone body saved with incomplete metadata',
+            { kind: result.kind, slug: result.slug },
+          );
+        }
         this.logger.info('[skill-synthesis] clone body saved', {
           kind: result.kind,
           slug: result.slug,
           historyTs: result.historyTs,
+          metadataIncomplete: result.metadataIncomplete,
+          reconcileProtected: result.reconcileProtected,
         });
         return {
           kind: result.kind as SkillCloneKind,
           slug: result.slug,
           historyTs: result.historyTs,
+          metadataIncomplete: result.metadataIncomplete,
+          reconcileProtected: result.reconcileProtected,
         };
       } catch (error: unknown) {
         if (error instanceof RpcUserError) throw error;

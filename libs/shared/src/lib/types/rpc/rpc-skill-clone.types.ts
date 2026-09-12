@@ -191,6 +191,24 @@ export interface SkillSynthesisSaveCloneBodyResult {
    * is always prior content to snapshot.
    */
   historyTs: string;
+  /**
+   * The body IS on disk, but a post-write bookkeeping step (content re-hash or
+   * origin-sidecar update) failed. A result carrying this is still a SUCCESS —
+   * the edit was committed — and the surface must say so, qualified, rather
+   * than reporting a failed save for a write that happened.
+   */
+  metadataIncomplete: boolean;
+  /**
+   * Whether the saved body is protected against the next reconcile pass.
+   *
+   * `false` means the clone carries no origin sidecar. The save deliberately
+   * mints none, but if the slug is also shipped upstream the reconciler mints
+   * one from the user's own content and a later pass can fast-forward over the
+   * edit. A surface rendering this result must not claim an unqualified
+   * success when it is `false`; the `.history/<historyTs>` snapshot is the
+   * recovery path.
+   */
+  reconcileProtected: boolean;
 }
 
 export interface SkillSynthesisInvocationStatsParams {

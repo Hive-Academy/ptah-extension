@@ -1124,6 +1124,8 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: '1700000000001',
         written: true,
         reason: null,
+        metadataIncomplete: false,
+        reconcileProtected: true,
       });
 
       const result = await rpcHandler.call('skillSynthesis:saveCloneBody', {
@@ -1142,7 +1144,84 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         kind: 'skill',
         slug: 'deep-research',
         historyTs: '1700000000001',
+        metadataIncomplete: false,
+        reconcileProtected: true,
       });
+    });
+
+    /**
+     * The body write is the commit point. A bookkeeping failure after it is a
+     * SUCCESS with a caveat: telling the user the save failed while their edit
+     * sits on disk is the one outcome worse than an unqualified success.
+     */
+    it('returns a SUCCESS carrying metadataIncomplete when the post-write step failed', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: '1700000000001',
+        written: true,
+        reason: null,
+        metadataIncomplete: true,
+        reconcileProtected: false,
+      });
+
+      const result = await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# edited by the user',
+      });
+
+      expect(result).toEqual({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: '1700000000001',
+        metadataIncomplete: true,
+        reconcileProtected: false,
+      });
+    });
+
+    /**
+     * A sidecar-less clone whose slug shadows an upstream source can be
+     * fast-forwarded over by a later reconcile pass (the reconciler's
+     * missing-sidecar mint, out of this surface's scope to change). The result
+     * says so, so the editor cannot claim an unqualified success.
+     */
+    it('carries reconcileProtected:false for a sidecar-less clone', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'hand-written',
+        historyTs: '1700000000002',
+        written: true,
+        reason: null,
+        metadataIncomplete: false,
+        reconcileProtected: false,
+      });
+
+      const result = await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill',
+        slug: 'hand-written',
+        body: '# mine, edited',
+      });
+
+      expect(result).toMatchObject({ reconcileProtected: false });
+    });
+
+    it('rejects a whitespace-only body before it can reach the mirror', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+
+      await expect(
+        rpcHandler.call('skillSynthesis:saveCloneBody', {
+          kind: 'skill',
+          slug: 'deep-research',
+          body: '   ',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(mirror.saveCloneBody).not.toHaveBeenCalled();
     });
 
     it('never writes the SQLite registry — diverged and pending are untouched', async () => {
@@ -1154,6 +1233,8 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: '1700000000001',
         written: true,
         reason: null,
+        metadataIncomplete: false,
+        reconcileProtected: true,
       });
 
       await rpcHandler.call('skillSynthesis:saveCloneBody', {
@@ -1206,6 +1287,8 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: null,
         written: false,
         reason: 'clone-missing',
+        metadataIncomplete: false,
+        reconcileProtected: false,
       });
 
       await expect(

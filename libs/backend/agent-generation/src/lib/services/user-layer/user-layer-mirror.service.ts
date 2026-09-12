@@ -181,6 +181,39 @@ export interface SaveCloneBodyResult {
   written: boolean;
   /** `'clone-missing'` when the target file/dir is not on disk. */
   reason: string | null;
+  /**
+   * `true` when the body IS on disk but a post-write bookkeeping step (the
+   * content re-hash, or the sidecar read/write that carries it) failed.
+   *
+   * `written` stays `true` in that case, because it is true: the atomic rename
+   * already happened. Reporting the save as a failure would tell the user their
+   * edit was not saved while it sits committed on disk, and the only field left
+   * stale is `currentContentHash`, which no control path reads — the reconciler
+   * decides on `sourceHash` and two live hashes.
+   *
+   * The alternative — restoring the body from the snapshot taken one step
+   * earlier — was rejected: it is a second destructive write, it has no
+   * snapshot of its own, and if it fails the user has neither the old body nor
+   * the new one. A committed write with incomplete bookkeeping is strictly the
+   * better of the two end states.
+   */
+  metadataIncomplete: boolean;
+  /**
+   * `true` when the saved body is protected against the next reconcile pass,
+   * i.e. the clone HAS an origin sidecar. The reconciler then sees
+   * `liveCloneHash !== sidecar.sourceHash` and marks the clone diverged rather
+   * than fast-forwarding over the edit.
+   *
+   * `false` means the clone has NO sidecar. The save correctly mints none — its
+   * absence is the "user-authored, hands off" marker — but if the slug is also
+   * shipped by a plugin, synth or agent source, `reconcileMissingSidecar` mints
+   * one from the user's OWN content on the next pass, and the pass after that
+   * fast-forwards over the saved body. That reconciler rule is pre-existing and
+   * out of this surface's scope to change; what this flag buys is that the
+   * editor can stop claiming an unqualified success for a write it cannot
+   * promise will survive.
+   */
+  reconcileProtected: boolean;
 }
 
 export interface WriteEnhancedSkillArgs {
@@ -529,7 +562,14 @@ export class UserLayerMirrorService {
    *
    * A clone with NO sidecar does not get one minted here. Its absence is the
    * marker for "user-authored, hands off"; writing one would enrol the file
-   * into classification and orphan reaping. The body write still succeeds.
+   * into classification and orphan reaping. The body write still succeeds, and
+   * the result reports `reconcileProtected: false` so the caller can tell the
+   * user the write is not protected against the reconciler's missing-sidecar
+   * mint.
+   *
+   * The body write is the COMMIT POINT. A failure in the bookkeeping that
+   * follows it comes back as `written: true, metadataIncomplete: true`, never
+   * as a failure — the edit is on disk and the user must not be told otherwise.
    *
    * Result-shaped rather than throwing, matching {@link RebaseResult}. This
    * service must not mint RPC error types; its caller does the mapping.
@@ -562,19 +602,65 @@ export class UserLayerMirrorService {
         historyTs: null,
         written: false,
         reason: 'clone-missing',
+        metadataIncomplete: false,
+        reconcileProtected: false,
       };
     }
 
     const historyTs = basename(await this.snapshotDirToHistory(cloneDir));
     await this.writeTextAtomic(skillFile, body);
 
-    const currentContentHash = await computeSourceHash(cloneDir);
-    const existing = await readSidecar(cloneDir);
-    if (existing) {
-      await writeSidecarAtomic(cloneDir, { ...existing, currentContentHash });
-    }
+    // THE COMMIT POINT. Everything below is bookkeeping over a body that is
+    // already on disk, so a failure here may never be reported as a failed
+    // save — see `SaveCloneBodyResult.metadataIncomplete`.
+    const meta = await this.refreshSavedSidecarDir(cloneDir, slug);
 
-    return { kind: 'skill', slug, historyTs, written: true, reason: null };
+    return {
+      kind: 'skill',
+      slug,
+      historyTs,
+      written: true,
+      reason: null,
+      ...meta,
+    };
+  }
+
+  /**
+   * Post-commit bookkeeping for a directory clone: re-hash the tree and carry
+   * the new hash into an EXISTING sidecar. Never mints one.
+   *
+   * Isolated so its failure cannot be confused with a failure of the body
+   * write. `reconcileProtected` reports whether a sidecar was found, which is
+   * what decides whether the next reconcile marks the clone diverged or may
+   * eventually fast-forward over the edit.
+   */
+  private async refreshSavedSidecarDir(
+    cloneDir: string,
+    slug: string,
+  ): Promise<{ metadataIncomplete: boolean; reconcileProtected: boolean }> {
+    let reconcileProtected = false;
+    try {
+      const currentContentHash = await computeSourceHash(cloneDir);
+      const existing = await readSidecar(cloneDir);
+      if (!existing) {
+        return { metadataIncomplete: false, reconcileProtected: false };
+      }
+      // The sidecar exists, so the divergence rule already protects the body
+      // regardless of whether the hash write below lands.
+      reconcileProtected = true;
+      await writeSidecarAtomic(cloneDir, { ...existing, currentContentHash });
+      return { metadataIncomplete: false, reconcileProtected };
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[UserLayerMirror] clone body saved but sidecar bookkeeping failed',
+        {
+          kind: 'skill',
+          slug,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return { metadataIncomplete: true, reconcileProtected };
+    }
   }
 
   private async saveFileCloneBody(
@@ -595,6 +681,8 @@ export class UserLayerMirrorService {
         historyTs: null,
         written: false,
         reason: 'clone-missing',
+        metadataIncomplete: false,
+        reconcileProtected: false,
       };
     }
 
@@ -603,16 +691,48 @@ export class UserLayerMirrorService {
     );
     await this.writeTextAtomic(cloneFile, body);
 
-    const currentContentHash = await computeSourceHash(cloneFile);
-    const existing = await readSidecarAt(sidecarPath);
-    if (existing) {
+    // THE COMMIT POINT — see the twin comment in `saveDirCloneBody`.
+    const meta = await this.refreshSavedSidecarFile(
+      kind,
+      slug,
+      cloneFile,
+      sidecarPath,
+    );
+
+    return { kind, slug, historyTs, written: true, reason: null, ...meta };
+  }
+
+  /** Flat-file twin of {@link refreshSavedSidecarDir}. */
+  private async refreshSavedSidecarFile(
+    kind: OriginKind,
+    slug: string,
+    cloneFile: string,
+    sidecarPath: string,
+  ): Promise<{ metadataIncomplete: boolean; reconcileProtected: boolean }> {
+    let reconcileProtected = false;
+    try {
+      const currentContentHash = await computeSourceHash(cloneFile);
+      const existing = await readSidecarAt(sidecarPath);
+      if (!existing) {
+        return { metadataIncomplete: false, reconcileProtected: false };
+      }
+      reconcileProtected = true;
       await writeSidecarAtomicAt(sidecarPath, {
         ...existing,
         currentContentHash,
       });
+      return { metadataIncomplete: false, reconcileProtected };
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[UserLayerMirror] clone body saved but sidecar bookkeeping failed',
+        {
+          kind,
+          slug,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return { metadataIncomplete: true, reconcileProtected };
     }
-
-    return { kind, slug, historyTs, written: true, reason: null };
   }
 
   async writeEnhancedSkill(
