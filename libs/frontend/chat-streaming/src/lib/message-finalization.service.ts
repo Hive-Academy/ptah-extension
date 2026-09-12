@@ -347,6 +347,11 @@ export class MessageFinalizationService {
             ...(messageStartEvent.imageCount
               ? { imageCount: messageStartEvent.imageCount }
               : {}),
+            // Set only when the turn came from another session; the key stays
+            // absent for an ordinary user turn, exactly as imageCount does.
+            ...(messageStartEvent.inboundPeer
+              ? { inboundPeer: messageStartEvent.inboundPeer }
+              : {}),
           }),
         );
       } else {

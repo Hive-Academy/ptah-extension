@@ -226,4 +226,84 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     button.nativeElement.click();
     expect(emitted).toEqual(['msg-user-active']);
   });
+
+  describe('inbound peer bubble', () => {
+    function peerMessage(label: string): ExecutionChatMessage {
+      return createExecutionChatMessage({
+        id: 'msg-peer-1',
+        role: 'user',
+        rawContent: '**check this**',
+        inboundPeer: { label },
+      });
+    }
+
+    it('renders the peer test id and the sender label instead of "You"', () => {
+      setMessage(peerMessage('reviewer'));
+
+      expect(
+        fixture.debugElement.query(By.css('[data-testid="chat-peer-message"]')),
+      ).toBeTruthy();
+      expect(
+        fixture.debugElement.query(By.css('[data-testid="chat-user-message"]')),
+      ).toBeNull();
+      expect(
+        fixture.debugElement
+          .query(By.css('[data-testid="chat-peer-label"]'))
+          .nativeElement.textContent.trim(),
+      ).toBe('reviewer');
+      expect(
+        fixture.debugElement.query(By.css('.chat-header')).nativeElement
+          .textContent,
+      ).not.toContain('You');
+    });
+
+    it('states that the sender is unverified', () => {
+      setMessage(peerMessage('reviewer'));
+
+      const caption = fixture.debugElement.query(
+        By.css('[data-testid="chat-peer-unverified-caption"]'),
+      );
+      expect(caption.nativeElement.textContent).toContain('unverified');
+    });
+
+    it('routes the body through <markdown>, not innerHTML', () => {
+      setMessage(peerMessage('reviewer'));
+
+      const markdown = fixture.debugElement.query(By.css('markdown'));
+      expect(markdown).toBeTruthy();
+      expect(markdown.componentInstance.data).toBe('**check this**');
+    });
+
+    it('shows the message under a neutral label when the label is blank', () => {
+      setMessage(peerMessage('   '));
+
+      expect(
+        fixture.debugElement.query(By.css('[data-testid="chat-peer-message"]')),
+      ).toBeTruthy();
+      expect(
+        fixture.debugElement
+          .query(By.css('[data-testid="chat-peer-label"]'))
+          .nativeElement.textContent.trim(),
+      ).toBe('peer session');
+    });
+
+    it('leaves an ordinary user turn on the user bubble', () => {
+      setMessage(
+        createExecutionChatMessage({
+          id: 'msg-plain',
+          role: 'user',
+          rawContent: 'typed by me',
+        }),
+      );
+
+      expect(
+        fixture.debugElement.query(By.css('[data-testid="chat-user-message"]')),
+      ).toBeTruthy();
+      expect(
+        fixture.debugElement.query(
+          By.css('[data-testid="chat-peer-unverified-caption"]'),
+        ),
+      ).toBeNull();
+    });
+  });
 });

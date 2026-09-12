@@ -650,6 +650,44 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     });
   });
 
+  // ---- Inbound peer label survives the write path (TASK_2026_402) --------
+
+  describe('inbound peer label on message_start', () => {
+    it('keeps the label on the stored event', () => {
+      core.process(
+        state,
+        msgStart({ role: 'user', inboundPeer: { label: 'reviewer' } }),
+        makeCtx(),
+      );
+
+      const stored = state.events.get('evt-msg-start') as
+        | MessageStartEvent
+        | undefined;
+      expect(stored?.inboundPeer).toEqual({ label: 'reviewer' });
+    });
+
+    it('keeps the label on the event in the eventsByMessage bucket', () => {
+      core.process(
+        state,
+        msgStart({ role: 'user', inboundPeer: { label: 'planner' } }),
+        makeCtx(),
+      );
+
+      const bucket = state.eventsByMessage.get(MESSAGE_ID) ?? [];
+      const indexed = bucket.find(
+        (e) => e.eventType === 'message_start',
+      ) as MessageStartEvent;
+      expect(indexed.inboundPeer).toEqual({ label: 'planner' });
+    });
+
+    it('leaves the field absent on an ordinary user turn', () => {
+      core.process(state, msgStart({ role: 'user' }), makeCtx());
+
+      const stored = state.events.get('evt-msg-start') as MessageStartEvent;
+      expect(stored).not.toHaveProperty('inboundPeer');
+    });
+  });
+
   // ---- Dedup-source-replay: the wizard/harness regression cases ----------
 
   describe('dedup-source-replay (wizard/harness regression coverage)', () => {
