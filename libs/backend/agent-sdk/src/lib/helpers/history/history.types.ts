@@ -35,6 +35,7 @@ export interface JsonlMessageLine {
     };
   };
   isMeta?: boolean;
+  isSynthetic?: boolean;
   slug?: string;
 }
 
@@ -55,6 +56,7 @@ export interface SessionHistoryMessage extends Omit<JSONLMessage, 'message'> {
   readonly sessionId?: string;
   readonly timestamp?: string;
   readonly isMeta?: boolean;
+  readonly isSynthetic?: boolean;
   readonly slug?: string;
   /** Model identifier from system init messages (e.g., 'claude-sonnet-4-20250514') */
   readonly model?: string;

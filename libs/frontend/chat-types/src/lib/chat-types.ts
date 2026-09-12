@@ -639,12 +639,6 @@ export interface TabState {
   viewMode?: TabViewMode;
 
   /**
-   * Whether context compaction is currently in progress for this tab.
-   * Set to true on compaction_start, cleared on compaction_complete or error.
-   */
-  isCompacting?: boolean;
-
-  /**
    * Number of context compactions that occurred during this session.
    * Incremented on each compaction_complete event.
    */

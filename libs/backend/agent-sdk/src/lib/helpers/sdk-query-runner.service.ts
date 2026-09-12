@@ -388,7 +388,7 @@ export class SdkQueryRunner {
 
     const compactionConfig = this.compactionConfigProvider.getConfig();
     this.logger.debug(
-      `${SERVICE_TAG} Compaction config: enabled=${compactionConfig.enabled}, threshold=${compactionConfig.contextTokenThreshold} (managed via hooks)`,
+      `${SERVICE_TAG} Compaction config: enabled=${compactionConfig.enabled}, threshold=${compactionConfig.contextTokenThreshold ?? 'unset'} (not applied to one-shot queries)`,
     );
 
     const options: SdkQueryOptions = {

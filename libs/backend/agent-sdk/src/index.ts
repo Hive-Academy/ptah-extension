@@ -221,10 +221,18 @@ export {
   // definition of `Options.settings`.
   buildFlagSettings,
   getActiveProviderId,
+  // The one translation of compaction settings into runtime controls, shared
+  // by the interactive builder and the CLI-agent spawn path.
+  resolveAutoCompactControl,
+  isValidAutoCompactWindow,
+  SDK_AUTO_COMPACT_WINDOW_MIN,
+  SDK_AUTO_COMPACT_WINDOW_MAX,
 } from './lib/helpers';
 export type {
   AssembleSystemPromptInput,
   SystemPromptAssemblyResult,
+  AutoCompactSettings,
+  AutoCompactControlInput,
 } from './lib/helpers';
 export {
   PTAH_CORE_SYSTEM_PROMPT,

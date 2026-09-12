@@ -73,6 +73,9 @@ function makeHelpers(
       applySnapshot: jest.fn().mockReturnValue(null),
       get: jest.fn().mockReturnValue(undefined),
     },
+    compactionBoundaryRegistry: {
+      recordExpectedBoundary: jest.fn(),
+    },
   } as unknown as jest.Mocked<TransformerHelpers>;
 }
 

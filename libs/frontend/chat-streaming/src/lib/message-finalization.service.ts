@@ -20,11 +20,77 @@ import {
   SubagentRecord,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { findMessageStartEvent } from '@ptah-extension/chat-execution-tree';
 import { SessionManager } from './session-manager.service';
 import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { capFinalizedTree } from './execution-tree-retention';
 import type { StreamingState } from '@ptah-extension/chat-types';
+
+/**
+ * Splice a turn's new messages into the transcript in ROOT order.
+ *
+ * The order is read from the state's root messages, not from the tree: user
+ * roots are not tree output (`ExecutionTreeBuilderService.buildTree`). A user
+ * root whose messageId is an existing user message's `id` is an anchor — the
+ * boundary `StreamingHandlerService.recordUserPromptBoundary` records for a
+ * prompt sent while the turn was streaming. Any other user root, such as the
+ * SDK's echo of a prompt, is skipped. An assistant root places the message
+ * minted from its node; a message merged into an earlier node has none.
+ *
+ * The echo never anchors through `nativeUuid`:
+ * `TabManagerService.reconcileUserMessageNativeUuid` stamps the OLDEST
+ * unstamped bubble, so after a failed send the uuid lands on the failed bubble
+ * and the reply would be placed above its own prompt. With a boundary the id
+ * already anchors; without one the plain append is right.
+ *
+ * Appending every new message after the existing ones moved the part of the
+ * turn that ran BEFORE the prompt below it the moment the turn settled.
+ * Without an anchor this is the plain append. Existing assistant ids are not
+ * anchors: a reused state can still hold an earlier turn's root, and anchoring
+ * on it would pull a later idle-sent prompt below this turn.
+ */
+function placeFinalizedTrees(
+  existing: readonly ExecutionChatMessage[],
+  state: StreamingState,
+  newMessages: readonly ExecutionChatMessage[],
+): ExecutionChatMessage[] {
+  const promptById = new Map(
+    existing.filter((m) => m.role === 'user').map((m) => [m.id, m]),
+  );
+  const messageById = new Map(existing.map((m) => [m.id, m]));
+  for (const message of newMessages) messageById.set(message.id, message);
+
+  const rootOrder: ExecutionChatMessage[] = [];
+  let firstAnchor: ExecutionChatMessage | undefined;
+  for (const messageId of state.messageEventIds) {
+    const start = findMessageStartEvent(state, messageId);
+    if (!start || start.parentToolUseId) continue;
+    const isPrompt = start.role === 'user';
+    const message = isPrompt
+      ? promptById.get(messageId)
+      : messageById.get(start.id);
+    if (!message) continue;
+    if (isPrompt) firstAnchor ??= message;
+    rootOrder.push(message);
+  }
+  if (!firstAnchor) return [...existing, ...newMessages];
+
+  const anchorIndex = existing.indexOf(firstAnchor);
+  const placed = existing.slice(0, anchorIndex);
+  const placedIds = new Set(placed.map((m) => m.id));
+  // A new message whose node matched no root still belongs to this turn;
+  // appending it is better than losing it.
+  for (const message of [...rootOrder, ...newMessages]) {
+    if (placedIds.has(message.id)) continue;
+    placed.push(message);
+    placedIds.add(message.id);
+  }
+  for (const message of existing.slice(anchorIndex)) {
+    if (!placedIds.has(message.id)) placed.push(message);
+  }
+  return placed;
+}
 
 @Injectable({ providedIn: 'root' })
 export class MessageFinalizationService {
@@ -142,7 +208,12 @@ export class MessageFinalizationService {
       this.tabManager.clearStreamingForLoaded(targetTabId);
       return;
     } else {
-      const lastIdx = finalTree.length - 1;
+      // The turn's stats belong on its last NEW message. The last root can be
+      // an already-finalized message from a reused state, which is skipped.
+      let lastIdx = finalTree.length - 1;
+      while (lastIdx >= 0 && existingIds.has(finalTree[lastIdx].id)) {
+        lastIdx--;
+      }
       for (let i = 0; i < finalTree.length; i++) {
         const tree = finalTree[i];
         if (existingIds.has(tree.id)) {
@@ -171,10 +242,10 @@ export class MessageFinalizationService {
       this.tabManager.clearStreamingForLoaded(targetTabId);
       return;
     }
-    this.tabManager.applyFinalizedTurn(targetTabId, [
-      ...existingMessages,
-      ...newMessages,
-    ]);
+    this.tabManager.applyFinalizedTurn(
+      targetTabId,
+      placeFinalizedTrees(existingMessages, stateCopy, newMessages),
+    );
     // The turn is committed, so the builder's memo for this tab now holds only
     // the PRE-CAP nodes — the uncapped payloads this pass just bounded, kept
     // alive by the identity maps. The next turn starts a fresh `streamingState`

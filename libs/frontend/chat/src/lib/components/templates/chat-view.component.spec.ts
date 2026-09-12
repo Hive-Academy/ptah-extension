@@ -173,7 +173,11 @@ function makeHarness(
   const switchSessionMock = jest.fn().mockResolvedValue(undefined);
   const upsertSessionSummaryMock = jest.fn();
   const removeSessionFromListMock = jest.fn();
+  const isCompactingForTabMock = jest.fn(
+    (_tabId: string | null | undefined): boolean => false,
+  );
   const chatStoreStub = {
+    isCompactingForTab: isCompactingForTabMock,
     currentSessionId: sessionIdSig.asReadonly(),
     sessionIsActive: sessionIsActiveSig.asReadonly(),
     // Other signals required by computed() inside the component
@@ -399,8 +403,43 @@ function makeHarness(
     activeTabIdSig,
     sessionVisibleSig,
     resumableSubagentsSig,
+    isCompactingForTabMock,
   };
 }
+
+describe('ChatViewComponent — compaction banner source', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('resolvedIsCompacting delegates to chatStore.isCompactingForTab with the resolved tab id', () => {
+    const h = makeHarness();
+    h.isCompactingForTabMock.mockImplementation((id) => id === 'tab-abc');
+    expect(h.component.resolvedIsCompacting()).toBe(true);
+    expect(h.isCompactingForTabMock).toHaveBeenCalledWith('tab-abc');
+  });
+
+  it('reports no banner when the shared derivation says the tab is not compacting', () => {
+    const h = makeHarness();
+    h.isCompactingForTabMock.mockReturnValue(false);
+    expect(h.component.resolvedIsCompacting()).toBe(false);
+  });
+
+  it('a tile whose SESSION_CONTEXT tab id is absent from tabs() asks about ITS id, not the active tab', () => {
+    // PR #493 review C: the banner derived its id from `resolvedTab()`, which
+    // is null for a context tab id missing from `tabs()` — a tile still
+    // resolving, or one whose tab just closed — and fell back to the GLOBAL
+    // active tab. ChatInputComponent reads the context id, so the banner and
+    // the input overlay could report different compaction states.
+    const h = makeHarness({ sessionContextTabId: 'tile-unknown' });
+    h.isCompactingForTabMock.mockImplementation((id) => id === 'tab-abc');
+
+    expect(h.component.resolvedIsCompacting()).toBe(false);
+    expect(h.isCompactingForTabMock).toHaveBeenCalledWith('tile-unknown');
+    expect(h.isCompactingForTabMock).not.toHaveBeenCalledWith('tab-abc');
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Test suite

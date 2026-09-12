@@ -16,7 +16,10 @@ import {
   TabWorkspacePartitionService,
   type ModelRefreshControl,
 } from '@ptah-extension/chat-state';
-import { SessionManager } from '@ptah-extension/chat-streaming';
+import {
+  SessionManager,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
 import { MessageSenderService } from './message-sender.service';
 import { MessageValidationService } from './message-validation.service';
@@ -68,6 +71,13 @@ describe('MessageSenderService session identity integration', () => {
         ConfirmationDialogService,
         { provide: MODEL_REFRESH_CONTROL, useValue: modelRefresh },
         { provide: SessionManager, useValue: sessionManager },
+        {
+          provide: StreamingHandlerService,
+          useValue: {
+            recordUserPromptBoundary: jest.fn(),
+            removeUserPromptBoundary: jest.fn(),
+          },
+        },
         {
           provide: MessageValidationService,
           useValue: {

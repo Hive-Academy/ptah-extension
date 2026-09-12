@@ -22,6 +22,7 @@ import {
   type SdkQueryOptions,
 } from './sdk-query-options-builder';
 import { ModelNotAvailableError, SdkError } from '../errors';
+import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 import type {
   McpHttpServerConfig,
   HookEvent,
@@ -179,7 +180,7 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     const compactionConfigProvider = {
       getConfig: jest
         .fn()
-        .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+        .mockReturnValue({ enabled: true, contextTokenThreshold: null }),
     };
 
     const compactionHookHandler = {
@@ -367,7 +368,7 @@ describe('SdkQueryOptionsBuilder.build — activityHold forwarded to subagent ho
       {
         getConfig: jest
           .fn()
-          .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+          .mockReturnValue({ enabled: true, contextTokenThreshold: null }),
       },
       noopHooks(),
       noopHooks(),
@@ -437,14 +438,20 @@ describe('SdkQueryOptionsBuilder.build — activityHold forwarded to subagent ho
 });
 
 // ---------------------------------------------------------------------------
-// build() — CLAUDE_CODE_MAX_CONTEXT_TOKENS override for proxied providers.
-// The SDK only auto-detects the context window for first-party Anthropic; behind
-// a translation proxy it defaults to 200k, mis-timing auto-compaction. We pin the
-// real window when known, only for non-Anthropic base URLs.
+// build() — auto-compact control (TASK_2026_414 / TASK_2026_411 B8).
+// Compaction settings reach the runtime ONLY through the flag-tier settings
+// object. The old CLAUDE_CODE_MAX_CONTEXT_TOKENS override is gone: the pinned
+// CLI reads that variable only when DISABLE_COMPACT is also set.
 // ---------------------------------------------------------------------------
 
-describe('SdkQueryOptionsBuilder.build — context-window override', () => {
-  function makeBuilder(baseUrl: string | undefined): SdkQueryOptionsBuilder {
+describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
+  function makeBuilder(
+    baseUrl: string | undefined,
+    compactionConfig: {
+      enabled: boolean;
+      contextTokenThreshold: number | null;
+    } = { enabled: true, contextTokenThreshold: null },
+  ): SdkQueryOptionsBuilder {
     const noopHooks = { createHooks: jest.fn().mockReturnValue({}) };
     const ctor = SdkQueryOptionsBuilder as unknown as new (
       ...args: unknown[]
@@ -457,11 +464,7 @@ describe('SdkQueryOptionsBuilder.build — context-window override', () => {
           .mockReturnValue(() => ({ behavior: 'allow' })),
       },
       noopHooks,
-      {
-        getConfig: jest
-          .fn()
-          .mockReturnValue({ enabled: true, contextTokenThreshold: 100_000 }),
-      },
+      { getConfig: jest.fn().mockReturnValue(compactionConfig) },
       noopHooks,
       noopHooks,
       (baseUrl ? { ANTHROPIC_BASE_URL: baseUrl } : {}) as AuthEnv,
@@ -490,59 +493,95 @@ describe('SdkQueryOptionsBuilder.build — context-window override', () => {
     );
   }
 
-  async function buildEnv(
+  async function buildOptions(
     baseUrl: string | undefined,
     model: string,
-  ): Promise<Record<string, string | undefined>> {
+    compactionConfig?: {
+      enabled: boolean;
+      contextTokenThreshold: number | null;
+    },
+    outputStyleName?: string,
+  ): Promise<Awaited<ReturnType<SdkQueryOptionsBuilder['build']>>['options']> {
     const userMessageStream = (async function* () {
       // Intentionally empty.
     })();
-    const cfg = await makeBuilder(baseUrl).build({
+    const cfg = await makeBuilder(baseUrl, compactionConfig).build({
       userMessageStream,
       abortController: new AbortController(),
       sessionConfig: {
         model,
         projectPath: 'D:/tmp/ws',
         tabId: 'tab-fixture',
+        ...(outputStyleName ? { outputStyleName } : {}),
       } as AISessionConfig,
     });
-    return cfg.options.env as Record<string, string | undefined>;
+    return cfg.options;
   }
 
-  const savedEnv = process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
-  afterEach(() => {
-    if (savedEnv === undefined) {
-      delete process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
-    } else {
-      process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] = savedEnv;
+  it('never emits CLAUDE_CODE_MAX_CONTEXT_TOKENS, even for a proxied model with a known window', async () => {
+    const saved = process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
+    delete process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
+    try {
+      const opts = await buildOptions(
+        'http://127.0.0.1:4000',
+        'claude-sonnet-4-5',
+      );
+      const env = opts.env as Record<string, string | undefined>;
+      expect(env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']).toBeUndefined();
+    } finally {
+      if (saved !== undefined) {
+        process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] = saved;
+      }
     }
   });
-  beforeEach(() => {
-    delete process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
+
+  it('explicit threshold sets settings.autoCompactWindow', async () => {
+    const opts = await buildOptions(undefined, 'claude-sonnet-4-5', {
+      enabled: true,
+      contextTokenThreshold: 150_000,
+    });
+    expect(opts.settings).toEqual({
+      autoMemoryEnabled: false,
+      autoDreamEnabled: false,
+      autoCompactWindow: 150_000,
+    });
   });
 
-  it('pins the model window for a non-Anthropic base URL when known', async () => {
-    const env = await buildEnv('http://127.0.0.1:4000', 'claude-sonnet-4-5');
-    expect(env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']).toBe('200000');
+  it('compaction disabled sets settings.autoCompactEnabled false and no window', async () => {
+    const opts = await buildOptions(undefined, 'claude-sonnet-4-5', {
+      enabled: false,
+      contextTokenThreshold: 150_000,
+    });
+    expect(opts.settings).toEqual({
+      autoMemoryEnabled: false,
+      autoDreamEnabled: false,
+      autoCompactEnabled: false,
+    });
   });
 
-  it('does NOT set the override for a first-party Anthropic base URL', async () => {
-    const env = await buildEnv(
+  it('outputStyleName and autoCompactWindow coexist and PTAH_DISABLE_SDK_AUTO_MEMORY is not mutated', async () => {
+    const snapshot = { ...PTAH_DISABLE_SDK_AUTO_MEMORY };
+    const opts = await buildOptions(
+      undefined,
+      'claude-sonnet-4-5',
+      { enabled: true, contextTokenThreshold: 1_000_000 },
+      'Explanatory',
+    );
+    expect(opts.settings).toEqual({
+      autoMemoryEnabled: false,
+      autoDreamEnabled: false,
+      outputStyle: 'Explanatory',
+      autoCompactWindow: 1_000_000,
+    });
+    expect(PTAH_DISABLE_SDK_AUTO_MEMORY).toEqual(snapshot);
+  });
+
+  it('first-party with defaults sends neither key (the shared constant itself)', async () => {
+    const opts = await buildOptions(
       'https://api.anthropic.com',
       'claude-sonnet-4-5',
     );
-    expect(env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']).toBeUndefined();
-  });
-
-  it('does NOT set the override when the model window is unknown', async () => {
-    const env = await buildEnv('http://127.0.0.1:4000', 'mystery-model-xyz');
-    expect(env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']).toBeUndefined();
-  });
-
-  it('respects an explicit CLAUDE_CODE_MAX_CONTEXT_TOKENS already in the env', async () => {
-    process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] = '512000';
-    const env = await buildEnv('http://127.0.0.1:4000', 'claude-sonnet-4-5');
-    expect(env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']).toBe('512000');
+    expect(opts.settings).toBe(PTAH_DISABLE_SDK_AUTO_MEMORY);
   });
 });
 
@@ -577,8 +616,8 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
     };
     const compactionConfigProvider = {
       getConfig: jest.fn().mockReturnValue({
-        enabled: false,
-        contextTokenThreshold: 200_000,
+        enabled: true,
+        contextTokenThreshold: null,
       }),
     };
     const compactionHookHandler = {
@@ -759,7 +798,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
     const compactionConfigProvider = {
       getConfig: jest
         .fn()
-        .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+        .mockReturnValue({ enabled: true, contextTokenThreshold: null }),
     };
     const compactionHookHandler = {
       createHooks: jest
@@ -933,7 +972,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
     const compactionConfigProvider = {
       getConfig: jest
         .fn()
-        .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+        .mockReturnValue({ enabled: true, contextTokenThreshold: null }),
     };
     const compactionHookHandler = {
       createHooks: jest.fn().mockReturnValue({}),
@@ -1052,7 +1091,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
     const compactionConfigProvider = {
       getConfig: jest
         .fn()
-        .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+        .mockReturnValue({ enabled: true, contextTokenThreshold: null }),
     };
     const compactionHookHandler = {
       createHooks: jest
@@ -1359,7 +1398,7 @@ describe('SdkQueryOptionsBuilder.build — workflows.disabled env injection', ()
       {
         getConfig: jest
           .fn()
-          .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+          .mockReturnValue({ enabled: true, contextTokenThreshold: null }),
       },
       noopHooks,
       noopHooks,
@@ -1482,7 +1521,7 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
     const compactionConfigProvider = {
       getConfig: jest
         .fn()
-        .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+        .mockReturnValue({ enabled: true, contextTokenThreshold: null }),
     };
     const compactionHookHandler = {
       createHooks: jest.fn().mockReturnValue({

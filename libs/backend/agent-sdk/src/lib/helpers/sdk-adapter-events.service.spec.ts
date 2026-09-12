@@ -156,6 +156,23 @@ describe('SdkAdapterEvents', () => {
       expect(listener).toHaveBeenCalledWith(payload);
     });
 
+    it('logs a positive diagnostic when publishing the PostCompact advisory', () => {
+      const { events, logger } = make();
+
+      events.emitCompactionComplete({
+        sessionId: 'sess-diagnostic',
+        cwd: '/repo',
+        trigger: 'auto',
+        compactSummary: 'summary',
+        timestamp: 3,
+      });
+
+      expect(logger.info).toHaveBeenCalledWith(
+        '[SdkAdapterEvents] Publishing PostCompact advisory',
+        { sessionId: 'sess-diagnostic', trigger: 'auto' },
+      );
+    });
+
     it('supports auto trigger and multiple subscribers', () => {
       const { events } = make();
       const a = jest.fn();

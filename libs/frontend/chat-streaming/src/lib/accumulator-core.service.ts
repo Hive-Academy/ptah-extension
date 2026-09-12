@@ -37,6 +37,7 @@ import { Injectable, inject } from '@angular/core';
 import {
   ExecutionNode,
   FlatStreamEventUnion,
+  MessageStartEvent,
   assertNever,
 } from '@ptah-extension/shared';
 import {
@@ -614,6 +615,53 @@ export class StreamingAccumulatorCore {
   clearPendingClears(): void {
     this.pendingTextClear.clear();
     this.pendingThinkingClear.clear();
+  }
+
+  /**
+   * Store a user `message_start` that marks where a prompt sent mid-turn sits
+   * among the root messages, so `ExecutionTreeBuilderService.buildTree` stops
+   * merging assistant messages at it.
+   *
+   * Deliberately NOT routed through `process`: a boundary is not an SDK event.
+   * It must not move `currentMessageId` (finalization reads the in-flight
+   * message's `message_complete` through it) and must not enter the dedup
+   * sets, which only track messages the backend actually sent.
+   */
+  recordUserPromptBoundary(
+    state: StreamingState,
+    event: MessageStartEvent,
+  ): void {
+    if (state.eventsByMessage.has(event.messageId)) return;
+    state.messageEventIds.push(event.messageId);
+    setStreamingEventCapped(state, event);
+    this.indexEventByMessage(state, event);
+  }
+
+  /**
+   * Remove a boundary {@link recordUserPromptBoundary} stored, returning
+   * whether one was there. Only the boundary's own shape is removed — a user
+   * `message_start` whose event id IS its messageId — so an SDK message that
+   * happens to share the id is never touched.
+   *
+   * Bumps the structural revision: a root leaving `messageEventIds` changes the
+   * merge, and the tree builder's index memo keys on that counter.
+   */
+  removeUserPromptBoundary(state: StreamingState, messageId: string): boolean {
+    const boundary = state.events.get(messageId);
+    if (
+      boundary?.eventType !== 'message_start' ||
+      boundary.messageId !== messageId ||
+      boundary.role !== 'user'
+    ) {
+      return false;
+    }
+    state.events.delete(messageId);
+    state.eventsByMessage.delete(messageId);
+    state.messageRevisions?.delete(messageId);
+    const rootIndex = state.messageEventIds.indexOf(messageId);
+    if (rootIndex !== -1) state.messageEventIds.splice(rootIndex, 1);
+    markStructuralChange(state);
+    return true;
   }
 
   /**

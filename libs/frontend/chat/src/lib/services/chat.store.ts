@@ -96,7 +96,14 @@ export class ChatStore {
   readonly questionRequests = this.permissionHandler.questionRequests;
   readonly resumableSubagents = this.sessionLoader.resumableSubagents;
   readonly licenseStatus = this.lifecycle.licenseStatus;
-  readonly isCompacting = this.tabManager.activeTabIsCompacting;
+
+  /**
+   * Registry-derived compaction state for one tab. Every compaction surface
+   * (banner, input overlay) reads this so they agree by construction.
+   */
+  isCompactingForTab(tabId: string | null | undefined): boolean {
+    return this.compaction.isCompactingForTab(tabId);
+  }
 
   readonly activeTab = computed(() => this.tabManager.activeTab());
   readonly currentSessionId = this.tabManager.activeTabSessionId;
@@ -190,7 +197,7 @@ export class ChatStore {
     sessionId: SessionId,
     opts?: { reason?: 'compaction'; activate?: boolean },
   ): Promise<void> {
-    return this.sessionLoader.switchSession(sessionId, opts);
+    await this.sessionLoader.switchSession(sessionId, opts);
   }
 
   removeSessionFromList(sessionId: SessionId): void {

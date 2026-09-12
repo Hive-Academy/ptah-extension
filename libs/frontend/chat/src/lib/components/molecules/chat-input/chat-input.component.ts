@@ -506,21 +506,18 @@ export class ChatInputComponent implements OnInit {
   readonly attachedReadOnly = computed(() => this.attachedBinding() != null);
 
   /**
-   * Per-tab compaction state. In canvas mode, scoped to this tile's tab.
-   * Prevents compaction overlay from showing on ALL tiles.
+   * Per-tab compaction state. In canvas mode, scoped to this tile's tab
+   * (a tile whose SESSION_CONTEXT resolves null shows no overlay); otherwise
+   * the global active tab. Reads the SAME registry derivation as the
+   * chat-view banner, so the overlay and banner always agree.
    */
-  readonly resolvedIsCompacting = computed(() => {
-    const ctx = this._sessionContext;
-    if (ctx) {
-      const tabId = ctx();
-      if (!tabId) return false;
-      return (
-        this.tabManager.tabs().find((t) => t.id === tabId)?.isCompacting ??
-        false
-      );
-    }
-    return this.chatStore.isCompacting();
-  });
+  readonly resolvedIsCompacting = computed(() =>
+    this.chatStore.isCompactingForTab(
+      this._sessionContext
+        ? this._sessionContext()
+        : this.tabManager.activeTabId(),
+    ),
+  );
   private readonly textareaRef =
     viewChild<ElementRef<HTMLTextAreaElement>>('inputElement');
 

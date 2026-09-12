@@ -66,6 +66,18 @@ import {
 } from '@ptah-extension/core';
 import { VoiceInputService } from '../../../services/voice-input.service';
 import type { AtTriggerEvent } from '../../../directives/at-trigger.directive';
+import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
+import { CompactionLifecycleService } from '../../../services/chat-store/compaction-lifecycle.service';
+import { SessionLoaderService } from '../../../services/chat-store/session-loader.service';
+import {
+  ConversationRegistry,
+  TabSessionBinding,
+} from '@ptah-extension/chat-state';
+import {
+  ExecutionTreeBuilderService,
+  SessionManager,
+} from '@ptah-extension/chat-streaming';
+import { SessionId, TabId as SharedTabId } from '@ptah-extension/shared';
 
 describe('ChatInputComponent', () => {
   let component: ChatInputComponent;
@@ -79,6 +91,9 @@ describe('ChatInputComponent', () => {
     sendOrQueueMessage: jest.fn().mockResolvedValue(undefined),
     abortCurrentMessage: jest.fn().mockResolvedValue(undefined),
     abortWithConfirmation: jest.fn().mockResolvedValue(true),
+    isCompactingForTab: jest.fn(
+      (_tabId: string | null | undefined): boolean => false,
+    ),
   };
 
   const tabsSignal = signal<
@@ -153,7 +168,13 @@ describe('ChatInputComponent', () => {
     cancelRecording: jest.fn(),
   };
 
-  function createComponent(opts: { isElectron?: boolean } = {}): void {
+  function createComponent(
+    opts: {
+      isElectron?: boolean;
+      /** Tile tab id for SESSION_CONTEXT; `undefined` = token not provided. */
+      sessionContextTabId?: string | null;
+    } = {},
+  ): void {
     mockIsElectron = opts.isElectron ?? false;
     tabsSignal.set([]);
     activeTabIdSignal.set(null);
@@ -168,6 +189,16 @@ describe('ChatInputComponent', () => {
         { provide: ClaudeRpcService, useValue: mockRpcService },
         { provide: VSCodeService, useValue: mockVSCodeService },
         { provide: VoiceInputService, useValue: mockVoiceInput },
+        ...(opts.sessionContextTabId === undefined
+          ? []
+          : [
+              {
+                provide: SESSION_CONTEXT,
+                useValue: signal<string | null>(
+                  opts.sessionContextTabId,
+                ).asReadonly(),
+              },
+            ]),
       ],
     });
 
@@ -188,6 +219,183 @@ describe('ChatInputComponent', () => {
 
   it('should be created', () => {
     expect(component).toBeTruthy();
+  });
+
+  // ============================================================================
+  // COMPACTION OVERLAY — one registry derivation shared with the chat-view banner
+  // ============================================================================
+
+  describe('compaction overlay (registry-derived)', () => {
+    afterEach(() => {
+      mockChatStore.isCompactingForTab.mockImplementation(() => false);
+    });
+
+    it('uses chatStore.isCompactingForTab with the SESSION_CONTEXT tab id', () => {
+      createComponent({ sessionContextTabId: 'tile-A' });
+      activeTabIdSignal.set('tab-global');
+      mockChatStore.isCompactingForTab.mockImplementation(
+        (id) => id === 'tile-A',
+      );
+      expect(component.resolvedIsCompacting()).toBe(true);
+      expect(mockChatStore.isCompactingForTab).toHaveBeenCalledWith('tile-A');
+    });
+
+    it('uses the active tab id without SESSION_CONTEXT', () => {
+      createComponent();
+      activeTabIdSignal.set('tab-global');
+      mockChatStore.isCompactingForTab.mockImplementation(
+        (id) => id === 'tab-global',
+      );
+      expect(component.resolvedIsCompacting()).toBe(true);
+      expect(mockChatStore.isCompactingForTab).toHaveBeenCalledWith(
+        'tab-global',
+      );
+    });
+
+    it('returns false when SESSION_CONTEXT resolves null', () => {
+      createComponent({ sessionContextTabId: null });
+      activeTabIdSignal.set('tab-global');
+      mockChatStore.isCompactingForTab.mockImplementation((id) => id != null);
+      expect(component.resolvedIsCompacting()).toBe(false);
+      expect(mockChatStore.isCompactingForTab).toHaveBeenCalledWith(null);
+    });
+
+    it('ignores a stale tab.isCompacting=true when the registry says not in flight', () => {
+      createComponent();
+      tabsSignal.set([
+        { id: 'tab-global', status: 'loaded', isCompacting: true } as {
+          id: string;
+          status: string;
+        },
+      ]);
+      activeTabIdSignal.set('tab-global');
+      mockChatStore.isCompactingForTab.mockReturnValue(false);
+      expect(component.resolvedIsCompacting()).toBe(false);
+    });
+  });
+
+  describe('compaction overlay and banner agree (real registries)', () => {
+    const TAB = SharedTabId.create();
+    const SESS = SessionId.create();
+    let lifecycle: CompactionLifecycleService;
+    let switchSession: jest.Mock;
+    const activeTab = signal<string | null>(TAB);
+
+    /** chat-view's banner reads exactly this (see chat-view spec delegation). */
+    const banner = (): boolean =>
+      TestBed.inject(ChatStore).isCompactingForTab(activeTab());
+
+    async function flushMicrotasks(): Promise<void> {
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    }
+
+    let consoleSpies: jest.SpyInstance[] = [];
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      consoleSpies = [
+        jest.spyOn(console, 'info').mockImplementation(),
+        jest.spyOn(console, 'warn').mockImplementation(),
+      ];
+      const tabs = [
+        { id: TAB, status: 'loaded', claudeSessionId: SESS, messages: [] },
+      ];
+      switchSession = jest.fn().mockResolvedValue(undefined);
+      const tabManager = {
+        ...mockTabManager,
+        activeTabId: activeTab,
+        tabs: () => tabs,
+        findTabsBySessionId: (sessionId: string) =>
+          tabs.filter((t) => t.claudeSessionId === sessionId),
+        applyCompactionComplete: jest.fn(),
+        applyCompactionTimeoutReset: jest.fn(),
+        seedPostCompactionContext: jest.fn(),
+        markTabIdle: jest.fn(),
+      };
+      const chatStore = {
+        ...mockChatStore,
+        isCompactingForTab: (id: string | null | undefined) =>
+          TestBed.inject(CompactionLifecycleService).isCompactingForTab(id),
+      };
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          { provide: ChatStore, useValue: chatStore },
+          { provide: TabManagerService, useValue: tabManager },
+          { provide: AutopilotStateService, useValue: mockAutopilotState },
+          { provide: FilePickerService, useValue: mockFilePicker },
+          { provide: CommandDiscoveryFacade, useValue: mockCommandDiscovery },
+          { provide: ClaudeRpcService, useValue: mockRpcService },
+          { provide: VSCodeService, useValue: mockVSCodeService },
+          { provide: VoiceInputService, useValue: mockVoiceInput },
+          CompactionLifecycleService,
+          ConversationRegistry,
+          TabSessionBinding,
+          {
+            provide: SessionManager,
+            useValue: { setStatus: jest.fn(), getCurrentSessionId: () => null },
+          },
+          {
+            provide: ExecutionTreeBuilderService,
+            useValue: { clearCache: jest.fn() },
+          },
+          { provide: SessionLoaderService, useValue: { switchSession } },
+        ],
+      });
+      lifecycle = TestBed.inject(CompactionLifecycleService);
+      component = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    });
+
+    afterEach(() => {
+      lifecycle.clearCompactionState();
+      jest.useRealTimers();
+      for (const spy of consoleSpies) spy.mockRestore();
+    });
+
+    it('agree through start and authoritative completion', async () => {
+      expect(component.resolvedIsCompacting()).toBe(false);
+      expect(banner()).toBe(false);
+
+      lifecycle.handleCompactionStart(SESS);
+      expect(component.resolvedIsCompacting()).toBe(true);
+      expect(banner()).toBe(true);
+
+      lifecycle.handleCompactionComplete({
+        tabId: TAB,
+        compactionSessionId: SESS,
+        postTokens: 500,
+      });
+      await flushMicrotasks();
+      expect(component.resolvedIsCompacting()).toBe(false);
+      expect(banner()).toBe(false);
+    });
+
+    it('agree through the PostCompact advisory fallback', async () => {
+      lifecycle.handleCompactionStart(SESS);
+      expect(component.resolvedIsCompacting()).toBe(banner());
+      lifecycle.handleCompactionCompleteNotification({
+        sessionId: SESS,
+        cwd: '/workspace',
+        trigger: 'auto',
+        compactSummary: 'recap',
+        timestamp: 1_700_000_000_000,
+      });
+      expect(component.resolvedIsCompacting()).toBe(banner());
+      jest.advanceTimersByTime(250);
+      await flushMicrotasks();
+      expect(switchSession).toHaveBeenCalledTimes(1);
+      expect(component.resolvedIsCompacting()).toBe(false);
+      expect(banner()).toBe(false);
+    });
+
+    it('agree through the safety timeout', () => {
+      lifecycle.handleCompactionStart(SESS);
+      expect(component.resolvedIsCompacting()).toBe(true);
+      expect(banner()).toBe(true);
+      jest.advanceTimersByTime(600000);
+      expect(component.resolvedIsCompacting()).toBe(false);
+      expect(banner()).toBe(false);
+    });
   });
 
   // ============================================================================

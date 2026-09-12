@@ -17,6 +17,7 @@ import {
   FlatStreamEventUnion,
   MessageTokenUsage,
   calculateMessageCost,
+  getDiscoveredContextWindow,
   getModelContextWindow,
   AuthEnv,
   isDirectAnthropic,
@@ -53,6 +54,32 @@ export type SessionIdResolvedCallback = (
   tabId: string | undefined,
   realSessionId: string,
 ) => void;
+
+/**
+ * The context window to publish for one model of a `result` message.
+ *
+ * Precedence, and the reason for each step:
+ * 1. On a PROXY, a window provider discovery reported for this EXACT id. The
+ *    CLI cannot know a non-Claude model's window and reports its generic
+ *    200000 fallback, so the provider's own answer outranks it. Exact only —
+ *    a fuzzy table match is not the provider answering (PR #493 review C).
+ * 2. The SDK's own value, authoritative on direct Anthropic (`[1m]` and
+ *    similar) and the best available on a proxy with nothing discovered.
+ * 3. The general lookup (discovered → bundled table → Claude family regex),
+ *    for the case where the SDK reported nothing at all.
+ */
+function resolveResultContextWindow(params: {
+  readonly isDirect: boolean;
+  readonly discoveredContextWindow: number;
+  readonly sdkContextWindow: number;
+  readonly knownContextWindow: number;
+}): number {
+  if (!params.isDirect && params.discoveredContextWindow > 0) {
+    return params.discoveredContextWindow;
+  }
+  if (params.sdkContextWindow > 0) return params.sdkContextWindow;
+  return params.knownContextWindow;
+}
 
 /**
  * Model usage data from SDK result message
@@ -452,14 +479,29 @@ export class StreamTransformer {
                     const knownContextWindow =
                       getModelContextWindow(resolvedModel);
                     const trackedContext = lastTurnContextByModel.get(model);
+                    // On a proxy the CLI cannot know a non-Claude model's
+                    // window and reports its generic 200000 fallback, so a
+                    // window the PROVIDER ITSELF reported for this exact id
+                    // wins there. It must be the EXACT discovered value, never
+                    // `getModelContextWindow`: that falls through to the
+                    // bundled pricing table's partial matching, so an
+                    // undiscovered `gpt-4o-ultra` resolved to `gpt-4o`'s
+                    // 128000 and overrode the SDK for a model nobody
+                    // registered (PR #493 review C). Direct Anthropic keeps
+                    // the SDK value, authoritative for `[1m]` and similar.
+                    const discoveredContextWindow =
+                      getDiscoveredContextWindow(resolvedModel);
+                    const contextWindow = resolveResultContextWindow({
+                      isDirect,
+                      discoveredContextWindow,
+                      sdkContextWindow: usage.contextWindow,
+                      knownContextWindow,
+                    });
                     modelUsageList.push({
                       model: resolvedModel,
                       inputTokens: usage.inputTokens,
                       outputTokens: usage.outputTokens,
-                      contextWindow:
-                        usage.contextWindow > 0
-                          ? usage.contextWindow
-                          : knownContextWindow,
+                      contextWindow,
                       costUSD,
                       cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
                       lastTurnContextTokens: trackedContext

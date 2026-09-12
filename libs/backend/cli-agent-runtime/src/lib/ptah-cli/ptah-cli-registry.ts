@@ -727,9 +727,14 @@ export class PtahCliRegistry {
         // send before. That is deliberate: Ptah runs its own memory curator,
         // and a spawned agent writing SDK auto-memory was an inconsistency
         // with every other session Ptah starts.
-        settings: buildFlagSettings({
-          outputStyleName: assembly.outputStyleName,
-        }),
+        //
+        // Auto-compaction keys ride the same builder: the pinned runtime reads
+        // `autoCompactEnabled` / `autoCompactWindow` from this flag tier, and
+        // there is no `Options.compactionControl` (see auto-compact-control.ts).
+        settings: buildFlagSettings(
+          { outputStyleName: assembly.outputStyleName },
+          assembly.autoCompact,
+        ),
         ...this.resolvePermissionOptions(
           blankToUndefined(options?.resumeSessionId) ??
             blankToUndefined(options?.parentSessionId) ??
@@ -747,7 +752,6 @@ export class PtahCliRegistry {
             onStderr: handleChildStderr,
           }),
         hooks: assembly.hooks,
-        compactionControl: assembly.compactionControl,
         pathToClaudeCodeExecutable:
           (await this.moduleLoader.getCliJsPath()) ?? undefined,
       } as Options,

@@ -700,6 +700,24 @@ export class CodexCliAdapter implements CliAdapter {
             itemTextTracker,
             itemsWithDeltas,
           );
+
+          // The turn is over the moment `turn.completed` or `turn.failed`
+          // arrives — never wait for the iterator to end. The SDK ends it only
+          // when `codex exec` closes stdout, and on Windows codex.exe was
+          // measured alive for over an hour after its final event (a
+          // long-lived powershell.exe child holds it open), so `done` never
+          // settled and the agent read `running` until the timeout. Leaving
+          // the loop calls the generator's `return()`, which runs the SDK's
+          // `finally`: readline closed, child killed. `continue()` is safe
+          // because each turn spawns its own `codex exec … resume <threadId>`.
+          // `error` is deliberately NOT terminal: the SDK's own `Thread.run`
+          // reads past it, and the turn still ends with one of these two.
+          if (event.type === 'turn.completed') {
+            return 0;
+          }
+          if (event.type === 'turn.failed') {
+            return 1;
+          }
         }
 
         return 0;

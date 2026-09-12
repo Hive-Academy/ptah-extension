@@ -28,6 +28,7 @@ import type { SessionLifecycleManager } from './helpers/session-lifecycle-manage
 import { SdkMessageTransformer } from './sdk-message-transformer';
 import { LiveUsageTracker } from './helpers/live-usage-tracker';
 import { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
+import { CompactionBoundaryGenerationRegistry } from './helpers/compaction-boundary-generation-registry';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -130,6 +131,7 @@ describe('SdkMessageTransformer — compact_boundary (TASK_2026_109)', () => {
       lifecycle as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
+      new CompactionBoundaryGenerationRegistry(),
     );
   }
 
@@ -206,6 +208,34 @@ describe('SdkMessageTransformer — compact_boundary (TASK_2026_109)', () => {
       expect.any(Object),
     );
   });
+
+  it('records the expected boundary generation only after resolving a session id', () => {
+    const boundaryRegistry = new CompactionBoundaryGenerationRegistry();
+    const localLifecycle = makeSessionLifecycle(['resolved-sess']);
+    const localTransformer = new SdkMessageTransformer(
+      makeLogger(),
+      makeAuthEnv(),
+      makeSubagentRegistry() as unknown as SubagentRegistryService,
+      makeModelResolver() as unknown as IModelResolver,
+      localLifecycle as unknown as SessionLifecycleManager,
+      new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
+      boundaryRegistry,
+    );
+
+    const events = localTransformer.transform(
+      makeCompactBoundary({ trigger: 'manual', preTokens: 1000 }) as never,
+      undefined,
+    );
+
+    expect(events).toHaveLength(1);
+    expect(
+      (events[0] as { eventType: string }).eventType,
+    ).toBe('compaction_complete');
+    expect(
+      boundaryRegistry.capturePendingExpectation('resolved-sess'),
+    ).toEqual({ kind: 'unverified' });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -249,6 +279,7 @@ describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
       lifecycle as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
+      new CompactionBoundaryGenerationRegistry(),
     );
   }
 
@@ -423,6 +454,7 @@ describe('SdkMessageTransformer — workflow run correlation', () => {
       makeSessionLifecycle([]) as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
+      new CompactionBoundaryGenerationRegistry(),
     );
   }
 
@@ -543,6 +575,7 @@ describe('SdkMessageTransformer — session id falls back to the SDK payload (TA
       makeSessionLifecycle(activeIds) as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
+      new CompactionBoundaryGenerationRegistry(),
     );
   }
 
@@ -617,6 +650,7 @@ describe('SdkMessageTransformer — per-session isolation (TASK_2026_370)', () =
       makeSessionLifecycle([]) as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
+      new CompactionBoundaryGenerationRegistry(),
     );
   }
 

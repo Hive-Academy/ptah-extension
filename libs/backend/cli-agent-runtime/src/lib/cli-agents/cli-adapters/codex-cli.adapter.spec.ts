@@ -40,6 +40,66 @@ function createFakeEventGenerator(
   return gen;
 }
 
+/**
+ * Fake event source that yields its events and then NEVER ends — the shape
+ * `codex exec` has on Windows when a long-lived child keeps its stdout open
+ * after the final event. Records whether the consumer closed it early, which
+ * is what runs the real SDK's `finally` (readline close + child kill).
+ */
+function createNeverEndingEventSource(events: FakeCodexEvent[]): {
+  events: AsyncGenerator<FakeCodexEvent>;
+  wasReturned: () => boolean;
+} {
+  let index = 0;
+  let returned = false;
+  const gen: AsyncGenerator<FakeCodexEvent> = {
+    [Symbol.asyncIterator]() {
+      return gen;
+    },
+    next(): Promise<IteratorResult<FakeCodexEvent>> {
+      if (!returned && index < events.length) {
+        return Promise.resolve({ done: false, value: events[index++] });
+      }
+      return new Promise<never>(() => {
+        /* stdout never closes */
+      });
+    },
+    async return(): Promise<IteratorResult<FakeCodexEvent>> {
+      returned = true;
+      return { done: true, value: undefined as never };
+    },
+    async throw(err: Error): Promise<IteratorResult<FakeCodexEvent>> {
+      throw err;
+    },
+    [Symbol.asyncDispose](): PromiseLike<void> {
+      return Promise.resolve();
+    },
+  };
+  return { events: gen, wasReturned: () => returned };
+}
+
+/**
+ * Resolve with the promise's value, or with `'still-running'` if it has not
+ * settled within `ms`. Keeps a regression a clear assertion failure instead of
+ * a Jest timeout, and clears its timer so no handle outlives the test.
+ */
+async function settleWithin<T>(
+  promise: Promise<T>,
+  ms = 1000,
+): Promise<T | 'still-running'> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<'still-running'>((resolve) => {
+        timer = setTimeout(() => resolve('still-running'), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Minimal event types matching CodexThreadEvent from the adapter */
 type FakeCodexEvent =
   | { type: 'thread.started'; thread_id: string }
@@ -779,6 +839,106 @@ describe('CodexCliAdapter', () => {
       const code = await handle.done;
       expect(code).toBe(1);
       expect(handle.abort.signal.aborted).toBe(true);
+    });
+  });
+
+  // `codex exec` on Windows can keep stdout open long after its final event
+  // (a lingering powershell.exe child), so the SDK iterator never ends. A turn
+  // must finish on its terminal EVENT, and close the stream so the SDK kills
+  // the child — not wait for an end that may take an hour.
+  describe('terminal turn events on a stream that never ends', () => {
+    const defaultOptions = {
+      task: 'Implement feature X',
+      workingDirectory: '/project/root',
+    };
+    const usage = {
+      input_tokens: 10,
+      cached_input_tokens: 0,
+      output_tokens: 5,
+    };
+
+    it('resolves done with 0 after turn.completed and closes the stream', async () => {
+      const source = createNeverEndingEventSource([
+        { type: 'thread.started', thread_id: 'thread-1' },
+        {
+          type: 'item.completed',
+          item: { type: 'agent_message', id: 'm1', text: 'Final report' },
+        },
+        { type: 'turn.completed', usage },
+      ]);
+      mockRunStreamed.mockResolvedValue({ events: source.events });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      const output: string[] = [];
+      handle.onOutput((data: string) => output.push(data));
+
+      expect(await settleWithin(handle.done)).toBe(0);
+      expect(source.wasReturned()).toBe(true);
+      expect(output.join('')).toContain('[Usage: 10 input, 5 output tokens]');
+      expect(handle.getSessionId?.()).toBe('thread-1');
+    });
+
+    it('resolves done with 1 after turn.failed and closes the stream', async () => {
+      const source = createNeverEndingEventSource([
+        { type: 'turn.failed', error: { message: 'rate limited' } },
+      ]);
+      mockRunStreamed.mockResolvedValue({ events: source.events });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      const output: string[] = [];
+      handle.onOutput((data: string) => output.push(data));
+
+      expect(await settleWithin(handle.done)).toBe(1);
+      expect(source.wasReturned()).toBe(true);
+      expect(output).toContain('[Turn Failed] rate limited\n');
+    });
+
+    it('does not treat a stream error event as the end of the turn', async () => {
+      const source = createNeverEndingEventSource([
+        { type: 'error', message: 'Reconnecting... 1/5' },
+      ]);
+      mockRunStreamed.mockResolvedValue({ events: source.events });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+
+      expect(await settleWithin(handle.done, 50)).toBe('still-running');
+      expect(source.wasReturned()).toBe(false);
+    });
+
+    it('runs a continuation after an early return, on the same thread', async () => {
+      const first = createNeverEndingEventSource([
+        { type: 'turn.completed', usage },
+      ]);
+      const second = createNeverEndingEventSource([
+        {
+          type: 'item.completed',
+          item: { type: 'agent_message', id: 'm2', text: 'Second turn' },
+        },
+        { type: 'turn.completed', usage },
+      ]);
+      mockRunStreamed
+        .mockResolvedValueOnce({ events: first.events })
+        .mockResolvedValueOnce({ events: second.events });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      const output: string[] = [];
+      handle.onOutput((data: string) => output.push(data));
+
+      expect(await settleWithin(handle.done)).toBe(0);
+      expect(first.wasReturned()).toBe(true);
+
+      const outcome = await handle.continue?.('Follow-up message');
+      expect(outcome).toBeDefined();
+      expect(await settleWithin(outcome?.done ?? Promise.resolve(-1))).toBe(0);
+
+      expect(second.wasReturned()).toBe(true);
+      expect(mockStartThread).toHaveBeenCalledTimes(1);
+      expect(mockRunStreamed).toHaveBeenCalledTimes(2);
+      expect(mockRunStreamed.mock.calls[1][0]).toBe('Follow-up message');
+      expect(output).toContain('Second turn\n');
     });
   });
 

@@ -248,6 +248,8 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
   });
 
   it('rebuilds ONLY the message that received deltas — 1 000 of them', () => {
+    feed(messageStart('msg-first', 'assistant'));
+    feed(textDelta('msg-first', 0, 'earlier answer'));
     feed(messageStart('msg-user', 'user'));
     feed(textDelta('msg-user', 0, 'question'));
     feed(messageStart('msg-assistant', 'assistant'));
@@ -263,10 +265,97 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     const after = builder.buildTree(state, 'k');
 
     expect(spy.mock.calls.map((call) => call[0])).toEqual(['msg-assistant']);
-    // The untouched user message keeps its exact node object, so OnPush skips it.
+    // The untouched earlier answer keeps its exact node object, so OnPush skips it.
     expect(after[0]).toBe(before[0]);
     expect(after[1]).not.toBe(before[1]);
     expect(after[1].children[0].content).toHaveLength(1001);
+  });
+
+  it('splits the merged assistant root at a mid-turn prompt boundary', () => {
+    feed(messageStart('msg-a1', 'assistant'));
+    feed(textDelta('msg-a1', 0, 'before'));
+    feed(messageStart('msg-a2', 'assistant'));
+    feed(textDelta('msg-a2', 0, 'still before'));
+    expect(builder.buildTree(state, 'k')).toHaveLength(1);
+
+    accumulator.recordUserPromptBoundary(state, {
+      ...messageStart('user-bubble', 'user'),
+      id: 'user-bubble',
+    });
+    expect(state.currentMessageId).toBe('msg-a2');
+
+    feed(messageStart('msg-a3', 'assistant'));
+    feed(textDelta('msg-a3', 0, 'after'));
+    const tree = builder.buildTree(state, 'k');
+
+    // The boundary ends the merge but is not itself a root: the prompt renders
+    // from `messages`, never as a (mislabelled) assistant bubble.
+    expect(tree.map((node) => node.id)).toEqual([
+      'evt-start-msg-a1',
+      'evt-start-msg-a3',
+    ]);
+    expect(tree[0].children.map((c) => c.content)).toEqual([
+      'before',
+      'still before',
+    ]);
+    expect(tree[1].children.map((c) => c.content)).toEqual(['after']);
+  });
+
+  it('splits once when the SDK echo of the prompt joins the boundary', () => {
+    feed(messageStart('msg-a1', 'assistant'));
+    feed(textDelta('msg-a1', 0, 'before'));
+    accumulator.recordUserPromptBoundary(state, {
+      ...messageStart('user-bubble', 'user'),
+      id: 'user-bubble',
+    });
+    // The SDK replays the prompt under its OWN uuid, with its text.
+    feed(messageStart('sdk-user-uuid', 'user'));
+    feed(textDelta('sdk-user-uuid', 0, 'follow-up'));
+    feed(messageStart('msg-a2', 'assistant'));
+    feed(textDelta('msg-a2', 0, 'after'));
+
+    const tree = builder.buildTree(state, 'k');
+
+    expect(tree.map((node) => node.id)).toEqual([
+      'evt-start-msg-a1',
+      'evt-start-msg-a2',
+    ]);
+    expect(tree[0].children.map((c) => c.content)).toEqual(['before']);
+    expect(tree[1].children.map((c) => c.content)).toEqual(['after']);
+  });
+
+  it('merges the turn back together once the boundary is removed', () => {
+    feed(messageStart('msg-a1', 'assistant'));
+    feed(textDelta('msg-a1', 0, 'before'));
+    accumulator.recordUserPromptBoundary(state, {
+      ...messageStart('user-bubble', 'user'),
+      id: 'user-bubble',
+    });
+    feed(messageStart('msg-a2', 'assistant'));
+    feed(textDelta('msg-a2', 0, 'after'));
+    expect(builder.buildTree(state, 'k')).toHaveLength(2);
+    const revision = state.structuralRevision;
+
+    expect(accumulator.removeUserPromptBoundary(state, 'user-bubble')).toBe(
+      true,
+    );
+
+    expect(state.structuralRevision).toBe((revision ?? 0) + 1);
+    expect(state.messageEventIds).not.toContain('user-bubble');
+    expect(state.events.has('user-bubble')).toBe(false);
+    expect(state.eventsByMessage.has('user-bubble')).toBe(false);
+    const tree = builder.buildTree(state, 'k');
+    expect(tree).toHaveLength(1);
+    expect(tree[0].children.map((c) => c.content)).toEqual(['before', 'after']);
+  });
+
+  it('never removes an SDK message through removeUserPromptBoundary', () => {
+    feed(messageStart('sdk-user-uuid', 'user'));
+
+    expect(accumulator.removeUserPromptBoundary(state, 'sdk-user-uuid')).toBe(
+      false,
+    );
+    expect(state.messageEventIds).toContain('sdk-user-uuid');
   });
 
   it('keeps completed tool nodes identical while sibling text streams', () => {
@@ -415,11 +504,13 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
       .spyOn(console, 'warn')
       .mockImplementation(() => undefined);
     try {
-      // Enough messages to push the maps past the prune floor.
+      // Enough messages to push the maps past the prune floor. Each answer is
+      // followed by a user turn so it stays its own root instead of merging.
       for (let i = 0; i < 400; i++) {
         const messageId = `msg-${i}`;
-        feed(messageStart(messageId, 'user'));
-        feed(textDelta(messageId, 0, `q${i}`));
+        feed(messageStart(messageId, 'assistant'));
+        feed(textDelta(messageId, 0, `a${i}`));
+        feed(messageStart(`user-${i}`, 'user'));
       }
       builder.buildTree(state, 'k');
       const pruned = builder.buildTree(state, 'k');
@@ -831,12 +922,13 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
       feed(textDelta('msg-live', 0, 'and now'));
       const resumed = expectEquivalent();
 
-      // Two roots, not three: the live assistant message merges into the
-      // replayed assistant turn, which is the same merge the live path does.
-      expect(resumed).toHaveLength(2);
+      // One root: the replayed user prompt is not tree output, and the live
+      // assistant message merges into the replayed assistant turn, which is
+      // the same merge the live path does.
+      expect(resumed).toHaveLength(1);
       expect(countByType(resumed, 'tool')).toBe(1);
       expect(findByType(resumed, 'tool')?.status).toBe('complete');
-      expect(resumed[1].children.map((c) => c.content)).toContain('and now');
+      expect(resumed[0].children.map((c) => c.content)).toContain('and now');
     });
 
     it('agrees with a full rebuild when a resumed tab swaps in a fresh StreamingState under the same cache key', () => {
