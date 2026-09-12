@@ -1,0 +1,813 @@
+# Batches - TASK_2026_426_8d43
+
+Total tasks: 17 | Batches: 5 | Complete: 3/5
+
+## Wave 1 outcome — batches 1, 2, 3 COMPLETE
+
+| Batch | Name                  | Commit      |
+| ----- | --------------------- | ----------- |
+| 1     | Backend write path    | `5d94abb87` |
+| 2     | Deep-link origin      | `da107e522` |
+| 3     | Skills-UI primitives  | `13e105ce3` |
+
+Verified by the team-leader on the files themselves, not on the reports:
+
+- `saveCloneBody` writes `currentContentHash` and nothing else. `sourceHash`,
+  `diverged`, `pendingSourceHash` and `lastEnhancedAt` are carried through by
+  spread and never assigned, in both `saveDirCloneBody` and `saveFileCloneBody`.
+  A clone with no sidecar gets none minted (`if (existing)` guards the write).
+  An absent target returns `{ written: false, reason: 'clone-missing' }` and
+  creates nothing.
+- The Zod gate is the first statement of the handler, before any `join`, and
+  reuses `SlugSchema` / `SkillCloneKindSchema` — no second slug rule was
+  authored.
+- The snapshot precedes the overwrite unconditionally, and uses the existing
+  `snapshotDirToHistory` / `snapshotFileToHistory`, so both layouts are the ones
+  `listHistory` already reads.
+- `eligibleForBulkRebase` compares `c.orphaned !== true`, so `orphaned:
+  undefined` is INCLUDED.
+- `CloneBulkRebaseService` is a sequential `for` loop, each iteration wrapped in
+  `rebaseOne`'s own try/catch, and `running` clears in a `finally`.
+- `harness-target-row.component.ts` renders the original inert `<p>` in the
+  `@else` branch when `canOpenDivergedClones()` is false.
+- The deep-link flag is a standalone private signal
+  (`app-state.service.ts:280`), outside `ViewSlice`, and appears nowhere in
+  `switchWorkspace`.
+
+Gates re-run by the team-leader with the lanes idle:
+
+- `typecheck` — 6 projects, `Successfully ran target typecheck for 6 projects`
+- `lint` — 6 projects, 0 errors (warnings pre-existing)
+- `test` — `@ptah-extension/agent-generation` ALONE: 31 suites / 970 tests
+  passed. The other five by `run-many`: shared 56/1375, rpc-handlers 94/2741
+  (+31 skipped, includes the Concern-1 gate `rpc-allowlist.spec.ts`), core
+  28/666, marketplace 12/241, skill-synthesis-ui 26/380 — all green.
+- `ptah-extension-vscode:test` — 5 suites / 39 tests passed (the fifth site).
+
+### Correction to Concern 1 — there are FIVE registration sites, not four
+
+My MODE 1 validation concluded there were exactly four. It was wrong. A fifth
+site exists and goes red on a partial registration:
+
+`apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts` holds an exhaustive,
+sorted `VSCODE_EXPECTED_ABSENT_METHODS` list and asserts it EXACTLY. Any new
+Electron-only `skillSynthesis:*` method must be added there in sorted position
+or `ptah-extension-vscode:test` fails. Batch 1 added
+`'skillSynthesis:saveCloneBody'` at `:149`. `expected-absent.ts` itself is
+untouched, so `SkillsSynthesisRpcHandlers` stays absent as required.
+
+**Binding on batches 4 and 5: any further new `skillSynthesis:*` method needs
+this fifth site too.**
+
+### Deviation — the body editor's cancel output is `cancelled`, not `cancel`
+
+`@angular-eslint/no-output-native` is an ERROR in `skill-synthesis-ui` and
+rejects an output shadowing a standard DOM event. `CloneBodyEditorComponent`
+therefore exposes `cancelled = output<void>()`. Behaviour is unchanged: it still
+carries no payload.
+
+**Batch 4 binds `(cancelled)`, never `(cancel)`.** The drawer already wires it
+internally at `clone-detail-drawer.component.ts:288`, so batch 4 binds only
+`[canEditBody]`, `[bodySaving]` and `(bodySaved)` on the drawer.
+
+### Pre-existing flakiness — not this task's, do not fix here
+
+`user-layer-activation-sequence.spec.ts` and several `user-layer-mirror.service.spec.ts`
+cases time out at Jest's 5000 ms default when `agent-generation` runs
+concurrently with other projects. A control run on a clean `main` checkout with
+the same `run-many` set failed 12 distinct tests — MORE than the worktree. The
+load sensitivity is pre-existing and unrelated to this task. **Run
+`@ptah-extension/agent-generation:test` alone.** Noted for
+`future-enhancements.md`; out of scope here.
+
+### Batch 4 is UNBLOCKED
+
+All three wave-1 batches are verified and committed. Batch 4's three ordering
+dependencies are satisfied: batch 1's `SkillSynthesisSaveCloneBodyParams/Result`,
+batch 2's `openSkillsDivergedClones()` / `consumeSkillsDivergedRequest()`, and
+batch 3's `eligibleForBulkRebase` / `CloneBulkRebaseService` /
+`CloneBodySaveRequest` — all exported from
+`libs/frontend/skill-synthesis-ui/src/index.ts`, which batch 4 must NOT edit.
+
+Worktree root (all paths absolute, all work inside it):
+`D:/projects/ptah-extension/.claude-worktrees/skills-tab-clone-management-681582aee5c4`
+
+---
+
+## Plan validation
+
+Status: **PASSED WITH RISKS**
+
+The plan is unusually well-evidenced and I found no BLOCKER. Both claims I was
+asked to verify hardest are **confirmed**, and one of them has a consequence the
+plan states only in passing that I am promoting to a binding batch rule. Four
+underspecified points are recorded below and assigned to the task that must
+settle them.
+
+### Concern 1 — VERIFIED, and it makes batch 1 indivisible
+
+> **SUPERSEDED IN PART — see "Correction to Concern 1" above.** The count below
+> is wrong: there are FIVE registration sites, the fifth being
+> `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`. The indivisibility
+> conclusion stands.
+
+The plan's "FOUR registration sites" claim is correct, and so is its corollary
+that a partial registration fails CI rather than failing at runtime. Measured:
+
+- `libs/backend/rpc-handlers/src/lib/rpc-allowlist.spec.ts:42` calls
+  `assertManifestInvariants(RPC_METHOD_NAMES)`.
+- `libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts:402-407` throws
+  `RPC manifest is missing an owner for N method(s)` for any name present in
+  `RPC_METHOD_NAMES` that no manifest entry claims.
+- `manifest.ts:394-400` throws the mirror error — `claims N method(s) absent from
+  RPC_METHOD_NAMES` — for a `METHODS` entry with no registry entry.
+- The `skillSynthesis` manifest entry's `methods` IS
+  `SkillsSynthesisRpcHandlers.METHODS`.
+
+**Consequence, binding:** adding `'skillSynthesis:saveCloneBody'` to
+`rpc.types.ts` WITHOUT adding it to `SkillsSynthesisRpcHandlers.METHODS` turns
+`rpc-allowlist.spec.ts` red — and it goes red in `@ptah-extension/rpc-handlers`,
+a different project from the one that was edited. The reverse ordering is red
+too. Therefore **components 1, 2, 3 and 4 are one indivisible batch**. A
+"shared types first, handler second" split would leave the tree failing between
+the two commits. This is why batch 1 spans three projects.
+
+Also verified and requiring **no** change: `ALLOWED_METHOD_PREFIXES` already
+carries `'skillSynthesis:'` at
+`libs/backend/vscode-core/src/messaging/rpc-handler.ts:81`. Do not edit that
+file. (The root `CLAUDE.md` cites `:46` for this array; the plan already flags
+the discrepancy. It is a doc inaccuracy outside this task's file set — leave it.)
+
+### Concern 2 — VERIFIED: component 9 is NOT file-disjoint and must be split
+
+Measured: `skill-synthesis-tab.component.ts:580` renders `<ptah-skill-clones-view />`
+with **no bindings at all**. The plan's own preferred mechanism — "ONE flag
+consumed in the tab, passed down as an `input()` on the clones view" — therefore
+requires editing the tab template (component 9) *and* adding an `input()` to
+`skill-clones-view.component.ts` (component 7). Those two files cannot be held
+by two concurrent executors.
+
+**Resolution:** component 9 is split at the lib boundary.
+
+- **9a** (`libs/frontend/core` + `libs/frontend/marketplace`) is genuinely
+  file-disjoint from everything else and becomes its own parallel batch 2.
+- **9b** (`skill-synthesis-tab.component.ts` + the clones-view `input()`) is
+  inseparable from component 7 and is folded into batch 4.
+
+This costs nothing: 9a produces `openSkillsDivergedClones()` /
+`consumeSkillsDivergedRequest()` on `AppStateManager`, which is exactly what 9b
+consumes, so the split follows the real dependency.
+
+### Concern 3 — the plan contradicts itself on who injects `AppStateManager`
+
+Component 7 says the clones view injects `AppStateManager`. Data-flow C and the
+"Executor's choice of mechanism" note say the **tab** consumes the flag and
+passes it down, and explicitly warn that a read-and-clear consumed twice is a
+race between two effects. These disagree.
+
+**Decision recorded (not escalated — the plan names the correct answer itself):**
+the **tab** injects `AppStateManager` and consumes the flag exactly once; the
+clones view receives a plain `input()` and does not inject `AppStateManager` for
+this purpose. Assigned to Task 4.3. Two consumers of a read-and-clear is the
+defect the plan warns about; do not implement the component-7 wording.
+
+### Concern 4 — `CloneBodySaveRequest` has no declared home
+
+Component 8 lists it as an index.ts export but never names the file that
+declares it. **Decision recorded:** declare it in
+`clone-detail-drawer.component.ts`, beside the drawer's existing output types,
+so the index export sits beside the existing drawer exports as component 8 asks.
+Assigned to Task 3.4.
+
+### Concern 5 — a spec file in the verification seam is missing from the CREATE list
+
+Component 8's verification seam requires "a drawer spec asserting the markdown
+block is absent in edit mode and the Edit affordance is absent when
+`canEditBody()` is false". Measured: **`clone-detail-drawer.component.spec.ts`
+does not exist** in
+`libs/frontend/skill-synthesis-ui/src/lib/components/clones/`. The plan's
+CREATE list omits it. It is added to Task 3.4 as a CREATE.
+
+Everything else in the plan's file list was confirmed present on disk:
+`clone-action-gating.spec.ts`, `skill-clones-view.component.spec.ts`,
+`skill-synthesis-tab.component.spec.ts`, `harness-health-badge.component.spec.ts`,
+`app-state.service.spec.ts`, `skills-synthesis-rpc.handlers.spec.ts`,
+`skills-synthesis-rpc.schema.spec.ts`, `user-layer-mirror.service.spec.ts`.
+`harness-target-row.component.ts` has **no** co-located spec — its new button is
+covered through the badge spec, as the plan intends.
+
+### Assumptions
+
+- **The four registration sites are exactly four, and `ALLOWED_METHOD_PREFIXES`
+  needs no edit.** — VERIFIED above against `manifest.ts`, `rpc-allowlist.spec.ts`
+  and `rpc-handler.ts:81`. No further check needed.
+- **Every project alias in the verification commands resolves.** — VERIFIED:
+  `@ptah-extension/shared`, `@ptah-extension/rpc-handlers`,
+  `@ptah-extension/agent-generation`, `@ptah-extension/core`,
+  `@ptah-extension/marketplace`, `@ptah-extension/skill-synthesis-ui` are the
+  `name` fields in their `project.json`, and each carries `test`, `lint` and
+  `typecheck` targets.
+- **No `project.json` is edited by any batch, so no `npx nx reset` is needed.** —
+  UNVERIFIED only in the sense that an executor could add one. Batches 1-3 run
+  concurrently in a shared worktree; a reset would kill the other lanes' daemons
+  mid-run. **No executor may run `npx nx reset` in this task.** Checked at
+  batch verification by `git diff --name-only` showing no `project.json`.
+- **A 1 MiB body cap is generous.** — UNVERIFIED. Largest shipped skill body
+  measured in `context.md` is ~16 KB. Verification step on Task 1.2.
+
+### Risks
+
+| Risk                                                                              | Severity | Mitigation                                                                                                 |
+| --------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| A save writes `sourceHash` and arms the fast-forward branch, eating the user's edit | HIGH     | Task 1.4 — the sidecar table in plan component 4 is binding; Task 1.5 spec asserts the four fields unchanged; Task 5.1 proves it end to end |
+| Split RPC registration leaves the tree red between commits                        | HIGH     | Components 1-4 are one batch (Concern 1); batch 1 is not accepted until `rpc-allowlist.spec.ts` is green     |
+| Bulk rebase discards real user work with no diff preview                          | HIGH     | Task 4.2 confirmation names the count and renders `BULK_REBASE_EXPLANATION`; the per-clone snapshot is the existing `rebaseClone` behaviour, unchanged |
+| A crafted slug escapes `~/.ptah/user` before the path guard runs                  | HIGH     | Task 1.2 Zod gate before any `join`; Task 1.3 rejects an unknown clone; `assertUnderUserLayer` stays the second gate |
+| Two executors hold `skill-clones-view.component.ts` or `src/index.ts`             | MEDIUM   | Concern 2 split: `index.ts` is owned by batch 3 ALONE; `skill-clones-view.component.ts` by batch 4 ALONE      |
+| The deep-link flag is consumed twice and races                                    | MEDIUM   | Concern 3 decision on Task 4.3 — one consumption, in the tab                                                 |
+| Batch aborts on first failure, losing partial progress                            | MEDIUM   | Task 3.2 per-iteration try/catch; Task 5.2 proves every member is attempted                                  |
+| The new intent leaks into `ViewSlice` and re-fires on every later visit           | MEDIUM   | Task 2.1 keeps it outside the slice; `app-state.service.spec.ts:484-581` must stay green                     |
+| Concurrent nx runs in one worktree contend on the daemon/cache                    | LOW      | Each lane scopes `run-many` to its own projects; nobody runs `nx reset`                                      |
+
+### Edge cases
+
+- `orphaned: undefined` must be INCLUDED (the `=== true` trap) — Task 3.1
+- `authored` / `synth` clones excluded from the batch — Task 3.1
+- Empty filtered set renders an empty state, not a blank region — Task 4.2 (R2.3)
+- Clone with NO sidecar: body write succeeds, sidecar is NOT created — Task 1.4
+- Registry row present but file absent on disk → `written: false`, nothing created — Task 1.4
+- Empty body (`''`) rejected by the schema, not silently written — Task 1.2
+- VS Code host: inert `<p>`, not a button — Task 2.2; no edit affordance — Task 4.4
+- Save while a boot reconcile holds the slug lock: queues, never half-writes — Task 1.4
+- File-clone snapshot layout (`.history/<slug>/<ts>/`) must match `listHistory` — Task 1.4
+
+---
+
+## Execution order and parallelism — read this before spawning
+
+| Wave | Batches       | Mode                                   |
+| ---- | ------------- | -------------------------------------- |
+| 1    | **1, 2, 3**   | all three CONCURRENTLY — file-disjoint |
+| 2    | **4**         | alone, after 1, 2 AND 3 are committed  |
+| 3    | **5**         | alone, after 4 is committed            |
+
+**Can run in parallel:** batches 1, 2, 3. They touch three disjoint project
+sets — `{shared, rpc-handlers, agent-generation}`, `{core, marketplace}`,
+`{skill-synthesis-ui}` — and no file appears in two of them. Three lanes fits
+the 3-concurrent cap exactly.
+
+**Cannot run in parallel:**
+
+- Batch 4 needs batch 1's shared types (its `SkillSynthesisRpcService`
+  wrapper references `SkillSynthesisSaveCloneBodyParams/Result`), batch 2's
+  `AppStateManager.consumeSkillsDivergedRequest()`, and batch 3's
+  `eligibleForBulkRebase` / `CloneBulkRebaseService` / `CloneBodySaveRequest`.
+  It also re-enters `skill-synthesis-ui`, which batch 3 owns. **Batch 4 starts
+  only after all three wave-1 batches are committed.**
+- Batch 5 edits specs that batches 1 and 3 created. It runs last, alone.
+
+**Rules every lane obeys:**
+
+- Never run `npx nx reset` — it is process-wide and would kill the other lanes.
+- Never run `nx test projA projB`. Use `npx nx run-many -t test -p <names>` and
+  **read the `Running target test for N projects` header, confirming N equals the
+  number of names given.** A misspelled alias is silently dropped and the target
+  reports success having run nothing.
+- Do not edit any `project.json`.
+- Do not edit `libs/backend/vscode-core/src/messaging/rpc-handler.ts`.
+- Executors do not edit this file and do not create git commits.
+
+---
+
+## Batch 1: Backend write path — the new RPC end to end — COMPLETE (commit 5d94abb87)
+
+- Recommended executor: **backend-developer** (sub-agent)
+- Fallback executor: CLI agent lane — codex
+- Execution mode: **sequential** (single executor, tasks in order)
+- Rationale: five tightly coupled files across three projects that must land as
+  one green unit (Concern 1). The whole risk of the task is concentrated in one
+  decision — which sidecar fields a save may write — and that is shared-context
+  backend reasoning, not boilerplate. Not CLI-lane shaped.
+- Tasks: 5 | Depends on: none
+- Projects: `@ptah-extension/shared`, `@ptah-extension/rpc-handlers`,
+  `@ptah-extension/agent-generation`
+- Acceptance criteria satisfied: **R3.2** (write lands under `~/.ptah/user`),
+  **R3.5**, **R3.6**, **R3.7**, **R3.8** (backend half), plus NFR Security,
+  NFR Data safety, NFR Concurrency, NFR Compatibility.
+
+### Task 1.1: Declare the `skillSynthesis:saveCloneBody` wire contract — COMPLETE
+
+- Files:
+  - `.../libs/shared/src/lib/types/rpc/rpc-skill-clone.types.ts`
+  - `.../libs/shared/src/lib/types/rpc.types.ts`
+- Plan reference: implementation-plan.md component 1 (lines 185-232)
+- Pattern to follow: `SkillSynthesisKeepCloneParams/Result`
+  (`rpc-skill-clone.types.ts:169-177`); registry entry `rpc.types.ts:1738`;
+  `RPC_METHOD_ENTRIES` entry `rpc.types.ts:3590`
+- Quality requirements: type declarations only; `libs/shared` imports no other
+  `@ptah-extension/*` lib
+- Validation notes: **three** edits in `rpc.types.ts` — the type import block
+  (`:395-420`), the `RpcMethodRegistry` entry (beside `:1738`), and the
+  `RPC_METHOD_ENTRIES` literal (beside `:3590`). Missing the third leaves the
+  method out of `RPC_METHOD_NAMES` and Task 1.3's `METHODS` tuple then fails
+  `manifest.ts:396`.
+- Implementation details: `SkillSynthesisSaveCloneBodyParams { kind, slug, body }`
+  and `...Result { kind, slug, historyTs }`, exactly as the plan's code block.
+
+### Task 1.2: `SkillSaveCloneBodyParamsSchema` — the first gate — COMPLETE
+
+- Depends on: Task 1.1
+- Files:
+  - `.../libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.schema.ts`
+  - `.../libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.schema.spec.ts`
+- Plan reference: implementation-plan.md component 2 (lines 234-271)
+- Pattern to follow: `SkillRebaseCloneParamsSchema` (`:393-396`)
+- Quality requirements: security — this is the boundary the NFR names; it runs
+  before any `join`
+- Validation notes: **reuse `SlugSchema` (`:326-334`) and `SkillCloneKindSchema`
+  (`:324`). Do not author a second slug rule** — they already reject `..`, `/`,
+  `\`, empty and >128 chars, which is all of R3.5. `body: z.string().min(1).max(1_048_576)`;
+  `.min(1)` is deliberate. **Verification step for the cap assumption:** confirm
+  no shipped clone body exceeds 1 MiB before landing (largest measured ~16 KB).
+- Implementation details: spec asserts each of `slug: '../x'`, `slug: 'a/b'`,
+  `slug: 'a\\b'`, `kind: 'plugin'`, `body: 42`, `body: ''` fails the parse.
+
+### Task 1.3: `registerSaveCloneBody` handler + `METHODS` tuple — COMPLETE
+
+- Depends on: Tasks 1.1, 1.2, 1.4
+- Files:
+  - `.../libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts`
+  - `.../libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.spec.ts`
+- Plan reference: implementation-plan.md component 3 (lines 273-310)
+- Pattern to follow: `registerRebaseClone` (`:1229-1270`)
+- Quality requirements: never return a raw filesystem error string; `parseParams`
+  / `requireDesktop` / `toUserError` / `report` reused verbatim
+- Validation notes: **the `METHODS` tuple at `:236-279` MUST gain the new name in
+  this same task** — see Concern 1. **No new constructor parameter**; `registry`
+  and `mirror` are already injected (`:298-301`). Log one `info` with
+  `{ kind, slug, historyTs }` on success.
+- Implementation details: implement every row of the plan's failure table —
+  schema reject, no registry row, `written: false` → `INVALID_PARAMS`,
+  `assertUnderUserLayer` throw → generic catch + `report`, non-desktop →
+  `PERSISTENCE_UNAVAILABLE`. Call it from `register()` (`:344-391`).
+
+### Task 1.4: `UserLayerMirrorService.saveCloneBody` — the write — COMPLETE
+
+- Depends on: none (can be written first; Task 1.3 calls it)
+- File: `.../libs/backend/agent-generation/src/lib/services/user-layer/user-layer-mirror.service.ts`
+- Plan reference: implementation-plan.md component 4 (lines 312-409), including
+  the **sidecar state machine table** and the nine ordered steps
+- Pattern to follow: `rebaseClone` (`:473-482`), `keepClone` (`:484-493`) —
+  lock, then dispatch dir vs file
+- Quality requirements: data safety — **step 5, the snapshot, is not optional.**
+  A destructive write with no preceding snapshot is a defect.
+- Validation notes: **THE BINDING RULE — `sourceHash` is NEVER written by a save.**
+  Writing it makes `liveCloneHash === sidecar.sourceHash` true, arms the
+  fast-forward branch (`:1138`, `:1200`) and lets the next upstream move silently
+  eat the edit. `diverged`, `pendingSourceHash`, `lastEnhancedAt`, `clonedAt`,
+  `pluginId`, `version`, `historyDir`, `orphaned` are all untouched.
+  `currentContentHash` is the ONLY field written. **If no sidecar exists, do not
+  create one** — its absence means "user-authored, hands off". **No SQLite
+  registry write.** No `mkdir`, no create on a missing clone.
+- Implementation details: result-shaped, never throwing, matching `RebaseResult`'s
+  `failed?`/`reason?` idiom (`:149-156`). `snapshotDirToHistory` for `skill`,
+  `snapshotFileToHistory` for `agent`/`command` — **the two layouts differ and
+  must match `listHistory` (`:580-617`)** or the snapshot never appears in the
+  drawer. Resolve the identical paths `readCloneBody` reads
+  (`skills-synthesis-rpc.handlers.ts:1967-1970`).
+
+### Task 1.5: Mirror service spec — the five proofs — COMPLETE
+
+- Depends on: Task 1.4
+- File: `.../libs/backend/agent-generation/src/lib/services/user-layer/user-layer-mirror.service.spec.ts`
+- Plan reference: implementation-plan.md component 4 verification seam (lines 400-407)
+- Pattern to follow: the existing temp-`~/.ptah/user` fixtures in
+  `user-layer-reconcile.spec.ts` / `user-layer-rebase-origins.spec.ts`
+- Validation notes: assert (a) the body lands on disk; (b) `listHistory` returns
+  one more entry; (c) `sourceHash`, `diverged`, `pendingSourceHash` and
+  `lastEnhancedAt` are byte-identical before and after while
+  `currentContentHash` changed; (d) a missing clone returns `written: false` and
+  creates no file; (e) a clone with no sidecar is written without one being
+  created. The full save-then-reconcile proof (R3.8) belongs to Task 5.1.
+
+### Batch 1 verification
+
+- Every listed file exists and contains real implementations, not stubs
+- `npx nx run-many -t typecheck -p @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/agent-generation`
+- `npx nx run-many -t lint -p @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/agent-generation`
+- `npx nx run-many -t test -p @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/agent-generation`
+  — **confirm the header reads `Running target test for 3 projects`**
+- `rpc-allowlist.spec.ts` is green (this is the Concern-1 gate)
+- The VS Code host's `expected-absent` spec still passes —
+  `SkillsSynthesisRpcHandlers` stays absent
+- `git diff --name-only` shows no `project.json` and no `rpc-handler.ts`
+- Reviewer: **code-logic-reviewer** — the sidecar table is a correctness contract
+  and the batch is the task's only new trust boundary
+
+---
+
+## Batch 2: Deep-link origin — `AppStateManager` intent + harness control — COMPLETE (commit da107e522)
+
+- Recommended executor: **CLI agent lane — codex** (one lane, tasks in order)
+- Fallback executor: frontend-developer (sub-agent)
+- Execution mode: **sequential** (2 tasks, 2.2 depends on 2.1)
+- Rationale: file-disjoint from every other batch, small, and fully specified by
+  plan component 9 steps 1-2 including the exact `<p>`→`<button>` replacement and
+  the `!isElectron()` branch. This is the CLI-lane shape the plan's own heuristic
+  names. Two tasks, so one lane rather than two.
+- Tasks: 2 | Depends on: none
+- Projects: `@ptah-extension/core`, `@ptah-extension/marketplace`
+- Acceptance criteria satisfied: **R2.4**, **R2.5** (origin half), **R2.6**
+
+### Task 2.1: One-shot navigation intent on `AppStateManager` — COMPLETE
+
+- Files:
+  - `.../libs/frontend/core/src/lib/services/app-state.service.ts`
+  - `.../libs/frontend/core/src/lib/services/app-state.service.spec.ts`
+- Plan reference: implementation-plan.md component 9 contract (lines 662-674)
+- Pattern to follow: `setThothActiveTab` (`:589-594`), `setCurrentView('thoth')`
+- Quality requirements: the intent is **deliberately NOT part of `ViewSlice`**
+- Validation notes: `ViewSlice` (`:169-176`) holds RETAINED per-workspace
+  pointers migrated by `switchWorkspace`. Putting the flag there re-applies the
+  filter on every later visit to the Skills tab. **`app-state.service.spec.ts:484-581`
+  (the per-workspace pointer block) must stay green — it is the proof the intent
+  did not leak into the slice.**
+- Implementation details: `openSkillsDivergedClones()` sets `currentView` to
+  `'thoth'`, sets the Thoth active tab to `'skills'`, raises the flag.
+  `consumeSkillsDivergedRequest(): boolean` is read-and-clear. Spec asserts both
+  pointers are set, the flag is raised, and a **second** `consume` returns false.
+
+### Task 2.2: Harness local-edit report becomes an activatable control — COMPLETE
+
+- Depends on: Task 2.1
+- Files:
+  - `.../libs/frontend/marketplace/src/lib/harness/harness-target-row.component.ts`
+  - `.../libs/frontend/marketplace/src/lib/harness/harness-health-badge.component.ts`
+  - `.../libs/frontend/marketplace/src/lib/harness/harness-health-badge.component.spec.ts`
+- Plan reference: implementation-plan.md component 9 wiring steps 1-2 (lines 676-689)
+- Pattern to follow: the row's existing `input()`-in / `output()`-out purity;
+  the badge's single instantiation at `harness-health-badge.component.ts:157`
+- Quality requirements: accessibility — a real `<button>`, keyboard-reachable,
+  with an accessible name stating where it leads (R2.4)
+- Validation notes: **REPLACE the inert `<p data-testid="harness-target-overwritten">`
+  (`harness-target-row.component.ts:124-134`), do not add a button beside it.**
+  Keep the same `data-testid` and the same copy. The row stays dumb — one new
+  `openDivergedClones = output<void>()`, **no injected service**; update its
+  doc comment at `:16-35`, which currently says it "emits nothing". The badge is
+  the container: it injects `AppStateManager` and `VSCodeService` beside its
+  existing `HarnessHealthStore` (`:202`) and binds the output.
+  **R2.6: when `!isElectron()`, render the original inert `<p>`** — the
+  destination is pinned absent in the VS Code host
+  (`expected-absent.ts:39`, `:54`). `harness-target-row.component.ts` has no
+  co-located spec; cover both host branches through the badge spec.
+- Implementation details: badge spec asserts the control is a button in Electron,
+  inert text in VS Code, and that activating it calls `openSkillsDivergedClones`
+  **exactly once**.
+
+### Batch 2 verification
+
+- Every listed file exists and contains real implementations
+- `npx nx run-many -t typecheck -p @ptah-extension/core @ptah-extension/marketplace`
+- `npx nx run-many -t lint -p @ptah-extension/core @ptah-extension/marketplace`
+- `npx nx run-many -t test -p @ptah-extension/core @ptah-extension/marketplace`
+  — **confirm the header reads `Running target test for 2 projects`**
+- `app-state.service.spec.ts:484-581` still green (no `ViewSlice` leak)
+- No file under `libs/frontend/skill-synthesis-ui/` was touched
+- Reviewer: **code-style-reviewer** — the risk here is a dumb component
+  acquiring an injection and an intent leaking into a retained slice; both are
+  structural
+
+---
+
+## Batch 3: Skills-UI primitives — gating, batch runner, body editor — COMPLETE (commit 13e105ce3)
+
+- Recommended executor: **frontend-developer** (sub-agent)
+- Fallback executor: CLI agent lane — antigravity
+- Execution mode: **sequential** (4 tasks; 3.2 and 3.3 both consume 3.1)
+- Rationale: three of the four tasks are new files, but the drawer edit-mode
+  switch carries real design judgement — focus moves into the textarea on entry
+  and back to the Edit button on cancel, and the read-only `ptah-markdown-block`
+  render must be replaced rather than hidden. That, plus shared context across
+  four files in one lib, is sub-agent shaped rather than CLI-lane shaped.
+- Tasks: 4 | Depends on: none
+- Project: `@ptah-extension/skill-synthesis-ui`
+- **This batch OWNS `libs/frontend/skill-synthesis-ui/src/index.ts`.** No other
+  batch may edit it.
+- Acceptance criteria satisfied: **R1.4** (service half), **R1.6**, **R3.1**,
+  **R3.3**, **R3.9** (predicate half)
+
+### Task 3.1: Bulk eligibility + editor predicate in `clone-action-gating` — COMPLETE
+
+- Files:
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/clone-action-gating.ts`
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/clone-action-gating.spec.ts`
+  - `.../libs/frontend/skill-synthesis-ui/src/index.ts` (export beside `:17-28`)
+- Plan reference: implementation-plan.md component 5 (lines 411-460)
+- Pattern to follow: `hasUpstreamSource` (`:86-88`), `cloneActionModel` (`:148-221`)
+- Quality requirements: maintainability — **no eligibility rule may be spelled a
+  second time in a template or a component**
+- Validation notes: **`orphaned` is compared `=== true`, never a truthiness flip**
+  — `CloneSummary.orphaned` is optional and its contract note at
+  `rpc-skill-clone.types.ts:44-47` requires it (R1.6). `hasUpstreamSource`
+  excludes `authored`/`synth`; without it the batch fires doomed calls the
+  backend answers `Cannot resolve upstream source`. `BULK_REBASE_EXPLANATION`
+  composes the existing `REBASE_EXPLANATION` (`:69-71`) — **do not author a
+  second wording.**
+- Implementation details: `eligibleForBulkRebase(clones, kind)`,
+  `canEditCloneBody(clone, body)` (`body !== null`), `BULK_REBASE_EXPLANATION`.
+  Spec covers: orphaned excluded, authored excluded, synth excluded,
+  non-diverged excluded, other kinds excluded, **`orphaned: undefined` INCLUDED**.
+
+### Task 3.2: `CloneBulkRebaseService` — the batch runner — COMPLETE
+
+- Depends on: Task 3.1
+- Files (both CREATE):
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/services/clone-bulk-rebase.service.ts`
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/services/clone-bulk-rebase.service.spec.ts`
+- Plan reference: implementation-plan.md component 6 (lines 462-509)
+- Pattern to follow: `SkillSynthesisRpcService.rebaseClone`
+  (`skill-synthesis-rpc.service.ts:480-493`); the soft-failure read at
+  `skill-clones-view.component.ts:501-508`
+- Quality requirements: **sequential by design** — `Promise.all` is explicitly
+  rejected; `withSlugLock` serialises only per slug, so parallel rebases run
+  N full tree hashes at once for no upside
+- Validation notes: **R1.4 in full — each iteration is individually try/caught.**
+  A thrown transport error and a `failed: true` result both become
+  `{ ok: false, reason }` with the slug named, and the loop continues. The batch
+  never aborts early. `running` is cleared in a `finally` so an unexpected throw
+  cannot leave the UI permanently disabled. It does NOT decide eligibility, does
+  NOT render, does NOT refresh the list.
+- Implementation details: `@Injectable()` **provided by the view, not root** —
+  its state is one surface's. Signals `running`, `progress` (`{done,total}`),
+  `outcomes`; `run(clones)`, `reset()`. Spec: stub RPC where clone 2 of 3 throws
+  and clone 3 returns `failed: true`; assert all three attempted, three outcomes,
+  both failures name their slugs, `running` ends `false`.
+
+### Task 3.3: `CloneBodyEditorComponent` — COMPLETE
+
+- Depends on: Task 3.1
+- Files (both CREATE):
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/clone-body-editor.component.ts`
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/clone-body-editor.component.spec.ts`
+- Plan reference: implementation-plan.md component 8 (lines 587-643)
+- Pattern to follow: the lib's standalone / `OnPush` / `input()` / `output()`
+  conventions
+- Quality requirements: accessibility — visible label or `aria-label` naming the
+  clone; Save/Cancel are real buttons in DOM order
+- Validation notes: **never `[innerHTML]`.** The editor is a `<textarea>`; the
+  preview stays `ptah-markdown-block` (`libs/frontend/markdown`). While
+  `saving()` is true, Save and Cancel are disabled so a double-submit cannot race
+  the slug lock. A failed save leaves edit mode with the draft intact.
+- Implementation details: selector `ptah-clone-body-editor`;
+  `value = input.required<string>()`, `saving = input<boolean>(false)`,
+  `save = output<string>()`, `cancel = output<void>()`. `@angular/forms` for the
+  textarea binding. Spec: seeds from `value`, emits edited text on save, emits
+  **nothing** on cancel (R3.3 — no output means no write can occur), disables
+  both while `saving`.
+
+### Task 3.4: Drawer edit mode + `CloneBodySaveRequest` — COMPLETE
+
+- Depends on: Tasks 3.1, 3.3
+- Files:
+  - MODIFY `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/clone-detail-drawer.component.ts`
+  - **CREATE** `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/clone-detail-drawer.component.spec.ts`
+  - MODIFY `.../libs/frontend/skill-synthesis-ui/src/index.ts` (export beside `:11-15`)
+- Plan reference: implementation-plan.md component 8 drawer additions (lines 605-638)
+- Pattern to follow: the drawer's existing inputs `:365-378` and outputs `:380-386`
+- Quality requirements: **the drawer stays strictly presentational** — `input()`
+  in, `output()` out, no injected service. The RPC call stays in the smart view.
+- Validation notes: **Concern 4 decision — declare `CloneBodySaveRequest`
+  (`{ clone, body }`) in this file**, beside the drawer's existing output types,
+  so the index export sits beside the existing drawer exports as the plan asks.
+  **Concern 5 — `clone-detail-drawer.component.spec.ts` does not exist today;
+  create it.** The Body section is `:237-261` and the read-only render is
+  `<ptah-markdown-block [content]="text" />` at `:251`; activating Edit
+  **replaces** that render, it does not hide it beside a second one. The drawer
+  is 437 lines — a mode switch plus four members keeps it well under 700 because
+  the editor is a separate file.
+- Implementation details: add `canEditBody = input<boolean>(false)`,
+  `bodySaving = input<boolean>(false)`, `bodySaved = output<CloneBodySaveRequest>()`.
+  Focus moves into the textarea on entering edit mode and back to the Edit button
+  on cancel. Spec asserts the markdown block is absent in edit mode and the Edit
+  affordance is absent when `canEditBody()` is false.
+
+### Batch 3 verification
+
+- All four created files exist with real implementations, not stubs
+- `npx nx run-many -t typecheck -p @ptah-extension/skill-synthesis-ui`
+- `npx nx run-many -t lint -p @ptah-extension/skill-synthesis-ui`
+- `npx nx run-many -t test -p @ptah-extension/skill-synthesis-ui`
+  — **confirm the header reads `Running target test for 1 project`**
+- `skill-clones-state.service.spec.ts:96` (`divergedCount` semantics) still green
+  — `SkillClonesStateService.divergedCount` is **left alone** by this task
+- `skill-clones-view.component.ts` and `skill-synthesis-tab.component.ts` are
+  **untouched** by this batch (`git diff --name-only` confirms)
+- Reviewer: **code-logic-reviewer** — R1.4's continue-past-failure and R1.6's
+  `=== true` are both behavioural contracts a style pass would not catch
+
+---
+
+## Batch 4: Skills-UI integration — filter, count, bulk control, save, deep-link arrival — IN_PROGRESS
+
+- Recommended executor: **frontend-developer** (sub-agent)
+- Fallback executor: CLI agent lane — claude cli (`pc-effaa2c4-0d41-4e95-980a-89d3bf971b4d`)
+- Execution mode: **sequential**
+- Rationale: this is the batch that needs design judgement mid-flight — the
+  585-line view gains new state, a second dialog, an in-flight lock and a
+  deep-link input, and the plan pre-authorises a facade-rule extraction if it
+  crosses 700 lines. It also holds both contended files, so it cannot be
+  parallelised even in principle.
+- Tasks: 4 | **Depends on: Batches 1, 2 AND 3 — all three must be committed**
+- Project: `@ptah-extension/skill-synthesis-ui`
+- **This batch OWNS `skill-clones-view.component.ts` and
+  `skill-synthesis-tab.component.ts`.** It must NOT edit `src/index.ts` (batch 3
+  owns it); if a new export is genuinely needed, say so rather than editing it.
+- Acceptance criteria satisfied: **R1.1, R1.2, R1.3, R1.5, R1.7, R2.1, R2.2,
+  R2.3, R2.5** (arrival half), **R3.1/R3.3/R3.4** (wiring), **R3.9**
+
+### Task 4.1: RPC facade + state-service `saveCloneBody` — PENDING
+
+- Files:
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/services/skill-synthesis-rpc.service.ts`
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/services/skill-clones-state.service.ts`
+- Plan reference: implementation-plan.md component 7 files (lines 584-585)
+- Pattern to follow: the `keepClone` wrapper (`skill-synthesis-rpc.service.ts:496-509`)
+- Quality requirements: the frontend imports no backend lib; types come from
+  `@ptah-extension/shared`
+- Validation notes: **needs batch 1's `SkillSynthesisSaveCloneBodyParams/Result`**
+  — this is the ordering constraint that forces batch 4 after batch 1. Use
+  `PROMOTE_MS` as the timeout, matching its sibling. `SkillClonesStateService.divergedCount`
+  is **left alone** — changing its semantics breaks a passing spec for no gain.
+- Implementation details: `saveCloneBody` on the facade; a state-service method
+  that delegates and reloads `detail`.
+
+### Task 4.2: View — diverged filter, count, bulk control, in-flight lock — PENDING
+
+- Depends on: Task 4.1
+- Files:
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/skill-clones-view.component.ts`
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/skill-clones-view.component.spec.ts`
+- Plan reference: implementation-plan.md component 7 (lines 511-585), including
+  open question 1 (CURRENT KIND ONLY)
+- Pattern to follow: the existing confirmation dialog `:248-295` — same
+  construction, same `role="dialog" aria-modal="true"`, same keyboard-reachable
+  Cancel; `busySlug` `:318`, `showToast` `:577-580`, `toMessage` `:582-584`
+- Quality requirements: accessibility — the filter is a real button or checkbox
+  with `aria-pressed`; the bulk control's accessible name names the count.
+  Maintainability — the file is 585 lines against a 700-line WARN; **if it
+  crosses, apply the facade rule: extract `BulkRebaseConfirmComponent` as a
+  nameable collaborator keeping `ptah-skill-clones-view`'s selector and
+  behaviour. Never a `helpers`/`utils` file.**
+- Validation notes: **R1.1 — at zero eligible, render the control DISABLED with a
+  stated reason, not silently absent.** **R1.3 — nothing is written before the
+  confirm click**; the confirmation names `bulkEligible().length` and renders
+  `BULK_REBASE_EXPLANATION`. **R1.5 — call `state.refreshClones()` exactly ONCE
+  after the batch settles**; count and list are `computed` and update with no
+  reload. **R1.7 — `[disabled]="actionsLocked()"` on the bulk button, the refresh
+  button, the confirm button, and `[busy]` on every card and the drawer.**
+  **R2.3 — an emptied filter renders the `clones-empty` branch (`:181-191`) with
+  distinct copy, never a blank region.** **Open question 1: the bulk action acts
+  on the CURRENT KIND ONLY**, and the count readout must append the inert
+  `(M in other kinds)` residual — it offers no action and starts no write.
+  Provide `CloneBulkRebaseService` **on the component**, not in root.
+- Implementation details: `divergedOnly = signal(false)`, `bulkEligible`,
+  `divergedInOtherKinds`, `bulkConfirmOpen`, `actionsLocked`; `visibleClones`
+  gains `&& (!this.divergedOnly() || c.diverged)`. Batch outcomes render as one
+  summary toast naming the failed slugs. Spec covers every bullet of the plan's
+  verification seam (lines 575-580).
+
+### Task 4.3: Deep-link arrival — tab consumes the flag, view receives an input — PENDING
+
+- Depends on: Task 4.2
+- Files:
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.ts`
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.spec.ts`
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/skill-clones-view.component.ts` (the receiving `input()`)
+- Plan reference: implementation-plan.md component 9 wiring steps 3-4 (lines 690-695)
+  and data flow C (lines 774-782)
+- Pattern to follow: `_subView` `:878`, `setSubView` `:915`, `SkillSubView`
+  union `:52-57`
+- Quality requirements: one consumption only
+- Validation notes: **Concern 3 decision — the TAB injects `AppStateManager` and
+  calls `consumeSkillsDivergedRequest()` in a single `effect()`; the clones view
+  does NOT consume it and does NOT inject `AppStateManager` for this purpose.**
+  Component 7's wording says the view injects it; that wording is superseded —
+  a read-and-clear consumed twice is a race between two effects, as the plan
+  itself warns. **`skill-synthesis-tab.component.ts:580` currently renders
+  `<ptah-skill-clones-view />` with no bindings** — add the binding there.
+  **Needs batch 2's `AppStateManager` methods** — this is the second ordering
+  constraint on batch 4.
+- Implementation details: on a raised flag, `setSubView('clones')` and pass the
+  filter down as an `input()` the view applies to `divergedOnly` (R2.5). Tab spec
+  asserts a raised flag lands on the `clones` sub-view with the filter applied.
+
+### Task 4.4: Drawer wiring, save orchestration, and the CLAUDE.md correction — PENDING
+
+- Depends on: Tasks 4.1, 4.2
+- Files:
+  - `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/skill-clones-view.component.ts`
+  - `.../libs/frontend/skill-synthesis-ui/CLAUDE.md`
+- Plan reference: implementation-plan.md component 7 R3.2/R3.4 (lines 551-555)
+  and the files-affected note (lines 915-919)
+- Pattern to follow: the post-apply refresh already at `:459-466`
+- Validation notes: **R3.4 — on a successful save call `state.loadDetail(slug, kind)`
+  and `state.refreshClones()`; `historyCount` rises because the mirror
+  snapshotted.** **R3.9/R2.6 — feed `canEditBody` from `canEditCloneBody()`; the
+  whole view is already behind the Electron placeholder (`:97-107`), so the
+  affordance cannot render in VS Code.** A save failure reuses `showToast` with
+  `toMessage(err)` — the message is already sanitised server-side by `toUserError`.
+  **CLAUDE.md: DELETE the Guidelines bullet at `libs/frontend/skill-synthesis-ui/CLAUDE.md:89`
+  — "Do not Electron-gate this tab — skills work on VS Code too."** It
+  contradicts the file's own "Runtime: ELECTRON-ONLY" section at `:29` and
+  contradicts `expected-absent.ts:39`. A reader following it would build the VS
+  Code parity this task explicitly rejected. Delete the bullet; do not edit the
+  `:29` section.
+- Implementation details: `onSaveBody(req)` → `state.saveCloneBody(...)`; bind
+  `bodySaving` from the in-flight signal.
+
+### Batch 4 verification
+
+- Every listed file exists and contains real implementations
+- `npx nx run-many -t typecheck -p @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/agent-generation @ptah-extension/core @ptah-extension/marketplace @ptah-extension/skill-synthesis-ui`
+- `npx nx run-many -t lint -p @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/agent-generation @ptah-extension/core @ptah-extension/marketplace @ptah-extension/skill-synthesis-ui`
+- `npx nx run-many -t test -p @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/agent-generation @ptah-extension/core @ptah-extension/marketplace @ptah-extension/skill-synthesis-ui`
+  — **confirm the header reads `Running target test for 6 projects`**
+- `libs/frontend/skill-synthesis-ui/src/index.ts` is **not** in
+  `git diff --name-only` for this batch
+- `skill-clones-state.service.spec.ts:96` still green
+- `skill-clones-view.component.ts` line count reported; if over 700, the facade
+  extraction was applied with a nameable collaborator
+- Reviewers: **code-logic-reviewer** (R1.5's single refresh, R1.7's lock, R2.5's
+  one-shot consumption) **and code-style-reviewer** (the 700-line ceiling and
+  the facade rule if it triggered)
+
+---
+
+## Batch 5: Cross-cutting proofs — the two nobody else owns — PENDING
+
+- Recommended executor: **senior-tester** (sub-agent)
+- Fallback executor: backend-developer
+- Execution mode: **sequential**
+- Rationale: the plan's own handoff names exactly these two proofs as belonging
+  to no single batch. Both span a boundary a per-batch spec cannot see: one
+  crosses the save path into the reconciler, the other crosses the UI batch
+  runner into the RPC layer.
+- Tasks: 2 | **Depends on: Batch 4**
+- Projects: `@ptah-extension/agent-generation`, `@ptah-extension/skill-synthesis-ui`
+- Acceptance criteria satisfied: **R3.8** end to end, **R1.4** end to end
+
+### Task 5.1: Save-then-reconcile persistence (R3.8) — PENDING
+
+- File: `.../libs/backend/agent-generation/src/lib/services/user-layer/user-layer-reconcile.spec.ts`
+  (or a new sibling spec in the same folder if that file is already at its limit)
+- Plan reference: implementation-plan.md component 4 verification seam item (e)
+  (lines 405-407) and the architecture-level testability list (lines 841-844)
+- Pattern to follow: the existing reconcile fixtures in that file
+- Validation notes: **this is the highest-defect-cost criterion in the task.**
+  Save a body, then run the reconcile pass with a **MOVED** upstream, and assert
+  the saved body is still on disk and the clone is marked **diverged** rather
+  than fast-forwarded. The fast-forward branch it must not reach is
+  `user-layer-mirror.service.ts:1138` (dir) / `:1200` (file). If this test
+  passes trivially, check that the upstream really moved in the fixture.
+- Implementation details: also assert the `.history` snapshot from the save is
+  still present and `listHistory` returns it.
+
+### Task 5.2: Partial-batch outcome, end to end (R1.4) — PENDING
+
+- File: `.../libs/frontend/skill-synthesis-ui/src/lib/components/clones/skill-clones-view.component.spec.ts`
+- Plan reference: implementation-plan.md component 7 verification seam (lines 575-580)
+- Validation notes: a mid-batch failure still reaches the last clone, the failed
+  slug is named in the summary toast, exactly `N` `rebaseClone` calls are made
+  for `N` eligible clones, and `state.refreshClones()` is called **exactly once**.
+  Task 3.2 proves this at the service level; this proves it reaches the user.
+- Implementation details: if the batch-4 spec already covers a case here, extend
+  rather than duplicate it.
+
+### Batch 5 verification
+
+- Both proofs exist as named, running tests — not skipped, not `it.todo`
+- `npx nx run-many -t test -p @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/agent-generation @ptah-extension/core @ptah-extension/marketplace @ptah-extension/skill-synthesis-ui`
+  — **confirm the header reads `Running target test for 6 projects`**
+- No production file was modified by this batch (`git diff --name-only` shows
+  only `*.spec.ts`); if a proof cannot pass without a production change, that is
+  a finding to report, not a change to make here
+- Reviewer: **code-logic-reviewer** — a test that passes for the wrong reason is
+  the failure mode this batch exists to avoid
+
+---
+
+## Acceptance-criteria coverage map
+
+| Criterion | Batch | Criterion | Batch | Criterion | Batch    |
+| --------- | ----- | --------- | ----- | --------- | -------- |
+| R1.1      | 4     | R2.1      | 4     | R3.1      | 3, 4     |
+| R1.2      | 4     | R2.2      | 4     | R3.2      | 1, 4     |
+| R1.3      | 4     | R2.3      | 4     | R3.3      | 3, 4     |
+| R1.4      | 3, 5  | R2.4      | 2     | R3.4      | 4        |
+| R1.5      | 4     | R2.5      | 2, 4  | R3.5      | 1        |
+| R1.6      | 3     | R2.6      | 2, 4  | R3.6      | 1        |
+| R1.7      | 4     |           |       | R3.7      | 1        |
+|           |       |           |       | R3.8      | 1, 5     |
+|           |       |           |       | R3.9      | 3, 4     |
+
+All 22 criteria are claimed by at least one batch.
