@@ -1,7 +1,11 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { _electron, type ElectronApplication } from '@playwright/test';
+import {
+  _electron,
+  type ElectronApplication,
+  type Page,
+} from '@playwright/test';
 
 export interface LaunchOptions {
   /** Extra environment variables to merge into the Electron process env. */
@@ -16,6 +20,33 @@ export interface LaunchOptions {
    * pre-seeded copy of the real profile so surfaces paint real data.
    */
   userDataDir?: string;
+  /**
+   * Wait until the preparing shell has navigated to the Angular renderer.
+   * Defaults to true. Lifecycle specs that deliberately close during boot may
+   * opt out and wait only for Electron's first (preparing) window.
+   */
+  waitForRenderer?: boolean;
+}
+
+const DEFAULT_LAUNCH_TIMEOUT_MS = 30_000;
+
+/**
+ * Wait for the reusable main window to leave the preparing shell and load the
+ * real Angular renderer. Since TASK_2026_411 the preparing shell is Electron's
+ * first window, so `electronApplication.firstWindow()` alone no longer means
+ * the IPC/RPC surface has finished registering.
+ */
+export async function waitForPtahRenderer(
+  app: ElectronApplication,
+  timeoutMs = DEFAULT_LAUNCH_TIMEOUT_MS,
+): Promise<Page> {
+  const win = await app.firstWindow({ timeout: timeoutMs });
+  await win.waitForURL(
+    (url) =>
+      url.protocol === 'file:' && url.pathname.endsWith('/renderer/index.html'),
+    { timeout: timeoutMs },
+  );
+  return win;
 }
 
 /**
@@ -104,7 +135,7 @@ export async function launchPtah(
       ...(opts.args ?? []),
     ],
     env: env as Record<string, string>,
-    timeout: opts.timeout ?? 30_000,
+    timeout: opts.timeout ?? DEFAULT_LAUNCH_TIMEOUT_MS,
   });
   if (ownsUserDataDir) {
     app.process().on('exit', () => {
@@ -117,6 +148,18 @@ export async function launchPtah(
   app.process().stderr?.on('data', (chunk: Buffer) => {
     process.stderr.write(`[ptah-electron stderr] ${chunk.toString('utf8')}`);
   });
+
+  if (opts.waitForRenderer !== false) {
+    try {
+      await waitForPtahRenderer(
+        app,
+        opts.timeout ?? DEFAULT_LAUNCH_TIMEOUT_MS,
+      );
+    } catch (error: unknown) {
+      await app.close().catch(() => undefined);
+      throw error;
+    }
+  }
 
   return app;
 }

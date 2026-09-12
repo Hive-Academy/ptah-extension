@@ -22,3 +22,17 @@ request, or additional worktree was performed.
 - [b7-report.md](./b7-report.md), [b7-fixes-report.md](./b7-fixes-report.md) — Codex home resolution, version-matched 0.147.0 account protocol, single-flight fake-App-Server account usage service, provider RPC, and the dashboard account card, plus review fixes (concurrency, provider-switch reload, joined-caller abort, int64 precision, version-child tracking).
 - Reviews: [b6-code-logic-review.md](./b6-code-logic-review.md), [b6-code-logic-rereview.md](./b6-code-logic-rereview.md), [b7-code-logic-review.md](./b7-code-logic-review.md), [b7-code-logic-rereview.md](./b7-code-logic-rereview.md).
 - B8 (compaction settings) was implemented inside PR #493 together with TASK_2026_414.
+
+## PR #494 electron-e2e CI fix
+
+- [electron-e2e-fix-report.md](./electron-e2e-fix-report.md) — identifies the
+  single preparing-window readiness race introduced by `90c3ded29`, records the
+  central launch-harness fix, and includes the red/green focused reproduction,
+  full-suite counts, static checks, and the one unrelated local-profile failure.
+- Product boot and RPC registration were not changed. The e2e launcher now
+  waits for the first window to navigate from the preparing shell to the Angular
+  renderer before normal tests receive the application; the intentional
+  early-quit lifecycle path explicitly opts out.
+- The executor committed nothing. The fix was reviewed and committed separately
+  after its scope was confirmed to be harness and specs only, with no product
+  boot, DI or RPC-handler change.
