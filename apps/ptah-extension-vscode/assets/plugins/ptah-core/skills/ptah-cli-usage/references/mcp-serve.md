@@ -55,7 +55,7 @@ equivalent and avoids the ordering question entirely.
 
 ---
 
-## 3. The 7 MVP tools (advertised on `tools/list`)
+## 3. The 8 MVP tools (advertised on `tools/list`)
 
 Source of truth: `MCP_MVP_TOOL_NAMES` and `buildMcpMvpTools()` in
 `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-stdio/tool-builders.ts`.
@@ -68,10 +68,21 @@ because MCP hosts namespace tools by server name on the wire
 | `agent_spawn`    | `task` (string)          | `cli`, `ptahCliId`, `workingDirectory`, `model`, plus a few | `SpawnAgentResult { agentId, cli, status, … }`                |
 | `agent_status`   | —                        | `agentId`                                                   | `AgentProcessInfo` (single) or full list                      |
 | `agent_read`     | `agentId`                | `tail` (number)                                             | Buffered stdout/stderr + exit code if finished                |
-| `agent_steer`    | `agentId`, `instruction` | —                                                           | `{ steered: true }` once the steering message is forwarded    |
+| `agent_message`  | `agentId`, `message`     | —                                                           | `{ agentId, mode, detail? }` — `mode` is `steer`, `interrupt-resume`, `queue-next-turn` or `unsupported` |
+| `agent_report`   | `message`                | `summary`                                                   | `{ delivered, reason?, parentSessionId? }` — no `agentId` input |
 | `agent_stop`     | `agentId`                | —                                                           | Final `AgentProcessInfo` after termination                    |
 | `agent_list`     | —                        | —                                                           | Detected CLIs + configured Ptah CLI agents                    |
 | `session_submit` | `task` (string)          | `cwd`, `allowSubagents` (default `true`), `profile`         | Aggregated text + `structuredContent { tabId, sessionId, … }` |
+
+`agent_message` replaces the retired `agent_steer`. Steering is only ONE
+of the four modes it can report back, and **`interrupt-resume` discards
+the interrupted turn's partial work** — `steer` and `queue-next-turn` do
+not. `agent_report` has **no `agentId` argument by design**: on this
+stdio transport, identity is filled from the `PTAH_MCP_HOST_AGENT_ID`
+environment variable the launching process sets — the same treatment
+`PTAH_MCP_HOST_SESSION_ID` already gets below. Nothing sets that
+variable today, so `agent_report` refuses with `unattributed-caller`
+until a launcher does.
 
 Notes:
 
@@ -97,9 +108,9 @@ visible to `tools/list` and return `mcp_tool_not_found` on `tools/call`.
 ptah --auto-approve mcp-serve --allow-tools agent_list,agent_spawn,agent_read
 ```
 
-With the flag omitted, the full 7-tool MVP set is advertised. On boot the
-command writes `[ptah-mcp] ready (tools=…)` to stderr — `mvp:7` when no
-allowlist was given.
+With the flag omitted, the full 8-tool MVP set is advertised. On boot the
+command writes `[ptah-mcp] ready (tools=…)` to stderr, naming the
+allowlist when one was given.
 
 ---
 
@@ -166,7 +177,7 @@ stdin is sufficient.
 | Symptom                                                       | Likely cause                                                                                     | Fix                                                                                |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
 | Host hangs on `tools/call` for ~5 minutes, then exit code `3` | Missing `--auto-approve`; an approval-gated operation is blocked because hosts have no UI.       | Add `--auto-approve` before `mcp-serve` (or `PTAH_AUTO_APPROVE=true` to the env).  |
-| `tools/list` returns fewer than 7 tools                       | `--allow-tools <csv>` narrowed the advertised set.                                               | Drop the flag or expand the CSV to include the missing names.                      |
+| `tools/list` returns fewer than 8 tools                       | `--allow-tools <csv>` narrowed the advertised set.                                               | Drop the flag or expand the CSV to include the missing names.                      |
 | `tools/call` returns `mcp_tool_not_found`                     | Tool name typo, or the name was excluded by `--allow-tools`.                                     | Check `tools/list` output OR `session.describe` to see the live catalog.           |
 | `tools/call` returns `mcp_invalid_tool_args`                  | Zod validation failed; `structuredContent.issues` carries the field-level diagnostics.           | Inspect `issues.fieldErrors` and fix the offending key.                            |
 | `tools/call` returns `sdk_init_failed`                        | `tools/call` arrived while `withEngine` was still bootstrapping. Rare; happens during cold boot. | Retry after `notifications/initialized` lands. The handshake completes in < 3s.    |

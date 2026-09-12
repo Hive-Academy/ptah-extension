@@ -57,12 +57,39 @@ Spawn, monitor, and control sub-agents from within a session.
 | `ptah_agent_read`   | Read an agent's definition                       | Inspect the prompt before spawning                      |
 | `ptah_agent_spawn`  | Spawn a sub-agent with a task                    | Parallelize multi-file work or delegate to a specialist |
 | `ptah_agent_status` | Check a running agent's status                   | Poll for completion                                     |
-| `ptah_agent_steer`  | Send a mid-flight instruction to a running agent | Nudge a long-running task                               |
+| `ptah_agent_message` | Send a mid-flight instruction to a running agent | Nudge a long-running task                               |
+| `ptah_agent_report`  | Let a spawned agent report back to the session that spawned it | A background specialist hands its findings to the session that started it |
 | `ptah_agent_stop`   | Terminate a running agent                        | Abort runaway work                                      |
 
 :::tip
 Best practice: cap concurrent `ptah_agent_spawn` at **3** to avoid token-budget churn.
 :::
+
+`ptah_agent_message` replaced `ptah_agent_steer`. Steering is only one of
+four delivery modes the tool can report back — `steer`, `interrupt-resume`,
+`queue-next-turn`, `unsupported` — and which one an agent gets is a runtime
+fact reported by `ptah_agent_list`, not something to assume from the CLI
+name. `interrupt-resume` discards the interrupted turn's partial work;
+`steer` and `queue-next-turn` do not.
+
+`ptah_agent_report` takes no `agentId` — a spawned agent's identity is
+established by how its call reached Ptah, never by an argument it supplies.
+`delivered: false` with a `reason` is a normal, honest answer (for example
+the spawning session ended), not an error to retry blindly.
+
+`ListAgents` / `SendMessage` are a separate, SDK-level peer-messaging
+mechanism: they reach only sessions built on Ptah's own agent SDK, never a
+CLI agent spawned via `ptah_agent_spawn`. To wait on another session instead
+of polling it, the **main conversation only** may subscribe with
+`notify_when_idle`, and only for sessions on this machine — a subagent that
+calls it gets the whole call refused. For a CLI agent spawned via
+`ptah_agent_spawn`, poll `ptah_agent_status` on a matched interval instead.
+
+This cross-session messaging path needs a CLI version of at least 2.1.234 on
+native Windows (2.1.224 elsewhere); `crossSessionInbound` needs 2.1.224;
+`notify_when_idle` needs 2.1.236. The pinned agent SDK version in this repo
+is 0.3.150 — `origin.fromMode` needs SDK 0.3.234 and is out of reach on the
+pinned version, and nothing here depends on it.
 
 ## Git worktree management
 

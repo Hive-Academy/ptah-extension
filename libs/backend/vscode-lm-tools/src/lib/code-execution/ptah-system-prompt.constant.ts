@@ -225,7 +225,8 @@ You have access to **agent orchestration tools** that let you spawn background w
 | \`ptah_agent_spawn\` | Launch an agent with a task |
 | \`ptah_agent_status\` | Check agent progress (all or by ID) |
 | \`ptah_agent_read\` | Read agent output so far |
-| \`ptah_agent_steer\` | Send instruction to running CLI agent (if supported) |
+| \`ptah_agent_message\` | Instruct a running agent. Returns the mode actually used (\`steer\`, \`interrupt-resume\`, \`queue-next-turn\` or \`unsupported\`) — \`interrupt-resume\` DISCARDS the interrupted turn's partial work, the other two do not. Check \`ptah_agent_list\` for a given agent's capability rather than assuming one |
+| \`ptah_agent_report\` | Have a SPAWNED agent report back to the session that spawned it. Takes no agent id — identity comes from how the call reached Ptah. \`delivered: false\` with a reason is a normal answer, not a bug |
 | \`ptah_agent_stop\` | Stop a running agent |
 | \`ptah_agent_list\` | List all available agents and their status |
 

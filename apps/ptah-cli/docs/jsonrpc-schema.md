@@ -494,7 +494,7 @@ CLI reply:
 { "jsonrpc": "2.0", "id": "desc-1", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.2", "mode": "interact", "catalog": { "methods": ["task.submit", "task.cancel", "session.shutdown", "session.history", "rpc.call", "session.describe", "session.methods"], "tools": [] }, "errorCodes": ["db_lock", "provider_unavailable", "auth_required", "rate_limited", "license_required", "unknown", "internal_failure", "cli_agent_unavailable", "sdk_init_failed", "workspace_missing", "proxy_bind_failed", "proxy_invalid_request", "permission_gate_unavailable", "claude_cli_not_found", "mcp_handshake_failed", "mcp_tool_not_found", "mcp_invalid_tool_args", "mcp_tool_denied"], "capabilities": ["chat", "session", "permission", "question"] } }
 ```
 
-Example — describe in `mcp-serve` mode (catalog includes the 7 MCP tools):
+Example — describe in `mcp-serve` mode (catalog includes the 8 MCP tools):
 
 ```json
 { "jsonrpc": "2.0", "id": "desc-2", "method": "session.describe" }
@@ -503,7 +503,7 @@ Example — describe in `mcp-serve` mode (catalog includes the 7 MCP tools):
 CLI reply (abbreviated):
 
 ```json
-{ "jsonrpc": "2.0", "id": "desc-2", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.2", "mode": "mcp-serve", "catalog": { "methods": ["initialize", "tools/list", "tools/call", "notifications/cancelled", "session.describe", "session.methods"], "tools": [{ "name": "agent_spawn", "description": "..." }, { "name": "agent_status", "description": "..." }, { "name": "agent_read", "description": "..." }, { "name": "agent_steer", "description": "..." }, { "name": "agent_stop", "description": "..." }, { "name": "agent_list", "description": "..." }, { "name": "session_submit", "description": "..." }] }, "errorCodes": [...], "capabilities": ["mcp"] } }
+{ "jsonrpc": "2.0", "id": "desc-2", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.2", "mode": "mcp-serve", "catalog": { "methods": ["initialize", "tools/list", "tools/call", "notifications/cancelled", "session.describe", "session.methods"], "tools": [{ "name": "agent_spawn", "description": "..." }, { "name": "agent_status", "description": "..." }, { "name": "agent_read", "description": "..." }, { "name": "agent_message", "description": "..." }, { "name": "agent_report", "description": "..." }, { "name": "agent_stop", "description": "..." }, { "name": "agent_list", "description": "..." }, { "name": "session_submit", "description": "..." }] }, "errorCodes": [...], "capabilities": ["mcp"] } }
 ```
 
 Example — methods-only introspection:

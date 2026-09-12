@@ -54,7 +54,16 @@ This lets the parent continue working (or spawn more CLIs) while helpers run. Th
 - `ptah_agent_spawn` — start a CLI with a prompt
 - `ptah_agent_status` — poll for completion
 - `ptah_agent_read` — fetch transcript and results
-- `ptah_agent_steer` — send follow-up instructions mid-run
+- `ptah_agent_message` — send a follow-up instruction mid-run. It replaces the
+  retired `ptah_agent_steer` and reports back which of four delivery modes
+  actually fired (`steer`, `interrupt-resume`, `queue-next-turn`,
+  `unsupported`) — check `ptah_agent_list` for a given CLI's capability rather
+  than assuming one. `interrupt-resume` discards the interrupted turn's
+  partial work; `steer` and `queue-next-turn` do not.
+- `ptah_agent_report` — let a spawned CLI report back to the session that
+  spawned it. Only reachable from a CLI Ptah itself spawned, and it takes no
+  agent id: identity comes from how the call reached Ptah, not from an
+  argument.
 - `ptah_agent_stop` — cancel a running CLI
 
 ## Concurrency limits
