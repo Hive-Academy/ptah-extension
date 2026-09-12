@@ -21,6 +21,7 @@ import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
 import type { DependencyContainer } from 'tsyringe';
 import { bootstrapElectron } from './activation/bootstrap';
 import { registerStartupConfigIpc } from './activation/startup-config-ipc';
+import { registerRecoveryModeIpc } from './activation/recovery-mode-ipc';
 import { BootCoordinator } from './activation/boot-coordinator';
 import { createBootReadinessBroadcaster } from './activation/boot-readiness-broadcaster';
 import { wireRuntimePreWindow } from './activation/wire-runtime';
@@ -121,6 +122,12 @@ if (!gotLock) {
         '[Ptah Electron] Workspace storage did not become ready:',
         startupShellQuery['code'],
       );
+      // `bootstrapElectron` threw PAST the `IpcBridge` registration — it awaits
+      // workspace-storage readiness first, deliberately. Without this the
+      // recovery window has no listener on `rpc`, `get-state` or `set-state`:
+      // the SYNC `get-state` blocks the renderer outright and every RPC waits
+      // out its own timeout with no error (TASK_2026_411).
+      registerRecoveryModeIpc(startupShellQuery['code'] ?? 'startup-failed');
       await preparingWindow
         .loadFile(preparingShellPath, { query: startupShellQuery })
         .catch((loadError: unknown) => {
