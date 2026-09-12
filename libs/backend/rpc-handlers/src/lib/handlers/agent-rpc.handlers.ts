@@ -870,6 +870,15 @@ export class AgentRpcHandlers {
       ? params.parentSessionId
       : undefined;
 
+    // ONE id, minted before the handle exists (TASK_2026_402). The handle
+    // carries the MCP URL the resumed agent calls back on, and
+    // `spawnFromSdkHandle` would otherwise mint the record's id AFTER that URL
+    // was baked in — so the URL would name no agent, and every
+    // `ptah_agent_report` from a RESUMED agent would be refused as an
+    // `unattributed-caller`. Same reservation `agent-namespace.builder.ts`
+    // makes on the fresh-spawn path.
+    const agentId = this.agentProcessManager.reserveAgentId();
+
     const spawnResult = await this.ptahCliRegistry.spawnAgent(
       params.ptahCliId,
       params.task,
@@ -877,6 +886,7 @@ export class AgentRpcHandlers {
         workingDirectory: workspaceRoot,
         resumeSessionId: params.cliSessionId,
         parentSessionId,
+        agentId,
       },
     );
 
@@ -908,6 +918,7 @@ export class AgentRpcHandlers {
         ptahCliId: params.ptahCliId,
         resumedFromAgentId: params.previousAgentId,
         resumeSessionId: params.cliSessionId,
+        agentId,
       },
     );
     spawnResult.setAgentId(result.agentId);

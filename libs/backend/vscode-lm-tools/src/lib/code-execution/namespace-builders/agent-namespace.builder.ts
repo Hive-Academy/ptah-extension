@@ -2,8 +2,8 @@
  * Agent Namespace Builder
  *
  * Async agent orchestration via CLI agents. Provides spawn, status, read,
- * steer, stop, list, waitFor methods for managing headless CLI agents as
- * background workers. Which agents exist is a runtime fact answered by `list`
+ * message, report, stop, list, waitFor methods for managing headless CLI
+ * agents as background workers. Which agents exist is a runtime fact answered by `list`
  * (`SYSTEM_CLI_TYPES` for the shipped adapters, user config for Ptah CLI
  * providers) — this layer never names a vendor.
  *
@@ -13,6 +13,7 @@
 import type { AgentNamespace } from '../types';
 import type {
   AgentProcessManager,
+  AgentReportDelivery,
   CliDetectionService,
   SdkHandle,
 } from '@ptah-extension/cli-agent-runtime';
@@ -108,8 +109,12 @@ export interface AgentNamespaceDependencies {
   resolveSessionId?: (tabIdOrSessionId: string) => string;
   /**
    * Deliver a child agent's report to the session that spawned it
-   * (TASK_2026_402, Component 7). Structural rather than a concrete type so
-   * this lib keeps depending on `cli-agent-runtime`'s barrel only for types.
+   * (TASK_2026_402, Component 7). A structural FUNCTION rather than the
+   * `AgentReportRouter` class, so this lib keeps depending on
+   * `cli-agent-runtime`'s barrel for types only. `AgentReportDelivery` is
+   * imported by name deliberately: the refusal reason is a closed union, and
+   * widening it to `string` here would let a caller invent a reason no test
+   * covers.
    *
    * Optional because a host that never registered `cli-agent-runtime`'s
    * container has no router to resolve. The resolver in
@@ -121,11 +126,7 @@ export interface AgentNamespaceDependencies {
     agentId: string;
     message: string;
     summary?: string;
-  }) => Promise<{
-    delivered: boolean;
-    reason?: string;
-    parentSessionId?: string;
-  }>;
+  }) => Promise<AgentReportDelivery>;
 }
 
 /**
@@ -146,6 +147,7 @@ export function buildAgentNamespace(
     getDisabledClis,
     getPreferredAgentOrder,
     resolveSessionId,
+    deliverAgentReport,
   } = deps;
 
   return {
@@ -259,11 +261,26 @@ export function buildAgentNamespace(
       return agentProcessManager.readOutput(agentId, tail);
     },
 
-    steer: async (agentId, instruction) => {
-      // `steer` is still the PtahAPI method name and still the MCP tool name;
-      // only the delivery changed. Batch 5 of TASK_2026_402 renames both and
-      // surfaces the outcome, which this signature cannot carry yet.
-      await agentProcessManager.sendToAgent(agentId, instruction);
+    message: async (agentId, message) => {
+      // The outcome is RETURNED, not swallowed: `unsupported` means nothing
+      // was delivered and `interrupt-resume` means a turn's partial work was
+      // discarded. A `void` return would have made both look like a success.
+      return agentProcessManager.sendToAgent(agentId, message);
+    },
+
+    report: async (input) => {
+      if (!deliverAgentReport) {
+        // Absent wiring is a clear error, never a silent no-op — the same rule
+        // `harness-namespace.builder.ts` follows for its optional
+        // collaborators. A `delivered: false` here would be indistinguishable
+        // from a refusal the agent could act on.
+        throw new Error(
+          'Agent reporting is unavailable: no report router is wired into this ' +
+            'host. Register the CLI agent runtime container before building the ' +
+            'Ptah API.',
+        );
+      }
+      return deliverAgentReport(input);
     },
 
     stop: async (agentId) => {

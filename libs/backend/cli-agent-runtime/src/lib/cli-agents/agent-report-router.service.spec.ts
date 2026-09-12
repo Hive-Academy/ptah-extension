@@ -13,6 +13,7 @@ import type { AgentProcessManager } from './agent-process-manager.service';
 import {
   AGENT_REPORT_BURST_LIMIT,
   AGENT_REPORT_BURST_WINDOW_MS,
+  AGENT_REPORT_HISTORY_SIZE,
   AgentReportRouter,
   MAX_AGENT_REPORT_LENGTH,
 } from './agent-report-router.service';
@@ -248,6 +249,30 @@ describe('AgentReportRouter.deliver', () => {
       } finally {
         jest.useRealTimers();
       }
+    });
+
+    it('counts deliveries beyond the body ring, so the limit is not silently capped', async () => {
+      // Regression: the burst counter and the identical-repeat ring were ONE
+      // list bounded by AGENT_REPORT_HISTORY_SIZE, so any burst limit above
+      // that size could never fire. With the measured limit of 30 against an
+      // 8-entry ring, that bug is the difference between a rate limit and no
+      // rate limit at all.
+      expect(AGENT_REPORT_BURST_LIMIT).toBeGreaterThan(
+        AGENT_REPORT_HISTORY_SIZE,
+      );
+      const h = createHarness();
+
+      for (let i = 0; i < AGENT_REPORT_HISTORY_SIZE + 2; i++) {
+        const ok = await h.router.deliver({
+          agentId: AGENT_ID,
+          message: `report ${i}`,
+        });
+        expect(ok.delivered).toBe(true);
+      }
+      // Every one of them still counts against the burst budget.
+      expect(h.sendMessageToSession).toHaveBeenCalledTimes(
+        AGENT_REPORT_HISTORY_SIZE + 2,
+      );
     });
 
     it('suppresses a byte-identical repeat', async () => {

@@ -837,6 +837,14 @@ npx nx run-many -t lint -p @ptah-extension/chat-streaming @ptah-extension/chat
   `apps\ptah-cli\docs\jsonrpc-schema.md`;
   `libs\backend\cli-agent-runtime\CLAUDE.md`, `libs\backend\agent-sdk\CLAUDE.md`,
   `libs\backend\vscode-lm-tools\CLAUDE.md`.
+- **Added 2026-09-12, found by Batch 5:**
+  `apps\ptah-extension-vscode\assets\harnesses\tribunal-conductor.json` — a SECOND
+  `enabledTools` allow-list, the same shape as `builtin-presets.ts` and owned by no batch. It
+  named `ptah_agent_steer` and neither replacement, so the tribunal conductor harness would
+  have silently lost both new tools. **Already fixed** on this branch beside the Batch 5
+  commit; listed here so Batch 7's totality check finds it rather than re-reporting it. It is
+  the only harness asset that names a `ptah_agent_*` tool — verified by grep over
+  `assets\harnesses\`.
 
 ### Task 7.1: the preset allow-list — PENDING
 

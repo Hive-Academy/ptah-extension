@@ -99,7 +99,8 @@ function makeFakeStdioServer(): jest.Mocked<StdioMcpServerService> {
       'agent_spawn',
       'agent_status',
       'agent_read',
-      'agent_steer',
+      'agent_message',
+      'agent_report',
       'agent_stop',
       'agent_list',
       'session_submit',
@@ -148,7 +149,8 @@ function makeFakeStdioServer(): jest.Mocked<StdioMcpServerService> {
           'agent_spawn',
           'agent_status',
           'agent_read',
-          'agent_steer',
+          'agent_message',
+          'agent_report',
           'agent_stop',
           'agent_list',
           'session_submit',
@@ -401,12 +403,13 @@ describe('ptah mcp-serve', () => {
       );
       if (!isJsonRpcSuccessResponse(resp)) throw new Error('expected success');
       const tools = (resp.result as { tools: { name: string }[] }).tools;
-      expect(tools).toHaveLength(7);
+      expect(tools).toHaveLength(8);
       expect(tools.map((t) => t.name)).toEqual([
         'agent_spawn',
         'agent_status',
         'agent_read',
-        'agent_steer',
+        'agent_message',
+        'agent_report',
         'agent_stop',
         'agent_list',
         'session_submit',
@@ -602,12 +605,13 @@ describe('ptah mcp-serve', () => {
       expect(result.mode).toBe('mcp-serve');
       expect(result.schemaVersion).toBe(JSONRPC_SCHEMA_VERSION);
       expect(result.version).toBe('0.2.32');
-      expect(result.catalog.tools).toHaveLength(7);
+      expect(result.catalog.tools).toHaveLength(8);
       expect(result.catalog.tools.map((t) => t.name)).toEqual([
         'agent_spawn',
         'agent_status',
         'agent_read',
-        'agent_steer',
+        'agent_message',
+        'agent_report',
         'agent_stop',
         'agent_list',
         'session_submit',

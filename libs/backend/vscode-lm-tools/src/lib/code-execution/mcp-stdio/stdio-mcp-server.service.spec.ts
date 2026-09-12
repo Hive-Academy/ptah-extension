@@ -67,7 +67,8 @@ function makeAgentApi(
       lineCount: 0,
       truncated: false,
     }),
-    steer: jest.fn().mockResolvedValue(undefined),
+    message: jest.fn().mockResolvedValue({ mode: 'queue-next-turn' }),
+    report: jest.fn().mockResolvedValue({ delivered: false, reason: 'unattributed-caller' }),
     stop: jest.fn().mockResolvedValue({
       agentId: 'a-1',
       cli: 'codex',
@@ -140,12 +141,13 @@ describe('StdioMcpServerService', () => {
         'agent_spawn',
         'agent_status',
         'agent_read',
-        'agent_steer',
+        'agent_message',
+        'agent_report',
         'agent_stop',
         'agent_list',
         'session_submit',
       ]);
-      expect(tools).toHaveLength(7);
+      expect(tools).toHaveLength(8);
       expect(tools.every((t) => !t.name.startsWith('ptah_'))).toBe(true);
     });
 
@@ -157,12 +159,12 @@ describe('StdioMcpServerService', () => {
       expect(tools.map((t) => t.name)).toEqual(['agent_spawn', 'agent_list']);
     });
 
-    it('ignores an empty allowedTools array (returns all 7 tools)', () => {
+    it('ignores an empty allowedTools array (returns all 8 tools)', () => {
       const { svc } = makeService();
       const req = makeRequest({ method: 'tools/list' });
       const resp = svc.handleToolsList(req, []);
       const tools = (resp.result as { tools: { name: string }[] }).tools;
-      expect(tools).toHaveLength(7);
+      expect(tools).toHaveLength(8);
     });
   });
 
@@ -339,21 +341,39 @@ describe('StdioMcpServerService', () => {
       expect(api.read).toHaveBeenCalledWith('a-1', 50);
     });
 
-    it('routes agent_steer to PtahAPI.agent.steer', async () => {
+    it('routes agent_message to PtahAPI.agent.message and reports the mode', async () => {
       const { svc, api } = makeService();
       const resp = await svc.handleToolsCall(
         makeRequest({
           params: {
-            name: 'agent_steer',
-            arguments: { agentId: 'a-1', instruction: 'be brief' },
+            name: 'agent_message',
+            arguments: { agentId: 'a-1', message: 'be brief' },
           },
         }),
       );
-      expect(api.steer).toHaveBeenCalledWith('a-1', 'be brief');
+      expect(api.message).toHaveBeenCalledWith('a-1', 'be brief');
       const result = resp.result as {
-        structuredContent: { agentId: string; steered: boolean };
+        structuredContent: { agentId: string; mode: string };
       };
-      expect(result.structuredContent.steered).toBe(true);
+      expect(result.structuredContent.mode).toBe('queue-next-turn');
+    });
+
+    it('refuses agent_report with unattributed-caller when no agent id was declared', async () => {
+      // No PTAH_MCP_HOST_AGENT_ID in the test environment, so the stdio
+      // surface cannot attribute the report — and must say so rather than
+      // guess which agent is speaking.
+      const { svc, api } = makeService();
+      const resp = await svc.handleToolsCall(
+        makeRequest({
+          params: { name: 'agent_report', arguments: { message: 'blocked' } },
+        }),
+      );
+      expect(api.report).not.toHaveBeenCalled();
+      const result = resp.result as {
+        structuredContent: { delivered: boolean; reason: string };
+      };
+      expect(result.structuredContent.delivered).toBe(false);
+      expect(result.structuredContent.reason).toBe('unattributed-caller');
     });
 
     it('routes agent_stop to PtahAPI.agent.stop', async () => {
@@ -419,7 +439,8 @@ describe('StdioMcpServerService', () => {
         agent_spawn: { task: 'noop' },
         agent_status: {},
         agent_read: { agentId: 'a-1' },
-        agent_steer: { agentId: 'a-1', instruction: 'go' },
+        agent_message: { agentId: 'a-1', message: 'go' },
+        agent_report: { message: 'go' },
         agent_stop: { agentId: 'a-1' },
         agent_list: {},
         // session_submit is exercised in its own describe block.

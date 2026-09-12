@@ -31,12 +31,39 @@ import { SessionId } from '@ptah-extension/shared';
 import type { AgentProcessInfo, IAgentAdapter } from '@ptah-extension/shared';
 import { AgentProcessManager } from './agent-process-manager.service';
 
+/*
+ * ---------------------------------------------------------------------------
+ * Inbox-guard limits — MEASURED, not chosen (TASK_2026_402, Batch 5).
+ *
+ * Batch 4 landed these as reasoned guesses and said so, because the Claude
+ * CLI's own inbox guard lives in a bun-compiled native binary and the
+ * `@anthropic-ai/claude-agent-sdk` package carries no `crossSessionInbound`
+ * literal at all. It is readable anyway: the bundle is embedded as plain text
+ * in the executable. Read off claude-code **2.1.268**
+ * (`~/.local/share/claude/versions/2.1.268`), the cross-session inbox guard's
+ * defaults are exactly:
+ *
+ *   { bucketCapacity: 30, refillPerSecond: 0.5, dedupWindowMs: 30000,
+ *     maxSelfHops: 10, maxChainLength: 28, maxTrackedSenders: 256 }
+ *
+ * and its size check is `if (framedLength > 1048576) throw messageTooLarge`.
+ * The user-facing strings that go with them are
+ * `sender exceeded the peer message rate limit`,
+ * `identical to the previous message from this sender` and
+ * `cross-session message exceeds the line cap`.
+ *
+ * Re-measure by grepping the version binary for `bucketCapacity:` — the values
+ * are on one line. Do not re-derive them from the SDK package; it has none.
+ * ---------------------------------------------------------------------------
+ */
+
 /**
- * Body cap, in characters. Copied from the Claude channel's own cross-session
- * message cap rather than invented, so an agent that learns the limit on one
- * vendor has learned it everywhere (Req 6.5). Batch 5's `ptah_agent_report`
- * Zod schema pins the same number at the tool boundary; this is the enforcing
- * copy, because the router is also reachable from the stdio surface.
+ * Body cap, in characters. The Claude channel's own cap, confirmed as the
+ * literal `1048576` in its size check (see the measurement note above), so an
+ * agent that learns the limit on one vendor has learned it everywhere
+ * (Req 6.5). Batch 5's `ptah_agent_report` Zod schema pins the same number at
+ * the tool boundary; this is the enforcing copy, because the router is also
+ * reachable from the stdio surface.
  */
 export const MAX_AGENT_REPORT_LENGTH = 1_048_576;
 
@@ -46,10 +73,19 @@ export const MAX_AGENT_REPORT_LENGTH = 1_048_576;
  * child would otherwise drive the parent's session as fast as the child can
  * call a tool.
  *
+ * 30 per 60 s is the Claude channel's own sustained rate expressed in the
+ * shape this router implements. Its guard is a token bucket — capacity 30,
+ * refilling at 0.5 tokens per second — so a fresh sender may burst 30 and then
+ * earns one every two seconds. A 30-per-60 s sliding window has the identical
+ * sustained rate and the identical burst ceiling; the two differ only in the
+ * recovery curve, where the bucket drips and the window releases in a block.
+ * That difference is deliberate and is the whole delta: adopting a second rate
+ * limiter shape here would be a bigger change than the accuracy is worth.
+ *
  * Only deliveries count. A refused call consumes no budget, so an agent cannot
  * lock itself out by retrying into a refusal.
  */
-export const AGENT_REPORT_BURST_LIMIT = 5;
+export const AGENT_REPORT_BURST_LIMIT = 30;
 
 /** Sliding window the burst limit is measured over. */
 export const AGENT_REPORT_BURST_WINDOW_MS = 60_000;
@@ -58,6 +94,14 @@ export const AGENT_REPORT_BURST_WINDOW_MS = 60_000;
  * How many recent report bodies are remembered per agent for identical-repeat
  * suppression. Bounded so a long-running agent cannot grow this without limit;
  * the window doubles as the burst window's backing store.
+ *
+ * This one is deliberately STRICTER than the measured channel and stays as it
+ * is. Claude's guard compares against the single immediately-previous body
+ * inside `dedupWindowMs` (30 s) — its refusal string says "identical to the
+ * PREVIOUS message from this sender". An 8-entry ring also catches an A-B-A
+ * alternation, which is the shape a stuck agent actually produces. Loosening
+ * it to one entry to match would trade a real protection for a symmetry
+ * nothing needs, so the divergence is recorded rather than removed.
  */
 export const AGENT_REPORT_HISTORY_SIZE = 8;
 
@@ -132,7 +176,26 @@ function firstLine(message: string, limit: number): string {
 
 @injectable()
 export class AgentReportRouter {
-  private readonly history = new Map<string, ReportHistoryEntry[]>();
+  /**
+   * Delivery timestamps per agent, for the burst limit. SEPARATE from
+   * {@link recentBodies} on purpose: these two were one list until the burst
+   * limit was corrected to the measured 30, at which point the bug became
+   * visible — the counter read a list the ring had already truncated to 8, so
+   * no limit above 8 could ever fire. Two structures, two bounds, and neither
+   * silently caps the other.
+   *
+   * Bounded by the window AND by the limit: a 31st entry is never reached
+   * because the 31st delivery inside the window is refused.
+   */
+  private readonly burstTimestamps = new Map<string, number[]>();
+
+  /**
+   * The last {@link AGENT_REPORT_HISTORY_SIZE} delivered bodies per agent, for
+   * identical-repeat suppression. Bodies are capped at
+   * {@link MAX_AGENT_REPORT_LENGTH}, so this ring — not the burst list — is
+   * what bounds the memory an agent's history can cost.
+   */
+  private readonly recentBodies = new Map<string, ReportHistoryEntry[]>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -209,14 +272,13 @@ export class AgentReportRouter {
     }
 
     const now = Date.now();
-    const recent = this.recentEntries(agentId, now);
-    if (recent.length >= AGENT_REPORT_BURST_LIMIT) {
+    if (this.recentDeliveryCount(agentId, now) >= AGENT_REPORT_BURST_LIMIT) {
       return this.refuse('rate-limited', agentId, {
         limit: AGENT_REPORT_BURST_LIMIT,
         windowMs: AGENT_REPORT_BURST_WINDOW_MS,
       });
     }
-    if (recent.some((entry) => entry.message === message)) {
+    if (this.recentBodyEntries(agentId, now).some((e) => e.message === message)) {
       return this.refuse('duplicate-report', agentId, {
         detail: 'an identical report from this agent was delivered recently',
       });
@@ -298,26 +360,46 @@ export class AgentReportRouter {
     return { delivered: false, reason };
   }
 
-  /** Delivered entries still inside the burst window, oldest first. */
-  private recentEntries(agentId: string, now: number): ReportHistoryEntry[] {
-    const entries = this.history.get(agentId);
+  /** How many deliveries from this agent are still inside the burst window. */
+  private recentDeliveryCount(agentId: string, now: number): number {
+    const stamps = this.burstTimestamps.get(agentId);
+    if (!stamps) return 0;
+    const cutoff = now - AGENT_REPORT_BURST_WINDOW_MS;
+    const live = stamps.filter((at) => at > cutoff);
+    if (live.length === 0) {
+      this.burstTimestamps.delete(agentId);
+    } else if (live.length !== stamps.length) {
+      this.burstTimestamps.set(agentId, live);
+    }
+    return live.length;
+  }
+
+  /** Recently delivered bodies from this agent, still inside the window. */
+  private recentBodyEntries(
+    agentId: string,
+    now: number,
+  ): readonly ReportHistoryEntry[] {
+    const entries = this.recentBodies.get(agentId);
     if (!entries) return [];
     const cutoff = now - AGENT_REPORT_BURST_WINDOW_MS;
     const live = entries.filter((entry) => entry.at > cutoff);
     if (live.length === 0) {
-      this.history.delete(agentId);
+      this.recentBodies.delete(agentId);
     } else if (live.length !== entries.length) {
-      this.history.set(agentId, live);
+      this.recentBodies.set(agentId, live);
     }
     return live;
   }
 
   private remember(agentId: string, entry: ReportHistoryEntry): void {
-    const entries = this.history.get(agentId) ?? [];
-    entries.push(entry);
-    // Bounded ring: the oldest entries fall off, so one agent's history costs
+    const stamps = this.burstTimestamps.get(agentId) ?? [];
+    stamps.push(entry.at);
+    this.burstTimestamps.set(agentId, stamps);
+
+    const entries = [...(this.recentBodies.get(agentId) ?? []), entry];
+    // Bounded ring: the oldest bodies fall off, so one agent's history costs
     // at most AGENT_REPORT_HISTORY_SIZE bodies no matter how long it runs.
-    this.history.set(
+    this.recentBodies.set(
       agentId,
       entries.slice(Math.max(entries.length - AGENT_REPORT_HISTORY_SIZE, 0)),
     );

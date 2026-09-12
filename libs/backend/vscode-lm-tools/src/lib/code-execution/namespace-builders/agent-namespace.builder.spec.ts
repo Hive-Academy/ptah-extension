@@ -3,7 +3,7 @@
  *
  * Covers the 7 methods exposed on ptah.agent.*:
  *   - spawn — ptah-cli routing, disabled-CLI guard, enrichment of spawn request
- *   - status / read / steer / stop — thin delegation to AgentProcessManager
+ *   - status / read / message / stop — thin delegation to AgentProcessManager
  *   - list   — merging cliDetectionService + PtahCliRegistry + preferred-order
  *              ranking
  *   - waitFor — polling loop, natural completion, and timeout rejection
@@ -123,14 +123,15 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('buildAgentNamespace — shape', () => {
-  it('exposes spawn/status/read/steer/stop/list/waitFor', () => {
+  it('exposes spawn/status/read/message/report/stop/list/waitFor', () => {
     const { deps } = makeDeps();
     const ns = buildAgentNamespace(deps);
 
     expect(typeof ns.spawn).toBe('function');
     expect(typeof ns.status).toBe('function');
     expect(typeof ns.read).toBe('function');
-    expect(typeof ns.steer).toBe('function');
+    expect(typeof ns.message).toBe('function');
+    expect(typeof ns.report).toBe('function');
     expect(typeof ns.stop).toBe('function');
     expect(typeof ns.list).toBe('function');
     expect(typeof ns.waitFor).toBe('function');
@@ -358,7 +359,7 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// status / read / steer / stop — pure delegation
+// status / read / message / report / stop — pure delegation
 // ---------------------------------------------------------------------------
 
 describe('buildAgentNamespace — thin delegates', () => {
@@ -384,13 +385,46 @@ describe('buildAgentNamespace — thin delegates', () => {
     expect(mocks.processManager.readOutput).toHaveBeenCalledWith('x', 50);
   });
 
-  it('steer() routes the instruction through sendToAgent()', async () => {
+  it('message() routes through sendToAgent and RETURNS the outcome', async () => {
+    // The outcome must not be swallowed: `unsupported` means nothing was
+    // delivered and `interrupt-resume` means a turn's partial work is gone.
     const { deps, mocks } = makeDeps();
-    await buildAgentNamespace(deps).steer('x', 'go left');
+    mocks.processManager.sendToAgent.mockResolvedValue({
+      mode: 'interrupt-resume',
+      detail: 'turn aborted',
+    });
+    const outcome = await buildAgentNamespace(deps).message('x', 'go left');
     expect(mocks.processManager.sendToAgent).toHaveBeenCalledWith(
       'x',
       'go left',
     );
+    expect(outcome).toEqual({ mode: 'interrupt-resume', detail: 'turn aborted' });
+  });
+
+  it('report() forwards to the wired deliverAgentReport', async () => {
+    const deliverAgentReport = jest
+      .fn()
+      .mockResolvedValue({ delivered: true, parentSessionId: 'sess-1' });
+    const { deps } = makeDeps();
+    const ns = buildAgentNamespace({ ...deps, deliverAgentReport });
+
+    await expect(
+      ns.report({ agentId: 'a-1', message: 'blocked', summary: 'blocked' }),
+    ).resolves.toEqual({ delivered: true, parentSessionId: 'sess-1' });
+    expect(deliverAgentReport).toHaveBeenCalledWith({
+      agentId: 'a-1',
+      message: 'blocked',
+      summary: 'blocked',
+    });
+  });
+
+  it('report() throws a NAMED error when no router is wired', async () => {
+    // Absent wiring is a host bug, not a state the calling agent can act on,
+    // so it must not masquerade as a `delivered: false` refusal.
+    const { deps } = makeDeps();
+    await expect(
+      buildAgentNamespace(deps).report({ agentId: 'a-1', message: 'x' }),
+    ).rejects.toThrow(/Agent reporting is unavailable/);
   });
 
   it('stop() awaits and returns the manager result', async () => {

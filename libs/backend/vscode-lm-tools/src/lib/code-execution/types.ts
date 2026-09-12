@@ -10,8 +10,10 @@ import type {
   SpawnAgentResult,
   AgentProcessInfo,
   AgentOutput,
+  AgentMessageOutcome,
   CliDetectionResult,
 } from '@ptah-extension/shared';
+import type { AgentReportDelivery } from '@ptah-extension/cli-agent-runtime';
 import type {
   WorkspaceInfo,
   ProjectInfo,
@@ -228,7 +230,7 @@ export interface FilesNamespace {
 
 /**
  * Agent orchestration namespace
- * Enables spawning, monitoring, and steering CLI agents as background workers.
+ * Enables spawning, monitoring, and messaging CLI agents as background workers.
  * Supports fire-and-check async delegation pattern.
  */
 export interface AgentNamespace {
@@ -255,11 +257,36 @@ export interface AgentNamespace {
   read: (agentId: string, tail?: number) => Promise<AgentOutput>;
 
   /**
-   * Send steering instruction to agent stdin
+   * Send a message to a running agent.
+   *
+   * The delivery mechanism is chosen from the agent's own declared capability
+   * — never from its CLI name — and the mechanism that was used is REPORTED
+   * back in {@link AgentMessageOutcome.mode}. `unsupported` means nothing was
+   * delivered; `interrupt-resume` means the agent's in-flight turn was aborted
+   * and its partial work discarded. Neither is a plain success, so neither may
+   * be collapsed into `void`.
+   *
    * @param agentId - Agent ID
-   * @param instruction - Text to send to stdin
+   * @param message - Text to deliver to the agent
    */
-  steer: (agentId: string, instruction: string) => Promise<void>;
+  message: (agentId: string, message: string) => Promise<AgentMessageOutcome>;
+
+  /**
+   * Deliver a running agent's report to the session that spawned it.
+   *
+   * `agentId` identifies the REPORTING agent and is supplied by the MCP
+   * transport (the `/agent/{id}` URL segment on HTTP), never by the calling
+   * model — a sender-supplied id would be forgeable by any same-user process.
+   *
+   * Returns `delivered: false` with a machine-readable `reason` whenever the
+   * report did not reach a session. It never reports a delivery it did not
+   * make.
+   */
+  report: (input: {
+    agentId: string;
+    message: string;
+    summary?: string;
+  }) => Promise<AgentReportDelivery>;
 
   /**
    * Stop a running agent

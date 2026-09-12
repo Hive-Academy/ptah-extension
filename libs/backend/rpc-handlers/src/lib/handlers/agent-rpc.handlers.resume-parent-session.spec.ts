@@ -81,7 +81,11 @@ interface Harness {
   handlers: AgentRpcHandlers;
   rpcHandler: MockRpcHandler;
   registry: { spawnAgent: jest.Mock; listAgents: jest.Mock };
-  processManager: { spawnFromSdkHandle: jest.Mock; spawn: jest.Mock };
+  processManager: {
+    spawnFromSdkHandle: jest.Mock;
+    spawn: jest.Mock;
+    reserveAgentId: jest.Mock;
+  };
 }
 
 function makeHarness(): Harness {
@@ -99,6 +103,9 @@ function makeHarness(): Harness {
   const processManager = {
     spawnFromSdkHandle: jest.fn().mockResolvedValue({ agentId: 'a-1' }),
     spawn: jest.fn().mockResolvedValue({ agentId: 'a-1' }),
+    // The resume path reserves the record's id BEFORE the handle is built, so
+    // the MCP URL the resumed agent calls back on can name it (TASK_2026_402).
+    reserveAgentId: jest.fn().mockReturnValue('reserved-agent-id'),
   };
 
   const workspace = {
@@ -185,6 +192,23 @@ describe('AgentRpcHandlers — agent:resumeCliSession parent session', () => {
     expect(
       h.processManager.spawnFromSdkHandle.mock.calls[0][1].parentSessionId,
     ).toBe('chat-session-uuid');
+  });
+
+  it('reserves ONE agent id and hands it to both halves of the resume', async () => {
+    // Without this, a RESUMED ptah-cli agent gets the pre-existing
+    // workspace-only MCP URL, so `ptah_agent_report` sees no `/agent/{id}`
+    // segment and refuses every report as `unattributed-caller`. The failure
+    // is silent on both sides, which is why it is pinned here.
+    const h = makeHarness();
+
+    await resume(h, 'chat-session-uuid');
+
+    expect(h.processManager.reserveAgentId).toHaveBeenCalledTimes(1);
+    const reserved = h.processManager.reserveAgentId.mock.results[0].value;
+    expect(h.registry.spawnAgent.mock.calls[0][2].agentId).toBe(reserved);
+    expect(h.processManager.spawnFromSdkHandle.mock.calls[0][1].agentId).toBe(
+      reserved,
+    );
   });
 
   it('preserves the resume and parent session ids on both halves of the ptah-cli resume', async () => {

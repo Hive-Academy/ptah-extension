@@ -214,6 +214,34 @@ describe('mcp-response-formatter › agent namespace', () => {
     expect(out).toMatch(/not installed/);
   });
 
+  it('formatAgentList renders the messaging capability for a system CLI', () => {
+    const agents = [
+      { cli: 'cursor', installed: true, messagingMode: 'interrupt' },
+    ] as unknown as CliDetectionResult[];
+
+    expect(formatAgentList(agents)).toMatch(/messaging: interrupt/);
+  });
+
+  it('formatAgentList appends messaging to the Ptah CLI row (Req 5.2)', () => {
+    // The cell must read the SAME declaration the message router reads. A
+    // hardcoded value here would advertise a mechanism the router never uses.
+    const agents = [
+      {
+        cli: 'ptah-cli',
+        installed: true,
+        messagingMode: 'queue',
+        ptahCliId: 'pc-1',
+        ptahCliName: 'Reviewer',
+        providerName: 'Acme',
+      },
+    ] as unknown as CliDetectionResult[];
+
+    const out = formatAgentList(agents);
+    expect(out).toMatch(/provider: Acme/);
+    expect(out).toMatch(/ptahCliId: pc-1/);
+    expect(out).toMatch(/messaging: queue/);
+  });
+
   it('formatAgentList marks a disabled-but-installed agent as disabled', () => {
     const agents = [
       { cli: 'codex', installed: true, messagingMode: 'steer', disabled: true },
