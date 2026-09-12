@@ -1164,6 +1164,40 @@ describe('DiffTabsService file views', () => {
     expect(service.diffTabs()[0].view?.requestId).toBe(2);
   });
 
+  // L-5. The request id used to restart at 1 on every NEW tab, so closing a
+  // view tab and re-opening the same file minted the same id twice while the
+  // first read was still in flight. The first response then satisfied the new
+  // tab's guard and replaced the newer state — including its reveal line.
+  it('drops a closed tab’s late response after the same file is re-opened', async () => {
+    const { service } = makeService();
+    let resolveFirst!: (value: ReturnType<typeof fileResult>) => void;
+    let resolveSecond!: (value: ReturnType<typeof fileResult>) => void;
+    const first = new Promise<ReturnType<typeof fileResult>>(
+      (resolve) => (resolveFirst = resolve),
+    );
+    const second = new Promise<ReturnType<typeof fileResult>>(
+      (resolve) => (resolveSecond = resolve),
+    );
+    mockRpcCall.mockReturnValueOnce(first).mockReturnValueOnce(second);
+
+    const opening = service.openFileView({ path: 'C:\\ws\\a.ts', line: 500 });
+    await Promise.resolve();
+    service.closeDiff(service.diffTabs()[0].filePath);
+    expect(service.diffTabs()).toHaveLength(0);
+
+    const reopening = service.openFileView({ path: 'C:\\ws\\a.ts', line: 10 });
+    resolveSecond(fileResult('newer'));
+    await reopening;
+    resolveFirst(fileResult('older'));
+    await opening;
+
+    expect(service.diffTabs()).toHaveLength(1);
+    expect(service.diffTabs()[0].view).toMatchObject({
+      content: 'newer',
+      reveal: { line: 10, column: 1 },
+    });
+  });
+
   it('refreshes a matching view on file content change', async () => {
     const { service } = makeService();
     mockRpcCall.mockResolvedValue(fileResult('before'));

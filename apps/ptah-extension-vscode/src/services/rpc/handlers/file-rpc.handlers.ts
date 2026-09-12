@@ -14,8 +14,10 @@
  *     nothing to do with the session the link came from.
  *  2. **An absolute path outside the open folders is not refused, it is
  *     CONFIRMED.** Refusing would regress a case that works today (a link into
- *     an unregistered sibling repo), so the user is shown the absolute path in
- *     a modal and opens it deliberately. That path goes through
+ *     an unregistered sibling repo), so the user is shown the path the reveal
+ *     will actually open — the resolved target, whenever a link makes it
+ *     differ from what was requested — in a modal, and opens it deliberately.
+ *     That path goes through
  *     `resolveForHostReveal`, which authorizes no root set but still applies
  *     the form gate, `realpath`, the credential deny-list and the file-kind
  *     check — so `~/.ssh/id_ed25519` and `\\server\share\x` are refused
@@ -48,6 +50,21 @@ const MESSAGE = {
   cancelled: 'Opening that file was cancelled.',
   openFailed: 'Could not open the file in VS Code.',
 } as const;
+
+/**
+ * Whether two absolute paths name the same file, lexically.
+ *
+ * `path.normalize` first, so `D:\ws\.\a.ts` and `D:\ws\a.ts` are not reported
+ * to the user as a redirection they have to reason about. Case-insensitive on
+ * win32 and case-SENSITIVE elsewhere, matching the filesystems themselves.
+ */
+function samePath(a: string, b: string): boolean {
+  const left = path.normalize(a);
+  const right = path.normalize(b);
+  return process.platform === 'win32'
+    ? left.toLowerCase() === right.toLowerCase()
+    : left === right;
+}
 
 /**
  * RPC handlers for file operations
@@ -96,7 +113,10 @@ export class FileRpcHandlers {
       return this.warnAndFail(target.message);
     }
     if (target.kind === 'cancelled') {
-      return { success: false, error: MESSAGE.cancelled };
+      // `cancelled` is the typed discriminant the renderer detects. Without it
+      // a deliberate "no" is indistinguishable from a failure and the tasks
+      // board raises an error banner for it.
+      return { success: false, cancelled: true, error: MESSAGE.cancelled };
     }
 
     return this.reveal(target.resolution, line, column);
@@ -134,6 +154,17 @@ export class FileRpcHandlers {
       return { kind: 'refused', message: MESSAGE.notResolvable };
     }
 
+    // A path that is LEXICALLY inside an open folder still reaches this
+    // fallback, deliberately. The only way it gets here is that
+    // `resolveForView` rejected it, and for an in-root path the reason is
+    // almost always the realpath containment re-check: the path is a link out
+    // of the workspace. Refusing it outright would be the cheaper guard, but a
+    // symlinked docs folder or a junctioned dependency tree is an ordinary
+    // developer setup, and refusing it would regress the same "a link into a
+    // sibling checkout still opens" case Decision 3 exists to preserve — just
+    // reached through a link instead of an absolute path. So it is CONFIRMED
+    // rather than refused, and `confirmOutsideWorkspace` names the real target
+    // so the user is deciding about the file that will actually open.
     const outside = await this.linkPolicy.resolveForHostReveal(requested, {
       allowDirectory: true,
     });
@@ -141,24 +172,39 @@ export class FileRpcHandlers {
       return { kind: 'refused', message: MESSAGE.notResolvable };
     }
 
-    const confirmed = await this.confirmOutsideWorkspace(outside.lexicalPath);
+    const confirmed = await this.confirmOutsideWorkspace(
+      outside.lexicalPath,
+      outside.realPath,
+    );
     if (!confirmed) return { kind: 'cancelled' };
     return { kind: 'resolved', resolution: outside };
   }
 
   /**
-   * Show the ABSOLUTE path and require an explicit choice.
+   * Show the path that will actually be OPENED and require an explicit choice.
    *
    * Modal on purpose: this is the one moment the user can tell an intended
    * reference apart from a path an injected prompt talked the agent into
    * emitting, and a dismissible toast would be clicked past.
+   *
+   * The detail names the resolved target whenever it differs from the path
+   * that was requested. A symlink planted inside an open folder — say
+   * `D:\ws\notes.md` pointing at `C:\Users\me\secret.txt` — reaches this
+   * confirm precisely BECAUSE `resolveForView` rejected it on the realpath
+   * containment re-check, and showing only `D:\ws\notes.md` told the user the
+   * file was in their workspace while `reveal()` opened the target. A gate the
+   * user cannot read is not a gate.
    */
   private async confirmOutsideWorkspace(
-    absolutePath: string,
+    requestedPath: string,
+    realPath: string,
   ): Promise<boolean> {
+    const detail = samePath(requestedPath, realPath)
+      ? requestedPath
+      : `${requestedPath}\n\nThis is a link. It opens:\n${realPath}`;
     const choice = await vscode.window.showWarningMessage(
       'Open a file from outside your open workspaces?',
-      { modal: true, detail: absolutePath },
+      { modal: true, detail },
       'Open',
     );
     return choice === 'Open';

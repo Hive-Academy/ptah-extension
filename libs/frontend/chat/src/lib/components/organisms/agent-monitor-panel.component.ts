@@ -54,6 +54,7 @@ import {
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import { SubagentTranscriptViewerComponent } from '@ptah-extension/chat-ui';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentCardComponent } from '../molecules/agent-card/agent-card.component';
 import { AgentContinueInputComponent } from '../molecules/agent-continue-input/agent-continue-input.component';
@@ -138,10 +139,15 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
 @Component({
   selector: 'ptah-agent-monitor-panel',
   standalone: true,
-  // Agent-output surface (agent cards render model markdown). There is no tab
-  // marker: this panel is store-driven and not bound to one session tab, so a
-  // relative link resolves against the active workspace root.
-  host: { 'data-ptah-file-links': '' },
+  // Agent-output surface (agent cards render model markdown). A SCOPED panel
+  // also publishes the owning tab, so a relative link written by an agent in a
+  // background workspace resolves against THAT workspace rather than against
+  // whichever one happens to be active (AC 22 / L-7). The global panel renders
+  // the active tab's agents, so its absent marker is already the right answer.
+  host: {
+    'data-ptah-file-links': '',
+    '[attr.data-ptah-tab-id]': 'linkTabId()',
+  },
   imports: [
     NgClass,
     LucideAngularModule,
@@ -460,6 +466,7 @@ export class AgentMonitorPanelComponent {
   protected readonly store = inject(AgentMonitorStore);
   protected readonly resizeService = inject(PanelResizeService);
   private readonly vscode = inject(VSCodeService);
+  private readonly tabManager = inject(TabManagerService);
 
   readonly XIcon = X;
   readonly Trash2Icon = Trash2;
@@ -484,6 +491,24 @@ export class AgentMonitorPanelComponent {
 
   /** Emits when close button clicked in embedded mode. */
   readonly closed = output<void>();
+
+  /**
+   * The tab a clicked file link in this panel belongs to, published as
+   * `data-ptah-tab-id` for `FileLinkRouterService.resolveContext`.
+   *
+   * Resolved from the scoped {@link sessionId} through the cross-workspace
+   * lookup, so a background-workspace session still names its own tab. `null`
+   * (global panel, unresolved scope, or a session with no tab) removes the
+   * attribute and leaves the router on its active-workspace fallback — the same
+   * behaviour as before, only now it is the exception rather than the rule.
+   */
+  protected readonly linkTabId = computed<string | null>(() => {
+    const sid = this.sessionId();
+    if (!sid) return null;
+    return (
+      this.tabManager.findTabBySessionIdAcrossWorkspaces(sid)?.tab.id ?? null
+    );
+  });
 
   readonly selectedAgentId = signal<string | null>(null);
   private prevAgentIds = new Set<string>();

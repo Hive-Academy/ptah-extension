@@ -326,7 +326,11 @@ test.describe('agent file links', () => {
       ]);
   });
 
-  test('a tool-call file chip opens a tab, and a renderer reload restores the dock (A6/A7, D10)', async ({
+  // Named for what it proves. It clicks a markdown link (not a
+  // `FilePathLinkComponent` tool-call chip — that path has unit coverage only),
+  // and it asserts that a renderer reload returns to the same URL, NOT that the
+  // dock is restored. See the comment on the reload below (L-12).
+  test('a link opens a tab, and a renderer reload returns to the same URL (A6/A7, D10)', async ({
     mainWindow,
     ui,
   }) => {

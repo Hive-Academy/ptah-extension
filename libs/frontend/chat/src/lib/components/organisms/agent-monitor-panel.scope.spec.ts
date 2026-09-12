@@ -12,6 +12,7 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { VSCodeService } from '@ptah-extension/core';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentMonitorPanelComponent } from './agent-monitor-panel.component';
@@ -30,6 +31,7 @@ describe('AgentMonitorPanelComponent — unresolved session scope', () => {
     closePanel: jest.Mock;
     tick: ReturnType<typeof signal<number>>;
   };
+  let findTabBySessionIdAcrossWorkspaces: jest.Mock;
 
   function createPanel(sessionId: string | null) {
     const fixture = TestBed.createComponent(AgentMonitorPanelComponent);
@@ -53,6 +55,7 @@ describe('AgentMonitorPanelComponent — unresolved session scope', () => {
       closePanel: jest.fn(),
       tick: signal(0),
     };
+    findTabBySessionIdAcrossWorkspaces = jest.fn(() => null);
 
     TestBed.configureTestingModule({
       imports: [AgentMonitorPanelComponent],
@@ -66,9 +69,15 @@ describe('AgentMonitorPanelComponent — unresolved session scope', () => {
           },
         },
         {
+          provide: TabManagerService,
+          useValue: { findTabBySessionIdAcrossWorkspaces },
+        },
+        {
           provide: PanelResizeService,
           useValue: {
             agentPanelWidth: signal(320),
+            customWidth: signal<number | null>(320),
+            dragging: signal(false),
             setDragging: jest.fn(),
             setAgentPanelWidth: jest.fn(),
           },
@@ -142,5 +151,49 @@ describe('AgentMonitorPanelComponent — unresolved session scope', () => {
       OTHER_SESSION,
     );
     expect(storeMock.clearCompleted).not.toHaveBeenCalled();
+  });
+
+  /**
+   * L-7. The panel renders agent markdown and so opts into file links, but it
+   * carried no tab marker — a relative link from an agent in a BACKGROUND
+   * workspace resolved against the ACTIVE one and could open a same-named file
+   * from a different repository (AC 22).
+   */
+  describe('file-link tab context', () => {
+    it('publishes the owning tab for a scoped panel', () => {
+      findTabBySessionIdAcrossWorkspaces.mockReturnValue({
+        tab: { id: 'tab-bg' },
+        workspacePath: 'D:/background-ws',
+      });
+      const fixture = createPanel(OTHER_SESSION);
+      fixture.detectChanges();
+
+      expect(findTabBySessionIdAcrossWorkspaces).toHaveBeenCalledWith(
+        OTHER_SESSION,
+      );
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.hasAttribute('data-ptah-file-links')).toBe(true);
+      expect(host.getAttribute('data-ptah-tab-id')).toBe('tab-bg');
+    });
+
+    it('publishes no tab for the GLOBAL panel, which already follows the active tab', () => {
+      const fixture = createPanel(null);
+      fixture.detectChanges();
+
+      expect(findTabBySessionIdAcrossWorkspaces).not.toHaveBeenCalled();
+      expect(
+        (fixture.nativeElement as HTMLElement).hasAttribute('data-ptah-tab-id'),
+      ).toBe(false);
+    });
+
+    it('publishes no tab when the scoped session has no tab anywhere', () => {
+      findTabBySessionIdAcrossWorkspaces.mockReturnValue(null);
+      const fixture = createPanel(OTHER_SESSION);
+      fixture.detectChanges();
+
+      expect(
+        (fixture.nativeElement as HTMLElement).hasAttribute('data-ptah-tab-id'),
+      ).toBe(false);
+    });
   });
 });

@@ -98,6 +98,20 @@ export class DiffTabsService implements MessageHandler {
     ReturnType<typeof setTimeout>
   >();
 
+  /**
+   * Monotonic source for file-view request ids, per SERVICE rather than per
+   * tab.
+   *
+   * A per-tab counter restarted at 1 on every new tab, so closing a view tab
+   * and re-opening the same file minted `requestId = 1` a second time while the
+   * FIRST read was still in flight. That read's late response then matched the
+   * new tab's guard in {@link applyFileViewResult} and replaced the newer state
+   * — including a `reveal` line computed for the first click. Ids drawn from
+   * here are never reused, so a response from a closed tab's read can no longer
+   * be mistaken for the current one.
+   */
+  private nextFileViewRequestId = 0;
+
   private readonly _diffTabs = signal<EditorTab[]>([]);
   private readonly _activeDiffKey = signal<string | null>(null);
   private readonly _isLoading = signal(false);
@@ -265,7 +279,7 @@ export class DiffTabsService implements MessageHandler {
       return;
     }
 
-    const requestId = 1;
+    const requestId = ++this.nextFileViewRequestId;
     const loading: FileViewTabState = {
       absolutePath: request.path,
       workspaceRoot: request.workspaceRoot ?? null,
@@ -442,7 +456,9 @@ export class DiffTabsService implements MessageHandler {
       (candidate) => candidate.filePath === key,
     );
     if (!tab?.view) return;
-    const requestId = tab.view.requestId + 1;
+    // Same monotonic source as the new-tab path, so a refresh id can never
+    // collide with an id a previous tab already issued.
+    const requestId = ++this.nextFileViewRequestId;
     const previous = tab.view;
     this.patchView(key, (view) => ({
       ...view,

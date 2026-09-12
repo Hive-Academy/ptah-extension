@@ -104,6 +104,21 @@ import { FileViewComponent } from '../file-view/file-view.component';
                 Loading repository…
               } @else if (!gitStatus.isGitRepo()) {
                 The active workspace is not a Git repository.
+              } @else {
+                <!-- Git repo, rail collapsed, nothing open. Without this the
+                     pane is blank and the only way back to the file list is the
+                     header control, which is easy to miss (L-13). -->
+                <div class="flex flex-col items-start gap-2">
+                  <span>Source control is collapsed.</span>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    data-testid="git-dock-expand-rail"
+                    (click)="layout.toggleGitRail()"
+                  >
+                    Show changed files
+                  </button>
+                </div>
               }
             </div>
           }

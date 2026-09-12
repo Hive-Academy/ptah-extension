@@ -65,8 +65,8 @@ import {
  *
  * Not configurable from the renderer, by design: the renderer is the side an
  * injected link arrives on, so letting it widen or narrow this list would
- * defeat it. Entries use forward slashes and are matched case-insensitively
- * on win32.
+ * defeat it. Entries use forward slashes and are matched case-insensitively on
+ * the case-folding platforms — see {@link foldsCase}.
  */
 export const CREDENTIAL_DENY_LIST = {
   /** Segment runs. Anything AT or BELOW one of these is refused. */
@@ -85,21 +85,38 @@ export const CREDENTIAL_DENY_LIST = {
     'AppData/Roaming/Microsoft/Protect',
   ],
   /**
-   * Segment PREFIXES for the single-segment dot-directories above.
+   * The separator class that makes a renamed copy of a deny-listed segment
+   * match the segment it was copied from.
    *
    * Exact-segment matching alone is trivially evaded by a rename that every
-   * backup script performs: `~/.aws.bak/credentials`, `~/.ssh-old/id_rsa` and
-   * `~/.ssh_backup/` hold the same secrets as the directory they were copied
-   * from and matched nothing. The separator class is what keeps this narrow —
-   * `.dockerignore` and `.sshrc` are NOT directories of secrets and must not
-   * be caught, and a name without the leading dot (`awsome`, `sshd-config`)
-   * is never considered at all.
+   * backup script performs: `~/.aws.bak/credentials`, `~/.ssh-old/id_rsa`,
+   * `~/.claude.bak/.credentials.json` and `~/.config/gh.bak/hosts.yml` hold
+   * the same secrets as the location they were copied from and matched
+   * nothing. Rather than a second list that has to be kept in step with the
+   * first, this suffix rule is applied to EVERY segment of EVERY run in
+   * {@link CREDENTIAL_DENY_LIST.directories} and
+   * {@link CREDENTIAL_DENY_LIST.files} — so the multi-segment entries
+   * (`.config/gh`, `.claude/.credentials.json`, the `AppData/...` runs) are
+   * covered by exactly the same rule as `.ssh`.
    *
-   * Written in lower case WITHOUT the `i` flag on purpose: `segmentsOf`
-   * already lower-cases on win32, so these stay case-insensitive there and
-   * case-SENSITIVE on posix, where `.SSH` is a genuinely different directory.
+   * The separator class is what keeps it narrow. A deny-listed segment is a
+   * PREFIX only when the next character is `.`, `-` or `_`: `.dockerignore`
+   * and `.sshrc` are ordinary repository files and are NOT caught, and a name
+   * without the leading dot (`awsome`, `sshd-config`) never resembles one of
+   * these entries in the first place.
+   *
+   * The other half of keeping it narrow is WHERE it applies. For a
+   * {@link CREDENTIAL_DENY_LIST.directories} run it is an ANCESTOR-only rule —
+   * see {@link containsDirectoryRun}, and `.docker-compose.yml` for why. For a
+   * {@link CREDENTIAL_DENY_LIST.files} run the leaf IS the file, so the rule
+   * applies there and `~/.npmrc.bak` is caught.
+   *
+   * It does NOT widen a directory that the list only names via a FILE entry.
+   * `.claude` is deny-listed as `.claude/.credentials.json`, not as a
+   * directory, so `~/.claude/settings.json` and `~/.ptah/user/...` — the agent
+   * references `resolveForExternalOpen` exists to make openable — still open.
    */
-  directoryPrefixes: [/^\.(ssh|gnupg|aws|azure|kube|docker)([._-]|$)/],
+  renameSuffixes: ['.', '-', '_'],
   /** Segment runs matched against the TAIL of the path. */
   files: [
     '.netrc',
@@ -121,7 +138,9 @@ export const CREDENTIAL_DENY_LIST = {
    * `credentials`, `known_hosts` and `authorized_keys` are named the same
    * wherever the directory around them is moved, so they close the
    * `~/.aws.bak/credentials` class from the file side as well as the
-   * directory side. The trailing `(\.|$)` anchors the STEM, so
+   * directory side. The optional leading dot is what makes the agent
+   * credential store's own name, `.credentials.json`, one of them. The
+   * trailing `(\.|$)` anchors the STEM, so
    * `credentials.json` and `credentials.db` are caught while `credentials-ui`
    * or `aws-credentials-doc` are not. Source files named `credentials.ts` are
    * a tolerated false positive OUTSIDE the registered roots only — inside a
@@ -138,37 +157,103 @@ export const CREDENTIAL_DENY_LIST = {
     /\.pfx$/i,
     /^\.env$/i,
     /^\.env\./i,
-    /^credentials(\.|$)/i,
+    /^\.?credentials(\.|$)/i,
     /^known_hosts(\.|$)/i,
     /^authorized_keys(\.|$)/i,
   ],
 } as const;
 
+/**
+ * Whether this platform's default filesystem folds case in path lookups.
+ *
+ * win32 and darwin both do — APFS and HFS+ ship case-INSENSITIVE and
+ * case-preserving, so `~/.AWS/config` and `~/.aws/config` are the SAME file on
+ * a stock Mac and a comparison that distinguishes them is a deny-list bypass,
+ * not a nicety. linux is genuinely case-sensitive: `.SSH` there is a different
+ * directory, and folding it would refuse files that are not credentials.
+ *
+ * darwin CAN be formatted case-sensitive (APFS-CS), which makes this fold
+ * conservative on such a machine — it refuses a little more than it must. That
+ * is the correct direction for a deny-list to be wrong in.
+ */
+function foldsCase(platform: NodeJS.Platform): boolean {
+  return platform === 'win32' || platform === 'darwin';
+}
+
 function segmentsOf(value: string, platform: NodeJS.Platform): string[] {
   const normalized = value.replace(/\\/g, '/');
-  const cased = platform === 'win32' ? normalized.toLowerCase() : normalized;
+  const cased = foldsCase(platform) ? normalized.toLowerCase() : normalized;
   return cased.split('/').filter((segment) => segment.length > 0);
 }
 
-function containsRun(haystack: string[], needle: string[]): boolean {
+/**
+ * Whether one path segment IS a deny-listed segment, or a renamed copy of it.
+ *
+ * `.ssh` matches `.ssh`, `.ssh.bak`, `.ssh-old` and `.ssh_backup`; it does NOT
+ * match `.sshrc`, because `r` is not one of {@link
+ * CREDENTIAL_DENY_LIST.renameSuffixes}. Comparison is on the already-cased
+ * segment, so this stays case-insensitive wherever {@link foldsCase} holds
+ * (win32, darwin) and case-SENSITIVE on linux, where `.SSH` is a genuinely
+ * different directory.
+ */
+function segmentMatches(segment: string, entry: string): boolean {
+  if (segment === entry) return true;
+  if (!segment.startsWith(entry)) return false;
+  return CREDENTIAL_DENY_LIST.renameSuffixes.some(
+    (suffix) => segment[entry.length] === suffix,
+  );
+}
+
+function runMatchesAt(
+  haystack: string[],
+  needle: string[],
+  start: number,
+  /**
+   * When true, the FINAL segment of the run must match exactly rather than by
+   * the rename rule. See {@link containsDirectoryRun}.
+   */
+  exactFinalSegment = false,
+): boolean {
+  return needle.every((entry, i) =>
+    exactFinalSegment && i === needle.length - 1
+      ? haystack[start + i] === entry
+      : segmentMatches(haystack[start + i], entry),
+  );
+}
+
+/**
+ * Whether a {@link CREDENTIAL_DENY_LIST.directories} run appears in the path.
+ *
+ * The rename rule applies freely to ANCESTOR segments, because a segment with
+ * something after it is unambiguously a directory: `~/.docker-old/config.json`
+ * is the renamed credential directory the rule exists to catch.
+ *
+ * The LEAF segment is different — it is usually a FILE, and nothing in a path
+ * string says which. Allowing the rename rule there refused
+ * `~/.docker-compose.yml` as if it were a credential directory, because
+ * `.docker` is followed by `-`. So the leaf may satisfy a directory run only by
+ * EXACT equality, which still refuses the case that matters: revealing the
+ * deny-listed directory itself, `~/.ssh` or `~/.config/gh`.
+ *
+ * What that trades away is revealing a RENAMED credential directory as a
+ * directory — `~/.ssh.bak` itself. Every path INSIDE it is still refused by the
+ * ancestor rule, and revealing a directory discloses no bytes, so this is the
+ * cheap half of the pair to give up in exchange for not refusing ordinary
+ * dot-files.
+ */
+function containsDirectoryRun(haystack: string[], needle: string[]): boolean {
   if (needle.length === 0 || needle.length > haystack.length) return false;
+  const leaf = haystack.length - 1;
   for (let start = 0; start + needle.length <= haystack.length; start += 1) {
-    let matched = true;
-    for (let i = 0; i < needle.length; i += 1) {
-      if (haystack[start + i] !== needle[i]) {
-        matched = false;
-        break;
-      }
-    }
-    if (matched) return true;
+    const endsAtLeaf = start + needle.length - 1 === leaf;
+    if (runMatchesAt(haystack, needle, start, endsAtLeaf)) return true;
   }
   return false;
 }
 
 function endsWithRun(haystack: string[], needle: string[]): boolean {
   if (needle.length === 0 || needle.length > haystack.length) return false;
-  const offset = haystack.length - needle.length;
-  return needle.every((segment, i) => haystack[offset + i] === segment);
+  return runMatchesAt(haystack, needle, haystack.length - needle.length);
 }
 
 /** Whether a path names, or lives under, a known credential location. */
@@ -180,10 +265,8 @@ export function isCredentialPath(
   if (segments.length === 0) return false;
 
   for (const entry of CREDENTIAL_DENY_LIST.directories) {
-    if (containsRun(segments, segmentsOf(entry, platform))) return true;
-  }
-  for (const pattern of CREDENTIAL_DENY_LIST.directoryPrefixes) {
-    if (segments.some((segment) => pattern.test(segment))) return true;
+    if (containsDirectoryRun(segments, segmentsOf(entry, platform)))
+      return true;
   }
   for (const entry of CREDENTIAL_DENY_LIST.files) {
     if (endsWithRun(segments, segmentsOf(entry, platform))) return true;

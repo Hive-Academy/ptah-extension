@@ -171,6 +171,41 @@ describe('GitDockComponent mounted controls', () => {
     );
   });
 
+  // L-13. Git repo + collapsed rail + no open tab used to render a `flex-1
+  // p-4` div whose two inner conditions were both false — a blank pane with no
+  // way back to the file list from that region.
+  it('offers a way back when the rail is collapsed with no tab open', async () => {
+    const gitStatus = TestBed.inject(GitStatusService);
+    gitStatus.switchWorkspace('/ws/a');
+    const fixture = TestBed.createComponent(GitDockComponent);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="git-rail-toggle"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Source control is collapsed.',
+    );
+    const expand = fixture.nativeElement.querySelector(
+      '[data-testid="git-dock-expand-rail"]',
+    ) as HTMLButtonElement;
+    expect(expand).not.toBeNull();
+    expand.click();
+    fixture.detectChanges();
+
+    expect(TestBed.inject(ElectronLayoutService).gitRailCollapsed()).toBe(
+      false,
+    );
+    expect(
+      fixture.nativeElement.querySelector('#git-source-control-rail'),
+    ).not.toBeNull();
+  });
+
   it('renders every row and a diff when successful editor detection omits targets', async () => {
     rpcData['editor:detectTargets'] = {};
     rpcData['git:info'] = {

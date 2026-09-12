@@ -46,6 +46,7 @@ const gitUi = jest.requireMock<{
 
 describe('FileLinkRouterService', () => {
   let setEditorPanelVisible: jest.Mock;
+  let editorPanelVisible: jest.Mock;
   let findTabByIdAcrossWorkspaces: jest.Mock;
   let isElectron: boolean;
 
@@ -65,7 +66,10 @@ describe('FileLinkRouterService', () => {
             config: () => ({ workspaceRoot }),
           },
         },
-        { provide: ElectronLayoutService, useValue: { setEditorPanelVisible } },
+        {
+          provide: ElectronLayoutService,
+          useValue: { setEditorPanelVisible, editorPanelVisible },
+        },
         {
           provide: TabManagerService,
           useValue: { findTabByIdAcrossWorkspaces },
@@ -79,6 +83,7 @@ describe('FileLinkRouterService', () => {
     jest.clearAllMocks();
     isElectron = true;
     setEditorPanelVisible = jest.fn();
+    editorPanelVisible = jest.fn(() => false);
     findTabByIdAcrossWorkspaces = jest.fn(() => null);
     mockOpenFileView.mockResolvedValue(undefined);
     mockRpcCall.mockResolvedValue({ success: true, data: { success: true } });
@@ -230,6 +235,37 @@ describe('FileLinkRouterService', () => {
       );
       errorSpy.mockRestore();
     });
+
+    // L-11. `setEditorPanelVisible(true)` runs before the dynamic import so the
+    // two fetches overlap; on failure that reveal has to be undone, or the user
+    // is left staring at a dock they did not open with nothing in it.
+    it('hides the dock again when the open fails and the dock was hidden before', async () => {
+      const errorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+      editorPanelVisible.mockReturnValue(false);
+      mockOpenFileView.mockRejectedValue(new Error('chunk load failed'));
+      const router = configure();
+
+      await expect(router.open({ path: 'src/a.ts' })).rejects.toThrow();
+
+      expect(setEditorPanelVisible.mock.calls).toEqual([[true], [false]]);
+      errorSpy.mockRestore();
+    });
+
+    it('leaves an ALREADY-open dock open when the open fails', async () => {
+      const errorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+      editorPanelVisible.mockReturnValue(true);
+      mockOpenFileView.mockRejectedValue(new Error('chunk load failed'));
+      const router = configure();
+
+      await expect(router.open({ path: 'src/a.ts' })).rejects.toThrow();
+
+      expect(setEditorPanelVisible).not.toHaveBeenCalledWith(false);
+      errorSpy.mockRestore();
+    });
   });
 
   describe('VS Code branch', () => {
@@ -273,6 +309,44 @@ describe('FileLinkRouterService', () => {
 
       await expect(router.open({ path: 'D:/other/a.ts' })).rejects.toThrow(
         'Path is outside the workspace',
+      );
+      errorSpy.mockRestore();
+    });
+
+    // L-6. Cancelling the host's confirmation is a choice, not a fault. The
+    // typed `cancelled` flag is the whole detection — the message is display
+    // copy and is deliberately never matched on.
+    it('RESOLVES when the user cancelled the host confirmation', async () => {
+      const errorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+      mockRpcCall.mockResolvedValue({
+        success: true,
+        data: {
+          success: false,
+          cancelled: true,
+          error: 'Opening that file was cancelled.',
+        },
+      });
+      const router = configure();
+
+      await expect(router.open({ path: 'src/a.ts' })).resolves.toBeUndefined();
+      expect(errorSpy).not.toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    // L-8. An envelope that transported fine but carried no payload (handler
+    // unregistered, response-shape drift) is NOT an opened file. Success is
+    // asserted positively so this reports a failure instead of a silent no-op.
+    it('rejects when the transport succeeded but the host returned no payload', async () => {
+      const errorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+      mockRpcCall.mockResolvedValue({ success: true, data: undefined });
+      const router = configure();
+
+      await expect(router.open({ path: 'src/a.ts' })).rejects.toThrow(
+        'Failed to open src/a.ts',
       );
       errorSpy.mockRestore();
     });

@@ -215,8 +215,11 @@ describe('FileRpcHandlers — file:open', () => {
 
       const result = await build(realPolicy())({ path: siblingFile });
 
+      // L-6: `cancelled` is the typed discriminant a renderer detects, so a
+      // deliberate "no" is not reported to the user as an error.
       expect(result).toEqual({
         success: false,
+        cancelled: true,
         error: 'Opening that file was cancelled.',
       });
       expect(openTextDocument).not.toHaveBeenCalled();
@@ -248,6 +251,68 @@ describe('FileRpcHandlers — file:open', () => {
         error: 'That path form is not supported.',
       });
       expect(openTextDocument).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * L-1. A symlink planted inside an open folder whose realpath leaves it is
+   * rejected by `resolveForView` on the containment re-check and falls through
+   * to the host-reveal confirm. The confirm used to show the LEXICAL path — an
+   * in-workspace path — for a reveal that opens the link's target, so the one
+   * gate the design leans on showed the user the wrong file.
+   *
+   * The policy is doubled here on purpose: the assertion is about the modal's
+   * copy, not about the policy, and doubling is what makes the case run on an
+   * unprivileged Windows account that cannot create a symlink. The real
+   * policy's own half of this is pinned in `file-link-root-policy.spec.ts`.
+   */
+  describe('the confirmation detail', () => {
+    const linkInWorkspace = path.join(WORKSPACE, 'notes.md');
+    const linkTarget = path.resolve('/Users/me/Documents/secret.txt');
+
+    beforeEach(() => {
+      resolveForView.mockResolvedValue({
+        kind: 'rejected',
+        reason: 'outside-roots',
+      });
+      resolveForHostReveal.mockResolvedValue({
+        kind: 'file',
+        lexicalPath: linkInWorkspace,
+        realPath: linkTarget,
+        root: linkInWorkspace,
+        sizeBytes: 1,
+      });
+      showWarningMessage.mockResolvedValue('Open');
+    });
+
+    it('names the resolved target when a link makes it differ', async () => {
+      await expect(build()({ path: linkInWorkspace })).resolves.toEqual({
+        success: true,
+      });
+
+      const detail = showWarningMessage.mock.calls[0][1].detail as string;
+      expect(detail).toContain(linkInWorkspace);
+      expect(detail).toContain(linkTarget);
+      expect(showWarningMessage).toHaveBeenCalledWith(
+        expect.stringContaining('outside your open workspaces'),
+        expect.objectContaining({ modal: true }),
+        'Open',
+      );
+    });
+
+    it('shows the path alone when nothing redirects it', async () => {
+      resolveForHostReveal.mockResolvedValue({
+        kind: 'file',
+        lexicalPath: linkInWorkspace,
+        realPath: linkInWorkspace,
+        root: linkInWorkspace,
+        sizeBytes: 1,
+      });
+
+      await build()({ path: linkInWorkspace });
+
+      // The ordinary case stays a bare path: no "it opens" line to read past.
+      expect(showWarningMessage.mock.calls[0][1].detail).toBe(linkInWorkspace);
     });
   });
 

@@ -137,6 +137,18 @@ export interface FileOpenResult {
   success: boolean;
   error?: string;
   isDirectory?: boolean;
+  /**
+   * The user declined the host's confirmation dialog.
+   *
+   * Present ONLY on that one outcome, and always alongside `success: false` —
+   * nothing was opened, so the call did not succeed. It exists because
+   * cancelling is a deliberate choice rather than a fault: a renderer that
+   * treats every `success: false` as an error shows a red banner and logs a
+   * `console.error` for a user who simply changed their mind. Detect this flag
+   * and return quietly; never match on `error`, which is display copy and may
+   * be reworded at any time.
+   */
+  cancelled?: true;
 }
 
 /**

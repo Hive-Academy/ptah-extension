@@ -210,6 +210,32 @@ describe('FileViewComponent', () => {
     expect(monaco.editorDispose).toHaveBeenCalledTimes(1);
   });
 
+  // L-9. The note states a measured fact. A first-load failure leaves
+  // `sizeBytes` null, and claiming "over 512 KB" beside an unrelated error
+  // banner tells the user something the product does not know.
+  it('does NOT claim the file is over 512 KB when the size is unknown', async () => {
+    const fixture = await render(
+      tab(
+        viewState({
+          sizeBytes: null,
+          content: '',
+          status: 'error',
+          failure: {
+            reason: 'unreadable',
+            message: 'This file could not be opened in the viewer.',
+            externalOpenAllowed: false,
+          },
+        }),
+      ),
+    );
+    expect(fixture.nativeElement.textContent).toContain(
+      'This file could not be opened in the viewer.',
+    );
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'Preview is disabled for files over 512 KB.',
+    );
+  });
+
   it('shows fixed refusal copy and hides Open In when external open is disallowed', async () => {
     const fixture = await render(
       tab(

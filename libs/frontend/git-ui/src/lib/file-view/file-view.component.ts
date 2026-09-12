@@ -141,7 +141,7 @@ const MAX_MARKDOWN_PREVIEW_BYTES = 512 * 1024;
               <ptah-markdown-block [content]="current.content" />
             </div>
           }
-          @if (current.isMarkdown && !previewAvailable()) {
+          @if (previewSizeBlocked()) {
             <p
               class="absolute bottom-2 right-3 rounded bg-base-200 px-2 py-1 text-xs opacity-70"
             >
@@ -212,6 +212,20 @@ export class FileViewComponent {
       view?.isMarkdown &&
       view.sizeBytes !== null &&
       view.sizeBytes <= MAX_MARKDOWN_PREVIEW_BYTES,
+    );
+  });
+  /**
+   * The size note states a MEASURED fact, so it renders only when the size is
+   * actually known and actually over the cap. A first-load failure leaves
+   * `sizeBytes` null, which used to render "over 512 KB" next to an unrelated
+   * error banner (L-9).
+   */
+  protected readonly previewSizeBlocked = computed(() => {
+    const view = this.view();
+    return Boolean(
+      view?.isMarkdown &&
+      view.sizeBytes !== null &&
+      view.sizeBytes > MAX_MARKDOWN_PREVIEW_BYTES,
     );
   });
   protected readonly previewVisible = computed(

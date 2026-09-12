@@ -88,6 +88,8 @@ export class FileLinkRouterService
    *
    * A backend refusal is NOT a rejection on Electron: the dock renders a
    * blocked tab with the reason. On VS Code the host shows a native warning.
+   * A user who CANCELS the host's confirmation is not a failure either — that
+   * outcome resolves (L-6).
    */
   async open(request: FileLinkOpenRequest): Promise<void> {
     const context = this.resolveContext(request.origin ?? null);
@@ -103,12 +105,17 @@ export class FileLinkRouterService
    *
    * `setEditorPanelVisible` runs FIRST and synchronously: it is what triggers
    * the shell's lazy dock load, so the dock chunk and this import fetch in
-   * parallel rather than in series.
+   * parallel rather than in series. If the open then fails, the reveal is
+   * undone when the dock was hidden before — a revealed empty dock is a worse
+   * answer than no dock at all (L-11).
    */
   private async openInDock(
     request: FileLinkOpenRequest,
     context: LinkContext,
   ): Promise<void> {
+    // L-11: remember what the dock was doing, so a failure can put it back
+    // rather than leaving a revealed, empty panel the user did not ask for.
+    const dockWasVisible = this.layout.editorPanelVisible();
     this.layout.setEditorPanelVisible(true);
     try {
       const git = await import('@ptah-extension/git-ui');
@@ -121,6 +128,7 @@ export class FileLinkRouterService
         documentPath: context.documentPath,
       });
     } catch (error: unknown) {
+      if (!dockWasVisible) this.layout.setEditorPanelVisible(false);
       console.error(`${LOG_PREFIX} Failed to open ${request.path}`, error);
       throw error instanceof Error
         ? error
@@ -142,7 +150,17 @@ export class FileLinkRouterService
       column: request.column,
       workspaceRoot: context.workspaceRoot,
     });
-    if (result.success && result.data?.success !== false) return;
+    // L-8: success is asserted, never assumed. A transport envelope whose
+    // `data` is undefined (handler unregistered, response-shape drift) used to
+    // satisfy `data?.success !== false` and be reported as "opened".
+    if (result.success && result.data?.success === true) return;
+
+    // L-6: the user declined the host's confirmation. Nothing opened, but
+    // nothing failed either — resolve quietly so the tasks board shows no error
+    // banner and `FilePathLinkComponent` logs no `console.error` for a
+    // deliberate choice. The flag is the whole detection; the message is
+    // display copy and is never matched on (SHARED CONTRACT, L-6).
+    if (result.data?.cancelled === true) return;
 
     const reason =
       result.data?.error ?? result.error ?? `Failed to open ${request.path}`;

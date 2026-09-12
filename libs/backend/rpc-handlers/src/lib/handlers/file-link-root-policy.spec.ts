@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import * as fsSync from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -19,11 +20,56 @@ jest.mock('node:os', () => {
   return { ...actual, homedir: () => mockHome ?? actual.homedir() };
 });
 
+/**
+ * The filesystem seam for the platform-independent HIGH-1 case.
+ *
+ * The policy and the mechanism below it both `import * as nodeFs from
+ * 'node:fs/promises'`, so one module factory covers `realpath` everywhere it
+ * is consulted — the requested path, the roots, and the containment re-check.
+ * Everything delegates to the real module unless a test names an exact path,
+ * so the temp trees this suite builds behave normally.
+ */
+const mockRealpathOverrides = new Map<string, string>();
+jest.mock('node:fs/promises', () => {
+  const actual = jest.requireActual('node:fs/promises');
+  return {
+    ...actual,
+    realpath: async (target: unknown, ...rest: unknown[]) =>
+      mockRealpathOverrides.get(String(target)) ??
+      (await actual.realpath(target, ...rest)),
+  };
+});
+
 import {
   CREDENTIAL_DENY_LIST,
   FileLinkRootPolicy,
   isCredentialPath,
 } from './file-link-root-policy';
+
+/**
+ * Whether THIS process may create a file symlink.
+ *
+ * An unprivileged Windows account may not, and this repository's primary
+ * platform is win32. The probe exists so the cases that need a real symlink
+ * are reported as SKIPPED rather than returning green having asserted nothing
+ * — a silent `return` inside a test body is a passing tick for a check that
+ * never ran.
+ */
+function canCreateFileSymlink(): boolean {
+  const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'ptah-symlink-probe-'));
+  try {
+    const target = path.join(dir, 'target.txt');
+    fsSync.writeFileSync(target, 'x', 'utf8');
+    fsSync.symlinkSync(target, path.join(dir, 'link.txt'), 'file');
+    return true;
+  } catch {
+    return false;
+  } finally {
+    fsSync.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const itWithSymlink = canCreateFileSymlink() ? it : it.skip;
 
 describe('isCredentialPath', () => {
   it.each([
@@ -83,6 +129,43 @@ describe('isCredentialPath', () => {
     expect(isCredentialPath(candidate, 'linux')).toBe(true);
   });
 
+  /**
+   * L-3. The rename class was closed for the six single-segment shell
+   * directories and left open for the MULTI-SEGMENT entries — this product's
+   * own credential stores among them. The suffix rule applies to every segment
+   * of every run now, so a renamed parent no longer launders the file inside
+   * it.
+   */
+  it.each([
+    ['the agent credential store', '/home/me/.claude.bak/.credentials.json'],
+    ['the rival CLI auth file', '/home/me/.codex-old/auth.json'],
+    ["Ptah's own envelope store", '/home/me/.ptah.bak/secrets.enc.json'],
+    ['a GitHub OAuth token', '/home/me/.config/gh.bak/hosts.yml'],
+    ['a renamed gcloud store', '/home/me/.config/gcloud-old/creds.db'],
+    ['a renamed git credential dir', '/home/me/.config/git_backup/notes.md'],
+    [
+      'a renamed Windows credential vault',
+      'C:\\Users\\Me\\AppData\\Roaming\\Microsoft\\Credentials.bak\\x',
+    ],
+  ])('denies %s behind a renamed parent directory', (_label, candidate) => {
+    expect(isCredentialPath(candidate, 'linux')).toBe(true);
+  });
+
+  /**
+   * The prefix rule must NOT widen a directory the list only names through a
+   * FILE entry. `resolveForExternalOpen` exists to make `~/.claude/...` and
+   * `~/.ptah/...` references openable; denying those directories wholesale
+   * would break the workflow the policy was widened for.
+   */
+  it.each([
+    ['an agent settings file', '/home/me/.claude/settings.json'],
+    ['an agent skill', '/home/me/.claude.bak/skills/x/SKILL.md'],
+    ['a Ptah user-layer file', '/home/me/.ptah/user/agents/x.md'],
+    ['a rival CLI config', '/home/me/.codex/config.toml'],
+  ])('still allows %s', (_label, candidate) => {
+    expect(isCredentialPath(candidate, 'linux')).toBe(false);
+  });
+
   it.each([
     ['an AWS credentials file', '/home/me/backup/credentials'],
     ['a suffixed credentials file', '/home/me/backup/credentials.json'],
@@ -108,12 +191,101 @@ describe('isCredentialPath', () => {
     expect(isCredentialPath(candidate, 'linux')).toBe(false);
   });
 
-  it('applies the directory prefixes case-insensitively on win32 only', () => {
+  it('applies the rename rule case-insensitively on win32 only', () => {
     expect(isCredentialPath('C:\\Users\\Me\\.SSH.bak\\x.md', 'win32')).toBe(
       true,
     );
-    // `.SSH.bak` is a genuinely different directory from `.ssh.bak` on posix.
+    // `.SSH.bak` is a genuinely different directory from `.ssh.bak` on linux.
     expect(isCredentialPath('/home/me/.SSH.bak/x.md', 'linux')).toBe(false);
+  });
+
+  /**
+   * MEDIUM-1. APFS and HFS+ ship case-INSENSITIVE, so `~/.AWS/config` and
+   * `~/.aws/config` are the same file on a stock Mac. Comparing them as
+   * different names was a deny-list bypass on the whole macOS platform.
+   */
+  it.each([
+    ['an upper-case AWS directory', '/Users/u/.AWS/config'],
+    ['an upper-case SSH directory', '/Users/u/.SSH/id_rsa'],
+    ['an upper-case docker directory', '/Users/u/.DOCKER/config.json'],
+    ['an upper-case kube directory', '/Users/u/.KUBE/config'],
+    ['a mixed-case renamed directory', '/Users/u/.Aws.Bak/notes.md'],
+    ['an upper-case multi-segment run', '/Users/u/.CONFIG/GH/hosts.yml'],
+    [
+      'an upper-case agent credential store',
+      '/Users/u/.Claude/.Credentials.json',
+    ],
+  ])('denies %s on darwin', (_label, candidate) => {
+    expect(isCredentialPath(candidate, 'darwin')).toBe(true);
+  });
+
+  it.each([
+    ['an upper-case AWS directory', '/home/me/.AWS/config'],
+    ['an upper-case SSH directory', '/home/me/.SSH/notes.md'],
+    ['an upper-case docker directory', '/home/me/.DOCKER/notes.md'],
+    ['an upper-case multi-segment run', '/home/me/.CONFIG/GH/hosts.yml'],
+  ])(
+    'still allows %s on linux, where the name genuinely differs',
+    (_label, candidate) => {
+      expect(isCredentialPath(candidate, 'linux')).toBe(false);
+    },
+  );
+
+  it('keeps the lower-case forms denied on every platform', () => {
+    for (const platform of ['win32', 'darwin', 'linux'] as const) {
+      expect(isCredentialPath('/home/me/.aws/config', platform)).toBe(true);
+    }
+  });
+
+  /**
+   * LOW-1. The rename rule is an ANCESTOR-only rule for a directory run. A path
+   * segment with nothing after it is usually a FILE, and `.docker-compose.yml`
+   * matched `.docker` through the `-` suffix — an ordinary compose file refused
+   * as if it were a credential directory.
+   */
+  it.each([
+    ['a compose file', '/home/me/.docker-compose.yml'],
+    ['a YAML compose file', '/home/me/.docker-compose.yaml'],
+    ['a docker env file', '/home/me/.docker.env.sample'],
+    ['an ssh-prefixed note', '/home/me/.ssh-notes.md'],
+    ['an aws-prefixed doc', '/home/me/.aws-setup.md'],
+  ])(
+    'still allows %s, a FILE that merely starts with a run',
+    (_l, candidate) => {
+      expect(isCredentialPath(candidate, 'linux')).toBe(false);
+    },
+  );
+
+  /**
+   * ...and the leaf restriction must not let the deny-listed directory itself
+   * through. Revealing `~/.ssh` in a file explorer is the case the exact-leaf
+   * match preserves.
+   */
+  it.each([
+    ['the SSH directory itself', '/home/me/.ssh'],
+    ['the AWS directory itself', '/home/me/.aws'],
+    ['a multi-segment directory itself', '/home/me/.config/gh'],
+    [
+      'the Windows credential vault itself',
+      '/home/me/AppData/Local/Microsoft/Credentials',
+    ],
+  ])('still denies %s as a directory target', (_label, candidate) => {
+    expect(isCredentialPath(candidate, 'linux')).toBe(true);
+  });
+
+  /**
+   * LOW-2, pinned rather than argued. All three of these are caught by the
+   * rename rule: the first two at the leaf of a FILE run, the third at an
+   * ANCESTOR of a multi-segment directory run.
+   */
+  it.each([
+    ['a backed-up npmrc', '/home/me/.npmrc.bak'],
+    ['an old git-credentials', '/home/me/.git-credentials.old'],
+    ['a backed-up gh token store', '/home/me/.config/gh.bak/hosts.yml'],
+    ['a backed-up netrc', '/home/me/.netrc.backup'],
+    ['a renamed gcloud store', '/home/me/.config/gcloud.bak/creds.db'],
+  ])('denies %s', (_label, candidate) => {
+    expect(isCredentialPath(candidate, 'linux')).toBe(true);
   });
 
   it.each([
@@ -159,7 +331,7 @@ describe('isCredentialPath', () => {
     expect(CREDENTIAL_DENY_LIST.directories.length).toBeGreaterThan(0);
     expect(CREDENTIAL_DENY_LIST.files.length).toBeGreaterThan(0);
     expect(CREDENTIAL_DENY_LIST.basenames.length).toBeGreaterThan(0);
-    expect(CREDENTIAL_DENY_LIST.directoryPrefixes.length).toBeGreaterThan(0);
+    expect(CREDENTIAL_DENY_LIST.renameSuffixes.length).toBeGreaterThan(0);
   });
 });
 
@@ -201,10 +373,12 @@ describe('FileLinkRootPolicy', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockHome = home;
+    mockRealpathOverrides.clear();
   });
 
   afterEach(() => {
     mockHome = undefined;
+    mockRealpathOverrides.clear();
   });
 
   it('allows an ordinary file under home for external open', async () => {
@@ -227,47 +401,79 @@ describe('FileLinkRootPolicy', () => {
     expect(result).not.toHaveProperty('lexicalPath');
   });
 
-  it('refuses a benign-looking symlink whose REALPATH lands in .ssh', async () => {
-    const link = path.join(home, 'notes', 'harmless.md');
-    try {
+  itWithSymlink(
+    'refuses a benign-looking symlink whose REALPATH lands in .ssh',
+    async () => {
+      const link = path.join(home, 'notes', 'harmless.md');
       await fs.symlink(path.join(home, '.ssh', 'id_ed25519'), link, 'file');
-    } catch {
-      // Unprivileged Windows cannot create a file symlink.
-      return;
-    }
-    const result = await build([workspace]).resolveForExternalOpen({
-      path: link,
-    });
-    expect(result).toMatchObject({
-      kind: 'rejected',
-      reason: 'outside-roots',
-    });
-    await fs.rm(link, { force: true });
-  });
+      const result = await build([workspace]).resolveForExternalOpen({
+        path: link,
+      });
+      expect(result).toMatchObject({
+        kind: 'rejected',
+        reason: 'outside-roots',
+      });
+      await fs.rm(link, { force: true });
+    },
+  );
 
   /**
    * HIGH-1. `resolution.root` is the LEXICAL match, so a symlink planted
    * inside a REGISTERED root used to skip the deny-list entirely while its
    * realpath pointed at a private key. The exemption is keyed on the REAL
    * path's containment now, so this is refused.
+   *
+   * This is the real-filesystem half, and it is SKIPPED — visibly, in the
+   * runner's output — where the process may not create a symlink. The half
+   * below runs everywhere.
    */
-  it('refuses a symlink inside a REGISTERED root that realpaths into .ssh', async () => {
-    const link = path.join(workspace, 'project_note.md');
-    try {
+  itWithSymlink(
+    'refuses a symlink inside a REGISTERED root that realpaths into .ssh',
+    async () => {
+      const link = path.join(workspace, 'project_note.md');
       await fs.symlink(path.join(home, '.ssh', 'id_ed25519'), link, 'file');
-    } catch {
-      // Unprivileged Windows cannot create a file symlink.
-      return;
-    }
+      const result = await build([workspace]).resolveForExternalOpen({
+        path: link,
+      });
+      expect(result).toMatchObject({
+        kind: 'rejected',
+        reason: 'outside-roots',
+      });
+      expect(result).not.toHaveProperty('lexicalPath');
+      await fs.rm(link, { force: true });
+    },
+  );
+
+  /**
+   * HIGH-1, platform-independently. Same scenario, with the `realpath` seam
+   * stubbed instead of a real symlink, so it runs on an unprivileged Windows
+   * account too.
+   *
+   * What it pins: the requested path is LEXICALLY inside the registered
+   * workspace root and its realpath is a private key. Keying the exemption on
+   * `resolution.root` — the lexical match — makes this resolve as ordinary
+   * project content and return a `lexicalPath`, which is the regression the
+   * fix removed. Keying it on the REAL path's containment makes it
+   * `outside-roots` with no path disclosed. The two keyings therefore give
+   * opposite answers here, which is exactly what a regression test has to do.
+   */
+  it('refuses an in-root path whose REALPATH is a private key, with no symlink', async () => {
+    const lexical = path.join(workspace, 'seeded_note.md');
+    const key = path.join(home, '.ssh', 'id_ed25519');
+    await fs.writeFile(lexical, 'note', 'utf8');
+    mockRealpathOverrides.set(lexical, key);
+
     const result = await build([workspace]).resolveForExternalOpen({
-      path: link,
+      path: lexical,
     });
+
     expect(result).toMatchObject({
       kind: 'rejected',
       reason: 'outside-roots',
     });
     expect(result).not.toHaveProperty('lexicalPath');
-    await fs.rm(link, { force: true });
+
+    await fs.rm(lexical, { force: true });
   });
 
   /**
