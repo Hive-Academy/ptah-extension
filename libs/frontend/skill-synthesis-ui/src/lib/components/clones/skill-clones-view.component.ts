@@ -442,11 +442,13 @@ export class SkillClonesViewComponent implements OnInit {
       this.bulk.running() || this.busySlug() !== null || this.bodySaving(),
   );
 
-  /** R3.1/R3.9: the editor needs a loaded body; gating lives in the module. */
-  protected readonly canEditSelectedBody = computed<boolean>(() => {
-    const c = this.selected();
-    return c !== null && canEditCloneBody(c, this.detailBody());
-  });
+  /**
+   * R3.1/R3.9. Every condition lives in {@link canEditCloneBody} — including
+   * "an entry is selected at all", which used to be re-spelled here.
+   */
+  protected readonly canEditSelectedBody = computed<boolean>(() =>
+    canEditCloneBody(this.selected(), this.detailBody()),
+  );
 
   public readonly tabs = computed<NativeTab[]>(() => {
     const list = this.clones();

@@ -102,19 +102,54 @@ export class SkillClonesStateService {
     }
   }
 
+  /**
+   * Which entry the value in `detail` describes, or `null` when none is held.
+   *
+   * A plain field, not a signal: nothing renders it, it exists only to keep
+   * `detail` from ever being read as belonging to an entry it was not fetched
+   * for. See {@link loadDetail} for why that matters.
+   */
+  private detailKey: string | null = null;
+
+  /**
+   * Fetch the detail for one entry, holding `detail` COHERENT with the
+   * selection for the whole round trip.
+   *
+   * Two rules, both about the same hazard — a body from entry A being read as
+   * entry B's. The editor seeds its draft from `detail.body`, so a stale body
+   * surviving a selection change is a wrong-content write that reports success:
+   *
+   * - Switching entries clears `detail` BEFORE the await. Between the click and
+   *   the reply the body is `null`, which is what the edit gating already
+   *   refuses, and `detailLoading` is what the drawer renders instead.
+   * - A reply is applied only while it is still the selected entry's. Two
+   *   loads in flight can land out of order, and the loser must not overwrite
+   *   the winner — `detailLoading` stays true for the request that is still
+   *   outstanding.
+   *
+   * A repeat load of the SAME entry (the post-save reload) keeps the held
+   * detail on screen, so nothing blanks on a refresh.
+   */
   public async loadDetail(slug: string, kind: SkillCloneKind): Promise<void> {
+    const key = `${kind}/${slug}`;
     this.selectedSlug.set(slug);
     this.selectedKind.set(kind);
+    if (this.detailKey !== key) {
+      this.detailKey = key;
+      this.detail.set(null);
+    }
     this.detailLoading.set(true);
     this.error.set(null);
     try {
       const detail = await this.rpc.getClone(slug, kind);
+      if (this.detailKey !== key) return;
       this.detail.set(detail);
     } catch (err) {
+      if (this.detailKey !== key) return;
       this.error.set(this.toMessage(err));
       this.detail.set(null);
     } finally {
-      this.detailLoading.set(false);
+      if (this.detailKey === key) this.detailLoading.set(false);
     }
   }
 
@@ -138,7 +173,12 @@ export class SkillClonesStateService {
   public clearDetail(): void {
     this.selectedSlug.set(null);
     this.selectedKind.set(null);
+    this.detailKey = null;
     this.detail.set(null);
+    // Any reply still in flight is now orphaned by the key reset, so its
+    // `finally` will not clear this — closing must, or a later reopen inherits
+    // a stuck spinner.
+    this.detailLoading.set(false);
   }
 
   private toMessage(err: unknown): string {

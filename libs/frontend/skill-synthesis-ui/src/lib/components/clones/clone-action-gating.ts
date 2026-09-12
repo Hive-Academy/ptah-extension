@@ -138,14 +138,63 @@ export function eligibleForBulkRebase(
 /**
  * Whether the drawer may offer the body editor for this entry.
  *
- * A loaded body is required: the editor seeds its draft from it, and seeding
- * from `null` would let a Save overwrite the file with text the user never saw.
+ * Two conditions, and the whole rule lives here rather than half here and half
+ * in the view's `computed`:
+ *
+ * - An entry is selected. A `null` clone is a closed drawer, and whatever body
+ *   is still held belongs to whatever was open before it.
+ * - Its body has loaded. The editor seeds its draft from that body, so seeding
+ *   from `null` would let a Save overwrite the file with text the user never
+ *   saw.
+ *
+ * ORPHANED ENTRIES ARE DELIBERATELY EDITABLE. `orphaned` means the upstream
+ * source is gone, which makes Rebase meaningless — hence
+ * {@link eligibleForBulkRebase} excluding it — but the clone's OWN file is
+ * still on disk and still writable, and the field's contract says the entry is
+ * "now effectively user-owned" (`rpc-skill-clone.types.ts`, the `orphaned`
+ * note). An orphan is the entry a user is MOST likely to want to edit, since
+ * nothing upstream will ever reconcile it again. Withholding the editor there
+ * would refuse a write the backend accepts.
+ *
+ * Nothing in `CloneSummary` reports that the clone FILE is missing, so there is
+ * no client-side gate for an externally deleted entry. That case is refused by
+ * `skillSynthesis:saveCloneBody` (`written: false` → `INVALID_PARAMS`), which
+ * creates nothing.
  */
 export function canEditCloneBody(
-  clone: CloneSummary,
+  clone: CloneSummary | null,
   body: string | null,
 ): boolean {
-  return body !== null;
+  return clone !== null && body !== null;
+}
+
+/**
+ * Why an empty body may not be submitted, in the user's terms.
+ *
+ * `SkillSaveCloneBodyParamsSchema` enforces `.min(1)` and must keep doing so —
+ * an emptied clone is reconciled outward as an empty entry into every harness
+ * directory. But its refusal reads `Invalid parameters for
+ * skillSynthesis:saveCloneBody`, which is written for whoever wrote the RPC.
+ * This sentence is the same rule, addressed to the person typing.
+ */
+export const EMPTY_BODY_REASON =
+  'A body cannot be emptied from here. This file is mirrored into every ' +
+  'harness directory, so saving nothing would publish an empty entry — delete ' +
+  'the entry instead, or press Cancel to keep the current body.';
+
+/**
+ * Whether an edited body may be SUBMITTED, and why not when it may not.
+ *
+ * Mirrors the backend floor client-side so the developer-facing refusal is
+ * never the thing the user meets. Whitespace-only counts as empty: the schema
+ * would accept `'   '`, but a clone whose whole body is three spaces is the
+ * same mistake with a worse outcome — it passes validation and publishes.
+ *
+ * Returns the reason rather than a boolean so the caller cannot disable a
+ * control without having the explanation to hand.
+ */
+export function cloneBodyDraftRefusal(draft: string): string | null {
+  return draft.trim().length === 0 ? EMPTY_BODY_REASON : null;
 }
 
 /** The status word shown on the card: divergence outranks the stored status. */

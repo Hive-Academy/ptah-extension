@@ -4,6 +4,8 @@ import {
   BULK_REBASE_EXPLANATION,
   canEditCloneBody,
   cloneActionModel,
+  cloneBodyDraftRefusal,
+  EMPTY_BODY_REASON,
   cloneStatusLabel,
   eligibleForBulkRebase,
   formatHistoryTimestamp,
@@ -238,6 +240,41 @@ describe('canEditCloneBody', () => {
 
   it('refuses while the body is null — there is nothing to seed the draft from', () => {
     expect(canEditCloneBody(clone(), null)).toBe(false);
+  });
+
+  it('refuses when no entry is selected, even with a body still held', () => {
+    // A null clone is a closed drawer; the held body belongs to whatever was
+    // open before it. The rule owns this condition so the view cannot re-spell
+    // it (or forget to).
+    expect(canEditCloneBody(null, '# body')).toBe(false);
+  });
+
+  it('STILL allows editing an orphaned entry — no upstream is not unwritable', () => {
+    // `orphaned` means the upstream source is gone, so Rebase is meaningless
+    // (`eligibleForBulkRebase` excludes it). The clone's own file is untouched
+    // and `orphaned` makes the entry user-owned per the CloneSummary contract,
+    // so this is the entry most likely to be edited by hand.
+    const orphan = clone({ orphaned: true, diverged: true });
+    expect(canEditCloneBody(orphan, '# body')).toBe(true);
+    expect(eligibleForBulkRebase([orphan], 'skill')).toEqual([]);
+  });
+});
+
+describe('cloneBodyDraftRefusal', () => {
+  it('refuses an empty draft and returns the reason to render', () => {
+    expect(cloneBodyDraftRefusal('')).toBe(EMPTY_BODY_REASON);
+    expect(cloneBodyDraftRefusal('')).toContain('cannot be emptied');
+  });
+
+  it('refuses a whitespace-only draft — the schema would accept it', () => {
+    // `.min(1)` passes on '   ', and a clone whose entire body is three spaces
+    // is published into every harness directory.
+    expect(cloneBodyDraftRefusal('   \n\t ')).toBe(EMPTY_BODY_REASON);
+  });
+
+  it('allows any draft with real content', () => {
+    expect(cloneBodyDraftRefusal('# body')).toBeNull();
+    expect(cloneBodyDraftRefusal('x')).toBeNull();
   });
 });
 

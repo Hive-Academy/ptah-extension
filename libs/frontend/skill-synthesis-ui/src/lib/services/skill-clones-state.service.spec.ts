@@ -115,6 +115,68 @@ describe('SkillClonesStateService', () => {
     expect(svc.detail()).toBeNull();
   });
 
+  it('drops the held detail the moment a DIFFERENT entry is selected', async () => {
+    const rpc = makeRpc();
+    const resolvers = new Map<string, (v: unknown) => void>();
+    rpc.getClone.mockImplementation(
+      (slug: string) =>
+        new Promise((resolve) =>
+          resolvers.set(slug, resolve as (v: unknown) => void),
+        ) as ReturnType<SkillSynthesisRpcService['getClone']>,
+    );
+    const { svc } = setup(rpc);
+
+    const alpha = svc.loadDetail('alpha', 'skill');
+    resolvers.get('alpha')?.({ clone: clone({ slug: 'alpha' }), body: '# a', history: [] });
+    await alpha;
+    expect(svc.detail()?.body).toBe('# a');
+
+    const beta = svc.loadDetail('beta', 'skill');
+    // Before beta's reply: no body at all, rather than alpha's.
+    expect(svc.detail()).toBeNull();
+    expect(svc.detailLoading()).toBe(true);
+
+    resolvers.get('beta')?.({ clone: clone({ slug: 'beta' }), body: '# b', history: [] });
+    await beta;
+    expect(svc.detail()?.body).toBe('# b');
+    expect(svc.detailLoading()).toBe(false);
+  });
+
+  it('ignores a reply that lands after the selection moved on', async () => {
+    const rpc = makeRpc();
+    const resolvers = new Map<string, (v: unknown) => void>();
+    rpc.getClone.mockImplementation(
+      (slug: string) =>
+        new Promise((resolve) =>
+          resolvers.set(slug, resolve as (v: unknown) => void),
+        ) as ReturnType<SkillSynthesisRpcService['getClone']>,
+    );
+    const { svc } = setup(rpc);
+
+    const alpha = svc.loadDetail('alpha', 'skill');
+    const beta = svc.loadDetail('beta', 'skill');
+
+    // Beta wins the race; alpha's late reply must not overwrite it.
+    resolvers.get('beta')?.({ clone: clone({ slug: 'beta' }), body: '# b', history: [] });
+    await beta;
+    resolvers.get('alpha')?.({ clone: clone({ slug: 'alpha' }), body: '# a', history: [] });
+    await alpha;
+
+    expect(svc.detail()?.body).toBe('# b');
+    expect(svc.detailLoading()).toBe(false);
+  });
+
+  it('keeps the visible detail through a reload of the SAME entry', async () => {
+    const rpc = makeRpc();
+    const { svc } = setup(rpc);
+    await svc.loadDetail('deep-research', 'skill');
+
+    const reload = svc.loadDetail('deep-research', 'skill');
+    expect(svc.detail()?.body).toBe('# body');
+    await reload;
+    expect(svc.detail()?.body).toBe('# body');
+  });
+
   it('populates scorecards from ONE getScorecards call for agent slugs only', async () => {
     const rpc = makeRpc();
     rpc.listClones.mockResolvedValueOnce([

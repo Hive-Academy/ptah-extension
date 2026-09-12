@@ -752,6 +752,69 @@ describe('SkillClonesViewComponent — bulk rebase', () => {
     await fixture.whenStable();
     fixture.detectChanges();
   });
+
+  /*
+   * R1.4 end to end. The two cases above prove a failure in the MIDDLE and at
+   * the END of a batch are both survived. The two below close the remaining
+   * gaps: a failure on the very FIRST member, and the unlock afterwards.
+   */
+
+  it('a failure on the FIRST entry does not abort the batch — the later entries still succeed', async () => {
+    const state = makeStateStub([
+      clone({ slug: 'alpha', diverged: true }),
+      clone({ slug: 'beta', diverged: true }),
+      clone({ slug: 'delta', diverged: true }),
+    ]);
+    const rpc = makeRpcStub();
+    rpc.rebaseClone.mockImplementation(
+      async (_kind: string, slug: string) => {
+        if (slug === 'alpha') throw new Error('transport died');
+        return {
+          kind: 'skill' as const,
+          slug,
+          sourceHash: 'sha256:x',
+          snapshotPath: null,
+          failed: false,
+          reason: null,
+        };
+      },
+    );
+    const { click, q, fixture, settle } = setup({ state, rpc });
+
+    await click('clones-bulk-rebase-btn');
+    (q<HTMLButtonElement>('clones-bulk-confirm') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await settle();
+
+    expect(rpc.rebaseClone).toHaveBeenCalledTimes(3);
+    expect(rpc.rebaseClone).toHaveBeenNthCalledWith(2, 'skill', 'beta');
+    expect(rpc.rebaseClone).toHaveBeenNthCalledWith(3, 'skill', 'delta');
+    const toast = q('clones-toast')?.textContent ?? '';
+    expect(toast).toContain('Rebased 2 of 3');
+    expect(toast).toContain('alpha');
+    expect(state.refreshClones).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the lock after a batch in which an entry threw, so the surface is not stranded', async () => {
+    const state = makeStateStub(bulkFixture());
+    const rpc = makeRpcStub();
+    rpc.rebaseClone.mockRejectedValue(new Error('transport died'));
+    const { click, q, fixture, settle } = setup({ state, rpc });
+
+    await click('clones-bulk-rebase-btn');
+    (q<HTMLButtonElement>('clones-bulk-confirm') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await settle();
+
+    // `running` clears in a `finally`; had it not, every control below would
+    // stay disabled until the tab was rebuilt.
+    expect(q<HTMLButtonElement>('clones-bulk-rebase-btn')?.disabled).toBe(
+      false,
+    );
+    expect(q<HTMLButtonElement>('clones-refresh')?.disabled).toBe(false);
+    expect(q('clones-toast')?.textContent).toContain('Rebased 0 of 2');
+    fixture.detectChanges();
+  });
 });
 
 describe('SkillClonesViewComponent — body save', () => {
@@ -791,6 +854,113 @@ describe('SkillClonesViewComponent — body save', () => {
       '# edited',
     );
     expect(state.refreshClones).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * Regression, TASK_2026_426 logic review finding 1.
+   *
+   * The whole sequence, against the REAL `SkillClonesStateService` — a stubbed
+   * state cannot reproduce this, because the defect lives in what `loadDetail`
+   * leaves in `detail` while it awaits. Select alpha, wait for its body, select
+   * beta, then reach for Edit before beta's detail lands: the editor used to
+   * open seeded with ALPHA's body, and saving wrote it into beta's file while
+   * the toast said `Saved "beta"`.
+   */
+  describe('cross-clone edit during the detail load', () => {
+    type Detail = SkillCloneDetail;
+
+    function realStateSetup() {
+      const resolvers = new Map<string, (d: Detail) => void>();
+      const rpc = {
+        listClones: jest.fn(async () => [
+          clone({ slug: 'alpha', kind: 'skill' }),
+          clone({ slug: 'beta', kind: 'skill' }),
+        ]),
+        getScorecards: jest.fn(async () => ({})),
+        getClone: jest.fn(
+          (slug: string) =>
+            new Promise<Detail>((resolve) => resolvers.set(slug, resolve)),
+        ),
+        saveCloneBody: jest.fn(async () => ({
+          kind: 'skill' as const,
+          slug: 'beta',
+          historyTs: '20260103T000000',
+        })),
+      };
+
+      TestBed.configureTestingModule({
+        imports: [SkillClonesViewComponent],
+        providers: [
+          { provide: SkillSynthesisRpcService, useValue: rpc },
+          { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        ],
+      });
+      const fixture = TestBed.createComponent(SkillClonesViewComponent);
+      fixture.detectChanges();
+
+      const el = () => fixture.nativeElement as HTMLElement;
+      const q = <T extends HTMLElement>(testId: string): T | null =>
+        el().querySelector<T>(`[data-testid="${testId}"]`);
+      const settle = async (): Promise<void> => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        fixture.detectChanges();
+      };
+      const openCard = (index: number): void => {
+        const rows = el().querySelectorAll('[data-testid="clones-row"]');
+        (rows[index].querySelector('[role="button"]') as HTMLElement).click();
+        fixture.detectChanges();
+      };
+      const resolveDetail = async (slug: string, body: string) => {
+        resolvers.get(slug)?.({
+          clone: clone({ slug, kind: 'skill' }),
+          body,
+          history: [],
+        });
+        await settle();
+      };
+
+      return { fixture, el, q, settle, openCard, resolveDetail, rpc };
+    }
+
+    it('withholds Edit until the SELECTED entry’s own body has landed', async () => {
+      const { q, el, settle, openCard, resolveDetail, fixture } =
+        realStateSetup();
+      await settle();
+
+      openCard(0);
+      await resolveDetail('alpha', '# alpha body');
+      expect(q('drawer-body-edit-btn')).toBeTruthy();
+
+      openCard(1);
+
+      // Alpha's body must not be reachable under beta's heading.
+      expect(q('drawer-body-loading')).toBeTruthy();
+      const staleEdit = q<HTMLButtonElement>('drawer-body-edit-btn');
+      expect(staleEdit).toBeNull();
+
+      // Belt and braces: even a click on a stale affordance must not seed.
+      staleEdit?.click();
+      fixture.detectChanges();
+      expect(
+        el().querySelector<HTMLTextAreaElement>(
+          '[data-testid="clone-body-editor-textarea"]',
+        ),
+      ).toBeNull();
+
+      // Beta's own body restores the affordance, seeded with BETA's text.
+      await resolveDetail('beta', '# beta body');
+      expect(q('drawer-body-edit-btn')).toBeTruthy();
+      (
+        q<HTMLButtonElement>('drawer-body-edit-btn') as HTMLButtonElement
+      ).click();
+      // `[ngModel]` writes to the DOM on the tick after the editor is created.
+      await settle();
+      expect(
+        el().querySelector<HTMLTextAreaElement>(
+          '[data-testid="clone-body-editor-textarea"]',
+        )?.value,
+      ).toBe('# beta body');
+    });
   });
 
   it('surfaces a save failure as a toast without refreshing the list', async () => {
