@@ -33,6 +33,7 @@ Historical review uses merge-base(base, head)..head semantics.
 - 2026-09-11: Final gates passed: Git dock 5/5; historical review/hunk controls 5/5 at 1200x800; git-ui 21/21 suites and 285/285 tests; typecheck/lint 4/4 targets across 2 projects with warnings only; `git diff --check` passed.
 - 2026-09-11: Batch 6R applied every accepted independent-review fix: guarded malformed editor detection, extracted historical Git reads behind the `GitInfoService` facade, bounded review authorization with a 256-entry LRU, added counts-only parser drift diagnostics, restored branch recency bounds, reduced the git-ui public API, and added the requested security/mount/coordinator coverage.
 - 2026-09-11: The first four-project test gate encountered unrelated Windows parallel-run timeouts. The unchanged gate reran with `--parallel=1` and passed all four projects (4,588 tests passed, 33 skipped). Six-project lint/typecheck, Electron 10/10 at 1200x800, and `git diff --check` all passed.
+- 2026-09-12: Post-rebase gate passed after repairing the two minimal container-smoke fixtures to register the filesystem port now required by the rebased editor/file-open handlers. Thirteen-project tests passed (9,641 tests), 14-project lint/typecheck passed all 28 targets, both app smoke suites passed 34/34, and the Electron selection passed 10/10 at 1200x800. Batch 8c-1 markdown/core checks remained green.
 
 ## Batches 7-8 decomposition
 

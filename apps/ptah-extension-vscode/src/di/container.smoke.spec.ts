@@ -118,6 +118,9 @@ function buildMinimalContainer(): DependencyContainer {
       openWorkspace: jest.fn(async () => undefined),
     },
   });
+  c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
+    useValue: {},
+  });
 
   c.register(SDK_TOKENS.SDK_PLUGIN_LOADER, {
     useValue: {
