@@ -120,7 +120,9 @@ import { PeerSessionPickerComponent } from '@ptah-extension/ui';
               >
                 <span>Notice before sending</span>
               </div>
-              <ul class="list-disc list-inside space-y-0.5 text-base-content/80">
+              <ul
+                class="list-disc list-inside space-y-0.5 text-base-content-muted"
+              >
                 <li data-testid="peer-cost-consumes-turn">
                   <strong>Consumes a turn:</strong> Sending this message consumes
                   a turn in this session.
@@ -200,7 +202,7 @@ import { PeerSessionPickerComponent } from '@ptah-extension/ui';
 
                 <!-- Required acceptanceCaveat rendered prominently to the user -->
                 <div
-                  class="mt-2 pt-2 border-t border-base-content/10 text-base-content/90 font-mono text-[11px] leading-relaxed"
+                  class="mt-2 pt-2 border-t border-base-content/10 text-base-content-muted font-mono text-[11px] leading-relaxed"
                   data-testid="peer-session-acceptance-caveat"
                 >
                   {{ res.acceptanceCaveat }}

@@ -160,6 +160,14 @@ describe('resolveName', () => {
     expect(resolved.nameSource).toBe('unknown');
     expect(resolved.name).toBe('ptah-extension (pid 16288)');
   });
+
+  it('synthesises the same placeholder from a POSIX workspace path', () => {
+    const resolved = resolveName(
+      record({ cwd: '/home/user/ptah-extension', name: undefined }),
+    );
+    expect(resolved.nameSource).toBe('unknown');
+    expect(resolved.name).toBe('ptah-extension (pid 16288)');
+  });
 });
 
 describe('unreadableRow', () => {

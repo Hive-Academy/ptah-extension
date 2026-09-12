@@ -105,6 +105,30 @@ describe('PeerSessionDirectory.list', () => {
     expect(result.currentWorkspace).toBe(HERE);
   });
 
+  // The label the picker shows beside every row. It used `path.basename`, which
+  // on a POSIX host does not split a Windows-shaped cwd — so the label came out
+  // as the whole path. CI caught that defect in `resolveName`'s placeholder;
+  // nothing covered this sibling, so it stayed green over the same bug. Both
+  // separators are pinned so the test means the same thing on every host.
+  it.each([
+    ['a Windows-shaped cwd', 'D:\\projects\\ptah-extension'],
+    ['a POSIX cwd', '/home/user/ptah-extension'],
+    ['a cwd with a trailing separator', 'D:\\projects\\ptah-extension\\'],
+  ])('labels %s by its last segment on any host', async (_label, cwd) => {
+    scanMock.mockResolvedValue({
+      records: [record({ pid: 33, startMs: aliveAt, cwd })],
+      unreadable: [],
+    });
+    const directory = new PeerSessionDirectory(
+      logger(),
+      probeReporting(new Map([[33, aliveAt]])),
+    );
+
+    const result = await directory.list({ currentWorkspace: HERE });
+
+    expect(result.sessions[0].workspaceLabel).toBe('ptah-extension');
+  });
+
   it('shows an unreachable session rather than omitting it', async () => {
     scanMock.mockResolvedValue({
       records: [
@@ -132,7 +156,7 @@ describe('PeerSessionDirectory.list', () => {
     });
   });
 
-  it('drops the caller\'s own row so a session is never offered itself', async () => {
+  it("drops the caller's own row so a session is never offered itself", async () => {
     scanMock.mockResolvedValue({
       records: [
         record({ pid: 11, startMs: aliveAt }),

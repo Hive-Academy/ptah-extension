@@ -51,6 +51,7 @@ import type {
   PeerSessionRow,
   PeerSessionUnreachableReason,
 } from '@ptah-extension/shared';
+import { deriveWorkspaceLabel } from '../helpers/session-name.builder';
 import {
   currentPidDomain,
   recordStartFingerprint,
@@ -156,13 +157,19 @@ export class PeerSessionDirectory {
       name,
       nameSource,
       workspace: record.cwd,
-      workspaceLabel: path.basename(record.cwd) || record.cwd,
+      // `deriveWorkspaceLabel`, not `path.basename`: the platform `path` does not
+      // split a Windows-shaped cwd on a POSIX host, so the label came out as the
+      // whole path. The placeholder name in `resolveName` had the same defect
+      // and CI caught it there; this is the sibling it did not cover.
+      workspaceLabel: deriveWorkspaceLabel(record.cwd) || record.cwd,
       inCurrentWorkspace: samePath(record.cwd, currentWorkspace),
       reachability: unreachableReason ? 'unreachable' : 'reachable',
       ...(unreachableReason ? { unreachableReason } : {}),
       pid: record.pid,
       ...(record.version ? { cliVersion: record.version } : {}),
-      ...(record.startedAt !== undefined ? { startedAt: record.startedAt } : {}),
+      ...(record.startedAt !== undefined
+        ? { startedAt: record.startedAt }
+        : {}),
     };
   }
 }
@@ -246,7 +253,7 @@ export function resolveName(record: PeerSessionRecord): {
   const recorded = record.name?.trim();
   if (!recorded) {
     return {
-      name: `${path.basename(record.cwd) || 'session'} (pid ${record.pid})`,
+      name: `${deriveWorkspaceLabel(record.cwd) || 'session'} (pid ${record.pid})`,
       nameSource: 'unknown',
     };
   }
