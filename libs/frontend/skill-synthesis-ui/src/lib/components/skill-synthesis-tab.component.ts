@@ -579,7 +579,7 @@ interface ActionDialogState {
           @case ('clones') {
             <div class="space-y-4">
               <ptah-skill-clones-view
-                [divergedFilterRequested]="clonesDivergedFilter()"
+                [divergedFilterRequest]="clonesDivergedFilter()"
               />
             </div>
           }
@@ -729,7 +729,7 @@ export class SkillSynthesisTabComponent implements OnInit {
     // here rather than in the clones view keeps it a single read-and-clear.
     effect(() => {
       if (!this.appState.consumeSkillsDivergedRequest()) return;
-      this._clonesDivergedFilter.set(true);
+      this._clonesDivergedFilter.update((token) => token + 1);
       this._subView.set('clones');
     });
   }
@@ -893,15 +893,21 @@ export class SkillSynthesisTabComponent implements OnInit {
   protected readonly subView = this._subView.asReadonly();
 
   /**
-   * Whether the Library sub-view should arrive pre-filtered to diverged
-   * entries, because the harness panel's deep link asked for it (R2.5).
+   * How many times the harness panel's deep link has asked the Library to
+   * arrive pre-filtered to diverged entries (R2.5). `0` means never.
    *
-   * THE FLAG IS CONSUMED HERE AND NOWHERE ELSE.
+   * A COUNTER, not a boolean. The tab stays mounted across deep links, so a
+   * boolean already `true` is set to `true` again — no signal change, nothing
+   * for the child's effect to react to, and a second activation after the user
+   * cleared the filter did nothing at all. Each activation bumps the token, so
+   * every request reaches the child exactly once.
+   *
+   * THE REQUEST IS CONSUMED HERE AND NOWHERE ELSE.
    * `consumeSkillsDivergedRequest()` is a read-and-clear; a second consumer in
    * the clones view would race this effect and one of the two would always see
    * a cleared flag. The answer travels down as a plain `input()` instead.
    */
-  private readonly _clonesDivergedFilter = signal<boolean>(false);
+  private readonly _clonesDivergedFilter = signal<number>(0);
   protected readonly clonesDivergedFilter =
     this._clonesDivergedFilter.asReadonly();
 

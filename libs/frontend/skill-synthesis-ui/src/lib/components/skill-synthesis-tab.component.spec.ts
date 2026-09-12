@@ -891,6 +891,36 @@ describe('SkillSynthesisTabComponent — diverged-clones deep link', () => {
     );
   });
 
+  /**
+   * The tab stays mounted across deep links. A boolean flag already `true`
+   * cannot express a SECOND request, so the Library kept whatever filter state
+   * the user had left it in and the deep link silently did nothing.
+   */
+  it('re-applies the diverged filter on a SECOND deep link while still mounted', () => {
+    const { appState } = mount();
+    appState.openSkillsDivergedClones();
+
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const filter = (): HTMLButtonElement | null =>
+      root.querySelector<HTMLButtonElement>(
+        '[data-testid="clones-diverged-filter"]',
+      );
+    expect(filter()?.getAttribute('aria-pressed')).toBe('true');
+
+    // The user widens the list back out by hand, WITHOUT leaving the Library.
+    filter()?.click();
+    fixture.detectChanges();
+    expect(filter()?.getAttribute('aria-pressed')).toBe('false');
+
+    appState.openSkillsDivergedClones();
+    fixture.detectChanges();
+
+    expect(activeSubView(root)).toBe('Library');
+    expect(filter()?.getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('stays on Recommended when no deep link asked for the Library', () => {
     mount();
     const fixture = TestBed.createComponent(SkillSynthesisTabComponent);

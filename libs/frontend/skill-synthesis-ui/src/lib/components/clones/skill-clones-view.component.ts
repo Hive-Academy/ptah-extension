@@ -67,7 +67,12 @@ import {
 
 interface ClonesToast {
   readonly message: string;
-  readonly kind: 'success' | 'error' | 'info';
+  /**
+   * `warning` is for an operation that DID succeed but whose result the user
+   * must act on — today, a body save the next sync can overwrite. It is not an
+   * `error` (nothing failed) and not a `success` (the outcome is qualified).
+   */
+  readonly kind: 'success' | 'error' | 'info' | 'warning';
 }
 
 /** A divergence resolution awaiting explicit confirmation. */
@@ -136,7 +141,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
             type="button"
             class="btn btn-ghost btn-xs shrink-0 transition-colors duration-150"
             data-testid="clones-refresh"
-            [disabled]="loading() || actionsLocked()"
+            [disabled]="actionsLocked()"
             (click)="onRefresh()"
           >
             {{ loading() ? 'Refreshing…' : 'Refresh' }}
@@ -188,6 +193,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
             [class.alert-success]="t.kind === 'success'"
             [class.alert-error]="t.kind === 'error'"
             [class.alert-info]="t.kind === 'info'"
+            [class.alert-warning]="t.kind === 'warning'"
           >
             <span>{{ t.message }}</span>
           </div>
@@ -346,19 +352,23 @@ export class SkillClonesViewComponent implements OnInit {
   protected readonly bulk = inject(CloneBulkRebaseService);
 
   /**
-   * The deep link's one-shot request to arrive pre-filtered to diverged
-   * entries (R2.5).
+   * The deep link's request to arrive pre-filtered to diverged entries (R2.5),
+   * as a monotonically increasing token. `0` means never asked.
+   *
+   * A TOKEN, not a boolean: this view stays mounted while the user clears the
+   * filter by hand, and a boolean that is already `true` cannot signal a
+   * SECOND request. Each new value re-applies the filter exactly once.
    *
    * A plain `input()`, NOT a second read of
    * `AppStateManager.consumeSkillsDivergedRequest()`. The tab consumes that
    * read-and-clear exactly once and hands the answer down; two consumers would
    * race, and whichever effect ran second would see a cleared flag.
    */
-  public readonly divergedFilterRequested = input<boolean>(false);
+  public readonly divergedFilterRequest = input<number>(0);
 
   public constructor() {
     effect(() => {
-      if (this.divergedFilterRequested()) this.divergedOnly.set(true);
+      if (this.divergedFilterRequest() > 0) this.divergedOnly.set(true);
     });
   }
 
@@ -434,12 +444,20 @@ export class SkillClonesViewComponent implements OnInit {
   });
 
   /**
-   * Any write that a second write could conflict with is in flight. R1.7: the
-   * bulk control, the refresh, both confirmations and every card lock on this.
+   * Any write that a second write could conflict with is in flight, OR the
+   * list those writes name is being re-read. R1.7: the bulk control, the
+   * refresh, both confirmations and every card lock on this.
+   *
+   * `loading()` belongs here. A clone-list refresh replaces every row, so a
+   * write started mid-refresh was authorised against rows that are already
+   * gone — including the eligibility the confirmation counted.
    */
   public readonly actionsLocked = computed<boolean>(
     () =>
-      this.bulk.running() || this.busySlug() !== null || this.bodySaving(),
+      this.loading() ||
+      this.bulk.running() ||
+      this.busySlug() !== null ||
+      this.bodySaving(),
   );
 
   /**
@@ -460,9 +478,7 @@ export class SkillClonesViewComponent implements OnInit {
   });
 
   protected readonly emptyCopy = computed(() =>
-    this.divergedOnly()
-      ? DIVERGED_EMPTY_COPY
-      : EMPTY_COPY[this.currentKind()],
+    this.divergedOnly() ? DIVERGED_EMPTY_COPY : EMPTY_COPY[this.currentKind()],
   );
 
   public ngOnInit(): void {
@@ -678,12 +694,29 @@ export class SkillClonesViewComponent implements OnInit {
    * R3.2/R3.4: the drawer asked; the write happens here. On success the detail
    * reload (inside the state service) is what lets the drawer leave edit mode,
    * and `historyCount` rises because the backend snapshotted first.
+   *
+   * A save whose result says `reconcileProtected: false` is still a success —
+   * the body is on disk — but the next sync pass can overwrite it, so the
+   * message says that and points at History instead of claiming the edit is
+   * settled. The contract on `SkillSynthesisSaveCloneBodyResult` requires it.
    */
   protected async onSaveBody(req: CloneBodySaveRequest): Promise<void> {
     this.bodySaving.set(true);
     try {
-      await this.state.saveCloneBody(req.clone.kind, req.clone.slug, req.body);
-      this.showToast(`Saved "${req.clone.slug}".`, 'success');
+      const result = await this.state.saveCloneBody(
+        req.clone.kind,
+        req.clone.slug,
+        req.body,
+      );
+      if (result.reconcileProtected) {
+        this.showToast(`Saved "${req.clone.slug}".`, 'success');
+      } else {
+        this.showToast(
+          `Saved "${req.clone.slug}", but a later sync may replace it — ` +
+            `History keeps a snapshot you can restore.`,
+          'warning',
+        );
+      }
       await this.state.refreshClones();
     } catch (err: unknown) {
       // Already sanitised server-side by `toUserError`; the draft survives

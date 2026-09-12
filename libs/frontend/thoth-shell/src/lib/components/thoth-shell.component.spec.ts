@@ -134,7 +134,10 @@ const memoryStateStub = {
 type AppStateStub = jest.Mocked<
   Pick<
     AppStateManager,
-    'thothActiveTab' | 'setThothActiveTab' | 'workspaceInfo'
+    | 'thothActiveTab'
+    | 'setThothActiveTab'
+    | 'workspaceInfo'
+    | 'consumeSkillsDivergedRequest'
   >
 >;
 
@@ -145,12 +148,17 @@ type ActiveTabSignal = ReturnType<typeof signal<ThothActiveTabId>>;
  * builds it here rather than hand-writing its own literal — four separate
  * literals is exactly how two of them lost `workspaceInfo`, which
  * `ThothStatusService` reads on behalf of the shell.
+ *
+ * `consumeSkillsDivergedRequest` is read by the skills tab's deep-link effect,
+ * which this shell mounts. Omitting it threw `is not a function` inside change
+ * detection and failed two tests that have nothing to do with the deep link.
  */
 function makeAppStateStub(activeTab: ActiveTabSignal): AppStateStub {
   return {
     thothActiveTab: activeTab.asReadonly(),
     setThothActiveTab: jest.fn((tab: ThothActiveTabId) => activeTab.set(tab)),
     workspaceInfo: signal(null),
+    consumeSkillsDivergedRequest: jest.fn(() => false),
   } as unknown as AppStateStub;
 }
 

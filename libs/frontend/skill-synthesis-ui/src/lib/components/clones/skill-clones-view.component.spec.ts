@@ -5,6 +5,7 @@ import type {
   AgentScorecard,
   CloneSummary,
   SkillSynthesisGetScorecardDetailResult,
+  SkillSynthesisSaveCloneBodyResult,
 } from '@ptah-extension/shared';
 
 import { SkillClonesViewComponent } from './skill-clones-view.component';
@@ -94,7 +95,23 @@ function makeStateStub(initial: CloneSummary[] = []): StateStub {
     loadDetail: jest.fn(async () => undefined),
     clearDetail: jest.fn(() => undefined),
     loadScorecardDetail: jest.fn(async () => undefined),
-    saveCloneBody: jest.fn(async () => undefined),
+    // The default is the protected save: the clone has an origin record, so the
+    // next sync marks it diverged rather than overwriting the edit.
+    saveCloneBody: jest.fn(async () => saveResult()),
+  };
+}
+
+/** A `skillSynthesis:saveCloneBody` result, protected unless told otherwise. */
+function saveResult(
+  overrides: Partial<SkillSynthesisSaveCloneBodyResult> = {},
+): SkillSynthesisSaveCloneBodyResult {
+  return {
+    kind: 'skill',
+    slug: 'deep-research',
+    historyTs: '20260103T000000',
+    metadataIncomplete: false,
+    reconcileProtected: true,
+    ...overrides,
   };
 }
 
@@ -137,11 +154,7 @@ function makeRpcStub() {
       sourceHash: 'sha256:def',
     })),
     listClones: jest.fn(async () => []),
-    saveCloneBody: jest.fn(async () => ({
-      kind: 'skill' as const,
-      slug: 'deep-research',
-      historyTs: '20260103T000000',
-    })),
+    saveCloneBody: jest.fn(async () => saveResult()),
   };
 }
 
@@ -151,7 +164,7 @@ function setup(opts: {
   isElectron?: boolean;
   state?: StateStub;
   rpc?: RpcStub;
-  divergedFilterRequested?: boolean;
+  divergedFilterRequest?: number;
 }) {
   const state = opts.state ?? makeStateStub();
   const rpc = opts.rpc ?? makeRpcStub();
@@ -167,8 +180,11 @@ function setup(opts: {
     ],
   });
   const fixture = TestBed.createComponent(SkillClonesViewComponent);
-  if (opts.divergedFilterRequested) {
-    fixture.componentRef.setInput('divergedFilterRequested', true);
+  if (opts.divergedFilterRequest) {
+    fixture.componentRef.setInput(
+      'divergedFilterRequest',
+      opts.divergedFilterRequest,
+    );
   }
   fixture.detectChanges();
 
@@ -605,8 +621,28 @@ describe('SkillClonesViewComponent — diverged filter', () => {
   it('arrives pre-filtered when the deep link asked for it', () => {
     const { all } = setup({
       state: makeStateStub(bulkFixture()),
-      divergedFilterRequested: true,
+      divergedFilterRequest: 1,
     });
+    expect(all('clones-row').length).toBe(2);
+  });
+
+  /**
+   * The view stays mounted between deep links. A boolean request could not
+   * express the SECOND one — it was already `true`, so nothing changed and the
+   * filter the user had cleared stayed cleared.
+   */
+  it('re-applies the filter on a SECOND deep link after the user cleared it', async () => {
+    const { all, click, fixture } = setup({
+      state: makeStateStub(bulkFixture()),
+      divergedFilterRequest: 1,
+    });
+    expect(all('clones-row').length).toBe(2);
+
+    await click('clones-diverged-filter');
+    expect(all('clones-row').length).toBe(3);
+
+    fixture.componentRef.setInput('divergedFilterRequest', 2);
+    fixture.detectChanges();
     expect(all('clones-row').length).toBe(2);
   });
 });
@@ -617,9 +653,7 @@ describe('SkillClonesViewComponent — bulk rebase', () => {
     expect(q('clones-bulk-count')?.textContent).toContain(
       '2 diverged entries can be rebased',
     );
-    expect(q('clones-bulk-count')?.textContent).toContain(
-      '(1 in other kinds)',
-    );
+    expect(q('clones-bulk-count')?.textContent).toContain('(1 in other kinds)');
   });
 
   it('names the count on the control and excludes orphaned and authored entries', () => {
@@ -642,6 +676,23 @@ describe('SkillClonesViewComponent — bulk rebase', () => {
     expect(q('clones-bulk-disabled-reason')?.textContent).toContain(
       'Nothing to rebase in this kind',
     );
+  });
+
+  /**
+   * A refresh replaces every row, so a write started while one is in flight
+   * was authorised against rows that may already be gone — including the
+   * eligibility the bulk count was taken from.
+   */
+  it('locks the bulk controls while the clone list is still being read', () => {
+    const state = makeStateStub(bulkFixture());
+    state.refreshClones.mockImplementation(() => {
+      state.loading.set(true);
+      return new Promise<void>(() => undefined);
+    });
+    const { q } = setup({ state });
+
+    expect(q<HTMLButtonElement>('clones-bulk-rebase-btn')?.disabled).toBe(true);
+    expect(q<HTMLButtonElement>('clones-refresh')?.disabled).toBe(true);
   });
 
   it('writes nothing until the confirmation is accepted', async () => {
@@ -766,19 +817,17 @@ describe('SkillClonesViewComponent — bulk rebase', () => {
       clone({ slug: 'delta', diverged: true }),
     ]);
     const rpc = makeRpcStub();
-    rpc.rebaseClone.mockImplementation(
-      async (_kind: string, slug: string) => {
-        if (slug === 'alpha') throw new Error('transport died');
-        return {
-          kind: 'skill' as const,
-          slug,
-          sourceHash: 'sha256:x',
-          snapshotPath: null,
-          failed: false,
-          reason: null,
-        };
-      },
-    );
+    rpc.rebaseClone.mockImplementation(async (_kind: string, slug: string) => {
+      if (slug === 'alpha') throw new Error('transport died');
+      return {
+        kind: 'skill' as const,
+        slug,
+        sourceHash: 'sha256:x',
+        snapshotPath: null,
+        failed: false,
+        reason: null,
+      };
+    });
     const { click, q, fixture, settle } = setup({ state, rpc });
 
     await click('clones-bulk-rebase-btn');
@@ -857,6 +906,69 @@ describe('SkillClonesViewComponent — body save', () => {
   });
 
   /**
+   * Edit the open body and submit, leaving the toast on screen.
+   *
+   * Deliberately does NOT use `click`, which awaits `whenStable()` and so waits
+   * out the toast's own 3-second dismissal timer.
+   */
+  async function editAndSave(
+    harness: ReturnType<typeof setup>,
+    text: string,
+  ): Promise<void> {
+    const { click, fixture, el, q, settle } = harness;
+    await click('drawer-body-edit-btn');
+    const textarea = el().querySelector(
+      '[data-testid="clone-body-editor-textarea"]',
+    ) as HTMLTextAreaElement;
+    textarea.value = text;
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (
+      q<HTMLButtonElement>('clone-body-editor-save') as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+    await settle();
+  }
+
+  /**
+   * CodeRabbit finding C, TASK_2026_426. `SkillSynthesisSaveCloneBodyResult`
+   * forbids an unqualified success when `reconcileProtected` is `false`: the
+   * body is on disk, but the next sync pass can overwrite it. The protected
+   * case must stay exactly as it was.
+   */
+  it('reports a protected save as a plain success', async () => {
+    const harness = openDrawerWithBody('# body');
+    await editAndSave(harness, '# edited');
+
+    const toast = harness.q('clones-toast');
+    const tone = Array.from(toast?.classList ?? []);
+    expect(toast?.textContent?.trim()).toBe('Saved "deep-research".');
+    expect(tone).toContain('alert-success');
+    expect(tone).not.toContain('alert-warning');
+  });
+
+  it('warns that an unprotected save may not survive the next sync', async () => {
+    const harness = openDrawerWithBody('# body');
+    harness.state.saveCloneBody.mockResolvedValueOnce(
+      saveResult({ reconcileProtected: false }),
+    );
+    await editAndSave(harness, '# edited');
+
+    const toast = harness.q('clones-toast');
+    const text = toast?.textContent ?? '';
+    const tone = Array.from(toast?.classList ?? []);
+    // Saved, at risk, and recoverable — the three facts, in the user's words.
+    expect(text).toContain('Saved "deep-research"');
+    expect(text).toContain('a later sync may replace it');
+    expect(text).toContain('History keeps a snapshot');
+    // A warning, not an error: the write DID happen, so the list still reloads.
+    expect(tone).toContain('alert-warning');
+    expect(tone).not.toContain('alert-error');
+    expect(tone).not.toContain('alert-success');
+    expect(harness.state.refreshClones).toHaveBeenCalledTimes(2);
+  });
+
+  /**
    * Regression, TASK_2026_426 logic review finding 1.
    *
    * The whole sequence, against the REAL `SkillClonesStateService` — a stubbed
@@ -881,11 +993,7 @@ describe('SkillClonesViewComponent — body save', () => {
           (slug: string) =>
             new Promise<Detail>((resolve) => resolvers.set(slug, resolve)),
         ),
-        saveCloneBody: jest.fn(async () => ({
-          kind: 'skill' as const,
-          slug: 'beta',
-          historyTs: '20260103T000000',
-        })),
+        saveCloneBody: jest.fn(async () => saveResult({ slug: 'beta' })),
       };
 
       TestBed.configureTestingModule({
