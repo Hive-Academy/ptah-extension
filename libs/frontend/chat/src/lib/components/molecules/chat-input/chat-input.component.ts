@@ -62,6 +62,7 @@ import {
 } from '../../../directives/slash-trigger.directive';
 import { EffortSelectorComponent } from './effort-selector.component';
 import { McpStatusChipComponent } from '../mcp-status-chip.component';
+import { PeerSessionSendComponent } from '../peer-session-send';
 
 /** Pasted image data for UI display */
 interface PastedImage {
@@ -108,6 +109,7 @@ interface PastedImage {
     SlashTriggerDirective,
     EffortSelectorComponent,
     McpStatusChipComponent,
+    PeerSessionSendComponent,
   ],
   providers: [VoiceInputService],
   template: `
@@ -359,6 +361,9 @@ interface PastedImage {
             [sessionId]="mcpSessionId()"
             [tabId]="mcpTabId()"
           />
+
+          <!-- Peer session send affordance (TASK_2026_402 §11) -->
+          <ptah-peer-session-send />
 
           <!-- Effort Selector Component -->
           <ptah-effort-selector (effortChanged)="onEffortChange($event)" />
