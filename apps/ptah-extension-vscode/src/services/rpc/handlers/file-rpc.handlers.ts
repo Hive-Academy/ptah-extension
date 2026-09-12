@@ -15,9 +15,13 @@
  *  2. **An absolute path outside the open folders is not refused, it is
  *     CONFIRMED.** Refusing would regress a case that works today (a link into
  *     an unregistered sibling repo), so the user is shown the absolute path in
- *     a modal and opens it deliberately. The credential deny-list inside
- *     `resolveForExternalOpen` still applies, so `~/.ssh/id_ed25519` is
- *     refused outright and never reaches a confirm.
+ *     a modal and opens it deliberately. That path goes through
+ *     `resolveForHostReveal`, which authorizes no root set but still applies
+ *     the form gate, `realpath`, the credential deny-list and the file-kind
+ *     check — so `~/.ssh/id_ed25519` and `\\server\share\x` are refused
+ *     outright and never reach a confirm. `resolveForExternalOpen` is NOT used
+ *     here: it is bounded to registered ∪ home ∪ temp, so a sibling repo on
+ *     another drive was rejected before the confirm could run.
  *  3. **No raw `error.message` is returned.** Sentry still captures the real
  *     error; the caller gets a fixed sentence.
  */
@@ -102,7 +106,7 @@ export class FileRpcHandlers {
    * Turn an untrusted path into a resolved, authorized target.
    *
    * A relative path gets ONE chance, under the view roots. An absolute path
-   * falls back to the external-link policy plus an explicit confirm, which is
+   * falls back to the host-reveal policy plus an explicit confirm, which is
    * what keeps today's "open a file in an unregistered sibling repo" working.
    */
   private async resolveTarget(
@@ -130,17 +134,16 @@ export class FileRpcHandlers {
       return { kind: 'refused', message: MESSAGE.notResolvable };
     }
 
-    const external = await this.linkPolicy.resolveForExternalOpen(
-      { path: requested },
-      { allowDirectory: true },
-    );
-    if (external.kind === 'rejected') {
+    const outside = await this.linkPolicy.resolveForHostReveal(requested, {
+      allowDirectory: true,
+    });
+    if (outside.kind === 'rejected') {
       return { kind: 'refused', message: MESSAGE.notResolvable };
     }
 
-    const confirmed = await this.confirmOutsideWorkspace(external.lexicalPath);
+    const confirmed = await this.confirmOutsideWorkspace(outside.lexicalPath);
     if (!confirmed) return { kind: 'cancelled' };
-    return { kind: 'resolved', resolution: external };
+    return { kind: 'resolved', resolution: outside };
   }
 
   /**

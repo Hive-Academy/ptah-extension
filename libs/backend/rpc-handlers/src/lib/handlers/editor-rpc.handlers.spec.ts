@@ -12,6 +12,7 @@ describe('EditorRpcHandlers', () => {
   const openFile = jest.fn(async () => undefined);
   const openWorkspace = jest.fn(async () => undefined);
   const methods = new Map<string, (params: unknown) => unknown>();
+  const warn = jest.fn();
 
   /**
    * What the external-link policy will answer. Defaulted to a resolved file
@@ -32,7 +33,7 @@ describe('EditorRpcHandlers', () => {
       sizeBytes: 12,
     };
     new EditorRpcHandlers(
-      { warn: jest.fn() } as never,
+      { warn } as never,
       {
         registerMethod: (name: string, handler: (params: unknown) => unknown) =>
           methods.set(name, handler),
@@ -56,6 +57,48 @@ describe('EditorRpcHandlers', () => {
       success: true,
       targets: [target],
     });
+  });
+
+  /**
+   * LOW-1. A spawn failure carries the resolved executable path and an OS
+   * errno string. The renderer gets a fixed sentence; the real error is only
+   * ever logged.
+   */
+  it('returns fixed copy and logs the real error when a launch throws', async () => {
+    openFile.mockRejectedValueOnce(
+      new Error('spawn C:\\Users\\me\\AppData\\Cursor.exe ENOENT') as never,
+    );
+
+    const result = (await methods.get('editor:openFile')?.({
+      target: 'cursor',
+      path: '/workspace/a.ts',
+    })) as { success: boolean; error?: string };
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Could not launch the requested editor.',
+    });
+    expect(result.error).not.toContain('AppData');
+    expect(warn).toHaveBeenCalledWith(
+      '[editor RPC] launch failed',
+      expect.any(Error),
+    );
+  });
+
+  it('returns fixed copy when detection throws', async () => {
+    detect.mockRejectedValueOnce(
+      new Error('EACCES /usr/local/bin/cursor') as never,
+    );
+
+    await expect(methods.get('editor:detectTargets')?.({})).resolves.toEqual({
+      success: false,
+      targets: [],
+      error: 'Could not detect installed editors.',
+    });
+    expect(warn).toHaveBeenCalledWith(
+      '[editor RPC] detection failed',
+      expect.any(Error),
+    );
   });
 
   it('opens a contained file with the detected target object', async () => {

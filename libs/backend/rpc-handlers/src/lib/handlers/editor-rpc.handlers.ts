@@ -32,6 +32,19 @@ import {
 import { resolveWorkspaceFilePath } from './workspace-file-path';
 import { FileLinkRootPolicy } from './file-link-root-policy';
 
+/**
+ * Fixed copy for every failure that originates in a thrown error.
+ *
+ * A spawn failure carries the resolved executable path and an OS errno string
+ * (`spawn C:\Users\me\AppData\Local\Programs\...\Cursor.exe ENOENT`). That is
+ * host state, and the renderer is the side an injected link arrives on, so it
+ * never crosses the boundary — `this.warn` keeps the real error in the log.
+ */
+const MESSAGE = {
+  launchFailed: 'Could not launch the requested editor.',
+  detectFailed: 'Could not detect installed editors.',
+} as const;
+
 @injectable()
 export class EditorRpcHandlers {
   static readonly METHODS = [
@@ -169,21 +182,21 @@ export class EditorRpcHandlers {
       await open(target);
       return { success: true };
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(
-        '[editor RPC] launch failed',
-        error instanceof Error ? error : new Error(message),
-      );
-      return { success: false, error: message };
+      this.warn('[editor RPC] launch failed', error);
+      return { success: false, error: MESSAGE.launchFailed };
     }
   }
 
   private detectFailure(error: unknown): EditorDetectTargetsResult {
-    const message = error instanceof Error ? error.message : String(error);
+    this.warn('[editor RPC] detection failed', error);
+    return { success: false, targets: [], error: MESSAGE.detectFailed };
+  }
+
+  /** The ONE place a raw error is allowed to go: the host log. */
+  private warn(label: string, error: unknown): void {
     this.logger.warn(
-      '[editor RPC] detection failed',
-      error instanceof Error ? error : new Error(message),
+      label,
+      error instanceof Error ? error : new Error(String(error)),
     );
-    return { success: false, targets: [], error: message };
   }
 }

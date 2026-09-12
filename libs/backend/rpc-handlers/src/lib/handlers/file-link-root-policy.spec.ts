@@ -68,6 +68,54 @@ describe('isCredentialPath', () => {
     expect(isCredentialPath(candidate, 'linux')).toBe(true);
   });
 
+  /**
+   * A backup rename must not launder a credential directory. These are the
+   * forms a user's own script produces, and every one of them held the same
+   * secrets as the directory it was copied from while matching nothing.
+   */
+  it.each([
+    ['an AWS backup directory', '/home/me/.aws.bak/notes.md'],
+    ['a dash-suffixed SSH directory', '/home/me/.ssh-old/notes.md'],
+    ['an underscore-suffixed SSH directory', '/home/me/.ssh_backup/notes.md'],
+    ['a dotted GPG copy', '/home/me/.gnupg.2024/notes.md'],
+    ['a nested backup directory', '/home/me/backups/.kube-old/x.yaml'],
+  ])('denies %s by directory prefix', (_label, candidate) => {
+    expect(isCredentialPath(candidate, 'linux')).toBe(true);
+  });
+
+  it.each([
+    ['an AWS credentials file', '/home/me/backup/credentials'],
+    ['a suffixed credentials file', '/home/me/backup/credentials.json'],
+    ['a known_hosts file', '/home/me/backup/known_hosts'],
+    ['an authorized_keys file', '/home/me/backup/authorized_keys'],
+  ])('denies %s by basename wherever it was moved', (_label, candidate) => {
+    expect(isCredentialPath(candidate, 'linux')).toBe(true);
+  });
+
+  /**
+   * The prefix rule must not over-reach. A name without the leading dot is
+   * never a credential directory, and `.dockerignore` is a file in every
+   * ordinary repository.
+   */
+  it.each([
+    ['a directory called awsome', '/home/me/awsome/notes.md'],
+    ['a directory called sshd-config', '/home/me/sshd-config/notes.md'],
+    ['a file called sshd-config', '/home/me/etc/sshd-config'],
+    ['a dockerignore', '/home/me/project/.dockerignore'],
+    ['an sshrc', '/home/me/project/.sshrc'],
+    ['a file merely containing credentials', '/home/me/x/my-credentials.ts'],
+  ])('still allows %s', (_label, candidate) => {
+    expect(isCredentialPath(candidate, 'linux')).toBe(false);
+  });
+
+  it('applies the directory prefixes case-insensitively on win32 only', () => {
+    expect(isCredentialPath('C:\\Users\\Me\\.SSH.bak\\x.md', 'win32')).toBe(
+      true,
+    );
+    // `.SSH.bak` is a genuinely different directory from `.ssh.bak` on posix.
+    expect(isCredentialPath('/home/me/.SSH.bak/x.md', 'linux')).toBe(false);
+  });
+
   it.each([
     ['an ordinary source file', '/home/me/project/src/a.ts'],
     ['a readme', '/home/me/notes/readme.md'],
@@ -111,6 +159,7 @@ describe('isCredentialPath', () => {
     expect(CREDENTIAL_DENY_LIST.directories.length).toBeGreaterThan(0);
     expect(CREDENTIAL_DENY_LIST.files.length).toBeGreaterThan(0);
     expect(CREDENTIAL_DENY_LIST.basenames.length).toBeGreaterThan(0);
+    expect(CREDENTIAL_DENY_LIST.directoryPrefixes.length).toBeGreaterThan(0);
   });
 });
 
@@ -197,10 +246,35 @@ describe('FileLinkRootPolicy', () => {
   });
 
   /**
-   * The deny-list guards the home/temp WIDENING only. A `.env` in a repository
-   * the user opened is ordinary project content: the agent can already read it
-   * there, so refusing to open it in the user's editor would break a normal
-   * workflow while protecting nothing.
+   * HIGH-1. `resolution.root` is the LEXICAL match, so a symlink planted
+   * inside a REGISTERED root used to skip the deny-list entirely while its
+   * realpath pointed at a private key. The exemption is keyed on the REAL
+   * path's containment now, so this is refused.
+   */
+  it('refuses a symlink inside a REGISTERED root that realpaths into .ssh', async () => {
+    const link = path.join(workspace, 'project_note.md');
+    try {
+      await fs.symlink(path.join(home, '.ssh', 'id_ed25519'), link, 'file');
+    } catch {
+      // Unprivileged Windows cannot create a file symlink.
+      return;
+    }
+    const result = await build([workspace]).resolveForExternalOpen({
+      path: link,
+    });
+    expect(result).toMatchObject({
+      kind: 'rejected',
+      reason: 'outside-roots',
+    });
+    expect(result).not.toHaveProperty('lexicalPath');
+    await fs.rm(link, { force: true });
+  });
+
+  /**
+   * The deny-list guards everything OUTSIDE the registered roots. A `.env` in
+   * a repository the user opened is ordinary project content: the agent can
+   * already read it there, so refusing to open it in the user's editor would
+   * break a normal workflow while protecting nothing.
    */
   it('does not apply the deny-list inside a registered workspace root', async () => {
     const result = await build([workspace]).resolveForExternalOpen({
@@ -250,5 +324,84 @@ describe('FileLinkRootPolicy', () => {
     expect(gitInfo.getWorktrees).toHaveBeenCalledWith(workspace);
     // The UNC worktree never enters the authorized set, so this stays a miss.
     expect(result).toMatchObject({ kind: 'rejected', reason: 'outside-roots' });
+  });
+
+  /**
+   * HIGH-2. The host's own editor confirms rather than refuses, so this policy
+   * authorizes no root set — but every other gate still runs.
+   */
+  describe('resolveForHostReveal', () => {
+    let sibling: string;
+
+    beforeAll(async () => {
+      sibling = path.join(base, 'sibling-repo', 'src');
+      await fs.mkdir(sibling, { recursive: true });
+      await fs.writeFile(path.join(sibling, 'index.ts'), 'x', 'utf8');
+    });
+
+    it('resolves an absolute path that no registered root contains', async () => {
+      const target = path.join(sibling, 'index.ts');
+
+      // The narrower policy is what HIGH-2 was about: it refuses this path,
+      // which is why `file:open` must not route through it.
+      await expect(
+        build([workspace]).resolveForView({ path: target }),
+      ).resolves.toMatchObject({ kind: 'rejected', reason: 'outside-roots' });
+
+      await expect(
+        build([workspace]).resolveForHostReveal(target),
+      ).resolves.toMatchObject({ kind: 'file', lexicalPath: target });
+    });
+
+    it('still refuses a credential, disclosing no path', async () => {
+      const result = await build([workspace]).resolveForHostReveal(
+        path.join(home, '.ssh', 'id_ed25519'),
+      );
+      expect(result).toMatchObject({
+        kind: 'rejected',
+        reason: 'outside-roots',
+      });
+      expect(result).not.toHaveProperty('lexicalPath');
+    });
+
+    it.each([
+      ['a UNC share', '\\\\server\\share\\a.ts'],
+      ['a device path', '\\\\.\\PhysicalDrive0'],
+      ['an extended-length prefix', '\\\\?\\C:\\a.ts'],
+    ])('still refuses %s on its form alone', async (_label, candidate) => {
+      await expect(
+        build([workspace]).resolveForHostReveal(candidate),
+      ).resolves.toMatchObject({
+        kind: 'rejected',
+        reason: 'unsupported-path',
+      });
+    });
+
+    it('refuses a relative path rather than resolving against the cwd', async () => {
+      await expect(
+        build([workspace]).resolveForHostReveal('src/index.ts'),
+      ).resolves.toMatchObject({
+        kind: 'rejected',
+        reason: 'no-base-root',
+      });
+    });
+
+    it('reports a missing path as not-found', async () => {
+      await expect(
+        build([workspace]).resolveForHostReveal(path.join(sibling, 'gone.ts')),
+      ).resolves.toMatchObject({ kind: 'rejected', reason: 'not-found' });
+    });
+
+    it('resolves a directory only when the caller allows one', async () => {
+      await expect(
+        build([workspace]).resolveForHostReveal(sibling),
+      ).resolves.toMatchObject({ kind: 'rejected', reason: 'not-a-file' });
+
+      await expect(
+        build([workspace]).resolveForHostReveal(sibling, {
+          allowDirectory: true,
+        }),
+      ).resolves.toMatchObject({ kind: 'directory', lexicalPath: sibling });
+    });
   });
 });

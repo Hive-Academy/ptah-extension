@@ -234,8 +234,14 @@ function matchRoot(
   return best;
 }
 
-/** Map an `ENOENT`-style failure onto the wire vocabulary. */
-function realpathFailureReason(error: unknown): FileViewFailureReason {
+/**
+ * Map an `ENOENT`-style failure onto the wire vocabulary.
+ *
+ * Exported so a policy that resolves OUTSIDE the root-set mechanism (the VS
+ * Code reveal path in `file-link-root-policy.ts`) answers with the same
+ * vocabulary instead of minting a second mapping that could drift.
+ */
+export function realpathFailureReason(error: unknown): FileViewFailureReason {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === 'ENOENT' || code === 'ENOTDIR') return 'not-found';
   return 'unreadable';

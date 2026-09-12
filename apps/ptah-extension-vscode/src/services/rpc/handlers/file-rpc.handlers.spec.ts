@@ -1,5 +1,7 @@
 import 'reflect-metadata';
 import * as path from 'path';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 
 const showWarningMessage = jest.fn();
 const showTextDocument = jest.fn();
@@ -39,6 +41,7 @@ jest.mock('vscode', () => ({
   TextEditorRevealType: { InCenter: 2 },
 }));
 
+import { FileLinkRootPolicy } from '@ptah-extension/rpc-handlers';
 import { FileRpcHandlers } from './file-rpc.handlers';
 
 type RpcMethod = (params?: unknown) => Promise<{
@@ -48,18 +51,23 @@ type RpcMethod = (params?: unknown) => Promise<{
 }>;
 
 const WORKSPACE = path.resolve('/ws');
-const OUTSIDE = path.resolve('/other/repo/x.ts');
 
 describe('FileRpcHandlers — file:open', () => {
   const resolveForView = jest.fn();
-  const resolveForExternalOpen = jest.fn();
+  const resolveForHostReveal = jest.fn();
   const captureException = jest.fn();
   const editor = {
     selection: undefined as unknown,
     revealRange: jest.fn(),
   };
 
-  function build(): RpcMethod {
+  /**
+   * `policy` defaults to the doubled one so the navigation tests stay focused.
+   * The out-of-root block below passes a REAL {@link FileLinkRootPolicy}: a
+   * mock there concealed that the policy this handler used rejected every
+   * sibling repository before the confirmation could run (HIGH-2).
+   */
+  function build(policy?: unknown): RpcMethod {
     const methods = new Map<string, RpcMethod>();
     new FileRpcHandlers(
       { debug: jest.fn(), error: jest.fn() } as never,
@@ -68,7 +76,7 @@ describe('FileRpcHandlers — file:open', () => {
           methods.set(name, handler),
       } as never,
       { captureException } as never,
-      { resolveForView, resolveForExternalOpen } as never,
+      (policy ?? { resolveForView, resolveForHostReveal }) as never,
     ).register();
     const method = methods.get('file:open');
     if (!method) throw new Error('file:open was not registered');
@@ -121,7 +129,7 @@ describe('FileRpcHandlers — file:open', () => {
     const result = await build()({ path: 'src/a.ts', workspaceRoot: '/nope' });
 
     expect(result.success).toBe(false);
-    expect(resolveForExternalOpen).not.toHaveBeenCalled();
+    expect(resolveForHostReveal).not.toHaveBeenCalled();
     expect(openTextDocument).not.toHaveBeenCalled();
     expect(showWarningMessage).toHaveBeenCalled();
   });
@@ -138,7 +146,7 @@ describe('FileRpcHandlers — file:open', () => {
       error: 'That path form is not supported.',
     });
     expect(resolveForView).not.toHaveBeenCalled();
-    expect(resolveForExternalOpen).not.toHaveBeenCalled();
+    expect(resolveForHostReveal).not.toHaveBeenCalled();
     expect(openTextDocument).not.toHaveBeenCalled();
   });
 
@@ -154,66 +162,93 @@ describe('FileRpcHandlers — file:open', () => {
   });
 
   /**
-   * R3: an absolute path in an unregistered sibling repo opens today, so it
-   * must keep opening — behind an explicit confirmation that shows the path,
-   * rather than being refused.
+   * R3, against the REAL policy. The previous version of this block mocked
+   * `resolveForExternalOpen` to return a synthetic file for `/other/repo/x.ts`
+   * — and the real policy rejects every path outside registered ∪ home ∪ temp,
+   * so the confirmation was unreachable for exactly the case R3 protects.
+   * These tests run the genuine `FileLinkRootPolicy` against real files in a
+   * temp directory that no registered root contains.
    */
-  it('confirms an out-of-root absolute path, showing the absolute path', async () => {
-    resolveForView.mockResolvedValue({
-      kind: 'rejected',
-      reason: 'outside-roots',
-    });
-    resolveForExternalOpen.mockResolvedValue(file(OUTSIDE));
-    showWarningMessage.mockResolvedValue('Open');
+  describe('an out-of-root absolute path, against the real policy', () => {
+    let sibling: string;
+    let siblingFile: string;
+    let credential: string;
 
-    await expect(build()({ path: OUTSIDE })).resolves.toEqual({
-      success: true,
-    });
+    const realPolicy = () =>
+      new FileLinkRootPolicy(
+        { getWorkspaceFolders: () => [WORKSPACE] } as never,
+        { getWorktrees: async () => [] } as never,
+      );
 
-    expect(showWarningMessage).toHaveBeenCalledWith(
-      expect.stringContaining('outside your open workspaces'),
-      expect.objectContaining({ modal: true, detail: OUTSIDE }),
-      'Open',
-    );
-    expect(openTextDocument).toHaveBeenCalled();
-  });
-
-  it('opens nothing when the confirmation is cancelled', async () => {
-    resolveForView.mockResolvedValue({
-      kind: 'rejected',
-      reason: 'outside-roots',
-    });
-    resolveForExternalOpen.mockResolvedValue(file(OUTSIDE));
-    showWarningMessage.mockResolvedValue(undefined);
-
-    const result = await build()({ path: OUTSIDE });
-
-    expect(result.success).toBe(false);
-    expect(openTextDocument).not.toHaveBeenCalled();
-  });
-
-  /** R1: a deny-listed credential is refused outright, with no confirm offered. */
-  it('refuses a deny-listed credential without offering a confirmation', async () => {
-    resolveForView.mockResolvedValue({
-      kind: 'rejected',
-      reason: 'outside-roots',
-    });
-    resolveForExternalOpen.mockResolvedValue({
-      kind: 'rejected',
-      reason: 'outside-roots',
+    beforeAll(async () => {
+      sibling = await fs.realpath(
+        await fs.mkdtemp(path.join(os.tmpdir(), 'ptah-file-open-')),
+      );
+      siblingFile = path.join(sibling, 'main.ts');
+      await fs.writeFile(siblingFile, 'export {};', 'utf8');
+      await fs.mkdir(path.join(sibling, '.ssh'), { recursive: true });
+      credential = path.join(sibling, '.ssh', 'id_ed25519');
+      await fs.writeFile(credential, 'KEY', 'utf8');
     });
 
-    const result = await build()({ path: '/home/me/.ssh/id_ed25519' });
+    afterAll(async () => {
+      await fs.rm(sibling, { recursive: true, force: true });
+    });
 
-    expect(result.success).toBe(false);
-    expect(openTextDocument).not.toHaveBeenCalled();
-    expect(showWarningMessage).toHaveBeenCalledTimes(1);
-    // The single call is the non-modal refusal, not a modal confirm.
-    expect(showWarningMessage).not.toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ modal: true }),
-      'Open',
-    );
+    it('confirms with the absolute path and opens on Open', async () => {
+      showWarningMessage.mockResolvedValue('Open');
+
+      await expect(build(realPolicy())({ path: siblingFile })).resolves.toEqual(
+        { success: true },
+      );
+
+      expect(showWarningMessage).toHaveBeenCalledWith(
+        expect.stringContaining('outside your open workspaces'),
+        expect.objectContaining({ modal: true, detail: siblingFile }),
+        'Open',
+      );
+      expect(openTextDocument).toHaveBeenCalled();
+    });
+
+    it('opens nothing when the confirmation is declined', async () => {
+      showWarningMessage.mockResolvedValue(undefined);
+
+      const result = await build(realPolicy())({ path: siblingFile });
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Opening that file was cancelled.',
+      });
+      expect(openTextDocument).not.toHaveBeenCalled();
+    });
+
+    /** R1: a deny-listed credential is refused outright, no confirm offered. */
+    it('refuses a deny-listed credential without offering a confirmation', async () => {
+      const result = await build(realPolicy())({ path: credential });
+
+      expect(result.success).toBe(false);
+      expect(openTextDocument).not.toHaveBeenCalled();
+      expect(showWarningMessage).toHaveBeenCalledTimes(1);
+      // The single call is the non-modal refusal, not a modal confirm.
+      expect(showWarningMessage).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ modal: true }),
+        'Open',
+      );
+    });
+
+    it.each([
+      ['a UNC share', '\\\\server\\share\\a.ts'],
+      ['a device path', '\\\\.\\PhysicalDrive0'],
+    ])('refuses %s before any confirmation', async (_label, candidate) => {
+      const result = await build(realPolicy())({ path: candidate });
+
+      expect(result).toEqual({
+        success: false,
+        error: 'That path form is not supported.',
+      });
+      expect(openTextDocument).not.toHaveBeenCalled();
+    });
   });
 
   it('places the cursor at the 1-based line and column', async () => {
