@@ -36,6 +36,7 @@ export function createElectronRpcHostProfile(
       filePicker: true,
       filePickerImages: true,
       fileSystemAccess: true,
+      fileViewer: true,
       commandExecution: true,
       appUpdater: true,
     }),

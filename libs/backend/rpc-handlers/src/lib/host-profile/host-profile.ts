@@ -77,6 +77,7 @@ const ALL_DISABLED: HostCapabilities = {
   filePicker: false,
   filePickerImages: false,
   fileSystemAccess: false,
+  fileViewer: false,
   commandExecution: false,
   appUpdater: false,
 };

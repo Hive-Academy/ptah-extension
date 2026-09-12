@@ -12,6 +12,7 @@ export const FileOpenRpcParamsSchema = z
   .object({
     path: z.string().min(1),
     line: z.number().int().positive().optional(),
+    column: z.number().int().positive().optional(),
     workspaceRoot: z.string().min(1).max(4096).optional(),
   })
   .strict();

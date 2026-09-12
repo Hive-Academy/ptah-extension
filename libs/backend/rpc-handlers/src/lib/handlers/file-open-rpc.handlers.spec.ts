@@ -144,6 +144,21 @@ describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () =
     expect(launcher.detect).not.toHaveBeenCalled();
   });
 
+  /**
+   * `column` is part of the shared `file:open` contract so the VS Code host
+   * can place a cursor. Electron launches an EXTERNAL editor through an argv
+   * array that carries no column, so the field must be accepted and then
+   * ignored here — not rejected by `.strict()`, which would break the very
+   * callers Batch 8a is adding.
+   */
+  it('accepts a column and does not forward it to the launcher', async () => {
+    const { method, openFile } = build();
+    await expect(
+      method({ path: 'C:\\ws\\a.ts', line: 12, column: 3 }),
+    ).resolves.toEqual({ success: true });
+    expect(openFile).toHaveBeenCalledWith(vscode, 'C:\\ws\\a.ts', 12);
+  });
+
   it('reports a line-specific error for an invalid line', async () => {
     const { method, launcher } = build();
     const result = (await method({ path: 'C:\\ws\\a.ts', line: 0 })) as {

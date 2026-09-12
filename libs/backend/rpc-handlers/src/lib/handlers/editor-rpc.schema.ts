@@ -16,6 +16,7 @@ export const EditorOpenFileParamsSchema = z
     path: z.string().min(1),
     line: z.number().int().positive().optional(),
     workspaceRoot: z.string().min(1).max(4096).optional(),
+    scope: z.enum(['workspace', 'external-link']).optional(),
   })
   .strict();
 

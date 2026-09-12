@@ -3,15 +3,16 @@
 Implementation proceeds sequentially from the approved `implementation-plan.md`.
 Historical review uses merge-base(base, head)..head semantics.
 
-| Batch | Scope                                         | Status      | Verification                                                                                                                                        |
-| ----- | --------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | Read-only Git review backend                  | Complete    | Focused typecheck passed; scratch review 2/2 and handler suite 2725 passed, 31 skipped                                                              |
-| 2     | Kiro and workspace-safe launching             | Complete    | 6-project typecheck passed; 5-project tests passed after one test-scope correction (548 core, 190 VS Code, 247 Electron, 201 CLI, 2728 handlers)    |
-| 3     | Frontend state and primitives                 | Complete    | git-ui typecheck passed; 19 suites / 277 tests passed                                                                                               |
-| 4     | Mounted composition and hunk layout           | Complete    | 4-project typecheck passed; final git-ui 21 suites / 284 tests passed; real-child mount specs included                                              |
-| 5     | Composition-root and browser regression gates | Implemented | Chat 66 suites / 1,037 passed (2 skipped); webview 8 suites / 150 passed; required Electron proof 5/5 passed; two legacy dock scenarios remain red  |
-| 6     | Legacy Electron Git dock regression repair    | Complete    | Base classification 2/2 passed; Git dock 5/5; review/hunk gate 5/5; git-ui 21 suites / 285 tests; 4 lint/typecheck targets across 2 projects passed |
-| 6R    | Review fixes                                  | Complete    | 4-project tests passed (4,588 tests, 33 skipped); 6-project lint/typecheck passed; Electron 10/10; diff check clean                                 |
+| Batch | Scope                                           | Status      | Verification                                                                                                                                        |
+| ----- | ----------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Read-only Git review backend                    | Complete    | Focused typecheck passed; scratch review 2/2 and handler suite 2725 passed, 31 skipped                                                              |
+| 2     | Kiro and workspace-safe launching               | Complete    | 6-project typecheck passed; 5-project tests passed after one test-scope correction (548 core, 190 VS Code, 247 Electron, 201 CLI, 2728 handlers)    |
+| 3     | Frontend state and primitives                   | Complete    | git-ui typecheck passed; 19 suites / 277 tests passed                                                                                               |
+| 4     | Mounted composition and hunk layout             | Complete    | 4-project typecheck passed; final git-ui 21 suites / 284 tests passed; real-child mount specs included                                              |
+| 5     | Composition-root and browser regression gates   | Implemented | Chat 66 suites / 1,037 passed (2 skipped); webview 8 suites / 150 passed; required Electron proof 5/5 passed; two legacy dock scenarios remain red  |
+| 6     | Legacy Electron Git dock regression repair      | Complete    | Base classification 2/2 passed; Git dock 5/5; review/hunk gate 5/5; git-ui 21 suites / 285 tests; 4 lint/typecheck targets across 2 projects passed |
+| 6R    | Review fixes                                    | Complete    | 4-project tests passed (4,588 tests, 33 skipped); 6-project lint/typecheck passed; Electron 10/10; diff check clean                                 |
+| 7     | Collapsible, resizable, persisted Git dock rail | Complete    | 4-project test/lint/typecheck passed (2,173 tests, 2 skipped); Electron rail 1/1 and regression selection 9/9 at 1200x800; diff check clean         |
 
 ## Progress log
 
@@ -34,18 +35,24 @@ Historical review uses merge-base(base, head)..head semantics.
 - 2026-09-11: Batch 6R applied every accepted independent-review fix: guarded malformed editor detection, extracted historical Git reads behind the `GitInfoService` facade, bounded review authorization with a 256-entry LRU, added counts-only parser drift diagnostics, restored branch recency bounds, reduced the git-ui public API, and added the requested security/mount/coordinator coverage.
 - 2026-09-11: The first four-project test gate encountered unrelated Windows parallel-run timeouts. The unchanged gate reran with `--parallel=1` and passed all four projects (4,588 tests passed, 33 skipped). Six-project lint/typecheck, Electron 10/10 at 1200x800, and `git diff --check` all passed.
 - 2026-09-12: Post-rebase gate passed after repairing the two minimal container-smoke fixtures to register the filesystem port now required by the rebased editor/file-open handlers. Thirteen-project tests passed (9,641 tests), 14-project lint/typecheck passed all 28 targets, both app smoke suites passed 34/34, and the Electron selection passed 10/10 at 1200x800. Batch 8c-1 markdown/core checks remained green.
+- 2026-09-12: Batch 7 added an accessible working-tree source-control rail toggle, pointer/keyboard resize clamped to 160-480 px, and persisted width/collapse state through `ElectronLayoutService`; historical review mode remains unchanged.
+- 2026-09-12: Batch 7 gates passed: exactly 4 projects completed all 12 test/lint/typecheck targets (127 suites, 2,173 passed, 2 skipped), Electron e2e passed the rail restart proof 1/1 and the combined regression selection 9/9 at 1200x800, and `git diff --check` passed.
+- 2026-09-12: Batch 8a implemented tasks 8a.1-8a.7: the shared contracts, the ordered linked-path resolver with realpath re-checked AFTER resolution, `FileLinkRootPolicy` with the R1 credential deny-list on both lexical and real paths, `file:viewContent` behind a new `fileViewer` capability (Electron only), `editor:openFile` scope routing, VS Code `file:open` hardening with column support, the Electron same-document navigation guard, and the DI manifests. Legacy `file:read` was deliberately not widened.
+- 2026-09-12: Risk resolutions recorded. R1: deny-list enforced on the home/temp widening only, so a `.env` inside an open workspace stays openable; a deny-listed path reports no lexical path, so `externalOpenAllowed` is false and no Open In is offered. R3: resolved with NO regression per orchestrator decision 3 — an absolute out-of-root path is confirmed via a modal showing the absolute path, never refused. R4: both smoke containers now register `GitInfoService`, which `EditorRpcHandlers` reaches through `FileLinkRootPolicy`; A1 held and no BLOCKER was required. R9: pinned and documented — a query-only difference reloads the renderer's own document and cannot reach different content.
+- 2026-09-12: Batch 8a gates passed: exactly 7 projects with zero test failures and zero lint errors (259 suites, 5,783 passed, 31 skipped), a 2-project rpc-handlers/cli-engine run all green (3,027 passed), the new navigation-policy spec proven collected at 1/1 suite and 24 tests, and `git diff --check` clean. The only failed task, `ptah-electron:typecheck`, is pre-existing in `build-artifact-gate.ts` and was proven independent of this batch by a move-aside probe; it is left unfixed as outside this batch's ownership.
+- 2026-09-12: Eight Batch 8a test failures were all test-only defects in the new policy spec, not product defects: `jest.spyOn(os,'homedir')` cannot redefine a non-configurable `node:os` export (replaced with a module factory), one deny-list fixture was denied by the basename rule rather than the directory-casing rule under test, and the UNC-worktree test never reached the widening it claimed to exercise. All three were corrected and the suite passed 97/97.
 
 ## Batches 7-8 decomposition
 
 Source: `implementation-plan.md` `## Addendum: Batches 7-8` (A.1-A.8), acceptance criteria 15-30. Author: team-leader, Mode 1, 2026-09-11. Nothing in this section is committed. The team-leader owns every status below; executors report and never edit this file.
 
-| Batch | Scope                                                              | Status  | Depends on   | Recommended executor        | Mode       |
-| ----- | ------------------------------------------------------------------ | ------- | ------------ | --------------------------- | ---------- |
-| 7     | Collapsible, resizable, persisted source-control rail              | PENDING | 6R           | codex CLI                   | sequential |
-| 8a    | Backend contracts, contained read, link policy, hosts, nav guard   | PENDING | 6R           | backend-developer subagent  | sequential |
-| 8b    | Read-only file tab in the Git dock (Electron)                      | PENDING | 6R, 7, 8a    | codex CLI                   | sequential |
-| 8c-1  | Markdown file-link parser/extension/listener + core opener token   | PENDING | none         | frontend-developer subagent | sequential |
-| 8c-2  | Chat link router, context markers, FilePathLink/tasks, wiring, e2e | PENDING | 8a, 8b, 8c-1 | frontend-developer subagent | sequential |
+| Batch | Scope                                                              | Status   | Depends on   | Recommended executor        | Mode       |
+| ----- | ------------------------------------------------------------------ | -------- | ------------ | --------------------------- | ---------- |
+| 7     | Collapsible, resizable, persisted source-control rail              | COMPLETE | 6R           | codex CLI                   | sequential |
+| 8a    | Backend contracts, contained read, link policy, hosts, nav guard   | COMPLETE | 6R           | backend-developer subagent  | sequential |
+| 8b    | Read-only file tab in the Git dock (Electron)                      | PENDING  | 6R, 7, 8a    | codex CLI                   | sequential |
+| 8c-1  | Markdown file-link parser/extension/listener + core opener token   | COMPLETE | none         | frontend-developer subagent | sequential |
+| 8c-2  | Chat link router, context markers, FilePathLink/tasks, wiring, e2e | PENDING  | 8a, 8b, 8c-1 | frontend-developer subagent | sequential |
 
 Waves: A = {7, 8a, 8c-1}, all file-disjoint. 8c-1 may start editing now, while 6R runs. 7 and 8a start when 6R is IMPLEMENTED. B = {8b}. C = {8c-2}. Then the final gate.
 
@@ -177,7 +184,7 @@ Plan A.8 recommends one rebase after Batches 1-6 (+6R) are committed and before 
 - `git diff --check`
 - Reviewer: code-logic-reviewer (drag state machine, persistence). The visual review is deferred to the final gate.
 
-## Batch 8a: Backend contracts, contained read, link policy, hosts, navigation guard — PENDING
+## Batch 8a: Backend contracts, contained read, link policy, hosts, navigation guard — COMPLETE
 
 - Recommended executor: backend-developer subagent (security-ordered path policy; Node realpath, junction and ADS semantics)
 - Fallback executor: ptah-cli Claude subscription lane (`pc-effaa2c4-0d41-4e95-980a-89d3bf971b4d`)

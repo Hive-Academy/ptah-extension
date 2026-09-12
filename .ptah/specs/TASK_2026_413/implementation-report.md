@@ -136,3 +136,73 @@ Status: implemented, verification pending (phase 1 ran no Nx, Jest or build comm
 
 - `ptah_get_diagnostics` scoped to the 11 changed TS files: no diagnostic in any new or changed line. The tool reports 101 errors from other files: core `*.spec.ts` / `src/testing/*`, plus one older cast at `marked-extensions.spec.ts:135`. It uses a stricter program than the spec tsconfig. Treat them as a baseline to confirm in phase 2.
 - `git diff --check -- libs/frontend/markdown libs/frontend/core/src/index.ts`: clean.
+
+## Batch 7
+
+Status: complete.
+
+The working-tree Git dock now has a collapsible and resizable source-control rail while historical review keeps its existing full-width composition. `GitDockComponent` binds the rail to persisted layout signals and mounts its resize separator at `libs/frontend/git-ui/src/lib/git-dock/git-dock.component.ts:72-99`. `GitDockHeaderComponent` supplies the keyboard-operable toggle with `aria-controls` and `aria-expanded` at `git-dock-header.component.ts:48-65`; the control is deliberately absent in historical-review mode.
+
+`ElectronLayoutService` owns the 256 px default, 160-480 px clamp, and collapse state at `libs/frontend/core/src/lib/services/electron-layout.service.ts:65-79,188-201`. Both values are written into the existing Electron layout envelope at lines 592-593 and restored with type checks and width clamping at lines 613-632. Live pointer motion updates only the signal, while pointer completion and keyboard resizing commit persistence, avoiding an RPC write per mousemove.
+
+The new internal `RailResizeHandleComponent` (`libs/frontend/git-ui/src/lib/git-dock/rail-resize-handle.component.ts:34`) is an accessible separator supporting pointer capture, Arrow keys, Home/End, Escape cancellation, blur/lost-capture recovery, animation-frame coalescing, and listener cleanup. Unit coverage includes the layout defaults/restore/malformed-state cases, toggle accessibility and review-mode absence, real-child collapse rendering, resize limits and persistence, multi-pointer rejection, cancellation paths, and cleanup.
+
+The Electron scenario at `apps/ptah-electron-e2e/src/specs/git/git-rail-collapse.spec.ts:103-164` uses the unchanged 1200x800 window and nominal 700 px dock. It collapses and expands the rail, drags it from 256 px to 200 px within the prescribed range, persists a collapsed state, restarts the app with the same profile/database, then proves both the collapsed state and 200 px width restore. It also renders two file rows and a real diff with a malformed editor-target response, retaining the Batch 6R guard coverage.
+
+The first rail e2e draft measured 487 px because the independent workspace sidebar was still open beside the 700 px dock. The fixture now closes that sidebar through its rendered accessible toggle before asserting the dock geometry; neither the BrowserWindow nor the configured dock width is changed. No timeout was raised. Batch 8 file-view, link-routing, markdown, backend, and navigation-guard behavior was not implemented or modified by this batch.
+
+## Batch 8a
+
+Status: complete.
+
+### Contracts (8a.1)
+
+`FileOpenParams` gains `column?`, `EditorOpenFileParams` gains `scope?: 'workspace' | 'external-link'`, and `rpc-misc.types.ts` adds `FileViewFailureReason`, `FileViewContentParams`, `FileViewContentResult` and `FILE_VIEW_MAX_BYTES` (2 MiB). `file:viewContent` is registered in both halves of the dual-registration contract: the `RpcMethodRegistry` entry and the `RPC_METHOD_ENTRIES` map. The `file:` prefix was already in `ALLOWED_METHOD_PREFIXES`, so no runtime-guard change was needed.
+
+### Ordered path policy (8a.2, 8a.3)
+
+`resolveLinkedFilePath` in `workspace-file-path.ts` implements the plan's ordered algorithm, and the order is documented in the file as contractual rather than incidental:
+
+1. `checkLinkedPathForm` runs before any filesystem or git call. It rejects NUL/C0/DEL, any leading `\\` or `//` (UNC, `\\?\`, `\\.\`), and — on win32 only — drive-relative (`C:foo`), root-relative (`\foo`) and alternate data streams (a colon anywhere but index 1). The colon rules are win32-only deliberately: a colon is a legal character in a POSIX file name.
+2. Base selection from `documentPath`, then `workspaceRoot`; an unauthorized hint is `root-not-open`, and a relative path with no base is `no-base-root`. `process.cwd()` is never consulted.
+3. Lexical containment against registered roots, widened to worktrees **lazily** and at most once, only on a miss.
+4. **Realpath containment re-checked after resolution.** A junction resolving to UNC, or any realpath outside the authorized set, is `outside-roots` **without** `lexicalPath` — that omission is what makes `externalOpenAllowed` false, so a symlink escape is never disclosed and never offered for external open.
+5. `stat` for kind and size; non-regular files (FIFO, socket, device) are `not-a-file`.
+
+`FileLinkRootPolicy` supplies the roots. `resolveForView` authorizes open folders plus their worktrees at the 2 MiB cap; `resolveForExternalOpen` adds realpath'd `homedir`/`tmpdir` with no cap, minus `CREDENTIAL_DENY_LIST`. `listWorktrees` drops UNC entries so a checkout on a share cannot re-authorize the form the gate refuses.
+
+The deny-list covers the required directories, files, Windows credential stores and basename patterns, and is checked on **both** the lexical and the real path. Ptah's own secret-envelope store is `~/.ptah/secrets.enc.json`, located at `libs/backend/settings-core/src/encryption/secrets-file-store.ts:4` and denied as `.ptah/secrets.enc.json`.
+
+**Deliberate scope of the deny-list (R1):** it guards the home/temp _widening_ only, per `batches.md` 8a.3. A `.env` inside a registered workspace root stays openable — the agent can already read it there, so refusing would break a normal workflow while protecting nothing. Pinned by a test.
+
+### Contained read (8a.4)
+
+`FileViewRpcHandlers` serves `file:viewContent` behind a new `fileViewer` capability with a `.strict()` Zod schema capped at 4096 characters per field. The read opens the realpath, reads at most `maxBytes + 1` bytes and closes in `finally`; exceeding the cap means the file grew after `stat` and yields `too-large`. Decoding is BOM → binary NUL sniff (first 8000 bytes) → fatal UTF-8. The BOM check precedes the sniff deliberately: UTF-16 text is full of NUL bytes and would otherwise be classified binary.
+
+Every failure maps to one fixed sentence; no `error.message`, `errno`, realpath or stderr crosses the boundary, `logger.warn` receives the reason only, and the handler never rejects to the transport. Registration: `fileViewer` capability, a `fileView` manifest entry, Electron profile on, VS Code and CLI default off, CLI `EXPECTED_ABSENT_CAPABILITIES` and both host surface baselines updated. `rpc-allowlist.spec.ts` and the manifest invariants passed unmodified.
+
+### Hosts (8a.5) and navigation guard (8a.6)
+
+`editor:openFile` routes on `scope`; `'external-link'` accepts a regular file only and launches the **lexical** path, never the realpath. The VS Code `file:open` handler now parses the shared schema, form-gates before any `stat`, and resolves a relative path only under a checked root — it previously called `fs.stat(params.path)` directly, resolving against the extension host's `process.cwd()`.
+
+**R3 resolved without a regression, per orchestrator decision 3:** an absolute path outside the registered roots is _not_ refused. It goes through the external-link policy and then a modal `showWarningMessage` showing the absolute path with an explicit Open action; cancel opens nothing. A deny-listed credential is refused outright and never reaches a confirm. Column support is `new vscode.Position(line - 1, (column ?? 1) - 1)`. Sentry capture is kept; the returned copy is fixed.
+
+`navigation-policy.ts` imports no `electron` and allows only a navigation whose `file:` origin and pathname equal the current document's. `isInternalNavigation` and `EXTERNAL_SCHEMES` are deleted, not kept alongside. A cancelled `file:` navigation is never handed to `shell.openExternal`. **R9** is pinned and documented: hash and query are ignored, so an agent `href="index.html?x"` reloads the app the user is already in — it cannot become a navigation to different content.
+
+### DI manifests (8a.7, R4)
+
+`FileViewRpcHandlers` added to Electron `expected-resolvable` and VS Code `expected-absent` (with `'fileViewer'`). **A1 held, and no BLOCKER was needed:** `TOKENS.GIT_INFO_SERVICE` is registered in production on both hosts (`phase-4-handlers.ts:113`, `phase-3-handlers.ts:56`), but neither hand-built smoke container registered it, and `EditorRpcHandlers` now reaches it through `FileLinkRootPolicy`. Both smoke containers register a fake `GitInfoService` — the same repair pattern the post-rebase gate used for the filesystem port. No lazy `isRegistered` workaround was added.
+
+`emitDecoratorMetadata` is `false` in `tsconfig.base.json`, so every constructor parameter needs an explicit `@inject(...)`. `FileLinkRootPolicy` is injected as a class token, following `skills-sh-rpc.handlers.ts:164`.
+
+### Deviations from the plan
+
+- `LinkedFileResolution`'s `directory` variant carries `realPath` and `root` in addition to `lexicalPath`. The policy needs both to apply the deny-list to a directory target, which the plan's sketch could not express.
+- `resolveLinkedFilePath` takes an optional `fs` seam (defaulting to `node:fs/promises`). It exists so a spec can prove `realpath`/`stat` were **never** called for a refused form — the plan requires that negative, and it is not otherwise observable.
+- `resolveForView` accepts `maxBytes`/`allowDirectory` overrides so the VS Code handler can reuse it to resolve a path it will reveal rather than read.
+
+### Follow-ups recorded, not actioned
+
+- **Legacy `file:read` remains uncontained.** `FileSystemRpcHandlers.register` (`libs/backend/rpc-handlers/src/lib/handlers/file-rpc.handlers.ts:69-78`) reads any caller-supplied path with no schema, containment, size cap or encoding handling, behind the `fileSystemAccess` capability. Batch 8a deliberately did not widen or narrow it. It is the strongest argument against treating `file:viewContent` as redundant, and should be either contained or removed.
+- **Pre-existing failure, outside this batch's ownership: `ptah-electron:typecheck`.** Six errors in `apps/ptah-electron/src/config/build-artifact-gate.ts` (`Cannot find name 'describe'/'it'`, `Cannot find namespace 'jest'`). That file uses jest globals but is compiled by `tsconfig.app.json`, whose `types` are `["node","electron"]` and whose `exclude` is only `src/preload.ts` and `**/*.spec.ts` — the gate file is not a `.spec.ts`, so it is in the app program without jest types. Proven independent of Batch 8a: moving the new `navigation-policy.spec.ts` aside reproduces the identical six errors, the file is unmodified at HEAD, and `tsconfig.app.json` excludes `**/*.spec.ts` so no new spec entered that program. Not fixed here, per the do-not-touch-outside-ownership rule.
+- A TOCTOU swap of a path component between `realpath` and `open` by a local writer already inside an authorized root remains possible; Node exposes no fd-to-path check on Windows. Recorded in `workspace-file-path.ts`.

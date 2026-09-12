@@ -48,6 +48,16 @@ export const RPC_CAPABILITIES = [
   'filePickerImages',
   /** Host exposes raw filesystem read/exists/save-dialog RPC. */
   'fileSystemAccess',
+  /**
+   * Host can serve contained read-only file content for an in-app viewer
+   * (`file:viewContent`).
+   *
+   * Deliberately NOT the same as `fileSystemAccess`: that one means raw,
+   * uncontained filesystem RPC, while this one is a narrow read bounded by the
+   * open workspace folders, a size cap and a text-decode check. A host may
+   * legitimately want the viewer without granting raw access.
+   */
+  'fileViewer',
   /** Host has a command palette / command executor. */
   'commandExecution',
   /** Host ships a self-updating application shell. */

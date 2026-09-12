@@ -68,6 +68,17 @@ export interface EditorOpenFileParams {
   path: string;
   line?: number;
   workspaceRoot?: string;
+  /**
+   * Which path policy authorizes this launch.
+   *
+   * - `'workspace'` (default, unchanged behaviour): the path must resolve
+   *   inside a registered workspace folder.
+   * - `'external-link'`: an agent-authored link the viewer refused to show
+   *   in-app. Adds the user's home and temp directories as authorized roots,
+   *   MINUS a credential deny-list checked on both the lexical and the real
+   *   path. Bytes go to the user's own editor process, never to the renderer.
+   */
+  scope?: 'workspace' | 'external-link';
 }
 
 export interface EditorOpenWorkspaceParams {

@@ -15,3 +15,13 @@ Status: PASS
 The 13-project unit gate passed 9,641 tests; the 14-project lint/typecheck gate passed all 28 targets; the selected Electron scenarios passed 10/10 at 1200x800; and the two app container-smoke suites passed 34/34 after their minimal rebase-interaction fixtures were taught about the existing filesystem-provider dependency. Batch 8c-1 markdown/core tests, lint, and typecheck are green. No production behavior changed.
 
 GATE: PASS 13 test projects/9,641 passed; 14 lint-typecheck projects/28 targets; Electron 10/10; container smoke 34/34
+
+## Batch 7 agent output
+
+Status: PASS
+
+Implemented the accessible collapsible/resizable working-tree Git rail, persisted its width and collapsed state through the existing Electron layout state, and added unit plus real restart e2e coverage. Historical review mode and Batch 8 surfaces were left unchanged.
+
+Verification: exactly four projects passed all 12 unit/lint/typecheck targets with 2,173 tests passed and 2 skipped; Electron rail proof passed 1/1 and the combined regression selection passed 9/9 at 1200x800; e2e lint/typecheck passed 2/2 targets; `git diff --check` passed.
+
+BATCH7: PASS collapsible, resizable Git rail persists across restart; 2,173 unit tests and Electron 9/9 passed

@@ -75,3 +75,9 @@ export { EmbedderRpcHandlers } from './embedder-rpc.handlers';
 export { TasksRpcHandlers } from './tasks-rpc.handlers';
 export { ElectronFileOpenRpcHandlers } from './file-open-rpc.handlers';
 export { EditorRpcHandlers } from './editor-rpc.handlers';
+export { FileViewRpcHandlers } from './file-view-rpc.handlers';
+export {
+  FileLinkRootPolicy,
+  CREDENTIAL_DENY_LIST,
+  isCredentialPath,
+} from './file-link-root-policy';

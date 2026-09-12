@@ -14,15 +14,23 @@ import {
 } from '@ptah-extension/vscode-core';
 import type {
   EditorDetectTargetsResult,
+  EditorOpenFileParams,
   EditorOpenResult,
   RpcMethodName,
 } from '@ptah-extension/shared';
+
+/** The validated `editor:openFile` payload. */
+type EditorOpenFileInput = Pick<
+  EditorOpenFileParams,
+  'path' | 'line' | 'workspaceRoot' | 'scope'
+>;
 import {
   EditorDetectTargetsParamsSchema,
   EditorOpenFileParamsSchema,
   EditorOpenWorkspaceParamsSchema,
 } from './editor-rpc.schema';
 import { resolveWorkspaceFilePath } from './workspace-file-path';
+import { FileLinkRootPolicy } from './file-link-root-policy';
 
 @injectable()
 export class EditorRpcHandlers {
@@ -41,6 +49,8 @@ export class EditorRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fileSystem: IFileSystemProvider,
+    @inject(FileLinkRootPolicy)
+    private readonly linkPolicy: FileLinkRootPolicy,
   ) {}
 
   register(): void {
@@ -80,15 +90,49 @@ export class EditorRpcHandlers {
         error:
           parsed.error.issues[0]?.message ?? 'Invalid editor:openFile params',
       };
-    const resolved = await resolveWorkspaceFilePath(
-      parsed.data,
-      this.workspace.getWorkspaceFolders(),
-      this.fileSystem,
-    );
+    const resolved = await this.resolveForScope(parsed.data);
     if (!resolved.success) return resolved;
     return this.openDetected(parsed.data.target, (target) =>
       this.launcher.openFile(target, resolved.path, parsed.data.line),
     );
+  }
+
+  /**
+   * Pick the path policy the caller asked for.
+   *
+   * `'workspace'` (the default, and every pre-existing caller) keeps the
+   * unchanged behaviour: the path must sit inside a registered folder.
+   *
+   * `'external-link'` is the agent-link case the in-app viewer already
+   * refused. It widens to home and temp MINUS the credential deny-list, and
+   * accepts a regular file only — never a directory, and never a path whose
+   * realpath escaped the authorized set. Nothing is read here; the path
+   * becomes argv for the user's own editor.
+   */
+  private async resolveForScope(
+    params: EditorOpenFileInput,
+  ): Promise<
+    { success: true; path: string } | { success: false; error: string }
+  > {
+    if (params.scope !== 'external-link') {
+      return resolveWorkspaceFilePath(
+        params,
+        this.workspace.getWorkspaceFolders(),
+        this.fileSystem,
+      );
+    }
+
+    const resolution = await this.linkPolicy.resolveForExternalOpen({
+      path: params.path,
+      workspaceRoot: params.workspaceRoot,
+    });
+    if (resolution.kind !== 'file') {
+      return {
+        success: false,
+        error: 'That file cannot be opened from a link.',
+      };
+    }
+    return { success: true, path: resolution.lexicalPath };
   }
 
   private async openWorkspace(raw: unknown): Promise<EditorOpenResult> {

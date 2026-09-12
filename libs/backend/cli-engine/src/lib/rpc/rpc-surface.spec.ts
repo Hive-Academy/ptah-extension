@@ -43,6 +43,7 @@ export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'file:pick-images',
   'file:read',
   'file:save-dialog',
+  'file:viewContent',
   'update:check-now',
   'update:get-state',
   'update:mark-downloaded',

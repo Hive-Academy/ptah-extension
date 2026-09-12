@@ -121,6 +121,13 @@ function buildMinimalContainer(): DependencyContainer {
   c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: {},
   });
+  // `EditorRpcHandlers` injects `FileLinkRootPolicy`, which needs
+  // GitInfoService to widen the authorized root set to a registered folder's
+  // worktrees (TASK_2026_413 Batch 8a). The real VS Code container binds this
+  // in `phase-3-handlers.ts`.
+  c.register(TOKENS.GIT_INFO_SERVICE, {
+    useValue: { getWorktrees: jest.fn(async () => []) },
+  });
 
   c.register(SDK_TOKENS.SDK_PLUGIN_LOADER, {
     useValue: {
