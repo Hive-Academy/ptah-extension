@@ -157,6 +157,7 @@ function makeMirror() {
     listHistory: jest.fn().mockResolvedValue([]),
     rebaseClone: jest.fn(),
     keepClone: jest.fn(),
+    saveCloneBody: jest.fn(),
     // TASK_2026_278: the clone surface joins the registry row with the
     // user-layer sidecar's `orphaned` flag, which the registry has no column
     // for. Both reads degrade to "not orphaned" on failure, so these doubles
@@ -1111,6 +1112,132 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       false,
     );
     expect(result).toMatchObject({ sourceHash: 'sha256:ccc' });
+  });
+
+  describe('saveCloneBody', () => {
+    it('delegates to the mirror with exactly kind, slug, body and workspaceRoot', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: '1700000000001',
+        written: true,
+        reason: null,
+      });
+
+      const result = await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# edited by the user',
+      });
+
+      expect(mirror.saveCloneBody).toHaveBeenCalledWith({
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# edited by the user',
+        workspaceRoot: '/workspace/project',
+      });
+      expect(result).toEqual({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: '1700000000001',
+      });
+    });
+
+    it('never writes the SQLite registry — diverged and pending are untouched', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: '1700000000001',
+        written: true,
+        reason: null,
+      });
+
+      await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# edited',
+      });
+
+      expect(registry.setDiverged).not.toHaveBeenCalled();
+      expect(registry.setPending).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a traversal slug', { kind: 'skill', slug: '../x', body: 'x' }],
+      ['an empty body', { kind: 'skill', slug: 'deep-research', body: '' }],
+      ['an unknown kind', { kind: 'plugin', slug: 'deep-research', body: 'x' }],
+    ])('rejects %s with INVALID_PARAMS and never reaches the mirror', async (
+      _label,
+      params,
+    ) => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+
+      await expect(
+        rpcHandler.call('skillSynthesis:saveCloneBody', params),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(mirror.saveCloneBody).not.toHaveBeenCalled();
+    });
+
+    it('returns INVALID_PARAMS when no registry row claims the slug', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(null);
+
+      await expect(
+        rpcHandler.call('skillSynthesis:saveCloneBody', {
+          kind: 'skill',
+          slug: 'missing',
+          body: '# x',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(mirror.saveCloneBody).not.toHaveBeenCalled();
+    });
+
+    it('maps written:false (row present, file absent) to INVALID_PARAMS', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: null,
+        written: false,
+        reason: 'clone-missing',
+      });
+
+      await expect(
+        rpcHandler.call('skillSynthesis:saveCloneBody', {
+          kind: 'skill',
+          slug: 'deep-research',
+          body: '# x',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    });
+
+    it('never surfaces a raw filesystem message when the mirror throws', async () => {
+      const { rpcHandler, registry, mirror, sentry } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockRejectedValue(
+        new Error(
+          'EPERM: refused — /home/someone/.ptah/plugins/secret/SKILL.md',
+        ),
+      );
+
+      await expect(
+        rpcHandler.call('skillSynthesis:saveCloneBody', {
+          kind: 'skill',
+          slug: 'deep-research',
+          body: '# x',
+        }),
+      ).rejects.toMatchObject({
+        errorCode: 'PERSISTENCE_UNAVAILABLE',
+        message: 'skillSynthesis:saveCloneBody failed; please try again.',
+      });
+      expect(sentry.captureException).toHaveBeenCalled();
+    });
   });
 
   /**

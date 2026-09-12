@@ -124,6 +124,8 @@ import type {
   SkillSynthesisRebaseCloneResult,
   SkillSynthesisKeepCloneParams,
   SkillSynthesisKeepCloneResult,
+  SkillSynthesisSaveCloneBodyParams,
+  SkillSynthesisSaveCloneBodyResult,
   SkillSynthesisInvocationStatsParams,
   SkillSynthesisInvocationStatsResult,
   SkillSynthesisGetScorecardsParams,
@@ -191,6 +193,7 @@ import {
   SkillRevertEnhancementParamsSchema,
   SkillRebaseCloneParamsSchema,
   SkillKeepCloneParamsSchema,
+  SkillSaveCloneBodyParamsSchema,
   SkillInvocationStatsParamsSchema,
   SkillListCandidatesParamsSchema,
   SkillListSuggestionsParamsSchema,
@@ -260,6 +263,7 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:revertEnhancement',
     'skillSynthesis:rebaseClone',
     'skillSynthesis:keepClone',
+    'skillSynthesis:saveCloneBody',
     'skillSynthesis:invocationStats',
     'skillSynthesis:getScorecards',
     'skillSynthesis:getScorecardDetail',
@@ -368,6 +372,7 @@ export class SkillsSynthesisRpcHandlers {
     this.registerRevertEnhancement();
     this.registerRebaseClone();
     this.registerKeepClone();
+    this.registerSaveCloneBody();
     this.registerInvocationStats();
     this.registerGetScorecards();
     this.registerGetScorecardDetail();
@@ -1306,6 +1311,68 @@ export class SkillsSynthesisRpcHandlers {
         if (error instanceof RpcUserError) throw error;
         this.report(error, 'SkillsSynthesisRpcHandlers.registerKeepClone');
         throw this.toUserError('skillSynthesis:keepClone');
+      }
+    });
+  }
+
+  /**
+   * Replace a clone body with content the user typed in the drawer.
+   *
+   * The Zod schema is the FIRST gate and runs before any path is built;
+   * `assertUnderUserLayer`, inside the mirror, is the second. A registry row
+   * that has no file on disk comes back as `written: false` and is reported as
+   * a user error rather than creating the file — the save never mints a clone.
+   *
+   * No registry write. The mirror leaves `diverged` and `pendingSourceHash`
+   * alone, so the columns `listClones` reads from are still correct.
+   */
+  private registerSaveCloneBody(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisSaveCloneBodyParams,
+      SkillSynthesisSaveCloneBodyResult
+    >('skillSynthesis:saveCloneBody', async (params) => {
+      const parsed = this.parseParams(
+        SkillSaveCloneBodyParamsSchema,
+        params,
+        'skillSynthesis:saveCloneBody',
+      );
+      try {
+        const registry = this.requireDesktop(this.registry);
+        const mirror = this.requireDesktop(this.mirror);
+        const kind = parsed.kind as SkillRegistryKind;
+        const row = registry.getBySlug(kind, parsed.slug);
+        if (!row) {
+          throw new RpcUserError(
+            `No cloned ${parsed.kind} found for slug "${parsed.slug}".`,
+            'INVALID_PARAMS',
+          );
+        }
+        const result = await mirror.saveCloneBody({
+          kind,
+          slug: parsed.slug,
+          body: parsed.body,
+          workspaceRoot: this.agentScope(),
+        });
+        if (!result.written || result.historyTs === null) {
+          throw new RpcUserError(
+            `No cloned ${parsed.kind} found for slug "${parsed.slug}".`,
+            'INVALID_PARAMS',
+          );
+        }
+        this.logger.info('[skill-synthesis] clone body saved', {
+          kind: result.kind,
+          slug: result.slug,
+          historyTs: result.historyTs,
+        });
+        return {
+          kind: result.kind as SkillCloneKind,
+          slug: result.slug,
+          historyTs: result.historyTs,
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerSaveCloneBody');
+        throw this.toUserError('skillSynthesis:saveCloneBody');
       }
     });
   }

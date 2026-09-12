@@ -166,6 +166,23 @@ export interface KeepResult {
   sourceHash: string;
 }
 
+export interface SaveCloneBodyArgs extends WorkspaceScopedArgs {
+  kind: OriginKind;
+  slug: string;
+  /** Full replacement body. Not a patch — the clone file is overwritten. */
+  body: string;
+}
+
+export interface SaveCloneBodyResult {
+  kind: OriginKind;
+  slug: string;
+  /** Snapshot stamp; `null` only when `written` is false. */
+  historyTs: string | null;
+  written: boolean;
+  /** `'clone-missing'` when the target file/dir is not on disk. */
+  reason: string | null;
+}
+
 export interface WriteEnhancedSkillArgs {
   slug: string;
   newBody: string;
@@ -490,6 +507,112 @@ export class UserLayerMirrorService {
       const root = args.kind === 'agent' ? roots.agents : roots.commands;
       return this.keepFileClone(args.kind, args.slug, root);
     });
+  }
+
+  /**
+   * Replace one clone's body with content the USER typed, under the per-slug
+   * lock, snapshotting first.
+   *
+   * This is deliberately NOT `writeEnhancedSkill` / `writeEnhancedFileClone`:
+   * those `mkdir` a missing clone and stamp `lastEnhancedAt`. A manual edit is
+   * not an enhancement, and this method never creates a clone that is not
+   * already on disk — an absent target returns `written: false`.
+   *
+   * THE SIDECAR RULE. `currentContentHash` is the ONLY field written.
+   * `sourceHash` in particular is NEVER written: setting it to the fresh
+   * content hash makes `liveCloneHash === sidecar.sourceHash` true, which arms
+   * the fast-forward branch in `reconcileDirClone` / `reconcileFileClone` and
+   * lets the next upstream move silently overwrite the edit that was just
+   * saved. `diverged`, `pendingSourceHash` and `lastEnhancedAt` stay untouched
+   * for the same reason they exist: editing a body does not resolve "upstream
+   * moved and you have local changes" — the Rebase and Keep-mine buttons do.
+   *
+   * A clone with NO sidecar does not get one minted here. Its absence is the
+   * marker for "user-authored, hands off"; writing one would enrol the file
+   * into classification and orphan reaping. The body write still succeeds.
+   *
+   * Result-shaped rather than throwing, matching {@link RebaseResult}. This
+   * service must not mint RPC error types; its caller does the mapping.
+   */
+  async saveCloneBody(args: SaveCloneBodyArgs): Promise<SaveCloneBodyResult> {
+    return this.withSlugLock(args.kind, args.slug, async () => {
+      const roots = this.getUserLayerRoots(args.workspaceRoot);
+      if (args.kind === 'skill') {
+        return this.saveDirCloneBody(args.slug, args.body, roots.skills);
+      }
+      const root = args.kind === 'agent' ? roots.agents : roots.commands;
+      return this.saveFileCloneBody(args.kind, args.slug, args.body, root);
+    });
+  }
+
+  private async saveDirCloneBody(
+    slug: string,
+    body: string,
+    skillsRoot: string,
+  ): Promise<SaveCloneBodyResult> {
+    const cloneDir = join(skillsRoot, slug);
+    const skillFile = join(cloneDir, 'SKILL.md');
+    this.assertUnderUserLayer(cloneDir);
+    this.assertUnderUserLayer(skillFile);
+
+    if (!(await this.fileExists(skillFile))) {
+      return {
+        kind: 'skill',
+        slug,
+        historyTs: null,
+        written: false,
+        reason: 'clone-missing',
+      };
+    }
+
+    const historyTs = basename(await this.snapshotDirToHistory(cloneDir));
+    await this.writeTextAtomic(skillFile, body);
+
+    const currentContentHash = await computeSourceHash(cloneDir);
+    const existing = await readSidecar(cloneDir);
+    if (existing) {
+      await writeSidecarAtomic(cloneDir, { ...existing, currentContentHash });
+    }
+
+    return { kind: 'skill', slug, historyTs, written: true, reason: null };
+  }
+
+  private async saveFileCloneBody(
+    kind: OriginKind,
+    slug: string,
+    body: string,
+    rootDir: string,
+  ): Promise<SaveCloneBodyResult> {
+    const cloneFile = join(rootDir, `${slug}.md`);
+    const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
+    this.assertUnderUserLayer(cloneFile);
+    this.assertUnderUserLayer(sidecarPath);
+
+    if (!(await this.fileExists(cloneFile))) {
+      return {
+        kind,
+        slug,
+        historyTs: null,
+        written: false,
+        reason: 'clone-missing',
+      };
+    }
+
+    const historyTs = basename(
+      await this.snapshotFileToHistory(rootDir, slug, cloneFile),
+    );
+    await this.writeTextAtomic(cloneFile, body);
+
+    const currentContentHash = await computeSourceHash(cloneFile);
+    const existing = await readSidecarAt(sidecarPath);
+    if (existing) {
+      await writeSidecarAtomicAt(sidecarPath, {
+        ...existing,
+        currentContentHash,
+      });
+    }
+
+    return { kind, slug, historyTs, written: true, reason: null };
   }
 
   async writeEnhancedSkill(

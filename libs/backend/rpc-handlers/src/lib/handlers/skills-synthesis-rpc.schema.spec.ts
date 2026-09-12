@@ -14,6 +14,7 @@ import {
   SkillRevertEnhancementParamsSchema,
   SkillRebaseCloneParamsSchema,
   SkillKeepCloneParamsSchema,
+  SkillSaveCloneBodyParamsSchema,
   SkillInvocationStatsParamsSchema,
   getScorecardsParamsSchema,
   getScorecardDetailParamsSchema,
@@ -856,6 +857,48 @@ describe('SkillKeepCloneParamsSchema', () => {
     expect(() =>
       SkillKeepCloneParamsSchema.parse({ kind: 'skill', slug: '' }),
     ).toThrow();
+  });
+});
+
+describe('SkillSaveCloneBodyParamsSchema', () => {
+  it('accepts kind + slug + a non-empty body', () => {
+    const result = SkillSaveCloneBodyParamsSchema.parse({
+      kind: 'skill',
+      slug: 'deep-research',
+      body: '# Deep research\n',
+    });
+    expect(result.slug).toBe('deep-research');
+    expect(result.body).toBe('# Deep research\n');
+  });
+
+  it.each([
+    ['traversal slug', { kind: 'skill', slug: '../x', body: 'x' }],
+    ['posix-separator slug', { kind: 'skill', slug: 'a/b', body: 'x' }],
+    ['windows-separator slug', { kind: 'skill', slug: 'a\\b', body: 'x' }],
+    ['unknown kind', { kind: 'plugin', slug: 'a', body: 'x' }],
+    ['non-string body', { kind: 'skill', slug: 'a', body: 42 }],
+    ['empty body', { kind: 'skill', slug: 'a', body: '' }],
+  ])('rejects %s before any path is built', (_label, params) => {
+    expect(() => SkillSaveCloneBodyParamsSchema.parse(params)).toThrow();
+  });
+
+  it('rejects a body over the 1 MiB cap', () => {
+    expect(() =>
+      SkillSaveCloneBodyParamsSchema.parse({
+        kind: 'skill',
+        slug: 'a',
+        body: 'x'.repeat(1_048_577),
+      }),
+    ).toThrow();
+  });
+
+  it('accepts a body exactly at the cap', () => {
+    const result = SkillSaveCloneBodyParamsSchema.parse({
+      kind: 'skill',
+      slug: 'a',
+      body: 'x'.repeat(1_048_576),
+    });
+    expect(result.body).toHaveLength(1_048_576);
   });
 });
 

@@ -411,6 +411,8 @@ import type {
   SkillSynthesisRebaseCloneResult,
   SkillSynthesisKeepCloneParams,
   SkillSynthesisKeepCloneResult,
+  SkillSynthesisSaveCloneBodyParams,
+  SkillSynthesisSaveCloneBodyResult,
   SkillSynthesisInvocationStatsParams,
   SkillSynthesisInvocationStatsResult,
   SkillSynthesisGetScorecardsParams,
@@ -1738,6 +1740,10 @@ export interface RpcMethodRegistry {
   'skillSynthesis:keepClone': {
     params: SkillSynthesisKeepCloneParams;
     result: SkillSynthesisKeepCloneResult;
+  };
+  'skillSynthesis:saveCloneBody': {
+    params: SkillSynthesisSaveCloneBodyParams;
+    result: SkillSynthesisSaveCloneBodyResult;
   };
   'skillSynthesis:invocationStats': {
     params: SkillSynthesisInvocationStatsParams;
@@ -3588,6 +3594,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:revertEnhancement': true,
   'skillSynthesis:rebaseClone': true,
   'skillSynthesis:keepClone': true,
+  'skillSynthesis:saveCloneBody': true,
   'skillSynthesis:invocationStats': true,
   'skillSynthesis:getScorecards': true,
   'skillSynthesis:getScorecardDetail': true,

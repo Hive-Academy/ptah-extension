@@ -176,6 +176,23 @@ export interface SkillSynthesisKeepCloneResult {
   sourceHash: string;
 }
 
+export interface SkillSynthesisSaveCloneBodyParams {
+  kind: SkillCloneKind;
+  slug: string;
+  /** Full replacement body. Not a patch — the file is overwritten. */
+  body: string;
+}
+export interface SkillSynthesisSaveCloneBodyResult {
+  kind: SkillCloneKind;
+  slug: string;
+  /**
+   * `.history/<ts>/` stamp of the snapshot taken BEFORE the overwrite.
+   * Never null on a successful save: the clone is required to exist, so there
+   * is always prior content to snapshot.
+   */
+  historyTs: string;
+}
+
 export interface SkillSynthesisInvocationStatsParams {
   slug: string;
 }

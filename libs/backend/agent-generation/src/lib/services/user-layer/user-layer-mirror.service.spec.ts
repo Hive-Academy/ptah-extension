@@ -694,4 +694,189 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
     expect(sidecar.sourceHash).toBe(upstreamHash);
     expect(result.sourceHash).toBe(upstreamHash);
   });
+
+  /**
+   * The save path's binding rule: `currentContentHash` is the only sidecar
+   * field a user body save may write.
+   *
+   * `sourceHash` in particular must survive untouched. Writing it would make
+   * `liveCloneHash === sidecar.sourceHash` true on the next reconcile, which
+   * arms the fast-forward branch and silently replaces the body the user just
+   * saved with whatever upstream now holds.
+   */
+  describe('saveCloneBody', () => {
+    it('writes the body, snapshots first, and touches ONLY currentContentHash (skill)', async () => {
+      await seedAndMirrorSkill('plugin-a', 'deep-research', '# v1 upstream');
+      const roots = service.getUserLayerRoots();
+      const cloneDir = join(roots.skills, 'deep-research');
+      const cloneSkill = join(cloneDir, 'SKILL.md');
+
+      // Put the clone in the state the drawer's Edit button is offered from:
+      // upstream moved, the sidecar records the unaccepted hash.
+      const seeded = await readSidecarJson(cloneDir);
+      await writeFile(
+        join(cloneDir, ORIGIN_SIDECAR_FILENAME),
+        JSON.stringify({
+          ...seeded,
+          diverged: true,
+          pendingSourceHash: 'sha256:upstream-moved',
+          lastEnhancedAt: 1700000000000,
+        }),
+        'utf8',
+      );
+      const before = await readSidecarJson(cloneDir);
+      const historyBefore = await service.listHistory('skill', 'deep-research');
+
+      const result = await service.saveCloneBody({
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# the user typed this',
+      });
+
+      expect(result.written).toBe(true);
+      expect(result.reason).toBeNull();
+      expect(result.historyTs).not.toBeNull();
+
+      // (a) the body landed
+      expect(await readFile(cloneSkill, 'utf8')).toBe('# the user typed this');
+
+      // (b) listHistory sees exactly one more entry, and it carries the PRIOR
+      // body — proving the snapshot preceded the overwrite.
+      const historyAfter = await service.listHistory('skill', 'deep-research');
+      expect(historyAfter).toHaveLength(historyBefore.length + 1);
+      const snapshot = historyAfter.find((e) => e.ts === result.historyTs);
+      expect(snapshot).toBeDefined();
+      expect(await readFile(join(snapshot!.path, 'SKILL.md'), 'utf8')).toBe(
+        '# v1 upstream',
+      );
+
+      // (c) four fields byte-identical; currentContentHash changed
+      const after = await readSidecarJson(cloneDir);
+      expect(after.sourceHash).toBe(before.sourceHash);
+      expect(after.diverged).toBe(before.diverged);
+      expect(after.pendingSourceHash).toBe(before.pendingSourceHash);
+      expect(after.lastEnhancedAt).toBe(before.lastEnhancedAt);
+      expect(after.currentContentHash).not.toBe(before.currentContentHash);
+      expect(after.currentContentHash).toBe(await computeSourceHash(cloneDir));
+    });
+
+    it('writes the body and touches ONLY currentContentHash (command flat file)', async () => {
+      await seedAndMirrorCommand('plugin-a', 'review', '# review v1');
+      const roots = service.getUserLayerRoots();
+      const cloneFile = join(roots.commands, 'review.md');
+      const sidecarPath = join(roots.commands, 'review.ptah-origin.json');
+
+      const seeded = await readSidecarFileJson(sidecarPath);
+      await writeFile(
+        sidecarPath,
+        JSON.stringify({
+          ...seeded,
+          diverged: true,
+          pendingSourceHash: 'sha256:upstream-moved',
+        }),
+        'utf8',
+      );
+      const before = await readSidecarFileJson(sidecarPath);
+
+      const result = await service.saveCloneBody({
+        kind: 'command',
+        slug: 'review',
+        body: '# the user typed this',
+      });
+
+      expect(result.written).toBe(true);
+      expect(await readFile(cloneFile, 'utf8')).toBe('# the user typed this');
+
+      // The flat-file snapshot layout is `<root>/.history/<slug>/<ts>/` and
+      // must be the one `listHistory` reads, or the drawer never shows it.
+      const history = await service.listHistory('command', 'review');
+      const snapshot = history.find((e) => e.ts === result.historyTs);
+      expect(snapshot).toBeDefined();
+      expect(await readFile(join(snapshot!.path, 'review.md'), 'utf8')).toBe(
+        '# review v1',
+      );
+
+      const after = await readSidecarFileJson(sidecarPath);
+      expect(after.sourceHash).toBe(before.sourceHash);
+      expect(after.diverged).toBe(before.diverged);
+      expect(after.pendingSourceHash).toBe(before.pendingSourceHash);
+      expect(after.lastEnhancedAt).toBe(before.lastEnhancedAt);
+      expect(after.currentContentHash).toBe(await computeSourceHash(cloneFile));
+    });
+
+    it('returns written:false and creates NOTHING when the clone is absent', async () => {
+      const roots = service.getUserLayerRoots();
+      const cloneDir = join(roots.skills, 'never-cloned');
+
+      const result = await service.saveCloneBody({
+        kind: 'skill',
+        slug: 'never-cloned',
+        body: '# should not be written',
+      });
+
+      expect(result.written).toBe(false);
+      expect(result.reason).toBe('clone-missing');
+      expect(result.historyTs).toBeNull();
+      expect(await fileExists(cloneDir)).toBe(false);
+      expect(await fileExists(join(cloneDir, 'SKILL.md'))).toBe(false);
+    });
+
+    it('returns written:false for an absent flat-file clone', async () => {
+      const roots = service.getUserLayerRoots();
+
+      const result = await service.saveCloneBody({
+        kind: 'command',
+        slug: 'never-cloned',
+        body: '# should not be written',
+      });
+
+      expect(result.written).toBe(false);
+      expect(result.reason).toBe('clone-missing');
+      expect(await fileExists(join(roots.commands, 'never-cloned.md'))).toBe(
+        false,
+      );
+    });
+
+    it('writes a sidecar-less clone without minting a sidecar for it', async () => {
+      // No sidecar means "user-authored, hands off". Creating one here would
+      // enrol the file into classification and orphan reaping.
+      const roots = service.getUserLayerRoots();
+      const cloneDir = join(roots.skills, 'hand-written');
+      await mkdir(cloneDir, { recursive: true });
+      await writeFile(join(cloneDir, 'SKILL.md'), '# mine', 'utf8');
+
+      const result = await service.saveCloneBody({
+        kind: 'skill',
+        slug: 'hand-written',
+        body: '# mine, edited',
+      });
+
+      expect(result.written).toBe(true);
+      expect(await readFile(join(cloneDir, 'SKILL.md'), 'utf8')).toBe(
+        '# mine, edited',
+      );
+      expect(await fileExists(join(cloneDir, ORIGIN_SIDECAR_FILENAME))).toBe(
+        false,
+      );
+    });
+
+    it('writes a sidecar-less flat-file clone without minting a sidecar', async () => {
+      const roots = service.getUserLayerRoots();
+      await mkdir(roots.commands, { recursive: true });
+      const cloneFile = join(roots.commands, 'hand-written.md');
+      await writeFile(cloneFile, '# mine', 'utf8');
+
+      const result = await service.saveCloneBody({
+        kind: 'command',
+        slug: 'hand-written',
+        body: '# mine, edited',
+      });
+
+      expect(result.written).toBe(true);
+      expect(await readFile(cloneFile, 'utf8')).toBe('# mine, edited');
+      expect(
+        await fileExists(join(roots.commands, 'hand-written.ptah-origin.json')),
+      ).toBe(false);
+    });
+  });
 });
