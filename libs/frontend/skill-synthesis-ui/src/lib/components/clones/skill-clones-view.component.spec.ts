@@ -75,6 +75,7 @@ interface StateStub {
   readonly loadDetail: jest.Mock;
   readonly clearDetail: jest.Mock;
   readonly loadScorecardDetail: jest.Mock;
+  readonly saveCloneBody: jest.Mock;
 }
 
 function makeStateStub(initial: CloneSummary[] = []): StateStub {
@@ -93,6 +94,7 @@ function makeStateStub(initial: CloneSummary[] = []): StateStub {
     loadDetail: jest.fn(async () => undefined),
     clearDetail: jest.fn(() => undefined),
     loadScorecardDetail: jest.fn(async () => undefined),
+    saveCloneBody: jest.fn(async () => undefined),
   };
 }
 
@@ -135,6 +137,11 @@ function makeRpcStub() {
       sourceHash: 'sha256:def',
     })),
     listClones: jest.fn(async () => []),
+    saveCloneBody: jest.fn(async () => ({
+      kind: 'skill' as const,
+      slug: 'deep-research',
+      historyTs: '20260103T000000',
+    })),
   };
 }
 
@@ -144,6 +151,7 @@ function setup(opts: {
   isElectron?: boolean;
   state?: StateStub;
   rpc?: RpcStub;
+  divergedFilterRequested?: boolean;
 }) {
   const state = opts.state ?? makeStateStub();
   const rpc = opts.rpc ?? makeRpcStub();
@@ -159,6 +167,9 @@ function setup(opts: {
     ],
   });
   const fixture = TestBed.createComponent(SkillClonesViewComponent);
+  if (opts.divergedFilterRequested) {
+    fixture.componentRef.setInput('divergedFilterRequested', true);
+  }
   fixture.detectChanges();
 
   const el = () => fixture.nativeElement as HTMLElement;
@@ -182,7 +193,31 @@ function setup(opts: {
     fixture.detectChanges();
   };
 
-  return { fixture, state, rpc, el, q, all, click, selectTab, openFirstCard };
+  /**
+   * Drain pending promises WITHOUT going through `whenStable()`.
+   *
+   * `showToast` schedules a 3-second in-zone `setTimeout` to clear itself, and
+   * `whenStable()` waits for that macrotask — so any assertion made after it
+   * reads an already-cleared toast. This lets the awaited work finish while
+   * leaving the toast on screen.
+   */
+  const settle = async (): Promise<void> => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+  };
+
+  return {
+    fixture,
+    state,
+    rpc,
+    el,
+    q,
+    all,
+    click,
+    settle,
+    selectTab,
+    openFirstCard,
+  };
 }
 
 afterEach(() => TestBed.resetTestingModule());
@@ -526,5 +561,259 @@ describe('SkillClonesViewComponent — divergence resolution', () => {
     expect(q('clone-card-upstream-note')?.textContent).toContain(
       'no upstream source',
     );
+  });
+});
+
+// ── Diverged filter, bulk rebase, deep-link arrival ───────────────────────
+
+/** Two eligible skills, one clean skill, one eligible agent (other kind). */
+function bulkFixture(): CloneSummary[] {
+  return [
+    clone({ slug: 'alpha', kind: 'skill', diverged: true }),
+    clone({ slug: 'beta', kind: 'skill', diverged: true }),
+    clone({ slug: 'gamma', kind: 'skill', diverged: false }),
+    clone({ slug: 'planner', kind: 'agent', diverged: true }),
+  ];
+}
+
+describe('SkillClonesViewComponent — diverged filter', () => {
+  it('narrows the rendered set and reports its own pressed state', async () => {
+    const { all, click, q } = setup({ state: makeStateStub(bulkFixture()) });
+    expect(all('clones-row').length).toBe(3);
+    expect(q('clones-diverged-filter')?.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+
+    await click('clones-diverged-filter');
+
+    expect(all('clones-row').length).toBe(2);
+    expect(q('clones-diverged-filter')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+  });
+
+  it('renders an empty STATE, not a blank region, when the filter empties the list', async () => {
+    const state = makeStateStub([clone({ slug: 'gamma', diverged: false })]);
+    const { click, q, all } = setup({ state });
+
+    await click('clones-diverged-filter');
+
+    expect(all('clones-row').length).toBe(0);
+    expect(q('clones-empty')?.textContent).toContain('No diverged entries');
+  });
+
+  it('arrives pre-filtered when the deep link asked for it', () => {
+    const { all } = setup({
+      state: makeStateStub(bulkFixture()),
+      divergedFilterRequested: true,
+    });
+    expect(all('clones-row').length).toBe(2);
+  });
+});
+
+describe('SkillClonesViewComponent — bulk rebase', () => {
+  it('counts only the current kind and reports the other-kind residual', () => {
+    const { q } = setup({ state: makeStateStub(bulkFixture()) });
+    expect(q('clones-bulk-count')?.textContent).toContain(
+      '2 diverged entries can be rebased',
+    );
+    expect(q('clones-bulk-count')?.textContent).toContain(
+      '(1 in other kinds)',
+    );
+  });
+
+  it('names the count on the control and excludes orphaned and authored entries', () => {
+    const state = makeStateStub([
+      clone({ slug: 'alpha', diverged: true }),
+      clone({ slug: 'orphan', diverged: true, orphaned: true }),
+      clone({ slug: 'mine', diverged: true, cloneStatus: 'authored' }),
+    ]);
+    const { q } = setup({ state });
+    expect(q('clones-bulk-rebase-btn')?.getAttribute('aria-label')).toBe(
+      'Rebase all 1 diverged entries in this kind',
+    );
+  });
+
+  it('stays rendered but DISABLED with a stated reason when nothing is eligible', () => {
+    const { q } = setup({ state: makeStateStub([clone({ diverged: false })]) });
+    const btn = q<HTMLButtonElement>('clones-bulk-rebase-btn');
+    expect(btn).toBeTruthy();
+    expect(btn?.disabled).toBe(true);
+    expect(q('clones-bulk-disabled-reason')?.textContent).toContain(
+      'Nothing to rebase in this kind',
+    );
+  });
+
+  it('writes nothing until the confirmation is accepted', async () => {
+    const rpc = makeRpcStub();
+    const { click, q } = setup({ state: makeStateStub(bulkFixture()), rpc });
+
+    await click('clones-bulk-rebase-btn');
+
+    expect(rpc.rebaseClone).not.toHaveBeenCalled();
+    expect(q('clones-bulk-modal')).toBeTruthy();
+    expect(q('clones-bulk-modal-count')?.textContent).toContain('2 entries');
+    expect(q('clones-bulk-explanation')?.textContent).toContain(
+      'replaces your local copy',
+    );
+    expect(q('clones-bulk-explanation')?.textContent).toContain(
+      'keeps going if an individual entry fails',
+    );
+
+    await click('clones-bulk-cancel');
+    expect(rpc.rebaseClone).not.toHaveBeenCalled();
+    expect(q('clones-bulk-modal')).toBeNull();
+  });
+
+  it('rebases every eligible entry of the kind and refreshes the list once', async () => {
+    const state = makeStateStub(bulkFixture());
+    const rpc = makeRpcStub();
+    const { click } = setup({ state, rpc });
+
+    await click('clones-bulk-rebase-btn');
+    await click('clones-bulk-confirm');
+
+    expect(rpc.rebaseClone).toHaveBeenCalledTimes(2);
+    expect(rpc.rebaseClone).toHaveBeenNthCalledWith(1, 'skill', 'alpha');
+    expect(rpc.rebaseClone).toHaveBeenNthCalledWith(2, 'skill', 'beta');
+    // ngOnInit is the first call; the batch adds exactly one more (R1.5).
+    expect(state.refreshClones).toHaveBeenCalledTimes(2);
+  });
+
+  it('reaches the last entry after a mid-batch failure and names the failed slugs', async () => {
+    const state = makeStateStub([
+      clone({ slug: 'alpha', diverged: true }),
+      clone({ slug: 'beta', diverged: true }),
+      clone({ slug: 'delta', diverged: true }),
+    ]);
+    const rpc = makeRpcStub();
+    rpc.rebaseClone
+      .mockImplementationOnce(async () => ({
+        kind: 'skill' as const,
+        slug: 'alpha',
+        sourceHash: 'sha256:a',
+        snapshotPath: null,
+        failed: false,
+        reason: null,
+      }))
+      .mockRejectedValueOnce(new Error('transport died'))
+      .mockImplementationOnce(async () => ({
+        kind: 'skill' as const,
+        slug: 'delta',
+        sourceHash: 'sha256:d',
+        snapshotPath: null,
+        failed: true,
+        reason: 'Cannot resolve upstream source',
+      }));
+    const { click, q, fixture, settle } = setup({ state, rpc });
+
+    await click('clones-bulk-rebase-btn');
+    (q<HTMLButtonElement>('clones-bulk-confirm') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await settle();
+
+    expect(rpc.rebaseClone).toHaveBeenCalledTimes(3);
+    const toast = q('clones-toast')?.textContent ?? '';
+    expect(toast).toContain('Rebased 1 of 3');
+    expect(toast).toContain('beta');
+    expect(toast).toContain('delta');
+    expect(state.refreshClones).toHaveBeenCalledTimes(2);
+  });
+
+  it('locks every control that could start a conflicting write while running', async () => {
+    const state = makeStateStub(bulkFixture());
+    const rpc = makeRpcStub();
+    let release: (() => void) | null = null;
+    rpc.rebaseClone.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              kind: 'skill' as const,
+              slug: 'alpha',
+              sourceHash: 'sha256:a',
+              snapshotPath: null,
+              failed: false,
+              reason: null,
+            });
+        }),
+    );
+    const { click, fixture, q } = setup({ state, rpc });
+
+    await click('clones-bulk-rebase-btn');
+    (q<HTMLButtonElement>('clones-bulk-confirm') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(q<HTMLButtonElement>('clones-bulk-rebase-btn')?.disabled).toBe(true);
+    expect(q<HTMLButtonElement>('clones-refresh')?.disabled).toBe(true);
+    expect(q('clones-bulk-rebase-btn')?.textContent).toContain('Rebasing 1 of');
+
+    release?.();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  });
+});
+
+describe('SkillClonesViewComponent — body save', () => {
+  function openDrawerWithBody(body: string | null) {
+    const state = makeStateStub([clone()]);
+    state.detail.set({ clone: clone(), body, history: [] });
+    const rpc = makeRpcStub();
+    const harness = setup({ state, rpc });
+    (harness.el().querySelector('[role="button"]') as HTMLElement).click();
+    harness.fixture.detectChanges();
+    return harness;
+  }
+
+  it('offers no Edit affordance while the body is unloaded', () => {
+    expect(openDrawerWithBody(null).q('drawer-body-edit-btn')).toBeNull();
+  });
+
+  it('offers the Edit affordance once the body has loaded', () => {
+    expect(openDrawerWithBody('# body').q('drawer-body-edit-btn')).toBeTruthy();
+  });
+
+  it('saves the edited body, then reloads the detail and the list', async () => {
+    const { click, state, fixture, el } = openDrawerWithBody('# body');
+
+    await click('drawer-body-edit-btn');
+    const textarea = el().querySelector(
+      '[data-testid="clone-body-editor-textarea"]',
+    ) as HTMLTextAreaElement;
+    textarea.value = '# edited';
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    await click('clone-body-editor-save');
+
+    expect(state.saveCloneBody).toHaveBeenCalledWith(
+      'skill',
+      'deep-research',
+      '# edited',
+    );
+    expect(state.refreshClones).toHaveBeenCalledTimes(2);
+  });
+
+  it('surfaces a save failure as a toast without refreshing the list', async () => {
+    const { click, state, fixture, el, q, settle } =
+      openDrawerWithBody('# body');
+    state.saveCloneBody.mockRejectedValueOnce(new Error('save refused'));
+
+    await click('drawer-body-edit-btn');
+    const textarea = el().querySelector(
+      '[data-testid="clone-body-editor-textarea"]',
+    ) as HTMLTextAreaElement;
+    textarea.value = '# edited';
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (
+      q<HTMLButtonElement>('clone-body-editor-save') as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+    await settle();
+
+    expect(q('clones-toast')?.textContent).toContain('save refused');
+    expect(state.refreshClones).toHaveBeenCalledTimes(1);
+    // The draft survives a failure: edit mode is still up (R3.3 failure path).
+    expect(q('clone-body-editor')).toBeTruthy();
   });
 });

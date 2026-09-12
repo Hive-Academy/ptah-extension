@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   SkillSynthesisSettingsDto,
@@ -27,6 +27,8 @@ import {
 import { SkillSynthesisStateService } from '../services/skill-synthesis-state.service';
 import type { RefreshDigestOptions } from '../services/skill-synthesis-state.service';
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
+import { SkillClonesStateService } from '../services/skill-clones-state.service';
+import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
 
 interface DiagnosticsStub {
   readonly lastAnalyzeRunAt: ReturnType<typeof signal<number | null>>;
@@ -810,5 +812,91 @@ describe('skill settings mappers', () => {
 
   it('round-trips every settings key unchanged', () => {
     expect(saveThroughForm()).toEqual(dto);
+  });
+});
+
+describe('SkillSynthesisTabComponent — diverged-clones deep link', () => {
+  /** Stand-in for the Library's data layer; the tab only has to route to it. */
+  function clonesStateStub() {
+    return {
+      clones: signal<unknown[]>([]),
+      loading: signal<boolean>(false),
+      error: signal<string | null>(null),
+      detailLoading: signal<boolean>(false),
+      detail: signal<unknown>(null),
+      scorecards: signal<Record<string, unknown>>({}),
+      scorecardDetails: signal<Record<string, unknown>>({}),
+      scorecardDetailLoading: signal<string | null>(null),
+      refreshClones: jest.fn(async () => undefined),
+      loadDetail: jest.fn(async () => undefined),
+      clearDetail: jest.fn(() => undefined),
+      loadScorecardDetail: jest.fn(async () => undefined),
+      saveCloneBody: jest.fn(async () => undefined),
+    };
+  }
+
+  function mount(): { appState: AppStateManager } {
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+        { provide: SkillClonesStateService, useValue: clonesStateStub() },
+        { provide: SkillSynthesisRpcService, useValue: {} },
+      ],
+    });
+    return { appState: TestBed.inject(AppStateManager) };
+  }
+
+  function activeSubView(root: HTMLElement): string | undefined {
+    const nav = root.querySelector('[aria-label="Skills views"]');
+    const selected = nav?.querySelector('[role="tab"][aria-selected="true"]');
+    return selected?.textContent?.trim();
+  }
+
+  it('lands on Library with the diverged filter applied when the flag is raised', () => {
+    const { appState } = mount();
+    appState.openSkillsDivergedClones();
+
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(activeSubView(root)).toBe('Library');
+    expect(root.querySelector('ptah-skill-clones-view')).toBeTruthy();
+    expect(
+      root
+        .querySelector('[data-testid="clones-diverged-filter"]')
+        ?.getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
+  it('consumes the flag exactly once, so a second mount does not re-filter', () => {
+    const { appState } = mount();
+    appState.openSkillsDivergedClones();
+
+    const first = TestBed.createComponent(SkillSynthesisTabComponent);
+    first.detectChanges();
+    expect(activeSubView(first.nativeElement as HTMLElement)).toBe('Library');
+
+    const second = TestBed.createComponent(SkillSynthesisTabComponent);
+    second.detectChanges();
+    expect(activeSubView(second.nativeElement as HTMLElement)).toBe(
+      'Recommended',
+    );
+  });
+
+  it('stays on Recommended when no deep link asked for the Library', () => {
+    mount();
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    expect(activeSubView(fixture.nativeElement as HTMLElement)).toBe(
+      'Recommended',
+    );
   });
 });

@@ -118,6 +118,23 @@ export class SkillClonesStateService {
     }
   }
 
+  /**
+   * Write a user-edited body for one clone, then reload the open detail.
+   *
+   * The reload is not cosmetic: the drawer leaves edit mode only once its
+   * `body` input matches the text it submitted, so a save that did not reload
+   * would keep the editor open over already-written content. Errors PROPAGATE
+   * — the caller owns the toast, and swallowing here would look like success.
+   */
+  public async saveCloneBody(
+    kind: SkillCloneKind,
+    slug: string,
+    body: string,
+  ): Promise<void> {
+    await this.rpc.saveCloneBody(kind, slug, body);
+    await this.loadDetail(slug, kind);
+  }
+
   public clearDetail(): void {
     this.selectedSlug.set(null);
     this.selectedKind.set(null);

@@ -3,6 +3,7 @@ import {
   Component,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -13,7 +14,7 @@ import {
   FormBuilder,
   FormGroup,
 } from '@angular/forms';
-import { VSCodeService } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { LucideAngularModule, Sparkles } from 'lucide-angular';
 import type {
@@ -577,7 +578,9 @@ interface ActionDialogState {
           }
           @case ('clones') {
             <div class="space-y-4">
-              <ptah-skill-clones-view />
+              <ptah-skill-clones-view
+                [divergedFilterRequested]="clonesDivergedFilter()"
+              />
             </div>
           }
           @case ('settings') {
@@ -719,6 +722,17 @@ export class SkillSynthesisTabComponent implements OnInit {
   private readonly diagnostics = inject(SkillDiagnosticsStateService);
   private readonly live = inject(SkillSynthesisLiveService);
   private readonly fb = inject(FormBuilder);
+  private readonly appState = inject(AppStateManager);
+
+  public constructor() {
+    // One consumption of the harness deep link's one-shot intent. Reading it
+    // here rather than in the clones view keeps it a single read-and-clear.
+    effect(() => {
+      if (!this.appState.consumeSkillsDivergedRequest()) return;
+      this._clonesDivergedFilter.set(true);
+      this._subView.set('clones');
+    });
+  }
 
   protected readonly SparklesIcon = Sparkles;
 
@@ -877,6 +891,19 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   private readonly _subView = signal<SkillSubView>('suggestions');
   protected readonly subView = this._subView.asReadonly();
+
+  /**
+   * Whether the Library sub-view should arrive pre-filtered to diverged
+   * entries, because the harness panel's deep link asked for it (R2.5).
+   *
+   * THE FLAG IS CONSUMED HERE AND NOWHERE ELSE.
+   * `consumeSkillsDivergedRequest()` is a read-and-clear; a second consumer in
+   * the clones view would race this effect and one of the two would always see
+   * a cleared flag. The answer travels down as a plain `input()` instead.
+   */
+  private readonly _clonesDivergedFilter = signal<boolean>(false);
+  protected readonly clonesDivergedFilter =
+    this._clonesDivergedFilter.asReadonly();
 
   public readonly actionDialog = signal<ActionDialogState | null>(null);
 
