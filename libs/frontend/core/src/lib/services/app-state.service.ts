@@ -272,6 +272,12 @@ export class AppStateManager implements MessageHandler {
     signal<HarnessWorkflowRequest | null>(null);
   /** Signal bridge: request to launch a chat session with a seed prompt (Tasks board → orchestrate) */
   private readonly _chatPromptRequest = signal<ChatPromptRequest | null>(null);
+  /**
+   * One-shot request to open the Skills library filtered to diverged clones.
+   * Deliberately not part of ViewSlice: navigation pointers are retained per
+   * workspace, while this intent must be consumed exactly once on arrival.
+   */
+  private readonly _skillsDivergedRequest = signal(false);
   private readonly _pendingSettingsTab = signal<PendingSettingsTab | null>(
     null,
   );
@@ -591,6 +597,20 @@ export class AppStateManager implements MessageHandler {
     this.updateActiveViewSlice((slice) =>
       slice.thothActiveTab === tab ? slice : { ...slice, thothActiveTab: tab },
     );
+  }
+
+  /** Open the Skills tab and raise a one-shot request for its diverged filter. */
+  openSkillsDivergedClones(): void {
+    this.setCurrentView('thoth');
+    this.setThothActiveTab('skills');
+    this._skillsDivergedRequest.set(true);
+  }
+
+  /** Read and clear the pending diverged-clones navigation request. */
+  consumeSkillsDivergedRequest(): boolean {
+    const requested = this._skillsDivergedRequest();
+    this._skillsDivergedRequest.set(false);
+    return requested;
   }
 
   /**

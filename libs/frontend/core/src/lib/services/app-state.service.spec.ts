@@ -214,6 +214,17 @@ describe('AppStateManager', () => {
       service.setCurrentView('settings');
       expect(service.currentView()).toBe('chat');
     });
+
+    it('opens Skills with a one-shot diverged-clones request', () => {
+      const service = createService();
+
+      service.openSkillsDivergedClones();
+
+      expect(service.currentView()).toBe('thoth');
+      expect(service.thothActiveTab()).toBe('skills');
+      expect(service.consumeSkillsDivergedRequest()).toBe(true);
+      expect(service.consumeSkillsDivergedRequest()).toBe(false);
+    });
   });
 
   describe('handleMessage (SWITCH_VIEW)', () => {
