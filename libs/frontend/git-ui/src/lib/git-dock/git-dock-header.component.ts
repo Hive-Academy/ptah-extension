@@ -11,7 +11,10 @@ import {
   GitBranch,
   Info,
   LucideAngularModule,
+  PanelLeft,
+  PanelLeftClose,
 } from 'lucide-angular';
+import { ElectronLayoutService } from '@ptah-extension/core';
 import { BranchPickerDropdownComponent } from '../branch-picker/branch-picker-dropdown.component';
 import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-popover.component';
 import {
@@ -21,6 +24,7 @@ import {
 import { EditorLauncherService } from '../services/editor-launcher.service';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitStatusService } from '../services/git-status.service';
+import { GitReviewService } from '../services/git-review.service';
 
 @Component({
   selector: 'ptah-git-dock-header',
@@ -37,6 +41,33 @@ import { GitStatusService } from '../services/git-status.service';
       class="relative flex h-8 flex-shrink-0 items-center gap-1 border-b border-base-content/10 bg-base-200 px-2 text-xs"
       data-testid="git-dock-header"
     >
+      @if (review.mode() === 'working-tree') {
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs px-1"
+          data-testid="git-rail-toggle"
+          aria-controls="git-source-control-rail"
+          [attr.aria-expanded]="!layout.gitRailCollapsed()"
+          [attr.aria-label]="
+            layout.gitRailCollapsed()
+              ? 'Show source control'
+              : 'Hide source control'
+          "
+          [title]="
+            layout.gitRailCollapsed()
+              ? 'Show source control'
+              : 'Hide source control'
+          "
+          (click)="layout.toggleGitRail()"
+        >
+          <lucide-angular
+            [img]="
+              layout.gitRailCollapsed() ? PanelLeftIcon : PanelLeftCloseIcon
+            "
+            class="h-3 w-3"
+          />
+        </button>
+      }
       <div class="relative flex items-center">
         <button
           #branchTrigger
@@ -122,9 +153,13 @@ export class GitDockHeaderComponent {
   protected readonly gitStatus = inject(GitStatusService);
   protected readonly gitBranches = inject(GitBranchesService);
   protected readonly launchers = inject(EditorLauncherService);
+  protected readonly review = inject(GitReviewService);
+  protected readonly layout = inject(ElectronLayoutService);
   protected readonly BranchIcon = GitBranch;
   protected readonly InfoIcon = Info;
   protected readonly PushIcon = ArrowUpFromLine;
+  protected readonly PanelLeftIcon = PanelLeft;
+  protected readonly PanelLeftCloseIcon = PanelLeftClose;
   protected readonly pickerOpen = signal(false);
   protected readonly detailsOpen = signal(false);
   protected readonly pushing = signal(false);

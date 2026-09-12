@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { VSCodeService } from '@ptah-extension/core';
+import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
 import { GitReviewService } from '../services/git-review.service';
 import { GitStatusService } from '../services/git-status.service';
 import { MonacoLoaderService } from '../services/monaco-loader.service';
@@ -45,9 +45,11 @@ function vscodeStub() {
 
 describe('GitDockComponent mounted controls', () => {
   let rpcData: Record<string, unknown>;
+  let vscode: ReturnType<typeof vscodeStub>;
 
   beforeEach(() => {
     mockRpcCall.mockReset();
+    vscode = vscodeStub();
     rpcData = {
       'git:info': {
         isGitRepo: true,
@@ -118,13 +120,39 @@ describe('GitDockComponent mounted controls', () => {
     TestBed.configureTestingModule({
       imports: [GitDockComponent],
       providers: [
-        { provide: VSCodeService, useValue: vscodeStub() },
+        { provide: VSCodeService, useValue: vscode },
         {
           provide: MonacoLoaderService,
           useValue: { load: jest.fn(() => new Promise(() => undefined)) },
         },
       ],
     });
+  });
+
+  it('collapses the rendered working-tree rail and persists layout state', async () => {
+    const gitStatus = TestBed.inject(GitStatusService);
+    gitStatus.switchWorkspace('/ws/a');
+    const fixture = TestBed.createComponent(GitDockComponent);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('#git-source-control-rail'),
+    ).not.toBeNull();
+    const toggle = fixture.nativeElement.querySelector(
+      '[data-testid="git-rail-toggle"]',
+    ) as HTMLButtonElement;
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('#git-source-control-rail'),
+    ).toBeNull();
+    expect(TestBed.inject(ElectronLayoutService).gitRailCollapsed()).toBe(true);
+    expect(vscode.setState).toHaveBeenCalledWith(
+      'electron-layout',
+      expect.objectContaining({ gitRailCollapsed: true, gitRailWidth: 256 }),
+    );
   });
 
   it('renders every row and a diff when successful editor detection omits targets', async () => {

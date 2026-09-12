@@ -30,6 +30,7 @@ import type {
   HunkApplyFn,
   OpenDiffRequest,
 } from '../types/diff-tab.types';
+import { RailResizeHandleComponent } from './rail-resize-handle.component';
 
 const mockRpcCall = jest.fn();
 jest.mock('@ptah-extension/core', () => {
@@ -42,6 +43,7 @@ jest.mock('@ptah-extension/core', () => {
   };
 });
 const { VSCodeService } = jest.requireActual('@ptah-extension/core');
+const { ElectronLayoutService } = jest.requireActual('@ptah-extension/core');
 const { GitDockComponent } = jest.requireActual(
   './git-dock.component',
 ) as typeof import('./git-dock.component');
@@ -186,6 +188,15 @@ describe('GitDockComponent', () => {
         { provide: DiffTabsService, useValue: diffTabs },
         { provide: VSCodeService, useValue: makeVscodeStub() },
         {
+          provide: ElectronLayoutService,
+          useValue: {
+            gitRailWidth: jest.fn(() => 256),
+            gitRailCollapsed: jest.fn(() => false),
+            setGitRailWidth: jest.fn(),
+            commitGitRailWidth: jest.fn(),
+          },
+        },
+        {
           provide: GitReviewService,
           useValue: {
             mode: jest.fn(() => 'working-tree'),
@@ -213,6 +224,7 @@ describe('GitDockComponent', () => {
           DiffViewStubComponent,
           GitReviewToolbarStubComponent,
           GitReviewPanelStubComponent,
+          RailResizeHandleComponent,
         ],
       },
     });

@@ -15,6 +15,8 @@ import { GitReviewPanelComponent } from '../review/git-review-panel.component';
 import { GitReviewService } from '../services/git-review.service';
 import { EditorLauncherService } from '../services/editor-launcher.service';
 import type { OpenInRequest } from '../open-in/open-in-button.component';
+import { ElectronLayoutService } from '@ptah-extension/core';
+import { RailResizeHandleComponent } from './rail-resize-handle.component';
 
 /**
  * GitDockComponent — live host for the git surface in the Electron shell's
@@ -48,6 +50,7 @@ import type { OpenInRequest } from '../open-in/open-in-button.component';
     DiffViewComponent,
     GitReviewToolbarComponent,
     GitReviewPanelComponent,
+    RailResizeHandleComponent,
   ],
   template: `
     <div class="flex flex-col h-full" data-testid="git-dock">
@@ -66,20 +69,35 @@ import type { OpenInRequest } from '../open-in/open-in-button.component';
         />
       } @else {
         <div class="flex-1 min-h-0 flex overflow-hidden">
-          <div
-            class="w-64 flex-shrink-0 border-r border-base-content/10 overflow-hidden"
-          >
-            <ptah-source-control-panel
-              [files]="gitStatus.files()"
-              [editorTargets]="launchers.targets()"
-              [workspaceRoot]="gitStatus.activeWorkspacePath() ?? ''"
-              (diffRequested)="diffTabs.openDiff($event)"
-              (fileClicked)="onFileClicked($event)"
+          @if (!layout.gitRailCollapsed()) {
+            <div
+              id="git-source-control-rail"
+              class="flex-shrink-0 border-r border-base-content/10 overflow-hidden"
+              [style.width.px]="layout.gitRailWidth()"
+              style="max-width: calc(100% - 12rem)"
+            >
+              <ptah-source-control-panel
+                [files]="gitStatus.files()"
+                [editorTargets]="launchers.targets()"
+                [workspaceRoot]="gitStatus.activeWorkspacePath() ?? ''"
+                (diffRequested)="diffTabs.openDiff($event)"
+                (fileClicked)="onFileClicked($event)"
+              />
+            </div>
+            <ptah-git-rail-resize-handle
+              [width]="layout.gitRailWidth()"
+              [min]="160"
+              [max]="480"
+              (widthChange)="layout.setGitRailWidth($event)"
+              (widthCommit)="layout.commitGitRailWidth()"
             />
-          </div>
+          }
 
           @if (diffTabs.activeDiffTab(); as activeDiffTab) {
-            <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
+            <div
+              class="flex-1 min-w-0 flex flex-col overflow-hidden"
+              data-testid="git-dock-content"
+            >
               <div
                 class="flex flex-shrink-0 overflow-x-auto border-b border-base-content/10 bg-base-200"
                 role="tablist"
@@ -167,6 +185,7 @@ export class GitDockComponent {
   protected readonly diffTabs = inject(DiffTabsService);
   protected readonly review = inject(GitReviewService);
   protected readonly launchers = inject(EditorLauncherService);
+  protected readonly layout = inject(ElectronLayoutService);
   private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
