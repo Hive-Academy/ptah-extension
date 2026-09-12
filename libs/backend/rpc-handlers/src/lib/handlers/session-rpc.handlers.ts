@@ -28,6 +28,7 @@ import {
   SdkError,
   MESSAGE_ID_NOT_FOUND_PHRASE,
   SessionTurnStateRegistry,
+  SessionTitleService,
 } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
@@ -128,6 +129,13 @@ export class SessionRpcHandlers {
      */
     @inject(CHAT_TOKENS.MCP_STATUS)
     private readonly mcpStatus: SessionMcpStatusRegistry,
+    /**
+     * The SDK-side half of a rename. `SessionMetadataStore` owns Ptah's own
+     * record and must stay free of any SDK dependency, so this handler — the
+     * path that owns the rename — drives both writes (TASK_2026_402 Req 9.4).
+     */
+    @inject(SDK_TOKENS.SDK_SESSION_TITLE_SERVICE)
+    private readonly sessionTitle: SessionTitleService,
     /**
      * Optional so a host that never registers the manager serves this method
      * exactly as before. See `session:cli-sessions` for the one use.
@@ -522,6 +530,14 @@ export class SessionRpcHandlers {
           });
 
           await this.metadataStore.rename(sessionId, trimmedName);
+
+          // Follow through to the SESSION TITLE — the SDK-persisted name, a
+          // different surface from the registry `--name`, which is fixed at
+          // spawn and does NOT follow a rename (see `buildSessionName`).
+          // `retitle` logs and swallows its own failures: the user's rename
+          // has already succeeded in Ptah's metadata, and failing the RPC
+          // afterwards would undo nothing and report an error that is not one.
+          await this.sessionTitle.retitle(sessionId, trimmedName);
 
           this.logger.info('RPC: session:rename succeeded', { sessionId });
 

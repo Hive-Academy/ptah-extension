@@ -26,7 +26,11 @@ const MAX_NAME_LENGTH = 64;
 const NAME_PREFIX = 'ptah';
 
 export interface SessionNameInput {
-  /** What the session is FOR — `chat` for the main session, the agent's configured name for a spawn. */
+  /**
+   * What the session is FOR — the user's own session name when they gave one,
+   * else `chat` for the main session or the agent's configured name for a
+   * spawn. Passed in raw: `slugify` below is the ONE sanitiser.
+   */
   readonly role: string;
   /** Task this session serves, when it serves one. */
   readonly taskId?: string;
@@ -74,6 +78,16 @@ export function deriveWorkspaceLabel(
  * Returns `undefined` when the parts that make the name meaningful — the role
  * and the uniqueness suffix — sanitise to nothing. A name that is just the
  * prefix identifies no session and would collide with every other one.
+ *
+ * **THE REGISTRY NAME DOES NOT FOLLOW A RENAME.** What this composes is the
+ * `--name` flag, which the CLI writes into `~/.claude/sessions/<pid>.json` as
+ * `name` / `nameSource` when the process spawns. It is FIXED AT SPAWN: no
+ * documented SDK or CLI API changes it afterwards, so a peer browsing the
+ * session registry keeps reading the name this call produced for the life of
+ * the process. Renaming a session in Ptah's UI changes the session TITLE
+ * instead — a different surface, `Options.title` on a new session and the
+ * SDK's `renameSession()` on an existing one (see `SessionTitleService`).
+ * Do not write code, or a doc line, that claims a rename reaches here.
  */
 export function buildSessionName(input: SessionNameInput): string | undefined {
   const role = slugify(input.role);

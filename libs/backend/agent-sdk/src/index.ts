@@ -75,6 +75,7 @@ export {
   type TurnFailureSnapshot,
 } from './lib/helpers';
 export { SessionLifecycleManager } from './lib/helpers';
+export { SessionTitleService } from './lib/helpers';
 export {
   CallbackRegistryBase,
   type CallbackRegistryCallback,

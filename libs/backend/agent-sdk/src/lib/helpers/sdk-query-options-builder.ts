@@ -858,6 +858,7 @@ export class SdkQueryOptionsBuilder {
       enableFileCheckpointing ?? true,
       cwd,
       routingId,
+      sessionConfig.sessionName,
     );
     this.logger.info('[SdkQueryOptionsBuilder] Building SDK query options', {
       cwd,
@@ -1000,6 +1001,15 @@ export class SdkQueryOptionsBuilder {
         // checkpointing spread this replaced: a user who disables file
         // checkpointing would lose their session name with it.
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
+        // The session TITLE — a DIFFERENT surface from the registry `--name`
+        // above. It is the user's name RAW, because a human reads it, and it
+        // is set for a NEW session only: on a resume the SDK gives the
+        // PERSISTED title precedence (`sdk.d.ts` `Options.title`), so setting
+        // it there is a silent no-op. `SessionTitleService.retitle` is the
+        // path that changes an existing session's title.
+        ...(!resumeSessionId && sessionConfig.sessionName
+          ? { title: sessionConfig.sessionName }
+          : {}),
         forkSession: resumeSessionId ? forkSession : undefined,
       },
     };
@@ -1016,27 +1026,53 @@ export class SdkQueryOptionsBuilder {
    *
    * A name that cannot be composed is logged at `warn` and the key is omitted —
    * a naming problem never costs a session.
+   *
+   * `sessionName` is the name the USER gave the session, and it takes the
+   * `role` slot so a peer browsing the session list reads something a human
+   * chose instead of `chat`. It is handed to `buildSessionName` UNSANITISED:
+   * that builder already slugifies every part and already caps the head, and
+   * a second sanitiser here could only disagree with it.
    */
   private buildExtraArgs(
     fileCheckpointingEnabled: boolean,
     cwd: string,
     routingId?: string,
+    sessionName?: string,
   ): Record<string, string | null> {
     const extraArgs: Record<string, string | null> = {};
     if (fileCheckpointingEnabled) {
       extraArgs['replay-user-messages'] = null;
     }
 
-    const sessionName = buildSessionName({
-      // The main interactive session. A spawned agent names its own role.
+    // The main interactive session. A spawned agent names its own role.
+    const workspaceLabel = deriveWorkspaceLabel(cwd);
+    // The routing id is unique per session, so the name is too. Six
+    // characters is enough to separate the sessions one workspace holds.
+    const uniqueSuffix = (routingId ?? '').slice(0, 6);
+
+    let composedName = sessionName
+      ? buildSessionName({ role: sessionName, workspaceLabel, uniqueSuffix })
+      : undefined;
+    if (sessionName && !composedName) {
+      // The user's name held nothing `[a-z0-9-]` survives — an emoji-only or
+      // punctuation-only name. Falling through to the `chat` role keeps the
+      // deliberate name this session would have had anyway; dropping `--name`
+      // here would hand the session back to the CLI's derived naming, which
+      // is the exact defect Requirement 2 fixed.
+      this.logger.warn(
+        '[SdkQueryOptionsBuilder] The session name did not survive ' +
+          'slugification — falling back to the default role for --name',
+        { cwd, sessionNameLength: sessionName.length },
+      );
+    }
+    composedName ??= buildSessionName({
       role: 'chat',
-      workspaceLabel: deriveWorkspaceLabel(cwd),
-      // The routing id is unique per session, so the name is too. Six
-      // characters is enough to separate the sessions one workspace holds.
-      uniqueSuffix: (routingId ?? '').slice(0, 6),
+      workspaceLabel,
+      uniqueSuffix,
     });
-    if (sessionName) {
-      extraArgs['name'] = sessionName;
+
+    if (composedName) {
+      extraArgs['name'] = composedName;
     } else {
       this.logger.warn(
         '[SdkQueryOptionsBuilder] Could not compose a session name — starting ' +

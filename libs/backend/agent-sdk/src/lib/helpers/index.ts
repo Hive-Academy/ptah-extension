@@ -223,6 +223,7 @@ export {
   type ForkSessionParams,
   type RewindFilesParams,
 } from './session-fork.service';
+export { SessionTitleService } from './session-title.service';
 export { SdkAdapterCallbackRegistry } from './sdk-adapter-callback-registry';
 export {
   CallbackRegistryBase,

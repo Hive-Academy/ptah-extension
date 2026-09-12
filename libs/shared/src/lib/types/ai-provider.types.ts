@@ -151,6 +151,24 @@ export interface AISessionConfig {
    */
   readonly tabId?: string;
   /**
+   * The name the USER gave this session — the one they read in the session
+   * list. It reaches two distinct SDK surfaces, and they are not the same
+   * thing (TASK_2026_402 Requirement 9):
+   *
+   *  - the REGISTRY name (`--name`, `~/.claude/sessions/<pid>.json`), which is
+   *    what a peer session reads. It is slugified through `buildSessionName`
+   *    and is FIXED AT SPAWN — no documented API changes it afterwards.
+   *  - the session TITLE (`Options.title`), which carries this value RAW
+   *    because a human reads it. On a resume the persisted title wins, so it
+   *    is set for a NEW session only and retitled via `renameSession()`.
+   *
+   * OPTIONAL on purpose: a brand-new tab has no user-chosen name yet — it is
+   * auto-titled later — and the registry name falls back to the `chat` role.
+   * Do NOT substitute `tabId` here; it is a UUID v4 and means nothing to a
+   * human reading a session list.
+   */
+  readonly sessionName?: string;
+  /**
    * System prompt preset selection.
    * - 'claude_code': Use default preset with minimal customization
    * - 'enhanced': Use AI-generated project-specific guidance from setup wizard

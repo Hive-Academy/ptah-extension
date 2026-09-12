@@ -81,6 +81,7 @@ export const SDK_TOKENS = {
   SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
 
   SDK_SESSION_FORK_SERVICE: Symbol.for('SdkSessionForkService'),
+  SDK_SESSION_TITLE_SERVICE: Symbol.for('SdkSessionTitleService'),
   SDK_RUNTIME_STATE: Symbol.for('SdkRuntimeState'),
   SDK_ADAPTER_EVENTS: Symbol.for('SdkAdapterEvents'),
 
