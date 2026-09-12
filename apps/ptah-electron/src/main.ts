@@ -18,7 +18,9 @@ import {
 } from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
 import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
+import type { DependencyContainer } from 'tsyringe';
 import { bootstrapElectron } from './activation/bootstrap';
+import { registerStartupConfigIpc } from './activation/startup-config-ipc';
 import { BootCoordinator } from './activation/boot-coordinator';
 import { createBootReadinessBroadcaster } from './activation/boot-readiness-broadcaster';
 import { wireRuntimePreWindow } from './activation/wire-runtime';
@@ -67,8 +69,17 @@ if (!gotLock) {
   let trayService: PtahTrayService | null = null;
   let workspaceStorageReady = false;
   let startupShellQuery: Record<string, string> = { state: 'preparing' };
+  // Read by the `get-startup-config` responder below. Deliberately a mutable
+  // slot read through a closure, not a copy: the responder is registered before
+  // a container exists and must see the real one the moment boot produces it.
+  let bootContainer: DependencyContainer | null = null;
 
   app.whenReady().then(async () => {
+    // BEFORE the first window. Every renderer's preload blocks on this sync
+    // channel while it loads, so a window opened ahead of the responder can
+    // never finish loading — see `startup-config-ipc.ts` (TASK_2026_411).
+    registerStartupConfigIpc(() => bootContainer);
+
     const preparingWindow = createMainWindow(
       () => coordinator.refs.resolvedStateStorage ?? undefined,
     );
@@ -78,13 +89,25 @@ if (!gotLock) {
       'assets',
       'preparing-workspace.html',
     );
-    await preparingWindow.loadFile(preparingShellPath, {
-      query: startupShellQuery,
-    });
+    // A failed or aborted shell load must not take the boot down with it. This
+    // promise rejects with `ERR_FAILED (-2)` whenever the window is closed
+    // mid-load (a quit during startup, or an e2e harness tearing the app
+    // down), and an unhandled rejection here skips bootstrap entirely.
+    try {
+      await preparingWindow.loadFile(preparingShellPath, {
+        query: startupShellQuery,
+      });
+    } catch (error: unknown) {
+      console.error(
+        '[Ptah Electron] Preparing shell did not load; continuing to boot:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
 
     let boot: Awaited<ReturnType<typeof bootstrapElectron>>;
     try {
       boot = await bootstrapElectron(() => mainWindow, coordinator);
+      bootContainer = boot.container;
       workspaceStorageReady = true;
     } catch (error: unknown) {
       startupShellQuery = {
@@ -98,9 +121,14 @@ if (!gotLock) {
         '[Ptah Electron] Workspace storage did not become ready:',
         startupShellQuery['code'],
       );
-      await preparingWindow.loadFile(preparingShellPath, {
-        query: startupShellQuery,
-      });
+      await preparingWindow
+        .loadFile(preparingShellPath, { query: startupShellQuery })
+        .catch((loadError: unknown) => {
+          console.error(
+            '[Ptah Electron] Recovery shell did not load:',
+            loadError instanceof Error ? loadError.message : String(loadError),
+          );
+        });
       return;
     }
     flushWorkspacePersistence = boot.flushWorkspacePersistence;
@@ -250,10 +278,17 @@ if (!gotLock) {
       const targetPath = workspaceStorageReady
         ? path.join(__dirname, 'renderer', 'index.html')
         : path.join(__dirname, 'assets', 'preparing-workspace.html');
-      mainWindow.loadFile(
-        targetPath,
-        workspaceStorageReady ? undefined : { query: startupShellQuery },
-      );
+      mainWindow
+        .loadFile(
+          targetPath,
+          workspaceStorageReady ? undefined : { query: startupShellQuery },
+        )
+        .catch((error: unknown) => {
+          console.error(
+            '[Ptah Electron] Reactivated window did not load:',
+            error instanceof Error ? error.message : String(error),
+          );
+        });
     }
   });
   // Branch-free delegation: the decision lives in `handleWindowAllClosed` so it

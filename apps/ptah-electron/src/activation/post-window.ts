@@ -2,11 +2,7 @@ import { BrowserWindow, ipcMain, clipboard } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { DependencyContainer } from 'tsyringe';
-import type {
-  IStateStorage,
-  IWorkspaceProvider,
-} from '@ptah-extension/platform-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { createMainWindow } from '../windows/main-window';
 import {
@@ -68,25 +64,10 @@ export async function registerPostWindow(
   let messagingGateway: GatewayService | null = null;
   let chatBridge: GatewayChatBridge | null = null;
 
-  ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
-    let workspaceRoot = '';
-    let workspaceName = '';
-
-    const workspaceProvider = container.resolve<IWorkspaceProvider>(
-      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
-    );
-    const resolvedRoot = workspaceProvider.getWorkspaceRoot();
-    if (resolvedRoot) {
-      workspaceRoot = resolvedRoot;
-      workspaceName = path.basename(resolvedRoot);
-    }
-
-    event.returnValue = {
-      initialView: null,
-      workspaceRoot,
-      workspaceName,
-    };
-  });
+  // `get-startup-config` is NOT registered here. It is a SYNC channel every
+  // preload blocks on, and this phase runs behind `bootstrapElectron` — far too
+  // late for the preparing shell, which opens first and would wait forever.
+  // `main.ts` registers it before any window exists (TASK_2026_411).
   ipcMain.handle('clipboard:read-text', () => clipboard.readText());
   ipcMain.on(
     'clipboard:write-text',
@@ -95,7 +76,7 @@ export async function registerPostWindow(
     },
   );
 
-  console.log('[Ptah Electron] Startup config registered');
+  console.log('[Ptah Electron] Clipboard IPC registered');
   const mainWindow =
     options.getMainWindow() ?? createMainWindow(resolvedStateStorage);
   setMainWindow(mainWindow);
