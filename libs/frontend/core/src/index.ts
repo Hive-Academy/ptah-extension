@@ -12,6 +12,12 @@ export {
 } from './lib/tokens/workspace-coordinator.token';
 
 export {
+  FILE_LINK_OPENER,
+  type FileLinkOpenRequest,
+  type IFileLinkOpener,
+} from './lib/tokens/file-link-opener.token';
+
+export {
   type LazyViewLoader,
   WIZARD_VIEW_COMPONENT,
   ORCHESTRA_CANVAS_COMPONENT,

@@ -8,14 +8,16 @@ import { getMarkedExtensions } from './marked-extensions';
  *   2 — Decorative dividers
  *   3 — Enhanced headings
  *   4 — List cards
+ *   5 — File links
  */
-const EXTENSIONS_LENGTH = 5;
+const EXTENSIONS_LENGTH = 6;
 const EXT_INDEX = {
   callout: 0,
   code: 1,
   divider: 2,
   heading: 3,
   list: 4,
+  fileLink: 5,
 } as const;
 
 /** Build a fake parser context (`this`) for renderer hooks that call back
@@ -387,5 +389,75 @@ describe('list card extension', () => {
       ],
     } as Tokens.List);
     expect(out as string).toContain('start="5"');
+  });
+});
+
+describe('file link extension', () => {
+  const ext = () => getMarkedExtensions()[EXT_INDEX.fileLink];
+
+  const renderLink = (href: string): string | false =>
+    (
+      rendererOf(ext()).link as (
+        this: unknown,
+        token: Tokens.Link,
+      ) => string | false
+    ).call(makeParserCtx(), {
+      type: 'link',
+      raw: '',
+      href,
+      title: null,
+      text: 'label',
+      tokens: [{ type: 'text' } as Tokens.Generic],
+    } as Tokens.Link);
+
+  const anchorOf = (html: string): HTMLAnchorElement => {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const anchor = template.content.querySelector('a');
+    if (!anchor) throw new Error('no anchor rendered');
+    return anchor;
+  };
+
+  it.each([
+    'https://example.com/a.ts',
+    'mailto:a@example.com',
+    '#section',
+    'javascript:alert(1)',
+    '//host/x',
+  ])('returns false for the non-file link %s', (href) => {
+    expect(renderLink(href)).toBe(false);
+  });
+
+  it('renders a file link as an inert anchor carrying the original target', () => {
+    const out = renderLink('src/a.ts:12');
+    expect(typeof out).toBe('string');
+    const anchor = anchorOf(out as string);
+    expect(anchor.getAttribute('href')).toBe('#');
+    expect(anchor.getAttribute('data-ptah-file-href')).toBe('src/a.ts:12');
+    expect(anchor.getAttribute('title')).toBe('src/a.ts:12');
+    expect(anchor.getAttribute('class')).toBe('ptah-file-link');
+    // Link text still goes through the inline parser.
+    expect(out as string).toContain('<text>');
+  });
+
+  it('keeps a Windows drive target verbatim', () => {
+    const anchor = anchorOf(renderLink('C:\\x.ts:12:3') as string);
+    expect(anchor.getAttribute('data-ptah-file-href')).toBe('C:\\x.ts:12:3');
+  });
+
+  it('keeps a file URL target verbatim, still encoded', () => {
+    const anchor = anchorOf(renderLink('file:///C:/a%20b.ts') as string);
+    expect(anchor.getAttribute('data-ptah-file-href')).toBe(
+      'file:///C:/a%20b.ts',
+    );
+  });
+
+  it('escapes markup in the target so it cannot break out of the attribute', () => {
+    const href = 'src/"><img src=x onerror=alert(1)>.ts';
+    const out = renderLink(href) as string;
+    expect(out).not.toContain('"><img');
+    expect(out).toContain('&quot;&gt;&lt;img');
+    expect(anchorOf(out).getAttribute('data-ptah-file-href')).toBe(href);
+    expect(anchorOf(out).querySelector('img')).toBeNull();
   });
 });
