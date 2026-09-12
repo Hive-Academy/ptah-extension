@@ -145,6 +145,11 @@ export class SkillClonesStateService {
       if (this.detailKey !== key) return;
       this.detail.set(detail);
     } catch (err) {
+      // degradation-audit: reported — the live request's failure IS surfaced,
+      // through `error` below, which the view renders as a toast. The bare
+      // return above drops only a SUPERSEDED request's error: the user has
+      // already selected a different entry, and reporting the loser of the
+      // race would blame the wrong clone.
       if (this.detailKey !== key) return;
       this.error.set(this.toMessage(err));
       this.detail.set(null);
