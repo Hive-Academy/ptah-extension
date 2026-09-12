@@ -186,15 +186,4 @@ describe('CloneBulkRebaseService', () => {
     expect(outcomes).toEqual([]);
     expect(service.running()).toBe(false);
   });
-
-  it('reset() clears the last report', async () => {
-    const { service, rebaseClone } = setup();
-    rebaseClone.mockResolvedValue(ok('a'));
-    await service.run([clone('a')]);
-
-    service.reset();
-
-    expect(service.outcomes()).toEqual([]);
-    expect(service.progress()).toBeNull();
-  });
 });

@@ -97,12 +97,6 @@ export class CloneBulkRebaseService {
     }
   }
 
-  /** Clear the last batch's report without touching an in-flight run. */
-  public reset(): void {
-    this._progress.set(null);
-    this._outcomes.set([]);
-  }
-
   /** One attempt. Never throws — both failure channels become an outcome. */
   private async rebaseOne(clone: CloneSummary): Promise<BulkRebaseOutcome> {
     try {
