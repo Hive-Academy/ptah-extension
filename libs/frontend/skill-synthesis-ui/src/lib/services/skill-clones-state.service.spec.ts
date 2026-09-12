@@ -115,6 +115,196 @@ describe('SkillClonesStateService', () => {
     expect(svc.detail()).toBeNull();
   });
 
+  it('drops the held detail the moment a DIFFERENT entry is selected', async () => {
+    const rpc = makeRpc();
+    const resolvers = new Map<string, (v: unknown) => void>();
+    rpc.getClone.mockImplementation(
+      (slug: string) =>
+        new Promise((resolve) =>
+          resolvers.set(slug, resolve as (v: unknown) => void),
+        ) as ReturnType<SkillSynthesisRpcService['getClone']>,
+    );
+    const { svc } = setup(rpc);
+
+    const alpha = svc.loadDetail('alpha', 'skill');
+    resolvers.get('alpha')?.({
+      clone: clone({ slug: 'alpha' }),
+      body: '# a',
+      history: [],
+    });
+    await alpha;
+    expect(svc.detail()?.body).toBe('# a');
+
+    const beta = svc.loadDetail('beta', 'skill');
+    // Before beta's reply: no body at all, rather than alpha's.
+    expect(svc.detail()).toBeNull();
+    expect(svc.detailLoading()).toBe(true);
+
+    resolvers.get('beta')?.({
+      clone: clone({ slug: 'beta' }),
+      body: '# b',
+      history: [],
+    });
+    await beta;
+    expect(svc.detail()?.body).toBe('# b');
+    expect(svc.detailLoading()).toBe(false);
+  });
+
+  it('ignores a reply that lands after the selection moved on', async () => {
+    const rpc = makeRpc();
+    const resolvers = new Map<string, (v: unknown) => void>();
+    rpc.getClone.mockImplementation(
+      (slug: string) =>
+        new Promise((resolve) =>
+          resolvers.set(slug, resolve as (v: unknown) => void),
+        ) as ReturnType<SkillSynthesisRpcService['getClone']>,
+    );
+    const { svc } = setup(rpc);
+
+    const alpha = svc.loadDetail('alpha', 'skill');
+    const beta = svc.loadDetail('beta', 'skill');
+
+    // Beta wins the race; alpha's late reply must not overwrite it.
+    resolvers.get('beta')?.({
+      clone: clone({ slug: 'beta' }),
+      body: '# b',
+      history: [],
+    });
+    await beta;
+    resolvers.get('alpha')?.({
+      clone: clone({ slug: 'alpha' }),
+      body: '# a',
+      history: [],
+    });
+    await alpha;
+
+    expect(svc.detail()?.body).toBe('# b');
+    expect(svc.detailLoading()).toBe(false);
+  });
+
+  /**
+   * Same entry, two requests, replies in reverse order. The entry key matches
+   * for BOTH, so a key-only guard lets the superseded reply win — this is the
+   * cross-clone race one step narrower, on the exact path a save takes
+   * (`saveCloneBody` reloads the entry it just wrote).
+   */
+  it('ignores the FIRST reply when two loads of the SAME entry land in reverse order', async () => {
+    const rpc = makeRpc();
+    const queue: Array<(v: unknown) => void> = [];
+    rpc.getClone.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          queue.push(resolve as (v: unknown) => void),
+        ) as ReturnType<SkillSynthesisRpcService['getClone']>,
+    );
+    const { svc } = setup(rpc);
+
+    const first = svc.loadDetail('alpha', 'skill');
+    const second = svc.loadDetail('alpha', 'skill');
+
+    // Second (current) reply lands first and wins.
+    queue[1]?.({ clone: clone({ slug: 'alpha' }), body: '# new', history: [] });
+    await second;
+    expect(svc.detail()?.body).toBe('# new');
+    expect(svc.detailLoading()).toBe(false);
+
+    // First (superseded) reply lands late and must change nothing.
+    queue[0]?.({
+      clone: clone({ slug: 'alpha' }),
+      body: '# stale',
+      history: [],
+    });
+    await first;
+    expect(svc.detail()?.body).toBe('# new');
+  });
+
+  it('does not let a superseded same-entry FAILURE clear the current detail', async () => {
+    const rpc = makeRpc();
+    const settlers: Array<{
+      resolve: (v: unknown) => void;
+      reject: (e: unknown) => void;
+    }> = [];
+    rpc.getClone.mockImplementation(
+      () =>
+        new Promise((resolve, reject) =>
+          settlers.push({
+            resolve: resolve as (v: unknown) => void,
+            reject,
+          }),
+        ) as ReturnType<SkillSynthesisRpcService['getClone']>,
+    );
+    const { svc } = setup(rpc);
+
+    const first = svc.loadDetail('alpha', 'skill');
+    const second = svc.loadDetail('alpha', 'skill');
+
+    settlers[1]?.resolve({
+      clone: clone({ slug: 'alpha' }),
+      body: '# new',
+      history: [],
+    });
+    await second;
+
+    settlers[0]?.reject(new Error('stale boom'));
+    await first;
+
+    expect(svc.detail()?.body).toBe('# new');
+    expect(svc.error()).toBeNull();
+    expect(svc.detailLoading()).toBe(false);
+  });
+
+  /**
+   * Close, then REOPEN the same entry. `clearDetail` resets the key, so the
+   * reopen restores exactly the key the abandoned request was filed under —
+   * without a token bump the cleared request lands on the reopened one, writes
+   * its body and clears the spinner while the live request is still out.
+   */
+  it('ignores a request abandoned by clearDetail even when the same entry is reopened', async () => {
+    const rpc = makeRpc();
+    const queue: Array<(v: unknown) => void> = [];
+    rpc.getClone.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          queue.push(resolve as (v: unknown) => void),
+        ) as ReturnType<SkillSynthesisRpcService['getClone']>,
+    );
+    const { svc } = setup(rpc);
+
+    const abandoned = svc.loadDetail('alpha', 'skill');
+    svc.clearDetail();
+    const reopened = svc.loadDetail('alpha', 'skill');
+
+    queue[0]?.({
+      clone: clone({ slug: 'alpha' }),
+      body: '# stale',
+      history: [],
+    });
+    await abandoned;
+
+    expect(svc.detail()).toBeNull();
+    expect(svc.detailLoading()).toBe(true);
+
+    queue[1]?.({
+      clone: clone({ slug: 'alpha' }),
+      body: '# live',
+      history: [],
+    });
+    await reopened;
+    expect(svc.detail()?.body).toBe('# live');
+    expect(svc.detailLoading()).toBe(false);
+  });
+
+  it('keeps the visible detail through a reload of the SAME entry', async () => {
+    const rpc = makeRpc();
+    const { svc } = setup(rpc);
+    await svc.loadDetail('deep-research', 'skill');
+
+    const reload = svc.loadDetail('deep-research', 'skill');
+    expect(svc.detail()?.body).toBe('# body');
+    await reload;
+    expect(svc.detail()?.body).toBe('# body');
+  });
+
   it('populates scorecards from ONE getScorecards call for agent slugs only', async () => {
     const rpc = makeRpc();
     rpc.listClones.mockResolvedValueOnce([

@@ -86,6 +86,5 @@ Standalone, OnPush, signals + `inject()`, DaisyUI for modals, reactive + templat
 
 ## Guidelines
 
-- Do not Electron-gate this tab — skills work on VS Code too.
 - Promote/reject actions must always allow an optional reason input.
 - The settings panel is intentionally read-only — edit via the Settings view.

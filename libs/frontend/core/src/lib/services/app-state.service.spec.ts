@@ -214,6 +214,38 @@ describe('AppStateManager', () => {
       service.setCurrentView('settings');
       expect(service.currentView()).toBe('chat');
     });
+
+    it('opens Skills with a one-shot diverged-clones request', () => {
+      const service = createService();
+
+      service.openSkillsDivergedClones();
+
+      expect(service.currentView()).toBe('thoth');
+      expect(service.thothActiveTab()).toBe('skills');
+      expect(service.consumeSkillsDivergedRequest()).toBe(true);
+      expect(service.consumeSkillsDivergedRequest()).toBe(false);
+    });
+
+    it('drops a diverged-clones request the user left behind by switching workspace', () => {
+      const service = createService();
+      service.switchWorkspace('C:/a');
+
+      service.openSkillsDivergedClones();
+      service.switchWorkspace('C:/b');
+
+      // The divergence was workspace A's; workspace B never saw it.
+      expect(service.consumeSkillsDivergedRequest()).toBe(false);
+    });
+
+    it('raises no diverged-clones request while view switches are blocked', () => {
+      const service = createService();
+      service.setLoading(true);
+
+      service.openSkillsDivergedClones();
+
+      expect(service.currentView()).toBe('chat');
+      expect(service.consumeSkillsDivergedRequest()).toBe(false);
+    });
   });
 
   describe('handleMessage (SWITCH_VIEW)', () => {

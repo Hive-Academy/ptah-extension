@@ -3,6 +3,7 @@ import {
   Component,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -13,7 +14,7 @@ import {
   FormBuilder,
   FormGroup,
 } from '@angular/forms';
-import { VSCodeService } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { LucideAngularModule, Sparkles } from 'lucide-angular';
 import type {
@@ -577,7 +578,9 @@ interface ActionDialogState {
           }
           @case ('clones') {
             <div class="space-y-4">
-              <ptah-skill-clones-view />
+              <ptah-skill-clones-view
+                [divergedFilterRequest]="clonesDivergedFilter()"
+              />
             </div>
           }
           @case ('settings') {
@@ -719,6 +722,17 @@ export class SkillSynthesisTabComponent implements OnInit {
   private readonly diagnostics = inject(SkillDiagnosticsStateService);
   private readonly live = inject(SkillSynthesisLiveService);
   private readonly fb = inject(FormBuilder);
+  private readonly appState = inject(AppStateManager);
+
+  public constructor() {
+    // One consumption of the harness deep link's one-shot intent. Reading it
+    // here rather than in the clones view keeps it a single read-and-clear.
+    effect(() => {
+      if (!this.appState.consumeSkillsDivergedRequest()) return;
+      this._clonesDivergedFilter.update((token) => token + 1);
+      this._subView.set('clones');
+    });
+  }
 
   protected readonly SparklesIcon = Sparkles;
 
@@ -877,6 +891,25 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   private readonly _subView = signal<SkillSubView>('suggestions');
   protected readonly subView = this._subView.asReadonly();
+
+  /**
+   * How many times the harness panel's deep link has asked the Library to
+   * arrive pre-filtered to diverged entries (R2.5). `0` means never.
+   *
+   * A COUNTER, not a boolean. The tab stays mounted across deep links, so a
+   * boolean already `true` is set to `true` again — no signal change, nothing
+   * for the child's effect to react to, and a second activation after the user
+   * cleared the filter did nothing at all. Each activation bumps the token, so
+   * every request reaches the child exactly once.
+   *
+   * THE REQUEST IS CONSUMED HERE AND NOWHERE ELSE.
+   * `consumeSkillsDivergedRequest()` is a read-and-clear; a second consumer in
+   * the clones view would race this effect and one of the two would always see
+   * a cleared flag. The answer travels down as a plain `input()` instead.
+   */
+  private readonly _clonesDivergedFilter = signal<number>(0);
+  protected readonly clonesDivergedFilter =
+    this._clonesDivergedFilter.asReadonly();
 
   public readonly actionDialog = signal<ActionDialogState | null>(null);
 
