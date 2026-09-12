@@ -949,6 +949,131 @@ npx nx run-many -t test -p ptah-cli
 
 ---
 
+## Batch 9: The user's session name reaches the registry name and the title — PENDING
+
+Added 2026-09-12. Requirement 9.
+
+- Requirement: task-description.md §9
+- Recommended executor: `backend-developer` sub-agent
+- Fallback executor: `claude` sub-agent
+- Execution mode: sequential
+- Rationale: two SDK surfaces carry a name and they are easy to confuse. One author
+  must own both, or the registry name and the title drift apart and a peer reads one
+  while the user reads the other.
+- Tasks: 4 | Depends on: Batch 1
+- **R-7: must NOT run concurrently with Batch 4 or Batch 5 — Batch 4 edits
+  `libs/shared`, and task 9.1 adds a field to the same lib.**
+- Files owned: `libs\shared\src\lib\types\ai-provider.types.ts`;
+  `libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ts` (+ its specs);
+  `libs\backend\agent-sdk\src\lib\helpers\session-name.builder.ts` (+ spec);
+  `libs\backend\agent-sdk\src\lib\session-metadata-store.ts`;
+  the `rename` call path that reaches it.
+
+### Task 9.1: `AISessionConfig` carries the name — PENDING
+
+- Contract: `readonly sessionName?: string` on `AISessionConfig`, documented as the
+  user-facing name and as OPTIONAL because a new tab has none yet.
+- Do not reuse `tabId` for this. A tabId is a UUID v4 and identifies nothing to a human.
+
+### Task 9.2: the registry name uses it, with a fallback — PENDING
+
+- Depends on: 9.1
+- File: `sdk-query-options-builder.ts`, `buildExtraArgs`.
+- Contract: `role: sessionName ?? 'chat'`. `buildSessionName` already slugifies the
+  role and already caps the head, so no new sanitising belongs here.
+- The uniqueness suffix stays the LAST part. `buildSessionName` truncates the head
+  only, and that rule is load-bearing — trimming the tail trades a long name for a
+  colliding one.
+- Spec rows required: a name with spaces and punctuation; a name that slugifies to
+  nothing (falls back, session still starts, `warn` logged); a name long enough to
+  force head truncation, asserting the suffix survives intact.
+
+### Task 9.3: the session title carries the raw name — PENDING
+
+- Depends on: 9.1
+- Contract: `Options.title = sessionName` for a NEW session only. On resume the
+  persisted title wins — the SDK says so at `sdk.d.ts:1871-1877` — so setting it
+  there is a silent no-op and must not be written as if it works.
+- The title is raw, not slugified. It is read by humans.
+
+### Task 9.4: a UI rename follows through to the session title — PENDING
+
+- Depends on: 9.3
+- `SessionMetadataStore.rename` (`session-metadata-store.ts:1036`) is the existing
+  chokepoint. The SDK's exported `renameSession(sessionId, title, options?)` is
+  called from the path that owns it — NOT from the store, which must stay a
+  metadata store with no SDK dependency.
+- **The registry name does not follow a rename.** `--name` is fixed at spawn and no
+  documented API changes it; `rename_session` sets the TITLE. Write this limit into
+  the doc comment on `buildSessionName`, where the next reader will meet it.
+- A failed `renameSession` is logged and swallowed. A rename is a convenience; it
+  must never fail the user's rename in the UI.
+
+### Batch 9 verification
+
+```bash
+npx nx run-many -t test -p @ptah-extension/agent-sdk @ptah-extension/shared
+npx nx run-many -t typecheck -p @ptah-extension/agent-sdk @ptah-extension/shared
+```
+
+- Confirm the `Running target test for N projects` header says 2.
+- Then start a real session and read `~/.claude/sessions/<pid>.json`: `nameSource`
+  must not be `derived`, and `name` must contain the slugified user name.
+
+---
+
+## Batch 10: Address another session by name — PENDING
+
+Added 2026-09-12. Requirement 10.
+
+- Requirement: task-description.md §10
+- Recommended executor: `researcher-expert` for task 10.1, then `backend-developer`
+- Execution mode: sequential
+- Tasks: 3 | Depends on: Batches 1 and 9
+- **BLOCKED until task 10.1 answers the mechanism question.** Do not write the
+  transport before the measurement exists.
+
+### Task 10.1: establish how a turn is delivered — PENDING, BLOCKING
+
+- The SDK exports `listSessions()` and `renameSession()` but **no peer-send
+  function**. Verified against the pinned `@anthropic-ai/claude-agent-sdk` 0.3.150
+  `sdk.d.ts` on 2026-09-12.
+- The registry record carries `messagingSocketPath` (a Windows named pipe here),
+  `peerProtocol: 1` and `peerFeatures: ["notify_idle","artifact_yield"]`. That
+  protocol is not public SDK surface.
+- Deliverable: `research-report-addressing.md` in this folder, recording which route
+  actually delivers a turn from Ptah's own process, measured, with the CLI and SDK
+  versions it was measured at. Appendix A5 and A6 of this task are the reason the
+  bar is delivery and not a `success: true` at the sender.
+- If no route delivers, that is a valid answer and Batch 10 stops there.
+
+### Task 10.2: a peer session list — PENDING
+
+- Depends on: 10.1
+- Built from the session registry, never from Ptah-side bookkeeping. Ptah does not
+  know about sessions it did not start.
+- A row states the human-readable name, the workspace, and whether it is reachable.
+  An unreachable session is shown as unreachable, never omitted silently and never
+  offered as if it works.
+- The cross-workspace decision is made explicitly here and written down.
+
+### Task 10.3: send, and report the outcome honestly — PENDING
+
+- Depends on: 10.2
+- The outcome distinguishes accepted-by-transport from delivered. Reporting the
+  first as the second is the exact defect this whole task exists to fix.
+- Any new RPC namespace needs BOTH `libs/shared/.../rpc.types.ts` and
+  `ALLOWED_METHOD_PREFIXES` in `rpc-handler.ts:46`. The dual-registration rule is
+  not optional.
+
+### Batch 10 verification
+
+- Two live sessions in one workspace. Send from one, and confirm the turn ARRIVES in
+  the other — read the receiving session, do not trust the sender's return value.
+- Repeat with the receiver stopped, and confirm the failure is reported as a failure.
+
+---
+
 ## Execution order summary
 
 | Wave | Batches | Mode | Note |
@@ -959,3 +1084,11 @@ npx nx run-many -t test -p ptah-cli
 | 4 | Batch 5 | sequential | **never with Batch 4** (R-5) |
 | 5 | Batch 7 | sequential (CLI lane) | needs Batch 5's final tool names |
 | 6 | Batch 8 | sequential (`senior-tester`) | after all code is committed; also resolves A0's live spawn-log grep and A1 |
+
+Added 2026-09-12:
+
+| Wave | Batches | Mode | Note |
+| --- | --- | --- | --- |
+| 3b | Batch 9 | sequential | **never with Batch 4 or 5** (R-7) — all three touch `libs/shared` |
+| 7 | Batch 10 task 10.1 | sequential (`researcher-expert`) | BLOCKING research; 10.2 and 10.3 do not start until it lands |
+| 8 | Batch 10 tasks 10.2, 10.3 | sequential | only if 10.1 found a route that delivers |

@@ -302,6 +302,77 @@ Acceptance criteria:
 4. When the guidance is written, it records the CLI and SDK version floors this
    behaviour needs (research-report.md §7.9).
 
+### 9. A peer sees the name the user gave the session
+
+Added 2026-09-12, after Requirement 2 shipped in Batch 1.
+
+Requirement 2 is met — a Ptah session now registers a deliberate, unique,
+role-shaped name instead of a derived one. What it does NOT carry is the name
+the user actually sees in the Electron session list. `buildExtraArgs` passes a
+hardcoded `role: 'chat'`, and `AISessionConfig` has no name field to read, so a
+peer browsing `ListAgents` still cannot tell one chat from another by anything a
+human chose.
+
+Two SDK surfaces carry a name, and they are NOT the same thing. Confirming which
+one a requirement means is the first job of any work here:
+
+- The **registry name** — `name` / `nameSource` in `~/.claude/sessions/<pid>.json`,
+  set by `--name`. This is the field a peer reads. Measured 2026-09-12 on this
+  machine, the live record for session `b8fc48ad` still reads
+  `"name":"ptah-extension-1c","nameSource":"derived"`, which is the exact defect
+  Requirement 2 named.
+- The **session title** — `Options.title`, persisted in the JSONL and surfaced as
+  `SDKSessionInfo.customTitle`. Retitled by the SDK's exported
+  `renameSession(sessionId, title, options?)`, or by the `rename_session` control
+  request.
+
+Acceptance criteria:
+
+1. When a session starts with a user-chosen name, that name reaches the registry
+   name, slugified, and the uniqueness suffix is still the last part.
+2. When a session starts with no user-chosen name — the normal case for a new
+   tab, which is auto-titled later — the registry name falls back to today's
+   `chat` role and the session starts normally.
+3. When a session starts with a user-chosen name, `Options.title` carries it in
+   raw form, so the title a peer reads is not a slug.
+4. When the user renames a session in the UI, `renameSession()` is called and the
+   session title follows the rename.
+5. The registry name is fixed when the process spawns and no documented API
+   changes it. This limit is written down where a reader will meet it, not
+   discovered later. A rename updates the title only.
+6. A naming failure never costs a session. This extends Requirement 2's criterion
+   3 to every new path here.
+
+### 10. A user can address another session by name
+
+Added 2026-09-12.
+
+Requirement: a user in one session can pick another live session by a name they
+recognise and send it a message, without knowing a session UUID.
+
+This requirement has an unresolved mechanism and must not be designed from
+assumption. The SDK exports `listSessions()` and `renameSession()`, but **no
+programmatic peer-send function**; the peer channel is reached through the CLI's
+own tools, which a model calls. The registry files carry a
+`messagingSocketPath`, whose protocol is not part of the SDK's public surface.
+
+Acceptance criteria:
+
+1. Before any code is written, the delivery mechanism is established by
+   measurement and recorded: which of the peer socket, the CLI tool path, or a
+   third route actually delivers a turn from Ptah's own process.
+2. When a user asks to see the sessions they can reach, the list shows the
+   human-readable name, the workspace and whether the session is live, and it is
+   built from the session registry rather than a Ptah-side guess.
+3. When a session is listed but cannot be reached, the row says so. A session
+   that cannot receive a message is never offered as if it can.
+4. When a user sends a message to a chosen session, the delivery outcome is
+   reported honestly. A send that was accepted by the transport but never
+   delivered is the exact defect this task exists to fix (Appendix A5, A6) and
+   must not be reported as success.
+5. Sessions outside the current workspace are handled by an explicit, documented
+   decision — included or excluded — not by accident.
+
 ## Non-functional requirements
 
 - Security: `crossSessionInbound: accept` means any same-user process reaching

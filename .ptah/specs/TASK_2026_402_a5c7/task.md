@@ -9,10 +9,16 @@ description: >-
   single-vendor steer path with a capability-driven router.
 ---
 
-Eight batches. Batches 1, 2 and 3 are committed on `feat/agent-two-way-messaging`.
+Ten batches. Batches 1, 2 and 3 are committed on `feat/agent-two-way-messaging`.
 Batches 4, 5, 7 and 8 were never started. Batch 6 was implemented but never
 committed, and its code was lost when the worktree was removed — only
 `batch-6-report.md` survives, and it names every file and change.
+
+Batches 9 and 10 were added on 2026-09-12 and are PENDING. Batch 9 carries the
+user's session name into the registry name a peer reads and into the session
+title. Batch 10 lets a user address another live session by that name, and opens
+with a BLOCKING research task: the pinned SDK exports no peer-send function, so
+the delivery route must be measured before any transport is written.
 
 This carrier was rebuilt on 2026-09-12. The original folder was never committed
 and died with the worktree; `task-description.md`, `implementation-plan.md`,
