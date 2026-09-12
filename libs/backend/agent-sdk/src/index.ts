@@ -84,6 +84,10 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+// The 8th `SdkMessageTransformer` constructor argument. Exported because a
+// consumer that constructs the transformer directly — `auth-providers`' Codex
+// stream-parity spec — cannot reach the internal helpers barrel.
+export { CompactionBoundaryGenerationRegistry } from './lib/helpers';
 export {
   SessionTurnStateRegistry,
   toTurnStateEvent,

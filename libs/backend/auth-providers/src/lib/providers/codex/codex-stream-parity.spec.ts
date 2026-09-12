@@ -1,7 +1,11 @@
 import 'reflect-metadata';
 import * as http from 'node:http';
 import Anthropic from '@anthropic-ai/sdk';
-import { SdkMessageTransformer, type SDKMessage } from '@ptah-extension/agent-sdk';
+import {
+  CompactionBoundaryGenerationRegistry,
+  SdkMessageTransformer,
+  type SDKMessage,
+} from '@ptah-extension/agent-sdk';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { CodexTranslationProxy } from './codex-translation-proxy';
@@ -44,6 +48,7 @@ function ptahConsumer(): { transformer: SdkMessageTransformer; total: () => numb
       { resolveForPricing: (model: string) => model } as never,
       {} as never, usageTracker as never,
       { markGenerating: () => undefined, settleTurn: () => undefined } as never,
+      new CompactionBoundaryGenerationRegistry(),
     ),
     total: usageTracker.getCumulativeTokens,
   };
