@@ -41,9 +41,16 @@ export interface StateStorageNestedExtractionPlan {
       readonly tag: string;
     }[];
   };
-  /** Preserve the source object when no usable destination id exists. */
-  readonly onMissingId: 'retain-source';
+  readonly onMissingId: 'drop-bulk';
+  readonly dropFields: readonly StateStorageJsonPath[];
+  readonly textFallback?: StateStorageTextFallback;
   readonly conflictPolicy: StateStorageExtractionConflictPolicy;
+}
+
+export interface StateStorageTextFallback {
+  readonly sourcePath: StateStorageJsonPath;
+  readonly itemTemplate: Readonly<Record<string, unknown>>;
+  readonly contentPath: StateStorageJsonPath;
 }
 
 export interface StateStorageArraySplitPlan {
@@ -63,7 +70,10 @@ export interface StateStorageMigrationReceipt {
   readonly sourceSha256: string;
   readonly itemCount: number;
   readonly extractedValueCount: number;
-  readonly retainedSourceCount: number;
+  readonly droppedStdoutCount: number;
+  readonly stdoutFallbackCount: number;
+  readonly droppedBulkWithoutIdCount: number;
+  readonly skippedItemCount: number;
   readonly committedGeneration: number;
   readonly commitId: string;
 }

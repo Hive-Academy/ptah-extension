@@ -172,6 +172,99 @@ describe('AgentMonitorStore', () => {
     it('reports no progress for an absent card', () => {
       expect(store.cliOutputProgress(SESSION, 'missing')).toBeNull();
     });
+
+    it('demands output only for an expanded restored card whose history is not done', () => {
+      restoreLeanCard();
+      expect(store.cliOutputDemand()).toEqual([]);
+
+      store.toggleAgentExpanded('a1');
+      expect(store.cliOutputDemand()).toEqual([
+        { sessionId: SESSION, agentId: 'a1' },
+      ]);
+
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: undefined,
+        done: true,
+      });
+      expect(store.cliOutputDemand()).toEqual([]);
+    });
+
+    it('never demands output for a live card or a card restored with inline output', () => {
+      spawnAgent('live', SESSION);
+      store.loadCliSessions(
+        [
+          {
+            agentId: 'inline',
+            cli: 'codex',
+            task: 'hydrated',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            status: 'completed',
+            segments: [{ type: 'text', content: 'kept' }],
+          } as unknown as CliSessionReference,
+        ],
+        SESSION,
+      );
+      store.toggleAgentExpanded('inline');
+
+      expect(store.agents().find((a) => a.agentId === 'live')?.expanded).toBe(
+        true,
+      );
+      expect(store.cliOutputDemand()).toEqual([]);
+    });
+
+    it('keeps the demand identity across output that does not change membership', () => {
+      restoreLeanCard();
+      store.toggleAgentExpanded('a1');
+      const before = store.cliOutputDemand();
+
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: '2',
+        done: false,
+      });
+
+      expect(store.cliOutputDemand()).toBe(before);
+    });
+
+    it('resets a card history to the first page and demands it again', () => {
+      restoreLeanCard();
+      store.toggleAgentExpanded('a1');
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: undefined,
+        done: true,
+      });
+      const revision = card()?.streamRevision ?? 0;
+      expect(store.cliOutputDemand()).toEqual([]);
+
+      store.resetCliOutputHistory(SESSION, 'a1');
+
+      expect(card()?.segments).toEqual([]);
+      expect(card()?.streamEvents).toEqual([]);
+      expect(card()?.streamRevision).toBe(revision + 1);
+      expect(store.cliOutputProgress(SESSION, 'a1')).toEqual({
+        cursor: undefined,
+        done: false,
+      });
+      expect(store.cliOutputDemand()).toEqual([
+        { sessionId: SESSION, agentId: 'a1' },
+      ]);
+    });
+
+    it('leaves other sessions untouched on reset', () => {
+      restoreLeanCard();
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: '2',
+        done: false,
+      });
+      const before = card();
+
+      store.resetCliOutputHistory('sess-other', 'a1');
+
+      expect(card()).toBe(before);
+    });
   });
 
   describe('resolveParentSessionId', () => {

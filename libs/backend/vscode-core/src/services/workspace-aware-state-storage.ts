@@ -17,16 +17,23 @@
  * that produces `IStateStorage` instances for a given storage directory.
  */
 
+import { createHash } from 'crypto';
 import {
+  StateStorageCursorStaleError,
   StateStorageNotReadyError,
+  StateStorageValueTooLargeError,
   hasStateStorageMaintenance,
   hasStateStorageReadiness,
   isAsyncStateStorage,
+  jsonUtf8Bytes,
+  omitJsonPaths,
+  packJsonSequencePage,
   type IAsyncStateStorage,
   type IStateStorage,
   type IStateStorageMaintenance,
   type IStateStorageReadiness,
   type StateStorageArraySplitPlan,
+  type StateStorageGetOptions,
   type StateStorageMigrationReceipt,
   type StateStorageReadinessState,
   type StateStorageSequencePage,
@@ -52,6 +59,76 @@ function hasStateStorageDisposal(
   return (
     typeof (storage as Partial<DisposableStateStorage>).dispose === 'function'
   );
+}
+
+const SYNC_SEQUENCE_CURSOR_PATTERN = /^s([0-9a-f]{16})\.(0|[1-9]\d*)$/;
+const EMPTY_JSON_ARRAY_BYTES = 2;
+
+function sequenceFingerprint(sequence: readonly unknown[]): string {
+  return createHash('sha256')
+    .update(JSON.stringify(sequence))
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function readSyncSequencePage<T>(
+  key: string,
+  value: unknown,
+  cursor: string | undefined,
+  options: StateStorageSequenceReadOptions | undefined,
+): StateStorageSequencePage<T> {
+  if (value !== undefined && !Array.isArray(value)) {
+    throw new Error(`State storage value is not a sequence: ${key}`);
+  }
+  const sequence: readonly unknown[] = value ?? [];
+  const fingerprint =
+    value === undefined ? null : sequenceFingerprint(sequence);
+  let start = 0;
+  if (cursor !== undefined) {
+    const match = SYNC_SEQUENCE_CURSOR_PATTERN.exec(cursor);
+    const index = match ? Number(match[2]) : Number.NaN;
+    if (
+      !match ||
+      match[1] !== fingerprint ||
+      !Number.isSafeInteger(index) ||
+      index > sequence.length
+    ) {
+      throw new StateStorageCursorStaleError(key);
+    }
+    start = index;
+  }
+  const page = packJsonSequencePage(
+    { length: sequence.length, itemAt: (index) => sequence[index] },
+    start,
+    {
+      maxJsonBytes: options?.maxJsonBytes ?? Number.POSITIVE_INFINITY,
+      jsonEnvelopeBytes: options?.jsonEnvelopeBytes ?? EMPTY_JSON_ARRAY_BYTES,
+      maxItemBytes: options?.maxItemBytes ?? Number.POSITIVE_INFINITY,
+      ...(options?.maxBytes !== undefined
+        ? {
+            estimator: {
+              maxBytes: options.maxBytes,
+              envelopeBytes: EMPTY_JSON_ARRAY_BYTES,
+              separatorBytes: 1,
+              estimate: jsonUtf8Bytes,
+            },
+          }
+        : {}),
+    },
+  );
+  if (page.status === 'item-too-large') {
+    throw new StateStorageValueTooLargeError(key, page.originalJsonBytes);
+  }
+  const done = page.nextIndex >= sequence.length;
+  return {
+    items: page.items as T[],
+    nextCursor: done ? null : `s${fingerprint}.${page.nextIndex}`,
+    done,
+    approximateBytes: page.jsonBytes,
+    ...(page.truncatedItems.length > 0
+      ? { truncatedItems: page.truncatedItems }
+      : {}),
+  };
 }
 
 export class WorkspaceAwareStateStorage
@@ -162,11 +239,19 @@ export class WorkspaceAwareStateStorage
     await this.getActiveStorage().update(key, value);
   }
 
-  async getAsync<T>(key: string, defaultValue?: T): Promise<T | undefined> {
+  async getAsync<T>(
+    key: string,
+    defaultValue?: T,
+    options?: StateStorageGetOptions,
+  ): Promise<T | undefined> {
     const storage = this.getActiveStorage();
-    return isAsyncStateStorage(storage)
-      ? await storage.getAsync(key, defaultValue)
-      : storage.get(key, defaultValue);
+    if (isAsyncStateStorage(storage)) {
+      return await storage.getAsync(key, defaultValue, options);
+    }
+    const value = storage.get(key, defaultValue);
+    return options?.projection && value !== undefined
+      ? omitJsonPaths(value, options.projection.omit)
+      : value;
   }
 
   async *readJsonSequence<T>(
@@ -178,13 +263,17 @@ export class WorkspaceAwareStateStorage
       yield* storage.readJsonSequence<T>(key, options);
       return;
     }
-    const value = storage.get<T[]>(key, []);
-    yield {
-      items: value ?? [],
-      nextCursor: null,
-      done: true,
-      approximateBytes: 0,
-    };
+    let cursor = options?.cursor;
+    do {
+      const page = readSyncSequencePage<T>(
+        key,
+        storage.get<unknown>(key),
+        cursor,
+        options,
+      );
+      yield page;
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
   }
 
   async replaceJsonSequence<T>(

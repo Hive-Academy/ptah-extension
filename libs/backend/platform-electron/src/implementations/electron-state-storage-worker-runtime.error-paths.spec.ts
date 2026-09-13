@@ -18,6 +18,10 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { StateStorageArraySplitPlan } from '@ptah-extension/platform-core';
+import type {
+  ElectronStateDurableStep,
+  ElectronStateFaultInjector,
+} from './electron-state-storage-commit-store';
 import { ElectronStateWorkerRuntime } from './electron-state-storage-worker-runtime';
 import type {
   ElectronStateWorkerRequest,
@@ -26,6 +30,7 @@ import type {
 } from './electron-state-storage-worker-protocol';
 
 const tmpDirs: string[] = [];
+let lastV2Root = '';
 
 afterEach(async () => {
   while (tmpDirs.length > 0) {
@@ -75,12 +80,14 @@ class Driver {
 async function started(
   migrations: readonly StateStorageArraySplitPlan[] = [],
   legacy: Record<string, JsonValue> = {},
+  runtime = new ElectronStateWorkerRuntime(),
 ): Promise<Driver> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ptah-runtime-'));
   tmpDirs.push(dir);
   const legacyFilePath = path.join(dir, 'workspace-state.json');
   await fs.writeFile(legacyFilePath, JSON.stringify(legacy), 'utf8');
-  const driver = new Driver(new ElectronStateWorkerRuntime());
+  lastV2Root = path.join(dir, 'workspace-state.v2');
+  const driver = new Driver(runtime);
   const ready = await driver.send({
     type: 'initialize',
     legacyFilePath,
@@ -121,7 +128,11 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
     const found = await driver.send({ type: 'get', key: 'present' });
     const missing = await driver.send({ type: 'get', key: 'absent' });
 
-    expect(found).toMatchObject({ type: 'value', found: true, value: { n: 1 } });
+    expect(found).toMatchObject({
+      type: 'value',
+      found: true,
+      value: { n: 1 },
+    });
     expect(missing).toMatchObject({ type: 'value', found: false });
   });
 
@@ -147,7 +158,7 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
           maxBytes: 64 * 1024,
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('not-a-sequence');
   });
 
   it('refuses a sequence cursor that is not a valid offset', async () => {
@@ -163,17 +174,17 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
           maxBytes: 64 * 1024,
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('cursor-stale');
     expect(
       failureCode(
         await driver.send({
           type: 'read-json-sequence',
           key: 'list',
-          cursor: '99',
+          cursor: 'g99.1',
           maxBytes: 64 * 1024,
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('cursor-stale');
   });
 
   it('pages a sequence and reports the cursor and done flag', async () => {
@@ -194,19 +205,84 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
     });
   });
 
-  it('refuses a sequence item that cannot fit its own page budget', async () => {
+  it('refuses a sequence item that cannot shrink into its own page budget', async () => {
     const driver = await started();
-    await driver.send({ type: 'update', key: 'list', value: ['x'.repeat(400)] });
+    await driver.send({
+      type: 'update',
+      key: 'list',
+      value: ['x'.repeat(400)],
+    });
+
+    const response = await driver.send({
+      type: 'read-json-sequence',
+      key: 'list',
+      maxBytes: 64,
+    });
+
+    expect(failureCode(response)).toBe('value-too-large');
+    expect(response).toMatchObject({ valueBytes: 402 });
+  });
+
+  it('shrinks a single oversized item and reports it in truncatedItems', async () => {
+    const driver = await started();
+    await driver.send({
+      type: 'update',
+      key: 'list',
+      value: [{ tag: 'event', text: 'x'.repeat(5_000) }, 'next'],
+    });
+
+    const page = await driver.send({
+      type: 'read-json-sequence',
+      key: 'list',
+      maxBytes: 4_096,
+    });
+
+    expect(page).toMatchObject({
+      type: 'json-sequence-page',
+      done: false,
+      truncatedItems: [{ index: 0 }],
+    });
+    if (page.type !== 'json-sequence-page') return;
+    expect(page.items).toHaveLength(1);
+    expect(JSON.stringify(page.items[0])).toContain('[truncated');
+    const rest = await driver.send({
+      type: 'read-json-sequence',
+      key: 'list',
+      cursor: page.nextCursor ?? undefined,
+      maxBytes: 4_096,
+    });
+    expect(rest).toMatchObject({ items: ['next'], done: true });
+    expect(rest).not.toHaveProperty('truncatedItems');
+  });
+
+  it('answers cursor-stale when a sequence is rewritten between pages', async () => {
+    const driver = await started();
+    await driver.send({
+      type: 'update',
+      key: 'list',
+      value: Array.from({ length: 50 }, (_, index) => `item-${index}`),
+    });
+    const first = await driver.send({
+      type: 'read-json-sequence',
+      key: 'list',
+      maxBytes: 512,
+    });
+    expect(first).toMatchObject({ type: 'json-sequence-page', done: false });
+    await driver.send({ type: 'update', key: 'list', value: ['rewritten'] });
 
     expect(
       failureCode(
         await driver.send({
           type: 'read-json-sequence',
           key: 'list',
-          maxBytes: 64,
+          cursor:
+            first.type === 'json-sequence-page'
+              ? (first.nextCursor ?? undefined)
+              : undefined,
+          maxBytes: 512,
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('cursor-stale');
   });
 
   it('refuses appends and commits against an unknown sequence write', async () => {
@@ -220,7 +296,7 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
           items: [1],
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('internal-error');
     expect(
       failureCode(
         await driver.send({
@@ -228,41 +304,32 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
           sequenceId: 'never-begun',
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('internal-error');
   });
 
-  it('refuses a first string slice that does not start at byte zero', async () => {
+  it('refuses item operations that skip ahead of the next item index', async () => {
     const driver = await started();
     await driver.send({
       type: 'begin-json-sequence-write',
       sequenceId: 's1',
       key: 'list',
-    });
-    await driver.send({
-      type: 'append-json-sequence-items',
-      sequenceId: 's1',
-      items: [{ text: '' }],
     });
 
     expect(
       failureCode(
         await driver.send({
-          type: 'append-json-string-slice',
+          type: 'append-json-sequence-item-ops',
           sequenceId: 's1',
-          itemIndex: 0,
-          path: ['text'],
-          byteOffset: 5,
-          totalBytes: 10,
-          bytes: new Uint8Array(5),
+          itemIndex: 1,
+          operations: [{ kind: 'value', path: ['item'], value: 1 }],
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('internal-error');
   });
 
-  it('assembles a complete string slice into its item and commits it', async () => {
+  it('assembles items from operation pages between whole items and commits them in order', async () => {
     const driver = await started();
-    const text = 'hello world';
-    const bytes = new TextEncoder().encode(text);
+    const bytes = new TextEncoder().encode('hello world');
     await driver.send({
       type: 'begin-json-sequence-write',
       sequenceId: 's1',
@@ -271,16 +338,40 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
     await driver.send({
       type: 'append-json-sequence-items',
       sequenceId: 's1',
-      items: [{ text: '' }],
+      items: ['first'],
     });
     await driver.send({
-      type: 'append-json-string-slice',
+      type: 'append-json-sequence-item-ops',
       sequenceId: 's1',
-      itemIndex: 0,
-      path: ['text'],
-      byteOffset: 0,
-      totalBytes: bytes.byteLength,
-      bytes,
+      itemIndex: 1,
+      operations: [
+        { kind: 'object', path: ['item'] },
+        {
+          kind: 'string-start',
+          path: ['item', 'text'],
+          totalBytes: bytes.byteLength,
+        },
+      ],
+    });
+    await driver.send({
+      type: 'append-json-sequence-item-ops',
+      sequenceId: 's1',
+      itemIndex: 1,
+      operations: [
+        {
+          kind: 'string-slice',
+          path: ['item', 'text'],
+          byteOffset: 0,
+          totalBytes: bytes.byteLength,
+          bytes,
+        },
+      ],
+    });
+    await driver.send({
+      type: 'append-json-sequence-item-ops',
+      sequenceId: 's1',
+      itemIndex: 2,
+      operations: [{ kind: 'value', path: ['item'], value: 3 }],
     });
     await driver.send({
       type: 'commit-json-sequence-write',
@@ -288,11 +379,11 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
     });
 
     expect(await driver.send({ type: 'get', key: 'list' })).toMatchObject({
-      value: [{ text }],
+      value: ['first', { text: 'hello world' }, 3],
     });
   });
 
-  it('refuses to commit a sequence whose slices are still incomplete', async () => {
+  it('refuses to commit a sequence whose item strings are still incomplete', async () => {
     const driver = await started();
     await driver.send({
       type: 'begin-json-sequence-write',
@@ -300,18 +391,19 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
       key: 'list',
     });
     await driver.send({
-      type: 'append-json-sequence-items',
-      sequenceId: 's1',
-      items: [{ text: '' }],
-    });
-    await driver.send({
-      type: 'append-json-string-slice',
+      type: 'append-json-sequence-item-ops',
       sequenceId: 's1',
       itemIndex: 0,
-      path: ['text'],
-      byteOffset: 0,
-      totalBytes: 10,
-      bytes: new Uint8Array(4),
+      operations: [
+        { kind: 'string-start', path: ['item'], totalBytes: 10 },
+        {
+          kind: 'string-slice',
+          path: ['item'],
+          byteOffset: 0,
+          totalBytes: 10,
+          bytes: new Uint8Array(4),
+        },
+      ],
     });
 
     expect(
@@ -321,7 +413,7 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
           sequenceId: 's1',
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('internal-error');
   });
 
   it('aborting a staged write discards it and succeeds', async () => {
@@ -355,7 +447,7 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
           operations: [{ kind: 'value', path: ['blob'], value: 1 }],
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('internal-error');
   });
 
   it('refuses a scalar page whose path does not match the write key', async () => {
@@ -374,7 +466,7 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
           operations: [{ kind: 'value', path: ['other'], value: 1 }],
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('internal-error');
   });
 
   it('refuses to commit a scalar write whose root value was never set', async () => {
@@ -389,7 +481,7 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
       failureCode(
         await driver.send({ type: 'commit-scalar-write', writeId: 'w1' }),
       ),
-    ).toBe('io-failed');
+    ).toBe('internal-error');
   });
 
   it('commits a scalar write assembled from object and slice operations', async () => {
@@ -453,7 +545,7 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
           ],
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('internal-error');
   });
 
   it('refuses an unknown snapshot cursor', async () => {
@@ -467,7 +559,7 @@ describe('ElectronStateWorkerRuntime — refusals', () => {
           maxBytes: 64 * 1024,
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('cursor-stale');
   });
 
   it('omits excluded key prefixes from the snapshot it hydrates', async () => {
@@ -576,18 +668,27 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
       value: { schemaVersion: 1, items: [] },
     });
 
-    expect(failureCode(await split(driver))).toBe('io-failed');
+    expect(failureCode(await split(driver))).toBe('internal-error');
   });
 
-  it('refuses a source item with no usable id', async () => {
+  it('skips and counts a source item with no usable id', async () => {
     const driver = await started();
     await driver.send({
       type: 'update',
       key: 'sessions',
-      value: [{ id: '   ', title: 'blank' }],
+      value: [
+        { id: '   ', title: 'blank' },
+        { id: 'b', title: 'kept' },
+      ],
     });
 
-    expect(failureCode(await split(driver))).toBe('io-failed');
+    expect(await split(driver)).toMatchObject({
+      type: 'migration-receipt',
+      receipt: { itemCount: 2, skippedItemCount: 1 },
+    });
+    expect(
+      await driver.send({ type: 'get', key: 'sessions.index' }),
+    ).toMatchObject({ value: { items: [{ id: 'b', title: 'kept' }] } });
   });
 
   it('requires targetField when a summary path ends in an array index', async () => {
@@ -605,10 +706,10 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
           summaryFields: [{ sourcePath: ['tags', 0] }],
         }),
       ),
-    ).toBe('io-failed');
+    ).toBe('internal-error');
   });
 
-  it('counts an extraction item with no id as retained rather than dropping it', async () => {
+  it('drops bulk from an extraction item with no id and counts it once', async () => {
     const driver = await started();
     await driver.send({
       type: 'update',
@@ -624,7 +725,8 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
           itemIdPath: ['msgId'],
           destinationKeyPrefix: 'message:',
           fields: [{ sourcePath: ['text'] }],
-          onMissingId: 'retain-source',
+          onMissingId: 'drop-bulk',
+          dropFields: [],
           conflictPolicy: { kind: 'replace' },
         },
       ],
@@ -632,7 +734,10 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
 
     expect(response).toMatchObject({
       type: 'migration-receipt',
-      receipt: { retainedSourceCount: 1, extractedValueCount: 0 },
+      receipt: { droppedBulkWithoutIdCount: 1, extractedValueCount: 0 },
+    });
+    expect(await driver.send({ type: 'get', key: 'session:a' })).toMatchObject({
+      value: { id: 'a', messages: [{}] },
     });
   });
 
@@ -646,12 +751,17 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
           itemIdPath: ['msgId'],
           destinationKeyPrefix: 'message:',
           fields: [{ sourcePath: ['text'] }],
-          onMissingId: 'retain-source',
+          onMissingId: 'drop-bulk',
+          dropFields: [],
           conflictPolicy: { kind: 'replace' },
         },
       ],
     };
-    await driver.send({ type: 'update', key: 'message:m1', value: { text: 'stale' } });
+    await driver.send({
+      type: 'update',
+      key: 'message:m1',
+      value: { text: 'stale' },
+    });
     await driver.send({
       type: 'update',
       key: 'sessions',
@@ -660,9 +770,9 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
 
     await split(driver, plan);
 
-    expect(
-      await driver.send({ type: 'get', key: 'message:m1' }),
-    ).toMatchObject({ value: { text: 'fresh' } });
+    expect(await driver.send({ type: 'get', key: 'message:m1' })).toMatchObject(
+      { value: { text: 'fresh' } },
+    );
   });
 
   it('prefer-longer-arrays keeps the existing array when the incoming one is shorter', async () => {
@@ -675,7 +785,8 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
           itemIdPath: ['msgId'],
           destinationKeyPrefix: 'message:',
           fields: [{ sourcePath: ['parts'] }, { sourcePath: ['author'] }],
-          onMissingId: 'retain-source',
+          onMissingId: 'drop-bulk',
+          dropFields: [],
           conflictPolicy: { kind: 'prefer-longer-arrays', fields: ['parts'] },
         },
       ],
@@ -699,9 +810,9 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
     await split(driver, plan);
 
     // The longer array survives; every other field takes the incoming value.
-    expect(
-      await driver.send({ type: 'get', key: 'message:m1' }),
-    ).toMatchObject({ value: { parts: ['p1', 'p2', 'p3'], author: 'new' } });
+    expect(await driver.send({ type: 'get', key: 'message:m1' })).toMatchObject(
+      { value: { parts: ['p1', 'p2', 'p3'], author: 'new' } },
+    );
   });
 
   it('merges a tagged sequence, keeping the longer run per tag', async () => {
@@ -718,7 +829,8 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
             kind: 'tagged-sequence',
             fields: [{ sourcePath: ['parts'], tag: 'part' }],
           },
-          onMissingId: 'retain-source',
+          onMissingId: 'drop-bulk',
+          dropFields: [],
           conflictPolicy: { kind: 'prefer-longer-arrays', fields: ['parts'] },
         },
       ],
@@ -726,9 +838,7 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
     await driver.send({
       type: 'update',
       key: 'sessions',
-      value: [
-        { id: 'a', messages: [{ msgId: 'm1', parts: ['one', 'two'] }] },
-      ],
+      value: [{ id: 'a', messages: [{ msgId: 'm1', parts: ['one', 'two'] }] }],
     });
 
     await split(driver, plan);
@@ -748,12 +858,14 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
     });
     await split(driver, plan);
 
-    expect(await driver.send({ type: 'get', key: 'message:m1' })).toMatchObject({
-      value: [
-        { tag: 'part', value: 'one' },
-        { tag: 'part', value: 'two' },
-      ],
-    });
+    expect(await driver.send({ type: 'get', key: 'message:m1' })).toMatchObject(
+      {
+        value: [
+          { tag: 'part', value: 'one' },
+          { tag: 'part', value: 'two' },
+        ],
+      },
+    );
   });
 
   it('merges a tagged sequence whose stored form is still an object', async () => {
@@ -770,7 +882,8 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
             kind: 'tagged-sequence',
             fields: [{ sourcePath: ['parts'], tag: 'part' }],
           },
-          onMissingId: 'retain-source',
+          onMissingId: 'drop-bulk',
+          dropFields: [],
           conflictPolicy: { kind: 'prefer-longer-arrays', fields: ['parts'] },
         },
       ],
@@ -789,13 +902,15 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
 
     await split(driver, plan);
 
-    expect(await driver.send({ type: 'get', key: 'message:m1' })).toMatchObject({
-      value: [
-        { tag: 'part', value: 'a' },
-        { tag: 'part', value: 'b' },
-        { tag: 'part', value: 'c' },
-      ],
-    });
+    expect(await driver.send({ type: 'get', key: 'message:m1' })).toMatchObject(
+      {
+        value: [
+          { tag: 'part', value: 'a' },
+          { tag: 'part', value: 'b' },
+          { tag: 'part', value: 'c' },
+        ],
+      },
+    );
   });
 
   it('a migration that fails during initialize is reported as recovery-required', async () => {
@@ -816,7 +931,7 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
       type: 'initialize',
       legacyFilePath,
       v2RootPath: path.join(dir, 'workspace-state.v2'),
-      migrations: [basePlan],
+      migrations: [{ ...basePlan, indexKey: basePlan.sourceKey }],
     });
 
     expect(response).toMatchObject({
@@ -824,5 +939,357 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
       code: 'recovery-required',
       recoveryReason: 'migration-failed',
     });
+  });
+});
+
+function faultAt(
+  target: ElectronStateDurableStep,
+  sideEffect?: () => Promise<void>,
+): ElectronStateFaultInjector & { arm(): void } {
+  let armed = false;
+  return {
+    arm() {
+      armed = true;
+    },
+    async after(step) {
+      if (!armed || step !== target) return;
+      armed = false;
+      await sideEffect?.();
+      throw new Error(`injected:${step}`);
+    },
+  };
+}
+
+async function currentGeneration(): Promise<number> {
+  const pointer = JSON.parse(
+    await fs.readFile(path.join(lastV2Root, 'CURRENT'), 'utf8'),
+  ) as { generation: number };
+  return pointer.generation;
+}
+
+describe('ElectronStateWorkerRuntime — commit reconcile or retire', () => {
+  it('replies commit-failed landed:false when nothing was published and commits a fresh generation next', async () => {
+    const fault = faultAt('manifest-verified');
+    const driver = await started(
+      [],
+      { value: 'before' },
+      new ElectronStateWorkerRuntime(fault),
+    );
+    fault.arm();
+
+    expect(
+      await driver.send({ type: 'update', key: 'value', value: 'lost' }),
+    ).toMatchObject({ type: 'failure', code: 'commit-failed', landed: false });
+    expect(await driver.send({ type: 'get', key: 'value' })).toMatchObject({
+      value: 'before',
+    });
+    expect(
+      await driver.send({ type: 'update', key: 'value', value: 'after' }),
+    ).toMatchObject({ type: 'success' });
+    expect(await currentGeneration()).toBe(3);
+  });
+
+  it.each(['current-renamed', 'current-verified'] as const)(
+    'adopts a generation published before a fault at %s and keeps serving',
+    async (step) => {
+      const fault = faultAt(step);
+      const driver = await started(
+        [],
+        { value: 'before' },
+        new ElectronStateWorkerRuntime(fault),
+      );
+      fault.arm();
+
+      expect(
+        await driver.send({ type: 'update', key: 'value', value: 'landed' }),
+      ).toMatchObject({ type: 'failure', code: 'commit-failed', landed: true });
+      expect(await driver.send({ type: 'get', key: 'value' })).toMatchObject({
+        value: 'landed',
+      });
+      expect(
+        await driver.send({ type: 'update', key: 'other', value: 1 }),
+      ).toMatchObject({ type: 'success' });
+      expect(await currentGeneration()).toBe(3);
+    },
+  );
+
+  it('retires with a recovery reason when CURRENT cannot be read after a failed commit', async () => {
+    const fault = faultAt('current-renamed', async () => {
+      await fs.writeFile(path.join(lastV2Root, 'CURRENT'), 'not json', 'utf8');
+    });
+    const driver = await started(
+      [],
+      { value: 'before' },
+      new ElectronStateWorkerRuntime(fault),
+    );
+    fault.arm();
+
+    const retired = {
+      type: 'failure',
+      code: 'recovery-required',
+      recoveryReason: 'current-pointer-invalid',
+    };
+    expect(
+      await driver.send({ type: 'update', key: 'value', value: 'x' }),
+    ).toMatchObject(retired);
+    expect(await driver.send({ type: 'get', key: 'value' })).toMatchObject(
+      retired,
+    );
+  });
+
+  it('retires as commit-uncertain when CURRENT names an unexpected generation', async () => {
+    const fault = faultAt('current-renamed', async () => {
+      const pointerPath = path.join(lastV2Root, 'CURRENT');
+      const pointer = JSON.parse(await fs.readFile(pointerPath, 'utf8')) as {
+        generation: number;
+      };
+      await fs.writeFile(
+        pointerPath,
+        JSON.stringify({ ...pointer, generation: 99 }),
+        'utf8',
+      );
+    });
+    const driver = await started(
+      [],
+      { value: 'before' },
+      new ElectronStateWorkerRuntime(fault),
+    );
+    fault.arm();
+
+    expect(
+      await driver.send({ type: 'update', key: 'value', value: 'x' }),
+    ).toMatchObject({ type: 'failure', code: 'commit-uncertain' });
+    expect(
+      await driver.send({
+        type: 'read-json-sequence',
+        key: 'value',
+        maxBytes: 1024,
+      }),
+    ).toMatchObject({ type: 'failure', code: 'commit-uncertain' });
+  });
+});
+
+describe('ElectronStateWorkerRuntime — stateless projected reads', () => {
+  const fatRecord = {
+    title: 'record',
+    children: Array.from({ length: 6 }, (_, index) => ({
+      childId: `c${index}`,
+      note: 'n'.repeat(30_000),
+      raw: 'r'.repeat(60_000),
+    })),
+  };
+  const projection = { omit: [['children', '*', 'raw']] };
+
+  it('returns value-paged with a projection-bound cursor and never pages omitted fields', async () => {
+    const driver = await started([], { record: fatRecord });
+
+    const first = await driver.send({ type: 'get', key: 'record', projection });
+    expect(first.type).toBe('value-paged');
+    if (first.type !== 'value-paged') return;
+    expect(first.nextCursor).toMatch(/^g1\.p[a-f0-9]{16}\.\d+$/);
+
+    const operations = [...first.operations];
+    let cursor = first.nextCursor;
+    while (cursor) {
+      const page = await driver.send({
+        type: 'read-scalar-page',
+        key: 'record',
+        cursor,
+        maxBytes: 256 * 1024,
+        projection,
+      });
+      expect(page.type).toBe('scalar-page');
+      if (page.type !== 'scalar-page') return;
+      operations.push(...page.operations);
+      cursor = page.nextCursor;
+    }
+    expect(operations.some((operation) => operation.path.includes('raw'))).toBe(
+      false,
+    );
+    expect(
+      operations.some((operation) => operation.path.includes('note')),
+    ).toBe(true);
+  });
+
+  it('answers cursor-stale for a changed or missing projection on continuation', async () => {
+    const driver = await started([], { record: fatRecord });
+    const first = await driver.send({ type: 'get', key: 'record', projection });
+    if (first.type !== 'value-paged' || !first.nextCursor) {
+      throw new Error('expected a paged projected read');
+    }
+
+    expect(
+      failureCode(
+        await driver.send({
+          type: 'read-scalar-page',
+          key: 'record',
+          cursor: first.nextCursor,
+          maxBytes: 256 * 1024,
+          projection: { omit: [['children', '*', 'note']] },
+        }),
+      ),
+    ).toBe('cursor-stale');
+    expect(
+      failureCode(
+        await driver.send({
+          type: 'read-scalar-page',
+          key: 'record',
+          cursor: first.nextCursor,
+          maxBytes: 256 * 1024,
+        }),
+      ),
+    ).toBe('cursor-stale');
+  });
+
+  it('refuses a projected value over the 1 MiB ceiling without sending content', async () => {
+    const driver = await started([], {
+      record: { children: [{ note: 'm'.repeat(1_100_000), raw: 'r' }] },
+    });
+
+    const response = await driver.send({
+      type: 'get',
+      key: 'record',
+      projection,
+    });
+
+    expect(response).toEqual({
+      type: 'failure',
+      operationId: expect.any(Number),
+      code: 'value-too-large',
+      valueBytes: expect.any(Number),
+    });
+  });
+
+  it('keeps no state for abandoned scalar, sequence and snapshot reads', async () => {
+    const runtime = new ElectronStateWorkerRuntime(undefined, {
+      valueCacheMaxBytes: 4 * 1024 * 1024,
+    });
+    const driver = await started(
+      [],
+      {
+        record: fatRecord,
+        list: Array.from({ length: 2_000 }, (_, index) => `entry-${index}`),
+      },
+      runtime,
+    );
+    const heapBefore = process.memoryUsage().heapUsed;
+
+    for (let index = 0; index < 1_000; index++) {
+      await driver.send({ type: 'get', key: 'record', projection });
+      await driver.send({
+        type: 'read-json-sequence',
+        key: 'list',
+        maxBytes: 1024,
+      });
+      await driver.send({ type: 'read-snapshot-page', maxBytes: 4 * 1024 });
+    }
+
+    const internals = runtime as unknown as Record<string, unknown>;
+    const mapSizes = Object.values(internals)
+      .filter((value): value is Map<unknown, unknown> => value instanceof Map)
+      .map((map) => map.size);
+    expect(mapSizes.length).toBeGreaterThan(0);
+    expect(mapSizes.every((size) => size === 0)).toBe(true);
+    const stats = runtime.valueCacheStats();
+    expect(stats?.bytes).toBeLessThanOrEqual(stats?.maxBytes ?? 0);
+    expect(process.memoryUsage().heapUsed - heapBefore).toBeLessThan(
+      64 * 1024 * 1024,
+    );
+  }, 180_000);
+});
+
+describe('ElectronStateWorkerRuntime — streaming legacy split', () => {
+  const plan: StateStorageArraySplitPlan = {
+    kind: 'split-array-value',
+    planVersion: 1,
+    sourceKey: 'records',
+    itemIdPath: ['id'],
+    detailKeyPrefix: 'record:',
+    indexKey: 'records',
+    indexSchemaVersion: 1,
+    summaryFields: [{ sourcePath: ['id'] }],
+  };
+
+  async function initializeWith(
+    legacyText: string | null,
+  ): Promise<{ response: ElectronStateWorkerResponse; dir: string }> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ptah-runtime-v1-'));
+    tmpDirs.push(dir);
+    const legacyFilePath = path.join(dir, 'workspace-state.json');
+    if (legacyText !== null) {
+      await fs.writeFile(legacyFilePath, legacyText, 'utf8');
+    }
+    const response = await new Driver(new ElectronStateWorkerRuntime()).send({
+      type: 'initialize',
+      legacyFilePath,
+      v2RootPath: path.join(dir, 'workspace-state.v2'),
+      migrations: [plan],
+    });
+    return { response, dir };
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it.each([
+    ['a truncated file', '{"records": [{"id": "a"}'],
+    ['an invalid literal', '{"records": [], "flag": tru}'],
+    ['a duplicate key', '{"a": 1, "a": 2}'],
+  ])(
+    'answers recovery-required migration-failed for %s and writes no v2',
+    async (_label, text) => {
+      const { response, dir } = await initializeWith(text);
+
+      expect(response).toEqual({
+        type: 'failure',
+        operationId: 1,
+        code: 'recovery-required',
+        recoveryReason: 'migration-failed',
+      });
+      expect(await fs.readdir(dir)).toEqual(['workspace-state.json']);
+    },
+  );
+
+  it('boots an empty store when the v1 file is missing', async () => {
+    const { response } = await initializeWith(null);
+
+    expect(response).toMatchObject({
+      type: 'ready',
+      generation: 1,
+      mutationEpoch: 0,
+      migrationReceipts: [{ sourceKey: 'records', itemCount: 0 }],
+    });
+  });
+
+  it('keeps the migration-failed verdict when closing the v1 file also fails', async () => {
+    const nodeFs =
+      jest.requireActual<typeof import('node:fs/promises')>('node:fs/promises');
+    const open = nodeFs.open;
+    let failedCloses = 0;
+    jest.spyOn(nodeFs, 'open').mockImplementation(async (file, flags, mode) => {
+      const handle = await open(file, flags, mode);
+      if (flags !== 'r') return handle;
+      const close = handle.close.bind(handle);
+      handle.close = async () => {
+        await close();
+        failedCloses++;
+        throw new Error('close failed');
+      };
+      return handle;
+    });
+
+    const failed = await initializeWith('{"records": [1, }');
+    const ready = await initializeWith('{"records": [{"id": "a"}]}');
+
+    expect(failed.response).toMatchObject({
+      code: 'recovery-required',
+      recoveryReason: 'migration-failed',
+    });
+    expect(ready.response).toMatchObject({
+      type: 'ready',
+      migrationReceipts: [{ sourceKey: 'records', itemCount: 1 }],
+    });
+    expect(failedCloses).toBe(2);
   });
 });

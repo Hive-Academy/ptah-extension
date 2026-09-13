@@ -99,7 +99,13 @@ const SESSION_METADATA_MIGRATION_MIRROR: StateStorageArraySplitPlan = {
           { sourcePath: ['streamEvents'], tag: 'streamEvent' },
         ],
       },
-      onMissingId: 'retain-source',
+      onMissingId: 'drop-bulk',
+      dropFields: [['stdout']],
+      textFallback: {
+        sourcePath: ['stdout'],
+        itemTemplate: { tag: 'segment', value: { type: 'text', content: '' } },
+        contentPath: ['value', 'content'],
+      },
       conflictPolicy: {
         kind: 'prefer-longer-arrays',
         fields: ['segments', 'streamEvents'],
@@ -111,17 +117,19 @@ const SESSION_METADATA_MIGRATION_MIRROR: StateStorageArraySplitPlan = {
 interface FixtureSpec {
   readonly parentSessionCount: number;
   readonly agentOutputKeyCount: number;
+  readonly stdoutReferenceCount: number;
+  readonly stdoutBytes: number;
   readonly totalStreamEvents: number;
-  /** Padding bytes per event so the whole v1 file lands near 256 MB. */
   readonly eventPayloadBytes: number;
 }
 
-/** 174 CLI-agent output keys / 214,837 events — the field measurement B3 named. */
 const LARGE_FIXTURE: FixtureSpec = {
-  parentSessionCount: 200,
-  agentOutputKeyCount: 174,
+  parentSessionCount: 723,
+  agentOutputKeyCount: 373,
+  stdoutReferenceCount: 371,
+  stdoutBytes: 102_400,
   totalStreamEvents: 214_837,
-  eventPayloadBytes: 1_100,
+  eventPayloadBytes: 1_350,
 };
 
 interface BuiltFixture {
@@ -168,7 +176,10 @@ async function buildLargeV1Fixture(
       const count = perAgentEventCount + (i < remainder ? 1 : 0);
       cliSessions.push({
         agentId,
-        segments: [],
+        ...(i < spec.stdoutReferenceCount
+          ? { stdout: 'o'.repeat(spec.stdoutBytes) }
+          : {}),
+        segments: [{ type: 'text', content: `segment for ${agentId}` }],
         streamEvents: Array.from({ length: count }, (_, j) =>
           makeEvent(j, spec.eventPayloadBytes),
         ),
@@ -204,12 +215,35 @@ async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
-/** Wraps the real `Worker` to record every message crossing the thread boundary. */
+interface WorkerHeapProbe {
+  peakUsedHeapBytes: number | null;
+}
+
 function instrumentedWorkerFactory(
   onMessage: (direction: 'to-worker' | 'from-worker', bytes: number) => void,
+  heapProbe?: WorkerHeapProbe,
 ): ElectronStateWorkerFactory {
   return (workerPath: string): ElectronStateWorkerLike => {
     const worker = new Worker(workerPath);
+    const heapWorker = worker as Worker & {
+      getHeapStatistics?: () => Promise<{ used_heap_size: number }>;
+    };
+    if (heapProbe && typeof heapWorker.getHeapStatistics === 'function') {
+      const sample = (): void => {
+        void heapWorker
+          .getHeapStatistics?.()
+          .then((stats) => {
+            heapProbe.peakUsedHeapBytes = Math.max(
+              heapProbe.peakUsedHeapBytes ?? 0,
+              stats.used_heap_size,
+            );
+          })
+          .catch(() => undefined);
+      };
+      const timer = setInterval(sample, 250);
+      timer.unref();
+      worker.once('exit', () => clearInterval(timer));
+    }
     const messageListeners: ((value: unknown) => void)[] = [];
     worker.on('message', (value: unknown) => {
       onMessage('from-worker', Buffer.byteLength(JSON.stringify(value)));
@@ -278,13 +312,15 @@ perfDescribe(
       while (tmpDirs.length > 0) {
         const dir = tmpDirs.pop();
         if (!dir) continue;
-        await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+        await fs
+          .rm(dir, { recursive: true, force: true })
+          .catch(() => undefined);
       }
     });
 
     it(
-      '256 MB v1 profile migrates exactly, off the main thread, with ' +
-        'proportional write amplification afterward',
+      'real-shape 328 MB v1 profile splits lean before its first commit ' +
+        'inside the handshake budget (A1) and re-boots by hash verification (A2)',
       async () => {
         await assertWorkerArtifactBuilt();
 
@@ -294,17 +330,15 @@ perfDescribe(
         const fixture = await buildLargeV1Fixture(dir, LARGE_FIXTURE);
         const buildElapsedMs = Date.now() - buildStartedAt;
 
-        // Sanity: this is really a ~256 MB profile, not a token-sized stand-in.
         const fixtureMb = fixture.byteLength / (1024 * 1024);
-        expect(fixtureMb).toBeGreaterThan(150);
+        expect(fixtureMb).toBeGreaterThan(325);
 
         // --- Main-thread instrumentation -----------------------------------
         // `JSON.parse`/`JSON.stringify` calls issued by THIS process (the
         // stand-in for the Electron main thread) must never see a value
         // bigger than the worker protocol's 256 KiB message budget. The
         // legacy file's own ~256 MB JSON.parse/stringify happen inside the
-        // worker (`ElectronStateCommitStore.loadLegacy` /
-        // `ElectronStateWorkerRuntime`), never here.
+        // worker (`ElectronStateWorkerRuntime`), never here.
         const budgetBytes = 256 * 1024;
         let maxHostParseChars = 0;
         let maxHostStringifyChars = 0;
@@ -330,13 +364,14 @@ perfDescribe(
 
         let maxToWorkerBytes = 0;
         let maxFromWorkerBytes = 0;
+        const heapProbe: WorkerHeapProbe = { peakUsedHeapBytes: null };
         const workerFactory = instrumentedWorkerFactory((direction, bytes) => {
           if (direction === 'to-worker') {
             maxToWorkerBytes = Math.max(maxToWorkerBytes, bytes);
           } else {
             maxFromWorkerBytes = Math.max(maxFromWorkerBytes, bytes);
           }
-        });
+        }, heapProbe);
 
         const histogram = monitorEventLoopDelay({ resolution: 10 });
         histogram.enable();
@@ -346,12 +381,6 @@ perfDescribe(
         try {
           storage = new ElectronStateStorage(dir, 'state.json', {
             workerPath: WORKER_ARTIFACT_PATH,
-            // This fixture is the deliberate outlier the default 120 s
-            // handshake budget is NOT sized for: a ~256 MB v1 migration on a
-            // loaded reference machine can legitimately outrun it. Raised here
-            // so the budget stays a liveness backstop rather than becoming a
-            // performance assertion this advisory spec would flake on.
-            handshakeTimeoutMs: 600_000,
             migrations: [SESSION_METADATA_MIGRATION_MIRROR],
             cacheExcludeKeyPrefixes: [
               SESSION_DETAIL_KEY_PREFIX,
@@ -366,6 +395,11 @@ perfDescribe(
         }
         const migrationElapsedMs = Date.now() - migrationStartedAt;
         histogram.disable();
+        expect(migrationElapsedMs).toBeLessThan(120_000);
+        expect(heapProbe.peakUsedHeapBytes).not.toBeNull();
+        expect(
+          (heapProbe.peakUsedHeapBytes ?? 0) / (1024 * 1024),
+        ).toBeLessThanOrEqual(256);
 
         // Mechanism: the host process never touched a value near the legacy
         // file's size, and every worker message stayed inside the protocol
@@ -393,6 +427,24 @@ perfDescribe(
           STORAGE_KEY,
         );
         expect(index?.items.length).toBe(fixture.parentSessionIds.length);
+        const firstManifest = JSON.parse(
+          await fs.readFile(
+            path.join(
+              `${path.join(dir, 'state')}.v2`,
+              'manifests',
+              'manifest.1.json',
+            ),
+            'utf8',
+          ),
+        ) as { values: Record<string, unknown> };
+        expect(Object.keys(firstManifest.values)).toContain(
+          `${SESSION_DETAIL_KEY_PREFIX}${fixture.parentSessionIds[0]}`,
+        );
+        const sampleDetail = await storage.getAsync<{
+          cliSessions: readonly Record<string, unknown>[];
+        }>(`${SESSION_DETAIL_KEY_PREFIX}${fixture.parentSessionIds[0]}`);
+        expect(sampleDetail?.cliSessions[0]).not.toHaveProperty('stdout');
+        expect(sampleDetail?.cliSessions[0]).not.toHaveProperty('streamEvents');
 
         // --- Write amplification --------------------------------------------
         // One new session detail + one appended index row must not re-touch
@@ -422,13 +474,31 @@ perfDescribe(
 
         await storage.dispose();
 
+        const v2Bytes = await directoryByteSize(v2Root);
+        const verifyStartedAt = Date.now();
+        const reopened = new ElectronStateStorage(dir, 'state.json', {
+          workerPath: WORKER_ARTIFACT_PATH,
+          migrations: [SESSION_METADATA_MIGRATION_MIRROR],
+          cacheExcludeKeyPrefixes: [
+            SESSION_DETAIL_KEY_PREFIX,
+            AGENT_OUTPUT_KEY_PREFIX,
+          ],
+        });
+        await reopened.whenReady();
+        const verifyBootElapsedMs = Date.now() - verifyStartedAt;
+        expect(
+          reopened.get<{ items: readonly unknown[] }>(STORAGE_KEY)?.items
+            .length,
+        ).toBe(fixture.parentSessionIds.length + 1);
+        await reopened.dispose();
+
         // Event-loop heartbeat is ADVISORY (shared reference host, see the
         // spawner perf spec's rationale) — recorded, not gated on an
         // absolute figure, except a very generous smoke ceiling that would
         // catch a genuine main-thread block of the whole migration.
         const loopMaxMs = histogram.max / 1e6;
         console.log(
-          '[perf] 256MB migration fixture:',
+          '[perf] real-shape v1 split fixture:',
           JSON.stringify({
             fixtureMb: Number(fixtureMb.toFixed(1)),
             buildElapsedMs,
@@ -441,6 +511,14 @@ perfDescribe(
             maxFromWorkerBytes,
             writeDeltaBytes,
             observedEvents,
+            workerPeakUsedHeapMb:
+              heapProbe.peakUsedHeapBytes === null
+                ? null
+                : Number(
+                    (heapProbe.peakUsedHeapBytes / (1024 * 1024)).toFixed(1),
+                  ),
+            v2StoreMb: Number((v2Bytes / (1024 * 1024)).toFixed(1)),
+            verifyBootElapsedMs,
           }),
         );
         expect(loopMaxMs).toBeLessThan(5_000);
@@ -448,25 +526,43 @@ perfDescribe(
     );
 
     it(
-      'an injected extraction failure leaves v1 authoritative and the next ' +
-        'attempt retries successfully',
+      'an id-less session is skipped, and a failing split commits nothing ' +
+        'and leaves v1 authoritative for the retry',
       async () => {
         await assertWorkerArtifactBuilt();
 
         const dir = await makeTempDir('ptah-electron-state-perf-fail-');
         tmpDirs.push(dir);
         const filePath = path.join(dir, 'state.json');
+        const v2Root = `${path.join(dir, 'state')}.v2`;
 
-        // One parent session has no `sessionId` at all — `splitArrayValue`
-        // rejects it with "Split source item has no usable id" before any
-        // `commitMutation` for the migration is reached.
-        const brokenSessions = [
-          { sessionId: 'ok-1', name: 'A', cliSessions: [] },
-          { name: 'missing id', cliSessions: [] },
-          { sessionId: 'ok-2', name: 'B', cliSessions: [] },
-        ];
-        const v1Body = JSON.stringify({ [STORAGE_KEY]: brokenSessions });
-        await fs.writeFile(filePath, v1Body, 'utf8');
+        await fs.writeFile(
+          filePath,
+          JSON.stringify({
+            [STORAGE_KEY]: [
+              { sessionId: 'ok-1', name: 'A', cliSessions: [] },
+              { name: 'missing id', cliSessions: [] },
+              { sessionId: 'ok-2', name: 'B', cliSessions: [] },
+            ],
+          }),
+          'utf8',
+        );
+        const skipping = new ElectronStateStorage(dir, 'state.json', {
+          workerPath: WORKER_ARTIFACT_PATH,
+          migrations: [SESSION_METADATA_MIGRATION_MIRROR],
+        });
+        await skipping.whenReady();
+        expect(
+          skipping.get<{ items: readonly unknown[] }>(STORAGE_KEY)?.items
+            .length,
+        ).toBe(2);
+        await skipping.dispose();
+        await fs.rm(v2Root, { recursive: true, force: true });
+
+        const brokenBody = JSON.stringify({
+          [STORAGE_KEY]: { schemaVersion: 99, items: [] },
+        });
+        await fs.writeFile(filePath, brokenBody, 'utf8');
         const v1BytesBefore = await fs.readFile(filePath);
 
         const failing = new ElectronStateStorage(dir, 'state.json', {
@@ -476,55 +572,30 @@ perfDescribe(
         await expect(failing.whenReady()).rejects.toBeInstanceOf(
           StateStorageRecoveryRequiredError,
         );
-        expect(failing.getReadinessState().status).toBe('recovery-required');
+        expect(failing.getReadinessState()).toEqual({
+          status: 'recovery-required',
+          reason: 'migration-failed',
+        });
         await failing.dispose();
 
-        // v1 is untouched: same bytes as before the attempt.
-        const v1BytesAfter = await fs.readFile(filePath);
-        expect(Buffer.compare(v1BytesBefore, v1BytesAfter)).toBe(0);
+        expect(Buffer.compare(v1BytesBefore, await fs.readFile(filePath))).toBe(
+          0,
+        );
+        await expect(
+          fs.access(path.join(v2Root, 'CURRENT')),
+        ).rejects.toBeDefined();
 
-        // `ElectronStateCommitStore.initialize()` durably commits the FAT
-        // (unsplit) legacy values as v2 generation 1 BEFORE the split-array
-        // migration loop runs (`ElectronStateWorkerRuntime.initialize`), so a
-        // CURRENT pointer now exists — but it names only the original
-        // `STORAGE_KEY` blob (still holding the raw array with `cliSessions`
-        // embedded), never the split index/detail/agent-output keys. That
-        // fat blob, not the untouched v1 file, is what "authoritative" means
-        // in practice: it is the value every subsequent read/migration
-        // attempt starts from, and it is provably never a partial split.
-        const v2Root = `${path.join(dir, 'state')}.v2`;
-        const currentPointer = JSON.parse(
-          await fs.readFile(path.join(v2Root, 'CURRENT'), 'utf8'),
-        ) as { generation: number; mutationEpoch: number };
-        expect(currentPointer.generation).toBe(1);
-        expect(currentPointer.mutationEpoch).toBe(0);
-        const manifest = JSON.parse(
-          await fs.readFile(
-            path.join(v2Root, 'manifests', 'manifest.1.json'),
-            'utf8',
-          ),
-        ) as { values: Record<string, unknown> };
-        expect(Object.keys(manifest.values)).toEqual([STORAGE_KEY]);
-
-        // Retrying in place (same v1, same v2) reprocesses the identical fat
-        // snapshot and fails identically — there is no partial state to
-        // "resume" into. The recovery path this repo actually supports is
-        // clearing the v2 directory so the NEXT boot re-derives v2 from v1
-        // from scratch; that is safe and correct here specifically BECAUSE
-        // v1 was left byte-for-byte untouched by the failed attempt. Fix the
-        // source record the way an operator/support flow would, then retry.
-        await fs.rm(v2Root, { recursive: true, force: true });
-        const fixedSessions = [
-          { sessionId: 'ok-1', name: 'A', cliSessions: [] },
-          { sessionId: 'was-missing', name: 'missing id', cliSessions: [] },
-          { sessionId: 'ok-2', name: 'B', cliSessions: [] },
-        ];
         await fs.writeFile(
           filePath,
-          JSON.stringify({ [STORAGE_KEY]: fixedSessions }),
+          JSON.stringify({
+            [STORAGE_KEY]: [
+              { sessionId: 'ok-1', name: 'A', cliSessions: [] },
+              { sessionId: 'ok-2', name: 'B', cliSessions: [] },
+              { sessionId: 'ok-3', name: 'C', cliSessions: [] },
+            ],
+          }),
           'utf8',
         );
-
         const retried = new ElectronStateStorage(dir, 'state.json', {
           workerPath: WORKER_ARTIFACT_PATH,
           migrations: [SESSION_METADATA_MIGRATION_MIRROR],

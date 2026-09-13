@@ -125,19 +125,16 @@ function agentsOf(manager: AgentProcessManager): Map<
 }
 
 describe('AgentProcessManager.restoreAgents', () => {
-  it('readOutput returns the persisted stdout for a restored record', () => {
+  it('readOutput returns an empty stdout buffer for a lean restored reference', () => {
     const manager = makeManager({ providerRoot: ROOT_A });
 
-    const count = manager.restoreAgents(
-      [makeRef({ stdout: 'line one\nline two\n' })],
-      ROOT_A,
-    );
+    const count = manager.restoreAgents([makeRef()], ROOT_A);
 
     expect(count).toBe(1);
     const output = manager.readOutput(RESTORED_ID);
-    expect(output.stdout).toBe('line one\nline two\n');
+    expect(output.stdout).toBe('');
     expect(output.stderr).toBe('');
-    expect(output.lineCount).toBe(2);
+    expect(output.lineCount).toBe(0);
     expect(output.truncated).toBe(false);
   });
 

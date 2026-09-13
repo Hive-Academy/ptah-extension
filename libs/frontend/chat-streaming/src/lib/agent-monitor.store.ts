@@ -103,6 +103,7 @@ export interface MonitoredAgent {
    */
   historyCursor?: string;
   historyDone?: boolean;
+  restoredHistory?: boolean;
   /** Parent Ptah Claude SDK session that spawned this agent.
    * Mutable: initially set to tab ID, resolved to real SDK UUID
    * when SESSION_ID_RESOLVED fires.
@@ -370,6 +371,38 @@ export class AgentMonitorStore implements OnDestroy {
    * lookup. Readers prefer this to `agents().find(...)` when scanning is hot.
    */
   readonly agentsById = computed(() => this._byId());
+
+  readonly cliOutputDemand = computed<
+    readonly { readonly sessionId: string; readonly agentId: string }[]
+  >(
+    () => {
+      const demand: { readonly sessionId: string; readonly agentId: string }[] =
+        [];
+      for (const agent of this._agents()) {
+        if (
+          agent.restoredHistory === true &&
+          agent.expanded &&
+          agent.historyDone !== true &&
+          agent.parentSessionId !== undefined
+        ) {
+          demand.push({
+            sessionId: agent.parentSessionId,
+            agentId: agent.agentId,
+          });
+        }
+      }
+      return demand;
+    },
+    {
+      equal: (previous, next) =>
+        previous.length === next.length &&
+        previous.every(
+          (entry, index) =>
+            entry.sessionId === next[index].sessionId &&
+            entry.agentId === next[index].agentId,
+        ),
+    },
+  );
 
   /**
    * Agents filtered to the active tab's session, per `agentVisibleInSession`:
@@ -1056,6 +1089,8 @@ export class AgentMonitorStore implements OnDestroy {
           segments: restoredSegments,
           streamEvents: restoredEvents,
           streamRevision: 0,
+          restoredHistory:
+            restoredSegments.length === 0 && restoredEvents.length === 0,
           cliSessionId: ref.cliSessionId,
           parentSessionId,
           ptahCliId: ref.ptahCliId,
@@ -1141,6 +1176,26 @@ export class AgentMonitorStore implements OnDestroy {
         };
       }),
     );
+  }
+
+  resetCliOutputHistory(sessionId: string, agentId: string): void {
+    this._agents.update((list) => {
+      const index = list.findIndex(
+        (a) => a.agentId === agentId && a.parentSessionId === sessionId,
+      );
+      if (index === -1) return list;
+      const agent = list[index];
+      const next = [...list];
+      next[index] = {
+        ...agent,
+        segments: [],
+        streamEvents: [],
+        historyCursor: undefined,
+        historyDone: undefined,
+        streamRevision: agent.streamRevision + 1,
+      };
+      return next;
+    });
   }
 
   /**

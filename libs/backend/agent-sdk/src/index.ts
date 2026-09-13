@@ -21,6 +21,7 @@ export type {
 } from './lib/internal-query';
 export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 export {
+  AgentOutputCursorStaleError,
   SessionMetadataStore,
   flushSessionMetadataStores,
   SESSION_METADATA_MIGRATION,

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_411
-status: in_progress
+status: done
 type: BUGFIX
 title: Fix large-profile startup stalls and Codex usage analytics
 depends_on: []

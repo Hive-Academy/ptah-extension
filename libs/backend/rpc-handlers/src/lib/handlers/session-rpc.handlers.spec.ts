@@ -82,7 +82,10 @@ import {
   type MockRpcHandler,
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import {
+  StateStorageValueTooLargeError,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   createMockWorkspaceProvider,
   type MockWorkspaceProvider,
@@ -93,7 +96,10 @@ import type {
   SessionStatsReadEntry,
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
-import { SdkError } from '@ptah-extension/agent-sdk';
+import {
+  AgentOutputCursorStaleError,
+  SdkError,
+} from '@ptah-extension/agent-sdk';
 import type {
   CliSessionReference,
   SessionId,
@@ -136,7 +142,9 @@ function createMockMetadataStore(): MockMetadataStore {
   };
 }
 
-type MockStatsReader = jest.Mocked<Pick<SessionStatsReaderService, 'readStats'>>;
+type MockStatsReader = jest.Mocked<
+  Pick<SessionStatsReaderService, 'readStats'>
+>;
 
 function createMockStatsReader(): MockStatsReader {
   return {
@@ -1321,9 +1329,7 @@ describe('SessionRpcHandlers', () => {
     const authorizedMetadata = makeMetadata({
       sessionId: VALID_SESSION_ID,
       workspaceId: WORKSPACE,
-      cliSessions: [
-        { agentId: AGENT_ID, cli: 'codex' } as CliSessionReference,
-      ],
+      cliSessions: [{ agentId: AGENT_ID, cli: 'codex' } as CliSessionReference],
     });
 
     it('authorizes the session and forwards cursor and maxBytes exactly', async () => {
@@ -1392,6 +1398,88 @@ describe('SessionRpcHandlers', () => {
       expect(h.metadataStore.getAgentOutputPage).not.toHaveBeenCalled();
     });
 
+    it('maps a stale output cursor to OUTPUT_CURSOR_STALE without the thrown message', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      const thrown = new AgentOutputCursorStaleError(AGENT_ID);
+      thrown.message = 'internal-cursor-detail s3.9 secret-content';
+      h.metadataStore.getAgentOutputPage.mockRejectedValue(thrown);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        cursor: 's3.9',
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('OUTPUT_CURSOR_STALE');
+      expect(response.error).toBe('Agent output changed');
+      expect(JSON.stringify(response)).not.toContain(thrown.message);
+    });
+
+    it('maps an oversized stored value to a fixed user error without the thrown message', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      const thrown = new StateStorageValueTooLargeError(
+        'ptah.agentOutput.agent-output-1',
+        9_999_999,
+      );
+      thrown.message = 'ptah.agentOutput.agent-output-1 secret-content';
+      h.metadataStore.getAgentOutputPage.mockRejectedValue(thrown);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
+      expect(response.error).toBe('Agent output is too large to load');
+      expect(JSON.stringify(response)).not.toContain(thrown.message);
+      expect(JSON.stringify(response)).not.toContain('ptah.agentOutput');
+    });
+
+    it('maps an oversized session metadata read to the same fixed user error', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockRejectedValue(
+        new StateStorageValueTooLargeError('ptah.sessionMetadata', 9_999_999),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
+      expect(h.metadataStore.getAgentOutputPage).not.toHaveBeenCalled();
+    });
+
+    it('keeps the existing behaviour for any other output page failure', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      h.metadataStore.getAgentOutputPage.mockRejectedValue(
+        new Error('store boom'),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBeUndefined();
+      expect(response.error).toBe('store boom');
+    });
+
     it('keeps the actual serialized RpcHandler success envelope bounded', async () => {
       const h = makeHarness();
       const content = '界'.repeat(80_000);
@@ -1415,9 +1503,9 @@ describe('SessionRpcHandlers', () => {
       });
 
       expect(response.success).toBe(true);
-      expect(Buffer.byteLength(JSON.stringify(response), 'utf8')).toBeLessThanOrEqual(
-        256 * 1024,
-      );
+      expect(
+        Buffer.byteLength(JSON.stringify(response), 'utf8'),
+      ).toBeLessThanOrEqual(256 * 1024);
     });
   });
 
@@ -1439,7 +1527,12 @@ describe('SessionRpcHandlers', () => {
       const empty = uuidForRow(2);
       const failed = uuidForRow(3);
       h.statsReader.readStats.mockResolvedValue([
-        statsEntry({ sessionId: ok, totalCost: 1.23, messageCount: 7, pricingCoverage: 'full' }),
+        statsEntry({
+          sessionId: ok,
+          totalCost: 1.23,
+          messageCount: 7,
+          pricingCoverage: 'full',
+        }),
         statsEntry({ sessionId: empty, status: 'empty' }),
         statsEntry({ sessionId: failed, status: 'error', coverage: 'partial' }),
       ]);
@@ -1463,10 +1556,17 @@ describe('SessionRpcHandlers', () => {
       });
 
       expect(result.scope).toBe('current-context');
-      expect(result.sessionStats.map((s) => s.status)).toEqual(['ok', 'empty', 'error']);
+      expect(result.sessionStats.map((s) => s.status)).toEqual([
+        'ok',
+        'empty',
+        'error',
+      ]);
       expect(result.sessionStats[0].totalCost).toBe(1.23);
       expect(result.sessionStats[0].pricingCoverage).toBe('full');
-      expect(result.sessionStats[0].cliAgents?.sort()).toEqual(['codex', 'copilot']);
+      expect(result.sessionStats[0].cliAgents?.sort()).toEqual([
+        'codex',
+        'copilot',
+      ]);
       expect(result.sessionStats[1].cliAgents).toEqual([]);
       expect(result.sessionStats[2].cliAgents).toBeUndefined();
     });
@@ -1503,31 +1603,53 @@ describe('SessionRpcHandlers', () => {
       });
 
       expect(h.statsReader.readStats).toHaveBeenCalledWith(
-        expect.objectContaining({ scope: { kind: 'range', since: 1_000, until: 2_000 } }),
+        expect.objectContaining({
+          scope: { kind: 'range', since: 1_000, until: 2_000 },
+        }),
       );
-      expect(result).toEqual({ sessionStats: [], scope: 'range', since: 1_000, until: 2_000 });
+      expect(result).toEqual({
+        sessionStats: [],
+        scope: 'range',
+        since: 1_000,
+        until: 2_000,
+      });
     });
 
     it.each([
-      ['more than 20 ids', { sessionIds: Array.from({ length: 21 }, (_, i) => uuidForRow(i)) }],
+      [
+        'more than 20 ids',
+        { sessionIds: Array.from({ length: 21 }, (_, i) => uuidForRow(i)) },
+      ],
       ['a non-UUID id', { sessionIds: ['sess-ok'] }],
-      ['a range without until', { sessionIds: [VALID_SESSION_ID], scope: 'range', since: 1 }],
-      ['since after until', { sessionIds: [VALID_SESSION_ID], scope: 'range', since: 5, until: 4 }],
-      ['a range bound on current-context', { sessionIds: [VALID_SESSION_ID], since: 1 }],
+      [
+        'a range without until',
+        { sessionIds: [VALID_SESSION_ID], scope: 'range', since: 1 },
+      ],
+      [
+        'since after until',
+        { sessionIds: [VALID_SESSION_ID], scope: 'range', since: 5, until: 4 },
+      ],
+      [
+        'a range bound on current-context',
+        { sessionIds: [VALID_SESSION_ID], since: 1 },
+      ],
       ['an unknown key', { sessionIds: [VALID_SESSION_ID], untill: 4 }],
-    ])('rejects %s as INVALID_PARAMS before reading', async (_label, params) => {
-      const h = makeHarness();
-      h.handlers.register();
+    ])(
+      'rejects %s as INVALID_PARAMS before reading',
+      async (_label, params) => {
+        const h = makeHarness();
+        h.handlers.register();
 
-      const response = await callRaw(h, 'session:stats-batch', {
-        workspacePath: WORKSPACE,
-        ...params,
-      });
+        const response = await callRaw(h, 'session:stats-batch', {
+          workspacePath: WORKSPACE,
+          ...params,
+        });
 
-      expect(response.success).toBe(false);
-      expect(response.errorCode).toBe('INVALID_PARAMS');
-      expect(h.statsReader.readStats).not.toHaveBeenCalled();
-    });
+        expect(response.success).toBe(false);
+        expect(response.errorCode).toBe('INVALID_PARAMS');
+        expect(h.statsReader.readStats).not.toHaveBeenCalled();
+      },
+    );
 
     it('accepts exactly 20 ids', async () => {
       const h = makeHarness();
@@ -1544,7 +1666,9 @@ describe('SessionRpcHandlers', () => {
 
     it('keeps a row when its metadata read fails', async () => {
       const h = makeHarness();
-      h.statsReader.readStats.mockResolvedValue([statsEntry({ sessionId: VALID_SESSION_ID })]);
+      h.statsReader.readStats.mockResolvedValue([
+        statsEntry({ sessionId: VALID_SESSION_ID }),
+      ]);
       h.metadataStore.get.mockRejectedValue(new Error('store unavailable'));
       h.handlers.register();
 
@@ -1589,7 +1713,10 @@ describe('SessionRpcHandlers', () => {
     it('keeps the code and message of an RpcUserError the reader rejects with', async () => {
       const h = makeHarness();
       h.statsReader.readStats.mockRejectedValue(
-        new RpcUserError('Invalid session:stats-batch params (sessionIds)', 'INVALID_PARAMS'),
+        new RpcUserError(
+          'Invalid session:stats-batch params (sessionIds)',
+          'INVALID_PARAMS',
+        ),
       );
       h.handlers.register();
 
@@ -1600,7 +1727,9 @@ describe('SessionRpcHandlers', () => {
 
       expect(response.success).toBe(false);
       expect(response.errorCode).toBe('INVALID_PARAMS');
-      expect(response.error).toBe('Invalid session:stats-batch params (sessionIds)');
+      expect(response.error).toBe(
+        'Invalid session:stats-batch params (sessionIds)',
+      );
       expect(h.sentry.captureException).not.toHaveBeenCalled();
     });
   });

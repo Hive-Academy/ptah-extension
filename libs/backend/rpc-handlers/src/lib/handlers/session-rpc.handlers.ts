@@ -18,6 +18,7 @@ import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
+  StateStorageValueTooLargeError,
 } from '@ptah-extension/platform-core';
 import {
   SessionMetadataStore,
@@ -26,6 +27,7 @@ import {
   type SessionStatsReadEntry,
   type SessionStatsScopeSelection,
   SdkAgentAdapter,
+  AgentOutputCursorStaleError,
   SessionNotActiveError,
   SdkError,
   MESSAGE_ID_NOT_FOUND_PHRASE,
@@ -818,20 +820,46 @@ export class SessionRpcHandlers {
     >('session:cli-output-page', async (params) => {
       const parsed = SessionCliOutputPageParamsSchema.parse(params);
       const sessionId = this.validateSessionId(parsed.sessionId);
-      await this.authorizeSessionAccess(sessionId);
-      const metadata = await this.metadataStore.get(sessionId);
-      if (!metadata?.cliSessions?.some((ref) => ref.agentId === parsed.agentId)) {
-        throw new RpcUserError(
-          'Agent output is not referenced by this session',
-          'INVALID_PARAMS',
+      try {
+        await this.authorizeSessionAccess(sessionId);
+        const metadata = await this.metadataStore.get(sessionId);
+        if (
+          !metadata?.cliSessions?.some((ref) => ref.agentId === parsed.agentId)
+        ) {
+          throw new RpcUserError(
+            'Agent output is not referenced by this session',
+            'INVALID_PARAMS',
+          );
+        }
+        return await this.metadataStore.getAgentOutputPage(
+          parsed.agentId,
+          parsed.cursor,
+          parsed.maxBytes,
         );
+      } catch (error: unknown) {
+        this.throwCliOutputPageError(error, parsed.agentId);
       }
-      return await this.metadataStore.getAgentOutputPage(
-        parsed.agentId,
-        parsed.cursor,
-        parsed.maxBytes,
-      );
     });
+  }
+
+  private throwCliOutputPageError(error: unknown, agentId: string): never {
+    if (error instanceof AgentOutputCursorStaleError) {
+      this.logger.warn('[RPC] session:cli-output-page cursor is stale', {
+        agentId,
+      });
+      throw new RpcUserError('Agent output changed', 'OUTPUT_CURSOR_STALE');
+    }
+    if (error instanceof StateStorageValueTooLargeError) {
+      this.logger.warn('[RPC] session:cli-output-page value too large', {
+        agentId,
+        bytes: error.bytes,
+      });
+      throw new RpcUserError(
+        'Agent output is too large to load',
+        'PERSISTENCE_UNAVAILABLE',
+      );
+    }
+    throw error;
   }
 
   /**

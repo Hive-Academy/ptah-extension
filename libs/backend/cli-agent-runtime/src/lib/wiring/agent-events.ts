@@ -56,6 +56,7 @@ interface SdkSessionMetadataStoreLike {
   saveAgentOutput?(
     agentId: string,
     output: {
+      stdout?: string;
       segments?: readonly CliOutputSegment[];
       streamEvents?: readonly FlatStreamEventUnion[];
     },
@@ -389,6 +390,7 @@ export function persistCliSessionReference(
         ? info.cliSessionId
         : undefined);
 
+    const bulkInline = !metadataStore.saveAgentOutput;
     const ref: CliSessionReference = {
       cliSessionId: effectiveCliSessionId,
       cli: info.cli,
@@ -396,14 +398,10 @@ export function persistCliSessionReference(
       task: info.task,
       startedAt: info.startedAt,
       status: info.status,
-      ...(persistedOutput?.stdout ? { stdout: persistedOutput.stdout } : {}),
-      // `segments` stays on the reference (the store keeps a bounded tail of
-      // it) so a restored Codex/Copilot card renders without a second read.
-      // `streamEvents` deliberately does NOT: an agent can hold 50 000 of
-      // them, and every reference lives inside the all-sessions blob that gets
-      // rewritten on each write. They go to a per-agent key below, and the
-      // restore path rehydrates them from there (TASK_2026_323 blocker B5).
-      ...(persistedOutput?.segments?.length
+      ...(bulkInline && persistedOutput?.stdout
+        ? { stdout: persistedOutput.stdout }
+        : {}),
+      ...(bulkInline && persistedOutput?.segments?.length
         ? { segments: persistedOutput.segments }
         : {}),
       ...(info.ptahCliId ? { ptahCliId: info.ptahCliId } : {}),
@@ -428,6 +426,7 @@ export function persistCliSessionReference(
         metadataStore.saveAgentOutput
       ) {
         await metadataStore.saveAgentOutput(info.agentId, {
+          stdout: persistedOutput.stdout,
           segments: persistedOutput.segments,
           streamEvents: persistedOutput.streamEvents,
         });

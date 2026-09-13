@@ -2,12 +2,15 @@ import * as fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { StateStorageNotReadyError } from '@ptah-extension/platform-core';
-import { ElectronStateStorage } from './electron-state-storage';
 import {
-  extractLargeStrings,
-  type ElectronStateWorkerFactory,
-  type ElectronStateWorkerLike,
+  StateStorageNotReadyError,
+  StateStorageRecoveryRequiredError,
+} from '@ptah-extension/platform-core';
+import { ElectronStateStorage } from './electron-state-storage';
+import type { ElectronStateDurableStep } from './electron-state-storage-commit-store';
+import type {
+  ElectronStateWorkerFactory,
+  ElectronStateWorkerLike,
 } from './electron-state-storage-worker-host';
 import {
   ElectronStateWorkerProtocolError,
@@ -26,12 +29,14 @@ type ErrorListener = (error: Error) => void;
 type ExitListener = (code: number) => void;
 
 class InProcessWorker implements ElectronStateWorkerLike {
-  private readonly runtime = new ElectronStateWorkerRuntime();
   private readonly messageListeners: MessageListener[] = [];
   private readonly errorListeners: ErrorListener[] = [];
   private readonly exitListeners: ExitListener[] = [];
 
-  constructor(private readonly postedMessages: unknown[]) {}
+  constructor(
+    private readonly postedMessages: unknown[],
+    private readonly runtime = new ElectronStateWorkerRuntime(),
+  ) {}
 
   postMessage(value: unknown): void {
     assertElectronStateWorkerPayloadWithinBudget(value);
@@ -282,7 +287,7 @@ class CrashOnSequenceSliceWorker implements ElectronStateWorkerLike {
         if (
           this.shouldCrash &&
           !this.crashed &&
-          request.type === 'append-json-string-slice'
+          request.type === 'append-json-sequence-item-ops'
         ) {
           this.crashed = true;
           this.errorListeners.forEach((listener) =>
@@ -380,7 +385,7 @@ describe('ElectronStateStorage worker host', () => {
     await storage.dispose();
   });
 
-  it('writes a sequence with transferable string slices and survives restart', async () => {
+  it('writes a structurally large sequence item as operation pages and survives restart', async () => {
     const { dir } = await makeFixture({ values: [] });
     const postedMessages: unknown[] = [];
     const factory: ElectronStateWorkerFactory = () =>
@@ -390,7 +395,7 @@ describe('ElectronStateStorage worker host', () => {
       workerFactory: factory,
     });
     await storage.whenReady();
-    const expected = [{ id: 'one', output: 'x'.repeat(100_000) }];
+    const expected = [{ id: 'one', output: 'x'.repeat(300_000) }];
     await storage.update('values', expected);
     await storage.dispose();
 
@@ -403,9 +408,15 @@ describe('ElectronStateStorage worker host', () => {
     expect(
       postedMessages.some(
         (message) =>
-          (message as { type?: string }).type === 'append-json-string-slice',
+          (message as { type?: string }).type ===
+          'append-json-sequence-item-ops',
       ),
     ).toBe(true);
+    for (const message of postedMessages) {
+      expect(() =>
+        assertElectronStateWorkerPayloadWithinBudget(message),
+      ).not.toThrow();
+    }
     await restarted.dispose();
   });
 
@@ -478,7 +489,8 @@ describe('ElectronStateStorage worker host', () => {
               itemIdPath: ['id'],
               destinationKeyPrefix: 'output:',
               fields: [{ sourcePath: ['output'] }],
-              onMissingId: 'retain-source',
+              onMissingId: 'drop-bulk',
+              dropFields: [],
               conflictPolicy: {
                 kind: 'prefer-longer-arrays',
                 fields: ['output'],
@@ -538,7 +550,8 @@ describe('ElectronStateStorage worker host', () => {
                 kind: 'tagged-sequence',
                 fields: [{ sourcePath: ['output'], tag: 'output' }],
               },
-              onMissingId: 'retain-source',
+              onMissingId: 'drop-bulk',
+              dropFields: [],
               conflictPolicy: {
                 kind: 'prefer-longer-arrays',
                 fields: ['output'],
@@ -574,7 +587,7 @@ describe('ElectronStateStorage worker host', () => {
     await storage.dispose();
   });
 
-  it('retains nested items with missing or blank ids in the source detail during split', async () => {
+  it('drops bulk from nested items with missing or blank ids during split and counts them', async () => {
     const { dir } = await makeFixture({
       records: [
         {
@@ -607,7 +620,8 @@ describe('ElectronStateStorage worker host', () => {
               itemIdPath: ['id'],
               destinationKeyPrefix: 'output:',
               fields: [{ sourcePath: ['output'] }],
-              onMissingId: 'retain-source',
+              onMissingId: 'drop-bulk',
+              dropFields: [],
               conflictPolicy: {
                 kind: 'prefer-longer-arrays',
                 fields: ['output'],
@@ -626,18 +640,15 @@ describe('ElectronStateStorage worker host', () => {
     expect(storage.get('output:n1')).toEqual({ output: [1, 2] });
     expect(storage.get('output:')).toBeUndefined();
     const detail = storage.get<{ nested: unknown[] }>('detail:a');
-    expect(detail?.nested).toEqual([
-      { id: 'n1' },
-      { id: '', output: [3, 4] },
-      { output: [5, 6] },
-    ]);
+    expect(detail?.nested).toEqual([{ id: 'n1' }, { id: '' }, {}]);
     await storage.dispose();
   });
 
-  it('fails closed when a split source item has no usable id', async () => {
+  it('skips a split source item with no usable id and reports it in the receipt', async () => {
     const { dir } = await makeFixture({
       records: [{ id: '', title: 'Missing ID' }],
     });
+    const receipts: unknown[] = [];
     const storage = new ElectronStateStorage(dir, 'workspace-state.json', {
       workerPath: 'in-process-test-worker',
       workerFactory: () => new InProcessWorker([]),
@@ -653,9 +664,14 @@ describe('ElectronStateStorage worker host', () => {
           summaryFields: [{ sourcePath: ['id'] }],
         },
       ],
+      onMigrationReceipt: (receipt) => receipts.push(receipt),
     });
 
-    await expect(storage.whenReady()).rejects.toThrow();
+    await storage.whenReady();
+    expect(storage.get('records')).toEqual({ schemaVersion: 1, items: [] });
+    expect(receipts).toEqual([
+      expect.objectContaining({ itemCount: 1, skippedItemCount: 1 }),
+    ]);
     await storage.dispose();
   });
 
@@ -891,62 +907,6 @@ describe('ElectronStateStorage worker host', () => {
   });
 
   describe('Finding 1: large-scalar streaming and preflight rejection of unsupported/non-plain/cyclic values', () => {
-    it('extractLargeStrings rejects Date instead of treating it as an empty object', () => {
-      expect(() => extractLargeStrings(new Date())).toThrow(
-        expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
-          code: 'UNSUPPORTED_VALUE',
-        }),
-      );
-      expect(() => extractLargeStrings({ date: new Date() })).toThrow(
-        expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
-          code: 'UNSUPPORTED_VALUE',
-        }),
-      );
-      expect(() => extractLargeStrings([new Date()])).toThrow(
-        expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
-          code: 'UNSUPPORTED_VALUE',
-        }),
-      );
-    });
-
-    it('extractLargeStrings rejects cyclic structures without call stack overflow', () => {
-      const cycle: Record<string, unknown> = {};
-      cycle['self'] = cycle;
-      expect(() => extractLargeStrings(cycle)).toThrow(
-        expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
-          code: 'UNSUPPORTED_VALUE',
-        }),
-      );
-
-      const arrayCycle: unknown[] = [];
-      arrayCycle.push(arrayCycle);
-      expect(() => extractLargeStrings(arrayCycle)).toThrow(
-        expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
-          code: 'UNSUPPORTED_VALUE',
-        }),
-      );
-    });
-
-    it('extractLargeStrings accepts null-prototype plain objects', () => {
-      const nullProto = Object.create(null);
-      nullProto.str = 'normal';
-      nullProto.large = 'L'.repeat(40_000);
-      const result = extractLargeStrings(nullProto);
-      expect(result.strings.length).toBe(1);
-      expect(result.strings[0].path).toEqual(['large']);
-      expect((result.value as Record<string, unknown>)['str']).toBe('normal');
-      expect((result.value as Record<string, unknown>)['large']).toBe('');
-    });
-
-    it('extractLargeStrings extracts a large root string item with empty path', () => {
-      const largeStr = 'R'.repeat(40_000);
-      const result = extractLargeStrings(largeStr);
-      expect(result.value).toBe('');
-      expect(result.strings.length).toBe(1);
-      expect(result.strings[0].path).toEqual([]);
-      expect(result.strings[0].totalBytes).toBe(40_000);
-    });
-
     it('update() rejects Date deterministically, does not update cache, and restart reveals no divergent value', async () => {
       const { dir } = await makeFixture({ prior: 'untouched' });
       const factory: ElectronStateWorkerFactory = () => new InProcessWorker([]);
@@ -1128,69 +1088,6 @@ describe('ElectronStateStorage worker host', () => {
     await storage.dispose();
   });
 
-  describe('sequence string-slice ordering', () => {
-    it('rejects out-of-order, gapped, and overlapping sequence slices deterministically', async () => {
-      const { dir, legacyPath } = await makeFixture({});
-      const runtime = new ElectronStateWorkerRuntime();
-      const ready = await runtime.handle({
-        type: 'initialize',
-        operationId: 1,
-        legacyFilePath: legacyPath,
-        v2RootPath: path.join(dir, 'workspace-state.v2'),
-        migrations: [],
-      });
-      expect(ready.type).toBe('ready');
-
-      const cases = [
-        { name: 'out-of-order', firstOffset: 2, secondOffset: undefined },
-        { name: 'gapped', firstOffset: 0, secondOffset: 3 },
-        { name: 'overlapping', firstOffset: 0, secondOffset: 1 },
-      ] as const;
-      let operationId = 2;
-      for (const [index, testCase] of cases.entries()) {
-        const sequenceId = `00000000-0000-4000-8000-00000000000${index + 1}`;
-        await runtime.handle({
-          type: 'begin-json-sequence-write',
-          operationId: operationId++,
-          sequenceId,
-          key: testCase.name,
-        });
-        await runtime.handle({
-          type: 'append-json-sequence-items',
-          operationId: operationId++,
-          sequenceId,
-          items: [''],
-        });
-        const first = await runtime.handle({
-          type: 'append-json-string-slice',
-          operationId: operationId++,
-          sequenceId,
-          itemIndex: 0,
-          path: [],
-          byteOffset: testCase.firstOffset,
-          totalBytes: 4,
-          bytes: new Uint8Array([65, 66]),
-        });
-        if (testCase.secondOffset === undefined) {
-          expect(first).toMatchObject({ type: 'failure', code: 'io-failed' });
-          continue;
-        }
-        expect(first).toMatchObject({ type: 'success' });
-        const second = await runtime.handle({
-          type: 'append-json-string-slice',
-          operationId: operationId++,
-          sequenceId,
-          itemIndex: 0,
-          path: [],
-          byteOffset: testCase.secondOffset,
-          totalBytes: 4,
-          bytes: new Uint8Array([67, 68]),
-        });
-        expect(second).toMatchObject({ type: 'failure', code: 'io-failed' });
-      }
-    });
-  });
-
   describe('Finding 2: sequence replacement with large root strings', () => {
     it('round-trips UTF-8 scalar slices without whole-string Buffer.from on the main thread', async () => {
       const { dir } = await makeFixture({});
@@ -1238,14 +1135,15 @@ describe('ElectronStateStorage worker host', () => {
         ).not.toThrow();
       }
 
-      // Verify append-json-string-slice was sent with an empty root path []
-      const stringSliceMessages = postedMessages.filter(
+      const itemOperationMessages = postedMessages.filter(
         (m) =>
-          (m as { type?: string }).type === 'append-json-string-slice' &&
-          Array.isArray((m as { path?: unknown }).path) &&
-          (m as { path: unknown[] }).path.length === 0,
+          (m as { type?: string }).type === 'append-json-sequence-item-ops' &&
+          (m as { operations: { path: unknown[] }[] }).operations.every(
+            (operation) =>
+              operation.path.length === 1 && operation.path[0] === 'item',
+          ),
       );
-      expect(stringSliceMessages.length).toBeGreaterThan(1);
+      expect(itemOperationMessages.length).toBeGreaterThanOrEqual(1);
 
       await storage.dispose();
 
@@ -1340,7 +1238,7 @@ describe('ElectronStateStorage worker host', () => {
       await restarted.dispose();
     });
 
-    it('aborts cleanly and preserves prior state if worker crashes during sequence string slice streaming', async () => {
+    it('aborts cleanly and preserves prior state if worker crashes during sequence item operation streaming', async () => {
       const { dir } = await makeFixture({
         seqDoc: ['prior-safe-item-1', 'prior-safe-item-2'],
       });
@@ -1377,5 +1275,187 @@ describe('ElectronStateStorage worker host', () => {
       await restarted.dispose();
     });
   });
-});
 
+  describe('protocol and ordering violations', () => {
+    it('fails only the violating request as internal-error without a recovery-required store', async () => {
+      const { dir } = await makeFixture({ index: { items: ['a'] } });
+      const runtime = new ElectronStateWorkerRuntime();
+      const responses: unknown[] = [];
+      let hijackCommit = true;
+      const storage = new ElectronStateStorage(dir, 'workspace-state.json', {
+        workerPath: 'in-process-test-worker',
+        workerFactory: () => {
+          const worker = new InProcessWorker([], runtime);
+          const post = worker.postMessage.bind(worker);
+          worker.postMessage = (value: unknown): void => {
+            const request = value as Record<string, unknown>;
+            if (
+              hijackCommit &&
+              request['type'] === 'commit-json-sequence-write'
+            ) {
+              hijackCommit = false;
+              post({
+                ...request,
+                sequenceId: '00000000-0000-4000-8000-000000000099',
+              });
+              return;
+            }
+            post(value);
+          };
+          worker.on('message', (response) => responses.push(response));
+          return worker;
+        },
+      });
+      await storage.whenReady();
+
+      await expect(storage.update('list', [1, 2])).rejects.toThrow(
+        'State storage worker operation failed: internal-error',
+      );
+      expect(responses).toContainEqual(
+        expect.objectContaining({ type: 'failure', code: 'internal-error' }),
+      );
+      expect(storage.getReadinessState()).toEqual({ status: 'ready' });
+      expect(storage.get('index')).toEqual({ items: ['a'] });
+
+      await storage.update('list', [3]);
+      expect(storage.get('list')).toEqual([3]);
+      await storage.dispose();
+    });
+  });
+
+  describe('uncertain commits (N8)', () => {
+    function armedFault(target: ElectronStateDurableStep): {
+      arm(): void;
+      after(step: ElectronStateDurableStep): Promise<void>;
+      sideEffect?: () => Promise<void>;
+    } {
+      let armed = false;
+      const fault = {
+        arm() {
+          armed = true;
+        },
+        sideEffect: undefined as undefined | (() => Promise<void>),
+        async after(step: ElectronStateDurableStep): Promise<void> {
+          if (!armed || step !== target) return;
+          armed = false;
+          await fault.sideEffect?.();
+          throw new Error(`injected:${step}`);
+        },
+      };
+      return fault;
+    }
+
+    async function currentFiles(v2Root: string): Promise<Map<string, Buffer>> {
+      const pointer = JSON.parse(
+        await fs.readFile(path.join(v2Root, 'CURRENT'), 'utf8'),
+      ) as { manifestRelativePath: string };
+      const manifestPath = path.join(v2Root, pointer.manifestRelativePath);
+      const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as {
+        values: Record<string, { relativePath: string }>;
+      };
+      const files = new Map<string, Buffer>();
+      files.set(manifestPath, await fs.readFile(manifestPath));
+      for (const blob of Object.values(manifest.values)) {
+        const blobPath = path.join(v2Root, blob.relativePath);
+        files.set(blobPath, await fs.readFile(blobPath));
+      }
+      return files;
+    }
+
+    it.each(['current-renamed', 'current-verified'] as const)(
+      'refreshes the cache to the durable value after a fault at %s and keeps committed files intact',
+      async (step) => {
+        const { dir } = await makeFixture({ index: { items: ['a'] } });
+        const fault = armedFault(step);
+        const runtime = new ElectronStateWorkerRuntime(fault);
+        const storage = new ElectronStateStorage(dir, 'workspace-state.json', {
+          workerPath: 'in-process-test-worker',
+          workerFactory: () => new InProcessWorker([], runtime),
+        });
+        await storage.whenReady();
+        fault.arm();
+
+        await expect(
+          storage.update('index', { items: ['a', 'b'] }),
+        ).rejects.toThrow('commit-failed');
+        expect(storage.getReadinessState()).toEqual({ status: 'ready' });
+        expect(storage.get('index')).toEqual({ items: ['a', 'b'] });
+
+        const v2Root = path.join(dir, 'workspace-state.v2');
+        const referenced = await currentFiles(v2Root);
+        await storage.update('other', 1);
+        for (const [filePath, bytes] of referenced) {
+          expect(Buffer.compare(await fs.readFile(filePath), bytes)).toBe(0);
+        }
+        await storage.dispose();
+
+        const restarted = new ElectronStateStorage(
+          dir,
+          'workspace-state.json',
+          {
+            workerPath: 'in-process-test-worker',
+            workerFactory: () => new InProcessWorker([]),
+          },
+        );
+        await restarted.whenReady();
+        expect(restarted.get('index')).toEqual({ items: ['a', 'b'] });
+        expect(restarted.get('other')).toBe(1);
+        await restarted.dispose();
+      },
+    );
+
+    it('keeps the cache on the old value when a pre-publication fault lands nothing', async () => {
+      const { dir } = await makeFixture({ index: { items: ['a'] } });
+      const fault = armedFault('manifest-verified');
+      const storage = new ElectronStateStorage(dir, 'workspace-state.json', {
+        workerPath: 'in-process-test-worker',
+        workerFactory: () =>
+          new InProcessWorker([], new ElectronStateWorkerRuntime(fault)),
+      });
+      await storage.whenReady();
+      fault.arm();
+
+      await expect(
+        storage.update('index', { items: ['lost'] }),
+      ).rejects.toThrow('commit-failed');
+      expect(storage.get('index')).toEqual({ items: ['a'] });
+      await storage.update('index', { items: ['a', 'c'] });
+      expect(storage.get('index')).toEqual({ items: ['a', 'c'] });
+      await storage.dispose();
+    });
+
+    it('fails closed when the worker cannot reconcile a failed commit', async () => {
+      const { dir } = await makeFixture({ index: { items: ['a'] } });
+      const fault = armedFault('current-renamed');
+      fault.sideEffect = async () => {
+        await fs.writeFile(
+          path.join(dir, 'workspace-state.v2', 'CURRENT'),
+          'not json',
+          'utf8',
+        );
+      };
+      const storage = new ElectronStateStorage(dir, 'workspace-state.json', {
+        workerPath: 'in-process-test-worker',
+        workerFactory: () =>
+          new InProcessWorker([], new ElectronStateWorkerRuntime(fault)),
+      });
+      await storage.whenReady();
+      fault.arm();
+
+      await expect(
+        storage.update('index', { items: ['x'] }),
+      ).rejects.toBeInstanceOf(StateStorageRecoveryRequiredError);
+      expect(storage.getReadinessState()).toEqual({
+        status: 'recovery-required',
+        reason: 'current-pointer-invalid',
+      });
+      expect(() => storage.get('index')).toThrow(
+        StateStorageRecoveryRequiredError,
+      );
+      await expect(storage.getAsync('index')).rejects.toBeInstanceOf(
+        StateStorageRecoveryRequiredError,
+      );
+      await storage.dispose();
+    });
+  });
+});

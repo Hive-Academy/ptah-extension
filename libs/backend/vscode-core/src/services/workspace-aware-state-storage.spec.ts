@@ -2,13 +2,19 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  StateStorageCursorStaleError,
   StateStorageNotReadyError,
+  StateStorageValueTooLargeError,
   hasStateStorageMaintenance,
+  type IAsyncStateStorage,
   type IStateStorageMaintenance,
   type IStateStorageReadiness,
   type StateStorageArraySplitPlan,
+  type StateStorageGetOptions,
   type StateStorageMigrationReceipt,
   type StateStorageReadinessState,
+  type StateStorageSequencePage,
+  type StateStorageSequenceReadOptions,
 } from '@ptah-extension/platform-core';
 import { WorkspaceAwareStateStorage } from './workspace-aware-state-storage';
 import { WorkspaceContextManager } from './workspace-context-manager';
@@ -163,7 +169,10 @@ describe('WorkspaceAwareStateStorage readiness routing', () => {
       sourceSha256: 'abc',
       itemCount: 1,
       extractedValueCount: 1,
-      retainedSourceCount: 0,
+      droppedStdoutCount: 0,
+      stdoutFallbackCount: 0,
+      droppedBulkWithoutIdCount: 0,
+      skippedItemCount: 0,
       committedGeneration: 2,
       commitId: 'commit-1',
     };
@@ -198,6 +207,59 @@ describe('WorkspaceAwareStateStorage readiness routing', () => {
     expect(splitFn).toHaveBeenCalledWith(plan);
   });
 
+  it('forwards getAsync options unchanged to an async delegate', async () => {
+    const getAsync = jest.fn().mockResolvedValue({ id: 'detail' });
+    const proxy = new WorkspaceAwareStateStorage('/default', (storagePath) => {
+      const storage = new ControlledStorage(true) as ControlledStorage &
+        Partial<IAsyncStateStorage>;
+      if (storagePath === '/async-storage') {
+        storage.getAsync = getAsync;
+        storage.readJsonSequence = jest.fn();
+        storage.replaceJsonSequence = jest.fn();
+      }
+      return storage;
+    });
+    proxy.addWorkspace('/workspace-async', '/async-storage');
+    proxy.setActiveWorkspace('/workspace-async');
+
+    const options: StateStorageGetOptions = {
+      projection: { omit: [['cliSessions', '*', 'stdout']] },
+    };
+    const fallback = { id: 'fallback' };
+
+    await expect(proxy.getAsync('detail', fallback, options)).resolves.toEqual({
+      id: 'detail',
+    });
+    expect(getAsync).toHaveBeenCalledTimes(1);
+    expect(getAsync.mock.calls[0][0]).toBe('detail');
+    expect(getAsync.mock.calls[0][1]).toBe(fallback);
+    expect(getAsync.mock.calls[0][2]).toBe(options);
+  });
+
+  it('applies the projection in memory when the delegate is synchronous', async () => {
+    const stored = {
+      id: 'detail',
+      cliSessions: [{ agentId: 'a1', stdout: 'bulk', segments: [1] }],
+    };
+    const proxy = new WorkspaceAwareStateStorage(
+      '/default',
+      () => new ControlledStorage(true, { detail: stored }),
+    );
+
+    const result = await proxy.getAsync<typeof stored>('detail', undefined, {
+      projection: {
+        omit: [
+          ['cliSessions', '*', 'stdout'],
+          ['cliSessions', '*', 'segments'],
+        ],
+      },
+    });
+
+    expect(result).toEqual({ id: 'detail', cliSessions: [{ agentId: 'a1' }] });
+    expect(stored.cliSessions[0].stdout).toBe('bulk');
+    await expect(proxy.getAsync('detail')).resolves.toBe(stored);
+  });
+
   it('throws when the active delegate does not support maintenance operations', async () => {
     const proxy = new WorkspaceAwareStateStorage('/default', () => {
       return new ControlledStorage(true);
@@ -216,6 +278,164 @@ describe('WorkspaceAwareStateStorage readiness routing', () => {
 
     await expect(proxy.splitArrayValue(plan)).rejects.toThrow(
       'Active workspace state storage does not support maintenance operations',
+    );
+  });
+});
+
+describe('WorkspaceAwareStateStorage sync sequence reads', () => {
+  type Item = { tag: string; value: { type: string; content: string } };
+
+  function item(content: string): Item {
+    return { tag: 'segment', value: { type: 'text', content } };
+  }
+
+  function proxyOver(entries: Record<string, unknown>): {
+    proxy: WorkspaceAwareStateStorage;
+    delegate: ControlledStorage;
+  } {
+    const delegate = new ControlledStorage(true, entries);
+    return {
+      proxy: new WorkspaceAwareStateStorage('/default', () => delegate),
+      delegate,
+    };
+  }
+
+  async function firstPage<T>(
+    proxy: WorkspaceAwareStateStorage,
+    key: string,
+    options?: StateStorageSequenceReadOptions,
+  ): Promise<StateStorageSequencePage<T>> {
+    const sequence = proxy.readJsonSequence<T>(key, options);
+    const pages = sequence[Symbol.asyncIterator]();
+    try {
+      const first = await pages.next();
+      if (first.done) throw new Error('no page');
+      return first.value;
+    } finally {
+      await pages.return?.(undefined);
+    }
+  }
+
+  it('pages a sequence under both budgets and continues from the cursor', async () => {
+    const items = Array.from({ length: 10 }, (_, i) =>
+      item(`${i}${'x'.repeat(80)}`),
+    );
+    const { proxy } = proxyOver({ output: items });
+    const options = {
+      maxBytes: 4096,
+      maxJsonBytes: 400,
+      jsonEnvelopeBytes: 50,
+    };
+
+    const received: Item[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const page = await firstPage<Item>(proxy, 'output', {
+        ...options,
+        cursor,
+      });
+      expect(page.items.length).toBeGreaterThan(0);
+      expect(
+        options.jsonEnvelopeBytes -
+          2 +
+          Buffer.byteLength(JSON.stringify(page.items), 'utf8'),
+      ).toBeLessThanOrEqual(options.maxJsonBytes);
+      expect(page.truncatedItems).toBeUndefined();
+      received.push(...page.items);
+      cursor = page.nextCursor ?? undefined;
+      pages++;
+    } while (cursor);
+
+    expect(pages).toBeGreaterThan(1);
+    expect(received).toEqual(items);
+
+    const all: Item[] = [];
+    for await (const page of proxy.readJsonSequence<Item>('output', options)) {
+      all.push(...page.items);
+    }
+    expect(all).toEqual(items);
+  });
+
+  it('shrinks a single oversized item and reports it page-relative', async () => {
+    const big = item('y'.repeat(5_000));
+    const { proxy } = proxyOver({ output: [item('small'), big, item('tail')] });
+    const options = { maxBytes: 1024, maxJsonBytes: 1024, maxItemBytes: 900 };
+
+    const first = await firstPage<Item>(proxy, 'output', options);
+    expect(first.items).toEqual([item('small')]);
+    const second = await firstPage<Item>(proxy, 'output', {
+      ...options,
+      cursor: first.nextCursor ?? undefined,
+    });
+
+    expect(second.items).toHaveLength(1);
+    expect(second.truncatedItems).toEqual([
+      {
+        index: 0,
+        originalJsonBytes: Buffer.byteLength(JSON.stringify(big), 'utf8'),
+      },
+    ]);
+    expect(second.items[0].value.content).toMatch(/\[truncated \d+ bytes\]$/);
+    expect(
+      Buffer.byteLength(JSON.stringify(second.items[0]), 'utf8'),
+    ).toBeLessThanOrEqual(900);
+    const third = await firstPage<Item>(proxy, 'output', {
+      ...options,
+      cursor: second.nextCursor ?? undefined,
+    });
+    expect(third).toMatchObject({
+      items: [item('tail')],
+      nextCursor: null,
+      done: true,
+    });
+  });
+
+  it('fails an item that cannot be shrunk with StateStorageValueTooLargeError', async () => {
+    const { proxy } = proxyOver({
+      output: [{ values: Array.from({ length: 400 }, (_, i) => i) }],
+    });
+
+    await expect(
+      firstPage(proxy, 'output', { maxBytes: 256, maxJsonBytes: 256 }),
+    ).rejects.toBeInstanceOf(StateStorageValueTooLargeError);
+  });
+
+  it('rejects malformed, rewritten, out-of-range and absent-key cursors as stale', async () => {
+    const items = Array.from({ length: 6 }, (_, i) => item(`${i}`.repeat(60)));
+    const { proxy, delegate } = proxyOver({ output: items });
+    const first = await firstPage<Item>(proxy, 'output', { maxJsonBytes: 200 });
+    const cursor = first.nextCursor ?? '';
+    expect(cursor).toMatch(/^s[0-9a-f]{16}\.\d+$/);
+
+    await expect(
+      firstPage(proxy, 'output', { cursor: 'garbage' }),
+    ).rejects.toBeInstanceOf(StateStorageCursorStaleError);
+    await expect(
+      firstPage(proxy, 'output', { cursor: cursor.replace(/\.\d+$/, '.99') }),
+    ).rejects.toBeInstanceOf(StateStorageCursorStaleError);
+
+    await delegate.update('output', [...items, item('appended')]);
+    await expect(firstPage(proxy, 'output', { cursor })).rejects.toBeInstanceOf(
+      StateStorageCursorStaleError,
+    );
+
+    await delegate.update('output', undefined);
+    await expect(firstPage(proxy, 'output', { cursor })).rejects.toBeInstanceOf(
+      StateStorageCursorStaleError,
+    );
+    await expect(firstPage(proxy, 'output')).resolves.toMatchObject({
+      items: [],
+      nextCursor: null,
+      done: true,
+    });
+  });
+
+  it('refuses a value that is not a sequence', async () => {
+    const { proxy } = proxyOver({ output: { segments: [] } });
+
+    await expect(firstPage(proxy, 'output')).rejects.toThrow(
+      'State storage value is not a sequence',
     );
   });
 });
