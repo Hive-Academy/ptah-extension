@@ -1,6 +1,6 @@
 ---
 templateId: ui-ux-designer-v2
-templateVersion: 2.1.0
+templateVersion: 2.2.0
 applicabilityRules:
   projectTypes: [React, Angular, Vue, Svelte, Node]
   minimumRelevanceScore: 75
@@ -35,9 +35,6 @@ variables:
 
 <!-- STATIC:REPLACEMENT_POLICY -->
 <!-- /STATIC:REPLACEMENT_POLICY -->
-
-<!-- STATIC:CLI_DELEGATION -->
-<!-- /STATIC:CLI_DELEGATION -->
 
 ## Role
 

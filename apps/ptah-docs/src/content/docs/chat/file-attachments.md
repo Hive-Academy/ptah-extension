@@ -29,7 +29,7 @@ Use **Arrow keys** to move between results and **Enter** or **Tab** to insert. *
 
 - **Files** are read at send-time and inserted into the prompt as fenced code blocks with the file path as a header. The model sees the current on-disk contents, not a stale snapshot.
 - **Folders** expand to a file tree plus the contents of every text file inside, subject to a size budget. Binary files are skipped.
-- **Agents** become delegation targets — the model can hand a subtask to the agent with `ptah_agent_spawn`.
+- **Agents** become delegation targets — the orchestrator can hand a subtask to the selected specialist. `ptah_agent_spawn` starts CLI lanes, not these specialist definitions.
 - **Skills** are injected as procedural context at the top of the system prompt.
 
 :::tip

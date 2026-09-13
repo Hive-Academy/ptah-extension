@@ -215,7 +215,7 @@ Please choose how to proceed:
 | -------- | ------------------------------------------------------------- |
 | Option 1 | Fix the issue, run `npm run lint:fix` if needed, retry commit |
 | Option 2 | `git commit --no-verify -m "message"`                         |
-| Option 3 | Mark task BLOCKED, document error in tasks.md                 |
+| Option 3 | Mark task BLOCKED, document error in batches.md                 |
 
 ### Agent Behavior Rules
 
@@ -227,7 +227,7 @@ Please choose how to proceed:
 
 ### Documentation When Bypassing
 
-When user chooses option 2, add note to tasks.md:
+When user chooses option 2, add note to batches.md:
 
 ```markdown
 **Hook Bypass Note**: Batch N committed with --no-verify due to [reason].
@@ -261,7 +261,7 @@ User chooses: Option 2 (Bypass Hook)
 
 Action:
 1. Execute: git commit --no-verify -m "feat(webview): add chat feature"
-2. Document in tasks.md: "Bypassed hook - type error in analytics lib"
+2. Document in batches.md: "Bypassed hook - type error in analytics lib"
 ```
 
 ### Scenario 3: Complex Build Failure
@@ -273,7 +273,7 @@ User chooses: Option 3 (Stop & Report)
 
 Action:
 1. Mark current task status: BLOCKED
-2. Create detailed error report in tasks.md
+2. Create detailed error report in batches.md
 3. Escalate to user for investigation
 ```
 
@@ -299,5 +299,5 @@ Action:
 
 - **team-leader-modes.md**: MODE 2 creates commits following these standards
 - **checkpoints.md**: Hook failure protocol is a checkpoint type
-- **task-tracking.md**: Document hook bypasses in tasks.md
+- **task-tracking.md**: Document hook bypasses in batches.md
 - **SKILL.md**: Git operations guidance in workflow completion phase

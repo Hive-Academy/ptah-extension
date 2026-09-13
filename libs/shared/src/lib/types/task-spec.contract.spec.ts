@@ -35,6 +35,7 @@ import {
   renderTaskMd,
   renderTaskSpecAgentBlock,
   roundJudgeFile,
+  type TaskSpecAgentAudience,
 } from './task-spec.contract';
 import { TASK_STATUSES } from './task-spec.types';
 
@@ -448,6 +449,11 @@ describe('renderSpecsReadme', () => {
   });
 });
 
+const AUDIENCES: readonly TaskSpecAgentAudience[] = [
+  'coordinator',
+  'specialist',
+];
+
 /**
  * The agent-facing block. Its whole reason to exist is that the hand-copied
  * version went stale in nineteen places at once — every copy still taught
@@ -455,63 +461,119 @@ describe('renderSpecsReadme', () => {
  * are about DERIVATION: each one would fail if the text were pasted back in.
  */
 describe('renderTaskSpecAgentBlock', () => {
-  it('is deterministic — callers hash it', () => {
-    expect(renderTaskSpecAgentBlock()).toBe(renderTaskSpecAgentBlock());
-  });
+  it.each(AUDIENCES)(
+    'is deterministic for %s — callers hash it',
+    (audience) => {
+      expect(renderTaskSpecAgentBlock(audience)).toBe(
+        renderTaskSpecAgentBlock(audience),
+      );
+    },
+  );
 
-  it('names the CURRENT batch file, and the legacy name only as legacy', () => {
-    const block = renderTaskSpecAgentBlock();
-    expect(block).toContain(BATCHES_FILE);
-    expect(block).toContain(LEGACY_BATCHES_FILE);
-    // The exact staleness that motivated this renderer: the legacy name being
-    // taught as THE batch breakdown rather than as a fallback that is still read.
+  it.each(AUDIENCES)(
+    'names the CURRENT batch file for %s, and the legacy name only as legacy',
+    (audience) => {
+      const block = renderTaskSpecAgentBlock(audience);
+      const oneLine = block.replace(/\s+/g, ' ');
+      expect(oneLine).toContain(
+        `\`${BATCHES_FILE}\` holds the team-leader batch breakdown`,
+      );
+      expect(oneLine).toContain(
+        `its former name \`${LEGACY_BATCHES_FILE}\` is still read`,
+      );
+    },
+  );
+
+  it.each(AUDIENCES)(
+    'lists every recognised document except the legacy names for %s',
+    (audience) => {
+      const block = renderTaskSpecAgentBlock(audience);
+      for (const name of DOC_FILES) {
+        if (isLegacyDocFile(name)) continue;
+        expect(block).toContain(`\`${name}\``);
+      }
+    },
+  );
+
+  it.each(AUDIENCES)(
+    'names the folder id, spec root, carrier and context file for %s',
+    (audience) => {
+      const block = renderTaskSpecAgentBlock(audience);
+      expect(block).toContain('canonical id');
+      expect(block).toContain(SPEC_ROOT);
+      expect(block).toContain(CARRIER_FILE);
+      expect(block).toContain(CONTEXT_FILE);
+    },
+  );
+
+  it.each(AUDIENCES)(
+    'leaves no unresolved template slot for %s',
+    (audience) => {
+      expect(renderTaskSpecAgentBlock(audience)).not.toContain('{{');
+    },
+  );
+
+  describe('coordinator', () => {
+    const block = renderTaskSpecAgentBlock('coordinator');
     const oneLine = block.replace(/\s+/g, ' ');
-    expect(oneLine).toContain(
-      `\`${BATCHES_FILE}\` holds the team-leader batch breakdown`,
-    );
-    expect(oneLine).toContain(
-      `its former name \`${LEGACY_BATCHES_FILE}\` is still read`,
-    );
+
+    it('derives the status list from TASK_STATUSES', () => {
+      for (const status of TASK_STATUSES) {
+        expect(block).toContain(status);
+      }
+    });
+
+    it('carries the block-scalar rule that has cost carriers their visibility', () => {
+      expect(block).toContain('>-');
+    });
+
+    it('states the cross-checkout allocation and suffix contract', () => {
+      expect(oneLine).toContain('origin/main');
+      expect(oneLine).toContain('git worktree list');
+      expect(oneLine).toContain('zero-pad to at least three digits');
+      expect(oneLine).toContain('TASK_YYYY_NNN_xxxx');
+      expect(oneLine).toContain('exclusive, fail-if-exists');
+      expect(oneLine).toContain('Never rename an existing folder');
+    });
+
+    it('reserves batch task states to the team-leader', () => {
+      expect(oneLine).toContain(
+        `The team-leader alone sets task states in \`${BATCHES_FILE}\``,
+      );
+    });
   });
 
-  it('derives the status list from TASK_STATUSES', () => {
-    const block = renderTaskSpecAgentBlock();
-    for (const status of TASK_STATUSES) {
-      expect(block).toContain(status);
-    }
-  });
-
-  it('lists every recognised document except the legacy names', () => {
-    const block = renderTaskSpecAgentBlock();
-    for (const name of DOC_FILES) {
-      if (isLegacyDocFile(name)) continue;
-      expect(block).toContain(`\`${name}\``);
-    }
-  });
-
-  it('carries the two rules that have actually cost tasks their visibility', () => {
-    const block = renderTaskSpecAgentBlock();
-    // A plain scalar description that quotes code makes the carrier unparseable.
-    expect(block).toContain('>-');
-    // The folder name is the id; a mismatched `id:` is never fixed by renaming.
-    expect(block).toContain('canonical id');
-    expect(block).toContain(SPEC_ROOT);
-    expect(block).toContain(CARRIER_FILE);
-    expect(block).toContain(CONTEXT_FILE);
-  });
-
-  it('states the cross-checkout allocation and suffix contract', () => {
-    const block = renderTaskSpecAgentBlock();
+  describe('specialist', () => {
+    const block = renderTaskSpecAgentBlock('specialist');
     const oneLine = block.replace(/\s+/g, ' ');
-    expect(oneLine).toContain('origin/main');
-    expect(oneLine).toContain('git worktree list');
-    expect(oneLine).toContain('zero-pad to at least three digits');
-    expect(oneLine).toContain('TASK_YYYY_NNN_xxxx');
-    expect(oneLine).toContain('exclusive, fail-if-exists');
-    expect(oneLine).toContain('Never rename an existing folder');
-  });
 
-  it('leaves no unresolved template slot for the partial resolver to trip on', () => {
-    expect(renderTaskSpecAgentBlock()).not.toContain('{{');
+    it.each([
+      'git fetch',
+      'git ls-tree',
+      'git worktree list',
+      'mkdir',
+      'zero-pad',
+      'registry.md',
+      '>-',
+      'Edit',
+    ])('teaches nothing about allocation or carrier authoring: %s', (term) => {
+      expect(block).not.toContain(term);
+    });
+
+    it('makes the carrier read-only and the state someone else’s', () => {
+      expect(oneLine).toContain('read it, never edit it.');
+      expect(oneLine).toContain(
+        'Never create, allocate or rename a task folder.',
+      );
+      expect(oneLine).toContain(
+        `task states in \`${BATCHES_FILE}\` belong to the team-leader alone`,
+      );
+    });
+
+    it('is materially smaller than the coordinator block', () => {
+      expect(block.length).toBeLessThan(
+        renderTaskSpecAgentBlock('coordinator').length * 0.6,
+      );
+    });
   });
 });

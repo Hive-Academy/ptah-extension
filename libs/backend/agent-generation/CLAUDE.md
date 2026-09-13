@@ -86,10 +86,28 @@ does contradict lose authority alongside it. Adoption is not asserted as a count
 anywhere — a partial is added to or removed from a template on that judgment, not
 to hit a number.
 
+`CLI_DELEGATION` follows the same rule. `team-leader` is advisory and never
+spawns, `visual-reviewer`'s evidence is a live browser session no CLI lane has,
+and `ui-ux-designer`'s discovery is a dialogue routed through the orchestrator —
+none of the three carries it. `template-sharing.guard.spec.ts` pins the exact
+partial set of every role in `ROLE_PARTIALS`, so a grant is added or removed on
+purpose, in the table, with the template.
+
 **`TASK_SPEC_CONTRACT` has no file.** It is rendered by
-`renderTaskSpecAgentBlock()` in `libs/shared`, beside the constants it derives
-from. A `_shared/task-spec-contract.md` would be one more copy of the block that
-already went stale in nineteen places at once.
+`renderTaskSpecAgentBlock(audience)` in `libs/shared`, beside the constants it
+derives from. A `_shared/task-spec-contract.md` would be one more copy of the
+block that already went stale in nineteen places at once.
+
+**It renders by role.** `taskSpecAudienceFor(templateId)` gives
+`project-manager` and `team-leader` the `coordinator` block (id allocation,
+carrier authoring, status edits, state ownership); every other id, including an
+unknown one, gets the `specialist` block (the folder it was handed, a read-only
+carrier, state owned by someone else, the recognised document names). The split
+is keyed on the template id rather than on a second marker id on purpose:
+templates are mirrored from the default branch into `~/.ptah/templates/agents/`
+on installs still running an older resolver, and a marker id that resolver does
+not know fails every template carrying it. **Never add or rename a STATIC id
+without a plan for installs on the previous build.**
 
 Templates carry ONE frontmatter block. `name`, `description` and `model` are
 read from it; the second `---name/description---` block that nothing parsed is

@@ -27,7 +27,7 @@ Council shines when there's no obviously correct answer and the value is in unde
 
 Ptah fans your question to every vendor in the panel. Each vendor answers independently, with no visibility into what the others are producing. This prevents bandwagon agreement and surfaces genuine divergence.
 
-Answers are collected in parallel. A Council over a 4-vendor panel takes roughly the same wall-clock time as a single vendor query.
+Answers are collected with up to three lanes running at once by default. Council may widen concurrency with your consent; runtime depends on the selected lanes.
 
 ### Phase 2 — Anonymized cross-critique
 
