@@ -71,6 +71,10 @@ describe('SessionLoaderService', () => {
   let loadCliSessions: jest.Mock;
   let appendCliOutputPage: jest.Mock;
   let cliOutputProgress: jest.Mock;
+  let resetCliOutputHistory: jest.Mock;
+  let cliOutputDemandSignal: ReturnType<
+    typeof signal<readonly { sessionId: string; agentId: string }[]>
+  >;
   let tabBindingsSignal: ReturnType<
     typeof signal<readonly { id: string; claudeSessionId: string | null }[]>
   >;
@@ -140,11 +144,17 @@ describe('SessionLoaderService', () => {
     loadCliSessions = jest.fn();
     appendCliOutputPage = jest.fn();
     cliOutputProgress = jest.fn(() => null);
+    resetCliOutputHistory = jest.fn();
+    cliOutputDemandSignal = signal<
+      readonly { sessionId: string; agentId: string }[]
+    >([]);
     const agentMonitorStoreMock = {
       clearAgents: jest.fn(),
       loadCliSessions,
       appendCliOutputPage,
       cliOutputProgress,
+      resetCliOutputHistory,
+      cliOutputDemand: cliOutputDemandSignal.asReadonly(),
     } as unknown as AgentMonitorStore;
 
     const vscodeMock = {
@@ -216,57 +226,93 @@ describe('SessionLoaderService', () => {
       expect(loadCliSessions).toHaveBeenCalledTimes(1);
     });
 
-    it('deduplicates concurrent output loads and accepts each ordered page once', async () => {
-      tabBindingsSignal.set([{ id: 'tab-1', claudeSessionId: SESSION }]);
+    const outputPageCalls = (): unknown[][] =>
+      rpcCall.mock.calls.filter(([m]) => m === 'session:cli-output-page');
+
+    const settle = (): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, 0));
+
+    function expand(...agentIds: string[]): void {
+      cliOutputDemandSignal.set(
+        agentIds.map((agentId) => ({ sessionId: SESSION, agentId })),
+      );
       TestBed.tick();
-      const first = deferred<{
-        success: true;
-        data: {
-          items: readonly [{ tag: 'segment'; value: { type: 'text'; content: 'one' } }];
-          nextCursor: string;
-          done: false;
-        };
-      }>();
-      let pageCalls = 0;
-      rpcCall.mockImplementation((method: string) => {
+    }
+
+    function pagedOutput(
+      pages: Record<string, unknown>,
+    ): (
+      method: string,
+      params: { cursor?: string; agentId?: string },
+    ) => Promise<unknown> {
+      return (method, params) => {
         if (method === 'session:cli-sessions') {
-          return Promise.resolve({ success: true, data: { cliSessions: refs } });
-        }
-        if (method === 'session:cli-output-page') {
-          pageCalls++;
-          if (pageCalls === 1) return first.promise;
           return Promise.resolve({
             success: true,
-            data: {
-              items: [
-                {
-                  tag: 'streamEvent',
-                  value: { id: 'two', eventType: 'text_delta' },
-                },
-              ],
-              nextCursor: null,
-              done: true,
-            },
+            data: { cliSessions: refs },
           });
         }
+        if (method === 'session:cli-output-page') {
+          return Promise.resolve(pages[params.cursor ?? 'start']);
+        }
         return Promise.resolve({ success: true, data: {} });
-      });
+      };
+    }
 
-      const one = service.restoreCliSessionsForSession(SESSION);
-      const two = service.restoreCliSessionsForSession(SESSION);
-      await Promise.all([one, two]);
-      first.resolve({
-        success: true,
-        data: {
-          items: [{ tag: 'segment', value: { type: 'text', content: 'one' } }],
-          nextCursor: '1',
-          done: false,
+    const firstPage = {
+      success: true,
+      data: {
+        items: [{ tag: 'segment', value: { type: 'text', content: 'one' } }],
+        nextCursor: '1',
+        done: false,
+      },
+    };
+    const lastPage = {
+      success: true,
+      data: {
+        items: [{ tag: 'segment', value: { type: 'text', content: 'two' } }],
+        nextCursor: null,
+        done: true,
+      },
+    };
+
+    it('requests no output page at restore until a card is expanded, then pages it once', async () => {
+      tabBindingsSignal.set([{ id: 'tab-1', claudeSessionId: SESSION }]);
+      TestBed.tick();
+      rpcCall.mockImplementation(
+        pagedOutput({ start: firstPage, '1': lastPage }),
+      );
+
+      await service.restoreCliSessionsForSession(SESSION);
+      TestBed.tick();
+      await settle();
+      TestBed.tick();
+      await settle();
+
+      expect(loadCliSessions).toHaveBeenCalledWith(refs, SESSION);
+      expect(outputPageCalls()).toHaveLength(0);
+
+      expand('a1');
+      await settle();
+      TestBed.tick();
+      await settle();
+      TestBed.tick();
+      await settle();
+
+      expect(outputPageCalls().map(([, params]) => params)).toEqual([
+        {
+          sessionId: SESSION,
+          agentId: 'a1',
+          cursor: undefined,
+          maxBytes: 128 * 1024,
         },
-      });
-      await first.promise;
-      await new Promise((resolve) => setTimeout(resolve, 0));
-
-      expect(pageCalls).toBe(2);
+        {
+          sessionId: SESSION,
+          agentId: 'a1',
+          cursor: '1',
+          maxBytes: 128 * 1024,
+        },
+      ]);
       expect(appendCliOutputPage.mock.calls).toEqual([
         [
           SESSION,
@@ -277,15 +323,48 @@ describe('SessionLoaderService', () => {
         [
           SESSION,
           'a1',
-          [
-            {
-              tag: 'streamEvent',
-              value: { id: 'two', eventType: 'text_delta' },
-            },
-          ],
+          [{ tag: 'segment', value: { type: 'text', content: 'two' } }],
           { requestCursor: '1', nextCursor: undefined, done: true },
         ],
       ]);
+    });
+
+    it('keeps at most one output load in flight per session and serves the next card after it', async () => {
+      tabBindingsSignal.set([{ id: 'tab-1', claudeSessionId: SESSION }]);
+      TestBed.tick();
+      const first = deferred<unknown>();
+      const requested: string[] = [];
+      rpcCall.mockImplementation(
+        (method: string, params: { agentId?: string }) => {
+          if (method === 'session:cli-output-page') {
+            requested.push(params.agentId ?? '');
+            if (params.agentId === 'a1') return first.promise;
+            return Promise.resolve({
+              success: true,
+              data: { items: [], nextCursor: null, done: true },
+            });
+          }
+          return Promise.resolve({ success: true, data: {} });
+        },
+      );
+
+      expand('a1', 'a2');
+      expand('a1', 'a2');
+      await settle();
+      TestBed.tick();
+      await settle();
+
+      expect(requested).toEqual(['a1']);
+
+      first.resolve({
+        success: true,
+        data: { items: [], nextCursor: null, done: true },
+      });
+      await settle();
+      TestBed.tick();
+      await settle();
+
+      expect(requested).toEqual(['a1', 'a2']);
     });
 
     it('drops an output page that resolves after its tab closes or rebinds', async () => {
@@ -296,14 +375,12 @@ describe('SessionLoaderService', () => {
         data: { items: readonly []; nextCursor: null; done: true };
       }>();
       rpcCall.mockImplementation((method: string) =>
-        method === 'session:cli-sessions'
-          ? Promise.resolve({ success: true, data: { cliSessions: refs } })
-          : method === 'session:cli-output-page'
-            ? pending.promise
-            : Promise.resolve({ success: true, data: {} }),
+        method === 'session:cli-output-page'
+          ? pending.promise
+          : Promise.resolve({ success: true, data: {} }),
       );
 
-      await service.restoreCliSessionsForSession(SESSION);
+      expand('a1');
       tabBindingsSignal.set([{ id: 'tab-1', claudeSessionId: 'sess-other' }]);
       TestBed.tick();
       pending.resolve({
@@ -316,47 +393,51 @@ describe('SessionLoaderService', () => {
       expect(appendCliOutputPage).not.toHaveBeenCalled();
     });
 
-    it('continues from the last accepted cursor after a partial failure', async () => {
+    it('stops on a failed page, then continues from the last accepted cursor when the session is restored again', async () => {
       tabBindingsSignal.set([{ id: 'tab-1', claudeSessionId: SESSION }]);
       TestBed.tick();
       const requestedCursors: Array<string | undefined> = [];
       let outputAttempt = 0;
-      rpcCall.mockImplementation((method: string, params: { cursor?: string }) => {
-        if (method === 'session:cli-sessions') {
-          return Promise.resolve({ success: true, data: { cliSessions: refs } });
-        }
-        if (method === 'session:cli-output-page') {
-          requestedCursors.push(params.cursor);
-          outputAttempt++;
-          if (outputAttempt === 1) {
+      rpcCall.mockImplementation(
+        (method: string, params: { cursor?: string }) => {
+          if (method === 'session:cli-sessions') {
             return Promise.resolve({
               success: true,
-              data: {
-                items: [{ tag: 'segment', value: { type: 'text', content: 'one' } }],
-                nextCursor: '1',
-                done: false,
-              },
+              data: { cliSessions: refs },
             });
           }
-          if (outputAttempt === 2) {
-            return Promise.resolve({ success: false, error: 'temporary' });
+          if (method === 'session:cli-output-page') {
+            requestedCursors.push(params.cursor);
+            outputAttempt++;
+            if (outputAttempt === 1) return Promise.resolve(firstPage);
+            if (outputAttempt === 2) {
+              return Promise.resolve({ success: false, error: 'temporary' });
+            }
+            return Promise.resolve(lastPage);
           }
-          return Promise.resolve({
-            success: true,
-            data: {
-              items: [{ tag: 'segment', value: { type: 'text', content: 'two' } }],
-              nextCursor: null,
-              done: true,
-            },
-          });
-        }
-        return Promise.resolve({ success: true, data: {} });
-      });
+          return Promise.resolve({ success: true, data: {} });
+        },
+      );
 
       await service.restoreCliSessionsForSession(SESSION);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      expand('a1');
+      await settle();
+      TestBed.tick();
+      await settle();
+      TestBed.tick();
+      await settle();
+
+      expect(requestedCursors).toEqual([undefined, '1']);
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[SessionLoaderService] Failed to page CLI output',
+        expect.objectContaining({ sessionId: SESSION }),
+      );
+
       await service.restoreCliSessionsForSession(SESSION);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      TestBed.tick();
+      await settle();
+      TestBed.tick();
+      await settle();
 
       expect(requestedCursors).toEqual([undefined, '1', '1']);
       expect(appendCliOutputPage.mock.calls).toEqual([
@@ -377,7 +458,6 @@ describe('SessionLoaderService', () => {
     });
 
     it('resumes a load restarted by a binding change from the merged cursor, never re-appending output', async () => {
-      // Emulates the store contract: a card merges a page only at its own cursor.
       const merged: string[] = [];
       let cardCursor: string | undefined;
       let cardDone = false;
@@ -408,73 +488,98 @@ describe('SessionLoaderService', () => {
       const requestedCursors: Array<string | undefined> = [];
       rpcCall.mockImplementation(
         (method: string, params: { cursor?: string }) => {
-          if (method === 'session:cli-sessions') {
-            return Promise.resolve({
-              success: true,
-              data: { cliSessions: refs },
-            });
-          }
           if (method === 'session:cli-output-page') {
             requestedCursors.push(params.cursor);
-            if (params.cursor === undefined) {
-              return Promise.resolve({
-                success: true,
-                data: {
-                  items: [
-                    { tag: 'segment', value: { type: 'text', content: 'one' } },
-                  ],
-                  nextCursor: '1',
-                  done: false,
-                },
-              });
-            }
-            const secondPage = {
-              success: true,
-              data: {
-                items: [
-                  { tag: 'segment', value: { type: 'text', content: 'two' } },
-                ],
-                nextCursor: null,
-                done: true,
-              },
-            };
+            if (params.cursor === undefined) return Promise.resolve(firstPage);
             return requestedCursors.length === 2
               ? staleSecondPage.promise
-              : Promise.resolve(secondPage);
+              : Promise.resolve(lastPage);
           }
           return Promise.resolve({ success: true, data: {} });
         },
       );
 
-      await service.restoreCliSessionsForSession(SESSION);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      expand('a1');
+      await settle();
       expect(requestedCursors).toEqual([undefined, '1']);
 
-      // A second canvas tile binds the same session while page 2 is in flight.
       tabBindingsSignal.set([
         { id: 'tab-1', claudeSessionId: SESSION },
         { id: 'tab-2', claudeSessionId: SESSION },
       ]);
       TestBed.tick();
-      staleSecondPage.resolve({
-        success: true,
-        data: {
-          items: [{ tag: 'segment', value: { type: 'text', content: 'two' } }],
-          nextCursor: null,
-          done: true,
-        },
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-
-      // The tile's own resume re-applies the same lean references.
-      service['applyCliSessions'](
-        refs as unknown as Parameters<SessionLoaderService['applyCliSessions']>[0],
-        SESSION,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      staleSecondPage.resolve(lastPage);
+      await settle();
+      TestBed.tick();
+      await settle();
+      TestBed.tick();
+      await settle();
 
       expect(requestedCursors).toEqual([undefined, '1', '1']);
       expect(merged).toEqual(['one', 'two']);
+    });
+
+    it('resets the card and restarts once from the first page on a stale cursor', async () => {
+      tabBindingsSignal.set([{ id: 'tab-1', claudeSessionId: SESSION }]);
+      TestBed.tick();
+      const requestedCursors: Array<string | undefined> = [];
+      rpcCall.mockImplementation(
+        (method: string, params: { cursor?: string }) => {
+          if (method === 'session:cli-output-page') {
+            requestedCursors.push(params.cursor);
+            if (requestedCursors.length === 2) {
+              return Promise.resolve({
+                success: false,
+                error: 'Agent output changed',
+                errorCode: 'OUTPUT_CURSOR_STALE',
+              });
+            }
+            return Promise.resolve(
+              params.cursor === undefined ? firstPage : lastPage,
+            );
+          }
+          return Promise.resolve({ success: true, data: {} });
+        },
+      );
+
+      expand('a1');
+      await settle();
+      TestBed.tick();
+      await settle();
+
+      expect(resetCliOutputHistory).toHaveBeenCalledTimes(1);
+      expect(resetCliOutputHistory).toHaveBeenCalledWith(SESSION, 'a1');
+      expect(requestedCursors).toEqual([undefined, '1', undefined, '1']);
+      expect(consoleWarn).not.toHaveBeenCalled();
+    });
+
+    it('warns and stops when the cursor is stale again after the restart', async () => {
+      tabBindingsSignal.set([{ id: 'tab-1', claudeSessionId: SESSION }]);
+      TestBed.tick();
+      rpcCall.mockImplementation((method: string) =>
+        method === 'session:cli-output-page'
+          ? Promise.resolve({
+              success: false,
+              error: 'Agent output changed',
+              errorCode: 'OUTPUT_CURSOR_STALE',
+            })
+          : Promise.resolve({ success: true, data: {} }),
+      );
+
+      expand('a1');
+      await settle();
+      TestBed.tick();
+      await settle();
+      TestBed.tick();
+      await settle();
+
+      expect(outputPageCalls()).toHaveLength(2);
+      expect(resetCliOutputHistory).toHaveBeenCalledTimes(1);
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[SessionLoaderService] CLI output cursor stayed stale after a restart',
+        { sessionId: SESSION, agentId: 'a1' },
+      );
+      expect(appendCliOutputPage).not.toHaveBeenCalled();
     });
 
     it('releases the guard when the fetch throws so a later surface retries', async () => {
@@ -590,7 +695,12 @@ describe('SessionLoaderService', () => {
       activeTabIdSignal.set(restoredTabId);
       const stats = {
         totalCost: null,
-        tokens: { input: 40_000, output: 1_000, cacheRead: 0, cacheCreation: 0 },
+        tokens: {
+          input: 40_000,
+          output: 1_000,
+          cacheRead: 0,
+          cacheCreation: 0,
+        },
         messageCount: 3,
         model: 'gpt-5.6-sol',
         modelUsageList: [
@@ -1012,6 +1122,7 @@ describe('SessionLoaderService', () => {
 
       const agentMonitorStoreMock = {
         loadCliSessions: jest.fn(),
+        cliOutputDemand: signal([]),
       } as unknown as AgentMonitorStore;
 
       const vscodeMock = {
@@ -1123,6 +1234,7 @@ describe('SessionLoaderService', () => {
 
       const agentMonitorStoreMock = {
         loadCliSessions: jest.fn(),
+        cliOutputDemand: signal([]),
       } as unknown as AgentMonitorStore;
 
       const vscodeMock = {
@@ -1218,6 +1330,7 @@ describe('SessionLoaderService', () => {
 
       const agentMonitorStoreMock = {
         loadCliSessions: jest.fn(),
+        cliOutputDemand: signal([]),
       } as unknown as AgentMonitorStore;
 
       const vscodeMock = {
@@ -1439,7 +1552,10 @@ describe('SessionLoaderService', () => {
           { provide: StreamingHandlerService, useValue: streamingHandlerMock },
           {
             provide: AgentMonitorStore,
-            useValue: { loadCliSessions: jest.fn() },
+            useValue: {
+              loadCliSessions: jest.fn(),
+              cliOutputDemand: signal([]),
+            },
           },
         ],
       });
@@ -1768,7 +1884,12 @@ describe('SessionLoaderService', () => {
               success: true,
               data: {
                 messages: [
-                  { id: 'm-adopt', role: 'assistant', timestamp: 1, content: 'ok' },
+                  {
+                    id: 'm-adopt',
+                    role: 'assistant',
+                    timestamp: 1,
+                    content: 'ok',
+                  },
                 ],
               },
             }
@@ -1884,7 +2005,12 @@ describe('SessionLoaderService', () => {
               success: true,
               data: {
                 messages: [
-                  { id: 'm-dedupe', role: 'assistant', timestamp: 1, content: 'ok' },
+                  {
+                    id: 'm-dedupe',
+                    role: 'assistant',
+                    timestamp: 1,
+                    content: 'ok',
+                  },
                 ],
               },
             }),
@@ -2141,6 +2267,7 @@ describe('SessionLoaderService targeted replay with the real streaming state pip
       clearAgents: jest.fn(),
       loadCliSessions: jest.fn(),
       markAgentNodesResumed: jest.fn(),
+      cliOutputDemand: signal([]),
     };
 
     TestBed.configureTestingModule({

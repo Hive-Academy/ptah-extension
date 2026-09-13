@@ -34,6 +34,11 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
   let loadCliSessions: jest.Mock;
   let processStreamEvent: jest.Mock;
   let resumeData: Record<string, unknown>;
+  let rpcCall: jest.Mock;
+  let appendCliOutputPage: jest.Mock;
+  let cliOutputDemand: ReturnType<
+    typeof signal<readonly { sessionId: string; agentId: string }[]>
+  >;
 
   beforeEach(() => {
     resumeData = {
@@ -42,11 +47,14 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
       resumableSubagents: [],
     };
 
-    const rpcCall = jest.fn(async (method: string) => {
+    rpcCall = jest.fn(async (method: string) => {
       if (method === 'session:load') return { success: true, data: {} };
       if (method === 'chat:resume') return { success: true, data: resumeData };
       if (method === 'session:cli-output-page') {
-        return { success: true, data: { items: [], nextCursor: null, done: true } };
+        return {
+          success: true,
+          data: { items: [], nextCursor: null, done: true },
+        };
       }
       return {
         success: true,
@@ -77,6 +85,10 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
 
     processStreamEvent = jest.fn();
     loadCliSessions = jest.fn();
+    appendCliOutputPage = jest.fn();
+    cliOutputDemand = signal<readonly { sessionId: string; agentId: string }[]>(
+      [],
+    );
 
     TestBed.configureTestingModule({
       providers: [
@@ -107,8 +119,10 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
           provide: AgentMonitorStore,
           useValue: {
             loadCliSessions,
-            appendCliOutputPage: jest.fn(),
+            appendCliOutputPage,
             cliOutputProgress: jest.fn(() => null),
+            resetCliOutputHistory: jest.fn(),
+            cliOutputDemand: cliOutputDemand.asReadonly(),
           },
         },
       ],
@@ -117,6 +131,50 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
   });
 
   afterEach(() => TestBed.resetTestingModule());
+
+  const outputPageCalls = (): unknown[][] =>
+    rpcCall.mock.calls.filter(
+      ([method]) => method === 'session:cli-output-page',
+    );
+
+  const settle = async (): Promise<void> => {
+    for (let round = 0; round < 3; round++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  };
+
+  it('requests no output page at resume until a card is expanded', async () => {
+    await service.switchSession(SESSION);
+    await settle();
+
+    expect(loadCliSessions).toHaveBeenCalledWith(REFS, SESSION);
+    expect(outputPageCalls()).toHaveLength(0);
+    expect(appendCliOutputPage).not.toHaveBeenCalled();
+  });
+
+  it('pages exactly one sequence for the card that is expanded', async () => {
+    await service.switchSession(SESSION);
+    await settle();
+
+    cliOutputDemand.set([{ sessionId: SESSION, agentId: 'a2' }]);
+    await settle();
+    await settle();
+
+    expect(outputPageCalls()).toEqual([
+      [
+        'session:cli-output-page',
+        {
+          sessionId: SESSION,
+          agentId: 'a2',
+          cursor: undefined,
+          maxBytes: 128 * 1024,
+        },
+        { signal: expect.any(AbortSignal) },
+      ],
+    ]);
+    expect(appendCliOutputPage).toHaveBeenCalledTimes(1);
+  });
 
   it('restores the cards on a normal resume', async () => {
     await service.switchSession(SESSION);

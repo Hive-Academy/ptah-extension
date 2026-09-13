@@ -55,14 +55,16 @@ interface SwitchSessionOptions {
   targetTabId?: TabId;
 }
 
+type CliOutputLoadOutcome = 'settled' | 'stale';
+
 interface CliOutputLoadState {
-  readonly sessionId: SessionId;
+  readonly sessionId: string;
   readonly agentId: string;
   readonly generation: number;
   readonly bindingTabIds: ReadonlySet<string>;
   cursor: string | undefined;
   done: boolean;
-  inFlight: Promise<void> | null;
+  inFlight: Promise<CliOutputLoadOutcome> | null;
   abortController: AbortController | null;
 }
 
@@ -106,6 +108,9 @@ export class SessionLoaderService {
    */
   private readonly _cliSessionsRestored = new Set<string>();
   private readonly cliOutputLoads = new Map<string, CliOutputLoadState>();
+  private readonly cliOutputSessionsLoading = new Set<string>();
+  private readonly haltedCliOutputLoads = new Map<string, string>();
+  private readonly _cliOutputServeEpoch = signal(0);
   private cliOutputGeneration = 0;
   private static readonly SESSIONS_PAGE_SIZE = 30;
 
@@ -216,6 +221,11 @@ export class SessionLoaderService {
         sessionId: tab.claudeSessionId,
       }));
       untracked(() => this.invalidateChangedCliOutputBindings(bindings));
+    });
+    effect(() => {
+      const demand = this.agentMonitorStore.cliOutputDemand();
+      this._cliOutputServeEpoch();
+      untracked(() => this.serveCliOutputDemand(demand));
     });
   }
 
@@ -828,8 +838,8 @@ export class SessionLoaderService {
     // post-compaction seed before this targeted-reload guard can preserve it.
     const compactionContextSeed =
       options?.preserveCompactionContextSeed === true
-        ? this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
-            .liveModelStats ?? null
+        ? (this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
+            .liveModelStats ?? null)
         : null;
 
     this.tabManager.applyLoadedSessionStats(tabId, stats, stats.model ?? null);
@@ -880,7 +890,9 @@ export class SessionLoaderService {
     carried: number | undefined,
     model: string,
   ): number {
-    return typeof carried === 'number' && Number.isFinite(carried) && carried > 0
+    return typeof carried === 'number' &&
+      Number.isFinite(carried) &&
+      carried > 0
       ? carried
       : getModelContextWindow(model);
   }
@@ -899,14 +911,14 @@ export class SessionLoaderService {
     if (!this.hasCliOutputLoadState(sessionId, cliSessions)) {
       this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
     }
-    void this.loadCliOutputPages(sessionId, cliSessions);
+    this.releaseHaltedCliOutput(sessionId);
   }
 
-  private cliOutputLoadKey(sessionId: SessionId, agentId: string): string {
+  private cliOutputLoadKey(sessionId: string, agentId: string): string {
     return `${sessionId} ${agentId}`;
   }
 
-  private currentBindingTabIds(sessionId: SessionId): ReadonlySet<string> {
+  private currentBindingTabIds(sessionId: string): ReadonlySet<string> {
     return new Set(
       this.tabManager
         .tabs()
@@ -937,7 +949,10 @@ export class SessionLoaderService {
   }
 
   private invalidateChangedCliOutputBindings(
-    bindings: readonly { readonly tabId: string; readonly sessionId: string | null }[],
+    bindings: readonly {
+      readonly tabId: string;
+      readonly sessionId: string | null;
+    }[],
   ): void {
     for (const [key, state] of this.cliOutputLoads) {
       const current = new Set(
@@ -966,33 +981,90 @@ export class SessionLoaderService {
     });
   }
 
-  private loadCliOutputPages(
-    sessionId: SessionId,
-    cliSessions: readonly CliSessionReference[],
-  ): Promise<void> {
-    return Promise.all(
-      cliSessions.map(({ agentId, segments, streamEvents }) => {
-        // Non-async adapters retain the established fully-hydrated response.
-        if ((segments?.length ?? 0) > 0 || (streamEvents?.length ?? 0) > 0) {
-          return Promise.resolve();
-        }
-        return this.loadCliOutputForAgent(sessionId, agentId);
-      }),
-    )
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        this._cliSessionsRestored.delete(sessionId);
-        console.warn('[SessionLoaderService] Failed to page CLI output', {
-          sessionId,
-          error,
-        });
+  private serveCliOutputDemand(
+    demand: readonly { readonly sessionId: string; readonly agentId: string }[],
+  ): void {
+    const demanded = new Set(
+      demand.map(({ sessionId, agentId }) =>
+        this.cliOutputLoadKey(sessionId, agentId),
+      ),
+    );
+    for (const key of this.haltedCliOutputLoads.keys()) {
+      if (!demanded.has(key)) this.haltedCliOutputLoads.delete(key);
+    }
+    for (const { sessionId, agentId } of demand) {
+      if (this.cliOutputSessionsLoading.has(sessionId)) continue;
+      if (
+        this.haltedCliOutputLoads.has(this.cliOutputLoadKey(sessionId, agentId))
+      )
+        continue;
+      this.cliOutputSessionsLoading.add(sessionId);
+      void this.loadDemandedCliOutput(sessionId, agentId).finally(() => {
+        this.cliOutputSessionsLoading.delete(sessionId);
+        this._cliOutputServeEpoch.update((epoch) => epoch + 1);
       });
+    }
+  }
+
+  private async loadDemandedCliOutput(
+    sessionId: string,
+    agentId: string,
+  ): Promise<void> {
+    const key = this.cliOutputLoadKey(sessionId, agentId);
+    try {
+      let outcome = await this.loadCliOutputForAgent(sessionId, agentId);
+      if (outcome === 'stale') {
+        this.restartCliOutputHistory(sessionId, agentId);
+        outcome = await this.loadCliOutputForAgent(sessionId, agentId);
+      }
+      if (outcome === 'stale') {
+        this.haltedCliOutputLoads.set(key, sessionId);
+        console.warn(
+          '[SessionLoaderService] CLI output cursor stayed stale after a restart',
+          { sessionId, agentId },
+        );
+        return;
+      }
+      const state = this.cliOutputLoads.get(key);
+      const progress = this.agentMonitorStore.cliOutputProgress(
+        sessionId,
+        agentId,
+      );
+      if (
+        state?.done === true &&
+        this.isCliOutputLoadCurrent(state) &&
+        progress?.done !== true
+      ) {
+        this.haltedCliOutputLoads.set(key, sessionId);
+      }
+    } catch (error: unknown) {
+      this.haltedCliOutputLoads.set(key, sessionId);
+      this._cliSessionsRestored.delete(sessionId);
+      console.warn('[SessionLoaderService] Failed to page CLI output', {
+        sessionId,
+        error,
+      });
+    }
+  }
+
+  private restartCliOutputHistory(sessionId: string, agentId: string): void {
+    const key = this.cliOutputLoadKey(sessionId, agentId);
+    this.cliOutputLoads.get(key)?.abortController?.abort();
+    this.cliOutputLoads.delete(key);
+    this.agentMonitorStore.resetCliOutputHistory(sessionId, agentId);
+  }
+
+  private releaseHaltedCliOutput(sessionId: string): void {
+    for (const [key, haltedSessionId] of this.haltedCliOutputLoads) {
+      if (haltedSessionId === sessionId) this.haltedCliOutputLoads.delete(key);
+    }
+    this._cliOutputServeEpoch.update((epoch) => epoch + 1);
   }
 
   private loadCliOutputForAgent(
-    sessionId: SessionId,
+    sessionId: string,
     agentId: string,
-  ): Promise<void> {
+  ): Promise<CliOutputLoadOutcome> {
     const key = this.cliOutputLoadKey(sessionId, agentId);
     let state = this.cliOutputLoads.get(key);
     if (state && !this.isCliOutputLoadCurrent(state)) {
@@ -1020,7 +1092,7 @@ export class SessionLoaderService {
       };
       this.cliOutputLoads.set(key, state);
     }
-    if (state.done) return Promise.resolve();
+    if (state.done) return Promise.resolve('settled');
     if (state.inFlight) return state.inFlight;
 
     const promise = this.runCliOutputLoad(state).finally(() => {
@@ -1030,7 +1102,9 @@ export class SessionLoaderService {
     return promise;
   }
 
-  private async runCliOutputLoad(state: CliOutputLoadState): Promise<void> {
+  private async runCliOutputLoad(
+    state: CliOutputLoadState,
+  ): Promise<CliOutputLoadOutcome> {
     while (!state.done && this.isCliOutputLoadCurrent(state)) {
       const requestCursor = state.cursor;
       const abortController = new AbortController();
@@ -1047,20 +1121,26 @@ export class SessionLoaderService {
       );
       if (
         !this.isCliOutputLoadCurrent(state) ||
-        state.generation !== this.cliOutputLoads.get(
-          this.cliOutputLoadKey(state.sessionId, state.agentId),
-        )?.generation ||
+        state.generation !==
+          this.cliOutputLoads.get(
+            this.cliOutputLoadKey(state.sessionId, state.agentId),
+          )?.generation ||
         state.cursor !== requestCursor
       ) {
-        return;
+        return 'settled';
       }
       state.abortController = null;
+      if (!result.success && result.errorCode === 'OUTPUT_CURSOR_STALE') {
+        return 'stale';
+      }
       if (!result.success || !result.data) {
         throw new Error(result.error ?? 'CLI output page request failed');
       }
       const nextCursor = result.data.nextCursor ?? undefined;
       if (!result.data.done && (!nextCursor || nextCursor === requestCursor)) {
-        throw new Error('CLI output page returned an invalid continuation cursor');
+        throw new Error(
+          'CLI output page returned an invalid continuation cursor',
+        );
       }
       this.agentMonitorStore.appendCliOutputPage(
         state.sessionId,
@@ -1071,6 +1151,7 @@ export class SessionLoaderService {
       state.cursor = nextCursor;
       state.done = result.data.done;
     }
+    return 'settled';
   }
 
   /**
@@ -1113,7 +1194,7 @@ export class SessionLoaderService {
         if (!this.hasCliOutputLoadState(sessionId, cliSessions)) {
           this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
         }
-        void this.loadCliOutputPages(sessionId, cliSessions);
+        this.releaseHaltedCliOutput(sessionId);
         return;
       }
       if (!result.success) {
