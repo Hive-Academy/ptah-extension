@@ -482,6 +482,8 @@ file is generated and can be stale. Never rename an existing folder.
 `;
 }
 
+export type TaskSpecAgentAudience = 'coordinator' | 'specialist';
+
 /**
  * Render the task-spec rules block that every subagent template embeds.
  *
@@ -502,8 +504,42 @@ file is generated and can be stale. Never rename an existing folder.
  *
  * Written as RULES, not prose: an agent reads this mid-prompt and the only
  * useful shape is the shortest one that still says what is forbidden.
+ *
+ * `coordinator` renders id allocation and carrier authoring for the roles that
+ * create tasks and record state; `specialist` renders only what a role writing
+ * one deliverable into a folder it was handed needs.
  */
-export function renderTaskSpecAgentBlock(): string {
+export function renderTaskSpecAgentBlock(
+  audience: TaskSpecAgentAudience,
+): string {
+  return audience === 'coordinator'
+    ? renderCoordinatorBlock()
+    : renderSpecialistBlock();
+}
+
+function recognisedDocList(): string {
+  return `${DOC_FILES.filter((name) => !isLegacyDocFile(name))
+    .map((name) => `\`${name}\``)
+    .join(', ')}, plus \`${LEGACY_BATCHES_FILE}\``;
+}
+
+function renderSpecialistBlock(): string {
+  return `## Task specs (\`${SPEC_ROOT}/\`)
+
+- Work in the task folder you were handed. Its name, \`TASK_YYYY_NNN_xxxx\`, is the
+  canonical id. Never create, allocate or rename a task folder.
+- \`${CARRIER_FILE}\` is the machine-owned carrier: read it, never edit it.
+  \`${CONTEXT_FILE}\` holds intent. \`${BATCHES_FILE}\` holds the team-leader batch
+  breakdown; its former name \`${LEGACY_BATCHES_FILE}\` is still read.
+- State is not yours. The carrier's \`status:\` line belongs to the orchestrator,
+  project-manager and team-leader; task states in \`${BATCHES_FILE}\` belong to the
+  team-leader alone. Report what you finished, with evidence.
+- Write your deliverable under the filename your output contract names. Only
+  these are read from a task folder: ${recognisedDocList()}.
+`;
+}
+
+function renderCoordinatorBlock(): string {
   const statuses = TASK_STATUSES.join(' | ');
 
   return `## Task specs (\`${SPEC_ROOT}/\`)
@@ -521,6 +557,9 @@ export function renderTaskSpecAgentBlock(): string {
   (\`${statuses}\`). Never rewrite the carrier with \`Write\` — Ptah writes this
   file too, and a whole-file write from a stale snapshot discards the other
   writer's change.
+- The team-leader alone sets task states in \`${BATCHES_FILE}\`. Specialists
+  report what they finished and never edit \`${CARRIER_FILE}\` or
+  \`${BATCHES_FILE}\`; do not ask them to.
 - \`description\` (and any \`title\` containing a colon) MUST be a \`>-\` block
   scalar. A plain YAML scalar ends at the first colon-space, so one quoted code
   snippet makes the carrier unparseable and the task vanishes from the board.
@@ -531,12 +570,7 @@ export function renderTaskSpecAgentBlock(): string {
   characters (\`TASK_YYYY_NNN_xxxx\`). Claim the folder with an exclusive,
   fail-if-exists \`mkdir\`; it is the lock. Never read the id from \`registry.md\`
   — it is generated and can be stale. Never rename an existing folder.
-- Only these documents are read from a task folder: ${DOC_FILES.filter(
-    (name) => !isLegacyDocFile(name),
-  )
-    .map((name) => `\`${name}\``)
-    .join(
-      ', ',
-    )}, plus \`${LEGACY_BATCHES_FILE}\`. Any other name is not picked up.
+- Only these documents are read from a task folder: ${recognisedDocList()}. Any
+  other name is not picked up.
 `;
 }

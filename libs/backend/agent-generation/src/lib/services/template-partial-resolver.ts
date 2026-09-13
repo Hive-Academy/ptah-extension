@@ -39,7 +39,11 @@ import { injectable, inject } from 'tsyringe';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { Result, renderTaskSpecAgentBlock } from '@ptah-extension/shared';
+import {
+  Result,
+  renderTaskSpecAgentBlock,
+  type TaskSpecAgentAudience,
+} from '@ptah-extension/shared';
 import { TemplateError } from '../errors/template.error';
 
 /** Sub-directory of the templates dir holding the partial files. */
@@ -65,14 +69,27 @@ export const SHARED_BLOCK_IDS = [
 /** Literal union of every registered shared block id. */
 export type SharedBlockId = (typeof SHARED_BLOCK_IDS)[number];
 
+export const TASK_SPEC_COORDINATOR_TEMPLATES: readonly string[] = [
+  'project-manager',
+  'team-leader',
+];
+
+export function taskSpecAudienceFor(templateId: string): TaskSpecAgentAudience {
+  return TASK_SPEC_COORDINATOR_TEMPLATES.includes(templateId)
+    ? 'coordinator'
+    : 'specialist';
+}
+
 /**
  * Block ids whose content is GENERATED from constants rather than read from
  * `_shared/`. Mapped to their renderer so the resolver has one lookup, not a
  * special case in the middle of the replace loop.
  */
-const DERIVED_BLOCKS: Readonly<Record<string, () => string>> = {
-  TASK_SPEC_CONTRACT: renderTaskSpecAgentBlock,
-};
+const DERIVED_BLOCKS: Readonly<Record<string, (templateId: string) => string>> =
+  {
+    TASK_SPEC_CONTRACT: (templateId) =>
+      renderTaskSpecAgentBlock(taskSpecAudienceFor(templateId)),
+  };
 
 /** `<id>` → `_shared/<id-in-kebab-case>.md`. */
 export function partialFileName(id: string): string {
@@ -278,7 +295,7 @@ export class TemplatePartialResolver {
   ): Promise<Result<string, Error>> {
     const derive = DERIVED_BLOCKS[id];
     if (derive) {
-      return Result.ok(derive());
+      return Result.ok(derive(templateId));
     }
 
     const fileName = partialFileName(id);

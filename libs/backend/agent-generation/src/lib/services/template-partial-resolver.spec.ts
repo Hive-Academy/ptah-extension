@@ -19,8 +19,10 @@ jest.mock('@ptah-extension/vscode-core', () => ({
 
 import { renderTaskSpecAgentBlock } from '@ptah-extension/shared';
 import {
+  TASK_SPEC_COORDINATOR_TEMPLATES,
   TemplatePartialResolver,
   partialFileName,
+  taskSpecAudienceFor,
 } from './template-partial-resolver';
 
 const logger = {
@@ -95,8 +97,30 @@ describe('TemplatePartialResolver', () => {
       '<!-- STATIC:TASK_SPEC_CONTRACT -->\n<!-- /STATIC:TASK_SPEC_CONTRACT -->\n',
     );
     expect(result.value!.blocks[0].content).toBe(
-      renderTaskSpecAgentBlock().trim(),
+      renderTaskSpecAgentBlock('specialist').trim(),
     );
+  });
+
+  it.each(TASK_SPEC_COORDINATOR_TEMPLATES)(
+    'renders the coordinator TASK_SPEC_CONTRACT for %s',
+    async (templateId) => {
+      const result = await resolver.resolve(
+        templateId,
+        '<!-- STATIC:TASK_SPEC_CONTRACT -->\n<!-- /STATIC:TASK_SPEC_CONTRACT -->\n',
+        dir,
+      );
+      expect(result.value!.blocks[0].content).toBe(
+        renderTaskSpecAgentBlock('coordinator').trim(),
+      );
+    },
+  );
+
+  it('maps only the coordinator templates to the coordinator audience', () => {
+    expect(taskSpecAudienceFor('team-leader')).toBe('coordinator');
+    expect(taskSpecAudienceFor('project-manager')).toBe('coordinator');
+    expect(taskSpecAudienceFor('backend-developer')).toBe('specialist');
+    expect(taskSpecAudienceFor('some-agent')).toBe('specialist');
+    expect(taskSpecAudienceFor('')).toBe('specialist');
   });
 
   it('fills declared slots', async () => {

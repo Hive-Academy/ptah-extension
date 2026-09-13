@@ -34,6 +34,8 @@ import {
   SHARED_PARTIALS_DIR,
   TemplatePartialResolver,
   partialFileName,
+  taskSpecAudienceFor,
+  type SharedBlockId,
 } from './template-partial-resolver';
 
 const TEMPLATES_DIR = path.join(
@@ -907,6 +909,31 @@ describe('Ptah-only terms', () => {
 // (e) every template resolves, and resolution leaves no slot behind
 // ---------------------------------------------------------------------------
 
+const guardResolver = new TemplatePartialResolver({
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+} as never);
+
+async function resolveTemplate(file: string) {
+  const parsed = matter(read(file));
+  const raw = parsed.data['variables'];
+  const result = await guardResolver.resolve(
+    file.replace('.template.md', ''),
+    parsed.content,
+    PARTIALS_DIR,
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, string>)
+      : {},
+  );
+  const resolution = result.value;
+  if (result.isErr() || !resolution) {
+    throw result.error ?? new Error(`${file} did not resolve`);
+  }
+  return resolution;
+}
+
 describe('partial resolution', () => {
   const resolver = new TemplatePartialResolver({
     debug: jest.fn(),
@@ -946,23 +973,126 @@ describe('partial resolution', () => {
     const withBlock = FILES.filter((file) =>
       read(file).includes('STATIC:TASK_SPEC_CONTRACT'),
     );
-    // If no template uses it, the derived block is dead code — say so loudly.
     expect(withBlock.length).toBeGreaterThan(0);
 
-    const parsed = matter(read(withBlock[0]));
-    const raw = parsed.data['variables'];
-    const result = await resolver.resolve(
-      withBlock[0].replace('.template.md', ''),
-      parsed.content,
-      PARTIALS_DIR,
-      raw && typeof raw === 'object' && !Array.isArray(raw)
-        ? (raw as Record<string, string>)
-        : {},
-    );
+    for (const file of withBlock) {
+      const { blocks } = await resolveTemplate(file);
+      const block = blocks.find((b) => b.id === 'TASK_SPEC_CONTRACT');
+      expect(block?.content).toBe(
+        renderTaskSpecAgentBlock(
+          taskSpecAudienceFor(file.replace('.template.md', '')),
+        ).trim(),
+      );
+    }
+  });
+});
 
-    const block = result.value!.blocks.find(
-      (b) => b.id === 'TASK_SPEC_CONTRACT',
+// ---------------------------------------------------------------------------
+// (i) a partial is a grant, and each role gets exactly the grants it may use
+// ---------------------------------------------------------------------------
+
+const TOOLING: SharedBlockId = 'TOOLING_PRECEDENCE';
+const TASK_SPEC: SharedBlockId = 'TASK_SPEC_CONTRACT';
+const CLARIFY: SharedBlockId = 'CLARIFICATION_PROTOCOL';
+const REPLACE: SharedBlockId = 'REPLACEMENT_POLICY';
+const DELEGATE: SharedBlockId = 'CLI_DELEGATION';
+const STANCE: SharedBlockId = 'REVIEWER_STANCE';
+
+const ROLE_PARTIALS: Readonly<Record<string, readonly SharedBlockId[]>> = {
+  'backend-developer': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
+  'code-logic-reviewer': [TOOLING, TASK_SPEC, CLARIFY, DELEGATE, STANCE],
+  'code-style-reviewer': [TOOLING, TASK_SPEC, CLARIFY, DELEGATE, STANCE],
+  'devops-engineer': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
+  'frontend-developer': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
+  'modernization-detector': [TOOLING, TASK_SPEC, CLARIFY, DELEGATE],
+  'project-manager': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
+  'researcher-expert': [TOOLING, TASK_SPEC, CLARIFY, DELEGATE],
+  'senior-tester': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
+  'software-architect': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
+  'team-leader': [TOOLING, TASK_SPEC, CLARIFY, REPLACE],
+  'technical-content-writer': [TOOLING, TASK_SPEC, CLARIFY, DELEGATE],
+  'ui-ux-designer': [TOOLING, TASK_SPEC, CLARIFY, REPLACE],
+  'video-director': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
+  'visual-reviewer': [TOOLING, TASK_SPEC, CLARIFY, STANCE],
+};
+
+const NON_DELEGATING_ROLES: ReadonlyArray<{ role: string; why: string }> = [
+  {
+    role: 'team-leader',
+    why: 'Advisory by contract: it recommends CLI lanes and never spawns one, so a spawn loop in its prompt contradicts its own boundary.',
+  },
+  {
+    role: 'visual-reviewer',
+    why: 'Its evidence is a live browser session. A CLI lane has no browser, so a delegated finding carries no screenshot.',
+  },
+  {
+    role: 'ui-ux-designer',
+    why: 'Design discovery is a dialogue routed through the orchestrator. A lane that shares none of that context invents the answers.',
+  },
+];
+
+function staticIdsOf(file: string): string[] {
+  return markersOf(matter(read(file)).content)
+    .filter((m) => !m.isClose)
+    .map((m) => m.id)
+    .sort();
+}
+
+describe('role grants', () => {
+  it('maps every template in the corpus, and nothing else', () => {
+    expect(Object.keys(ROLE_PARTIALS).sort()).toEqual(
+      FILES.map((file) => file.replace('.template.md', '')),
     );
-    expect(block?.content).toBe(renderTaskSpecAgentBlock().trim());
+  });
+
+  it.each(FILES)(
+    '%s carries exactly the partials its role is granted',
+    (file) => {
+      const role = file.replace('.template.md', '');
+      expect(staticIdsOf(file)).toEqual([...ROLE_PARTIALS[role]].sort());
+    },
+  );
+
+  it.each(NON_DELEGATING_ROLES)(
+    '$role does not expand CLI_DELEGATION',
+    async ({ role, why }) => {
+      expect(why.length).toBeGreaterThan(20);
+      expect(ROLE_PARTIALS[role]).not.toContain(DELEGATE);
+      const { blocks, content } = await resolveTemplate(`${role}.template.md`);
+      expect(blocks.map((b) => b.id)).not.toContain(DELEGATE);
+      expect(content).not.toContain('ptah_agent_list');
+    },
+  );
+});
+
+describe('task-spec audience', () => {
+  const ALLOCATION_TERMS = [
+    'git ls-tree',
+    'git worktree list',
+    'mkdir',
+    'zero-pad',
+  ];
+
+  it.each(FILES)(
+    '%s receives allocation text only if it coordinates',
+    async (file) => {
+      const role = file.replace('.template.md', '');
+      const { content } = await resolveTemplate(file);
+      const found = ALLOCATION_TERMS.filter((term) => content.includes(term));
+      expect(found).toEqual(
+        taskSpecAudienceFor(role) === 'coordinator' ? ALLOCATION_TERMS : [],
+      );
+    },
+  );
+
+  it('names the coordinators explicitly', () => {
+    const coordinators = FILES.filter(
+      (file) =>
+        taskSpecAudienceFor(file.replace('.template.md', '')) === 'coordinator',
+    );
+    expect(coordinators).toEqual([
+      'project-manager.template.md',
+      'team-leader.template.md',
+    ]);
   });
 });
