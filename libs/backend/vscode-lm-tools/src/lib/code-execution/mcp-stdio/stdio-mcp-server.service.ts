@@ -11,9 +11,9 @@
  *   - `initialize` returns a stable `serverInfo` so the MCP handshake can
  *     complete BEFORE `withEngine` finishes bootstrapping the agent SDK
  *     (Risk Register item #4).
- *   - `tools/list` returns the 7 MVP tool definitions with their MCP-wire
+ *   - `tools/list` returns the 8 MVP tool definitions with their MCP-wire
  *     names (no `ptah_` prefix).
- *   - `tools/call` routes to the {@link AgentToolDispatcher} for the six
+ *   - `tools/call` routes to the {@link AgentToolDispatcher} for the seven
  *     `agent_*` wrapper tools and to an injected {@link ISessionSubmitHandler}
  *     for the composite `session_submit` tool. The CLI command supplies the
  *     handler via {@link setSessionSubmitHandler} after `withEngine`
@@ -58,7 +58,7 @@ export interface StdioMcpServerConfig {
   transport: IMcpServer;
   serverInfo: StdioMcpServerInfo;
   /**
-   * Optional override of the tool catalog. Defaults to the full 7-tool MVP
+   * Optional override of the tool catalog. Defaults to the full 8-tool MVP
    * list — the `--allow-tools` flag narrows this in `mcp-serve.ts`.
    */
   allowedTools?: readonly string[];
@@ -142,7 +142,7 @@ export class StdioMcpServerService {
 
   /**
    * Dispatch a `tools/call` invocation through the agent-wrapper dispatcher
-   * (six tools) or the session-submit handler (one tool). Falls back to an
+   * (seven tools) or the session-submit handler (one tool). Falls back to an
    * `isError: true` envelope when the tool name is not in the MVP catalog or
    * when the session-submit handler has not yet been registered.
    */
@@ -241,7 +241,7 @@ export class StdioMcpServerService {
   /**
    * Handle MCP `notifications/cancelled` from the peer. The session-submit
    * handler tracks in-flight composite calls by their MCP `requestId`; the
-   * six wrapper tools execute synchronously against the in-process agent
+   * seven wrapper tools execute synchronously against the in-process agent
    * surface, so no cancellation surface is needed for them.
    */
   async handleCancelled(params: unknown): Promise<void> {
@@ -315,10 +315,21 @@ export class StdioMcpServerService {
           ? process.env?.['PTAH_MCP_HOST_SESSION_ID']
           : undefined;
       const callerSessionId = hostSessionId ? hostSessionId : undefined;
+      // The stdio surface has no URL, so it cannot carry the `/agent/{id}`
+      // segment the HTTP surface reads its caller identity from. The launching
+      // process states it here instead — same trust level and same empty-string
+      // rule as the session id above. Absent is the normal case for an external
+      // host, and it makes `agent_report` refuse honestly rather than guess.
+      const hostAgentId =
+        typeof process !== 'undefined'
+          ? process.env?.['PTAH_MCP_HOST_AGENT_ID']
+          : undefined;
+      const callerAgentId = hostAgentId ? hostAgentId : undefined;
       this.agentDispatcher = new AgentToolDispatcher(
         ptahAPI,
         this.logger,
         callerSessionId,
+        callerAgentId,
       );
     }
     return this.agentDispatcher;

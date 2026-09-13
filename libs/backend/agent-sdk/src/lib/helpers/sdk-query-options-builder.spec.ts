@@ -157,13 +157,26 @@ describe('SdkQueryOptionsBuilder.mergeMcpOverride', () => {
 //     `experimentalBetaEnv` keeps on for Anthropic-direct and local proxies.
 
 describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
-  function makeFullBuilder(): SdkQueryOptionsBuilder {
-    const logger = {
+  type SpecLogger = {
+    info: jest.Mock;
+    warn: jest.Mock;
+    error: jest.Mock;
+    debug: jest.Mock;
+  };
+
+  function makeSpecLogger(): SpecLogger {
+    return {
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
       debug: jest.fn(),
-    } as const;
+    };
+  }
+
+  function makeFullBuilder(
+    injectedLogger?: SpecLogger,
+  ): SdkQueryOptionsBuilder {
+    const logger = injectedLogger ?? makeSpecLogger();
 
     const permissionHandler = {
       createCallback: jest.fn().mockReturnValue(() => ({ behavior: 'allow' })),
@@ -258,20 +271,30 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     );
   }
 
-  async function buildWith(
-    overrides: {
-      enableFileCheckpointing?: boolean;
-      permissionMode?: SdkQueryOptions['permissionMode'];
-      forwardSubagentText?: boolean;
-    } = {},
-  ) {
-    const builder = makeFullBuilder();
+  interface BuildOverrides {
+    enableFileCheckpointing?: boolean;
+    permissionMode?: SdkQueryOptions['permissionMode'];
+    forwardSubagentText?: boolean;
+    /** The name the user gave the session (TASK_2026_402 Req 9). */
+    sessionName?: string;
+    resumeSessionId?: string;
+  }
+
+  /**
+   * Build once and hand back the logger too, so a test can assert the `warn`
+   * that a naming fallback emits.
+   */
+  async function buildWithLogger(overrides: BuildOverrides = {}) {
+    const { sessionName, resumeSessionId, ...inputOverrides } = overrides;
+    const logger = makeSpecLogger();
+    const builder = makeFullBuilder(logger);
     const sessionConfig: AISessionConfig = {
       model: 'claude-sonnet-4',
       projectPath: 'D:/tmp/ws',
       // Every real interactive session carries a tabId; it is the routing id
       // the MCP `/session/{id}` segment is built from (TASK_2026_295).
       tabId: 'tab-fixture',
+      ...(sessionName === undefined ? {} : { sessionName }),
     } as AISessionConfig;
     // Empty async iterable — `build()` does not iterate it, just attaches.
     const userMessageStream = (async function* () {
@@ -281,28 +304,106 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
       userMessageStream,
       abortController: new AbortController(),
       sessionConfig,
-      ...overrides,
+      ...(resumeSessionId ? { resumeSessionId } : {}),
+      ...inputOverrides,
     });
-    return cfg.options;
+    return { options: cfg.options, logger };
+  }
+
+  async function buildWith(overrides: BuildOverrides = {}) {
+    const { options } = await buildWithLogger(overrides);
+    return options;
   }
 
   it("sets extraArgs['replay-user-messages'] = null when checkpointing is on by default", async () => {
     const opts = await buildWith();
     expect(opts.enableFileCheckpointing).toBe(true);
-    expect(opts.extraArgs).toEqual({ 'replay-user-messages': null });
+    expect(opts.extraArgs?.['replay-user-messages']).toBeNull();
   });
 
-  it('omits extraArgs when checkpointing is explicitly disabled', async () => {
+  it('keeps the session name when checkpointing is explicitly disabled', async () => {
+    // The two flags share one extraArgs object but not one condition. They did
+    // share a conditional spread once, which made disabling checkpointing
+    // silently take the session name with it.
     const opts = await buildWith({ enableFileCheckpointing: false });
     expect(opts.enableFileCheckpointing).toBe(false);
-    expect(opts.extraArgs).toBeUndefined();
+    expect(opts.extraArgs).not.toHaveProperty('replay-user-messages');
+    expect(opts.extraArgs?.['name']).toEqual(expect.any(String));
+  });
+
+  it('names the session deliberately rather than letting the CLI derive one', async () => {
+    const opts = await buildWith();
+    expect(opts.extraArgs?.['name']).toMatch(/^ptah-[a-z0-9-]+$/);
+  });
+
+  // ---------------------------------------------------------------------
+  // The user's session name on the TWO name surfaces (TASK_2026_402 Req 9).
+  // `extraArgs['name']` is the REGISTRY name a peer reads — slugified.
+  // `options.title` is the session TITLE a human reads — raw.
+  // ---------------------------------------------------------------------
+
+  it('slugifies a name with spaces and punctuation into the registry name', async () => {
+    const opts = await buildWith({ sessionName: 'Fix the Billing Bug!' });
+    // `tab-fixture`.slice(0, 6) is the uniqueness suffix, and it is LAST.
+    expect(opts.extraArgs?.['name']).toBe('ptah-ws-fix-the-billing-bug-tab-fi');
+  });
+
+  it('falls back to the default role — and warns — when the name slugifies to nothing', async () => {
+    // An emoji- or punctuation-only name leaves nothing of `[a-z0-9-]`.
+    // Dropping `--name` here would hand the session back to the CLI's derived
+    // naming, so the fallback keeps the deliberate name instead.
+    const { options, logger } = await buildWithLogger({
+      sessionName: '!!! ***',
+    });
+
+    expect(options.extraArgs?.['name']).toBe('ptah-ws-chat-tab-fi');
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('did not survive'),
+      expect.objectContaining({ sessionNameLength: 7 }),
+    );
+  });
+
+  it('truncates the HEAD of an over-long name and leaves the uniqueness suffix intact', async () => {
+    // Trimming the tail would trade a long name for a colliding one.
+    const opts = await buildWith({ sessionName: 'a'.repeat(120) });
+
+    const name = opts.extraArgs?.['name'] as string;
+    expect(name.endsWith('-tab-fi')).toBe(true);
+    expect(name.length).toBeLessThanOrEqual(64);
+    expect(name.startsWith('ptah-ws-aaa')).toBe(true);
+  });
+
+  it('carries the RAW name as the session title for a new session', async () => {
+    const opts = await buildWith({ sessionName: 'Fix the Billing Bug!' });
+    expect(opts.title).toBe('Fix the Billing Bug!');
+  });
+
+  it('sets no title when the user has not named the session', async () => {
+    const opts = await buildWith();
+    expect(opts.title).toBeUndefined();
+  });
+
+  it('sets no title on a RESUME, where the persisted title wins anyway', async () => {
+    // `Options.title` documents that a resumed session's persisted title takes
+    // precedence, so writing one here would be a silent no-op.
+    const opts = await buildWith({
+      sessionName: 'Renamed by the user',
+      resumeSessionId: 'aaaaaaaa-bbbb-4ccc-8ddd-000000000009',
+    });
+    expect(opts.title).toBeUndefined();
+    // The registry name still rides along — a resume is a NEW process, so it
+    // gets a NEW registry record and `--name` applies to it.
+    expect(opts.extraArgs?.['name']).toBe('ptah-ws-renamed-by-the-user-tab-fi');
   });
 
   it('disables the SDK built-in auto-memory subsystem (Ptah uses its own indexed memory)', async () => {
     const opts = await buildWith();
-    expect(opts.settings).toEqual({
+    // Serialized, because `crossSessionInbound` is a key the installed
+    // `Settings` interface does not model. See `buildFlagSettingsArg`.
+    expect(JSON.parse(opts.settings as string)).toEqual({
       autoMemoryEnabled: false,
       autoDreamEnabled: false,
+      crossSessionInbound: 'accept',
     });
   });
 
@@ -518,6 +619,27 @@ describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
     return cfg.options;
   }
 
+  /**
+   * `options.settings` is a STRING on the interactive path.
+   *
+   * `buildFlagSettingsArg` serializes the flag tier so `crossSessionInbound`
+   * can ride it — the installed `Settings` interface does not model that key.
+   * So these assertions parse the value instead of reading properties off it.
+   */
+  function parsedSettings(
+    options: Awaited<ReturnType<SdkQueryOptionsBuilder['build']>>['options'],
+  ): Record<string, unknown> {
+    expect(typeof options.settings).toBe('string');
+    return JSON.parse(options.settings as string) as Record<string, unknown>;
+  }
+
+  /** The keys every interactive session carries, whatever compaction says. */
+  const ALWAYS = {
+    autoMemoryEnabled: false,
+    autoDreamEnabled: false,
+    crossSessionInbound: 'accept',
+  } as const;
+
   it('never emits CLAUDE_CODE_MAX_CONTEXT_TOKENS, even for a proxied model with a known window', async () => {
     const saved = process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
     delete process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
@@ -540,9 +662,8 @@ describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
       enabled: true,
       contextTokenThreshold: 150_000,
     });
-    expect(opts.settings).toEqual({
-      autoMemoryEnabled: false,
-      autoDreamEnabled: false,
+    expect(parsedSettings(opts)).toEqual({
+      ...ALWAYS,
       autoCompactWindow: 150_000,
     });
   });
@@ -552,9 +673,8 @@ describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
       enabled: false,
       contextTokenThreshold: 150_000,
     });
-    expect(opts.settings).toEqual({
-      autoMemoryEnabled: false,
-      autoDreamEnabled: false,
+    expect(parsedSettings(opts)).toEqual({
+      ...ALWAYS,
       autoCompactEnabled: false,
     });
   });
@@ -567,21 +687,24 @@ describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
       { enabled: true, contextTokenThreshold: 1_000_000 },
       'Explanatory',
     );
-    expect(opts.settings).toEqual({
-      autoMemoryEnabled: false,
-      autoDreamEnabled: false,
+    expect(parsedSettings(opts)).toEqual({
+      ...ALWAYS,
       outputStyle: 'Explanatory',
       autoCompactWindow: 1_000_000,
     });
     expect(PTAH_DISABLE_SDK_AUTO_MEMORY).toEqual(snapshot);
   });
 
-  it('first-party with defaults sends neither key (the shared constant itself)', async () => {
+  it('first-party with defaults sends neither auto-compact key — the shared constant serialized, plus the inbound value', async () => {
+    const snapshot = { ...PTAH_DISABLE_SDK_AUTO_MEMORY };
     const opts = await buildOptions(
       'https://api.anthropic.com',
       'claude-sonnet-4-5',
     );
-    expect(opts.settings).toBe(PTAH_DISABLE_SDK_AUTO_MEMORY);
+    // No auto-compact key at all: absence is the only correct "no opinion"
+    // value, and serializing the tier must not invent one.
+    expect(parsedSettings(opts)).toEqual({ ...ALWAYS });
+    expect(PTAH_DISABLE_SDK_AUTO_MEMORY).toEqual(snapshot);
   });
 });
 

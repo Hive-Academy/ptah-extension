@@ -75,6 +75,7 @@ export {
   type TurnFailureSnapshot,
 } from './lib/helpers';
 export { SessionLifecycleManager } from './lib/helpers';
+export { SessionTitleService } from './lib/helpers';
 export {
   CallbackRegistryBase,
   type CallbackRegistryCallback,
@@ -156,6 +157,17 @@ export {
   type SdkAdapterSubagentEndedEvent,
 } from './lib/helpers';
 export type { SdkQueryOptions } from './lib/helpers';
+// The flag-tier serializer and the session-name builder are consumed by
+// `cli-agent-runtime` for its own Ptah CLI spawns. Both call sites must share
+// ONE definition, so the public barrel is the only route in.
+export {
+  buildFlagSettingsArg,
+  CROSS_SESSION_INBOUND_VALUES,
+  type CrossSessionInbound,
+  buildSessionName,
+  deriveWorkspaceLabel,
+  type SessionNameInput,
+} from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';
 export { redactMcpUrl, redactMcpOverrideMap } from './lib/helpers';
 export {
@@ -266,4 +278,25 @@ export {
   type WireSessionMetadataEventsContext,
   type SessionMetadataEventPlatform,
 } from './lib/wiring/session-metadata-events';
+export {
+  MAX_PEER_MESSAGE_LENGTH,
+  PEER_SEND_ACCEPTANCE_CAVEAT,
+  PeerSessionDirectory,
+  PeerSessionMessenger,
+  PeerSessionRecordSchema,
+  ProcessStartTimeProbe,
+  composePeerMessageRequest,
+  currentPidDomain,
+  decodeStartFingerprint,
+  peerSessionRegistryDirectory,
+  recordStartFingerprint,
+  resolveName,
+  resolveUnreachableReason,
+  scanPeerSessionRegistry,
+  type PeerMessageTarget,
+  type PeerSessionListOptions,
+  type PeerSessionRecord,
+  type PeerSessionSendInput,
+} from './lib/peer-sessions';
+
 export const AGENT_SDK_VERSION = '0.0.1';

@@ -97,12 +97,14 @@ import {
 import { resolveSessionWorkspaceRoot as resolveWorkspaceRootWithPrecedence } from './workspace-root-resolver';
 import {
   AgentProcessManager,
+  CLI_AGENT_RUNTIME_TOKENS,
   CliDetectionService,
   McpRegistryProvider,
   McpInstallService,
   SmitheryRegistrySource,
   SkillsShApiClient,
 } from '@ptah-extension/cli-agent-runtime';
+import type { AgentReportRouter } from '@ptah-extension/cli-agent-runtime';
 import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
 import {
   DIAGNOSTICS_CACHE_INVALIDATOR,
@@ -423,6 +425,16 @@ export class PtahAPIBuilder {
     private readonly taskIndex: TaskSpecIndexLike | undefined,
 
     /**
+     * Child -> parent report delivery (TASK_2026_402). Optional for the same
+     * reason `ptahCliRegistry` is: a host that never registered
+     * `cli-agent-runtime` must still construct this builder. Absence becomes a
+     * NAMED error at call time (see `deliverAgentReport` below), never a silent
+     * no-op — the same rule `HarnessMcpInstaller` follows.
+     */
+    @inject(CLI_AGENT_RUNTIME_TOKENS.AGENT_REPORT_ROUTER, { isOptional: true })
+    private readonly agentReportRouter: AgentReportRouter | undefined,
+
+    /**
      * NOT stored — injected to be constructed and started.
      *
      * This class is the only injection site of
@@ -645,6 +657,20 @@ export class PtahAPIBuilder {
           },
           getPtahCliRegistry: () => {
             return this.ptahCliRegistry;
+          },
+          // The ONE wiring point for `ptah_agent_report`: there is a single
+          // `buildAgentNamespace` call in the workspace, behind a single DI
+          // singleton, so this is wired once rather than per host.
+          deliverAgentReport: async (input) => {
+            if (!this.agentReportRouter) {
+              throw new Error(
+                'Agent reporting is unavailable: the CLI agent runtime is not ' +
+                  'registered in this host, so there is no router to deliver ' +
+                  'the report. Register cli-agent-runtime services during ' +
+                  'container setup.',
+              );
+            }
+            return this.agentReportRouter.deliver(input);
           },
           getDisabledClis: () => {
             return (

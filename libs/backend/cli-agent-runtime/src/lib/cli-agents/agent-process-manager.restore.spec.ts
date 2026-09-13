@@ -227,21 +227,23 @@ describe('AgentProcessManager.restoreAgents', () => {
     );
   });
 
-  it('refuses steer on a restored record, naming the real condition', () => {
+  it('refuses sendToAgent on a restored record, naming the real condition', async () => {
     const manager = makeManager({ providerRoot: ROOT_A });
     manager.restoreAgents([makeRef({ cliSessionId: 'session-abc' })], ROOT_A);
 
-    expect(() => manager.steer(RESTORED_ID, 'do it differently')).toThrow(
-      /restored from a previous run of this host/,
-    );
-    expect(() => manager.steer(RESTORED_ID, 'do it differently')).toThrow(
-      /resume_session_id: session-abc/,
-    );
+    const error = await manager
+      .sendToAgent(RESTORED_ID, 'do it differently')
+      .then(
+        () => null,
+        (err: unknown) => err as { code?: string; message: string },
+      );
+
+    expect(error?.code).toBe('restored');
+    expect(error?.message).toMatch(/restored from a previous run of this host/);
+    expect(error?.message).toMatch(/resume_session_id: session-abc/);
     // Not the old "is not running (status: …)" wording, which says nothing
     // about why or what to do next.
-    expect(() => manager.steer(RESTORED_ID, 'do it differently')).not.toThrow(
-      /is not running/,
-    );
+    expect(error?.message).not.toMatch(/is not running/);
   });
 
   it('refuses stop on a restored record instead of reporting a no-op release as success', async () => {

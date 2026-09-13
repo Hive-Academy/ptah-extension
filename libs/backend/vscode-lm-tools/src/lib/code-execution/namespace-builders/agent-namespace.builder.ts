@@ -2,8 +2,8 @@
  * Agent Namespace Builder
  *
  * Async agent orchestration via CLI agents. Provides spawn, status, read,
- * steer, stop, list, waitFor methods for managing headless CLI agents as
- * background workers. Which agents exist is a runtime fact answered by `list`
+ * message, report, stop, list, waitFor methods for managing headless CLI
+ * agents as background workers. Which agents exist is a runtime fact answered by `list`
  * (`SYSTEM_CLI_TYPES` for the shipped adapters, user config for Ptah CLI
  * providers) — this layer never names a vendor.
  *
@@ -13,6 +13,7 @@
 import type { AgentNamespace } from '../types';
 import type {
   AgentProcessManager,
+  AgentReportDelivery,
   CliDetectionService,
   SdkHandle,
 } from '@ptah-extension/cli-agent-runtime';
@@ -73,6 +74,8 @@ interface PtahCliRegistryLike {
       parentSessionId?: string;
       modelTier?: 'opus' | 'sonnet' | 'haiku';
       model?: string;
+      /** Reserved agent id — rides the spawn's MCP URL as `/agent/{id}`. */
+      agentId?: string;
     },
   ): Promise<
     | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
@@ -104,6 +107,26 @@ export interface AgentNamespaceDependencies {
   getPreferredAgentOrder?: () => string[];
   /** Resolves a tab ID to its real SDK session UUID. Used for MCP session threading. */
   resolveSessionId?: (tabIdOrSessionId: string) => string;
+  /**
+   * Deliver a child agent's report to the session that spawned it
+   * (TASK_2026_402, Component 7). A structural FUNCTION rather than the
+   * `AgentReportRouter` class, so this lib keeps depending on
+   * `cli-agent-runtime`'s barrel for types only. `AgentReportDelivery` is
+   * imported by name deliberately: the refusal reason is a closed union, and
+   * widening it to `string` here would let a caller invent a reason no test
+   * covers.
+   *
+   * Optional because a host that never registered `cli-agent-runtime`'s
+   * container has no router to resolve. The resolver in
+   * `ptah-api-builder.service.ts` supplies a function that throws a NAMED
+   * error in that case — absent wiring must be a clear error, never a silent
+   * no-op that reports a delivery nobody made.
+   */
+  deliverAgentReport?: (input: {
+    agentId: string;
+    message: string;
+    summary?: string;
+  }) => Promise<AgentReportDelivery>;
 }
 
 /**
@@ -124,6 +147,7 @@ export function buildAgentNamespace(
     getDisabledClis,
     getPreferredAgentOrder,
     resolveSessionId,
+    deliverAgentReport,
   } = deps;
 
   return {
@@ -149,6 +173,13 @@ export function buildAgentNamespace(
         }
         const workingDirectory = request.workingDirectory ?? getWorkspaceRoot();
 
+        // ONE id, minted once, before the handle exists (TASK_2026_402).
+        // `spawnFromSdkHandle` would otherwise mint it AFTER the handle — and
+        // therefore after the MCP URL baked into that handle — so the URL could
+        // never name the record. Reserving here and passing the same value to
+        // both is what lets the child's `/agent/{id}` segment be true.
+        const agentId = agentProcessManager.reserveAgentId();
+
         const result = await registry.spawnAgent(
           request.ptahCliId,
           request.task,
@@ -159,6 +190,7 @@ export function buildAgentNamespace(
             parentSessionId: activeSessionId,
             modelTier: request.modelTier,
             model: request.model,
+            agentId,
           },
         );
         if ('status' in result) {
@@ -180,6 +212,7 @@ export function buildAgentNamespace(
             ptahCliId: request.ptahCliId,
             timeout: request.timeout,
             resumeSessionId: request.resumeSessionId,
+            agentId,
           },
         );
         result.setAgentId(spawnResult.agentId);
@@ -228,8 +261,26 @@ export function buildAgentNamespace(
       return agentProcessManager.readOutput(agentId, tail);
     },
 
-    steer: async (agentId, instruction) => {
-      agentProcessManager.steer(agentId, instruction);
+    message: async (agentId, message) => {
+      // The outcome is RETURNED, not swallowed: `unsupported` means nothing
+      // was delivered and `interrupt-resume` means a turn's partial work was
+      // discarded. A `void` return would have made both look like a success.
+      return agentProcessManager.sendToAgent(agentId, message);
+    },
+
+    report: async (input) => {
+      if (!deliverAgentReport) {
+        // Absent wiring is a clear error, never a silent no-op — the same rule
+        // `harness-namespace.builder.ts` follows for its optional
+        // collaborators. A `delivered: false` here would be indistinguishable
+        // from a refusal the agent could act on.
+        throw new Error(
+          'Agent reporting is unavailable: no report router is wired into this ' +
+            'host. Register the CLI agent runtime container before building the ' +
+            'Ptah API.',
+        );
+      }
+      return deliverAgentReport(input);
     },
 
     stop: async (agentId) => {
@@ -261,7 +312,7 @@ export function buildAgentNamespace(
             .map((a) => ({
               cli: 'ptah-cli' as const,
               installed: true,
-              supportsSteer: false,
+              messagingMode: 'queue',
               ptahCliId: a.id,
               ptahCliName: a.name,
               providerName: a.providerName,

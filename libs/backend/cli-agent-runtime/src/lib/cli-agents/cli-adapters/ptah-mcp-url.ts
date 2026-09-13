@@ -24,12 +24,35 @@
  * An empty working directory yields the bare URL: there is no folder to
  * declare, and a bare URL is the pre-existing "anonymous caller" shape the
  * server still accepts.
+ *
+ * ## The agent segment (TASK_2026_402)
+ *
+ * A spawned agent that wants to report back to the session that spawned it
+ * must NOT name itself: an id the child supplies is an id the child can forge,
+ * and `ptah_agent_report` would then be able to post into any session. So the
+ * id rides the URL Ptah itself built at spawn time:
+ *
+ *   http://localhost:PORT/agent/{id}/workspace/{root}
+ *
+ * The agent segment LEADS and the workspace segment stays TERMINAL — the same
+ * ordering rule `/session/{id}/workspace/{root}` already follows, so the server
+ * parses one closed grammar rather than two. `/workspace/{root}/agent/{id}` is
+ * rejected outright there, never half-parsed.
+ *
+ * Omitting `agentId` yields today's URL byte for byte; the server then treats
+ * the caller as unattributed and `ptah_agent_report` refuses with that reason
+ * rather than guessing.
  */
 export function ptahMcpServerUrl(
   port: number,
   workingDirectory: string,
+  agentId?: string,
 ): string {
   const base = `http://localhost:${port}`;
-  if (workingDirectory === '') return base;
-  return `${base}/workspace/${encodeURIComponent(workingDirectory)}`;
+  const scoped =
+    agentId === undefined || agentId === ''
+      ? base
+      : `${base}/agent/${encodeURIComponent(agentId)}`;
+  if (workingDirectory === '') return scoped;
+  return `${scoped}/workspace/${encodeURIComponent(workingDirectory)}`;
 }

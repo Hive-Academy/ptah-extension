@@ -3,7 +3,7 @@
  *
  * Covers the 7 methods exposed on ptah.agent.*:
  *   - spawn — ptah-cli routing, disabled-CLI guard, enrichment of spawn request
- *   - status / read / steer / stop — thin delegation to AgentProcessManager
+ *   - status / read / message / stop — thin delegation to AgentProcessManager
  *   - list   — merging cliDetectionService + PtahCliRegistry + preferred-order
  *              ranking
  *   - waitFor — polling loop, natural completion, and timeout rejection
@@ -36,9 +36,10 @@ import {
 interface ProcessManagerMock {
   spawn: jest.Mock;
   spawnFromSdkHandle: jest.Mock;
+  reserveAgentId: jest.Mock;
   getStatus: jest.Mock;
   readOutput: jest.Mock;
-  steer: jest.Mock;
+  sendToAgent: jest.Mock;
   stop: jest.Mock;
 }
 
@@ -55,9 +56,12 @@ function createProcessManager(): ProcessManagerMock {
   return {
     spawn: jest.fn(),
     spawnFromSdkHandle: jest.fn(),
+    // One id per spawn, minted BEFORE the handle exists (TASK_2026_402), so
+    // the handle's MCP URL can carry it.
+    reserveAgentId: jest.fn().mockReturnValue('reserved-1'),
     getStatus: jest.fn(),
     readOutput: jest.fn(),
-    steer: jest.fn(),
+    sendToAgent: jest.fn().mockResolvedValue({ mode: 'queue-next-turn' }),
     stop: jest.fn(),
   };
 }
@@ -119,14 +123,15 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('buildAgentNamespace — shape', () => {
-  it('exposes spawn/status/read/steer/stop/list/waitFor', () => {
+  it('exposes spawn/status/read/message/report/stop/list/waitFor', () => {
     const { deps } = makeDeps();
     const ns = buildAgentNamespace(deps);
 
     expect(typeof ns.spawn).toBe('function');
     expect(typeof ns.status).toBe('function');
     expect(typeof ns.read).toBe('function');
-    expect(typeof ns.steer).toBe('function');
+    expect(typeof ns.message).toBe('function');
+    expect(typeof ns.report).toBe('function');
     expect(typeof ns.stop).toBe('function');
     expect(typeof ns.list).toBe('function');
     expect(typeof ns.waitFor).toBe('function');
@@ -291,7 +296,17 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
     expect(mocks.registry!.spawnAgent).toHaveBeenCalledWith(
       'agent-a',
       'task body',
-      expect.objectContaining({ workingDirectory: 'D:/ws' }),
+      expect.objectContaining({
+        workingDirectory: 'D:/ws',
+        agentId: 'reserved-1',
+      }),
+    );
+    // The SAME reserved id reaches the tracker, so the record and the child's
+    // `/agent/{id}` URL cannot disagree.
+    expect(mocks.processManager.reserveAgentId).toHaveBeenCalledTimes(1);
+    expect(mocks.processManager.spawnFromSdkHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ agentId: 'reserved-1' }),
     );
     expect(setAgentId).toHaveBeenCalledWith('spawned-1');
   });
@@ -344,7 +359,7 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// status / read / steer / stop — pure delegation
+// status / read / message / report / stop — pure delegation
 // ---------------------------------------------------------------------------
 
 describe('buildAgentNamespace — thin delegates', () => {
@@ -370,10 +385,46 @@ describe('buildAgentNamespace — thin delegates', () => {
     expect(mocks.processManager.readOutput).toHaveBeenCalledWith('x', 50);
   });
 
-  it('steer() fires-and-forgets instruction to steer()', async () => {
+  it('message() routes through sendToAgent and RETURNS the outcome', async () => {
+    // The outcome must not be swallowed: `unsupported` means nothing was
+    // delivered and `interrupt-resume` means a turn's partial work is gone.
     const { deps, mocks } = makeDeps();
-    await buildAgentNamespace(deps).steer('x', 'go left');
-    expect(mocks.processManager.steer).toHaveBeenCalledWith('x', 'go left');
+    mocks.processManager.sendToAgent.mockResolvedValue({
+      mode: 'interrupt-resume',
+      detail: 'turn aborted',
+    });
+    const outcome = await buildAgentNamespace(deps).message('x', 'go left');
+    expect(mocks.processManager.sendToAgent).toHaveBeenCalledWith(
+      'x',
+      'go left',
+    );
+    expect(outcome).toEqual({ mode: 'interrupt-resume', detail: 'turn aborted' });
+  });
+
+  it('report() forwards to the wired deliverAgentReport', async () => {
+    const deliverAgentReport = jest
+      .fn()
+      .mockResolvedValue({ delivered: true, parentSessionId: 'sess-1' });
+    const { deps } = makeDeps();
+    const ns = buildAgentNamespace({ ...deps, deliverAgentReport });
+
+    await expect(
+      ns.report({ agentId: 'a-1', message: 'blocked', summary: 'blocked' }),
+    ).resolves.toEqual({ delivered: true, parentSessionId: 'sess-1' });
+    expect(deliverAgentReport).toHaveBeenCalledWith({
+      agentId: 'a-1',
+      message: 'blocked',
+      summary: 'blocked',
+    });
+  });
+
+  it('report() throws a NAMED error when no router is wired', async () => {
+    // Absent wiring is a host bug, not a state the calling agent can act on,
+    // so it must not masquerade as a `delivered: false` refusal.
+    const { deps } = makeDeps();
+    await expect(
+      buildAgentNamespace(deps).report({ agentId: 'a-1', message: 'x' }),
+    ).rejects.toThrow(/Agent reporting is unavailable/);
   });
 
   it('stop() awaits and returns the manager result', async () => {
@@ -397,7 +448,7 @@ describe('buildAgentNamespace — list', () => {
   it('returns raw CLI results annotated with preferredRank: 0 when no registry', async () => {
     const { deps, mocks } = makeDeps({ registry: undefined });
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'codex', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
     ] as CliDetectionResult[]);
 
     const list = await buildAgentNamespace(deps).list();
@@ -405,7 +456,7 @@ describe('buildAgentNamespace — list', () => {
       {
         cli: 'codex',
         installed: true,
-        supportsSteer: false,
+        messagingMode: 'queue',
         preferredRank: 0,
       },
     ]);
@@ -420,8 +471,8 @@ describe('buildAgentNamespace — list', () => {
       getDisabledClis: () => ['copilot'],
     });
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'codex', installed: true, supportsSteer: false },
-      { cli: 'copilot', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
+      { cli: 'copilot', installed: true, messagingMode: 'queue' },
     ] as CliDetectionResult[]);
 
     const list = await buildAgentNamespace(deps).list();
@@ -436,7 +487,7 @@ describe('buildAgentNamespace — list', () => {
       getDisabledClis: () => ['ptah-alice'],
     });
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'codex', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
     ] as CliDetectionResult[]);
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.listAgents.mockResolvedValue([
@@ -461,7 +512,7 @@ describe('buildAgentNamespace — list', () => {
       getPreferredAgentOrder: () => ['ptah-alice', 'codex'],
     });
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'codex', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
     ] as CliDetectionResult[]);
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.listAgents.mockResolvedValue([
@@ -492,7 +543,7 @@ describe('buildAgentNamespace — list', () => {
   it('falls back to cli results when registry.listAgents throws', async () => {
     const { deps, mocks } = makeDeps();
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'codex', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
     ] as CliDetectionResult[]);
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.listAgents.mockRejectedValue(new Error('registry down'));

@@ -32,6 +32,8 @@ import {
   isTaskProgress,
   isTaskUpdated,
   isTaskNotification,
+  type SDKMessageOrigin,
+  type SDKUserMessage,
 } from './types/sdk-types/claude-sdk.types';
 import {
   AssistantMessageTransformer,
@@ -50,6 +52,40 @@ import type {
 } from './message-transform';
 
 export { isResultMessage as isSDKResultMessage };
+
+/** The label shown when a peer sender reports no name of its own. */
+export const NEUTRAL_PEER_LABEL = 'peer session';
+
+/**
+ * Read the provenance stamp off any SDK message. Present on user turns and
+ * their replays; absent on everything else.
+ */
+function readOrigin(message: SDKMessage): SDKMessageOrigin | undefined {
+  return (message as { origin?: SDKMessageOrigin }).origin;
+}
+
+/**
+ * The display label for a turn injected by another session, or `undefined`
+ * when this is not such a turn.
+ *
+ * The label is the sender's self-reported `name`, and NEVER `from`. Both are
+ * sender-authored and forgeable by any process running as the same user, and
+ * there is no verified peer pid on Windows to check either against — so `from`
+ * would read as an identity while being no more trustworthy than `name`, which
+ * reads as what it is: a label. An absent name renders the neutral label and
+ * the message is still shown; suppressing an unnamed peer would lose it
+ * silently.
+ */
+function resolveInboundPeerLabel(
+  message: SDKMessage,
+): { readonly label: string } | undefined {
+  const origin = readOrigin(message);
+  if (origin?.kind !== 'peer') {
+    return undefined;
+  }
+  const name = origin.name?.trim();
+  return { label: name && name.length > 0 ? name : NEUTRAL_PEER_LABEL };
+}
 
 @injectable()
 export class SdkMessageTransformer implements TransformerState {
@@ -161,6 +197,34 @@ export class SdkMessageTransformer implements TransformerState {
         );
       }
 
+      // A turn injected by ANOTHER session, ahead of both user-message paths
+      // below. It arrives either as a live user message or as a replay, and
+      // the replay branch drops everything unconditionally — so the check has
+      // to sit in front of both or a peer's message is silently discarded.
+      // Restricted to the two user-turn shapes on purpose: `origin` is
+      // declared on other message types too, and only a user turn has a
+      // sender to attribute.
+      const inboundPeer =
+        isUserMessage(sdkMessage) || isReplayMessage(sdkMessage)
+          ? resolveInboundPeerLabel(sdkMessage)
+          : undefined;
+      if (inboundPeer) {
+        this.logger.debug(
+          '[SdkMessageTransformer] Rendering inbound peer message',
+          {
+            label: inboundPeer.label,
+            isReplay: isReplayMessage(sdkMessage),
+          },
+        );
+        return this.userTransformer.transform(
+          sdkMessage as SDKUserMessage,
+          this,
+          this.helpers,
+          sessionId,
+          inboundPeer,
+        );
+      }
+
       if (isUserMessage(sdkMessage)) {
         if (sdkMessage.isSynthetic === true) {
           this.logger.debug(
@@ -208,9 +272,15 @@ export class SdkMessageTransformer implements TransformerState {
       // turn would duplicate it in the UI. What changes here is only the
       // classification — a known message quietly skipped instead of an unknown
       // one warned about.
+      //
+      // The drop stays for everything whose origin is not `peer` — the peer
+      // branch above already took those. It is load-bearing:
+      // `--replay-user-messages` is on and the frontend adds the user bubble
+      // optimistically, so a blanket un-drop double-renders every typed prompt.
       if (isReplayMessage(sdkMessage)) {
         this.logger.debug(
           '[SdkMessageTransformer] Skipping replayed user message (history already rendered from JSONL)',
+          { originKind: readOrigin(sdkMessage)?.kind },
         );
         return [];
       }

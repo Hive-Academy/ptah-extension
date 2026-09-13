@@ -22,20 +22,20 @@ also settable with `ptah agent-cli config set --key disabledMcpNamespaces
 
 The `ide` group (3 tools) additionally requires `hasIDECapabilities ===
 true`, set by the host adapter. It is **absent outside an IDE host**, so
-a headless `ptah mcp-serve` or an Electron host advertises **48**.
+a headless `ptah mcp-serve` or an Electron host advertises **49**.
 
 | Namespace key | Toggle value                         | Tools | Extra requirement    |
 | ------------- | ------------------------------------ | ----- | -------------------- |
 | _(always-on)_ | — (cannot be disabled)               | 12    | —                    |
 | `ide`         | `disabledMcpNamespaces: ['ide']`     | 3     | `hasIDECapabilities` |
-| `agent`       | `disabledMcpNamespaces: ['agent']`   | 6     | —                    |
+| `agent`       | `disabledMcpNamespaces: ['agent']`   | 7     | —                    |
 | `git`         | `disabledMcpNamespaces: ['git']`     | 3     | —                    |
 | `json`        | `disabledMcpNamespaces: ['json']`    | 1     | —                    |
 | `browser`     | `disabledMcpNamespaces: ['browser']` | 11    | —                    |
 | `harness`     | `disabledMcpNamespaces: ['harness']` | 6     | —                    |
 | `code`        | `disabledMcpNamespaces: ['code']`    | 9     | —                    |
 
-12 + 3 + 6 + 3 + 1 + 11 + 6 + 9 = **51**.
+12 + 3 + 7 + 3 + 1 + 11 + 6 + 9 = **52**.
 
 ---
 
@@ -78,19 +78,56 @@ Absent unless the host reports IDE capabilities.
 
 ---
 
-## 4. `agent` namespace (6)
+## 4. `agent` namespace (7)
 
-| Name                | Returns                                         |
-| ------------------- | ----------------------------------------------- |
-| `ptah_agent_spawn`  | `SpawnAgentResult { agentId, cli, status, … }`. |
-| `ptah_agent_status` | `AgentProcessInfo` (or array of all agents).    |
-| `ptah_agent_read`   | Buffered stdout/stderr + exit code if finished. |
-| `ptah_agent_steer`  | Push a steering message to a running agent.     |
-| `ptah_agent_stop`   | Final `AgentProcessInfo` after termination.     |
-| `ptah_agent_list`   | Detected CLIs + configured Ptah CLI agents.     |
+| Name                 | Returns                                         |
+| -------------------- | ----------------------------------------------- |
+| `ptah_agent_spawn`   | `SpawnAgentResult { agentId, cli, status, … }`. |
+| `ptah_agent_status`  | `AgentProcessInfo` (or array of all agents).    |
+| `ptah_agent_read`    | Buffered stdout/stderr + exit code if finished. |
+| `ptah_agent_message` | `{ agentId, mode, detail? }` — instruct a running agent. |
+| `ptah_agent_report`  | `{ delivered, reason?, parentSessionId? }` — a spawned agent reports back to its spawner. |
+| `ptah_agent_stop`    | Final `AgentProcessInfo` after termination.     |
+| `ptah_agent_list`    | Detected CLIs + configured Ptah CLI agents.     |
 
 `ptah_agent_list` is how an agent DISCOVERS the available CLI vendors.
 Never hardcode a roster.
+
+### Reaching a spawned agent, and being reached back
+
+`ptah_agent_message` replaced `ptah_agent_steer`. Steering is only ONE
+of four delivery modes it can report back: `steer`, `interrupt-resume`,
+`queue-next-turn`, `unsupported`. **`interrupt-resume` discards the
+interrupted turn's partial work** — `steer` and `queue-next-turn` do
+not. Which mode a given agent gets is a runtime fact — read the
+`messaging` field `ptah_agent_list` reports for that agent rather than
+assuming one from its CLI name.
+
+`ptah_agent_report` takes **no `agentId`** — identity comes from how the
+call reached Ptah, not from an argument a spawned agent could forge.
+`{ delivered: false, reason }` is a normal, honest answer (for example
+`parent-session-not-active`), not a bug; check it before assuming the
+parent saw the message. A completed agent that still supports
+continuation stays messageable — its process is kept alive on purpose,
+not left running by accident.
+
+`ListAgents` / `SendMessage` are a **separate** mechanism from both
+tools above: they reach only sessions started through Ptah's own agent
+SDK, never a CLI agent spawned via `ptah_agent_spawn`. Use
+`ptah_agent_message` / `ptah_agent_report` for those instead.
+
+To wait on another session instead of polling it, the **main
+conversation only** may subscribe with `notify_when_idle`, and only for
+sessions on this machine — a subagent that calls it gets the whole call
+refused. For a CLI agent spawned via `ptah_agent_spawn`, poll
+`ptah_agent_status` on a matched interval instead; never a tight loop.
+
+A Ptah-started session accepts an inbound peer turn because it is
+spawned with `crossSessionInbound: 'accept'` — that setting covers only
+sessions Ptah itself starts. A session Ptah did not start (a developer's
+own terminal session, for example) keeps the default hold-then-expire
+behavior and will still silently lose a peer message unless it sets its
+own `--settings`.
 
 ---
 

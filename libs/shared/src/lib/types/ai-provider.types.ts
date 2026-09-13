@@ -61,6 +61,25 @@ export interface ProviderHealth {
 }
 
 /**
+ * Provenance of a user-role turn.
+ *
+ * Absent or `human` means keyboard input from the person at the tab. Anything
+ * else means the turn was injected on someone's behalf, which is what lets a
+ * consumer render it as a message FROM a named sender rather than as the
+ * user's own words.
+ *
+ * Structurally identical to the provider SDK's own origin union, restated here
+ * because `libs/shared` is the foundation layer and imports no provider
+ * package. Widen the two together.
+ */
+export type AIMessageOrigin =
+  | { readonly kind: 'human' }
+  | { readonly kind: 'channel'; readonly server: string }
+  | { readonly kind: 'peer'; readonly from: string; readonly name?: string }
+  | { readonly kind: 'task-notification' }
+  | { readonly kind: 'coordinator' };
+
+/**
  * AI Message Options
  */
 export interface AIMessageOptions {
@@ -73,6 +92,12 @@ export interface AIMessageOptions {
   readonly timeout?: number;
   readonly streaming?: boolean;
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /**
+   * Who this turn is from. Omitted for an interactive human turn; the provider
+   * defaults it. A caller injecting a turn on another sender's behalf must set
+   * it, or the message renders as the user's own.
+   */
+  readonly origin?: AIMessageOrigin;
 }
 
 /**
@@ -125,6 +150,24 @@ export interface AISessionConfig {
    * without needing temp session ID lookup.
    */
   readonly tabId?: string;
+  /**
+   * The name the USER gave this session — the one they read in the session
+   * list. It reaches two distinct SDK surfaces, and they are not the same
+   * thing (TASK_2026_402 Requirement 9):
+   *
+   *  - the REGISTRY name (`--name`, `~/.claude/sessions/<pid>.json`), which is
+   *    what a peer session reads. It is slugified through `buildSessionName`
+   *    and is FIXED AT SPAWN — no documented API changes it afterwards.
+   *  - the session TITLE (`Options.title`), which carries this value RAW
+   *    because a human reads it. On a resume the persisted title wins, so it
+   *    is set for a NEW session only and retitled via `renameSession()`.
+   *
+   * OPTIONAL on purpose: a brand-new tab has no user-chosen name yet — it is
+   * auto-titled later — and the registry name falls back to the `chat` role.
+   * Do NOT substitute `tabId` here; it is a UUID v4 and means nothing to a
+   * human reading a session list.
+   */
+  readonly sessionName?: string;
   /**
    * System prompt preset selection.
    * - 'claude_code': Use default preset with minimal customization

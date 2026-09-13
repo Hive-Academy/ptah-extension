@@ -1,10 +1,12 @@
 export type {
+  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
   ContinuationOutcome,
 } from './cli-adapter.interface';
+export { bestMessagingCapability } from './cli-adapter.interface';
 export {
   stripAnsiCodes,
   buildTaskPrompt,

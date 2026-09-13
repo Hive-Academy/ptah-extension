@@ -138,6 +138,11 @@ export class PtahCliSpawnOptions {
    * @param sessionContext - The parent session id (for subagent registration)
    *   and this agent's own session id (for compaction). See
    *   {@link PtahSpawnSessionContext} — they are not interchangeable.
+   * @param agentId - The Ptah agent id this spawn was reserved under
+   *   (TASK_2026_402). NOT a session id: it names the tracked agent record and
+   *   rides the MCP URL as `/agent/{id}`, which is how the MCP server learns
+   *   which spawned agent is calling `ptah_agent_report`. Absent yields the
+   *   pre-existing workspace-only URL and an unattributed caller.
    * @returns Assembled spawn options
    */
   async assembleSpawnOptions(
@@ -146,6 +151,7 @@ export class PtahCliSpawnOptions {
     projectGuidance?: string,
     resolvedModel?: string,
     sessionContext?: PtahSpawnSessionContext,
+    agentId?: string,
   ): Promise<PtahSpawnAssembly> {
     const mcpPort = this.resolveMcpPort();
     const mcpServerRunning = mcpPort !== undefined;
@@ -177,8 +183,9 @@ export class PtahCliSpawnOptions {
           ptah: {
             type: 'http' as const,
             // Scoped to the spawn's cwd so the server attributes this agent's
-            // calls to the right workspace (TASK_2026_364).
-            url: ptahMcpServerUrl(mcpPort, cwd),
+            // calls to the right workspace (TASK_2026_364), and to the agent
+            // id so it attributes them to the right agent (TASK_2026_402).
+            url: ptahMcpServerUrl(mcpPort, cwd, agentId),
           },
         }
       : {};

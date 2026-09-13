@@ -126,7 +126,7 @@ describe('CursorCliAdapter', () => {
       expect(result.cli).toBe('cursor');
       expect(result.installed).toBe(true);
       expect(result.version).toBe('sdk');
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('interrupt');
     });
 
     it('reports NOT installed when no API key is resolvable', async () => {
@@ -511,9 +511,115 @@ describe('CursorCliAdapter', () => {
     });
   });
 
-  describe('supportsSteer() / parseOutput()', () => {
-    it('reports supportsSteer() false', () => {
-      expect(adapter.supportsSteer()).toBe(false);
+  describe('interrupt() — cancel the run, keep the agent', () => {
+    const defaultOptions = {
+      task: 'Refactor module',
+      workingDirectory: '/proj',
+    };
+
+    /** Agent whose every send() hands back a fresh run, recorded in `runs`. */
+    function agentWithFreshRuns(runs: FakeRunControls[]): void {
+      mockCreate.mockImplementation(async () => ({
+        agentId: 'agent-abc',
+        send: (...args: unknown[]) => {
+          mockSend(...args);
+          const next = createFakeRun('agent-abc');
+          runs.push(next);
+          currentRun = next;
+          return Promise.resolve(next.run);
+        },
+        close: mockClose,
+      }));
+    }
+
+    it('reports supportsInterrupt() true', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      expect(handle.supportsInterrupt?.()).toBe(true);
+      currentRun?.end();
+      await handle.done;
+    });
+
+    it('cancels the active run, unwinds the stream, and resumes on the SAME agent', async () => {
+      const runs: FakeRunControls[] = [];
+      agentWithFreshRuns(runs);
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // The first turn is still streaming — nothing has ended it.
+      expect(runs).toHaveLength(1);
+
+      await handle.interrupt?.();
+
+      expect(runs[0]?.cancel).toHaveBeenCalledTimes(1);
+      // The stream consumer unwound: the interrupted turn has settled.
+      await expect(handle.done).resolves.toBe(0);
+      // The whole-agent abort path was NOT touched.
+      expect(handle.abort.signal.aborted).toBe(false);
+      expect(mockClose).not.toHaveBeenCalled();
+
+      const outcomePromise = handle.continue?.('Do this instead');
+      await Promise.resolve();
+      await Promise.resolve();
+      runs[1]?.end();
+      const outcome = await outcomePromise;
+
+      expect(await outcome?.done).toBe(0);
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockSend).toHaveBeenCalledTimes(2);
+      expect(mockSend.mock.calls[1][0]).toBe('Do this instead');
+      expect(handle.getSessionId?.()).toBe('agent-abc');
+    });
+
+    it('resolves immediately and cancels nothing when no run is in flight', async () => {
+      const runs: FakeRunControls[] = [];
+      agentWithFreshRuns(runs);
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      runs[0]?.end();
+      await handle.done;
+
+      await expect(handle.interrupt?.()).resolves.toBeUndefined();
+      expect(runs[0]?.cancel).not.toHaveBeenCalled();
+    });
+
+    it('rejects when cancel() fails, so the caller never reports a false interrupt', async () => {
+      const runs: FakeRunControls[] = [];
+      agentWithFreshRuns(runs);
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      runs[0]?.cancel.mockRejectedValueOnce(new Error('run already gone'));
+
+      await expect(handle.interrupt?.()).rejects.toThrow('run already gone');
+      expect(handle.abort.signal.aborted).toBe(false);
+
+      runs[0]?.end();
+      await handle.done;
+    });
+  });
+
+  describe('capabilities() / parseOutput()', () => {
+    it('reports interrupt and continuation, but no mid-turn steer', () => {
+      expect(adapter.capabilities()).toEqual({
+        steer: false,
+        interrupt: true,
+        continuation: true,
+      });
     });
 
     it('strips ANSI escape codes', () => {

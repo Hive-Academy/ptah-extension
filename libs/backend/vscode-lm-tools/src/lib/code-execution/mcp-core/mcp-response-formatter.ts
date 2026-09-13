@@ -14,6 +14,8 @@ import type {
   SpawnAgentResult,
   AgentProcessInfo,
   AgentOutput,
+  AgentMessageOutcome,
+  AgentMessagingMode,
   CliDetectionResult,
   GitWorktreeInfo,
 } from '@ptah-extension/shared';
@@ -476,9 +478,14 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
           Agent: agent.ptahCliName ?? 'Unknown',
           Type: 'ptah-cli',
           Status: 'available',
+          // `messagingMode` is read from the SAME declaration the message
+          // router reads (Req 5.2) — never hardcoded here, or the cell would
+          // promise a mechanism the router does not use.
           Capabilities: `provider: ${
             agent.providerName ?? 'Unknown'
-          }, ptahCliId: ${agent.ptahCliId ?? 'N/A'}`,
+          }, ptahCliId: ${agent.ptahCliId ?? 'N/A'}, messaging: ${
+            agent.messagingMode
+          }`,
         };
       }
 
@@ -496,7 +503,7 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
         Agent: agent.cli,
         Type: 'cli',
         Status: status,
-        Capabilities: agent.supportsSteer ? 'steer: yes' : 'steer: no',
+        Capabilities: `messaging: ${agent.messagingMode}`,
       };
     });
 
@@ -644,19 +651,72 @@ export function formatAgentStop(result: AgentProcessInfo): string {
 }
 
 /**
- * Format ptah_agent_steer result
+ * What each delivery mode means to the agent that asked for it.
+ *
+ * `interrupt-resume` carries a warning rather than a description: the
+ * interrupted turn's partial work is gone, and a caller that reads the call as
+ * a plain success will assume work that no longer exists (TASK_2026_402 R-11).
  */
-export function formatAgentSteer(result: {
+const AGENT_MESSAGE_MODE_NOTES: Readonly<
+  Record<AgentMessagingMode, string>
+> = {
+  steer: 'Injected into the turn already in flight; that turn continues.',
+  'interrupt-resume':
+    'The turn in flight was ABORTED and its partial work DISCARDED, then the ' +
+    'message was re-submitted on the same session. Anything that turn had ' +
+    'produced but not written is gone.',
+  'queue-next-turn':
+    'Held and delivered as the next full turn, not mid-turn. The agent acts ' +
+    'on it once its current turn settles.',
+  unsupported:
+    'NOTHING was delivered. The agent did not receive this message — see the ' +
+    'reason below and use ptah_agent_list to check what this agent supports.',
+};
+
+/**
+ * Format ptah_agent_message result
+ */
+export function formatAgentMessage(result: AgentMessageOutcome & {
   agentId: string;
-  steered: boolean;
 }): string {
   try {
     return json2md([
-      { h2: 'Agent Steered' },
+      { h2: 'Agent Message' },
       {
         p: [
           `**Agent ID:** ${result.agentId}`,
-          `**Steered:** ${result.steered ? 'Yes' : 'No'}`,
+          `**Mode:** ${result.mode}`,
+          AGENT_MESSAGE_MODE_NOTES[result.mode],
+          ...(result.detail ? [`**Detail:** ${result.detail}`] : []),
+        ].join('  \n'),
+      },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_agent_report result
+ *
+ * A refusal is rendered as plainly as a delivery: the calling agent has to be
+ * able to tell that its report reached nobody.
+ */
+export function formatAgentReport(result: {
+  delivered: boolean;
+  reason?: string;
+  parentSessionId?: string;
+}): string {
+  try {
+    return json2md([
+      { h2: result.delivered ? 'Report Delivered' : 'Report NOT Delivered' },
+      {
+        p: [
+          `**Delivered:** ${result.delivered ? 'Yes' : 'No'}`,
+          ...(result.reason ? [`**Reason:** ${result.reason}`] : []),
+          ...(result.parentSessionId
+            ? [`**Parent Session:** ${result.parentSessionId}`]
+            : []),
         ].join('  \n'),
       },
     ]);

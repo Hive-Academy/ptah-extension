@@ -259,6 +259,7 @@ interface Harness {
   chatSession: MockChatSession;
   turnState: MockTurnState;
   mcpStatus: MockMcpStatus;
+  sessionTitle: { retitle: jest.Mock };
 }
 
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
@@ -274,6 +275,9 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const chatSession = createMockChatSession();
   const turnState = createMockTurnState();
   const mcpStatus = createMockMcpStatus();
+  // The SDK-side half of a rename. `retitle` never rejects in production — it
+  // logs and swallows — so the default mock resolves.
+  const sessionTitle = { retitle: jest.fn().mockResolvedValue(true) };
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
@@ -286,6 +290,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     chatSession as never,
     turnState as never,
     mcpStatus as never,
+    sessionTitle as never,
   );
 
   return {
@@ -300,6 +305,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     chatSession,
     turnState,
     mcpStatus,
+    sessionTitle,
   };
 }
 
@@ -928,6 +934,69 @@ describe('SessionRpcHandlers', () => {
         VALID_SESSION_ID,
         'Shiny New Name',
       );
+    });
+
+    it('follows the rename through to the SDK session title, with the trimmed name', async () => {
+      // The title is the SDK-persisted name a human reads. The REGISTRY name
+      // (`--name`) is fixed at spawn and deliberately does NOT follow.
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'session:rename', {
+        sessionId: VALID_SESSION_ID,
+        name: '  Shiny New Name  ',
+      });
+
+      expect(h.sessionTitle.retitle).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        'Shiny New Name',
+      );
+    });
+
+    it('still succeeds when the SDK retitle fails — a title is a convenience', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      // `retitle` swallows its own failures; this pins that a regression there
+      // still cannot fail the user's rename.
+      h.sessionTitle.retitle.mockResolvedValue(false);
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'session:rename', {
+        sessionId: VALID_SESSION_ID,
+        name: 'New Name',
+      });
+
+      expect(result.success).toBe(true);
+      expect(h.metadataStore.rename).toHaveBeenCalled();
+    });
+
+    it('does not touch the session title when the rename is rejected', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'session:rename', {
+        sessionId: VALID_SESSION_ID,
+        name: '   ',
+      });
+
+      expect(h.sessionTitle.retitle).not.toHaveBeenCalled();
     });
 
     it('returns structured failure (not throw) when the store throws', async () => {

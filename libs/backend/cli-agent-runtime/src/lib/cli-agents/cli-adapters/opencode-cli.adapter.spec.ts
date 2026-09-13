@@ -164,7 +164,7 @@ describe('OpencodeCliAdapter', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/opencode');
       expect(result.version).toBe('opencode 0.4.2');
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('none');
     });
 
     it('reports NOT installed when resolveCliPath returns null', async () => {
@@ -523,6 +523,29 @@ describe('OpencodeCliAdapter', () => {
       await handle.done;
     });
 
+    it('leads the MCP URL with /agent/{id} when one was reserved', async () => {
+      const handle = await adapter.runSdk({
+        task: 'X',
+        workingDirectory: '/proj',
+        mcpPort: 51820,
+        agentId: 'agent-7',
+      });
+      collect(handle);
+
+      const content = spawnEnv()?.['OPENCODE_CONFIG_CONTENT'];
+      const parsed = JSON.parse(content as string) as {
+        mcp: { ptah: { url: string } };
+      };
+      // The agent segment is how the server learns WHICH spawn is calling
+      // (TASK_2026_402) — the child never names itself.
+      expect(parsed.mcp.ptah.url).toBe(
+        'http://localhost:51820/agent/agent-7/workspace/%2Fproj',
+      );
+
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
     it('does not set OPENCODE_CONFIG_CONTENT when no mcpPort is provided', async () => {
       const handle = await adapter.runSdk({
         task: 'X',
@@ -607,9 +630,13 @@ describe('OpencodeCliAdapter', () => {
     });
   });
 
-  describe('supportsSteer() / parseOutput() / supportsMcp', () => {
-    it('reports supportsSteer() false and supportsMcp true', () => {
-      expect(adapter.supportsSteer()).toBe(false);
+  describe('capabilities() / parseOutput() / supportsMcp', () => {
+    it('reports no messaging capability and supportsMcp true', () => {
+      expect(adapter.capabilities()).toEqual({
+        steer: false,
+        interrupt: false,
+        continuation: false,
+      });
       expect(adapter.supportsMcp).toBe(true);
     });
 

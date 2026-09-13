@@ -1,7 +1,8 @@
 /**
  * AgentProcessManager Unit Tests - SDK Execution Path
  *
- * Tests: SDK spawn path, output streaming, stop/abort, timeout, steer rejection,
+ * Tests: SDK spawn path, output streaming, stop/abort, timeout, sendToAgent
+ *        mode routing and its pending queue,
  *        idle subprocess release, disposeAll with mixed CLI/SDK agents,
  *        concurrent limit enforcement.
  */
@@ -118,7 +119,10 @@ import type {
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { CliDetectionResult } from '@ptah-extension/shared';
+import type {
+  CliDetectionResult,
+  CliSessionReference,
+} from '@ptah-extension/shared';
 
 // ---- Test Helpers ----
 
@@ -223,9 +227,11 @@ function createSdkAdapter(
       installed: true,
       path: '/usr/local/bin/codex',
       version: '1.0.0',
-      supportsSteer: false,
+      messagingMode: 'queue',
     }),
-    supportsSteer: jest.fn().mockReturnValue(false),
+    capabilities: jest
+      .fn()
+      .mockReturnValue({ steer: false, interrupt: false, continuation: true }),
     parseOutput: jest.fn((raw: string) => raw),
     runSdk: jest
       .fn<Promise<SdkHandle>, []>()
@@ -245,7 +251,7 @@ function createMockCliDetection(
     installed: true,
     path: '/usr/local/bin/codex',
     version: '1.0.0',
-    supportsSteer: false,
+    messagingMode: 'queue',
   };
 
   return {
@@ -809,37 +815,205 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     });
   });
 
-  describe('steer() on SDK agent', () => {
-    it('should throw an error for SDK-based agents that do not support steering', async () => {
+  describe('sendToAgent() — one row per capability shape', () => {
+    /** Spawn an agent whose handle is exactly the one under test. */
+    const spawnWithHandle = async (handle: SdkHandle): Promise<string> => {
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(handle);
       const result = await manager.spawn({
         task: 'Task',
         cli: 'codex',
         workingDirectory: '/workspace/root',
       });
+      return result.agentId;
+    };
 
-      expect(() => manager.steer(result.agentId, 'do something else')).toThrow(
-        /not supported/i,
+    /** Let the exit handling for a settled turn run to completion. */
+    const settle = async (): Promise<void> => {
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(3100);
+      await Promise.resolve();
+    };
+
+    it('steers when the live handle owns a steer channel', async () => {
+      const steerSpy = jest.fn();
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      (controls.handle as { steer?: (message: string) => void }).steer =
+        steerSpy;
+
+      const agentId = await spawnWithHandle(controls.handle);
+      const outcome = await manager.sendToAgent(agentId, 'also handle errors');
+
+      expect(outcome.mode).toBe('steer');
+      expect(steerSpy).toHaveBeenCalledWith('also handle errors');
+
+      controls.resolve(0);
+    });
+
+    it('interrupts, waits for the turn to settle, then resumes', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      const interrupt = jest.fn(async () => {
+        // A real interrupt ends the current run: its `done` settles, which is
+        // what moves the record out of `running`.
+        controls.resolve(1);
+      });
+      Object.assign(controls.handle, {
+        supportsInterrupt: () => true,
+        interrupt,
+      });
+
+      const agentId = await spawnWithHandle(controls.handle);
+      const outcome = await manager.sendToAgent(agentId, 'change direction');
+
+      expect(interrupt).toHaveBeenCalledTimes(1);
+      expect(outcome.mode).toBe('interrupt-resume');
+      // The resume really happened on the same handle, and it did NOT come back
+      // as `busy` — that is the whole point of currentTurnDone.
+      expect(controls.continueCallCount()).toBe(1);
+      expect(controls.continueMessages).toEqual(['change direction']);
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'running');
+    });
+
+    it('reports unsupported (not interrupt-resume) when interrupt rejects', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      Object.assign(controls.handle, {
+        supportsInterrupt: () => true,
+        interrupt: jest.fn().mockRejectedValue(new Error('cancel failed')),
+      });
+
+      const agentId = await spawnWithHandle(controls.handle);
+      const outcome = await manager.sendToAgent(agentId, 'change direction');
+
+      expect(outcome.mode).toBe('unsupported');
+      expect(outcome.detail).toContain('cancel failed');
+      expect(controls.continueCallCount()).toBe(0);
+
+      controls.resolve(0);
+    });
+
+    it('queues a message for a continuation-only agent mid-turn and flushes it on exit', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      const agentId = await spawnWithHandle(controls.handle);
+
+      const outcome = await manager.sendToAgent(agentId, 'next turn please');
+
+      expect(outcome.mode).toBe('queue-next-turn');
+      expect(controls.continueCallCount()).toBe(0);
+
+      controls.resolve(0);
+      await settle();
+
+      expect(controls.continueCallCount()).toBe(1);
+      expect(controls.continueMessages).toEqual(['next turn please']);
+    });
+
+    it('starts a new turn immediately for a completed-but-alive agent', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      const agentId = await spawnWithHandle(controls.handle);
+
+      controls.resolve(0);
+      await settle();
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'completed');
+
+      const outcome = await manager.sendToAgent(agentId, 'a brand new turn');
+
+      expect(outcome.mode).toBe('queue-next-turn');
+      expect(outcome.detail).toMatch(/new turn/i);
+      expect(controls.continueMessages).toEqual(['a brand new turn']);
+    });
+
+    it('refuses with unsupported when the handle offers no mechanism at all', async () => {
+      sdkAdapter.capabilities.mockReturnValue({
+        steer: false,
+        interrupt: false,
+        continuation: false,
+      });
+      const agentId = await spawnWithHandle(sdkControls.handle);
+
+      const outcome = await manager.sendToAgent(agentId, 'anything');
+
+      expect(outcome.mode).toBe('unsupported');
+      expect(outcome.detail).toContain('codex');
+      expect(outcome.detail).toMatch(/[Nn]othing was delivered/);
+
+      sdkControls.resolve(0);
+    });
+
+    it('refuses over the pending-queue cap instead of dropping the message', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      const agentId = await spawnWithHandle(controls.handle);
+
+      for (let i = 0; i < 8; i++) {
+        const queued = await manager.sendToAgent(agentId, `message ${i}`);
+        expect(queued.mode).toBe('queue-next-turn');
+      }
+
+      const refused = await manager.sendToAgent(agentId, 'one too many');
+
+      expect(refused.mode).toBe('unsupported');
+      expect(refused.detail).toContain('8');
+
+      // The refused message was never queued: the first flush delivers the
+      // oldest accepted one, not the rejected one.
+      controls.resolve(0);
+      await settle();
+      expect(controls.continueMessages).toEqual(['message 0']);
+    });
+
+    it('throws not_found for an id this host holds no record of', async () => {
+      await expect(
+        manager.sendToAgent('missing-agent', 'hi'),
+      ).rejects.toMatchObject({ code: 'not_found' });
+    });
+
+    it('throws restored for a record rebuilt from persisted session state', async () => {
+      const restoredId = 'aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff';
+      manager.restoreAgents(
+        [
+          {
+            cliSessionId: 'sess-1',
+            cli: 'codex',
+            agentId: restoredId as unknown as CliSessionReference['agentId'],
+            task: 'old work',
+            startedAt: new Date().toISOString(),
+            status: 'completed',
+          },
+        ],
+        '/workspace/root',
+      );
+
+      await expect(manager.sendToAgent(restoredId, 'hi')).rejects.toMatchObject(
+        { code: 'restored' },
       );
     });
 
-    it('routes steering to sdkHandle.steer when the handle exposes it', async () => {
-      // Simulate a steer-capable SDK adapter (e.g. Pi RPC mode): the adapter
-      // reports supportsSteer() true and the handle owns a live steer channel.
-      const steerSpy = jest.fn();
-      (sdkControls.handle as { steer?: (message: string) => void }).steer =
-        steerSpy;
-      sdkAdapter.supportsSteer.mockReturnValue(true);
+    it('throws not_running, naming the status, for a finished agent with no continuation', async () => {
+      const agentId = await spawnWithHandle(sdkControls.handle);
+      sdkControls.resolve(0);
+      await settle();
 
-      const result = await manager.spawn({
-        task: 'Task',
-        cli: 'codex',
-        workingDirectory: '/workspace/root',
+      await expect(manager.sendToAgent(agentId, 'hi')).rejects.toMatchObject({
+        code: 'not_running',
+        message: expect.stringContaining('status: completed'),
       });
+    });
 
-      expect(() =>
-        manager.steer(result.agentId, 'also handle errors'),
-      ).not.toThrow();
-      expect(steerSpy).toHaveBeenCalledWith('also handle errors');
+    it('logs the selected mode with the agent id and the CLI', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      const agentId = await spawnWithHandle(controls.handle);
+
+      await manager.sendToAgent(agentId, 'next turn please');
+
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Message routed'),
+        expect.objectContaining({
+          agentId,
+          cli: 'codex',
+          mode: 'queue-next-turn',
+        }),
+      );
+
+      controls.resolve(0);
     });
   });
 

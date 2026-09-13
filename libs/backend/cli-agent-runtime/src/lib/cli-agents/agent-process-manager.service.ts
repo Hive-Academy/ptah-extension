@@ -46,11 +46,16 @@ import {
   normalizeWorkspaceRoot,
 } from '@ptah-extension/shared';
 import type {
+  AgentMessageOutcome,
   CliOutputSegment,
   CliSessionReference,
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
+import {
+  AgentMessageError,
+  AgentMessageRouter,
+} from './agent-message-router.service';
 import type {
   CliCommandOptions,
   SdkHandle,
@@ -156,6 +161,21 @@ interface TrackedAgent {
   accumulatedStreamEvents: FlatStreamEventUnion[];
   /** True once the stream-events cap has been logged — suppresses per-event log spam for long-running agents. */
   streamCapLogged: boolean;
+  /**
+   * Settles when the turn currently in flight has torn down. Written in
+   * {@link AgentProcessManager.trackSdkHandle} from `SdkHandle.done` and
+   * re-written in {@link AgentProcessManager.continueConversation} from the
+   * continued turn's `done`. The `interrupt-resume` path awaits it: without it
+   * the router re-enters `continueConversation` while the record is still
+   * `running` and is refused as `busy`.
+   */
+  currentTurnDone?: Promise<number>;
+  /**
+   * Messages waiting for the current turn to end, in arrival order. In-memory,
+   * capped at `MAX_PENDING_MESSAGES`, never persisted, and cleared when
+   * the record's subprocess is released or the record is dropped.
+   */
+  pendingMessages: string[];
   /**
    * Set only by {@link AgentProcessManager.restoreAgents}: this record was
    * rebuilt from persisted session state, not from a run this host supervised.
@@ -322,6 +342,18 @@ export class AgentProcessManager {
      */
     @inject(PLATFORM_TOKENS.CALLER_WORKSPACE_RESOLVER, { isOptional: true })
     private readonly callerWorkspaceResolver: ICallerWorkspaceResolver | null = null,
+    /**
+     * Owns mode selection and the pending queue for {@link sendToAgent}
+     * (TASK_2026_402 R-8). Stateless — every per-agent field it touches lives
+     * on the tracked record — so the default keeps direct construction (tests,
+     * and the wiring paths that build this manager by hand) working unchanged
+     * while tsyringe injects the container's instance in a real host.
+     */
+    @inject(AgentMessageRouter)
+    private readonly messageRouter: AgentMessageRouter = new AgentMessageRouter(
+      logger,
+      cliDetection,
+    ),
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -481,6 +513,11 @@ export class AgentProcessManager {
       systemPrompt: request.systemPrompt,
       reasoningEffort: this.resolveReasoningEffort(cli),
       autoApprove: this.resolveAutoApprove(cli),
+      // Minted above, BEFORE the CLI is asked to build its MCP config, so the
+      // `/agent/{id}` segment of the URL names this exact record
+      // (TASK_2026_402). The rival-CLI path needs no extra plumbing for this —
+      // the id already exists by the time `runSdk` is called.
+      agentId,
     });
     const initialCliSessionId = sdkHandle.getSessionId?.();
     const infoWithSession = initialCliSessionId
@@ -518,13 +555,25 @@ export class AgentProcessManager {
       /** Resume session ID. Pre-sets cliSessionId on the agent:spawned event
        *  so the frontend can deduplicate agent cards by CLI session. */
       resumeSessionId?: string;
+      /**
+       * The id this record must take, reserved by the caller with
+       * {@link reserveAgentId} (TASK_2026_402).
+       *
+       * Unlike `doSpawnSdk`, this method receives a handle that has ALREADY
+       * been built — and with it the MCP URL the child will call back on. If
+       * the id were minted here it would be minted after the URL, so the URL
+       * could never carry it. The caller therefore reserves one id and hands
+       * it to both the handle builder and this method, so the record and the
+       * URL agree.
+       */
+      agentId?: AgentId;
     },
   ): Promise<SpawnAgentResult> {
     await this.reserveSpawnSlot();
     try {
       await this.validateWorkingDirectory(meta.workingDirectory);
 
-      const agentId = AgentId.create();
+      const agentId = meta.agentId ?? AgentId.create();
       const startedAt = new Date().toISOString();
 
       const info: AgentProcessInfo = {
@@ -614,6 +663,7 @@ export class AgentProcessManager {
       accumulatedSegments: [],
       accumulatedStreamEvents: [],
       streamCapLogged: false,
+      pendingMessages: [],
     };
 
     this.agents.set(agentId, tracked);
@@ -656,6 +706,18 @@ export class AgentProcessManager {
         });
         this.handleExit(agentId, 1, null);
       },
+    );
+
+    // Registered AFTER the exit handler above, deliberately: both are
+    // continuations of the same `done` promise and they run in registration
+    // order, so anything awaiting `currentTurnDone` observes a record
+    // handleExit has already moved out of `running`. Its rejection is folded
+    // into a non-zero code here — the exit handler above owns the reporting,
+    // and an unhandled rejection on a promise nobody may await is not a
+    // failure mode worth having.
+    tracked.currentTurnDone = sdkHandle.done.then(
+      (exitCode) => exitCode,
+      () => 1,
     );
 
     const spawnResult: SpawnAgentResult = {
@@ -777,6 +839,7 @@ export class AgentProcessManager {
         accumulatedSegments: ref.segments ? [...ref.segments] : [],
         accumulatedStreamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
         streamCapLogged: false,
+        pendingMessages: [],
         restored: true,
       });
 
@@ -863,6 +926,60 @@ export class AgentProcessManager {
    */
   listTrackedAgents(): AgentProcessInfo[] {
     return Array.from(this.agents.values()).map((t) => ({ ...t.info }));
+  }
+
+  /**
+   * Reserve an agent id BEFORE anything that needs to embed it exists.
+   *
+   * `doSpawnSdk` mints its id before it calls `runSdk`, so the adapter can put
+   * it in the MCP URL. `spawnFromSdkHandle` cannot: it is handed a finished
+   * handle whose MCP URL was decided when the handle was built. Its caller
+   * therefore reserves the id here and passes the SAME value to the handle
+   * builder and to `spawnFromSdkHandle`'s `meta.agentId`, so exactly one id is
+   * minted per spawn and the URL names the record that will exist
+   * (TASK_2026_402).
+   *
+   * Reserving does not register anything: an id that is never spawned simply
+   * goes unused.
+   */
+  reserveAgentId(): AgentId {
+    return AgentId.create();
+  }
+
+  /**
+   * Unscoped, non-throwing lookup of one tracked record.
+   *
+   * Used by {@link AgentReportRouter} to resolve the parent of the agent the
+   * MCP URL named. It is deliberately NOT `getStatus`: that method is the
+   * caller-facing view and is scoped to the calling MCP request's workspace,
+   * and it throws. Here the "caller" IS the agent being looked up — it is
+   * reporting about itself, from its own working directory — so a workspace
+   * scope would only ever reject the agent's own record, and a throw would
+   * turn a refusal that must carry a reason into an exception.
+   */
+  findAgentInfo(agentId: string): AgentProcessInfo | undefined {
+    const tracked = this.agents.get(agentId);
+    return tracked ? { ...tracked.info } : undefined;
+  }
+
+  /**
+   * Write one synthetic segment onto this agent's own output stream, so a user
+   * watching the tile rather than the chat sees what the agent did
+   * (TASK_2026_402, Req 6.4).
+   *
+   * It rides the EXISTING `AgentOutputDelta` path — the same accumulate /
+   * throttled-flush funnel every adapter segment takes, broadcast to the tile
+   * at `wiring/agent-events.ts`. There is no new event, no new frontend
+   * plumbing, and no second broadcast channel to keep in step.
+   *
+   * Unknown agent is a silent no-op ON PURPOSE: the only caller already
+   * resolved the record and only writes the note after a delivery it made, so
+   * the record disappearing in between is a lifecycle race, not a failure to
+   * report.
+   */
+  recordAgentNote(agentId: string, segment: CliOutputSegment): void {
+    if (!this.agents.has(agentId)) return;
+    this.accumulateSegment(agentId, segment);
   }
 
   /**
@@ -981,16 +1098,36 @@ export class AgentProcessManager {
   }
 
   /**
-   * Write instruction to agent's stdin (steering)
+   * Deliver one message to a spawned agent by the best mechanism it supports,
+   * and report which mechanism actually fired.
+   *
+   * This replaces the old `steer()`, which could only ever answer "steering is
+   * not supported" for five of the six CLIs. Mode selection and the pending
+   * queue live in {@link AgentMessageRouter}; this method owns the three record
+   * states no mechanism can serve, because they are states of the MAP, not of
+   * the agent's messaging surface.
+   *
+   * A completed-but-alive continuation-capable agent is deliberately NOT one of
+   * them: the honest answer there is "this message starts a new turn", which is
+   * what the router returns.
+   *
+   * @throws {AgentMessageError} `not_found`, `restored` or `not_running`.
    */
-  steer(agentId: string, instruction: string): void {
+  async sendToAgent(
+    agentId: string,
+    message: string,
+  ): Promise<AgentMessageOutcome> {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
-      throw new Error(`Agent not found: ${agentId}`);
+      throw new AgentMessageError(
+        'not_found',
+        AgentProcessManager.noSuchAgentMessage(agentId),
+      );
     }
 
     if (tracked.restored) {
-      throw new Error(
+      throw new AgentMessageError(
+        'restored',
         AgentProcessManager.restoredRecordMessage(
           agentId,
           tracked.info.cliSessionId,
@@ -998,39 +1135,36 @@ export class AgentProcessManager {
       );
     }
 
-    if (tracked.info.status !== 'running') {
-      throw new Error(
-        `Agent ${agentId} is not running (status: ${tracked.info.status})`,
+    if (
+      tracked.info.status !== 'running' &&
+      !AgentProcessManager.canStartNewTurn(tracked)
+    ) {
+      throw new AgentMessageError(
+        'not_running',
+        `Agent ${agentId} is not running (status: ${tracked.info.status}) and ` +
+          `its handle cannot start a new turn — the run is over and its ` +
+          `process is gone. Resume the conversation instead: spawn with ` +
+          `resume_session_id: ${tracked.info.cliSessionId ?? '<unknown>'}.`,
       );
     }
 
-    const adapter = this.cliDetection.getAdapter(tracked.info.cli);
-    if (!adapter?.supportsSteer()) {
-      throw new Error(
-        `Steering is not supported for ${tracked.info.cli} CLI. ` +
-          `The agent will complete its task based on the original prompt.`,
-      );
-    }
-    // SDK-based agents that own a live input channel (e.g. Pi RPC mode) route
-    // steering through the handle, which writes to the current child's stdin.
-    // This is preferred over the legacy `tracked.process.stdin` path below.
-    const sdkSteer = tracked.sdkHandle?.steer;
-    if (sdkSteer) {
-      sdkSteer(instruction);
-      return;
-    }
+    return this.messageRouter.route(agentId, tracked, message, this);
+  }
 
-    if (!tracked.process) {
-      throw new Error(
-        `Agent ${agentId} is an SDK-based agent and does not support stdin steering.`,
-      );
-    }
-
-    if (!tracked.process.stdin?.writable) {
-      throw new Error(`Agent ${agentId} stdin is not writable`);
-    }
-
-    tracked.process.stdin.write(instruction + '\n');
+  /**
+   * Whether a record that is no longer running can still be handed a new turn.
+   *
+   * Read from the handle's own declarations, never from the CLI name: a handle
+   * that kept its subprocess alive after finishing is exactly the case the
+   * prompt mailbox exists for.
+   */
+  private static canStartNewTurn(tracked: TrackedAgent): boolean {
+    const handle = tracked.sdkHandle;
+    return (
+      !tracked.subprocessReleased &&
+      handle?.supportsContinuation?.() === true &&
+      typeof handle.continue === 'function'
+    );
   }
 
   async continueConversation(agentId: string, message: string): Promise<void> {
@@ -1133,6 +1267,14 @@ export class AgentProcessManager {
         });
         this.handleExit(agentId, 1, null);
       },
+    );
+
+    // Same ordering rule as the first turn in trackSdkHandle: registered after
+    // the exit handler, so an `interrupt-resume` awaiting this observes a
+    // settled record rather than racing the `busy` check.
+    tracked.currentTurnDone = outcome.done.then(
+      (exitCode) => exitCode,
+      () => 1,
     );
   }
 
@@ -1703,6 +1845,9 @@ export class AgentProcessManager {
     // Set BEFORE the await: killProcess yields, and a second caller arriving in
     // that window would issue a duplicate abort and a duplicate tree-kill.
     tracked.subprocessReleased = true;
+    // Nothing can deliver a queued message once the process is gone. Say so in
+    // the log rather than leaving entries that look pending forever.
+    this.messageRouter.discardPending(agentId, tracked);
 
     const idleMs = tracked.idleSince ? Date.now() - tracked.idleSince : 0;
     this.clearIdleRelease(tracked);
@@ -1782,6 +1927,12 @@ export class AgentProcessManager {
         });
       }, GRACEFUL_EXIT_DELAY_MS),
     );
+
+    // The single settle point, and therefore the only place a queued message
+    // can be delivered: the status is now terminal, so `continueConversation`
+    // will not refuse it as `busy`. One entry per settle — the turn this
+    // starts settles again and drains the next.
+    void this.messageRouter.flushPending(agentId, tracked, this);
   }
 
   /**

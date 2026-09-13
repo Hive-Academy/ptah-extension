@@ -12,7 +12,7 @@ The [Built-in MCP Server](/mcp-and-skills/built-in-mcp-server/) makes Ptah an MC
 ## When to use it
 
 - An external coding agent (Claude Code, Cursor, Codex CLI) should be able to **delegate a whole task** to Ptah's Team Leader.
-- You want to expose Ptah's CLI-agent spawn/steer/stop surface to another orchestrator over a standard protocol.
+- You want to expose Ptah's CLI-agent spawn/message/report/stop surface to another orchestrator over a standard protocol.
 - You're building an MCP host and want Ptah as one of its connected servers.
 
 For headless scripting against Ptah's own JSON-RPC surface (rather than the MCP standard), use [`ptah interact`](/providers/ptah-cli/) instead.
@@ -31,7 +31,7 @@ ptah mcp-serve
 
 | Flag                  | Description                                                                       |
 | --------------------- | --------------------------------------------------------------------------------- |
-| `--allow-tools <csv>` | Comma-separated tool allowlist override. Defaults to the full 7-tool MVP catalog. |
+| `--allow-tools <csv>` | Comma-separated tool allowlist override. Defaults to the full 8-tool MVP catalog. |
 
 `mcp-serve` also honors the global CLI flags — most relevantly `--cwd <dir>` (working directory for the agent), `--auto-approve`, `--verbose`, and `--quiet`. See [CLI Flags](/reference/cli-flags/) for the full list.
 
@@ -59,7 +59,7 @@ Because the host namespaces tools by server name (e.g. `ptah:agent_spawn`), the 
 
 ## MVP tool catalog
 
-`tools/list` advertises seven tools. Six are agent-process controls; `session_submit` delegates a full task to Ptah's Team Leader.
+`tools/list` advertises eight tools. Seven are agent-process controls; `session_submit` delegates a full task to Ptah's Team Leader.
 
 | Tool             | What it does                                                                                       |
 | ---------------- | -------------------------------------------------------------------------------------------------- |
@@ -67,9 +67,14 @@ Because the host namespaces tools by server name (e.g. `ptah:agent_spawn`), the 
 | `agent_spawn`    | Spawn a CLI agent and return its handle.                                                           |
 | `agent_status`   | Report a spawned agent's status.                                                                   |
 | `agent_read`     | Read a spawned agent's buffered stdout/stderr and exit code.                                       |
-| `agent_steer`    | Push a steering message to a running agent.                                                        |
+| `agent_message`  | Instruct a running agent. Reports back which of four delivery modes fired (`steer`, `interrupt-resume`, `queue-next-turn`, `unsupported`) — `interrupt-resume` discards the interrupted turn's partial work. |
+| `agent_report`   | Let a spawned agent report back to the session that spawned it. Takes no agent id — identity comes from the transport, not from an argument. On this stdio surface it needs `PTAH_MCP_HOST_AGENT_ID` set by the launcher, and refuses with `unattributed-caller` otherwise. |
 | `agent_stop`     | Terminate a running agent.                                                                         |
 | `session_submit` | Delegate an entire task to Ptah's Team Leader, which fans out to sub-agents via the SDK Task tool. |
+
+`agent_message` replaces the retired `agent_steer`. Which of the four modes
+an agent supports is a runtime fact, reported by `agent_list` — never assume
+one from the CLI's name.
 
 `session_submit` accepts a free-form `task` (required), plus optional `cwd`, `allowSubagents` (default `true`), and a `profile` (`claude_code` or `enhanced`). With `allowSubagents` enabled, the Team Leader decomposes the task and fans work out to sub-agents, aggregating their results into a single MCP response.
 
@@ -88,7 +93,7 @@ Two introspection methods are available in both `interact` and `mcp-serve` modes
 | `session.describe` | `serverName`, `version`, `schemaVersion`, `mode` (`mcp-serve`), the registered method list, the MCP tool catalog, error codes, and capabilities. |
 | `session.methods`  | Just `{ methods: string[] }` — the live registered method list.                                                                                  |
 
-In `mcp-serve` mode, `session.describe` reports `mode: "mcp-serve"`, `capabilities: ["mcp"]`, and the seven-tool catalog (filtered by `--allow-tools` when set).
+In `mcp-serve` mode, `session.describe` reports `mode: "mcp-serve"`, `capabilities: ["mcp"]`, and the eight-tool catalog (filtered by `--allow-tools` when set).
 
 ## Cancellation and shutdown
 

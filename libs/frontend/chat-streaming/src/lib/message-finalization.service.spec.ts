@@ -895,6 +895,61 @@ describe('MessageFinalizationService', () => {
     });
   });
 
+  describe('finalizeSessionHistory carries the inbound peer label', () => {
+    /** A user-role history state whose single message_start is `start`. */
+    function userHistoryState(start: Record<string, unknown>): StreamingState {
+      return makeStreamingState({
+        messageEventIds: ['user-msg'],
+        events: new Map([['evt-start', start as never]]),
+        textAccumulators: new Map([['user-msg-block-0', 'take a look']]),
+      });
+    }
+
+    function finalizedUserMessage(
+      start: Record<string, unknown>,
+    ): ExecutionChatMessage {
+      treeBuilder.buildTree.mockReturnValue([]);
+      tabsSignal.set([
+        makeTab({ id: 'tab-1', streamingState: userHistoryState(start) }),
+      ]);
+
+      service.finalizeSessionHistory('tab-1');
+
+      const [, msgs] = tabManager.applyFinalizedHistory.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      return msgs[0];
+    }
+
+    it('reaches the ExecutionChatMessage while role stays user and the body is still extracted', () => {
+      const message = finalizedUserMessage({
+        eventType: 'message_start',
+        id: 'user-msg',
+        messageId: 'user-msg',
+        role: 'user',
+        timestamp: 1,
+        inboundPeer: { label: 'reviewer' },
+      });
+
+      expect(message.role).toBe('user');
+      expect(message.inboundPeer).toEqual({ label: 'reviewer' });
+      expect(message.rawContent).toBe('take a look');
+    });
+
+    it('leaves the key absent for an ordinary user turn', () => {
+      const message = finalizedUserMessage({
+        eventType: 'message_start',
+        id: 'user-msg',
+        messageId: 'user-msg',
+        role: 'user',
+        timestamp: 1,
+      });
+
+      expect(message).not.toHaveProperty('inboundPeer');
+    });
+  });
+
   describe('markLastAgentAsInterrupted', () => {
     it('is a no-op when the tab is missing or has no messages', () => {
       service.markLastAgentAsInterrupted('nope');

@@ -164,6 +164,9 @@ export {
   assembleSystemPrompt,
   buildModelIdentityPrompt,
   buildFlagSettings,
+  buildFlagSettingsArg,
+  CROSS_SESSION_INBOUND_VALUES,
+  type CrossSessionInbound,
   getActiveProviderId,
   type AssembleSystemPromptInput,
   type SystemPromptAssemblyResult,
@@ -171,6 +174,11 @@ export {
   type SdkQueryOptions,
   type QueryConfig,
 } from './sdk-query-options-builder';
+export {
+  buildSessionName,
+  deriveWorkspaceLabel,
+  type SessionNameInput,
+} from './session-name.builder';
 export { SdkModuleLoader } from './sdk-module-loader';
 export {
   SdkQueryRunner,
@@ -215,6 +223,7 @@ export {
   type ForkSessionParams,
   type RewindFilesParams,
 } from './session-fork.service';
+export { SessionTitleService } from './session-title.service';
 export { SdkAdapterCallbackRegistry } from './sdk-adapter-callback-registry';
 export {
   CallbackRegistryBase,

@@ -6,13 +6,13 @@
  * namespace tools by server name (e.g. `ptah:agent_spawn`), so the prefix
  * would be redundant on the wire.
  *
- * Phase 2 ships 7 MVP tool definitions (schemas only — `tools/call` dispatch
+ * Phase 2 ships the MVP tool definitions (schemas only — `tools/call` dispatch
  * lands in Phase 3). Each builder rewrites the canonical
  * `tool-description.builder.ts` definition with a clean MCP-native name; the
  * input schema is preserved so external hosts see the same contract the
  * internal subagents already consume over HTTP.
  *
- * The seventh tool, `session_submit`, is unique to the stdio surface — it
+ * The last tool, `session_submit`, is unique to the stdio surface — it
  * fires the full Team Leader harness in Phase 3. Phase 2 returns a stable
  * schema definition so external hosts can see it advertised on `tools/list`
  * before dispatch logic ships.
@@ -22,7 +22,8 @@ import {
   buildAgentSpawnTool,
   buildAgentStatusTool,
   buildAgentReadTool,
-  buildAgentSteerTool,
+  buildAgentMessageTool,
+  buildAgentReportTool,
   buildAgentStopTool,
   buildAgentListTool,
 } from '../mcp-core/tool-description.builder';
@@ -33,7 +34,8 @@ export const MCP_MVP_TOOL_NAMES = [
   'agent_spawn',
   'agent_status',
   'agent_read',
-  'agent_steer',
+  'agent_message',
+  'agent_report',
   'agent_stop',
   'agent_list',
   'session_submit',
@@ -60,8 +62,12 @@ export function buildMcpAgentReadTool(): MCPToolDefinition {
   return rename(buildAgentReadTool(), 'agent_read');
 }
 
-export function buildMcpAgentSteerTool(): MCPToolDefinition {
-  return rename(buildAgentSteerTool(), 'agent_steer');
+export function buildMcpAgentMessageTool(): MCPToolDefinition {
+  return rename(buildAgentMessageTool(), 'agent_message');
+}
+
+export function buildMcpAgentReportTool(): MCPToolDefinition {
+  return rename(buildAgentReportTool(), 'agent_report');
 }
 
 export function buildMcpAgentStopTool(): MCPToolDefinition {
@@ -130,7 +136,7 @@ export function buildMcpSessionSubmitTool(): MCPToolDefinition {
 }
 
 /**
- * Build the full 7-tool MVP list advertised by `tools/list`. Order is
+ * Build the full 8-tool MVP list advertised by `tools/list`. Order is
  * deterministic so external hosts that fingerprint the catalog see stable
  * output across `mcp-serve` boots.
  */
@@ -139,7 +145,8 @@ export function buildMcpMvpTools(): readonly MCPToolDefinition[] {
     buildMcpAgentSpawnTool(),
     buildMcpAgentStatusTool(),
     buildMcpAgentReadTool(),
-    buildMcpAgentSteerTool(),
+    buildMcpAgentMessageTool(),
+    buildMcpAgentReportTool(),
     buildMcpAgentStopTool(),
     buildMcpAgentListTool(),
     buildMcpSessionSubmitTool(),

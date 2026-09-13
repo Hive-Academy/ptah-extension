@@ -73,14 +73,23 @@ const BASE_CONFIG: PtahCliConfig = {
 function buildHarness(outputStyleName: string | undefined): {
   registry: PtahCliRegistry;
   getCapturedSettings: () => Record<string, unknown> | undefined;
+  getCapturedExtraArgs: () => Record<string, string | null> | undefined;
 } {
   const logger = createMockLogger();
 
   let capturedSettings: Record<string, unknown> | undefined;
+  let capturedExtraArgs: Record<string, string | null> | undefined;
   const queryFn = jest.fn((args: { options?: Options }) => {
-    capturedSettings = args.options?.settings as
-      | Record<string, unknown>
-      | undefined;
+    capturedExtraArgs = args.options?.extraArgs;
+    // `options.settings` is a SERIALIZED flag tier since TASK_2026_402:
+    // `crossSessionInbound` rides along and the installed `Settings` interface
+    // models no such key, so `buildFlagSettingsArg` stringifies it. The
+    // assertions below are about the tier's CONTENT, so parse it back.
+    const raw = args.options?.settings;
+    capturedSettings =
+      typeof raw === 'string'
+        ? (JSON.parse(raw) as Record<string, unknown>)
+        : (raw as Record<string, unknown> | undefined);
     return emptyStream();
   });
 
@@ -130,7 +139,11 @@ function buildHarness(outputStyleName: string | undefined): {
     createFakeSdkProcessSpawner(), // processSpawner
   );
 
-  return { registry, getCapturedSettings: () => capturedSettings };
+  return {
+    registry,
+    getCapturedSettings: () => capturedSettings,
+    getCapturedExtraArgs: () => capturedExtraArgs,
+  };
 }
 
 describe('PtahCliRegistry.spawnAgent — output-style flag tier', () => {
@@ -154,6 +167,42 @@ describe('PtahCliRegistry.spawnAgent — output-style flag tier', () => {
     // `'outputStyle' in settings` — not `settings.outputStyle === undefined`.
     // An explicit undefined key still overrides the user's own CLI setting.
     expect(settings && 'outputStyle' in settings).toBe(false);
+  });
+
+  it('asks the CLI to accept inbound peer turns, styled or not', async () => {
+    // Without `crossSessionInbound: 'accept'` a turn injected by a peer session
+    // is HELD until it expires, so a spawned agent could be messaged and never
+    // see it. The chat path already sends this; this is the spawn half.
+    for (const style of ['Terse', undefined]) {
+      const harness = buildHarness(style);
+      await harness.registry.spawnAgent(BASE_CONFIG.id, 'do work');
+      expect(harness.getCapturedSettings()).toMatchObject({
+        crossSessionInbound: 'accept',
+      });
+    }
+  });
+
+  it('names the session from the reserved agent id (TASK_2026_402)', async () => {
+    const harness = buildHarness('Terse');
+
+    await harness.registry.spawnAgent(BASE_CONFIG.id, 'do work', {
+      agentId: 'abcdef12-3456-4789-8abc-def012345678',
+    });
+
+    // Composed by `buildSessionName`: prefix, workspace label, the agent's own
+    // (slugified) configured name, then the id's first six characters, which
+    // are what make the name unique.
+    const name = harness.getCapturedExtraArgs()?.['name'];
+    expect(typeof name).toBe('string');
+    expect(name).toMatch(/^ptah-.*-abcdef$/);
+  });
+
+  it('omits --name when no agent id was reserved, and does not warn about it', async () => {
+    const harness = buildHarness('Terse');
+
+    await harness.registry.spawnAgent(BASE_CONFIG.id, 'do work');
+
+    expect(harness.getCapturedExtraArgs()?.['name']).toBeUndefined();
   });
 
   it('still disables SDK auto-memory, styled or not', async () => {

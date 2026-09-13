@@ -196,14 +196,41 @@
       >
         {{ formatTime(message().timestamp) }}
       </time>
-      You
+      @if (inboundPeerLabel(); as peerLabel) {
+        <lucide-angular
+          [img]="UsersIcon"
+          class="w-3 h-3 inline-block align-[-1px] mr-1"
+          aria-hidden="true"
+        />
+        <span data-testid="chat-peer-label">{{ peerLabel }}</span>
+      } @else {
+        You
+      }
     </div>
 
-    <!-- Message bubble - same surface as the assistant bubble -->
+    <!-- Message bubble - same surface as the assistant bubble. A turn injected
+         by another session keeps the layout and takes a non-text accent (a
+         left border + the icon above) so the two are distinguishable without
+         relying on colour alone. -->
     <div
-      class="chat-bubble bg-base-300 text-base-content shadow-card max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
-      data-testid="chat-user-message"
+      class="chat-bubble text-base-content shadow-card max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
+      [class.bg-base-300]="!inboundPeerLabel()"
+      [class.bg-base-200]="!!inboundPeerLabel()"
+      [class.border-l-4]="!!inboundPeerLabel()"
+      [class.border-secondary]="!!inboundPeerLabel()"
+      [attr.data-testid]="
+        inboundPeerLabel() ? 'chat-peer-message' : 'chat-user-message'
+      "
     >
+      @if (inboundPeerLabel()) {
+        <p
+          class="text-xs text-base-content-muted mb-1.5"
+          data-testid="chat-peer-unverified-caption"
+        >
+          Sent from another session — the sender name is self-reported and
+          unverified.
+        </p>
+      }
       @if (isCompactionContinuation()) {
         <button
           type="button"

@@ -272,6 +272,11 @@ export class StreamingAccumulatorCore {
           this.pendingThinkingClear.add(event.messageId);
         }
 
+        // The WHOLE event object is stored, not a projection of it — which is
+        // why optional fields on `MessageStartEvent` (`imageCount`,
+        // `inboundPeer`) survive the write path with no case of their own.
+        // `MessageFinalizationService` reads them back off the stored event.
+        // Narrowing this to a hand-picked shape would silently drop them.
         setStreamingEventCapped(state, event);
         this.indexEventByMessage(state, event);
         state.currentMessageId = event.messageId;

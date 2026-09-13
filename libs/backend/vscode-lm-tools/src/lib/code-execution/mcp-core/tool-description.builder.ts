@@ -647,29 +647,84 @@ export function buildAgentReadTool(): MCPToolDefinition {
 }
 
 /**
- * Build the ptah_agent_steer tool definition
- * Send instruction to agent stdin
+ * Maximum length of a single message sent to a running agent.
+ *
+ * Same ceiling as the spawn task body (`MAX_TASK_LENGTH`), because a message
+ * to a live agent is the same kind of payload as the task it was started with.
+ * Shared by BOTH MCP surfaces so a body accepted over HTTP is accepted over
+ * stdio.
  */
-export function buildAgentSteerTool(): MCPToolDefinition {
+export const MAX_AGENT_MESSAGE_LENGTH = 100 * 1024;
+
+/**
+ * Build the ptah_agent_message tool definition
+ *
+ * Replaces the retired `ptah_agent_steer`. Steering is only ONE of the
+ * delivery mechanisms; which one an agent gets is a per-agent runtime fact,
+ * so the description names no CLI and points at `ptah_agent_list` instead.
+ */
+export function buildAgentMessageTool(): MCPToolDefinition {
   return {
-    name: 'ptah_agent_steer',
+    name: 'ptah_agent_message',
     description:
-      'Send a steering instruction to a running agent via stdin. ' +
-      'Only works if the CLI supports interactive input. ' +
-      'Returns error if steering is not supported for the CLI type.',
+      'Send a message to a running agent. The delivery mechanism is chosen ' +
+      'from that agent\'s own capability and REPORTED back as "mode": ' +
+      '"steer" (injected into the turn in flight), "interrupt-resume" (the ' +
+      'turn in flight was aborted and its partial work DISCARDED before the ' +
+      'message was re-submitted), "queue-next-turn" (held and delivered as ' +
+      'the next turn), or "unsupported" (nothing was delivered — "detail" ' +
+      'says why). Always read "mode": it is not a plain success. Call ' +
+      'ptah_agent_list first to see which mechanism each agent offers.',
     inputSchema: {
       type: 'object',
       properties: {
         agentId: {
           type: 'string',
-          description: 'Agent ID to steer',
+          description: 'Agent ID to message',
         },
-        instruction: {
+        message: {
           type: 'string',
-          description: 'Instruction text to send to agent stdin',
+          description: `Message text to deliver to the agent (max ${MAX_AGENT_MESSAGE_LENGTH} characters)`,
         },
       },
-      required: ['agentId', 'instruction'],
+      required: ['agentId', 'message'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_agent_report tool definition
+ *
+ * Deliberately takes NO agent id: the reporting agent is identified by the
+ * transport (the `/agent/{id}` segment of the MCP URL it was spawned with),
+ * so a sender cannot claim to be another agent.
+ */
+export function buildAgentReportTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_agent_report',
+    description:
+      'Report back to the session that spawned you — a blocker, a finding, ' +
+      'or a question — without waiting to finish. The message appears in ' +
+      'that session immediately and on your own agent tile. You are ' +
+      'identified automatically; there is no agent id to pass and you cannot ' +
+      'report on behalf of another agent. Returns "delivered": false with a ' +
+      '"reason" when the report reached nobody — it never claims a delivery ' +
+      'it did not make. Rate-limited per agent; send considered updates, not ' +
+      'a running commentary.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          description: 'The report body to deliver to the spawning session',
+        },
+        summary: {
+          type: 'string',
+          description:
+            'Optional one-line summary (max 200 characters) shown on the agent tile',
+        },
+      },
+      required: ['message'],
     },
   };
 }

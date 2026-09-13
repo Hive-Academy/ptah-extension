@@ -10,7 +10,11 @@
  * Registration uses singleton pattern to ensure consistent state across consumers.
  */
 
-import { DependencyContainer, instanceCachingFactory, Lifecycle } from 'tsyringe';
+import {
+  DependencyContainer,
+  instanceCachingFactory,
+  Lifecycle,
+} from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
@@ -74,10 +78,15 @@ import {
   WorktreeHookHandler,
   SlashCommandInterceptor,
   SessionForkService,
+  SessionTitleService,
   SdkRuntimeStateService,
   SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
+import {
+  PeerSessionDirectory,
+  PeerSessionMessenger,
+} from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
@@ -523,8 +532,26 @@ export function registerSdkServices(
   );
 
   container.register(
+    SDK_TOKENS.SDK_SESSION_TITLE_SERVICE,
+    { useClass: SessionTitleService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
     SDK_TOKENS.SDK_AGENT_ADAPTER,
     { useClass: SdkAgentAdapter },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PEER_SESSION_DIRECTORY,
+    { useClass: PeerSessionDirectory },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PEER_SESSION_MESSENGER,
+    { useClass: PeerSessionMessenger },
     { lifecycle: Lifecycle.Singleton },
   );
 

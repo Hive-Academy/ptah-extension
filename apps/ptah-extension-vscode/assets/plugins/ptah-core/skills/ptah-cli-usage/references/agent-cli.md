@@ -2,7 +2,7 @@
 
 Covers the `ptah agent-cli` subcommands (detect, config, models, stop,
 resume), the `--cli` selector vocabulary, and where the spawn / read /
-steer verbs actually live.
+message / report verbs actually live.
 
 ---
 
@@ -59,15 +59,22 @@ Orchestration settings.` That is the real, actionable error — do not
 
 ---
 
-## 2. Where spawn / status / read / steer live
+## 2. Where spawn / status / read / message / report live
 
 `ptah agent-cli` covers detection, config, model listing, `stop` and
-`resume`. The full agent lifecycle — spawn, status, read, steer, stop —
-is exposed as MCP tools (`ptah_agent_spawn`, `ptah_agent_status`,
-`ptah_agent_read`, `ptah_agent_steer`, `ptah_agent_stop`,
-`ptah_agent_list`) on both the internal tool surface
-(`references/internal-mcp.md`) and the `mcp-serve` wire
-(`references/mcp-serve.md`, where the names drop the `ptah_` prefix).
+`resume`. The full agent lifecycle — spawn, status, read, message,
+report, stop — is exposed as MCP tools (`ptah_agent_spawn`,
+`ptah_agent_status`, `ptah_agent_read`, `ptah_agent_message`,
+`ptah_agent_report`, `ptah_agent_stop`, `ptah_agent_list`) on both the
+internal tool surface (`references/internal-mcp.md`) and the
+`mcp-serve` wire (`references/mcp-serve.md`, where the names drop the
+`ptah_` prefix).
+
+`ptah_agent_message` replaces the retired `ptah_agent_steer` — steering
+is only ONE of the four delivery modes it can report back
+(`steer`, `interrupt-resume`, `queue-next-turn`, `unsupported`), and
+which one fires for a given agent is a runtime fact read off
+`ptah_agent_list`, never assumed from the CLI name.
 
 ---
 

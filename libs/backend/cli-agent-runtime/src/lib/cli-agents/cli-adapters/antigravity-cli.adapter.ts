@@ -63,11 +63,13 @@ import type {
   McpServerConfig,
 } from '@ptah-extension/shared';
 import type {
+  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
 } from './cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapter.interface';
 import {
   stripAnsiCodes,
   buildTaskPrompt,
@@ -164,7 +166,11 @@ export class AntigravityCliAdapter implements CliAdapter {
     try {
       const binaryPath = await resolveCliPath('agy');
       if (!binaryPath) {
-        return { cli: 'antigravity', installed: false, supportsSteer: false };
+        return {
+          cli: 'antigravity',
+          installed: false,
+          messagingMode: bestMessagingCapability(this.capabilities()),
+        };
       }
       const version = await probeCliVersion(
         binaryPath,
@@ -178,19 +184,24 @@ export class AntigravityCliAdapter implements CliAdapter {
         installed: true,
         path: binaryPath,
         version,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     } catch {
       return {
         cli: 'antigravity',
         installed: false,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     }
   }
 
-  supportsSteer(): boolean {
-    return false;
+  /**
+   * One-shot `--print` per turn with stdin closed immediately: no live channel,
+   * no run-scoped abort, and the handle carries no `continue`, so there is no
+   * session to address between turns. Nothing can be delivered.
+   */
+  capabilities(): AgentMessagingCapabilities {
+    return { steer: false, interrupt: false, continuation: false };
   }
 
   parseOutput(raw: string): string {
@@ -343,6 +354,7 @@ export class AntigravityCliAdapter implements CliAdapter {
   private async configureMcpServer(
     port: number,
     workingDirectory: string,
+    agentId?: string,
   ): Promise<McpServerConfig | undefined> {
     try {
       const facet = AntigravityCliAdapter.mcpFacet();
@@ -364,7 +376,7 @@ export class AntigravityCliAdapter implements CliAdapter {
         // scoped to this run's working directory (TASK_2026_364); it differs
         // from the persistent bare home entry only while this run is in
         // flight, and cleanup restores whatever this run found.
-        { type: 'sse', url: ptahMcpServerUrl(port, workingDirectory) },
+        { type: 'sse', url: ptahMcpServerUrl(port, workingDirectory, agentId) },
       );
       return prior;
     } catch {
@@ -429,6 +441,7 @@ export class AntigravityCliAdapter implements CliAdapter {
       priorMcpEntry = await this.configureMcpServer(
         options.mcpPort,
         options.workingDirectory,
+        options.agentId,
       );
     }
 

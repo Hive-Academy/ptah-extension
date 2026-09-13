@@ -1362,3 +1362,195 @@ describe('protocol-handlers › tools/call caller identity context', () => {
     expect(seenWorkspace).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// tools/call — ptah_agent_message and ptah_agent_report (TASK_2026_402)
+//
+// Both schemas are `.strict()` for the same reason `WebSearchArgsSchema` is: a
+// dropped argument is invisible to the calling agent, an error is not. And
+// `ptah_agent_report` takes no `agentId` — accepting one would let any agent
+// report as any other agent.
+// ---------------------------------------------------------------------------
+
+function agentToolResult(res: MCPResponse): {
+  text: string;
+  isError?: boolean;
+} {
+  const result = res.result as {
+    content: Array<{ text: string }>;
+    isError?: boolean;
+  };
+  return { text: result.content[0].text, isError: result.isError };
+}
+
+describe('protocol-handlers › ptah_agent_message', () => {
+  it('is advertised on tools/list', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'am-list', method: 'tools/list' }),
+        buildDeps(),
+      ),
+    );
+    expect(names).toContain('ptah_agent_message');
+    expect(names).toContain('ptah_agent_report');
+    expect(names).not.toContain('ptah_agent_steer');
+  });
+
+  it('delegates to agent.message and renders the reported mode', async () => {
+    const message = jest
+      .fn()
+      .mockResolvedValue({ mode: 'interrupt-resume', detail: 'turn aborted' });
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'am-1',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_agent_message',
+          arguments: { agentId: 'a-1', message: 'use the other branch' },
+        },
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { message } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    expect(message).toHaveBeenCalledWith('a-1', 'use the other branch');
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBeUndefined();
+    expect(text).toMatch(/Mode:\*\* interrupt-resume/);
+    expect(text).toMatch(/DISCARDED/);
+  });
+
+  it('ERRORS on the retired `instruction` key rather than dropping it', async () => {
+    const message = jest.fn();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'am-2',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_agent_message',
+          arguments: { agentId: 'a-1', instruction: 'go' },
+        },
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { message } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    expect(message).not.toHaveBeenCalled();
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBe(true);
+    expect(text).toMatch(/invalid ptah_agent_message arguments/);
+    expect(text).toMatch(/instruction/);
+  });
+});
+
+describe('protocol-handlers › ptah_agent_report', () => {
+  it('takes its caller identity from the URL, never from the arguments', async () => {
+    const report = jest
+      .fn()
+      .mockResolvedValue({ delivered: true, parentSessionId: 'sess-9' });
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ar-1',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_agent_report',
+          arguments: { message: 'blocked on credentials', summary: 'blocked' },
+        },
+        _callerAgentId: 'agent-from-url',
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { report } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    expect(report).toHaveBeenCalledWith({
+      agentId: 'agent-from-url',
+      message: 'blocked on credentials',
+      summary: 'blocked',
+    });
+    expect(agentToolResult(res).text).toMatch(/Report Delivered/);
+  });
+
+  it('REJECTS a sender-supplied agentId', async () => {
+    const report = jest.fn();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ar-2',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_agent_report',
+          arguments: { agentId: 'someone-else', message: 'not mine' },
+        },
+        _callerAgentId: 'agent-from-url',
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { report } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    expect(report).not.toHaveBeenCalled();
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBe(true);
+    expect(text).toMatch(/There is no "agentId" argument/);
+  });
+
+  it('refuses with unattributed-caller when the URL named no agent', async () => {
+    const report = jest.fn();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ar-3',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_agent_report',
+          arguments: { message: 'blocked' },
+        },
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { report } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    expect(report).not.toHaveBeenCalled();
+    const { text } = agentToolResult(res);
+    expect(text).toMatch(/Report NOT Delivered/);
+    expect(text).toMatch(/unattributed-caller/);
+  });
+
+  it('renders a router refusal as a refusal, not a success', async () => {
+    const report = jest
+      .fn()
+      .mockResolvedValue({ delivered: false, reason: 'rate-limited' });
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ar-4',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_agent_report',
+          arguments: { message: 'again' },
+        },
+        _callerAgentId: 'a-1',
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { report } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    const { text } = agentToolResult(res);
+    expect(text).toMatch(/Report NOT Delivered/);
+    expect(text).toMatch(/Reason:\*\* rate-limited/);
+  });
+});

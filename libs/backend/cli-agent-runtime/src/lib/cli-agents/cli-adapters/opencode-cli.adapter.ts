@@ -45,11 +45,13 @@ import type {
   CliOutputSegment,
 } from '@ptah-extension/shared';
 import type {
+  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
 } from './cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapter.interface';
 import {
   stripAnsiCodes,
   buildTaskPrompt,
@@ -232,7 +234,11 @@ export class OpencodeCliAdapter implements CliAdapter {
     try {
       const binaryPath = await resolveCliPath('opencode');
       if (!binaryPath) {
-        return { cli: 'opencode', installed: false, supportsSteer: false };
+        return {
+          cli: 'opencode',
+          installed: false,
+          messagingMode: bestMessagingCapability(this.capabilities()),
+        };
       }
       const version = await probeCliVersion(
         binaryPath,
@@ -246,19 +252,24 @@ export class OpencodeCliAdapter implements CliAdapter {
         installed: true,
         path: binaryPath,
         version,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     } catch {
       return {
         cli: 'opencode',
         installed: false,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     }
   }
 
-  supportsSteer(): boolean {
-    return false;
+  /**
+   * One-shot `opencode run` per turn with stdin closed immediately, and the
+   * handle carries no `continue`: there is no server session to address between
+   * turns. Nothing can be delivered.
+   */
+  capabilities(): AgentMessagingCapabilities {
+    return { steer: false, interrupt: false, continuation: false };
   }
 
   parseOutput(raw: string): string {
@@ -368,6 +379,7 @@ export class OpencodeCliAdapter implements CliAdapter {
   private buildMcpConfigContent(
     port: number,
     workingDirectory: string,
+    agentId?: string,
   ): string {
     return JSON.stringify({
       mcp: {
@@ -375,7 +387,7 @@ export class OpencodeCliAdapter implements CliAdapter {
           type: 'remote',
           // Scoped to the spawn's working directory so the server attributes
           // this agent's calls to the right workspace (TASK_2026_364).
-          url: ptahMcpServerUrl(port, workingDirectory),
+          url: ptahMcpServerUrl(port, workingDirectory, agentId),
           enabled: true,
         },
       },
@@ -434,6 +446,7 @@ export class OpencodeCliAdapter implements CliAdapter {
       env['OPENCODE_CONFIG_CONTENT'] = this.buildMcpConfigContent(
         options.mcpPort,
         options.workingDirectory,
+        options.agentId,
       );
     }
 

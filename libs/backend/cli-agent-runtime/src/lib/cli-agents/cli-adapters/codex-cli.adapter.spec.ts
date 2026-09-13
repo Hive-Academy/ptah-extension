@@ -236,7 +236,7 @@ describe('CodexCliAdapter', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/codex');
       expect(result.version).toBe('1.2.3');
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('queue');
     });
 
     it('should return installed: false when codex binary is not found', async () => {
@@ -246,14 +246,18 @@ describe('CodexCliAdapter', () => {
 
       expect(result.cli).toBe('codex');
       expect(result.installed).toBe(false);
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('queue');
       expect(mockProbeCliVersion).not.toHaveBeenCalled();
     });
   });
 
-  describe('supportsSteer()', () => {
-    it('should return false', () => {
-      expect(adapter.supportsSteer()).toBe(false);
+  describe('capabilities()', () => {
+    it('reports continuation only', () => {
+      expect(adapter.capabilities()).toEqual({
+        steer: false,
+        interrupt: false,
+        continuation: true,
+      });
     });
   });
 
@@ -1143,6 +1147,26 @@ describe('CodexCliAdapter', () => {
       // search — which the model has no reason to do, so it uses the shell.
       expect(config.features).toEqual({
         tool_search_always_defer_mcp_tools: false,
+      });
+    });
+
+    it('leads the MCP URL with /agent/{id} when one was reserved', async () => {
+      setupMockEvents([]);
+
+      await adapter.runSdk({
+        task: 'Task',
+        workingDirectory: '/project',
+        mcpPort: 51820,
+        agentId: 'agent-7',
+      });
+
+      // The agent segment is how the server learns WHICH spawn is calling
+      // (TASK_2026_402) — the child never names itself.
+      const config = mockCodexConstructor.mock.calls[0][0].config;
+      expect(config.mcp_servers).toEqual({
+        ptah: {
+          url: 'http://localhost:51820/agent/agent-7/workspace/%2Fproject',
+        },
       });
     });
 

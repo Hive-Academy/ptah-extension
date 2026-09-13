@@ -33,7 +33,8 @@ const MVP_TOOL_NAMES = [
   'agent_spawn',
   'agent_status',
   'agent_read',
-  'agent_steer',
+  'agent_message',
+  'agent_report',
   'agent_stop',
   'agent_list',
   'session_submit',
@@ -151,7 +152,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     expect(resp.error).toBeUndefined();
     expect(resp.result?.tools).toBeDefined();
     const tools = resp.result!.tools;
-    expect(tools).toHaveLength(7);
+    expect(tools).toHaveLength(8);
     const names = tools.map((t) => t.name);
     for (const expected of MVP_TOOL_NAMES) {
       expect(names).toContain(expected);
@@ -548,7 +549,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     const result = resp.result!;
     expect(result.mode).toBe('mcp-serve');
     expect(result.capabilities).toEqual(expect.arrayContaining(['mcp']));
-    expect(result.catalog.tools).toHaveLength(7);
+    expect(result.catalog.tools).toHaveLength(8);
     const names = result.catalog.tools.map((t) => t.name);
     for (const expected of MVP_TOOL_NAMES) {
       expect(names).toContain(expected);
@@ -766,12 +767,12 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     }
   });
 
-  it('mcp_agent_steer_free_cli', async () => {
+  it('mcp_agent_message_free_cli', async () => {
     const host = scope.register(
       await spawnPtahMcp({ home: tmp, licenseStatus: 'community' }),
     );
 
-    const spawned = await trySpawnFreeAgent(host, 'echo hello-steer');
+    const spawned = await trySpawnFreeAgent(host, 'echo hello-message');
     if (spawned === null) return;
 
     const resp = await host.send<{
@@ -780,19 +781,19 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     }>(
       'tools/call',
       {
-        name: 'agent_steer',
+        name: 'agent_message',
         arguments: {
           agentId: spawned.agentId,
-          instruction: 'please continue',
+          message: 'please continue',
         },
       },
       30_000,
     );
     expect(resp.error).toBeUndefined();
     expect(resp.result).toBeDefined();
-    // Steering a free CLI is free. The MOST IMPORTANT assertion is that
-    // license_required is NOT the reason — some CLIs may not support
-    // steering and that should surface as a non-license error.
+    // Messaging a free CLI is free. The MOST IMPORTANT assertion is that
+    // license_required is NOT the reason — a CLI with no messaging mechanism
+    // reports mode `unsupported`, which is a non-license outcome.
     if (resp.result!.isError === true) {
       expect(resp.result!.structuredContent?.ptah_code).not.toBe(
         'license_required',

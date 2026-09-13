@@ -117,7 +117,7 @@ describe('CopilotSdkAdapter', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/copilot');
       expect(result.version).toBe('copilot 1.0.26');
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('queue');
     });
 
     it('forwards the resolved binary path to probeCliVersion', async () => {
@@ -146,7 +146,7 @@ describe('CopilotSdkAdapter', () => {
 
       expect(result.cli).toBe('copilot');
       expect(result.installed).toBe(false);
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('queue');
       expect(mockProbeCliVersion).not.toHaveBeenCalled();
     });
 
@@ -161,15 +161,19 @@ describe('CopilotSdkAdapter', () => {
     });
   });
 
-  describe('listModels() / supportsSteer() / parseOutput()', () => {
+  describe('listModels() / capabilities() / parseOutput()', () => {
     it('returns the curated Copilot model list including claude-sonnet-4.5', async () => {
       const models = await adapter.listModels();
       expect(models.length).toBeGreaterThan(0);
       expect(models.some((m) => m.id === 'claude-sonnet-4.5')).toBe(true);
     });
 
-    it('reports supportsSteer() false', () => {
-      expect(adapter.supportsSteer()).toBe(false);
+    it('reports continuation only', () => {
+      expect(adapter.capabilities()).toEqual({
+        steer: false,
+        interrupt: false,
+        continuation: true,
+      });
     });
 
     it('strips ANSI escape codes via parseOutput()', () => {
@@ -309,6 +313,26 @@ describe('CopilotSdkAdapter', () => {
       expect(mcpJson).toContain('ptah');
       // The URL carries the spawn's working directory (TASK_2026_364).
       expect(mcpJson).toContain('http://localhost:51820/workspace/%2Fproj');
+
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
+    it('leads the MCP URL with /agent/{id} when one was reserved', async () => {
+      const handle = await adapter.runSdk({
+        ...defaultOptions,
+        mcpPort: 51820,
+        agentId: 'agent-7',
+      });
+      handle.onOutput(() => {});
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      const mcpJson = argsArg[argsArg.indexOf('--additional-mcp-config') + 1];
+      // The agent segment is how the server learns WHICH spawn is calling
+      // (TASK_2026_402) — the child never names itself.
+      expect(mcpJson).toContain(
+        'http://localhost:51820/agent/agent-7/workspace/%2Fproj',
+      );
 
       currentChild?.emitClose(0);
       await handle.done;

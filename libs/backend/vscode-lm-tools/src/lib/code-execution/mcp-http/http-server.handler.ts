@@ -249,27 +249,59 @@ function extractCallerSessionId(url: string | undefined): string | undefined {
 }
 
 /**
+ * Extract the caller's spawned-agent id from the MCP URL path.
+ *
+ * URL format: /agent/{agentId} — encoded by `ptahMcpServerUrl`
+ * (`cli-agent-runtime/.../ptah-mcp-url.ts`) at spawn time (TASK_2026_402).
+ *
+ * This is the ONLY source of a spawned agent's identity. `ptah_agent_report`
+ * takes no `agentId` argument, because an id passed as a tool argument is an id
+ * an agent picks per call — a confused or misinstructed child would then post a
+ * report into another agent's session by accident, and every caller would have
+ * to be trusted to get it right. Ptah builds this URL itself and hands it to
+ * the child at spawn, so the honest path carries the right id by construction.
+ *
+ * **This is attribution, not authentication.** This server binds localhost and
+ * checks no credential, so any same-user process — the spawned child included —
+ * can issue a request with any path it likes. The URL segment closes the
+ * confused-deputy case; it does not defend against a hostile child, and neither
+ * does `_callerSessionId`, which has carried the same property since
+ * TASK_2026_295. Do not build a trust decision on either one.
+ */
+function extractCallerAgentId(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const match = url.match(/^\/agent\/([^/?]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+}
+
+/**
  * Extract the caller's declared workspace root from the MCP URL path.
  *
  * Accepted URL grammar (CLOSED — pinned by http-server.handler.spec.ts):
  *   /                                  → anonymous
  *   /session/{id}                      → session only
+ *   /agent/{id}                        → agent only
  *   /workspace/{root}                  → workspace only
- *   /session/{id}/workspace/{root}     → both, session first — the ONLY
- *                                        combined order
+ *   /session/{id}/workspace/{root}     → session + workspace, session first
+ *   /agent/{id}/workspace/{root}       → agent + workspace, agent first
+ *
+ * A leading segment and a terminal workspace segment is the ONLY combined
+ * order, and the two leading kinds are mutually exclusive: a spawned agent
+ * carries no session id and a chat session carries no agent id.
  *
  * The workspace segment must be TERMINAL (only a trailing slash or a query
- * string may follow), so `/workspace/{root}/session/{id}` is fully rejected
- * rather than half-parsed. `{root}` is `encodeURIComponent`-encoded by the
- * writer, so a Windows root (`D:\projects\x` → `D%3A%5Cprojects%5Cx`)
- * contains no `/` or `?` and round-trips exactly through decodeURIComponent.
+ * string may follow), so `/workspace/{root}/session/{id}` and
+ * `/workspace/{root}/agent/{id}` are fully rejected rather than half-parsed.
+ * `{root}` is `encodeURIComponent`-encoded by the writer, so a Windows root
+ * (`D:\projects\x` → `D%3A%5Cprojects%5Cx`) contains no `/` or `?` and
+ * round-trips exactly through decodeURIComponent.
  */
 function extractCallerWorkspaceRoot(
   url: string | undefined,
 ): string | undefined {
   if (!url) return undefined;
   const match = url.match(
-    /^(?:\/session\/[^/?]+)?\/workspace\/([^/?]+)\/?(?:\?.*)?$/,
+    /^(?:\/session\/[^/?]+|\/agent\/[^/?]+)?\/workspace\/([^/?]+)\/?(?:\?.*)?$/,
   );
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
@@ -337,6 +369,10 @@ async function handleHttpRequest(
       const callerSessionId = extractCallerSessionId(req.url);
       if (callerSessionId) {
         mcpRequest._callerSessionId = callerSessionId;
+      }
+      const callerAgentId = extractCallerAgentId(req.url);
+      if (callerAgentId) {
+        mcpRequest._callerAgentId = callerAgentId;
       }
       const callerWorkspaceRoot = extractCallerWorkspaceRoot(req.url);
       if (callerWorkspaceRoot) {

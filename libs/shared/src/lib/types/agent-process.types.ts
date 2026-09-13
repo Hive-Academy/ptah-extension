@@ -171,12 +171,50 @@ export interface SpawnAgentResult {
   readonly ptahCliId?: string;
 }
 
+/**
+ * The mechanism that actually delivered a message to a running agent.
+ *
+ * - `steer` — injected mid-turn; the current turn continues and absorbs it.
+ * - `interrupt-resume` — the current turn was aborted and the message re-submitted
+ *   on the SAME session. **Discards the aborted turn's partial work**, which is why
+ *   the mode is always reported back to the caller rather than presented as a plain
+ *   success.
+ * - `queue-next-turn` — held and delivered as the next full turn.
+ * - `unsupported` — nothing was delivered; `detail` carries the reason.
+ */
+export type AgentMessagingMode =
+  | 'steer'
+  | 'interrupt-resume'
+  | 'queue-next-turn'
+  | 'unsupported';
+
+/**
+ * The best mechanism a CLI can offer, as reported by agent listings.
+ *
+ * This is the declared capability, not the outcome of a delivery — see
+ * {@link AgentMessagingMode} for the latter.
+ */
+export type AgentMessagingCapability = 'steer' | 'interrupt' | 'queue' | 'none';
+
+/**
+ * What actually happened to a message aimed at a live agent.
+ *
+ * `mode` is never inferred by the caller and never omitted: an `unsupported`
+ * outcome means NOTHING was delivered, and `detail` carries the reason in
+ * words the caller (often a model) can act on.
+ */
+export interface AgentMessageOutcome {
+  readonly mode: AgentMessagingMode;
+  readonly detail?: string;
+}
+
 export interface CliDetectionResult {
   readonly cli: CliType;
   readonly installed: boolean;
   readonly path?: string;
   readonly version?: string;
-  readonly supportsSteer: boolean;
+  /** Best messaging mechanism this CLI offers for a message sent to a live agent. */
+  readonly messagingMode: AgentMessagingCapability;
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli') */
   readonly ptahCliId?: string;
   /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
