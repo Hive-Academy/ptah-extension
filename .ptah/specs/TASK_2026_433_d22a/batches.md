@@ -1,6 +1,6 @@
 # Batches - TASK_2026_433
 
-Total tasks: 29 (in this delivery; +1 blocked in B7) | Batches: 9 in delivery + 1 blocked + 1 deferred | Complete: 1/9
+Total tasks: 31 (in this delivery; +1 blocked in B7) | Batches: 9 in delivery + 1 blocked + 1 deferred | Complete: 3/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes` (branch `feat/task-433-role-lanes`).
 Every path below is relative to that root unless it is written in full. Executors work ONLY in this worktree.
@@ -15,7 +15,8 @@ Every path below is relative to that root unless it is written in full. Executor
 
 - **Sibling WIP (`wiring/agent-events.ts`, agent-sdk `session-metadata-store.ts`) is SPLIT OUT, not scheduled last.** The main checkout carries another agent's uncommitted edits there (+221/-356 lines on the metadata store). v1 touches neither file: `agent-events.ts:166-168` broadcasts the whole `AgentProcessInfo` object, so the new optional role fields reach the webview with no edit. The only work that needs those files is the UI follow-up "resume from UI re-applies the recorded role" (persist `role` on `CliSessionReference`). It is out of this delivery and must be filed as its own task after the sibling WIP lands. No batch below may edit either file; a reviewer rejects a diff that does.
 - Batch ids keep the plan's numbers (B1..B8) so the user's references ("B7", "B8") stay true. Plan batches that were not independently verifiable are split with letter suffixes (B2a/B2b, B4a/B4b, B5a/B5b), and adapter-channel declaration moves from B2 to B3 (see Plan defect D1).
-- Parallel batches share one worktree. Each executor runs its OWN spec files while the sibling is mid-edit (`npx nx run-many -t test -p @ptah-extension/cli-agent-runtime --testPathPattern=<pattern>`), and the full-lib gate runs once both have returned. No batch edits a `project.json`, so no `nx reset` is needed; never run one while a sibling executor is active.
+- Parallel batches share one worktree. Each executor runs its OWN spec files while the sibling is mid-edit, and the full-lib gate runs once both have returned.
+- **Per-batch test filter (corrected at B2 verify):** `nx run-many ... --testPathPattern=<p>` is NOT forwarded to this Jest; the filter is ignored. The working form, and the only one used below, is `npx nx run <project>:test --testPathPatterns="<regex>" --skip-nx-cache` (plural `Patterns`, single project via `nx run`). Read the `Test Suites: N` line and check N matches the spec files you meant. Prefix `NX_DAEMON=false` when a sibling lane is running in the same worktree. No batch edits a `project.json`, so no `nx reset` is needed; never run one while a sibling executor is active.
 - Status words `BLOCKED` and `DEFERRED` on B7/B8 headers are outside the normal vocabulary on purpose. Mode 3 completion for this delivery = B1..B6 COMPLETE; B7 stays BLOCKED until #501 merges, B8 stays DEFERRED.
 
 ## Plan validation
@@ -28,7 +29,9 @@ Contracts checked against the code (all cites hold unless listed under defects):
 
 - **D1 (sequencing, MEDIUM): required `CliAdapter.roleChannel` in B2 breaks B2's own gate.** `cli-agent-runtime/jest.config.ts` runs ts-jest with full diagnostics, so the moment the interface gains a required member every adapter spec fails to compile until all 6 adapters implement it. The plan's own note ("B4's typecheck is green only once B3 lands") understates it: B2 itself cannot go green. Fix applied in this decomposition: B2b adds only `CliCommandOptions.role`; B3 adds the required `roleChannel` member together with all 6 adapter declarations and the detection stamp, in one batch.
 - **D2 (RISK, MEDIUM): the win32 budget guard models only CreateProcess (32,767).** `resolveDirectSpawn` (`cli-adapter.utils.ts:442-461`) falls back to the unchanged `.cmd` path when the wrapper cannot be parsed or the call throws; `cross-spawn` then runs it through `cmd.exe`, capped at 8,191 (the plan's own cite `:428-441`). A guard that allows 32,767 for a `.cmd`/`.bat` command lets a ~20 KB role through to an OS "command line is too long" error, which is exactly what the named error was meant to replace. Mitigation: Task 2b.2 applies 8,191 when the win32 command ends in `.cmd` or `.bat`.
-- **D3 (RISK, LOW): double frontmatter strip.** `AgentRoleDefinition.body` is already stripped by the resolver, and `transformAgentBody` (`transform-rules.ts:362-363`) strips again. A role whose body itself begins with a `---\n...\n---` block loses that block on the four CliTarget lanes only. The individual rewrite functions are not exported from the harness-sync barrel. Mitigation: Task 2b.1 pins a spec case for a body starting with a `---` pair; if it is mangled, the resolver keeps the raw file content on a non-exported field of its own result and `renderRoleBlock` transforms from it, without widening harness-sync's barrel.
+- **D3 (RISK, LOW): double frontmatter strip.** `AgentRoleDefinition.body` is already stripped by the resolver, and `transformAgentBody` (`transform-rules.ts:362-363`) strips again. A role whose body itself begins with a `---\n...\n---` block loses that block on the four CliTarget lanes only. The individual rewrite functions are not exported from the harness-sync barrel. **Outcome at B2 verify: CONFIRMED MANGLED** on codex/copilot/cursor/antigravity (kept on pi/opencode/ptah-cli); B2b's spec pins the mangled output. Conductor ruling: a mangled role body is a correctness bug and must not ship. **Resolution: Task 3.0 (first task of B3)** fixes it inside `renderRoleBlock` without touching harness-sync or the shared `AgentRoleDefinition` type, and flips the pinned case to "preserved on every lane".
+- **D9 (found at B2 verify, MEDIUM): empty `workspaceRoot` reads roles relative to `process.cwd()`.** `resolveHarnessWorkspaceRoot('')` returns `''` (`harness-sync/src/lib/workspace/workspace-root.ts:70`), so the resolver probes `join('', '.claude', 'agents')`, a cwd-relative path (install dir in Electron, the shell cwd in the CLI). No consumer exists before B5a, so nothing is reachable today. **Resolution: Task 3.0b** — the resolver rejects a non-absolute or empty `workspaceRoot` before any FS call.
+- **D10 (found at B2 verify, LOW-MEDIUM): the `.cmd` fallback under-measures.** When `resolveDirectSpawn` falls back to a `.cmd` wrapper, `cross-spawn` escapes cmd.exe metacharacters (space included) with `^`, twice for `node_modules/.bin` shims, so the real cmd.exe line can be well above the libuv-quoted length the guard measures. Over the cap the spawn still fails loudly with the OS error (no truncation, same as before this task), just not with `CliCommandLineTooLongError`. Not a regression. Mitigation: Task 6.2 records one real `.cmd` spawn with a space-heavy prompt measured just under 8,191 and documents the outcome in `cli-agent-runtime/CLAUDE.md` (Task 6.1).
 - **D4 (gap, LOW): no detection spec exists.** The plan asks for "a detection spec on stamped fields" but lists no file, and `cli-agents/cli-detection.service.ts` has no spec today. Task 3.7 creates `cli-detection.service.spec.ts`.
 - **D5 (contract ambiguity, MEDIUM): `CliDetectionResult.roleDelivery/roleChannel` must be OPTIONAL.** The plan lists them without `?`. `CliDetectionResult` literals are built in 6 adapter `detect()` bodies, `agent-rpc.handlers.ts`, `agent-namespace.builder.ts`, and specs in cli-agent-runtime, vscode-lm-tools and `libs/frontend/tribunal-panel/.../tribunal-discovery.service.spec.ts`. Required fields would break all of them, including a frontend lib outside this task. Detection stamps them centrally (success AND error branch, and therefore the cache); the type stays optional.
 - **D6 (cite drift, LOW):** mirror enumeration rule is `user-layer-mirror.service.ts:1263` (`e.isFile() && e.name.endsWith('.md')`), not `:1307-1308`. The rule itself is as the plan says.
@@ -53,7 +56,9 @@ Assumptions:
 | codex SDK spawn bypasses `spawnCli` guard | MEDIUM | Task 3.2 guards the serialized `--config` override before `new sdk.Codex` |
 | D5 required detection fields break frontend spec | MEDIUM | Fields optional (Task 1.1) |
 | `protocol-dispatcher.ts` (2,132 lines) / `agent-process-manager.service.ts` (2,334) growth | LOW | Spawn validation moves to the schema file (5b.1); manager adds fields only, no new methods |
-| D3 double frontmatter strip | LOW | Task 2b.1 spec case |
+| D3 double frontmatter strip (confirmed mangled) | MEDIUM | Task 2b.1 pinned it; Task 3.0 fixes it and flips the spec |
+| D9 empty `workspaceRoot` resolves roles from `process.cwd()` | MEDIUM | Task 3.0b |
+| D10 `.cmd` fallback under-measured (cross-spawn `^` escaping) | LOW-MEDIUM | Tasks 6.1 / 6.2 evidence + docs |
 | Role resolved but never delivered (silent role-less spawn) | HIGH | Task 5a.1: named error when `role` set and no resolver; every resolver failure throws `AgentRoleError` |
 | Vendor names leak into the `role` tool description | LOW | `vendor-roster-drift.spec.ts` in B5b gate |
 | Sibling WIP in `agent-events.ts` / session metadata store | MEDIUM | Split out of this delivery (see defaults) |
@@ -131,7 +136,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Reviewer: code-style-reviewer (pure contract/type precision)
 - Gate record (2026-09-13): orchestrator delegated reviewer depth to team-leader judgment for this additive, single-file batch. Gate run = team-leader inline contract review, no separate reviewer spawn. Checked: every field in the Task 1.1 contract present with exact names, literal unions and optionality (D5 optional on `CliDetectionResult`); no `node:` import; barrel untouched; field docs follow the `AgentMessagingMode` / "Injected by MCP server, NOT set by callers" pattern; `git show --stat` = 1 file, +56. Evidence re-run by team-leader: typecheck 5/5 projects green; `@ptah-extension/shared` test 57 suites / 1381 tests green; lint shared 0 errors (2 pre-existing warnings, none in the changed file). Type-precision is re-reviewed by code-style-reviewer at B5b, where these types meet the MCP surfaces.
 
-## Batch B2a: AgentRoleResolver — IN_PROGRESS
+## Batch B2a: AgentRoleResolver — COMPLETE (commit 7fdcc73d9)
 
 - Recommended executor: backend-developer
 - Fallback executor: CLI lane (self-contained: new folder + 3 wiring lines)
@@ -139,7 +144,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Rationale: new service with a security-sensitive name check and error taxonomy; owns the lib's DI and barrel files, which B2b does not touch.
 - Tasks: 2 | Depends on: B1
 
-### Task 2a.1: Implement resolver and spec — IN_PROGRESS
+### Task 2a.1: Implement resolver and spec — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\roles\agent-role-resolver.service.ts`
@@ -155,7 +160,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Spec cases: missing dir, empty dir, unknown role lists available, `../x` fails with zero FS calls, case mismatch, frontmatter-only file, 64 KiB exact accepted / +1 rejected, CRLF body, read failure after listing, sub-package workspaceRoot (real temp dir with `.git` marker, assumption A5), a body beginning with a `---` pair (defect D3 — record what the resolver returns so 2b.1 can pin the rendering).
 - Quality: `catch (error: unknown)`; no fallback to role-less anything.
 
-### Task 2a.2: Register token and export — IN_PROGRESS
+### Task 2a.2: Register token and export — COMPLETE
 
 - Files:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\di\tokens.ts` — `AGENT_ROLE_RESOLVER: Symbol.for('AgentRoleResolver')`
@@ -166,11 +171,12 @@ Read the `Running target test for 5 projects` header; N must be 5.
 
 ### Batch B2a verification
 
-- `npx nx run-many -t test -p @ptah-extension/cli-agent-runtime --testPathPattern="roles|di"` while B2b is active; after both return, `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime` (N=1)
+- `npx nx run @ptah-extension/cli-agent-runtime:test --testPathPatterns="roles|register" --skip-nx-cache` while B2b is active; after both return, `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime` (N=1)
 - Traversal case proves no FS call before validation
 - Reviewer: code-logic-reviewer (path safety, error taxonomy, no silent fallback)
+- Gate record (2026-09-13): conductor instructed verify-and-commit in one invocation; team-leader cannot spawn, so the logic gate was an inline team-leader logic review of every changed line, not a separate reviewer spawn. Verdict APPROVE with one scheduled finding (D9 → Task 3.0b). Checked: name regex runs before `resolveHarnessWorkspaceRoot` and before any provider call (spec asserts `totalCalls() === 0` for `../x`, `..`, `.hidden`, `a/b`, `a\b`, empty, 101 chars, space); path joined only from the matched listing entry; case-sensitive exact match; empty check before size check; size in UTF-8 bytes on the LF-normalized stripped body; every failure is `AgentRoleError`, `role_read_failed` narrows with `instanceof Error`; no cache; no role-less fallback. Accepted deviation: `exists()` before `readDirectory` (port has no uniform not-found error), up to 3 FS calls per resolve. Evidence: conductor full-lib run 55 suites / 800 passed / 1 skipped; team-leader filtered run `--testPathPatterns="roles|cli-adapter\.utils|register"` 3 suites / 90 passed; `nx run-many -t lint,typecheck` for cli-agent-runtime, vscode-lm-tools, rpc-handlers, cli-engine green (4/4, 0 errors; no warning in a changed file); D7 `@nx/dependency-checks` did NOT fire on the harness-sync import. `git show --stat 7fdcc73d9` = 6 files, all named in this batch.
 
-## Batch B2b: Role prompt assembly + command-line budget guard — IN_PROGRESS
+## Batch B2b: Role prompt assembly + command-line budget guard — COMPLETE (commit c0ecc1644)
 
 - Recommended executor: backend-developer
 - Fallback executor: CLI lane
@@ -178,7 +184,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Rationale: exact-value ordering and platform-limit math in one util file; owns `cli-adapter.utils.ts` and the `CliCommandOptions` half of the interface.
 - Tasks: 3 | Depends on: B1
 
-### Task 2b.1: `renderRoleBlock` and `buildTaskPrompt` role section — IN_PROGRESS
+### Task 2b.1: `renderRoleBlock` and `buildTaskPrompt` role section — COMPLETE
 
 - Files:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-adapters\cli-adapter.utils.ts`
@@ -189,7 +195,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
   - `buildTaskPrompt` order: `systemPrompt || projectGuidance` → `\n\n---\n\n` → role block when `options.role` → `\n\n---\n\n` → tool policy, task, files, taskFolder. Role-less output must be byte-identical to today.
 - Spec: order with/without system context and with/without role (4 combinations, exact strings), transform applied for a CliTarget and skipped for `pi`, D3 `---`-leading body case.
 
-### Task 2b.2: `assertCommandLineWithinLimit` + `CliCommandLineTooLongError`, called first in `spawnCli` — IN_PROGRESS
+### Task 2b.2: `assertCommandLineWithinLimit` + `CliCommandLineTooLongError`, called first in `spawnCli` — COMPLETE
 
 - Files: same two as 2b.1
 - Depends on: none within batch (same files, do after 2b.1)
@@ -201,7 +207,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
   - `spawnCli` calls it first, before the `spawner` branch, so off-thread and inline spawns are both guarded
 - Spec: limit-1 / limit / limit+1 for win32, win32 `.cmd`, linux, darwin (platform injected, never global); quoting cost of `"` and trailing `\`; error fields.
 
-### Task 2b.3: `CliCommandOptions.role` — IN_PROGRESS
+### Task 2b.3: `CliCommandOptions.role` — COMPLETE
 
 - File: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-adapters\cli-adapter.interface.ts`
 - Contract: `readonly role?: AgentRoleDefinition` on `CliCommandOptions` ONLY. Do NOT add `roleChannel` to `CliAdapter` here (defect D1 — that is Task 3.1).
@@ -209,51 +215,75 @@ Read the `Running target test for 5 projects` header; N must be 5.
 
 ### Batch B2b verification
 
-- `npx nx run-many -t test -p @ptah-extension/cli-agent-runtime --testPathPattern="cli-adapter.utils"` while B2a is active; after both return, `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime` (N=1) — every existing adapter spec still green (role-less byte identity)
+- `npx nx run @ptah-extension/cli-agent-runtime:test --testPathPatterns="cli-adapter\.utils" --skip-nx-cache` while B2a is active; after both return, `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime` (N=1) — every existing adapter spec still green (role-less byte identity)
 - Reviewer: code-logic-reviewer (limit math, ordering, no truncation)
+- Accepted deviations: (a) `buildTaskPrompt(options, cli?: CliType)` — role-less output is byte-identical with or without `cli`; a role without `cli` throws (programmer error, no silent role-less prompt). This changes the B3 contract (see Tasks 3.2-3.6). (b) win32 measure includes the terminating NUL (32,766 and 32,767 pass, 32,768 throws; same rule for 8,191). (c) POSIX platforms other than linux/darwin use the Linux per-argument rule. (d) `lib jest.config.ts` gains `setupFiles: ['reflect-metadata']` (conductor fix: the harness-sync barrel loads tsyringe, which broke 6 adapter spec suites); the per-spec `import 'reflect-metadata'` stays, consistent with the 9 sibling specs that already carry it.
+- Gate record (2026-09-13): inline team-leader logic review (same basis as B2a). Verdict APPROVE with scheduled findings. Checked against libuv `quote_cmd_arg`: no-quote set is space/tab/`"`, empty arg `""`, reverse walk doubles backslashes before a quote or the closing quote and escapes `"` — implementation matches. Separators + NUL counted; `.cmd`/`.bat` case-insensitive branch present (D2); Linux 131,071 = `MAX_ARG_STRLEN` minus NUL; `spawnCli` guards before the `spawner` branch so off-thread and inline spawns are both covered; all `spawnCli` callers sit inside async/Promise paths so the synchronous throw becomes a rejection. Findings: **F1 = D3 CONFIRMED MANGLED → Task 3.0** (commit body of c0ecc1644 names it as open); **F2 = D10** `.cmd` fallback under-measured by cross-spawn `^` escaping → Tasks 6.1/6.2; **F3 (LOW)** Linux total `ARG_MAX` and darwin env bytes are not modelled — per-arg/args-only is the plan contract, document in Task 6.1; **F4 (LOW, no action)** `probeCliVersion` is documented "never throws"; the guard inside its Promise executor would reject, unreachable with `--version`/`models` args; **F5 (LOW, no action)** transform lanes `trim()` the body, pass-through lanes do not — whitespace only. Evidence as in B2a; `git show --stat c0ecc1644` = 5 files, all named in this batch (+ conductor's jest config).
 
-## Batch B3: Adapter role channels + detection stamp — PENDING
+## Batch B3: Adapter role channels + detection stamp — IN_PROGRESS
 
 - Recommended executor: backend-developer (single sub-agent)
-- Fallback executor: after Task 3.1 is committed to the worktree by the sub-agent, CLI lanes x 6 for Tasks 3.2-3.6 + 3.8 split by adapter
+- Fallback executor: after Task 3.1 is on disk, CLI lanes x 6 for Tasks 3.2-3.6 + 3.8 split by adapter
 - Execution mode: sequential
-- Rationale: the required interface member makes every adapter red until all six land (D1), and codex (SDK argv bypass) and antigravity (reorder before a HOME side effect) each need a judgment call mid-flight.
-- Tasks: 8 | Depends on: B2b
+- Rationale: the required interface member makes every adapter red until all six land (D1), and codex (SDK argv bypass) and antigravity (reorder before a HOME side effect) each need a judgment call mid-flight. Tasks 3.0/3.0b are two small correctness fixes found at B2 verify; they sit here because B3 owns `cli-adapters/**` and B4a owns only `ptah-cli/**`.
+- Tasks: 10 | Depends on: B2b
+- File ownership (G2): everything under `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/**`, `cli-agents/cli-detection.service.ts` + its new spec, and `libs/backend/cli-agent-runtime/src/lib/roles/**`. B3 must NOT edit `ptah-cli/**`.
 
-### Task 3.1: Required `CliAdapter.roleChannel` — PENDING
+### Task 3.0: D3 fix — role body keeps a leading `---` block on every lane — IN_PROGRESS
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-adapters\cli-adapter.utils.ts` (`renderRoleBlock`)
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-adapters\cli-adapter.utils.spec.ts` (`describe('a body that itself begins with a --- pair')`)
+- Problem: `AgentRoleDefinition.body` is already frontmatter-stripped by the resolver; `transformAgentBody` (`harness-sync/src/lib/targets/transformers/transform-rules.ts:362-369`) calls `stripFrontmatter` again, so on codex/copilot/cursor/antigravity a body starting `---\n...\n---` loses that block.
+- Contract: fix inside `renderRoleBlock` only. Do NOT change harness-sync (no new export, no new option on `transformAgentBody`) and do NOT change the shared `AgentRoleDefinition` type. Recommended mechanism: on transform lanes pass `transformAgentBody(EMPTY_FRONTMATTER + role.body, cli)` with a module constant `EMPTY_FRONTMATTER = '---\n\n---\n'`. `stripFrontmatter`'s regex `^---\n[\s\S]*?\n---\n?` matches exactly that sentinel (lazy match closes at the first `\n---`), so the second strip consumes the sentinel and never the body. Team-leader verified the regex on `'---\nkeep\n---\nx'`, `'plain'`, `'\nlead'`, `'---\n---\nx'` and `''`: body survives byte-for-byte in all five. Pass-through lanes (pi, opencode, ptah-cli) unchanged. If the executor picks another mechanism it must meet the same spec and the same no-harness-sync-change constraint.
+- Spec change (flips the pinned case): replace `'loses the leading block on a transform lane (double strip)'` and `'keeps the leading block on a pass-through lane'` with one `it.each` over all 7 lanes (`codex, copilot, cursor, antigravity, pi, opencode, ptah-cli`) titled `'preserves the leading block on the %s lane'`, expecting `header('reviewer') + '---\nkeep: this block\n---\nThe real instructions.'` for every lane. Keep the existing `'applies the harness transform for the %s lane'` cases green (the rewrite still runs on transform lanes) and add one case where a `---`-leading body also contains a rewritable token (e.g. `AskUserQuestion`) on `codex`, expecting the block kept AND the token rewritten (`transformAgentBody` output for the post-block text).
+
+### Task 3.0b: D9 fix — resolver rejects an empty or relative `workspaceRoot` — IN_PROGRESS
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\roles\agent-role-resolver.service.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\roles\agent-role-resolver.service.spec.ts`
+- Problem: `resolveHarnessWorkspaceRoot('')` returns `''`, so `join('', '.claude', 'agents')` is cwd-relative and the resolver reads `process.cwd()/.claude/agents`.
+- Contract: `listRoles` and `resolve` both reject `workspaceRoot` that is empty or not `path.isAbsolute` BEFORE `resolveHarnessWorkspaceRoot` and before any provider call. `resolve` keeps its order: name check first, then the workspace check. Add `'no_workspace'` to `AgentRoleErrorCode`; message says no workspace folder is open, so roles cannot be resolved, and that spawning without `role` is valid. `availableRoles` is `[]`. Export surface unchanged apart from the widened union.
+- Spec: `listRoles('')`, `listRoles('relative/dir')`, `resolve('', 'x')` each raise `no_workspace` with `totalCalls() === 0`; `resolve('', '../x')` still raises `invalid_role_name` (name check first).
+- Downstream: Task 5b.3/5b.5 "each of the 6 `AgentRoleError` codes" becomes 7 codes.
+
+### Task 3.1: Required `CliAdapter.roleChannel` — IN_PROGRESS
 
 - File: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-adapters\cli-adapter.interface.ts`
 - Contract: `readonly roleChannel: AgentRoleChannel` on `CliAdapter`, required, doc sentence mirroring `capabilities()` (`:160-165`).
 
-### Task 3.2: codex → `developer-instructions` — PENDING
+**`buildTaskPrompt` call-site rule (conductor decision, B2 verify):** B2b shipped `buildTaskPrompt(options, cli?: CliType)`, which throws when `options.role` is set and `cli` is missing. copilot, antigravity, opencode, cursor and pi call `buildTaskPrompt(options, this.name)`. codex keeps `buildTaskPrompt({ ...options, role: undefined })` (its role travels on `developer_instructions`, never in the thread input). Every call site in `cli-adapters/**` must follow this; grep `buildTaskPrompt(` after the batch and confirm no bare `buildTaskPrompt(options)` remains.
+
+### Task 3.2: codex → `developer-instructions` — IN_PROGRESS
 
 - Files: `codex-cli.adapter.ts` + `codex-cli.adapter.spec.ts` in `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-adapters\`
-- Contract: `roleChannel = 'developer-instructions'`; when `options.role`, `config['developer_instructions'] = renderRoleBlock(role, 'codex')`; run `assertCommandLineWithinLimit` on the serialized override (`--config`, `developer_instructions=<JSON.stringify(value)>`, against the resolved codex binary) BEFORE `new sdk.Codex` (`:632`); `buildTaskPrompt({ ...options, role: undefined })` at `:658`.
+- Contract: `roleChannel = 'developer-instructions'`; when `options.role`, `config['developer_instructions'] = renderRoleBlock(role, 'codex')` (after Task 3.0, so a `---`-leading body survives); run `assertCommandLineWithinLimit` on the serialized override (`--config`, `developer_instructions=<JSON.stringify(value)>`, against the resolved codex binary) BEFORE `new sdk.Codex` (`:632`); `buildTaskPrompt({ ...options, role: undefined })` at `:658` (no `cli` argument needed because the role is stripped).
 - Spec: config carries the block and thread input does not; oversized role rejects with `CliCommandLineTooLongError` and `sdk.Codex` is never constructed; `sandboxMode`/`approvalPolicy` unchanged; role-less config unchanged.
 
-### Task 3.3: copilot → `task-prompt` — PENDING
+### Task 3.3: copilot → `task-prompt` — IN_PROGRESS
 
 - Files: `copilot-sdk.adapter.ts` + `.spec.ts`
-- Contract: `roleChannel = 'task-prompt'`; role reaches `-p` via `buildTaskPrompt` (`:459`); continuation `runTurn(message)` does not re-add it.
+- Contract: `roleChannel = 'task-prompt'`; role reaches `-p` via `buildTaskPrompt(options, this.name)` (`:459`); continuation `runTurn(message)` does not re-add it.
 - Spec: role block inside the `-p` value after harness context; continuation turn argv has no role block; guard error surfaces through `spawnCli`.
 
-### Task 3.4: antigravity → `task-prompt`, guard before MCP write — PENDING
+### Task 3.4: antigravity → `task-prompt`, guard before MCP write — IN_PROGRESS
 
 - Files: `antigravity-cli.adapter.ts` + `antigravity-cli.adapter.spec.ts` (leave `antigravity-cli.adapter.mcp.spec.ts` green, edit only if its ordering assumption breaks)
-- Contract: `roleChannel = 'task-prompt'`; reorder `runSdk` so prompt + args are built and `resolveDirectSpawn` resolved, then `assertCommandLineWithinLimit(descriptor.command, [...prefixArgs, ...args])` runs, then `configureMcpServer` (`:441`), then `spawnCli`. `ensureFolderTrusted` stays first (unchanged behaviour).
+- Contract: `roleChannel = 'task-prompt'`; prompt via `buildTaskPrompt(options, this.name)`; reorder `runSdk` so prompt + args are built and `resolveDirectSpawn` resolved, then `assertCommandLineWithinLimit(descriptor.command, [...prefixArgs, ...args])` runs, then `configureMcpServer` (`:441`), then `spawnCli`. `ensureFolderTrusted` stays first (unchanged behaviour).
 - Spec: role block in `--print` value; oversized role rejects and `configureMcpServer` is never called.
 
-### Task 3.5: opencode → `task-prompt` — PENDING
+### Task 3.5: opencode → `task-prompt` — IN_PROGRESS
 
 - Files: `opencode-cli.adapter.ts` + `.spec.ts`
-- Contract: `roleChannel = 'task-prompt'`; role in trailing positional via `buildTaskPrompt` (`:406`); `OPENCODE_CONFIG_CONTENT` unchanged (no native agent in v1).
+- Contract: `roleChannel = 'task-prompt'`; role in trailing positional via `buildTaskPrompt(options, this.name)` (`:406`); `OPENCODE_CONFIG_CONTENT` unchanged (no native agent in v1).
 
-### Task 3.6: cursor and pi → `task-prompt` — PENDING
+### Task 3.6: cursor and pi → `task-prompt` — IN_PROGRESS
 
 - Files: `cursor-cli.adapter.ts` + `.spec.ts`, `pi-cli.adapter.ts` + `.spec.ts`
-- Contract: `roleChannel = 'task-prompt'` on both; cursor role in `agent.send(prompt)` first turn; pi role in stdin JSONL first prompt; neither re-sends on continuation.
+- Contract: `roleChannel = 'task-prompt'` on both; both build the prompt with `buildTaskPrompt(options, this.name)`; cursor role in `agent.send(prompt)` first turn; pi role in stdin JSONL first prompt; neither re-sends on continuation.
 
-### Task 3.7: Detection stamps role fields — PENDING
+### Task 3.7: Detection stamps role fields — IN_PROGRESS
 
 - Files:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-detection.service.ts`
@@ -261,18 +291,21 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Contract: `doDetectAll` stores `{ ...result, roleDelivery: 'preamble', roleChannel: adapter.roleChannel }` on the success branch and adds both to the error-branch literal (`:122-126`), so the cache carries them.
 - Spec: both branches stamped; cache returns stamped rows.
 
-### Task 3.8: No adapter-side permission drift — PENDING
+### Task 3.8: No adapter-side permission drift — IN_PROGRESS
 
 - Files: the adapter specs above
 - Contract: one assertion per adapter spec that a role-carrying spawn produces the same sandbox/permission/model/effort arguments as the role-less spawn.
 
 ### Batch B3 verification
 
-- `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime` (N=1) after the batch returns; while B4a runs in parallel use `--testPathPattern="cli-adapters|cli-detection"`
-- `git show --stat` lists only files named above
+- While B4a runs in parallel: `NX_DAEMON=false npx nx run @ptah-extension/cli-agent-runtime:test --testPathPatterns="cli-adapters|cli-detection|roles" --skip-nx-cache`
+- After B3 and B4a both return: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime` (N=1)
+- The D3 spec reads "preserves the leading block on the %s lane" for all 7 lanes; no spec still asserts the mangled output
+- No bare `buildTaskPrompt(options)` left in `cli-adapters/**`
+- `git diff --name-only` lists only files named above
 - Reviewer: code-logic-reviewer (side-effect ordering, SDK argv guard, continuation behaviour)
 
-## Batch B4a: ptah-cli system-prompt delivery — PENDING
+## Batch B4a: ptah-cli system-prompt delivery — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: CLI lane
@@ -280,12 +313,14 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Rationale: owns only `ptah-cli/**`, disjoint from B3's `cli-adapters/**` and detection.
 - Tasks: 3 | Depends on: B2b
 
-### Task 4a.1: Thread `role` through `PtahCliRegistry.spawnAgent` — PENDING
+- File ownership (G2): only `libs/backend/cli-agent-runtime/src/lib/ptah-cli/**`. B4a must NOT edit `cli-adapters/**` (including `cli-adapter.utils.ts`, which B3 edits in Task 3.0), `roles/**`, detection, or any barrel. Import `renderRoleBlock` from `../../cli-agents/cli-adapters/cli-adapter.utils` (or the `cli-adapters` barrel, which already exports it). `renderRoleBlock(role, 'ptah-cli')` is a pass-through lane, so Task 3.0 does not change its output.
+
+### Task 4a.1: Thread `role` through `PtahCliRegistry.spawnAgent` — IN_PROGRESS
 
 - File: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\ptah-cli\ptah-cli-registry.ts`
 - Contract: `options.role?: AgentRoleDefinition` (`:562-583`), forwarded to `assembleSpawnOptions` (`:653-667`) as a new trailing parameter; tier/model precedence untouched; role frontmatter `model`/`tools` never read.
 
-### Task 4a.2: Append role block to the system prompt — PENDING
+### Task 4a.2: Append role block to the system prompt — IN_PROGRESS
 
 - Files:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\ptah-cli\helpers\ptah-cli-spawn-options.service.ts`
@@ -293,14 +328,15 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Contract: `assembleSpawnOptions(..., agentId?, role?)`; `fullSystemPromptContent` gains `renderRoleBlock(role, 'ptah-cli')` after `## Project Guidance`. Existing positional callers and specs (`*.output-style.spec.ts`, `*.session-ids.spec.ts`, registry specs) stay green unchanged.
 - Spec: role section after project guidance; absent without role; present with no project guidance; both `standalone` and preset-append carry it (assumption A6).
 
-### Task 4a.3: argv/env probe with a 64 KiB role — PENDING
+### Task 4a.3: argv/env probe with a 64 KiB role — IN_PROGRESS
 
 - File: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\ptah-cli\ptah-cli-registry-auto-compact-argv.spec.ts`
 - Contract: one case spawning with a 64 KiB role asserts the role text is in `initialize.systemPrompt` or `appendSystemPrompt` and in no argv element or env value.
 
 ### Batch B4a verification
 
-- `npx nx run-many -t test -p @ptah-extension/cli-agent-runtime --testPathPattern="ptah-cli"` during G2; full `test,lint,typecheck` for the lib after B3 and B4a both return
+- During G2: `NX_DAEMON=false npx nx run @ptah-extension/cli-agent-runtime:test --testPathPatterns="ptah-cli" --skip-nx-cache`; full `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime` (N=1) after B3 and B4a both return
+- `git diff --name-only` for B4a lists only `ptah-cli/**` files named above
 - Reviewer: code-logic-reviewer
 
 ## Batch B4b: Manager plumbing + list-row stamp — PENDING
@@ -324,7 +360,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
   - `trackSdkHandle` result literal (`:723-731`) copies the three fields from `info`
   - No new method; role never affects slot reservation
 - Spec: role forwarded to `runSdk`; record, `agent:spawned` payload and result carry the three fields; role-less spawn carries none; `spawnFromSdkHandle` meta copy.
-- Validation: do NOT touch `wiring/agent-events.ts` (sibling WIP, see defaults).
+- Validation: do NOT touch `wiring/agent-events.ts` (sibling WIP, see defaults). The spec's adapter fake (`agent-process-manager.service.spec.ts:221-239`) is cast `as unknown as jest.Mocked<CliAdapter>`, so it still compiles after Task 3.1 without `roleChannel`; add `roleChannel` to it here, because `doSpawn` now reads it.
 
 ### Task 4b.2: ptah-cli list rows in rpc-handlers — PENDING
 
@@ -393,7 +429,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 
 - Files: `mcp-core/protocol-dispatcher.ts` + `protocol-dispatcher.spec.ts`
 - Contract: `case 'ptah_agent_spawn'` (`:730-827`) replaces the cast and the two hand-written checks with `AgentSpawnArgsSchema.safeParse`, failing via `toolErrorResponse` + `describeZodIssues`; forwards `role`; logs `role`; catches `AgentRoleError` → `Error: ptah_agent_spawn role <code>: <message>`; `CliCommandLineTooLongError` → tool error naming sizes. `ptah_agent_list` calls `ptahAPI.agent.listRoles()` (failure → warn + empty) and passes roles to `formatAgentList`. File must not grow materially.
-- Spec: role forwarded; each of the 6 `AgentRoleError` codes surfaced; unknown key rejected; invalid `cli` rejected; list with roles / no roles / `listRoles` throwing.
+- Spec: role forwarded; each of the 7 `AgentRoleError` codes (incl. `no_workspace`, Task 3.0b) surfaced; unknown key rejected; invalid `cli` rejected; list with roles / no roles / `listRoles` throwing.
 
 ### Task 5b.4: Formatters — PENDING
 
@@ -428,14 +464,14 @@ Read the `Running target test for 5 projects` header; N must be 5.
 ### Task 6.1: Lib CLAUDE.md updates — PENDING
 
 - Files:
-  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\CLAUDE.md` — role channels per adapter, resolver source (`.claude/agents`, not the consent-gated user layer), budget guard incl. `.cmd` 8,191 branch, why read-only is not mapped to a sandbox, why frontmatter `model` is ignored, A2 outcome
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\CLAUDE.md` — role channels per adapter, resolver source (`.claude/agents`, not the consent-gated user layer), budget guard incl. `.cmd` 8,191 branch and its limits (D10 cross-spawn `^` escaping on the fallback path, Linux total `ARG_MAX` and darwin env bytes not modelled), role body frontmatter handling (D3 fix), `no_workspace` (D9), why read-only is not mapped to a sandbox, why frontmatter `model` is ignored, A2 outcome
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\vscode-lm-tools\CLAUDE.md` — one shared spawn schema; HTTP now strict (Decision 2)
 - Constraint: these CLAUDE.md files are not VSIX assets, so vendor names are allowed here; the `role` tool-description text itself stays vendor-free.
 
 ### Task 6.2: Live e2e + A1/A3 evidence — PENDING
 
 - File: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\.ptah\specs\TASK_2026_433_d22a\test-report.md`
-- Contract: one `ptah_agent_spawn({ cli: <installed argv lane, antigravity preferred>, role: 'code-logic-reviewer', taskFolder, task })` on a scratch task; record result showing `preamble via task-prompt`, the deliverable in `taskFolder` with the role's structure, `ptah_agent_read` showing the role block reached the lane; one codex run for A1/A2 if codex is installed (else record "not installed" as an open item); A3 real Windows `node -e` spawn at limit-1 / limit+1; one `ptah_agent_spawn` with an unknown key on HTTP showing the Zod rejection.
+- Contract: one `ptah_agent_spawn({ cli: <installed argv lane, antigravity preferred>, role: 'code-logic-reviewer', taskFolder, task })` on a scratch task; record result showing `preamble via task-prompt`, the deliverable in `taskFolder` with the role's structure, `ptah_agent_read` showing the role block reached the lane; one codex run for A1/A2 if codex is installed (else record "not installed" as an open item); A3 real Windows `node -e` spawn at limit-1 / limit+1; D10: one real spawn through a `.cmd` wrapper (cross-spawn fallback path) with a space-heavy argument the guard measures just under 8,191, recording whether the OS accepts it or fails with its own "command line is too long"; one `ptah_agent_spawn` with an unknown key on HTTP showing the Zod rejection.
 - Acceptance-line mapping: context.md acceptance 1 and 3 close here; acceptance 2 is B8.
 
 ### Batch B6 verification
