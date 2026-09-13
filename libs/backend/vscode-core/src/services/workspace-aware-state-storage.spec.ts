@@ -165,7 +165,10 @@ describe('WorkspaceAwareStateStorage readiness routing', () => {
       sourceSha256: 'abc',
       itemCount: 1,
       extractedValueCount: 1,
-      retainedSourceCount: 0,
+      droppedStdoutCount: 0,
+      stdoutFallbackCount: 0,
+      droppedBulkWithoutIdCount: 0,
+      skippedItemCount: 0,
       committedGeneration: 2,
       commitId: 'commit-1',
     };

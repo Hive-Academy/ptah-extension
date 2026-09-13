@@ -1,11 +1,15 @@
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { StateStorageRecoveryRequiredError } from '@ptah-extension/platform-core';
 import {
+  ElectronStateCommitError,
   ElectronStateCommitStore,
   type ElectronStateDurableStep,
+  type ElectronStateFaultInjector,
 } from './electron-state-storage-commit-store';
+import type { ElectronStateManifest } from './electron-state-storage-manifest';
 
 const DURABLE_STEPS: readonly ElectronStateDurableStep[] = [
   'blob-written',
@@ -21,6 +25,10 @@ const DURABLE_STEPS: readonly ElectronStateDurableStep[] = [
   'current-renamed',
   'current-verified',
 ];
+
+const PRE_POINTER_STEPS = DURABLE_STEPS.filter(
+  (step) => step !== 'current-renamed' && step !== 'current-verified',
+);
 
 const tmpDirs: string[] = [];
 
@@ -46,7 +54,9 @@ afterEach(async () => {
   }
 });
 
-function failAfter(target: ElectronStateDurableStep) {
+function failAfter(
+  target: ElectronStateDurableStep,
+): ElectronStateFaultInjector {
   let fired = false;
   return {
     after(step: ElectronStateDurableStep): void {
@@ -58,9 +68,100 @@ function failAfter(target: ElectronStateDurableStep) {
   };
 }
 
-describe('ElectronStateCommitStore durable-step recovery', () => {
+async function openStore(
+  legacyPath: string,
+  v2Path: string,
+  faultInjector?: ElectronStateFaultInjector,
+): Promise<{
+  store: ElectronStateCommitStore;
+  manifest: ElectronStateManifest;
+}> {
+  const store = new ElectronStateCommitStore(legacyPath, v2Path, faultInjector);
+  const loaded = await store.initialize();
+  if (loaded.kind === 'current') return { store, manifest: loaded.manifest };
+  const manifest = await store.commitInitial(
+    new Map(Object.entries(loaded.legacyValues)),
+    loaded.sourceSha256,
+  );
+  return { store, manifest };
+}
+
+async function openFailingStore(
+  legacyPath: string,
+  v2Path: string,
+  step: ElectronStateDurableStep,
+): Promise<{
+  store: ElectronStateCommitStore;
+  manifest: ElectronStateManifest;
+}> {
+  await openStore(legacyPath, v2Path);
+  return await openStore(legacyPath, v2Path, failAfter(step));
+}
+
+async function currentValue(
+  legacyPath: string,
+  v2Path: string,
+): Promise<{ value: unknown; manifest: ElectronStateManifest }> {
+  const store = new ElectronStateCommitStore(legacyPath, v2Path);
+  const loaded = await store.initialize();
+  if (loaded.kind !== 'current') throw new Error('expected a current store');
+  return {
+    value: await store.readValue(loaded.manifest.values['value']),
+    manifest: loaded.manifest,
+  };
+}
+
+function blobName(key: string, generation: number): string {
+  return `${createHash('sha256').update(key, 'utf8').digest('hex')}.${generation}.json`;
+}
+
+describe('ElectronStateCommitStore boot and initial commit', () => {
+  it('returns legacy values without committing anything', async () => {
+    const { legacyPath, v2Path, legacyBytes } = await fixture();
+    const loaded = await new ElectronStateCommitStore(
+      legacyPath,
+      v2Path,
+    ).initialize();
+
+    expect(loaded).toMatchObject({
+      kind: 'legacy',
+      legacyValues: { value: 'legacy' },
+    });
+    await expect(fs.access(v2Path)).rejects.toBeDefined();
+    expect(await fs.readFile(legacyPath, 'utf8')).toBe(legacyBytes);
+  });
+
+  it('treats an absent v1 file as an empty store', async () => {
+    const { dir } = await fixture();
+    const loaded = await new ElectronStateCommitStore(
+      path.join(dir, 'missing.json'),
+      path.join(dir, 'missing.v2'),
+    ).initialize();
+
+    expect(loaded).toMatchObject({ kind: 'legacy', legacyValues: {} });
+  });
+
+  it('boots a committed store by verifying blobs without parsing them', async () => {
+    const { legacyPath, v2Path } = await fixture();
+    await openStore(legacyPath, v2Path);
+    const parse = jest.spyOn(JSON, 'parse');
+    const store = new ElectronStateCommitStore(legacyPath, v2Path);
+
+    const loaded = await store.initialize();
+    const parsedTexts = parse.mock.calls.map(([text]) => String(text));
+    parse.mockRestore();
+
+    expect(loaded.kind).toBe('current');
+    expect(parsedTexts.some((text) => text === '"legacy"')).toBe(false);
+    if (loaded.kind === 'current') {
+      expect(await store.readValue(loaded.manifest.values['value'])).toBe(
+        'legacy',
+      );
+    }
+  });
+
   it.each(DURABLE_STEPS)(
-    'initial migration failure after %s selects retained v1 or the verified current commit',
+    'initial commit failure after %s leaves v1 authoritative or the verified current commit',
     async (step) => {
       const { legacyPath, v2Path, legacyBytes } = await fixture();
       const failing = new ElectronStateCommitStore(
@@ -68,51 +169,45 @@ describe('ElectronStateCommitStore durable-step recovery', () => {
         v2Path,
         failAfter(step),
       );
+      const loaded = await failing.initialize();
+      if (loaded.kind !== 'legacy') throw new Error('expected legacy boot');
 
-      await expect(failing.initialize()).rejects.toThrow(`injected:${step}`);
+      await expect(
+        failing.commitInitial(
+          new Map(Object.entries(loaded.legacyValues)),
+          loaded.sourceSha256,
+        ),
+      ).rejects.toBeInstanceOf(ElectronStateCommitError);
 
-      const recovered = await new ElectronStateCommitStore(
-        legacyPath,
-        v2Path,
-      ).initialize();
-      expect(recovered.values).toEqual({ value: 'legacy' });
+      const recovered = await openStore(legacyPath, v2Path);
+      expect(
+        await recovered.store.readValue(recovered.manifest.values['value']),
+      ).toBe('legacy');
       expect(recovered.manifest.mutationEpoch).toBe(0);
       expect(await fs.readFile(legacyPath, 'utf8')).toBe(legacyBytes);
     },
   );
+});
 
+describe('ElectronStateCommitStore durable-step recovery', () => {
   it.each(DURABLE_STEPS)(
     'mutation failure after %s selects old/new valid v2 and never v1',
     async (step) => {
       const { legacyPath, v2Path } = await fixture();
-      const baseline = await new ElectronStateCommitStore(
-        legacyPath,
-        v2Path,
-      ).initialize();
-      const failing = new ElectronStateCommitStore(
-        legacyPath,
-        v2Path,
-        failAfter(step),
-      );
-      const loaded = await failing.initialize();
+      const baseline = await openStore(legacyPath, v2Path);
+      const failing = await openFailingStore(legacyPath, v2Path, step);
 
       await expect(
-        failing.commitMutation(
-          { value: 'mutated' },
-          new Set(['value']),
-          loaded.manifest,
+        failing.store.commitMutation(
+          new Map([['value', 'mutated']]),
+          failing.manifest,
         ),
-      ).rejects.toThrow(`injected:${step}`);
+      ).rejects.toThrow(ElectronStateCommitError);
 
-      const recovered = await new ElectronStateCommitStore(
-        legacyPath,
-        v2Path,
-      ).initialize();
+      const recovered = await currentValue(legacyPath, v2Path);
       const currentMoved =
         step === 'current-renamed' || step === 'current-verified';
-      expect(recovered.values['value']).toBe(
-        currentMoved ? 'mutated' : 'legacy',
-      );
+      expect(recovered.value).toBe(currentMoved ? 'mutated' : 'legacy');
       if (currentMoved) {
         expect(recovered.manifest.mutationEpoch).toBe(1);
       } else {
@@ -121,15 +216,35 @@ describe('ElectronStateCommitStore durable-step recovery', () => {
     },
   );
 
+  it.each(DURABLE_STEPS)(
+    'classifies a failure after %s by whether CURRENT publication was attempted',
+    async (step) => {
+      const { legacyPath, v2Path } = await fixture();
+      const failing = await openFailingStore(legacyPath, v2Path, step);
+
+      const failure = await failing.store
+        .commitMutation(new Map([['value', 'mutated']]), failing.manifest)
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+
+      expect(failure).toBeInstanceOf(ElectronStateCommitError);
+      expect((failure as ElectronStateCommitError).phase).toBe(
+        step === 'current-renamed' || step === 'current-verified'
+          ? 'post-publication'
+          : 'pre-publication',
+      );
+      expect((failure as ElectronStateCommitError).generation).toBe(
+        failing.manifest.generation + 1,
+      );
+    },
+  );
+
   it('fails closed when current v2 is corrupt after mutation', async () => {
     const { legacyPath, v2Path } = await fixture();
-    const store = new ElectronStateCommitStore(legacyPath, v2Path);
-    const loaded = await store.initialize();
-    await store.commitMutation(
-      { value: 'mutated' },
-      new Set(['value']),
-      loaded.manifest,
-    );
+    const { store, manifest } = await openStore(legacyPath, v2Path);
+    await store.commitMutation(new Map([['value', 'mutated']]), manifest);
     const current = JSON.parse(
       await fs.readFile(path.join(v2Path, 'CURRENT'), 'utf8'),
     ) as { manifestRelativePath: string };
@@ -152,28 +267,19 @@ describe('ElectronStateCommitStore durable-step recovery', () => {
   it.each([
     ['missing', 'blob-missing'],
     ['hash-invalid', 'blob-hash-mismatch'],
+    ['short', 'blob-length-mismatch'],
   ] as const)(
-    'fails closed for a %s current blob after mutation',
+    'fails closed at boot for a %s current blob after mutation',
     async (damage, reason) => {
       const { legacyPath, v2Path } = await fixture();
-      const store = new ElectronStateCommitStore(legacyPath, v2Path);
-      const loaded = await store.initialize();
-      await store.commitMutation(
-        { value: 'mutated' },
-        new Set(['value']),
-        loaded.manifest,
+      const { store, manifest } = await openStore(legacyPath, v2Path);
+      const mutated = await store.commitMutation(
+        new Map([['value', 'mutated']]),
+        manifest,
       );
-      const current = JSON.parse(
-        await fs.readFile(path.join(v2Path, 'CURRENT'), 'utf8'),
-      ) as { manifestRelativePath: string };
-      const manifest = JSON.parse(
-        await fs.readFile(
-          path.join(v2Path, current.manifestRelativePath),
-          'utf8',
-        ),
-      ) as { values: Record<string, { relativePath: string }> };
-      const blobPath = path.join(v2Path, manifest.values['value'].relativePath);
+      const blobPath = path.join(v2Path, mutated.values['value'].relativePath);
       if (damage === 'missing') await fs.rm(blobPath);
+      else if (damage === 'short') await fs.writeFile(blobPath, '"', 'utf8');
       else await fs.writeFile(blobPath, '"changed"', 'utf8');
 
       await expect(
@@ -187,15 +293,33 @@ describe('ElectronStateCommitStore durable-step recovery', () => {
     },
   );
 
+  it.each([
+    ['missing', 'blob-missing'],
+    ['tampered', 'blob-hash-mismatch'],
+    ['short', 'blob-length-mismatch'],
+  ] as const)(
+    'rejects a %s blob on a verified per-key read after boot',
+    async (damage, reason) => {
+      const { legacyPath, v2Path } = await fixture();
+      const { store, manifest } = await openStore(legacyPath, v2Path);
+      const blob = manifest.values['value'];
+      const blobPath = path.join(v2Path, blob.relativePath);
+      if (damage === 'missing') await fs.rm(blobPath);
+      else if (damage === 'short') await fs.writeFile(blobPath, '"', 'utf8');
+      else await fs.writeFile(blobPath, '"legacX"', 'utf8');
+
+      await expect(store.readValue(blob)).rejects.toEqual(
+        expect.objectContaining<Partial<StateStorageRecoveryRequiredError>>({
+          reason,
+        }),
+      );
+    },
+  );
+
   it('does not fall back to v1 or prior v2 when CURRENT disappears after mutation', async () => {
     const { legacyPath, v2Path } = await fixture();
-    const store = new ElectronStateCommitStore(legacyPath, v2Path);
-    const loaded = await store.initialize();
-    await store.commitMutation(
-      { value: 'mutated' },
-      new Set(['value']),
-      loaded.manifest,
-    );
+    const { store, manifest } = await openStore(legacyPath, v2Path);
+    await store.commitMutation(new Map([['value', 'mutated']]), manifest);
     await fs.rm(path.join(v2Path, 'CURRENT'));
 
     await expect(
@@ -209,18 +333,219 @@ describe('ElectronStateCommitStore durable-step recovery', () => {
 
   it('retains v1 and the prior v2 generation after a successful mutation', async () => {
     const { legacyPath, v2Path, legacyBytes } = await fixture();
-    const store = new ElectronStateCommitStore(legacyPath, v2Path);
-    const loaded = await store.initialize();
-    await store.commitMutation(
-      { value: 'mutated' },
-      new Set(['value']),
-      loaded.manifest,
-    );
+    const { store, manifest } = await openStore(legacyPath, v2Path);
+    await store.commitMutation(new Map([['value', 'mutated']]), manifest);
 
     expect(await fs.readFile(legacyPath, 'utf8')).toBe(legacyBytes);
     expect((await fs.readdir(path.join(v2Path, 'manifests'))).sort()).toEqual([
       'manifest.1.json',
       'manifest.2.json',
     ]);
+  });
+});
+
+describe('ElectronStateCommitStore fresh generation allocation (N2)', () => {
+  it.each(PRE_POINTER_STEPS)(
+    'a failure after %s never blocks the next commit, on the same instance or after a restart',
+    async (step) => {
+      const { legacyPath, v2Path } = await fixture();
+      const failing = await openFailingStore(legacyPath, v2Path, step);
+      const baseGeneration = failing.manifest.generation;
+
+      await expect(
+        failing.store.commitMutation(
+          new Map([['value', 'attempted']]),
+          failing.manifest,
+        ),
+      ).rejects.toThrow(ElectronStateCommitError);
+
+      const sameInstance = await failing.store.commitMutation(
+        new Map([['value', 'same-instance']]),
+        failing.manifest,
+      );
+      expect(sameInstance.generation).toBe(baseGeneration + 2);
+      expect(sameInstance.previousGeneration).toBe(baseGeneration);
+      expect(await currentValue(legacyPath, v2Path)).toMatchObject({
+        value: 'same-instance',
+      });
+
+      const restarted = await openStore(legacyPath, v2Path);
+      const afterRestart = await restarted.store.commitMutation(
+        new Map([['value', 'after-restart']]),
+        restarted.manifest,
+      );
+      expect(afterRestart.generation).toBe(baseGeneration + 3);
+      expect(await currentValue(legacyPath, v2Path)).toMatchObject({
+        value: 'after-restart',
+      });
+    },
+  );
+
+  it.each(PRE_POINTER_STEPS)(
+    'a restart straight after a failure at %s commits a fresh readable generation',
+    async (step) => {
+      const { legacyPath, v2Path } = await fixture();
+      const failing = await openFailingStore(legacyPath, v2Path, step);
+      await expect(
+        failing.store.commitMutation(
+          new Map([['value', 'attempted']]),
+          failing.manifest,
+        ),
+      ).rejects.toThrow(ElectronStateCommitError);
+
+      const restarted = await openStore(legacyPath, v2Path);
+      expect(restarted.manifest.generation).toBe(failing.manifest.generation);
+      const next = await restarted.store.commitMutation(
+        new Map([['value', 'after-restart']]),
+        restarted.manifest,
+      );
+
+      expect(next.generation).toBeGreaterThan(failing.manifest.generation);
+      expect(await currentValue(legacyPath, v2Path)).toMatchObject({
+        value: 'after-restart',
+      });
+    },
+  );
+
+  it('a published manifest N+1 without a CURRENT move stays readable at N and the next commit is N+2', async () => {
+    const { legacyPath, v2Path } = await fixture();
+    const failing = await openFailingStore(
+      legacyPath,
+      v2Path,
+      'manifest-verified',
+    );
+    const generation = failing.manifest.generation;
+    await expect(
+      failing.store.commitMutation(
+        new Map([['value', 'orphaned']]),
+        failing.manifest,
+      ),
+    ).rejects.toThrow(ElectronStateCommitError);
+    await fs.access(
+      path.join(v2Path, 'manifests', `manifest.${generation + 1}.json`),
+    );
+
+    const restarted = await openStore(legacyPath, v2Path);
+    expect(restarted.manifest.generation).toBe(generation);
+    expect(
+      await restarted.store.readValue(restarted.manifest.values['value']),
+    ).toBe('legacy');
+    const next = await restarted.store.commitMutation(
+      new Map([['value', 'next']]),
+      restarted.manifest,
+    );
+    expect(next.generation).toBe(generation + 2);
+  });
+
+  it('an orphan blob of generation N+1 alone forces the next commit to N+2', async () => {
+    const { legacyPath, v2Path } = await fixture();
+    const { manifest } = await openStore(legacyPath, v2Path);
+    await fs.writeFile(
+      path.join(v2Path, 'values', blobName('other', manifest.generation + 1)),
+      '"orphan"',
+      'utf8',
+    );
+
+    const restarted = await openStore(legacyPath, v2Path);
+    const next = await restarted.store.commitMutation(
+      new Map([['value', 'next']]),
+      restarted.manifest,
+    );
+
+    expect(next.generation).toBe(manifest.generation + 2);
+  });
+
+  it('ignores staging temp files when scanning occupied generations', async () => {
+    const { legacyPath, v2Path } = await fixture();
+    const { manifest } = await openStore(legacyPath, v2Path);
+    await fs.writeFile(
+      path.join(
+        v2Path,
+        'values',
+        `${blobName('other', manifest.generation + 5)}.op.tmp`,
+      ),
+      '"staged"',
+      'utf8',
+    );
+
+    const restarted = await openStore(legacyPath, v2Path);
+    const next = await restarted.store.commitMutation(
+      new Map([['value', 'next']]),
+      restarted.manifest,
+    );
+
+    expect(next.generation).toBe(manifest.generation + 1);
+  });
+});
+
+describe('ElectronStateCommitStore publication evidence', () => {
+  it('reads the pointer and verifies a manifest published by a failed commit', async () => {
+    const { legacyPath, v2Path } = await fixture();
+    const failing = await openFailingStore(
+      legacyPath,
+      v2Path,
+      'current-verified',
+    );
+    const failure = await failing.store
+      .commitMutation(new Map([['value', 'published']]), failing.manifest)
+      .then(
+        () => null,
+        (error: unknown) => error as ElectronStateCommitError,
+      );
+
+    const pointer = await failing.store.readPointer();
+    expect(pointer.generation).toBe(failure?.generation);
+    const adopted = await failing.store.loadPublishedManifest(pointer);
+    expect(await failing.store.readValue(adopted.values['value'])).toBe(
+      'published',
+    );
+  });
+
+  it('refuses a published manifest whose freshly written blob was damaged', async () => {
+    const { legacyPath, v2Path } = await fixture();
+    const { store, manifest } = await openStore(legacyPath, v2Path);
+    const mutated = await store.commitMutation(
+      new Map([['value', 'mutated']]),
+      manifest,
+    );
+    await fs.writeFile(
+      path.join(v2Path, mutated.values['value'].relativePath),
+      '"MUTATED"',
+      'utf8',
+    );
+
+    await expect(
+      store.loadPublishedManifest(await store.readPointer()),
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<StateStorageRecoveryRequiredError>>({
+        reason: 'blob-hash-mismatch',
+      }),
+    );
+  });
+
+  it('keeps the epoch rules for migration commits', async () => {
+    const { legacyPath, v2Path } = await fixture();
+    const { store, manifest } = await openStore(legacyPath, v2Path);
+
+    const migration = await store.commitMigration(
+      new Map([['index', { items: [] }]]),
+      manifest,
+    );
+    expect(migration).toMatchObject({
+      commitKind: 'migration',
+      mutationEpoch: 0,
+    });
+    const mutation = await store.commitMutation(
+      new Map([['value', 'x']]),
+      migration,
+    );
+    const afterMutation = await store.commitMigration(
+      new Map([['index', { items: [1] }]]),
+      mutation,
+    );
+    expect(afterMutation).toMatchObject({
+      commitKind: 'mutation',
+      mutationEpoch: 2,
+    });
   });
 });

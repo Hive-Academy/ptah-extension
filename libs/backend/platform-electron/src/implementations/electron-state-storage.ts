@@ -4,10 +4,12 @@ import * as path from 'node:path';
 import {
   StateStorageNotReadyError,
   StateStorageRecoveryRequiredError,
+  omitJsonPaths,
   type IAsyncStateStorage,
   type IStateStorageMaintenance,
   type IStateStorageReadiness,
   type StateStorageArraySplitPlan,
+  type StateStorageGetOptions,
   type StateStorageMigrationReceipt,
   type StateStorageReadinessState,
   type StateStorageSequencePage,
@@ -33,6 +35,7 @@ export interface ElectronStateStorageWorkerOptions {
   readonly maxRestartAttempts?: number;
   /** Upper bound on the worker's first-ready handshake. See the worker host. */
   readonly handshakeTimeoutMs?: number;
+  readonly onMigrationReceipt?: (receipt: StateStorageMigrationReceipt) => void;
 }
 
 /**
@@ -83,10 +86,15 @@ export class ElectronStateStorage
       maxRestartAttempts: workerOptions.maxRestartAttempts,
       handshakeTimeoutMs: workerOptions.handshakeTimeoutMs,
     });
-    this.readyPromise = this.workerHost.start().then(
+    const workerHost = this.workerHost;
+    this.readyPromise = workerHost.start().then(
       (data) => {
         this.data = data;
         this.readinessState = { status: 'ready' };
+        this.reportMigrationReceipts(
+          workerHost,
+          workerOptions.onMigrationReceipt,
+        );
       },
       (error: unknown) => {
         if (error instanceof StateStorageRecoveryRequiredError) {
@@ -111,38 +119,49 @@ export class ElectronStateStorage
     return value !== undefined ? (value as T) : defaultValue;
   }
 
-  async getAsync<T>(key: string, defaultValue?: T): Promise<T | undefined> {
+  async getAsync<T>(
+    key: string,
+    defaultValue?: T,
+    options?: StateStorageGetOptions,
+  ): Promise<T | undefined> {
     await this.whenReady();
     if (this.workerHost) {
-      const value = await this.workerHost.get(key);
+      const value = await this.workerHost.get(key, options);
       return value !== undefined ? (value as T) : defaultValue;
     }
-    return this.get(key, defaultValue);
+    const value = this.get<T>(key);
+    if (value === undefined) return defaultValue;
+    return options?.projection
+      ? omitJsonPaths(value, options.projection.omit)
+      : value;
   }
 
   async update(key: string, value: unknown): Promise<void> {
     this.assertReady();
     if (this.workerHost) {
+      const workerHost = this.workerHost;
       if (value !== undefined) {
         assertJsonCompatibleValue(value);
       }
-      if (Array.isArray(value)) {
-        await this.workerHost.replaceJsonSequence(
-          key,
-          (async function* () {
-            for (const item of value) {
-              yield {
-                items: [item],
-              } as StateStorageSequenceWriteChunk<unknown>;
-            }
-          })(),
-        );
-        this.workerHost.setCacheValue(key, value as JsonValue);
-        this.data = this.workerHost.getCache();
-        return;
+      try {
+        if (Array.isArray(value)) {
+          await workerHost.replaceJsonSequence(
+            key,
+            (async function* () {
+              for (const item of value) {
+                yield {
+                  items: [item],
+                } as StateStorageSequenceWriteChunk<unknown>;
+              }
+            })(),
+          );
+          workerHost.setCacheValue(key, value as JsonValue);
+          return;
+        }
+        await workerHost.update(key, value as JsonValue | undefined);
+      } finally {
+        this.data = workerHost.getCache();
       }
-      await this.workerHost.update(key, value as JsonValue | undefined);
-      this.data = this.workerHost.getCache();
       return;
     }
 
@@ -173,7 +192,10 @@ export class ElectronStateStorage
   }
 
   getReadinessState(): StateStorageReadinessState {
-    return this.readinessState;
+    const reason = this.workerHost?.getRecoveryReason();
+    return reason
+      ? { status: 'recovery-required', reason }
+      : this.readinessState;
   }
 
   async whenReady(): Promise<void> {
@@ -186,11 +208,7 @@ export class ElectronStateStorage
   ): AsyncIterable<StateStorageSequencePage<T>> {
     await this.whenReady();
     if (this.workerHost) {
-      yield* this.workerHost.readJsonSequence<T>(
-        key,
-        options?.maxBytes,
-        options?.cursor,
-      );
+      yield* this.workerHost.readJsonSequence<T>(key, options);
       return;
     }
     const value = this.data[key];
@@ -212,8 +230,12 @@ export class ElectronStateStorage
   ): Promise<void> {
     await this.whenReady();
     if (this.workerHost) {
-      await this.workerHost.replaceJsonSequence(key, chunks);
-      this.data = this.workerHost.getCache();
+      const workerHost = this.workerHost;
+      try {
+        await workerHost.replaceJsonSequence(key, chunks);
+      } finally {
+        this.data = workerHost.getCache();
+      }
       return;
     }
     const items: T[] = [];
@@ -228,9 +250,12 @@ export class ElectronStateStorage
     if (!this.workerHost) {
       throw new Error('Array splitting requires worker-backed state storage');
     }
-    const receipt = await this.workerHost.splitArrayValue(plan);
-    this.data = this.workerHost.getCache();
-    return receipt;
+    const workerHost = this.workerHost;
+    try {
+      return await workerHost.splitArrayValue(plan);
+    } finally {
+      this.data = workerHost.getCache();
+    }
   }
 
   async dispose(): Promise<void> {
@@ -238,11 +263,28 @@ export class ElectronStateStorage
   }
 
   private assertReady(): void {
-    if (this.readinessState.status === 'ready') return;
-    if (this.readinessState.status === 'recovery-required') {
-      throw new StateStorageRecoveryRequiredError(this.readinessState.reason);
+    const readiness = this.getReadinessState();
+    if (readiness.status === 'ready') return;
+    if (readiness.status === 'recovery-required') {
+      throw new StateStorageRecoveryRequiredError(readiness.reason);
     }
     throw new StateStorageNotReadyError();
+  }
+
+  private reportMigrationReceipts(
+    workerHost: ElectronStateStorageWorkerHost,
+    onMigrationReceipt: ElectronStateStorageWorkerOptions['onMigrationReceipt'],
+  ): void {
+    if (!onMigrationReceipt) return;
+    for (const receipt of workerHost.getMigrationReceipts()) {
+      try {
+        onMigrationReceipt(receipt);
+      } catch {
+        // degradation-audit: optional-capability - the receipt callback is an
+        // observability hook. The migration already committed and readiness is
+        // already published, so a throwing reporter must not fail the store.
+      }
+    }
   }
 
   private loadSync(): void {

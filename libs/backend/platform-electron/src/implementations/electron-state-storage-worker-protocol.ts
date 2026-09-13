@@ -6,6 +6,8 @@ import type {
 } from '@ptah-extension/platform-core';
 
 export const ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES = 256 * 1024;
+export const ELECTRON_STATE_PROJECTED_VALUE_MAX_JSON_BYTES = 1024 * 1024;
+export const ELECTRON_STATE_SEQUENCE_ITEM_ROOT = 'item';
 export const MAX_PROTOCOL_DEPTH = 64;
 const MAX_PROTOCOL_NODES = ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES / 4;
 
@@ -177,7 +179,16 @@ const nestedExtractionPlanSchema = z
       })
       .strict()
       .optional(),
-    onMissingId: z.literal('retain-source'),
+    onMissingId: z.literal('drop-bulk'),
+    dropFields: z.array(jsonPathSchema.min(1)).max(256),
+    textFallback: z
+      .object({
+        sourcePath: jsonPathSchema.min(1),
+        itemTemplate: z.record(z.string(), electronStateJsonValueSchema),
+        contentPath: jsonPathSchema.min(1),
+      })
+      .strict()
+      .optional(),
     conflictPolicy: extractionConflictPolicySchema,
   })
   .strict();
@@ -203,7 +214,10 @@ const migrationReceiptSchema: z.ZodType<StateStorageMigrationReceipt> = z
     sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
     itemCount: nonNegativeSafeIntegerSchema,
     extractedValueCount: nonNegativeSafeIntegerSchema,
-    retainedSourceCount: nonNegativeSafeIntegerSchema,
+    droppedStdoutCount: nonNegativeSafeIntegerSchema,
+    stdoutFallbackCount: nonNegativeSafeIntegerSchema,
+    droppedBulkWithoutIdCount: nonNegativeSafeIntegerSchema,
+    skippedItemCount: nonNegativeSafeIntegerSchema,
     committedGeneration: positiveSafeIntegerSchema,
     commitId: z.uuid(),
   })
@@ -211,6 +225,15 @@ const migrationReceiptSchema: z.ZodType<StateStorageMigrationReceipt> = z
 
 const operationIdSchema = positiveSafeIntegerSchema;
 const sequenceIdSchema = z.string().uuid();
+const cursorSchema = z.string().min(1).max(4096);
+const pageBudgetSchema = positiveSafeIntegerSchema.max(
+  ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
+);
+const projectionSchema = z
+  .object({
+    omit: z.array(jsonPathSchema.min(1)).max(256),
+  })
+  .strict();
 
 const initializeRequestSchema = z
   .object({
@@ -222,32 +245,15 @@ const initializeRequestSchema = z
   })
   .strict();
 
-const appendStringSliceRequestSchema = z
+const appendSequenceItemOpsRequestSchema = z
   .object({
-    type: z.literal('append-json-string-slice'),
+    type: z.literal('append-json-sequence-item-ops'),
     operationId: operationIdSchema,
     sequenceId: sequenceIdSchema,
     itemIndex: nonNegativeSafeIntegerSchema,
-    path: jsonPathSchema,
-    byteOffset: nonNegativeSafeIntegerSchema,
-    totalBytes: positiveSafeIntegerSchema,
-    bytes: z
-      .instanceof(Uint8Array)
-      .refine(
-        (value) => value.byteLength <= ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
-        'byte slice exceeds worker message budget',
-      ),
+    operations: z.array(snapshotOperationSchema).min(1).max(512),
   })
-  .strict()
-  .superRefine((request, context) => {
-    if (request.byteOffset + request.bytes.byteLength > request.totalBytes) {
-      context.addIssue({
-        code: 'custom',
-        path: ['bytes'],
-        message: 'byte slice exceeds declared string length',
-      });
-    }
-  });
+  .strict();
 
 const beginScalarWriteRequestSchema = z
   .object({
@@ -290,6 +296,17 @@ export const electronStateWorkerRequestSchema = z.discriminatedUnion('type', [
       type: z.literal('get'),
       operationId: operationIdSchema,
       key: stateKeySchema,
+      projection: projectionSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('read-scalar-page'),
+      operationId: operationIdSchema,
+      key: stateKeySchema,
+      cursor: cursorSchema,
+      maxBytes: pageBudgetSchema,
+      projection: projectionSchema.optional(),
     })
     .strict(),
   z
@@ -312,21 +329,21 @@ export const electronStateWorkerRequestSchema = z.discriminatedUnion('type', [
       type: z.literal('read-json-sequence'),
       operationId: operationIdSchema,
       key: stateKeySchema,
-      cursor: z.string().min(1).max(4096).optional(),
-      maxBytes: positiveSafeIntegerSchema.max(
-        ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
-      ),
+      cursor: cursorSchema.optional(),
+      maxBytes: pageBudgetSchema,
+      maxJsonBytes: positiveSafeIntegerSchema.optional(),
+      jsonEnvelopeBytes: nonNegativeSafeIntegerSchema.optional(),
+      maxItemBytes: positiveSafeIntegerSchema.optional(),
     })
     .strict(),
   z
     .object({
       type: z.literal('read-snapshot-page'),
       operationId: operationIdSchema,
-      cursor: z.string().uuid().optional(),
-      maxBytes: positiveSafeIntegerSchema.max(
-        ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
-      ),
+      cursor: cursorSchema.optional(),
+      maxBytes: pageBudgetSchema,
       excludeKeyPrefixes: z.array(stateKeySchema).max(256).optional(),
+      includeKeys: z.array(stateKeySchema).max(4096).optional(),
     })
     .strict(),
   z
@@ -345,7 +362,7 @@ export const electronStateWorkerRequestSchema = z.discriminatedUnion('type', [
       items: z.array(electronStateJsonValueSchema).min(1),
     })
     .strict(),
-  appendStringSliceRequestSchema,
+  appendSequenceItemOpsRequestSchema,
   z
     .object({
       type: z.enum(['commit-json-sequence-write', 'abort-json-sequence-write']),
@@ -374,7 +391,48 @@ const safeFailureCodeSchema = z.enum([
   'io-failed',
   'verification-failed',
   'recovery-required',
+  'response-too-large',
+  'value-too-large',
+  'not-a-sequence',
+  'cursor-stale',
+  'commit-failed',
+  'commit-uncertain',
+  'internal-error',
 ]);
+
+export type ElectronStateWorkerFailureCode = z.infer<
+  typeof safeFailureCodeSchema
+>;
+
+const truncatedItemSchema = z
+  .object({
+    index: nonNegativeSafeIntegerSchema,
+    originalJsonBytes: nonNegativeSafeIntegerSchema,
+  })
+  .strict();
+
+const operationPageFields = {
+  operationId: operationIdSchema,
+  operations: z.array(snapshotOperationSchema),
+  nextCursor: cursorSchema.nullable(),
+  done: z.boolean(),
+  approximateBytes: nonNegativeSafeIntegerSchema.max(
+    ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
+  ),
+};
+
+function requireCursorAgreement(
+  response: { readonly done: boolean; readonly nextCursor: string | null },
+  context: z.RefinementCtx,
+): void {
+  if (response.done !== (response.nextCursor === null)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['nextCursor'],
+      message: 'done pages must have a null cursor and vice versa',
+    });
+  }
+}
 
 export const electronStateWorkerResponseSchema = z.discriminatedUnion('type', [
   z
@@ -383,6 +441,7 @@ export const electronStateWorkerResponseSchema = z.discriminatedUnion('type', [
       operationId: operationIdSchema,
       generation: positiveSafeIntegerSchema,
       mutationEpoch: nonNegativeSafeIntegerSchema,
+      migrationReceipts: z.array(migrationReceiptSchema).max(64),
     })
     .strict(),
   z
@@ -413,43 +472,36 @@ export const electronStateWorkerResponseSchema = z.discriminatedUnion('type', [
       type: z.literal('json-sequence-page'),
       operationId: operationIdSchema,
       items: z.array(electronStateJsonValueSchema),
-      nextCursor: z.string().min(1).max(4096).nullable(),
+      nextCursor: cursorSchema.nullable(),
       done: z.boolean(),
       approximateBytes: nonNegativeSafeIntegerSchema.max(
         ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
       ),
+      truncatedItems: z.array(truncatedItemSchema).max(4096).optional(),
     })
     .strict()
-    .superRefine((response, context) => {
-      if (response.done !== (response.nextCursor === null)) {
-        context.addIssue({
-          code: 'custom',
-          path: ['nextCursor'],
-          message: 'done pages must have a null cursor and vice versa',
-        });
-      }
-    }),
+    .superRefine(requireCursorAgreement),
   z
     .object({
       type: z.literal('snapshot-page'),
-      operationId: operationIdSchema,
-      operations: z.array(snapshotOperationSchema),
-      nextCursor: z.string().uuid().nullable(),
-      done: z.boolean(),
-      approximateBytes: nonNegativeSafeIntegerSchema.max(
-        ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
-      ),
+      ...operationPageFields,
     })
     .strict()
-    .superRefine((response, context) => {
-      if (response.done !== (response.nextCursor === null)) {
-        context.addIssue({
-          code: 'custom',
-          path: ['nextCursor'],
-          message: 'done snapshot pages must have a null cursor and vice versa',
-        });
-      }
-    }),
+    .superRefine(requireCursorAgreement),
+  z
+    .object({
+      type: z.literal('value-paged'),
+      ...operationPageFields,
+    })
+    .strict()
+    .superRefine(requireCursorAgreement),
+  z
+    .object({
+      type: z.literal('scalar-page'),
+      ...operationPageFields,
+    })
+    .strict()
+    .superRefine(requireCursorAgreement),
   z
     .object({
       type: z.literal('migration-receipt'),
@@ -462,12 +514,32 @@ export const electronStateWorkerResponseSchema = z.discriminatedUnion('type', [
       type: z.literal('failure'),
       operationId: operationIdSchema,
       code: safeFailureCodeSchema,
-      recoveryReason: z
-        .enum(ELECTRON_STATE_WORKER_RECOVERY_REASONS)
-        .optional(),
+      recoveryReason: z.enum(ELECTRON_STATE_WORKER_RECOVERY_REASONS).optional(),
+      landed: z.boolean().optional(),
+      valueBytes: nonNegativeSafeIntegerSchema.optional(),
     })
     .strict()
     .superRefine((response, context) => {
+      if (
+        (response.code === 'commit-failed') !==
+        (response.landed !== undefined)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['landed'],
+          message: 'commit-failed failures must include landed only',
+        });
+      }
+      if (
+        (response.code === 'value-too-large') !==
+        (response.valueBytes !== undefined)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['valueBytes'],
+          message: 'value-too-large failures must include valueBytes only',
+        });
+      }
       if (
         (response.code === 'recovery-required') !==
         (response.recoveryReason !== undefined)
@@ -496,6 +568,21 @@ export type ElectronStateWorkerProtocolErrorCode =
   | 'MAX_DEPTH_EXCEEDED'
   | 'NON_MONOTONIC_OPERATION';
 
+export class ElectronStateWorkerOperationError extends Error {
+  override readonly name = 'ElectronStateWorkerOperationError';
+
+  constructor(
+    readonly code: ElectronStateWorkerFailureCode,
+    readonly details: {
+      readonly landed?: boolean;
+      readonly valueBytes?: number;
+      readonly recoveryReason?: ElectronStateWorkerRecoveryReason;
+    } = {},
+  ) {
+    super(`State storage worker operation failed: ${code}`);
+  }
+}
+
 export class ElectronStateWorkerProtocolError extends Error {
   override readonly name = 'ElectronStateWorkerProtocolError';
 
@@ -507,7 +594,9 @@ export class ElectronStateWorkerProtocolError extends Error {
   }
 }
 
-export function isPlainObject(value: unknown): value is Record<string, unknown> {
+export function isPlainObject(
+  value: unknown,
+): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
@@ -536,7 +625,7 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
 export function assertElectronStateWorkerPayloadWithinBudget(
   input: unknown,
   maxBytes = ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
-): void {
+): number {
   const seen = new WeakSet<object>();
   let measuredBytes = 0;
   let visitedNodes = 0;
@@ -630,6 +719,7 @@ export function assertElectronStateWorkerPayloadWithinBudget(
   };
 
   visit(input, 0);
+  return measuredBytes;
 }
 
 /**
@@ -640,6 +730,45 @@ export function assertElectronStateWorkerPayloadWithinBudget(
  * custom class instances), non-finite numbers, and unsupported types before any
  * transaction begins or mutation occurs. Allows null-prototype plain objects.
  */
+export function estimateElectronStateJsonBytes(value: JsonValue): number {
+  if (value === null) return 4;
+  switch (typeof value) {
+    case 'string':
+      return 8 + value.length * 2;
+    case 'number':
+      return 8;
+    case 'boolean':
+      return 4;
+  }
+  let bytes = 16;
+  if (Array.isArray(value)) {
+    for (const item of value) bytes += estimateElectronStateJsonBytes(item);
+    return bytes;
+  }
+  for (const [key, nested] of Object.entries(value)) {
+    bytes += 8 + key.length * 2 + estimateElectronStateJsonBytes(nested);
+  }
+  return bytes;
+}
+
+export function electronStateWorkerPayloadFits(
+  input: unknown,
+  maxBytes = ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
+): boolean {
+  try {
+    assertElectronStateWorkerPayloadWithinBudget(input, maxBytes);
+    return true;
+  } catch (error: unknown) {
+    if (
+      error instanceof ElectronStateWorkerProtocolError &&
+      error.code === 'PAYLOAD_TOO_LARGE'
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export function assertJsonCompatibleValue(
   input: unknown,
   maxDepth = MAX_PROTOCOL_DEPTH,
@@ -807,7 +936,13 @@ export function* generateUtf8StringSlices(
       if (codePoint === undefined) break;
       const codeUnits = codePoint > 0xffff ? 2 : 1;
       const codePointBytes =
-        codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4;
+        codePoint <= 0x7f
+          ? 1
+          : codePoint <= 0x7ff
+            ? 2
+            : codePoint <= 0xffff
+              ? 3
+              : 4;
       if (estimatedBytes + codePointBytes > sliceBytes) break;
       estimatedBytes += codePointBytes;
       end += codeUnits;
@@ -819,7 +954,10 @@ export function* generateUtf8StringSlices(
       );
     }
     const bytes = new Uint8Array(sliceBytes);
-    const encoded = UTF8_ENCODER.encodeInto(value.slice(codeUnitOffset, end), bytes);
+    const encoded = UTF8_ENCODER.encodeInto(
+      value.slice(codeUnitOffset, end),
+      bytes,
+    );
     if (encoded.read !== end - codeUnitOffset || encoded.written === 0) {
       throw new ElectronStateWorkerProtocolError(
         'UNSUPPORTED_VALUE',
@@ -944,4 +1082,3 @@ export function canSendDirectUpdate(key: string, value: JsonValue): boolean {
     throw error;
   }
 }
-

@@ -180,10 +180,7 @@ export const SESSION_METADATA_MIGRATION: StateStorageArraySplitPlan = {
       sourceArrayPath: ['cliSessions'],
       itemIdPath: ['agentId'],
       destinationKeyPrefix: AGENT_OUTPUT_KEY_PREFIX,
-      fields: [
-        { sourcePath: ['segments'] },
-        { sourcePath: ['streamEvents'] },
-      ],
+      fields: [{ sourcePath: ['segments'] }, { sourcePath: ['streamEvents'] }],
       destinationFormat: {
         kind: 'tagged-sequence',
         fields: [
@@ -191,7 +188,13 @@ export const SESSION_METADATA_MIGRATION: StateStorageArraySplitPlan = {
           { sourcePath: ['streamEvents'], tag: 'streamEvent' },
         ],
       },
-      onMissingId: 'retain-source',
+      onMissingId: 'drop-bulk',
+      dropFields: [['stdout']],
+      textFallback: {
+        sourcePath: ['stdout'],
+        itemTemplate: { tag: 'segment', value: { type: 'text', content: '' } },
+        contentPath: ['value', 'content'],
+      },
       conflictPolicy: {
         kind: 'prefer-longer-arrays',
         fields: ['segments', 'streamEvents'],
@@ -758,9 +761,9 @@ export class SessionMetadataStore {
     // array (`vscode.Memento` included) — so returning it directly let a
     // staged-but-unflushed mutation appear as if it had been stored, and a
     // failed flush left the "unwritten" value already in place.
-    const stored = await this.readStorage<SessionMetadata[] | SessionMetadataIndex>(
-      STORAGE_KEY,
-    );
+    const stored = await this.readStorage<
+      SessionMetadata[] | SessionMetadataIndex
+    >(STORAGE_KEY);
     const items = Array.isArray(stored) ? stored : stored?.items;
     return [...(items ?? [])];
   }
@@ -922,7 +925,9 @@ export class SessionMetadataStore {
     const itemBudget =
       rpcBudget - rpcOutputPageBytes([], RPC_CURSOR_RESERVATION, false);
     if (itemBudget <= 0) {
-      throw new SdkError('Agent output page budget cannot fit the RPC envelope');
+      throw new SdkError(
+        'Agent output page budget cannot fit the RPC envelope',
+      );
     }
     const initial = Math.max(
       1,

@@ -1,22 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import {
+  StateStorageCursorStaleError,
   StateStorageRecoveryRequiredError,
+  StateStorageValueTooLargeError,
   type StateStorageArraySplitPlan,
+  type StateStorageGetOptions,
   type StateStorageMigrationReceipt,
+  type StateStorageRecoveryReason,
   type StateStorageSequencePage,
+  type StateStorageSequenceReadOptions,
   type StateStorageSequenceWriteChunk,
+  type StateStorageValueProjection,
 } from '@ptah-extension/platform-core';
 import {
+  ELECTRON_STATE_SEQUENCE_ITEM_ROOT,
   ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
   ElectronStateWorkerProtocolError,
-  MAX_PROTOCOL_DEPTH,
   assertElectronStateWorkerPayloadWithinBudget,
   assertJsonCompatibleValue,
   canSendDirectUpdate,
   generateSnapshotOperations,
-  generateUtf8StringSlices,
-  isPlainObject,
   parseElectronStateWorkerRequest,
   parseElectronStateWorkerResponse,
   setSnapshotPath,
@@ -73,11 +77,10 @@ interface StringAssembly {
   receivedBytes: number;
 }
 
-interface ExtractedLargeString {
-  readonly path: (string | number)[];
-  readonly value: string;
-  readonly totalBytes: number;
-}
+type FailureResponse = Extract<
+  ElectronStateWorkerResponse,
+  { type: 'failure' }
+>;
 
 class ElectronStateWorkerCrashedError extends Error {
   override readonly name = 'ElectronStateWorkerCrashedError';
@@ -89,83 +92,86 @@ type HostWorkerRequest = ElectronStateWorkerRequest extends infer Request
     : never
   : never;
 
-const LARGE_STRING_BYTES = 32 * 1024;
+const MAX_OPERATIONS_PER_PAGE = 512;
+const UNCERTAIN_COMMIT_CODES: ReadonlySet<string> = new Set([
+  'commit-failed',
+  'commit-uncertain',
+  'io-failed',
+]);
+const UNCERTAIN_DURABLE_STATE_REASON: StateStorageRecoveryReason =
+  'current-pointer-invalid';
 
-export function extractLargeStrings(
-  value: unknown,
-  jsonPath: (string | number)[] = [],
-): {
-  value: JsonValue;
-  strings: ExtractedLargeString[];
-} {
-  const activePath = new Set<object>();
-  const strings: ExtractedLargeString[] = [];
-  const visit = (
-    current: unknown,
-    currentPath: (string | number)[],
-    depth: number,
-  ): JsonValue => {
-    if (depth > MAX_PROTOCOL_DEPTH) {
-      throw new ElectronStateWorkerProtocolError(
-        'MAX_DEPTH_EXCEEDED',
-        `Worker message exceeds nesting depth ${MAX_PROTOCOL_DEPTH}`,
-      );
-    }
-    if (current === null || typeof current === 'boolean') {
-      return current as JsonValue;
-    }
-    if (typeof current === 'number') {
-      if (!Number.isFinite(current)) {
-        throw new ElectronStateWorkerProtocolError(
-          'UNSUPPORTED_VALUE',
-          'Worker message contains a non-finite number',
-        );
-      }
-      return current;
-    }
-    if (typeof current === 'string') {
-      const totalBytes = Buffer.byteLength(current, 'utf8');
-      if (totalBytes > LARGE_STRING_BYTES) {
-        strings.push({ path: currentPath, value: current, totalBytes });
-        return '';
-      }
-      return current;
-    }
-    if (typeof current === 'object') {
-      if (activePath.has(current)) {
-        throw new ElectronStateWorkerProtocolError(
-          'UNSUPPORTED_VALUE',
-          'Worker message contains a cyclic value',
-        );
-      }
-      activePath.add(current);
-      try {
-        if (Array.isArray(current)) {
-          return current.map((item, index) =>
-            visit(item, [...currentPath, index], depth + 1),
+function assembleOperations(
+  target: Record<string, JsonValue>,
+  strings: Map<string, StringAssembly>,
+  operations: readonly SnapshotOperation[],
+): void {
+  for (const operation of operations) {
+    const pathKey = JSON.stringify(operation.path);
+    switch (operation.kind) {
+      case 'object':
+        setSnapshotPath(target, operation.path, {});
+        break;
+      case 'array':
+        setSnapshotPath(target, operation.path, []);
+        break;
+      case 'value':
+        setSnapshotPath(target, operation.path, operation.value);
+        break;
+      case 'string-start':
+        strings.set(pathKey, {
+          bytes: new Uint8Array(operation.totalBytes),
+          receivedBytes: 0,
+        });
+        break;
+      case 'string-slice': {
+        const assembly = strings.get(pathKey);
+        if (!assembly || assembly.receivedBytes !== operation.byteOffset) {
+          throw new Error('Snapshot string slices are out of order');
+        }
+        assembly.bytes.set(operation.bytes, operation.byteOffset);
+        assembly.receivedBytes += operation.bytes.byteLength;
+        if (assembly.receivedBytes === assembly.bytes.byteLength) {
+          setSnapshotPath(
+            target,
+            operation.path,
+            new TextDecoder('utf-8', { fatal: true }).decode(assembly.bytes),
           );
+          strings.delete(pathKey);
         }
-        if (!isPlainObject(current)) {
-          throw new ElectronStateWorkerProtocolError(
-            'UNSUPPORTED_VALUE',
-            'Worker message contains a non-plain object',
-          );
-        }
-        const result: Record<string, JsonValue> = {};
-        for (const [key, nested] of Object.entries(current)) {
-          result[key] = visit(nested, [...currentPath, key], depth + 1);
-        }
-        return result;
-      } finally {
-        activePath.delete(current);
+        break;
       }
     }
-    throw new ElectronStateWorkerProtocolError(
-      'UNSUPPORTED_VALUE',
-      'Worker message contains a non-cloneable JSON value',
-    );
-  };
-  return { value: visit(value, jsonPath, 0), strings };
+  }
+}
+
+function measure(input: unknown): number {
+  return assertElectronStateWorkerPayloadWithinBudget(
+    input,
+    Number.MAX_SAFE_INTEGER,
+  );
+}
+
+function measureWithinBudget(input: unknown): number | null {
+  try {
+    return assertElectronStateWorkerPayloadWithinBudget(input);
+  } catch (error: unknown) {
+    if (
+      error instanceof ElectronStateWorkerProtocolError &&
+      error.code === 'PAYLOAD_TOO_LARGE'
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function sliceBuffers(operations: readonly SnapshotOperation[]): ArrayBuffer[] {
+  return operations.flatMap((operation) =>
+    operation.kind === 'string-slice'
+      ? [operation.bytes.buffer as ArrayBuffer]
+      : [],
+  );
 }
 
 export class ElectronStateStorageWorkerHost {
@@ -177,6 +183,8 @@ export class ElectronStateStorageWorkerHost {
   private readonly pending = new Map<number, PendingRequest>();
   private requestChain: Promise<unknown> = Promise.resolve();
   private cache: Record<string, JsonValue> = {};
+  private migrationReceipts: readonly StateStorageMigrationReceipt[] = [];
+  private recoveryReason: StateStorageRecoveryReason | null = null;
   private disposed = false;
 
   constructor(private readonly options: ElectronStateWorkerHostOptions) {
@@ -199,12 +207,24 @@ export class ElectronStateStorageWorkerHost {
     return this.cache;
   }
 
-  async get(key: string): Promise<JsonValue | undefined> {
+  getMigrationReceipts(): readonly StateStorageMigrationReceipt[] {
+    return this.migrationReceipts;
+  }
+
+  getRecoveryReason(): StateStorageRecoveryReason | null {
+    return this.recoveryReason;
+  }
+
+  async get(
+    key: string,
+    options?: StateStorageGetOptions,
+  ): Promise<JsonValue | undefined> {
     return await this.withRestart(async () => {
       await this.ensureInitialized();
-      const response = await this.send({ type: 'get', key });
-      if (response.type !== 'value') this.throwFailure(response);
-      return response.found ? response.value : undefined;
+      if (!options?.projection && this.shouldCacheKey(key)) {
+        return this.cache[key];
+      }
+      return await this.readScalar(key, options?.projection, false);
     });
   }
 
@@ -215,13 +235,16 @@ export class ElectronStateStorageWorkerHost {
     await this.withRestart(async () => {
       await this.ensureInitialized();
       if (value === undefined) {
-        const response = await this.send({ type: 'delete', key });
-        this.requireSuccess(response);
+        await this.requireCommitted(await this.send({ type: 'delete', key }), [
+          key,
+        ]);
         return;
       }
       if (canSendDirectUpdate(key, value)) {
-        const response = await this.send({ type: 'update', key, value });
-        this.requireSuccess(response);
+        await this.requireCommitted(
+          await this.send({ type: 'update', key, value }),
+          [key],
+        );
         return;
       }
       await this.writeLargeScalar(key, value);
@@ -244,10 +267,47 @@ export class ElectronStateStorageWorkerHost {
     );
   }
 
-  private async writeLargeScalar(
+  private async readScalar(
     key: string,
-    value: JsonValue,
-  ): Promise<void> {
+    projection: StateStorageValueProjection | undefined,
+    restarted: boolean,
+  ): Promise<JsonValue | undefined> {
+    const projectionField = projection
+      ? { projection: { omit: projection.omit.map((entry) => [...entry]) } }
+      : {};
+    const first = await this.send({ type: 'get', key, ...projectionField });
+    if (first.type === 'value') return first.found ? first.value : undefined;
+    if (first.type !== 'value-paged') this.throwFailure(first, key);
+    const root: Record<string, JsonValue> = {};
+    const strings = new Map<string, StringAssembly>();
+    assembleOperations(root, strings, first.operations);
+    let cursor = first.nextCursor;
+    while (cursor) {
+      const page = await this.send({
+        type: 'read-scalar-page',
+        key,
+        cursor,
+        maxBytes: ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
+        ...projectionField,
+      });
+      if (
+        !restarted &&
+        page.type === 'failure' &&
+        page.code === 'cursor-stale'
+      ) {
+        return await this.readScalar(key, projection, true);
+      }
+      if (page.type !== 'scalar-page') this.throwFailure(page, key);
+      assembleOperations(root, strings, page.operations);
+      cursor = page.nextCursor;
+    }
+    if (strings.size > 0) {
+      throw new Error('Scalar value ended with incomplete strings');
+    }
+    return root[key];
+  }
+
+  private async writeLargeScalar(key: string, value: JsonValue): Promise<void> {
     assertJsonCompatibleValue(value);
     const writeId = randomUUID();
     this.requireSuccess(
@@ -258,62 +318,20 @@ export class ElectronStateStorageWorkerHost {
       }),
     );
     try {
-      let page: SnapshotOperation[] = [];
-      let pageEstimatedBytes = 0;
-      let transferList: ArrayBuffer[] = [];
-
-      for (const operation of generateSnapshotOperations({ [key]: value })) {
-        const opBytes =
-          operation.kind === 'string-slice'
-            ? operation.bytes.byteLength + 128
-            : operation.kind === 'value' && typeof operation.value === 'string'
-              ? operation.value.length * 2 + 128
-              : 128;
-
-        if (
-          page.length > 0 &&
-          (page.length >= 256 || pageEstimatedBytes + opBytes > 64 * 1024)
-        ) {
-          this.requireSuccess(
-            await this.send(
-              {
-                type: 'append-scalar-write-page',
-                writeId,
-                operations: page,
-              },
-              transferList,
-            ),
-          );
-          page = [];
-          pageEstimatedBytes = 0;
-          transferList = [];
-        }
-
-        page.push(operation);
-        pageEstimatedBytes += opBytes;
-        if (operation.kind === 'string-slice') {
-          transferList.push(operation.bytes.buffer);
-        }
-      }
-
-      if (page.length > 0) {
-        this.requireSuccess(
-          await this.send(
-            {
-              type: 'append-scalar-write-page',
-              writeId,
-              operations: page,
-            },
-            transferList,
-          ),
-        );
-      }
-
-      this.requireSuccess(
+      await this.sendOperationPages(
+        generateSnapshotOperations({ [key]: value }),
+        (operations) => ({
+          type: 'append-scalar-write-page',
+          writeId,
+          operations,
+        }),
+      );
+      await this.requireCommitted(
         await this.send({
           type: 'commit-scalar-write',
           writeId,
         }),
+        [key],
       );
     } catch (error: unknown) {
       // degradation-audit: optional-capability - the abort is best-effort
@@ -329,13 +347,51 @@ export class ElectronStateStorageWorkerHost {
     }
   }
 
+  private async sendOperationPages(
+    operations: Iterable<SnapshotOperation>,
+    buildRequest: (operations: SnapshotOperation[]) => HostWorkerRequest,
+  ): Promise<void> {
+    const baseBytes = measure({
+      ...buildRequest([]),
+      operationId: Number.MAX_SAFE_INTEGER,
+    });
+    let page: SnapshotOperation[] = [];
+    let usedBytes = baseBytes;
+    for (const operation of operations) {
+      const operationBytes = measure(operation);
+      if (
+        page.length > 0 &&
+        (page.length >= MAX_OPERATIONS_PER_PAGE ||
+          usedBytes + operationBytes > ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES)
+      ) {
+        this.requireSuccess(
+          await this.send(buildRequest(page), sliceBuffers(page)),
+        );
+        page = [];
+        usedBytes = baseBytes;
+      }
+      page.push(operation);
+      usedBytes += operationBytes;
+    }
+    if (page.length > 0) {
+      this.requireSuccess(
+        await this.send(buildRequest(page), sliceBuffers(page)),
+      );
+    }
+  }
+
   async splitArrayValue(
     plan: StateStorageArraySplitPlan,
   ): Promise<StateStorageMigrationReceipt> {
     const receipt = await this.withRestart(async () => {
       await this.ensureInitialized();
       const response = await this.send({ type: 'split-array-value', plan });
-      if (response.type !== 'migration-receipt') this.throwFailure(response);
+      if (response.type !== 'migration-receipt') {
+        if (this.isUncertainCommit(response)) {
+          await this.refreshAfterUncertainCommit(null);
+        }
+        this.throwFailure(response);
+      }
       return response.receipt;
     });
     await this.withRestart(async () => {
@@ -347,10 +403,13 @@ export class ElectronStateStorageWorkerHost {
 
   async *readJsonSequence<T>(
     key: string,
-    maxBytes = ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
-    initialCursor?: string,
+    options: StateStorageSequenceReadOptions = {},
   ): AsyncIterable<StateStorageSequencePage<T>> {
-    let cursor = initialCursor;
+    const maxBytes = Math.min(
+      options.maxBytes ?? ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
+      ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
+    );
+    let cursor = options.cursor;
     do {
       const page = await this.withRestart(async () => {
         await this.ensureInitialized();
@@ -359,11 +418,28 @@ export class ElectronStateStorageWorkerHost {
           key,
           ...(cursor ? { cursor } : {}),
           maxBytes,
+          ...(options.maxJsonBytes !== undefined
+            ? { maxJsonBytes: options.maxJsonBytes }
+            : {}),
+          ...(options.jsonEnvelopeBytes !== undefined
+            ? { jsonEnvelopeBytes: options.jsonEnvelopeBytes }
+            : {}),
+          ...(options.maxItemBytes !== undefined
+            ? { maxItemBytes: options.maxItemBytes }
+            : {}),
         });
-        if (response.type !== 'json-sequence-page') this.throwFailure(response);
+        if (response.type !== 'json-sequence-page') {
+          this.throwFailure(response, key);
+        }
         return response;
       });
-      yield page as unknown as StateStorageSequencePage<T>;
+      yield {
+        items: page.items as unknown as T[],
+        nextCursor: page.nextCursor,
+        done: page.done,
+        approximateBytes: page.approximateBytes,
+        ...(page.truncatedItems ? { truncatedItems: page.truncatedItems } : {}),
+      };
       cursor = page.nextCursor ?? undefined;
     } while (cursor);
   }
@@ -387,52 +463,80 @@ export class ElectronStateStorageWorkerHost {
     key: string,
     chunks: AsyncIterable<StateStorageSequenceWriteChunk<T>>,
   ): Promise<void> {
+    this.assertUsable();
     await this.ensureInitialized();
     const sequenceId = randomUUID();
     this.requireSuccess(
       await this.send({ type: 'begin-json-sequence-write', sequenceId, key }),
     );
+    const cachedItems: JsonValue[] | null = this.shouldCacheKey(key)
+      ? []
+      : null;
+    const batchBaseBytes = measure({
+      type: 'append-json-sequence-items',
+      operationId: Number.MAX_SAFE_INTEGER,
+      sequenceId,
+      items: [],
+    });
     let itemIndex = 0;
     try {
       for await (const chunk of chunks) {
-        for (const rawItem of chunk.items) {
-          const item = rawItem as JsonValue;
-          const prepared = extractLargeStrings(item);
-          const currentItemIndex = itemIndex++;
+        let batch: JsonValue[] = [];
+        let batchBytes = batchBaseBytes;
+        const flush = async (): Promise<void> => {
+          if (batch.length === 0) return;
           this.requireSuccess(
             await this.send({
               type: 'append-json-sequence-items',
               sequenceId,
-              items: [prepared.value],
+              items: batch,
             }),
           );
-          for (const entry of prepared.strings) {
-            for (const slice of generateUtf8StringSlices(
-              entry.value,
-              LARGE_STRING_BYTES,
-            )) {
-              this.requireSuccess(
-                await this.send(
-                  {
-                    type: 'append-json-string-slice',
-                    sequenceId,
-                    itemIndex: currentItemIndex,
-                    path: entry.path,
-                    byteOffset: slice.byteOffset,
-                    totalBytes: entry.totalBytes,
-                    bytes: slice.bytes,
-                  },
-                  [slice.bytes.buffer],
-                ),
-              );
+          batch = [];
+          batchBytes = batchBaseBytes;
+        };
+        for (const rawItem of chunk.items) {
+          const item = rawItem as JsonValue;
+          const itemBytes = measureWithinBudget(item);
+          if (
+            itemBytes !== null &&
+            batchBaseBytes + itemBytes <=
+              ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES
+          ) {
+            if (
+              batchBytes + itemBytes >
+              ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES
+            ) {
+              await flush();
             }
+            batch.push(item);
+            batchBytes += itemBytes;
+          } else {
+            await flush();
+            const currentIndex = itemIndex;
+            await this.sendOperationPages(
+              generateSnapshotOperations({
+                [ELECTRON_STATE_SEQUENCE_ITEM_ROOT]: item,
+              }),
+              (operations) => ({
+                type: 'append-json-sequence-item-ops',
+                sequenceId,
+                itemIndex: currentIndex,
+                operations,
+              }),
+            );
           }
+          cachedItems?.push(item);
+          itemIndex++;
         }
+        await flush();
       }
-      this.requireSuccess(
+      await this.requireCommitted(
         await this.send({ type: 'commit-json-sequence-write', sequenceId }),
+        [key],
       );
-      delete this.cache[key];
+      if (cachedItems) this.cache[key] = cachedItems;
+      else delete this.cache[key];
     } catch (error: unknown) {
       // degradation-audit: optional-capability - same contract as the scalar
       // abort above: best-effort cleanup of a half-staged sequence, with the
@@ -483,6 +587,7 @@ export class ElectronStateStorageWorkerHost {
         migrations: [...(this.options.migrations ?? [])],
       });
       if (response.type !== 'ready') this.throwFailure(response);
+      this.migrationReceipts = response.migrationReceipts;
       await this.refreshSnapshot();
     });
   }
@@ -528,7 +633,9 @@ export class ElectronStateStorageWorkerHost {
     }
   }
 
-  private async refreshSnapshot(): Promise<void> {
+  private async readSnapshot(
+    includeKeys?: readonly string[],
+  ): Promise<Record<string, JsonValue>> {
     const next: Record<string, JsonValue> = {};
     const strings = new Map<string, StringAssembly>();
     let cursor: string | undefined;
@@ -539,55 +646,77 @@ export class ElectronStateStorageWorkerHost {
         maxBytes: ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
         ...(this.options.cacheExcludeKeyPrefixes?.length
           ? {
-              excludeKeyPrefixes: [
-                ...this.options.cacheExcludeKeyPrefixes,
-              ],
+              excludeKeyPrefixes: [...this.options.cacheExcludeKeyPrefixes],
             }
           : {}),
+        ...(includeKeys ? { includeKeys: [...includeKeys] } : {}),
       });
       if (response.type !== 'snapshot-page') this.throwFailure(response);
-      for (const operation of response.operations) {
-        const pathKey = JSON.stringify(operation.path);
-        switch (operation.kind) {
-          case 'object':
-            setSnapshotPath(next, operation.path, {});
-            break;
-          case 'array':
-            setSnapshotPath(next, operation.path, []);
-            break;
-          case 'value':
-            setSnapshotPath(next, operation.path, operation.value);
-            break;
-          case 'string-start':
-            strings.set(pathKey, {
-              bytes: new Uint8Array(operation.totalBytes),
-              receivedBytes: 0,
-            });
-            break;
-          case 'string-slice': {
-            const assembly = strings.get(pathKey);
-            if (!assembly || assembly.receivedBytes !== operation.byteOffset) {
-              throw new Error('Snapshot string slices are out of order');
-            }
-            assembly.bytes.set(operation.bytes, operation.byteOffset);
-            assembly.receivedBytes += operation.bytes.byteLength;
-            if (assembly.receivedBytes === assembly.bytes.byteLength) {
-              setSnapshotPath(
-                next,
-                operation.path,
-                new TextDecoder('utf-8', { fatal: true }).decode(assembly.bytes),
-              );
-              strings.delete(pathKey);
-            }
-            break;
-          }
-        }
-      }
+      assembleOperations(next, strings, response.operations);
       cursor = response.nextCursor ?? undefined;
     } while (cursor);
-    if (strings.size > 0)
+    if (strings.size > 0) {
       throw new Error('Snapshot ended with incomplete strings');
-    this.cache = next;
+    }
+    return next;
+  }
+
+  private async refreshSnapshot(): Promise<void> {
+    this.cache = await this.readSnapshot();
+  }
+
+  private isUncertainCommit(response: ElectronStateWorkerResponse): boolean {
+    return (
+      response.type === 'failure' && UNCERTAIN_COMMIT_CODES.has(response.code)
+    );
+  }
+
+  private async requireCommitted(
+    response: ElectronStateWorkerResponse,
+    touchedKeys: readonly string[],
+  ): Promise<void> {
+    if (response.type === 'success') return;
+    if (this.isUncertainCommit(response)) {
+      await this.refreshAfterUncertainCommit(touchedKeys);
+    }
+    this.throwFailure(response);
+  }
+
+  private async refreshAfterUncertainCommit(
+    touchedKeys: readonly string[] | null,
+  ): Promise<void> {
+    try {
+      if (touchedKeys === null) {
+        this.cache = {};
+        await this.refreshSnapshot();
+        return;
+      }
+      for (const key of touchedKeys) delete this.cache[key];
+      const cacheable = touchedKeys.filter((key) => this.shouldCacheKey(key));
+      if (cacheable.length === 0) return;
+      const refreshed = await this.readSnapshot(cacheable);
+      for (const key of cacheable) {
+        if (Object.prototype.hasOwnProperty.call(refreshed, key)) {
+          this.cache[key] = refreshed[key];
+        }
+      }
+    } catch (error: unknown) {
+      this.markRecoveryRequired(
+        error instanceof StateStorageRecoveryRequiredError
+          ? error.reason
+          : UNCERTAIN_DURABLE_STATE_REASON,
+      );
+    }
+  }
+
+  private markRecoveryRequired(reason: StateStorageRecoveryReason): void {
+    this.recoveryReason ??= reason;
+  }
+
+  private assertUsable(): void {
+    if (this.recoveryReason) {
+      throw new StateStorageRecoveryRequiredError(this.recoveryReason);
+    }
   }
 
   private async send(
@@ -661,23 +790,40 @@ export class ElectronStateStorageWorkerHost {
     if (response.type !== 'success') this.throwFailure(response);
   }
 
-  private throwFailure(response: ElectronStateWorkerResponse): never {
-    if (
-      response.type === 'failure' &&
-      response.code === 'recovery-required' &&
-      response.recoveryReason
-    ) {
+  private throwFailure(response: ElectronStateWorkerResponse, key = ''): never {
+    if (response.type === 'failure') this.throwTypedFailure(response, key);
+    throw new Error(`State storage worker operation failed: ${response.type}`);
+  }
+
+  private throwTypedFailure(response: FailureResponse, key: string): void {
+    if (response.code === 'recovery-required' && response.recoveryReason) {
+      this.markRecoveryRequired(response.recoveryReason);
       throw new StateStorageRecoveryRequiredError(response.recoveryReason);
     }
-    const code = response.type === 'failure' ? response.code : response.type;
-    throw new Error(`State storage worker operation failed: ${code}`);
+    if (response.code === 'commit-uncertain') {
+      this.markRecoveryRequired(UNCERTAIN_DURABLE_STATE_REASON);
+      throw new StateStorageRecoveryRequiredError(
+        UNCERTAIN_DURABLE_STATE_REASON,
+      );
+    }
+    if (response.code === 'value-too-large') {
+      throw new StateStorageValueTooLargeError(key, response.valueBytes ?? 0);
+    }
+    if (response.code === 'cursor-stale') {
+      throw new StateStorageCursorStaleError(key);
+    }
+    throw new Error(`State storage worker operation failed: ${response.code}`);
   }
 
   private async withRestart<T>(operation: () => Promise<T>): Promise<T> {
+    const guarded = async (): Promise<T> => {
+      this.assertUsable();
+      return await operation();
+    };
     let attempt = 0;
     while (true) {
       try {
-        const scheduled = this.requestChain.then(operation, operation);
+        const scheduled = this.requestChain.then(guarded, guarded);
         this.requestChain = scheduled.then(
           () => undefined,
           () => undefined,

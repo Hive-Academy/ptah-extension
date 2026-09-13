@@ -5,6 +5,8 @@ import {
   canSendDirectUpdate,
   ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
   ElectronStateWorkerProtocolError,
+  electronStateWorkerPayloadFits,
+  estimateElectronStateJsonBytes,
   generateSnapshotOperations,
   generateUtf8StringSlices,
   parseElectronStateWorkerRequest,
@@ -31,7 +33,8 @@ describe('Electron state worker protocol', () => {
           itemIdPath: ['childId'],
           destinationKeyPrefix: 'child:',
           fields: [{ sourcePath: ['payload'] }],
-          onMissingId: 'retain-source',
+          onMissingId: 'drop-bulk',
+          dropFields: [['raw']],
           conflictPolicy: {
             kind: 'prefer-longer-arrays',
             fields: ['payload'],
@@ -139,29 +142,151 @@ describe('Electron state worker protocol', () => {
     from.mockRestore();
   });
 
-  it('accepts a bounded string slice and rejects inconsistent offsets', () => {
+  it('accepts sequence item operations and rejects an empty operation page', () => {
     const request = {
-      type: 'append-json-string-slice' as const,
+      type: 'append-json-sequence-item-ops' as const,
       operationId: 3,
       sequenceId: SEQUENCE_ID,
       itemIndex: 0,
-      path: ['content'],
-      byteOffset: 0,
-      totalBytes: 3,
-      bytes: new Uint8Array([1, 2, 3]),
+      operations: [{ kind: 'object' as const, path: ['item'] }],
     };
 
     expect(parseElectronStateWorkerRequest(request)).toMatchObject(request);
     expect(() =>
+      parseElectronStateWorkerRequest({ ...request, operations: [] }),
+    ).toThrow(
+      expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
+        code: 'INVALID_MESSAGE',
+      }),
+    );
+  });
+
+  it('carries a projection on get and on every scalar continuation', () => {
+    const projection = { omit: [['children', '*', 'raw']] };
+
+    expect(
       parseElectronStateWorkerRequest({
-        ...request,
-        byteOffset: 2,
+        type: 'get',
+        operationId: 5,
+        key: 'record',
+        projection,
+      }),
+    ).toMatchObject({ projection });
+    expect(
+      parseElectronStateWorkerRequest({
+        type: 'read-scalar-page',
+        operationId: 6,
+        key: 'record',
+        cursor: 'g1.pnone.10',
+        maxBytes: 1024,
+        projection,
+      }),
+    ).toMatchObject({ projection, cursor: 'g1.pnone.10' });
+  });
+
+  it('accepts dual budgets on sequence reads and truncated items on pages', () => {
+    expect(
+      parseElectronStateWorkerRequest({
+        type: 'read-json-sequence',
+        operationId: 7,
+        key: 'list',
+        maxBytes: 1024,
+        maxJsonBytes: 2048,
+        jsonEnvelopeBytes: 64,
+        maxItemBytes: 512,
+      }),
+    ).toMatchObject({ maxJsonBytes: 2048, jsonEnvelopeBytes: 64 });
+    expect(
+      parseElectronStateWorkerResponse({
+        type: 'json-sequence-page',
+        operationId: 7,
+        items: ['x'],
+        nextCursor: null,
+        done: true,
+        approximateBytes: 1024,
+        truncatedItems: [{ index: 0, originalJsonBytes: 5000 }],
+      }),
+    ).toMatchObject({
+      truncatedItems: [{ index: 0, originalJsonBytes: 5000 }],
+    });
+  });
+
+  it('pins the typed failure detail fields to their codes', () => {
+    expect(
+      parseElectronStateWorkerResponse({
+        type: 'failure',
+        operationId: 8,
+        code: 'commit-failed',
+        landed: true,
+      }),
+    ).toMatchObject({ landed: true });
+    expect(
+      parseElectronStateWorkerResponse({
+        type: 'failure',
+        operationId: 8,
+        code: 'value-too-large',
+        valueBytes: 2_000_000,
+      }),
+    ).toMatchObject({ valueBytes: 2_000_000 });
+    for (const invalid of [
+      { code: 'commit-failed' },
+      { code: 'io-failed', landed: false },
+      { code: 'value-too-large' },
+      { code: 'cursor-stale', valueBytes: 1 },
+    ]) {
+      expect(() =>
+        parseElectronStateWorkerResponse({
+          type: 'failure',
+          operationId: 8,
+          ...invalid,
+        }),
+      ).toThrow(
+        expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
+          code: 'INVALID_MESSAGE',
+        }),
+      );
+    }
+  });
+
+  it('requires migration receipts on ready and cursor agreement on operation pages', () => {
+    expect(() =>
+      parseElectronStateWorkerResponse({
+        type: 'ready',
+        operationId: 9,
+        generation: 1,
+        mutationEpoch: 0,
       }),
     ).toThrow(
       expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
         code: 'INVALID_MESSAGE',
       }),
     );
+    for (const type of ['value-paged', 'scalar-page', 'snapshot-page']) {
+      expect(() =>
+        parseElectronStateWorkerResponse({
+          type,
+          operationId: 10,
+          operations: [],
+          nextCursor: null,
+          done: false,
+          approximateBytes: 0,
+        }),
+      ).toThrow(
+        expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
+          code: 'INVALID_MESSAGE',
+        }),
+      );
+    }
+  });
+
+  it('estimates JSON values with the same formula as the budget walk', () => {
+    const value = { text: 'abc', list: [1, true, null], nested: { k: 'v' } };
+
+    expect(estimateElectronStateJsonBytes(value)).toBe(
+      assertElectronStateWorkerPayloadWithinBudget(value),
+    );
+    expect(electronStateWorkerPayloadFits('x'.repeat(10), 16)).toBe(false);
+    expect(electronStateWorkerPayloadFits('x', 16)).toBe(true);
   });
 
   it('validates response cursor invariants and safe failures', () => {
@@ -240,7 +365,11 @@ describe('Electron state worker protocol', () => {
       operations: [
         { kind: 'object', path: ['large-scalar'] },
         { kind: 'value', path: ['large-scalar', 'prop'], value: 'hello' },
-        { kind: 'string-start', path: ['large-scalar', 'long'], totalBytes: 50_000 },
+        {
+          kind: 'string-start',
+          path: ['large-scalar', 'long'],
+          totalBytes: 50_000,
+        },
         {
           kind: 'string-slice',
           path: ['large-scalar', 'long'],
@@ -282,8 +411,12 @@ describe('Electron state worker protocol', () => {
       expect(() => assertJsonCompatibleValue(42)).not.toThrow();
       expect(() => assertJsonCompatibleValue(true)).not.toThrow();
       expect(() => assertJsonCompatibleValue(null)).not.toThrow();
-      expect(() => assertJsonCompatibleValue([1, 'two', null, false])).not.toThrow();
-      expect(() => assertJsonCompatibleValue({ a: 1, b: [2, 3] })).not.toThrow();
+      expect(() =>
+        assertJsonCompatibleValue([1, 'two', null, false]),
+      ).not.toThrow();
+      expect(() =>
+        assertJsonCompatibleValue({ a: 1, b: [2, 3] }),
+      ).not.toThrow();
 
       const nullProto = Object.create(null);
       nullProto.x = 'valid';
@@ -410,7 +543,9 @@ describe('Electron state worker protocol', () => {
 
   describe('generateSnapshotOperations validation', () => {
     it('rejects Date and does not treat it as empty object', () => {
-      const generator = generateSnapshotOperations({ dateKey: new Date() as unknown as string });
+      const generator = generateSnapshotOperations({
+        dateKey: new Date() as unknown as string,
+      });
       expect(() => generator.next()).toThrow(
         expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
           code: 'UNSUPPORTED_VALUE',
@@ -421,7 +556,9 @@ describe('Electron state worker protocol', () => {
     it('rejects cyclic structures in snapshot operations without overflow', () => {
       const cycle: Record<string, unknown> = {};
       cycle['self'] = cycle;
-      const generator = generateSnapshotOperations({ cycleKey: cycle as unknown as string });
+      const generator = generateSnapshotOperations({
+        cycleKey: cycle as unknown as string,
+      });
       expect(() => Array.from(generator)).toThrow(
         expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
           code: 'UNSUPPORTED_VALUE',
@@ -433,15 +570,21 @@ describe('Electron state worker protocol', () => {
       const nullProto = Object.create(null);
       nullProto.k = 'v';
       const ops = Array.from(
-        generateSnapshotOperations({ objKey: nullProto as unknown as Record<string, string> }),
+        generateSnapshotOperations({
+          objKey: nullProto as unknown as Record<string, string>,
+        }),
       );
-      expect(ops.some((op) => op.kind === 'object' && op.path[0] === 'objKey')).toBe(true);
+      expect(
+        ops.some((op) => op.kind === 'object' && op.path[0] === 'objKey'),
+      ).toBe(true);
     });
   });
 
   describe('canSendDirectUpdate error propagation', () => {
     it('throws UNSUPPORTED_VALUE on Date instead of returning false', () => {
-      expect(() => canSendDirectUpdate('d', new Date() as unknown as string)).toThrow(
+      expect(() =>
+        canSendDirectUpdate('d', new Date() as unknown as string),
+      ).toThrow(
         expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
           code: 'UNSUPPORTED_VALUE',
         }),
@@ -451,7 +594,9 @@ describe('Electron state worker protocol', () => {
     it('throws UNSUPPORTED_VALUE on cycle instead of returning false', () => {
       const cycle: Record<string, unknown> = {};
       cycle['self'] = cycle;
-      expect(() => canSendDirectUpdate('c', cycle as unknown as string)).toThrow(
+      expect(() =>
+        canSendDirectUpdate('c', cycle as unknown as string),
+      ).toThrow(
         expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
           code: 'UNSUPPORTED_VALUE',
         }),
@@ -464,4 +609,3 @@ describe('Electron state worker protocol', () => {
     });
   });
 });
-

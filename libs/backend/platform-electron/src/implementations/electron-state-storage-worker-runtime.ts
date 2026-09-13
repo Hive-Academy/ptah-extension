@@ -1,223 +1,252 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   StateStorageRecoveryRequiredError,
+  jsonUtf8Bytes,
+  omitJsonPaths,
+  shrinkJsonStringLeaves,
   type StateStorageArraySplitPlan,
-  type StateStorageFieldProjection,
-  type StateStorageJsonPath,
   type StateStorageMigrationReceipt,
+  type StateStorageValueProjection,
 } from '@ptah-extension/platform-core';
-import { ElectronStateCommitStore } from './electron-state-storage-commit-store';
-import type { ElectronStateFaultInjector } from './electron-state-storage-commit-store';
+import {
+  computeElectronStateArraySplit,
+  type ElectronStateArraySplitOutcome,
+  type ElectronStateSplitValueReader,
+} from './electron-state-storage-array-split';
+import {
+  ElectronStateCommitError,
+  ElectronStateCommitStore,
+  type ElectronStateCommitChanges,
+  type ElectronStateFaultInjector,
+} from './electron-state-storage-commit-store';
 import type { ElectronStateManifest } from './electron-state-storage-manifest';
 import {
+  DEFAULT_ELECTRON_STATE_VALUE_CACHE_BYTES,
+  ElectronStateValueStore,
+} from './electron-state-storage-value-store';
+import {
+  ELECTRON_STATE_PROJECTED_VALUE_MAX_JSON_BYTES,
+  ELECTRON_STATE_SEQUENCE_ITEM_ROOT,
+  ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
+  ElectronStateWorkerOperationError,
   assertElectronStateWorkerPayloadWithinBudget,
+  electronStateWorkerPayloadFits,
+  estimateElectronStateJsonBytes,
   generateSnapshotOperations,
   isElectronStateWorkerRecoveryReason,
   setSnapshotPath,
+  type ElectronStateWorkerRecoveryReason,
   type ElectronStateWorkerRequest,
   type ElectronStateWorkerResponse,
   type JsonValue,
   type SnapshotOperation,
 } from './electron-state-storage-worker-protocol';
 
-interface SequenceStringAssembly {
-  readonly bytes: Uint8Array;
-  readonly totalBytes: number;
-  receivedBytes: number;
+type RequestOf<Type extends ElectronStateWorkerRequest['type']> = Extract<
+  ElectronStateWorkerRequest,
+  { type: Type }
+>;
+
+type OperationPageType = 'snapshot-page' | 'value-paged' | 'scalar-page';
+
+interface ItemAssembly {
+  readonly index: number;
+  readonly snapshot: SnapshotAssembly;
 }
 
 interface SequenceWrite {
   readonly key: string;
   readonly items: JsonValue[];
-  readonly stringSlices: Map<string, SequenceStringAssembly>;
+  assembly: ItemAssembly | null;
 }
 
-interface ScalarWrite {
-  readonly key: string;
-  readonly root: Record<string, JsonValue>;
-  readonly strings: Map<string, { bytes: Uint8Array; receivedBytes: number }>;
+interface Retirement {
+  readonly reason?: ElectronStateWorkerRecoveryReason;
 }
 
-interface SnapshotCursor {
-  readonly iterator: Iterator<SnapshotOperation>;
-  pending: SnapshotOperation | null;
+export interface ElectronStateWorkerRuntimeOptions {
+  readonly valueCacheMaxBytes?: number;
 }
 
-function sha256Json(value: JsonValue): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
+const MAX_OPERATIONS_PER_PAGE = 512;
+const CURSOR_OFFSET_PLACEHOLDER = Number.MAX_SAFE_INTEGER;
+const SCALAR_CURSOR_PATTERN = /^g(\d+)\.p(none|[a-f0-9]{16})\.(\d+)$/;
+const GENERATION_CURSOR_PATTERN = /^g(\d+)\.(\d+)$/;
 
-function getAtPath(value: unknown, jsonPath: StateStorageJsonPath): unknown {
-  let current = value;
-  for (const segment of jsonPath) {
-    if (current === null || typeof current !== 'object') return undefined;
-    current = (current as Record<string | number, unknown>)[segment];
-  }
-  return current;
-}
+class SnapshotAssembly {
+  private readonly root: Record<string, JsonValue> = {};
+  private readonly strings = new Map<
+    string,
+    { bytes: Uint8Array; receivedBytes: number }
+  >();
 
-function deleteAtPath(value: unknown, jsonPath: StateStorageJsonPath): void {
-  if (jsonPath.length === 0) return;
-  const parent = getAtPath(value, jsonPath.slice(0, -1));
-  const final = jsonPath[jsonPath.length - 1];
-  if (parent !== null && typeof parent === 'object') {
-    if (Array.isArray(parent) && typeof final === 'number') {
-      parent[final] = undefined as unknown as JsonValue;
-    } else {
-      delete (parent as Record<string | number, unknown>)[final];
+  constructor(readonly rootKey: string) {}
+
+  apply(operations: readonly SnapshotOperation[]): void {
+    for (const operation of operations) {
+      if (operation.path[0] !== this.rootKey) {
+        throw new Error('Operation path does not match the write root');
+      }
+      const pathKey = JSON.stringify(operation.path);
+      switch (operation.kind) {
+        case 'object':
+          setSnapshotPath(this.root, operation.path, {});
+          break;
+        case 'array':
+          setSnapshotPath(this.root, operation.path, []);
+          break;
+        case 'value':
+          setSnapshotPath(this.root, operation.path, operation.value);
+          break;
+        case 'string-start':
+          this.strings.set(pathKey, {
+            bytes: new Uint8Array(operation.totalBytes),
+            receivedBytes: 0,
+          });
+          break;
+        case 'string-slice': {
+          const assembly = this.strings.get(pathKey);
+          if (!assembly || assembly.receivedBytes !== operation.byteOffset) {
+            throw new Error('String slices are out of order');
+          }
+          assembly.bytes.set(operation.bytes, operation.byteOffset);
+          assembly.receivedBytes += operation.bytes.byteLength;
+          if (assembly.receivedBytes === assembly.bytes.byteLength) {
+            setSnapshotPath(
+              this.root,
+              operation.path,
+              Buffer.from(assembly.bytes).toString('utf8'),
+            );
+            this.strings.delete(pathKey);
+          }
+          break;
+        }
+      }
     }
   }
-}
 
-function setAtPath(
-  root: JsonValue,
-  jsonPath: StateStorageJsonPath,
-  value: JsonValue,
-): void {
-  if (jsonPath.length === 0) throw new Error('Cannot replace a sequence root');
-  const parent = getAtPath(root, jsonPath.slice(0, -1));
-  if (parent === null || typeof parent !== 'object') {
-    throw new Error('String slice path does not exist');
-  }
-  const final = jsonPath[jsonPath.length - 1];
-  (parent as Record<string | number, JsonValue>)[final] = value;
-}
-
-function projectionName(field: StateStorageFieldProjection): string {
-  if (field.targetField) return field.targetField;
-  const final = field.sourcePath[field.sourcePath.length - 1];
-  if (typeof final !== 'string') {
-    throw new Error('A numeric projection path requires targetField');
-  }
-  return final;
-}
-
-function project(
-  source: unknown,
-  fields: readonly StateStorageFieldProjection[],
-): Record<string, JsonValue> {
-  const result: Record<string, JsonValue> = {};
-  for (const field of fields) {
-    const value = getAtPath(source, field.sourcePath);
-    if (value !== undefined) {
-      result[projectionName(field)] = structuredClone(value) as JsonValue;
+  finish(): JsonValue {
+    if (this.strings.size > 0) throw new Error('Write has incomplete strings');
+    if (!(this.rootKey in this.root)) {
+      throw new Error('Write root value was not set');
     }
+    return this.root[this.rootKey];
   }
-  return result;
 }
 
-function usableId(value: unknown): string | null {
-  if (typeof value !== 'string' && typeof value !== 'number') return null;
-  const id = String(value).trim();
-  return id.length > 0 ? id : null;
+function projectionHash(projection?: StateStorageValueProjection): string {
+  if (!projection) return 'none';
+  return createHash('sha256')
+    .update(JSON.stringify(projection.omit))
+    .digest('hex')
+    .slice(0, 16);
 }
 
-function toTaggedSequence(
-  source: unknown,
-  format: NonNullable<
-    NonNullable<StateStorageArraySplitPlan['nestedExtractions']>[number]['destinationFormat']
-  >,
-): JsonValue[] {
-  const result: JsonValue[] = [];
-  for (const field of format.fields) {
-    const values = getAtPath(source, field.sourcePath);
-    if (!Array.isArray(values)) continue;
-    for (const value of values) {
-      result.push({ tag: field.tag, value: structuredClone(value) as JsonValue });
-    }
-  }
-  return result;
+function parseCursorNumber(text: string): number | null {
+  const value = Number.parseInt(text, 10);
+  return Number.isSafeInteger(value) ? value : null;
 }
 
-function mergeTaggedSequence(
-  existing: JsonValue | undefined,
-  incomingSource: unknown,
-  plan: NonNullable<StateStorageArraySplitPlan['nestedExtractions']>[number],
-): JsonValue[] {
-  const format = plan.destinationFormat;
-  if (!format) throw new Error('Tagged sequence format is missing');
-  const incoming = toTaggedSequence(incomingSource, format);
-  if (plan.conflictPolicy.kind === 'replace' || existing === undefined) {
-    return incoming;
-  }
-  const existingItems: JsonValue[] = Array.isArray(existing)
-    ? existing
-    : existing !== null && typeof existing === 'object'
-      ? format.fields.flatMap((field) => {
-          const values = getAtPath(existing, field.sourcePath);
-          return Array.isArray(values)
-            ? values.map((value) => ({
-                tag: field.tag,
-                value: structuredClone(value) as JsonValue,
-              }))
-            : [];
-        })
-      : [];
-  const result: JsonValue[] = [];
-  for (const field of format.fields) {
-    const oldItems = existingItems.filter(
-      (item) =>
-        item !== null &&
-        typeof item === 'object' &&
-        !Array.isArray(item) &&
-        item['tag'] === field.tag,
-    );
-    const newItems = incoming.filter(
-      (item) =>
-        item !== null &&
-        typeof item === 'object' &&
-        !Array.isArray(item) &&
-        item['tag'] === field.tag,
-    );
-    result.push(...(oldItems.length > newItems.length ? oldItems : newItems));
-  }
-  return result;
+function isFileSystemError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    typeof (error as NodeJS.ErrnoException).syscall === 'string'
+  );
 }
 
-function mergeExtraction(
-  existing: JsonValue | undefined,
-  incomingSource: unknown,
-  plan: NonNullable<StateStorageArraySplitPlan['nestedExtractions']>[number],
-): JsonValue {
-  if (plan.destinationFormat?.kind === 'tagged-sequence') {
-    return mergeTaggedSequence(existing, incomingSource, plan);
-  }
-  const incoming = project(incomingSource, plan.fields);
-  if (
-    plan.conflictPolicy.kind === 'replace' ||
-    existing === undefined ||
-    existing === null ||
-    typeof existing !== 'object' ||
-    Array.isArray(existing)
+function cursorStale(): ElectronStateWorkerOperationError {
+  return new ElectronStateWorkerOperationError('cursor-stale');
+}
+
+function measure(input: unknown): number {
+  return assertElectronStateWorkerPayloadWithinBudget(
+    input,
+    Number.MAX_SAFE_INTEGER,
+  );
+}
+
+class OperationPacker {
+  private readonly operations: SnapshotOperation[] = [];
+  private usedBytes: number;
+  private seen = 0;
+  private full = false;
+
+  constructor(
+    type: OperationPageType,
+    operationId: number,
+    cursorPrefix: string,
+    private readonly offset: number,
+    private readonly maxBytes: number,
   ) {
-    return incoming;
+    this.usedBytes = measure({
+      type,
+      operationId,
+      operations: [],
+      nextCursor: `${cursorPrefix}${CURSOR_OFFSET_PLACEHOLDER}`,
+      done: false,
+      approximateBytes: maxBytes,
+    });
   }
-  const merged = { ...(existing as Record<string, JsonValue>), ...incoming };
-  for (const field of plan.conflictPolicy.fields) {
-    const oldValue = (existing as Record<string, JsonValue>)[field];
-    const newValue = incoming[field];
+
+  isFull(): boolean {
+    return this.full;
+  }
+
+  offer(operation: SnapshotOperation): boolean {
+    this.seen++;
+    if (this.seen <= this.offset) return true;
+    const operationBytes = measure(operation);
     if (
-      Array.isArray(oldValue) &&
-      Array.isArray(newValue) &&
-      oldValue.length > newValue.length
+      this.operations.length >= MAX_OPERATIONS_PER_PAGE ||
+      this.usedBytes + operationBytes > this.maxBytes
     ) {
-      merged[field] = oldValue;
+      if (this.operations.length === 0) {
+        throw new ElectronStateWorkerOperationError('response-too-large');
+      }
+      this.full = true;
+      return false;
     }
+    this.operations.push(operation);
+    this.usedBytes += operationBytes;
+    return true;
   }
-  return merged;
+
+  response(
+    type: OperationPageType,
+    operationId: number,
+    cursorPrefix: string,
+  ): ElectronStateWorkerResponse {
+    if (!this.full && this.offset > this.seen) throw cursorStale();
+    return {
+      type,
+      operationId,
+      operations: this.operations,
+      nextCursor: this.full
+        ? `${cursorPrefix}${this.offset + this.operations.length}`
+        : null,
+      done: !this.full,
+      approximateBytes: this.maxBytes,
+    };
+  }
 }
 
 export class ElectronStateWorkerRuntime {
   private store: ElectronStateCommitStore | null = null;
-  private values: Record<string, JsonValue> = {};
   private manifest: ElectronStateManifest | null = null;
+  private values: ElectronStateValueStore | null = null;
+  private retirement: Retirement | null = null;
   private lastOperationId = 0;
-  private readonly snapshotCursors = new Map<string, SnapshotCursor>();
   private readonly sequenceWrites = new Map<string, SequenceWrite>();
-  private readonly scalarWrites = new Map<string, ScalarWrite>();
-  private applyingInitializationMigrations = false;
+  private readonly scalarWrites = new Map<string, SnapshotAssembly>();
+  private readonly valueCacheMaxBytes: number;
 
-  constructor(private readonly faultInjector?: ElectronStateFaultInjector) {}
+  constructor(
+    private readonly faultInjector?: ElectronStateFaultInjector,
+    options: ElectronStateWorkerRuntimeOptions = {},
+  ) {
+    this.valueCacheMaxBytes =
+      options.valueCacheMaxBytes ?? DEFAULT_ELECTRON_STATE_VALUE_CACHE_BYTES;
+  }
 
   async handle(
     request: ElectronStateWorkerRequest,
@@ -232,376 +261,568 @@ export class ElectronStateWorkerRuntime {
     this.lastOperationId = request.operationId;
     try {
       if (request.type === 'initialize') return await this.initialize(request);
-      if (!this.store || !this.manifest) {
+      if (!this.store || !this.manifest || !this.values) {
         return {
           type: 'failure',
           operationId: request.operationId,
           code: 'not-ready',
         };
       }
-      switch (request.type) {
-        case 'get':
-          return request.key in this.values
-            ? {
-                type: 'value',
-                operationId: request.operationId,
-                found: true,
-                value: this.values[request.key],
-              }
-            : { type: 'value', operationId: request.operationId, found: false };
-        case 'update':
-          await this.commitMutation({ [request.key]: request.value });
-          return { type: 'success', operationId: request.operationId };
-        case 'delete':
-          await this.commitMutation({ [request.key]: undefined });
-          return { type: 'success', operationId: request.operationId };
-        case 'read-snapshot-page':
-          return this.readSnapshotPage(request);
-        case 'read-json-sequence':
-          return this.readSequencePage(request);
-        case 'begin-json-sequence-write':
-          this.sequenceWrites.set(request.sequenceId, {
-            key: request.key,
-            items: [],
-            stringSlices: new Map(),
-          });
-          return { type: 'success', operationId: request.operationId };
-        case 'append-json-sequence-items': {
-          const write = this.requireSequenceWrite(request.sequenceId);
-          write.items.push(...request.items);
-          return { type: 'success', operationId: request.operationId };
-        }
-        case 'append-json-string-slice': {
-          const write = this.requireSequenceWrite(request.sequenceId);
-          const sliceKey = `${request.itemIndex}:${JSON.stringify(request.path)}`;
-          let assembly = write.stringSlices.get(sliceKey);
-          if (!assembly) {
-            if (request.byteOffset !== 0) {
-              throw new Error('String slices are out of order');
-            }
-            assembly = {
-              bytes: new Uint8Array(request.totalBytes),
-              totalBytes: request.totalBytes,
-              receivedBytes: 0,
-            };
-            write.stringSlices.set(sliceKey, assembly);
-          }
-          if (
-            assembly.totalBytes !== request.totalBytes ||
-            assembly.receivedBytes !== request.byteOffset ||
-            request.byteOffset + request.bytes.byteLength > assembly.totalBytes
-          ) {
-            throw new Error('String slices are out of order');
-          }
-          assembly.bytes.set(request.bytes, request.byteOffset);
-          assembly.receivedBytes += request.bytes.byteLength;
-          if (assembly.receivedBytes === assembly.totalBytes) {
-            if (request.itemIndex >= write.items.length) {
-              throw new Error('String slice item is missing');
-            }
-            const text = new TextDecoder('utf-8', { fatal: true }).decode(
-              assembly.bytes,
-            );
-            if (request.path.length === 0) {
-              write.items[request.itemIndex] = text;
-            } else {
-              const item = write.items[request.itemIndex];
-              if (item === undefined) {
-                throw new Error('String slice item is missing');
-              }
-              setAtPath(item, request.path, text);
-            }
-            write.stringSlices.delete(sliceKey);
-          }
-          return { type: 'success', operationId: request.operationId };
-        }
-        case 'commit-json-sequence-write': {
-          const write = this.requireSequenceWrite(request.sequenceId);
-          if (write.stringSlices.size > 0)
-            throw new Error('String slices are incomplete');
-          await this.commitMutation({ [write.key]: write.items });
-          this.sequenceWrites.delete(request.sequenceId);
-          return { type: 'success', operationId: request.operationId };
-        }
-        case 'abort-json-sequence-write':
-          this.sequenceWrites.delete(request.sequenceId);
-          return { type: 'success', operationId: request.operationId };
-        case 'begin-scalar-write':
-          this.scalarWrites.set(request.writeId, {
-            key: request.key,
-            root: {},
-            strings: new Map(),
-          });
-          return { type: 'success', operationId: request.operationId };
-        case 'append-scalar-write-page': {
-          const write = this.requireScalarWrite(request.writeId);
-          for (const operation of request.operations) {
-            if (operation.path[0] !== write.key) {
-              throw new Error('Operation path does not match scalar write key');
-            }
-            const pathKey = JSON.stringify(operation.path);
-            switch (operation.kind) {
-              case 'object':
-                setSnapshotPath(write.root, operation.path, {});
-                break;
-              case 'array':
-                setSnapshotPath(write.root, operation.path, []);
-                break;
-              case 'value':
-                setSnapshotPath(write.root, operation.path, operation.value);
-                break;
-              case 'string-start':
-                write.strings.set(pathKey, {
-                  bytes: new Uint8Array(operation.totalBytes),
-                  receivedBytes: 0,
-                });
-                break;
-              case 'string-slice': {
-                const assembly = write.strings.get(pathKey);
-                if (
-                  !assembly ||
-                  assembly.receivedBytes !== operation.byteOffset
-                ) {
-                  throw new Error('String slices are out of order');
-                }
-                assembly.bytes.set(operation.bytes, operation.byteOffset);
-                assembly.receivedBytes += operation.bytes.byteLength;
-                if (assembly.receivedBytes === assembly.bytes.byteLength) {
-                  setSnapshotPath(
-                    write.root,
-                    operation.path,
-                    Buffer.from(assembly.bytes).toString('utf8'),
-                  );
-                  write.strings.delete(pathKey);
-                }
-                break;
-              }
-            }
-          }
-          return { type: 'success', operationId: request.operationId };
-        }
-        case 'commit-scalar-write': {
-          const write = this.requireScalarWrite(request.writeId);
-          if (write.strings.size > 0) {
-            throw new Error('Scalar write has incomplete strings');
-          }
-          if (!(write.key in write.root)) {
-            throw new Error('Scalar write root value was not set');
-          }
-          await this.commitMutation({ [write.key]: write.root[write.key] });
-          this.scalarWrites.delete(request.writeId);
-          return { type: 'success', operationId: request.operationId };
-        }
-        case 'abort-scalar-write':
-          this.scalarWrites.delete(request.writeId);
-          return { type: 'success', operationId: request.operationId };
-        case 'split-array-value': {
-          const receipt = await this.splitArrayValue(request.plan);
-          return {
-            type: 'migration-receipt',
-            operationId: request.operationId,
-            receipt,
-          };
-        }
-      }
+      if (this.retirement) throw this.retirementError();
+      return await this.dispatch(request);
     } catch (error: unknown) {
-      // Only a reason the PROTOCOL can carry may be reported as
-      // `recovery-required`. Every reason a worker can actually reach is a
-      // verdict about durable state and passes this guard; a host-only reason
-      // such as `worker-unresponsive` cannot be reached here and would be
-      // rejected by the response schema, so it degrades to a plain `io-failed`
-      // rather than being forwarded as an unparseable reply — which, on this
-      // code path, would itself be a lost reply.
-      const wireReason =
-        error instanceof StateStorageRecoveryRequiredError &&
-        isElectronStateWorkerRecoveryReason(error.reason)
-          ? error.reason
-          : undefined;
-      return {
-        type: 'failure',
-        operationId: request.operationId,
-        code: wireReason ? 'recovery-required' : 'io-failed',
-        ...(wireReason ? { recoveryReason: wireReason } : {}),
-      };
+      return this.failureFor(request.operationId, error);
     }
   }
 
-  private async initialize(
-    request: Extract<ElectronStateWorkerRequest, { type: 'initialize' }>,
+  valueCacheStats(): ReturnType<ElectronStateValueStore['stats']> | null {
+    return this.values?.stats() ?? null;
+  }
+
+  private async dispatch(
+    request: Exclude<ElectronStateWorkerRequest, { type: 'initialize' }>,
   ): Promise<ElectronStateWorkerResponse> {
-    this.store = new ElectronStateCommitStore(
+    const operationId = request.operationId;
+    switch (request.type) {
+      case 'get':
+        return await this.readScalar(request);
+      case 'read-scalar-page':
+        return await this.readScalarPage(request);
+      case 'update':
+        await this.commitChanges(new Map([[request.key, request.value]]));
+        return { type: 'success', operationId };
+      case 'delete':
+        await this.commitChanges(new Map([[request.key, undefined]]));
+        return { type: 'success', operationId };
+      case 'read-snapshot-page':
+        return await this.readSnapshotPage(request);
+      case 'read-json-sequence':
+        return await this.readSequencePage(request);
+      case 'begin-json-sequence-write':
+        this.sequenceWrites.set(request.sequenceId, {
+          key: request.key,
+          items: [],
+          assembly: null,
+        });
+        return { type: 'success', operationId };
+      case 'append-json-sequence-items': {
+        const write = this.requireSequenceWrite(request.sequenceId);
+        this.finishItem(write);
+        write.items.push(...request.items);
+        return { type: 'success', operationId };
+      }
+      case 'append-json-sequence-item-ops': {
+        const write = this.requireSequenceWrite(request.sequenceId);
+        if (write.assembly && write.assembly.index !== request.itemIndex) {
+          this.finishItem(write);
+        }
+        if (!write.assembly) {
+          if (request.itemIndex !== write.items.length) {
+            throw new Error('Sequence item operations are out of order');
+          }
+          write.assembly = {
+            index: request.itemIndex,
+            snapshot: new SnapshotAssembly(ELECTRON_STATE_SEQUENCE_ITEM_ROOT),
+          };
+        }
+        write.assembly.snapshot.apply(request.operations);
+        return { type: 'success', operationId };
+      }
+      case 'commit-json-sequence-write': {
+        const write = this.requireSequenceWrite(request.sequenceId);
+        this.finishItem(write);
+        this.sequenceWrites.delete(request.sequenceId);
+        await this.commitChanges(new Map([[write.key, write.items]]));
+        return { type: 'success', operationId };
+      }
+      case 'abort-json-sequence-write':
+        this.sequenceWrites.delete(request.sequenceId);
+        return { type: 'success', operationId };
+      case 'begin-scalar-write':
+        this.scalarWrites.set(
+          request.writeId,
+          new SnapshotAssembly(request.key),
+        );
+        return { type: 'success', operationId };
+      case 'append-scalar-write-page':
+        this.requireScalarWrite(request.writeId).apply(request.operations);
+        return { type: 'success', operationId };
+      case 'commit-scalar-write': {
+        const assembly = this.requireScalarWrite(request.writeId);
+        const value = assembly.finish();
+        this.scalarWrites.delete(request.writeId);
+        await this.commitChanges(new Map([[assembly.rootKey, value]]));
+        return { type: 'success', operationId };
+      }
+      case 'abort-scalar-write':
+        this.scalarWrites.delete(request.writeId);
+        return { type: 'success', operationId };
+      case 'split-array-value':
+        return {
+          type: 'migration-receipt',
+          operationId,
+          receipt: await this.runSplit(request.plan, 'mutation'),
+        };
+    }
+  }
+
+  private failureFor(
+    operationId: number,
+    error: unknown,
+  ): ElectronStateWorkerResponse {
+    if (error instanceof ElectronStateWorkerOperationError) {
+      return {
+        type: 'failure',
+        operationId,
+        code: error.code,
+        ...(error.code === 'commit-failed'
+          ? { landed: error.details.landed ?? false }
+          : {}),
+        ...(error.code === 'value-too-large'
+          ? { valueBytes: error.details.valueBytes ?? 0 }
+          : {}),
+      };
+    }
+    const wireReason =
+      error instanceof StateStorageRecoveryRequiredError &&
+      isElectronStateWorkerRecoveryReason(error.reason)
+        ? error.reason
+        : undefined;
+    if (wireReason) {
+      return {
+        type: 'failure',
+        operationId,
+        code: 'recovery-required',
+        recoveryReason: wireReason,
+      };
+    }
+    return {
+      type: 'failure',
+      operationId,
+      code: isFileSystemError(error) ? 'io-failed' : 'internal-error',
+    };
+  }
+
+  private async initialize(
+    request: RequestOf<'initialize'>,
+  ): Promise<ElectronStateWorkerResponse> {
+    const store = new ElectronStateCommitStore(
       request.legacyFilePath,
       request.v2RootPath,
       this.faultInjector,
     );
-    const loaded = await this.store.initialize();
-    this.values = loaded.values;
-    this.manifest = loaded.manifest;
-    this.applyingInitializationMigrations = true;
-    try {
-      for (const plan of request.migrations) {
-        try {
-          await this.splitArrayValue(plan);
-        } catch (error: unknown) {
-          if (error instanceof StateStorageRecoveryRequiredError) throw error;
-          throw new StateStorageRecoveryRequiredError('migration-failed');
-        }
-      }
-    } finally {
-      this.applyingInitializationMigrations = false;
-    }
+    this.store = store;
+    this.values = new ElectronStateValueStore(
+      (blob) => store.readValue(blob),
+      this.valueCacheMaxBytes,
+    );
+    const loaded = await store.initialize();
+    const receipts =
+      loaded.kind === 'legacy'
+        ? await this.initializeFromLegacy(
+            store,
+            loaded.legacyValues,
+            loaded.sourceSha256,
+            request.migrations,
+          )
+        : await this.initializeFromCurrent(loaded.manifest, request.migrations);
+    const manifest = this.requireManifest();
     return {
       type: 'ready',
       operationId: request.operationId,
-      generation: this.manifest.generation,
-      mutationEpoch: this.manifest.mutationEpoch,
+      generation: manifest.generation,
+      mutationEpoch: manifest.mutationEpoch,
+      migrationReceipts: receipts,
     };
   }
 
-  private async commitMutation(
-    changes: Record<string, JsonValue | undefined>,
-  ): Promise<void> {
-    if (!this.store || !this.manifest) throw new Error('Worker is not ready');
-    const next = { ...this.values };
-    for (const [key, value] of Object.entries(changes)) {
-      if (value === undefined) delete next[key];
-      else next[key] = value;
+  private async initializeFromLegacy(
+    store: ElectronStateCommitStore,
+    legacyValues: Record<string, JsonValue>,
+    sourceSha256: string,
+    migrations: readonly StateStorageArraySplitPlan[],
+  ): Promise<StateStorageMigrationReceipt[]> {
+    const values = new Map(Object.entries(legacyValues));
+    const counts: ElectronStateArraySplitOutcome['counts'][] = [];
+    for (const plan of migrations) {
+      const outcome = await this.computeMigration(plan, async (key) =>
+        values.get(key),
+      );
+      for (const [key, value] of outcome.changes) values.set(key, value);
+      counts.push(outcome.counts);
     }
-    const manifest = this.applyingInitializationMigrations
-      ? await this.store.commitMigration(
-          next,
-          new Set(Object.keys(changes)),
-          this.manifest,
-        )
-      : await this.store.commitMutation(
-          next,
-          new Set(Object.keys(changes)),
-          this.manifest,
-        );
-    this.values = next;
-    this.manifest = manifest;
+    const manifest = await store.commitInitial(values, sourceSha256);
+    this.adopt(manifest);
+    return counts.map((entry) => ({
+      ...entry,
+      committedGeneration: manifest.generation,
+      commitId: manifest.commitId,
+    }));
   }
 
-  private readSnapshotPage(
-    request: Extract<
-      ElectronStateWorkerRequest,
-      { type: 'read-snapshot-page' }
-    >,
-  ): ElectronStateWorkerResponse {
-    const cursorId = request.cursor ?? randomUUID();
-    let cursor = request.cursor
-      ? this.snapshotCursors.get(request.cursor)
-      : undefined;
-    if (!cursor) {
-      if (request.cursor) throw new Error('Unknown snapshot cursor');
-      const visibleValues = request.excludeKeyPrefixes?.length
-        ? Object.fromEntries(
-            Object.entries(this.values).filter(
-              ([key]) =>
-                !request.excludeKeyPrefixes?.some((prefix) =>
-                  key.startsWith(prefix),
-                ),
-            ),
-          )
-        : this.values;
-      cursor = {
-        iterator: generateSnapshotOperations(visibleValues),
-        pending: null,
-      };
-      this.snapshotCursors.set(cursorId, cursor);
-    }
-    const operations: SnapshotOperation[] = [];
-    let done = false;
-    while (operations.length < 512) {
-      const operation = cursor.pending ?? cursor.iterator.next().value;
-      cursor.pending = null;
-      if (!operation) {
-        done = true;
-        break;
-      }
-      const candidate = {
-        type: 'snapshot-page' as const,
-        operationId: request.operationId,
-        operations: [...operations, operation],
-        nextCursor: cursorId,
-        done: false,
-        approximateBytes: request.maxBytes,
-      };
+  private async initializeFromCurrent(
+    manifest: ElectronStateManifest,
+    migrations: readonly StateStorageArraySplitPlan[],
+  ): Promise<StateStorageMigrationReceipt[]> {
+    this.adopt(manifest);
+    const receipts: StateStorageMigrationReceipt[] = [];
+    for (const plan of migrations) {
       try {
-        assertElectronStateWorkerPayloadWithinBudget(
-          candidate,
-          request.maxBytes,
-        );
-        operations.push(operation);
-      } catch {
-        if (operations.length === 0)
-          throw new Error('Snapshot operation exceeds budget');
-        cursor.pending = operation;
-        break;
+        receipts.push(await this.runSplit(plan, 'migration'));
+      } catch (error: unknown) {
+        if (
+          error instanceof StateStorageRecoveryRequiredError ||
+          error instanceof ElectronStateWorkerOperationError
+        ) {
+          throw error;
+        }
+        throw new StateStorageRecoveryRequiredError('migration-failed');
       }
     }
-    if (done) this.snapshotCursors.delete(cursorId);
-    const response: ElectronStateWorkerResponse = {
-      type: 'snapshot-page',
-      operationId: request.operationId,
-      operations,
-      nextCursor: done ? null : cursorId,
-      done,
-      approximateBytes: request.maxBytes,
-    };
-    assertElectronStateWorkerPayloadWithinBudget(response, request.maxBytes);
-    return response;
+    return receipts;
   }
 
-  private readSequencePage(
-    request: Extract<
-      ElectronStateWorkerRequest,
-      { type: 'read-json-sequence' }
-    >,
+  private async computeMigration(
+    plan: StateStorageArraySplitPlan,
+    read: ElectronStateSplitValueReader,
+  ): Promise<ElectronStateArraySplitOutcome> {
+    try {
+      return await computeElectronStateArraySplit(plan, read);
+    } catch (error: unknown) {
+      if (error instanceof StateStorageRecoveryRequiredError) throw error;
+      throw new StateStorageRecoveryRequiredError('migration-failed');
+    }
+  }
+
+  private async runSplit(
+    plan: StateStorageArraySplitPlan,
+    commitKind: 'mutation' | 'migration',
+  ): Promise<StateStorageMigrationReceipt> {
+    const values = this.requireValues();
+    const outcome =
+      commitKind === 'migration'
+        ? await this.computeMigration(plan, (key) => values.get(key))
+        : await computeElectronStateArraySplit(plan, (key) => values.get(key));
+    if (outcome.changes.size > 0) {
+      await this.commitChanges(outcome.changes, commitKind);
+    }
+    const manifest = this.requireManifest();
+    return {
+      ...outcome.counts,
+      committedGeneration: manifest.generation,
+      commitId: manifest.commitId,
+    };
+  }
+
+  private adopt(manifest: ElectronStateManifest): void {
+    this.manifest = manifest;
+    this.requireValues().setManifest(manifest);
+  }
+
+  private async commitChanges(
+    changes: ElectronStateCommitChanges,
+    commitKind: 'mutation' | 'migration' = 'mutation',
+  ): Promise<void> {
+    const store = this.requireStore();
+    const values = this.requireValues();
+    const previous = this.requireManifest();
+    let manifest: ElectronStateManifest;
+    try {
+      manifest =
+        commitKind === 'migration'
+          ? await store.commitMigration(changes, previous)
+          : await store.commitMutation(changes, previous);
+    } catch (error: unknown) {
+      values.evict(changes.keys());
+      if (!(error instanceof ElectronStateCommitError)) throw error;
+      throw await this.reconcile(store, previous, error);
+    }
+    this.adopt(manifest);
+    for (const [key, value] of changes) {
+      const blob = manifest.values[key];
+      if (value !== undefined && blob) values.remember(key, blob, value);
+    }
+  }
+
+  private async reconcile(
+    store: ElectronStateCommitStore,
+    previous: ElectronStateManifest,
+    failure: ElectronStateCommitError,
+  ): Promise<Error> {
+    let pointer;
+    try {
+      pointer = await store.readPointer();
+    } catch {
+      return this.retire('current-pointer-invalid');
+    }
+    if (
+      pointer.generation === previous.generation &&
+      pointer.commitId === previous.commitId
+    ) {
+      return new ElectronStateWorkerOperationError('commit-failed', {
+        landed: false,
+      });
+    }
+    if (pointer.generation !== failure.generation) return this.retire();
+    try {
+      this.adopt(await store.loadPublishedManifest(pointer));
+    } catch (error: unknown) {
+      return this.retire(
+        error instanceof StateStorageRecoveryRequiredError &&
+          isElectronStateWorkerRecoveryReason(error.reason)
+          ? error.reason
+          : 'manifest-invalid',
+      );
+    }
+    return new ElectronStateWorkerOperationError('commit-failed', {
+      landed: true,
+    });
+  }
+
+  private retire(reason?: ElectronStateWorkerRecoveryReason): Error {
+    this.retirement = reason ? { reason } : {};
+    this.sequenceWrites.clear();
+    this.scalarWrites.clear();
+    return this.retirementError();
+  }
+
+  private retirementError(): Error {
+    const reason = this.retirement?.reason;
+    return reason
+      ? new StateStorageRecoveryRequiredError(reason)
+      : new ElectronStateWorkerOperationError('commit-uncertain');
+  }
+
+  private projectValue(
+    raw: JsonValue,
+    projection?: StateStorageValueProjection,
+  ): JsonValue {
+    const projected = projection ? omitJsonPaths(raw, projection.omit) : raw;
+    const valueBytes = jsonUtf8Bytes(projected);
+    if (valueBytes > ELECTRON_STATE_PROJECTED_VALUE_MAX_JSON_BYTES) {
+      throw new ElectronStateWorkerOperationError('value-too-large', {
+        valueBytes,
+      });
+    }
+    return projected;
+  }
+
+  private async readScalar(
+    request: RequestOf<'get'>,
+  ): Promise<ElectronStateWorkerResponse> {
+    const values = this.requireValues();
+    const blob = values.blobFor(request.key);
+    const raw = blob ? await values.get(request.key) : undefined;
+    if (!blob || raw === undefined) {
+      return { type: 'value', operationId: request.operationId, found: false };
+    }
+    const projected = this.projectValue(raw, request.projection);
+    const direct: ElectronStateWorkerResponse = {
+      type: 'value',
+      operationId: request.operationId,
+      found: true,
+      value: projected,
+    };
+    if (electronStateWorkerPayloadFits(direct)) return direct;
+    return this.scalarPageResponse(
+      'value-paged',
+      request.operationId,
+      request.key,
+      blob.generation,
+      projected,
+      request.projection,
+      0,
+      ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
+    );
+  }
+
+  private async readScalarPage(
+    request: RequestOf<'read-scalar-page'>,
+  ): Promise<ElectronStateWorkerResponse> {
+    const match = SCALAR_CURSOR_PATTERN.exec(request.cursor);
+    const generation = match ? parseCursorNumber(match[1]) : null;
+    const offset = match ? parseCursorNumber(match[3]) : null;
+    if (
+      !match ||
+      generation === null ||
+      offset === null ||
+      match[2] !== projectionHash(request.projection)
+    ) {
+      throw cursorStale();
+    }
+    const values = this.requireValues();
+    const blob = values.blobFor(request.key);
+    if (!blob || blob.generation !== generation) throw cursorStale();
+    const raw = await values.get(request.key);
+    if (raw === undefined) throw cursorStale();
+    return this.scalarPageResponse(
+      'scalar-page',
+      request.operationId,
+      request.key,
+      generation,
+      this.projectValue(raw, request.projection),
+      request.projection,
+      offset,
+      request.maxBytes,
+    );
+  }
+
+  private scalarPageResponse(
+    type: 'value-paged' | 'scalar-page',
+    operationId: number,
+    key: string,
+    generation: number,
+    projected: JsonValue,
+    projection: StateStorageValueProjection | undefined,
+    offset: number,
+    maxBytes: number,
   ): ElectronStateWorkerResponse {
-    const value = this.values[request.key];
+    const prefix = `g${generation}.p${projectionHash(projection)}.`;
+    const packer = new OperationPacker(
+      type,
+      operationId,
+      prefix,
+      offset,
+      maxBytes,
+    );
+    for (const operation of generateSnapshotOperations({ [key]: projected })) {
+      if (!packer.offer(operation)) break;
+    }
+    return packer.response(type, operationId, prefix);
+  }
+
+  private async readSnapshotPage(
+    request: RequestOf<'read-snapshot-page'>,
+  ): Promise<ElectronStateWorkerResponse> {
+    const manifest = this.requireManifest();
+    const values = this.requireValues();
+    let offset = 0;
+    if (request.cursor) {
+      const match = GENERATION_CURSOR_PATTERN.exec(request.cursor);
+      const generation = match ? parseCursorNumber(match[1]) : null;
+      const parsedOffset = match ? parseCursorNumber(match[2]) : null;
+      if (generation !== manifest.generation || parsedOffset === null) {
+        throw cursorStale();
+      }
+      offset = parsedOffset;
+    }
+    const include = request.includeKeys ? new Set(request.includeKeys) : null;
+    const prefix = `g${manifest.generation}.`;
+    const packer = new OperationPacker(
+      'snapshot-page',
+      request.operationId,
+      prefix,
+      offset,
+      request.maxBytes,
+    );
+    for (const key of values.keys()) {
+      if (packer.isFull()) break;
+      if (include && !include.has(key)) continue;
+      if (request.excludeKeyPrefixes?.some((entry) => key.startsWith(entry))) {
+        continue;
+      }
+      const value = await values.get(key);
+      if (value === undefined) continue;
+      for (const operation of generateSnapshotOperations({ [key]: value })) {
+        if (!packer.offer(operation)) break;
+      }
+    }
+    return packer.response('snapshot-page', request.operationId, prefix);
+  }
+
+  private async readSequencePage(
+    request: RequestOf<'read-json-sequence'>,
+  ): Promise<ElectronStateWorkerResponse> {
+    const values = this.requireValues();
+    const blob = values.blobFor(request.key);
+    let start = 0;
+    if (request.cursor) {
+      const match = GENERATION_CURSOR_PATTERN.exec(request.cursor);
+      const generation = match ? parseCursorNumber(match[1]) : null;
+      const index = match ? parseCursorNumber(match[2]) : null;
+      if (!blob || generation !== blob.generation || index === null) {
+        throw cursorStale();
+      }
+      start = index;
+    }
+    const value = blob ? await values.get(request.key) : undefined;
     if (value !== undefined && !Array.isArray(value)) {
-      throw new Error('State value is not a JSON sequence');
+      throw new ElectronStateWorkerOperationError('not-a-sequence');
     }
     const sequence = value ?? [];
-    const start = request.cursor ? Number.parseInt(request.cursor, 10) : 0;
-    if (!Number.isSafeInteger(start) || start < 0 || start > sequence.length) {
-      throw new Error('Invalid sequence cursor');
-    }
+    if (start > sequence.length) throw cursorStale();
+    const cursorPrefix = `g${blob?.generation ?? 0}.`;
+    const maxJsonBytes = request.maxJsonBytes ?? Number.POSITIVE_INFINITY;
+    const maxItemBytes = request.maxItemBytes ?? Number.POSITIVE_INFINITY;
+    const baseEstimator = measure({
+      type: 'json-sequence-page',
+      operationId: request.operationId,
+      items: [],
+      nextCursor: `${cursorPrefix}${CURSOR_OFFSET_PLACEHOLDER}`,
+      done: false,
+      approximateBytes: request.maxBytes,
+      truncatedItems: [
+        {
+          index: CURSOR_OFFSET_PLACEHOLDER,
+          originalJsonBytes: CURSOR_OFFSET_PLACEHOLDER,
+        },
+      ],
+    });
     const items: JsonValue[] = [];
+    let truncatedItem: { index: number; originalJsonBytes: number } | null =
+      null;
+    let estimatorBytes = baseEstimator;
+    let jsonBytes = request.jsonEnvelopeBytes ?? 2;
     let index = start;
     while (index < sequence.length) {
-      const candidateItems = [...items, sequence[index]];
-      const candidate = {
-        type: 'json-sequence-page' as const,
-        operationId: request.operationId,
-        items: candidateItems,
-        nextCursor: String(index + 1),
-        done: false,
-        approximateBytes: request.maxBytes,
-      };
-      try {
-        assertElectronStateWorkerPayloadWithinBudget(
-          candidate,
-          request.maxBytes,
-        );
-        items.push(sequence[index]);
+      const item = sequence[index];
+      const itemEstimator = estimateElectronStateJsonBytes(item);
+      const itemJson = jsonUtf8Bytes(item);
+      const separator = items.length > 0 ? 1 : 0;
+      if (
+        estimatorBytes + itemEstimator <= request.maxBytes &&
+        jsonBytes + separator + itemJson <= maxJsonBytes &&
+        itemJson <= maxItemBytes
+      ) {
+        items.push(item);
+        estimatorBytes += itemEstimator;
+        jsonBytes += separator + itemJson;
         index++;
-      } catch {
-        if (items.length === 0)
-          throw new Error('Sequence item exceeds page budget');
-        break;
+        continue;
       }
+      if (items.length > 0) break;
+      const shrunk = shrinkJsonStringLeaves(item, {
+        maxEstimatorBytes: request.maxBytes - baseEstimator,
+        maxJsonBytes: Math.min(maxJsonBytes - jsonBytes, maxItemBytes),
+        estimate: (candidate) =>
+          estimateElectronStateJsonBytes(candidate as JsonValue),
+      });
+      if (shrunk === null) {
+        throw new ElectronStateWorkerOperationError('value-too-large', {
+          valueBytes: itemJson,
+        });
+      }
+      items.push(shrunk);
+      truncatedItem = { index: 0, originalJsonBytes: itemJson };
+      index++;
+      break;
     }
     const done = index >= sequence.length;
     return {
       type: 'json-sequence-page',
       operationId: request.operationId,
       items,
-      nextCursor: done ? null : String(index),
+      nextCursor: done ? null : `${cursorPrefix}${index}`,
       done,
       approximateBytes: request.maxBytes,
+      ...(truncatedItem ? { truncatedItems: [truncatedItem] } : {}),
     };
+  }
+
+  private finishItem(write: SequenceWrite): void {
+    if (!write.assembly) return;
+    write.items.push(write.assembly.snapshot.finish());
+    write.assembly = null;
   }
 
   private requireSequenceWrite(sequenceId: string): SequenceWrite {
@@ -610,100 +831,24 @@ export class ElectronStateWorkerRuntime {
     return write;
   }
 
-  private requireScalarWrite(writeId: string): ScalarWrite {
+  private requireScalarWrite(writeId: string): SnapshotAssembly {
     const write = this.scalarWrites.get(writeId);
     if (!write) throw new Error('Unknown scalar write');
     return write;
   }
 
-  private async splitArrayValue(
-    plan: StateStorageArraySplitPlan,
-  ): Promise<StateStorageMigrationReceipt> {
-    const source = this.values[plan.sourceKey];
-    if (source === undefined) {
-      return {
-        sourceKey: plan.sourceKey,
-        sourceSha256: sha256Json(null),
-        itemCount: 0,
-        extractedValueCount: 0,
-        retainedSourceCount: 0,
-        committedGeneration: this.manifest?.generation ?? 1,
-        commitId: this.manifest?.commitId ?? randomUUID(),
-      };
-    }
-    if (!Array.isArray(source)) {
-      if (
-        source !== null &&
-        typeof source === 'object' &&
-        !Array.isArray(source) &&
-        source['schemaVersion'] === plan.indexSchemaVersion
-      ) {
-        return {
-          sourceKey: plan.sourceKey,
-          sourceSha256: sha256Json(source),
-          itemCount: Array.isArray(source['items'])
-            ? source['items'].length
-            : 0,
-          extractedValueCount: 0,
-          retainedSourceCount: 0,
-          committedGeneration: this.manifest?.generation ?? 1,
-          commitId: this.manifest?.commitId ?? randomUUID(),
-        };
-      }
-      throw new Error('Split source is not an array');
-    }
-    const changes: Record<string, JsonValue> = {};
-    const indexItems: JsonValue[] = [];
-    let extractedValueCount = 0;
-    let retainedSourceCount = 0;
+  private requireStore(): ElectronStateCommitStore {
+    if (!this.store) throw new Error('Worker is not ready');
+    return this.store;
+  }
 
-    for (const sourceItem of source) {
-      const id = usableId(getAtPath(sourceItem, plan.itemIdPath));
-      if (!id) {
-        throw new Error('Split source item has no usable id');
-      }
-      const detail = structuredClone(sourceItem) as JsonValue;
-      for (const extraction of plan.nestedExtractions ?? []) {
-        const nested = getAtPath(detail, extraction.sourceArrayPath);
-        if (!Array.isArray(nested)) continue;
-        for (const nestedItem of nested) {
-          const nestedId = usableId(
-            getAtPath(nestedItem, extraction.itemIdPath),
-          );
-          if (!nestedId) {
-            retainedSourceCount++;
-            continue;
-          }
-          const destinationKey = `${extraction.destinationKeyPrefix}${nestedId}`;
-          const existing =
-            changes[destinationKey] ?? this.values[destinationKey];
-          changes[destinationKey] = mergeExtraction(
-            existing,
-            nestedItem,
-            extraction,
-          );
-          for (const field of extraction.fields)
-            deleteAtPath(nestedItem, field.sourcePath);
-          extractedValueCount++;
-        }
-      }
-      changes[`${plan.detailKeyPrefix}${id}`] = detail;
-      indexItems.push(project(sourceItem, plan.summaryFields));
-    }
-    changes[plan.indexKey] = {
-      schemaVersion: plan.indexSchemaVersion,
-      items: indexItems,
-    };
-    await this.commitMutation(changes);
-    if (!this.manifest) throw new Error('Migration commit missing');
-    return {
-      sourceKey: plan.sourceKey,
-      sourceSha256: sha256Json(source),
-      itemCount: source.length,
-      extractedValueCount,
-      retainedSourceCount,
-      committedGeneration: this.manifest.generation,
-      commitId: this.manifest.commitId,
-    };
+  private requireManifest(): ElectronStateManifest {
+    if (!this.manifest) throw new Error('Worker is not ready');
+    return this.manifest;
+  }
+
+  private requireValues(): ElectronStateValueStore {
+    if (!this.values) throw new Error('Worker is not ready');
+    return this.values;
   }
 }
