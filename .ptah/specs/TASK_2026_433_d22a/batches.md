@@ -1,6 +1,6 @@
 # Batches - TASK_2026_433
 
-Total tasks: 35 (in this delivery; +1 blocked in B7) | Batches: 11 in delivery + 1 blocked + 1 deferred | Complete: 6/11
+Total tasks: 35 (in this delivery; +1 blocked in B7) | Batches: 11 in delivery + 1 blocked + 1 deferred | Complete: 8/11
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes` (branch `feat/task-433-role-lanes`).
 Every path below is relative to that root unless it is written in full. Executors work ONLY in this worktree.
@@ -386,7 +386,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
   - Minor findings (doSpawnSdk 9 positional params; manager ~2,366 lines) are NOT follow-ups: user decision schedules them as B4c and B4d.
 - Team-leader verification: diff read on disk for all 10 files; `wiring/agent-events.ts` and agent-sdk `session-metadata-store.ts` untouched; no `rpc.types.ts` / `ALLOWED_METHOD_PREFIXES` change; `doSpawn` passes `adapter.roleChannel`; `runSdk` receives `role: roleDefinition`. Evidence — conductor, after the amendment: `NX_DAEMON=false npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/rpc-handlers --skip-nx-cache` → 2 projects; cli-agent-runtime 57 suites / 854 passed + 1 skipped, lint 0 errors; rpc-handlers 99 suites / 2,987 passed + 33 skipped, lint 0 errors; typecheck green. Team-leader, downstream importers of the new exports: `NX_DAEMON=false npx nx run-many -t typecheck -p @ptah-extension/vscode-lm-tools @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/cli-agent-runtime ptah-cli ptah-electron ptah-extension-vscode --skip-nx-cache` → `Successfully ran target typecheck for 7 projects`, EXIT 0. `git show --stat b0ab33b48` = 10 files, +634/-1.
 
-## Batch B4c: `doSpawnSdk` typed options object — IN_PROGRESS
+## Batch B4c: `doSpawnSdk` typed options object — COMPLETE (commit 3e32135b2)
 
 - Origin: B4b code-style review minor finding 1, promoted to a batch by user decision (2026-09-13).
 - Recommended executor: backend-developer
@@ -395,7 +395,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Rationale: pure signature refactor inside one private method; no behaviour change, so it is safe beside B5a, which never touches the manager.
 - Tasks: 1 | Depends on: B4b
 
-### Task 4c.1: Replace the 9 positional parameters with one readonly options interface — IN_PROGRESS
+### Task 4c.1: Replace the 9 positional parameters with one readonly options interface — COMPLETE
 
 - Files:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\agent-process-manager.service.ts`
@@ -414,8 +414,9 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - During G4 overlap: `NX_DAEMON=false npx nx run @ptah-extension/cli-agent-runtime:test --testPathPatterns="agent-process-manager|sdk-callbacks" --skip-nx-cache` (expect `Test Suites: 5`: `agent-process-manager.service`, `.restore`, `.workspace-scope`, `agent-process-manager-helpers`, `sdk-callbacks`)
 - After B4c and B5a both return: `NX_DAEMON=false npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools --skip-nx-cache` (N=2)
 - Reviewer: code-style-reviewer (signature shape, consistency with `spawnFromSdkHandle` meta); team-leader may run it inline given the size
+- Gate record (2026-09-13): code-style-reviewer run by the conductor, `code-style-review-b4c.md` (committed with the batch): APPROVE 8/10, 0 blocking, 0 serious, 2 minor, both intentional and left as-is (named interface vs the inline `meta` type of `spawnFromSdkHandle`; member ordering). Team-leader verification on disk: `SdkSpawnOptions` file-local, all nine members `readonly`, declared after `AgentRoleStamp`; `doSpawnSdk(options)` destructures at the top; `grep doSpawnSdk(` = declaration + one object-shaped call; no public signature or log payload change; `git show --stat 3e32135b2` = manager +31/-16 + the review. Evidence (conductor): filtered G4 run 5 suites / 146 passed; joint N=2 gate `NX_DAEMON=false npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools --skip-nx-cache` → cli-agent-runtime 57 suites / 854 passed + 1 skipped, lint 0 errors; vscode-lm-tools 46 suites / 1,075 passed, lint 0 errors; typecheck green. The manager is 2,381 lines at 3e32135b2: B4d line ranges below (taken at b0ab33b48) shift by about +15 after line 121.
 
-## Batch B4d: Facade split of `agent-process-manager.service.ts` — PENDING
+## Batch B4d: Facade split of `agent-process-manager.service.ts` — IN_PROGRESS
 
 - Origin: B4b code-style review minor finding 2, promoted to a batch by user decision (2026-09-13). Rule: root `CLAUDE.md` "File size" facade rule.
 - Recommended executor: backend-developer (single sub-agent)
@@ -463,7 +464,7 @@ Invariants the split must hold:
 - Collaborators are registered as singletons in `libs/backend/cli-agent-runtime/src/lib/di/register.ts` before `TOKENS.AGENT_PROCESS_MANAGER`, and injected by class token the way `AgentMessageRouter` is. They are not exported from the lib barrel unless a consumer needs them (none does today).
 - Do NOT touch `wiring/agent-events.ts` or agent-sdk `session-metadata-store.ts` (sibling WIP). `wiring/sdk-callbacks.spec.ts` constructs the manager by hand and is in scope for the constructor change only.
 
-### Task 4d.1: Extract `AgentSpawnEnvironment` — PENDING
+### Task 4d.1: Extract `AgentSpawnEnvironment` — IN_PROGRESS
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\agent-spawn-environment.service.ts`
@@ -471,7 +472,7 @@ Invariants the split must hold:
   - MODIFY `agent-process-manager.service.ts`, `di/register.ts`
 - Contract: as in the design above. Public methods of the collaborator are named for what they answer (`resolveModel`, `resolveReasoningEffort`, `resolveAutoApprove`, `preferredCli`, `maxConcurrentAgents`, `sdkIdleReleaseMs`, `scopedWorkspaceRoot`, `workspaceRoot`, `isWithinScope`, `validateWorkingDirectory`, `mcpPort`, `runHarnessPreflight` — exact names are the executor's call, no `get`/`helper` prefixes required).
 
-### Task 4d.2: Extract `AgentOutputBuffer` and move `TrackedAgent` — PENDING
+### Task 4d.2: Extract `AgentOutputBuffer` and move `TrackedAgent` — IN_PROGRESS
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\agent-output-buffer.service.ts`
@@ -481,7 +482,7 @@ Invariants the split must hold:
 - Depends on: Task 4d.1 (constructor shape settles once)
 - Contract: as in the design above. The spec at `agent-process-manager.service.spec.ts:2140` that reads `manager.flushTimers` through a cast must read the collaborator's state instead (or assert behaviour), not a re-added manager field.
 
-### Task 4d.3: Constructor callers and spec harnesses — PENDING
+### Task 4d.3: Constructor callers and spec harnesses — IN_PROGRESS
 
 - Files: `agent-process-manager.service.spec.ts` (harness `:370`, `:2285`), `agent-process-manager.restore.spec.ts` (`:59`), `agent-process-manager.workspace-scope.spec.ts` (`:67`, private casts `:97`, `:108`), `wiring/sdk-callbacks.spec.ts` (`:358`)
 - Depends on: Tasks 4d.1, 4d.2
@@ -495,7 +496,7 @@ Invariants the split must hold:
 - `git diff --name-only` lists only the files above; `wiring/agent-events.ts` and `session-metadata-store.ts` absent
 - Reviewer: code-style-reviewer (facade rule, nameability, dependency direction, constructor size)
 
-## Batch B5a: Namespace role resolution + API builder wiring — IN_PROGRESS
+## Batch B5a: Namespace role resolution + API builder wiring — COMPLETE (commit e7672c332)
 
 - Recommended executor: backend-developer
 - Fallback executor: none (one coherent change across 3 coupled files)
@@ -505,7 +506,7 @@ Invariants the split must hold:
 - Parallel: runs beside B4c (G4). File-disjoint: B5a owns only `libs/backend/vscode-lm-tools/**` and must not edit anything under `libs/backend/cli-agent-runtime/**`. Follow the parallel-lane rule under the full-delivery gate.
 - Contract amendment at B4b verify (commit b0ab33b48): B4b shipped `PTAH_CLI_ROLE_DELIVERY` and `AgentRoleStamp` from `@ptah-extension/cli-agent-runtime`, and `spawnFromSdkHandle` meta takes `roleStamp?: AgentRoleStamp` instead of three flat keys. B5a uses both; it writes no `'preamble'` or `'system-prompt'` literal for ptah-cli anywhere in production code.
 
-### Task 5a.1: `AgentNamespace.spawn` resolves role; `listRoles` — IN_PROGRESS
+### Task 5a.1: `AgentNamespace.spawn` resolves role; `listRoles` — COMPLETE
 
 - Files in `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\vscode-lm-tools\src\lib\code-execution\`:
   - MODIFY `types.ts` — `AgentNamespace.listRoles: () => Promise<string[]>`
@@ -522,7 +523,7 @@ Invariants the split must hold:
   - `listRoles()` → `listAgentRoles?.(getWorkspaceRoot()) ?? []`
 - Spec: resolution before either branch; `AgentRoleError` → no `reserveAgentId`, no `spawnFromSdkHandle`, no `agentProcessManager.spawn`; ptah-cli branch passes role and `roleStamp` built from `PTAH_CLI_ROLE_DELIVERY` — preferably overridden with non-default values via `jest.mock('@ptah-extension/cli-agent-runtime', () => ({ ...jest.requireActual('@ptah-extension/cli-agent-runtime'), PTAH_CLI_ROLE_DELIVERY: { roleDelivery: 'native', roleChannel: 'agent-selection' } }))` as `agent-rpc.handlers.list-rows.spec.ts` does, so a hand-typed literal fails; if `requireActual` breaks the harness, assert against the imported constant and say so in the report; role-less ptah-cli spawn has no `roleStamp` key; ptah-cli list rows carry the mocked constant; rival branch `enrichedRequest.roleDefinition`; nested-worktree `workingDirectory` still resolves from `getWorkspaceRoot()` (A4); missing resolver named error; `listRoles()` with and without `listAgentRoles`.
 
-### Task 5a.2: Wire resolver into `PtahApiBuilder` — IN_PROGRESS
+### Task 5a.2: Wire resolver into `PtahApiBuilder` — COMPLETE
 
 - File: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\vscode-lm-tools\src\lib\code-execution\ptah-api-builder.service.ts`
 - Contract: `@inject(CLI_AGENT_RUNTIME_TOKENS.AGENT_ROLE_RESOLVER, { isOptional: true })` next to `AGENT_REPORT_ROUTER` (`:434-435`); `resolveAgentRole` throws a named error when absent; `listAgentRoles` returns `[]` when absent (listing is informational) — pattern `:664-673`.
@@ -533,8 +534,14 @@ Invariants the split must hold:
 - After B5a and B4c both return: `NX_DAEMON=false npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools --skip-nx-cache` (N=2)
 - `grep -rn "'system-prompt'" libs/backend/vscode-lm-tools/src --include=*.ts` returns spec lines only
 - Reviewer: code-logic-reviewer (ordering, no role-less spawn on any failure)
+- Gate record (2026-09-13): code-logic-reviewer run by the conductor, `code-logic-review-b5a.md` (committed with the batch): APPROVE 8/10, 0 blocking, 0 serious. DI registration of `AGENT_ROLE_RESOLVER` confirmed in the vscode, electron and cli-engine roots. Findings and dispositions:
+  1. Moderate — `listRoles` propagates a wired resolver's rejection (`no_workspace`, `role_read_failed`). Disposition: handled at the dispatchers, not the namespace; B5b contract amended below (D8 on both dispatchers, explicit).
+  2. Minor — role resolution runs before the disabled-CLI / missing-API-key checks, so a bad role is reported first. Error ordering only, no slot taken either way. Disposition: accepted, recorded under follow-ups.
+  3. Minor — rival branch forwards `roleDefinition` even when `resumeSessionId` is set. Product question, recorded under follow-ups next to "resume re-applies role".
+- Executor deviations, accepted: (a) the spec mocks `@ptah-extension/cli-agent-runtime` as a barrel exposing only `PTAH_CLI_ROLE_DELIVERY` (non-default `native`/`agent-selection`) plus a local `AgentRoleError` look-alike, because `requireActual` loads tsyringe without the reflect polyfill in vscode-lm-tools; the non-default values still fail a hand-typed literal. (b) `request.role !== undefined` (not truthy), so `''` reaches the resolver and fails there instead of silently spawning role-less. (c) caller-supplied `roleDefinition` is stripped from the rival request.
+- Team-leader verification on disk: resolution sits after `activeSessionId` and before `getProjectGuidance` and both branches; named error when `role` is set with no resolver; ptah-cli `roleStamp` only when a definition exists; `grep "'system-prompt'\|'preamble'"` over non-spec vscode-lm-tools sources returns nothing; no TODO/STUB markers; `git show --stat e7672c332` = 5 source/spec files + the review, +699/-10. Evidence (conductor): filtered G4 run 2 suites / 49 tests; joint N=2 gate as recorded under B4c. Out of scope, handed to B5b: `stdio-mcp-server.service.spec.ts` `makeAgentApi` (`:52-83`) has no `listRoles`.
 
-## Batch B5b: MCP surfaces — shared strict schema, formatters, parity guard — PENDING
+## Batch B5b: MCP surfaces — shared strict schema, formatters, parity guard — IN_PROGRESS
 
 - Recommended executor: backend-developer (single sub-agent)
 - Fallback executor: none; HTTP and stdio must change together for Decision 2
@@ -542,42 +549,47 @@ Invariants the split must hold:
 - Rationale: the one-schema decision only holds if both dispatchers, the JSON tool schema and the parity guard land in one reviewed commit.
 - Tasks: 6 | Depends on: B5a
 - Parallel: may run beside B4d (G5). File-disjoint: B5b owns only `libs/backend/vscode-lm-tools/**`. Follow the parallel-lane rule under the full-delivery gate.
+- Contract amendment at B5a verify (commit e7672c332), binding on Tasks 5b.3 and 5b.5:
+  - **D8 on BOTH dispatchers.** `ptahAPI.agent.listRoles()` may reject when a resolver is wired (`AgentRoleError` `no_workspace` / `role_read_failed`, or any other error). HTTP `ptah_agent_list` and stdio `agent_list` each wrap the call in its own `try/catch (error: unknown)`: on rejection, log a warning naming the error, use `roles = []`, and continue. The list result then carries the "No agent roles generated for this workspace" line (HTTP) and `roles: []` (stdio). A `listRoles` failure never turns the list into a tool error, and an `agent.list()` failure keeps today's error path unchanged. Each dispatcher spec pins: roles present, roles empty, `listRoles` rejecting → list still succeeds + warning logged.
+  - **Spec mocks gain `listRoles`.** Add `listRoles: jest.fn().mockResolvedValue([])` to `mcp-stdio/stdio-mcp-server.service.spec.ts` `makeAgentApi` (`:52-83`), and to every agent mock in `mcp-core/protocol-dispatcher.spec.ts` / `mcp-stdio/agent-tool.dispatcher.spec.ts` that reaches a list path. Do not rely on the D8 catch to hide a missing mock.
+  - Spawn keeps B5a's order (role resolved before disabled-CLI / API-key checks); do not reorder it in the dispatchers.
 
-### Task 5b.1: `AgentSpawnArgsSchema` — PENDING
+### Task 5b.1: `AgentSpawnArgsSchema` — IN_PROGRESS
 
 - File: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\agent-spawn-args.schema.ts`
 - Contract: exactly the stdio shape at `agent-tool.dispatcher.ts:53-69` (including `MAX_TASK_LENGTH = 100 * 1024`, `cli: z.enum(SYSTEM_CLI_TYPES)`, unbounded non-negative `timeout`) plus `role: z.string().min(1).max(100).optional()`, `.strict()`. Exported with `MAX_TASK_LENGTH`.
 
-### Task 5b.2: `role` in the JSON tool schema — PENDING
+### Task 5b.2: `role` in the JSON tool schema — IN_PROGRESS
 
 - Files: `mcp-core/tool-description.builder.ts` + `tool-description.builder.spec.ts`
 - Contract: `role` property: the name of an agent role generated for this workspace; `ptah_agent_list` shows valid names; the definition is delivered to the lane and the result reports how; do not paste role templates into `task`. No vendor names. `required` stays `['task']`.
 
-### Task 5b.3: HTTP dispatcher parses with the shared schema — PENDING
+### Task 5b.3: HTTP dispatcher parses with the shared schema — IN_PROGRESS
 
 - Files: `mcp-core/protocol-dispatcher.ts` + `protocol-dispatcher.spec.ts`
 - Contract: `case 'ptah_agent_spawn'` (`:730-827`) replaces the cast and the two hand-written checks with `AgentSpawnArgsSchema.safeParse`, failing via `toolErrorResponse` + `describeZodIssues`; forwards `role`; logs `role`; catches `AgentRoleError` → `Error: ptah_agent_spawn role <code>: <message>`; `CliCommandLineTooLongError` → tool error naming sizes. `ptah_agent_list` calls `ptahAPI.agent.listRoles()` (failure → warn + empty) and passes roles to `formatAgentList`. File must not grow materially.
 - Spec: role forwarded; each of the 7 `AgentRoleError` codes (incl. `no_workspace`, Task 3.0b) surfaced; unknown key rejected; invalid `cli` rejected; list with roles / no roles / `listRoles` throwing.
 
-### Task 5b.4: Formatters — PENDING
+### Task 5b.4: Formatters — IN_PROGRESS
 
 - Files: `mcp-core/mcp-response-formatter.ts` + `mcp-response-formatter.spec.ts` (touch `mcp-response-formatter-extra.spec.ts` only if an existing assertion pins the list table exactly)
 - Contract: `formatAgentSpawn` adds `**Role:** <name> (<roleDelivery> via <roleChannel>)` when set; `formatAgentStatus` shows the role; `formatAgentList(agents, roles?: string[])` adds `role delivery: <roleDelivery>/<roleChannel>` to each Capabilities cell that has it and one line `Roles in this workspace: a, b` or `No agent roles generated for this workspace`.
 
-### Task 5b.5: stdio dispatcher uses the shared schema — PENDING
+### Task 5b.5: stdio dispatcher uses the shared schema — IN_PROGRESS
 
 - Files: `mcp-stdio/agent-tool.dispatcher.ts` + `agent-tool.dispatcher.spec.ts`
 - Contract: delete local `AgentSpawnSchema` and `MAX_TASK_LENGTH`, import from `agent-spawn-args.schema.ts`; forward `role`; `structuredContent` adds `role`, `roleDelivery`, `roleChannel` on spawn and `roles` on list; `AgentRoleError` → `toolError(..., 'mcp_tool_failed', { tool: 'agent_spawn', state: code, availableRoles })` (pattern `:396-407`). Same `listRoles` degradation as HTTP.
 - Spec: mirror of 5b.3 cases on stdio.
 
-### Task 5b.6: Surface parity guard — PENDING
+### Task 5b.6: Surface parity guard — IN_PROGRESS
 
 - File: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\agent-spawn-surface-parity.spec.ts`
 - Contract: key set of `buildAgentSpawnTool().inputSchema.properties` equals `Object.keys(AgentSpawnArgsSchema.shape)`; `buildMcpAgentSpawnTool()` deep-equals `buildAgentSpawnTool()` except `name`.
 
 ### Batch B5b verification
 
-- `npx nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools` (N=1), including `vendor-roster-drift.spec.ts`, `stdio-mcp-server.service.spec.ts`, `index.barrel.spec.ts`
+- During G5 overlap: `NX_DAEMON=false npx nx run @ptah-extension/vscode-lm-tools:test --testPathPatterns="agent-spawn-args|agent-spawn-surface-parity|tool-description\.builder|protocol-dispatcher|mcp-response-formatter|agent-tool\.dispatcher|stdio-mcp-server|vendor-roster-drift|index\.barrel|agent-namespace\.builder" --skip-nx-cache` (report the `Test Suites: N` line and name each suite)
+- After B5b and B4d both return: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools` (N=1), including `vendor-roster-drift.spec.ts`, `stdio-mcp-server.service.spec.ts`, `index.barrel.spec.ts`
 - Then the full-delivery gate (5 projects) above
 - Reviewer: code-logic-reviewer AND code-style-reviewer (behaviour change on HTTP + schema consolidation)
 
@@ -631,4 +643,6 @@ Invariants the split must hold:
 - Resume-from-UI re-applies the recorded role: persist `role` on `CliSessionReference` (`wiring/agent-events.ts` `persistCliSessionReference`, agent-sdk session metadata store) + `role` param on `agent:resumeCliSession`. Blocked by sibling WIP in the main checkout on both files.
 - Agent card/tile role + delivery badge; Tribunal lane role picker replacing the `(role)` token grammar; "no roles generated" onboarding hint.
 - (LOW, from B2 code-logic-review) `assertCommandLineWithinLimit` with empty `args` (`cli-adapter.utils.ts:287-295`): `indexOfLargest` returns -1, coerced to 0, so the error names "argument 0" when the command string itself overflows. Fix the attribution (e.g. `largestArgIndex: -1` + message naming the command) and add the empty-`args` spec. Unreachable today: every caller passes at least one argument.
+- (Product question, from B5a code-logic review) Should a rival spawn that carries `resumeSessionId` re-deliver `role`? Today the namespace forwards `roleDefinition` on resume, so the resumed lane receives the role block again. Decide together with "Resume-from-UI re-applies the recorded role" above: either resume re-applies the recorded role (and a caller-supplied `role` on resume is rejected or must match), or resume ignores `role`.
+- (LOW, from B5a code-logic review) Role resolution runs before the disabled-CLI and missing-API-key checks in `AgentNamespace.spawn`, so a caller with both a bad role and a disabled CLI sees the role error first. No slot is taken on either path. Reorder only if a user reports the message order as confusing.
 - (LOW, from B3 verify) copilot and pi `runTurn` call `spawnCli` synchronously, so a guard throw on a continuation leaves `continue()` as a synchronous throw instead of a rejected promise. Harmless with the one caller (`continueConversation` awaits inside `try`); tidy by making `runTurn` return `Promise.reject` on a throw if a second caller appears.
