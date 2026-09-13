@@ -164,7 +164,10 @@ export class AgentOutputBuffer {
     )
       return undefined;
 
-    if (!tracked) return undefined;
+    if (!tracked) {
+      this.pendingDeltas.delete(agentId);
+      return undefined;
+    }
 
     const mergedSegments = mergeConsecutiveTextSegments(pending.segments);
 

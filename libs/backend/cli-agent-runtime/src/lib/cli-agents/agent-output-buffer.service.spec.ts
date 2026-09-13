@@ -231,6 +231,21 @@ describe('AgentOutputBuffer', () => {
       expect(buffer.takeDelta(AGENT_ID, undefined)).toBeUndefined();
       expect(flushTimersOf(buffer).has(AGENT_ID)).toBe(false);
     });
+
+    it('drops the pending delta when a late callback lands after the record is gone', () => {
+      const { buffer } = makeBuffer();
+
+      buffer.appendSegment(
+        AGENT_ID,
+        undefined,
+        { type: 'text', content: 'late' },
+        jest.fn(),
+      );
+      buffer.appendStreamEvent(AGENT_ID, undefined, textEvent(), jest.fn());
+
+      expect(buffer.takeDelta(AGENT_ID, undefined)).toBeUndefined();
+      expect(buffer.takeDelta(AGENT_ID, makeTracked())).toBeUndefined();
+    });
   });
 
   describe('discard()', () => {
