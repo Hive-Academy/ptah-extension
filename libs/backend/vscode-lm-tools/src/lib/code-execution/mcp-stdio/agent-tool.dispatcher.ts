@@ -540,6 +540,9 @@ export class AgentToolDispatcher {
     try {
       return await this.ptahAPI.agent.listRoles();
     } catch (err: unknown) {
+      // degradation-audit: optional-capability - the role roster is an
+      // enrichment on top of the agent list, which still rejects the whole
+      // call on failure; an unreadable roster logs a warning and lists no roles.
       this.logger.warn('[McpStdio] agent_list could not list roles', {
         error: errorMessage(err),
       });
