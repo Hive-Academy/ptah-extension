@@ -19,6 +19,7 @@ import {
   PLATFORM_TOKENS,
   FILE_BASED_SETTINGS_KEYS,
   isFileBasedSettingKey,
+  type StateStorageMigrationReceipt,
 } from '@ptah-extension/platform-core';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import {
@@ -38,6 +39,34 @@ import {
   SESSION_METADATA_MIGRATION,
   SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
 } from '@ptah-extension/agent-sdk';
+
+function logMigrationReceipt(
+  logger: Logger,
+  receipt: StateStorageMigrationReceipt,
+): void {
+  const counters = {
+    sourceKey: receipt.sourceKey,
+    committedGeneration: receipt.committedGeneration,
+    itemCount: receipt.itemCount,
+    extractedValueCount: receipt.extractedValueCount,
+    droppedStdoutCount: receipt.droppedStdoutCount,
+    stdoutFallbackCount: receipt.stdoutFallbackCount,
+    droppedBulkWithoutIdCount: receipt.droppedBulkWithoutIdCount,
+    skippedItemCount: receipt.skippedItemCount,
+  };
+  const lostCount =
+    receipt.droppedStdoutCount +
+    receipt.droppedBulkWithoutIdCount +
+    receipt.skippedItemCount;
+  if (lostCount > 0) {
+    logger.warn(
+      '[Electron DI] Workspace state split dropped or skipped values',
+      counters,
+    );
+    return;
+  }
+  logger.info('[Electron DI] Workspace state split completed', counters);
+}
 
 /**
  * Phase 1: Register logger-adjacent infrastructure services and environment shims.
@@ -110,8 +139,9 @@ export function registerPhase1Infra(
           ? {
               workerPath: options.stateStorageWorkerPath,
               migrations: [SESSION_METADATA_MIGRATION],
-              cacheExcludeKeyPrefixes:
-                SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
+              cacheExcludeKeyPrefixes: SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
+              onMigrationReceipt: (receipt) =>
+                logMigrationReceipt(logger, receipt),
             }
           : undefined,
       ),

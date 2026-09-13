@@ -27,15 +27,28 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 /** One entry per `new Worker(...)`, in construction order. */
 const mockWorkerPaths: string[] = [];
 
+let mockWorkerReply:
+  | ((request: Record<string, unknown>) => unknown | undefined)
+  | null = null;
+
 jest.mock('node:worker_threads', () => ({
   Worker: class MockWorker {
+    private readonly messageListeners: Array<(value: unknown) => void> = [];
+
     constructor(workerPath: string) {
       mockWorkerPaths.push(workerPath);
     }
-    postMessage(): void {
-      /* silent: this spec counts constructions, it never awaits readiness */
+    postMessage(value: unknown): void {
+      const reply = mockWorkerReply;
+      if (!reply) return;
+      queueMicrotask(() => {
+        const response = reply(value as Record<string, unknown>);
+        if (response === undefined) return;
+        for (const listener of this.messageListeners) listener(response);
+      });
     }
-    on(): this {
+    on(event: string, listener: (value: unknown) => void): this {
+      if (event === 'message') this.messageListeners.push(listener);
       return this;
     }
     unref(): void {
@@ -67,6 +80,7 @@ describe('Electron DI — one workspace state storage worker per launch', () => 
 
   beforeEach(() => {
     mockWorkerPaths.length = 0;
+    mockWorkerReply = null;
     container = rootContainer.createChildContainer();
   });
 
@@ -131,5 +145,147 @@ describe('Electron DI — one workspace state storage worker per launch', () => 
     await flushWorkerConstruction();
     // Resolving did not mint a second worker.
     expect(mockWorkerPaths).toEqual([WORKER_PATH]);
+  });
+
+  describe('split receipt logging at ready', () => {
+    const receiptBase = {
+      sourceKey: 'ptah.sessionMetadata',
+      sourceSha256: 'a'.repeat(64),
+      itemCount: 3,
+      extractedValueCount: 5,
+      droppedStdoutCount: 0,
+      stdoutFallbackCount: 1,
+      droppedBulkWithoutIdCount: 0,
+      skippedItemCount: 0,
+      committedGeneration: 2,
+      commitId: '00000000-0000-4000-8000-000000000001',
+    };
+
+    function scriptReady(receipts: readonly Record<string, unknown>[]): void {
+      mockWorkerReply = (request) => {
+        const operationId = request['operationId'];
+        if (request['type'] === 'initialize') {
+          return {
+            type: 'ready',
+            operationId,
+            generation: 2,
+            mutationEpoch: 0,
+            migrationReceipts: receipts,
+          };
+        }
+        if (request['type'] === 'read-snapshot-page') {
+          return {
+            type: 'snapshot-page',
+            operationId,
+            operations: [],
+            nextCursor: null,
+            done: true,
+            approximateBytes: 2,
+          };
+        }
+        return { type: 'success', operationId };
+      };
+    }
+
+    async function bootToReady(suffix: string) {
+      const userDataPath = path.join(
+        os.tmpdir(),
+        `ptah-di-${Date.now()}-${suffix}`,
+      );
+      const options = {
+        appPath: userDataPath,
+        userDataPath,
+        logsPath: path.join(userDataPath, 'logs'),
+        safeStorage: {
+          isEncryptionAvailable: () => false,
+          encryptString: (value: string) => Buffer.from(value),
+          decryptString: (value: Buffer) => value.toString(),
+        },
+        dialog: {} as never,
+        getWindow: () => null,
+        stateStorageWorkerPath: WORKER_PATH,
+      };
+      const { logger } = registerPhase0Platform(container, options);
+      const info = jest.spyOn(logger, 'info');
+      const warn = jest.spyOn(logger, 'warn');
+      registerPhase1Infra(container, options, logger);
+      const storage = container.resolve<{ whenReady(): Promise<void> }>(
+        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
+      );
+      await storage.whenReady();
+      return { info, warn };
+    }
+
+    function receiptCalls(spy: jest.SpyInstance): unknown[][] {
+      return spy.mock.calls.filter(
+        (call) =>
+          typeof call[0] === 'string' &&
+          call[0].startsWith('[Electron DI] Workspace state split'),
+      );
+    }
+
+    it('logs one info line with counters only when nothing was dropped', async () => {
+      scriptReady([receiptBase]);
+
+      const { info, warn } = await bootToReady('receipt-info');
+
+      expect(receiptCalls(warn)).toEqual([]);
+      expect(receiptCalls(info)).toEqual([
+        [
+          '[Electron DI] Workspace state split completed',
+          {
+            sourceKey: 'ptah.sessionMetadata',
+            committedGeneration: 2,
+            itemCount: 3,
+            extractedValueCount: 5,
+            droppedStdoutCount: 0,
+            stdoutFallbackCount: 1,
+            droppedBulkWithoutIdCount: 0,
+            skippedItemCount: 0,
+          },
+        ],
+      ]);
+      expect(mockWorkerPaths).toEqual([WORKER_PATH]);
+    });
+
+    it('logs one warn line with counters when values were dropped or skipped', async () => {
+      scriptReady([
+        {
+          ...receiptBase,
+          droppedStdoutCount: 28,
+          droppedBulkWithoutIdCount: 1,
+          skippedItemCount: 1,
+        },
+      ]);
+
+      const { info, warn } = await bootToReady('receipt-warn');
+
+      expect(receiptCalls(info)).toEqual([]);
+      expect(receiptCalls(warn)).toEqual([
+        [
+          '[Electron DI] Workspace state split dropped or skipped values',
+          {
+            sourceKey: 'ptah.sessionMetadata',
+            committedGeneration: 2,
+            itemCount: 3,
+            extractedValueCount: 5,
+            droppedStdoutCount: 28,
+            stdoutFallbackCount: 1,
+            droppedBulkWithoutIdCount: 1,
+            skippedItemCount: 1,
+          },
+        ],
+      ]);
+      expect(mockWorkerPaths).toEqual([WORKER_PATH]);
+    });
+
+    it('logs nothing when the ready handshake carries no receipt', async () => {
+      scriptReady([]);
+
+      const { info, warn } = await bootToReady('receipt-none');
+
+      expect(receiptCalls(info)).toEqual([]);
+      expect(receiptCalls(warn)).toEqual([]);
+    });
   });
 });
