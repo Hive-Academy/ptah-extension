@@ -34,7 +34,10 @@ import type {
 } from '@ptah-extension/agent-sdk';
 import { CompactionConfigProvider } from '@ptah-extension/agent-sdk';
 import type { ProviderModelsService } from '@ptah-extension/auth-providers';
-import type { PtahCliConfig } from '@ptah-extension/shared';
+import type {
+  AgentRoleDefinition,
+  PtahCliConfig,
+} from '@ptah-extension/shared';
 import type { SpawnedProcess } from '@anthropic-ai/claude-agent-sdk';
 
 // The `agent-generation` barrel reaches tree-sitter's `import.meta.url`, which
@@ -94,7 +97,7 @@ for (const options of runs) {
   let captured = null;
   let stdinText = '';
   const q = query({ prompt: 'probe', options: { ...options, cwd: process.cwd(), pathToClaudeCodeExecutable: process.execPath, spawnClaudeCodeProcess: (spawnOptions) => {
-    captured = { args: spawnOptions.args };
+    captured = { args: spawnOptions.args, env: spawnOptions.env ?? {} };
     const stdin = new PassThrough();
     stdin.on('data', (chunk) => { stdinText += String(chunk); });
     const stdout = new PassThrough();
@@ -106,7 +109,7 @@ for (const options of runs) {
   while ((!captured || !stdinText.includes('"initialize"')) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  results.push({ args: captured ? captured.args : null, stdinText });
+  results.push({ args: captured ? captured.args : null, env: captured ? captured.env : null, stdinText });
 }
 // Exit only once the payload has actually left the process. stdout is a PIPE
 // here, so process.stdout.write() buffers and an immediate process.exit(0)
@@ -116,13 +119,19 @@ process.stdout.write(JSON.stringify(results), () => process.exit(0));
 
 interface ProbeResult {
   readonly args: string[] | null;
+  readonly env: Record<string, string | undefined> | null;
   readonly stdinText: string;
 }
 
 function findPinnedSdk(): { entry: string; version: string } {
   let dir = __dirname;
   for (;;) {
-    const root = path.join(dir, 'node_modules', '@anthropic-ai', 'claude-agent-sdk');
+    const root = path.join(
+      dir,
+      'node_modules',
+      '@anthropic-ai',
+      'claude-agent-sdk',
+    );
     const entry = path.join(root, 'sdk.mjs');
     if (existsSync(entry)) {
       const pkg = JSON.parse(
@@ -248,6 +257,7 @@ async function* emptyStream(): AsyncGenerator<never, void, unknown> {
 async function captureSpawnOptions(
   values: Record<string, unknown>,
   outputStyleName: string | undefined,
+  role?: AgentRoleDefinition,
 ): Promise<{
   options: Options;
   logger: ReturnType<typeof createMockLogger>;
@@ -325,7 +335,11 @@ async function captureSpawnOptions(
     { get: jest.fn(() => undefined) } as unknown as never, // configManager
     spawner,
   );
-  await registry.spawnAgent(BASE_CONFIG.id, 'do work');
+  await registry.spawnAgent(
+    BASE_CONFIG.id,
+    'do work',
+    role ? { role } : undefined,
+  );
   if (!captured) throw new Error('spawnAgent did not call query()');
   return { options: captured, logger };
 }
@@ -337,12 +351,24 @@ type CaseName =
   | 'max'
   | 'invalid-low'
   | 'invalid-high'
-  | 'style-and-window';
+  | 'style-and-window'
+  | 'role-64kib';
+
+const ROLE_MARKER = 'ROLE_64KIB_PROBE_MARKER';
+const ROLE_64KIB_BODY =
+  ROLE_MARKER + 'r'.repeat(64 * 1024 - 2 * ROLE_MARKER.length) + ROLE_MARKER;
+const ROLE_64KIB: AgentRoleDefinition = {
+  name: 'probe-role',
+  body: ROLE_64KIB_BODY,
+  sourcePath: '/repo/.claude/agents/probe-role.md',
+  bytes: Buffer.byteLength(ROLE_64KIB_BODY, 'utf8'),
+};
 
 const CASES: ReadonlyArray<{
   readonly name: CaseName;
   readonly values: Record<string, unknown>;
   readonly outputStyleName?: string;
+  readonly role?: AgentRoleDefinition;
 }> = [
   { name: 'enabled-unset', values: {} },
   {
@@ -358,6 +384,7 @@ const CASES: ReadonlyArray<{
     values: { 'compaction.threshold': 400_000 },
     outputStyleName: 'Terse',
   },
+  { name: 'role-64kib', values: {}, role: ROLE_64KIB },
 ];
 
 describe('ptah-cli spawn path — compaction settings on the real SDK argv', () => {
@@ -383,6 +410,7 @@ describe('ptah-cli spawn path — compaction settings on the real SDK argv', () 
       const { options, logger } = await captureSpawnOptions(
         testCase.values,
         testCase.outputStyleName,
+        testCase.role,
       );
       captured.push({ name: testCase.name, options, logger });
     }
@@ -393,6 +421,7 @@ describe('ptah-cli spawn path — compaction settings on the real SDK argv', () 
         settings: options.settings,
         systemPrompt: options.systemPrompt,
         settingSources: options.settingSources,
+        env: options.env,
       })),
     );
     captured.forEach((entry, index) => {
@@ -472,6 +501,35 @@ describe('ptah-cli spawn path — compaction settings on the real SDK argv', () 
       autoCompactWindow: 400_000,
       crossSessionInbound: 'accept',
     });
+  });
+
+  it('delivers a 64 KiB role over the initialize request, never argv or env', () => {
+    const entry = results.get('role-64kib');
+    if (!entry) throw new Error('no result captured for role-64kib');
+    const { probe, options } = entry;
+    if (!probe.args) throw new Error('no argv captured for role-64kib');
+    if (!probe.env) throw new Error('no env captured for role-64kib');
+
+    const init = initializeRequest(probe.stdinText);
+    const delivered = [init['systemPrompt'], init['appendSystemPrompt']].filter(
+      (value): value is string => typeof value === 'string',
+    );
+    expect(delivered.some((value) => value.includes(ROLE_64KIB_BODY))).toBe(
+      true,
+    );
+
+    for (const arg of probe.args) {
+      expect(arg.includes(ROLE_MARKER)).toBe(false);
+    }
+    const envValues = [
+      ...Object.values(probe.env),
+      ...Object.values(options.env ?? {}),
+    ];
+    for (const value of envValues) {
+      if (typeof value === 'string') {
+        expect(value.includes(ROLE_MARKER)).toBe(false);
+      }
+    }
   });
 
   it('preserves model, setting sources and the system prompt in every case', () => {

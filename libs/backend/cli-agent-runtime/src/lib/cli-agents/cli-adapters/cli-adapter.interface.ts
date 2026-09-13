@@ -7,6 +7,8 @@
  */
 import type {
   AgentMessagingCapability,
+  AgentRoleChannel,
+  AgentRoleDefinition,
   CliType,
   CliDetectionResult,
   CliOutputSegment,
@@ -52,6 +54,8 @@ export interface CliCommandOptions {
    * caller, which `ptah_agent_report` refuses with that reason.
    */
   readonly agentId?: string;
+  /** Resolved workspace role to run as. Adapters deliver it on their own role channel; an adapter that does not use the task prompt passes `role: undefined` to buildTaskPrompt(). */
+  readonly role?: AgentRoleDefinition;
 }
 
 /**
@@ -163,6 +167,13 @@ export interface CliAdapter {
    * a new adapter cannot silently inherit "no messaging at all".
    */
   capabilities(): AgentMessagingCapabilities;
+
+  /**
+   * Where this CLI receives a resolved workspace role. Required — an adapter
+   * that does not declare it is a compile error, so a new adapter cannot
+   * silently drop a role it was asked to run as.
+   */
+  readonly roleChannel: AgentRoleChannel;
 
   /**
    * Strip ANSI escape codes, progress bars, and other non-content output

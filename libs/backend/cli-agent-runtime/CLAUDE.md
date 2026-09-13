@@ -36,14 +36,41 @@ Hosts rival CLI orchestration (`cli-agents/`), user-configured Anthropic-compati
 
 ## Public API
 
-Batch 1 scaffold — surface is intentionally empty (`export {}`). Subsequent batches in Win 1 of TASK_2026_123 will export the CLI agent, `ptah-cli`, and `mcp-directory` subsystems.
+The root barrel (`src/index.ts`) re-exports five sub-barrels in full, plus a
+short named list:
+
+- `cli-agents` — `CliDetectionService`, `AgentProcessManager` (+
+  `AgentContinueError`, `MIN/MAX/DEFAULT_CONCURRENT_AGENTS`, the
+  `AgentRoleStamp` type), `AgentMessageError`/`AgentMessageRouter`,
+  `AgentReportRouter`, every `cli-adapters/**` export (`CliAdapter`,
+  `renderRoleBlock`, `assertCommandLineWithinLimit`,
+  `CliCommandLineTooLongError`, `spawnCli`, …), `createHarnessCliDetector`.
+- `ptah-cli` — `PtahCliRegistry`, `PtahCliSpawnOptions`,
+  `PtahCliConfigPersistence`, `PtahCliStreamLoop`, `PTAH_CLI_ROLE_DELIVERY`
+  and other constants.
+- `mcp-directory` — MCP registry discovery/install surface (`McpRegistryProvider`,
+  Smithery + OAuth clients, `McpInstallService`, the read-only
+  `~/.claude.json` reader).
+- `skills-directory` — the skills.sh marketplace client.
+- `roles` — `AgentRoleResolver`, `AgentRoleError`, `AgentRoleErrorCode`,
+  `MAX_ROLE_BYTES` (see "Role-addressed lanes" below).
+- Plus `CLI_AGENT_RUNTIME_TOKENS`, `registerCliAgentRuntimeServices`, and the
+  `wiring/` helpers (`wireSdkCallbacks`, `wireAgentEventListeners`,
+  `persistCliSessionReference`).
 
 DI: `CLI_AGENT_RUNTIME_TOKENS`, `registerCliAgentRuntimeServices`.
 
 ## Internal Structure
 
-- `src/lib/di/tokens.ts` — `CLI_AGENT_RUNTIME_TOKENS` (empty placeholder in Batch 1)
-- `src/lib/di/register.ts` — `registerCliAgentRuntimeServices` (no-op in Batch 1)
+- `src/lib/di/tokens.ts` — `CLI_AGENT_RUNTIME_TOKENS` (e.g. `AGENT_ROLE_RESOLVER`)
+- `src/lib/di/register.ts` — `registerCliAgentRuntimeServices`: registers the
+  runtime's singletons, including `AgentSpawnEnvironment` and `AgentOutputBuffer`
+  before the process manager; `register.agent-process-manager.smoke.spec.ts`
+  resolves the manager through the real container
+- `src/lib/cli-agents/` — detection, `AgentProcessManager` and its collaborators,
+  message/report routers, `cli-adapters/`
+- `src/lib/ptah-cli/`, `src/lib/roles/`, `src/lib/mcp-directory/`,
+  `src/lib/skills-directory/`, `src/lib/spawn/`, `src/lib/wiring/`
 
 ## Dependencies
 
@@ -114,6 +141,111 @@ do. `CodexCliAdapter` therefore sends
 `features.tool_search_always_defer_mcp_tools = false` alongside the server
 entry; with it, the same prompt lists all 40+ `ptah_*` tools. A successful
 connection is NOT evidence that the tools arrived — only a tool listing is.
+
+## Role-addressed lanes (`role`, TASK_2026_433)
+
+`AgentRoleResolver` (`roles/agent-role-resolver.service.ts`) turns a
+caller-supplied `role` name into an `AgentRoleDefinition` read from
+`{harnessRoot}/.claude/agents/<role>.md` — the source-managed directory Claude
+subagents read directly, **not** the consent-gated `~/.ptah/user` mirror, which
+can be absent whenever the setup wizard's consent gate is closed. `listRoles`
+and `resolve` reject a `workspaceRoot` that is empty or not `path.isAbsolute`
+with `AgentRoleError('no_workspace', …)` before `resolveHarnessWorkspaceRoot`
+runs or any filesystem call happens — an unguarded empty root used to resolve
+to `process.cwd()/.claude/agents` (the install dir in Electron, the shell cwd
+in the CLI). Every failure is `AgentRoleError`, never a role-less fallback:
+`invalid_role_name` (name regex checked first, before any FS call), `no_roles`
+(empty `.claude/agents` — spawning without `role` is still valid),
+`unknown_role`, `empty_role` (blank after the frontmatter strip),
+`role_too_large` (over `MAX_ROLE_BYTES` = 64 KiB), `role_read_failed`
+(narrowed `instanceof Error`), `no_workspace`.
+
+**Delivery is a required `CliAdapter.roleChannel`, one per adapter, and v1
+always delivers as a preamble** — `AgentRoleDelivery` is `'preamble' | 'native'`
+but every lane reports `'preamble'` today; `'native'`/`'agent-selection'` is
+reserved for the deferred native-role probe (nothing sets it yet):
+
+| Adapter | `roleChannel` | Delivery |
+| --- | --- | --- |
+| codex | `developer-instructions` | `config.developer_instructions = renderRoleBlock(...)`; stripped from the task-prompt input (`buildTaskPrompt({ ...options, role: undefined })`) so it is never duplicated |
+| copilot, antigravity, opencode, cursor, pi | `task-prompt` | `buildTaskPrompt(options, cli)` folds the role in as its own `---`-delimited section |
+| ptah-cli | `system-prompt` | `renderRoleBlock(role, 'ptah-cli')` appended to `fullSystemPromptContent` after `## Project Guidance`, delivered over stdin `initialize` — no argv, no command-line budget |
+
+`renderRoleBlock` (`cli-agents/cli-adapters/cli-adapter.utils.ts`) runs the
+body through harness-sync's `transformAgentBody` only on the harness
+`CliTarget` lanes (codex, copilot, cursor, antigravity); opencode, pi and
+ptah-cli get the stripped body unchanged. **A role body that itself starts
+with a `---` block used to lose that block on the four transform lanes**,
+because `AgentRoleDefinition.body` is already frontmatter-stripped by the
+resolver and `transformAgentBody` strips again. Fixed by prepending a sentinel
+before the second strip only on transform lanes — `EMPTY_FRONTMATTER =
+'---\n\n---\n'` — whose lazy `^---\n[\s\S]*?\n---\n?` match consumes just the
+sentinel and never the body's own `---` pair. Continuation turns never re-send
+the role; a resume spawn that carries `role` delivers it again (accepted
+duplication on task-prompt lanes — persisting the recorded role for UI-resume
+is a follow-up, blocked on sibling WIP in `wiring/agent-events.ts`).
+
+**Read-only intent is never mapped to a sandbox, and role frontmatter
+`model`/`tools` are never read.** Every role's own contract writes a
+deliverable file, so narrowing a root lane's sandbox from a role would break
+that contract — codex keeps `sandboxMode: 'danger-full-access'` regardless of
+role. `model`/`tools` frontmatter is generation metadata for delegated Claude
+subagents (whose model aliases are not codex models), not something a spawned
+root lane's tier or permissions read from.
+
+**Command-line budget guard**, `assertCommandLineWithinLimit` (same file),
+runs first inside `spawnCli`, and separately for codex on the serialized
+`--config developer_instructions=<JSON>` before `new sdk.Codex` (a codex-sdk
+spawn bypasses `spawnCli` entirely):
+
+- win32: libuv-quoted length of `command + args` ≤ 32,767 UTF-16 units —
+  EXCEPT when `command` ends `.cmd`/`.bat` (case-insensitive), where the limit
+  is 8,191, because `resolveDirectSpawn` can fall back to the unchanged `.cmd`
+  wrapper and `cross-spawn` then runs it through `cmd.exe`.
+- linux: each arg ≤ 131,071 bytes.
+- darwin: sum of arg bytes ≤ 1,048,576 − 4,096 reserve.
+- Throws `CliCommandLineTooLongError { measured, limit, largestArgIndex }`
+  before any process exists or side effect runs (antigravity resolves the
+  spawn descriptor and runs the guard BEFORE `configureMcpServer`, so a
+  rejected spawn never writes the HOME MCP entry). Nothing is ever truncated.
+
+**What the guard does not model** (accepted gaps, not bugs):
+
+- The `.cmd`-fallback 8,191 win32 limit still under-measures the real cmd.exe
+  line: `cross-spawn` escapes cmd.exe metacharacters — space included — with
+  `^`, doubled for a `node_modules/.bin` shim, so the actual line can run well
+  past what the guard computed. Past the true cap the spawn still fails
+  loudly with the OS's own "command line is too long" — no truncation, the
+  same failure mode as before this guard existed — it just does not get the
+  named `CliCommandLineTooLongError`.
+- Linux's TOTAL `ARG_MAX` (argv + environment combined) is not checked, only
+  the per-argument 131,071-byte limit — the contract here is per-arg, not
+  aggregate.
+- darwin's environment-variable byte cost is not subtracted from the
+  1,048,576-byte budget; only argv bytes are counted.
+
+**A codex role REPLACES the user's own `developer_instructions`.** Ptah's
+per-run `--config developer_instructions=<role block>` overrides any value set
+in `~/.codex/config.toml`; the two are not merged. Measured on a real spawn with
+a sentinel in a throwaway `CODEX_HOME` (TASK_2026_433 `test-report.md` E2/A2):
+the lane reported the sentinel absent. A role-less codex spawn sends no
+`developer_instructions`, so the user's value applies there.
+
+### Facade split of `AgentProcessManager`
+
+`AgentSpawnEnvironment` (`cli-agents/agent-spawn-environment.service.ts`) and
+`AgentOutputBuffer` (`cli-agents/agent-output-buffer.service.ts`) are injected
+collaborators split out of `agent-process-manager.service.ts` under the root
+`CLAUDE.md` facade rule — launch-settings resolution (model/effort/CLI
+preference, concurrency cap, idle-release window, workspace scoping, MCP
+port, harness preflight) and throttled output-delta buffering, respectively.
+`AgentProcessManager` keeps its name, `TOKENS.AGENT_PROCESS_MANAGER`,
+`events`, and every public method signature — no caller changes. Both
+collaborators register as singletons in `di/register.ts` before
+`TOKENS.AGENT_PROCESS_MANAGER` and are injected by class token, the way
+`AgentMessageRouter` is; `di/register.agent-process-manager.smoke.spec.ts`
+resolves the manager through the real container and asserts both are wired in
+as singletons (it fails if either `registerSingleton` line is removed).
 
 ## Guidelines
 

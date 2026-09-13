@@ -104,7 +104,10 @@ import {
   SmitheryRegistrySource,
   SkillsShApiClient,
 } from '@ptah-extension/cli-agent-runtime';
-import type { AgentReportRouter } from '@ptah-extension/cli-agent-runtime';
+import type {
+  AgentReportRouter,
+  AgentRoleResolver,
+} from '@ptah-extension/cli-agent-runtime';
 import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
 import {
   DIAGNOSTICS_CACHE_INVALIDATOR,
@@ -434,6 +437,9 @@ export class PtahAPIBuilder {
     @inject(CLI_AGENT_RUNTIME_TOKENS.AGENT_REPORT_ROUTER, { isOptional: true })
     private readonly agentReportRouter: AgentReportRouter | undefined,
 
+    @inject(CLI_AGENT_RUNTIME_TOKENS.AGENT_ROLE_RESOLVER, { isOptional: true })
+    private readonly agentRoleResolver: AgentRoleResolver | undefined,
+
     /**
      * NOT stored — injected to be constructed and started.
      *
@@ -671,6 +677,22 @@ export class PtahAPIBuilder {
               );
             }
             return this.agentReportRouter.deliver(input);
+          },
+          resolveAgentRole: async (workspaceRoot, role) => {
+            if (!this.agentRoleResolver) {
+              throw new Error(
+                'Agent roles are unavailable: the CLI agent runtime is not ' +
+                  'registered in this host, so there is no role resolver. ' +
+                  'Register cli-agent-runtime services during container setup.',
+              );
+            }
+            return this.agentRoleResolver.resolve(workspaceRoot, role);
+          },
+          listAgentRoles: async (workspaceRoot) => {
+            if (!this.agentRoleResolver) {
+              return [];
+            }
+            return this.agentRoleResolver.listRoles(workspaceRoot);
           },
           getDisabledClis: () => {
             return (

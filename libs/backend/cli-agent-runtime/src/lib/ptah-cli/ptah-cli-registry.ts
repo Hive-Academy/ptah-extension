@@ -1,5 +1,6 @@
 import { injectable, inject } from 'tsyringe';
 import {
+  type AgentRoleDefinition,
   type AuthEnv,
   type PtahCliConfig,
   type PtahCliSummary,
@@ -580,6 +581,7 @@ export class PtahCliRegistry {
        * exactly as they were.
        */
       agentId?: string;
+      role?: AgentRoleDefinition;
     },
   ): Promise<
     | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
@@ -664,6 +666,7 @@ export class PtahCliRegistry {
         ownSessionId: options?.resumeSessionId,
       },
       options?.agentId,
+      options?.role,
     );
     const {
       outputCallbacks,

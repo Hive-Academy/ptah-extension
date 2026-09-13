@@ -89,6 +89,8 @@ jest.mock('@cursor/sdk', () => ({
 
 import { CursorCliAdapter } from './cursor-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
+import type { AgentRoleDefinition } from '@ptah-extension/shared';
+import { buildTaskPrompt, renderRoleBlock } from './cli-adapter.utils';
 
 const ORIGINAL_ENV = process.env;
 
@@ -386,6 +388,68 @@ describe('CursorCliAdapter', () => {
       expect(code).toBe(1);
       expect(output.join('')).toContain('Cursor SDK Error:');
       expect(output.join('')).toContain('agent boom');
+    });
+  });
+
+  describe('runSdk() — role delivery (task-prompt)', () => {
+    const role: AgentRoleDefinition = {
+      name: 'reviewer',
+      body: 'Review the diff before approving.',
+      sourcePath: '/proj/.claude/agents/reviewer.md',
+      bytes: 33,
+    };
+    const baseOptions = {
+      task: 'Refactor module',
+      workingDirectory: '/proj',
+      projectGuidance: 'HARNESS CONTEXT',
+      model: 'composer-2',
+      reasoningEffort: 'high',
+      mcpPort: 51820,
+    };
+
+    beforeEach(() => {
+      mockCreate.mockImplementation(async () => ({
+        agentId: 'agent-abc',
+        send: (...args: unknown[]) => {
+          mockSend(...args);
+          const run = createFakeRun('agent-abc');
+          run.end();
+          return Promise.resolve(run.run);
+        },
+        close: mockClose,
+      }));
+    });
+
+    it('declares the task-prompt channel', () => {
+      expect(adapter.roleChannel).toBe('task-prompt');
+    });
+
+    it('sends the role block in the first turn and not on continuation', async () => {
+      const handle = await adapter.runSdk({ ...baseOptions, role });
+      handle.onOutput(() => undefined);
+      await handle.done;
+
+      const firstPrompt = mockSend.mock.calls[0][0] as string;
+      expect(firstPrompt).toBe(
+        buildTaskPrompt({ ...baseOptions, role }, 'cursor'),
+      );
+      expect(firstPrompt).toContain(renderRoleBlock(role, 'cursor'));
+
+      const outcome = await handle.continue?.('Follow-up');
+      await outcome?.done;
+
+      expect(mockSend.mock.calls[1][0]).toBe('Follow-up');
+    });
+
+    it('creates the agent with the same options whether or not a role is set', async () => {
+      const first = await adapter.runSdk(baseOptions);
+      first.onOutput(() => undefined);
+      await first.done;
+      const second = await adapter.runSdk({ ...baseOptions, role });
+      second.onOutput(() => undefined);
+      await second.done;
+
+      expect(mockCreate.mock.calls[1][0]).toEqual(mockCreate.mock.calls[0][0]);
     });
   });
 

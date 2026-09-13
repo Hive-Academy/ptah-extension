@@ -27,7 +27,6 @@
 
 import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import type {
   MCPRequest,
   MCPResponse,
@@ -43,30 +42,13 @@ import {
   formatAgentList,
 } from '../mcp-core/mcp-response-formatter';
 import { MAX_AGENT_MESSAGE_LENGTH } from '../mcp-core/tool-description.builder';
+import { AgentSpawnArgsSchema } from '../mcp-core/agent-spawn-args.schema';
 import {
   AgentMessageError,
+  AgentRoleError,
+  CliCommandLineTooLongError,
   MAX_AGENT_REPORT_LENGTH,
 } from '@ptah-extension/cli-agent-runtime';
-
-const MAX_TASK_LENGTH = 100 * 1024;
-
-const AgentSpawnSchema = z
-  .object({
-    task: z.string().min(1).max(MAX_TASK_LENGTH),
-    cli: z.enum(SYSTEM_CLI_TYPES).optional(),
-    ptahCliId: z.string().min(1).optional(),
-    workingDirectory: z.string().optional(),
-    // Inactivity window, not a wall clock: the watchdog is re-armed by every
-    // output flush. `0` disables it. No upper bound — the old 1-hour ceiling
-    // rejected the spawn a long-running job needed.
-    timeout: z.number().int().nonnegative().optional(),
-    files: z.array(z.string()).optional(),
-    taskFolder: z.string().optional(),
-    model: z.string().optional(),
-    modelTier: z.enum(['opus', 'sonnet', 'haiku']).optional(),
-    resume_session_id: z.string().optional(),
-  })
-  .strict();
 
 const AgentStatusSchema = z
   .object({ agentId: z.string().min(1).optional() })
@@ -248,7 +230,7 @@ export class AgentToolDispatcher {
     request: MCPRequest,
     args: unknown,
   ): Promise<MCPResponse> {
-    const parsed = parseArgs(AgentSpawnSchema, args);
+    const parsed = parseArgs(AgentSpawnArgsSchema, args);
     if (!parsed.ok) {
       return toolError(
         request,
@@ -262,6 +244,7 @@ export class AgentToolDispatcher {
       cli: p.cli ?? (p.ptahCliId ? 'ptah-cli' : 'auto-detect'),
       ptahCliId: p.ptahCliId,
       task: p.task.substring(0, 80) + (p.task.length > 80 ? '...' : ''),
+      role: p.role,
     });
     try {
       const result = await this.ptahAPI.agent.spawn({
@@ -276,6 +259,7 @@ export class AgentToolDispatcher {
         modelTier: p.modelTier,
         resumeSessionId: p.resume_session_id,
         parentSessionId: this.callerSessionId,
+        role: p.role,
       });
       return toolSuccess(
         request,
@@ -290,12 +274,40 @@ export class AgentToolDispatcher {
           ...(result.cliSessionId ? { cliSessionId: result.cliSessionId } : {}),
           ...(result.ptahCliId ? { ptahCliId: result.ptahCliId } : {}),
           ...(result.ptahCliName ? { ptahCliName: result.ptahCliName } : {}),
+          ...(result.role ? { role: result.role } : {}),
+          ...(result.roleDelivery ? { roleDelivery: result.roleDelivery } : {}),
+          ...(result.roleChannel ? { roleChannel: result.roleChannel } : {}),
         },
       );
-    } catch (err) {
+    } catch (err: unknown) {
       this.logger.error('[McpStdio] agent_spawn failed', {
         error: errorMessage(err),
       });
+      if (err instanceof AgentRoleError) {
+        return toolError(
+          request,
+          `agent_spawn role ${err.code}: ${err.message}`,
+          'mcp_tool_failed',
+          {
+            tool: 'agent_spawn',
+            state: err.code,
+            availableRoles: err.availableRoles,
+          },
+        );
+      }
+      if (err instanceof CliCommandLineTooLongError) {
+        return toolError(
+          request,
+          `agent_spawn command line too long (${err.measured} against a limit of ${err.limit}): ${err.message}`,
+          'mcp_tool_failed',
+          {
+            tool: 'agent_spawn',
+            state: 'command_line_too_long',
+            measured: err.measured,
+            limit: err.limit,
+          },
+        );
+      }
       return toolError(
         request,
         `agent_spawn failed: ${errorMessage(err)}`,
@@ -508,9 +520,11 @@ export class AgentToolDispatcher {
     }
     try {
       const agents = await this.ptahAPI.agent.list();
-      return toolSuccess(request, formatAgentList(agents), {
+      const roles = await this.listRolesOrEmpty();
+      return toolSuccess(request, formatAgentList(agents, roles), {
         agents,
         total: agents.length,
+        roles,
       });
     } catch (err) {
       return toolError(
@@ -519,6 +533,20 @@ export class AgentToolDispatcher {
         'mcp_tool_failed',
         { tool: 'agent_list' },
       );
+    }
+  }
+
+  private async listRolesOrEmpty(): Promise<string[]> {
+    try {
+      return await this.ptahAPI.agent.listRoles();
+    } catch (err: unknown) {
+      // degradation-audit: optional-capability - the role roster is an
+      // enrichment on top of the agent list, which still rejects the whole
+      // call on failure; an unreadable roster logs a warning and lists no roles.
+      this.logger.warn('[McpStdio] agent_list could not list roles', {
+        error: errorMessage(err),
+      });
+      return [];
     }
   }
 }

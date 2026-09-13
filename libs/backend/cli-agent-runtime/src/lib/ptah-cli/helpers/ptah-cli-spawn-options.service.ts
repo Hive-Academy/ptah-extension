@@ -17,7 +17,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import type { AuthEnv } from '@ptah-extension/shared';
+import type { AgentRoleDefinition, AuthEnv } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
@@ -44,6 +44,7 @@ import {
 } from '@ptah-extension/output-styles';
 import { blankToUndefined } from './ptah-cli-registry.utils';
 import { ptahMcpServerUrl } from '../../cli-agents/cli-adapters/ptah-mcp-url';
+import { renderRoleBlock } from '../../cli-agents/cli-adapters/cli-adapter.utils';
 
 /**
  * Assembled spawn options returned by assembleSpawnOptions()
@@ -152,6 +153,7 @@ export class PtahCliSpawnOptions {
     resolvedModel?: string,
     sessionContext?: PtahSpawnSessionContext,
     agentId?: string,
+    role?: AgentRoleDefinition,
   ): Promise<PtahSpawnAssembly> {
     const mcpPort = this.resolveMcpPort();
     const mcpServerRunning = mcpPort !== undefined;
@@ -175,6 +177,7 @@ export class PtahCliSpawnOptions {
         projectGuidance
           ? `\n\n## Project Guidance\n${projectGuidance}`
           : undefined,
+        role ? renderRoleBlock(role, 'ptah-cli') : undefined,
       ]
         .filter(Boolean)
         .join('\n\n') || undefined;
@@ -249,6 +252,7 @@ export class PtahCliSpawnOptions {
       outputStyleName: outputStyle.outputStyleName ?? null,
       parentSessionId: parentSessionId ?? null,
       ownSessionId: ownSessionId ?? null,
+      role: role?.name ?? null,
     });
 
     return {

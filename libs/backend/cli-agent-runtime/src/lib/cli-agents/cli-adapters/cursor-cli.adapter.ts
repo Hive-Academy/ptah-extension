@@ -197,6 +197,7 @@ function resolveCursorApiKey(): string | undefined {
 export class CursorCliAdapter implements CliAdapter {
   readonly name = 'cursor' as const;
   readonly displayName = 'Cursor';
+  readonly roleChannel = 'task-prompt' as const;
   /** MCP is configured inline via the SDK's mcpServers option. */
   readonly supportsMcp = true;
 
@@ -282,7 +283,7 @@ export class CursorCliAdapter implements CliAdapter {
    * run's typed SDKMessage stream. Abort cancels the in-flight run.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    const taskPrompt = buildTaskPrompt(options);
+    const taskPrompt = buildTaskPrompt(options, this.name);
     const abortController = new AbortController();
     let capturedAgentId: string | undefined;
     let activeRun: CursorRun | undefined;

@@ -118,8 +118,12 @@ import {
   OpencodeCliAdapter,
   resolveOpencodeNativeBinary,
 } from './opencode-cli.adapter';
-import type { SdkHandle } from './cli-adapter.interface';
-import type { CliOutputSegment } from '@ptah-extension/shared';
+import type { CliCommandOptions, SdkHandle } from './cli-adapter.interface';
+import type {
+  AgentRoleDefinition,
+  CliOutputSegment,
+} from '@ptah-extension/shared';
+import { buildTaskPrompt, renderRoleBlock } from './cli-adapter.utils';
 
 /** Drain a handle's raw output + structured segments into arrays. */
 function collect(handle: SdkHandle): {
@@ -277,6 +281,62 @@ describe('OpencodeCliAdapter', () => {
 
       const [binaryArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
       expect(binaryArg).toBe('C:/opencode/bin/opencode.exe');
+    });
+  });
+
+  describe('runSdk() — role delivery (task-prompt)', () => {
+    const role: AgentRoleDefinition = {
+      name: 'reviewer',
+      body: 'Review the diff before approving.',
+      sourcePath: '/proj/.claude/agents/reviewer.md',
+      bytes: 33,
+    };
+    const baseOptions = {
+      task: 'Do the thing',
+      workingDirectory: '/proj',
+      systemPrompt: 'HARNESS CONTEXT',
+      model: 'anthropic/claude-sonnet-4-5',
+      mcpPort: 51820,
+    };
+
+    async function spawnOnce(options: CliCommandOptions): Promise<void> {
+      const handle = await adapter.runSdk(options);
+      collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+    }
+
+    it('declares the task-prompt channel', () => {
+      expect(adapter.roleChannel).toBe('task-prompt');
+    });
+
+    it('puts the role block in the trailing positional prompt', async () => {
+      await spawnOnce({ ...baseOptions, role });
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      const prompt = argsArg[argsArg.length - 1];
+      expect(prompt).toBe(
+        buildTaskPrompt({ ...baseOptions, role }, 'opencode'),
+      );
+      expect(prompt).toContain(renderRoleBlock(role, 'opencode'));
+    });
+
+    it('keeps OPENCODE_CONFIG_CONTENT and every other argument unchanged', async () => {
+      await spawnOnce(baseOptions);
+      await spawnOnce({ ...baseOptions, role });
+
+      const [, roleless, rolelessOpts] = mockSpawnCli.mock.calls[0] as [
+        string,
+        string[],
+        { env?: NodeJS.ProcessEnv },
+      ];
+      const [, withRole, withRoleOpts] = mockSpawnCli.mock.calls[1] as [
+        string,
+        string[],
+        { env?: NodeJS.ProcessEnv },
+      ];
+      expect(withRole.slice(0, -1)).toEqual(roleless.slice(0, -1));
+      expect(withRoleOpts.env).toEqual(rolelessOpts.env);
     });
   });
 

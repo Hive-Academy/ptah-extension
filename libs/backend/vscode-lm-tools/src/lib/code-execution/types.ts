@@ -302,6 +302,13 @@ export interface AgentNamespace {
   list: () => Promise<CliDetectionResult[]>;
 
   /**
+   * List the agent role names defined for the current workspace. Each name is
+   * a valid `role` for {@link AgentNamespace.spawn}.
+   * @returns Role names, or an empty array when no role source is wired
+   */
+  listRoles: () => Promise<string[]>;
+
+  /**
    * Wait for an agent to complete (polling)
    * @param agentId - Agent ID
    * @param options - Poll interval (default: 2000ms), timeout (default: no timeout)

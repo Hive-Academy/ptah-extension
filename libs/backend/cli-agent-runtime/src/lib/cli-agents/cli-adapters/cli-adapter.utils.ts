@@ -18,6 +18,12 @@ import type {
   ProcessExitListener,
   SpawnedProcessHandle,
 } from '@ptah-extension/platform-core';
+import type {
+  AgentRoleDefinition,
+  CliTarget,
+  CliType,
+} from '@ptah-extension/shared';
+import { transformAgentBody } from '@ptah-extension/harness-sync';
 import type { CliCommandOptions } from './cli-adapter.interface';
 import { KILL_GRACE_PERIOD } from '../agent-process-manager-helpers';
 
@@ -228,6 +234,125 @@ class ChildProcessHandle implements SpawnedProcessHandle {
   }
 }
 
+const WIN32_COMMAND_LINE_LIMIT = 32_767;
+const WIN32_CMD_SHIM_COMMAND_LINE_LIMIT = 8_191;
+const LINUX_ARG_BYTE_LIMIT = 131_071;
+const DARWIN_ARGS_BYTE_LIMIT = 1_048_576 - 4_096;
+
+export class CliCommandLineTooLongError extends Error {
+  constructor(
+    readonly measured: number,
+    readonly limit: number,
+    readonly largestArgIndex: number,
+    largestArgSize: number,
+    unit: 'UTF-16 units' | 'bytes',
+  ) {
+    super(
+      `The command line is too long to start this agent: argument ${largestArgIndex} is ${largestArgSize} ${unit}, ` +
+        `and the measured size is ${measured} ${unit} against a limit of ${limit}. ` +
+        'Nothing was truncated and no process was started. ' +
+        'To proceed, shorten the task, or use a lane whose role channel does not pass the prompt on the command line.',
+    );
+    this.name = 'CliCommandLineTooLongError';
+  }
+}
+
+function libuvQuotedLength(arg: string): number {
+  if (arg.length === 0) {
+    return 2;
+  }
+  if (!/[\t "]/.test(arg)) {
+    return arg.length;
+  }
+  if (!/["\\]/.test(arg)) {
+    return arg.length + 2;
+  }
+  let length = 2;
+  let quoteHit = true;
+  for (let i = arg.length - 1; i >= 0; i--) {
+    const ch = arg[i];
+    length += 1;
+    if (quoteHit && ch === '\\') {
+      length += 1;
+    } else if (ch === '"') {
+      quoteHit = true;
+      length += 1;
+    } else {
+      quoteHit = false;
+    }
+  }
+  return length;
+}
+
+function indexOfLargest(sizes: readonly number[]): number {
+  let largest = -1;
+  for (let i = 0; i < sizes.length; i++) {
+    if (largest === -1 || sizes[i] > sizes[largest]) {
+      largest = i;
+    }
+  }
+  return largest;
+}
+
+export function assertCommandLineWithinLimit(
+  command: string,
+  args: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): void {
+  if (platform === 'win32') {
+    const argLengths = args.map(libuvQuotedLength);
+    const measured =
+      [libuvQuotedLength(command), ...argLengths].reduce(
+        (total, length) => total + length,
+        0,
+      ) +
+      args.length +
+      1;
+    const limit = /\.(cmd|bat)$/i.test(command)
+      ? WIN32_CMD_SHIM_COMMAND_LINE_LIMIT
+      : WIN32_COMMAND_LINE_LIMIT;
+    if (measured > limit) {
+      const largest = indexOfLargest(argLengths);
+      throw new CliCommandLineTooLongError(
+        measured,
+        limit,
+        largest,
+        largest === -1 ? 0 : argLengths[largest],
+        'UTF-16 units',
+      );
+    }
+    return;
+  }
+
+  const argBytes = args.map((arg) => Buffer.byteLength(arg, 'utf8'));
+  const largest = indexOfLargest(argBytes);
+  const largestBytes = largest === -1 ? 0 : argBytes[largest];
+
+  if (platform === 'darwin') {
+    const measured = argBytes.reduce((total, bytes) => total + bytes, 0);
+    if (measured > DARWIN_ARGS_BYTE_LIMIT) {
+      throw new CliCommandLineTooLongError(
+        measured,
+        DARWIN_ARGS_BYTE_LIMIT,
+        largest,
+        largestBytes,
+        'bytes',
+      );
+    }
+    return;
+  }
+
+  if (largestBytes > LINUX_ARG_BYTE_LIMIT) {
+    throw new CliCommandLineTooLongError(
+      largestBytes,
+      LINUX_ARG_BYTE_LIMIT,
+      largest,
+      largestBytes,
+      'bytes',
+    );
+  }
+}
+
 /**
  * Cross-platform spawn. Uses `cross-spawn` — transparent .cmd handling on Windows.
  * No shell: true needed, no argument mangling.
@@ -255,6 +380,7 @@ export function spawnCli(
     spawner?: IProcessSpawner;
   },
 ): SpawnedProcessHandle {
+  assertCommandLineWithinLimit(binary, args);
   const env = { ...process.env, ...CLI_CLEAN_ENV, ...options.env };
   // POSIX: make the child a process-group leader so killProcessTree() can
   // group-kill (process.kill(-pid)) its whole subtree. Opt-in — only the
@@ -343,6 +469,35 @@ export function probeCliVersion(
 const NATIVE_AGENT_TOOL_POLICY =
   'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.';
 
+const PROMPT_SECTION_DELIMITER = '\n\n---\n\n';
+
+const EMPTY_FRONTMATTER = '---\n\n---\n';
+
+const ROLE_TRANSFORM_TARGETS: ReadonlySet<CliType> = new Set<CliTarget>([
+  'codex',
+  'copilot',
+  'cursor',
+  'antigravity',
+]);
+
+function isRoleTransformTarget(cli: CliType): cli is CliTarget {
+  return ROLE_TRANSFORM_TARGETS.has(cli);
+}
+
+export function renderRoleBlock(
+  role: AgentRoleDefinition,
+  cli: CliType,
+): string {
+  const body = isRoleTransformTarget(cli)
+    ? transformAgentBody(EMPTY_FRONTMATTER + role.body, cli)
+    : role.body;
+  return (
+    `## Role: ${role.name}\n\n` +
+    `You are running as the \`${role.name}\` role; the definition below governs this task and outranks any generic persona above.\n\n` +
+    body
+  );
+}
+
 /**
  * Build a task prompt string from CLI command options.
  * Optionally prepends system prompt or project-specific guidance from enhanced prompts.
@@ -354,11 +509,23 @@ const NATIVE_AGENT_TOOL_POLICY =
  * should strip both systemPrompt and projectGuidance
  * before calling this function to avoid duplication.
  */
-export function buildTaskPrompt(options: CliCommandOptions): string {
+export function buildTaskPrompt(
+  options: CliCommandOptions,
+  cli?: CliType,
+): string {
   let taskPrompt = '';
   const systemContext = options.systemPrompt || options.projectGuidance;
   if (systemContext) {
-    taskPrompt += systemContext + '\n\n---\n\n';
+    taskPrompt += systemContext + PROMPT_SECTION_DELIMITER;
+  }
+
+  if (options.role) {
+    if (!cli) {
+      throw new Error(
+        `buildTaskPrompt received role "${options.role.name}" without the CLI it is rendered for`,
+      );
+    }
+    taskPrompt += renderRoleBlock(options.role, cli) + PROMPT_SECTION_DELIMITER;
   }
 
   taskPrompt += `${NATIVE_AGENT_TOOL_POLICY}\n\n${options.task}`;

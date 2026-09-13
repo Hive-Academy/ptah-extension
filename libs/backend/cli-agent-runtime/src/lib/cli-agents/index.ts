@@ -17,6 +17,7 @@ export {
 export type {
   AgentContinueErrorCode,
   AgentReleaseReason,
+  AgentRoleStamp,
 } from './agent-process-manager.service';
 export {
   AgentMessageError,

@@ -12,6 +12,7 @@ export { PtahCliStreamLoop, type PtahCliStreamLoopConfig } from './helpers';
 export {
   PTAH_CLI_KEY_PREFIX,
   PTAH_CLI_AGENTS_CONFIG_KEY,
+  PTAH_CLI_ROLE_DELIVERY,
   generateAgentId,
   summarizeToolInput,
   sanitizeErrorMessage,

@@ -33,6 +33,11 @@ import {
   getCallerWorkspaceRoot,
 } from './mcp-request-context';
 import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
+import {
+  AgentRoleError,
+  CliCommandLineTooLongError,
+  type AgentRoleErrorCode,
+} from '@ptah-extension/cli-agent-runtime';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -1023,7 +1028,9 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
       isError: boolean;
     };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toMatch(/"task" parameter is required/);
+    expect(result.content[0].text).toMatch(
+      /invalid ptah_agent_spawn arguments — task: .*Required: "task"/,
+    );
   });
 
   it('rejects ptah_git_worktree_add when branch is empty', async () => {
@@ -1552,5 +1559,279 @@ describe('protocol-handlers › ptah_agent_report', () => {
     const { text } = agentToolResult(res);
     expect(text).toMatch(/Report NOT Delivered/);
     expect(text).toMatch(/Reason:\*\* rate-limited/);
+  });
+});
+
+const ROLE_ERROR_CODES: readonly AgentRoleErrorCode[] = [
+  'invalid_role_name',
+  'no_roles',
+  'unknown_role',
+  'empty_role',
+  'role_too_large',
+  'role_read_failed',
+  'no_workspace',
+];
+
+function spawnRequest(args: unknown): MCPRequest {
+  return makeRequest({
+    id: 'as-1',
+    method: 'tools/call',
+    params: { name: 'ptah_agent_spawn', arguments: args },
+  });
+}
+
+function spawnDeps(spawn: jest.Mock): ProtocolHandlerDependencies {
+  return buildDeps({
+    ptahAPI: buildPtahAPIStub({
+      agent: { spawn } as unknown as PtahAPI['agent'],
+    }),
+  });
+}
+
+describe('protocol-handlers › ptah_agent_spawn shared schema', () => {
+  const spawned = {
+    agentId: 'a-9',
+    cli: 'codex',
+    status: 'running',
+    startedAt: '2026-09-13T00:00:00Z',
+  };
+
+  it('forwards role and renders how it was delivered', async () => {
+    const spawn = jest.fn().mockResolvedValue({
+      ...spawned,
+      role: 'reviewer',
+      roleDelivery: 'preamble',
+      roleChannel: 'developer-instructions',
+    });
+
+    const res = await handleMCPRequest(
+      spawnRequest({ task: 'Review', cli: 'codex', role: 'reviewer' }),
+      spawnDeps(spawn),
+    );
+
+    expect(spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: 'Review',
+        cli: 'codex',
+        role: 'reviewer',
+      }),
+    );
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBeUndefined();
+    expect(text).toMatch(
+      /\*\*Role:\*\* reviewer \(preamble via developer-instructions\)/,
+    );
+  });
+
+  it('logs the requested role', async () => {
+    const logger = createMockLogger();
+    const spawn = jest.fn().mockResolvedValue(spawned);
+
+    await handleMCPRequest(
+      spawnRequest({ task: 'Review', role: 'architect' }),
+      buildDeps({
+        logger: asLogger(logger),
+        ptahAPI: buildPtahAPIStub({
+          agent: { spawn } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    expect(logger.info).toHaveBeenCalledWith(
+      '[MCP] ptah_agent_spawn invoked',
+      'CodeExecutionMCP',
+      expect.objectContaining({ role: 'architect' }),
+    );
+  });
+
+  it('REJECTS an unknown key instead of dropping it', async () => {
+    const spawn = jest.fn();
+
+    const res = await handleMCPRequest(
+      spawnRequest({ task: 'Review', roleDefinition: { name: 'x' } }),
+      spawnDeps(spawn),
+    );
+
+    expect(spawn).not.toHaveBeenCalled();
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBe(true);
+    expect(text).toMatch(/invalid ptah_agent_spawn arguments/);
+    expect(text).toMatch(/roleDefinition/);
+  });
+
+  it('REJECTS a cli outside the shipped adapter set', async () => {
+    const spawn = jest.fn();
+
+    const res = await handleMCPRequest(
+      spawnRequest({ task: 'Review', cli: 'aider' }),
+      spawnDeps(spawn),
+    );
+
+    expect(spawn).not.toHaveBeenCalled();
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBe(true);
+    expect(text).toMatch(/cli:/);
+  });
+
+  it('REJECTS a task over the 100 KiB ceiling', async () => {
+    const spawn = jest.fn();
+
+    const res = await handleMCPRequest(
+      spawnRequest({ task: 'x'.repeat(100 * 1024 + 1) }),
+      spawnDeps(spawn),
+    );
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(agentToolResult(res).isError).toBe(true);
+  });
+
+  it.each([...ROLE_ERROR_CODES])(
+    'surfaces AgentRoleError %s as a tool error naming the code',
+    async (code) => {
+      const spawn = jest
+        .fn()
+        .mockRejectedValue(
+          new AgentRoleError(code, `role failed with ${code}`),
+        );
+
+      const res = await handleMCPRequest(
+        spawnRequest({ task: 'Review', role: 'reviewer' }),
+        spawnDeps(spawn),
+      );
+
+      const { text, isError } = agentToolResult(res);
+      expect(isError).toBe(true);
+      expect(text).toBe(
+        `Error: ptah_agent_spawn role ${code}: role failed with ${code}`,
+      );
+    },
+  );
+
+  it('surfaces CliCommandLineTooLongError with the measured size and limit', async () => {
+    const spawn = jest
+      .fn()
+      .mockRejectedValue(
+        new CliCommandLineTooLongError(9_000, 8_191, 2, 8_500, 'UTF-16 units'),
+      );
+
+    const res = await handleMCPRequest(
+      spawnRequest({ task: 'Review', role: 'reviewer' }),
+      spawnDeps(spawn),
+    );
+
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBe(true);
+    expect(text).toMatch(
+      /command line too long \(9000 against a limit of 8191\)/,
+    );
+  });
+
+  it('keeps the generic failure path for any other spawn error', async () => {
+    const spawn = jest.fn().mockRejectedValue(new Error('no slot'));
+
+    const res = await handleMCPRequest(
+      spawnRequest({ task: 'Review' }),
+      spawnDeps(spawn),
+    );
+
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBe(true);
+    expect(text).toBe('Tool ptah_agent_spawn failed: no slot');
+  });
+});
+
+describe('protocol-handlers › ptah_agent_list roles', () => {
+  const agents = [
+    {
+      cli: 'codex',
+      installed: true,
+      messagingMode: 'steer',
+      roleDelivery: 'preamble',
+      roleChannel: 'developer-instructions',
+    },
+  ];
+
+  function listDeps(
+    listRoles: jest.Mock,
+    logger: MockLogger = createMockLogger(),
+    list: jest.Mock = jest.fn().mockResolvedValue(agents),
+  ): ProtocolHandlerDependencies {
+    return buildDeps({
+      logger: asLogger(logger),
+      ptahAPI: buildPtahAPIStub({
+        agent: { list, listRoles } as unknown as PtahAPI['agent'],
+      }),
+    });
+  }
+
+  const listRequest = makeRequest({
+    id: 'al-1',
+    method: 'tools/call',
+    params: { name: 'ptah_agent_list', arguments: {} },
+  });
+
+  it('renders the workspace roles', async () => {
+    const res = await handleMCPRequest(
+      listRequest,
+      listDeps(jest.fn().mockResolvedValue(['architect', 'reviewer'])),
+    );
+
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBeUndefined();
+    expect(text).toMatch(/Roles in this workspace: architect, reviewer/);
+    expect(text).toMatch(/role delivery: preamble\/developer-instructions/);
+  });
+
+  it('says no roles were generated when there are none', async () => {
+    const res = await handleMCPRequest(
+      listRequest,
+      listDeps(jest.fn().mockResolvedValue([])),
+    );
+
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBeUndefined();
+    expect(text).toMatch(/No agent roles generated for this workspace/);
+  });
+
+  it('still lists agents and logs a warning when listRoles rejects', async () => {
+    const logger = createMockLogger();
+    const res = await handleMCPRequest(
+      listRequest,
+      listDeps(
+        jest
+          .fn()
+          .mockRejectedValue(
+            new AgentRoleError('no_workspace', 'no workspace is open'),
+          ),
+        logger,
+      ),
+    );
+
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBeUndefined();
+    expect(text).toMatch(/\*\*Total:\*\* 1/);
+    expect(text).toMatch(/No agent roles generated for this workspace/);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[MCP] ptah_agent_list could not list roles',
+      'CodeExecutionMCP',
+      { error: 'no workspace is open' },
+    );
+  });
+
+  it('keeps the agent.list failure path unchanged', async () => {
+    const listRoles = jest.fn().mockResolvedValue([]);
+    const res = await handleMCPRequest(
+      listRequest,
+      listDeps(
+        listRoles,
+        createMockLogger(),
+        jest.fn().mockRejectedValue(new Error('detection exploded')),
+      ),
+    );
+
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBe(true);
+    expect(text).toBe('Tool ptah_agent_list failed: detection exploded');
+    expect(listRoles).not.toHaveBeenCalled();
   });
 });

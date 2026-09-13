@@ -99,7 +99,11 @@ export class CliDetectionService {
 
     for (const [name, adapter] of this.adapters) {
       try {
-        const result = await adapter.detect();
+        const result: CliDetectionResult = {
+          ...(await adapter.detect()),
+          roleDelivery: 'preamble',
+          roleChannel: adapter.roleChannel,
+        };
         results.set(name, result);
         if (result.installed) {
           this.logger.info(`[CliDetection] ${adapter.displayName} detected`, {
@@ -124,6 +128,8 @@ export class CliDetectionService {
           cli: name,
           installed: false,
           messagingMode: bestMessagingCapability(adapter.capabilities()),
+          roleDelivery: 'preamble',
+          roleChannel: adapter.roleChannel,
         });
       }
     }

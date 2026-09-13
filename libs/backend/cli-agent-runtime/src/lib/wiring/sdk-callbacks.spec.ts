@@ -23,6 +23,9 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
+import { AgentMessageRouter } from '../cli-agents/agent-message-router.service';
+import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
+import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
 import { wireSdkCallbacks } from './sdk-callbacks';
 
 const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001';
@@ -355,20 +358,31 @@ describe('wireSdkCallbacks — the remap is unscoped by construction', () => {
     } as unknown as IWorkspaceProvider;
 
     type Args = ConstructorParameters<typeof AgentProcessManager>;
+    type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
+    const logger = createMockLogger() as unknown as Args[0];
+    const cliDetection = { getAdapter: jest.fn() } as unknown as Args[1];
+    const sentryService = { captureException: jest.fn() };
     return new AgentProcessManager(
-      createMockLogger() as unknown as Args[0],
-      { getAdapter: jest.fn() } as unknown as Args[1],
+      logger,
+      cliDetection,
       {
         getRunningBySession: jest.fn().mockReturnValue([]),
       } as unknown as Args[2],
-      workspaceProvider as unknown as Args[3],
-      { captureException: jest.fn() } as unknown as Args[4],
-      { effort: { get: jest.fn(() => '') } } as unknown as Args[5],
-      null,
-      null,
-      // No caller resolver: this host registers one, but the chat stream is not
-      // an MCP request, so it would answer `undefined` here anyway.
-      null,
+      sentryService as unknown as Args[3],
+      new AgentMessageRouter(logger, cliDetection),
+      new AgentSpawnEnvironment(
+        logger,
+        cliDetection,
+        workspaceProvider,
+        { effort: { get: jest.fn(() => '') } } as unknown as EnvironmentArgs[3],
+        sentryService as unknown as EnvironmentArgs[4],
+        null,
+        null,
+        // No caller resolver: this host registers one, but the chat stream is not
+        // an MCP request, so it would answer `undefined` here anyway.
+        null,
+      ),
+      new AgentOutputBuffer(logger),
     );
   }
 
