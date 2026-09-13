@@ -102,7 +102,9 @@ jest.mock('uuid', () => ({
 import {
   AgentProcessManager,
   AgentContinueError,
+  type AgentRoleStamp,
 } from './agent-process-manager.service';
+import { PTAH_CLI_ROLE_DELIVERY } from '../ptah-cli/helpers/ptah-cli-registry.utils';
 import {
   BUFFER_LOW_WATER_SIZE,
   COMPLETED_AGENT_TTL,
@@ -120,6 +122,8 @@ import type {
 } from './cli-adapters/cli-adapter.interface';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
+  AgentProcessInfo,
+  AgentRoleDefinition,
   CliDetectionResult,
   CliSessionReference,
 } from '@ptah-extension/shared';
@@ -222,6 +226,7 @@ function createSdkAdapter(
   return {
     name: 'codex',
     displayName: 'Codex CLI',
+    roleChannel: 'developer-instructions',
     detect: jest.fn<Promise<CliDetectionResult>, []>().mockResolvedValue({
       cli: 'codex',
       installed: true,
@@ -466,6 +471,154 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const status = manager.getStatus(result.agentId);
       expect(status).toHaveProperty('status', 'running');
+    });
+  });
+
+  describe('role plumbing', () => {
+    const roleDefinition: AgentRoleDefinition = {
+      name: 'backend-developer',
+      description: 'Writes server-side code',
+      body: 'You write server-side code.',
+      sourcePath: '/workspace/root/.claude/agents/backend-developer.md',
+      bytes: 27,
+    };
+
+    it('forwards the role definition to runSdk', async () => {
+      await manager.spawn({
+        task: 'Implement the batch',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        role: 'backend-developer',
+        roleDefinition,
+      });
+
+      const runSdkCall = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+      expect(runSdkCall.role).toBe(roleDefinition);
+    });
+
+    it('stamps role, delivery and channel on the record, the spawned event and the result', async () => {
+      const spawnedInfos: AgentProcessInfo[] = [];
+      manager.events.on('agent:spawned', (info: AgentProcessInfo) =>
+        spawnedInfos.push(info),
+      );
+
+      const result = await manager.spawn({
+        task: 'Implement the batch',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        role: 'backend-developer',
+        roleDefinition,
+      });
+
+      const expected = {
+        role: 'backend-developer',
+        roleDelivery: 'preamble',
+        roleChannel: 'developer-instructions',
+      };
+      expect(result).toMatchObject(expected);
+      expect(manager.getStatus(result.agentId)).toMatchObject(expected);
+      expect(spawnedInfos).toHaveLength(1);
+      expect(spawnedInfos[0]).toMatchObject(expected);
+      expect(logger.info).toHaveBeenCalledWith(
+        '[AgentProcessManager] Spawning SDK agent',
+        expect.objectContaining({
+          role: 'backend-developer',
+          roleChannel: 'developer-instructions',
+        }),
+      );
+    });
+
+    it('carries none of the role fields on a role-less spawn', async () => {
+      const spawnedInfos: AgentProcessInfo[] = [];
+      manager.events.on('agent:spawned', (info: AgentProcessInfo) =>
+        spawnedInfos.push(info),
+      );
+
+      const result = await manager.spawn({
+        task: 'Implement the batch',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      const runSdkCall = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+      expect(runSdkCall.role).toBeUndefined();
+      for (const carrier of [
+        result,
+        manager.getStatus(result.agentId),
+        spawnedInfos[0],
+      ]) {
+        expect(carrier).not.toHaveProperty('role');
+        expect(carrier).not.toHaveProperty('roleDelivery');
+        expect(carrier).not.toHaveProperty('roleChannel');
+      }
+    });
+
+    it('copies role meta from spawnFromSdkHandle onto the record and the result', async () => {
+      const spawnedInfos: AgentProcessInfo[] = [];
+      manager.events.on('agent:spawned', (info: AgentProcessInfo) =>
+        spawnedInfos.push(info),
+      );
+      const handleControls = createMockSdkHandle();
+
+      const result = await manager.spawnFromSdkHandle(handleControls.handle, {
+        task: 'Review the batch',
+        cli: 'ptah-cli',
+        workingDirectory: '/workspace/root',
+        ptahCliName: 'Moonshot',
+        ptahCliId: 'ptah-cli-1',
+        roleStamp: { role: 'code-style-reviewer', ...PTAH_CLI_ROLE_DELIVERY },
+      });
+
+      const expected = {
+        role: 'code-style-reviewer',
+        roleDelivery: 'preamble',
+        roleChannel: 'system-prompt',
+      };
+      expect(result).toMatchObject(expected);
+      expect(manager.getStatus(result.agentId)).toMatchObject(expected);
+      expect(spawnedInfos[0]).toMatchObject(expected);
+    });
+
+    it('accepts role fields on spawnFromSdkHandle only as one complete stamp', () => {
+      type Meta = Parameters<AgentProcessManager['spawnFromSdkHandle']>[1];
+      const noFlatRoleKeys: Extract<
+        keyof Meta,
+        'role' | 'roleDelivery' | 'roleChannel'
+      > extends never
+        ? true
+        : false = true;
+      const partialStampAccepted: Partial<AgentRoleStamp> extends NonNullable<
+        Meta['roleStamp']
+      >
+        ? true
+        : false = false;
+      const stampWithoutChannelAccepted: Omit<
+        AgentRoleStamp,
+        'roleChannel'
+      > extends NonNullable<Meta['roleStamp']>
+        ? true
+        : false = false;
+
+      expect(noFlatRoleKeys).toBe(true);
+      expect(partialStampAccepted).toBe(false);
+      expect(stampWithoutChannelAccepted).toBe(false);
+    });
+
+    it('omits role fields from spawnFromSdkHandle when meta carries none', async () => {
+      const handleControls = createMockSdkHandle();
+
+      const result = await manager.spawnFromSdkHandle(handleControls.handle, {
+        task: 'Review the batch',
+        cli: 'ptah-cli',
+        workingDirectory: '/workspace/root',
+      });
+
+      const record = manager.getStatus(result.agentId);
+      for (const carrier of [result, record]) {
+        expect(carrier).not.toHaveProperty('role');
+        expect(carrier).not.toHaveProperty('roleDelivery');
+        expect(carrier).not.toHaveProperty('roleChannel');
+      }
     });
   });
 

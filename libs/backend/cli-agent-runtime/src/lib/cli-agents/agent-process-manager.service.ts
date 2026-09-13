@@ -47,6 +47,8 @@ import {
 } from '@ptah-extension/shared';
 import type {
   AgentMessageOutcome,
+  AgentRoleChannel,
+  AgentRoleDelivery,
   CliOutputSegment,
   CliSessionReference,
   FlatStreamEventUnion,
@@ -112,6 +114,23 @@ export type AgentContinueErrorCode =
 
 /** Why a subprocess was released — carried on the `agent:released` event. */
 export type AgentReleaseReason = 'idle' | 'expired' | 'stopped' | 'disposed';
+
+export interface AgentRoleStamp {
+  readonly role: string;
+  readonly roleDelivery: AgentRoleDelivery;
+  readonly roleChannel: AgentRoleChannel;
+}
+
+function roleStampOf(
+  record: Partial<AgentRoleStamp>,
+): AgentRoleStamp | undefined {
+  const { role, roleDelivery, roleChannel } = record;
+  return role !== undefined &&
+    roleDelivery !== undefined &&
+    roleChannel !== undefined
+    ? { role, roleDelivery, roleChannel }
+    : undefined;
+}
 
 export class AgentContinueError extends Error {
   constructor(
@@ -448,6 +467,7 @@ export class AgentProcessManager {
       workingDirectory,
       cli,
       adapter.displayName,
+      adapter.roleChannel,
       detection.path,
       mcpPort,
     );
@@ -464,12 +484,17 @@ export class AgentProcessManager {
     workingDirectory: string,
     cli: CliType,
     displayName: string,
+    roleChannel: AgentRoleChannel,
     binaryPath?: string,
     mcpPort?: number,
   ): Promise<SpawnAgentResult> {
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
     const resolvedModel = this.resolveConfiguredModel(cli, request.model);
+    const roleDefinition = request.roleDefinition;
+    const roleStamp: AgentRoleStamp | undefined = roleDefinition
+      ? { role: roleDefinition.name, roleDelivery: 'preamble', roleChannel }
+      : undefined;
 
     const info: AgentProcessInfo = {
       agentId,
@@ -485,6 +510,7 @@ export class AgentProcessManager {
       ...(request.resumeSessionId
         ? { cliSessionId: request.resumeSessionId }
         : {}),
+      ...roleStamp,
     };
 
     this.logger.info('[AgentProcessManager] Spawning SDK agent', {
@@ -492,6 +518,8 @@ export class AgentProcessManager {
       cli,
       workingDirectory,
       model: resolvedModel,
+      role: roleStamp?.role,
+      roleChannel: roleStamp?.roleChannel,
     });
 
     if (request.resumeSessionId && request.cli !== 'copilot') {
@@ -518,6 +546,7 @@ export class AgentProcessManager {
       // (TASK_2026_402). The rival-CLI path needs no extra plumbing for this —
       // the id already exists by the time `runSdk` is called.
       agentId,
+      role: roleDefinition,
     });
     const initialCliSessionId = sdkHandle.getSessionId?.();
     const infoWithSession = initialCliSessionId
@@ -567,6 +596,7 @@ export class AgentProcessManager {
        * URL agree.
        */
       agentId?: AgentId;
+      roleStamp?: AgentRoleStamp;
     },
   ): Promise<SpawnAgentResult> {
     await this.reserveSpawnSlot();
@@ -590,6 +620,7 @@ export class AgentProcessManager {
         ptahCliId: meta.ptahCliId,
         resumedFromAgentId: meta.resumedFromAgentId,
         ...(meta.resumeSessionId ? { cliSessionId: meta.resumeSessionId } : {}),
+        ...meta.roleStamp,
       };
       const initialCliSessionId = sdkHandle.getSessionId?.();
       const infoWithSession = initialCliSessionId
@@ -728,6 +759,7 @@ export class AgentProcessManager {
       cliSessionId: info.cliSessionId,
       ptahCliName: info.ptahCliName,
       ptahCliId: info.ptahCliId,
+      ...roleStampOf(info),
     };
 
     this.events.emit('agent:spawned', tracked.info);

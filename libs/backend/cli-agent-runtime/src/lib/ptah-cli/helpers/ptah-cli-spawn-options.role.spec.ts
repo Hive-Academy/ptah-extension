@@ -26,6 +26,7 @@ jest.mock('@ptah-extension/agent-sdk', () => {
 });
 
 import { PtahCliSpawnOptions } from './ptah-cli-spawn-options.service';
+import { PTAH_CLI_ROLE_DELIVERY } from './ptah-cli-registry.utils';
 import { renderRoleBlock } from '../../cli-agents/cli-adapters/cli-adapter.utils';
 
 const AUTH_ENV = {
@@ -79,6 +80,26 @@ describe('PtahCliSpawnOptions — role delivery', () => {
     expect(roleIndex).toBeGreaterThan(guidanceIndex);
     expect(content.indexOf(GUIDANCE)).toBeLessThan(roleIndex);
     expect(content.endsWith(renderRoleBlock(ROLE, 'ptah-cli'))).toBe(true);
+  });
+
+  it('declares preamble delivery over the system prompt', async () => {
+    const assembly = await buildService().assembleSpawnOptions(
+      AUTH_ENV,
+      '/repo',
+      undefined,
+      'opus',
+      undefined,
+      undefined,
+      ROLE,
+    );
+
+    expect(PTAH_CLI_ROLE_DELIVERY).toEqual({
+      roleDelivery: 'preamble',
+      roleChannel: 'system-prompt',
+    });
+    expect(assembly.systemPromptContent).toContain(
+      renderRoleBlock(ROLE, 'ptah-cli'),
+    );
   });
 
   it('carries no role section when no role is given', async () => {

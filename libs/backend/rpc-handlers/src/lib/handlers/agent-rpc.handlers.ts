@@ -30,6 +30,7 @@ import {
   AgentContinueError,
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
+  PTAH_CLI_ROLE_DELIVERY,
   MIN_CONCURRENT_AGENTS,
   MAX_CONCURRENT_AGENTS,
 } from '@ptah-extension/cli-agent-runtime';
@@ -842,6 +843,7 @@ export class AgentRpcHandlers {
           ptahCliName: a.name,
           providerName: a.providerName,
           providerId: a.providerId,
+          ...PTAH_CLI_ROLE_DELIVERY,
         }));
       return [...cliResults, ...ptahClis];
     } catch {
@@ -1054,5 +1056,4 @@ export class AgentRpcHandlers {
       );
     }
   }
-
 }
