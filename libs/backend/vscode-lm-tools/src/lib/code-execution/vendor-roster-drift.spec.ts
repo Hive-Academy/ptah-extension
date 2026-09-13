@@ -331,12 +331,12 @@ describe('agent-readable assets assert no roster', () => {
 
   /**
    * The disclaimer exemption must be reachable, not theoretical. The bundled
-   * delegation reference is the worked example of the rule: it pastes a roster
-   * AND says the reader's will differ, five lines down.
+   * agent-lanes skill is the worked example of the rule: it pastes a roster
+   * AND says the reader's will differ, directly below it.
    */
   it('the disclaimer exemption is exercised by a real file', () => {
     const delegation = assetMarkdownFiles().find((f) =>
-      f.endsWith('orchestration/references/cli-agent-delegation.md'),
+      f.endsWith('ptah-core/skills/agent-lanes/SKILL.md'),
     );
     expect(delegation).toBeDefined();
     const lines = fs
