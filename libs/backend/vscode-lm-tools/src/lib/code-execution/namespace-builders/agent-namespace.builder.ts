@@ -11,14 +11,16 @@
  */
 
 import type { AgentNamespace } from '../types';
-import type {
-  AgentProcessManager,
-  AgentReportDelivery,
-  CliDetectionService,
-  SdkHandle,
+import {
+  PTAH_CLI_ROLE_DELIVERY,
+  type AgentProcessManager,
+  type AgentReportDelivery,
+  type CliDetectionService,
+  type SdkHandle,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
   AgentProcessInfo,
+  AgentRoleDefinition,
   CliDetectionResult,
 } from '@ptah-extension/shared';
 
@@ -76,6 +78,7 @@ interface PtahCliRegistryLike {
       model?: string;
       /** Reserved agent id — rides the spawn's MCP URL as `/agent/{id}`. */
       agentId?: string;
+      role?: AgentRoleDefinition;
     },
   ): Promise<
     | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
@@ -127,6 +130,17 @@ export interface AgentNamespaceDependencies {
     message: string;
     summary?: string;
   }) => Promise<AgentReportDelivery>;
+  /**
+   * Resolve a workspace role name to its definition. Throws `AgentRoleError`
+   * for every resolution failure; a spawn never proceeds without the role it
+   * asked for.
+   */
+  resolveAgentRole?: (
+    workspaceRoot: string,
+    role: string,
+  ) => Promise<AgentRoleDefinition>;
+  /** List the role names defined for a workspace. */
+  listAgentRoles?: (workspaceRoot: string) => Promise<string[]>;
 }
 
 /**
@@ -148,6 +162,8 @@ export function buildAgentNamespace(
     getPreferredAgentOrder,
     resolveSessionId,
     deliverAgentReport,
+    resolveAgentRole,
+    listAgentRoles,
   } = deps;
 
   return {
@@ -163,6 +179,21 @@ export function buildAgentNamespace(
       const activeSessionId = rawSessionId
         ? (resolveSessionId?.(rawSessionId) ?? rawSessionId)
         : undefined;
+      let roleDefinition: AgentRoleDefinition | undefined;
+      if (request.role !== undefined) {
+        if (!resolveAgentRole) {
+          throw new Error(
+            'Agent roles are unavailable: no role resolver is wired into this ' +
+              'host, so the agent was not spawned. Register the CLI agent ' +
+              'runtime container before building the Ptah API, or spawn ' +
+              'without "role".',
+          );
+        }
+        roleDefinition = await resolveAgentRole(
+          getWorkspaceRoot(),
+          request.role,
+        );
+      }
       const projectGuidance = await getProjectGuidance?.();
       if (request.ptahCliId) {
         const registry = getPtahCliRegistry?.();
@@ -191,6 +222,7 @@ export function buildAgentNamespace(
             modelTier: request.modelTier,
             model: request.model,
             agentId,
+            role: roleDefinition,
           },
         );
         if ('status' in result) {
@@ -213,6 +245,14 @@ export function buildAgentNamespace(
             timeout: request.timeout,
             resumeSessionId: request.resumeSessionId,
             agentId,
+            ...(roleDefinition
+              ? {
+                  roleStamp: {
+                    role: roleDefinition.name,
+                    ...PTAH_CLI_ROLE_DELIVERY,
+                  },
+                }
+              : {}),
           },
         );
         result.setAgentId(spawnResult.agentId);
@@ -238,14 +278,20 @@ export function buildAgentNamespace(
 
       // Drop the raw parentSessionId before spreading: `...request` would
       // otherwise carry an unusable '' straight through, since the conditional
-      // spread below only overwrites when a resolved id exists.
-      const { parentSessionId: _rawParentSessionId, ...requestFields } =
-        request;
+      // spread below only overwrites when a resolved id exists. A
+      // caller-supplied roleDefinition is dropped too: only the resolver may
+      // produce one.
+      const {
+        parentSessionId: _rawParentSessionId,
+        roleDefinition: _callerRoleDefinition,
+        ...requestFields
+      } = request;
 
       const enrichedRequest = {
         ...requestFields,
         ...(workingDirectory && { workingDirectory }),
         ...(activeSessionId && { parentSessionId: activeSessionId }),
+        ...(roleDefinition && { roleDefinition }),
         ...(projectGuidance && { projectGuidance }),
         ...(systemPrompt && { systemPrompt }),
         ...(pluginPaths && pluginPaths.length > 0 && { pluginPaths }),
@@ -316,6 +362,7 @@ export function buildAgentNamespace(
               ptahCliId: a.id,
               ptahCliName: a.name,
               providerName: a.providerName,
+              ...PTAH_CLI_ROLE_DELIVERY,
             }));
 
           merged = [...enabledCliResults, ...ptahCliResults];
@@ -342,6 +389,10 @@ export function buildAgentNamespace(
         }));
       }
       return merged.map((r) => ({ ...r, preferredRank: 0 }));
+    },
+
+    listRoles: async () => {
+      return listAgentRoles ? listAgentRoles(getWorkspaceRoot()) : [];
     },
 
     waitFor: async (agentId, options?) => {

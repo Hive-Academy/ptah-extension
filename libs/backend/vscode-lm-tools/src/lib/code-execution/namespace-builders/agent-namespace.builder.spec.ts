@@ -13,13 +13,25 @@
  * partials. No `as any` casts.
  */
 
+// The real barrel cannot load here: it reaches tsyringe without the
+// reflect-metadata polyfill. The builder needs only PTAH_CLI_ROLE_DELIVERY at
+// runtime, overridden with non-default values so a hand-typed literal fails.
+jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  PTAH_CLI_ROLE_DELIVERY: {
+    roleDelivery: 'native',
+    roleChannel: 'agent-selection',
+  },
+}));
+
 import type {
   AgentProcessManager,
+  AgentRoleErrorCode,
   CliDetectionService,
   SdkHandle,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
   AgentProcessInfo,
+  AgentRoleDefinition,
   CliDetectionResult,
   SpawnAgentRequest,
   SpawnAgentResult,
@@ -87,6 +99,8 @@ function makeDeps(
     getDisabledClis: () => string[];
     getPreferredAgentOrder: () => string[];
     resolveSessionId: (s: string) => string;
+    resolveAgentRole: AgentNamespaceDependencies['resolveAgentRole'];
+    listAgentRoles: AgentNamespaceDependencies['listAgentRoles'];
   }> = {},
 ): {
   deps: AgentNamespaceDependencies;
@@ -113,6 +127,8 @@ function makeDeps(
     getDisabledClis: overrides.getDisabledClis,
     getPreferredAgentOrder: overrides.getPreferredAgentOrder,
     resolveSessionId: overrides.resolveSessionId,
+    resolveAgentRole: overrides.resolveAgentRole,
+    listAgentRoles: overrides.listAgentRoles,
   };
 
   return { deps, mocks: { processManager, detection, registry } };
@@ -134,6 +150,7 @@ describe('buildAgentNamespace — shape', () => {
     expect(typeof ns.report).toBe('function');
     expect(typeof ns.stop).toBe('function');
     expect(typeof ns.list).toBe('function');
+    expect(typeof ns.listRoles).toBe('function');
     expect(typeof ns.waitFor).toBe('function');
   });
 });
@@ -359,6 +376,330 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// spawn — role resolution
+// ---------------------------------------------------------------------------
+
+class AgentRoleError extends Error {
+  constructor(
+    readonly code: AgentRoleErrorCode,
+    message: string,
+    readonly availableRoles: string[] = [],
+  ) {
+    super(message);
+    this.name = 'AgentRoleError';
+  }
+}
+
+const ROLE_DEFINITION: AgentRoleDefinition = {
+  name: 'code-logic-reviewer',
+  body: 'Review the logic.',
+  sourcePath: 'D:/ws/.claude/agents/code-logic-reviewer.md',
+  bytes: 17,
+};
+
+function mockPtahCliSpawn(mocks: { registry: RegistryMock | undefined }): void {
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  mocks.registry!.spawnAgent.mockResolvedValue({
+    handle: { id: 'h' } as unknown as SdkHandle,
+    agentName: 'MyAgent',
+    setAgentId: jest.fn(),
+  });
+}
+
+describe('buildAgentNamespace — spawn (role)', () => {
+  it('resolves the role before the ptah-cli branch reserves an id or spawns', async () => {
+    const order: string[] = [];
+    const resolveAgentRole = jest.fn(async () => {
+      order.push('resolve');
+      return ROLE_DEFINITION;
+    });
+    const { deps, mocks } = makeDeps({
+      resolveAgentRole,
+      getProjectGuidance: async () => {
+        order.push('guidance');
+        return undefined;
+      },
+    });
+    mockPtahCliSpawn(mocks);
+    mocks.processManager.reserveAgentId.mockImplementation(() => {
+      order.push('reserve');
+      return 'reserved-1';
+    });
+    mocks.processManager.spawnFromSdkHandle.mockResolvedValue({
+      agentId: 'spawned-1',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      ptahCliId: 'agent-a',
+      role: 'code-logic-reviewer',
+    } as SpawnAgentRequest);
+
+    expect(resolveAgentRole).toHaveBeenCalledWith(
+      'D:/ws',
+      'code-logic-reviewer',
+    );
+    expect(order).toEqual(['resolve', 'guidance', 'reserve']);
+  });
+
+  it('resolves the role before the rival branch spawns', async () => {
+    const order: string[] = [];
+    const resolveAgentRole = jest.fn(async () => {
+      order.push('resolve');
+      return ROLE_DEFINITION;
+    });
+    const { deps, mocks } = makeDeps({
+      resolveAgentRole,
+      getSystemPrompt: async () => {
+        order.push('system-prompt-read');
+        return undefined;
+      },
+    });
+    mocks.processManager.spawn.mockImplementation(async () => {
+      order.push('spawn');
+      return { agentId: 'a' } as SpawnAgentResult;
+    });
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      cli: 'codex',
+      role: 'code-logic-reviewer',
+    } as SpawnAgentRequest);
+
+    expect(order).toEqual(['resolve', 'system-prompt-read', 'spawn']);
+  });
+
+  it.each([
+    ['ptah-cli', { ptahCliId: 'agent-a' }],
+    ['rival', { cli: 'codex' }],
+  ])(
+    'an AgentRoleError on the %s branch spawns nothing and propagates unchanged',
+    async (_branch, target) => {
+      const failure = new AgentRoleError(
+        'unknown_role',
+        'Unknown role "nope".',
+        ['code-logic-reviewer'],
+      );
+      const { deps, mocks } = makeDeps({
+        resolveAgentRole: jest.fn().mockRejectedValue(failure),
+      });
+
+      await expect(
+        buildAgentNamespace(deps).spawn({
+          task: 't',
+          role: 'nope',
+          ...target,
+        } as SpawnAgentRequest),
+      ).rejects.toBe(failure);
+
+      expect(mocks.processManager.reserveAgentId).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      expect(mocks.registry!.spawnAgent).not.toHaveBeenCalled();
+      expect(mocks.processManager.spawnFromSdkHandle).not.toHaveBeenCalled();
+      expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+    },
+  );
+
+  it('a non-AgentRoleError resolver failure also spawns nothing', async () => {
+    const failure = new Error('disk gone');
+    const { deps, mocks } = makeDeps({
+      resolveAgentRole: jest.fn().mockRejectedValue(failure),
+    });
+
+    await expect(
+      buildAgentNamespace(deps).spawn({
+        task: 't',
+        cli: 'codex',
+        role: 'code-logic-reviewer',
+      } as SpawnAgentRequest),
+    ).rejects.toBe(failure);
+    expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['ptah-cli', { ptahCliId: 'agent-a' }],
+    ['rival', { cli: 'codex' }],
+  ])(
+    'throws a NAMED error on the %s branch when role is set and no resolver is wired',
+    async (_branch, target) => {
+      const { deps, mocks } = makeDeps();
+
+      await expect(
+        buildAgentNamespace(deps).spawn({
+          task: 't',
+          role: 'code-logic-reviewer',
+          ...target,
+        } as SpawnAgentRequest),
+      ).rejects.toThrow(/Agent roles are unavailable/);
+
+      expect(mocks.processManager.reserveAgentId).not.toHaveBeenCalled();
+      expect(mocks.processManager.spawnFromSdkHandle).not.toHaveBeenCalled();
+      expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+    },
+  );
+
+  it('an empty role string is resolved, never treated as absent', async () => {
+    const failure = new AgentRoleError('invalid_role_name', 'Invalid role ""');
+    const resolveAgentRole = jest.fn().mockRejectedValue(failure);
+    const { deps, mocks } = makeDeps({ resolveAgentRole });
+
+    await expect(
+      buildAgentNamespace(deps).spawn({
+        task: 't',
+        cli: 'codex',
+        role: '',
+      } as SpawnAgentRequest),
+    ).rejects.toBe(failure);
+    expect(resolveAgentRole).toHaveBeenCalledWith('D:/ws', '');
+    expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it('ptah-cli branch passes the role to the registry and a roleStamp built from PTAH_CLI_ROLE_DELIVERY', async () => {
+    const { deps, mocks } = makeDeps({
+      resolveAgentRole: jest.fn().mockResolvedValue(ROLE_DEFINITION),
+    });
+    mockPtahCliSpawn(mocks);
+    mocks.processManager.spawnFromSdkHandle.mockResolvedValue({
+      agentId: 'spawned-1',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      ptahCliId: 'agent-a',
+      role: 'code-logic-reviewer',
+    } as SpawnAgentRequest);
+
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    expect(mocks.registry!.spawnAgent).toHaveBeenCalledWith(
+      'agent-a',
+      't',
+      expect.objectContaining({ role: ROLE_DEFINITION }),
+    );
+    const meta = mocks.processManager.spawnFromSdkHandle.mock.calls[0][1];
+    expect(meta.roleStamp).toEqual({
+      role: 'code-logic-reviewer',
+      roleDelivery: 'native',
+      roleChannel: 'agent-selection',
+    });
+  });
+
+  it('role-less ptah-cli spawn carries no roleStamp key and no role', async () => {
+    const { deps, mocks } = makeDeps();
+    mockPtahCliSpawn(mocks);
+    mocks.processManager.spawnFromSdkHandle.mockResolvedValue({
+      agentId: 'spawned-1',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      ptahCliId: 'agent-a',
+    } as SpawnAgentRequest);
+
+    const meta = mocks.processManager.spawnFromSdkHandle.mock.calls[0][1];
+    expect('roleStamp' in meta).toBe(false);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const options = mocks.registry!.spawnAgent.mock.calls[0][2];
+    expect(options.role).toBeUndefined();
+  });
+
+  it('rival branch forwards the resolved roleDefinition on the enriched request', async () => {
+    const { deps, mocks } = makeDeps({
+      resolveAgentRole: jest.fn().mockResolvedValue(ROLE_DEFINITION),
+    });
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'a',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      cli: 'codex',
+      role: 'code-logic-reviewer',
+    } as SpawnAgentRequest);
+
+    const enriched = mocks.processManager.spawn.mock.calls[0][0];
+    expect(enriched.role).toBe('code-logic-reviewer');
+    expect(enriched.roleDefinition).toBe(ROLE_DEFINITION);
+  });
+
+  it('rival branch drops a caller-supplied roleDefinition', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'a',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      cli: 'codex',
+      roleDefinition: ROLE_DEFINITION,
+    } as SpawnAgentRequest);
+
+    const enriched = mocks.processManager.spawn.mock.calls[0][0];
+    expect('roleDefinition' in enriched).toBe(false);
+  });
+
+  it.each([
+    ['ptah-cli', { ptahCliId: 'agent-a' }],
+    ['rival', { cli: 'codex' }],
+  ])(
+    'a nested-worktree workingDirectory on the %s branch still resolves roles from getWorkspaceRoot()',
+    async (branch, target) => {
+      const resolveAgentRole = jest.fn().mockResolvedValue(ROLE_DEFINITION);
+      const worktree = 'D:/ws/.claude-worktrees/lane-1';
+      const { deps, mocks } = makeDeps({
+        resolveAgentRole,
+        getWorkspaceRoot: () => 'D:/ws',
+      });
+      mockPtahCliSpawn(mocks);
+      mocks.processManager.spawnFromSdkHandle.mockResolvedValue({
+        agentId: 'spawned-1',
+      } as SpawnAgentResult);
+      mocks.processManager.spawn.mockResolvedValue({
+        agentId: 'a',
+      } as SpawnAgentResult);
+
+      await buildAgentNamespace(deps).spawn({
+        task: 't',
+        role: 'code-logic-reviewer',
+        workingDirectory: worktree,
+        ...target,
+      } as SpawnAgentRequest);
+
+      expect(resolveAgentRole).toHaveBeenCalledTimes(1);
+      expect(resolveAgentRole).toHaveBeenCalledWith(
+        'D:/ws',
+        'code-logic-reviewer',
+      );
+      const spawnedIn =
+        branch === 'ptah-cli'
+          ? mocks.processManager.spawnFromSdkHandle.mock.calls[0][1]
+              .workingDirectory
+          : mocks.processManager.spawn.mock.calls[0][0].workingDirectory;
+      expect(spawnedIn).toBe(worktree);
+    },
+  );
+});
+
+describe('buildAgentNamespace — listRoles', () => {
+  it('returns the wired listAgentRoles result for the workspace root', async () => {
+    const listAgentRoles = jest
+      .fn()
+      .mockResolvedValue(['architect', 'reviewer']);
+    const { deps } = makeDeps({ listAgentRoles });
+
+    await expect(buildAgentNamespace(deps).listRoles()).resolves.toEqual([
+      'architect',
+      'reviewer',
+    ]);
+    expect(listAgentRoles).toHaveBeenCalledWith('D:/ws');
+  });
+
+  it('returns [] when no listAgentRoles is wired', async () => {
+    const { deps } = makeDeps();
+    await expect(buildAgentNamespace(deps).listRoles()).resolves.toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // status / read / message / report / stop — pure delegation
 // ---------------------------------------------------------------------------
 
@@ -398,7 +739,10 @@ describe('buildAgentNamespace — thin delegates', () => {
       'x',
       'go left',
     );
-    expect(outcome).toEqual({ mode: 'interrupt-resume', detail: 'turn aborted' });
+    expect(outcome).toEqual({
+      mode: 'interrupt-resume',
+      detail: 'turn aborted',
+    });
   });
 
   it('report() forwards to the wired deliverAgentReport', async () => {
@@ -505,6 +849,32 @@ describe('buildAgentNamespace — list', () => {
 
     expect(alice).toBeDefined();
     expect(alice?.disabled).toBeUndefined();
+  });
+
+  it('stamps ptah-cli rows with PTAH_CLI_ROLE_DELIVERY and leaves detected CLI rows alone', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.detection.detectAll.mockResolvedValue([
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
+    ] as CliDetectionResult[]);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    mocks.registry!.listAgents.mockResolvedValue([
+      {
+        id: 'ptah-alice',
+        name: 'Alice',
+        providerName: 'anthropic',
+        hasApiKey: true,
+        enabled: true,
+      },
+    ]);
+
+    const list = await buildAgentNamespace(deps).list();
+    const alice = list.find((r) => r.ptahCliId === 'ptah-alice');
+    const codex = list.find((r) => r.cli === 'codex');
+
+    expect(alice?.roleDelivery).toBe('native');
+    expect(alice?.roleChannel).toBe('agent-selection');
+    expect(codex?.roleDelivery).toBeUndefined();
+    expect(codex?.roleChannel).toBeUndefined();
   });
 
   it('merges ptah-cli agents that are enabled+hasApiKey and honors preferred order', async () => {
