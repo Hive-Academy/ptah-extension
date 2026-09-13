@@ -44,7 +44,7 @@ That sample is one machine's output at one moment — yours will differ.
 | `role` | Name of a role generated for this workspace. `ptah_agent_list` lists the valid names. The spawn result reports `roleDelivery` and `roleChannel`. |
 | `workingDirectory` | Inside the workspace. A worktree path when lanes edit the same files in parallel. |
 | `taskFolder`, `files` | Where the lane writes deliverables; what it should read. |
-| `timeout` | Milliseconds; default and maximum one hour. |
+| `timeout` | Inactivity window in milliseconds: the lane is stopped after this long with no output. Default one hour, no maximum; `0` disables it. |
 | `resume_session_id` | Only per §5. |
 
 A user-pinned spawn args line (lane, model) is passed through unchanged. `ptah_agent_spawn`

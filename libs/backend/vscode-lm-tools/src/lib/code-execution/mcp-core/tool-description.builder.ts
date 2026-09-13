@@ -544,7 +544,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         timeout: {
           type: 'number',
           description:
-            'Timeout in milliseconds (default: 3600000 = 1hr, max: 3600000 = 1hr)',
+            'Inactivity window in milliseconds: the agent is stopped after this long with no output (default: 3600000 = 1hr, no maximum, 0 disables it)',
         },
         files: {
           type: 'array',
