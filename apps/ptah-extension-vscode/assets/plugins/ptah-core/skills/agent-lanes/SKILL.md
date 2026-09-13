@@ -41,12 +41,14 @@ That sample is one machine's output at one moment — yours will differ.
 | `ptahCliId` | A ptah-cli row's id. When set, `cli` is ignored. |
 | `model` | Raw model id. For a ptah-cli lane it overrides the tier mapping. Read ids from that lane's own model list; never invent one. |
 | `modelTier` | `opus` / `sonnet` / `haiku`, ptah-cli lanes only; the provider maps the tier to a model. |
+| `role` | Name of a role generated for this workspace. `ptah_agent_list` lists the valid names. The spawn result reports `roleDelivery` and `roleChannel`. |
 | `workingDirectory` | Inside the workspace. A worktree path when lanes edit the same files in parallel. |
 | `taskFolder`, `files` | Where the lane writes deliverables; what it should read. |
 | `timeout` | Milliseconds; default and maximum one hour. |
 | `resume_session_id` | Only per §5. |
 
-A user-pinned spawn args line (lane, model) is passed through unchanged.
+A user-pinned spawn args line (lane, model) is passed through unchanged. `ptah_agent_spawn`
+rejects any key not listed here — pass only the documented parameters.
 
 ## 3. Task contract
 
@@ -67,6 +69,9 @@ A lane shares none of your context and cannot ask the user anything. Every `task
 
 Say the output format ("markdown table", "numbered defects with `file:line`"). A lane that is not
 told where to write dumps its answer into the reply and skips the file.
+
+When the work calls for a role, pass it as the `role` parameter — never paste a role template into
+`task`. Spawning without `role` is valid when the workspace has no roles generated.
 
 ## 4. Run
 
