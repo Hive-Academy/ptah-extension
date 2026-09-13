@@ -1,6 +1,6 @@
 # Batches - TASK_2026_433
 
-Total tasks: 35 (in this delivery; +1 blocked in B7) | Batches: 11 in delivery + 1 blocked + 1 deferred | Complete: 8/11
+Total tasks: 35 (in this delivery; +1 blocked in B7) | Batches: 11 in delivery + 1 blocked + 1 deferred | Complete: 10/11
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes` (branch `feat/task-433-role-lanes`).
 Every path below is relative to that root unless it is written in full. Executors work ONLY in this worktree.
@@ -9,7 +9,7 @@ Every path below is relative to that root unless it is written in full. Executor
 
 1. **v1 is preamble-only for every lane.** Native selection (ptah-cli SDK `agent` option, opencode `--agent`) and the marker probe are plan Component 8 = Batch B8, marked `DEFERRED` and NOT part of this delivery. The acceptance line "same call for a native-capable CLI reports `native`" moves to B8. In v1 every spawn and every list row reports `roleDelivery: 'preamble'`.
 2. **One strict Zod schema shared by both MCP surfaces.** `AgentSpawnArgsSchema` is parsed by the HTTP `ptah_agent_spawn` case and the stdio `agent_spawn` handler. Unknown keys are rejected on HTTP and stdio alike. This is a deliberate behaviour change on HTTP (today it casts and silently drops unknown keys). A second consequence, recorded here so nobody treats it as a regression: HTTP `cli` becomes enum-validated (`SYSTEM_CLI_TYPES`) at the schema, instead of failing later at spawn time.
-3. **B7 (agent-lanes skill documents `role`) is blocked on TASK_2026_431 merging (PR #501).** The `agent-lanes` skill does not exist on this branch (`apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/` has no `agent-lanes`); it lives on `origin/refactor/task-431-agent-lanes`.
+3. **B7 (agent-lanes skill documents `role`) was blocked on TASK_2026_431 merging (PR #501). UNBLOCKED 2026-09-13: #501 is merged into `origin/main` (2cc4d8fa7).** Original note: The `agent-lanes` skill does not exist on this branch (`apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/` has no `agent-lanes`); it lives on `origin/refactor/task-431-agent-lanes`.
 
 ## Team-leader defaults (my judgment, recorded)
 
@@ -17,7 +17,7 @@ Every path below is relative to that root unless it is written in full. Executor
 - Batch ids keep the plan's numbers (B1..B8) so the user's references ("B7", "B8") stay true. Plan batches that were not independently verifiable are split with letter suffixes (B2a/B2b, B4a/B4b, B5a/B5b), and adapter-channel declaration moves from B2 to B3 (see Plan defect D1).
 - Parallel batches share one worktree. Each executor runs its OWN spec files while the sibling is mid-edit, and the full-lib gate runs once both have returned.
 - **Per-batch test filter (corrected at B2 verify):** `nx run-many ... --testPathPattern=<p>` is NOT forwarded to this Jest; the filter is ignored. The working form, and the only one used below, is `npx nx run <project>:test --testPathPatterns="<regex>" --skip-nx-cache` (plural `Patterns`, single project via `nx run`). Read the `Test Suites: N` line and check N matches the spec files you meant. Prefix `NX_DAEMON=false` when a sibling lane is running in the same worktree. No batch edits a `project.json`, so no `nx reset` is needed; never run one while a sibling executor is active.
-- Status words `BLOCKED` and `DEFERRED` on B7/B8 headers are outside the normal vocabulary on purpose. Mode 3 completion for this delivery = B1..B6 COMPLETE; B7 stays BLOCKED until #501 merges, B8 stays DEFERRED.
+- Status words `BLOCKED` and `DEFERRED` on B7/B8 headers are outside the normal vocabulary on purpose. Mode 3 completion for this delivery = B1..B7 COMPLETE (B7 unblocked 2026-09-13); B8 stays DEFERRED.
 
 ## Plan validation
 
@@ -93,7 +93,7 @@ Edge cases:
 | B4d | Facade split of `agent-process-manager.service.ts` (user decision, from B4b review) | backend-developer | B4c | G5: B4d ∥ B5b |
 | B5b | Shared strict schema, both dispatchers, tool description, formatters, parity guard | backend-developer (sequential) | B5a | G5: B4d ∥ B5b |
 | B6 | Lib docs + live e2e + A1-A3 evidence | technical-content-writer ∥ senior-tester | B4d, B5b | G6: docs lane ∥ e2e lane |
-| B7 | agent-lanes skill `role` routing + content manifest | technical-content-writer | B6, PR #501 merged | BLOCKED |
+| B7 | agent-lanes skill `role` routing + content manifest | technical-content-writer | `origin/main` merged into this branch (PR #501 merged) | READY after the main merge; parallel with B6 (file-disjoint) |
 | B8 | Native role probe (plan Component 8) | backend-developer | B6 | DEFERRED |
 
 Full-delivery gate (after B5b, and again at Mode 3):
@@ -416,7 +416,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Reviewer: code-style-reviewer (signature shape, consistency with `spawnFromSdkHandle` meta); team-leader may run it inline given the size
 - Gate record (2026-09-13): code-style-reviewer run by the conductor, `code-style-review-b4c.md` (committed with the batch): APPROVE 8/10, 0 blocking, 0 serious, 2 minor, both intentional and left as-is (named interface vs the inline `meta` type of `spawnFromSdkHandle`; member ordering). Team-leader verification on disk: `SdkSpawnOptions` file-local, all nine members `readonly`, declared after `AgentRoleStamp`; `doSpawnSdk(options)` destructures at the top; `grep doSpawnSdk(` = declaration + one object-shaped call; no public signature or log payload change; `git show --stat 3e32135b2` = manager +31/-16 + the review. Evidence (conductor): filtered G4 run 5 suites / 146 passed; joint N=2 gate `NX_DAEMON=false npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools --skip-nx-cache` → cli-agent-runtime 57 suites / 854 passed + 1 skipped, lint 0 errors; vscode-lm-tools 46 suites / 1,075 passed, lint 0 errors; typecheck green. The manager is 2,381 lines at 3e32135b2: B4d line ranges below (taken at b0ab33b48) shift by about +15 after line 121.
 
-## Batch B4d: Facade split of `agent-process-manager.service.ts` — IN_PROGRESS
+## Batch B4d: Facade split of `agent-process-manager.service.ts` — COMPLETE (commit 84ff943bc)
 
 - Origin: B4b code-style review minor finding 2, promoted to a batch by user decision (2026-09-13). Rule: root `CLAUDE.md` "File size" facade rule.
 - Recommended executor: backend-developer (single sub-agent)
@@ -464,7 +464,7 @@ Invariants the split must hold:
 - Collaborators are registered as singletons in `libs/backend/cli-agent-runtime/src/lib/di/register.ts` before `TOKENS.AGENT_PROCESS_MANAGER`, and injected by class token the way `AgentMessageRouter` is. They are not exported from the lib barrel unless a consumer needs them (none does today).
 - Do NOT touch `wiring/agent-events.ts` or agent-sdk `session-metadata-store.ts` (sibling WIP). `wiring/sdk-callbacks.spec.ts` constructs the manager by hand and is in scope for the constructor change only.
 
-### Task 4d.1: Extract `AgentSpawnEnvironment` — IN_PROGRESS
+### Task 4d.1: Extract `AgentSpawnEnvironment` — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\agent-spawn-environment.service.ts`
@@ -472,7 +472,7 @@ Invariants the split must hold:
   - MODIFY `agent-process-manager.service.ts`, `di/register.ts`
 - Contract: as in the design above. Public methods of the collaborator are named for what they answer (`resolveModel`, `resolveReasoningEffort`, `resolveAutoApprove`, `preferredCli`, `maxConcurrentAgents`, `sdkIdleReleaseMs`, `scopedWorkspaceRoot`, `workspaceRoot`, `isWithinScope`, `validateWorkingDirectory`, `mcpPort`, `runHarnessPreflight` — exact names are the executor's call, no `get`/`helper` prefixes required).
 
-### Task 4d.2: Extract `AgentOutputBuffer` and move `TrackedAgent` — IN_PROGRESS
+### Task 4d.2: Extract `AgentOutputBuffer` and move `TrackedAgent` — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\agent-output-buffer.service.ts`
@@ -482,7 +482,7 @@ Invariants the split must hold:
 - Depends on: Task 4d.1 (constructor shape settles once)
 - Contract: as in the design above. The spec at `agent-process-manager.service.spec.ts:2140` that reads `manager.flushTimers` through a cast must read the collaborator's state instead (or assert behaviour), not a re-added manager field.
 
-### Task 4d.3: Constructor callers and spec harnesses — IN_PROGRESS
+### Task 4d.3: Constructor callers and spec harnesses — COMPLETE
 
 - Files: `agent-process-manager.service.spec.ts` (harness `:370`, `:2285`), `agent-process-manager.restore.spec.ts` (`:59`), `agent-process-manager.workspace-scope.spec.ts` (`:67`, private casts `:97`, `:108`), `wiring/sdk-callbacks.spec.ts` (`:358`)
 - Depends on: Tasks 4d.1, 4d.2
@@ -495,6 +495,8 @@ Invariants the split must hold:
 - `wc -l` for the three files reported; no new file under ~150 lines except `tracked-agent.ts`; manager constructor ≤ 8 parameters
 - `git diff --name-only` lists only the files above; `wiring/agent-events.ts` and `session-metadata-store.ts` absent
 - Reviewer: code-style-reviewer (facade rule, nameability, dependency direction, constructor size)
+- Gate record (2026-09-13): code-style-reviewer run by the conductor, `code-style-review-b4d.md` (committed with the batch): APPROVE 8/10, 0 blocking, 1 serious, 2 minor. Serious = no DI smoke spec for the new collaborators; fixed before commit at conductor request: `di/register.agent-process-manager.smoke.spec.ts` resolves `TOKENS.AGENT_PROCESS_MANAGER` through the real container and asserts both collaborators are container singletons injected into the manager; conductor proved it fails (2 failed) with either `registerSingleton` line removed, then restored `register.ts` (diff = the 4 B4d lines only). Minor findings filed under follow-ups (shared unref helper; log-prefix / Sentry `errorSource` rename pass, kept byte-identical here by the batch invariant).
+- Team-leader verification on disk: `wc -l` manager 1,741 / `agent-spawn-environment.service.ts` 431 / `agent-output-buffer.service.ts` 228 / `tracked-agent.ts` 68; constructor 7 injected params (`logger`, `cliDetection`, `subagentRegistry`, `sentryService`, `messageRouter`, `spawnEnvironment`, `outputBuffer`), no default-constructed collaborator; `MIN/MAX/DEFAULT_CONCURRENT_AGENTS` re-exported from the manager file; `Cannot spawn agent process: no workspace root is open.`, `Working directory must be within workspace root.` and `Agent not found: ` strings unchanged; `register.ts` registers both collaborators before `AGENT_PROCESS_MANAGER`; no TODO/STUB/PLACEHOLDER in the new files; `wiring/agent-events.ts` and agent-sdk untouched. Evidence: conductor joint gate (before the smoke spec) `run-many -t test,lint,typecheck` cli-agent-runtime 59 suites / 900, vscode-lm-tools 48 / 1,138, rpc-handlers 99 / 2,987, cli-engine 17 / 173, 0 lint errors, typecheck green; typecheck green for ptah-electron, ptah-extension-vscode, ptah-cli, tribunal-panel. Team-leader re-run after the smoke spec: `npx nx run-many -t test -p @ptah-extension/cli-agent-runtime --skip-nx-cache` → 1 project, Test Suites 60 passed / 60, Tests 905 passed + 1 skipped (≥ 854), EXIT 0. `git show --stat 84ff943bc` = 13 files (12 cli-agent-runtime + review), +2,142/-922.
 
 ## Batch B5a: Namespace role resolution + API builder wiring — COMPLETE (commit e7672c332)
 
@@ -541,7 +543,7 @@ Invariants the split must hold:
 - Executor deviations, accepted: (a) the spec mocks `@ptah-extension/cli-agent-runtime` as a barrel exposing only `PTAH_CLI_ROLE_DELIVERY` (non-default `native`/`agent-selection`) plus a local `AgentRoleError` look-alike, because `requireActual` loads tsyringe without the reflect polyfill in vscode-lm-tools; the non-default values still fail a hand-typed literal. (b) `request.role !== undefined` (not truthy), so `''` reaches the resolver and fails there instead of silently spawning role-less. (c) caller-supplied `roleDefinition` is stripped from the rival request.
 - Team-leader verification on disk: resolution sits after `activeSessionId` and before `getProjectGuidance` and both branches; named error when `role` is set with no resolver; ptah-cli `roleStamp` only when a definition exists; `grep "'system-prompt'\|'preamble'"` over non-spec vscode-lm-tools sources returns nothing; no TODO/STUB markers; `git show --stat e7672c332` = 5 source/spec files + the review, +699/-10. Evidence (conductor): filtered G4 run 2 suites / 49 tests; joint N=2 gate as recorded under B4c. Out of scope, handed to B5b: `stdio-mcp-server.service.spec.ts` `makeAgentApi` (`:52-83`) has no `listRoles`.
 
-## Batch B5b: MCP surfaces — shared strict schema, formatters, parity guard — IN_PROGRESS
+## Batch B5b: MCP surfaces — shared strict schema, formatters, parity guard — COMPLETE (commit 7be3259e2)
 
 - Recommended executor: backend-developer (single sub-agent)
 - Fallback executor: none; HTTP and stdio must change together for Decision 2
@@ -554,34 +556,34 @@ Invariants the split must hold:
   - **Spec mocks gain `listRoles`.** Add `listRoles: jest.fn().mockResolvedValue([])` to `mcp-stdio/stdio-mcp-server.service.spec.ts` `makeAgentApi` (`:52-83`), and to every agent mock in `mcp-core/protocol-dispatcher.spec.ts` / `mcp-stdio/agent-tool.dispatcher.spec.ts` that reaches a list path. Do not rely on the D8 catch to hide a missing mock.
   - Spawn keeps B5a's order (role resolved before disabled-CLI / API-key checks); do not reorder it in the dispatchers.
 
-### Task 5b.1: `AgentSpawnArgsSchema` — IN_PROGRESS
+### Task 5b.1: `AgentSpawnArgsSchema` — COMPLETE
 
 - File: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\agent-spawn-args.schema.ts`
 - Contract: exactly the stdio shape at `agent-tool.dispatcher.ts:53-69` (including `MAX_TASK_LENGTH = 100 * 1024`, `cli: z.enum(SYSTEM_CLI_TYPES)`, unbounded non-negative `timeout`) plus `role: z.string().min(1).max(100).optional()`, `.strict()`. Exported with `MAX_TASK_LENGTH`.
 
-### Task 5b.2: `role` in the JSON tool schema — IN_PROGRESS
+### Task 5b.2: `role` in the JSON tool schema — COMPLETE
 
 - Files: `mcp-core/tool-description.builder.ts` + `tool-description.builder.spec.ts`
 - Contract: `role` property: the name of an agent role generated for this workspace; `ptah_agent_list` shows valid names; the definition is delivered to the lane and the result reports how; do not paste role templates into `task`. No vendor names. `required` stays `['task']`.
 
-### Task 5b.3: HTTP dispatcher parses with the shared schema — IN_PROGRESS
+### Task 5b.3: HTTP dispatcher parses with the shared schema — COMPLETE
 
 - Files: `mcp-core/protocol-dispatcher.ts` + `protocol-dispatcher.spec.ts`
 - Contract: `case 'ptah_agent_spawn'` (`:730-827`) replaces the cast and the two hand-written checks with `AgentSpawnArgsSchema.safeParse`, failing via `toolErrorResponse` + `describeZodIssues`; forwards `role`; logs `role`; catches `AgentRoleError` → `Error: ptah_agent_spawn role <code>: <message>`; `CliCommandLineTooLongError` → tool error naming sizes. `ptah_agent_list` calls `ptahAPI.agent.listRoles()` (failure → warn + empty) and passes roles to `formatAgentList`. File must not grow materially.
 - Spec: role forwarded; each of the 7 `AgentRoleError` codes (incl. `no_workspace`, Task 3.0b) surfaced; unknown key rejected; invalid `cli` rejected; list with roles / no roles / `listRoles` throwing.
 
-### Task 5b.4: Formatters — IN_PROGRESS
+### Task 5b.4: Formatters — COMPLETE
 
 - Files: `mcp-core/mcp-response-formatter.ts` + `mcp-response-formatter.spec.ts` (touch `mcp-response-formatter-extra.spec.ts` only if an existing assertion pins the list table exactly)
 - Contract: `formatAgentSpawn` adds `**Role:** <name> (<roleDelivery> via <roleChannel>)` when set; `formatAgentStatus` shows the role; `formatAgentList(agents, roles?: string[])` adds `role delivery: <roleDelivery>/<roleChannel>` to each Capabilities cell that has it and one line `Roles in this workspace: a, b` or `No agent roles generated for this workspace`.
 
-### Task 5b.5: stdio dispatcher uses the shared schema — IN_PROGRESS
+### Task 5b.5: stdio dispatcher uses the shared schema — COMPLETE
 
 - Files: `mcp-stdio/agent-tool.dispatcher.ts` + `agent-tool.dispatcher.spec.ts`
 - Contract: delete local `AgentSpawnSchema` and `MAX_TASK_LENGTH`, import from `agent-spawn-args.schema.ts`; forward `role`; `structuredContent` adds `role`, `roleDelivery`, `roleChannel` on spawn and `roles` on list; `AgentRoleError` → `toolError(..., 'mcp_tool_failed', { tool: 'agent_spawn', state: code, availableRoles })` (pattern `:396-407`). Same `listRoles` degradation as HTTP.
 - Spec: mirror of 5b.3 cases on stdio.
 
-### Task 5b.6: Surface parity guard — IN_PROGRESS
+### Task 5b.6: Surface parity guard — COMPLETE
 
 - File: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\agent-spawn-surface-parity.spec.ts`
 - Contract: key set of `buildAgentSpawnTool().inputSchema.properties` equals `Object.keys(AgentSpawnArgsSchema.shape)`; `buildMcpAgentSpawnTool()` deep-equals `buildAgentSpawnTool()` except `name`.
@@ -592,8 +594,11 @@ Invariants the split must hold:
 - After B5b and B4d both return: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools` (N=1), including `vendor-roster-drift.spec.ts`, `stdio-mcp-server.service.spec.ts`, `index.barrel.spec.ts`
 - Then the full-delivery gate (5 projects) above
 - Reviewer: code-logic-reviewer AND code-style-reviewer (behaviour change on HTTP + schema consolidation)
+- Gate record (2026-09-13): code-logic-reviewer run by the conductor, `code-logic-review-b5b.md` (committed with the batch): APPROVE 8/10, 0 blocking, 0 serious, 2 moderate. (1) `AgentRoleError` messages embed absolute local paths and are forwarded verbatim to MCP callers on both surfaces; redaction is a product decision, filed under follow-ups. (2) the JSON tool schema `timeout` description still says "max: 3600000 = 1hr" while the schema has no upper bound; filed under follow-ups. Reviewer confirmed no in-repo caller sends a key outside the strict schema and that `instanceof` narrowing is safe (in-process classes). No separate code-style review of B5b was run; the conductor accepted the logic review as this batch's gate.
+- Accepted deviation: stdio maps `CliCommandLineTooLongError` to `state: 'command_line_too_long'` with `measured`/`limit` (beyond the 5b.5 contract, mirrors HTTP 5b.3).
+- Team-leader verification on disk: `agent-spawn-args.schema.ts` = stdio shape + `role: z.string().min(1).max(100).optional()`, `.strict()`, exports `MAX_TASK_LENGTH`; stdio local `AgentSpawnSchema`/`MAX_TASK_LENGTH` deleted, shared schema imported; HTTP case uses `safeParse` + `toolErrorResponse` + `describeZodIssues`, forwards and logs `role`, maps `AgentRoleError` and `CliCommandLineTooLongError`, rethrows the rest; `ptah_agent_list` and stdio `agent_list` each wrap `listRoles()` in `try/catch (error: unknown)` → warn + `[]` (D8); stdio `structuredContent` adds `role`/`roleDelivery`/`roleChannel` and `roles`; `role` tool description names no vendor, `required` still `['task']`; `protocol-dispatcher.ts` 2,132 → 2,121. Evidence: conductor filtered 11 suites / 347; joint gate as under B4d (vscode-lm-tools 48 suites / 1,138, lint 0 errors, typecheck green). `git show --stat 7be3259e2` = 13 files (12 vscode-lm-tools + review), +1,186/-115.
 
-## Batch B6: Docs + live e2e evidence — PENDING
+## Batch B6: Docs + live e2e evidence — IN_PROGRESS
 
 - Recommended executor: technical-content-writer (docs lane) ∥ senior-tester (e2e lane)
 - Fallback executor: senior-tester for both, sequentially
@@ -601,14 +606,14 @@ Invariants the split must hold:
 - Rationale: docs and evidence are independent; both read the finished code only.
 - Tasks: 2 | Depends on: B4d, B5b
 
-### Task 6.1: Lib CLAUDE.md updates — PENDING
+### Task 6.1: Lib CLAUDE.md updates — IN_PROGRESS
 
 - Files:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\CLAUDE.md` — role channels per adapter, resolver source (`.claude/agents`, not the consent-gated user layer), budget guard incl. `.cmd` 8,191 branch and its limits (D10 cross-spawn `^` escaping on the fallback path, Linux total `ARG_MAX` and darwin env bytes not modelled), role body frontmatter handling (D3 fix), `no_workspace` (D9), why read-only is not mapped to a sandbox, why frontmatter `model` is ignored, A2 outcome
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\vscode-lm-tools\CLAUDE.md` — one shared spawn schema; HTTP now strict (Decision 2)
 - Constraint: these CLAUDE.md files are not VSIX assets, so vendor names are allowed here; the `role` tool-description text itself stays vendor-free.
 
-### Task 6.2: Live e2e + A1/A3 evidence — PENDING
+### Task 6.2: Live e2e + A1/A3 evidence — IN_PROGRESS
 
 - File: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\.ptah\specs\TASK_2026_433_d22a\test-report.md`
 - Contract: one `ptah_agent_spawn({ cli: <installed argv lane, antigravity preferred>, role: 'code-logic-reviewer', taskFolder, task })` on a scratch task; record result showing `preamble via task-prompt`, the deliverable in `taskFolder` with the role's structure, `ptah_agent_read` showing the role block reached the lane; one codex run for A1/A2 if codex is installed (else record "not installed" as an open item); A3 real Windows `node -e` spawn at limit-1 / limit+1; D10: one real spawn through a `.cmd` wrapper (cross-spawn fallback path) with a space-heavy argument the guard measures just under 8,191, recording whether the OS accepts it or fails with its own "command line is too long"; one `ptah_agent_spawn` with an unknown key on HTTP showing the Zod rejection.
@@ -619,14 +624,17 @@ Invariants the split must hold:
 - test-report.md carries the raw tool outputs, not paraphrase
 - Reviewer: code-style-reviewer on the CLAUDE.md diffs only; e2e evidence reviewed by the orchestrator
 
-## Batch B7: agent-lanes skill routing for `role` — BLOCKED
+## Batch B7: agent-lanes skill routing for `role` — PENDING (unblocked)
 
-- Gate: BLOCKED on TASK_2026_431 merging (PR #501). Do not start, and do not cherry-pick 431 into this branch.
+- Gate history: was BLOCKED on TASK_2026_431 (PR #501). PR #501 merged into `origin/main` on 2026-09-13 (2cc4d8fa7); `agent-lanes/SKILL.md` exists on `origin/main`. Do not cherry-pick 431.
+- Precondition: `origin/main` merged into `feat/task-433-role-lanes` with a merge commit (no rebase), while no lane is running. `git merge-tree --write-tree HEAD origin/main` at 7be3259e2 reports no conflicts. The one file both sides touched is `cli-agents/agent-process-manager.restore.spec.ts` (main a58654a26, B4d constructor change); main also changed `vscode-lm-tools/.../vendor-roster-drift.spec.ts` and `lane-rule-single-home.spec.ts`, which read tool descriptions B5b edited. After the merge run `npx nx run-many -t test,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools @ptah-extension/shared --skip-nx-cache` (N=3) before any lane starts.
+- Parallelism: file-disjoint with B6 (B6 = two lib CLAUDE.md files + test-report.md; B7 = the skill + `content-manifest.json`), so B7 may run beside B6 once the merge is in.
+- Conflict guard: branch `refactor/task-435-skill-descriptions` (PR #504) rewrites the `description:` line of `agent-lanes/SKILL.md` frontmatter. B7 changes the BODY only; the frontmatter block stays byte-identical.
 - Recommended executor: technical-content-writer
 - Execution mode: sequential
-- Tasks: 1 | Depends on: B6, PR #501 merged into `main` and this branch rebased/merged from `main`
+- Tasks: 1 | Depends on: `origin/main` merged into this branch (precondition above); B6 is not a hard dependency
 
-### Task 7.1: Skill §2 `role` row, §3 "pass `role`, never paste a template into `task`" — BLOCKED
+### Task 7.1: Skill §2 `role` row, §3 "pass `role`, never paste a template into `task`" — PENDING
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\agent-lanes\SKILL.md` (post-431) + regenerate `content-manifest.json` via `npm run manifest:generate`
 - Constraint: no CLI → capability table in the skill (context.md constraint); capabilities come from `ptah_agent_list`.
@@ -646,3 +654,7 @@ Invariants the split must hold:
 - (Product question, from B5a code-logic review) Should a rival spawn that carries `resumeSessionId` re-deliver `role`? Today the namespace forwards `roleDefinition` on resume, so the resumed lane receives the role block again. Decide together with "Resume-from-UI re-applies the recorded role" above: either resume re-applies the recorded role (and a caller-supplied `role` on resume is rejected or must match), or resume ignores `role`.
 - (LOW, from B5a code-logic review) Role resolution runs before the disabled-CLI and missing-API-key checks in `AgentNamespace.spawn`, so a caller with both a bad role and a disabled CLI sees the role error first. No slot is taken on either path. Reorder only if a user reports the message order as confusing.
 - (LOW, from B3 verify) copilot and pi `runTurn` call `spawnCli` synchronously, so a guard throw on a continuation leaves `continue()` as a synchronous throw instead of a rejected promise. Harmless with the one caller (`continueConversation` awaits inside `try`); tidy by making `runTurn` return `Promise.reject` on a throw if a second caller appears.
+- (Decision needed, from B5b code-logic review) `AgentRoleError` messages carry the absolute harness root path and are forwarded verbatim to MCP callers on HTTP and stdio. Decide whether to redact to a workspace-relative path (e.g. `.claude/agents`) before surfacing; the caller is a local agent today, but gateway-bridged sessions can relay tool errors off-machine.
+- (LOW, from B5b code-logic review) `buildAgentSpawnTool` `timeout` description still says "max: 3600000 = 1hr"; the shared schema has no upper bound (inactivity window, `0` disables). Rewrite the description to match; update `tool-description.builder.spec.ts` if it pins the text.
+- (LOW, from B4d code-style review) the timer unref guard is duplicated between `AgentOutputBuffer.scheduleFlush` and the manager's `unrefTimer`. Extract one shared helper when either copy next changes.
+- (LOW, from B4d code-style review) log prefixes and Sentry `errorSource` in the moved code still say `AgentProcessManager` (kept byte-identical by the B4d invariant). One rename pass to `AgentSpawnEnvironment` / `AgentOutputBuffer`, with any log-assertion specs updated in the same commit.
