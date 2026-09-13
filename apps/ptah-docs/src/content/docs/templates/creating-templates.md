@@ -29,6 +29,12 @@ You are a senior frontend developer. When invoked:
 
 Applying this template writes the file to `<workspace>/.claude/agents/frontend-developer.md`.
 
+## Task-spec ownership
+
+When adapting a shipped specialist template, preserve its task-spec boundaries: read the assigned task folder, write the requested deliverable, and report completion or blockers with evidence. Specialists do not allocate task IDs or edit `task.md` or `batches.md`; the team-leader records batch state.
+
+Keep delegation scoped to the role. `team-leader`, `visual-reviewer`, and `ui-ux-designer` do not delegate to CLI lanes. Do not assume Ptah tools exist in every host: prefer them when listed, otherwise use native tools. See [agent orchestration](/agents/agent-orchestration/).
+
 ## Project scaffold template
 
 Scaffolds are folders with a `template.yaml` at the root describing files and variables:

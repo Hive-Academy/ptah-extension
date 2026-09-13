@@ -44,7 +44,7 @@ Five plugins ship with Ptah. Each one lands in the browser modal under the categ
 
 | Plugin         | Category       | What's inside                                                                                                                                                   |
 | -------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ptah-core`    | Core Tools     | 8 skills — orchestration, DDD architecture, humanize-library, skill-creator, technical-content-writer, tribunal, UI/UX design, Ptah CLI usage — plus 5 commands |
+| `ptah-core`    | Core Tools     | 9 skills — agent-lanes, orchestration, DDD architecture, humanize-library, skill-creator, technical-content-writer, tribunal, UI/UX design, Ptah CLI usage — plus 5 commands |
 | `ptah-nx-saas` | Backend Tools  | 7 skills — Nx workspace, NestJS patterns, webhooks, resilience, SaaS platform, deployment, SaaS init — plus `/init-saas` and `/initialize-workspace`            |
 | `ptah-angular` | Frontend Tools | 3 skills — Angular patterns, GSAP scroll animation, 3D scene crafting                                                                                           |
 | `ptah-react`   | Frontend Tools | 3 skills — React best practices, composition patterns, React + Nx                                                                                               |

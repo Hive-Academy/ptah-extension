@@ -7,7 +7,7 @@ This page lists the skills that ship with the official Ptah plugins. Enable the
 parent plugin from the [plugin catalog](/plugins/marketplace/) and Ptah copies
 its skills into your workspace automatically.
 
-Ptah ships **six plugin packs** with **25 skills** between them.
+Ptah ships **six plugin packs** with **26 skills** between them.
 
 :::note[These are Ptah's skills, not your AI tool's]
 Your coding assistant may also expose skills of its own. This page covers only
@@ -16,18 +16,21 @@ what the Ptah plugin packs contribute.
 
 ## `ptah-core` — core workflow
 
-The recommended default pack. Eight skills and five slash commands.
+The recommended default pack. Nine skills and five slash commands.
 
 | Skill                      | What it does                                                                                                                             | When it triggers                                           |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `orchestration`            | Development-workflow orchestrator with 8 task types (FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, SAAS_INIT, CREATIVE) | Any implementation task. The default entry point.          |
-| `tribunal`                 | Multi-vendor ensemble workflows — Council, Forge, Race, Relay, Crucible                                                                  | You want several AI vendors on one problem                 |
+| `agent-lanes` | CLI lane discovery, addressing, tasks, spawn/status/read, recovery, messaging, and verification | Before running a CLI lane; required by orchestration and tribunal |
+| `tribunal`                 | Multi-vendor ensemble workflows — Council, Forge, Race, Crucible                                                                  | You want several AI vendors on one problem                 |
 | `ddd-architecture`         | Domain-driven design guardrails for boundaries, aggregates, bounded contexts                                                             | Designing a new domain or restructuring libraries          |
 | `humanize-library`         | Behavior-preserving refactor for readability, SOLID, and file size                                                                       | "Clean this up", "split large files", "remove duplication" |
 | `ptah-cli-usage`           | How to drive the headless Ptah CLI for CI, scripts, and bridges                                                                          | Any headless or scripted Ptah usage                        |
 | `skill-creator`            | Guide for authoring effective skills — structure, triggers, references                                                                   | Creating or updating a skill                               |
 | `technical-content-writer` | Marketing pages, blog posts, technical docs, and video scripts                                                                           | Producing external-facing content                          |
 | `ui-ux-designer`           | Visual design discovery, design systems, production-ready asset specs                                                                    | Landing pages, brand identity, visual specs                |
+
+`orchestration` assigns phases to sub-agents or CLI lanes; a whole pipeline on lanes is [Relay](/tribunal/relay/). Both `orchestration` and `tribunal` require `agent-lanes` when running lanes. See [skill dependencies](/mcp-and-skills/skills/#skill-dependencies) before narrowing your selection.
 
 The pack also registers five slash commands: `/orchestrate`, `/orchestrate-help`,
 `/review-code`, `/review-logic`, and `/review-security`. The three review

@@ -72,11 +72,13 @@ Because the host namespaces tools by server name (e.g. `ptah:agent_spawn`), the 
 | `agent_stop`     | Terminate a running agent.                                                                         |
 | `session_submit` | Delegate an entire task to Ptah's Team Leader, which fans out to sub-agents via the SDK Task tool. |
 
-`agent_message` replaces the retired `agent_steer`. Which of the four modes
-an agent supports is a runtime fact, reported by `agent_list` — never assume
-one from the CLI's name.
+Check `agent_message`'s returned `mode`; `unsupported` means nothing was delivered and `detail` explains why. `agent_list` reports the lane's declared capability. Check `agent_report`'s `delivered` result too: `false` with a `reason` means the report reached nobody.
+
+Resume only when `agent_status` reports a **CLI Session ID**. Pass it as `resume_session_id` to `agent_spawn` on the same lane with a continuation `task`. Otherwise, spawn fresh with the context restated.
 
 `session_submit` accepts a free-form `task` (required), plus optional `cwd`, `allowSubagents` (default `true`), and a `profile` (`claude_code` or `enhanced`). With `allowSubagents` enabled, the Team Leader decomposes the task and fans work out to sub-agents, aggregating their results into a single MCP response.
+
+The MCP `session_submit` harness explicitly permits SDK sub-agent fan-out when `allowSubagents` is true. This is distinct from the built-in `team-leader` specialist template used by [orchestration](/agents/agent-orchestration/), which recommends executors and spawns nothing. CLI lane mechanics are documented in the [agent-lanes skill](/mcp-and-skills/skills/#skill-dependencies).
 
 ## Cost attribution
 

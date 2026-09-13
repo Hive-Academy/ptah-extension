@@ -46,9 +46,17 @@ Agent templates are a special case: applying one installs the agent into the wor
 └── security-auditor.md
 ```
 
+## Specialist scope and tools
+
+Shipped templates distinguish coordinators from specialists. `project-manager` and `team-leader` receive the coordinator task-spec contract; other templates receive a specialist block with no task-ID allocation. Specialists read the assigned task folder and write their deliverables, but never edit `task.md` or `batches.md`. They report completion with evidence; the team-leader records batch state.
+
+`team-leader`, `visual-reviewer`, and `ui-ux-designer` do not delegate to CLI lanes. Other eligible specialists may use lanes for focused sub-tasks when the workflow permits and the tools are available. The team-leader spawns nothing; the orchestrator acts on its recommendations.
+
+Templates use `ptah_*` tools first only when those tools are listed in the session. Otherwise they use native tools directly. Lane recovery is conditional: resume only on a **CLI Session ID** reported by status; without one, spawn fresh with context restated.
+
 ## Chaining templates with orchestration
 
-Templates pair well with the `/orchestrate` skill from `ptah-core`. A common pattern:
+Templates pair well with the `orchestration` skill and `/orchestrate` command from `ptah-core`. A common pattern:
 
 1. Apply a **project scaffold** template.
 2. Apply one or more **agent templates** for the stack.

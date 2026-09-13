@@ -1,6 +1,6 @@
 ---
 title: Skills
-description: Scoped knowledge packs Ptah can invoke — and how skill junctions make them available to every AI client.
+description: Scoped knowledge packs Ptah can invoke — and how harness sync makes them available to every AI client.
 ---
 
 A **skill** is a small, focused prompt package with a deterministic trigger. When the model decides a skill is relevant, its contents are injected into context on the spot. Skills are how Ptah keeps expertise modular: one skill per topic, versioned, and reusable across providers.
@@ -39,6 +39,18 @@ Every skill's `description` field is the trigger. The orchestrator scans availab
 :::tip
 Concrete verbs and nouns in the description dramatically improve skill discovery. Aim for "when to use" rather than "what it does."
 :::
+
+## Skill dependencies
+
+Some skills declare other skills under `## Requires` in their `SKILL.md`. In `ptah-core`:
+
+- **`agent-lanes`** defines how to discover, address, run, message, recover, and verify background CLI lanes. Load it before `ptah_agent_spawn`.
+- **`orchestration`** chooses the development workflow and assigns phases to sub-agents or lanes. It requires `agent-lanes` for CLI work. If that skill is unavailable, it asks you to enable it and continues with sub-agents only.
+- **`tribunal`** runs Council, Forge, Race, and Crucible. It requires `agent-lanes` for every move, plus `orchestration` for Relay launches and Crucible's task-folder rules. If a required skill is unavailable, it names the skill to enable before proceeding.
+
+These are skill instructions, not automatic dependency installation. Disabling or excluding a required skill does not enable it again or remove its dependents. Keep the required skills selected and enabled through all [three selection gates](/plugins/skill-toggles/#how-it-interacts-with-the-other-two-gates).
+
+Skill availability and tool availability are separate. If `ptah_agent_*` tools are absent, the agent works with its native tools and says so. It does not probe for unavailable tools.
 
 ## Harness sync — sharing across AI clients
 
@@ -87,7 +99,7 @@ be committed. Edit the source in `~/.ptah/user/skills/`, never a copy.
 | -------------------------------------------------- | --------------------------------------------------------- |
 | Knowledge pack injected into current context       | Separate sub-session with its own context window          |
 | No token isolation                                 | Token-isolated — good for large background work           |
-| Invoked automatically when description matches     | Invoked explicitly via `ptah_agent_spawn` or orchestrator |
+| Invoked automatically when description matches     | Sub-agents invoked by the orchestrator; CLI lanes via `ptah_agent_spawn` |
 | Best for: patterns, checklists, reference material | Best for: multi-step execution, long-running tasks        |
 
 ## Auto-discovered skills
