@@ -20,6 +20,8 @@ jest.mock('@ptah-extension/agent-generation', () => ({
 }));
 
 import { registerCliAgentRuntimeServices } from './register';
+import { CLI_AGENT_RUNTIME_TOKENS } from './tokens';
+import { AgentRoleResolver } from '../roles';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
 import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
@@ -111,6 +113,14 @@ function buildSmokeContainer(): DependencyContainer {
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
+  c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
+    useValue: {
+      readFile: jest.fn(async () => ''),
+      readDirectory: jest.fn(async () => []),
+      stat: jest.fn(async () => undefined),
+      exists: jest.fn(async () => false),
+    },
+  });
   c.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
     useValue: {
       get: jest.fn(() => undefined),
@@ -188,5 +198,18 @@ describe('registerCliAgentRuntimeServices — AgentProcessManager DI smoke', () 
     expect(
       (manager as unknown as { outputBuffer: AgentOutputBuffer }).outputBuffer,
     ).toBe(outputBuffer);
+  });
+
+  it('resolves CLI_AGENT_RUNTIME_TOKENS.AGENT_ROLE_RESOLVER as a singleton', () => {
+    const resolver = container.resolve<AgentRoleResolver>(
+      CLI_AGENT_RUNTIME_TOKENS.AGENT_ROLE_RESOLVER,
+    );
+
+    expect(resolver).toBeInstanceOf(AgentRoleResolver);
+    expect(
+      container.resolve<AgentRoleResolver>(
+        CLI_AGENT_RUNTIME_TOKENS.AGENT_ROLE_RESOLVER,
+      ),
+    ).toBe(resolver);
   });
 });
