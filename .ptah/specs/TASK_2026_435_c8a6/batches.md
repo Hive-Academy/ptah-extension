@@ -25,7 +25,7 @@ Rule applied to every description:
 
 Deliverables:
 
-- 26 frontmatter edits; totals 13,733 → 6,479 characters (see
+- 26 frontmatter edits; totals 13,733 → 6,627 characters (see
   `description-audit.md`).
 - Guard `libs/backend/vscode-lm-tools/src/lib/code-execution/skill-description-shape.spec.ts`:
   missing or empty, block scalar, over 400 characters, numbered list, more than
