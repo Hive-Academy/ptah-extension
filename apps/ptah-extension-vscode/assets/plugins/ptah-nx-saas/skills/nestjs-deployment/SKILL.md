@@ -1,6 +1,6 @@
 ---
 name: nestjs-deployment
-description: 'NestJS deployment and production hardening patterns for containerized applications. Use when creating Docker multi-stage builds for NestJS/Nx apps, configuring webpack bundling with external packages, setting up database migration strategies for deployment, implementing health checks and monitoring, hardening production security (CORS, rate limiting, validation), configuring environment-driven logging and error handling, or deploying to cloud platforms (DigitalOcean, AWS, GCP, Railway). Covers the full path from local development to production deployment.'
+description: 'Productionizes NestJS apps for containers. Use for multi-stage Docker builds of NestJS or Nx apps, webpack externals, migrations at deploy time, health checks, CORS and rate limiting, production logging, or deploying to a cloud platform.'
 ---
 
 # NestJS Deployment Patterns

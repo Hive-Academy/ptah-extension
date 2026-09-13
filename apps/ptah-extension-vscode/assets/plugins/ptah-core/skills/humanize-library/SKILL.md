@@ -1,6 +1,6 @@
 ---
 name: humanize-library
-description: 'Refactor an existing library, package, module or app folder so it reads like it was written by a human for humans — SOLID, small focused files, no duplication, clear names, behavior preserved. Works in any repo, any language, any architecture: the skill discovers the project own rules and verification gate instead of assuming them. Use when the user asks to "humanize", "clean up", "refactor for readability or maintainability", "make this follow SOLID", "split large files", "remove duplication", "improve code quality", or points at a specific path and wants it brought up to the team craftsmanship bar. NOT for adding features or fixing functional bugs — this is behavior-preserving structural refactoring only.'
+description: 'Behavior-preserving refactor that makes an existing library, module or folder readable — small focused files, no duplication, clear names, SOLID. Use when asked to humanize, clean up, split large files or remove duplication at a path. Not for new features or bug fixes.'
 ---
 
 # Humanize Library

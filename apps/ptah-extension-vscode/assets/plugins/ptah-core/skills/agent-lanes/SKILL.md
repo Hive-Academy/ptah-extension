@@ -1,6 +1,6 @@
 ---
 name: agent-lanes
-description: 'The contract for running background CLI agent lanes through the ptah_agent_* tools — discovery, addressing (cli, ptahCliId, model, modelTier), the self-contained task, spawn/status/read, resume, concurrency, messaging a live lane, review independence and the revise cap. Load it before any ptah_agent_spawn, and whenever the orchestration or tribunal skill sends you here. It teaches no workflow and names no roster.'
+description: 'Contract for spawning, resuming and messaging background CLI agent lanes via the ptah_agent_* tools. Load before any ptah_agent_spawn, or when orchestration or tribunal refers here.'
 ---
 
 # Agent Lanes

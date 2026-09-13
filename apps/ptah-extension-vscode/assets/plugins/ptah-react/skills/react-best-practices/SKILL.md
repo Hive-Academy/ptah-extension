@@ -1,6 +1,6 @@
 ---
 name: react-best-practices
-description: React and Next.js performance optimization guidelines. Use when (1) Writing new React components or Next.js pages, (2) Implementing data fetching (client or server-side), (3) Reviewing code for performance issues, (4) Refactoring existing React/Next.js code, (5) Optimizing bundle size or load times, (6) Eliminating waterfalls and async patterns, (7) Re-render optimization.
+description: React and Next.js performance rules. Use when writing, reviewing or refactoring React components or Next.js pages for data fetching, waterfalls, bundle size, load time or re-renders. Not for component API design — use composition-patterns.
 ---
 
 # React Best Practices
