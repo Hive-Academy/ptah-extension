@@ -300,7 +300,9 @@ describe('AgentProcessManager.restoreAgents', () => {
       });
       // ...but every path that could re-persist is closed. `agent:spawned` and
       // `agent:exited` are the only triggers for `persistCliSessionReference`.
-      expect(() => manager.steer(RESTORED_ID, 'again')).toThrow();
+      await expect(
+        manager.sendToAgent(RESTORED_ID, 'again'),
+      ).rejects.toMatchObject({ code: 'restored' });
       await expect(manager.stop(RESTORED_ID)).rejects.toThrow();
       await expect(
         manager.continueConversation(RESTORED_ID, 'again'),
