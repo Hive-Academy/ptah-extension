@@ -837,29 +837,29 @@ export class SessionRpcHandlers {
           parsed.maxBytes,
         );
       } catch (error: unknown) {
-        throw this.mapCliOutputPageError(error, parsed.agentId);
+        this.throwCliOutputPageError(error, parsed.agentId);
       }
     });
   }
 
-  private mapCliOutputPageError(error: unknown, agentId: string): unknown {
+  private throwCliOutputPageError(error: unknown, agentId: string): never {
     if (error instanceof AgentOutputCursorStaleError) {
       this.logger.warn('[RPC] session:cli-output-page cursor is stale', {
         agentId,
       });
-      return new RpcUserError('Agent output changed', 'OUTPUT_CURSOR_STALE');
+      throw new RpcUserError('Agent output changed', 'OUTPUT_CURSOR_STALE');
     }
     if (error instanceof StateStorageValueTooLargeError) {
       this.logger.warn('[RPC] session:cli-output-page value too large', {
         agentId,
         bytes: error.bytes,
       });
-      return new RpcUserError(
+      throw new RpcUserError(
         'Agent output is too large to load',
         'PERSISTENCE_UNAVAILABLE',
       );
     }
-    return error;
+    throw error;
   }
 
   /**

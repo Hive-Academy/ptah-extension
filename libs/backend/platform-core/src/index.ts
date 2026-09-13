@@ -125,9 +125,16 @@ export {
   JSON_PATH_WILDCARD,
   jsonUtf8Bytes,
   omitJsonPaths,
+  packJsonSequencePage,
   shrinkJsonStringLeaves,
 } from './utils/json-budget';
-export type { ShrinkJsonStringLeavesOptions } from './utils/json-budget';
+export type {
+  JsonSequenceEstimatorBudget,
+  JsonSequencePageSource,
+  PackedJsonSequencePage,
+  PackJsonSequencePageOptions,
+  ShrinkJsonStringLeavesOptions,
+} from './utils/json-budget';
 export { planGlobWatch } from './utils/glob-watch-plan';
 export type {
   GlobWatchPlan,

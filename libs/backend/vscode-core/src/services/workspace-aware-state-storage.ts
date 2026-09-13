@@ -27,7 +27,7 @@ import {
   isAsyncStateStorage,
   jsonUtf8Bytes,
   omitJsonPaths,
-  shrinkJsonStringLeaves,
+  packJsonSequencePage,
   type IAsyncStateStorage,
   type IStateStorage,
   type IStateStorageMaintenance,
@@ -39,7 +39,6 @@ import {
   type StateStorageSequencePage,
   type StateStorageSequenceReadOptions,
   type StateStorageSequenceWriteChunk,
-  type StateStorageTruncatedItem,
 } from '@ptah-extension/platform-core';
 
 /**
@@ -63,6 +62,7 @@ function hasStateStorageDisposal(
 }
 
 const SYNC_SEQUENCE_CURSOR_PATTERN = /^s([0-9a-f]{16})\.(0|[1-9]\d*)$/;
+const EMPTY_JSON_ARRAY_BYTES = 2;
 
 function sequenceFingerprint(sequence: readonly unknown[]): string {
   return createHash('sha256')
@@ -97,51 +97,37 @@ function readSyncSequencePage<T>(
     }
     start = index;
   }
-  const maxBytes = options?.maxBytes ?? Number.POSITIVE_INFINITY;
-  const maxJsonBytes = options?.maxJsonBytes ?? Number.POSITIVE_INFINITY;
-  const maxItemBytes = options?.maxItemBytes ?? Number.POSITIVE_INFINITY;
-  const items: unknown[] = [];
-  let truncatedItem: StateStorageTruncatedItem | null = null;
-  let pageBytes = 2;
-  let jsonBytes = options?.jsonEnvelopeBytes ?? 2;
-  let index = start;
-  while (index < sequence.length) {
-    const item = sequence[index];
-    const itemJson = jsonUtf8Bytes(item);
-    const separator = items.length > 0 ? 1 : 0;
-    if (
-      pageBytes + separator + itemJson <= maxBytes &&
-      jsonBytes + separator + itemJson <= maxJsonBytes &&
-      itemJson <= maxItemBytes
-    ) {
-      items.push(item);
-      pageBytes += separator + itemJson;
-      jsonBytes += separator + itemJson;
-      index++;
-      continue;
-    }
-    if (items.length > 0) break;
-    const shrunk = shrinkJsonStringLeaves(item, {
-      maxEstimatorBytes: maxBytes - pageBytes,
-      maxJsonBytes: Math.min(maxJsonBytes - jsonBytes, maxItemBytes),
-      estimate: jsonUtf8Bytes,
-    });
-    if (shrunk === null) {
-      throw new StateStorageValueTooLargeError(key, itemJson);
-    }
-    items.push(shrunk);
-    jsonBytes += jsonUtf8Bytes(shrunk);
-    truncatedItem = { index: 0, originalJsonBytes: itemJson };
-    index++;
-    break;
+  const page = packJsonSequencePage(
+    { length: sequence.length, itemAt: (index) => sequence[index] },
+    start,
+    {
+      maxJsonBytes: options?.maxJsonBytes ?? Number.POSITIVE_INFINITY,
+      jsonEnvelopeBytes: options?.jsonEnvelopeBytes ?? EMPTY_JSON_ARRAY_BYTES,
+      maxItemBytes: options?.maxItemBytes ?? Number.POSITIVE_INFINITY,
+      ...(options?.maxBytes !== undefined
+        ? {
+            estimator: {
+              maxBytes: options.maxBytes,
+              envelopeBytes: EMPTY_JSON_ARRAY_BYTES,
+              separatorBytes: 1,
+              estimate: jsonUtf8Bytes,
+            },
+          }
+        : {}),
+    },
+  );
+  if (page.status === 'item-too-large') {
+    throw new StateStorageValueTooLargeError(key, page.originalJsonBytes);
   }
-  const done = index >= sequence.length;
+  const done = page.nextIndex >= sequence.length;
   return {
-    items: items as T[],
-    nextCursor: done ? null : `s${fingerprint}.${index}`,
+    items: page.items as T[],
+    nextCursor: done ? null : `s${fingerprint}.${page.nextIndex}`,
     done,
-    approximateBytes: jsonBytes,
-    ...(truncatedItem ? { truncatedItems: [truncatedItem] } : {}),
+    approximateBytes: page.jsonBytes,
+    ...(page.truncatedItems.length > 0
+      ? { truncatedItems: page.truncatedItems }
+      : {}),
   };
 }
 

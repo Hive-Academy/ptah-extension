@@ -1,6 +1,7 @@
 import {
   jsonUtf8Bytes,
   omitJsonPaths,
+  packJsonSequencePage,
   shrinkJsonStringLeaves,
 } from './json-budget';
 
@@ -204,5 +205,142 @@ describe('shrinkJsonStringLeaves', () => {
       estimate: byJson,
     });
     expect(value.list[0]).toBe('q'.repeat(300));
+  });
+});
+
+describe('packJsonSequencePage', () => {
+  const source = <T>(items: readonly T[]) => ({
+    length: items.length,
+    itemAt: (index: number) => items[index],
+  });
+  const unbounded = {
+    maxJsonBytes: Number.POSITIVE_INFINITY,
+    jsonEnvelopeBytes: 2,
+    maxItemBytes: Number.POSITIVE_INFINITY,
+  };
+
+  it('packs every remaining item from the start offset when nothing binds', () => {
+    const page = packJsonSequencePage(
+      source(['a', 'b', 'c', 'd']),
+      1,
+      unbounded,
+    );
+    expect(page).toEqual({
+      status: 'packed',
+      items: ['b', 'c', 'd'],
+      nextIndex: 4,
+      jsonBytes: jsonUtf8Bytes(['b', 'c', 'd']),
+      truncatedItems: [],
+    });
+  });
+
+  it('seeds the JSON accumulator with the envelope and counts separators', () => {
+    const items = ['aaaa', 'bbbb', 'cccc'];
+    const twoItems = jsonUtf8Bytes(items.slice(0, 2));
+    const page = packJsonSequencePage(source(items), 0, {
+      ...unbounded,
+      jsonEnvelopeBytes: 10,
+      maxJsonBytes: twoItems - 2 + 10,
+    });
+    expect(page).toMatchObject({ status: 'packed', items: ['aaaa', 'bbbb'] });
+    expect(page).toMatchObject({ nextIndex: 2, jsonBytes: twoItems - 2 + 10 });
+  });
+
+  it('seeds the estimator accumulator with its envelope and applies its separator', () => {
+    const estimate = (): number => 100;
+    const noSeparator = packJsonSequencePage(source([1, 2, 3, 4]), 0, {
+      ...unbounded,
+      estimator: {
+        maxBytes: 350,
+        envelopeBytes: 50,
+        separatorBytes: 0,
+        estimate,
+      },
+    });
+    expect(noSeparator).toMatchObject({ items: [1, 2, 3], nextIndex: 3 });
+    const withSeparator = packJsonSequencePage(source([1, 2, 3, 4]), 0, {
+      ...unbounded,
+      estimator: {
+        maxBytes: 350,
+        envelopeBytes: 50,
+        separatorBytes: 1,
+        estimate,
+      },
+    });
+    expect(withSeparator).toMatchObject({ items: [1, 2], nextIndex: 2 });
+  });
+
+  it('stops before an item over maxItemBytes when the page already has items', () => {
+    const page = packJsonSequencePage(source(['ok', 'x'.repeat(50), 'ok']), 0, {
+      ...unbounded,
+      maxItemBytes: 20,
+    });
+    expect(page).toMatchObject({
+      status: 'packed',
+      items: ['ok'],
+      nextIndex: 1,
+      truncatedItems: [],
+    });
+  });
+
+  it('shrinks an oversized first item into both budgets and reports it page-relative', () => {
+    const big = { text: 'y'.repeat(2_000) };
+    const estimate = (value: unknown): number => jsonUtf8Bytes(value) * 2;
+    const page = packJsonSequencePage(source(['head', big, 'tail']), 1, {
+      maxJsonBytes: 600,
+      jsonEnvelopeBytes: 40,
+      maxItemBytes: 500,
+      estimator: {
+        maxBytes: 900,
+        envelopeBytes: 100,
+        separatorBytes: 0,
+        estimate,
+      },
+    });
+    if (page.status !== 'packed') throw new Error('expected a packed page');
+    expect(page.nextIndex).toBe(2);
+    expect(page.items).toHaveLength(1);
+    expect(page.truncatedItems).toEqual([
+      { index: 0, originalJsonBytes: jsonUtf8Bytes(big) },
+    ]);
+    const shrunkJson = jsonUtf8Bytes(page.items[0]);
+    expect(shrunkJson).toBeLessThanOrEqual(500);
+    expect(estimate(page.items[0])).toBeLessThanOrEqual(800);
+    expect(page.jsonBytes).toBe(40 + shrunkJson);
+  });
+
+  it('bounds the shrink by the JSON budget alone when no estimator is given', () => {
+    const big = { text: 'z'.repeat(1_000) };
+    const page = packJsonSequencePage(source([big]), 0, {
+      maxJsonBytes: 120,
+      jsonEnvelopeBytes: 0,
+      maxItemBytes: Number.POSITIVE_INFINITY,
+    });
+    if (page.status !== 'packed') throw new Error('expected a packed page');
+    expect(jsonUtf8Bytes(page.items[0])).toBeLessThanOrEqual(120);
+    expect(page.nextIndex).toBe(1);
+  });
+
+  it('reports item-too-large with the original size when shrinking cannot fit', () => {
+    const numbers = Array.from({ length: 100 }, (_, i) => i);
+    expect(
+      packJsonSequencePage(source([numbers]), 0, {
+        ...unbounded,
+        maxJsonBytes: 50,
+      }),
+    ).toEqual({
+      status: 'item-too-large',
+      originalJsonBytes: jsonUtf8Bytes(numbers),
+    });
+  });
+
+  it('returns an empty done page when start is at the end', () => {
+    expect(packJsonSequencePage(source(['a']), 1, unbounded)).toEqual({
+      status: 'packed',
+      items: [],
+      nextIndex: 1,
+      jsonBytes: 2,
+      truncatedItems: [],
+    });
   });
 });

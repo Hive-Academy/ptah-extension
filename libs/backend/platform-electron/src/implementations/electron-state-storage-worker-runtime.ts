@@ -3,7 +3,7 @@ import {
   StateStorageRecoveryRequiredError,
   jsonUtf8Bytes,
   omitJsonPaths,
-  shrinkJsonStringLeaves,
+  packJsonSequencePage,
   type StateStorageArraySplitPlan,
   type StateStorageMigrationReceipt,
   type StateStorageValueProjection,
@@ -752,8 +752,6 @@ export class ElectronStateWorkerRuntime {
     const sequence = value ?? [];
     if (start > sequence.length) throw cursorStale();
     const cursorPrefix = `g${blob?.generation ?? 0}.`;
-    const maxJsonBytes = request.maxJsonBytes ?? Number.POSITIVE_INFINITY;
-    const maxItemBytes = request.maxItemBytes ?? Number.POSITIVE_INFINITY;
     const baseEstimator = measure({
       type: 'json-sequence-page',
       operationId: request.operationId,
@@ -768,54 +766,38 @@ export class ElectronStateWorkerRuntime {
         },
       ],
     });
-    const items: JsonValue[] = [];
-    let truncatedItem: { index: number; originalJsonBytes: number } | null =
-      null;
-    let estimatorBytes = baseEstimator;
-    let jsonBytes = request.jsonEnvelopeBytes ?? 2;
-    let index = start;
-    while (index < sequence.length) {
-      const item = sequence[index];
-      const itemEstimator = estimateElectronStateJsonBytes(item);
-      const itemJson = jsonUtf8Bytes(item);
-      const separator = items.length > 0 ? 1 : 0;
-      if (
-        estimatorBytes + itemEstimator <= request.maxBytes &&
-        jsonBytes + separator + itemJson <= maxJsonBytes &&
-        itemJson <= maxItemBytes
-      ) {
-        items.push(item);
-        estimatorBytes += itemEstimator;
-        jsonBytes += separator + itemJson;
-        index++;
-        continue;
-      }
-      if (items.length > 0) break;
-      const shrunk = shrinkJsonStringLeaves(item, {
-        maxEstimatorBytes: request.maxBytes - baseEstimator,
-        maxJsonBytes: Math.min(maxJsonBytes - jsonBytes, maxItemBytes),
-        estimate: (candidate) =>
-          estimateElectronStateJsonBytes(candidate as JsonValue),
+    const page = packJsonSequencePage(
+      { length: sequence.length, itemAt: (index) => sequence[index] },
+      start,
+      {
+        maxJsonBytes: request.maxJsonBytes ?? Number.POSITIVE_INFINITY,
+        jsonEnvelopeBytes: request.jsonEnvelopeBytes ?? 2,
+        maxItemBytes: request.maxItemBytes ?? Number.POSITIVE_INFINITY,
+        estimator: {
+          maxBytes: request.maxBytes,
+          envelopeBytes: baseEstimator,
+          separatorBytes: 0,
+          estimate: (candidate) =>
+            estimateElectronStateJsonBytes(candidate as JsonValue),
+        },
+      },
+    );
+    if (page.status === 'item-too-large') {
+      throw new ElectronStateWorkerOperationError('value-too-large', {
+        valueBytes: page.originalJsonBytes,
       });
-      if (shrunk === null) {
-        throw new ElectronStateWorkerOperationError('value-too-large', {
-          valueBytes: itemJson,
-        });
-      }
-      items.push(shrunk);
-      truncatedItem = { index: 0, originalJsonBytes: itemJson };
-      index++;
-      break;
     }
-    const done = index >= sequence.length;
+    const done = page.nextIndex >= sequence.length;
     return {
       type: 'json-sequence-page',
       operationId: request.operationId,
-      items,
-      nextCursor: done ? null : `${cursorPrefix}${index}`,
+      items: page.items,
+      nextCursor: done ? null : `${cursorPrefix}${page.nextIndex}`,
       done,
       approximateBytes: request.maxBytes,
-      ...(truncatedItem ? { truncatedItems: [truncatedItem] } : {}),
+      ...(page.truncatedItems.length > 0
+        ? { truncatedItems: page.truncatedItems }
+        : {}),
     };
   }
 

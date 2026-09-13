@@ -28,7 +28,7 @@ Wraps the official `@anthropic-ai/claude-agent-sdk` (plus `@openai/codex-sdk`) i
 
 ## Public API
 
-`SdkAgentAdapter`, `InternalQueryService`, `SdkMessageTransformer`, `SessionMetadataStore`, `SessionImporterService`, `SessionHistoryReaderService`, `JsonlReaderService`, `SdkPermissionHandler`, `ProviderModelsService`, `ClaudeCliDetector`, `SubagentMessageDispatcher`, `CompactionCallbackRegistry`, `CompactionHookHandler`, `SessionIdResolvedCallbackRegistry`. Errors: `SdkError`, `SessionNotActiveError`, `ModelNotAvailableError`. Registration: `registerSdkServices`, `SDK_TOKENS`. Constants: `ANTHROPIC_PROVIDERS` (provider entries carry `defaultTiers` for bare tier resolution).
+`SdkAgentAdapter`, `InternalQueryService`, `SdkMessageTransformer`, `SessionMetadataStore`, `SessionImporterService`, `SessionHistoryReaderService`, `JsonlReaderService`, `SdkPermissionHandler`, `ProviderModelsService`, `ClaudeCliDetector`, `SubagentMessageDispatcher`, `CompactionCallbackRegistry`, `CompactionHookHandler`, `SessionIdResolvedCallbackRegistry`. Errors: `SdkError`, `SessionNotActiveError`, `ModelNotAvailableError`, `AgentOutputCursorStaleError`. Registration: `registerSdkServices`, `SDK_TOKENS`. Constants: `ANTHROPIC_PROVIDERS` (provider entries carry `defaultTiers` for bare tier resolution).
 
 ## Internal Structure
 

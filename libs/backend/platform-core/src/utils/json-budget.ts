@@ -1,3 +1,4 @@
+import type { StateStorageTruncatedItem } from '../interfaces/async-state-storage.interface';
 import type { StateStorageJsonPath } from '../interfaces/state-storage-maintenance.interface';
 
 export const JSON_PATH_WILDCARD = '*';
@@ -7,6 +8,38 @@ export interface ShrinkJsonStringLeavesOptions {
   readonly maxJsonBytes: number;
   readonly estimate: (value: unknown) => number;
 }
+
+export interface JsonSequencePageSource<T> {
+  readonly length: number;
+  readonly itemAt: (index: number) => T;
+}
+
+export interface JsonSequenceEstimatorBudget {
+  readonly maxBytes: number;
+  readonly envelopeBytes: number;
+  readonly separatorBytes: number;
+  readonly estimate: (value: unknown) => number;
+}
+
+export interface PackJsonSequencePageOptions {
+  readonly maxJsonBytes: number;
+  readonly jsonEnvelopeBytes: number;
+  readonly maxItemBytes: number;
+  readonly estimator?: JsonSequenceEstimatorBudget;
+}
+
+export type PackedJsonSequencePage<T> =
+  | {
+      readonly status: 'packed';
+      readonly items: T[];
+      readonly nextIndex: number;
+      readonly jsonBytes: number;
+      readonly truncatedItems: StateStorageTruncatedItem[];
+    }
+  | {
+      readonly status: 'item-too-large';
+      readonly originalJsonBytes: number;
+    };
 
 export function jsonUtf8Bytes(value: unknown): number {
   const encoded = JSON.stringify(value);
@@ -182,4 +215,72 @@ export function shrinkJsonStringLeaves<T>(
     }
   }
   return best as T;
+}
+
+export function packJsonSequencePage<T>(
+  sequence: JsonSequencePageSource<T>,
+  start: number,
+  options: PackJsonSequencePageOptions,
+): PackedJsonSequencePage<T> {
+  const { estimator } = options;
+  const items: T[] = [];
+  let estimatorBytes = estimator?.envelopeBytes ?? 0;
+  let jsonBytes = options.jsonEnvelopeBytes;
+  let index = start;
+  while (index < sequence.length) {
+    const item = sequence.itemAt(index);
+    const itemJson = jsonUtf8Bytes(item);
+    const first = items.length === 0;
+    const jsonSeparator = first ? 0 : 1;
+    const itemEstimator = estimator
+      ? estimator.estimate(item) + (first ? 0 : estimator.separatorBytes)
+      : 0;
+    if (
+      (!estimator || estimatorBytes + itemEstimator <= estimator.maxBytes) &&
+      jsonBytes + jsonSeparator + itemJson <= options.maxJsonBytes &&
+      itemJson <= options.maxItemBytes
+    ) {
+      items.push(item);
+      estimatorBytes += itemEstimator;
+      jsonBytes += jsonSeparator + itemJson;
+      index++;
+      continue;
+    }
+    if (!first) break;
+    const jsonCap = Math.min(
+      options.maxJsonBytes - options.jsonEnvelopeBytes,
+      options.maxItemBytes,
+    );
+    const shrunk = shrinkJsonStringLeaves(
+      item,
+      estimator
+        ? {
+            maxEstimatorBytes: estimator.maxBytes - estimator.envelopeBytes,
+            maxJsonBytes: jsonCap,
+            estimate: estimator.estimate,
+          }
+        : {
+            maxEstimatorBytes: jsonCap,
+            maxJsonBytes: jsonCap,
+            estimate: jsonUtf8Bytes,
+          },
+    );
+    if (shrunk === null) {
+      return { status: 'item-too-large', originalJsonBytes: itemJson };
+    }
+    return {
+      status: 'packed',
+      items: [shrunk],
+      nextIndex: index + 1,
+      jsonBytes: jsonBytes + jsonUtf8Bytes(shrunk),
+      truncatedItems: [{ index: 0, originalJsonBytes: itemJson }],
+    };
+  }
+  return {
+    status: 'packed',
+    items,
+    nextIndex: index,
+    jsonBytes,
+    truncatedItems: [],
+  };
 }

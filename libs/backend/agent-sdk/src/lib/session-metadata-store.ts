@@ -38,9 +38,8 @@ import {
   StateStorageCursorStaleError,
   StateStorageValueTooLargeError,
   isAsyncStateStorage,
-  jsonUtf8Bytes,
   omitJsonPaths,
-  shrinkJsonStringLeaves,
+  packJsonSequencePage,
   type IAsyncStateStorage,
   type IStateStorage,
   type StateStorageArraySplitPlan,
@@ -828,43 +827,34 @@ export class SessionMetadataStore {
     const itemCount = outputSegments.length + outputEvents.length;
     const savedAt = output ? (output.savedAt ?? 0) : null;
     const start = parseRecordOutputCursor(agentId, cursor, savedAt, itemCount);
-    const items: TaggedAgentOutputItem[] = [];
-    let itemBytes = 0;
-    let index = start;
-    while (index < itemCount) {
-      const item: TaggedAgentOutputItem =
-        index < outputSegments.length
-          ? { tag: 'segment', value: outputSegments[index] }
-          : {
-              tag: 'streamEvent',
-              value: outputEvents[index - outputSegments.length],
-            };
-      const cost = jsonUtf8Bytes(item) + (items.length > 0 ? 1 : 0);
-      if (itemBytes + cost <= budget.itemBytes) {
-        items.push(item);
-        itemBytes += cost;
-        index++;
-        continue;
-      }
-      if (items.length > 0) break;
-      const shrunk = shrinkJsonStringLeaves(item, {
-        maxEstimatorBytes: budget.itemBytes,
+    const page = packJsonSequencePage<TaggedAgentOutputItem>(
+      {
+        length: itemCount,
+        itemAt: (index) =>
+          index < outputSegments.length
+            ? { tag: 'segment', value: outputSegments[index] }
+            : {
+                tag: 'streamEvent',
+                value: outputEvents[index - outputSegments.length],
+              },
+      },
+      start,
+      {
         maxJsonBytes: budget.itemBytes,
-        estimate: jsonUtf8Bytes,
-      });
-      const originalJsonBytes = jsonUtf8Bytes(item);
-      if (shrunk === null) {
-        throw new StateStorageValueTooLargeError(key, originalJsonBytes);
-      }
-      this.logTruncatedItems(agentId, [{ index: 0, originalJsonBytes }]);
-      items.push(shrunk);
-      index++;
-      break;
+        jsonEnvelopeBytes: 0,
+        maxItemBytes: Number.POSITIVE_INFINITY,
+      },
+    );
+    if (page.status === 'item-too-large') {
+      throw new StateStorageValueTooLargeError(key, page.originalJsonBytes);
     }
-    const done = index >= itemCount;
+    if (page.truncatedItems.length > 0) {
+      this.logTruncatedItems(agentId, page.truncatedItems);
+    }
+    const done = page.nextIndex >= itemCount;
     return {
-      items,
-      nextCursor: done ? null : `s${savedAt ?? 0}.${index}`,
+      items: page.items,
+      nextCursor: done ? null : `s${savedAt ?? 0}.${page.nextIndex}`,
       done,
     };
   }
