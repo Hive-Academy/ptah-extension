@@ -1,4 +1,4 @@
-import { join } from 'path';
+import { isAbsolute, join } from 'path';
 import { inject, injectable } from 'tsyringe';
 import {
   FileType,
@@ -23,7 +23,8 @@ export type AgentRoleErrorCode =
   | 'unknown_role'
   | 'empty_role'
   | 'role_too_large'
-  | 'role_read_failed';
+  | 'role_read_failed'
+  | 'no_workspace';
 
 export class AgentRoleError extends Error {
   readonly availableRoles: string[];
@@ -47,6 +48,7 @@ export class AgentRoleResolver {
   ) {}
 
   async listRoles(workspaceRoot: string): Promise<string[]> {
+    this.assertWorkspaceRoot(workspaceRoot);
     const agentsDir = this.agentsDirFor(
       resolveHarnessWorkspaceRoot(workspaceRoot),
     );
@@ -64,6 +66,7 @@ export class AgentRoleResolver {
       );
     }
 
+    this.assertWorkspaceRoot(workspaceRoot);
     const harnessRoot = resolveHarnessWorkspaceRoot(workspaceRoot);
     const agentsDir = this.agentsDirFor(harnessRoot);
     const roleFiles = await this.listRoleFiles(agentsDir);
@@ -124,6 +127,15 @@ export class AgentRoleResolver {
       sourcePath,
       bytes,
     };
+  }
+
+  private assertWorkspaceRoot(workspaceRoot: string): void {
+    if (workspaceRoot.trim() === '' || !isAbsolute(workspaceRoot)) {
+      throw new AgentRoleError(
+        'no_workspace',
+        `No workspace folder is open (received ${JSON.stringify(workspaceRoot)}), so roles cannot be resolved. Spawning without "role" is valid.`,
+      );
+    }
   }
 
   private agentsDirFor(harnessRoot: string): string {

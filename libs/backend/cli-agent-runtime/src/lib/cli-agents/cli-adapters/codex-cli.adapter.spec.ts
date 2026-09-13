@@ -194,6 +194,12 @@ jest.mock('fs', () => {
 import path from 'path';
 import { CodexCliAdapter, commandToolLabel } from './codex-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
+import type { AgentRoleDefinition } from '@ptah-extension/shared';
+import {
+  buildTaskPrompt,
+  CliCommandLineTooLongError,
+  renderRoleBlock,
+} from './cli-adapter.utils';
 
 describe('CodexCliAdapter', () => {
   let adapter: CodexCliAdapter;
@@ -1117,6 +1123,116 @@ describe('CodexCliAdapter', () => {
       expect(freshImportCount).toBe(1);
       // But the Codex constructor is called each time
       expect(freshMockConstructor).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('role delivery (developer-instructions)', () => {
+    const role: AgentRoleDefinition = {
+      name: 'reviewer',
+      body: 'Review the diff before approving.',
+      sourcePath: '/project/.claude/agents/reviewer.md',
+      bytes: 33,
+    };
+    const baseOptions = {
+      task: 'Review the change',
+      workingDirectory: '/project',
+      model: 'gpt-5.4',
+      reasoningEffort: 'high',
+      mcpPort: 51820,
+    };
+
+    function setupMockEvents(): void {
+      mockRunStreamed.mockResolvedValue({
+        events: createFakeEventGenerator([]),
+      });
+    }
+
+    function constructorConfig(call = 0): Record<string, unknown> {
+      return (
+        mockCodexConstructor.mock.calls[call][0] as {
+          config: Record<string, unknown>;
+        }
+      ).config;
+    }
+
+    it('declares the developer-instructions channel', () => {
+      expect(adapter.roleChannel).toBe('developer-instructions');
+    });
+
+    it('puts the role block in developer_instructions and keeps it out of the thread input', async () => {
+      setupMockEvents();
+
+      const handle = await adapter.runSdk({ ...baseOptions, role });
+      await handle.done;
+
+      expect(constructorConfig()['developer_instructions']).toBe(
+        renderRoleBlock(role, 'codex'),
+      );
+      const input = mockRunStreamed.mock.calls[0][0] as string;
+      expect(input).not.toContain('## Role: reviewer');
+      expect(input).toBe(buildTaskPrompt({ ...baseOptions, role: undefined }));
+    });
+
+    it('keeps a leading --- block of the role body in developer_instructions', async () => {
+      setupMockEvents();
+      const blockRole = {
+        ...role,
+        body: '---\nkeep: this block\n---\nThe real instructions.',
+      };
+
+      await adapter.runSdk({ ...baseOptions, role: blockRole });
+
+      expect(constructorConfig()['developer_instructions']).toContain(
+        '---\nkeep: this block\n---\nThe real instructions.',
+      );
+    });
+
+    it('does not re-send the role on a continuation turn', async () => {
+      setupMockEvents();
+      const handle = await adapter.runSdk({ ...baseOptions, role });
+      await handle.done;
+
+      const outcome = await handle.continue?.('Follow-up');
+      await outcome?.done;
+
+      expect(mockCodexConstructor).toHaveBeenCalledTimes(1);
+      expect(mockRunStreamed.mock.calls[1][0]).toBe('Follow-up');
+    });
+
+    it('leaves the role-less config without developer_instructions', async () => {
+      setupMockEvents();
+
+      await adapter.runSdk(baseOptions);
+
+      expect(constructorConfig()).not.toHaveProperty('developer_instructions');
+    });
+
+    it('rejects an oversized role before the Codex client is constructed', async () => {
+      setupMockEvents();
+      const hugeBody = 'x'.repeat(1_100_000);
+
+      await expect(
+        adapter.runSdk({
+          ...baseOptions,
+          role: { ...role, body: hugeBody, bytes: hugeBody.length },
+        }),
+      ).rejects.toBeInstanceOf(CliCommandLineTooLongError);
+      expect(mockCodexConstructor).not.toHaveBeenCalled();
+      expect(mockStartThread).not.toHaveBeenCalled();
+    });
+
+    it('does not change sandbox, approval, model or effort when a role is set', async () => {
+      setupMockEvents();
+
+      await adapter.runSdk(baseOptions);
+      await adapter.runSdk({ ...baseOptions, role });
+
+      expect(mockStartThread.mock.calls[1][0]).toEqual(
+        mockStartThread.mock.calls[0][0],
+      );
+      const withRole = { ...constructorConfig(1) };
+      delete withRole['developer_instructions'];
+      expect(withRole).toEqual(constructorConfig(0));
     });
   });
 

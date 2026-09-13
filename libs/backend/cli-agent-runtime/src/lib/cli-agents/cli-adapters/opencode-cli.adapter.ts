@@ -218,6 +218,7 @@ export function resolveOpencodeNativeBinary(
 export class OpencodeCliAdapter implements CliAdapter {
   readonly name = 'opencode' as const;
   readonly displayName = 'opencode';
+  readonly roleChannel = 'task-prompt' as const;
   /** MCP is configured per-process via the `OPENCODE_CONFIG_CONTENT` env var. */
   readonly supportsMcp = true;
 
@@ -403,7 +404,7 @@ export class OpencodeCliAdapter implements CliAdapter {
    * event. stderr and non-zero exit surface as `error` segments.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    const taskPrompt = buildTaskPrompt(options);
+    const taskPrompt = buildTaskPrompt(options, this.name);
     const abortController = new AbortController();
     let capturedSessionId: string | undefined;
     // Tracks last-seen full text per part.id so repeated `text` lines emit only

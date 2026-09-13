@@ -7,6 +7,7 @@
  */
 import type {
   AgentMessagingCapability,
+  AgentRoleChannel,
   AgentRoleDefinition,
   CliType,
   CliDetectionResult,
@@ -166,6 +167,13 @@ export interface CliAdapter {
    * a new adapter cannot silently inherit "no messaging at all".
    */
   capabilities(): AgentMessagingCapabilities;
+
+  /**
+   * Where this CLI receives a resolved workspace role. Required — an adapter
+   * that does not declare it is a compile error, so a new adapter cannot
+   * silently drop a role it was asked to run as.
+   */
+  readonly roleChannel: AgentRoleChannel;
 
   /**
    * Strip ANSI escape codes, progress bars, and other non-content output

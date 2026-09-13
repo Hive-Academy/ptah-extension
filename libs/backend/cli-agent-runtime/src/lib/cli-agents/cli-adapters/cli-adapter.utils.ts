@@ -471,6 +471,8 @@ const NATIVE_AGENT_TOOL_POLICY =
 
 const PROMPT_SECTION_DELIMITER = '\n\n---\n\n';
 
+const EMPTY_FRONTMATTER = '---\n\n---\n';
+
 const ROLE_TRANSFORM_TARGETS: ReadonlySet<CliType> = new Set<CliTarget>([
   'codex',
   'copilot',
@@ -487,7 +489,7 @@ export function renderRoleBlock(
   cli: CliType,
 ): string {
   const body = isRoleTransformTarget(cli)
-    ? transformAgentBody(role.body, cli)
+    ? transformAgentBody(EMPTY_FRONTMATTER + role.body, cli)
     : role.body;
   return (
     `## Role: ${role.name}\n\n` +

@@ -125,9 +125,9 @@ describe('buildTaskPrompt', () => {
     });
 
     it('system context, no role', () => {
-      expect(
-        buildTaskPrompt({ ...base, systemPrompt: 'SYSTEM' }, 'pi'),
-      ).toBe(`SYSTEM\n\n---\n\n${tail}`);
+      expect(buildTaskPrompt({ ...base, systemPrompt: 'SYSTEM' }, 'pi')).toBe(
+        `SYSTEM\n\n---\n\n${tail}`,
+      );
     });
 
     it('no system context, with role', () => {
@@ -203,14 +203,30 @@ describe('renderRoleBlock', () => {
   describe('a body that itself begins with a --- pair', () => {
     const body = '---\nkeep: this block\n---\nThe real instructions.';
 
-    it('loses the leading block on a transform lane (double strip)', () => {
-      expect(renderRoleBlock(role(body), 'codex')).toBe(
-        header('reviewer') + 'The real instructions.',
+    it.each([
+      'codex',
+      'copilot',
+      'cursor',
+      'antigravity',
+      'pi',
+      'opencode',
+      'ptah-cli',
+    ] as const)('preserves the leading block on the %s lane', (cli) => {
+      expect(renderRoleBlock(role(body), cli)).toBe(
+        header('reviewer') +
+          '---\nkeep: this block\n---\nThe real instructions.',
       );
     });
 
-    it('keeps the leading block on a pass-through lane', () => {
-      expect(renderRoleBlock(role(body), 'pi')).toBe(header('reviewer') + body);
+    it('keeps the block and still rewrites the text after it on a transform lane', () => {
+      const rewritable = '---\nkeep: this block\n---\n' + claudeFlavouredBody;
+      const rendered = renderRoleBlock(role(rewritable), 'codex');
+      const transformedTail = transformAgentBody(claudeFlavouredBody, 'codex');
+
+      expect(transformedTail).not.toBe(claudeFlavouredBody);
+      expect(rendered).toBe(
+        header('reviewer') + '---\nkeep: this block\n---\n' + transformedTail,
+      );
     });
   });
 });
@@ -295,11 +311,7 @@ describe('assertCommandLineWithinLimit', () => {
         expect(
           measure(command, ['x'.repeat(8_191 - overhead)], 'win32'),
         ).toBeUndefined();
-        const error = measure(
-          command,
-          ['x'.repeat(8_192 - overhead)],
-          'win32',
-        );
+        const error = measure(command, ['x'.repeat(8_192 - overhead)], 'win32');
         expect(error?.measured).toBe(8_192);
         expect(error?.limit).toBe(8_191);
       },
@@ -308,7 +320,11 @@ describe('assertCommandLineWithinLimit', () => {
     it('keeps the CreateProcess cap for a resolved node entrypoint', () => {
       const arg = 'x'.repeat(20_000);
       expect(
-        measure('C:\\node\\node.exe', ['C:\\npm\\tool\\index.js', arg], 'win32'),
+        measure(
+          'C:\\node\\node.exe',
+          ['C:\\npm\\tool\\index.js', arg],
+          'win32',
+        ),
       ).toBeUndefined();
     });
   });
@@ -335,7 +351,11 @@ describe('assertCommandLineWithinLimit', () => {
 
     it('does not sum args', () => {
       expect(
-        measure('opencode', ['x'.repeat(131_071), 'x'.repeat(131_071)], 'linux'),
+        measure(
+          'opencode',
+          ['x'.repeat(131_071), 'x'.repeat(131_071)],
+          'linux',
+        ),
       ).toBeUndefined();
     });
   });
@@ -364,7 +384,11 @@ describe('assertCommandLineWithinLimit', () => {
   });
 
   it('explains that nothing was truncated and names both remedies without a vendor', () => {
-    const error = measure('C:\\bin\\copilot.cmd', ['-p', 'x'.repeat(9_000)], 'win32');
+    const error = measure(
+      'C:\\bin\\copilot.cmd',
+      ['-p', 'x'.repeat(9_000)],
+      'win32',
+    );
 
     expect(error).toBeInstanceOf(CliCommandLineTooLongError);
     expect(error?.name).toBe('CliCommandLineTooLongError');

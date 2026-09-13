@@ -144,6 +144,7 @@ const COPILOT_NOT_INSTALLED_MESSAGE =
 export class CopilotSdkAdapter implements CliAdapter {
   readonly name = 'copilot' as const;
   readonly displayName = 'Copilot CLI';
+  readonly roleChannel = 'task-prompt' as const;
   /**
    * The Copilot CLI supports MCP via `--additional-mcp-config` JSON. This
    * adapter wires the Ptah MCP server when `mcpPort` is provided in options.
@@ -456,7 +457,10 @@ export class CopilotSdkAdapter implements CliAdapter {
       });
     };
 
-    const done = runTurn(buildTaskPrompt(options), options.resumeSessionId);
+    const done = runTurn(
+      buildTaskPrompt(options, this.name),
+      options.resumeSessionId,
+    );
 
     return {
       abort: abortController,

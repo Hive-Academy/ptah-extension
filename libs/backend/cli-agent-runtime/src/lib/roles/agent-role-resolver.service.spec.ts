@@ -150,6 +150,48 @@ describe('AgentRoleResolver', () => {
     });
   });
 
+  describe('workspace root guard', () => {
+    it.each(['', '   ', 'relative/dir'])(
+      'listRoles(%j) raises no_workspace before any filesystem call',
+      async (root) => {
+        const fs = createFakeFileSystem({}, {});
+        const resolver = new AgentRoleResolver(fs.provider);
+
+        const error = await expectRoleError(
+          resolver.listRoles(root),
+          'no_workspace',
+        );
+        expect(error.availableRoles).toEqual([]);
+        expect(error.message).toContain('No workspace folder is open');
+        expect(error.message).toContain('Spawning without "role" is valid');
+        expect(fs.totalCalls()).toBe(0);
+      },
+    );
+
+    it.each(['', 'relative/dir'])(
+      'resolve(%j, "x") raises no_workspace before any filesystem call',
+      async (root) => {
+        const fs = createFakeFileSystem({}, {});
+        const resolver = new AgentRoleResolver(fs.provider);
+
+        const error = await expectRoleError(
+          resolver.resolve(root, 'x'),
+          'no_workspace',
+        );
+        expect(error.availableRoles).toEqual([]);
+        expect(fs.totalCalls()).toBe(0);
+      },
+    );
+
+    it('checks the role name before the workspace root', async () => {
+      const fs = createFakeFileSystem({}, {});
+      const resolver = new AgentRoleResolver(fs.provider);
+
+      await expectRoleError(resolver.resolve('', '../x'), 'invalid_role_name');
+      expect(fs.totalCalls()).toBe(0);
+    });
+  });
+
   describe('resolve', () => {
     it('raises no_roles when the agents directory is missing', async () => {
       const fs = createFakeFileSystem({}, {});

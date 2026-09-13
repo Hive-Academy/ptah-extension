@@ -148,6 +148,7 @@ const LINE_BUF_CAP = 1024 * 1024;
 export class PiCliAdapter implements CliAdapter {
   readonly name = 'pi' as const;
   readonly displayName = 'Pi';
+  readonly roleChannel = 'task-prompt' as const;
   /** Pi has no MCP support — its extensibility is code-based (registerTool). */
   readonly supportsMcp = false;
 
@@ -496,7 +497,10 @@ export class PiCliAdapter implements CliAdapter {
       });
     };
 
-    const done = runTurn(buildTaskPrompt(options), options.resumeSessionId);
+    const done = runTurn(
+      buildTaskPrompt(options, this.name),
+      options.resumeSessionId,
+    );
 
     return {
       abort: abortController,

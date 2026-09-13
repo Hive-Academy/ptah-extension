@@ -25,11 +25,13 @@ import type {
 } from './cli-adapter.interface';
 import { bestMessagingCapability } from './cli-adapter.interface';
 import {
+  assertCommandLineWithinLimit,
   stripAnsiCodes,
   buildTaskPrompt,
   probeCliVersion,
   resolveCliPath,
   createBufferedEmitter,
+  renderRoleBlock,
   withAsarUnpackedTwin,
 } from './cli-adapter.utils';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
@@ -441,6 +443,7 @@ interface CodexAuthFile {
 export class CodexCliAdapter implements CliAdapter {
   readonly name = 'codex' as const;
   readonly displayName = 'Codex CLI';
+  readonly roleChannel = 'developer-instructions' as const;
 
   /**
    * @param logger - Optional; when supplied it receives the FULL SDK rejection
@@ -623,8 +626,16 @@ export class CodexCliAdapter implements CliAdapter {
       // off puts `ptah_*` and `execute_code` in the tool list from turn one.
       config['features'] = { tool_search_always_defer_mcp_tools: false };
     }
-    codexOptions.config = config;
     const nativeBinaryPath = resolveCodexNativeBinary(options.binaryPath);
+    if (options.role) {
+      const developerInstructions = renderRoleBlock(options.role, this.name);
+      assertCommandLineWithinLimit(nativeBinaryPath ?? 'codex', [
+        '--config',
+        `developer_instructions=${JSON.stringify(developerInstructions)}`,
+      ]);
+      config['developer_instructions'] = developerInstructions;
+    }
+    codexOptions.config = config;
     if (nativeBinaryPath) {
       codexOptions.codexPathOverride = nativeBinaryPath;
     }
@@ -655,7 +666,7 @@ export class CodexCliAdapter implements CliAdapter {
     const thread = options.resumeSessionId
       ? codex.resumeThread(options.resumeSessionId, threadOptions)
       : codex.startThread(threadOptions);
-    const taskPrompt = buildTaskPrompt(options);
+    const taskPrompt = buildTaskPrompt({ ...options, role: undefined });
     const abortController = new AbortController();
     let capturedThreadId: string | undefined;
     const itemTextTracker = new Map<string, string>();

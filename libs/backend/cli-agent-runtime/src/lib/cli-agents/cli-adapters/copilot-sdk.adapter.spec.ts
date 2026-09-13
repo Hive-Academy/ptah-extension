@@ -86,7 +86,13 @@ jest.mock('child_process', () => ({
   spawn: jest.fn(),
 }));
 
+import type { AgentRoleDefinition } from '@ptah-extension/shared';
 import { CopilotSdkAdapter } from './copilot-sdk.adapter';
+import {
+  buildTaskPrompt,
+  CliCommandLineTooLongError,
+  renderRoleBlock,
+} from './cli-adapter.utils';
 import { CopilotPermissionBridge } from './copilot-permission-bridge';
 
 describe('CopilotSdkAdapter', () => {
@@ -890,6 +896,113 @@ describe('CopilotSdkAdapter', () => {
       continuedChild?.emitClose(null, 'SIGTERM');
       const code = await outcome!.done;
       expect(code).toBe(1);
+    });
+  });
+
+  describe('runSdk() — role delivery (task-prompt)', () => {
+    const role: AgentRoleDefinition = {
+      name: 'reviewer',
+      body: 'Review the diff before approving.',
+      sourcePath: '/proj/.claude/agents/reviewer.md',
+      bytes: 33,
+    };
+    const baseOptions = {
+      task: 'Review the change',
+      workingDirectory: '/proj',
+      systemPrompt: 'HARNESS CONTEXT',
+      model: 'claude-sonnet-4.5',
+      reasoningEffort: 'high',
+      mcpPort: 51820,
+    };
+
+    function promptArg(call = 0): string {
+      const [, args] = mockSpawnCli.mock.calls[call] as [string, string[]];
+      return args[args.indexOf('-p') + 1];
+    }
+
+    beforeEach(() => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/copilot');
+    });
+
+    it('declares the task-prompt channel', () => {
+      expect(adapter.roleChannel).toBe('task-prompt');
+    });
+
+    it('puts the role block in the -p value after the harness context', async () => {
+      const handle = await adapter.runSdk({ ...baseOptions, role });
+      handle.onOutput(() => undefined);
+
+      const prompt = promptArg();
+      expect(prompt).toBe(buildTaskPrompt({ ...baseOptions, role }, 'copilot'));
+      expect(prompt.indexOf('HARNESS CONTEXT')).toBe(0);
+      expect(prompt.indexOf(renderRoleBlock(role, 'copilot'))).toBeGreaterThan(
+        prompt.indexOf('HARNESS CONTEXT'),
+      );
+
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
+    it('does not re-send the role on a continuation turn', async () => {
+      const handle = await adapter.runSdk({ ...baseOptions, role });
+      handle.onOutput(() => undefined);
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'result',
+          sessionId: 'copilot-sess-role',
+          exitCode: 0,
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const outcome = await handle.continue?.('follow-up');
+      const [, continuedArgs] = mockSpawnCli.mock.calls[1] as [
+        string,
+        string[],
+      ];
+      expect(promptArg(1)).toBe('follow-up');
+      expect(continuedArgs.join('\n')).not.toContain('## Role: reviewer');
+
+      currentChild?.emitClose(0);
+      await outcome?.done;
+    });
+
+    it('surfaces the command-line guard error from spawnCli for an oversized role', async () => {
+      const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
+        './cli-adapter.utils',
+      );
+      mockSpawnCli.mockImplementationOnce(
+        (command: string, args: string[], opts: Record<string, unknown>) =>
+          actual.spawnCli(command, args, opts),
+      );
+      const hugeBody = 'x'.repeat(1_100_000);
+
+      await expect(
+        adapter.runSdk({
+          ...baseOptions,
+          role: { ...role, body: hugeBody, bytes: hugeBody.length },
+        }),
+      ).rejects.toBeInstanceOf(CliCommandLineTooLongError);
+    });
+
+    it('keeps every non-prompt argument identical when a role is set', async () => {
+      const first = await adapter.runSdk(baseOptions);
+      first.onOutput(() => undefined);
+      currentChild?.emitClose(0);
+      await first.done;
+
+      const second = await adapter.runSdk({ ...baseOptions, role });
+      second.onOutput(() => undefined);
+      currentChild?.emitClose(0);
+      await second.done;
+
+      const withoutPrompt = (call: number): string[] => {
+        const [, args] = mockSpawnCli.mock.calls[call] as [string, string[]];
+        const promptIndex = args.indexOf('-p') + 1;
+        return args.filter((_, index) => index !== promptIndex);
+      };
+      expect(withoutPrompt(1)).toEqual(withoutPrompt(0));
     });
   });
 
