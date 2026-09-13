@@ -10,7 +10,22 @@ import {
 
 export interface ElectronStateWorkerMessagePort {
   postMessage(value: unknown, transferList?: ArrayBuffer[]): void;
+  terminate(): void;
 }
+
+type FailureResponse = Extract<
+  ElectronStateWorkerResponse,
+  { type: 'failure' }
+>;
+
+const COMMIT_REQUEST_TYPES: ReadonlySet<ElectronStateWorkerRequest['type']> =
+  new Set([
+    'update',
+    'delete',
+    'commit-scalar-write',
+    'commit-json-sequence-write',
+    'split-array-value',
+  ]);
 
 export interface ElectronStateWorkerRequestHandler {
   handle(
@@ -45,50 +60,82 @@ function transferListOf(response: ElectronStateWorkerResponse): ArrayBuffer[] {
   );
 }
 
-function postFailure(
-  port: ElectronStateWorkerMessagePort,
+function failureRecord(
   operationId: number,
   code: ElectronStateWorkerFailureCode,
-): void {
-  try {
-    port.postMessage({ type: 'failure', operationId, code });
-  } catch {
-    // degradation-audit: optional-capability - the port itself refused a
-    // three-field failure record, so there is no channel left to report on.
-    // The host's pending request surfaces through its own crash or handshake
-    // path, and the request chain must keep serving later operations.
+): FailureResponse {
+  return { type: 'failure', operationId, code };
+}
+
+function undeliveredResponseFailure(
+  request: ElectronStateWorkerRequest,
+  response: ElectronStateWorkerResponse,
+): FailureResponse {
+  if (response.type === 'failure') return response;
+  if (COMMIT_REQUEST_TYPES.has(request.type)) {
+    return {
+      type: 'failure',
+      operationId: request.operationId,
+      code: 'commit-failed',
+      landed: true,
+    };
   }
+  return failureRecord(request.operationId, 'internal-error');
+}
+
+function postFailure(
+  port: ElectronStateWorkerMessagePort,
+  failure: FailureResponse,
+): boolean {
+  let delivered = true;
+  try {
+    port.postMessage(failure);
+  } catch {
+    delivered = false;
+    port.terminate();
+  }
+  return delivered;
 }
 
 async function processMessage(
   handler: ElectronStateWorkerRequestHandler,
   port: ElectronStateWorkerMessagePort,
   input: unknown,
-): Promise<void> {
-  let request: ElectronStateWorkerRequest | null = null;
+): Promise<boolean> {
+  let request: ElectronStateWorkerRequest;
   try {
     request = parseElectronStateWorkerRequest(input);
   } catch {
-    postFailure(port, operationIdOf(input), 'invalid-request');
+    return postFailure(
+      port,
+      failureRecord(operationIdOf(input), 'invalid-request'),
+    );
   }
-  if (!request) return;
   let code: ElectronStateWorkerFailureCode = 'internal-error';
+  let parsed: ElectronStateWorkerResponse;
   try {
     const response = await handler.handle(request);
     code = 'response-too-large';
     assertElectronStateWorkerPayloadWithinBudget(response);
     code = 'internal-error';
-    const parsed = parseElectronStateWorkerResponse(response);
-    port.postMessage(parsed, transferListOf(parsed));
+    parsed = parseElectronStateWorkerResponse(response);
   } catch (error: unknown) {
-    postFailure(
+    return postFailure(
       port,
-      request.operationId,
-      error instanceof ElectronStateWorkerProtocolError &&
-        error.code === 'PAYLOAD_TOO_LARGE'
-        ? 'response-too-large'
-        : code,
+      failureRecord(
+        request.operationId,
+        error instanceof ElectronStateWorkerProtocolError &&
+          error.code === 'PAYLOAD_TOO_LARGE'
+          ? 'response-too-large'
+          : code,
+      ),
     );
+  }
+  try {
+    port.postMessage(parsed, transferListOf(parsed));
+    return true;
+  } catch {
+    return postFailure(port, undeliveredResponseFailure(request, parsed));
   }
 }
 
@@ -97,8 +144,12 @@ export function createElectronStateWorkerMessageLoop(
   port: ElectronStateWorkerMessagePort,
 ): ElectronStateWorkerMessageListener {
   let chain: Promise<void> = Promise.resolve();
+  let terminated = false;
   return (input: unknown) => {
-    const run = (): Promise<void> => processMessage(handler, port, input);
+    const run = async (): Promise<void> => {
+      if (terminated) return;
+      terminated = !(await processMessage(handler, port, input));
+    };
     chain = chain.then(run, run);
   };
 }

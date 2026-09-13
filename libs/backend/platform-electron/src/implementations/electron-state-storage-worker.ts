@@ -14,5 +14,6 @@ workerParentPort.on(
   createElectronStateWorkerMessageLoop(new ElectronStateWorkerRuntime(), {
     postMessage: (value, transferList) =>
       workerParentPort.postMessage(value, transferList),
+    terminate: () => process.exit(1),
   }),
 );

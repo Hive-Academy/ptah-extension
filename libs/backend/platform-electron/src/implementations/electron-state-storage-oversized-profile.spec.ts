@@ -175,6 +175,7 @@ function createExtractedLoopWorkerFactory(): ElectronStateWorkerFactory {
             messageListener(cloned);
           }
         },
+        terminate: () => undefined,
       },
     );
 

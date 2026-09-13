@@ -72,6 +72,7 @@ function harness(
             messageListener(cloned);
           }
         },
+        terminate: () => undefined,
       },
     );
     const worker: ElectronStateWorkerLike = {
