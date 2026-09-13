@@ -1,3 +1,5 @@
+import type { DashboardSessionEntry } from '../services/session-analytics-state.service';
+
 /**
  * Format a USD cost value for display.
  * - null / NaN / undefined: $--
@@ -10,6 +12,66 @@ export function formatCost(cost: number | null): string {
   if (cost === 0) return '$0.00';
   if (cost > 0 && cost < 0.01) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(2)}`;
+}
+
+/**
+ * Format a current-rate-card cost estimate. `null` is an unknown price, shown
+ * as "Unknown" so it can never be read as $0.
+ */
+export function formatEstimatedCost(cost: number | null): string {
+  if (cost === null || isNaN(cost)) return 'Unknown';
+  return formatCost(cost);
+}
+
+/** Cost text for one session in any stats state. */
+export function formatSessionCost(
+  session: Pick<DashboardSessionEntry, 'status' | 'totalCost'>,
+): string {
+  switch (session.status) {
+    case 'pending':
+      return 'Loading';
+    case 'error':
+      return 'Unavailable';
+    case 'empty':
+      return 'No usage';
+    case 'ok':
+      return formatEstimatedCost(session.totalCost);
+  }
+}
+
+/**
+ * Why a session's numbers are incomplete, one sentence per reason. Empty for
+ * a pending or fully counted and priced session.
+ */
+export function sessionCoverageNotes(
+  session: Pick<
+    DashboardSessionEntry,
+    | 'status'
+    | 'coverage'
+    | 'untimestampedCount'
+    | 'pricingCoverage'
+    | 'totalCost'
+  >,
+): string[] {
+  if (session.status === 'pending') return [];
+  if (session.status === 'error') {
+    return ['Stats could not be read for this session.'];
+  }
+  const notes: string[] = [];
+  if (session.untimestampedCount > 0) {
+    const n = session.untimestampedCount;
+    notes.push(
+      `${n} usage ${n === 1 ? 'record has' : 'records have'} no timestamp and ${n === 1 ? 'is' : 'are'} not counted in this range.`,
+    );
+  } else if (session.coverage === 'partial') {
+    notes.push('Some usage (such as a subagent transcript) could not be read.');
+  }
+  if (session.status === 'ok' && session.totalCost === null) {
+    notes.push('No current rate-card price for this usage; cost is unknown.');
+  } else if (session.pricingCoverage === 'partial') {
+    notes.push('Part of this usage has no rate-card price; cost is a lower bound.');
+  }
+  return notes;
 }
 
 /**

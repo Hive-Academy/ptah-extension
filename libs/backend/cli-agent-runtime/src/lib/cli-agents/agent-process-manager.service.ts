@@ -836,6 +836,12 @@ export class AgentProcessManager {
         // There is no subprocess to reclaim, which is what makes `disposeAll`
         // and the TTL backstop no-ops for these records rather than errors.
         subprocessReleased: true,
+        // Restore refs are lean, so both are normally empty. That cannot
+        // overwrite the stored output: `readOutputForPersistence` is read only
+        // on `agent:spawned` / `agent:exited`, which a restored record never
+        // emits (no process, and steer/stop/continue throw first); its info has
+        // no `parentSessionId`, so the session-id remap never re-persists it;
+        // and `saveAgentOutput` skips a write when both arrays are empty.
         accumulatedSegments: ref.segments ? [...ref.segments] : [],
         accumulatedStreamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
         streamCapLogged: false,

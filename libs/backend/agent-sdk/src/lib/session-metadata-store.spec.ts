@@ -28,7 +28,9 @@ import 'reflect-metadata';
 import {
   SessionMetadataStore,
   flushSessionMetadataStores,
+  type TaggedAgentOutputItem,
 } from './session-metadata-store';
+import type { IAsyncStateStorage } from '@ptah-extension/platform-core';
 import { createMockStateStorage } from '@ptah-extension/platform-core/testing';
 import {
   createMockLogger,
@@ -569,6 +571,332 @@ describe('SessionMetadataStore', () => {
       expect(stored?.segments).toHaveLength(500);
     });
 
+    it('pages synchronous output in segment-then-event order without duplication', async () => {
+      await store.saveAgentOutput(FAT_AGENT, {
+        segments: segments(40),
+        streamEvents: streamEvents(40),
+      });
+
+      const received: string[] = [];
+      let cursor: string | undefined;
+      let pageCount = 0;
+      do {
+        const page = await store.getAgentOutputPage(FAT_AGENT, cursor, 1024);
+        received.push(
+          ...page.items.map((item) =>
+            item.tag === 'segment' ? item.value.content : item.value.id,
+          ),
+        );
+        cursor = page.nextCursor ?? undefined;
+        pageCount++;
+      } while (cursor);
+
+      expect(pageCount).toBeGreaterThan(1);
+      expect(received).toEqual([
+        ...segments(40).map((item) => item.content),
+        ...streamEvents(40).map((item) => item.id),
+      ]);
+      expect(new Set(received).size).toBe(received.length);
+    });
+
+    it('bounds the complete UTF-8 RPC envelope and honors continuation cursors', async () => {
+      const multibyteSegments = Array.from({ length: 40 }, (_, index) => ({
+        type: 'text' as const,
+        content: `${index}:${'界'.repeat(3_000)}`,
+      }));
+      await store.saveAgentOutput(FAT_AGENT, {
+        segments: multibyteSegments,
+        streamEvents: [],
+      });
+
+      const first = await store.getAgentOutputPage(
+        FAT_AGENT,
+        undefined,
+        256 * 1024,
+      );
+      expect(first.done).toBe(false);
+      expect(first.nextCursor).not.toBeNull();
+      expect(
+        Buffer.byteLength(
+          JSON.stringify({
+            success: true,
+            data: first,
+            correlationId: '00000000-0000-0000-0000-000000000000',
+          }),
+          'utf8',
+        ),
+      ).toBeLessThanOrEqual(256 * 1024);
+
+      const second = await store.getAgentOutputPage(
+        FAT_AGENT,
+        first.nextCursor ?? undefined,
+        256 * 1024,
+      );
+      expect(second.items[0]).toEqual({
+        tag: 'segment',
+        value: multibyteSegments[first.items.length],
+      });
+    });
+
+    it('rejects malformed and oversized synchronous pages without looping', async () => {
+      await store.saveAgentOutput(FAT_AGENT, {
+        segments: [{ type: 'text', content: 'x'.repeat(2_000) }],
+        streamEvents: [],
+      });
+
+      await expect(
+        store.getAgentOutputPage(FAT_AGENT, 'not-a-cursor', 1024),
+      ).rejects.toThrow('Invalid agent output cursor');
+      await expect(
+        store.getAgentOutputPage(FAT_AGENT, undefined, 1024),
+      ).rejects.toThrow('Agent output item exceeds page budget');
+    });
+
+    it('reserves the outer RPC envelope on worker-backed reads', async () => {
+      const page = {
+        items: [
+          {
+            tag: 'segment' as const,
+            value: { type: 'text' as const, content: '界'.repeat(40_000) },
+          },
+        ],
+        nextCursor: '1',
+        done: false,
+        approximateBytes: 1,
+      };
+      const readJsonSequence = jest.fn(
+        async function* (): AsyncIterable<typeof page> {
+          yield page;
+        },
+      );
+      const asyncStorage = {
+        ...storage,
+        getAsync: jest.fn(async <T>(key: string, defaultValue?: T) =>
+          storage.get<T>(key, defaultValue),
+        ),
+        readJsonSequence: readJsonSequence as IAsyncStateStorage['readJsonSequence'],
+        replaceJsonSequence: jest.fn(async () => undefined),
+      } satisfies IAsyncStateStorage;
+      const asyncStore = new SessionMetadataStore(
+        asyncStorage,
+        asLogger(logger),
+      );
+
+      const result = await asyncStore.getAgentOutputPage(
+        FAT_AGENT,
+        'cursor-1',
+        256 * 1024,
+      );
+
+      expect(readJsonSequence).toHaveBeenCalledWith(
+        `ptah.agentOutput:${FAT_AGENT}`,
+        { cursor: 'cursor-1', maxBytes: 128 * 1024 },
+      );
+      expect(
+        Buffer.byteLength(
+          JSON.stringify({
+            success: true,
+            data: result,
+            correlationId: '0'.repeat(64),
+          }),
+          'utf8',
+        ),
+      ).toBeLessThanOrEqual(256 * 1024);
+    });
+
+    it('closes the page iterator rather than abandoning it', async () => {
+      // Only the first page is ever read. `for await` used to close the
+      // generator on its early exit; the explicit take-first must still run
+      // the implementation's `finally`, or a file handle or worker channel
+      // leaks once per page request.
+      let closed = false;
+      const readJsonSequence = jest.fn(async function* () {
+        try {
+          yield { items: [], nextCursor: null, done: true, approximateBytes: 1 };
+        } finally {
+          closed = true;
+        }
+      });
+      const asyncStorage = {
+        ...storage,
+        getAsync: jest.fn(async <T>(key: string, defaultValue?: T) =>
+          storage.get<T>(key, defaultValue),
+        ),
+        readJsonSequence:
+          readJsonSequence as unknown as IAsyncStateStorage['readJsonSequence'],
+        replaceJsonSequence: jest.fn(async () => undefined),
+      } satisfies IAsyncStateStorage;
+      const asyncStore = new SessionMetadataStore(
+        asyncStorage,
+        asLogger(logger),
+      );
+
+      await expect(
+        asyncStore.getAgentOutputPage(FAT_AGENT, undefined, 256 * 1024),
+      ).resolves.toEqual({ items: [], nextCursor: null, done: true });
+      expect(closed).toBe(true);
+    });
+
+    it('rejects a worker page that violates the final RPC budget', async () => {
+      const page = {
+        items: [
+          {
+            tag: 'segment' as const,
+            value: { type: 'text' as const, content: '界'.repeat(90_000) },
+          },
+        ],
+        nextCursor: '1',
+        done: false,
+        approximateBytes: 1,
+      };
+      const readJsonSequence = jest.fn(
+        async function* (): AsyncIterable<typeof page> {
+          yield page;
+        },
+      );
+      const asyncStorage = {
+        ...storage,
+        getAsync: jest.fn(async <T>(key: string, defaultValue?: T) =>
+          storage.get<T>(key, defaultValue),
+        ),
+        readJsonSequence: readJsonSequence as IAsyncStateStorage['readJsonSequence'],
+        replaceJsonSequence: jest.fn(async () => undefined),
+      } satisfies IAsyncStateStorage;
+      const asyncStore = new SessionMetadataStore(
+        asyncStorage,
+        asLogger(logger),
+      );
+
+      await expect(
+        asyncStore.getAgentOutputPage(FAT_AGENT, undefined, 256 * 1024),
+      ).rejects.toThrow('Agent output item exceeds RPC page budget');
+      // One item alone cannot fit: a bounded error, not a budget search.
+      expect(readJsonSequence).toHaveBeenCalledTimes(1);
+    });
+
+    describe('worker-backed paging at the 1024-byte schema floor', () => {
+      type Item = {
+        tag: 'segment';
+        value: { type: 'text'; content: string };
+      };
+      const item = (content: string): Item => ({
+        tag: 'segment',
+        value: { type: 'text', content },
+      });
+
+      /**
+       * Emulates the Electron worker: packs greedily by its own estimate (2 per
+       * UTF-16 unit, not UTF-8) and refuses when not even one item fits.
+       */
+      function workerOver(items: readonly Item[]) {
+        return jest.fn(async function* (
+          _key: string,
+          options?: { cursor?: string; maxBytes?: number },
+        ) {
+          const budget = options?.maxBytes ?? 256 * 1024;
+          const page: Item[] = [];
+          let used = 0;
+          let index = options?.cursor ? Number(options.cursor) : 0;
+          while (index < items.length) {
+            const cost = JSON.stringify(items[index]).length * 2;
+            if (used + cost > budget) break;
+            page.push(items[index]);
+            used += cost;
+            index++;
+          }
+          if (page.length === 0 && index < items.length) {
+            throw new Error('Sequence item exceeds page budget');
+          }
+          const done = index >= items.length;
+          yield { items: page, nextCursor: done ? null : String(index), done };
+        });
+      }
+
+      function storeOver(readJsonSequence: ReturnType<typeof workerOver>) {
+        const asyncStorage = {
+          ...storage,
+          getAsync: jest.fn(async <T>(key: string, defaultValue?: T) =>
+            storage.get<T>(key, defaultValue),
+          ),
+          readJsonSequence:
+            readJsonSequence as unknown as IAsyncStateStorage['readJsonSequence'],
+          replaceJsonSequence: jest.fn(async () => undefined),
+        } satisfies IAsyncStateStorage;
+        return new SessionMetadataStore(asyncStorage, asLogger(logger));
+      }
+
+      async function drain(
+        asyncStore: SessionMetadataStore,
+      ): Promise<string[]> {
+        const received: string[] = [];
+        let cursor: string | undefined;
+        let pages = 0;
+        do {
+          const page = await asyncStore.getAgentOutputPage(
+            FAT_AGENT,
+            cursor,
+            1024,
+          );
+          expect(page.items.length).toBeGreaterThan(0);
+          expect(
+            Buffer.byteLength(
+              JSON.stringify({
+                success: true,
+                data: page,
+                correlationId: '0'.repeat(64),
+              }),
+              'utf8',
+            ),
+          ).toBeLessThanOrEqual(1024);
+          received.push(
+            ...page.items.map((entry) =>
+              entry.tag === 'segment' ? entry.value.content : '',
+            ),
+          );
+          cursor = page.nextCursor ?? undefined;
+          pages++;
+        } while (cursor && pages < 50);
+        return received;
+      }
+
+      it('narrows the worker budget when its page encodes past the RPC budget', async () => {
+        // Each item fits alone (~500 UTF-8 bytes) but the worker's estimate
+        // undercounts CJK, so a 1024 worker budget packs two (~1150 bytes).
+        const contents = [1, 2, 3, 4].map((n) => `${n}${'界'.repeat(150)}`);
+        const readJsonSequence = workerOver(contents.map(item));
+
+        await expect(drain(storeOver(readJsonSequence))).resolves.toEqual(
+          contents,
+        );
+        for (const [, options] of readJsonSequence.mock.calls) {
+          expect(options?.maxBytes).toBeLessThanOrEqual(1024);
+        }
+      });
+
+      it('widens the worker budget when it refuses an item that fits the RPC budget', async () => {
+        // ~650 UTF-8 bytes each: fits a 1024 RPC page, but the worker's
+        // estimate doubles ASCII and refuses it at a 1024 budget.
+        const contents = ['a', 'b'].map((c) => c.repeat(600));
+
+        await expect(
+          drain(storeOver(workerOver(contents.map(item)))),
+        ).resolves.toEqual(contents);
+      });
+
+      it('fails clearly only when one item alone exceeds the RPC budget', async () => {
+        const readJsonSequence = workerOver([item('x'.repeat(2000))]);
+
+        await expect(
+          storeOver(readJsonSequence).getAgentOutputPage(
+            FAT_AGENT,
+            undefined,
+            1024,
+          ),
+        ).rejects.toThrow('Agent output item exceeds RPC page budget');
+        expect(readJsonSequence.mock.calls.length).toBeLessThanOrEqual(3);
+      });
+    });
+
     it('writes nothing when there is no output to store', async () => {
       await store.saveAgentOutput(FAT_AGENT, {
         segments: [],
@@ -581,7 +909,7 @@ describe('SessionMetadataStore', () => {
       await expect(store.getAgentOutput(FAT_AGENT)).resolves.toBeNull();
     });
 
-    it('rehydrates the restore payload from the per-agent key', async () => {
+    it('keeps restore lean and exposes complete history only through pages', async () => {
       await seedFatReference();
       await store.saveAgentOutput(FAT_AGENT, {
         segments: segments(500),
@@ -590,23 +918,37 @@ describe('SessionMetadataStore', () => {
 
       const refs = await store.getCliSessionsForRestore('sess-1');
       expect(refs).toHaveLength(1);
-      expect(refs[0].streamEvents).toHaveLength(5000);
-      expect(refs[0].segments).toHaveLength(500);
-      // The reference's own identity fields survive the merge.
+      expect(refs[0].streamEvents).toBeUndefined();
+      expect(refs[0].segments).toBeUndefined();
       expect(refs[0].cliSessionId).toBe('cli-fat');
+
+      const received: TaggedAgentOutputItem[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await store.getAgentOutputPage(
+          FAT_AGENT,
+          cursor,
+          32 * 1024,
+        );
+        received.push(...page.items);
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+
+      expect(received.filter((item) => item.tag === 'segment')).toHaveLength(
+        500,
+      );
+      expect(
+        received.filter((item) => item.tag === 'streamEvent'),
+      ).toHaveLength(5000);
     });
 
-    it('returns the lean reference when no bulk output was stored', async () => {
+    it('returns a lean reference when no bulk output was stored', async () => {
       await seedFatReference();
-      // The store now migrates what it leans (TASK_2026_324 finding 1), so the
-      // "nothing stored" case has to be made by DROPPING the key — which is
-      // also the real one: an agent whose output was deleted, or a reference
-      // written by a build that predates the per-agent split.
       await store.deleteAgentOutput(FAT_AGENT);
 
       const refs = await store.getCliSessionsForRestore('sess-1');
       expect(refs[0].streamEvents).toBeUndefined();
-      expect(refs[0].segments).toHaveLength(200);
+      expect(refs[0].segments).toBeUndefined();
     });
 
     it('returns an empty list for a session with no CLI agents', async () => {
@@ -672,10 +1014,16 @@ describe('SessionMetadataStore', () => {
       const blob = storage.__state.entries.get(METADATA_KEY);
       expect(JSON.stringify(blob)).not.toContain('streamEvents');
 
-      // ...and the bulk is still readable, which is the half that did not.
+      // Restore stays lean; migrated bulk remains reachable only by paging.
       const refs = await store.getCliSessionsForRestore('sess-1');
-      expect(refs[0].streamEvents).toHaveLength(400);
-      expect(refs[0].segments).toHaveLength(500);
+      expect(refs[0].streamEvents).toBeUndefined();
+      expect(refs[0].segments).toBeUndefined();
+      const firstPage = await store.getAgentOutputPage(
+        OLD_FORMAT_AGENT,
+        undefined,
+        32 * 1024,
+      );
+      expect(firstPage.items.length).toBeGreaterThan(0);
     });
 
     it('leaves a reference with no agentId untouched — there is no key to migrate to', async () => {

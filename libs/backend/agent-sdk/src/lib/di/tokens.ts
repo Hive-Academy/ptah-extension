@@ -27,6 +27,11 @@ export const SDK_TOKENS = {
   SDK_SESSION_METADATA_STORE: Symbol.for('SdkSessionMetadataStore'),
   SDK_SESSION_IMPORTER: Symbol.for('SdkSessionImporter'),
   SDK_SESSION_HISTORY_READER: Symbol.for('SdkSessionHistoryReader'),
+  /**
+   * Stats-only transcript projection behind `session:stats-batch`
+   * (TASK_2026_411 B4). Never replays history.
+   */
+  SDK_SESSION_STATS_READER: Symbol.for('SdkSessionStatsReader'),
   SDK_PERMISSION_HANDLER: Symbol.for('SdkPermissionHandler'),
   SDK_MESSAGE_TRANSFORMER: Symbol.for('SdkMessageTransformer'),
   SDK_SESSION_LIFECYCLE_MANAGER: Symbol.for('SdkSessionLifecycleManager'),

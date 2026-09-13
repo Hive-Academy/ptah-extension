@@ -23,10 +23,13 @@ export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 export {
   SessionMetadataStore,
   flushSessionMetadataStores,
+  SESSION_METADATA_MIGRATION,
+  SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
 } from './lib/session-metadata-store';
 export type {
   SessionMetadata,
   PersistedAgentOutput,
+  TaggedAgentOutputItem,
 } from './lib/session-metadata-store';
 export { SessionImporterService } from './lib/session-importer.service';
 export {
@@ -34,11 +37,24 @@ export {
   MESSAGE_ID_NOT_FOUND_PHRASE,
 } from './lib/session-history-reader.service';
 
+export {
+  SessionStatsReaderService,
+  PARENT_FILE_CONCURRENCY,
+  SUBAGENT_FILE_CONCURRENCY,
+} from './lib/session-stats';
+export type {
+  SessionStatsRequest,
+  SessionStatsReadEntry,
+  SessionStatsScopeSelection,
+} from './lib/session-stats';
+
 export { SdkTranscriptReaderAdapter } from './lib/sdk-transcript-reader.adapter';
 export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
 export type {
   JsonlReadOptions,
   JsonlTailOptions,
+  JsonlProjectionOptions,
+  JsonlProjectionResult,
 } from './lib/helpers/history/jsonl-reader.service';
 export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
@@ -68,6 +84,10 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+// The 8th `SdkMessageTransformer` constructor argument. Exported because a
+// consumer that constructs the transformer directly — `auth-providers`' Codex
+// stream-parity spec — cannot reach the internal helpers barrel.
+export { CompactionBoundaryGenerationRegistry } from './lib/helpers';
 export {
   SessionTurnStateRegistry,
   toTurnStateEvent,

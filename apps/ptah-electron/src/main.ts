@@ -12,10 +12,16 @@ import {
   type Logger,
   type SentryService,
 } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  StateStorageRecoveryRequiredError,
+} from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
 import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
+import type { DependencyContainer } from 'tsyringe';
 import { bootstrapElectron } from './activation/bootstrap';
+import { registerStartupConfigIpc } from './activation/startup-config-ipc';
+import { registerRecoveryModeIpc } from './activation/recovery-mode-ipc';
 import { BootCoordinator } from './activation/boot-coordinator';
 import { createBootReadinessBroadcaster } from './activation/boot-readiness-broadcaster';
 import { wireRuntimePreWindow } from './activation/wire-runtime';
@@ -62,9 +68,76 @@ if (!gotLock) {
   // explicitly on AND the tray actually constructed. Nothing else may suppress
   // the quit (R10).
   let trayService: PtahTrayService | null = null;
+  let workspaceStorageReady = false;
+  let startupShellQuery: Record<string, string> = { state: 'preparing' };
+  // Read by the `get-startup-config` responder below. Deliberately a mutable
+  // slot read through a closure, not a copy: the responder is registered before
+  // a container exists and must see the real one the moment boot produces it.
+  let bootContainer: DependencyContainer | null = null;
 
   app.whenReady().then(async () => {
-    const boot = await bootstrapElectron(() => mainWindow, coordinator);
+    // BEFORE the first window. Every renderer's preload blocks on this sync
+    // channel while it loads, so a window opened ahead of the responder can
+    // never finish loading — see `startup-config-ipc.ts` (TASK_2026_411).
+    registerStartupConfigIpc(() => bootContainer);
+
+    const preparingWindow = createMainWindow(
+      () => coordinator.refs.resolvedStateStorage ?? undefined,
+    );
+    mainWindow = preparingWindow;
+    const preparingShellPath = path.join(
+      __dirname,
+      'assets',
+      'preparing-workspace.html',
+    );
+    // A failed or aborted shell load must not take the boot down with it. This
+    // promise rejects with `ERR_FAILED (-2)` whenever the window is closed
+    // mid-load (a quit during startup, or an e2e harness tearing the app
+    // down), and an unhandled rejection here skips bootstrap entirely.
+    try {
+      await preparingWindow.loadFile(preparingShellPath, {
+        query: startupShellQuery,
+      });
+    } catch (error: unknown) {
+      console.error(
+        '[Ptah Electron] Preparing shell did not load; continuing to boot:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+
+    let boot: Awaited<ReturnType<typeof bootstrapElectron>>;
+    try {
+      boot = await bootstrapElectron(() => mainWindow, coordinator);
+      bootContainer = boot.container;
+      workspaceStorageReady = true;
+    } catch (error: unknown) {
+      startupShellQuery = {
+        state: 'recovery',
+        code:
+          error instanceof StateStorageRecoveryRequiredError
+            ? error.reason
+            : 'startup-failed',
+      };
+      console.error(
+        '[Ptah Electron] Workspace storage did not become ready:',
+        startupShellQuery['code'],
+      );
+      // `bootstrapElectron` threw PAST the `IpcBridge` registration — it awaits
+      // workspace-storage readiness first, deliberately. Without this the
+      // recovery window has no listener on `rpc`, `get-state` or `set-state`:
+      // the SYNC `get-state` blocks the renderer outright and every RPC waits
+      // out its own timeout with no error (TASK_2026_411).
+      registerRecoveryModeIpc(startupShellQuery['code'] ?? 'startup-failed');
+      await preparingWindow
+        .loadFile(preparingShellPath, { query: startupShellQuery })
+        .catch((loadError: unknown) => {
+          console.error(
+            '[Ptah Electron] Recovery shell did not load:',
+            loadError instanceof Error ? loadError.message : String(loadError),
+          );
+        });
+      return;
+    }
     flushWorkspacePersistence = boot.flushWorkspacePersistence;
 
     // The readiness push side, wired at the FIRST point a container exists —
@@ -207,10 +280,22 @@ if (!gotLock) {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createMainWindow(
-        coordinator.refs.resolvedStateStorage ?? undefined,
+        () => coordinator.refs.resolvedStateStorage ?? undefined,
       );
-      const rendererPath = path.join(__dirname, 'renderer', 'index.html');
-      mainWindow.loadFile(rendererPath);
+      const targetPath = workspaceStorageReady
+        ? path.join(__dirname, 'renderer', 'index.html')
+        : path.join(__dirname, 'assets', 'preparing-workspace.html');
+      mainWindow
+        .loadFile(
+          targetPath,
+          workspaceStorageReady ? undefined : { query: startupShellQuery },
+        )
+        .catch((error: unknown) => {
+          console.error(
+            '[Ptah Electron] Reactivated window did not load:',
+            error instanceof Error ? error.message : String(error),
+          );
+        });
     }
   });
   // Branch-free delegation: the decision lives in `handleWindowAllClosed` so it

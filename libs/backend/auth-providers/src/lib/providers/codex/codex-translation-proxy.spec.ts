@@ -54,6 +54,7 @@ function post(
 
 function createAuth(endpoint: string): ICodexAuthService {
   return {
+    getAccountUsageEligibility: async () => 'supported',
     getApiEndpoint: () => endpoint,
     getHeaders: async () => ({ 'content-type': 'application/json' }),
     ensureTokensFresh: async () => false,

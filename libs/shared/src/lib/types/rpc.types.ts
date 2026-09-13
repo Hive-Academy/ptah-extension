@@ -90,6 +90,8 @@ import type {
   SessionValidateResult,
   SessionCliSessionsParams,
   SessionCliSessionsResult,
+  SessionCliOutputPageParams,
+  SessionCliOutputPageResult,
   SessionStatsBatchParams,
   SessionStatsBatchResult,
   SessionForkParams,
@@ -154,6 +156,8 @@ import type {
   ProviderRemoveCustomEntryResult,
   ProviderTestCustomEntryParams,
   ProviderTestCustomEntryResult,
+  ProviderGetAccountUsageParams,
+  ProviderGetAccountUsageResult,
   LlmGetProviderStatusParams,
   LlmProviderStatusResponse,
   LlmSetApiKeyParams,
@@ -666,6 +670,10 @@ export interface RpcMethodRegistry {
     params: SessionCliSessionsParams;
     result: SessionCliSessionsResult;
   };
+  'session:cli-output-page': {
+    params: SessionCliOutputPageParams;
+    result: SessionCliOutputPageResult;
+  };
   'session:stats-batch': {
     params: SessionStatsBatchParams;
     result: SessionStatsBatchResult;
@@ -949,6 +957,10 @@ export interface RpcMethodRegistry {
   'provider:testCustomEntry': {
     params: ProviderTestCustomEntryParams;
     result: ProviderTestCustomEntryResult;
+  };
+  'provider:getAccountUsage': {
+    params: ProviderGetAccountUsageParams;
+    result: ProviderGetAccountUsageResult;
   };
   'chat:subagent-query': {
     params: SubagentQueryParams;
@@ -3365,6 +3377,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:rename': true,
   'session:validate': true,
   'session:cli-sessions': true,
+  'session:cli-output-page': true,
   'session:stats-batch': true,
   'session:forkSession': true,
   'session:rewindFiles': true,
@@ -3436,6 +3449,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:updateCustomEntry': true,
   'provider:removeCustomEntry': true,
   'provider:testCustomEntry': true,
+  'provider:getAccountUsage': true,
   'chat:subagent-query': true,
   'subagent:send-message': true,
   'subagent:stop': true,

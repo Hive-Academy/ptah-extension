@@ -30,6 +30,8 @@
  *     load (no id)            — UsageError exit 2
  *     stats (happy)           — CSV parsed, batch RPC, per-entry notify
  *     stats (empty CSV)       — works with empty array
+ *     stats (paging)          — >20 ids paged at 20, merged in request order
+ *     stats (page rejected)   — later page fails: exit 1, no partial output
  *     validate (happy)        — emits session.valid { valid: true }
  *     validate (no id)        — UsageError exit 2
  *     unknown sub-command     — UsageError exit 2
@@ -150,15 +152,19 @@ function makeStderr(): { stderr: { write: jest.Mock }; buffer: string } {
   return trace;
 }
 
+type ScriptedResponse =
+  | { success: true; data?: unknown }
+  | { success: false; error: string; errorCode?: string };
+
 interface MockEngine {
   withEngine: SessionExecuteHooks['withEngine'];
   engineOptions: Array<{ mode?: string; thoth?: string }>;
   rpcCalls: Array<{ method: string; params: unknown }>;
-  scripted: Map<
-    string,
-    | { success: true; data?: unknown }
-    | { success: false; error: string; errorCode?: string }
-  >;
+  /**
+   * Canned response per method, or a responder that receives each call's
+   * params (for commands that call one method several times, e.g. paging).
+   */
+  scripted: Map<string, ScriptedResponse | ((params: unknown) => ScriptedResponse)>;
   pushAdapter: EventEmitter;
   storage: IStateStorage;
   storageMap: Map<string, unknown>;
@@ -193,6 +199,7 @@ function makeEngine(opts?: {
     call: jest.fn(async (method: string, params: unknown) => {
       rpcCalls.push({ method, params });
       const scriptedResp = scripted.get(method);
+      if (typeof scriptedResp === 'function') return scriptedResp(params);
       if (scriptedResp) return scriptedResp;
       return { success: true, data: { __default: method } };
     }),
@@ -1067,6 +1074,93 @@ describe('ptah session stats', () => {
     expect(exit).toBe(ExitCode.Success);
     const call = e.rpcCalls.find((c) => c.method === 'session:stats-batch');
     expect(call?.params).toMatchObject({ sessionIds: [] });
+  });
+
+  // TASK_2026_411 B4 caps a stats page at SESSION_STATS_BATCH_MAX_IDS (20);
+  // the command pages its --ids instead of sending one rejected call.
+  const statsCalls = (e: MockEngine): string[][] =>
+    e.rpcCalls
+      .filter((c) => c.method === 'session:stats-batch')
+      .map((c) => (c.params as { sessionIds: string[] }).sessionIds);
+  const echoStats = (params: unknown): ScriptedResponse => ({
+    success: true,
+    data: {
+      sessionStats: (params as { sessionIds: string[] }).sessionIds.map(
+        (sessionId) => ({ sessionId }),
+      ),
+    },
+  });
+
+  it('pages more than 20 ids and emits every entry in request order', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    const ids = Array.from({ length: 45 }, (_, i) => `id-${i}`);
+    e.scripted.set('session:stats-batch', echoStats);
+
+    const exit = await execute(
+      { subcommand: 'stats', ids: ids.join(',') },
+      baseGlobals,
+      { formatter: f.formatter, withEngine: e.withEngine },
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    const pages = statsCalls(e);
+    expect(pages.map((page) => page.length)).toEqual([20, 20, 5]);
+    expect(pages.flat()).toEqual(ids);
+    for (const c of e.rpcCalls.filter((r) => r.method === 'session:stats-batch')) {
+      expect(c.params).toMatchObject({ workspacePath: 'D:/test-workspace' });
+    }
+    const emitted = f.notifications
+      .filter((n) => n.method === 'session.stats')
+      .map((n) => (n.params as { sessionId: string }).sessionId);
+    expect(emitted).toEqual(ids);
+  });
+
+  it('sends exactly 20 ids in a single call', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    const ids = Array.from({ length: 20 }, (_, i) => `id-${i}`);
+    e.scripted.set('session:stats-batch', echoStats);
+
+    const exit = await execute(
+      { subcommand: 'stats', ids: ids.join(',') },
+      baseGlobals,
+      { formatter: f.formatter, withEngine: e.withEngine },
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    expect(statsCalls(e)).toEqual([ids]);
+  });
+
+  it('fails the command with no partial output when a later page is rejected', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    const ids = Array.from({ length: 45 }, (_, i) => `id-${i}`);
+    let call = 0;
+    e.scripted.set('session:stats-batch', (params) =>
+      ++call === 2
+        ? {
+            success: false,
+            error: 'Invalid session:stats-batch params (sessionIds)',
+            errorCode: 'INVALID_PARAMS',
+          }
+        : echoStats(params),
+    );
+
+    const exit = await execute(
+      { subcommand: 'stats', ids: ids.join(',') },
+      baseGlobals,
+      { formatter: f.formatter, withEngine: e.withEngine },
+    );
+
+    expect(exit).toBe(ExitCode.InternalFailure);
+    expect(statsCalls(e)).toHaveLength(2);
+    expect(f.notifications.filter((n) => n.method === 'session.stats')).toHaveLength(0);
+    const error = f.notifications.find((n) => n.method === 'task.error');
+    expect(error?.params).toMatchObject({
+      command: 'session.stats',
+      message: 'Invalid session:stats-batch params (sessionIds)',
+    });
   });
 });
 

@@ -7,6 +7,8 @@
 
 import type { SessionId } from '../branded.types';
 import type { ChatSessionSummary, SessionTurnState } from '../execution';
+import type { CliOutputSegment } from '../agent-process.types';
+import type { FlatStreamEventUnion } from '../execution';
 import type {
   SdkCompactionCompletePayload,
   SdkSubagentEndedPayload,
@@ -151,8 +153,25 @@ export interface SessionCliSessionsParams {
 
 /** Response from session:cli-sessions RPC method */
 export interface SessionCliSessionsResult {
-  /** CLI session references from session metadata */
+  /** Lean references only. Historical output is fetched page-by-page. */
   cliSessions: import('../agent-process.types').CliSessionReference[];
+}
+
+export interface SessionCliOutputPageParams {
+  readonly sessionId: string;
+  readonly agentId: string;
+  readonly cursor?: string;
+  readonly maxBytes?: number;
+}
+
+export type SessionCliOutputPageItem =
+  | { readonly tag: 'segment'; readonly value: CliOutputSegment }
+  | { readonly tag: 'streamEvent'; readonly value: FlatStreamEventUnion };
+
+export interface SessionCliOutputPageResult {
+  readonly items: readonly SessionCliOutputPageItem[];
+  readonly nextCursor: string | null;
+  readonly done: boolean;
 }
 
 /** Per-session stats returned from JSONL reading */
@@ -185,20 +204,68 @@ export interface SessionStatsEntry {
   }>;
   /** Whether stats were successfully read from JSONL */
   readonly status: 'ok' | 'error' | 'empty';
+  /**
+   * `'partial'` when some usage could not be counted: an untimestamped record
+   * under `scope: 'range'`, or a subagent transcript that could not be read.
+   * Absent on entries produced before TASK_2026_411 B4.
+   */
+  readonly coverage?: SessionStatsCoverage;
+  /**
+   * Usage records omitted from a `'range'` total because they carry no
+   * timestamp. Always `0` for `'current-context'`.
+   */
+  readonly untimestampedCount?: number;
+  /**
+   * How much of the counted usage has a known rate. `totalCost` is `null`
+   * exactly when this is `'none'`. Costs are estimates from the current rate
+   * card, computed when the page is served.
+   */
+  readonly pricingCoverage?: SessionStatsPricingCoverage;
 }
+
+/** Whether every usage record in the requested scope was counted. */
+export type SessionStatsCoverage = 'complete' | 'partial';
+
+/** Share of counted tokens whose model has a known rate. */
+export type SessionStatsPricingCoverage = 'full' | 'partial' | 'none';
+
+/**
+ * Accounting scope for `session:stats-batch`.
+ *
+ * - `'current-context'`: the parent transcript after its last compact boundary,
+ *   plus every subagent transcript. Compatibility default.
+ * - `'range'`: every timestamped parent and subagent usage record whose
+ *   timestamp is in `[since, until)` (epoch ms). Compact boundaries are ignored.
+ */
+export type SessionStatsScope = 'current-context' | 'range';
+
+/** Most session ids one `session:stats-batch` request may carry. */
+export const SESSION_STATS_BATCH_MAX_IDS = 20;
 
 /** Parameters for session:stats-batch RPC method */
 export interface SessionStatsBatchParams {
-  /** Session IDs to fetch stats for */
+  /** Session UUIDs to fetch stats for (1..{@link SESSION_STATS_BATCH_MAX_IDS}) */
   readonly sessionIds: string[];
   /** Workspace path (for locating JSONL files) */
   readonly workspacePath: string;
+  /** Defaults to `'current-context'`. */
+  readonly scope?: SessionStatsScope;
+  /** Inclusive lower bound, epoch ms. Required when `scope` is `'range'`. */
+  readonly since?: number;
+  /** Exclusive upper bound, epoch ms. Required when `scope` is `'range'`. */
+  readonly until?: number;
 }
 
 /** Response from session:stats-batch RPC method */
 export interface SessionStatsBatchResult {
   /** Stats for each requested session (order matches sessionIds) */
   readonly sessionStats: SessionStatsEntry[];
+  /** Scope the page was computed for. Absent before TASK_2026_411 B4. */
+  readonly scope?: SessionStatsScope;
+  /** Echo of the request's `since` for `'range'` pages. */
+  readonly since?: number;
+  /** Echo of the request's `until` for `'range'` pages. */
+  readonly until?: number;
 }
 
 /**

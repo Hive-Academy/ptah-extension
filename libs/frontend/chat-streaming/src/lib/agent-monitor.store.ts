@@ -95,6 +95,14 @@ export interface MonitoredAgent {
    *  in place its reference is stable, so this counter is what tells the agent
    *  card to recompute its execution tree. */
   streamRevision: number;
+  /**
+   * Continuation cursor after the last persisted-output page merged into this
+   * card (`undefined` = none merged yet), and whether paging finished. A page is
+   * merged only when its request cursor equals this value, so a load restarted
+   * after a binding change can never append the same page twice.
+   */
+  historyCursor?: string;
+  historyDone?: boolean;
   /** Parent Ptah Claude SDK session that spawned this agent.
    * Mutable: initially set to tab ID, resolved to real SDK UUID
    * when SESSION_ID_RESOLVED fires.
@@ -1060,6 +1068,79 @@ export class AgentMonitorStore implements OnDestroy {
     if (!this._userExplicitlyClosed) {
       this._panelOpen.set(true);
     }
+  }
+
+  /**
+   * How far persisted-output paging got for one card, or null when the card is
+   * absent. A card rebuilt by {@link loadCliSessions} reports no progress.
+   */
+  cliOutputProgress(
+    sessionId: string,
+    agentId: string,
+  ): { readonly cursor: string | undefined; readonly done: boolean } | null {
+    const agent = this._agents().find(
+      (a) => a.agentId === agentId && a.parentSessionId === sessionId,
+    );
+    if (!agent) return null;
+    return { cursor: agent.historyCursor, done: agent.historyDone === true };
+  }
+
+  /**
+   * Merge one bounded persisted-output page into an existing restored card.
+   * Idempotent: a page whose request cursor is not the card's current
+   * `historyCursor` (a replay, or a page after paging finished) is ignored.
+   */
+  appendCliOutputPage(
+    sessionId: string,
+    agentId: string,
+    items: readonly (
+      | { readonly tag: 'segment'; readonly value: CliOutputSegment }
+      | { readonly tag: 'streamEvent'; readonly value: FlatStreamEventUnion }
+    )[],
+    page: {
+      readonly requestCursor: string | undefined;
+      readonly nextCursor: string | undefined;
+      readonly done: boolean;
+    },
+  ): void {
+    this._agents.update((list) =>
+      list.map((agent) => {
+        if (
+          agent.agentId !== agentId ||
+          agent.parentSessionId !== sessionId ||
+          agent.historyDone === true ||
+          agent.historyCursor !== page.requestCursor
+        )
+          return agent;
+        if (items.length === 0) {
+          return {
+            ...agent,
+            historyCursor: page.nextCursor,
+            historyDone: page.done,
+          };
+        }
+        const segments = items
+          .filter((item) => item.tag === 'segment')
+          .map((item) => item.value as CliOutputSegment);
+        const streamEvents = items
+          .filter((item) => item.tag === 'streamEvent')
+          .map((item) => item.value as FlatStreamEventUnion);
+        const nextSegments = capSegments([...agent.segments, ...segments]);
+        const nextEvents = [...agent.streamEvents, ...streamEvents];
+        capStreamEventsInPlace(nextEvents);
+        return {
+          ...agent,
+          segments: nextSegments,
+          streamEvents: nextEvents,
+          historyCursor: page.nextCursor,
+          historyDone: page.done,
+          streamRevision:
+            streamEvents.length > 0
+              ? agent.streamRevision + 1
+              : agent.streamRevision,
+        };
+      }),
+    );
   }
 
   /**

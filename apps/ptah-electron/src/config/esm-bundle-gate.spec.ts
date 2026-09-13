@@ -149,11 +149,12 @@ function discoverEsmTargets(
   return discovered;
 }
 
-/** The four ESM targets `apps/ptah-electron` is known to declare. */
+/** The ESM targets `apps/ptah-electron` is known to declare. */
 const EXPECTED_ESM_TARGETS = [
   'build-main',
   'build-embedder-worker',
   'build-integrity-worker',
+  'build-state-storage-worker',
   'build-voice-worker',
 ] as const;
 
@@ -161,7 +162,7 @@ const projectConfig = loadProjectConfig();
 const discoveredTargets = discoverEsmTargets(projectConfig);
 
 describe('ptah-electron ESM bundle discovery (anti-vacuity)', () => {
-  it('discovers at least the four known ESM esbuild targets', () => {
+  it('discovers every known ESM esbuild target', () => {
     for (const expected of EXPECTED_ESM_TARGETS) {
       expect(discoveredTargets.has(expected)).toBe(true);
     }
@@ -231,9 +232,10 @@ describe('worker wiring (three-place rule)', () => {
     'build-embedder-worker',
     'build-voice-worker',
     'build-integrity-worker',
+    'build-state-storage-worker',
   ];
 
-  it('build.dependsOn is EXACTLY the five own-project entries plus the webview cross-project entry', () => {
+  it('build.dependsOn is exactly the own-project entries plus the webview cross-project entry', () => {
     const dependsOn = (projectConfig.targets?.['build']?.dependsOn ??
       []) as string[];
     // Revision 1 (code-logic-review.md Serious): set-equality, not
@@ -303,6 +305,8 @@ const WORKER_ENTRY_GUARDS: Record<string, string> = {
     'embedder-worker.ts must be run as a worker (no Electron parentPort and no worker_threads parentPort)',
   'build-voice-worker':
     'voice-worker.ts must be run as an Electron utilityProcess (no parentPort)',
+  'build-state-storage-worker':
+    'Electron state storage worker requires a worker_threads parent port',
 };
 
 const discoveredWorkerTargetNames = [...discoveredTargets.keys()]

@@ -22,9 +22,26 @@ import * as sessionRpcSchema from './session-rpc.schema';
 import { AgentJsonlFirstLineSchema } from './session-rpc.handlers';
 
 describe('session-rpc.schema', () => {
-  it('is an intentionally empty module (no Zod schemas exported)', () => {
-    const ownKeys = Object.keys(sessionRpcSchema);
-    expect(ownKeys).toEqual([]);
+  it('exports strict bounded CLI session schemas', () => {
+    expect(
+      sessionRpcSchema.SessionCliSessionsParamsSchema.safeParse({
+        sessionId: 'session',
+      }).success,
+    ).toBe(true);
+    expect(
+      sessionRpcSchema.SessionCliOutputPageParamsSchema.safeParse({
+        sessionId: 'session',
+        agentId: 'agent',
+        maxBytes: 256 * 1024,
+      }).success,
+    ).toBe(true);
+    expect(
+      sessionRpcSchema.SessionCliOutputPageParamsSchema.safeParse({
+        sessionId: 'session',
+        agentId: 'agent',
+        maxBytes: 256 * 1024 + 1,
+      }).success,
+    ).toBe(false);
   });
 
   it('can be imported without side effects', () => {

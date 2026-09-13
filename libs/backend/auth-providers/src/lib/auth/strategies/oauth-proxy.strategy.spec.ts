@@ -86,6 +86,7 @@ function createMockCopilotProxy(): jest.Mocked<ICopilotTranslationProxy> {
 
 function createMockCodexAuth(): jest.Mocked<ICodexAuthService> {
   return {
+    getAccountUsageEligibility: jest.fn().mockResolvedValue('supported'),
     isAuthenticated: jest.fn<Promise<boolean>, []>().mockResolvedValue(false),
     getHeaders: jest
       .fn<Promise<Record<string, string>>, []>()

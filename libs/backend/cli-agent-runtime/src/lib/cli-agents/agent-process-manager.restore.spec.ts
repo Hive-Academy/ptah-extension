@@ -278,6 +278,46 @@ describe('AgentProcessManager.restoreAgents', () => {
     expect(agentsOf(manager).size).toBe(0);
   });
 
+  it('never emits a persisting lifecycle event for a restored record, so its empty output is never written back', async () => {
+    jest.useFakeTimers();
+    try {
+      const manager = makeManager({ providerRoot: ROOT_A });
+      const emitted: string[] = [];
+      for (const name of [
+        'agent:spawned',
+        'agent:exited',
+        'agent:released',
+        'agent:expired',
+      ]) {
+        manager.events.on(name, () => emitted.push(name));
+      }
+      manager.restoreAgents([makeRef({ cliSessionId: 'session-abc' })], ROOT_A);
+
+      // Lean restore refs leave the persistence accumulators empty...
+      expect(manager.readOutputForPersistence(RESTORED_ID)).toMatchObject({
+        segments: [],
+        streamEvents: [],
+      });
+      // ...but every path that could re-persist is closed. `agent:spawned` and
+      // `agent:exited` are the only triggers for `persistCliSessionReference`.
+      expect(() => manager.steer(RESTORED_ID, 'again')).toThrow();
+      await expect(manager.stop(RESTORED_ID)).rejects.toThrow();
+      await expect(
+        manager.continueConversation(RESTORED_ID, 'again'),
+      ).rejects.toMatchObject({ code: 'released' });
+      // No parent id, so the sdk-callbacks session-id remap never selects it.
+      expect(
+        (manager.getStatus(RESTORED_ID) as AgentProcessInfo).parentSessionId,
+      ).toBeUndefined();
+      jest.runOnlyPendingTimers();
+      await Promise.resolve();
+
+      expect(emitted).toEqual(['agent:expired']);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('an unknown id says no record exists in this host at all, keeping the "Agent not found" prefix', () => {
     const manager = makeManager({ providerRoot: ROOT_A });
 

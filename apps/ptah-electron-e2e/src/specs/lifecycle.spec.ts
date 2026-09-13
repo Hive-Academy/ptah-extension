@@ -120,7 +120,10 @@ test.describe('App lifecycle', () => {
     // life. Under the old code will-quit force-constructed it here — racing DI
     // teardown and hanging/throwing. With the fix it was built eagerly at
     // startup, so this quit stays prompt and clean.
-    const app = await launchPtah({ env: { NODE_ENV: 'production' } });
+    const app = await launchPtah({
+      env: { NODE_ENV: 'production' },
+      waitForRenderer: false,
+    });
     const out = captureOutput(app);
     // Do NOT wait for domcontentloaded — close as early as possible.
     await app.firstWindow();

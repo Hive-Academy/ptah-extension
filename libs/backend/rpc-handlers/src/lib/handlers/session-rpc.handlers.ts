@@ -22,7 +22,9 @@ import {
 import {
   SessionMetadataStore,
   SDK_TOKENS,
-  SessionHistoryReaderService,
+  SessionStatsReaderService,
+  type SessionStatsReadEntry,
+  type SessionStatsScopeSelection,
   SdkAgentAdapter,
   SessionNotActiveError,
   SdkError,
@@ -42,6 +44,8 @@ import {
   SessionStatsBatchParams,
   SessionStatsBatchResult,
   SessionStatsEntry,
+  SessionCliOutputPageParams,
+  SessionCliOutputPageResult,
   SessionForkParams,
   SessionForkResult,
   SessionRewindParams,
@@ -63,6 +67,18 @@ import type {
   SessionStatusParams,
   SessionStatusResponse,
 } from '@ptah-extension/shared';
+import {
+  SessionCliOutputPageParamsSchema,
+  SessionCliSessionsParamsSchema,
+  SessionStatsBatchParamsSchema,
+} from './session-rpc.schema';
+
+/**
+ * Abort budget for one `session:stats-batch` page — well inside the renderer's
+ * 30 s RPC timeout, so a slow page returns per-session errors instead of a
+ * timed-out call. Never raise the global timeout instead (TASK_2026_411).
+ */
+const STATS_PAGE_BUDGET_MS = 20_000;
 
 /**
  * Minimal schema for JSONL first-line entries in agent session files.
@@ -99,6 +115,7 @@ export class SessionRpcHandlers {
     'session:rename',
     'session:validate',
     'session:cli-sessions',
+    'session:cli-output-page',
     'session:stats-batch',
     'session:forkSession',
     'session:rewindFiles',
@@ -110,8 +127,8 @@ export class SessionRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly metadataStore: SessionMetadataStore,
-    @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
-    private readonly historyReader: SessionHistoryReaderService,
+    @inject(SDK_TOKENS.SDK_SESSION_STATS_READER)
+    private readonly statsReader: SessionStatsReaderService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -272,6 +289,7 @@ export class SessionRpcHandlers {
     this.registerSessionRename();
     this.registerSessionValidate();
     this.registerSessionCliSessions();
+    this.registerSessionCliOutputPage();
     this.registerSessionStatsBatch();
     this.registerForkSession();
     this.registerRewindFiles();
@@ -285,6 +303,7 @@ export class SessionRpcHandlers {
         'session:rename',
         'session:validate',
         'session:cli-sessions',
+        'session:cli-output-page',
         'session:stats-batch',
         'session:forkSession',
         'session:rewindFiles',
@@ -758,7 +777,8 @@ export class SessionRpcHandlers {
       { cliSessions: CliSessionReference[] }
     >('session:cli-sessions', async (params: { sessionId: string }) => {
       try {
-        const sessionId = this.validateSessionId(params.sessionId);
+        const parsed = SessionCliSessionsParamsSchema.parse(params);
+        const sessionId = this.validateSessionId(parsed.sessionId);
         await this.authorizeSessionAccess(sessionId);
         // Returned unfiltered — this must agree with the `cliSessions` payload
         // of `chat:resume`, which is the other restore path. An earlier filter
@@ -767,9 +787,10 @@ export class SessionRpcHandlers {
         // hid legitimate MCP-spawned ptah-cli agents (the tribunal's panelists),
         // so their cards never came back on reopen.
         //
-        // `getCliSessionsForRestore` rehydrates each ref's full segments and
-        // stream events from its per-agent key (TASK_2026_323 B5) — the
-        // session blob itself carries only a 200-segment tail.
+        // `getCliSessionsForRestore` returns lean references with no segments
+        // or stream events (TASK_2026_411). Historical output stays in each
+        // agent's per-agent key and is fetched in bounded pages through
+        // `session:cli-output-page`.
         const cliSessions =
           await this.metadataStore.getCliSessionsForRestore(sessionId);
 
@@ -787,6 +808,29 @@ export class SessionRpcHandlers {
         );
         return { cliSessions: [] };
       }
+    });
+  }
+
+  private registerSessionCliOutputPage(): void {
+    this.rpcHandler.registerMethod<
+      SessionCliOutputPageParams,
+      SessionCliOutputPageResult
+    >('session:cli-output-page', async (params) => {
+      const parsed = SessionCliOutputPageParamsSchema.parse(params);
+      const sessionId = this.validateSessionId(parsed.sessionId);
+      await this.authorizeSessionAccess(sessionId);
+      const metadata = await this.metadataStore.get(sessionId);
+      if (!metadata?.cliSessions?.some((ref) => ref.agentId === parsed.agentId)) {
+        throw new RpcUserError(
+          'Agent output is not referenced by this session',
+          'INVALID_PARAMS',
+        );
+      }
+      return await this.metadataStore.getAgentOutputPage(
+        parsed.agentId,
+        parsed.cursor,
+        parsed.maxBytes,
+      );
     });
   }
 
@@ -815,22 +859,44 @@ export class SessionRpcHandlers {
   }
 
   /**
-   * session:stats-batch - Batch fetch real stats for multiple sessions from JSONL files
+   * session:stats-batch - Usage stats for one page of sessions.
    *
-   * Reads JSONL files via SessionHistoryReaderService to get accurate per-session
-   * stats (cost, tokens, model, message count). This bypasses the broken metadata
-   * pipeline (addStats never called) and reads directly from source of truth.
+   * Served by `SessionStatsReaderService`, a stats-only streaming projection of
+   * the transcripts. This method MUST NOT go through the full-history reader:
+   * that path parses and replays whole transcripts, which is what froze a
+   * 200-session dashboard (TASK_2026_411 B4). A source-level spec pins that
+   * this file names neither the reader nor its replay method.
    *
+   * Params are validated by `SessionStatsBatchParamsSchema`: at most 20 UUIDs,
+   * `scope` (`'current-context'` default, or `'range'` with `[since, until)`).
+   * The page runs under {@link STATS_PAGE_BUDGET_MS}; sessions unfinished when
+   * it expires come back `status: 'error'` instead of failing the page.
    */
   private registerSessionStatsBatch(): void {
     this.rpcHandler.registerMethod<
       SessionStatsBatchParams,
       SessionStatsBatchResult
     >('session:stats-batch', async (params: SessionStatsBatchParams) => {
-      const { sessionIds, workspacePath } = params;
+      const parsed = SessionStatsBatchParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        const fields = parsed.error.issues
+          .map((issue) => issue.path.join('.') || 'params')
+          .join(', ');
+        throw new RpcUserError(
+          `Invalid session:stats-batch params (${fields})`,
+          'INVALID_PARAMS',
+        );
+      }
+      const request = parsed.data;
+      const { sessionIds, workspacePath } = request;
+      const scope: SessionStatsScopeSelection =
+        request.scope === 'range'
+          ? { kind: 'range', since: request.since, until: request.until }
+          : { kind: 'current-context' };
       this.logger.debug('RPC: session:stats-batch called', {
         sessionCount: sessionIds.length,
         workspacePath,
+        scope: scope.kind,
       });
       if (!this.isAuthorizedWorkspace(workspacePath)) {
         this.logger.warn(
@@ -839,103 +905,51 @@ export class SessionRpcHandlers {
         );
         throw new Error('workspace-not-authorized');
       }
-      const CONCURRENCY_LIMIT = 5;
-      const sessionStats: SessionStatsEntry[] = [];
 
-      for (let i = 0; i < sessionIds.length; i += CONCURRENCY_LIMIT) {
-        const batch = sessionIds.slice(i, i + CONCURRENCY_LIMIT);
-        const results = await Promise.allSettled(
-          batch.map(async (sessionId) => {
-            try {
-              const { stats } = await this.historyReader.readSessionHistory(
-                sessionId,
-                workspacePath,
-              );
-              const metadata = await this.metadataStore.get(sessionId);
-              const cliAgents = metadata?.cliSessions
-                ? [...new Set(metadata.cliSessions.map((ref) => ref.cli))]
-                : [];
-
-              if (!stats) {
-                return {
-                  sessionId,
-                  model: null,
-                  totalCost: null,
-                  tokens: {
-                    input: 0,
-                    output: 0,
-                    cacheRead: 0,
-                    cacheCreation: 0,
-                  },
-                  messageCount: 0,
-                  cliAgents,
-                  status: 'empty' as const,
-                };
-              }
-
-              const statsAny = stats as Record<string, unknown>;
-              return {
-                sessionId,
-                model: (statsAny['model'] as string) ?? null,
-                totalCost: stats.totalCost,
-                tokens: stats.tokens,
-                messageCount: stats.messageCount,
-                agentSessionCount:
-                  (statsAny['agentSessionCount'] as number) ?? 0,
-                modelUsageList: statsAny['modelUsageList'] as
-                  | Array<{
-                      model: string;
-                      inputTokens: number;
-                      outputTokens: number;
-                      costUSD: number | null;
-                    }>
-                  | undefined,
-                cliAgents,
-                status: 'ok' as const,
-              };
-            } catch (error) {
-              this.logger.warn('RPC: session:stats-batch failed for session', {
-                sessionId,
-                error: error instanceof Error ? error.message : String(error),
-              });
-              return {
-                sessionId,
-                model: null,
-                totalCost: null,
-                tokens: {
-                  input: 0,
-                  output: 0,
-                  cacheRead: 0,
-                  cacheCreation: 0,
-                },
-                messageCount: 0,
-                status: 'error' as const,
-              };
-            }
-          }),
+      const budget = new AbortController();
+      const timer = setTimeout(() => budget.abort(), STATS_PAGE_BUDGET_MS);
+      timer.unref?.();
+      let entries: SessionStatsReadEntry[];
+      try {
+        entries = await this.statsReader.readStats({
+          sessionIds,
+          workspacePath,
+          scope,
+          signal: budget.signal,
+        });
+      } catch (error: unknown) {
+        // A deliberate refusal keeps its code and its (already safe) message.
+        if (error instanceof RpcUserError) throw error;
+        // `readStats` degrades per session and should never reject here. If it
+        // does, the detail stays in the log and Sentry: the transport returns a
+        // plain Error's message verbatim, so the client gets a fixed one.
+        const errorObj =
+          error instanceof Error ? error : new Error(String(error));
+        this.logger.error(
+          `RPC: session:stats-batch failed (sessions=${sessionIds.length}, scope=${scope.kind})`,
+          errorObj,
         );
-
-        for (let j = 0; j < results.length; j++) {
-          const result = results[j];
-          sessionStats.push(
-            result.status === 'fulfilled'
-              ? result.value
-              : {
-                  sessionId: batch[j],
-                  model: null,
-                  totalCost: null,
-                  tokens: {
-                    input: 0,
-                    output: 0,
-                    cacheRead: 0,
-                    cacheCreation: 0,
-                  },
-                  messageCount: 0,
-                  status: 'error' as const,
-                },
-          );
-        }
+        this.sentryService.captureException(errorObj, {
+          errorSource: 'SessionRpcHandlers.registerSessionStatsBatch',
+        });
+        throw new Error('Failed to read session stats');
+      } finally {
+        clearTimeout(timer);
       }
+      if (budget.signal.aborted) {
+        this.logger.warn('RPC: session:stats-batch exceeded its page budget', {
+          sessionCount: sessionIds.length,
+          budgetMs: STATS_PAGE_BUDGET_MS,
+        });
+      }
+
+      const sessionStats: SessionStatsEntry[] = await Promise.all(
+        entries.map(async (entry) =>
+          entry.status === 'error'
+            ? entry
+            : { ...entry, cliAgents: await this.cliAgentsFor(entry.sessionId) },
+        ),
+      );
 
       this.logger.debug('RPC: session:stats-batch completed', {
         total: sessionIds.length,
@@ -944,8 +958,33 @@ export class SessionRpcHandlers {
         error: sessionStats.filter((s) => s.status === 'error').length,
       });
 
-      return { sessionStats };
+      return scope.kind === 'range'
+        ? {
+            sessionStats,
+            scope: scope.kind,
+            since: scope.since,
+            until: scope.until,
+          }
+        : { sessionStats, scope: scope.kind };
     });
+  }
+
+  /** Distinct CLI agent types a session used, from its lean metadata. */
+  private async cliAgentsFor(sessionId: string): Promise<string[]> {
+    try {
+      const metadata = await this.metadataStore.get(sessionId);
+      return metadata?.cliSessions
+        ? [...new Set(metadata.cliSessions.map((ref) => ref.cli))]
+        : [];
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - the agent list is a label on a
+      // stats row; a metadata read failure shows no labels, never a failed row.
+      this.logger.debug('RPC: session:stats-batch could not read metadata', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
   }
 
   /**

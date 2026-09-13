@@ -1,20 +1,40 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
 import {
-  ClaudeRpcService,
+  Injectable,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
+import {
   AppStateManager,
+  ClaudeRpcService,
   ModelStateService,
+  type RpcResult,
 } from '@ptah-extension/core';
 import {
-  ChatSessionSummary,
-  SessionStatsEntry,
+  SESSION_STATS_BATCH_MAX_IDS,
   resolveModelDisplayName,
+  type ChatSessionSummary,
+  type SessionStatsBatchResult,
+  type SessionStatsCoverage,
+  type SessionStatsEntry,
+  type SessionStatsPricingCoverage,
 } from '@ptah-extension/shared';
+
+/**
+ * Where a session's stats are in the progressive load.
+ *
+ * `'pending'` means its page has not arrived yet. The other three are the
+ * host's own `SessionStatsEntry.status`.
+ */
+export type DashboardStatsStatus = 'pending' | 'ok' | 'error' | 'empty';
 
 /**
  * Merged session data: metadata from session:list + stats from session:stats-batch.
  *
  * Combines trusted metadata (name, dates) from SessionMetadataStore with
- * real per-session stats (cost, tokens, model, messageCount) read from JSONL files.
+ * per-session usage read from the transcript for the selected range.
  */
 export interface DashboardSessionEntry {
   readonly sessionId: string;
@@ -23,6 +43,11 @@ export interface DashboardSessionEntry {
   readonly lastActivityAt: number;
   readonly model: string | null;
   readonly modelDisplayName: string;
+  /**
+   * Estimate from recorded usage and the CURRENT rate card. `null` means
+   * unknown (no counted model has a price, or the stats are not in yet) —
+   * never render it as $0.
+   */
   readonly totalCost: number | null;
   readonly tokens: {
     readonly input: number;
@@ -43,8 +68,13 @@ export interface DashboardSessionEntry {
     readonly outputTokens: number;
     readonly costUSD: number | null;
   }>;
-  /** Whether stats were successfully read from JSONL ('ok' | 'error' | 'empty'). */
-  readonly status: 'ok' | 'error' | 'empty';
+  readonly status: DashboardStatsStatus;
+  /** `null` while pending. `'partial'` when some usage could not be counted. */
+  readonly coverage: SessionStatsCoverage | null;
+  /** Usage records left out of the range because they carry no timestamp. */
+  readonly untimestampedCount: number;
+  /** `null` while pending or when the host did not report it. */
+  readonly pricingCoverage: SessionStatsPricingCoverage | null;
 }
 
 /**
@@ -52,6 +82,7 @@ export interface DashboardSessionEntry {
  * Single-pass computation for efficiency.
  */
 export interface AggregateTotals {
+  /** Sum of the known session estimates; `null` when no session has one. */
   readonly totalCost: number | null;
   readonly totalTokens: number;
   readonly totalInput: number;
@@ -62,6 +93,24 @@ export interface AggregateTotals {
   readonly sessionCount: number;
   readonly totalSubagents: number;
   readonly avgCostPerSession: number | null;
+  /** Sessions whose stats page has not arrived yet. */
+  readonly pendingSessionCount: number;
+  /** Sessions the host could not read (or whose page failed). */
+  readonly errorSessionCount: number;
+  /** Readable sessions whose range coverage is partial. */
+  readonly partialSessionCount: number;
+  /** Untimestamped usage records excluded across all sessions. */
+  readonly untimestampedCount: number;
+  /** Sessions with usage but no known price — excluded from `totalCost`. */
+  readonly unknownCostSessionCount: number;
+  /** Sessions where only part of the usage has a price. */
+  readonly partiallyPricedSessionCount: number;
+}
+
+/** Progress of the stats pages for the active load. */
+export interface SessionStatsProgress {
+  readonly loaded: number;
+  readonly total: number;
 }
 
 /**
@@ -95,58 +144,114 @@ export const SESSION_DATE_RANGE_OPTIONS: ReadonlyArray<{
 ];
 
 /** Safety cap on sessions returned for a single range. */
-const METADATA_LOAD_LIMIT = 200;
+export const SESSION_ANALYTICS_SESSION_CAP = 200;
+
+/** Separator for stats keys. An escape, never a literal NUL byte in source. */
+const KEY_SEPARATOR = '\u0000';
 
 /**
- * SessionAnalyticsStateService (v2)
+ * One load of the analytics card: a workspace, a range and ONE `until`
+ * captured when the load started. Every page of the load uses the same
+ * `[since, until)` window, so pages painted early and late add up to one
+ * consistent picture.
+ */
+interface AnalyticsLoad {
+  readonly generation: number;
+  readonly workspacePath: string;
+  readonly range: SessionDateRange;
+  readonly since: number;
+  readonly until: number;
+  /** Stats key prefix: workspace / range / since / until. */
+  readonly keyPrefix: string;
+  readonly controller: AbortController;
+}
+
+/**
+ * SessionAnalyticsStateService
  *
- * Signal-based state service for the session analytics dashboard.
- * Makes direct RPC calls to fetch session metadata and real stats from JSONL files.
+ * Signal-based state for the session analytics card.
  *
- * Data flow:
- * 1. Calls `session:list` to get session metadata (names, dates, IDs)
- * 2. Calls `session:stats-batch` with session IDs to get real stats from JSONL files
- * 3. Merges metadata + stats into DashboardSessionEntry[]
- * 4. Exposes computed signals for in-range sessions, aggregates, and the date range
+ * Data flow for one load:
+ * 1. `session:list` bounded by `since` (at most {@link SESSION_ANALYTICS_SESSION_CAP}).
+ * 2. `session:stats-batch` in pages of at most `SESSION_STATS_BATCH_MAX_IDS`,
+ *    scope `'range'`, one shared `[since, until)`. Pages run one after another
+ *    and each page is merged into the signals as soon as it arrives, so the
+ *    first sessions paint before the last page is read.
+ *
+ * Staleness: every load gets a new generation and its own `AbortController`.
+ * A range change, a workspace change or `cancelLoad()` aborts the previous
+ * load, and a response is written only while its generation, workspace and
+ * range are all still current. Stats are stored under a
+ * workspace/range/since/until/session key, and only the active load's keys are
+ * ever read, so even an entry that slipped through could not be displayed.
+ *
+ * The frontend abort releases the awaited call and stops further pages; the
+ * host bounds its own work per page. The RPC timeout is the default one — a
+ * page of 20 fits inside it, so no timeout is raised here.
  */
 @Injectable({ providedIn: 'root' })
 export class SessionAnalyticsStateService {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly appState = inject(AppStateManager);
   private readonly modelState = inject(ModelStateService);
-  /** All session metadata for the workspace (names, dates, IDs). */
-  private readonly _metadata = signal<ChatSessionSummary[]>([]);
-  /** Per-session stats cache, accumulated across range changes. */
-  private readonly _statsById = signal<Map<string, SessionStatsEntry>>(
+
+  /** Session metadata for the active load (names, dates, IDs). */
+  private readonly _metadata = signal<readonly ChatSessionSummary[]>([]);
+  /** `session:list` reported more sessions than the cap in this range. */
+  private readonly _hasMoreSessions = signal(false);
+  /** Stats keyed by workspace/range/since/until/session. */
+  private readonly _statsByKey = signal<ReadonlyMap<string, SessionStatsEntry>>(
     new Map(),
   );
+  /** Key prefix of the load whose stats are displayed. */
+  private readonly _activeKeyPrefix = signal('');
   private readonly _dateRange = signal<SessionDateRange>('7d');
   private readonly _isLoading = signal(false);
+  private readonly _isLoadingStats = signal(false);
+  private readonly _statsProgress = signal<SessionStatsProgress>({
+    loaded: 0,
+    total: 0,
+  });
   private readonly _loadError = signal<string | null>(null);
+
+  private generation = 0;
+  private activeLoad: AnalyticsLoad | null = null;
+  private activeLoadDone: Promise<void> | null = null;
+
+  /** True while `session:list` for the active load is in flight. */
   readonly isLoading = this._isLoading.asReadonly();
+  /** True while stats pages for the active load are still being read. */
+  readonly isLoadingStats = this._isLoadingStats.asReadonly();
+  readonly statsProgress = this._statsProgress.asReadonly();
   readonly loadError = this._loadError.asReadonly();
   readonly dateRange = this._dateRange.asReadonly();
+  readonly hasMoreSessions = this._hasMoreSessions.asReadonly();
+  readonly sessionCap = SESSION_ANALYTICS_SESSION_CAP;
+
+  /** The workspace the analytics are read for (`''` when none is open). */
+  readonly workspacePath = computed(
+    () => this.appState.workspaceInfo()?.path || '',
+  );
 
   /** Number of sessions returned for the active range (capped by load limit). */
   readonly totalSessionCount = computed(() => this._metadata().length);
 
   /**
-   * Sessions for the active date range, merged with their JSONL stats,
-   * most-recent first. The range is bounded server-side by `session:list`,
-   * so no client-side date filtering is needed here.
+   * Sessions for the active load, merged with whatever stats pages have
+   * arrived, most-recent first. The range is bounded server-side by
+   * `session:list`, so no client-side date filtering is needed here.
    */
   readonly displayedSessions = computed<DashboardSessionEntry[]>(() => {
-    const stats = this._statsById();
+    const stats = this._statsByKey();
+    const prefix = this._activeKeyPrefix();
     return this._metadata().map((session) =>
-      this.mergeEntry(session, stats.get(session.id)),
+      this.mergeEntry(session, stats.get(prefix + session.id)),
     );
   });
 
   /**
-   * Aggregate totals across the sessions currently in range (the displayed
-   * subset). Recomputing over the in-range set is what makes the metric tiles
-   * track the selected date range.
-   * Single-pass loop for efficiency -- avoids multiple array iterations.
+   * Aggregate totals across the sessions currently in range. Pending sessions
+   * contribute nothing yet; the counts say how much is still missing.
    */
   readonly aggregates = computed<AggregateTotals>(() => {
     const sessions = this.displayedSessions();
@@ -158,11 +263,34 @@ export class SessionAnalyticsStateService {
       totalMessages = 0,
       totalSubagents = 0;
     let costContributorCount = 0;
+    let pendingSessionCount = 0,
+      errorSessionCount = 0,
+      partialSessionCount = 0,
+      untimestampedCount = 0,
+      unknownCostSessionCount = 0,
+      partiallyPricedSessionCount = 0;
 
     for (const s of sessions) {
+      if (s.status === 'pending') {
+        pendingSessionCount++;
+        continue;
+      }
+      if (s.status === 'error') {
+        errorSessionCount++;
+        continue;
+      }
+      if (s.coverage === 'partial' || s.untimestampedCount > 0) {
+        partialSessionCount++;
+      }
+      untimestampedCount += s.untimestampedCount;
       if (s.totalCost !== null) {
         totalCost += s.totalCost;
         costContributorCount++;
+      } else if (s.status === 'ok') {
+        unknownCostSessionCount++;
+      }
+      if (s.status === 'ok' && s.pricingCoverage === 'partial') {
+        partiallyPricedSessionCount++;
       }
       totalInput += s.tokens.input;
       totalOutput += s.tokens.output;
@@ -185,12 +313,33 @@ export class SessionAnalyticsStateService {
       totalSubagents,
       avgCostPerSession:
         costContributorCount > 0 ? totalCost / costContributorCount : null,
+      pendingSessionCount,
+      errorSessionCount,
+      partialSessionCount,
+      untimestampedCount,
+      unknownCostSessionCount,
+      partiallyPricedSessionCount,
     };
   });
 
+  constructor() {
+    // A workspace switch invalidates the load in flight at once, whether or
+    // not the card is mounted to start the next one. No I/O happens here.
+    effect(() => {
+      const workspacePath = this.workspacePath();
+      untracked(() => {
+        const load = this.activeLoad;
+        if (load && load.workspacePath !== workspacePath) {
+          this.cancelLoad();
+          this.clearLoadedData();
+        }
+      });
+    });
+  }
+
   /**
-   * Change the active date range and reload. The lower bound is applied
-   * server-side, so a different range means a different `session:list` query.
+   * Change the active date range and reload. The previous load is aborted
+   * and can no longer write.
    */
   async setDateRange(range: SessionDateRange): Promise<void> {
     if (range === this._dateRange()) return;
@@ -199,97 +348,205 @@ export class SessionAnalyticsStateService {
   }
 
   /**
-   * Load dashboard data for the active date range: session list (bounded by
-   * `since`) + batch stats from JSONL files.
-   *
-   * 1. `session:list` with a `since` lower bound -- trusted, server-bounded
-   * 2. `ensureStats` reads JSONL stats for any not-yet-cached session
-   *
-   * Called on dashboard mount via ngOnInit and on every range change.
+   * Load the active workspace and range. A call while a load for the SAME
+   * workspace and range is in flight joins it; any other call aborts it.
+   * Never rejects: failures land in `loadError` or as per-session `'error'`.
    */
-  async loadDashboardData(): Promise<void> {
-    if (this._isLoading()) return;
-
-    this._isLoading.set(true);
-    this._loadError.set(null);
-
-    try {
-      const workspacePath = this.workspacePath();
-      if (!workspacePath) {
-        this._loadError.set(
-          'No workspace detected. Open a folder to view analytics.',
-        );
-        return;
-      }
-
-      const listResult = await this.rpc.call('session:list', {
-        workspacePath,
-        limit: METADATA_LOAD_LIMIT,
-        offset: 0,
-        since: this.rangeSinceMs(this._dateRange()),
-      });
-
-      if (!listResult.isSuccess() || !listResult.data) {
-        throw new Error(listResult.error || 'Failed to load session list');
-      }
-
-      this._metadata.set(listResult.data.sessions);
-      await this.ensureStats();
-    } catch (err) {
-      this._loadError.set(
-        err instanceof Error ? err.message : 'Failed to load dashboard data',
-      );
-    } finally {
-      this._isLoading.set(false);
+  loadDashboardData(): Promise<void> {
+    const workspacePath = this.workspacePath();
+    const range = this._dateRange();
+    const inFlight = this.activeLoad;
+    if (
+      inFlight &&
+      this.activeLoadDone &&
+      inFlight.workspacePath === workspacePath &&
+      inFlight.range === range
+    ) {
+      return this.activeLoadDone;
     }
+
+    this.cancelLoad();
+    this.clearLoadedData();
+
+    if (!workspacePath) {
+      this._loadError.set(
+        'No workspace detected. Open a folder to view analytics.',
+      );
+      return Promise.resolve();
+    }
+
+    const until = Date.now();
+    const since = until - RANGE_DAYS[range] * DAY_MS;
+    this.generation++;
+    const load: AnalyticsLoad = {
+      generation: this.generation,
+      workspacePath,
+      range,
+      since,
+      until,
+      keyPrefix: statsKeyPrefix(workspacePath, range, since, until),
+      controller: new AbortController(),
+    };
+    this.activeLoad = load;
+    this._activeKeyPrefix.set(load.keyPrefix);
+
+    const done = this.runLoad(load).finally(() => {
+      if (this.activeLoad === load) {
+        this.activeLoad = null;
+        this.activeLoadDone = null;
+        this._isLoading.set(false);
+        this._isLoadingStats.set(false);
+      }
+    });
+    this.activeLoadDone = done;
+    return done;
   }
 
   /**
-   * Fetch (and cache) JSONL stats for every loaded session that doesn't yet
-   * have stats. The metadata is already range-bounded, and the cache is keyed
-   * by session id, so switching back to a previously-loaded range is free.
+   * Abort the load in flight, if any. Already painted pages stay; sessions
+   * whose page never arrived stay pending until the next load.
    */
-  private async ensureStats(): Promise<void> {
-    const workspacePath = this.workspacePath();
-    if (!workspacePath) return;
+  cancelLoad(): void {
+    const load = this.activeLoad;
+    this.generation++;
+    this.activeLoad = null;
+    this.activeLoadDone = null;
+    this._isLoading.set(false);
+    this._isLoadingStats.set(false);
+    load?.controller.abort();
+  }
 
-    const cached = this._statsById();
-    const missingIds = this._metadata()
-      .filter((s) => !cached.has(s.id))
-      .map((s) => s.id);
+  private async runLoad(load: AnalyticsLoad): Promise<void> {
+    this._isLoading.set(true);
+    try {
+      const listResult = await this.rpc.call(
+        'session:list',
+        {
+          workspacePath: load.workspacePath,
+          limit: SESSION_ANALYTICS_SESSION_CAP,
+          offset: 0,
+          since: load.since,
+        },
+        { signal: load.controller.signal },
+      );
+      if (!this.isCurrent(load)) return;
+      if (!listResult.isSuccess()) {
+        throw new Error(listResult.error || 'Failed to load session list');
+      }
 
-    if (missingIds.length === 0) return;
+      const sessions = listResult.data.sessions;
+      this._metadata.set(sessions);
+      this._hasMoreSessions.set(listResult.data.hasMore === true);
+      this._isLoading.set(false);
 
-    const statsResult = await this.rpc.call('session:stats-batch', {
-      sessionIds: missingIds,
-      workspacePath,
-    });
+      await this.loadStatsPages(
+        load,
+        sessions.map((s) => s.id),
+      );
+    } catch (error: unknown) {
+      // degradation-audit: reported - the failure is surfaced, not swallowed:
+      // `_loadError` is what the analytics card renders its error state from.
+      // The bare `return` the audit sees guards only a SUPERSEDED load — a
+      // newer load (or `cancelLoad`) has already taken over the error surface,
+      // and writing this stale load's error into it would overwrite the live
+      // one with an aborted request's message.
+      if (!this.isCurrent(load)) return;
+      this._loadError.set(
+        error instanceof Error ? error.message : 'Failed to load dashboard data',
+      );
+    }
+  }
 
-    if (!statsResult.isSuccess() || !statsResult.data) {
-      throw new Error(statsResult.error || 'Failed to load session stats');
+  /** Read stats one page at a time, painting each page as it lands. */
+  private async loadStatsPages(
+    load: AnalyticsLoad,
+    sessionIds: readonly string[],
+  ): Promise<void> {
+    this._statsProgress.set({ loaded: 0, total: sessionIds.length });
+    this._isLoadingStats.set(sessionIds.length > 0);
+
+    for (
+      let start = 0;
+      start < sessionIds.length;
+      start += SESSION_STATS_BATCH_MAX_IDS
+    ) {
+      if (!this.isCurrent(load)) return;
+      const page = sessionIds.slice(start, start + SESSION_STATS_BATCH_MAX_IDS);
+      const result = await this.rpc.call(
+        'session:stats-batch',
+        {
+          sessionIds: page,
+          workspacePath: load.workspacePath,
+          scope: 'range',
+          since: load.since,
+          until: load.until,
+        },
+        { signal: load.controller.signal },
+      );
+      if (!this.isCurrent(load)) return;
+      this.mergePage(load, page, result);
     }
 
-    const next = new Map(this._statsById());
-    for (const stat of statsResult.data.sessionStats) {
-      next.set(stat.sessionId, stat);
+    this._isLoadingStats.set(false);
+  }
+
+  /**
+   * Write one page. Only ids that were asked for are accepted, a page whose
+   * echoed window is not this load's is rejected, and every requested id the
+   * page did not answer becomes `'error'` so it stops reading as pending.
+   */
+  private mergePage(
+    load: AnalyticsLoad,
+    page: readonly string[],
+    result: RpcResult<SessionStatsBatchResult>,
+  ): void {
+    const answered = new Map<string, SessionStatsEntry>();
+    if (result.isSuccess() && pageMatchesLoad(result.data, load)) {
+      const requested = new Set(page);
+      for (const stat of result.data.sessionStats) {
+        if (requested.has(stat.sessionId)) answered.set(stat.sessionId, stat);
+      }
     }
-    this._statsById.set(next);
+
+    const next = new Map(this._statsByKey());
+    for (const sessionId of page) {
+      next.set(
+        load.keyPrefix + sessionId,
+        answered.get(sessionId) ?? unreadableStats(sessionId),
+      );
+    }
+    this._statsByKey.set(next);
+    this._statsProgress.update((progress) => ({
+      loaded: progress.loaded + page.length,
+      total: progress.total,
+    }));
   }
 
-  private workspacePath(): string {
-    return this.appState.workspaceInfo()?.path || '';
+  /** A load may write only while it is the live generation for the live scope. */
+  private isCurrent(load: AnalyticsLoad): boolean {
+    return (
+      load.generation === this.generation &&
+      !load.controller.signal.aborted &&
+      load.workspacePath === this.workspacePath() &&
+      load.range === this._dateRange()
+    );
   }
 
-  /** Lower-bound timestamp (epoch ms) for a date range. */
-  private rangeSinceMs(range: SessionDateRange): number {
-    return Date.now() - RANGE_DAYS[range] * DAY_MS;
+  private clearLoadedData(): void {
+    this._metadata.set([]);
+    this._hasMoreSessions.set(false);
+    this._statsByKey.set(new Map());
+    this._activeKeyPrefix.set('');
+    this._statsProgress.set({ loaded: 0, total: 0 });
+    this._loadError.set(null);
   }
 
-  /** Merge trusted metadata with JSONL-derived stats into a display entry. */
+  /** Merge trusted metadata with transcript-derived stats into a display entry. */
   private mergeEntry(
     session: ChatSessionSummary,
     stats: SessionStatsEntry | undefined,
   ): DashboardSessionEntry {
+    const models = this.modelState.availableModels();
     return {
       sessionId: session.id,
       name: session.name,
@@ -297,10 +554,7 @@ export class SessionAnalyticsStateService {
       lastActivityAt: session.lastActivityAt,
       model: stats?.model ?? null,
       modelDisplayName: stats?.model
-        ? resolveModelDisplayName(
-            stats.model,
-            this.modelState.availableModels(),
-          )
+        ? resolveModelDisplayName(stats.model, models)
         : 'Unknown',
       totalCost: stats?.totalCost ?? null,
       tokens: stats?.tokens ?? {
@@ -314,15 +568,51 @@ export class SessionAnalyticsStateService {
       cliAgents: stats?.cliAgents ?? [],
       modelUsageList: (stats?.modelUsageList ?? []).map((m) => ({
         model: m.model,
-        modelDisplayName: resolveModelDisplayName(
-          m.model,
-          this.modelState.availableModels(),
-        ),
+        modelDisplayName: resolveModelDisplayName(m.model, models),
         inputTokens: m.inputTokens,
         outputTokens: m.outputTokens,
         costUSD: m.costUSD,
       })),
-      status: stats?.status ?? 'empty',
+      status: stats?.status ?? 'pending',
+      coverage: stats ? (stats.coverage ?? 'complete') : null,
+      untimestampedCount: stats?.untimestampedCount ?? 0,
+      pricingCoverage: stats?.pricingCoverage ?? null,
     };
   }
+}
+
+function statsKeyPrefix(
+  workspacePath: string,
+  range: SessionDateRange,
+  since: number,
+  until: number,
+): string {
+  return [workspacePath, range, since, until, ''].join(KEY_SEPARATOR);
+}
+
+/** A page answers this load only if its echoed scope and window match. */
+function pageMatchesLoad(
+  data: SessionStatsBatchResult,
+  load: AnalyticsLoad,
+): boolean {
+  return (
+    (data.scope === undefined || data.scope === 'range') &&
+    (data.since === undefined || data.since === load.since) &&
+    (data.until === undefined || data.until === load.until)
+  );
+}
+
+/** Stand-in for a session its page failed to answer. Cost stays unknown. */
+function unreadableStats(sessionId: string): SessionStatsEntry {
+  return {
+    sessionId,
+    model: null,
+    totalCost: null,
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+    messageCount: 0,
+    status: 'error',
+    coverage: 'partial',
+    untimestampedCount: 0,
+    pricingCoverage: 'none',
+  };
 }

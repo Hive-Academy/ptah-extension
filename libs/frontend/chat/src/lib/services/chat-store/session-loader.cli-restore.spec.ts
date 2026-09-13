@@ -45,6 +45,9 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
     const rpcCall = jest.fn(async (method: string) => {
       if (method === 'session:load') return { success: true, data: {} };
       if (method === 'chat:resume') return { success: true, data: resumeData };
+      if (method === 'session:cli-output-page') {
+        return { success: true, data: { items: [], nextCursor: null, done: true } };
+      }
       return {
         success: true,
         data: { sessions: [], total: 0, hasMore: false },
@@ -100,7 +103,14 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
             cleanupSessionDeduplication: jest.fn(),
           },
         },
-        { provide: AgentMonitorStore, useValue: { loadCliSessions } },
+        {
+          provide: AgentMonitorStore,
+          useValue: {
+            loadCliSessions,
+            appendCliOutputPage: jest.fn(),
+            cliOutputProgress: jest.fn(() => null),
+          },
+        },
       ],
     });
     service = TestBed.inject(SessionLoaderService);

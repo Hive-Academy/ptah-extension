@@ -20,6 +20,8 @@ import type {
   AgentStatusEvent,
   AgentCompletedEvent,
   AgentStartEvent,
+  CliSessionReference,
+  FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 
 // Mock TabManagerService with signal-based activeTab
@@ -83,6 +85,94 @@ describe('AgentMonitorStore', () => {
       } as any);
     }
   }
+
+  describe('appendCliOutputPage (persisted output paging)', () => {
+    const SESSION = 'sess-paged';
+    const segment = (content: string) => ({
+      tag: 'segment' as const,
+      value: { type: 'text' as const, content },
+    });
+    const event = (id: string) => ({
+      tag: 'streamEvent' as const,
+      value: {
+        id,
+        eventType: 'text_delta',
+        sessionId: SESSION,
+        messageId: 'm1',
+        delta: id,
+        timestamp: 1,
+      } as unknown as FlatStreamEventUnion,
+    });
+    const page1 = [segment('one'), event('e1')];
+    const page2 = [segment('two'), event('e2')];
+
+    function restoreLeanCard(): void {
+      store.loadCliSessions(
+        [
+          {
+            agentId: 'a1',
+            cli: 'codex',
+            task: 'paged',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            status: 'completed',
+          } as unknown as CliSessionReference,
+        ],
+        SESSION,
+      );
+    }
+
+    const card = () => store.agents().find((a) => a.agentId === 'a1');
+
+    it('ignores pages replayed by a restarted load, so output is never duplicated', () => {
+      restoreLeanCard();
+      const first = { requestCursor: undefined, nextCursor: '2', done: false };
+      const last = { requestCursor: '2', nextCursor: undefined, done: true };
+
+      store.appendCliOutputPage(SESSION, 'a1', page1, first);
+      expect(store.cliOutputProgress(SESSION, 'a1')).toEqual({
+        cursor: '2',
+        done: false,
+      });
+      // A binding change restarted the load from the beginning mid-flight.
+      store.appendCliOutputPage(SESSION, 'a1', page1, first);
+      store.appendCliOutputPage(SESSION, 'a1', page2, last);
+      store.appendCliOutputPage(SESSION, 'a1', page1, first);
+      store.appendCliOutputPage(SESSION, 'a1', page2, last);
+
+      expect(card()?.segments.map((s) => s.content)).toEqual(['one', 'two']);
+      expect(card()?.streamEvents.map((e) => e.id)).toEqual(['e1', 'e2']);
+      expect(store.cliOutputProgress(SESSION, 'a1')).toEqual({
+        cursor: undefined,
+        done: true,
+      });
+    });
+
+    it('starts a card rebuilt by loadCliSessions over from the first page', () => {
+      restoreLeanCard();
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: '2',
+        done: false,
+      });
+
+      restoreLeanCard();
+
+      expect(store.cliOutputProgress(SESSION, 'a1')).toEqual({
+        cursor: undefined,
+        done: false,
+      });
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: '2',
+        done: false,
+      });
+      expect(card()?.segments.map((s) => s.content)).toEqual(['one']);
+    });
+
+    it('reports no progress for an absent card', () => {
+      expect(store.cliOutputProgress(SESSION, 'missing')).toBeNull();
+    });
+  });
 
   describe('resolveParentSessionId', () => {
     it('should update agents with matching tab ID to real session UUID', () => {

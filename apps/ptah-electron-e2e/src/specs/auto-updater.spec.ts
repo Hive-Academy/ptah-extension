@@ -2,7 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
 import { test, expect } from '../support/fixtures';
-import { launchPtah, resolveElectronEntry } from '../support/electron-launcher';
+import {
+  launchPtah,
+  resolveElectronEntry,
+  waitForPtahRenderer,
+} from '../support/electron-launcher';
 
 /**
  * Update-detection e2e specs.
@@ -96,6 +100,9 @@ test.describe('Update detection', () => {
     // opts back in explicitly.
     const app = await launchPtah({
       env: { NODE_ENV: 'production', PTAH_E2E_ALLOW_UPDATE_CHECK: '1' },
+      // Attach the log collector before the updater runs; readiness is awaited
+      // explicitly below after the collector is installed.
+      waitForRenderer: false,
     });
     const logs: string[] = [];
     app
@@ -122,7 +129,7 @@ test.describe('Update detection', () => {
         })
         .catch(() => undefined);
 
-      const win = await app.firstWindow();
+      const win = await waitForPtahRenderer(app, 60_000);
       await win.waitForLoadState('domcontentloaded');
       // Give the updater a reasonable window to either complete or fail.
       await win.waitForTimeout(2_500);

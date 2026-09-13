@@ -184,6 +184,29 @@
         "external": ["better-sqlite3"]
       }
     },
+    "build-state-storage-worker": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": [],
+      "outputs": ["{options.outputPath}/state-storage-worker.mjs"],
+      "options": {
+        "outputPath": "dist/apps/ptah-electron",
+        "main": "libs/backend/platform-electron/src/implementations/electron-state-storage-worker.ts",
+        "outputFileName": "state-storage-worker.mjs",
+        "tsConfig": "apps/ptah-electron/tsconfig.state-storage-worker.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          }
+        }
+      }
+    },
     "build-voice-worker": {
       "executor": "@nx/esbuild:esbuild",
       "dependsOn": [],
@@ -216,6 +239,7 @@
         "build-embedder-worker",
         "build-voice-worker",
         "build-integrity-worker",
+        "build-state-storage-worker",
         "ptah-extension-webview:build"
       ],
       "options": {
@@ -249,6 +273,7 @@
           "nx build-embedder-worker ptah-electron",
           "nx build-voice-worker ptah-electron",
           "nx build-integrity-worker ptah-electron",
+          "nx build-state-storage-worker ptah-electron",
           "node scripts/copy-wasm.js dist/apps/ptah-electron"
         ],
         "parallel": false
@@ -301,6 +326,7 @@
           "nx build-embedder-worker ptah-electron --watch",
           "nx build-voice-worker ptah-electron --watch",
           "nx build-integrity-worker ptah-electron --watch",
+          "nx build-state-storage-worker ptah-electron --watch",
           "nx build ptah-extension-webview --configuration=development --watch",
           "node apps/ptah-electron/scripts/watch-renderer.js"
         ],
@@ -363,6 +389,7 @@
         "build-main",
         "build-embedder-worker",
         "build-integrity-worker",
+        "build-state-storage-worker",
         "build-voice-worker"
       ],
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],

@@ -90,7 +90,7 @@ describe('collectResponsesStream', () => {
     const h = harness();
     const assertion = status === 'incomplete'
       ? expect(h.result).rejects.toMatchObject({ code: 'upstream_incomplete' })
-      : expect(h.result).rejects.toThrow();
+      : expect(h.result).rejects.toMatchObject({ code: 'invalid_response' });
     h.upstream.end(frame(`response.${status}`, { ...snapshot, status,
       incomplete_details: status === 'incomplete' ? { reason: 'max_output_tokens' } : null,
       output: [{ type: 'function_call', name: 'search', call_id: 'call1' }] }));
@@ -106,9 +106,20 @@ describe('collectResponsesStream', () => {
 
   it('rejects nonstring function arguments', async () => {
     const h = harness();
-    const assertion = expect(h.result).rejects.toThrow();
+    const assertion = expect(h.result).rejects.toMatchObject({ code: 'invalid_response' });
     h.upstream.end(frame('response.completed', { ...snapshot,
       output: [{ type: 'function_call', name: 'search', call_id: 'call1', arguments: {} }] }));
+    await assertion;
+  });
+
+  it.each([
+    ['malformed function arguments', [{ type: 'function_call', name: 'search', call_id: 'call1',
+      arguments: '{"private-upstream-value":' }]],
+    ['empty refusal content', [{ type: 'message', content: [{ type: 'refusal', refusal: '' }] }]],
+  ])('classifies terminal %s as an invalid upstream response', async (_name, output) => {
+    const h = harness();
+    const assertion = expect(h.result).rejects.toMatchObject({ code: 'invalid_response' });
+    h.upstream.end(frame('response.completed', { ...snapshot, output }));
     await assertion;
   });
 

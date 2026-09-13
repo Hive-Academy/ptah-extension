@@ -108,6 +108,7 @@ function buildSuite(): Suite {
     noop,
     noop,
     noop,
+    { getAccountUsage: jest.fn(), clearCache: jest.fn(), close: jest.fn() },
     { captureException: jest.fn() } as unknown as SentryService,
     store as unknown as CustomProviderStore,
   );
