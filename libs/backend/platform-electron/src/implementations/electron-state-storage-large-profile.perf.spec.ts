@@ -338,8 +338,7 @@ perfDescribe(
         // stand-in for the Electron main thread) must never see a value
         // bigger than the worker protocol's 256 KiB message budget. The
         // legacy file's own ~256 MB JSON.parse/stringify happen inside the
-        // worker (`ElectronStateCommitStore.loadLegacy` /
-        // `ElectronStateWorkerRuntime`), never here.
+        // worker (`ElectronStateWorkerRuntime`), never here.
         const budgetBytes = 256 * 1024;
         let maxHostParseChars = 0;
         let maxHostStringifyChars = 0;
@@ -397,6 +396,10 @@ perfDescribe(
         const migrationElapsedMs = Date.now() - migrationStartedAt;
         histogram.disable();
         expect(migrationElapsedMs).toBeLessThan(120_000);
+        expect(heapProbe.peakUsedHeapBytes).not.toBeNull();
+        expect(
+          (heapProbe.peakUsedHeapBytes ?? 0) / (1024 * 1024),
+        ).toBeLessThanOrEqual(256);
 
         // Mechanism: the host process never touched a value near the legacy
         // file's size, and every worker message stayed inside the protocol

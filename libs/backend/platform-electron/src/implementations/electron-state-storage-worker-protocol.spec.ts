@@ -1,3 +1,4 @@
+import type { StateStorageArraySplitPlan } from '@ptah-extension/platform-core';
 import {
   assertElectronStateWorkerPayloadWithinBudget,
   assertJsonCompatibleValue,
@@ -9,12 +10,94 @@ import {
   estimateElectronStateJsonBytes,
   generateSnapshotOperations,
   generateUtf8StringSlices,
+  electronStateWorkerRequestSchema,
   parseElectronStateWorkerRequest,
   parseElectronStateWorkerResponse,
   stateStorageArraySplitPlanSchema,
 } from './electron-state-storage-worker-protocol';
 
 const SEQUENCE_ID = '018f55cb-3f18-7d5e-a1a4-000000000001';
+
+const MIRRORED_METADATA_PLAN: StateStorageArraySplitPlan = {
+  kind: 'split-array-value',
+  planVersion: 1,
+  sourceKey: 'ptah.sessionMetadata',
+  itemIdPath: ['sessionId'],
+  detailKeyPrefix: 'ptah.session:',
+  indexKey: 'ptah.sessionMetadata',
+  indexSchemaVersion: 1,
+  summaryFields: [{ sourcePath: ['sessionId'] }, { sourcePath: ['name'] }],
+  nestedExtractions: [
+    {
+      sourceArrayPath: ['cliSessions'],
+      itemIdPath: ['agentId'],
+      destinationKeyPrefix: 'ptah.agentOutput:',
+      fields: [{ sourcePath: ['segments'] }, { sourcePath: ['streamEvents'] }],
+      destinationFormat: {
+        kind: 'tagged-sequence',
+        fields: [
+          { sourcePath: ['segments'], tag: 'segment' },
+          { sourcePath: ['streamEvents'], tag: 'streamEvent' },
+        ],
+      },
+      onMissingId: 'drop-bulk',
+      dropFields: [['stdout']],
+      textFallback: {
+        sourcePath: ['stdout'],
+        itemTemplate: { tag: 'segment', value: { type: 'text', content: '' } },
+        contentPath: ['value', 'content'],
+      },
+      conflictPolicy: {
+        kind: 'prefer-longer-arrays',
+        fields: ['segments', 'streamEvents'],
+      },
+    },
+  ],
+};
+
+function simplePlan(
+  sourceKey: string,
+  detailKeyPrefix: string,
+  indexKey: string,
+  destinationKeyPrefixes: readonly string[] = [],
+  sourceArrayPaths: readonly (readonly (string | number)[])[] = [],
+): StateStorageArraySplitPlan {
+  return {
+    kind: 'split-array-value',
+    planVersion: 1,
+    sourceKey,
+    itemIdPath: ['id'],
+    detailKeyPrefix,
+    indexKey,
+    indexSchemaVersion: 1,
+    summaryFields: [{ sourcePath: ['id'] }],
+    nestedExtractions: destinationKeyPrefixes.map((prefix, index) => ({
+      sourceArrayPath: sourceArrayPaths[index] ?? [`children${index}`],
+      itemIdPath: ['childId'],
+      destinationKeyPrefix: prefix,
+      fields: [{ sourcePath: ['payload'] }],
+      onMissingId: 'drop-bulk' as const,
+      dropFields: [],
+      conflictPolicy: { kind: 'replace' as const },
+    })),
+  };
+}
+
+function initializeRequest(
+  migrations: readonly StateStorageArraySplitPlan[],
+): Record<string, unknown> {
+  return {
+    type: 'initialize',
+    operationId: 1,
+    legacyFilePath: 'state.json',
+    v2RootPath: 'state.v2',
+    migrations,
+  };
+}
+
+function initializeWith(migrations: readonly StateStorageArraySplitPlan[]) {
+  return () => parseElectronStateWorkerRequest(initializeRequest(migrations));
+}
 
 describe('Electron state worker protocol', () => {
   it('accepts a generic array-split plan without domain fields', () => {
@@ -45,6 +128,106 @@ describe('Electron state worker protocol', () => {
 
     expect(plan.sourceKey).toBe('records');
     expect(JSON.stringify(plan)).not.toMatch(/session|agent|output/i);
+  });
+
+  it.each([
+    [
+      'a duplicate source key',
+      [simplePlan('list', 'a:', 'list'), simplePlan('list', 'b:', 'list')],
+      'distinct source keys',
+    ],
+    [
+      'an index key that differs from its source key',
+      [simplePlan('list', 'item:', 'list.index')],
+      'write its index to its source key',
+    ],
+    [
+      'overlapping destination prefixes within a plan',
+      [simplePlan('list', 'item:', 'list', ['out:', 'out:more:'])],
+      'namespaces must not overlap',
+    ],
+    [
+      'a detail prefix overlapping a destination prefix',
+      [simplePlan('list', 'item:', 'list', ['item:child:'])],
+      'namespaces must not overlap',
+    ],
+    [
+      'a destination prefix of one plan overlapping another plan',
+      [
+        simplePlan('alpha', 'alpha:', 'alpha', ['shared:']),
+        simplePlan('beta', 'beta:', 'beta', ['shared:beta:']),
+      ],
+      'namespaces must not overlap',
+    ],
+    [
+      'a source key inside another plan namespace',
+      [
+        simplePlan('alpha', 'alpha:', 'alpha', ['out:']),
+        simplePlan('out:beta', 'beta:', 'out:beta'),
+      ],
+      'source key must not be another plan output',
+    ],
+    [
+      'nested source paths where one is a prefix of the other',
+      [
+        simplePlan(
+          'list',
+          'item:',
+          'list',
+          ['one:', 'two:'],
+          [['children'], ['children', 'deeper']],
+        ),
+      ],
+      'source paths must not nest',
+    ],
+    [
+      'nested source paths that alias a numeric and a string segment',
+      [
+        simplePlan(
+          'list',
+          'item:',
+          'list',
+          ['one:', 'two:'],
+          [
+            ['groups', 0],
+            ['groups', '0', 0, 'sub'],
+          ],
+        ),
+      ],
+      'source paths must not nest',
+    ],
+  ])(
+    'answers invalid-request for split plans with %s',
+    (_label, plans, reason) => {
+      expect(initializeWith(plans)).toThrow(
+        expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
+          code: 'INVALID_MESSAGE',
+        }),
+      );
+      const parsed = electronStateWorkerRequestSchema.safeParse(
+        initializeRequest(plans),
+      );
+      expect(parsed.success).toBe(false);
+      expect(parsed.error?.issues.map((issue) => issue.message)).toEqual(
+        expect.arrayContaining([expect.stringContaining(reason)]),
+      );
+    },
+  );
+
+  it('accepts the mirrored metadata plan whose source key is its index key', () => {
+    expect(initializeWith([MIRRORED_METADATA_PLAN])).not.toThrow();
+  });
+
+  it('accepts two plans with disjoint namespaces', () => {
+    expect(
+      initializeWith([
+        simplePlan('alpha', 'alpha:', 'alpha', ['alphaOut:']),
+        simplePlan('beta.list', 'beta:', 'beta.list', [
+          'betaOut:',
+          'betaAttachment:',
+        ]),
+      ]),
+    ).not.toThrow();
   });
 
   it('rejects malformed requests with a safe protocol error', () => {

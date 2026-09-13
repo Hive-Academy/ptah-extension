@@ -4,6 +4,7 @@ import type {
   StateStorageMigrationReceipt,
   StateStorageRecoveryReason,
 } from '@ptah-extension/platform-core';
+import { refineSplitPlans } from './electron-state-storage-split-namespaces';
 
 export const ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES = 256 * 1024;
 export const ELECTRON_STATE_PROJECTED_VALUE_MAX_JSON_BYTES = 1024 * 1024;
@@ -60,10 +61,6 @@ export const electronStateJsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
     z.array(electronStateJsonValueSchema),
     z.record(z.string(), electronStateJsonValueSchema),
   ]),
-);
-export const electronStateJsonRecordSchema = z.record(
-  z.string(),
-  electronStateJsonValueSchema,
 );
 
 const positiveSafeIntegerSchema = z
@@ -241,7 +238,10 @@ const initializeRequestSchema = z
     operationId: operationIdSchema,
     legacyFilePath: z.string().min(1).max(32_768),
     v2RootPath: z.string().min(1).max(32_768),
-    migrations: z.array(stateStorageArraySplitPlanSchema).max(64),
+    migrations: z
+      .array(stateStorageArraySplitPlanSchema)
+      .max(64)
+      .superRefine(refineSplitPlans),
   })
   .strict();
 

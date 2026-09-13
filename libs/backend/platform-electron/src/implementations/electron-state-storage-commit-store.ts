@@ -15,7 +15,6 @@ import {
   type ElectronStateManifest,
 } from './electron-state-storage-manifest';
 import {
-  electronStateJsonRecordSchema,
   electronStateJsonValueSchema,
   type JsonValue,
 } from './electron-state-storage-worker-protocol';
@@ -40,11 +39,7 @@ export interface ElectronStateFaultInjector {
 
 export type ElectronStateInitialization =
   | { readonly kind: 'current'; readonly manifest: ElectronStateManifest }
-  | {
-      readonly kind: 'legacy';
-      readonly legacyValues: Record<string, JsonValue>;
-      readonly sourceSha256: string;
-    };
+  | { readonly kind: 'legacy'; readonly legacyFilePath: string };
 
 export type ElectronStateCommitPhase = 'pre-publication' | 'post-publication';
 
@@ -65,8 +60,16 @@ export class ElectronStateCommitError extends Error {
   }
 }
 
+export interface ElectronStateInitialSink {
+  put(key: string, value: JsonValue): Promise<void>;
+}
+
+interface GenerationWriter extends ElectronStateInitialSink {
+  remove(key: string): void;
+}
+
 interface CommitInput {
-  readonly changes: ElectronStateCommitChanges;
+  readonly produce: (writer: GenerationWriter) => Promise<void>;
   readonly previous: ElectronStateManifest | null;
   readonly sourceV1Sha256: string;
   readonly commitKind: 'migration' | 'mutation';
@@ -99,6 +102,17 @@ async function exists(filePath: string): Promise<boolean> {
 
 async function readJsonFile(filePath: string): Promise<unknown> {
   return JSON.parse(await fs.readFile(filePath, 'utf8')) as unknown;
+}
+
+function writeChanges(
+  changes: ElectronStateCommitChanges,
+): CommitInput['produce'] {
+  return async (writer) => {
+    for (const [key, value] of changes) {
+      if (value === undefined) writer.remove(key);
+      else await writer.put(key, value);
+    }
+  };
 }
 
 async function streamSha256(filePath: string): Promise<string> {
@@ -141,10 +155,7 @@ export class ElectronStateCommitStore {
       await this.scanOccupiedGenerations();
       return { kind: 'current', manifest: currentResult.manifest };
     }
-    const { values, sourceSha256 } = await this.loadLegacy();
-    await this.quarantineIncompleteV2();
-    await this.scanOccupiedGenerations();
-    return { kind: 'legacy', legacyValues: values, sourceSha256 };
+    return { kind: 'legacy', legacyFilePath: this.legacyFilePath };
   }
 
   async readValue(blob: ElectronStateBlob): Promise<JsonValue> {
@@ -199,12 +210,15 @@ export class ElectronStateCommitStore {
     return manifest;
   }
 
-  async commitInitial(
-    changes: ElectronStateCommitChanges,
+  async commitInitialStream(
     sourceV1Sha256: string,
+    produce: (sink: ElectronStateInitialSink) => Promise<void>,
   ): Promise<ElectronStateManifest> {
+    await this.quarantineIncompleteV2();
+    await this.scanOccupiedGenerations();
     return await this.commit({
-      changes,
+      produce: (writer) =>
+        produce({ put: (key, value) => writer.put(key, value) }),
       previous: null,
       sourceV1Sha256,
       commitKind: 'migration',
@@ -216,7 +230,7 @@ export class ElectronStateCommitStore {
     previous: ElectronStateManifest,
   ): Promise<ElectronStateManifest> {
     return await this.commit({
-      changes,
+      produce: writeChanges(changes),
       previous,
       sourceV1Sha256: previous.sourceV1Sha256,
       commitKind: 'mutation',
@@ -231,7 +245,7 @@ export class ElectronStateCommitStore {
       return await this.commitMutation(changes, previous);
     }
     return await this.commit({
-      changes,
+      produce: writeChanges(changes),
       previous,
       sourceV1Sha256: previous.sourceV1Sha256,
       commitKind: 'migration',
@@ -369,36 +383,6 @@ export class ElectronStateCommitStore {
     return highest;
   }
 
-  private async loadLegacy(): Promise<{
-    values: Record<string, JsonValue>;
-    sourceSha256: string;
-  }> {
-    let bytes: Buffer;
-    try {
-      bytes = await fs.readFile(this.legacyFilePath);
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        bytes = Buffer.from('{}', 'utf8');
-      } else {
-        throw error;
-      }
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(bytes.toString('utf8')) as unknown;
-    } catch {
-      throw new StateStorageRecoveryRequiredError('migration-failed');
-    }
-    const result = electronStateJsonRecordSchema.safeParse(parsed);
-    if (!result.success) {
-      throw new StateStorageRecoveryRequiredError('migration-failed');
-    }
-    return {
-      values: result.data,
-      sourceSha256: sha256(bytes),
-    };
-  }
-
   private async quarantineIncompleteV2(): Promise<void> {
     if (!(await exists(this.v2RootPath))) return;
     const quarantinePath = `${this.v2RootPath}.quarantine.${randomUUID()}`;
@@ -439,27 +423,19 @@ export class ElectronStateCommitStore {
     const blobs: Record<string, ElectronStateBlob> = {
       ...(input.previous?.values ?? {}),
     };
-    for (const [key, value] of input.changes) {
-      if (value === undefined) {
+    const written = new Set<string>();
+    await input.produce({
+      put: async (key, value) => {
+        if (written.has(key)) {
+          throw new Error('A generation cannot write the same key twice');
+        }
+        written.add(key);
+        blobs[key] = await this.writeBlob(key, value, generation, operationId);
+      },
+      remove: (key) => {
         delete blobs[key];
-        continue;
-      }
-      const bytes = Buffer.from(JSON.stringify(value), 'utf8');
-      const fileName = `${sha256(Buffer.from(key, 'utf8'))}.${generation}.json`;
-      const finalPath = path.join(this.valuesPath, fileName);
-      await this.writeFlushRenameVerify(
-        `${finalPath}.${operationId}.tmp`,
-        finalPath,
-        bytes,
-        'blob',
-      );
-      blobs[key] = {
-        relativePath: `values/${fileName}`,
-        generation,
-        byteLength: bytes.byteLength,
-        sha256: sha256(bytes),
-      };
-    }
+      },
+    });
 
     const manifest: ElectronStateManifest = {
       schemaVersion: 2,
@@ -501,6 +477,29 @@ export class ElectronStateCommitStore {
     );
     await this.sweepStagingAfterCommit();
     return manifest;
+  }
+
+  private async writeBlob(
+    key: string,
+    value: JsonValue,
+    generation: number,
+    operationId: string,
+  ): Promise<ElectronStateBlob> {
+    const bytes = Buffer.from(JSON.stringify(value), 'utf8');
+    const fileName = `${sha256(Buffer.from(key, 'utf8'))}.${generation}.json`;
+    const finalPath = path.join(this.valuesPath, fileName);
+    await this.writeFlushRenameVerify(
+      `${finalPath}.${operationId}.tmp`,
+      finalPath,
+      bytes,
+      'blob',
+    );
+    return {
+      relativePath: `values/${fileName}`,
+      generation,
+      byteLength: bytes.byteLength,
+      sha256: sha256(bytes),
+    };
   }
 
   private async sweepStagingAfterCommit(): Promise<void> {

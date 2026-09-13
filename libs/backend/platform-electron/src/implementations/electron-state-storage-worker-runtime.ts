@@ -19,6 +19,7 @@ import {
   type ElectronStateCommitChanges,
   type ElectronStateFaultInjector,
 } from './electron-state-storage-commit-store';
+import { commitLegacyStateSplit } from './electron-state-storage-legacy-split';
 import type { ElectronStateManifest } from './electron-state-storage-manifest';
 import {
   DEFAULT_ELECTRON_STATE_VALUE_CACHE_BYTES,
@@ -421,8 +422,7 @@ export class ElectronStateWorkerRuntime {
       loaded.kind === 'legacy'
         ? await this.initializeFromLegacy(
             store,
-            loaded.legacyValues,
-            loaded.sourceSha256,
+            loaded.legacyFilePath,
             request.migrations,
           )
         : await this.initializeFromCurrent(loaded.manifest, request.migrations);
@@ -438,20 +438,14 @@ export class ElectronStateWorkerRuntime {
 
   private async initializeFromLegacy(
     store: ElectronStateCommitStore,
-    legacyValues: Record<string, JsonValue>,
-    sourceSha256: string,
+    legacyFilePath: string,
     migrations: readonly StateStorageArraySplitPlan[],
   ): Promise<StateStorageMigrationReceipt[]> {
-    const values = new Map(Object.entries(legacyValues));
-    const counts: ElectronStateArraySplitOutcome['counts'][] = [];
-    for (const plan of migrations) {
-      const outcome = await this.computeMigration(plan, async (key) =>
-        values.get(key),
-      );
-      for (const [key, value] of outcome.changes) values.set(key, value);
-      counts.push(outcome.counts);
-    }
-    const manifest = await store.commitInitial(values, sourceSha256);
+    const { manifest, counts } = await commitLegacyStateSplit(
+      store,
+      legacyFilePath,
+      migrations,
+    );
     this.adopt(manifest);
     return counts.map((entry) => ({
       ...entry,

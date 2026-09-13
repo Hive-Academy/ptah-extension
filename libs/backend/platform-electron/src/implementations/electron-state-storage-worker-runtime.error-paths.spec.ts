@@ -931,7 +931,7 @@ describe('ElectronStateWorkerRuntime — split-array-value', () => {
       type: 'initialize',
       legacyFilePath,
       v2RootPath: path.join(dir, 'workspace-state.v2'),
-      migrations: [basePlan],
+      migrations: [{ ...basePlan, indexKey: basePlan.sourceKey }],
     });
 
     expect(response).toMatchObject({
@@ -1196,4 +1196,100 @@ describe('ElectronStateWorkerRuntime — stateless projected reads', () => {
       64 * 1024 * 1024,
     );
   }, 180_000);
+});
+
+describe('ElectronStateWorkerRuntime — streaming legacy split', () => {
+  const plan: StateStorageArraySplitPlan = {
+    kind: 'split-array-value',
+    planVersion: 1,
+    sourceKey: 'records',
+    itemIdPath: ['id'],
+    detailKeyPrefix: 'record:',
+    indexKey: 'records',
+    indexSchemaVersion: 1,
+    summaryFields: [{ sourcePath: ['id'] }],
+  };
+
+  async function initializeWith(
+    legacyText: string | null,
+  ): Promise<{ response: ElectronStateWorkerResponse; dir: string }> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ptah-runtime-v1-'));
+    tmpDirs.push(dir);
+    const legacyFilePath = path.join(dir, 'workspace-state.json');
+    if (legacyText !== null) {
+      await fs.writeFile(legacyFilePath, legacyText, 'utf8');
+    }
+    const response = await new Driver(new ElectronStateWorkerRuntime()).send({
+      type: 'initialize',
+      legacyFilePath,
+      v2RootPath: path.join(dir, 'workspace-state.v2'),
+      migrations: [plan],
+    });
+    return { response, dir };
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it.each([
+    ['a truncated file', '{"records": [{"id": "a"}'],
+    ['an invalid literal', '{"records": [], "flag": tru}'],
+    ['a duplicate key', '{"a": 1, "a": 2}'],
+  ])(
+    'answers recovery-required migration-failed for %s and writes no v2',
+    async (_label, text) => {
+      const { response, dir } = await initializeWith(text);
+
+      expect(response).toEqual({
+        type: 'failure',
+        operationId: 1,
+        code: 'recovery-required',
+        recoveryReason: 'migration-failed',
+      });
+      expect(await fs.readdir(dir)).toEqual(['workspace-state.json']);
+    },
+  );
+
+  it('boots an empty store when the v1 file is missing', async () => {
+    const { response } = await initializeWith(null);
+
+    expect(response).toMatchObject({
+      type: 'ready',
+      generation: 1,
+      mutationEpoch: 0,
+      migrationReceipts: [{ sourceKey: 'records', itemCount: 0 }],
+    });
+  });
+
+  it('keeps the migration-failed verdict when closing the v1 file also fails', async () => {
+    const nodeFs =
+      jest.requireActual<typeof import('node:fs/promises')>('node:fs/promises');
+    const open = nodeFs.open;
+    let failedCloses = 0;
+    jest.spyOn(nodeFs, 'open').mockImplementation(async (file, flags, mode) => {
+      const handle = await open(file, flags, mode);
+      if (flags !== 'r') return handle;
+      const close = handle.close.bind(handle);
+      handle.close = async () => {
+        await close();
+        failedCloses++;
+        throw new Error('close failed');
+      };
+      return handle;
+    });
+
+    const failed = await initializeWith('{"records": [1, }');
+    const ready = await initializeWith('{"records": [{"id": "a"}]}');
+
+    expect(failed.response).toMatchObject({
+      code: 'recovery-required',
+      recoveryReason: 'migration-failed',
+    });
+    expect(ready.response).toMatchObject({
+      type: 'ready',
+      migrationReceipts: [{ sourceKey: 'records', itemCount: 1 }],
+    });
+    expect(failedCloses).toBe(2);
+  });
 });

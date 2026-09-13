@@ -10,6 +10,7 @@ import {
   type ElectronStateFaultInjector,
 } from './electron-state-storage-commit-store';
 import type { ElectronStateManifest } from './electron-state-storage-manifest';
+import type { JsonValue } from './electron-state-storage-worker-protocol';
 
 const DURABLE_STEPS: readonly ElectronStateDurableStep[] = [
   'blob-written',
@@ -68,6 +69,23 @@ function failAfter(
   };
 }
 
+function sha256Hex(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+async function commitLegacyFile(
+  store: ElectronStateCommitStore,
+  legacyPath: string,
+): Promise<ElectronStateManifest> {
+  const text = await fs.readFile(legacyPath, 'utf8');
+  const values = JSON.parse(text) as Record<string, JsonValue>;
+  return await store.commitInitialStream(sha256Hex(text), async (sink) => {
+    for (const [key, value] of Object.entries(values)) {
+      await sink.put(key, value);
+    }
+  });
+}
+
 async function openStore(
   legacyPath: string,
   v2Path: string,
@@ -79,11 +97,7 @@ async function openStore(
   const store = new ElectronStateCommitStore(legacyPath, v2Path, faultInjector);
   const loaded = await store.initialize();
   if (loaded.kind === 'current') return { store, manifest: loaded.manifest };
-  const manifest = await store.commitInitial(
-    new Map(Object.entries(loaded.legacyValues)),
-    loaded.sourceSha256,
-  );
-  return { store, manifest };
+  return { store, manifest: await commitLegacyFile(store, legacyPath) };
 }
 
 async function openFailingStore(
@@ -116,29 +130,123 @@ function blobName(key: string, generation: number): string {
 }
 
 describe('ElectronStateCommitStore boot and initial commit', () => {
-  it('returns legacy values without committing anything', async () => {
+  it('returns the legacy file path without reading or committing anything', async () => {
     const { legacyPath, v2Path, legacyBytes } = await fixture();
     const loaded = await new ElectronStateCommitStore(
       legacyPath,
       v2Path,
     ).initialize();
 
-    expect(loaded).toMatchObject({
-      kind: 'legacy',
-      legacyValues: { value: 'legacy' },
-    });
+    expect(loaded).toEqual({ kind: 'legacy', legacyFilePath: legacyPath });
     await expect(fs.access(v2Path)).rejects.toBeDefined();
     expect(await fs.readFile(legacyPath, 'utf8')).toBe(legacyBytes);
   });
 
-  it('treats an absent v1 file as an empty store', async () => {
+  it('returns the legacy arm for an absent v1 file', async () => {
     const { dir } = await fixture();
+    const legacyFilePath = path.join(dir, 'missing.json');
     const loaded = await new ElectronStateCommitStore(
-      path.join(dir, 'missing.json'),
+      legacyFilePath,
       path.join(dir, 'missing.v2'),
     ).initialize();
 
-    expect(loaded).toMatchObject({ kind: 'legacy', legacyValues: {} });
+    expect(loaded).toEqual({ kind: 'legacy', legacyFilePath });
+  });
+
+  it('leaves an incomplete v2 in place until the initial stream commit runs', async () => {
+    const { legacyPath, v2Path, dir } = await fixture();
+    await fs.mkdir(path.join(v2Path, 'values'), { recursive: true });
+    await fs.writeFile(path.join(v2Path, 'values', 'stray.json'), '1', 'utf8');
+    const store = new ElectronStateCommitStore(legacyPath, v2Path);
+
+    expect((await store.initialize()).kind).toBe('legacy');
+    await fs.access(path.join(v2Path, 'values', 'stray.json'));
+
+    await commitLegacyFile(store, legacyPath);
+    const quarantined = (await fs.readdir(dir)).filter((name) =>
+      name.startsWith('workspace-state.v2.quarantine.'),
+    );
+    expect(quarantined).toHaveLength(1);
+    await expect(
+      fs.access(path.join(v2Path, 'values', 'stray.json')),
+    ).rejects.toBeDefined();
+  });
+
+  it('refuses a second put of the same key before publication', async () => {
+    const { legacyPath, v2Path } = await fixture();
+    const store = new ElectronStateCommitStore(legacyPath, v2Path);
+    await store.initialize();
+
+    const failure = await store
+      .commitInitialStream(sha256Hex('{}'), async (sink) => {
+        await sink.put('value', 1);
+        await sink.put('value', 2);
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+    expect(failure).toBeInstanceOf(ElectronStateCommitError);
+    expect((failure as ElectronStateCommitError).phase).toBe('pre-publication');
+    await expect(fs.access(path.join(v2Path, 'CURRENT'))).rejects.toBeDefined();
+  });
+
+  it('publishes nothing when produce throws and boots legacy again', async () => {
+    const { legacyPath, v2Path, legacyBytes } = await fixture();
+    const store = new ElectronStateCommitStore(legacyPath, v2Path);
+    await store.initialize();
+
+    const failure = await store
+      .commitInitialStream(sha256Hex(legacyBytes), async (sink) => {
+        await sink.put('value', 'partial');
+        throw new Error('produce failed');
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+    expect(failure).toBeInstanceOf(ElectronStateCommitError);
+    expect((failure as ElectronStateCommitError).phase).toBe('pre-publication');
+    await expect(fs.access(path.join(v2Path, 'CURRENT'))).rejects.toBeDefined();
+    expect(
+      await new ElectronStateCommitStore(legacyPath, v2Path).initialize(),
+    ).toEqual({ kind: 'legacy', legacyFilePath: legacyPath });
+  });
+
+  it('writes stream blobs byte-identical to mutation blobs of the same value', async () => {
+    const { legacyPath, v2Path } = await fixture();
+    const value: JsonValue = {
+      text: 'a\u{1F600}\u754C "quoted" \\ back',
+      list: [1, 2.5, null, true],
+    };
+    const store = new ElectronStateCommitStore(legacyPath, v2Path);
+    await store.initialize();
+    const initial = await store.commitInitialStream(
+      sha256Hex('{}'),
+      async (sink) => {
+        await sink.put('stream', value);
+      },
+    );
+    const mutated = await store.commitMutation(
+      new Map([['mutation', value]]),
+      initial,
+    );
+
+    const streamBytes = await fs.readFile(
+      path.join(v2Path, initial.values['stream'].relativePath),
+    );
+    const mutationBytes = await fs.readFile(
+      path.join(v2Path, mutated.values['mutation'].relativePath),
+    );
+    expect(Buffer.compare(streamBytes, mutationBytes)).toBe(0);
+    expect(initial.values['stream'].sha256).toBe(
+      mutated.values['mutation'].sha256,
+    );
+    expect(initial.values['stream'].byteLength).toBe(
+      mutated.values['mutation'].byteLength,
+    );
   });
 
   it('boots a committed store by verifying blobs without parsing them', async () => {
@@ -173,10 +281,7 @@ describe('ElectronStateCommitStore boot and initial commit', () => {
       if (loaded.kind !== 'legacy') throw new Error('expected legacy boot');
 
       await expect(
-        failing.commitInitial(
-          new Map(Object.entries(loaded.legacyValues)),
-          loaded.sourceSha256,
-        ),
+        commitLegacyFile(failing, loaded.legacyFilePath),
       ).rejects.toBeInstanceOf(ElectronStateCommitError);
 
       const recovered = await openStore(legacyPath, v2Path);

@@ -22,7 +22,7 @@ export type ElectronStateSplitValueReader = (
   key: string,
 ) => Promise<JsonValue | undefined>;
 
-interface MutableSplitCounters {
+export interface MutableSplitCounters {
   extractedValueCount: number;
   droppedStdoutCount: number;
   stdoutFallbackCount: number;
@@ -34,15 +34,20 @@ type TaggedSequenceFormat = NonNullable<
   StateStorageNestedExtractionPlan['destinationFormat']
 >;
 
-function sha256Json(value: JsonValue): string {
+export function sha256Json(value: JsonValue): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
-function isJsonObject(value: unknown): value is Record<string, JsonValue> {
+export function isJsonObject(
+  value: unknown,
+): value is Record<string, JsonValue> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function getAtPath(value: unknown, jsonPath: StateStorageJsonPath): unknown {
+export function getAtPath(
+  value: unknown,
+  jsonPath: StateStorageJsonPath,
+): unknown {
   let current = value;
   for (const segment of jsonPath) {
     if (current === null || typeof current !== 'object') return undefined;
@@ -91,7 +96,7 @@ function projectionName(field: StateStorageFieldProjection): string {
   return final;
 }
 
-function project(
+export function project(
   source: unknown,
   fields: readonly StateStorageFieldProjection[],
 ): Record<string, JsonValue> {
@@ -105,7 +110,7 @@ function project(
   return result;
 }
 
-function usableId(value: unknown): string | null {
+export function usableId(value: unknown): string | null {
   if (typeof value !== 'string' && typeof value !== 'number') return null;
   const id = String(value).trim();
   return id.length > 0 ? id : null;
@@ -230,7 +235,7 @@ function fallbackItem(
   return item;
 }
 
-async function extractReference(
+export async function extractReference(
   reference: unknown,
   plan: StateStorageNestedExtractionPlan,
   changes: Map<string, JsonValue>,
