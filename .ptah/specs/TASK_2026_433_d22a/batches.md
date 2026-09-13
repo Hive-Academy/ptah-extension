@@ -1,6 +1,6 @@
 # Batches - TASK_2026_433
 
-Total tasks: 29 (in this delivery; +1 blocked in B7) | Batches: 9 in delivery + 1 blocked + 1 deferred | Complete: 0/9
+Total tasks: 29 (in this delivery; +1 blocked in B7) | Batches: 9 in delivery + 1 blocked + 1 deferred | Complete: 1/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes` (branch `feat/task-433-role-lanes`).
 Every path below is relative to that root unless it is written in full. Executors work ONLY in this worktree.
@@ -98,7 +98,7 @@ npx nx run-many -t lint,typecheck -p @ptah-extension/shared @ptah-extension/cli-
 
 Read the `Running target test for 5 projects` header; N must be 5.
 
-## Batch B1: Role contract types — IN_PROGRESS
+## Batch B1: Role contract types — COMPLETE (commit 0714d36c4)
 
 - Recommended executor: backend-developer
 - Fallback executor: a single CLI lane with the task text below
@@ -106,7 +106,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Rationale: one file, additive types that every later batch imports; nothing to parallelise.
 - Tasks: 1 | Depends on: none
 
-### Task 1.1: Add role types to the shared agent-process contract — IN_PROGRESS
+### Task 1.1: Add role types to the shared agent-process contract — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\shared\src\lib\types\agent-process.types.ts`
 - Plan reference: implementation-plan.md:84-100
@@ -129,8 +129,9 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Only `agent-process.types.ts` changed (`git show --stat`)
 - Typecheck of the 5 projects green; no consumer edited
 - Reviewer: code-style-reviewer (pure contract/type precision)
+- Gate record (2026-09-13): orchestrator delegated reviewer depth to team-leader judgment for this additive, single-file batch. Gate run = team-leader inline contract review, no separate reviewer spawn. Checked: every field in the Task 1.1 contract present with exact names, literal unions and optionality (D5 optional on `CliDetectionResult`); no `node:` import; barrel untouched; field docs follow the `AgentMessagingMode` / "Injected by MCP server, NOT set by callers" pattern; `git show --stat` = 1 file, +56. Evidence re-run by team-leader: typecheck 5/5 projects green; `@ptah-extension/shared` test 57 suites / 1381 tests green; lint shared 0 errors (2 pre-existing warnings, none in the changed file). Type-precision is re-reviewed by code-style-reviewer at B5b, where these types meet the MCP surfaces.
 
-## Batch B2a: AgentRoleResolver — PENDING
+## Batch B2a: AgentRoleResolver — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: CLI lane (self-contained: new folder + 3 wiring lines)
@@ -138,7 +139,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Rationale: new service with a security-sensitive name check and error taxonomy; owns the lib's DI and barrel files, which B2b does not touch.
 - Tasks: 2 | Depends on: B1
 
-### Task 2a.1: Implement resolver and spec — PENDING
+### Task 2a.1: Implement resolver and spec — IN_PROGRESS
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\roles\agent-role-resolver.service.ts`
@@ -154,7 +155,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Spec cases: missing dir, empty dir, unknown role lists available, `../x` fails with zero FS calls, case mismatch, frontmatter-only file, 64 KiB exact accepted / +1 rejected, CRLF body, read failure after listing, sub-package workspaceRoot (real temp dir with `.git` marker, assumption A5), a body beginning with a `---` pair (defect D3 — record what the resolver returns so 2b.1 can pin the rendering).
 - Quality: `catch (error: unknown)`; no fallback to role-less anything.
 
-### Task 2a.2: Register token and export — PENDING
+### Task 2a.2: Register token and export — IN_PROGRESS
 
 - Files:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\di\tokens.ts` — `AGENT_ROLE_RESOLVER: Symbol.for('AgentRoleResolver')`
@@ -169,7 +170,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Traversal case proves no FS call before validation
 - Reviewer: code-logic-reviewer (path safety, error taxonomy, no silent fallback)
 
-## Batch B2b: Role prompt assembly + command-line budget guard — PENDING
+## Batch B2b: Role prompt assembly + command-line budget guard — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: CLI lane
@@ -177,7 +178,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
 - Rationale: exact-value ordering and platform-limit math in one util file; owns `cli-adapter.utils.ts` and the `CliCommandOptions` half of the interface.
 - Tasks: 3 | Depends on: B1
 
-### Task 2b.1: `renderRoleBlock` and `buildTaskPrompt` role section — PENDING
+### Task 2b.1: `renderRoleBlock` and `buildTaskPrompt` role section — IN_PROGRESS
 
 - Files:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-adapters\cli-adapter.utils.ts`
@@ -188,7 +189,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
   - `buildTaskPrompt` order: `systemPrompt || projectGuidance` → `\n\n---\n\n` → role block when `options.role` → `\n\n---\n\n` → tool policy, task, files, taskFolder. Role-less output must be byte-identical to today.
 - Spec: order with/without system context and with/without role (4 combinations, exact strings), transform applied for a CliTarget and skipped for `pi`, D3 `---`-leading body case.
 
-### Task 2b.2: `assertCommandLineWithinLimit` + `CliCommandLineTooLongError`, called first in `spawnCli` — PENDING
+### Task 2b.2: `assertCommandLineWithinLimit` + `CliCommandLineTooLongError`, called first in `spawnCli` — IN_PROGRESS
 
 - Files: same two as 2b.1
 - Depends on: none within batch (same files, do after 2b.1)
@@ -200,7 +201,7 @@ Read the `Running target test for 5 projects` header; N must be 5.
   - `spawnCli` calls it first, before the `spawner` branch, so off-thread and inline spawns are both guarded
 - Spec: limit-1 / limit / limit+1 for win32, win32 `.cmd`, linux, darwin (platform injected, never global); quoting cost of `"` and trailing `\`; error fields.
 
-### Task 2b.3: `CliCommandOptions.role` — PENDING
+### Task 2b.3: `CliCommandOptions.role` — IN_PROGRESS
 
 - File: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-433-role-lanes\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-adapters\cli-adapter.interface.ts`
 - Contract: `readonly role?: AgentRoleDefinition` on `CliCommandOptions` ONLY. Do NOT add `roleChannel` to `CliAdapter` here (defect D1 — that is Task 3.1).
