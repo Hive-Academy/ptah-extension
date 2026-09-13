@@ -106,6 +106,12 @@ None.
 
 ### No DI-container smoke coverage for the two new required collaborators
 
+> **Resolved before the B4d commit.** `di/register.agent-process-manager.smoke.spec.ts`
+> now resolves `TOKENS.AGENT_PROCESS_MANAGER` through the real container and
+> asserts `AgentSpawnEnvironment` and `AgentOutputBuffer` are singletons injected
+> into the manager (see `batches.md`, B4d gate record). The finding below is kept
+> as the review recorded it; it no longer describes the committed code.
+
 - File: `libs/backend/cli-agent-runtime/src/lib/di/register.ts:44-49`;
   absence confirmed against
   `libs/backend/cli-agent-runtime/src/lib/di/register.ptah-cli-registry.smoke.spec.ts`
@@ -235,7 +241,7 @@ Task 4d.2 required — no re-added manager field. Nothing is silently dropped.
 | Timer unref behaviour preserved | PASS | both `unrefTimer` (manager) and `AgentOutputBuffer.scheduleFlush`'s inline guard keep the guarded-shape check |
 | `AgentOutputBuffer`/`AgentSpawnEnvironment` reach back into manager state | PASS (no reach-back) | Neither imports the manager; `AgentOutputBuffer` takes `TrackedAgent` + callback per call |
 | `wiring/agent-events.ts` / `session-metadata-store.ts` untouched | PASS | absent from `git status` |
-| DI container resolves `AgentProcessManager` with the new graph | UNVERIFIED IN SUITE (verified manually) | no committed spec; probe run confirms success — see Serious finding |
+| DI container resolves `AgentProcessManager` with the new graph | UNVERIFIED IN SUITE at review time; resolved before commit | `di/register.agent-process-manager.smoke.spec.ts` — see Serious finding |
 
 ## Maintenance debt
 

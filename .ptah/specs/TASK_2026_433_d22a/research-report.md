@@ -50,6 +50,13 @@ plumbing for preamble delivery: resolve the role body into `systemPrompt`, and e
 that calls `buildTaskPrompt` carries it. Codex is the exception worth taking: route the same
 body to `config.developer_instructions` so it sits in the developer channel, not the user turn.
 
+> **Correction (implementation-plan.md, final contract):** the role is NOT folded into
+> `systemPrompt`, which is the harness prompt and would be overwritten or concatenated. It
+> travels as its own `CliCommandOptions.role`. Task-prompt adapters render it through
+> `buildTaskPrompt(options, cli)` as a separate section; codex sends it through
+> `config.developer_instructions` and strips it from the task input; ptah-cli appends
+> `renderRoleBlock(role, 'ptah-cli')` to its system prompt content.
+
 ## Recommended shape (for the architect)
 
 1. `ptah_agent_spawn({ role })` resolves the workspace's generated agent definition. Unknown
@@ -62,8 +69,10 @@ body to `config.developer_instructions` so it sits in the developer channel, not
    marker agent above; enable `native` for that version only if the marker comes back. Cache
    by CLI version. opencode is the likeliest first native lane once installed.
 5. Role restrictions are prompt-level under preamble. Reviewer read-only intent is not enforced
-   by the CLI; where an adapter has a sandbox flag (codex `sandbox_mode`, opencode permissions),
-   map a role's read-only flag to it.
+   by the CLI. **Superseded:** the original recommendation here was to map a role's read-only
+   flag to an adapter sandbox flag (codex `sandbox_mode`, opencode permissions). The
+   implementation plan rejects that: every role writes a deliverable, so role delivery does not
+   change a lane's sandbox or permission settings in v1.
 6. Template size now matters per lane (TASK_2026_432 trimmed expanded templates to ~192KB total,
    8–22KB each).
 

@@ -1,6 +1,13 @@
+# Lane research — Copilot and Pi
+
+> **Conductor correction (see `../research-report.md`, "Live probes").** This is raw lane
+> output. The live probe `copilot -p "Say hello" --agent probe` ignored the agent definition and
+> exited 0, so `--agent` selection is **not** confirmed in headless `-p` mode. v1 delivers the
+> Copilot role as a preamble; the `native` recommendations below are superseded.
+
 ## GitHub Copilot CLI
 
-1. **Non-interactive agent selection**: ✅ YES — `--agent=<name>` flag is documented and working (`copilot --agent=refactor-agent --prompt "..."`)
+1. **Non-interactive agent selection**: ⚠️ DOCUMENTED, NOT CONFIRMED — `--agent=<name>` flag is documented; the live probe ignored it headless (`copilot --agent=refactor-agent --prompt "..."`)
 2. **Agent behavior**: The selected agent **DELEGATES** — Copilot's model "may choose to delegate a task to a subsidiary subagent process that operates using a custom agent with specific expertise, if it judges that this would result in the work being completed more effectively. The model may equally choose to handle the work directly." Agent does NOT restrict tools/model per se; it restricts **context and expertise scope**.
 3. **Agent lookup paths**: 
    - User-level: `~/.copilot/agents/*.md`
@@ -25,7 +32,7 @@
 
 | CLI      | roleDelivery | Adapter Change                                                                        |
 |----------|--------------|----------------------------------------------------------------------------------------|
-| Copilot  | **native**   | `if (options.role) args.push('--agent', options.role);` (line ~330 in copilot-sdk.adapter.ts) |
+| Copilot  | **preamble** (corrected from native) | Role rendered by `buildTaskPrompt(options, 'copilot')`; `--agent` deferred until a probe passes |
 | Pi       | **preamble** | Embed role in `buildTaskPrompt(task, options.role)` output as system context prefix    |
 
 ---
@@ -69,7 +76,7 @@
 
 | CLI     | roleDelivery | Change                                                          |
 |---------|--------------|----------------------------------------------------------------|
-| Copilot | native       | `if (role) args.push('--agent', role)` in spawn argv            |
+| Copilot | preamble (corrected from native) | Role rendered by `buildTaskPrompt`; `--agent` deferred until a probe passes |
 | Pi      | preamble     | Embed role preamble in `buildTaskPrompt` output / stdin message |
 
 ## Open questions

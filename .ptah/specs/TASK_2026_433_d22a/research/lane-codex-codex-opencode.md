@@ -1,3 +1,10 @@
+# Lane research — Codex and OpenCode
+
+> **Conductor correction (see `../implementation-plan.md` and `../batches.md`).** This is raw
+> lane output. v1 delivers every role as a preamble. OpenCode native delivery is **deferred**:
+> OpenCode is not installed, so the source-based evidence below does not satisfy the
+> installed-version marker probe the plan requires.
+
 ## Codex CLI
 
 - **1. Native selection:** No supported root-agent selector found for installed **0.153.4**. Ran `codex --version` and `codex exec --help`: headless syntax is `codex exec [OPTIONS] [PROMPT]`; no `--agent`/`--role`. `--profile` selects configuration profiles, not agent definitions. Native **delegated** definitions live in `.codex/agents/*.toml` or `~/.codex/agents/*.toml`; required TOML fields are `name`, `description`, `developer_instructions`. [Subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents).
@@ -19,7 +26,7 @@
 ## Recommendation
 
 - **Codex:** `roleDelivery: preamble` — inject resolved body through SDK `config.developer_instructions`.
-- **OpenCode:** `roleDelivery: native` — merge an inline primary-agent definition into `OPENCODE_CONFIG_CONTENT` and pass `--agent <role>`.
+- **OpenCode:** `roleDelivery: preamble` in v1 (corrected: the lane recommended `native`). Native delivery — merge an inline primary-agent definition into `OPENCODE_CONFIG_CONTENT` and pass `--agent <role>` — is deferred until an installed-version marker probe passes.
 
 ## Open questions
 
