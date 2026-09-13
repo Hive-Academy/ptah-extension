@@ -17,12 +17,17 @@
  * that produces `IStateStorage` instances for a given storage directory.
  */
 
+import { createHash } from 'crypto';
 import {
+  StateStorageCursorStaleError,
   StateStorageNotReadyError,
+  StateStorageValueTooLargeError,
   hasStateStorageMaintenance,
   hasStateStorageReadiness,
   isAsyncStateStorage,
+  jsonUtf8Bytes,
   omitJsonPaths,
+  shrinkJsonStringLeaves,
   type IAsyncStateStorage,
   type IStateStorage,
   type IStateStorageMaintenance,
@@ -34,6 +39,7 @@ import {
   type StateStorageSequencePage,
   type StateStorageSequenceReadOptions,
   type StateStorageSequenceWriteChunk,
+  type StateStorageTruncatedItem,
 } from '@ptah-extension/platform-core';
 
 /**
@@ -54,6 +60,89 @@ function hasStateStorageDisposal(
   return (
     typeof (storage as Partial<DisposableStateStorage>).dispose === 'function'
   );
+}
+
+const SYNC_SEQUENCE_CURSOR_PATTERN = /^s([0-9a-f]{16})\.(0|[1-9]\d*)$/;
+
+function sequenceFingerprint(sequence: readonly unknown[]): string {
+  return createHash('sha256')
+    .update(JSON.stringify(sequence))
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function readSyncSequencePage<T>(
+  key: string,
+  value: unknown,
+  cursor: string | undefined,
+  options: StateStorageSequenceReadOptions | undefined,
+): StateStorageSequencePage<T> {
+  if (value !== undefined && !Array.isArray(value)) {
+    throw new Error(`State storage value is not a sequence: ${key}`);
+  }
+  const sequence: readonly unknown[] = value ?? [];
+  const fingerprint =
+    value === undefined ? null : sequenceFingerprint(sequence);
+  let start = 0;
+  if (cursor !== undefined) {
+    const match = SYNC_SEQUENCE_CURSOR_PATTERN.exec(cursor);
+    const index = match ? Number(match[2]) : Number.NaN;
+    if (
+      !match ||
+      match[1] !== fingerprint ||
+      !Number.isSafeInteger(index) ||
+      index > sequence.length
+    ) {
+      throw new StateStorageCursorStaleError(key);
+    }
+    start = index;
+  }
+  const maxBytes = options?.maxBytes ?? Number.POSITIVE_INFINITY;
+  const maxJsonBytes = options?.maxJsonBytes ?? Number.POSITIVE_INFINITY;
+  const maxItemBytes = options?.maxItemBytes ?? Number.POSITIVE_INFINITY;
+  const items: unknown[] = [];
+  let truncatedItem: StateStorageTruncatedItem | null = null;
+  let pageBytes = 2;
+  let jsonBytes = options?.jsonEnvelopeBytes ?? 2;
+  let index = start;
+  while (index < sequence.length) {
+    const item = sequence[index];
+    const itemJson = jsonUtf8Bytes(item);
+    const separator = items.length > 0 ? 1 : 0;
+    if (
+      pageBytes + separator + itemJson <= maxBytes &&
+      jsonBytes + separator + itemJson <= maxJsonBytes &&
+      itemJson <= maxItemBytes
+    ) {
+      items.push(item);
+      pageBytes += separator + itemJson;
+      jsonBytes += separator + itemJson;
+      index++;
+      continue;
+    }
+    if (items.length > 0) break;
+    const shrunk = shrinkJsonStringLeaves(item, {
+      maxEstimatorBytes: maxBytes - pageBytes,
+      maxJsonBytes: Math.min(maxJsonBytes - jsonBytes, maxItemBytes),
+      estimate: jsonUtf8Bytes,
+    });
+    if (shrunk === null) {
+      throw new StateStorageValueTooLargeError(key, itemJson);
+    }
+    items.push(shrunk);
+    jsonBytes += jsonUtf8Bytes(shrunk);
+    truncatedItem = { index: 0, originalJsonBytes: itemJson };
+    index++;
+    break;
+  }
+  const done = index >= sequence.length;
+  return {
+    items: items as T[],
+    nextCursor: done ? null : `s${fingerprint}.${index}`,
+    done,
+    approximateBytes: jsonBytes,
+    ...(truncatedItem ? { truncatedItems: [truncatedItem] } : {}),
+  };
 }
 
 export class WorkspaceAwareStateStorage
@@ -188,13 +277,17 @@ export class WorkspaceAwareStateStorage
       yield* storage.readJsonSequence<T>(key, options);
       return;
     }
-    const value = storage.get<T[]>(key, []);
-    yield {
-      items: value ?? [],
-      nextCursor: null,
-      done: true,
-      approximateBytes: 0,
-    };
+    let cursor = options?.cursor;
+    do {
+      const page = readSyncSequencePage<T>(
+        key,
+        storage.get<unknown>(key),
+        cursor,
+        options,
+      );
+      yield page;
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
   }
 
   async replaceJsonSequence<T>(

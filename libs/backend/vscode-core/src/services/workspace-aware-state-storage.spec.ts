@@ -2,7 +2,9 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  StateStorageCursorStaleError,
   StateStorageNotReadyError,
+  StateStorageValueTooLargeError,
   hasStateStorageMaintenance,
   type IAsyncStateStorage,
   type IStateStorageMaintenance,
@@ -11,6 +13,8 @@ import {
   type StateStorageGetOptions,
   type StateStorageMigrationReceipt,
   type StateStorageReadinessState,
+  type StateStorageSequencePage,
+  type StateStorageSequenceReadOptions,
 } from '@ptah-extension/platform-core';
 import { WorkspaceAwareStateStorage } from './workspace-aware-state-storage';
 import { WorkspaceContextManager } from './workspace-context-manager';
@@ -274,6 +278,164 @@ describe('WorkspaceAwareStateStorage readiness routing', () => {
 
     await expect(proxy.splitArrayValue(plan)).rejects.toThrow(
       'Active workspace state storage does not support maintenance operations',
+    );
+  });
+});
+
+describe('WorkspaceAwareStateStorage sync sequence reads', () => {
+  type Item = { tag: string; value: { type: string; content: string } };
+
+  function item(content: string): Item {
+    return { tag: 'segment', value: { type: 'text', content } };
+  }
+
+  function proxyOver(entries: Record<string, unknown>): {
+    proxy: WorkspaceAwareStateStorage;
+    delegate: ControlledStorage;
+  } {
+    const delegate = new ControlledStorage(true, entries);
+    return {
+      proxy: new WorkspaceAwareStateStorage('/default', () => delegate),
+      delegate,
+    };
+  }
+
+  async function firstPage<T>(
+    proxy: WorkspaceAwareStateStorage,
+    key: string,
+    options?: StateStorageSequenceReadOptions,
+  ): Promise<StateStorageSequencePage<T>> {
+    const sequence = proxy.readJsonSequence<T>(key, options);
+    const pages = sequence[Symbol.asyncIterator]();
+    try {
+      const first = await pages.next();
+      if (first.done) throw new Error('no page');
+      return first.value;
+    } finally {
+      await pages.return?.(undefined);
+    }
+  }
+
+  it('pages a sequence under both budgets and continues from the cursor', async () => {
+    const items = Array.from({ length: 10 }, (_, i) =>
+      item(`${i}${'x'.repeat(80)}`),
+    );
+    const { proxy } = proxyOver({ output: items });
+    const options = {
+      maxBytes: 4096,
+      maxJsonBytes: 400,
+      jsonEnvelopeBytes: 50,
+    };
+
+    const received: Item[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const page = await firstPage<Item>(proxy, 'output', {
+        ...options,
+        cursor,
+      });
+      expect(page.items.length).toBeGreaterThan(0);
+      expect(
+        options.jsonEnvelopeBytes -
+          2 +
+          Buffer.byteLength(JSON.stringify(page.items), 'utf8'),
+      ).toBeLessThanOrEqual(options.maxJsonBytes);
+      expect(page.truncatedItems).toBeUndefined();
+      received.push(...page.items);
+      cursor = page.nextCursor ?? undefined;
+      pages++;
+    } while (cursor);
+
+    expect(pages).toBeGreaterThan(1);
+    expect(received).toEqual(items);
+
+    const all: Item[] = [];
+    for await (const page of proxy.readJsonSequence<Item>('output', options)) {
+      all.push(...page.items);
+    }
+    expect(all).toEqual(items);
+  });
+
+  it('shrinks a single oversized item and reports it page-relative', async () => {
+    const big = item('y'.repeat(5_000));
+    const { proxy } = proxyOver({ output: [item('small'), big, item('tail')] });
+    const options = { maxBytes: 1024, maxJsonBytes: 1024, maxItemBytes: 900 };
+
+    const first = await firstPage<Item>(proxy, 'output', options);
+    expect(first.items).toEqual([item('small')]);
+    const second = await firstPage<Item>(proxy, 'output', {
+      ...options,
+      cursor: first.nextCursor ?? undefined,
+    });
+
+    expect(second.items).toHaveLength(1);
+    expect(second.truncatedItems).toEqual([
+      {
+        index: 0,
+        originalJsonBytes: Buffer.byteLength(JSON.stringify(big), 'utf8'),
+      },
+    ]);
+    expect(second.items[0].value.content).toMatch(/\[truncated \d+ bytes\]$/);
+    expect(
+      Buffer.byteLength(JSON.stringify(second.items[0]), 'utf8'),
+    ).toBeLessThanOrEqual(900);
+    const third = await firstPage<Item>(proxy, 'output', {
+      ...options,
+      cursor: second.nextCursor ?? undefined,
+    });
+    expect(third).toMatchObject({
+      items: [item('tail')],
+      nextCursor: null,
+      done: true,
+    });
+  });
+
+  it('fails an item that cannot be shrunk with StateStorageValueTooLargeError', async () => {
+    const { proxy } = proxyOver({
+      output: [{ values: Array.from({ length: 400 }, (_, i) => i) }],
+    });
+
+    await expect(
+      firstPage(proxy, 'output', { maxBytes: 256, maxJsonBytes: 256 }),
+    ).rejects.toBeInstanceOf(StateStorageValueTooLargeError);
+  });
+
+  it('rejects malformed, rewritten, out-of-range and absent-key cursors as stale', async () => {
+    const items = Array.from({ length: 6 }, (_, i) => item(`${i}`.repeat(60)));
+    const { proxy, delegate } = proxyOver({ output: items });
+    const first = await firstPage<Item>(proxy, 'output', { maxJsonBytes: 200 });
+    const cursor = first.nextCursor ?? '';
+    expect(cursor).toMatch(/^s[0-9a-f]{16}\.\d+$/);
+
+    await expect(
+      firstPage(proxy, 'output', { cursor: 'garbage' }),
+    ).rejects.toBeInstanceOf(StateStorageCursorStaleError);
+    await expect(
+      firstPage(proxy, 'output', { cursor: cursor.replace(/\.\d+$/, '.99') }),
+    ).rejects.toBeInstanceOf(StateStorageCursorStaleError);
+
+    await delegate.update('output', [...items, item('appended')]);
+    await expect(firstPage(proxy, 'output', { cursor })).rejects.toBeInstanceOf(
+      StateStorageCursorStaleError,
+    );
+
+    await delegate.update('output', undefined);
+    await expect(firstPage(proxy, 'output', { cursor })).rejects.toBeInstanceOf(
+      StateStorageCursorStaleError,
+    );
+    await expect(firstPage(proxy, 'output')).resolves.toMatchObject({
+      items: [],
+      nextCursor: null,
+      done: true,
+    });
+  });
+
+  it('refuses a value that is not a sequence', async () => {
+    const { proxy } = proxyOver({ output: { segments: [] } });
+
+    await expect(firstPage(proxy, 'output')).rejects.toThrow(
+      'State storage value is not a sequence',
     );
   });
 });
