@@ -4,9 +4,11 @@ import * as path from 'node:path';
 import {
   StateStorageNotReadyError,
   hasStateStorageMaintenance,
+  type IAsyncStateStorage,
   type IStateStorageMaintenance,
   type IStateStorageReadiness,
   type StateStorageArraySplitPlan,
+  type StateStorageGetOptions,
   type StateStorageMigrationReceipt,
   type StateStorageReadinessState,
 } from '@ptah-extension/platform-core';
@@ -196,6 +198,59 @@ describe('WorkspaceAwareStateStorage readiness routing', () => {
     const receipt = await proxy.splitArrayValue(plan);
     expect(receipt).toEqual(mockReceipt);
     expect(splitFn).toHaveBeenCalledWith(plan);
+  });
+
+  it('forwards getAsync options unchanged to an async delegate', async () => {
+    const getAsync = jest.fn().mockResolvedValue({ id: 'detail' });
+    const proxy = new WorkspaceAwareStateStorage('/default', (storagePath) => {
+      const storage = new ControlledStorage(true) as ControlledStorage &
+        Partial<IAsyncStateStorage>;
+      if (storagePath === '/async-storage') {
+        storage.getAsync = getAsync;
+        storage.readJsonSequence = jest.fn();
+        storage.replaceJsonSequence = jest.fn();
+      }
+      return storage;
+    });
+    proxy.addWorkspace('/workspace-async', '/async-storage');
+    proxy.setActiveWorkspace('/workspace-async');
+
+    const options: StateStorageGetOptions = {
+      projection: { omit: [['cliSessions', '*', 'stdout']] },
+    };
+    const fallback = { id: 'fallback' };
+
+    await expect(proxy.getAsync('detail', fallback, options)).resolves.toEqual({
+      id: 'detail',
+    });
+    expect(getAsync).toHaveBeenCalledTimes(1);
+    expect(getAsync.mock.calls[0][0]).toBe('detail');
+    expect(getAsync.mock.calls[0][1]).toBe(fallback);
+    expect(getAsync.mock.calls[0][2]).toBe(options);
+  });
+
+  it('applies the projection in memory when the delegate is synchronous', async () => {
+    const stored = {
+      id: 'detail',
+      cliSessions: [{ agentId: 'a1', stdout: 'bulk', segments: [1] }],
+    };
+    const proxy = new WorkspaceAwareStateStorage(
+      '/default',
+      () => new ControlledStorage(true, { detail: stored }),
+    );
+
+    const result = await proxy.getAsync<typeof stored>('detail', undefined, {
+      projection: {
+        omit: [
+          ['cliSessions', '*', 'stdout'],
+          ['cliSessions', '*', 'segments'],
+        ],
+      },
+    });
+
+    expect(result).toEqual({ id: 'detail', cliSessions: [{ agentId: 'a1' }] });
+    expect(stored.cliSessions[0].stdout).toBe('bulk');
+    await expect(proxy.getAsync('detail')).resolves.toBe(stored);
   });
 
   it('throws when the active delegate does not support maintenance operations', async () => {

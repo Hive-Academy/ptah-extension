@@ -9,12 +9,29 @@
  */
 
 import type { IStateStorage } from './state-storage.interface';
+import type { StateStorageJsonPath } from './state-storage-maintenance.interface';
+
+export interface StateStorageValueProjection {
+  readonly omit: readonly StateStorageJsonPath[];
+}
+
+export interface StateStorageGetOptions {
+  readonly projection?: StateStorageValueProjection;
+}
 
 export interface StateStorageSequenceReadOptions {
   /** Opaque cursor returned by the preceding page. */
   readonly cursor?: string;
   /** Requested page budget. An adapter may enforce a lower hard maximum. */
   readonly maxBytes?: number;
+  readonly maxJsonBytes?: number;
+  readonly jsonEnvelopeBytes?: number;
+  readonly maxItemBytes?: number;
+}
+
+export interface StateStorageTruncatedItem {
+  readonly index: number;
+  readonly originalJsonBytes: number;
 }
 
 export interface StateStorageSequencePage<T> {
@@ -24,6 +41,7 @@ export interface StateStorageSequencePage<T> {
   readonly done: boolean;
   /** Conservative encoded/transport size reported by the adapter. */
   readonly approximateBytes: number;
+  readonly truncatedItems?: readonly StateStorageTruncatedItem[];
 }
 
 export interface StateStorageSequenceWriteChunk<T> {
@@ -37,7 +55,11 @@ export interface StateStorageSequenceWriteChunk<T> {
 
 export interface IAsyncStateStorage extends IStateStorage {
   /** Read and decode a scalar value without requiring a synchronous cache. */
-  getAsync<T>(key: string, defaultValue?: T): Promise<T | undefined>;
+  getAsync<T>(
+    key: string,
+    defaultValue?: T,
+    options?: StateStorageGetOptions,
+  ): Promise<T | undefined>;
 
   /**
    * Read a large JSON sequence in bounded pages. Implementations must not

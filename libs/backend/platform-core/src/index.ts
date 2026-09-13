@@ -20,9 +20,12 @@ export type { IFileSystemProvider } from './interfaces/file-system-provider.inte
 export type { IStateStorage } from './interfaces/state-storage.interface';
 export type {
   IAsyncStateStorage,
+  StateStorageGetOptions,
   StateStorageSequencePage,
   StateStorageSequenceReadOptions,
   StateStorageSequenceWriteChunk,
+  StateStorageTruncatedItem,
+  StateStorageValueProjection,
 } from './interfaces/async-state-storage.interface';
 export { isAsyncStateStorage } from './interfaces/async-state-storage.interface';
 export type {
@@ -43,8 +46,10 @@ export type {
 } from './interfaces/state-storage-maintenance.interface';
 export { hasStateStorageMaintenance } from './interfaces/state-storage-maintenance.interface';
 export {
+  StateStorageCursorStaleError,
   StateStorageNotReadyError,
   StateStorageRecoveryRequiredError,
+  StateStorageValueTooLargeError,
 } from './state-storage-errors';
 export type { IWorkspaceScopedStateStorage } from './interfaces/workspace-scoped-state-storage.interface';
 export { isWorkspaceScopedStateStorage } from './interfaces/workspace-scoped-state-storage.interface';
@@ -116,6 +121,13 @@ export { createEvent } from './utils/event-emitter';
 export { isUnsafeWorkspacePath } from './utils/workspace-path-guards';
 export type { WorkspacePathSafety } from './utils/workspace-path-guards';
 export { isPathWithinRoots } from './utils/path-containment';
+export {
+  JSON_PATH_WILDCARD,
+  jsonUtf8Bytes,
+  omitJsonPaths,
+  shrinkJsonStringLeaves,
+} from './utils/json-budget';
+export type { ShrinkJsonStringLeavesOptions } from './utils/json-budget';
 export { planGlobWatch } from './utils/glob-watch-plan';
 export type {
   GlobWatchPlan,

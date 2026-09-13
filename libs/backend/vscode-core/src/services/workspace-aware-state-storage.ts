@@ -22,11 +22,13 @@ import {
   hasStateStorageMaintenance,
   hasStateStorageReadiness,
   isAsyncStateStorage,
+  omitJsonPaths,
   type IAsyncStateStorage,
   type IStateStorage,
   type IStateStorageMaintenance,
   type IStateStorageReadiness,
   type StateStorageArraySplitPlan,
+  type StateStorageGetOptions,
   type StateStorageMigrationReceipt,
   type StateStorageReadinessState,
   type StateStorageSequencePage,
@@ -162,11 +164,19 @@ export class WorkspaceAwareStateStorage
     await this.getActiveStorage().update(key, value);
   }
 
-  async getAsync<T>(key: string, defaultValue?: T): Promise<T | undefined> {
+  async getAsync<T>(
+    key: string,
+    defaultValue?: T,
+    options?: StateStorageGetOptions,
+  ): Promise<T | undefined> {
     const storage = this.getActiveStorage();
-    return isAsyncStateStorage(storage)
-      ? await storage.getAsync(key, defaultValue)
-      : storage.get(key, defaultValue);
+    if (isAsyncStateStorage(storage)) {
+      return await storage.getAsync(key, defaultValue, options);
+    }
+    const value = storage.get(key, defaultValue);
+    return options?.projection && value !== undefined
+      ? omitJsonPaths(value, options.projection.omit)
+      : value;
   }
 
   async *readJsonSequence<T>(
