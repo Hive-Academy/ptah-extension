@@ -23,6 +23,8 @@ The picker lives inside the same **Configure Ptah Skills** modal used for [plugi
 - **All of them** — propagate everything the user layer offers. This is the escape hatch: pick it and you're opted back out of the per-project gate, subject only to plugin enablement and any per-skill toggle you've set.
 - **Only the ones I pick** — reveals a scrollable, flat list of every skill available across every plugin, with a live `N of M skills selected` count. Tick what this project should use.
 
+Include `agent-lanes` when selecting `orchestration` for CLI work or `tribunal` for panel work. Relay and Crucible need `orchestration` too. Required skills are not selected automatically; a dependent skill names what to enable if one is missing. See [skill dependencies](/mcp-and-skills/skills/#skill-dependencies).
+
 Click **Save Configuration** to apply. The selection is saved together with your plugin config in one click.
 
 ## If you're upgrading
@@ -40,7 +42,7 @@ The CLI mirrors the desktop picker exactly, going through the same RPC calls, so
 ptah skill select --all
 
 # Propagate only these
-ptah skill select orchestration ui-ux-designer
+ptah skill select orchestration agent-lanes ui-ux-designer
 
 # See the current mode, the recorded allowlist, and every candidate
 ptah skill selection

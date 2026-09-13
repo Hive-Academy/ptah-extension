@@ -5,6 +5,8 @@ description: Catalog of ptah_* tools exposed by the built-in MCP server.
 
 The built-in MCP server exposes a curated family of `ptah_*` tools. This page is the quick-reference catalog — grouped by purpose, with the "when to use" for each.
 
+Agent templates prefer `ptah_*` tools when they are listed in the session. If they are absent, templates use native tools directly without probing for them.
+
 ## Workspace intelligence
 
 | Tool                     | Purpose                                                                                               | Typical use case                                              |
@@ -49,33 +51,39 @@ See [Browser Automation](/browser-automation/) for the full workflow.
 
 ## Agent orchestration
 
-Spawn, monitor, and control sub-agents from within a session.
+Spawn, monitor, and control background **CLI lanes**. These tools do not list built-in specialist definitions or spawn SDK sub-agents.
 
-| Tool                | Purpose                                          | Typical use case                                        |
-| ------------------- | ------------------------------------------------ | ------------------------------------------------------- |
-| `ptah_agent_list`   | List available agents                            | Discover which specialists are installed                |
-| `ptah_agent_read`   | Read an agent's definition                       | Inspect the prompt before spawning                      |
-| `ptah_agent_spawn`  | Spawn a sub-agent with a task                    | Parallelize multi-file work or delegate to a specialist |
-| `ptah_agent_status` | Check a running agent's status                   | Poll for completion                                     |
-| `ptah_agent_message` | Send a mid-flight instruction to a running agent | Nudge a long-running task                               |
-| `ptah_agent_report`  | Let a spawned agent report back to the session that spawned it | A background specialist hands its findings to the session that started it |
-| `ptah_agent_stop`   | Terminate a running agent                        | Abort runaway work                                      |
+| Tool | Purpose | Typical use case |
+| --- | --- | --- |
+| `ptah_agent_list` | List system CLIs and configured Ptah CLI providers, installation status, and capabilities | Discover spawnable lanes and their messaging modes |
+| `ptah_agent_spawn` | Run a self-contained `task` on a lane; returns `agentId` | Assign independent work using `cli` or `ptahCliId` |
+| `ptah_agent_status` | Read status, duration, exit code, and a CLI Session ID when reported | Poll one lane by `agentId`, or omit it to check all |
+| `ptah_agent_read` | Read captured stdout/stderr, including partial output; optional `tail` | Inspect a lane's progress or final output |
+| `ptah_agent_message` | Send `message` to a running `agentId`; returns a delivery `mode` | Add an instruction and check how it was delivered |
+| `ptah_agent_report` | Send `message` and optional `summary` to the spawning session | Report a finding, blocker, or question; check `delivered` |
+| `ptah_agent_stop` | Stop a running lane; return final status if already completed | Cancel work no longer needed |
 
-:::tip
-Best practice: cap concurrent `ptah_agent_spawn` at **3** to avoid token-budget churn.
-:::
+The [agent-lanes skill](/mcp-and-skills/skills/#skill-dependencies) defines the shared protocol and defaults to three concurrent lanes. The [runtime limit](/agents/cli-agents/#concurrency-limits) is a separate setting.
 
-`ptah_agent_message` replaced `ptah_agent_steer`. Steering is only one of
-four delivery modes the tool can report back — `steer`, `interrupt-resume`,
-`queue-next-turn`, `unsupported` — and which one an agent gets is a runtime
-fact reported by `ptah_agent_list`, not something to assume from the CLI
-name. `interrupt-resume` discards the interrupted turn's partial work;
-`steer` and `queue-next-turn` do not.
+Use a `cli` from an installed row or a provider's listed `ptahCliId`; when set, `ptahCliId` overrides `cli`. `modelTier` applies only to Ptah CLI providers; an explicit `model` overrides the tier mapping. Read model IDs from the chosen lane.
+
+Resume only if `ptah_agent_status` reports a **CLI Session ID**. Use it as `resume_session_id` on a new spawn on the same lane. Without one, spawn fresh with the context restated. Status values are `running`, `completed`, `failed`, `timeout`, and `stopped`.
+
+Always read `ptah_agent_message`'s returned `mode`:
+
+| Mode | Meaning |
+| --- | --- |
+| `steer` | Injected into the turn in flight |
+| `queue-next-turn` | Held and delivered as the next turn |
+| `interrupt-resume` | The turn was aborted and its partial work discarded before the message was resubmitted |
+| `unsupported` | Nothing was delivered; `detail` explains why |
+
+Check `ptah_agent_list` for declared messaging capabilities; do not assume a mode from a CLI name.
 
 `ptah_agent_report` takes no `agentId` — a spawned agent's identity is
 established by how its call reached Ptah, never by an argument it supplies.
 `delivered: false` with a `reason` is a normal, honest answer (for example
-the spawning session ended), not an error to retry blindly.
+the spawning session ended), not an error to retry blindly. Reports identify a source, but their claims still need verification against files and tests.
 
 `ListAgents` / `SendMessage` are a separate, SDK-level peer-messaging
 mechanism: they reach only sessions built on Ptah's own agent SDK, never a

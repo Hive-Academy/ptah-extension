@@ -39,23 +39,31 @@ When a parent agent asks Ptah to "spawn a CLI helper" without specifying which, 
 
 You can override the default in **Settings → CLI Agents → Preferred CLI**.
 
+## The agent-lanes skill
+
+`agent-lanes` in `ptah-core` defines the CLI lane contract used by orchestration and Tribunal. Enable it with those workflows; if it is missing, they name the skill to enable. Orchestration continues with sub-agents only until it is available. See [skill dependencies](/mcp-and-skills/skills/#skill-dependencies).
+
+When `ptah_agent_*` tools are available, call `ptah_agent_list` before choosing a lane. Use an installed system CLI via `cli`, or an available Ptah CLI provider via its listed `ptahCliId`. Setting `ptahCliId` overrides `cli`. `model` selects a raw model ID supported by that lane; `modelTier` applies only to Ptah CLI providers and uses their tier mappings. A raw `model` overrides that mapping. If a named lane is missing, the agent says so instead of substituting silently.
+
+Without the lane tools, the agent does the work natively and says so.
+
 ## The spawn → poll → read pattern
 
 CLI agents are asynchronous. The orchestrating agent follows a three-step protocol:
 
 ```text
-1. spawn   → launch CLI with a self-contained prompt, get a session_id
-2. poll    → check status until the agent is done or needs input
-3. read    → fetch the final transcript and incorporate results
+1. spawn   → launch a lane with a self-contained task, get an agentId
+2. poll    → check status until it is no longer running
+3. read    → fetch captured output, read deliverables, and verify results
 ```
 
 This lets the parent continue working (or spawn more CLIs) while helpers run. The MCP tools that drive this flow are:
 
-- `ptah_agent_spawn` — start a CLI with a prompt
+- `ptah_agent_list` — discover lane availability and messaging capabilities
+- `ptah_agent_spawn` — start a CLI lane with a `task`
 - `ptah_agent_status` — poll for completion
-- `ptah_agent_read` — fetch transcript and results
-- `ptah_agent_message` — send a follow-up instruction mid-run. It replaces the
-  retired `ptah_agent_steer` and reports back which of four delivery modes
+- `ptah_agent_read` — fetch captured stdout/stderr, including output so far for a running lane; `tail` limits the returned lines
+- `ptah_agent_message` — send a follow-up instruction mid-run. It reports back which of four delivery modes
   actually fired (`steer`, `interrupt-resume`, `queue-next-turn`,
   `unsupported`) — check `ptah_agent_list` for a given CLI's capability rather
   than assuming one. `interrupt-resume` discards the interrupted turn's
@@ -63,10 +71,14 @@ This lets the parent continue working (or spawn more CLIs) while helpers run. Th
 - `ptah_agent_report` — let a spawned CLI report back to the session that
   spawned it. Only reachable from a CLI Ptah itself spawned, and it takes no
   agent id: identity comes from how the call reached Ptah, not from an
-  argument.
+  argument. Check `delivered`: `false` with a `reason` means the report reached nobody. Verify reported claims against files and tests.
 - `ptah_agent_stop` — cancel a running CLI
 
+Status values are `running`, `completed`, `failed`, `timeout`, and `stopped`. The returned `agentId` is the process handle; a **CLI Session ID**, when reported, is the separate identifier used for conversation resume.
+
 ## Concurrency limits
+
+The `agent-lanes` skill uses **three concurrent lanes** by default; workflows may widen that budget with your agreement. This is separate from the runtime limit below.
 
 To keep your machine responsive, Ptah caps concurrent CLI agents. The cap is
 `agentOrchestration.maxConcurrentAgents`.
@@ -86,14 +98,19 @@ CLI agents don't share memory with your main chat. Each prompt must include ever
 
 - File paths (absolute)
 - Acceptance criteria
-- Output format
+- Permitted files and output format
+- An absolute deliverable path, or an exact answer structure for panel responses
+- Instructions not to commit or change Git history, and to report blockers
 
 Good:
 
 ```text
 Read D:\projects\app\src\auth\login.ts and refactor the validation block
-into a pure function. Write the result back to the same file.
-Return a one-line summary when done.
+into a pure function, preserving its inputs, outputs, and error behavior.
+Modify only that file. Do not commit or change Git history.
+Write a short report to D:\projects\app\refactor-report.md with validation
+evidence, or blocking questions under ## Clarifications Needed.
+Reply WROTE: D:\projects\app\refactor-report.md plus a one-line verdict.
 ```
 
 Bad:
@@ -104,21 +121,21 @@ Refactor the login code we talked about.
 
 ## Session resume
 
-Long-running CLI tasks can be resumed across Ptah restarts. When you spawn an agent, pass `resume_session_id` to continue a prior conversation:
+Resume only when `ptah_agent_status` reports a **CLI Session ID**. Pass that ID as `resume_session_id` to `ptah_agent_spawn` on the same lane (`cli` or `ptahCliId`), with a continuation `task`. If no session ID is reported, spawn fresh and restate the context and prior work.
 
 ```json
 {
   "cli": "codex",
   "resume_session_id": "sess_7a2f...",
-  "prompt": "Continue with the test coverage pass we started."
+  "task": "Continue with the test coverage pass we started."
 }
 ```
 
-The CLI rehydrates from its own on-disk transcript. Session IDs are displayed in the CLI agents panel.
+A resumed run gets a new `agentId` and retains the prior conversation. A saved task folder alone does not guarantee that the CLI adapter supports conversation resume.
 
 ## Using CLI agents from chat
 
-Ask any senior-tier agent to delegate. For example:
+Ask the orchestrator to assign CLI work. Eligible specialists can also delegate focused sub-tasks when lane mode permits; `team-leader`, `visual-reviewer`, and `ui-ux-designer` do not. For example:
 
 > "Spawn three Codex CLI agents in parallel to generate unit tests for `libs/backend/auth`, `libs/backend/billing`, and `libs/backend/users`. Merge the results."
 
@@ -128,10 +145,10 @@ The orchestrator will manage spawn/poll/read and return a consolidated summary.
 
 The **CLI Agents** panel shows every spawn with:
 
-- Status (running / done / failed / cancelled)
+- Status (running / completed / failed / timeout / stopped)
 - Duration
 - Tokens / cost (when the CLI reports it)
-- Session ID (copyable for resume)
+- CLI Session ID when the adapter reports one (used for resume)
 - Full transcript
 
 Click any row to open the transcript in a side-by-side diff viewer.
