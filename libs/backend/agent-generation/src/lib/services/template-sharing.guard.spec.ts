@@ -1096,3 +1096,35 @@ describe('task-spec audience', () => {
     ]);
   });
 });
+
+describe('team-leader return contract', () => {
+  const HEADER_LABELS = [
+    'DECOMPOSITION COMPLETE',
+    'DECOMPOSITION BLOCKED',
+    'BATCH [N] PARTIAL FAILURE',
+    'NEEDS REVIEW',
+    'BATCH [N] NOT ACCEPTED',
+    'BATCH [N] COMPLETE',
+    'ALL BATCHES COMPLETE',
+    'TASK COMPLETE',
+  ];
+
+  it.each(HEADER_LABELS)(
+    'defines the literal header the orchestrator matches: %s',
+    async (label) => {
+      const { content } = await resolveTemplate('team-leader.template.md');
+      expect(content).toContain('- `' + label + '` — ');
+    },
+  );
+
+  it('states the one envelope and the NEEDS REVIEW suffix', async () => {
+    const { content } = await resolveTemplate('team-leader.template.md');
+    expect(content).toContain('## <HEADER> - TASK_YYYY_NNN');
+    expect(content).toContain('## NEEDS REVIEW - TASK_YYYY_NNN Batch [N]');
+  });
+
+  it('carries the batch executor prompt once, not once per variant', async () => {
+    const { content } = await resolveTemplate('team-leader.template.md');
+    expect(content.split('You are assigned Batch').length - 1).toBe(1);
+  });
+});
