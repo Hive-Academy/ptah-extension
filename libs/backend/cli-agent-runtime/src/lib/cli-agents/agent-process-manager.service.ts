@@ -121,6 +121,18 @@ export interface AgentRoleStamp {
   readonly roleChannel: AgentRoleChannel;
 }
 
+interface SdkSpawnOptions {
+  readonly runSdk: (options: CliCommandOptions) => Promise<SdkHandle>;
+  readonly request: SpawnAgentRequest;
+  readonly task: string;
+  readonly workingDirectory: string;
+  readonly cli: CliType;
+  readonly displayName: string;
+  readonly roleChannel: AgentRoleChannel;
+  readonly binaryPath?: string;
+  readonly mcpPort?: number;
+}
+
 function roleStampOf(
   record: Partial<AgentRoleStamp>,
 ): AgentRoleStamp | undefined {
@@ -460,17 +472,17 @@ export class AgentProcessManager {
     await this.runHarnessPreflight(workingDirectory);
     const mcpPort =
       adapter.supportsMcp !== false ? await this.resolveMcpPort() : undefined;
-    return this.doSpawnSdk(
-      adapter.runSdk.bind(adapter),
+    return this.doSpawnSdk({
+      runSdk: adapter.runSdk.bind(adapter),
       request,
-      request.task,
+      task: request.task,
       workingDirectory,
       cli,
-      adapter.displayName,
-      adapter.roleChannel,
-      detection.path,
+      displayName: adapter.displayName,
+      roleChannel: adapter.roleChannel,
+      binaryPath: detection.path,
       mcpPort,
-    );
+    });
   }
 
   /**
@@ -478,16 +490,19 @@ export class AgentProcessManager {
    * SDK agents have process: null and use AbortController for cancellation.
    */
   private async doSpawnSdk(
-    runSdk: (options: CliCommandOptions) => Promise<SdkHandle>,
-    request: SpawnAgentRequest,
-    task: string,
-    workingDirectory: string,
-    cli: CliType,
-    displayName: string,
-    roleChannel: AgentRoleChannel,
-    binaryPath?: string,
-    mcpPort?: number,
+    options: SdkSpawnOptions,
   ): Promise<SpawnAgentResult> {
+    const {
+      runSdk,
+      request,
+      task,
+      workingDirectory,
+      cli,
+      displayName,
+      roleChannel,
+      binaryPath,
+      mcpPort,
+    } = options;
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
     const resolvedModel = this.resolveConfiguredModel(cli, request.model);
