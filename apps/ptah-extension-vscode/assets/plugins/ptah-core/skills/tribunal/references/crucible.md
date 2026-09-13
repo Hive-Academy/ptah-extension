@@ -1,8 +1,8 @@
 # Crucible — cheap executor, strong judge, bounded revise loop
 
-Put one task through a **role-asymmetric loop**: a cheap, fast **executor lane** does the work; a stronger **judge lane from a different vendor family** scores it against a frozen rubric and hands back numbered defects; the executor revises. Repeat until the judge returns `PASS`, the executor stops converging, or 2 revise rounds are spent.
+Put one task through a **role-asymmetric loop**: a cheap, fast **executor lane** does the work; a stronger **judge lane from a different vendor family** scores it against a frozen rubric and hands back numbered defects; the executor revises. Repeat until the judge returns `PASS`, the executor stops converging, or the revise cap is reached.
 
-Read [vendor-panel.md](vendor-panel.md) first — Crucible runs on that spine, but the lanes are **unequal by design** and the loop is **iterative** rather than one-shot.
+Read [vendor-panel.md](vendor-panel.md) first — Crucible runs on that spine, but the lanes are **unequal by design** and the loop is **iterative** rather than one-shot. Lane mechanics, review independence and the revise cap are the [agent-lanes skill](../../agent-lanes/SKILL.md).
 
 > **Crucible changes files.** The executor writes code in-place on the active branch. The judge never writes product code. Nothing is committed without the user seeing the diff.
 
@@ -10,13 +10,13 @@ Read [vendor-panel.md](vendor-panel.md) first — Crucible runs on that spine, b
 
 ## Crucible vs the other moves
 
-|              | Council / Forge / Race      | Relay                       | Crucible                                   |
-| ------------ | --------------------------- | --------------------------- | ------------------------------------------ |
-| Lane roles   | Peers, same prompt          | One phase each, sequential  | **Executor vs judge — unequal on purpose** |
-| Shape        | Parallel panel              | Linear pipeline, one pass   | **Loop until PASS or cap**                 |
-| Signal       | Disagreement between equals | Specialization + one review | **Convergence under an independent bar**   |
-| Cost profile | N × strong lanes            | 1 call per phase            | **Cheap lane × N + strong lane × N**       |
-| Ends when    | Verdict synthesized         | Review phase written        | Judge says `PASS`, or cap, or regression   |
+|              | Council / Forge / Race      | Crucible                                   |
+| ------------ | --------------------------- | ------------------------------------------ |
+| Lane roles   | Peers, same prompt          | **Executor vs judge — unequal on purpose** |
+| Shape        | Parallel panel              | **Loop until PASS or cap**                 |
+| Signal       | Disagreement between equals | **Convergence under an independent bar**   |
+| Cost profile | N × strong lanes            | **Cheap lane × N + strong lane × N**       |
+| Ends when    | Verdict synthesized         | Judge says `PASS`, or cap, or regression   |
 
 Reach for Crucible when the quality bar is **statable in advance** and the work is **well-specified but fiddly** — the kind of task a cheap model gets 80% right and a strong reviewer can close in two rounds for a fraction of the cost of running the strong model end-to-end.
 
@@ -46,13 +46,14 @@ Pick by **capability, not by brand** — the roster comes from `ptah_agent_list`
 | **Judge**    | Strongest-reasoning lane available, from a **different family** — a ptah-cli lane at `modelTier: 'opus'`, or a system CLI on its top model | Reasoning depth + rubric discipline; independence is the whole point         |
 | **Swap-in**  | Any third family, spent only after a regression stop                                                                                       | Costs another lane; only worth it once the first executor stops converging   |
 
-If the user names the lanes, that overrides the heuristic — resolve each name against `ptah_agent_list` and use exactly what they asked for.
+Roster sources, in order:
 
-Build the roster per [vendor-panel.md §2](vendor-panel.md), but select for **role fit**, not family spread. If the Tribunal UI supplied explicit lanes ([§0](vendor-panel.md)), the **first** lane is the executor and the **last** is the judge unless the user said otherwise — confirm that reading before spending a call. When those lanes carry an explicit `(executor)` / `(judge)` role token, that token is authoritative per [vendor-panel.md §0](vendor-panel.md): the first-lane/last-lane heuristic does not apply and no confirmation round-trip is needed.
+1. **UI role tokens** `(executor)` / `(judge)` — authoritative ([vendor-panel.md §0](vendor-panel.md#0-explicit-panel-from-the-tribunal-ui)).
+2. **UI lanes without tokens** — the first lane executes, the last judges; confirm that reading before spending a call.
+3. **Lanes the user named** — resolve each against `ptah_agent_list` and use exactly those. The judge must still be a different family from the executor; if the named pair is one family, say so and ask for another judge.
+4. **Nothing named** — the heuristic above, selecting for role fit rather than family spread.
 
-The user may pin both roles explicitly, including a same-family-different-model judge. Address the lanes exactly as in [relay.md → Pinning the roster](relay.md#pinning-the-roster-per-phase-lane-assignment) — that section is the single source for what goes into `ptah_agent_spawn`, and for the rule that the vendor list is discovered rather than hardcoded. A same-family judge on a different model is permitted when asked for, but say so in the summary — it is a weaker independence signal than a cross-family judge, and independence is the whole basis of the loop.
-
-If discovery turns up fewer than two families, Crucible cannot run — there is no independent judge to be had. Say so, and offer Relay's single-lane pipeline, an in-house review, or point the user at settings to configure another provider.
+If discovery turns up fewer than two families, Crucible cannot run — there is no independent judge to be had. Say so, and offer an in-house review, or point the user at settings to configure another provider.
 
 ## The rubric (write it first, then freeze it)
 
@@ -108,13 +109,13 @@ write rubric → announce lanes + round cap + cost → EXECUTE → JUDGE → gat
   PASS      → Conductor verifies (build/test/lint) → present diff → user commits
   REVISE    → resume executor with defects + mentor note → JUDGE again  (round++)
   REJECT    → stop the loop; re-spec / swap lane / abort — Conductor decides with the user
-  2 revise rounds done → stop; present best artifact + open defects honestly.
-                         A 3rd round only on the user's explicit say-so; never a 4th.
+  revise cap reached   → stop; present best artifact + open defects honestly.
+                         One more round only on the user's explicit say-so; never beyond.
 ```
 
 ### Step 1 — Init & announce
 
-Create `.ptah/specs/TASK_[ID]/` (ID per [relay.md](relay.md) — folder scan, not `registry.md`). Write `context.md` with `mode: tribunal-crucible`, the executor lane, the judge lane, and the round cap. Write `rubric.md`. Announce: both lanes, the cap, and the cost — **2 paid calls per round**. Get the go-ahead; this writes code.
+Create `.ptah/specs/TASK_[ID]/` per [task-tracking.md § New task](../../orchestration/references/task-tracking.md#new-task), or use the folder the UI framing names. Write `context.md` with `mode: tribunal-crucible`, the executor lane, the judge lane, and the round cap. Write `rubric.md`. Announce: both lanes, the cap, and the cost — **2 paid calls per round**. Get the go-ahead; this writes code.
 
 ### Step 2 — Execute
 
@@ -129,10 +130,9 @@ ptah_agent_spawn({
   taskFolder: <spec folder>,
   files: [...absolute paths]
 })
-# poll ptah_agent_status every ~8s until status != "running"
 ```
 
-Round 2+ **resumes** the executor via `resume_session_id` so it keeps its own reasoning — check `ptah_agent_status` for a `CLI Session ID`; where the adapter is ephemeral and reports none, respawn with the prior diff described in the prompt. The revise prompt carries the defect list and the mentor note **verbatim**, plus: `fix D1..Dn only; do not refactor anything else`.
+Round 2+ **resumes** the executor so it keeps its own reasoning (agent-lanes §5); where it cannot be resumed, respawn with the prior diff described in the prompt. The revise prompt carries the defect list and the mentor note **verbatim**, plus: `fix D1..Dn only; do not refactor anything else`.
 
 ### Step 3 — Judge
 
@@ -142,7 +142,7 @@ Spawn the judge with: the acceptance criteria, `rubric.md`, the executor's diff 
 - `every defect MUST cite file:line — a defect without a location will be discarded`
 - `do NOT edit any file; do NOT commit; write your report to <abs path>/round-N-judge.md and reply only "WROTE: <path>" + the verdict word`
 
-Then Read `round-N-judge.md`. The Conductor **drops any defect with no file:line evidence** before relaying it — otherwise hallucinated nitpicks buy paid rounds.
+Then Read `round-N-judge.md`. Drop any defect with no `file:line` evidence before relaying it (agent-lanes §6) — hallucinated nitpicks otherwise buy paid rounds.
 
 ### Step 4 — Gate, and stop honestly
 
@@ -150,7 +150,7 @@ Then Read `round-N-judge.md`. The Conductor **drops any defect with no file:line
 | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `PASS`                                                                                               | Conductor runs the project's typecheck / tests / lint. Green → present diff. Red → that is a defect the judge missed; relay one more round with the real failure output.                                                       |
 | `REVISE`, rounds remaining                                                                           | Resume the executor with defects + mentor note.                                                                                                                                                                                |
-| `REVISE` after the **2nd** revise round                                                              | **Stop by default.** Present the current state, the open defects, and what it would take to close them. You may run a 3rd revise round **only if the user asks for it** — never a 4th, and never a 3rd on your own initiative. |
+| `REVISE` with the revise cap reached | **Stop by default.** Present the current state, the open defects, and what it would take to close them. You may run one more revise round **only if the user asks for it** — never beyond that, and never on your own initiative. |
 | The defect count did not go down **and** the severity mix did not improve, versus the previous round | **Regression stop.** The executor is not converging. Escalate: swap the executor family, or take it in-house.                                                                                                                  |
 | `REJECT`                                                                                             | Stop the loop. Re-spec with the user, or swap lanes.                                                                                                                                                                           |
 | Judge fails/times out twice                                                                          | Promote a third family to judge, or judge it yourself and say plainly that the round was self-judged.                                                                                                                          |
@@ -174,13 +174,12 @@ Final summary cites **which lane did what**, links every artifact, lists the rou
 ## Variants
 
 - **Crucible-solo** (default) — one executor, one judge. 2 calls per round.
-- **Crucible-fanned** — 2–3 executors on the same task in isolated worktrees ([forge.md](forge.md)), one judge scoring all of them on the same rubric and issuing per-lane defects. This is Forge with a mentor loop. The executors within one round run concurrently; the rounds themselves stay sequential. Cost is `(lanes + 1) × rounds`, and more than 3 lanes in flight exceeds the default concurrency budget — announce both the cost and the widening, and get the user's say-so first.
-- **Crucible-in-relay** — drop a Crucible loop into [Relay's](relay.md) implement phase when that phase is the risky one, and leave the other phases single-pass.
+- **Crucible-fanned** — 2–3 executors on the same task in isolated worktrees ([forge.md](forge.md)), one judge scoring all of them on the same rubric and issuing per-lane defects. This is Forge with a mentor loop. The executors within one round run concurrently; the rounds themselves stay sequential. Cost is `(lanes + 1) × rounds`, and more executors than the default concurrency is a widening — announce both the cost and the widening, and get the user's say-so first.
+- **Crucible in a laned run** — when orchestration assigns implement and review to lanes and the implement phase is the risky one, run that pair as a Crucible loop and leave the other phases single-pass.
 
 ## Guidance
 
 - **Asymmetry is the point.** Every other Tribunal move treats lanes as peers. Here the cheap lane produces and the strong lane judges — that is what makes the economics work, and it is why the judge must never be allowed to just fix things itself.
-- **The judge's PASS is an opinion; the build is the fact.** Always run typecheck/tests before presenting.
 - **Bound everything.** Frozen rubric, hard round cap, regression stop. An unbounded critic loop spends real money forever and converges on the critic's taste, not on working software.
 - **Never let the judge write product code.** It may write its report and nothing else. The moment it edits, the next round has no independent reviewer.
 - **Report the loop honestly.** If it hit the cap at `REVISE`, say so. A Crucible that stopped short with two open defects is a useful result; one that claims PASS it never got is not.
