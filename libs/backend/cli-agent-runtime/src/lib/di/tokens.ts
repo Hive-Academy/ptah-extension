@@ -8,6 +8,7 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    * `buildAgentNamespace` call site.
    */
   AGENT_REPORT_ROUTER: Symbol.for('AgentReportRouter'),
+  AGENT_ROLE_RESOLVER: Symbol.for('AgentRoleResolver'),
 } as const;
 
 export type CliAgentRuntimeDIToken = keyof typeof CLI_AGENT_RUNTIME_TOKENS;

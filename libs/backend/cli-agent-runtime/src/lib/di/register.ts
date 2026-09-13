@@ -4,6 +4,7 @@ import { CLI_AGENT_RUNTIME_TOKENS } from './tokens';
 import { CliDetectionService } from '../cli-agents/cli-detection.service';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { AgentReportRouter } from '../cli-agents/agent-report-router.service';
+import { AgentRoleResolver } from '../roles';
 import {
   PtahCliRegistry,
   PtahCliConfigPersistence,
@@ -49,6 +50,11 @@ export function registerCliAgentRuntimeServices(
   container.register(
     CLI_AGENT_RUNTIME_TOKENS.AGENT_REPORT_ROUTER,
     { useClass: AgentReportRouter },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    CLI_AGENT_RUNTIME_TOKENS.AGENT_ROLE_RESOLVER,
+    { useClass: AgentRoleResolver },
     { lifecycle: Lifecycle.Singleton },
   );
   logger.info('[CliAgentRuntime] CLI agent runtime services registered', {
