@@ -584,6 +584,14 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
             'Resume a previous CLI agent session by its CLI-native session ID. ' +
             'The agent will continue from where the previous session left off.',
         },
+        role: {
+          type: 'string',
+          description:
+            'Name of an agent role generated for this workspace. ptah_agent_list ' +
+            'shows the valid names. The role definition is delivered to the agent, ' +
+            'and the spawn result reports how it was delivered. Do not paste a role ' +
+            'template into task; pass its name here instead.',
+        },
       },
       required: ['task'],
     },

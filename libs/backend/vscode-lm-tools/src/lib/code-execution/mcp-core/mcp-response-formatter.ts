@@ -458,17 +458,50 @@ function formatCliLabel(cli: string, ptahCliName?: string): string {
   return cli === 'ptah-cli' && ptahCliName ? `ptah-cli (${ptahCliName})` : cli;
 }
 
+function formatRoleLine(role: {
+  role?: string;
+  roleDelivery?: string;
+  roleChannel?: string;
+}): string | undefined {
+  if (!role.role) {
+    return undefined;
+  }
+  const how =
+    role.roleDelivery && role.roleChannel
+      ? ` (${role.roleDelivery} via ${role.roleChannel})`
+      : '';
+  return `**Role:** ${role.role}${how}`;
+}
+
+function formatRoleDeliveryCapability(agent: CliDetectionResult): string {
+  return agent.roleDelivery && agent.roleChannel
+    ? `, role delivery: ${agent.roleDelivery}/${agent.roleChannel}`
+    : '';
+}
+
+function formatWorkspaceRoles(roles: readonly string[]): string {
+  return roles.length > 0
+    ? `Roles in this workspace: ${roles.join(', ')}`
+    : 'No agent roles generated for this workspace';
+}
+
 /**
  * Format ptah_agent_list result as a markdown table
  */
-export function formatAgentList(agents: CliDetectionResult[]): string {
+export function formatAgentList(
+  agents: CliDetectionResult[],
+  roles?: readonly string[],
+): string {
   try {
+    const rolesBlock =
+      roles !== undefined ? [{ p: formatWorkspaceRoles(roles) }] : [];
     if (agents.length === 0) {
       return json2md([
         { h2: 'Available Agents' },
         {
           p: 'No agents found. Install one of the supported CLI agents, or configure a Ptah CLI agent (an Anthropic-compatible provider) in Ptah settings.',
         },
+        ...rolesBlock,
       ]);
     }
 
@@ -485,7 +518,7 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
             agent.providerName ?? 'Unknown'
           }, ptahCliId: ${agent.ptahCliId ?? 'N/A'}, messaging: ${
             agent.messagingMode
-          }`,
+          }${formatRoleDeliveryCapability(agent)}`,
         };
       }
 
@@ -503,7 +536,7 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
         Agent: agent.cli,
         Type: 'cli',
         Status: status,
-        Capabilities: `messaging: ${agent.messagingMode}`,
+        Capabilities: `messaging: ${agent.messagingMode}${formatRoleDeliveryCapability(agent)}`,
       };
     });
 
@@ -511,6 +544,7 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
       { h2: 'Available Agents' },
       { p: `**Total:** ${agents.length}` },
       { table: { headers: ['Agent', 'Type', 'Status', 'Capabilities'], rows } },
+      ...rolesBlock,
     ]);
   } catch {
     return fallbackJson(agents);
@@ -526,6 +560,7 @@ export function formatAgentSpawn(
 ): string {
   try {
     const cliLabel = formatCliLabel(result.cli, result.ptahCliName);
+    const roleLine = formatRoleLine(result);
 
     return json2md([
       { h2: 'Agent Spawned' },
@@ -536,6 +571,7 @@ export function formatAgentSpawn(
           ...(options?.modelTier
             ? [`**Model Tier:** ${options.modelTier}`]
             : []),
+          ...(roleLine ? [roleLine] : []),
           `**Status:** ${result.status}`,
           `**Started:** ${result.startedAt}`,
           ...(result.cliSessionId
@@ -574,6 +610,10 @@ export function formatAgentStatus(
         `**Task:** ${task}`,
         `**Started:** ${a.startedAt}`,
       ];
+      const roleLine = formatRoleLine(a);
+      if (roleLine) {
+        lines.push(roleLine);
+      }
       if (a.cliSessionId) {
         lines.push(`**CLI Session ID:** ${a.cliSessionId}`);
       }
@@ -657,9 +697,7 @@ export function formatAgentStop(result: AgentProcessInfo): string {
  * interrupted turn's partial work is gone, and a caller that reads the call as
  * a plain success will assume work that no longer exists (TASK_2026_402 R-11).
  */
-const AGENT_MESSAGE_MODE_NOTES: Readonly<
-  Record<AgentMessagingMode, string>
-> = {
+const AGENT_MESSAGE_MODE_NOTES: Readonly<Record<AgentMessagingMode, string>> = {
   steer: 'Injected into the turn already in flight; that turn continues.',
   'interrupt-resume':
     'The turn in flight was ABORTED and its partial work DISCARDED, then the ' +
@@ -676,9 +714,11 @@ const AGENT_MESSAGE_MODE_NOTES: Readonly<
 /**
  * Format ptah_agent_message result
  */
-export function formatAgentMessage(result: AgentMessageOutcome & {
-  agentId: string;
-}): string {
+export function formatAgentMessage(
+  result: AgentMessageOutcome & {
+    agentId: string;
+  },
+): string {
   try {
     return json2md([
       { h2: 'Agent Message' },

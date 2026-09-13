@@ -68,7 +68,9 @@ function makeAgentApi(
       truncated: false,
     }),
     message: jest.fn().mockResolvedValue({ mode: 'queue-next-turn' }),
-    report: jest.fn().mockResolvedValue({ delivered: false, reason: 'unattributed-caller' }),
+    report: jest
+      .fn()
+      .mockResolvedValue({ delivered: false, reason: 'unattributed-caller' }),
     stop: jest.fn().mockResolvedValue({
       agentId: 'a-1',
       cli: 'codex',
@@ -77,6 +79,7 @@ function makeAgentApi(
       startedAt: '2026-05-24T00:00:00Z',
     }),
     list: jest.fn().mockResolvedValue([]),
+    listRoles: jest.fn().mockResolvedValue([]),
     waitFor: jest.fn(),
     ...overrides,
   } as PtahAPI['agent'];

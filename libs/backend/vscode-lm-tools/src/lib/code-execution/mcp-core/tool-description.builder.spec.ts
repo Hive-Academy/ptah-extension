@@ -2,6 +2,7 @@ import {
   buildExecuteCodeTool,
   buildAgentMessageTool,
   buildAgentReportTool,
+  buildAgentSpawnTool,
 } from './tool-description.builder';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 
@@ -26,7 +27,6 @@ describe('buildExecuteCodeTool', () => {
     expect(description).toContain("ptah.search.findFiles('**/*.ts', 20)");
   });
 });
-
 
 /**
  * `ptah_agent_message` / `ptah_agent_report` — TASK_2026_402 Batch 5.
@@ -61,6 +61,40 @@ describe('buildAgentMessageTool', () => {
     // Word-boundary, not substring: `pi` is two letters and would match inside
     // ordinary English, which would make this assertion noise rather than a
     // guard.
+    for (const cli of SYSTEM_CLI_TYPES) {
+      expect(description).not.toMatch(new RegExp(`\\b${cli}\\b`, 'i'));
+    }
+  });
+});
+
+describe('buildAgentSpawnTool — role', () => {
+  it('advertises an optional string role and still requires only task', () => {
+    const tool = buildAgentSpawnTool();
+    const properties = tool.inputSchema.properties as Record<
+      string,
+      { type?: string; description?: string }
+    >;
+    expect(properties['role']?.type).toBe('string');
+    expect(tool.inputSchema.required).toEqual(['task']);
+  });
+
+  it('points at ptah_agent_list and warns against pasting templates into task', () => {
+    const properties = buildAgentSpawnTool().inputSchema.properties as Record<
+      string,
+      { description?: string }
+    >;
+    const description = properties['role']?.description ?? '';
+    expect(description).toContain('ptah_agent_list');
+    expect(description).toContain('delivered');
+    expect(description).toMatch(/Do not paste a role template into task/);
+  });
+
+  it('names no CLI vendor in the role description', () => {
+    const properties = buildAgentSpawnTool().inputSchema.properties as Record<
+      string,
+      { description?: string }
+    >;
+    const description = properties['role']?.description ?? '';
     for (const cli of SYSTEM_CLI_TYPES) {
       expect(description).not.toMatch(new RegExp(`\\b${cli}\\b`, 'i'));
     }
