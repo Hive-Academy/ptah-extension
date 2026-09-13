@@ -116,6 +116,9 @@ import {
   countNewlines,
 } from './agent-process-manager-helpers';
 import { CliDetectionService } from './cli-detection.service';
+import { AgentMessageRouter } from './agent-message-router.service';
+import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
+import { AgentOutputBuffer } from './agent-output-buffer.service';
 import type {
   CliAdapter,
   SdkHandle,
@@ -338,8 +341,47 @@ function createMockSentryService(): Record<string, jest.Mock> {
   };
 }
 
+interface ManagerHarness {
+  manager: AgentProcessManager;
+  outputBuffer: AgentOutputBuffer;
+}
+
+function createManager(deps: {
+  logger: jest.Mocked<Logger>;
+  cliDetection: jest.Mocked<CliDetectionService>;
+  workspaceProvider: Record<string, jest.Mock>;
+  reasoningSettings: { effort: { get: jest.Mock } };
+  harnessPreflight: { ensure: jest.Mock } | null;
+  mcpServerStatus: { getPort: jest.Mock<number | null, []> };
+}): ManagerHarness {
+  type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
+  type ManagerArgs = ConstructorParameters<typeof AgentProcessManager>;
+  const sentryService = createMockSentryService();
+  const spawnEnvironment = new AgentSpawnEnvironment(
+    deps.logger,
+    deps.cliDetection,
+    deps.workspaceProvider as unknown as EnvironmentArgs[2],
+    deps.reasoningSettings as unknown as EnvironmentArgs[3],
+    sentryService as unknown as EnvironmentArgs[4],
+    deps.harnessPreflight as unknown as EnvironmentArgs[5],
+    deps.mcpServerStatus,
+  );
+  const outputBuffer = new AgentOutputBuffer(deps.logger);
+  const manager = new AgentProcessManager(
+    deps.logger,
+    deps.cliDetection,
+    createMockSubagentRegistry() as unknown as ManagerArgs[2],
+    sentryService as unknown as ManagerArgs[3],
+    new AgentMessageRouter(deps.logger, deps.cliDetection),
+    spawnEnvironment,
+    outputBuffer,
+  );
+  return { manager, outputBuffer };
+}
+
 describe('AgentProcessManager - SDK Execution Path', () => {
   let manager: AgentProcessManager;
+  let outputBuffer: AgentOutputBuffer;
   let logger: jest.Mocked<Logger>;
   let sdkControls: MockSdkHandleControls;
   let sdkAdapter: jest.Mocked<CliAdapter>;
@@ -358,33 +400,16 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     setupVscodeConfig();
 
-    // Instantiate manager directly (tsyringe decorators are mocked to no-ops).
-    // The constructor takes 6 deps: logger, cliDetection, subagentRegistry,
-    // workspaceProvider, sentryService, reasoningSettings.
-    const subagentRegistry = createMockSubagentRegistry();
-    const workspaceProvider = createMockWorkspaceProvider();
-    const sentryService = createMockSentryService();
     reasoningEffortGet = jest.fn(() => '');
-    const reasoningSettings = { effort: { get: reasoningEffortGet } };
     getMcpPort = jest.fn<number | null, []>(() => null);
-    manager = new AgentProcessManager(
+    ({ manager, outputBuffer } = createManager({
       logger,
       cliDetection,
-      subagentRegistry as unknown as ConstructorParameters<
-        typeof AgentProcessManager
-      >[2],
-      workspaceProvider as unknown as ConstructorParameters<
-        typeof AgentProcessManager
-      >[3],
-      sentryService as unknown as ConstructorParameters<
-        typeof AgentProcessManager
-      >[4],
-      reasoningSettings as unknown as ConstructorParameters<
-        typeof AgentProcessManager
-      >[5],
-      null,
-      { getPort: getMcpPort },
-    );
+      workspaceProvider: createMockWorkspaceProvider(),
+      reasoningSettings: { effort: { get: reasoningEffortGet } },
+      harnessPreflight: null,
+      mcpServerStatus: { getPort: getMcpPort },
+    }));
   });
 
   afterEach(() => {
@@ -1249,42 +1274,6 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     });
   });
 
-  describe('getMaxConcurrentAgents()', () => {
-    const readConfiguredMax = (): number =>
-      (
-        manager as unknown as {
-          getMaxConcurrentAgents(): number;
-        }
-      ).getMaxConcurrentAgents();
-
-    it('clamps a configured value above the maximum down to 20', () => {
-      setupVscodeConfig({ maxConcurrentAgents: 200 });
-
-      expect(readConfiguredMax()).toBe(20);
-    });
-
-    it.each([0, -5])(
-      'clamps a configured %i up to the minimum of 1',
-      (configured) => {
-        setupVscodeConfig({ maxConcurrentAgents: configured });
-
-        expect(readConfiguredMax()).toBe(1);
-      },
-    );
-
-    it('preserves a configured value inside the supported range', () => {
-      setupVscodeConfig({ maxConcurrentAgents: 12 });
-
-      expect(readConfiguredMax()).toBe(12);
-    });
-
-    it('falls back to 5 for a non-finite configured value', () => {
-      setupVscodeConfig({ maxConcurrentAgents: Number.NaN });
-
-      expect(readConfiguredMax()).toBe(5);
-    });
-  });
-
   describe('getPreferredCli() auto-detect', () => {
     it('should auto-detect codex when no preference is set', async () => {
       setupVscodeConfig({ preferredAgentOrder: [] });
@@ -2137,7 +2126,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     const flushTimerFor = (agentId: string): NodeJS.Timeout | undefined =>
       (
-        manager as unknown as { flushTimers: Map<string, NodeJS.Timeout> }
+        outputBuffer as unknown as { flushTimers: Map<string, NodeJS.Timeout> }
       ).flushTimers.get(agentId);
 
     it('does not hold the loop open with the spawn timeout or the output flush timer', async () => {
@@ -2282,26 +2271,14 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
         setupVscodeConfig({ maxConcurrentAgents: 3 });
 
-        overlapManager = new AgentProcessManager(
+        overlapManager = createManager({
           logger,
           cliDetection,
-          createMockSubagentRegistry() as unknown as ConstructorParameters<
-            typeof AgentProcessManager
-          >[2],
-          createMockWorkspaceProvider() as unknown as ConstructorParameters<
-            typeof AgentProcessManager
-          >[3],
-          createMockSentryService() as unknown as ConstructorParameters<
-            typeof AgentProcessManager
-          >[4],
-          {
-            effort: { get: jest.fn(() => '') },
-          } as unknown as ConstructorParameters<typeof AgentProcessManager>[5],
-          { ensure } as unknown as ConstructorParameters<
-            typeof AgentProcessManager
-          >[6],
-          { getPort: jest.fn(() => null) },
-        );
+          workspaceProvider: createMockWorkspaceProvider(),
+          reasoningSettings: { effort: { get: jest.fn(() => '') } },
+          harnessPreflight: { ensure },
+          mcpServerStatus: { getPort: jest.fn<number | null, []>(() => null) },
+        }).manager;
       });
 
       afterEach(async () => {

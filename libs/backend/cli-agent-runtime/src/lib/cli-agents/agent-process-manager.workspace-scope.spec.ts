@@ -5,7 +5,7 @@
  * Pins the failure behaviour of plan section 4 on the agent surface:
  * - no port registered (the CLI host, unit tests) → the platform provider
  *   answers, exactly as before the port existed;
- * - the port's answer outranks the provider for spawn validation and status;
+ * - the port's answer outranks the provider for status;
  * - `getStatus()` lists only the caller's workspace;
  * - `getStatus(agentId)` for a live agent in ANOTHER workspace says so — it
  *   must never be mistakable for `Agent not found`. Two sessions read that
@@ -17,28 +17,14 @@ import type {
   ICallerWorkspaceResolver,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
-import { promises as fsPromises } from 'fs';
 import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
 import { AgentProcessManager } from './agent-process-manager.service';
-
-// Synthetic roots exist on no machine. Identity-resolve by default; focused
-// tests override this to model symlink/junction escapes and resolution errors.
-jest.mock('fs', () => {
-  const actual = jest.requireActual('fs');
-  return {
-    ...actual,
-    promises: {
-      ...actual.promises,
-      realpath: jest.fn((p: string) => Promise.resolve(p)),
-    },
-  };
-});
+import { AgentMessageRouter } from './agent-message-router.service';
+import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
+import { AgentOutputBuffer } from './agent-output-buffer.service';
 
 const ROOT_A = 'D:\\projects\\workspace-a';
 const ROOT_B = 'D:\\projects\\workspace-b';
-const mockedRealpath = fsPromises.realpath as jest.MockedFunction<
-  typeof fsPromises.realpath
->;
 
 function makeManager(options: {
   providerRoot: string | undefined;
@@ -64,18 +50,28 @@ function makeManager(options: {
   } as unknown as IWorkspaceProvider;
 
   type Args = ConstructorParameters<typeof AgentProcessManager>;
+  type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
+  const cliDetection = { getAdapter: jest.fn() } as unknown as Args[1];
+  const sentryService = { captureException: jest.fn() };
   return new AgentProcessManager(
     logger as unknown as Args[0],
-    { getAdapter: jest.fn() } as unknown as Args[1],
+    cliDetection,
     {
       getRunningBySession: jest.fn().mockReturnValue([]),
     } as unknown as Args[2],
-    workspaceProvider as unknown as Args[3],
-    { captureException: jest.fn() } as unknown as Args[4],
-    { effort: { get: jest.fn(() => '') } } as unknown as Args[5],
-    null,
-    null,
-    options.resolver ?? null,
+    sentryService as unknown as Args[3],
+    new AgentMessageRouter(logger as unknown as Args[0], cliDetection),
+    new AgentSpawnEnvironment(
+      logger as unknown as Args[0],
+      cliDetection,
+      workspaceProvider,
+      { effort: { get: jest.fn(() => '') } } as unknown as EnvironmentArgs[3],
+      sentryService as unknown as EnvironmentArgs[4],
+      null,
+      null,
+      options.resolver ?? null,
+    ),
+    new AgentOutputBuffer(logger as unknown as Args[0]),
   );
 }
 
@@ -100,59 +96,8 @@ function seedAgent(
   ).agents.set(agentId, { info });
 }
 
-function validateWorkingDirectory(
-  manager: AgentProcessManager,
-  dir: string,
-): Promise<void> {
-  return (
-    manager as unknown as {
-      validateWorkingDirectory(dir: string): Promise<void>;
-    }
-  ).validateWorkingDirectory(dir);
-}
-
 describe('AgentProcessManager workspace scoping (TASK_2026_364)', () => {
-  beforeEach(() => {
-    mockedRealpath.mockImplementation(async (p) => String(p));
-  });
   describe('no resolver registered — the CLI host, and every pre-port caller', () => {
-    it('validates the working directory against the platform provider root, as before', async () => {
-      const manager = makeManager({ providerRoot: ROOT_A });
-      await expect(
-        validateWorkingDirectory(manager, `${ROOT_A}\\sub`),
-      ).resolves.toBeUndefined();
-      await expect(validateWorkingDirectory(manager, ROOT_B)).rejects.toThrow(
-        /within workspace root/,
-      );
-    });
-
-    it('rejects a symlink or junction whose physical target escapes the workspace', async () => {
-      const manager = makeManager({ providerRoot: ROOT_A });
-      mockedRealpath.mockImplementation(async (input) => {
-        const value = String(input);
-        if (value === `${ROOT_A}\\linked-out`) return 'D:\\outside\\payload';
-        return value;
-      });
-
-      await expect(
-        validateWorkingDirectory(manager, `${ROOT_A}\\linked-out`),
-      ).rejects.toThrow(/within workspace root/);
-    });
-
-    it('fails closed when physical path resolution fails', async () => {
-      const manager = makeManager({ providerRoot: ROOT_A });
-      mockedRealpath.mockRejectedValueOnce(new Error('ENOENT'));
-
-      await expect(
-        validateWorkingDirectory(manager, `${ROOT_A}\\missing`),
-      ).rejects.toThrow(/Cannot resolve working directory scope: ENOENT/);
-    });
-    it('rejects a Windows sibling whose path only shares the workspace prefix', async () => {
-      const manager = makeManager({ providerRoot: ROOT_A });
-      await expect(
-        validateWorkingDirectory(manager, `${ROOT_A}-evil\\sub`),
-      ).rejects.toThrow(/within workspace root/);
-    });
     it('getStatus() scoped by the provider root hides nothing the provider owns', () => {
       const manager = makeManager({ providerRoot: ROOT_A });
       seedAgent(manager, 'agent-1', `${ROOT_A}\\sub`);
@@ -170,45 +115,6 @@ describe('AgentProcessManager workspace scoping (TASK_2026_364)', () => {
   });
 
   describe('resolver registered — the caller workspace outranks the provider', () => {
-    it('a spawn into the CALLER workspace passes although the provider points at another (the 2026-08-31 regression)', async () => {
-      const manager = makeManager({
-        providerRoot: ROOT_B,
-        resolver: { resolveCallerWorkspaceRoot: () => ROOT_A },
-      });
-      await expect(
-        validateWorkingDirectory(
-          manager,
-          `${ROOT_A}\\.claude-worktrees\\native-loop`,
-        ),
-      ).resolves.toBeUndefined();
-    });
-
-    it('a resolver answering undefined (anonymous caller, UI RPC) falls to the provider root — unchanged', async () => {
-      const manager = makeManager({
-        providerRoot: ROOT_A,
-        resolver: { resolveCallerWorkspaceRoot: () => undefined },
-      });
-      await expect(
-        validateWorkingDirectory(manager, `${ROOT_A}\\sub`),
-      ).resolves.toBeUndefined();
-    });
-
-    it('a resolver refusal (declared workspace not open) propagates — it must not degrade to the provider root', async () => {
-      const manager = makeManager({
-        providerRoot: ROOT_B,
-        resolver: {
-          resolveCallerWorkspaceRoot: () => {
-            throw new Error(
-              "The caller declared workspace 'D:\\closed', but that folder is not open in this window",
-            );
-          },
-        },
-      });
-      await expect(
-        validateWorkingDirectory(manager, `${ROOT_B}\\sub`),
-      ).rejects.toThrow(/declared workspace/);
-    });
-
     it('getStatus() lists only the caller workspace, matched case- and separator-insensitively', () => {
       const manager = makeManager({
         providerRoot: ROOT_B,

@@ -21,6 +21,9 @@ import type {
   CliSessionReference,
 } from '@ptah-extension/shared';
 import { AgentProcessManager } from './agent-process-manager.service';
+import { AgentMessageRouter } from './agent-message-router.service';
+import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
+import { AgentOutputBuffer } from './agent-output-buffer.service';
 
 // `readOutput` runs the id through `AgentId.from`, which validates the UUID
 // shape — spec ids have to be real v4-shaped strings, not readable labels.
@@ -56,18 +59,28 @@ function makeManager(options: {
   } as unknown as IWorkspaceProvider;
 
   type Args = ConstructorParameters<typeof AgentProcessManager>;
+  type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
+  const cliDetection = { getAdapter: jest.fn() } as unknown as Args[1];
+  const sentryService = { captureException: jest.fn() };
   return new AgentProcessManager(
     logger as unknown as Args[0],
-    { getAdapter: jest.fn() } as unknown as Args[1],
+    cliDetection,
     {
       getRunningBySession: jest.fn().mockReturnValue([]),
     } as unknown as Args[2],
-    workspaceProvider as unknown as Args[3],
-    { captureException: jest.fn() } as unknown as Args[4],
-    { effort: { get: jest.fn(() => '') } } as unknown as Args[5],
-    null,
-    null,
-    options.resolver ?? null,
+    sentryService as unknown as Args[3],
+    new AgentMessageRouter(logger as unknown as Args[0], cliDetection),
+    new AgentSpawnEnvironment(
+      logger as unknown as Args[0],
+      cliDetection,
+      workspaceProvider,
+      { effort: { get: jest.fn(() => '') } } as unknown as EnvironmentArgs[3],
+      sentryService as unknown as EnvironmentArgs[4],
+      null,
+      null,
+      options.resolver ?? null,
+    ),
+    new AgentOutputBuffer(logger as unknown as Args[0]),
   );
 }
 

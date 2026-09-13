@@ -9,12 +9,6 @@
  * - Cross-platform process termination (SIGTERM/taskkill)
  */
 import { injectable, inject } from 'tsyringe';
-import {
-  HARNESS_PREFLIGHT_TOKEN,
-  type IHarnessPreflight,
-} from '@ptah-extension/agent-sdk';
-import { ChildProcess } from 'child_process';
-import { promises as fsPromises } from 'fs';
 import { EventEmitter } from 'eventemitter3';
 import {
   TOKENS,
@@ -23,26 +17,13 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
-  PLATFORM_TOKENS,
-  isPathWithinRoots,
-} from '@ptah-extension/platform-core';
-import type {
-  ICallerWorkspaceResolver,
-  IMcpServerStatus,
-  IWorkspaceProvider,
-} from '@ptah-extension/platform-core';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
-import type { ReasoningSettings } from '@ptah-extension/settings-core';
-import {
   AgentId,
   AgentStatus,
   AgentProcessInfo,
-  AgentOutputDelta,
   SpawnAgentRequest,
   SpawnAgentResult,
   AgentOutput,
   CliType,
-  SYSTEM_CLI_TYPES,
   normalizeWorkspaceRoot,
 } from '@ptah-extension/shared';
 import type {
@@ -64,31 +45,25 @@ import type {
 } from './cli-adapters/cli-adapter.interface';
 import { killProcessTree } from './cli-adapters/cli-adapter.utils';
 import {
-  MAX_BUFFER_SIZE,
   DEFAULT_INACTIVITY_TIMEOUT,
   COMPLETED_AGENT_TTL,
-  SDK_IDLE_RELEASE_MS,
-  MIN_SDK_IDLE_RELEASE_MS,
   SDK_ABORT_SETTLE_MS,
   DISPOSE_RELEASE_TIMEOUT_MS,
-  OUTPUT_FLUSH_INTERVAL,
   GRACEFUL_EXIT_DELAY_MS,
-  MAX_ACCUMULATED_SEGMENTS,
-  MAX_ACCUMULATED_STREAM_EVENTS,
-  STREAM_EVENTS_CAP_SLACK,
   MAX_STDOUT_PERSISTENCE_SIZE,
-  type PendingDelta,
-  createEmptyPendingDelta,
   countNewlines,
-  trimBufferToLowWater,
   tailLines,
   capStreamEvents,
-  mergeConsecutiveTextSegments,
 } from './agent-process-manager-helpers';
+import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
+import { AgentOutputBuffer } from './agent-output-buffer.service';
+import type { TrackedAgent } from './tracked-agent';
 
-export const MIN_CONCURRENT_AGENTS = 1;
-export const MAX_CONCURRENT_AGENTS = 20;
-export const DEFAULT_CONCURRENT_AGENTS = 5;
+export {
+  MIN_CONCURRENT_AGENTS,
+  MAX_CONCURRENT_AGENTS,
+  DEFAULT_CONCURRENT_AGENTS,
+} from './agent-spawn-environment.service';
 
 /**
  * Shell metacharacters — kept for reference only.
@@ -154,67 +129,6 @@ export class AgentContinueError extends Error {
   }
 }
 
-interface TrackedAgent {
-  info: AgentProcessInfo;
-  /** Child process for CLI-based agents, null for SDK-based agents */
-  process: ChildProcess | null;
-  sdkHandle?: SdkHandle;
-  /** Abort controller for SDK-based agents (null/undefined for CLI agents) */
-  sdkAbortController?: AbortController;
-  stdoutBuffer: string;
-  stderrBuffer: string;
-  /** Absent for a restored record, and for an agent whose watchdog is disabled. */
-  timeoutHandle?: NodeJS.Timeout;
-  /** Silence window this agent's watchdog uses, or undefined when disabled. */
-  inactivityTimeoutMs?: number;
-  stdoutLineCount: number;
-  stderrLineCount: number;
-  truncated: boolean;
-  /** Guard against double handleExit (error + exit events firing) */
-  hasExited: boolean;
-  /** Cleanup timer handle for TTL-based removal from map */
-  cleanupHandle?: NodeJS.Timeout;
-  /** Deferred `agent:exited` emit timer (GRACEFUL_EXIT_DELAY); cleared if the
-   * agent is re-opened via continueConversation so a stale exit from the prior
-   * turn can't clobber the running continuation. */
-  exitEmitHandle?: NodeJS.Timeout;
-  /** Idle-release timer armed at exit for continuation-capable handles; cleared
-   * when a continuation re-opens the agent. */
-  idleReleaseHandle?: NodeJS.Timeout;
-  /** Wall-clock ms at which the current idle window started, for the release log. */
-  idleSince?: number;
-  /** True once the SDK subprocess has been aborted and reaped. The record and
-   * its buffers stay readable; only in-process continuation is gone. */
-  subprocessReleased: boolean;
-  /** Accumulated structured segments for persistence (capped at MAX_ACCUMULATED_SEGMENTS) */
-  accumulatedSegments: CliOutputSegment[];
-  /** Accumulated rich stream events for persistence (Ptah CLI only, capped at MAX_ACCUMULATED_STREAM_EVENTS) */
-  accumulatedStreamEvents: FlatStreamEventUnion[];
-  /** True once the stream-events cap has been logged — suppresses per-event log spam for long-running agents. */
-  streamCapLogged: boolean;
-  /**
-   * Settles when the turn currently in flight has torn down. Written in
-   * {@link AgentProcessManager.trackSdkHandle} from `SdkHandle.done` and
-   * re-written in {@link AgentProcessManager.continueConversation} from the
-   * continued turn's `done`. The `interrupt-resume` path awaits it: without it
-   * the router re-enters `continueConversation` while the record is still
-   * `running` and is refused as `busy`.
-   */
-  currentTurnDone?: Promise<number>;
-  /**
-   * Messages waiting for the current turn to end, in arrival order. In-memory,
-   * capped at `MAX_PENDING_MESSAGES`, never persisted, and cleared when
-   * the record's subprocess is released or the record is dropped.
-   */
-  pendingMessages: string[];
-  /**
-   * Set only by {@link AgentProcessManager.restoreAgents}: this record was
-   * rebuilt from persisted session state, not from a run this host supervised.
-   * Its output is readable; nothing about it is live.
-   */
-  restored?: true;
-}
-
 @injectable()
 export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
@@ -226,165 +140,25 @@ export class AgentProcessManager {
   /** EventEmitter for agent lifecycle events (spawned, output, exited) */
   readonly events = new EventEmitter();
 
-  /** Pending output deltas per agent (throttled to OUTPUT_FLUSH_INTERVAL) */
-  private readonly pendingDeltas = new Map<string, PendingDelta>();
-  /** Flush timers per agent */
-  private readonly flushTimers = new Map<string, NodeJS.Timeout>();
-
-  /** Allowlist an effort value to what Codex/Copilot accept (`max` → `xhigh`). */
-  private mapEffortToCli(effort: string): string | undefined {
-    switch (effort) {
-      case 'low':
-      case 'medium':
-      case 'high':
-      case 'xhigh':
-      case 'minimal':
-        return effort;
-      case 'max':
-        return 'xhigh';
-      default:
-        return undefined;
-    }
-  }
-
-  /** Clamp a UI effort value onto the `low|medium|high` scale `agy` accepts. */
-  private static mapEffortToAgy(effort: string): string | undefined {
-    switch (effort) {
-      case 'minimal':
-      case 'low':
-        return 'low';
-      case 'medium':
-        return 'medium';
-      case 'high':
-      case 'xhigh':
-      case 'max':
-        return 'high';
-      default:
-        return undefined;
-    }
-  }
-
-  /** UI reasoning-effort selection drives Codex/Copilot; per-CLI config is the fallback. */
-  private resolveReasoningEffort(cli: CliType): string | undefined {
-    // Pi maps reasoning effort to `--thinking` and supports the full scale
-    // (off|minimal|low|medium|high|xhigh|max), so the configured value flows
-    // through raw — no in-chat driver and no `max`→`xhigh` coercion.
-    if (cli === 'pi') {
-      const piEffort =
-        this.workspace.getConfiguration<string>(
-          'ptah.agentOrchestration',
-          'piReasoningEffort',
-          '',
-        ) ?? '';
-      return piEffort || undefined;
-    }
-    // `agy --effort` takes low|medium|high only, and has no per-CLI config key
-    // (the Antigravity settings pane is model-only), so the in-chat selection
-    // is the sole driver and is clamped onto that three-value scale.
-    if (cli === 'antigravity') {
-      return AgentProcessManager.mapEffortToAgy(
-        this.reasoningSettings.effort.get(),
-      );
-    }
-    if (cli !== 'codex' && cli !== 'copilot') return undefined;
-    const uiEffort = this.mapEffortToCli(this.reasoningSettings.effort.get());
-    if (uiEffort) return uiEffort;
-    const effortKey =
-      cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
-    const effort =
-      this.workspace.getConfiguration<string>(
-        'ptah.agentOrchestration',
-        effortKey,
-        '',
-      ) ?? '';
-    return this.mapEffortToCli(effort);
-  }
-
-  private resolveAutoApprove(cli: CliType): boolean | undefined {
-    if (cli === 'codex') return undefined;
-    if (cli !== 'copilot') return undefined;
-    return this.workspace.getConfiguration<boolean>(
-      'ptah.agentOrchestration',
-      'copilotAutoApprove',
-      true,
-    );
-  }
-
-  private static readonly MODEL_CONFIG_KEYS: Partial<Record<CliType, string>> =
-    {
-      codex: 'codexModel',
-      copilot: 'copilotModel',
-      cursor: 'cursorModel',
-      antigravity: 'antigravityModel',
-      opencode: 'opencodeModel',
-      pi: 'piModel',
-    };
-
-  private resolveConfiguredModel(
-    cli: CliType,
-    requestModel: string | undefined,
-  ): string | undefined {
-    if (requestModel) return requestModel;
-    const configKey = AgentProcessManager.MODEL_CONFIG_KEYS[cli];
-    if (!configKey) return requestModel;
-    const configuredModel =
-      this.workspace.getConfiguration<string>(
-        'ptah.agentOrchestration',
-        configKey,
-        '',
-      ) ?? '';
-    return configuredModel || requestModel;
-  }
-
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
-    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspace: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
-    @inject(SETTINGS_TOKENS.REASONING_SETTINGS)
-    private readonly reasoningSettings: ReasoningSettings,
-    /**
-     * A rival CLI reads the harness off DISK and has no other channel — no
-     * system-prompt injection, no MCP fallback. If `{ws}/.agents/skills` is not
-     * there when the process starts, the skills do not exist for that run.
-     * Optional so a host without `harness-sync` spawns exactly as before.
-     */
-    @inject(HARNESS_PREFLIGHT_TOKEN, { isOptional: true })
-    private readonly harnessPreflight: IHarnessPreflight | null = null,
-    /**
-     * Optional because CLI-only hosts do not start Ptah's in-process MCP server.
-     * The port is the source of truth after deterministic fallback selection.
-     */
-    @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
-    private readonly mcpServerStatus: IMcpServerStatus | null = null,
-    /**
-     * The calling MCP request's workspace root (TASK_2026_364). Optional:
-     * only hosts that run the in-process HTTP MCP server (VS Code, Electron)
-     * register an implementation. Unregistered — the CLI host and unit
-     * tests — every resolution falls to the platform provider exactly as
-     * before the port existed. Never import `vscode-lm-tools` here instead:
-     * the dependency runs `vscode-lm-tools` → this lib, and inverting it is a
-     * module-boundary error.
-     */
-    @inject(PLATFORM_TOKENS.CALLER_WORKSPACE_RESOLVER, { isOptional: true })
-    private readonly callerWorkspaceResolver: ICallerWorkspaceResolver | null = null,
     /**
      * Owns mode selection and the pending queue for {@link sendToAgent}
      * (TASK_2026_402 R-8). Stateless — every per-agent field it touches lives
-     * on the tracked record — so the default keeps direct construction (tests,
-     * and the wiring paths that build this manager by hand) working unchanged
-     * while tsyringe injects the container's instance in a real host.
+     * on the tracked record.
      */
     @inject(AgentMessageRouter)
-    private readonly messageRouter: AgentMessageRouter = new AgentMessageRouter(
-      logger,
-      cliDetection,
-    ),
+    private readonly messageRouter: AgentMessageRouter,
+    @inject(AgentSpawnEnvironment)
+    private readonly spawnEnvironment: AgentSpawnEnvironment,
+    @inject(AgentOutputBuffer)
+    private readonly outputBuffer: AgentOutputBuffer,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -425,7 +199,7 @@ export class AgentProcessManager {
       files: request.files?.length ?? 0,
       taskFolder: request.taskFolder,
     });
-    const cli = request.cli ?? (await this.getPreferredCli());
+    const cli = request.cli ?? (await this.spawnEnvironment.preferredCli());
     if (!cli) {
       throw new Error(
         'No CLI agent available. Install Codex CLI, Copilot, or Ptah CLI ' +
@@ -464,14 +238,16 @@ export class AgentProcessManager {
       detectedPath: detection.path,
     });
     const workingDirectory =
-      request.workingDirectory ?? this.getWorkspaceRoot();
-    await this.validateWorkingDirectory(workingDirectory);
+      request.workingDirectory ?? this.spawnEnvironment.workspaceRoot();
+    await this.spawnEnvironment.validateWorkingDirectory(workingDirectory);
     // AFTER validation, BEFORE the process exists. `workingDirectory` may be a
     // sub-package of a monorepo (E14) — the preflight resolves it to the
     // workspace root, which is where every CLI-discoverable directory lives.
-    await this.runHarnessPreflight(workingDirectory);
+    await this.spawnEnvironment.runHarnessPreflight(workingDirectory);
     const mcpPort =
-      adapter.supportsMcp !== false ? await this.resolveMcpPort() : undefined;
+      adapter.supportsMcp !== false
+        ? await this.spawnEnvironment.mcpPort()
+        : undefined;
     return this.doSpawnSdk({
       runSdk: adapter.runSdk.bind(adapter),
       request,
@@ -505,7 +281,10 @@ export class AgentProcessManager {
     } = options;
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
-    const resolvedModel = this.resolveConfiguredModel(cli, request.model);
+    const resolvedModel = this.spawnEnvironment.resolveModel(
+      cli,
+      request.model,
+    );
     const roleDefinition = request.roleDefinition;
     const roleStamp: AgentRoleStamp | undefined = roleDefinition
       ? { role: roleDefinition.name, roleDelivery: 'preamble', roleChannel }
@@ -554,8 +333,8 @@ export class AgentProcessManager {
       resumeSessionId: request.resumeSessionId,
       projectGuidance: request.projectGuidance,
       systemPrompt: request.systemPrompt,
-      reasoningEffort: this.resolveReasoningEffort(cli),
-      autoApprove: this.resolveAutoApprove(cli),
+      reasoningEffort: this.spawnEnvironment.resolveReasoningEffort(cli),
+      autoApprove: this.spawnEnvironment.resolveAutoApprove(cli),
       // Minted above, BEFORE the CLI is asked to build its MCP config, so the
       // `/agent/{id}` segment of the URL names this exact record
       // (TASK_2026_402). The rival-CLI path needs no extra plumbing for this —
@@ -616,7 +395,9 @@ export class AgentProcessManager {
   ): Promise<SpawnAgentResult> {
     await this.reserveSpawnSlot();
     try {
-      await this.validateWorkingDirectory(meta.workingDirectory);
+      await this.spawnEnvironment.validateWorkingDirectory(
+        meta.workingDirectory,
+      );
 
       const agentId = meta.agentId ?? AgentId.create();
       const startedAt = new Date().toISOString();
@@ -714,12 +495,28 @@ export class AgentProcessManager {
 
     this.agents.set(agentId, tracked);
     sdkHandle.setAgentId?.(agentId);
+    const onFlushDue = (): void => {
+      this.flushDelta(agentId);
+    };
     sdkHandle.onOutput((data: string) => {
-      this.appendBuffer(agentId, 'stdout', data);
+      const current = this.agents.get(agentId);
+      if (!current) return;
+      this.outputBuffer.appendOutput(
+        agentId,
+        current,
+        'stdout',
+        data,
+        onFlushDue,
+      );
     });
     if (sdkHandle.onSegment) {
       sdkHandle.onSegment((segment: CliOutputSegment) => {
-        this.accumulateSegment(agentId, segment);
+        this.outputBuffer.appendSegment(
+          agentId,
+          this.agents.get(agentId),
+          segment,
+          onFlushDue,
+        );
         if (captureSessionId) {
           const sessionId = captureSessionId();
           if (sessionId && sessionId !== tracked.info.cliSessionId) {
@@ -730,7 +527,12 @@ export class AgentProcessManager {
     }
     if (sdkHandle.onStreamEvent) {
       sdkHandle.onStreamEvent((event: FlatStreamEventUnion) => {
-        this.accumulateStreamEvent(agentId, event);
+        this.outputBuffer.appendStreamEvent(
+          agentId,
+          this.agents.get(agentId),
+          event,
+          onFlushDue,
+        );
       });
     }
     if (sdkHandle.onSessionResolved) {
@@ -929,7 +731,7 @@ export class AgentProcessManager {
    * workspace therefore gets an error saying exactly that.
    */
   getStatus(agentId?: string): AgentProcessInfo | AgentProcessInfo[] {
-    const scopeRoot = this.resolveScopedWorkspaceRoot();
+    const scopeRoot = this.spawnEnvironment.scopedWorkspaceRoot();
     const scopeKey =
       scopeRoot === undefined ? undefined : normalizeWorkspaceRoot(scopeRoot);
     if (agentId) {
@@ -938,7 +740,10 @@ export class AgentProcessManager {
         throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
       }
       if (
-        !this.isWithinWorkspaceScope(tracked.info.workingDirectory, scopeKey)
+        !this.spawnEnvironment.isWithinScope(
+          tracked.info.workingDirectory,
+          scopeKey,
+        )
       ) {
         throw new Error(
           `Agent ${agentId} exists but belongs to another workspace: its working directory is ` +
@@ -955,7 +760,7 @@ export class AgentProcessManager {
 
     return Array.from(this.agents.values())
       .filter((t) =>
-        this.isWithinWorkspaceScope(t.info.workingDirectory, scopeKey),
+        this.spawnEnvironment.isWithinScope(t.info.workingDirectory, scopeKey),
       )
       .map((t) => ({
         ...t.info,
@@ -1031,8 +836,11 @@ export class AgentProcessManager {
    * report.
    */
   recordAgentNote(agentId: string, segment: CliOutputSegment): void {
-    if (!this.agents.has(agentId)) return;
-    this.accumulateSegment(agentId, segment);
+    const tracked = this.agents.get(agentId);
+    if (!tracked) return;
+    this.outputBuffer.appendSegment(agentId, tracked, segment, () => {
+      this.flushDelta(agentId);
+    });
   }
 
   /**
@@ -1373,7 +1181,7 @@ export class AgentProcessManager {
     };
     clearTimeout(tracked.timeoutHandle);
     this.flushDelta(agentId);
-    this.cleanupFlushTimer(agentId);
+    this.outputBuffer.discard(agentId);
 
     this.scheduleCleanup(agentId);
 
@@ -1426,7 +1234,7 @@ export class AgentProcessManager {
       }
       clearTimeout(tracked.timeoutHandle);
       this.clearIdleRelease(tracked);
-      this.cleanupFlushTimer(agentId);
+      this.outputBuffer.discard(agentId);
     }
     try {
       const copilotAdapter = this.cliDetection.getAdapter('copilot');
@@ -1471,7 +1279,7 @@ export class AgentProcessManager {
    */
   private async reserveSpawnSlot(): Promise<void> {
     return this.acquireSpawnLock(async () => {
-      const maxConcurrent = this.getMaxConcurrentAgents();
+      const maxConcurrent = this.spawnEnvironment.maxConcurrentAgents();
       const runningCount = this.getRunningCount();
       if (runningCount + this.spawning >= maxConcurrent) {
         throw new Error(
@@ -1530,12 +1338,6 @@ export class AgentProcessManager {
    *
    * Guarded shape because `unref` exists on Node's `Timeout` but not on the
    * DOM's numeric handle, and not on every fake-timer implementation.
-   *
-   * Unref'ing the OUTPUT FLUSH timer is safe for the same reason: while an agent
-   * is producing output, the SDK subprocess's own stdio handles hold the loop
-   * open, so the 200 ms flush always gets its tick. When nothing is producing
-   * output there is nothing pending to flush, and `handleExit` flushes
-   * synchronously before teardown regardless.
    */
   private unrefTimer(timer: NodeJS.Timeout): NodeJS.Timeout {
     if (typeof (timer as { unref?: () => void }).unref === 'function') {
@@ -1545,174 +1347,12 @@ export class AgentProcessManager {
   }
 
   /**
-   * Arm the shared per-agent output flush timer if it is not already armed.
-   * Text deltas, structured segments and stream events all coalesce onto it.
-   */
-  private scheduleFlush(agentId: string): void {
-    if (this.flushTimers.has(agentId)) return;
-    const timer = this.unrefTimer(
-      setTimeout(() => {
-        this.flushDelta(agentId);
-      }, OUTPUT_FLUSH_INTERVAL),
-    );
-    this.flushTimers.set(agentId, timer);
-  }
-
-  /**
-   * Append a chunk to an agent's output buffer, trimming with hysteresis.
-   *
-   * This is the hottest per-chunk path in the manager: on the ptah-cli path
-   * `SdkHandle.onOutput` fires once per `text_delta`, i.e. once per token. Two
-   * rules keep it O(chunk) instead of O(buffer):
-   *
-   * - **Trim to a LOW-WATER mark, not to the cap.** The previous version cut
-   *   only the overflow, which left the buffer sitting on `MAX_BUFFER_SIZE` so
-   *   the next token trimmed again and copied the whole megabyte. Cutting back
-   *   to `BUFFER_LOW_WATER_SIZE` amortizes the copy over the 256 KB of headroom
-   *   it buys (TASK_2026_323 B1).
-   * - **No regex for the newline count.** `data.match(/\n/g)` allocated a match
-   *   array per chunk; `countNewlines` walks the same bytes and allocates none.
-   *
-   * The line counter tracks lines CURRENTLY in the buffer, so a trim subtracts
-   * the newlines it dropped — counted once, at trim time, over the dropped
-   * prefix only.
-   */
-  private appendBuffer(
-    agentId: string,
-    stream: 'stdout' | 'stderr',
-    data: string,
-  ): void {
-    const tracked = this.agents.get(agentId);
-    if (!tracked) return;
-
-    const key = stream === 'stdout' ? 'stdoutBuffer' : 'stderrBuffer';
-    const lineCountKey =
-      stream === 'stdout' ? 'stdoutLineCount' : 'stderrLineCount';
-
-    tracked[key] += data;
-    tracked[lineCountKey] += countNewlines(data);
-
-    if (tracked[key].length > MAX_BUFFER_SIZE) {
-      const trim = trimBufferToLowWater(tracked[key]);
-      tracked[key] = trim.buffer;
-      tracked[lineCountKey] = Math.max(
-        0,
-        tracked[lineCountKey] - trim.linesDropped,
-      );
-      tracked.truncated = true;
-    }
-
-    this.accumulateDelta(agentId, stream, data);
-  }
-
-  /**
-   * Accumulate output delta for throttled emission to webview.
-   * Flushes every OUTPUT_FLUSH_INTERVAL ms per agent.
-   */
-  private accumulateDelta(
-    agentId: string,
-    stream: 'stdout' | 'stderr',
-    data: string,
-  ): void {
-    let pending = this.pendingDeltas.get(agentId);
-    if (!pending) {
-      pending = createEmptyPendingDelta();
-      this.pendingDeltas.set(agentId, pending);
-    }
-    pending[stream] += data;
-    this.scheduleFlush(agentId);
-  }
-
-  /**
-   * Accumulate a structured segment for throttled emission.
-   * Shares the same flush timer as text deltas.
-   */
-  private accumulateSegment(agentId: string, segment: CliOutputSegment): void {
-    let pending = this.pendingDeltas.get(agentId);
-    if (!pending) {
-      pending = createEmptyPendingDelta();
-      this.pendingDeltas.set(agentId, pending);
-    }
-    pending.segments.push(segment);
-    const tracked = this.agents.get(agentId);
-    if (
-      tracked &&
-      tracked.accumulatedSegments.length < MAX_ACCUMULATED_SEGMENTS
-    ) {
-      tracked.accumulatedSegments.push(segment);
-    }
-    this.scheduleFlush(agentId);
-  }
-
-  /**
-   * Accumulate a FlatStreamEventUnion event for throttled emission.
-   * Shares the same flush timer as text deltas and segments.
-   * Only Ptah CLI adapter produces these events.
-   */
-  private accumulateStreamEvent(
-    agentId: string,
-    event: FlatStreamEventUnion,
-  ): void {
-    let pending = this.pendingDeltas.get(agentId);
-    if (!pending) {
-      pending = createEmptyPendingDelta();
-      this.pendingDeltas.set(agentId, pending);
-    }
-    pending.streamEvents.push(event);
-    const tracked = this.agents.get(agentId);
-    if (tracked) {
-      tracked.accumulatedStreamEvents.push(event);
-
-      // Re-cap only once the array has run STREAM_EVENTS_CAP_SLACK entries past
-      // the cap, not the moment it exceeds it. `capStreamEvents` rebuilds all
-      // 50 000 entries; firing it on every event past the cap is the same
-      // per-chunk full-buffer rescan as the stdout trim above, just in array
-      // form. The slack amortizes each rebuild over 5 000 events.
-      if (
-        tracked.accumulatedStreamEvents.length >
-        MAX_ACCUMULATED_STREAM_EVENTS + STREAM_EVENTS_CAP_SLACK
-      ) {
-        tracked.accumulatedStreamEvents = capStreamEvents(
-          tracked.accumulatedStreamEvents,
-          MAX_ACCUMULATED_STREAM_EVENTS,
-        );
-        // Log only the FIRST time the cap is hit for this agent. A long-running
-        // agent crosses the cap on every subsequent event, so logging here
-        // unconditionally floods the console and adds synchronous logging load
-        // to the event loop per stream event.
-        if (!tracked.streamCapLogged) {
-          tracked.streamCapLogged = true;
-          this.logger.debug(
-            '[AgentProcessManager] Stream events cap reached, dropping oldest deltas (further drops for this agent are silent)',
-            {
-              agentId,
-              cap: MAX_ACCUMULATED_STREAM_EVENTS,
-            },
-          );
-        }
-      }
-    }
-    this.scheduleFlush(agentId);
-  }
-
-  /**
    * Flush accumulated deltas for an agent and emit 'agent:output' event.
-   * Merges consecutive text segments before emitting to reduce webview overhead.
    */
   private flushDelta(agentId: string): void {
-    this.flushTimers.delete(agentId);
-    const pending = this.pendingDeltas.get(agentId);
-    if (
-      !pending ||
-      (!pending.stdout &&
-        !pending.stderr &&
-        pending.segments.length === 0 &&
-        pending.streamEvents.length === 0)
-    )
-      return;
-
     const tracked = this.agents.get(agentId);
-    if (!tracked) return;
+    const delta = this.outputBuffer.takeDelta(agentId, tracked);
+    if (!tracked || !delta) return;
 
     // Output IS the liveness signal, and this is the one funnel every kind of
     // it passes through — stdout, stderr, segments and stream events alike.
@@ -1721,23 +1361,6 @@ export class AgentProcessManager {
     if (tracked.info.status === 'running') {
       this.armInactivityWatchdog(agentId, tracked);
     }
-
-    const mergedSegments = mergeConsecutiveTextSegments(pending.segments);
-
-    const delta: AgentOutputDelta = {
-      agentId: AgentId.from(agentId),
-      stdoutDelta: pending.stdout,
-      stderrDelta: pending.stderr,
-      timestamp: Date.now(),
-      ...(mergedSegments.length > 0 ? { segments: mergedSegments } : {}),
-      ...(pending.streamEvents.length > 0
-        ? { streamEvents: pending.streamEvents }
-        : {}),
-    };
-    pending.stdout = '';
-    pending.stderr = '';
-    pending.segments = [];
-    pending.streamEvents = [];
 
     this.events.emit('agent:output', delta);
   }
@@ -1797,37 +1420,6 @@ export class AgentProcessManager {
   }
 
   /**
-   * The idle window before a completed agent's subprocess is released.
-   *
-   * Read through the same settings surface as `maxConcurrentAgents`, so a user
-   * who lives on long follow-up threads can widen it (or set it very large to
-   * get the old hold-forever behaviour back) without a rebuild.
-   *
-   * Two guards, and they answer different questions. A value that is not a
-   * usable number at all — a string from a hand-edited settings file, `NaN`,
-   * zero or negative — is not a preference, so the DEFAULT is used. A value
-   * that is a real preference but below {@link MIN_SDK_IDLE_RELEASE_MS} is
-   * raised to the floor rather than discarded: the user asked for "as short as
-   * possible" and gets the shortest window the setting is declared to allow,
-   * not five minutes.
-   */
-  private getSdkIdleReleaseMs(): number {
-    const configured = this.workspace.getConfiguration<number>(
-      'ptah',
-      'agentOrchestration.sdkIdleReleaseMs',
-      SDK_IDLE_RELEASE_MS,
-    );
-    if (
-      typeof configured !== 'number' ||
-      !Number.isFinite(configured) ||
-      configured <= 0
-    ) {
-      return SDK_IDLE_RELEASE_MS;
-    }
-    return Math.max(configured, MIN_SDK_IDLE_RELEASE_MS);
-  }
-
-  /**
    * Arm the idle countdown for an agent whose turn just ended.
    *
    * Only continuation-capable handles get one, because they are the only ones
@@ -1844,7 +1436,7 @@ export class AgentProcessManager {
     if (tracked.sdkHandle.supportsContinuation?.() !== true) return;
 
     this.clearIdleRelease(tracked);
-    const idleMs = this.getSdkIdleReleaseMs();
+    const idleMs = this.spawnEnvironment.sdkIdleReleaseMs();
     tracked.idleSince = Date.now();
     tracked.idleReleaseHandle = this.unrefTimer(
       setTimeout(() => {
@@ -1957,7 +1549,7 @@ export class AgentProcessManager {
       };
     }
     this.flushDelta(agentId);
-    this.cleanupFlushTimer(agentId);
+    this.outputBuffer.discard(agentId);
 
     this.scheduleCleanup(agentId);
     // The turn is over but a continuation-capable handle still owns its
@@ -2023,19 +1615,6 @@ export class AgentProcessManager {
       }, COMPLETED_AGENT_TTL),
     );
   }
-
-  /**
-   * Clean up flush timer for a specific agent.
-   */
-  private cleanupFlushTimer(agentId: string): void {
-    const timer = this.flushTimers.get(agentId);
-    if (timer) {
-      clearTimeout(timer);
-      this.flushTimers.delete(agentId);
-    }
-    this.pendingDeltas.delete(agentId);
-  }
-
   private async killProcess(tracked: TrackedAgent): Promise<void> {
     const captureTreeKillError = (err: unknown): void => {
       this.sentryService.captureException(
@@ -2128,144 +1707,6 @@ export class AgentProcessManager {
   }
 
   /**
-   * The concurrent-agent cap.
-   *
-   * The extension manifest schema protects only the VS Code settings UI.
-   * Electron, CLI, and hand-edited settings reach this runtime unchecked, so
-   * the 1..20 bounds are enforced here and non-finite values fall back to 5.
-   *
-   * `ptah.agentOrchestration.maxConcurrentAgents` — DEFAULT 5, MAXIMUM 20, both
-   * declared in the extension's `package.json`. Prompt text and docs that say
-   * "max 3 concurrent" are stale and describe a limit that has not existed for
-   * some time; the number here is the one the runtime enforces.
-   */
-  private getMaxConcurrentAgents(): number {
-    const configured =
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        'agentOrchestration.maxConcurrentAgents',
-        DEFAULT_CONCURRENT_AGENTS,
-      ) ?? DEFAULT_CONCURRENT_AGENTS;
-
-    if (!Number.isFinite(configured)) {
-      return DEFAULT_CONCURRENT_AGENTS;
-    }
-
-    return Math.max(
-      MIN_CONCURRENT_AGENTS,
-      Math.min(MAX_CONCURRENT_AGENTS, configured),
-    );
-  }
-
-  private async getPreferredCli(): Promise<CliType | null> {
-    const systemCliTypes = new Set<string>(SYSTEM_CLI_TYPES);
-    const disabledClis = new Set(
-      this.workspace.getConfiguration<string[]>(
-        'ptah',
-        'agentOrchestration.disabledClis',
-        [],
-      ) ?? [],
-    );
-    const preferredOrder =
-      this.workspace.getConfiguration<string[]>(
-        'ptah',
-        'agentOrchestration.preferredAgentOrder',
-        [],
-      ) ?? [];
-    this.logger.debug(
-      '[AgentProcessManager] getPreferredCli: preferred order',
-      {
-        order:
-          preferredOrder.length > 0
-            ? preferredOrder.join(', ')
-            : 'none (auto-detect)',
-        disabled: disabledClis.size > 0 ? [...disabledClis].join(', ') : 'none',
-      },
-    );
-    for (const entry of preferredOrder) {
-      if (!systemCliTypes.has(entry)) {
-        continue;
-      }
-      if (disabledClis.has(entry)) {
-        continue;
-      }
-
-      const adapter = this.cliDetection.getAdapter(entry as CliType);
-      if (adapter) {
-        const detection = await this.cliDetection.getDetection(
-          entry as CliType,
-        );
-        if (detection?.installed) {
-          this.logger.info(
-            '[AgentProcessManager] getPreferredCli: using preferred CLI',
-            { cli: entry },
-          );
-          return entry as CliType;
-        }
-        this.logger.warn(
-          '[AgentProcessManager] getPreferredCli: preferred CLI not installed, trying next',
-          { preferred: entry, installed: detection?.installed },
-        );
-      }
-    }
-    const installed = await this.cliDetection.getInstalledClis();
-    const enabled = installed.filter((c) => !disabledClis.has(c.cli));
-    this.logger.debug(
-      '[AgentProcessManager] getPreferredCli: auto-detect installed CLIs',
-      {
-        count: enabled.length,
-        clis: enabled.map((c) => `${c.cli}${c.installed ? ' ✓' : ' ✗'}`),
-      },
-    );
-
-    if (enabled.length === 0) return null;
-
-    return enabled[0].cli;
-  }
-
-  /**
-   * The workspace root this call is scoped to: the calling MCP request's
-   * workspace (declared in its URL, or inferred from its session) first, then
-   * the platform provider's active folder. `undefined` when neither resolves.
-   *
-   * A throw from the resolver — a caller that declared a workspace this host
-   * does not have open — propagates deliberately. Refusing by name is the
-   * point; degrading to the provider root would answer for an unrelated
-   * workspace, the exact defect TASK_2026_364 exists to close.
-   */
-  private resolveScopedWorkspaceRoot(): string | undefined {
-    return (
-      this.callerWorkspaceResolver?.resolveCallerWorkspaceRoot() ??
-      this.workspace.getWorkspaceRoot() ??
-      undefined
-    );
-  }
-
-  private getWorkspaceRoot(): string {
-    return this.resolveScopedWorkspaceRoot() ?? require('os').homedir();
-  }
-
-  /**
-   * Whether an agent's working directory falls under the caller's workspace
-   * scope, compared with the shared normalized key (`normalizeWorkspaceRoot`),
-   * so separator and case spellings of one directory land on one answer.
-   *
-   * An `undefined` scope (no caller context and no open folder) keeps the
-   * pre-scoping behaviour: everything is visible. A record with no working
-   * directory is also visible — it cannot be attributed to any workspace, and
-   * hiding it recreates the invisible-live-agent hazard this scoping fixes.
-   */
-  private isWithinWorkspaceScope(
-    workingDirectory: string | undefined,
-    scopeKey: string | undefined,
-  ): boolean {
-    if (scopeKey === undefined) return true;
-    if (!workingDirectory) return true;
-    const dirKey = normalizeWorkspaceRoot(workingDirectory);
-    return dirKey === scopeKey || dirKey.startsWith(`${scopeKey}/`);
-  }
-
-  /**
    * This prevents markAllInterrupted() from killing them when the parent session ends.
    * CLI agents run independently and should only stop on their own completion, timeout,
    * or explicit user action.
@@ -2294,87 +1735,6 @@ export class AgentProcessManager {
           agentType: record.agentType,
           parentSessionId,
         },
-      );
-    }
-  }
-
-  private async validateWorkingDirectory(dir: string): Promise<void> {
-    const workspaceRoot = this.getWorkspaceRoot();
-    if (!workspaceRoot || workspaceRoot.trim() === '') {
-      throw new Error('Cannot spawn agent process: no workspace root is open.');
-    }
-    if (!dir || dir.trim() === '') {
-      throw new Error('Working directory is required but was empty.');
-    }
-    let realDirectory: string;
-    let realWorkspaceRoot: string;
-    try {
-      [realDirectory, realWorkspaceRoot] = await Promise.all([
-        fsPromises.realpath(dir),
-        fsPromises.realpath(workspaceRoot),
-      ]);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Cannot resolve working directory scope: ${message}`);
-    }
-
-    if (!isPathWithinRoots(realDirectory, [realWorkspaceRoot])) {
-      throw new Error(
-        `Working directory must be within workspace root. ` +
-          `Got: ${dir}, Expected root: ${workspaceRoot}`,
-      );
-    }
-  }
-
-  /**
-   * Resolve the actual MCP listener port.
-   *
-   * The status port is updated only after the server binds, so it reflects a
-   * deterministic fallback port rather than the configured port that collided.
-   */
-  private resolveMcpPort(): number | undefined {
-    try {
-      const port = this.mcpServerStatus?.getPort() ?? null;
-      if (port === null) {
-        this.logger.info(
-          '[AgentProcessManager] MCP server is not running, disabling for CLI agent',
-        );
-        return undefined;
-      }
-
-      this.logger.info('[AgentProcessManager] MCP enabled for CLI agent', {
-        port,
-      });
-      return port;
-      // degradation-audit: optional-capability - the in-process MCP server is
-      // an optional enhancement for CLI agent spawns; a status lookup failure
-      // means "treat MCP as unavailable for this run", which is the documented
-      // undefined return, and the exception is still reported to Sentry above.
-    } catch (error: unknown) {
-      this.sentryService.captureException(
-        error instanceof Error ? error : new Error(String(error)),
-        { errorSource: 'AgentProcessManager.resolveMcpPort' },
-      );
-      this.logger.info('[AgentProcessManager] MCP port resolution failed');
-      return undefined;
-    }
-  }
-  /**
-   * Bounded harness check for a rival CLI spawn.
-   *
-   * Swallows everything. `spawn` is wrapped in a lock and its caller surfaces
-   * failures to the user as "the agent could not start"; a harness directory
-   * that could not be written is not that, and must not be reported as that.
-   */
-  private async runHarnessPreflight(cwd: string): Promise<void> {
-    if (this.harnessPreflight === null) return;
-    try {
-      await this.harnessPreflight.ensure(cwd);
-    } catch (error: unknown) {
-      this.logger.warn(
-        `[AgentProcessManager] Harness preflight failed (ignored): ${
-          error instanceof Error ? error.message : String(error)
-        }`,
       );
     }
   }

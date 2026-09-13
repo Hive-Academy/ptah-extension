@@ -3,6 +3,8 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { CLI_AGENT_RUNTIME_TOKENS } from './tokens';
 import { CliDetectionService } from '../cli-agents/cli-detection.service';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
+import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
+import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
 import { AgentReportRouter } from '../cli-agents/agent-report-router.service';
 import { AgentRoleResolver } from '../roles';
 import {
@@ -39,6 +41,8 @@ export function registerCliAgentRuntimeServices(
     TOKENS.CLI_DETECTION_SERVICE,
     CliDetectionService,
   );
+  container.registerSingleton(AgentSpawnEnvironment);
+  container.registerSingleton(AgentOutputBuffer);
   container.registerSingleton(
     TOKENS.AGENT_PROCESS_MANAGER,
     AgentProcessManager,
