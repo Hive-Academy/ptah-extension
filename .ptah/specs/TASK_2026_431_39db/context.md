@@ -37,13 +37,19 @@ round 2), P3 Antigravity. Raw outputs: `./tribunal/`.
 6. `task-tracking.md`: one `task.md` template (printed twice today), delete bug history (TASK_2026_182/188/189/194 narrative).
 7. Resolve the contradiction `orchestration/SKILL.md:316` (parent sole spawner) vs `:335` (secondary delegation).
 
-## Open question for the architect
+## Design stance: the skills lead, the UI follows
 
-Relay is "the orchestration pipeline run on CLI lanes". Once lanes are role-addressable
-(TASK_2026_433) Relay may reduce to an orchestration lane assignment. The Tribunal UI
-launches Relay with `(plan)/(architect)/(implement)/(review)` role tokens
-(`vendor-panel.md` §0), so any move must keep that grammar working. Decide; do not
-silently delete Relay.
+The Tribunal UI, its `[tribunal:<laneId>] (<role>)` line grammar (`vendor-panel.md` §0)
+and the current move list are **not constraints**. Design the best skill shape first;
+whatever the UI must change to match is filed as a follow-up task, not a reason to
+keep a weaker design. The same applies to any existing move, reference name or
+file layout.
+
+Direction to evaluate on that basis: Relay is "the orchestration pipeline run on CLI
+lanes". With role-addressable lanes (TASK_2026_433) it should become an orchestration
+lane assignment (any phase, any role, on a subagent or a CLI lane) rather than a
+tribunal move, leaving tribunal to the moves where diversity is the signal (Council,
+Forge, Race, Crucible). Record the decision and the resulting UI follow-up here.
 
 ## Constraints
 

@@ -35,7 +35,8 @@ ptah-cli provider, and the workflow text does not change.
    - preamble: role body injected ahead of the task (system prompt where the adapter
      accepts one, otherwise a delimited prefix).
 4. `ptah_agent_list` reports per lane which roles it can take natively.
-5. Tribunal UI `(role)` tokens (`vendor-panel.md` §0) map onto the same parameter.
+5. The Tribunal UI is redesigned around `role` as needed; its current `(role)` token
+   grammar (`vendor-panel.md` §0) is not a compatibility constraint.
 6. Skill side (lands with TASK_2026_431 `agent-lanes`): one routing rule —
    pick lane by user pin, else by fit; pass `role`; never paste templates into `task`.
 
