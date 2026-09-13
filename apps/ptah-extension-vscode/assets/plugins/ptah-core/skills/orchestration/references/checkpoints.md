@@ -34,7 +34,7 @@ At the very start of orchestration, before any sub-agent is invoked.
 
 ### Trigger Conditions
 
-Always run `ptah_agent_list` at orchestration start. Present the checkpoint if at least one CLI agent is available.
+Run `ptah_agent_list` at orchestration start. Present the checkpoint if at least one lane is spawnable (how to read the rows: the [agent-lanes skill](../../agent-lanes/SKILL.md)).
 
 ### Skip Conditions
 
@@ -58,43 +58,33 @@ I discovered the following CLI agents available on your system:
 | [agent]   | Available |
 | [agent]   | Available |
 
-These can be used as **junior helpers** by sub-agents (PM, Architect, Developers, etc.)
-to speed up focused sub-tasks like codebase analysis, test scaffolding, and file reviews.
+These can take focused sub-tasks from sub-agents (codebase analysis, test scaffolding,
+file reviews), run parallel batches, or run whole phases you assign to them.
 
-**Sub-agents retain full quality ownership** — CLI agents handle grunt work only.
+**Sub-agents and I retain quality ownership** — lane output is verified before it is used.
 
 ---
 
-## Would you like sub-agents to utilize CLI agents as junior helpers?
+## Would you like to use CLI lanes for this task?
 
 Options:
 
-1. **yes** — Enable CLI delegation for all sub-agents
+1. **yes** — Sub-agents delegate focused sub-tasks; batches and phases may run on lanes
 2. **no** — Sub-agents work alone (standard mode)
-3. **auto** — Sub-agents decide on their own when to delegate
+3. **auto** — Lanes are used only where they clearly help
 
 ---
 ```
 
 ### Response Handling
 
-| Response | Action                                                                                      |
-| -------- | ------------------------------------------------------------------------------------------- |
-| **yes**  | Store `cli_delegation: enabled` in context.md. Inject CLI block into all sub-agent prompts. |
-| **no**   | Store `cli_delegation: disabled` in context.md. No CLI injection.                           |
-| **auto** | Store `cli_delegation: auto` in context.md. Inject CLI block with "use your judgment" note. |
+| Response | Mode       |
+| -------- | ---------- |
+| **yes**  | `enabled`  |
+| **no**   | `disabled` |
+| **auto** | `auto`     |
 
-### Context.md Entry
-
-When CLI delegation is enabled or auto, add to context.md:
-
-```markdown
-## CLI Agent Delegation
-
-**Mode**: [enabled|disabled|auto]
-**Available Agents**: [the rows returned by ptah_agent_list, verbatim]
-**Selection**: by task fit — see cli-agent-delegation.md § CLI Agent Selection
-```
+Record the mode and the discovered rows, and brief sub-agents accordingly: [lane-assignment.md § Gate 0.1 outcome](lane-assignment.md#gate-01-outcome).
 
 ---
 
@@ -367,35 +357,7 @@ Options:
 ## Reply with your choice: tester, style, logic, visual, reviewers, all, or skip
 ```
 
-### QA Invocation Patterns
-
-```typescript
-// Option: "tester" - single agent
-Task({ subagent_type: 'senior-tester', prompt: `Test TASK_[ID]...` });
-
-// Option: "style" - single agent
-Task({ subagent_type: 'code-style-reviewer', prompt: `Review TASK_[ID] for patterns...` });
-
-// Option: "logic" - single agent
-Task({ subagent_type: 'code-logic-reviewer', prompt: `Review TASK_[ID] for completeness...` });
-
-// Option: "visual" - single agent
-Task({ subagent_type: 'visual-reviewer', prompt: `Visual review TASK_[ID]...` });
-
-// Option: "reviewers" - parallel (ALL THREE in single message)
-Task({ subagent_type: 'code-style-reviewer', prompt: `...` });
-Task({ subagent_type: 'code-logic-reviewer', prompt: `...` });
-Task({ subagent_type: 'visual-reviewer', prompt: `...` });
-
-// Option: "all" - parallel (FOUR in single message)
-Task({ subagent_type: 'senior-tester', prompt: `...` });
-Task({ subagent_type: 'code-style-reviewer', prompt: `...` });
-Task({ subagent_type: 'code-logic-reviewer', prompt: `...` });
-Task({ subagent_type: 'visual-reviewer', prompt: `...` });
-
-// Option: "skip" - no QA agents invoked
-// Proceed directly to workflow completion
-```
+Parallel invocations for `reviewers` and `all`: [agent-catalog.md § Parallel QA](agent-catalog.md#parallel-qa).
 
 ### Response Handling
 
@@ -415,7 +377,7 @@ Task({ subagent_type: 'visual-reviewer', prompt: `...` });
 
 ### When to Run
 
-When ANY subagent (PM, Architect, Team-Leader, Researcher, Developer, Designer, Content Writer, etc.) returns a response containing a `## Clarifications Needed` section instead of its expected deliverable.
+When ANY subagent returns a response containing a `## Clarifications Needed` section instead of its expected deliverable, or a CLI lane writes one into its deliverable file.
 
 ### Why This Exists
 
@@ -426,7 +388,7 @@ Subagents run in a headless `Task` context with no UI channel back to the user �
 1. **Detect**: Scan the subagent's response for a `## Clarifications Needed` heading
 2. **Parse**: Extract the questions, options, and recommended markers
 3. **Ask user via `AskUserQuestion`**: Preserve the subagent's question structure (1-4 questions, 2-4 options each, "(Recommended)" markers)
-4. **Re-invoke subagent**: Call `Task` again with the same `subagent_type`, but prepend a `## User Decisions` section to the prompt:
+4. **Re-invoke**: call `Task` again with the same `subagent_type` (for a lane: resume or respawn it per the agent-lanes skill), with a `## User Decisions` section prepended to the prompt:
 
 ```typescript
 Task({
@@ -501,44 +463,9 @@ When team-leader MODE 2 rejects a batch:
 5. Repeat until batch passes verification
 ```
 
-### Commit Hook Failure Handling
+### Commit Hook Failure
 
-When git commit fails due to pre-commit hooks:
-
-```markdown
----
-Pre-commit hook failed: [specific error message]
----
-
-Please choose how to proceed:
-
-1. **Fix Issue** - I'll fix the issue if it's related to current work
-   (Use for: lint errors, type errors, commit message format issues)
-
-2. **Bypass Hook** - Commit with --no-verify flag
-   (Use for: Unrelated errors in other files, blocking issues outside scope)
-
-3. **Stop & Report** - Mark as blocker and escalate
-   (Use for: Critical infrastructure issues, complex errors)
-
-## Which option would you like? (1/2/3)
-```
-
-**Option Handling**:
-
-| Choice            | Action                                                              |
-| ----------------- | ------------------------------------------------------------------- |
-| 1 (Fix Issue)     | Identify and fix the specific issue, retry commit                   |
-| 2 (Bypass Hook)   | Execute `git commit --no-verify -m "message"`, document in tasks.md |
-| 3 (Stop & Report) | Mark task as BLOCKED, create detailed error report                  |
-
-**Critical Rules**:
-
-- NEVER automatically bypass hooks with --no-verify
-- NEVER automatically fix issues without user consent
-- NEVER proceed with alternative approaches without user decision
-- ALWAYS present the 3 options and wait for user choice
-- Document chosen option in task tracking if option 2 or 3 selected
+Present the three-option choice in [git-standards.md § Hook Failure Protocol](git-standards.md#hook-failure-protocol). Never bypass a hook on your own.
 
 ---
 
@@ -583,14 +510,3 @@ New Task Start
      v
   Workflow Complete
 ```
-
----
-
-## Integration with Other References
-
-- **SKILL.md**: Checkpoint logic embedded in core orchestration loop
-- **strategies.md**: Different strategies may skip certain checkpoints
-- **agent-catalog.md**: QA agents invoked from Checkpoint 3
-- **team-leader-modes.md**: MODE transitions trigger checkpoints
-- **git-standards.md**: Hook failure protocol at commit time
-- **cli-agent-delegation.md**: CLI agent discovery, delegation patterns, prompt injection
