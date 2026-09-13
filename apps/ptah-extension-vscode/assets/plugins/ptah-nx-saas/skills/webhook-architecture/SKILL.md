@@ -1,6 +1,6 @@
 ---
 name: webhook-architecture
-description: '3-layer webhook architecture pattern for NestJS applications handling inbound webhooks from external services (payment providers, messaging platforms, CI/CD, etc.). Use when implementing webhook endpoints, processing external events, handling webhook signature verification, building event routing systems, implementing idempotent webhook processing, or setting up webhook failure recovery. Covers controller-level HTTP validation, service-level signature verification and event routing, and business-level domain logic handlers.'
+description: 'Three-layer NestJS design for inbound webhooks. Use when adding a webhook endpoint, verifying signatures, routing external events, idempotent processing or failed-delivery recovery. Not for billing or subscription logic — use saas-platform-patterns.'
 ---
 
 # 3-Layer Webhook Architecture

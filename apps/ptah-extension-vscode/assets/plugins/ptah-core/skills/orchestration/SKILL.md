@@ -1,6 +1,6 @@
 ---
 name: orchestration
-description: 'Development workflow orchestration for software engineering tasks. Supports 8 task types: FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, SAAS_INIT, CREATIVE. Each type has an optimized workflow (full/partial/minimal) with specialist agents and user validation checkpoints; any phase can run on a subagent or on a CLI agent lane, including "X plans, Y implements, Z reviews" rosters and a relay run done entirely by CLI lanes. TRIGGER for ANY implementation task — this is the DEFAULT entry point for all engineering work.'
+description: 'Default workflow for any engineering task (feature, bugfix, refactor, docs, research, devops, SaaS init, creative) — phased plan with user checkpoints on subagents or CLI lanes, including X plans, Y implements, Z reviews. Not for multi-vendor second opinions — use tribunal.'
 ---
 
 # Orchestration

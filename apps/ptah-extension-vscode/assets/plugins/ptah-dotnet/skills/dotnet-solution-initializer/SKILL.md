@@ -1,6 +1,6 @@
 ---
 name: dotnet-solution-initializer
-description: Stage A bootstrap for .NET workspaces. Specializes the shared Stage A contract from saas-workspace-initializer (mandatory two-round AskUserQuestion discovery, roadmap to `.ptah/roadmap.md`, foundation-only scaffold, then stop) with .NET-specific Round 2 questions -- target framework, app shape, data access, auth, test framework, and whether the workspace should be Nx-managed. Names bounded contexts and solution layout via ddd-architecture and dotnet-solution-architect, then hands off `dotnet new` scaffolding to dotnet-template-engine's template-instantiation skill and test project wiring to dotnet-test. Use when starting a new .NET project, or adding .NET to an existing workspace, from the New Project flow. Do not use to implement features end-to-end in one session.
+description: Bootstraps a new .NET workspace — discovery, a phased roadmap and a foundation-only scaffold. Use when starting a new .NET, ASP.NET Core or Blazor project, or adding .NET to a workspace. Not for Nx, NestJS and Angular or React SaaS stacks — use saas-workspace-initializer.
 ---
 
 # .NET Solution Initializer

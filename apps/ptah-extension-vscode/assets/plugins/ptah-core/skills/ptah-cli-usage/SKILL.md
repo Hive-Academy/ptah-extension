@@ -1,6 +1,6 @@
 ---
 name: ptah-cli-usage
-description: How to drive the Ptah CLI (`@hive-academy/ptah-cli`) for headless agent workflows, A2A bridges, CI pipelines, and scripted refactors. Triggers on user mentions of "ptah cli", "ptah session start", "ptah interact", "ptah auth", "ptah provider", "JSON-RPC stdio", or any headless Ptah usage including openclaw/nemoclaw bridges.
+description: Drives the headless Ptah CLI (@hive-academy/ptah-cli, JSON-RPC over stdio) for CI pipelines, agent-to-agent bridges, scripted refactors and MCP serving. Use when the user mentions ptah cli, ptah session start, ptah interact, ptah auth or headless Ptah.
 ---
 
 # Ptah CLI Usage

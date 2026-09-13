@@ -1,6 +1,6 @@
 ---
 name: nx-dotnet-workspace
-description: The Nx-or-not decision and @nx/dotnet mechanics for .NET workspaces -- nx add @nx/dotnet, the Nx 22+ and .NET SDK 8.0+ requirements, project inference from csproj/fsproj/vbproj (not sln), the inferred-target table, the --no-restore default, publish cache correctness with --runtime, no cross-language .NET-to-TypeScript graph edges, experimental status, and when NOT to use Nx at all. Use when dotnet-solution-initializer's Round 2 asks whether the workspace should be Nx-managed, or when adding Nx to an existing .NET repo, or debugging an Nx target that is missing or misbehaving for a .NET project.
+description: Decides whether a .NET workspace should use Nx and sets up @nx/dotnet. Use when adding Nx to a .NET repo, choosing Nx during .NET initialization, or debugging an Nx target on a .NET project. Not for JavaScript library layout — use nx-workspace-architect.
 ---
 
 # Nx + .NET Workspace

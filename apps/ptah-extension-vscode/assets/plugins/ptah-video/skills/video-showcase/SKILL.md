@@ -1,6 +1,6 @@
 ---
 name: video-showcase
-description: Generate narrated, captioned, camera-animated marketing videos from automated UI walkthroughs. A portable Nx pipeline — Playwright drives the real app and records a flat screen capture plus a beats/shots manifest; Remotion renders it into an MP4 with virtual-camera zoom/pan, amber highlight rings, motion blur, a device frame, word-timed captions, AI narration, and a music bed. Use when the user wants to create/record/render a product demo, feature tour, showcase, or marketing video from their app; author or edit a scene/tour; tweak the zoom/highlight/camera behavior; re-skin the videos for a different brand; or PORT this whole pipeline into another Nx workspace/SaaS project. Triggers on "showcase", "product/demo/tour video", "record a scene", "render the video", "camera/zoom/highlight", "narration/captions", or "reuse the video setup in <other project>".
+description: Records and renders narrated marketing videos from automated UI walkthroughs (Playwright capture, Remotion render). Use to create or edit a product demo, showcase, feature tour or scene, adjust camera or branding, or port the pipeline to another repo.
 ---
 
 # Video Showcase
