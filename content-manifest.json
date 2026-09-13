@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:502d5c0745e406f7213ac331b9094732374d555bd7de7a165b671f7943992b93",
-  "generatedAt": "2026-09-12T14:30:00.622Z",
+  "contentHash": "sha256:a31e0e52ec97dd1d4accbef9e488e0974a6fa1627cc1a078a8df25e66c6123ae",
+  "generatedAt": "2026-09-13T13:04:44.691Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -38,6 +38,7 @@
       "ptah-core/commands/review-code.md",
       "ptah-core/commands/review-logic.md",
       "ptah-core/commands/review-security.md",
+      "ptah-core/skills/agent-lanes/SKILL.md",
       "ptah-core/skills/ddd-architecture/SKILL.md",
       "ptah-core/skills/ddd-architecture/references/cqrs-pattern.md",
       "ptah-core/skills/ddd-architecture/references/domain-events.md",
