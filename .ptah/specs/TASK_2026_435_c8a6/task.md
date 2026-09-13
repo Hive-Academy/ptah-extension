@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_progress
 type: refactoring
 title: >-
   Apply one prompt-authoring rubric to every other shipped skill and publish it

@@ -1,6 +1,6 @@
 ---
 name: composition-patterns
-description: React composition patterns that scale. Use when (1) Refactoring components with boolean prop proliferation, (2) Building flexible component libraries, (3) Designing reusable component APIs, (4) Working with compound components or context providers, (5) Implementing state management patterns, (6) Component architecture decisions. Includes React 19 API changes.
+description: React component composition patterns. Use when refactoring boolean prop proliferation, designing reusable component APIs or libraries, or working with compound components and context providers. Not for performance tuning — use react-best-practices.
 ---
 
 # React Composition Patterns

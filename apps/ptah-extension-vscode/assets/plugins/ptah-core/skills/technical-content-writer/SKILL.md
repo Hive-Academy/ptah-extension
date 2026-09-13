@@ -1,6 +1,6 @@
 ---
 name: technical-content-writer
-description: Technical content writer for marketing pages, blogs, documentation, and video scripts. Use when asked to create marketing content, landing pages, blog posts, technical documentation, video scripts, or any content that requires deep understanding of the codebase and task history.
+description: Writes marketing and technical content grounded in the codebase. Use for landing page copy, blog posts, technical documentation, video scripts or content strategy for a feature. Not for visual design or design systems — use ui-ux-designer.
 ---
 
 # Technical Content Writer Skill

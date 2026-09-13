@@ -1,6 +1,6 @@
 ---
 name: nx-workspace-architect
-description: Expert guidance for Nx monorepo architecture with Angular and NestJS; use when setting up new Nx workspace, creating or organizing libraries, naming conventions and tagging strategy, enforcing module boundaries, building custom generators, structuring apps vs libs, domain-driven library organization, or TypeScript path configuration.
+description: Nx monorepo architecture for Angular and NestJS. Use when creating a workspace, organizing or naming libraries, tags and module boundaries, custom generators or TypeScript paths. Not for React in Nx — use react-nx-patterns; not for .NET — use nx-dotnet-workspace.
 ---
 
 # Nx Workspace Architect

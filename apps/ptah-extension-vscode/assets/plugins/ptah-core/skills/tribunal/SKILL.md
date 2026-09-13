@@ -1,6 +1,6 @@
 ---
 name: tribunal
-description: 'Runs multi-vendor ensemble workflows across whichever AI vendors the user has installed or configured, always DISCOVERED via ptah_agent_list and never hardcoded, treating disagreement and cross-vendor review as the signal rather than noise. Offers four moves — Council, Forge, Race and Crucible — for deliberation, competing implementations in isolated worktrees, judged attempts, and a cheap-executor/strong-judge revise loop. TRIGGER on: "tribunal", "convene a council", "council of models", "forge", "race the models", "crucible", "judge and mentor", "executor and judge", "second opinion", "multi-vendor", "ensemble", "panel of models", "cross-vendor review", "which vendor does this best", and a Tribunal UI launch of any move including "relay". Distinct from the orchestration skill, the hierarchical default dev workflow that also assigns phases to CLI lanes; this is a peer panel where vendor diversity is the product. Needs installed CLI vendors.'
+description: 'Multi-vendor peer panel (Council, Forge, Race, Crucible) across installed CLI vendors. Use for second opinions, cross-vendor review, model debates, competing implementations or judged attempts, and Tribunal UI launches. Not the default build workflow — use orchestration.'
 ---
 
 # Tribunal

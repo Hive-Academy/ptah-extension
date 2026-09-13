@@ -1,6 +1,6 @@
 ---
 name: ddd-architecture
-description: 'Domain-Driven Design patterns for scalable SaaS applications; use when structuring complex business domains, defining bounded contexts, implementing aggregates and entities, applying CQRS patterns, enabling event-driven architecture, and organizing the domain layer; involves user discussion to understand domain complexity.'
+description: 'Domain-Driven Design for complex business domains. Use when deciding whether DDD is warranted, defining bounded contexts, aggregates, entities and value objects, applying CQRS or domain events, or organizing a domain layer.'
 ---
 
 # Domain-Driven Design Architecture
