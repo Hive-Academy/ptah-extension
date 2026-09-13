@@ -7,25 +7,27 @@ agent's work may run on a CLI lane instead is in [lane-assignment.md](lane-assig
 
 ## Capability matrix
 
-| Agent                    | Write Code | Design | Review | Plan  | Research | Content | Browser |
-| ------------------------ | :--------: | :----: | :----: | :---: | :------: | :-----: | :-----: |
-| project-manager          |     -      |   -    |   -    | **P** |    S     |    -    |    -    |
-| software-architect       |     -      | **P**  |   S    | **P** |    S     |    -    |    -    |
-| team-leader              |     -      |   -    |   S    | **P** |    -     |    -    |    -    |
-| backend-developer        |   **P**    |   S    |   -    |   -   |    -     |    -    |    -    |
-| frontend-developer       |   **P**    |   S    |   -    |   -   |    -     |    -    |    -    |
-| devops-engineer          |   **P**    |   S    |   -    |   -   |    S     |    -    |    -    |
-| senior-tester            |   **P**    |   -    | **P**  |   -   |    -     |    -    |    -    |
-| code-style-reviewer      |     -      |   -    | **P**  |   -   |    -     |    -    |    -    |
-| code-logic-reviewer      |     -      |   -    | **P**  |   -   |    -     |    -    |    -    |
-| visual-reviewer          |     -      |   -    | **P**  |   -   |    -     |    -    |  **P**  |
-| researcher-expert        |     -      |   -    |   -    |   -   |  **P**   |    S    |    -    |
-| modernization-detector   |     -      |   -    |   S    |   -   |  **P**   |    -    |    -    |
-| ui-ux-designer           |     -      | **P**  |   -    |   S   |    -     |    S    |    -    |
-| technical-content-writer |     -      |   S    |   -    |   -   |    -     |  **P**  |    -    |
-| video-director           |   **P**    | **P**  |   -    |   -   |    -     |    S    |  **P**  |
+| Agent                    | Write Code | Design | Review | Plan  | Research | Content | Browser | CLI Delegation |
+| ------------------------ | :--------: | :----: | :----: | :---: | :------: | :-----: | :-----: | :------------: |
+| project-manager          |     -      |   -    |   -    | **P** |    S     |    -    |    -    |       S        |
+| software-architect       |     -      | **P**  |   S    | **P** |    S     |    -    |    -    |       S        |
+| team-leader              |     -      |   -    |   S    | **P** |    -     |    -    |    -    |       -        |
+| backend-developer        |   **P**    |   S    |   -    |   -   |    -     |    -    |    -    |       S        |
+| frontend-developer       |   **P**    |   S    |   -    |   -   |    -     |    -    |    -    |       S        |
+| devops-engineer          |   **P**    |   S    |   -    |   -   |    S     |    -    |    -    |       S        |
+| senior-tester            |   **P**    |   -    | **P**  |   -   |    -     |    -    |    -    |     **P**      |
+| code-style-reviewer      |     -      |   -    | **P**  |   -   |    -     |    -    |    -    |       S        |
+| code-logic-reviewer      |     -      |   -    | **P**  |   -   |    -     |    -    |    -    |       S        |
+| visual-reviewer          |     -      |   -    | **P**  |   -   |    -     |    -    |  **P**  |       -        |
+| researcher-expert        |     -      |   -    |   -    |   -   |  **P**   |    S    |    -    |     **P**      |
+| modernization-detector   |     -      |   -    |   S    |   -   |  **P**   |    -    |    -    |       S        |
+| ui-ux-designer           |     -      | **P**  |   -    |   S   |    -     |    S    |    -    |       -        |
+| technical-content-writer |     -      |   S    |   -    |   -   |    -     |  **P**  |    -    |       S        |
+| video-director           |   **P**    | **P**  |   -    |   -   |    -     |    S    |  **P**  |       S        |
 
 **P** = primary, **S** = secondary, **-** = not applicable.
+
+**CLI Delegation**: **P** benefits most from CLI lanes (parallel analysis, per-module tests, multi-file reviews); **S** delegates occasional sub-tasks; **-** never spawns a lane — team-leader (recommends lanes in `batches.md`, never spawns them), visual-reviewer (needs browser tools) and ui-ux-designer (needs interactive discovery). Rules: [lane-assignment.md](lane-assignment.md).
 
 ## Selection matrix
 
@@ -71,7 +73,7 @@ Task({
 | project-manager | Create requirements | `**User Request**: "<the user's words>"` | `task-description.md` | Analyze the request and write the requirements. |
 | software-architect | Design implementation | `**Requirements**: task-description.md in the task folder` | `implementation-plan.md` | Design the technical implementation plan. |
 | team-leader | Decompose / verify / complete | `**MODE**: 1 - DECOMPOSITION` (or 2, 3) — see [team-leader-modes.md](team-leader-modes.md) | `batches.md` | Per mode. |
-| backend-developer, frontend-developer | Implement Batch N | `**Batch**: Batch N in batches.md (IN_PROGRESS)`<br>`**Plan**: implementation-plan.md` | code + report | The executor prompt from team-leader's `### Next action:`. |
+| backend-developer, frontend-developer | Implement Batch N | `**Batch**: Batch N in batches.md (IN_PROGRESS)`<br>`**Plan**: implementation-plan.md` | code + report | Report each task's completion with evidence; do not edit batches.md; the team-leader records state. |
 | devops-engineer | Implement infrastructure | `**Plan**: implementation-plan.md` | code + report | Implement the infrastructure changes. |
 | senior-tester | Test implementation | `**Changes**: batches.md`<br>`**Plan**: implementation-plan.md` | `test-report.md` | Write and run the tests; record the results. |
 | code-style-reviewer | Review code style | `**Changes**: batches.md` | `code-style-review.md` | Review for style, patterns and consistency. |
@@ -113,6 +115,8 @@ Task({
 | ui-ux-designer | CREATIVE; FEATURE with new UI | brand input, references, `context.md` | — (design before content) |
 | technical-content-writer | CREATIVE after the design system exists; blogs, docs, scripts | `DESIGN-SYSTEM.md`, brief, source | other content-writer instances |
 | video-director | Demo, tour or showcase video | the flow to demo, a runnable app | — (capture owns the app) |
+
+Only the team-leader sets task states in `batches.md`. Specialists never edit `task.md` or `batches.md`.
 
 ## Parallel QA
 

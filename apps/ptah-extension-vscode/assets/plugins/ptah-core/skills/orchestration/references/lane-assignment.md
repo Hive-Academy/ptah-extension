@@ -70,7 +70,7 @@ phase is a lane, the whole task runs on external vendors with no subagents — a
 | --- | --- | --- |
 | Plan | `task-description.md` | A strong-reasoning lane |
 | Architecture | `implementation-plan.md` | A strong-reasoning lane |
-| Implement | code in place + `batches.md` listing each task and its status | The strongest coding lane listed |
+| Implement | code in place + a report with evidence per task; **you** record `batches.md` after verifying it | The strongest coding lane listed |
 | Review | `code-logic-review.md` | A lane from a **different family** than the implementer |
 
 ### The roster
@@ -87,7 +87,7 @@ Worked example (vendor names are illustrations):
 | --- | --- | --- | --- |
 | Plan | Codex | `{ cli: 'codex' }` | `task-description.md` |
 | Architecture | Claude provider | `{ ptahCliId: '<listed id>', modelTier: 'opus' }` | `implementation-plan.md` |
-| Implement | Ollama Cloud GLM | `{ ptahCliId: '<listed id>', model: '<listed glm id>' }` | code + `batches.md` |
+| Implement | Ollama Cloud GLM | `{ ptahCliId: '<listed id>', model: '<listed glm id>' }` | code + report |
 | Review | Codex, another model | `{ cli: 'codex', model: '<another listed id>' }` | `code-logic-review.md` |
 
 The review lane did not implement, and GPT reviews GLM, so independence holds by family.

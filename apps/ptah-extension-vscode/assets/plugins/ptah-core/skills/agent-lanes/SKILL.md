@@ -11,7 +11,8 @@ configured ptah-cli provider. This skill is the one place lane mechanics are wri
 
 ## 1. Discover
 
-Call `ptah_agent_list` before choosing. Its rows are the only lanes that exist on this machine now.
+No `ptah_agent_*` tools in this session → do the work natively and say so. Otherwise call
+`ptah_agent_list` before choosing. Its rows are the only lanes that exist on this machine now.
 The `cli` enum on the `ptah_agent_spawn` schema lists adapters this build ships, not what is installed.
 
 ```
@@ -55,7 +56,10 @@ A lane shares none of your context and cannot ask the user anything. Every `task
 2. **Inputs** as absolute paths (prior artifacts, files, conventions to follow).
 3. **Scope**: files it may touch; "do not modify anything else".
 4. **Deliverable**: `**Deliverable**: <absolute path>` — write the output there with a file tool.
-5. **Reply**: `WROTE: <absolute path>` plus a one-line headline. Nothing else.
+   When the workflow reads the answer with `ptah_agent_read` instead (a panel answer), give the
+   exact answer structure in place of a path.
+5. **Reply**: `WROTE: <absolute path>` plus a one-line headline, nothing else — when there is a
+   deliverable file.
 6. **Git**: never commit, push or run history-changing git — unless the workflow gives the lane its
    own throwaway worktree and says so.
 7. **Blocked**: if it cannot proceed, write the blocking questions under `## Clarifications Needed`
