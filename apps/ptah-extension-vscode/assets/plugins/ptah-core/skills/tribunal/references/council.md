@@ -31,11 +31,11 @@ Answer in this exact structure:
 ## Confidence  — high / medium / low + the biggest risk to your position
 ```
 
-Poll and read all (vendor-panel.md §3). Tag each answer with its label `Pk`.
+Run the lanes per [agent-lanes](../../agent-lanes/SKILL.md) §4. Tag each answer with its label `Pk`.
 
 ### Step 3 — Round 2: anonymized cross-critique
 
-Build per-panelist packets (vendor-panel.md §4): each `Pk` sees the **other** answers as `Answer A / Answer B / …`, names stripped. Re-spawn each panelist:
+Build per-panelist packets (vendor-panel.md §3): each `Pk` sees the **other** answers as `Answer A / Answer B / …`, names stripped. Re-spawn each panelist:
 
 ```
 Here are anonymized answers from other experts to the same question:
