@@ -7,6 +7,7 @@
  */
 import type {
   AgentMessagingCapability,
+  AgentRoleDefinition,
   CliType,
   CliDetectionResult,
   CliOutputSegment,
@@ -52,6 +53,8 @@ export interface CliCommandOptions {
    * caller, which `ptah_agent_report` refuses with that reason.
    */
   readonly agentId?: string;
+  /** Resolved workspace role to run as. Adapters deliver it on their own role channel; an adapter that does not use the task prompt passes `role: undefined` to buildTaskPrompt(). */
+  readonly role?: AgentRoleDefinition;
 }
 
 /**

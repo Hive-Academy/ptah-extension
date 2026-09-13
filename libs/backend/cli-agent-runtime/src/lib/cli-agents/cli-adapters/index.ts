@@ -10,8 +10,11 @@ export { bestMessagingCapability } from './cli-adapter.interface';
 export {
   stripAnsiCodes,
   buildTaskPrompt,
+  renderRoleBlock,
   resolveCliPath,
   spawnCli,
+  assertCommandLineWithinLimit,
+  CliCommandLineTooLongError,
 } from './cli-adapter.utils';
 export { fixPath } from './fix-path';
 export { ptahMcpServerUrl } from './ptah-mcp-url';

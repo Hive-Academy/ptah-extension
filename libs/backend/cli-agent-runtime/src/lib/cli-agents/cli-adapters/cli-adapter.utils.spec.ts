@@ -12,6 +12,7 @@
  * touches a real binary.
  */
 
+import 'reflect-metadata';
 import { EventEmitter } from 'events';
 
 const mockCrossSpawn = jest.fn();
@@ -38,9 +39,15 @@ import type {
   SpawnedProcessHandle,
 } from '@ptah-extension/platform-core';
 
+import type { AgentRoleDefinition } from '@ptah-extension/shared';
+import { transformAgentBody } from '@ptah-extension/harness-sync';
+
 import {
+  assertCommandLineWithinLimit,
   buildTaskPrompt,
+  CliCommandLineTooLongError,
   probeCliVersion,
+  renderRoleBlock,
   resolveDirectSpawn,
   spawnCli,
   withAsarUnpackedTwin,
@@ -87,6 +94,289 @@ describe('buildTaskPrompt', () => {
     expect(prompt).toContain('Existing system guidance.\n\n---\n\n');
     expect(prompt).not.toContain('Ignored fallback guidance.');
     expect(prompt.split(toolPolicy)).toHaveLength(2);
+  });
+
+  describe('role section order', () => {
+    const role: AgentRoleDefinition = {
+      name: 'backend-developer',
+      description: 'Writes server code',
+      body: 'Follow the repository patterns.',
+      sourcePath: '/ws/.claude/agents/backend-developer.md',
+      bytes: 30,
+    };
+    const roleBlock =
+      '## Role: backend-developer\n\n' +
+      'You are running as the `backend-developer` role; the definition below governs this task and outranks any generic persona above.\n\n' +
+      'Follow the repository patterns.';
+    const tail =
+      `${toolPolicy}\n\nShip it.` +
+      '\n\nFocus on these files:\n- src/a.ts' +
+      '\n\nWrite deliverable files to: /tf' +
+      '\nUse convention: /tf/agent-output-{agentId}.md for main deliverable.';
+    const base = {
+      task: 'Ship it.',
+      workingDirectory: '/ws',
+      files: ['src/a.ts'],
+      taskFolder: '/tf',
+    };
+
+    it('no system context, no role', () => {
+      expect(buildTaskPrompt(base, 'pi')).toBe(tail);
+    });
+
+    it('system context, no role', () => {
+      expect(
+        buildTaskPrompt({ ...base, systemPrompt: 'SYSTEM' }, 'pi'),
+      ).toBe(`SYSTEM\n\n---\n\n${tail}`);
+    });
+
+    it('no system context, with role', () => {
+      expect(buildTaskPrompt({ ...base, role }, 'pi')).toBe(
+        `${roleBlock}\n\n---\n\n${tail}`,
+      );
+    });
+
+    it('system context, with role', () => {
+      expect(
+        buildTaskPrompt(
+          { ...base, projectGuidance: 'GUIDANCE', role },
+          'opencode',
+        ),
+      ).toBe(`GUIDANCE\n\n---\n\n${roleBlock}\n\n---\n\n${tail}`);
+    });
+
+    it('is byte-identical without a role whether or not a CLI is passed', () => {
+      expect(buildTaskPrompt({ ...base, systemPrompt: 'SYSTEM' })).toBe(
+        buildTaskPrompt({ ...base, systemPrompt: 'SYSTEM' }, 'codex'),
+      );
+    });
+
+    it('omits the role when an adapter strips it for another channel', () => {
+      expect(buildTaskPrompt({ ...base, role: undefined })).toBe(tail);
+    });
+
+    it('refuses to render a role without knowing the CLI', () => {
+      expect(() => buildTaskPrompt({ ...base, role })).toThrow(
+        'without the CLI',
+      );
+    });
+  });
+});
+
+describe('renderRoleBlock', () => {
+  const header = (name: string): string =>
+    `## Role: ${name}\n\n` +
+    `You are running as the \`${name}\` role; the definition below governs this task and outranks any generic persona above.\n\n`;
+
+  function role(body: string): AgentRoleDefinition {
+    return {
+      name: 'reviewer',
+      body,
+      sourcePath: '/ws/.claude/agents/reviewer.md',
+      bytes: Buffer.byteLength(body, 'utf8'),
+    };
+  }
+
+  const claudeFlavouredBody =
+    'Use the AskUserQuestion tool when blocked, then run /review-code.';
+
+  it.each(['codex', 'copilot', 'cursor', 'antigravity'] as const)(
+    'applies the harness transform for the %s lane',
+    (cli) => {
+      const rendered = renderRoleBlock(role(claudeFlavouredBody), cli);
+      const transformed = transformAgentBody(claudeFlavouredBody, cli);
+
+      expect(transformed).not.toBe(claudeFlavouredBody);
+      expect(rendered).toBe(header('reviewer') + transformed);
+    },
+  );
+
+  it.each(['pi', 'opencode', 'ptah-cli'] as const)(
+    'leaves the body unchanged for the %s lane',
+    (cli) => {
+      expect(renderRoleBlock(role(claudeFlavouredBody), cli)).toBe(
+        header('reviewer') + claudeFlavouredBody,
+      );
+    },
+  );
+
+  describe('a body that itself begins with a --- pair', () => {
+    const body = '---\nkeep: this block\n---\nThe real instructions.';
+
+    it('loses the leading block on a transform lane (double strip)', () => {
+      expect(renderRoleBlock(role(body), 'codex')).toBe(
+        header('reviewer') + 'The real instructions.',
+      );
+    });
+
+    it('keeps the leading block on a pass-through lane', () => {
+      expect(renderRoleBlock(role(body), 'pi')).toBe(header('reviewer') + body);
+    });
+  });
+});
+
+describe('assertCommandLineWithinLimit', () => {
+  function measure(
+    command: string,
+    args: readonly string[],
+    platform: NodeJS.Platform,
+  ): CliCommandLineTooLongError | undefined {
+    try {
+      assertCommandLineWithinLimit(command, args, platform);
+      return undefined;
+    } catch (error: unknown) {
+      if (error instanceof CliCommandLineTooLongError) {
+        return error;
+      }
+      throw error;
+    }
+  }
+
+  describe('win32 CreateProcess (32,767 including the terminating NUL)', () => {
+    const overhead = 'node'.length + 1 + 1;
+
+    it.each([
+      [32_766, false],
+      [32_767, false],
+      [32_768, true],
+    ])('measured %i throws=%s', (measured, throws) => {
+      const arg = 'x'.repeat(measured - overhead);
+      const error = measure('node', [arg], 'win32');
+
+      expect(error !== undefined).toBe(throws);
+      if (error) {
+        expect(error.measured).toBe(measured);
+        expect(error.limit).toBe(32_767);
+        expect(error.largestArgIndex).toBe(0);
+      }
+    });
+
+    it('counts the wrapping quotes and the backslash escape a " costs', () => {
+      const plain = 'x'.repeat(32_767 - overhead);
+      expect(measure('node', [plain], 'win32')).toBeUndefined();
+
+      const withQuote = 'x'.repeat(32_767 - overhead - 4) + '"';
+      expect(measure('node', [withQuote], 'win32')).toBeUndefined();
+      expect(measure('node', [withQuote + 'x'], 'win32')?.measured).toBe(
+        32_768,
+      );
+    });
+
+    it('doubles a trailing backslash inside a quoted argument', () => {
+      const quotedWithTrailingSlash = 'x'.repeat(32_767 - overhead - 5) + ' \\';
+      expect(
+        measure('node', [quotedWithTrailingSlash], 'win32'),
+      ).toBeUndefined();
+
+      const error = measure('node', ['y' + quotedWithTrailingSlash], 'win32');
+      expect(error?.measured).toBe(32_768);
+    });
+
+    it('does not charge a trailing backslash in an unquoted argument', () => {
+      const arg = 'x'.repeat(32_767 - overhead - 1) + '\\';
+      expect(measure('node', [arg], 'win32')).toBeUndefined();
+    });
+
+    it('counts separators, the command and empty args', () => {
+      const error = measure('node', ['', 'x'.repeat(32_767)], 'win32');
+      expect(error?.measured).toBe(4 + 1 + 2 + 1 + 32_767 + 1);
+      expect(error?.largestArgIndex).toBe(1);
+    });
+  });
+
+  describe('win32 .cmd/.bat shim through cmd.exe (8,191)', () => {
+    it.each(['C:\\npm\\tool.cmd', 'C:\\npm\\tool.CMD', 'C:\\npm\\tool.Bat'])(
+      'applies the cmd.exe cap to %s',
+      (command) => {
+        const overhead = command.length + 1 + 1;
+        expect(
+          measure(command, ['x'.repeat(8_190 - overhead)], 'win32'),
+        ).toBeUndefined();
+        expect(
+          measure(command, ['x'.repeat(8_191 - overhead)], 'win32'),
+        ).toBeUndefined();
+        const error = measure(
+          command,
+          ['x'.repeat(8_192 - overhead)],
+          'win32',
+        );
+        expect(error?.measured).toBe(8_192);
+        expect(error?.limit).toBe(8_191);
+      },
+    );
+
+    it('keeps the CreateProcess cap for a resolved node entrypoint', () => {
+      const arg = 'x'.repeat(20_000);
+      expect(
+        measure('C:\\node\\node.exe', ['C:\\npm\\tool\\index.js', arg], 'win32'),
+      ).toBeUndefined();
+    });
+  });
+
+  describe('linux (each arg 131,071 bytes)', () => {
+    it.each([
+      [131_070, false],
+      [131_071, false],
+      [131_072, true],
+    ])('arg of %i bytes throws=%s', (bytes, throws) => {
+      const error = measure('opencode', ['run', 'x'.repeat(bytes)], 'linux');
+      expect(error !== undefined).toBe(throws);
+      if (error) {
+        expect(error.measured).toBe(131_072);
+        expect(error.limit).toBe(131_071);
+        expect(error.largestArgIndex).toBe(1);
+      }
+    });
+
+    it('measures UTF-8 bytes, not UTF-16 units', () => {
+      const error = measure('opencode', ['é'.repeat(65_536)], 'linux');
+      expect(error?.measured).toBe(131_072);
+    });
+
+    it('does not sum args', () => {
+      expect(
+        measure('opencode', ['x'.repeat(131_071), 'x'.repeat(131_071)], 'linux'),
+      ).toBeUndefined();
+    });
+  });
+
+  describe('darwin (sum of arg bytes 1,048,576 - 4,096)', () => {
+    const limit = 1_048_576 - 4_096;
+
+    it.each([
+      [limit - 1, false],
+      [limit, false],
+      [limit + 1, true],
+    ])('args summing %i bytes throw=%s', (total, throws) => {
+      const half = Math.floor(total / 2);
+      const error = measure(
+        'opencode',
+        ['x'.repeat(half), 'x'.repeat(total - half)],
+        'darwin',
+      );
+      expect(error !== undefined).toBe(throws);
+      if (error) {
+        expect(error.measured).toBe(limit + 1);
+        expect(error.limit).toBe(limit);
+        expect(error.largestArgIndex).toBe(1);
+      }
+    });
+  });
+
+  it('explains that nothing was truncated and names both remedies without a vendor', () => {
+    const error = measure('C:\\bin\\copilot.cmd', ['-p', 'x'.repeat(9_000)], 'win32');
+
+    expect(error).toBeInstanceOf(CliCommandLineTooLongError);
+    expect(error?.name).toBe('CliCommandLineTooLongError');
+    expect(error?.message).toContain('argument 1 is 9000 UTF-16 units');
+    expect(error?.message).toContain('Nothing was truncated');
+    expect(error?.message).toContain('shorten the task');
+    expect(error?.message).toContain(
+      'use a lane whose role channel does not pass the prompt on the command line',
+    );
+    expect(error?.message).not.toMatch(
+      /copilot|codex|cursor|antigravity|opencode|claude|\bpi\b/i,
+    );
   });
 });
 
