@@ -963,6 +963,21 @@ Edge cases:
   unmeasured; manual Electron field check), R-TL7 and R-TL10 (load-sensitive pre-existing spec flakes), A1/A2 numbers
   from node:sqlite only, the old-code partial daily backup trusted once on upgrade day, and hard-link-less filesystems
   (loud failure).
+- Gate 3 (whole-branch logic review by antigravity, the only family that wrote no code on the branch),
+  `code-logic-review-branch.md`: APPROVED WITH FIXES, 9.2/10, 0 blocking, 0 serious, 1 moderate, 3 minor.
+  - Cleared cross-batch: no write transaction across an `await`; bounded diagnostics poll; backup and
+    retention safe under WAL with `quick_check` before publish; dual-host slot claim; boot deferral; the
+    upgrade migration took 9 ms.
+  - Moderate FIXED in `e27212537`: the panel showed a past `nextDueAt` (backlog run, set to
+    `lastFinishedAt`) as "N min ago". It now renders "at the next idle hourly check" unless
+    `nextDueAt > now`; a spec covers past and future. The orchestrator reviewed the 2-file diff line by
+    line: APPROVED. Team-leader re-ran `@ptah-extension/memory-curator-ui` typecheck, test and lint:
+    1 project, 184 passed, 0 errors.
+  - Minor: power monitor resolved outside the try. No change; the Batch 5 re-review already judged it
+    consistent with the skill-drain failure channel.
+  - Minors: R-TL8 and the hard-link limit, already recorded residuals.
+  - Review factual slip, no action: it gives the staging sweep threshold as 10 min; the code uses
+    2 × `BACKUP_WORKER_BUDGET_MS` = 40 min.
 - Follow-ups to file: surface `storage` in the TUI `apps/ptah-tui/src/components/thoth/MemoryPanel.tsx`; pin the
   locale in `formatSnapshot` (`memory-diagnostics-accordion.component.ts:335`); add a `*.test-support.ts` exclude to
   `libs/backend/memory-curator/tsconfig.lib.json`.
