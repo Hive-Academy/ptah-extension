@@ -24,7 +24,7 @@ Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the for
 
 ## Public API
 
-`SqliteConnectionService` + types (`SqliteDatabase`, `SqliteStatement`, `SqliteDatabaseFactory`, `SqliteVecPathResolver`); `IBackupService`, `BackupKind`, `SqliteBackupService`; `BACKUP_WORKER_BUDGET_MS`; `SqliteMigrationRunner` + `MigrationRunResult`; `MIGRATIONS` array + `Migration` type; `isUniqueConstraintError`; `IEmbedder` interface; `PERSISTENCE_TOKENS`, `PersistenceDIToken`, `registerPersistenceSqliteServices`.
+`SqliteConnectionService` + types (`SqliteDatabase`, `SqliteStatement`, `SqliteDatabaseFactory`, `SqliteVecPathResolver`); `IBackupService`, `BackupKind`, `SqliteBackupService`; `BACKUP_WORKER_BUDGET_MS`; `KEEP_BY_KIND` (the one keep table every rotation call site reads); `SqlitePageReclaimer` + `SqlitePageStats` / `SqliteReclaimStepResult`; `SqliteMigrationRunner` + `MigrationRunResult`; `MIGRATIONS` array + `Migration` type; `isUniqueConstraintError`; `IEmbedder` interface; `PERSISTENCE_TOKENS`, `PersistenceDIToken`, `registerPersistenceSqliteServices`.
 
 Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(now?)`, `dispatchIfDue()` and `dispose()`; `DB_INTEGRITY_CHECK_INTERVAL_MS`, `INTEGRITY_WORKER_BUDGET_MS`); `DbWorkerRunner` + `DbWorkerRun` / `DbWorkerOutcome` / `DbWorkerRunOptions`; `IntegrityCheckStateStore` + `IntegrityCheckState`; the host port `IIntegrityWorkerProcessFactory` / `IIntegrityWorkerProcess`; `classifyQuickCheck`, `isIntegrityCheckRequest`, `isBackupRequest`, `validateBackupDestination`, `resolveRealBackupDestination` and the protocol types (`IntegrityVerdict`, `IntegrityCheckRequest`, `IntegrityCheckResponse`, `IntegrityErrorResponse`, `BackupRequest`, `BackupResponse`, `IntegrityWorkerInbound`, `IntegrityCheckOutbound`, `IntegrityWorkerOutbound`).
 
@@ -76,6 +76,17 @@ Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(
     because a copy plus a validation is strictly more work than one `quick_check`.
     A budget set too tight does not report slowness; it means "the migration ran
     with no backup".
+- `src/lib/sqlite-page-reclaimer.ts` — `SqlitePageReclaimer` (`PERSISTENCE_TOKENS.SQLITE_PAGE_RECLAIMER`,
+  TASK_2026_440): the ONE owner of free-page stats (`readPageStats`) and bounded
+  `incremental_vacuum` steps (`reclaimStep(maxPages)`, `checkpointPassive`). It
+  never issues a full `VACUUM`. `maxPages` must be a finite integer 1..65,536
+  before any SQL runs — the pragma argument cannot be bound, so that check is the
+  injection guard. It reclaims only when `auto_vacuum = 2` and no transaction is
+  open, and every method returns zeros instead of throwing (closed connection,
+  busy pragma).
+- **Backup keep counts live in `KEEP_BY_KIND` only**: `{ 'pre-migration': 1, daily: 7, reset: 2 }`.
+  Call sites pass `KEEP_BY_KIND[kind]`, never a literal, and rotate only after a
+  non-null `backup()` (a failed backup must not shrink the archive).
 - `src/lib/sqlite-errors.ts` — `isUniqueConstraintError`, the driver-level predicate behind every at-most-once claim (cron slot claim, synthesis-queue enqueue)
 - `src/lib/embedder/embedder.interface.ts` — `IEmbedder` contract
 - `src/lib/integrity/` — the out-of-process `quick_check`/`foreign_key_check`.

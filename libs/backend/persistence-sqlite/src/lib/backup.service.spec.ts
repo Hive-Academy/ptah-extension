@@ -21,7 +21,11 @@ import {
   TOKENS,
   type BackgroundWorkAdmission,
 } from '@ptah-extension/vscode-core';
-import { SqliteBackupService, BACKUP_WORKER_BUDGET_MS } from './backup.service';
+import {
+  SqliteBackupService,
+  BACKUP_WORKER_BUDGET_MS,
+  KEEP_BY_KIND,
+} from './backup.service';
 import { PERSISTENCE_TOKENS } from './di/tokens';
 import { DbWorkerRunner } from './integrity/db-worker-runner';
 import type {
@@ -742,6 +746,18 @@ describe('SqliteBackupService.backup — background-work governor', () => {
 
 // ── rotation ────────────────────────────────────────────────────────────────
 
+describe('KEEP_BY_KIND', () => {
+  it('is the one keep policy: pre-migration 1, daily 7, reset bounded', () => {
+    expect(KEEP_BY_KIND['pre-migration']).toBe(1);
+    expect(KEEP_BY_KIND.daily).toBe(7);
+    expect(KEEP_BY_KIND.reset).toBe(2);
+    // No kind is unbounded.
+    for (const keep of Object.values(KEEP_BY_KIND)) {
+      expect(keep).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('SqliteBackupService.rotate', () => {
   function seed(tmpDir: string, names: string[]): void {
     for (const name of names) {
@@ -791,20 +807,44 @@ describe('SqliteBackupService.rotate', () => {
     }
   });
 
-  it('is a no-op when keep=0 (unbounded retention)', () => {
+  it('is a no-op when keep=0', () => {
+    // No kind maps to 0 in KEEP_BY_KIND any more; this pins the guard itself
+    // so a caller passing a non-positive keep can never delete every backup.
+    const h = makeHarness();
+    const names = [
+      'ptah.pre-migration-20250101T120000Z.sqlite',
+      'ptah.pre-migration-20250102T120000Z.sqlite',
+      'ptah.pre-migration-20250103T120000Z.sqlite',
+    ];
+    seed(h.tmpDir, names);
+
+    h.service.rotate('pre-migration', 0);
+
+    for (const name of names) {
+      expect(fs.existsSync(path.join(h.tmpDir, name))).toBe(true);
+    }
+  });
+
+  it('rotate(reset, KEEP_BY_KIND.reset) keeps the newest 2 reset backups', () => {
     const h = makeHarness();
     const names = [
       'ptah.reset-20250101T120000Z.sqlite',
       'ptah.reset-20250102T120000Z.sqlite',
       'ptah.reset-20250103T120000Z.sqlite',
+      'ptah.reset-20250104T120000Z.sqlite',
     ];
-    seed(h.tmpDir, names);
+    // A pre-migration backup shares the directory; reset rotation must not
+    // count or delete it.
+    const other = 'ptah.pre-migration-20250101T120000Z.sqlite';
+    seed(h.tmpDir, [...names, other]);
 
-    h.service.rotate('reset', 0);
+    h.service.rotate('reset', KEEP_BY_KIND.reset);
 
-    for (const name of names) {
-      expect(fs.existsSync(path.join(h.tmpDir, name))).toBe(true);
-    }
+    const remaining = fs
+      .readdirSync(h.tmpDir)
+      .filter((f) => f.startsWith('ptah.reset-'));
+    expect(remaining.sort()).toEqual(names.slice(2).sort());
+    expect(fs.existsSync(path.join(h.tmpDir, other))).toBe(true);
   });
 
   it('is a no-op when the file count is within the keep limit', () => {

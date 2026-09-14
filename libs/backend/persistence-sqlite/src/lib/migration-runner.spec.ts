@@ -3,7 +3,11 @@
  *
  * Uses an in-memory FakeSqliteDatabase so the suite runs without
  * better-sqlite3 native bindings.
+ *
+ * `reflect-metadata` is loaded first because the runner reads `KEEP_BY_KIND`
+ * from `backup.service.ts`, whose tsyringe decorators need the polyfill.
  */
+import 'reflect-metadata';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -189,7 +193,7 @@ describe('SqliteMigrationRunner', () => {
     await runner.applyAll(FIXTURE_MIGRATIONS);
 
     expect(backupCalls).toEqual(['pre-migration']);
-    expect(rotateCalls).toEqual([['pre-migration', 3]]);
+    expect(rotateCalls).toEqual([['pre-migration', 1]]);
   });
 
   it('D2: skips backup when there are no pending migrations', async () => {

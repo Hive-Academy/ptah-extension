@@ -69,7 +69,8 @@ describe('migration 0040_skill_candidate_workspace_root — registry entry', () 
     // 0039 / 0041 carry the identical test for the same reason). Bumped to 42
     // when TASK_2026_380 B1 appended 0042_db_integrity_check_state (41 when
     // TASK_2026_331 B4 appended 0041_skill_md_migration_state).
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(42);
+    // 43 since TASK_2026_440 appended 0043_memory_retention.
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(43);
   });
 });
 

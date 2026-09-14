@@ -29,6 +29,7 @@ import {
   type IUserInteraction,
 } from '@ptah-extension/platform-core';
 import {
+  KEEP_BY_KIND,
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
   VecStatusService,
@@ -382,7 +383,7 @@ export class PersistenceRpcHandlers {
 
   /**
    * 5-step reset workflow:
-   *  1. backup('reset')
+   *  1. backup('reset'), then rotate('reset', KEEP_BY_KIND.reset) when it wrote one
    *  2. connection.close()
    *  3. fs.renameSync (EPERM async retry after 200 ms on Windows)
    *     Also renames -wal and -shm sidecar files.
@@ -431,6 +432,12 @@ export class PersistenceRpcHandlers {
       if (this.connection.isOpen) {
         try {
           rawBackupPath = await this.backup.backup('reset');
+          // Rotate only after a backup was actually written — the migration
+          // runner's rule. Rotating on `null` would delete an older reset copy
+          // without leaving a newer one in its place.
+          if (rawBackupPath !== null) {
+            this.backup.rotate('reset', KEEP_BY_KIND.reset);
+          }
         } catch (err: unknown) {
           this.logger.warn('[persistence] db:reset backup error (non-fatal)', {
             error: err instanceof Error ? err.message : String(err),

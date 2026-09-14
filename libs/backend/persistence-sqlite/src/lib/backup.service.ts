@@ -117,11 +117,22 @@ function compactIso(): string {
     .replace(/\.\d{3}Z$/, 'Z');
 }
 
-/** Keep-count table keyed by kind. `reset` is 0 = unbounded (never rotated). */
-const KEEP_BY_KIND: Record<BackupKind, number> = {
-  'pre-migration': 3,
+/**
+ * Keep-count table keyed by kind — the ONE keep policy. Every rotation call
+ * site reads it (`rotate(kind, KEEP_BY_KIND[kind])`); none passes a literal.
+ *
+ * - `pre-migration: 1` — each copy is a full image of the database (1.28 GB on
+ *   a real install), and only the newest one is a useful rollback point.
+ * - `daily: 7` — one week of daily copies.
+ * - `reset: 2` — bounded since TASK_2026_440; it used to be unbounded, so every
+ *   user-initiated reset left one more full copy behind forever.
+ *
+ * No kind maps to 0. `rotate(keep <= 0)` stays a no-op for callers.
+ */
+const KEEP_BY_KIND: Readonly<Record<BackupKind, number>> = {
+  'pre-migration': 1,
   daily: 7,
-  reset: 0,
+  reset: 2,
 };
 
 /**
