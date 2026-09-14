@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 55 | Batches: 22 | Complete: 1/22
+Total tasks: 56 | Batches: 22 | Complete: 3/22
 
-Status note: P1 wave 1 — Batch 3 COMPLETE; Batches 1, 2 and 5 still IN_PROGRESS (file-disjoint, Batch 1 in its own worktree).
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (commit recorded in its header), Batch 3 COMPLETE (93c360572). Batch 4 unblocked. Batch 5 IN_PROGRESS.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `context.md` "User decisions"
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -119,7 +119,19 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ---
 
-## Batch 1: SPIKE — prove `@parcel/watcher` packaging (Electron asar + CLI npm) — IN_PROGRESS
+## Batch 1: SPIKE — prove `@parcel/watcher` packaging (Electron asar + CLI npm) — COMPLETE
+
+- Commit: none by design (proof-only spike; worktree `D:\projects\ptah-437-spike` removed). Evidence: `b1-spike-report.md`, committed with Batch 2's record.
+
+### Batch 1 outcome
+
+- Electron (A2): GO. `@parcel/watcher` 2.5.6 loaded and subscribed from `resources/app.asar.unpacked` in an electron-builder 26.8.1 / Electron 40.10.1 `--dir --win` package run under `ELECTRON_RUN_AS_NODE=1` (`subscribed OK` + a `create` event). Batch 7's Electron-GO precondition is met.
+- CLI (A3): GO. `nx build ptah-cli` + `nx build ptah-tui` + `nx restore-cli-manifest ptah-cli` → `npm pack` → clean `npm install --omit=dev` → subscribed from both `main.mjs` and `tui.mjs` (D7: one resolution path serves both). Batch 9 Task 9.1 uses `@parcel/watcher`, not chokidar.
+- Plan correction: asarUnpack for `@parcel/watcher/**` + `@parcel/watcher-*/**` alone crashes at runtime (`MODULE_NOT_FOUND: picomatch` from the unpacked `wrapper.js`). Folded into Task 10.2.
+- D3 mechanism NOT reproduced: once `@parcel/watcher` is declared in `apps/ptah-electron/package.json`, `generatePackageJson` keeps it with or without a source import, and `prune-dist-deps.js` / `validate-deps.js` pass both ways. The Batch 10-after-8/9 ordering is kept as a precaution only.
+- New finding (extends D7): `ptah-tui:build` regenerates `dist/apps/ptah-cli/package.json` and clobbers the CLI manifest. Folded into Task 10.4.
+- Not done: the 75k-file mass-delete measurement. Moved into Task 15.1.
+- D10: only win32-x64 verified. Cross-platform CI smoke added to Batch 10 (Task 10.5).
 
 - Recommended executor: devops-engineer
 - Fallback executor: backend-developer
@@ -127,7 +139,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Rationale: decides go/no-go for the whole P2 host design (R-P1, A2, A3) before any P2 code exists. Edits `project.json` (needs `nx reset`), so it must not share a worktree.
 - Tasks: 3 | Depends on: none | Parallel with: Batches 2, 3, 5
 
-### Task 1.1: Electron packaged load proof — IN_PROGRESS
+### Task 1.1: Electron packaged load proof — COMPLETE
 
 - Files (worktree copies): `apps\ptah-electron\package.json`, root `package.json` + `package-lock.json`, `apps\ptah-electron\electron-builder.yml`, `apps\ptah-electron\scripts\verify-packed-native.js`, plus ONE throwaway import of `@parcel/watcher` in a file inside main's project graph (e.g. `libs\backend\platform-electron\src\index.ts`)
 - Plan reference: implementation-plan.md:453-517 (C8 Build/packaging), :196-206 (A2)
@@ -135,12 +147,12 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Validation notes: D3 (prune gate), A6, D10
 - Implementation details: pin `@parcel/watcher@2.5.6` as a direct dependency. Add asarUnpack `node_modules/@parcel/watcher/**` and `node_modules/@parcel/watcher-*/**`. Run `npx nx reset`, then `npx nx package ptah-electron`. Confirm `prune-dist-deps` keeps the dependency and `validate-deps` passes. Confirm the packed tree holds `app.asar.unpacked/node_modules/@parcel/watcher-win32-x64/watcher.node` and the transitive deps (`detect-libc`, `is-glob`, `micromatch`, `node-addon-api` if present). Run the packaged exe with `ELECTRON_RUN_AS_NODE=1` requiring the unpacked module, and subscribe/unsubscribe on a temp dir.
 
-### Task 1.2: Prove the prune gate without the import — IN_PROGRESS
+### Task 1.2: Prove the prune gate without the import — COMPLETE
 
 - Depends on: Task 1.1
 - Implementation details: remove the throwaway import and re-run `npx nx package ptah-electron`. Record whether `prune-dist-deps` fails with "missing from the generated manifest" (confirms D3 ordering) or passes.
 
-### Task 1.3: CLI npm package proof (A3) — IN_PROGRESS
+### Task 1.3: CLI npm package proof (A3) — COMPLETE
 
 - Files (worktree copies): `apps\ptah-cli\package.json`, `apps\ptah-cli\project.json` (externals list at :36-70)
 - Plan reference: implementation-plan.md:519-543 (C9), :204-206 (A3), Q3
@@ -156,7 +168,9 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ---
 
-## Batch 2: P1 — workspace exclusion policy + storm breaker (C1, C2) — IN_PROGRESS
+## Batch 2: P1 — workspace exclusion policy + storm breaker (C1, C2) — COMPLETE
+
+- Commit: the commit whose subject is `fix(shared): exclude agent worktrees and nested repos from workspace watching` (a commit cannot hold its own SHA; resolve it with `git log --oneline --grep "exclude agent worktrees"`)
 
 - Recommended executor: backend-developer
 - Fallback executor: CLI lane per task (Tasks 2.1–2.2 and 2.3 are file-disjoint)
@@ -164,7 +178,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Rationale: the rule set and its consumers must agree in one commit. Small, pure code with table tests.
 - Tasks: 4 | Depends on: none | Parallel with: Batches 1, 3, 5
 
-### Task 2.1: Nested workspace path rules + multi-segment predicate — IN_PROGRESS
+### Task 2.1: Nested workspace path rules + multi-segment predicate — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\shared\src\lib\constants\workspace-scan.constants.ts`, `D:\projects\ptah-extension\libs\shared\src\lib\constants\workspace-scan.constants.spec.ts`, `D:\projects\ptah-extension\libs\shared\src\index.ts`
 - Plan reference: implementation-plan.md:226-260
@@ -173,13 +187,13 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Validation notes: `.claude` alone NOT excluded; Windows separators; nested `pkg\.claude-worktrees\y` excluded
 - Implementation details: export `AGENT_WORKTREE_DIR`, `NESTED_WORKSPACE_PATH_RULES`, `toWorkspaceExcludeGlobs`. `isExcludedWorkspacePath` gains consecutive-segment matching and keeps its single-segment behaviour.
 
-### Task 2.2: `NestedRepoRoots` value type — IN_PROGRESS
+### Task 2.2: `NestedRepoRoots` value type — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\libs\shared\src\lib\utils\nested-repo-roots.ts` + `nested-repo-roots.spec.ts`; MODIFY `D:\projects\ptah-extension\libs\shared\src\lib\utils\index.ts`
 - Plan reference: implementation-plan.md:238-240
 - Implementation details: O(depth) prefix lookup over workspace-relative roots. `fromWorktreeList(parseWorktreeList output, workspaceRoot)` keeps only paths under the root. `add(root)` handles runtime discovery. Case-insensitive on Windows paths.
 
-### Task 2.3: `EventStormBreaker` in platform-core (D1) — IN_PROGRESS
+### Task 2.3: `EventStormBreaker` in platform-core (D1) — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\libs\backend\platform-core\src\utils\event-storm-breaker.ts` + `event-storm-breaker.spec.ts`; MODIFY `D:\projects\ptah-extension\libs\backend\platform-core\src\index.ts`
 - Plan reference: implementation-plan.md:262-278
@@ -187,7 +201,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Quality requirements: `record` O(1), no allocation; invalid config clamps to defaults (500/1000 ms, quiet 2000, maxStorm 30000)
 - Implementation details: `record(now)` returns `'normal'|'entered'|'storming'`; `poll(now)` returns `'storming'|'exited'`; counters for log lines. Spec uses a fake clock: enter, sustain, exit after quiet, forced refresh at `maxStormMs`, re-entry.
 
-### Task 2.4: Consumers of the single literal and derived globs — IN_PROGRESS
+### Task 2.4: Consumers of the single literal and derived globs — COMPLETE
 
 - Depends on: Task 2.1
 - Files: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\file-indexing\workspace-default-excludes.ts`; CREATE `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\file-indexing\workspace-default-excludes.spec.ts` (drift spec); `D:\projects\ptah-extension\libs\backend\vscode-core\src\utils\worktree-path.ts` (:4); `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\worktree-hook-handler.ts` (:85-89)
@@ -200,11 +214,28 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - `npx nx run-many -t typecheck,lint -p @ptah-extension/shared @ptah-extension/platform-core @ptah-extension/workspace-intelligence @ptah-extension/vscode-core @ptah-extension/agent-sdk`
 - Done when: INV-2 table and drift tests are green; no `'.claude-worktrees'` string literal remains outside `workspace-scan.constants.ts` (grep)
 
+### Batch 2 review pass 1 (team-leader, not yet committed)
+
+- Evidence (team-leader re-run in `D:\projects\ptah-437`, Batch 5 edits present in the tree): test header "5 projects", all green — shared 58 suites / 1504; platform-core 33 / 597 + 4 todo; agent-sdk 104 of 106 suites / 1836 + 3 skipped; workspace-intelligence 41 / 1021; vscode-core 36 / 554 (includes `git-info.service.review.spec.ts`; the logic reviewer's EPERM/timeout failure did not reproduce — environmental under parallel load). `typecheck,lint` 5 projects: 0 errors; no warning in any Batch 2 file. Literal grep: `'.claude-worktrees'` only at `workspace-scan.constants.ts:88`. `platform-core/src/index.ts` diff holds only the Batch 2 breaker exports.
+- Reviews: style APPROVED 8/10 (`b2-code-style-review.md`); logic APPROVE_WITH_FIXES 7/10 (`b2-code-logic-review.md`).
+- Orchestrator decision M-1 (FIX NOW, routed back to executor — touches predicate, glob generator, two spec tables and the module doc; team-leader does not edit batch code): `NESTED_WORKSPACE_PATH_RULES` matching becomes ASCII case-insensitive on every platform, in BOTH channels. Predicate: non-allocating ASCII case-fold equality in `ruleMatchesAt`. Globs: `toWorkspaceExcludeGlobs` emits per-letter bracket classes (`**/.[cC][lL][aA][uU][dD][eE]/[wW][oO]…/**`) so every consumer (picomatch in the file index/indexer, VS Code `findFiles`, TS diagnostics, MCP builders) is case-insensitive without a `nocase` option change outside this batch. `WATCH_IGNORED_DIRS` single-segment matching stays case-sensitive. Case-variant rows flip to `true` in `workspace-scan.constants.spec.ts` (add `.Claude-Worktrees/x`, `.CLAUDE/Worktrees/x`, `pkg\.Claude\WORKTREES\y`) and are added to `workspace-default-excludes.spec.ts` (picomatch `{ dot: true }`, no `nocase`); `globToRegExp` in the shared spec learns `[...]`.
+- Decided (no change): m-2 `NestedRepoRoots` case-folding by path shape — latent; every cited producer passes native `D:\` roots. ASSUMPTION for Batches 4/8/11: callers pass native absolute workspace roots.
+- Decided (executor adds one header line): forced `max-duration` exit keeps the window live, so a never-quiet storm logs one enter/exit pair per `maxStormMs`.
+- Decided (keep): `msUntilNextPoll` — consumer named in Task 4.1 (single exit timer; plan C2 "callers own timers"). `NestedRepoRoots` / `nestedRepoRootOf` first production callers named in Task 4.1.
+
+### Batch 2 review pass 2 (team-leader) — ACCEPTED
+
+- M-1 fixed, checked on disk: `ruleMatchesAt` uses the non-allocating `equalsIgnoringAsciiCase` (`workspace-scan.constants.ts:204,214`). `toWorkspaceExcludeGlobs` emits per-letter bracket classes (spec `:284-286`). `WATCH_IGNORED_DIRS` is unchanged. Case-variant rows are in both specs. The storm-breaker header has the max-duration line.
+- Delta logic review (appended to `b2-code-logic-review.md`, "Delta review (M-1 fix)"): APPROVE, HIGH. Every glob consumer (`findFiles`, fast-glob, picomatch in `glob-watch-plan.ts`) accepts bracket classes. No consumer uses a TS-dialect glob.
+- Evidence (team-leader re-run in `D:\projects\ptah-437`, Batch 5 edits in the tree, no nx reset): `test,typecheck,lint` header "5 projects". Results: shared 58 suites / 1512; platform-core 33 / 597 + 4 todo; workspace-intelligence 41 / 1026; agent-sdk 104 of 106 / 1836 + 3 skipped; vscode-core 35 of 36 suites / 553 of 554 in the combined run. The one failure was `git-info.service.review.spec.ts`, which timed out at 31 s under parallel load. That spec is a Batch 3 file and has no diff against HEAD. Run alone it passed 2/2, the same environmental result as pass 1. `typecheck` run alone: "Successfully ran target typecheck for 5 projects". Lint: 0 errors in all 5 projects (warnings only).
+- Literal grep: the only production `'.claude-worktrees'` literal is `workspace-scan.constants.ts:88`. The other hits are spec fixtures.
+- The m-2 and `msUntilNextPoll` decisions above stand.
+
 ---
 
 ## Batch 3: P1 — `GitInfoService` single-flight with trailing rerun (C4) — COMPLETE
 
-- Commit: `fix(vscode-core): run one git status per workspace and queue a single rerun` (SHA recorded in the next team-leader pass; a commit cannot carry its own SHA)
+- Commit: 93c360572 `fix(vscode-core): run one git status per workspace and queue a single rerun`
 
 - Recommended executor: backend-developer
 - Fallback executor: none (subtle concurrency; no CLI lane)
@@ -257,7 +288,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Pattern to follow: `watchDirectory` helper `git-watcher.service.ts:383-410`
 - Quality requirements: per OS event ≤ 1 predicate + 1 counter + ≤ 1 timer re-arm; 0 allocations while storming
 - Validation notes: nested-root detection runs BEFORE the `.git` segment filter. A `getWorktrees` failure keeps the static rules and warns once. Exit or `maxStormMs` always issues exactly 1 `refreshGitInfo` plus 1 truncated push. `.claude\commands\x.md` still schedules.
-- Implementation details: the per-path timer map (`:68-71,115,512-551`) is replaced by a `Set` capped at 256 with `truncated`, one 500 ms debounce and a 2000 ms max-wait. `fetchAndPush` calls `refreshGitInfo` and no longer `invalidateReadCache`. A `.git\worktrees` directory watch refreshes `NestedRepoRoots`. Storm enter/exit `warn` lines. The breaker is imported from `@ptah-extension/platform-core`.
+- Implementation details: the per-path timer map (`:68-71,115,512-551`) is replaced by a `Set` capped at 256 with `truncated`, one 500 ms debounce and a 2000 ms max-wait. `fetchAndPush` calls `refreshGitInfo` and no longer `invalidateReadCache`. A `.git\worktrees` directory watch refreshes `NestedRepoRoots`. Storm enter/exit `warn` lines. The breaker is imported from `@ptah-extension/platform-core`. The storm-exit check is ONE timer armed from `EventStormBreaker.msUntilNextPoll(now)` (re-armed after each `poll` that returns `'storming'`), not a fixed-interval poll; this is the consumer that justifies `msUntilNextPoll` (Batch 2 style review). Seed nested-repo matching with `NestedRepoRoots.fromWorktreeList` + `nestedRepoRootOf` (their first production callers). Expect repeated enter/exit warn pairs, one per `maxStormMs`, during a storm that never quiets (by design; Batch 2 logic review minor).
 
 ### Task 4.2: `FileContentChangedPayload` batch shape — PENDING
 
@@ -457,8 +488,8 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Recommended executor: devops-engineer
 - Fallback executor: backend-developer
 - Execution mode: sequential; ALONE in its worktree (edits two `project.json`; `npx nx reset` first)
-- Rationale: build/delivery surface only. Must follow the entry sources (D3).
-- Tasks: 4 | Depends on: Batches 8, 9
+- Rationale: build/delivery surface only. Must follow the entry sources (D3 — cause not reproduced in Batch 1; ordering kept as a precaution).
+- Tasks: 5 | Depends on: Batches 8, 9
 
 ### Task 10.1: Electron host build target in all four lists — PENDING
 
@@ -468,7 +499,12 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 ### Task 10.2: Dependency, asarUnpack and packed-load gate — PENDING
 
 - Files: `D:\projects\ptah-extension\package.json`, `D:\projects\ptah-extension\package-lock.json`, `D:\projects\ptah-extension\apps\ptah-electron\package.json`, `D:\projects\ptah-extension\apps\ptah-electron\electron-builder.yml`, `D:\projects\ptah-extension\apps\ptah-electron\scripts\verify-packed-native.js`
-- Validation notes: re-apply the Batch 1 evidence. `verify-packed-native.js` must FAIL (not skip) when `@parcel/watcher` cannot be required from the packed tree.
+- Validation notes: re-apply the Batch 1 evidence (`b1-spike-report.md`). `verify-packed-native.js` must FAIL (not skip) when `@parcel/watcher` cannot be required from the packed tree.
+- Implementation details (from Batch 1, all required):
+  - `"@parcel/watcher": "2.5.6"` as a DIRECT dependency in root `package.json` and `apps/ptah-electron/package.json` (today only transitive via `sass`).
+  - `electron-builder.yml` `asarUnpack`: `node_modules/@parcel/watcher/**`, `node_modules/@parcel/watcher-*/**`, AND `node_modules/picomatch/**`, `node_modules/is-glob/**`, `node_modules/is-extglob/**`, `node_modules/detect-libc/**`. Without the last four the unpacked `wrapper.js` fails with `MODULE_NOT_FOUND: picomatch`.
+  - `apps/ptah-electron/project.json` `build-main.options.external` gains `"@parcel/watcher"` (Task 10.1 owns the file; apply there if simpler, same batch).
+  - The packed-load gate must `require('@parcel/watcher')` from `app.asar.unpacked` AND subscribe once, so a missing sibling (picomatch) fails the gate.
 
 ### Task 10.3: validate-deps / prune gate confirmation — PENDING
 
@@ -478,12 +514,19 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 - Files: `D:\projects\ptah-extension\apps\ptah-cli\project.json` (host worker target + externals), `D:\projects\ptah-extension\apps\ptah-cli\package.json` (dependency only if A3 GO), CLI ESM gate spec if the CLI keeps its own copy
 - Validation notes: D7. Launch `ptah tui` from the built dist and confirm the watcher host starts.
+- Implementation details (from Batch 1): `apps/ptah-cli/package.json` `dependencies` gains `"@parcel/watcher": "2.5.6"` (A3 GO); `apps/ptah-cli/project.json` `build-esbuild.options.external` gains `"@parcel/watcher"`. ORDER IS MANDATORY: `npx nx build ptah-cli` → `npx nx build ptah-tui` → `npx nx restore-cli-manifest ptah-cli` → only then `npm pack` / smoke-install. `ptah-tui:build` overwrites `dist/apps/ptah-cli/package.json` (name, `bin`, `files`, deps); packing before the restore ships a broken manifest.
+
+### Task 10.5: Cross-platform `@parcel/watcher` CI smoke (D10) — PENDING
+
+- Files: the release package-matrix workflow under `D:\projects\ptah-extension\.github\workflows\` (the one that runs electron-builder per OS; locate before editing)
+- Implementation details: per macOS / Linux / Windows(-arm64 where present) runner, package (or `npm install` with `npm_config_platform` / `npm_config_arch`) and run a `require('@parcel/watcher')` + subscribe smoke from the packed tree, the same way `verify-packed-native.js` checks `better-sqlite3`. Only win32-x64 was proven in Batch 1.
 
 ### Batch 10 verification
 
 - `npx nx reset` then `npx nx run-many -t test -p ptah-electron ptah-cli` (header: 2)
 - `npx nx build ptah-electron`, `npx nx package ptah-electron`, `npx nx build ptah-cli`, `npx nx build ptah-tui`
-- Release CI package matrix (macOS / Linux / Windows arm64) green on the branch before P2 is declared done (D10)
+- Release CI package matrix (macOS / Linux / Windows arm64) green on the branch, including the Task 10.5 `@parcel/watcher` smoke, before P2 is declared done (D10)
+- CLI tarball: build order per Task 10.4, `npm pack`, clean `npm install --omit=dev`, load from `main.mjs` and `tui.mjs`
 - Done when: A2 is gated permanently; the ESM gate discovers 6 targets
 
 ---
@@ -616,6 +659,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Files: CREATE `D:\projects\ptah-extension\libs\backend\platform-electron\src\workspace-watch\workspace-watch-host.stress.spec.ts`
 - Plan reference: implementation-plan.md:813-816, AC-2 P2 / AC-7 :789-794
 - Validation notes: A1 (overflow survives or resubscribes); records host RSS (R-P10); mechanism in CI, ms budgets under `PTAH_PERF_SPECS=1`.
+- Added from Batch 1 (not performed in the spike): the 75,000-file mass-delete measurement against the real `@parcel/watcher` host, under `PTAH_PERF_SPECS=1`. Record event count delivered, batches emitted, overflow count, host RSS and main-thread event-loop delay p99/max during the delete.
 
 ### Batch 15 verification
 

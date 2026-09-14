@@ -140,6 +140,19 @@ export type {
   GlobWatchPlan,
   GlobWatchPlanOptions,
 } from './utils/glob-watch-plan';
+export {
+  EVENT_STORM_BREAKER_DEFAULTS,
+  EVENT_STORM_BREAKER_ENV,
+  EventStormBreaker,
+  readEventStormBreakerOptionsFromEnv,
+} from './utils/event-storm-breaker';
+export type {
+  EventStormBreakerOptions,
+  EventStormStats,
+  StormExitReason,
+  StormPollResult,
+  StormRecordResult,
+} from './utils/event-storm-breaker';
 export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
 export {
   createExecutableEditorDefinitions,

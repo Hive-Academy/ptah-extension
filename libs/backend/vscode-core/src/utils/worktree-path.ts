@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import * as path from 'path';
+import { AGENT_WORKTREE_DIR } from '@ptah-extension/shared';
 
-const WORKTREE_DIRECTORY = '.claude-worktrees';
 const MAX_WORKTREE_NAME_LENGTH = 64;
 const HASH_LENGTH = 12;
 const MAX_STEM_LENGTH = MAX_WORKTREE_NAME_LENGTH - HASH_LENGTH - 1;
@@ -47,7 +47,7 @@ export function resolveWorktreePath(
   if (!requestedPath) {
     return path.join(
       workspaceRoot,
-      WORKTREE_DIRECTORY,
+      AGENT_WORKTREE_DIR,
       worktreeDirectoryName(branch),
     );
   }

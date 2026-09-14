@@ -22,6 +22,7 @@
 
 import * as path from 'path';
 import { injectable, inject } from 'tsyringe';
+import { AGENT_WORKTREE_DIR } from '@ptah-extension/shared';
 import type { Logger, GitInfoService } from '@ptah-extension/vscode-core';
 import {
   resolveWorktreePath,
@@ -84,7 +85,7 @@ function resolveSiblingWorktreePath(
 
   const absoluteTarget = pathApi.join(
     repositoryRoot,
-    '.claude-worktrees',
+    AGENT_WORKTREE_DIR,
     worktreeDirectoryName(branch),
   );
   return resolveWorktreePath(repositoryRoot, branch, absoluteTarget);
