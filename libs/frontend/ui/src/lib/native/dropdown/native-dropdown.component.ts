@@ -86,7 +86,7 @@ import { DEFAULT_OVERLAY_OFFSET, FloatingUIService } from '../shared';
         #floatingRef
         class="dropdown-panel bg-base-200 border border-base-300 rounded-lg shadow-lg z-50"
         style="visibility: hidden;"
-        role="listbox"
+        [attr.role]="panelRole()"
       >
         <ng-content select="[content]" />
       </div>
@@ -147,6 +147,14 @@ export class NativeDropdownComponent implements OnDestroy {
    * @default true
    */
   readonly closeOnBackdropClick = input<boolean>(true);
+
+  /**
+   * ARIA role of the floating panel. Keep 'listbox' for option lists; pass
+   * null for a panel of plain action buttons so it is not announced as a
+   * listbox that contains no options.
+   * @default 'listbox'
+   */
+  readonly panelRole = input<'listbox' | null>('listbox');
 
   /**
    * Emitted when dropdown opens and is positioned.

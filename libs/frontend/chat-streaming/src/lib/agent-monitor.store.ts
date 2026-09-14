@@ -183,6 +183,12 @@ export interface SubagentRecord {
    * (never downgraded to undefined) across later progress/status/completed merges.
    */
   teammateName?: string;
+  /**
+   * SDK agent type from `agent_start` (`AgentStartEvent.agentType`, e.g.
+   * `software-architect`). Only `agent_start` carries it, so it is set there and
+   * preserved across later progress/status/completed merges.
+   */
+  agentType?: string;
   /** Latest description from progress/status events */
   description?: string;
   /** AI-generated rolling summary from progress events (most recent) */
@@ -1316,6 +1322,7 @@ export class AgentMonitorStore implements OnDestroy {
         taskId: event.taskId ?? existing?.taskId,
         agentId: event.agentId ?? existing?.agentId,
         teammateName: event.teammateName ?? existing?.teammateName,
+        agentType: event.agentType || existing?.agentType,
         description: event.agentDescription ?? existing?.description,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -1353,6 +1360,7 @@ export class AgentMonitorStore implements OnDestroy {
         taskId: event.taskId ?? existing?.taskId,
         agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
+        agentType: existing?.agentType,
         description: event.description ?? existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: event.lastToolName ?? existing?.lastToolName,
@@ -1385,6 +1393,7 @@ export class AgentMonitorStore implements OnDestroy {
         taskId: event.taskId ?? existing?.taskId,
         agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
+        agentType: existing?.agentType,
         description: event.description ?? existing?.description,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -1417,6 +1426,7 @@ export class AgentMonitorStore implements OnDestroy {
         taskId: event.taskId ?? existing?.taskId,
         agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
+        agentType: existing?.agentType,
         description: existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: existing?.lastToolName,
