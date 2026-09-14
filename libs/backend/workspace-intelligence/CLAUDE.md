@@ -124,6 +124,20 @@ in one session at 14826 / 9969 / 8626 ms, each followed by a run of 260-554 ms
   classification; do not point the index back at it. `compileMatcher` must keep
   answering exactly what `isIgnored` answers — the table test in
   `ignore-pattern-resolver.service.spec.ts` compares them on the same inputs.
+- **An event storm pauses live updates; the exit rebuilds once** (TASK_2026_437
+  INV-6). Each folder's watcher events pass a per-folder `EventStormBreaker`
+  (`@ptah-extension/platform-core`, thresholds via `PTAH_WATCH_STORM_*`). Above
+  its rate, events are counted and dropped before `isExcluded` runs. When the
+  storm ends (quiet, or forced at `maxStormMs`) the folder runs ONE path-only
+  rebuild with the watcher kept armed. The walk fills a staging snapshot while
+  queries keep serving the previous one; live events land in both, and success
+  swaps the maps in synchronously, so `search`/`getAll`/`searchDirectories`
+  never see a half-built index during a post-storm rebuild. This does not cover
+  the FIRST build: a direct `search()` before it completes still sees an empty
+  index, so callers await `ensureReadyFor` first. A failed rebuild keeps the previous snapshot; a
+  storm ending mid-rebuild queues exactly one more, which runs even if the
+  current one fails. Temporary: Batch 11 moves recursive watching onto the
+  batched `IWorkspaceWatcher` port and replaces this path.
 
 ## Type-check worker (`ptah_get_diagnostics`)
 

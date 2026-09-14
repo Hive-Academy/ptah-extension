@@ -88,8 +88,10 @@ import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
 import picomatch from 'picomatch';
 import {
+  EventStormBreaker,
   PLATFORM_TOKENS,
   normalizeWorkspaceRoot,
+  readEventStormBreakerOptionsFromEnv,
 } from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
@@ -185,7 +187,7 @@ interface IndexEntry {
  * switch had to clear them and why every late-landing async write had to be
  * generation-gated against contaminating the other root.
  */
-interface FolderIndex {
+interface FolderIndex extends FolderSnapshot {
   /** `normalizeWorkspaceRoot(root)` — the cache key. */
   readonly key: string;
   /**
@@ -197,12 +199,6 @@ interface FolderIndex {
    * relative path the entry produces from then on.
    */
   readonly root: string;
-  /** Absolute file path → entry. */
-  readonly files: Map<string, IndexEntry>;
-  /** Absolute directory path → entry. */
-  readonly directories: Map<string, IndexEntry>;
-  /** Parsed ignore files for this folder (for watcher create/change re-checks). */
-  ignoreFiles: ParsedIgnoreFile[];
   watcher: IFileWatcher | undefined;
   /** In-flight or settled build. `undefined` after a FAILED build, so it retries. */
   buildPromise: Promise<void> | undefined;
@@ -214,6 +210,35 @@ interface FolderIndex {
   generation: number;
   /** Activation clock stamp, for LRU eviction under the overflow cap. */
   lastActiveAt: number;
+  /**
+   * Rate guard for this folder's watcher events (TASK_2026_437 INV-6). While
+   * it reports a storm, events are counted and dropped; the exit triggers one
+   * path-only rebuild instead.
+   */
+  stormBreaker: EventStormBreaker;
+  /** The one timer checking for the storm's exit, armed from `msUntilNextPoll`. */
+  stormTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * The snapshot a post-storm rebuild is filling, while one is in flight.
+   * Queries keep reading the entry's own maps until the rebuild swaps it in.
+   */
+  stormStaging: FolderSnapshot | undefined;
+  /** A storm ended while a rebuild was running; rebuild once more after it. */
+  stormRebuildQueued: boolean;
+}
+
+/**
+ * The swappable part of a folder's index: what a build fills. A post-storm
+ * rebuild fills a fresh one and replaces the entry's in one step, so queries
+ * never see a half-built index.
+ */
+interface FolderSnapshot {
+  /** Absolute file path → entry. */
+  files: Map<string, IndexEntry>;
+  /** Absolute directory path → entry. */
+  directories: Map<string, IndexEntry>;
+  /** Parsed ignore files for this folder (for watcher create/change re-checks). */
+  ignoreFiles: ParsedIgnoreFile[];
 }
 
 const IMAGE_EXTENSIONS = new Set([
@@ -334,6 +359,10 @@ export class WorkspaceFileIndexService {
         ready: false,
         generation: 0,
         lastActiveAt: 0,
+        stormBreaker: createStormBreaker(),
+        stormTimer: undefined,
+        stormStaging: undefined,
+        stormRebuildQueued: false,
       };
       this.entries.set(key, entry);
     }
@@ -411,9 +440,17 @@ export class WorkspaceFileIndexService {
     }
   }
 
-  private async build(entry: FolderIndex, generation: number): Promise<void> {
-    entry.files.clear();
-    entry.directories.clear();
+  /**
+   * Walk `entry`'s folder into `into` — the entry itself for a first build, a
+   * staging snapshot for a post-storm rebuild.
+   */
+  private async build(
+    entry: FolderIndex,
+    generation: number,
+    into: FolderSnapshot = entry,
+  ): Promise<void> {
+    into.files.clear();
+    into.directories.clear();
 
     // Parse into a LOCAL first, then publish behind the generation check.
     // `ignoreFiles` is read by `isExcluded()` on every watcher create/change
@@ -430,7 +467,7 @@ export class WorkspaceFileIndexService {
       parsed = [];
     }
     if (entry.generation !== generation) return;
-    entry.ignoreFiles = parsed;
+    into.ignoreFiles = parsed;
 
     // Path-only, batched, yielding. The ignore files are handed over rather
     // than re-parsed: they are the same set, and re-reading every ignore file
@@ -443,7 +480,7 @@ export class WorkspaceFileIndexService {
       // between batches, so an eviction can land at any point inside it.
       if (entry.generation !== generation) return;
       for (const filePath of batch) {
-        this.addFileEntry(entry, filePath);
+        this.addFileEntry(entry, filePath, into);
       }
     }
   }
@@ -589,6 +626,7 @@ export class WorkspaceFileIndexService {
    */
   private teardownEntry(entry: FolderIndex): void {
     entry.generation++;
+    this.clearStorm(entry);
     this.disposeWatcher(entry);
     entry.files.clear();
     entry.directories.clear();
@@ -631,6 +669,8 @@ export class WorkspaceFileIndexService {
     // Defensive: teardown disposes, but never let a second watcher be armed
     // over a live one.
     this.disposeWatcher(entry);
+    this.clearStorm(entry);
+    entry.stormBreaker = createStormBreaker();
     try {
       const watcher = this.fsProvider.createFileWatcher('**/*', {
         exclude: [...DEFAULT_WORKSPACE_EXCLUDES],
@@ -641,16 +681,22 @@ export class WorkspaceFileIndexService {
       // had in flight must not patch an entry that has been torn down. The gate
       // here is necessary but NOT sufficient for the async handlers — they
       // await inside, so they re-check at their write. See `onCreate`.
+      //
+      // Then the storm gate: during a storm an event costs one counter and is
+      // dropped before `isExcluded` (and its awaited ignore check) ever runs.
       watcher.onDidCreate((p) => {
         if (entry.generation !== generation) return;
+        if (!this.admitEvent(entry, generation)) return;
         void this.onCreate(entry, generation, p);
       });
       watcher.onDidChange((p) => {
         if (entry.generation !== generation) return;
+        if (!this.admitEvent(entry, generation)) return;
         void this.onChange(entry, generation, p);
       });
       watcher.onDidDelete((p) => {
         if (entry.generation !== generation) return;
+        if (!this.admitEvent(entry, generation)) return;
         this.onDelete(entry, p);
       });
     } catch (error: unknown) {
@@ -661,6 +707,126 @@ export class WorkspaceFileIndexService {
         error,
       );
     }
+  }
+
+  /**
+   * Count one watcher event and say whether it may be processed.
+   *
+   * A mass delete or checkout (the 2026-09-14 incident removed ten ~7,400-file
+   * worktrees) otherwise runs `isExcluded` — an awaited ignore check — and a
+   * map write per file. Above the breaker's rate the index stops patching and
+   * rebuilds ONCE from a path-only walk after the storm ends, which is cheaper
+   * than the per-event work and cannot miss an event the watcher dropped.
+   */
+  private admitEvent(entry: FolderIndex, generation: number): boolean {
+    switch (entry.stormBreaker.record(Date.now())) {
+      case 'normal':
+        return true;
+      case 'entered':
+        this.logger.warn(
+          '[WorkspaceFileIndex] event storm entered; pausing live updates until it ends',
+          { root: entry.root },
+        );
+        this.armStormTimer(entry, generation);
+        return false;
+      case 'storming':
+        return false;
+    }
+  }
+
+  /** (Re-)arms the exit check for the earliest moment the storm could end. */
+  private armStormTimer(entry: FolderIndex, generation: number): void {
+    const delay = entry.stormBreaker.msUntilNextPoll(Date.now());
+    if (delay === undefined) return;
+    if (entry.stormTimer) clearTimeout(entry.stormTimer);
+    entry.stormTimer = setTimeout(() => {
+      entry.stormTimer = undefined;
+      if (entry.generation !== generation) return;
+      switch (entry.stormBreaker.poll(Date.now())) {
+        case 'storming':
+          this.armStormTimer(entry, generation);
+          return;
+        case 'exited': {
+          const stats = entry.stormBreaker.stats();
+          this.logger.warn(
+            '[WorkspaceFileIndex] event storm exited; rebuilding the index once',
+            {
+              root: entry.root,
+              reason: stats.lastExitReason,
+              durationMs: stats.lastStormDurationMs,
+              events: stats.stormEvents,
+            },
+          );
+          this.rebuildAfterStorm(entry, generation);
+          return;
+        }
+        case 'idle':
+          return;
+      }
+    }, delay);
+  }
+
+  /**
+   * One path-only rebuild of a folder whose storm events were dropped.
+   *
+   * The watcher stays armed (re-arming chokidar is a walk of its own), so this
+   * reuses `build` under the SAME generation rather than `doStart`. The walk
+   * fills a staging snapshot while queries keep serving the previous one;
+   * watcher events that land meanwhile patch both, and success swaps the
+   * staging maps in synchronously. A failed rebuild keeps the previous
+   * snapshot. A storm that ends while a rebuild is running queues exactly one
+   * more, which runs whether the current one succeeds or fails.
+   *
+   * Temporary by design: Batch 11 moves recursive watching onto the batched
+   * `IWorkspaceWatcher` port and replaces this path.
+   */
+  private rebuildAfterStorm(entry: FolderIndex, generation: number): void {
+    if (entry.stormStaging) {
+      entry.stormRebuildQueued = true;
+      return;
+    }
+    const staging: FolderSnapshot = {
+      files: new Map(),
+      directories: new Map(),
+      ignoreFiles: [],
+    };
+    entry.stormStaging = staging;
+    const startedAt = Date.now();
+    void this.build(entry, generation, staging)
+      .then(
+        () => {
+          if (entry.generation !== generation) return;
+          entry.files = staging.files;
+          entry.directories = staging.directories;
+          entry.ignoreFiles = staging.ignoreFiles;
+          this.logger.info(
+            `[WorkspaceFileIndex] Rebuilt after event storm: ${entry.files.size} files, ${entry.directories.size} directories`,
+            { root: entry.root, durationMs: Date.now() - startedAt },
+          );
+        },
+        (error: unknown) => {
+          if (entry.generation !== generation) return;
+          this.logger.error(
+            '[WorkspaceFileIndex] Rebuild after event storm failed (keeping the previous snapshot)',
+            error,
+          );
+        },
+      )
+      .finally(() => {
+        if (entry.generation !== generation) return;
+        entry.stormStaging = undefined;
+        if (!entry.stormRebuildQueued) return;
+        entry.stormRebuildQueued = false;
+        this.rebuildAfterStorm(entry, generation);
+      });
+  }
+
+  /** Cancel a pending storm exit and forget any in-flight or queued rebuild. */
+  private clearStorm(entry: FolderIndex): void {
+    if (entry.stormTimer) clearTimeout(entry.stormTimer);
+    entry.stormTimer = undefined;
+    entry.stormStaging = undefined;
+    entry.stormRebuildQueued = false;
   }
 
   /**
@@ -684,7 +850,7 @@ export class WorkspaceFileIndexService {
     if (entry.files.has(absPath)) return;
     if (await this.isExcluded(entry, absPath)) return;
     if (entry.generation !== generation) return;
-    this.addFileEntry(entry, absPath);
+    this.addLiveFileEntry(entry, absPath);
   }
 
   private async onChange(
@@ -697,11 +863,12 @@ export class WorkspaceFileIndexService {
     if (entry.files.has(absPath)) return;
     if (await this.isExcluded(entry, absPath)) return;
     if (entry.generation !== generation) return;
-    this.addFileEntry(entry, absPath);
+    this.addLiveFileEntry(entry, absPath);
   }
 
   private onDelete(entry: FolderIndex, absPath: string): void {
     entry.files.delete(absPath);
+    entry.stormStaging?.files.delete(absPath);
     // Directory entries are derived from surviving files; a stale directory
     // entry is harmless for autocomplete and cheaper than pruning on every
     // unlink. Directory deletes surface as file unlinks per child.
@@ -711,11 +878,15 @@ export class WorkspaceFileIndexService {
    * Add a file entry plus its ancestor directory entries (derived from the
    * path, so they inherit the file's not-ignored status for free).
    */
-  private addFileEntry(entry: FolderIndex, absPath: string): void {
+  private addFileEntry(
+    entry: FolderIndex,
+    absPath: string,
+    into: FolderSnapshot = entry,
+  ): void {
     const relativePath = path.relative(entry.root, absPath);
     const fileName = path.basename(absPath);
     const directory = path.dirname(absPath);
-    entry.files.set(absPath, {
+    into.files.set(absPath, {
       path: absPath,
       relativePath,
       fileName,
@@ -723,10 +894,22 @@ export class WorkspaceFileIndexService {
       fileType: detectFileType(fileName),
       isDirectory: false,
     });
-    this.addAncestorDirectories(entry, absPath);
+    this.addAncestorDirectories(entry, absPath, into);
   }
 
-  private addAncestorDirectories(entry: FolderIndex, absPath: string): void {
+  /** A watcher add: the live snapshot, plus a rebuild's staging one if any. */
+  private addLiveFileEntry(entry: FolderIndex, absPath: string): void {
+    this.addFileEntry(entry, absPath);
+    if (entry.stormStaging) {
+      this.addFileEntry(entry, absPath, entry.stormStaging);
+    }
+  }
+
+  private addAncestorDirectories(
+    entry: FolderIndex,
+    absPath: string,
+    into: FolderSnapshot,
+  ): void {
     // Derive ancestor dirs from the RELATIVE path so we never mix the
     // workspace root's native separators/drive with the POSIX separators
     // fast-glob emits. Each ancestor inherits the file's not-ignored status.
@@ -738,8 +921,8 @@ export class WorkspaceFileIndexService {
     for (const segment of segments) {
       soFar.push(segment);
       const absDir = path.join(entry.root, ...soFar);
-      if (entry.directories.has(absDir)) continue;
-      entry.directories.set(absDir, {
+      if (into.directories.has(absDir)) continue;
+      into.directories.set(absDir, {
         path: absDir,
         relativePath: path.relative(entry.root, absDir),
         fileName: segment,
@@ -877,6 +1060,11 @@ export class WorkspaceFileIndexService {
     this.folderChangeSubscription = undefined;
     this.folderChangeSubscribed = false;
   }
+}
+
+/** Breaker with the default thresholds, overridable through `PTAH_WATCH_STORM_*`. */
+function createStormBreaker(): EventStormBreaker {
+  return new EventStormBreaker(readEventStormBreakerOptionsFromEnv(process.env));
 }
 
 /**

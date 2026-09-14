@@ -1072,3 +1072,177 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
     expect(service.search('recovered', 10)).toHaveLength(1);
   });
 });
+
+/**
+ * TASK_2026_437 INV-6 — an event storm degrades to "one rebuild later", never
+ * to per-event work. The 2026-09-14 freeze delivered tens of thousands of
+ * delete events from ten removed worktrees; each ran an awaited ignore check
+ * and a map write on the Electron main thread.
+ *
+ * Fake timers also fake `Date.now`, the breaker's clock. `setImmediate` stays
+ * real so `flush()` can settle the async handlers and the rebuild.
+ */
+describe('WorkspaceFileIndexService — event storm breaker (TASK_2026_437)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  /** Fire `count` create events, 10 per fake millisecond (10,000 per second). */
+  function createStorm(
+    watcher: FakeWatcher,
+    count: number,
+    pathFor: (i: number) => string,
+  ): void {
+    for (let i = 0; i < count; i++) {
+      watcher.fireCreate(pathFor(i));
+      if (i % 10 === 9) jest.advanceTimersByTime(1);
+    }
+  }
+
+  it('10,000 events in 1 s stop per-event work and trigger exactly one path-only rebuild after quiet', async () => {
+    const { service, watchers, indexer, ignoreResolver, logger, files } =
+      makeHarness({
+        parsedIgnoreFiles: [{ patterns: [] }],
+      });
+    await service.start(ROOT);
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(1);
+    ignoreResolver.isIgnored.mockClear();
+
+    createStorm(watchers[0], 10_000, (i) => abs(`gen/f-${i}.ts`));
+    await flush();
+
+    // Per-event work stopped once the storm was entered: at most the events
+    // before entry reached the ignore check, never all 10,000.
+    const checked = ignoreResolver.isIgnored.mock.calls.length;
+    expect(checked).toBeGreaterThan(0);
+    expect(checked).toBeLessThanOrEqual(500);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[WorkspaceFileIndex] event storm entered; pausing live updates until it ends',
+      { root: ROOT },
+    );
+
+    // The files now on disk, which the rebuild must pick up.
+    for (let i = 0; i < 10_000; i++) files.push(abs(`gen/f-${i}.ts`));
+
+    // Inside the quiet window: no rebuild yet.
+    jest.advanceTimersByTime(1_900);
+    await flush();
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(1);
+
+    jest.advanceTimersByTime(10_000);
+    await flush();
+    await flush();
+
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+    expect(service.isReady()).toBe(true);
+    expect(service.fileCount).toBe(4 + 10_000);
+    // The watcher was kept: a rebuild does not re-arm chokidar.
+    expect(watchers).toHaveLength(1);
+    expect(watchers[0].disposed).toBe(false);
+
+    // Live updates resume after the storm.
+    ignoreResolver.isIgnored.mockClear();
+    watchers[0].fireCreate(abs('src/after-storm.ts'));
+    await flush();
+    expect(service.search('after-storm', 10)).toHaveLength(1);
+  });
+
+  it('dispose during a storm cancels the pending rebuild', async () => {
+    const { service, watchers, indexer } = makeHarness();
+    await service.start(ROOT);
+
+    createStorm(watchers[0], 2_000, (i) => abs(`gen/f-${i}.ts`));
+    service.dispose();
+
+    jest.advanceTimersByTime(60_000);
+    await flush();
+
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps serving the previous snapshot during the rebuild and swaps the new one in at the end', async () => {
+    let releaseRebuild!: () => void;
+    const rebuildGate = new Promise<void>((resolve) => {
+      releaseRebuild = resolve;
+    });
+    const { service, watchers, indexer, files } = makeHarness();
+    await service.start(ROOT);
+
+    createStorm(watchers[0], 2_000, (i) => abs(`gen/f-${i}.ts`));
+    files.push(abs('gen/rebuilt.ts'));
+    const original = indexer.discoverWorkspacePaths.getMockImplementation();
+    indexer.discoverWorkspacePaths.mockImplementationOnce(async function* (
+      options,
+    ) {
+      await rebuildGate;
+      if (original) yield* original(options);
+    });
+
+    jest.advanceTimersByTime(5_000);
+    await flush();
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+
+    // Mid-rebuild: the previous snapshot is fully queryable, never empty.
+    expect(service.isReady()).toBe(true);
+    expect(service.search('auth', 10)).toHaveLength(1);
+    expect(service.search('rebuilt', 10)).toHaveLength(0);
+
+    // A live event during the rebuild lands in both snapshots.
+    watchers[0].fireCreate(abs('src/during-rebuild.ts'));
+    await flush();
+    expect(service.search('during-rebuild', 10)).toHaveLength(1);
+
+    releaseRebuild();
+    await flush();
+    await flush();
+    expect(service.search('rebuilt', 10)).toHaveLength(1);
+    expect(service.search('auth', 10)).toHaveLength(1);
+    expect(service.search('during-rebuild', 10)).toHaveLength(1);
+  });
+
+  it('a queued rebuild still runs when the rebuild ahead of it fails, and a failure keeps the old snapshot', async () => {
+    let failRebuild!: () => void;
+    const failGate = new Promise<void>((resolve) => {
+      failRebuild = resolve;
+    });
+    const { service, watchers, indexer, files, logger } = makeHarness();
+    await service.start(ROOT);
+    indexer.discoverWorkspacePaths.mockImplementationOnce(
+      // eslint-disable-next-line require-yield
+      async function* () {
+        await failGate;
+        throw new Error('walk failed');
+      },
+    );
+
+    // Storm 1 → rebuild 1 starts and parks.
+    createStorm(watchers[0], 2_000, (i) => abs(`gen/a-${i}.ts`));
+    jest.advanceTimersByTime(5_000);
+    await flush();
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+
+    // Storm 2 ends while rebuild 1 is still running → queued.
+    createStorm(watchers[0], 2_000, (i) => abs(`gen/b-${i}.ts`));
+    jest.advanceTimersByTime(5_000);
+    await flush();
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+
+    files.push(abs('gen/after-failure.ts'));
+    failRebuild();
+    await flush();
+    await flush();
+    await flush();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      '[WorkspaceFileIndex] Rebuild after event storm failed (keeping the previous snapshot)',
+      expect.any(Error),
+    );
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(3);
+    expect(service.search('after-failure', 10)).toHaveLength(1);
+    expect(service.search('auth', 10)).toHaveLength(1);
+  });
+});

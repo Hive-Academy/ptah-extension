@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 56 | Batches: 22 | Complete: 4/22
+Total tasks: 56 | Batches: 22 | Complete: 5/22
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (commit recorded in its header). Batch 4 IN_PROGRESS.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (commit recorded in its header). Next unblocked: Batch 6 (P1 wave 3); P2 wave 1 Batches 7, 12, 13, 14; P3 wave 1 Batch 16.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `context.md` "User decisions"
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -273,7 +273,20 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ---
 
-## Batch 4: P1 — git watcher hardening + batched `file:content-changed` + file-index breaker (C3, C5) — IN_PROGRESS
+## Batch 4: P1 — git watcher hardening + batched `file:content-changed` + file-index breaker (C3, C5) — COMPLETE
+
+- Commit: the commit whose subject is `fix(electron): stop per-event watcher work during file-system storms and batch content pushes` (a commit cannot hold its own SHA; resolve it with `git log --oneline --grep "stop per-event watcher work"`)
+- Reviews: `b4-code-logic-review.md` (base APPROVE_WITH_FIXES, delta APPROVE_WITH_FIXES), `b4-code-style-review.md` (APPROVED). Every review fix applied. The three delta items (degradation-audit marker placement, CLAUDE.md first-build scope, max-wait comment counts) were comment/doc-only and applied by team-leader on orchestrator instruction.
+- Evidence (worktree `D:\projects\ptah-437`, 2026-09-14): `npx nx run-many -t test,typecheck,lint -p ptah-electron @ptah-extension/shared @ptah-extension/git-ui @ptah-extension/workspace-intelligence` — 4 projects, exit 0. Tests: shared 1512, git-ui 343, ptah-electron 584 (+4 skipped), workspace-intelligence 1030. Typecheck and lint 0 errors (warnings only). `ptah-extension-webview` typecheck+lint exit 0. `degradation-audit` (`check-degradation.ts`): `apps/ptah-electron: 4 ok (baseline 4)`, exit 0.
+- Accepted deviations:
+  - Post-storm file-index rebuild uses an atomic `FolderSnapshot` swap (staging snapshot filled while queries serve the previous one) instead of marking the index stale.
+  - Runtime-discovered nested repo roots do not expire until restart (a deleted nested repo stays excluded).
+  - A `.git/worktrees` root event also triggers the nested-roots refresh (addition beyond the plan).
+  - Early-event blind spot: events inside a freshly created nested repo that arrive before its `.git` entry is seen are processed normally; documented in the service header.
+- Deferred follow-ups:
+  - FU-4a: the storm-exit loop is duplicated between `GitWatcherService` and `WorkspaceFileIndexService`. Batch 11's coalescer MUST remove both copies.
+  - FU-4b: `diff-tabs.service.ts` is over the 700-line soft ceiling; split under the facade rule in a later task.
+  - FU-4c: first-build readiness gap — a direct `search()` before the first build completes sees an empty index (callers must use `ensureReadyFor`). Close in Batch 11.
 
 - Recommended executor: backend-developer (Task 4.3 renderer half; fallback frontend-developer for that task only, same batch, same commit)
 - Fallback executor: backend-developer then frontend-developer sequentially in one batch
@@ -281,7 +294,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Rationale: the payload type change breaks the git-ui compile unless producer and consumer land together (R-P2). Tightly coupled cross-file change.
 - Tasks: 4 | Depends on: Batch 2, Batch 3
 
-### Task 4.1: `GitWatcherService` exclusion, nested roots, breaker, single content timer — PENDING
+### Task 4.1: `GitWatcherService` exclusion, nested roots, breaker, single content timer — COMPLETE
 
 - Files: `D:\projects\ptah-extension\apps\ptah-electron\src\services\git-watcher.service.ts`, `D:\projects\ptah-extension\apps\ptah-electron\src\services\git-watcher.service.spec.ts`
 - Plan reference: implementation-plan.md:280-314
@@ -290,20 +303,20 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Validation notes: nested-root detection runs BEFORE the `.git` segment filter. A `getWorktrees` failure keeps the static rules and warns once. Exit or `maxStormMs` always issues exactly 1 `refreshGitInfo` plus 1 truncated push. `.claude\commands\x.md` still schedules.
 - Implementation details: the per-path timer map (`:68-71,115,512-551`) is replaced by a `Set` capped at 256 with `truncated`, one 500 ms debounce and a 2000 ms max-wait. `fetchAndPush` calls `refreshGitInfo` and no longer `invalidateReadCache`. A `.git\worktrees` directory watch refreshes `NestedRepoRoots`. Storm enter/exit `warn` lines. The breaker is imported from `@ptah-extension/platform-core`. The storm-exit check is ONE timer armed from `EventStormBreaker.msUntilNextPoll(now)` (re-armed after each `poll` that returns `'storming'`), not a fixed-interval poll; this is the consumer that justifies `msUntilNextPoll` (Batch 2 style review). Seed nested-repo matching with `NestedRepoRoots.fromWorktreeList` + `nestedRepoRootOf` (their first production callers). Expect repeated enter/exit warn pairs, one per `maxStormMs`, during a storm that never quiets (by design; Batch 2 logic review minor).
 
-### Task 4.2: `FileContentChangedPayload` batch shape — PENDING
+### Task 4.2: `FileContentChangedPayload` batch shape — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\shared\src\lib\types\messages\payload-map.ts` (:133-137)
 - Plan reference: implementation-plan.md:348-366
 - Validation notes: run `ptah_lsp_references` on `FileContentChangedPayload` first. The only producer is `git-watcher.service.ts:531` and the only consumer is `diff-tabs.service.ts:184` (verified by grep).
 - Implementation details: `{ filePaths: readonly string[]; truncated: boolean }` with forward-slash absolute paths. Replaces `filePath` in place.
 
-### Task 4.3: `DiffTabsService` batch consumer — PENDING
+### Task 4.3: `DiffTabsService` batch consumer — COMPLETE
 
 - Depends on: Task 4.2
 - Files: `D:\projects\ptah-extension\libs\frontend\git-ui\src\lib\services\diff-tabs.service.ts` (:169,184,366-382), `D:\projects\ptah-extension\libs\frontend\git-ui\src\lib\services\diff-tabs.service.spec.ts`
 - Implementation details: build a key set once per push and refresh matching tabs. `truncated` triggers one debounced full revalidation via the `onGitStatusUpdate` debounce (`:344-360`). Empty and not truncated is ignored.
 
-### Task 4.4: File-index watcher breaker adoption (P1 INV-6) — PENDING
+### Task 4.4: File-index watcher breaker adoption (P1 INV-6) — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\file-indexing\workspace-file-index.service.ts` (:630-664, :685-698), `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\file-indexing\workspace-file-index.service.spec.ts`
 - Plan reference: implementation-plan.md:101-106 (INV-6 P1), :894-898 (P1-B)
@@ -319,7 +332,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ## Batch 5: P1 — crash / hang observability (C6) — COMPLETE
 
-- Commit: the commit whose subject is `feat(electron): record renderer and process deaths, hangs and local crash dumps` (a commit cannot hold its own SHA; resolve it with `git log --oneline --grep "record renderer and process deaths"`)
+- Commit: bf247ed3c `feat(electron): record renderer and process deaths, hangs and local crash dumps`
 - Recommended executor: backend-developer
 - Fallback executor: CLI lanes x2 (Task 5.1 app side vs Tasks 5.2–5.3 vscode-core side are file-disjoint)
 - Execution mode: sequential
