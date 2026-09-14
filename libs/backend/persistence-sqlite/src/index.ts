@@ -61,6 +61,8 @@ export type {
   IntegrityWorkerOutbound,
 } from './lib/integrity/integrity-worker-protocol';
 export {
+  BACKUP_DESTINATION_EXISTS,
+  BACKUP_STAGING_EXISTS,
   classifyQuickCheck,
   isIntegrityCheckRequest,
   isBackupRequest,

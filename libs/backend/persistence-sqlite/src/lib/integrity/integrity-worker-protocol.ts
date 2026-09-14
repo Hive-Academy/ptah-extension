@@ -50,15 +50,14 @@ export interface IntegrityCheckRequest {
 }
 
 /**
- * Ask the worker to copy a database to `destPath` via the better-sqlite3
- * Online Backup API, lock the artifact down, and validate the copy.
+ * Ask the worker to copy a database into `stagingPath` via the better-sqlite3
+ * Online Backup API, lock and validate it, then publish it at `destPath`.
  *
  * `destPath` IS COMPUTED ON THE HOST. Deriving it needs the backup kind, the
  * per-kind directory and prefix rules and the rotation table
  * (`backup.service.ts`), none of which may enter this file: the worker has to
- * stay a leaf that imports only this module. So the host names the file and
- * the worker only checks that the name is one it is allowed to write —
- * see `validateBackupDestination`.
+ * stay a leaf that imports only this module. The host names final and staging;
+ * the worker validates both and enforces their same-directory suffix relation.
  *
  * A-1 (TASK_2026_383 Batch 6, measured on better-sqlite3 12.10.0): a
  * connection opened `{ readonly: true, fileMustExist: true }` CAN call
@@ -73,10 +72,16 @@ export interface BackupRequest {
   /** Absolute path to the source database. Opened read-only, never written. */
   readonly dbPath: string;
   /**
-   * Absolute path to write the copy to. Host-computed, worker-validated: it
-   * must sit inside `dirname(dbPath)`'s tree and must not be `dbPath` itself.
+   * Absolute final publication path. It is never passed to `backup()` and is
+   * never unlinked by a failed attempt; `linkSync` publishes without overwrite.
    */
   readonly destPath: string;
+  /**
+   * Same-directory, host-randomized work file. The worker creates it with
+   * exclusive semantics, validates it, then publishes it to `destPath` with an
+   * atomic no-overwrite hard link.
+   */
+  readonly stagingPath: string;
 }
 
 export type IntegrityWorkerInbound = IntegrityCheckRequest | BackupRequest;
@@ -125,19 +130,16 @@ export interface IntegrityErrorResponse {
  * is the absence of `type`), because adding a discriminant there would ripple
  * through the shipped check path for no gain.
  *
- * `bytesWritten` IS THE ARTIFACT SIGNAL: it is non-zero if and only if a file
- * survives at `destPath`. Every path on which the worker removes the artifact —
- * a partial copy, a failed lockdown, a `'corrupt'` verdict — reports `0`. A
- * `'unavailable'` verdict with a non-zero `bytesWritten` means the copy itself
- * completed but could not be validated, and the file was KEPT: destroying an
- * unvalidatable backup would be a worse failure than the one it reports.
+ * `bytesWritten` is non-zero only after a validated staging copy is published
+ * at `destPath`. Corrupt, unavailable and collision outcomes remove staging and
+ * report zero; no failed outcome unlinks the final destination.
  */
 export interface BackupResponse {
   readonly id: number;
   readonly type: 'backup';
   readonly ok: true;
   readonly verdict: IntegrityVerdict;
-  /** Size of the surviving artifact in bytes; `0` when nothing was left. */
+  /** Size of the published final; `0` when no final was published. */
   readonly bytesWritten: number;
   /** Wall-clock cost of copy + lockdown + validation, in ms. */
   readonly durationMs: number;
@@ -146,6 +148,12 @@ export interface BackupResponse {
   /** Why the verdict is not `'ok'`; `null` on a clean backup. */
   readonly detail: string | null;
 }
+
+/** Stable detail returned when the worker refuses an existing destination. */
+export const BACKUP_DESTINATION_EXISTS = 'backup destination already exists';
+
+/** Stable detail returned when exclusive staging creation loses a collision. */
+export const BACKUP_STAGING_EXISTS = 'backup staging path already exists';
 
 /**
  * Everything a `check` command can answer with — narrower than
@@ -203,27 +211,31 @@ export function isBackupRequest(msg: unknown): msg is BackupRequest {
     typeof candidate.dbPath === 'string' &&
     candidate.dbPath.length > 0 &&
     typeof candidate.destPath === 'string' &&
-    candidate.destPath.length > 0
+    candidate.destPath.length > 0 &&
+    typeof candidate.stagingPath === 'string' &&
+    candidate.stagingPath.length > 0
   );
 }
 
 /**
- * Decide whether the worker is allowed to write `destPath`. PURE, and unit
+ * Decide whether a worker path is contained within the database tree. PURE, and unit
  * tested as such. Returns `null` when the destination is acceptable, otherwise
  * the reason, which the caller reports verbatim as the response `detail`.
  *
- * The worker receives this path over IPC and then CREATES A FILE AT IT, so it
- * is an external boundary in the fullest sense. Four rules, each closing a
- * distinct hole:
+ * The worker receives final and staging paths over IPC, so both are external
+ * boundaries in the fullest sense. Four rules, each closing a distinct hole:
  *
  *   1. both paths absolute — a relative path would resolve against whatever
  *      cwd the host happened to fork the worker with;
  *   2. `destPath` is not `dbPath` — `backup()` onto its own source would
  *      destroy the live database this whole subsystem exists to protect;
  *   3. `destPath` resolves strictly inside `dirname(dbPath)` — the real
- *      destinations are `<dbDir>/<name>.pre-migration-*.sqlite` and
- *      `<dbDir>/backups/<name>-*.sqlite`, so one containment rule covers both
- *      kinds while `..` traversal and an unrelated absolute path are refused;
+ *      destinations are
+ *      `<dbDir>/<name>.pre-migration-<YYYYMMDDTHHMMSSmmmZ>-<hex>.sqlite`,
+ *      `<dbDir>/<name>.reset-<YYYYMMDDTHHMMSSmmmZ>-<hex>.sqlite`, and
+ *      `<dbDir>/backups/<name>-<YYYY-MM-DD>.sqlite`, so one containment rule
+ *      covers every kind while `..` traversal and an unrelated absolute path
+ *      are refused;
  *   4. `destPath` is not the database directory itself.
  *
  * `path.relative` returns an ABSOLUTE path when the two arguments are on
@@ -285,6 +297,9 @@ export interface BackupArtifactFs {
   existsSync(target: string): boolean;
   mkdirSync(target: string, options: { recursive: true }): void;
   chmodSync(target: string, mode: number): void;
+  openSync(target: string, flags: string): number;
+  closeSync(fd: number): void;
+  linkSync(existingPath: string, newPath: string): void;
   unlinkSync(target: string): void;
   rmdirSync(target: string): void;
   realpathSync(target: string): string;
@@ -412,26 +427,16 @@ export function restrictBackupFile(
 }
 
 /**
- * The WAL sidecars SQLite creates beside a database file. They matter to
- * cleanup because rotation selects by FILENAME PREFIX
- * (`backup.service.ts`'s `prefixFor`), and `ptah-2026-09-06.sqlite-wal` carries
- * the same prefix as `ptah-2026-09-06.sqlite` while sorting after it — so a
- * stray sidecar takes a rotation slot and evicts a real backup exactly the way
- * a partial file would.
+ * The WAL sidecars SQLite may create beside the read-write validation handle.
+ * They are removed before hard-link publication and on every staging cleanup;
+ * rotation's strict `.sqlite` filter never counts them as retained backups.
  */
 const WAL_SIDECAR_SUFFIXES = ['-wal', '-shm'] as const;
 
 /**
- * Best-effort removal of a backup artifact — and its WAL sidecars — that must
- * not survive the call. NEVER THROWS: it runs on the failure path, where a
- * second failure has nothing left to report to.
- *
- * Without this a partial file — `backup()` died mid-copy, or the lockdown
- * failed on a fully written one — takes the NEWEST rotation slot and evicts a
- * good backup on the next rotate. That is the invariant
- * `backup.service.ts` states as "a failed backup leaves NO artifact behind",
- * and moving the copy into the worker without moving the cleanup would quietly
- * drop it.
+ * Best-effort removal of an attempt-owned staging artifact and its WAL sidecars.
+ * NEVER THROWS: it runs on failure paths where cleanup must not replace the
+ * original result. Callers never pass a final destination to this helper.
  */
 export function removeBackupArtifact(
   fs: BackupArtifactFs,
@@ -476,24 +481,21 @@ export interface BackupEnvironment {
   /** Open the SOURCE. Read-only: this connection must never write. */
   openSource(dbPath: string): BackupSourceDatabase;
   /**
-   * Open the finished COPY. Read-WRITE — a read-only open cannot checkpoint on
+   * Open the finished STAGING COPY. Read-WRITE — a read-only open cannot
+   * checkpoint on
    * close and leaves `-wal`/`-shm` sidecars that take rotation slots. See
    * `integrity-worker.ts`'s `openForValidation`.
    */
   openCopy(destPath: string): BackupValidationDatabase;
   now(): number;
   /**
-   * Destinations with a backup in flight. SINGLE-FLIGHT PER DESTINATION: two
-   * requests naming the same `destPath` would interleave one's
-   * `removeBackupArtifact` with the other's in-progress `backup()`, and the
-   * worker dispatches every inbound message immediately with no queue. Owned by
-   * the caller so it is process-scoped in the worker and per-test in a spec,
-   * rather than hidden module state shared by both.
+   * Final destinations with a backup in flight. This avoids duplicate work
+   * inside one worker; atomic hard-link publication is the cross-process guard.
    */
   readonly inFlight: Set<string>;
 }
 
-/** Build a `'unavailable'` response. No artifact survives one. */
+/** Build a zero-byte `'unavailable'` response for an attempt that wrote none. */
 function backupUnavailable(
   id: number,
   startedAt: number,
@@ -514,6 +516,26 @@ function backupUnavailable(
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'EEXIST'
+  );
+}
+
+function removeBackupSidecars(fs: BackupArtifactFs, target: string): void {
+  for (const suffix of WAL_SIDECAR_SUFFIXES) {
+    const sidecar = `${target}${suffix}`;
+    try {
+      if (fs.existsSync(sidecar)) fs.unlinkSync(sidecar);
+    } catch {
+      // The caller verifies that both sidecars are gone before publishing.
+    }
+  }
 }
 
 /**
@@ -557,8 +579,8 @@ function validateCopy(
 }
 
 /**
- * THE `backup` COMMAND. Copy the database to `destPath`, lock the artifact
- * down, and validate the copy.
+ * THE `backup` COMMAND. Copy into an exclusively-created staging file, lock and
+ * validate it, then atomically publish it to `destPath` without overwriting.
  *
  * This lives in the protocol module rather than in `integrity-worker.ts`
  * because the worker ENTRY cannot be imported in Jest — it subscribes to a
@@ -576,11 +598,11 @@ function validateCopy(
  * `'corrupt'` is reserved for `quick_check` having run ON THE COPY and answered
  * something other than `ok`.
  *
- * Ordering is load-bearing. Both containment checks run BEFORE anything is
- * created, so a rejected path is never a path this function unlinks; and
- * `artifactExists` flips the instant `backup()` is called, so every later
- * failure — including a failed lockdown on a fully written file — removes the
- * artifact rather than leaving it to take the newest rotation slot.
+ * Ordering is load-bearing. Both paths pass string and realpath containment
+ * checks before anything is created. The staging file is then reserved with
+ * `openSync(..., 'wx')`; only that attempt-owned path and its sidecars are ever
+ * removed. A validated copy is published with `linkSync(staging, dest)`, whose
+ * EEXIST behavior makes the final-name race atomic across host processes.
  */
 export async function performBackup(
   env: BackupEnvironment,
@@ -600,30 +622,62 @@ export async function performBackup(
   );
   if (realRejection !== null) return fail(realRejection);
 
+  const stagingRejection = validateBackupDestination(
+    request.dbPath,
+    request.stagingPath,
+  );
+  if (stagingRejection !== null) return fail(stagingRejection);
+
+  const realStagingRejection = resolveRealBackupDestination(
+    env.fs,
+    request.dbPath,
+    request.stagingPath,
+  );
+  if (realStagingRejection !== null) return fail(realStagingRejection);
+
+  const stagingSuffix = request.stagingPath.slice(request.destPath.length);
+  if (
+    path.dirname(path.resolve(request.stagingPath)) !==
+      path.dirname(path.resolve(request.destPath)) ||
+    !/^\.[0-9a-f]{8}\.tmp$/.test(stagingSuffix)
+  ) {
+    return fail('stagingPath must be <destPath>.<8 lowercase hex>.tmp');
+  }
+
   const key = path.resolve(request.destPath);
   if (env.inFlight.has(key)) {
     return fail(`a backup to this destination is already in flight: ${key}`);
   }
   env.inFlight.add(key);
 
-  let artifactExists = false;
+  let stagingCreatedByAttempt = false;
   let source: BackupSourceDatabase | null = null;
   try {
+    ensureBackupDirectory(env.fs, request.stagingPath);
+    let stagingFd: number;
+    try {
+      stagingFd = env.fs.openSync(request.stagingPath, 'wx');
+    } catch (error: unknown) {
+      if (isAlreadyExistsError(error)) {
+        return fail(BACKUP_STAGING_EXISTS);
+      }
+      throw error;
+    }
+    stagingCreatedByAttempt = true;
+    env.fs.closeSync(stagingFd);
+
     source = env.openSource(request.dbPath);
     if (typeof source.backup !== 'function') {
+      removeBackupArtifact(env.fs, request.stagingPath);
       return fail('db.backup() is unavailable on this database instance');
     }
 
-    ensureBackupDirectory(env.fs, request.destPath);
-    artifactExists = true;
-    await source.backup(request.destPath);
-    const bytesWritten = restrictBackupFile(env.fs, request.destPath);
+    await source.backup(request.stagingPath);
+    const bytesWritten = restrictBackupFile(env.fs, request.stagingPath);
 
-    const validation = validateCopy(env, request.destPath);
+    const validation = validateCopy(env, request.stagingPath);
     if (validation.verdict === 'corrupt') {
-      // A DEFINITE bad answer about the copy. Keeping it would let a known-bad
-      // file win the newest rotation slot.
-      removeBackupArtifact(env.fs, request.destPath);
+      removeBackupArtifact(env.fs, request.stagingPath);
       return {
         id: request.id,
         type: 'backup',
@@ -636,23 +690,51 @@ export async function performBackup(
       };
     }
 
-    // `'unavailable'` here means the COPY COMPLETED but could not be validated.
-    // The file is kept and said to be unvalidated — destroying a backup on an
-    // inconclusive check is a worse failure than the one it would report — so
-    // `bytesWritten` stays non-zero, which is how the caller tells this apart
-    // from every other `'unavailable'`.
+    if (validation.verdict === 'unavailable') {
+      removeBackupArtifact(env.fs, request.stagingPath);
+      return fail(validation.detail ?? 'the staging copy could not be validated');
+    }
+
+    removeBackupSidecars(env.fs, request.stagingPath);
+    if (
+      WAL_SIDECAR_SUFFIXES.some((suffix) =>
+        env.fs.existsSync(`${request.stagingPath}${suffix}`),
+      )
+    ) {
+      removeBackupArtifact(env.fs, request.stagingPath);
+      return fail('atomic publish blocked: staging sidecar cleanup failed');
+    }
+
+    try {
+      env.fs.linkSync(request.stagingPath, request.destPath);
+    } catch (error: unknown) {
+      removeBackupArtifact(env.fs, request.stagingPath);
+      if (isAlreadyExistsError(error)) {
+        return fail(BACKUP_DESTINATION_EXISTS);
+      }
+      return fail(`atomic publish failed: ${describeError(error)}`);
+    }
+
+    try {
+      env.fs.unlinkSync(request.stagingPath);
+    } catch {
+      removeBackupArtifact(env.fs, request.stagingPath);
+    }
+
     return {
       id: request.id,
       type: 'backup',
       ok: true,
-      verdict: validation.verdict,
+      verdict: 'ok',
       bytesWritten,
       durationMs: env.now() - startedAt,
       quickCheck: validation.quickCheck,
-      detail: validation.detail,
+      detail: null,
     };
   } catch (error: unknown) {
-    if (artifactExists) removeBackupArtifact(env.fs, request.destPath);
+    if (stagingCreatedByAttempt) {
+      removeBackupArtifact(env.fs, request.stagingPath);
+    }
     return fail(describeError(error));
   } finally {
     env.inFlight.delete(key);

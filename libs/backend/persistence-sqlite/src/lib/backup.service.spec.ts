@@ -8,11 +8,12 @@
  * so a test drives exactly what production drives.
  *
  * A REAL TEMP DIRECTORY IS USED THROUGHOUT, because the properties under test
- * are filesystem facts: which file survives a failed backup, and what rotation
- * can see. The stub worker writes a small placeholder at `destPath` where the
- * real one would write a copy, which is enough for every one of those.
+ * are filesystem facts: which staging file is cleaned, which final survives,
+ * and what rotation can see. A clean stub reply writes a published placeholder
+ * at `destPath`; failure stubs leave content only at `stagingPath`.
  */
 import 'reflect-metadata';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -36,7 +37,18 @@ import type {
   BackupRequest,
   BackupResponse,
 } from './integrity/integrity-worker-protocol';
+import { BACKUP_DESTINATION_EXISTS } from './integrity/integrity-worker-protocol';
 import { createMockLogger } from './testing/mock-logger';
+
+jest.mock('node:crypto', () => {
+  const actual = jest.requireActual<typeof import('node:crypto')>('node:crypto');
+  return { ...actual, randomBytes: jest.fn(actual.randomBytes) };
+});
+
+function restoreRandomBytes(): void {
+  const actual = jest.requireActual<typeof import('node:crypto')>('node:crypto');
+  jest.mocked(crypto.randomBytes).mockImplementation(actual.randomBytes);
+}
 
 // `chmod` mode bits do not exist on Windows: Node's `chmodSync` there only
 // touches the read-only bit, so `statSync().mode` never reports 0o600. Named to
@@ -122,7 +134,7 @@ function makeHarness(opts?: {
   const requests: BackupRequest[] = [];
   let spawnCount = 0;
 
-  // Default script: the worker writes the copy and reports a clean verdict.
+  // Default script: simulate the worker's validated final publication.
   const script: WorkerScript =
     opts?.script ??
     ((request, respond) => {
@@ -198,7 +210,9 @@ describe('SqliteBackupService.backup — a clean verdict', () => {
     const result = await h.service.backup('pre-migration');
 
     expect(result).not.toBeNull();
-    expect(result).toMatch(/ptah\.pre-migration-\d{8}T\d{6}Z\.sqlite$/);
+    expect(result).toMatch(
+      /ptah\.pre-migration-\d{8}T\d{9}Z-[0-9a-f]{8}\.sqlite$/,
+    );
     expect(result).toContain(h.tmpDir);
     expect(fs.existsSync(result as string)).toBe(true);
   });
@@ -221,12 +235,14 @@ describe('SqliteBackupService.backup — a clean verdict', () => {
 
     expect(h.spawnCount()).toBe(1);
     expect(h.requests).toHaveLength(1);
-    expect(h.requests[0]).toEqual({
+    expect(h.requests[0]).toMatchObject({
       id: 1,
       type: 'backup',
       dbPath: h.dbPath,
       destPath: result,
     });
+    expect(h.requests[0].stagingPath.startsWith(`${String(result)}.`)).toBe(true);
+    expect(h.requests[0].stagingPath).toMatch(/\.[0-9a-f]{8}\.tmp$/);
   });
 
   it('emits an info log on success', async () => {
@@ -246,6 +262,45 @@ describe('SqliteBackupService.backup — a clean verdict', () => {
 
     expect(result).toContain(path.join(h.tmpDir, 'backups'));
     expect(result).toMatch(/ptah-\d{4}-\d{2}-\d{2}\.sqlite$/);
+  });
+
+  it('gives same-millisecond pre-migration and reset calls distinct random destinations', async () => {
+    const isoSpy = jest
+      .spyOn(Date.prototype, 'toISOString')
+      .mockReturnValue('2026-09-14T10:11:12.345Z');
+    let token = 0;
+    jest.mocked(crypto.randomBytes).mockImplementation(((size: number) => {
+        token += 1;
+        return Buffer.alloc(size, token);
+      }) as typeof crypto.randomBytes);
+    try {
+      const h = makeHarness();
+
+      const paths = await Promise.all([
+        h.service.backup('pre-migration'),
+        h.service.backup('pre-migration'),
+        h.service.backup('reset'),
+        h.service.backup('reset'),
+      ]);
+
+      expect(paths.every((candidate) => candidate !== null)).toBe(true);
+      expect(new Set(paths).size).toBe(4);
+      expect(h.requests.map((request) => path.basename(request.destPath))).toEqual([
+        'ptah.pre-migration-20260914T101112345Z-01010101.sqlite',
+        'ptah.pre-migration-20260914T101112345Z-03030303.sqlite',
+        'ptah.reset-20260914T101112345Z-05050505.sqlite',
+        'ptah.reset-20260914T101112345Z-07070707.sqlite',
+      ]);
+      expect(h.requests.map((request) => request.stagingPath)).toEqual([
+        `${paths[0]}.02020202.tmp`,
+        `${paths[1]}.04040404.tmp`,
+        `${paths[2]}.06060606.tmp`,
+        `${paths[3]}.08080808.tmp`,
+      ]);
+    } finally {
+      restoreRandomBytes();
+      isoSpy.mockRestore();
+    }
   });
 
   itPosix(
@@ -305,15 +360,14 @@ describe('SqliteBackupService.backup — no worker factory', () => {
 });
 
 describe("SqliteBackupService.backup — an 'unavailable' verdict", () => {
-  it('returns null and removes the artifact the worker kept', async () => {
-    // The worker deliberately KEEPS a copy it could not validate and reports
-    // `bytesWritten`. This class does not return that path, so the file must
-    // not survive to take the newest rotation slot from a validated backup.
+  it('returns null and removes leftover staging after an unavailable reply', async () => {
+    // The worker normally removes this itself. Leaving it in the stub proves
+    // the host's idempotent staging-only cleanup handles a damaged worker.
     let destPath = '';
     const h = makeHarness({
       script: (request, respond) => {
-        destPath = request.destPath;
-        fs.writeFileSync(request.destPath, 'unvalidated-copy');
+        destPath = request.stagingPath;
+        fs.writeFileSync(request.stagingPath, 'unvalidated-copy');
         respond({
           ...okReply(request, 4096),
           verdict: 'unavailable',
@@ -332,7 +386,7 @@ describe("SqliteBackupService.backup — an 'unavailable' verdict", () => {
   it('emits one critical report carrying the worker detail', async () => {
     const h = makeHarness({
       script: (request, respond) => {
-        fs.writeFileSync(request.destPath, 'unvalidated-copy');
+        fs.writeFileSync(request.stagingPath, 'unvalidated-copy');
         respond({
           ...okReply(request, 4096),
           verdict: 'unavailable',
@@ -351,6 +405,120 @@ describe("SqliteBackupService.backup — an 'unavailable' verdict", () => {
       detail: 'Cannot find module better-sqlite3',
     });
   });
+
+  it('does not discard an artifact when the worker reports a destination collision', async () => {
+    let destPath = '';
+    const h = makeHarness({
+      script: (request, respond) => {
+        destPath = request.destPath;
+        fs.writeFileSync(destPath, 'backup-owned-by-another-host');
+        respond({
+          ...okReply(request, 0),
+          verdict: 'unavailable',
+          quickCheck: '',
+          detail: BACKUP_DESTINATION_EXISTS,
+        });
+      },
+    });
+    const discard = jest.spyOn(
+      h.service as unknown as {
+        discardArtifact(dest: string, kind: 'pre-migration'): void;
+      },
+      'discardArtifact',
+    );
+
+    const result = await h.service.backup('pre-migration');
+
+    expect(result).toBeNull();
+    expect(discard).not.toHaveBeenCalled();
+    expect(fs.readFileSync(destPath, 'utf8')).toBe(
+      'backup-owned-by-another-host',
+    );
+    expect(h.reports).toHaveLength(1);
+    discard.mockRestore();
+  });
+
+  it('returns the daily winner without degradation when atomic publish loses the race', async () => {
+    const h = makeHarness({
+      script: (request, respond) => {
+        fs.mkdirSync(path.dirname(request.destPath), { recursive: true });
+        fs.writeFileSync(request.destPath, 'daily-winner');
+        respond({
+          ...okReply(request, 0),
+          verdict: 'unavailable',
+          quickCheck: '',
+          detail: BACKUP_DESTINATION_EXISTS,
+        });
+      },
+    });
+    const discard = jest.spyOn(
+      h.service as unknown as {
+        discardArtifact(staging: string, kind: 'daily'): void;
+      },
+      'discardArtifact',
+    );
+
+    const result = await h.service.backup('daily');
+
+    expect(result).toBe(h.requests[0].destPath);
+    expect(fs.readFileSync(result as string, 'utf8')).toBe('daily-winner');
+    expect(h.reports).toHaveLength(0);
+    expect(discard).not.toHaveBeenCalled();
+    discard.mockRestore();
+  });
+});
+
+describe('SqliteBackupService.backup — pre-dispatch destination checks', () => {
+  it('leaves a colliding pre-migration file byte-identical and dispatches no worker', async () => {
+    const isoSpy = jest
+      .spyOn(Date.prototype, 'toISOString')
+      .mockReturnValue('2026-09-14T10:11:12.345Z');
+    jest
+      .mocked(crypto.randomBytes)
+      .mockImplementation(((size: number) =>
+        Buffer.alloc(size, 0xaa)) as typeof crypto.randomBytes);
+    try {
+      const h = makeHarness();
+      const dest = path.join(
+        h.tmpDir,
+        'ptah.pre-migration-20260914T101112345Z-aaaaaaaa.sqlite',
+      );
+      const original = Buffer.from('validated-backup-bytes');
+      fs.writeFileSync(dest, original);
+
+      const result = await h.service.backup('pre-migration');
+
+      expect(result).toBeNull();
+      expect(h.spawnCount()).toBe(0);
+      expect(fs.readFileSync(dest)).toEqual(original);
+      expect(h.reports).toHaveLength(1);
+      expect(h.reports[0].code).toBe('database.backup.not-taken');
+    } finally {
+      restoreRandomBytes();
+      isoSpy.mockRestore();
+    }
+  });
+
+  it("returns today's daily backup without a factory or degradation", async () => {
+    const h = makeHarness({ withFactory: false });
+    const today = new Date().toISOString().slice(0, 10);
+    const dest = path.join(h.tmpDir, 'backups', `ptah-${today}.sqlite`);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, 'published-daily-backup');
+
+    const result = await h.service.backup('daily');
+
+    expect(result).toBe(dest);
+    expect(h.spawnCount()).toBe(0);
+    expect(h.reports).toHaveLength(0);
+    expect(
+      h.logger.entries.some(
+        (entry) =>
+          entry.level === 'info' &&
+          entry.message.includes('daily backup for today already exists'),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("SqliteBackupService.backup — a 'corrupt' verdict", () => {
@@ -358,10 +526,10 @@ describe("SqliteBackupService.backup — a 'corrupt' verdict", () => {
     let destPath = '';
     const h = makeHarness({
       script: (request, respond) => {
-        destPath = request.destPath;
+        destPath = request.stagingPath;
         // The real worker unlinks a corrupt copy itself; a leftover here
         // proves this class does not depend on that having happened.
-        fs.writeFileSync(request.destPath, 'bad-copy');
+        fs.writeFileSync(request.stagingPath, 'bad-copy');
         respond({
           ...okReply(request, 0),
           verdict: 'corrupt',
@@ -388,7 +556,7 @@ describe("SqliteBackupService.backup — a 'corrupt' verdict", () => {
     // the degradation tally mean two different things.
     const h = makeHarness({
       script: (request, respond) => {
-        fs.writeFileSync(request.destPath, 'bad-copy');
+        fs.writeFileSync(request.stagingPath, 'bad-copy');
         respond({ ...okReply(request, 0), verdict: 'corrupt' });
       },
     });
@@ -404,8 +572,8 @@ describe('SqliteBackupService.backup — the worker never answers', () => {
     let destPath = '';
     const h = makeHarness({
       script: (request, _respond, exit) => {
-        destPath = request.destPath;
-        fs.writeFileSync(request.destPath, 'partial-copy');
+        destPath = request.stagingPath;
+        fs.writeFileSync(request.stagingPath, 'partial-copy');
         exit();
       },
     });
@@ -421,7 +589,7 @@ describe('SqliteBackupService.backup — the worker never answers', () => {
   it('an unrecognised reply shape is inconclusive, not a verdict', async () => {
     const h = makeHarness({
       script: (request, respond) => {
-        fs.writeFileSync(request.destPath, 'copy');
+        fs.writeFileSync(request.stagingPath, 'copy');
         respond({ id: 1, ok: true, verdict: 'fine' });
       },
     });
@@ -430,11 +598,11 @@ describe('SqliteBackupService.backup — the worker never answers', () => {
   });
 
   it('rotate() does not evict a valid backup after a failed attempt', async () => {
-    // The whole reason cleanup lives in `backup()`: a partial file carries the
-    // NEWEST timestamp, so it would take a keep slot and evict a good backup.
+    // Failed staging is cleaned promptly; rotation also ignores `.tmp` files,
+    // so the retained final remains untouched either way.
     const h = makeHarness({
       script: (request, _respond, exit) => {
-        fs.writeFileSync(request.destPath, 'partial-copy');
+        fs.writeFileSync(request.stagingPath, 'partial-copy');
         exit();
       },
     });
@@ -448,6 +616,27 @@ describe('SqliteBackupService.backup — the worker never answers', () => {
     h.service.rotate('pre-migration', 1);
 
     expect(fs.existsSync(good)).toBe(true);
+  });
+
+  it('an early exit removes staging only and preserves a final won by another host', async () => {
+    let stagingPath = '';
+    let winnerPath = '';
+    const winnerBytes = Buffer.from('validated-winner');
+    const h = makeHarness({
+      script: (request, _respond, exit) => {
+        stagingPath = request.stagingPath;
+        winnerPath = request.destPath;
+        fs.writeFileSync(stagingPath, 'partial-loser');
+        fs.writeFileSync(winnerPath, winnerBytes);
+        exit();
+      },
+    });
+
+    const result = await h.service.backup('pre-migration');
+
+    expect(result).toBeNull();
+    expect(fs.existsSync(stagingPath)).toBe(false);
+    expect(fs.readFileSync(winnerPath)).toEqual(winnerBytes);
   });
 });
 
@@ -465,14 +654,14 @@ describe('SqliteBackupService.backup — sidecar cleanup', () => {
     {
       name: 'a worker that exits before replying',
       script: (request, _respond, exit) => {
-        seedArtifactWithSidecars(request.destPath);
+        seedArtifactWithSidecars(request.stagingPath);
         exit();
       },
     },
     {
       name: "an 'unavailable' verdict",
       script: (request, respond) => {
-        seedArtifactWithSidecars(request.destPath);
+        seedArtifactWithSidecars(request.stagingPath);
         respond({
           ...okReply(request, 4096),
           verdict: 'unavailable',
@@ -483,7 +672,7 @@ describe('SqliteBackupService.backup — sidecar cleanup', () => {
     {
       name: "a 'corrupt' verdict",
       script: (request, respond) => {
-        seedArtifactWithSidecars(request.destPath);
+        seedArtifactWithSidecars(request.stagingPath);
         respond({ ...okReply(request, 0), verdict: 'corrupt' });
       },
     },
@@ -494,7 +683,7 @@ describe('SqliteBackupService.backup — sidecar cleanup', () => {
       let destPath = '';
       const h = makeHarness({
         script: (request, respond, exit) => {
-          destPath = request.destPath;
+          destPath = request.stagingPath;
           script(request, respond, exit);
         },
       });
@@ -517,8 +706,8 @@ describe('SqliteBackupService.backup — sidecar cleanup', () => {
       const h = makeHarness({
         // Seeds the artifact and then says nothing at all.
         script: (request) => {
-          destPath = request.destPath;
-          seedArtifactWithSidecars(request.destPath);
+          destPath = request.stagingPath;
+          seedArtifactWithSidecars(request.stagingPath);
         },
       });
 
@@ -805,6 +994,58 @@ describe('SqliteBackupService.rotate', () => {
     for (const name of real) {
       expect(fs.existsSync(path.join(h.tmpDir, name))).toBe(true);
     }
+  });
+
+  it('keeps the newest N across mixed old/new seconds and excludes sidecars', () => {
+    const h = makeHarness();
+    const oldest = 'ptah.pre-migration-20250101T120000Z.sqlite';
+    const middle =
+      'ptah.pre-migration-20250101T120001000Z-11111111.sqlite';
+    const newest =
+      'ptah.pre-migration-20250101T120002999Z-22222222.sqlite';
+    seed(h.tmpDir, [
+      oldest,
+      middle,
+      newest,
+      `${newest}-wal`,
+      `${newest}-shm`,
+    ]);
+
+    h.service.rotate('pre-migration', 2);
+
+    expect(fs.existsSync(path.join(h.tmpDir, oldest))).toBe(false);
+    expect(fs.existsSync(path.join(h.tmpDir, middle))).toBe(true);
+    expect(fs.existsSync(path.join(h.tmpDir, newest))).toBe(true);
+    expect(fs.existsSync(path.join(h.tmpDir, `${newest}-wal`))).toBe(true);
+    expect(fs.existsSync(path.join(h.tmpDir, `${newest}-shm`))).toBe(true);
+  });
+
+  it('ignores a young staging file without sweeping or counting it', () => {
+    const h = makeHarness();
+    const final = 'ptah.pre-migration-20250101T120000Z.sqlite';
+    const staging = `${final}.11111111.tmp`;
+    seed(h.tmpDir, [final, staging]);
+
+    h.service.rotate('pre-migration', 1);
+
+    expect(fs.existsSync(path.join(h.tmpDir, final))).toBe(true);
+    expect(fs.existsSync(path.join(h.tmpDir, staging))).toBe(true);
+  });
+
+  it('sweeps an old staging file and its sidecars', () => {
+    const h = makeHarness();
+    const staging =
+      'ptah.pre-migration-20250101T120000Z.sqlite.22222222.tmp';
+    const paths = [staging, `${staging}-wal`, `${staging}-shm`].map((name) =>
+      path.join(h.tmpDir, name),
+    );
+    seed(h.tmpDir, [staging, `${staging}-wal`, `${staging}-shm`]);
+    const old = new Date(Date.now() - 2 * BACKUP_WORKER_BUDGET_MS - 1);
+    for (const target of paths) fs.utimesSync(target, old, old);
+
+    h.service.rotate('pre-migration', 1);
+
+    for (const target of paths) expect(fs.existsSync(target)).toBe(false);
   });
 
   it('is a no-op when keep=0', () => {
