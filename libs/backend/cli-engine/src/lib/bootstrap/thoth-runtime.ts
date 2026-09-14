@@ -4,6 +4,7 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
+  KEEP_BY_KIND,
   PERSISTENCE_TOKENS,
   type SqliteConnectionService,
   type VecLoadDiagnostic,
@@ -21,7 +22,11 @@ import {
   type SkillSynthesisService,
   type SkillTriggerService,
 } from '@ptah-extension/skill-synthesis';
-import { SKILL_DRAIN_JOBS } from '@ptah-extension/thoth-runtime';
+import {
+  MEMORY_RETENTION_JOB,
+  SKILL_DRAIN_JOBS,
+  createMemoryRetentionHandler,
+} from '@ptah-extension/thoth-runtime';
 import {
   CRON_TOKENS,
   type CronScheduler,
@@ -322,6 +327,7 @@ async function startCron(
     }
     registerBackupJob(container, logger);
     registerSkillDrainJobs(container, logger);
+    registerMemoryRetentionJob(container, logger);
 
     const workspaceProvider = container.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
@@ -388,7 +394,7 @@ function registerBackupJob(
         );
         const backupPath = await backupService.backup('daily');
         try {
-          backupService.rotate('daily', 7);
+          backupService.rotate('daily', KEEP_BY_KIND.daily);
         } catch (rotateError: unknown) {
           logger.warn('[CLI Thoth] Daily backup rotation failed (non-fatal)', {
             error:
@@ -501,6 +507,57 @@ function registerSkillDrainJobs(
   } catch (error: unknown) {
     logger.warn(
       '[CLI Thoth] Skill drain cron registration failed (non-fatal)',
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
+/**
+ * Register the memory retention handler and upsert its hourly job for the CLI
+ * tier (TASK_2026_440).
+ *
+ * The job spec and the per-run handler are `thoth-runtime`'s, so the id,
+ * schedule and report mapping cannot drift from the Electron host. Only the
+ * registration is the CLI tier's own: no activity emitter and a `Logger`
+ * rather than `console`. Same guards as the drain jobs: `has()` because
+ * `register` throws on a duplicate, an unguarded idempotent `upsert`, and no
+ * job at all on a host without `MEMORY_RETENTION_SERVICE`.
+ */
+function registerMemoryRetentionJob(
+  container: DependencyContainer,
+  logger: Logger,
+): void {
+  try {
+    if (
+      !container.isRegistered(CRON_TOKENS.CRON_JOB_STORE) ||
+      !container.isRegistered(CRON_TOKENS.CRON_HANDLER_REGISTRY) ||
+      !container.isRegistered(MEMORY_TOKENS.MEMORY_RETENTION_SERVICE)
+    ) {
+      return;
+    }
+    const jobStore = container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE);
+    const handlerRegistry = container.resolve<IHandlerRegistry>(
+      CRON_TOKENS.CRON_HANDLER_REGISTRY,
+    );
+    if (!handlerRegistry.has(MEMORY_RETENTION_JOB.handlerName)) {
+      handlerRegistry.register(
+        MEMORY_RETENTION_JOB.handlerName,
+        createMemoryRetentionHandler(container),
+      );
+    }
+    jobStore.upsert({
+      id: MEMORY_RETENTION_JOB.jobId,
+      name: MEMORY_RETENTION_JOB.name,
+      cronExpr: MEMORY_RETENTION_JOB.cronExpr,
+      timezone: MEMORY_RETENTION_JOB.timezone,
+      prompt: `handler:${MEMORY_RETENTION_JOB.handlerName}`,
+      enabled: true,
+    });
+  } catch (error: unknown) {
+    logger.warn(
+      '[CLI Thoth] Memory retention cron registration failed (non-fatal)',
       {
         error: error instanceof Error ? error.message : String(error),
       },

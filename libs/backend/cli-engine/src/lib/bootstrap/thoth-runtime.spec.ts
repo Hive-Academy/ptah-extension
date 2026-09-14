@@ -48,6 +48,8 @@ interface RuntimeDoubles {
   handlerRegistry: { has: jest.Mock; register: jest.Mock };
   skillDrain: { drain: jest.Mock };
   powerMonitor: { isOnBattery: jest.Mock };
+  retention: { run: jest.Mock };
+  backupService: { backup: jest.Mock; rotate: jest.Mock };
   gateway: { start: jest.Mock; stop: jest.Mock };
   chatBridge: { start: jest.Mock; stop: jest.Mock };
   indexingControl: { getStatus: jest.Mock };
@@ -123,6 +125,24 @@ function makeRuntimeDoubles(
       })),
     },
     powerMonitor: { isOnBattery: jest.fn(() => false) },
+    retention: {
+      run: jest.fn(async () => ({
+        status: 'completed',
+        reason: null,
+        processedPurged: 5,
+        stuckQuarantined: 0,
+        ledgerPruned: 0,
+        freedBytes: 0,
+        pagesReclaimed: 1,
+        backlogRemaining: false,
+        durationMs: 2,
+        error: null,
+      })),
+    },
+    backupService: {
+      backup: jest.fn(async () => '/backups/daily.db'),
+      rotate: jest.fn(),
+    },
     gateway: {
       start: jest.fn(async () => order.push('gateway.start')),
       stop: jest.fn(async () => order.push('gateway.stop')),
@@ -179,6 +199,10 @@ function makeRuntimeContainer(
           return doubles.powerMonitor;
         case SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE:
           return doubles.skillDrain;
+        case MEMORY_TOKENS.MEMORY_RETENTION_SERVICE:
+          return doubles.retention;
+        case PERSISTENCE_TOKENS.BACKUP_SERVICE:
+          return doubles.backupService;
         case GATEWAY_TOKENS.GATEWAY_SERVICE:
           return doubles.gateway;
         case GATEWAY_CHAT_BRIDGE_TOKENS.GATEWAY_CHAT_BRIDGE:
@@ -412,6 +436,165 @@ describe('activateThoth — runtime tier', () => {
       ),
     ).toHaveLength(0);
     expect(doubles.jobStore.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('the daily backup handler rotates with the daily keep count', async () => {
+    const doubles = makeRuntimeDoubles();
+    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+    await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+    const backupCall = doubles.handlerRegistry.register.mock.calls.find(
+      (call) => call[0] === 'backup:daily',
+    );
+    expect(backupCall).toBeDefined();
+    await (backupCall?.[1] as () => Promise<unknown>)();
+
+    expect(doubles.backupService.backup).toHaveBeenCalledWith('daily');
+    expect(doubles.backupService.rotate).toHaveBeenCalledWith('daily', 7);
+  });
+
+  describe('memory retention job (TASK_2026_440 reachability)', () => {
+    const WITH_RETENTION = new Set<symbol>([
+      ...ALL_RUNTIME_TOKENS,
+      MEMORY_TOKENS.MEMORY_RETENTION_SERVICE,
+    ]);
+
+    it('upserts @ptah/memory-retention and registers memory:retention once', async () => {
+      const doubles = makeRuntimeDoubles();
+      const container = makeRuntimeContainer(doubles, WITH_RETENTION);
+
+      await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+      expect(
+        doubles.handlerRegistry.register.mock.calls.filter(
+          (call) => call[0] === 'memory:retention',
+        ),
+      ).toHaveLength(1);
+      expect(
+        doubles.jobStore.upsert.mock.calls
+          .map((call) => call[0] as { id: string })
+          .filter((job) => job.id === '@ptah/memory-retention'),
+      ).toEqual([
+        {
+          id: '@ptah/memory-retention',
+          name: 'Memory Retention',
+          cronExpr: '17 * * * *',
+          timezone: 'UTC',
+          prompt: 'handler:memory:retention',
+          enabled: true,
+        },
+      ]);
+    });
+
+    it('the registered handler reaches service.run with the cron signal', async () => {
+      const doubles = makeRuntimeDoubles();
+      const container = makeRuntimeContainer(doubles, WITH_RETENTION);
+      await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+      const retentionCall = doubles.handlerRegistry.register.mock.calls.find(
+        (call) => call[0] === 'memory:retention',
+      );
+      expect(retentionCall).toBeDefined();
+      const signal = new AbortController().signal;
+      const result = await (
+        retentionCall?.[1] as (ctx: unknown) => Promise<unknown>
+      )({ job: { id: '@ptah/memory-retention' }, scheduledFor: 0, signal });
+
+      expect(doubles.retention.run).toHaveBeenCalledTimes(1);
+      expect(doubles.retention.run.mock.calls[0]?.[0]).toMatchObject({
+        signal,
+      });
+      expect(result).toEqual({
+        summary: 'purged 5 processed, quarantined 0 stuck, reclaimed 1 pages',
+      });
+    });
+
+    it('two runtime activations register memory:retention once, upsert twice, and the handler still reaches service.run', async () => {
+      const doubles = makeRuntimeDoubles();
+      // Stateful like the real HandlerRegistry: `has()` reflects earlier
+      // registrations and a duplicate name THROWS, so removing the production
+      // `has()` guard fails this test.
+      const registered = new Map<string, unknown>();
+      doubles.handlerRegistry.has = jest.fn((name: string) =>
+        registered.has(name),
+      );
+      doubles.handlerRegistry.register = jest.fn(
+        (name: string, fn: unknown) => {
+          if (registered.has(name)) {
+            throw new Error(`duplicate handler '${name}'`);
+          }
+          registered.set(name, fn);
+        },
+      );
+      const container = makeRuntimeContainer(doubles, WITH_RETENTION);
+      const logger = makeLogger();
+
+      await activateThoth(container as never, 'runtime', logger as never);
+      await activateThoth(container as never, 'runtime', logger as never);
+
+      expect(
+        doubles.handlerRegistry.register.mock.calls.filter(
+          (call) => call[0] === 'memory:retention',
+        ),
+      ).toHaveLength(1);
+      const retentionJob = {
+        id: '@ptah/memory-retention',
+        name: 'Memory Retention',
+        cronExpr: '17 * * * *',
+        timezone: 'UTC',
+        prompt: 'handler:memory:retention',
+        enabled: true,
+      };
+      expect(
+        doubles.jobStore.upsert.mock.calls
+          .map((call) => call[0] as { id: string })
+          .filter((job) => job.id === '@ptah/memory-retention'),
+      ).toEqual([retentionJob, retentionJob]);
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        '[CLI Thoth] Memory retention cron registration failed (non-fatal)',
+        expect.anything(),
+      );
+
+      const handler = registered.get('memory:retention') as (
+        ctx: unknown,
+      ) => Promise<unknown>;
+      expect(handler).toBeDefined();
+      const signal = new AbortController().signal;
+      await handler({
+        job: { id: '@ptah/memory-retention' },
+        scheduledFor: 0,
+        signal,
+      });
+
+      expect(doubles.retention.run).toHaveBeenCalledTimes(1);
+      expect(doubles.retention.run.mock.calls[0]?.[0]).toMatchObject({
+        signal,
+      });
+    });
+
+    it('registers no retention job when the host has no retention service', async () => {
+      const doubles = makeRuntimeDoubles();
+      const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+
+      await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+      expect(
+        doubles.handlerRegistry.register.mock.calls.filter(
+          (call) => call[0] === 'memory:retention',
+        ),
+      ).toHaveLength(0);
+    });
+
+    it('the oneshot tier registers and upserts nothing', async () => {
+      const doubles = makeRuntimeDoubles();
+      const container = makeRuntimeContainer(doubles, WITH_RETENTION);
+
+      await activateThoth(container as never, 'oneshot', makeLogger() as never);
+
+      expect(doubles.handlerRegistry.register).not.toHaveBeenCalled();
+      expect(doubles.jobStore.upsert).not.toHaveBeenCalled();
+      expect(doubles.retention.run).not.toHaveBeenCalled();
+    });
   });
 
   it('starts the cron loop with settings drawn from cron.* configuration keys', async () => {
