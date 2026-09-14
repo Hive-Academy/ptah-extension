@@ -293,6 +293,7 @@ interface StripRow {
                     [isOpen]="openMenuId() === row.entry.id"
                     [placement]="'bottom-end'"
                     [closeOnBackdropClick]="true"
+                    [panelRole]="null"
                     (closed)="closeMenu()"
                     (opened)="focusFirstItem(menuPanel)"
                   >
@@ -302,7 +303,6 @@ interface StripRow {
                       type="button"
                       class="btn btn-ghost btn-xs btn-square w-6 h-6 min-h-0 text-base-content-muted hover:text-base-content focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
                       data-test="agent-strip-menu-trigger"
-                      aria-haspopup="true"
                       [attr.aria-expanded]="openMenuId() === row.entry.id"
                       [attr.aria-label]="'Actions for agent ' + row.entry.name"
                       title="Agent actions"

@@ -229,6 +229,19 @@ describe('BackgroundAgentStripComponent', () => {
       expect(row.querySelector('[data-test="agent-menu-stop"]')).toBeNull();
     });
 
+    it('does not announce the action panel as a listbox', () => {
+      render([actionable]);
+      expand();
+      const row = openMenu('a');
+      const panel = el('.dropdown-panel', row);
+      expect(panel.hasAttribute('role')).toBe(false);
+      expect(
+        el('[data-test="agent-strip-menu-trigger"]', row).hasAttribute(
+          'aria-haspopup',
+        ),
+      ).toBe(false);
+    });
+
     it.each([
       ['agent-menu-transcript', 'viewTranscript'],
       ['agent-menu-background', 'sendToBackground'],
