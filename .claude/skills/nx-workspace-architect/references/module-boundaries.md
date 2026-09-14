@@ -16,78 +16,79 @@ Module boundaries prevent unwanted dependencies between projects, ensuring:
 npm install -D @nx/eslint-plugin
 ```
 
-### 2. Configure Rules in `.eslintrc.json`
+### 2. Configure Rules in `eslint.config.mjs`
 
-```json
-{
-  "root": true,
-  "ignorePatterns": ["**/*"],
-  "plugins": ["@nx"],
-  "overrides": [
-    {
-      "files": ["*.ts", "*.tsx", "*.js", "*.jsx"],
-      "rules": {
-        "@nx/enforce-module-boundaries": [
-          "error",
-          {
-            "enforceBuildableLibDependency": true,
-            "allow": [],
-            "depConstraints": [
-              {
-                "sourceTag": "type:feature",
-                "onlyDependOnLibsWithTags": ["type:feature", "type:ui", "type:data-access", "type:util", "type:api-interfaces", "type:domain"]
-              },
-              {
-                "sourceTag": "type:ui",
-                "onlyDependOnLibsWithTags": ["type:ui", "type:util", "type:api-interfaces"]
-              },
-              {
-                "sourceTag": "type:data-access",
-                "onlyDependOnLibsWithTags": ["type:data-access", "type:util", "type:api-interfaces", "type:domain"]
-              },
-              {
-                "sourceTag": "type:util",
-                "onlyDependOnLibsWithTags": ["type:util"]
-              },
-              {
-                "sourceTag": "type:api-interfaces",
-                "onlyDependOnLibsWithTags": ["type:api-interfaces"]
-              },
-              {
-                "sourceTag": "type:domain",
-                "onlyDependOnLibsWithTags": ["type:domain", "type:util"]
-              },
-              {
-                "sourceTag": "scope:shared",
-                "onlyDependOnLibsWithTags": ["scope:shared"]
-              },
-              {
-                "sourceTag": "scope:user-management",
-                "onlyDependOnLibsWithTags": ["scope:user-management", "scope:shared"]
-              },
-              {
-                "sourceTag": "scope:orders",
-                "onlyDependOnLibsWithTags": ["scope:orders", "scope:user-management", "scope:shared"]
-              },
-              {
-                "sourceTag": "platform:angular",
-                "onlyDependOnLibsWithTags": ["platform:angular", "platform:shared"]
-              },
-              {
-                "sourceTag": "platform:nest",
-                "onlyDependOnLibsWithTags": ["platform:nest", "platform:shared"]
-              },
-              {
-                "sourceTag": "platform:shared",
-                "onlyDependOnLibsWithTags": ["platform:shared"]
-              }
-            ]
-          }
-        ]
-      }
-    }
-  ]
-}
+```js
+import nx from '@nx/eslint-plugin';
+
+export default [
+  {
+    ignores: ['**/dist'],
+  },
+  {
+    files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
+    plugins: { '@nx': nx },
+    rules: {
+      '@nx/enforce-module-boundaries': [
+        'error',
+        {
+          enforceBuildableLibDependency: true,
+          allow: [],
+          depConstraints: [
+            {
+              sourceTag: 'type:feature',
+              onlyDependOnLibsWithTags: ['type:feature', 'type:ui', 'type:data-access', 'type:util', 'type:api-interfaces', 'type:domain'],
+            },
+            {
+              sourceTag: 'type:ui',
+              onlyDependOnLibsWithTags: ['type:ui', 'type:util', 'type:api-interfaces'],
+            },
+            {
+              sourceTag: 'type:data-access',
+              onlyDependOnLibsWithTags: ['type:data-access', 'type:util', 'type:api-interfaces', 'type:domain'],
+            },
+            {
+              sourceTag: 'type:util',
+              onlyDependOnLibsWithTags: ['type:util'],
+            },
+            {
+              sourceTag: 'type:api-interfaces',
+              onlyDependOnLibsWithTags: ['type:api-interfaces'],
+            },
+            {
+              sourceTag: 'type:domain',
+              onlyDependOnLibsWithTags: ['type:domain', 'type:util'],
+            },
+            {
+              sourceTag: 'scope:shared',
+              onlyDependOnLibsWithTags: ['scope:shared'],
+            },
+            {
+              sourceTag: 'scope:user-management',
+              onlyDependOnLibsWithTags: ['scope:user-management', 'scope:shared'],
+            },
+            {
+              sourceTag: 'scope:orders',
+              onlyDependOnLibsWithTags: ['scope:orders', 'scope:user-management', 'scope:shared'],
+            },
+            {
+              sourceTag: 'platform:angular',
+              onlyDependOnLibsWithTags: ['platform:angular', 'platform:shared'],
+            },
+            {
+              sourceTag: 'platform:nest',
+              onlyDependOnLibsWithTags: ['platform:nest', 'platform:shared'],
+            },
+            {
+              sourceTag: 'platform:shared',
+              onlyDependOnLibsWithTags: ['platform:shared'],
+            },
+          ],
+        },
+      ],
+    },
+  },
+];
 ```
 
 ### 3. Tag Your Projects

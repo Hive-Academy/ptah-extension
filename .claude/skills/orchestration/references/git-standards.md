@@ -47,19 +47,22 @@ This reference documents the commitlint rules, commit message format, and pre-co
 
 ---
 
-## Allowed Scopes (Project-Specific)
+## Allowed Scopes
 
-| Scope             | Description              | Example Files                                  |
-| ----------------- | ------------------------ | ---------------------------------------------- |
-| `webview`         | Angular SPA changes      | libs/frontend/_, apps/ptah-extension-webview/_ |
-| `vscode`          | VS Code extension        | apps/ptah-extension-vscode/_, libs/backend/_   |
-| `vscode-lm-tools` | VS Code LM tools library | libs/backend/vscode-lm-tools/\*                |
-| `deps`            | Dependency updates       | package.json, package-lock.json                |
-| `release`         | Release-related          | CHANGELOG, version bumps                       |
-| `ci`              | CI/CD changes            | .github/workflows/\*                           |
-| `docs`            | Documentation            | \*.md files, comments                          |
-| `hooks`           | Git hooks                | .husky/\*, commitlint.config.js                |
-| `scripts`         | Script changes           | scripts/\*, package.json scripts               |
+**Scopes are per-repository. Do not invent one, and do not copy a list from
+here.** Read the repository's own commitlint configuration and use a value it
+already allows:
+
+- `.commitlintrc.json`, `.commitlintrc.js`, `commitlint.config.js`, or a
+  `commitlint` key in `package.json`
+- The `scope-enum` rule inside it is the authoritative list
+
+If `scope-enum` is not configured, scopes are unrestricted — prefer the name of
+the package, app, or library you changed, and stay consistent with the recent
+`git log`.
+
+A commit rejected at the hook for an unknown scope is the normal failure here;
+checking first costs one file read.
 
 ---
 
@@ -121,15 +124,15 @@ style(webview): format chat component files
 ### New Task Branch
 
 ```bash
-git checkout -b feature/TASK_2025_XXX
-git push -u origin feature/TASK_2025_XXX
+git checkout -b feature/TASK_2026_XXX
+git push -u origin feature/TASK_2026_XXX
 ```
 
 ### Continue Existing Task
 
 ```bash
-git checkout feature/TASK_2025_XXX
-git pull origin feature/TASK_2025_XXX --rebase
+git checkout feature/TASK_2026_XXX
+git pull origin feature/TASK_2026_XXX --rebase
 ```
 
 ### Commit Changes
@@ -212,7 +215,7 @@ Please choose how to proceed:
 | -------- | ------------------------------------------------------------- |
 | Option 1 | Fix the issue, run `npm run lint:fix` if needed, retry commit |
 | Option 2 | `git commit --no-verify -m "message"`                         |
-| Option 3 | Mark task BLOCKED, document error in tasks.md                 |
+| Option 3 | Mark task BLOCKED, document error in batches.md                 |
 
 ### Agent Behavior Rules
 
@@ -224,7 +227,7 @@ Please choose how to proceed:
 
 ### Documentation When Bypassing
 
-When user chooses option 2, add note to tasks.md:
+When user chooses option 2, add note to batches.md:
 
 ```markdown
 **Hook Bypass Note**: Batch N committed with --no-verify due to [reason].
@@ -258,7 +261,7 @@ User chooses: Option 2 (Bypass Hook)
 
 Action:
 1. Execute: git commit --no-verify -m "feat(webview): add chat feature"
-2. Document in tasks.md: "Bypassed hook - type error in analytics lib"
+2. Document in batches.md: "Bypassed hook - type error in analytics lib"
 ```
 
 ### Scenario 3: Complex Build Failure
@@ -270,7 +273,7 @@ User chooses: Option 3 (Stop & Report)
 
 Action:
 1. Mark current task status: BLOCKED
-2. Create detailed error report in tasks.md
+2. Create detailed error report in batches.md
 3. Escalate to user for investigation
 ```
 
@@ -296,5 +299,5 @@ Action:
 
 - **team-leader-modes.md**: MODE 2 creates commits following these standards
 - **checkpoints.md**: Hook failure protocol is a checkpoint type
-- **task-tracking.md**: Document hook bypasses in tasks.md
+- **task-tracking.md**: Document hook bypasses in batches.md
 - **SKILL.md**: Git operations guidance in workflow completion phase

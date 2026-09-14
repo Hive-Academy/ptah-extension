@@ -1,6 +1,6 @@
 # Execution Strategies Reference
 
-Detailed workflow diagrams and guidance for all 8 task type workflows.
+Detailed workflow diagrams and guidance for all 8 task type workflows. Which phases or batches may run on CLI lanes: [lane-assignment.md](lane-assignment.md).
 
 ---
 
@@ -73,14 +73,6 @@ Phase 8: modernization-detector --> Creates future-enhancements.md
 | researcher-expert | Technical complexity > 3, unknown libraries/APIs, needs POC |
 | ui-ux-designer    | Landing pages, visual redesigns, new UI components          |
 
-### CLI Agent Delegation Opportunities
-
-- **Phase 1 (PM)**: Spawn CLI agents to survey codebase areas, analyze file structures, and gather dependency info before writing requirements
-- **Phase 2 (Research)**: Spawn parallel CLI agents for independent research threads (external docs + codebase analysis)
-- **Phase 4 (Architect)**: Spawn CLI agents to analyze existing patterns in target modules, check DI graphs, verify import paths
-- **Phase 5 (Development)**: Team-leader writes per-batch `Recommended Executor` in tasks.md; **orchestrator** spawns CLI developer agents (parallel fan-out when `Execution Mode: parallel`) or sub-agent developers. Sub-agent developers may spawn CLI agents for test scaffolding.
-- **Phase 6 (QA)**: Reviewers spawn CLI agents for parallel file-level reviews; tester spawns CLI agents for per-module test generation
-
 ---
 
 ## BUGFIX (Streamlined)
@@ -104,11 +96,6 @@ team-leader MODE 1 --> MODE 2 (loop) --> MODE 3
 - **Unknown cause**: Add researcher-expert before team-leader
 - **Known cause**: Skip directly to team-leader MODE 1
 - **Single-file fix**: Consider minimal pattern (direct developer)
-
-### CLI Agent Delegation Opportunities
-
-- **Research phase**: Spawn CLI agents to trace error paths, analyze stack traces, search for similar patterns across the codebase
-- **Development phase**: Developer spawns CLI agents to verify the fix doesn't break related modules (parallel file analysis)
 
 ---
 
@@ -140,12 +127,6 @@ Refactoring requirements are typically clear:
 
 The architect designs HOW to refactor; no scope discovery needed.
 
-### CLI Agent Delegation Opportunities
-
-- **Architect phase**: Spawn CLI agents to analyze existing patterns in modules being refactored, identify all usages and dependents
-- **Development phase**: Spawn CLI agents for parallel file-level refactoring of independent modules
-- **QA phase**: Spawn CLI agents for parallel style/logic reviews of all refactored files
-
 ---
 
 ## DOCUMENTATION (Minimal)
@@ -176,11 +157,6 @@ Git
 | CI/CD docs         | devops-engineer    |
 | General guides     | frontend-developer |
 
-### CLI Agent Delegation Opportunities
-
-- **PM phase**: Spawn CLI agents to survey existing docs, identify gaps, and catalog undocumented APIs
-- **Developer phase**: Spawn CLI agents to extract JSDoc/type info from source files for documentation drafts
-
 ---
 
 ## RESEARCH (Investigation Only)
@@ -202,11 +178,6 @@ If research concludes implementation is needed:
 1. Research report becomes input to PM
 2. Switch to FEATURE strategy
 3. PM references research-report.md in task-description.md
-
-### CLI Agent Delegation Opportunities
-
-- **Research phase**: Highest impact — spawn parallel CLI agents for independent deep-dives (one for external API docs, one for codebase usage patterns, one for competitor analysis)
-- Research benefits the most from CLI delegation since parallel information gathering dramatically speeds up investigation
 
 ---
 
@@ -253,11 +224,6 @@ Invoke DEVOPS strategy when task involves:
 **Key Signal**: Work is 100% infrastructure (no application business logic)
 
 **Developer**: Always use `devops-engineer` (NOT backend-developer)
-
-### CLI Agent Delegation Opportunities
-
-- **Architect phase**: Spawn CLI agents to analyze existing CI/CD configs, Docker setups, and infrastructure patterns
-- **DevOps Engineer phase**: Spawn CLI agents for parallel config file generation (Dockerfile, docker-compose, GitHub Actions workflows)
 
 ---
 
@@ -382,12 +348,6 @@ Developers reference these skills during implementation:
 | Entities, aggregates | ddd-architecture          |
 | Angular components   | angular-frontend-patterns |
 
-### CLI Agent Delegation Opportunities
-
-- **Phase 1 (PM)**: Spawn CLI agents to research SaaS patterns, analyze reference architectures, survey existing Nx workspace configs
-- **Phase 2 (Architect)**: Spawn CLI agents to validate proposed library structure against Nx best practices, check for naming conflicts
-- **Phase 4 (Development)**: Spawn CLI agents for parallel batch implementation — each batch can use CLI agents for scaffolding independent libraries
-
 ---
 
 ## Creative Workflows
@@ -402,8 +362,8 @@ Creative workflows follow a **design-first principle** with specific agent seque
 |                                                               |
 |  1. DESIGN SYSTEM (Foundation)                                |
 |     +-- ui-ux-designer creates if missing                     |
-|         +-- Output: .claude/skills/technical-content-writer/  |
-|                     DESIGN-SYSTEM.md                          |
+|         +-- Output: DESIGN-SYSTEM.md, in the                  |
+|                     technical-content-writer skill's own dir  |
 |                                                               |
 |  2. CONTENT GENERATION (Depends on #1)                        |
 |     +-- technical-content-writer uses design system           |
@@ -418,8 +378,12 @@ Creative workflows follow a **design-first principle** with specific agent seque
 
 Before invoking technical-content-writer for landing pages:
 
+`DESIGN-SYSTEM.md` is a sibling of the `technical-content-writer` SKILL.md.
+Resolve it against that skill's own directory (from the Skill tool / plugin
+root); a workspace-relative `.claude/` path is not portable across hosts.
+
 ```
-design_system_path = ".claude/skills/technical-content-writer/DESIGN-SYSTEM.md"
+design_system_path = <technical-content-writer skill dir>/DESIGN-SYSTEM.md
 
 if NOT exists(design_system_path):
     -> Invoke ui-ux-designer FIRST
@@ -452,7 +416,7 @@ User: "Create a landing page for our extension"
 
 Orchestrator:
   1. Check design system exists
-     Read(.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
+     Read(<technical-content-writer skill dir>/DESIGN-SYSTEM.md)
 
   2. IF MISSING -> Invoke ui-ux-designer:
      Task("Create design system", subagent_type="ui-ux-designer")
@@ -528,12 +492,12 @@ ui-ux-designer --> technical-content-writer --> frontend-developer
 
 ### Creative Output Locations
 
-| Agent                    | Output File                                                | Purpose                           |
-| ------------------------ | ---------------------------------------------------------- | --------------------------------- |
-| ui-ux-designer           | `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md` | Design tokens, colors, typography |
-| ui-ux-designer           | `.ptah/specs/TASK_[ID]/visual-design-specification.md`     | Page-specific visual specs        |
-| technical-content-writer | `.ptah/specs/TASK_[ID]/content-specification.md`           | Content with design integration   |
-| technical-content-writer | `docs/content/*.md`                                        | Final content files               |
+| Agent                    | Output File                                                  | Purpose                           |
+| ------------------------ | ------------------------------------------------------------ | --------------------------------- |
+| ui-ux-designer           | `DESIGN-SYSTEM.md` in the technical-content-writer skill dir | Design tokens, colors, typography |
+| ui-ux-designer           | `.ptah/specs/TASK_[ID]/visual-design-specification.md`       | Page-specific visual specs        |
+| technical-content-writer | `.ptah/specs/TASK_[ID]/content-specification.md`             | Content with design integration   |
+| technical-content-writer | `docs/content/*.md`                                          | Final content files               |
 
 ### Creative Handoff Protocols
 
@@ -542,7 +506,7 @@ ui-ux-designer --> technical-content-writer --> frontend-developer
 ```markdown
 ## Design Handoff for Content
 
-**Design System**: .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+**Design System**: `DESIGN-SYSTEM.md`, in the technical-content-writer skill's own directory
 **Aesthetic**: [Name - e.g., "Sacred Tech"]
 **Key Colors**: [Primary accent, backgrounds]
 **Typography**: [Display + body fonts]
@@ -561,7 +525,7 @@ Content writer should:
 ## Content Handoff for Implementation
 
 **Content Spec**: .ptah/specs/TASK\_[ID]/content-specification.md
-**Design System**: .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+**Design System**: `DESIGN-SYSTEM.md`, in the technical-content-writer skill's own directory
 **Assets Needed**: [List from asset briefs]
 
 Developer should:
@@ -570,12 +534,6 @@ Developer should:
 - Use design system tokens exactly
 - Generate/source assets from briefs
 ```
-
-### CLI Agent Delegation Opportunities (Creative)
-
-- **Content Writer phase**: Spawn CLI agents to research codebase features for technical accuracy, extract API signatures, and draft content sections in parallel
-- **Frontend Developer phase**: Spawn CLI agents for component scaffolding, asset manifest generation
-- **Note**: ui-ux-designer should NOT delegate to CLI agents — interactive design requires direct engagement
 
 ---
 

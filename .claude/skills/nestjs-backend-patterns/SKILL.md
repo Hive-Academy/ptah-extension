@@ -1,6 +1,6 @@
 ---
 name: nestjs-backend-patterns
-description: NestJS backend architecture patterns for multi-tenant SaaS applications. Use when integrating third-party services/APIs into NestJS, setting up Prisma or ZenStack, implementing multitenancy patterns, building authentication/authorization, creating provider patterns for external services, applying access control with RBAC or policies, or handling database connection and repository patterns.
+description: NestJS backend architecture for multi-tenant SaaS. Use for third-party API providers, Prisma or ZenStack setup, multitenancy, authentication, RBAC or policies, and repositories. Not for retries, events or dynamic modules — use resilient-nestjs-patterns.
 ---
 
 # NestJS Backend Architecture Patterns

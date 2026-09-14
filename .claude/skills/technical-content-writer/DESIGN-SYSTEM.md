@@ -1,75 +1,80 @@
-# Ptah Design System — Egyptian Sacred Tech v2
+# Ptah Design System Reference
 
-## Aesthetic Identity
+## Purpose
 
-**Name**: Egyptian Sacred Tech  
-**Mood**: Dark, dramatic, premium — "ancient wisdom encoded in modern silicon"  
-**Personality**: Powerful, mystical, technically precise, approachable  
-**Brand metaphor**: Ptah the creator god — the craftsman who speaks things into existence; Thoth the scribe — the intelligence that remembers and learns  
-**Position**: "AI coding orchestra" — not a chat assistant, an orchestration platform
-
-The existing Anubis daisyUI theme is the authoritative token source. All specifications below map to its values.
+This file defines the visual design system used across all content generation. All content must align with these specifications for consistency.
 
 ---
 
-## Color Tokens
+## Brand Identity
 
-All hex values are live in `apps/ptah-landing-page/tailwind.config.js` under the `anubis` theme.
+### Name & Positioning
 
-### Background Hierarchy
+- **Name**: Ptah (Egyptian god of craftsmen and creation)
+- **Tagline**: "VS Code AI Development, Powered by Claude Agent SDK"
+- **Personality**: Ancient wisdom meets modern technology
 
-| Token | Hex | daisyUI key | Usage |
-|---|---|---|---|
-| Obsidian | `#0a0a0a` | `base-100` | Page background, hero |
-| Charcoal | `#1a1a1a` | `base-200` / `neutral` | Cards, panels, nav scrolled |
-| Smoke | `#2a2a2a` | `base-300` / `neutral-focus` | Elevated surfaces, modals |
-| Slate overlay | `rgba(15,23,42,*)` | — | Section backgrounds (current usage: `slate-950`) |
+### Visual Theme
 
-### Text Hierarchy
+- **Style**: Egyptian sacred tech / Neo-mystical
+- **Inspiration**: BlueYard Capital (nano banana), Augmentcode, Antigravity
+- **Mood**: Premium, powerful, mystical but accessible
 
-| Token | Hex | daisyUI key | Contrast on Obsidian | Usage |
-|---|---|---|---|---|
-| Cream | `#f5f5dc` | `base-content` | 15.2:1 AAA | Primary text |
-| Sand | `#c4b998` | — | 8.4:1 AAA | Secondary text |
-| Stone | `#8a8a8a` | — | 4.6:1 AA | Muted / captions |
-| White | `#ffffff` | — | 21:1 AAA | High-emphasis headings |
-| Gray-300 | `#d1d5db` | `neutral-content` | 11.8:1 AAA | Body in sections |
-| Gray-400 | `#9ca3af` | — | 6.2:1 AA | List items |
-| Gray-500 | `#6b7280` | — | 4.5:1 AA | Detail / meta |
+---
 
-### Gold Spectrum (Primary Accent)
+## Color System
 
-| Token | Hex | daisyUI key | Usage |
-|---|---|---|---|
-| Gold | `#d4af37` | `secondary` | Borders, icons, primary accent |
-| Gold Light | `#f4d47c` | `accent` / `fbbf24` | Gradient highlight, amber-300 equivalent |
-| Gold Dark | `#8a6d10` | `secondary-focus` region | Gradient shadow end |
-| Gold Glow SM | `rgba(212,175,55,0.2)` | — | Subtle glow on hover |
-| Gold Glow MD | `rgba(212,175,55,0.35)` | — | Active glow |
-| Gold Glow LG | `rgba(212,175,55,0.5)` | `shadow-glow-gold` | Hero elements |
-| Gold Border | `rgba(212,175,55,0.2)` | — | Default card border |
-| Gold Border Active | `rgba(212,175,55,0.4)` | — | Hover card border |
-
-### Semantic Colors
-
-| Token | Hex | daisyUI key | Usage |
-|---|---|---|---|
-| Lapis Blue | `#1e3a8a` | `primary` | Secondary accent, deep bg |
-| Scarab Teal | `#2dd4bf` | — | Success, Thoth suite accents |
-| Emerald | `#22c55e` | `success` | Benefit indicators |
-| Firebrick | `#b22222` | `error` | Error, pain points |
-| Amber | `#fbbf24` | `warning` | Warning, amber CTA variant |
-| Info Blue | `#3b82f6` | `info` | Info states |
-
-### Gradient Tokens
+### Primary Palette
 
 ```css
---gradient-divine: linear-gradient(135deg, #1e3a8a, #d4af37);
---gradient-cta: linear-gradient(135deg, #d4af37, #fbbf24);
---gradient-text-gold: linear-gradient(135deg, #f4d47c 0%, #d4af37 50%, #8a6d10 100%);
---gradient-hero: linear-gradient(180deg, rgba(212,175,55,0.15), transparent 50%);
---glass-border: rgba(212, 175, 55, 0.2);
---glass-bg: rgba(42, 42, 42, 0.6);
+:root {
+  /* Backgrounds */
+  --obsidian: #0a0a0a; /* Darkest, page bg */
+  --charcoal: #1a1a1a; /* Cards, panels */
+  --smoke: #2a2a2a; /* Elevated surfaces */
+
+  /* Gold spectrum */
+  --gold: #d4af37; /* Primary accent */
+  --gold-light: #f4d47c; /* Highlights */
+  --gold-dark: #9a7b2c; /* Shadows, borders */
+  --gold-glow: rgba(212, 175, 55, 0.4); /* Glow effects */
+
+  /* Text */
+  --cream: #f5f5dc; /* Primary text */
+  --sand: #c4b998; /* Secondary text */
+  --stone: #8a8a8a; /* Muted text */
+
+  /* Accents */
+  --scarab-teal: #2dd4bf; /* Success states */
+  --papyrus-red: #ef4444; /* Error/danger */
+  --lapis-blue: #3b82f6; /* Info/links */
+}
+```
+
+### Gradient Definitions
+
+```css
+/* Hero background gradient */
+.gradient-hero {
+  background: radial-gradient(ellipse at 50% 70%, rgba(212, 175, 55, 0.15) 0%, rgba(26, 26, 26, 1) 50%, rgba(10, 10, 10, 1) 100%);
+}
+
+/* Gold text gradient */
+.gradient-gold-text {
+  background: linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 50%, var(--gold-dark) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Button gradient */
+.gradient-button {
+  background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
+}
+
+/* Card border gradient */
+.gradient-border {
+  background: linear-gradient(135deg, var(--gold) 0%, transparent 50%, var(--gold) 100%);
+}
 ```
 
 ---
@@ -78,291 +83,439 @@ All hex values are live in `apps/ptah-landing-page/tailwind.config.js` under the
 
 ### Font Stack
 
+```css
+:root {
+  --font-display: 'Cinzel', 'Cinzel Decorative', serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
 ```
-Display / headlines: 'Cinzel', 'Playfair Display', serif  → font-display (Tailwind)
-Body / UI:           'Inter', system-ui, sans-serif       → font-sans (default)
-Code / mono:         'JetBrains Mono', 'Fira Code', mono  → font-mono (Tailwind)
+
+### Type Scale
+
+| Token        | Size            | Line Height | Letter Spacing | Usage                   |
+| ------------ | --------------- | ----------- | -------------- | ----------------------- |
+| `display-xl` | 8rem (128px)    | 0.95        | -0.04em        | Hero headline (desktop) |
+| `display-lg` | 6rem (96px)     | 1.0         | -0.03em        | Hero headline (tablet)  |
+| `display-md` | 4.5rem (72px)   | 1.1         | -0.02em        | Hero headline (mobile)  |
+| `heading-1`  | 3.75rem (60px)  | 1.1         | -0.02em        | Section headlines       |
+| `heading-2`  | 3rem (48px)     | 1.15        | -0.015em       | Subsection headlines    |
+| `heading-3`  | 2.25rem (36px)  | 1.2         | -0.01em        | Card headlines          |
+| `heading-4`  | 1.5rem (24px)   | 1.3         | 0              | Feature titles          |
+| `body-lg`    | 1.25rem (20px)  | 1.6         | 0              | Lead paragraphs         |
+| `body`       | 1rem (16px)     | 1.7         | 0              | Body text               |
+| `body-sm`    | 0.875rem (14px) | 1.5         | 0              | Captions, meta          |
+| `label`      | 0.75rem (12px)  | 1.4         | 0.1em          | Labels, badges          |
+
+### Tailwind Classes
+
 ```
-
-### Type Scale (Tailwind classes)
-
-| Role | Mobile | Tablet (md:) | Desktop (lg:) | Weight | Line-height |
-|---|---|---|---|---|---|
-| Display hero | `text-5xl` | `text-7xl` | `text-8xl` | `font-bold` | `leading-none` |
-| Section headline | `text-4xl` | `text-5xl` | `text-6xl` | `font-bold` | `leading-tight` |
-| Sub-section headline | `text-3xl` | `text-4xl` | `text-5xl` | `font-bold` | `leading-tight` |
-| Card title | `text-xl` | `text-2xl` | — | `font-bold` | `leading-snug` |
-| Feature title | `text-lg` | `text-xl` | — | `font-semibold` | `leading-snug` |
-| Body lead | `text-base` | `text-lg` | `text-xl` | `font-normal` | `leading-relaxed` |
-| Body | `text-sm` | `text-base` | — | `font-normal` | `leading-relaxed` |
-| Label / eyebrow | `text-xs` | — | — | `font-semibold` | — |
-| Badge text | `text-xs` | `text-sm` | — | `font-semibold` | — |
-
-**Eyebrow labels** always: `text-sm font-semibold uppercase tracking-widest text-[#f4d47c]/70`  
-**Gold gradient text**: apply `.gradient-text-gold` (already in `styles.css`)  
-**Display font**: use `font-display` class only for hero/section headlines that need the Cinzel serif. Body-level text stays in Inter.
+Hero headline:    text-5xl md:text-7xl lg:text-8xl font-display
+Section headline: text-4xl md:text-5xl lg:text-6xl font-display
+Card headline:    text-xl md:text-2xl font-body font-semibold
+Body:            text-base md:text-lg font-body
+Label:           text-xs uppercase tracking-widest font-body
+```
 
 ---
 
-## Spacing System (8px grid)
+## Spacing System
 
-| Token | Value | Tailwind | Usage |
-|---|---|---|---|
-| Section vertical padding | 96–128px | `py-24 sm:py-32` | Standard for all sections |
-| Section internal content gap | 64px | `mb-16 sm:mb-20` | Header-to-grid gap |
-| Card gap | 24–32px | `gap-6 lg:gap-8` | Grid card spacing |
-| Card internal padding | 32px | `p-8` | Inside feature cards |
-| Element gap | 24px | `gap-6` | Between inline elements |
-| Text stack gap | 16–24px | `mb-4` / `mb-6` | Between heading + body |
-| Container max-width | 1280px | `max-w-7xl mx-auto px-6 sm:px-10 lg:px-16` | All sections |
+### Vertical Rhythm
+
+```css
+/* Section spacing */
+--section-gap: 8rem; /* 128px between sections */
+--section-padding: 6rem; /* 96px padding within sections */
+
+/* Component spacing */
+--card-gap: 3rem; /* 48px between cards */
+--element-gap: 1.5rem; /* 24px between elements */
+--text-gap: 1rem; /* 16px between text blocks */
+```
+
+### Container Widths
+
+```css
+--container-sm: 640px; /* Narrow content */
+--container-md: 768px; /* Default content */
+--container-lg: 1024px; /* Wide content */
+--container-xl: 1280px; /* Full-width features */
+--container-2xl: 1536px; /* Maximum width */
+```
 
 ---
 
-## Effects System
+## Effects & Animations
+
+### Shadow System
+
+```css
+/* Elevation shadows */
+--shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+--shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+
+/* Glow shadows */
+--glow-gold-sm: 0 0 20px rgba(212, 175, 55, 0.2);
+--glow-gold-md: 0 0 40px rgba(212, 175, 55, 0.3);
+--glow-gold-lg: 0 0 60px rgba(212, 175, 55, 0.4);
+--glow-gold-xl: 0 0 100px rgba(212, 175, 55, 0.5);
+```
 
 ### Glassmorphism
 
 ```css
-.glassmorphism {
+.glass {
+  background: rgba(26, 26, 26, 0.6);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  background: rgba(42, 42, 42, 0.6);
-  border: 1px solid rgba(212, 175, 55, 0.2);
+  border: 1px solid rgba(212, 175, 55, 0.1);
+}
+
+.glass-card {
+  background: rgba(26, 26, 26, 0.8);
+  backdrop-filter: blur(12px);
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 ```
-Use on: cards over image backgrounds, nav on scroll, modals.
 
-### Shadows / Glows
+### Animation Timing
 
-| Token | Value | Tailwind |
-|---|---|---|
-| Gold glow | `0 0 60px rgba(212,175,55,0.4)` | `shadow-glow-gold` |
-| Gold glow large | `0 0 100px rgba(212,175,55,0.5)` | `shadow-glow-gold-lg` |
-| Gold glow pulse | keyframe in `tailwind.config.js` | `animate-glow-pulse` |
+```css
+/* Durations */
+--duration-fast: 150ms;
+--duration-normal: 300ms;
+--duration-slow: 500ms;
+--duration-slower: 800ms;
 
-### Border Radius
-
-| Token | Value | Tailwind | Usage |
-|---|---|---|---|
-| Button | 6px | `rounded-md` | Buttons |
-| Card small | 12px | `rounded-xl` | Badges, small cards |
-| Card standard | 16px | `rounded-2xl` | Feature cards |
-| Card large | 24px | `rounded-3xl` | Section containers |
-| Pill | full | `rounded-full` | Badges, tags |
-
----
-
-## Motion Language
-
-### Animation Principles
-
-1. Entrance animations use `@hive-academy/angular-gsap` directives only — no raw GSAP in templates.
-2. Scroll-scrub (`scrubbed`) animations use `ScrollAnimationDirective` with `scrollAnimation`.
-3. Viewport-triggered one-shot reveals use `ViewportAnimationDirective` with `viewportAnimation`.
-4. Stagger delays: 100–150ms between sibling elements in a grid.
-5. All animations must respect `prefers-reduced-motion` (angular-gsap handles this).
-
-### Standard Viewport Configs
-
-```typescript
-const fadeIn: ViewportAnimationConfig = { animation: 'fadeIn', duration: 0.7, threshold: 0.15 };
-const slideUp: ViewportAnimationConfig = { animation: 'slideUp', duration: 0.8, ease: 'power2.out', threshold: 0.15 };
-const scaleIn: ViewportAnimationConfig = { animation: 'scaleIn', duration: 0.6, threshold: 0.2 };
-const slideRight: ViewportAnimationConfig = { animation: 'slideRight', duration: 0.6, threshold: 0.2 };
-const slideLeft: ViewportAnimationConfig = { animation: 'slideLeft', duration: 0.6, threshold: 0.2 };
+/* Easings */
+--ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+--ease-in: cubic-bezier(0.4, 0, 1, 1);
+--ease-out: cubic-bezier(0, 0, 0.2, 1);
+--ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+--ease-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
 ```
 
-### Standard Scroll Configs
+### Keyframe Animations
 
-```typescript
-const parallaxSlow: ScrollAnimationConfig = { animation: 'parallax', speed: 0.3, scrub: 1.5 };
-const contentExit: ScrollAnimationConfig = {
-  animation: 'custom', start: 'top top', end: 'bottom 50%',
-  scrub: 1.2, from: { opacity: 1, y: 0 }, to: { opacity: 0, y: -120 }
-};
+```css
+@keyframes glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 20px rgba(212, 175, 55, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(212, 175, 55, 0.4);
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(60px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes draw-line {
+  from {
+    stroke-dashoffset: 1000;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
 ```
-
-### Stagger Delay Formula
-
-For `n` children in a card grid: `delay: 0.1 + (index * 0.12)` — capped at 0.5s total offset.
-
-### CSS Animations (tailwind.config.js keyframes)
-
-- `animate-glow-pulse` — box-shadow pulse on hero CTAs
-- `animate-pulse-ring` — expanding ring for primary CTAs
-- `animate-divider-draw` — section divider line reveal
 
 ---
 
 ## Component Patterns
 
-### Section Header (standard)
+### Buttons
 
-```
-eyebrow label    →  text-sm font-semibold uppercase tracking-widest text-[#f4d47c]/70 mb-4
-h2               →  text-4xl md:text-5xl lg:text-6xl font-bold text-white leading-tight mb-6
-                    optional gradient span: bg-gradient-to-r from-[#d4af37] via-[#f4d47c] to-[#8a6d10] bg-clip-text text-transparent
-subheadline      →  text-lg sm:text-xl text-gray-400 max-w-3xl mx-auto leading-relaxed
-```
+```yaml
+primary:
+  height: 64px (large) / 48px (medium) / 36px (small)
+  padding: 0 2rem
+  background: gradient-button
+  border-radius: 0.5rem
+  font: font-body, font-semibold
+  text: --cream
+  shadow: --glow-gold-sm
+  hover:
+    scale: 1.05
+    shadow: --glow-gold-md
+  active:
+    scale: 0.98
 
-### Feature Card (glassmorphism)
+secondary:
+  height: 48px / 36px
+  padding: 0 1.5rem
+  background: transparent
+  border: 1px solid var(--gold)
+  text: --gold
+  hover:
+    background: rgba(212, 175, 55, 0.1)
 
-```
-container:   rounded-2xl border border-[#d4af37]/20 bg-slate-900/60 backdrop-blur-sm p-8
-             hover: border-[#d4af37]/40 transition-all duration-300
-hover glow:  absolute inset-0 rounded-2xl bg-gradient-to-b from-[#d4af37]/5 to-transparent opacity-0 group-hover:opacity-100
-icon well:   w-12 h-12 rounded-xl bg-[#d4af37]/10 border border-[#d4af37]/20
-```
-
-### Step Number Badge
-
-```
-w-14 h-14 rounded-full bg-gradient-to-br from-[#d4af37] to-[#8a6d10] text-[#0a0a0a] font-bold text-xl shadow-lg shadow-[#d4af37]/20
-```
-
-### Primary CTA Button (rotating beam variant)
-
-See `hero-content-overlay.component.ts` `.cta-glow-button` — this is the canonical hero CTA style.  
-Secondary usage: `bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 px-6 py-2.5 rounded-lg font-semibold`.
-
-### Ghost Link Arrow
-
-```
-inline-flex items-center gap-3 text-[#f4d47c] hover:text-[#d4af37] font-medium text-sm transition-colors
-icon circle: w-9 h-9 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/20
+ghost:
+  padding: 0.5rem 1rem
+  background: transparent
+  text: --cream
+  hover:
+    text: --gold
 ```
 
-### Gradient Divider
+### Cards
 
-```
-h-[2px] w-full bg-gradient-to-r from-transparent via-secondary to-transparent
+```yaml
+feature-card:
+  background: --charcoal with glass effect
+  border: 1px solid rgba(212, 175, 55, 0.1)
+  border-radius: 1.5rem
+  padding: 2rem
+  min-height: 400px
+  hover:
+    transform: translateY(-8px) rotate(1deg)
+    border-color: var(--gold)
+    shadow: --glow-gold-lg
+
+comparison-card-before:
+  background: --charcoal
+  border: 1px solid rgba(255, 255, 255, 0.1)
+  filter: grayscale(0.3)
+  icon-color: --papyrus-red
+
+comparison-card-after:
+  background: --charcoal
+  border: 2px solid var(--gold)
+  shadow: --glow-gold-lg
+  icon-color: --scarab-teal
 ```
 
-### Check List Item
+### Icons
 
-```
-flex items-start gap-3
-lucide Check: w-5 h-5 text-[#d4af37] mt-0.5 shrink-0
-span: text-base text-gray-400
-```
+```yaml
+style:
+  stroke-width: 1.5
+  default-size: 24px
+  color: --cream (default) / --gold (active)
 
-### Eyebrow Badge (pill)
-
-```
-inline-flex items-center gap-2 px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-full
-dot: w-2 h-2 bg-amber-400 rounded-full animate-pulse
-text: text-sm font-medium text-amber-300/90 tracking-wide
-```
-
-### Runtime / Capability Badge
-
-```
-inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/20 text-xs font-medium text-[#f4d47c]
+large-icon-container:
+  size: 80px
+  background: radial-gradient(circle, var(--gold-glow), transparent)
+  icon-size: 48px
 ```
 
 ---
 
-## Iconography (lucide-angular)
+## Three.js 3D Elements
 
-- Default stroke-width: 1.5 (lucide default)
-- Standard sizes: `w-4 h-4` (inline), `w-5 h-5` (list icons), `w-6 h-6` (card icons), `w-8 h-8` (section icons)
-- Color on interactive: `text-[#d4af37]`
-- Color on muted: `text-gray-400`
-- Always `aria-hidden="true"` when decorative
+### Hero Scene Options
 
-**Canonical icon assignments for unmarketed capabilities:**
+```yaml
+ankh-sphere:
+  geometry: SphereGeometry with Ankh texture overlay
+  material: MeshStandardMaterial
+    metalness: 1.0
+    roughness: 0.2
+    color: --gold
+  effects:
+    - UnrealBloomPass (threshold: 0.5, strength: 1.5)
+    - Particle halo (THREE.Points)
+  animation:
+    - Mouse parallax (subtle)
+    - Slow rotation (0.001 rad/frame)
 
-| Capability | Lucide icon |
-|---|---|
-| Memory / Thoth | `Brain` |
-| Skill synthesis | `Sparkles` |
-| Cron scheduler | `Clock` |
-| Messaging gateway | `MessageSquare` |
-| Canvas multi-tile | `LayoutGrid` |
-| Workspace intelligence | `Search` |
-| CLI / headless | `Terminal` |
-| Multi-provider | `Shuffle` |
-| Session rewind/fork | `GitBranch` |
-| MCP tools | `Wrench` |
-| Background agents | `Bot` |
-| Monaco editor | `Code` |
-| VS Code runtime | `Package` |
-| Electron runtime | `Monitor` |
+pyramid-scene:
+  geometry: ConeGeometry / Custom pyramid mesh
+  material: MeshStandardMaterial with wireframe
+    color: --gold
+    wireframe: true
+  effects:
+    - Energy apex glow
+    - Particles flowing upward
+  lighting:
+    - PointLight at apex (gold)
+    - AmbientLight (dim white)
+
+particle-halo:
+  geometry: BufferGeometry with random positions
+  material: PointsMaterial
+    size: 2
+    color: --gold
+    transparent: true
+    opacity: 0.6
+  animation:
+    - Radial expansion
+    - Opacity pulsing
+```
+
+---
+
+## GSAP Animation Patterns
+
+### ScrollTrigger Defaults
+
+```javascript
+const scrollDefaults = {
+  trigger: element,
+  start: 'top 85%',
+  toggleActions: 'play none none reverse',
+};
+```
+
+### Common Animations
+
+```javascript
+// Reveal from below
+gsap.from(element, {
+  scrollTrigger: scrollDefaults,
+  opacity: 0,
+  y: 60,
+  duration: 0.8,
+  ease: 'power3.out',
+});
+
+// Scale in
+gsap.from(element, {
+  scrollTrigger: scrollDefaults,
+  opacity: 0,
+  scale: 0.95,
+  duration: 0.6,
+  ease: 'power2.out',
+});
+
+// Stagger children
+gsap.from(children, {
+  scrollTrigger: { trigger: parent, start: 'top 85%' },
+  opacity: 0,
+  y: 40,
+  duration: 0.6,
+  stagger: 0.15,
+  ease: 'power3.out',
+});
+```
+
+---
+
+## Responsive Breakpoints
+
+```css
+/* Tailwind defaults */
+sm: 640px    /* Mobile landscape */
+md: 768px    /* Tablet */
+lg: 1024px   /* Laptop */
+xl: 1280px   /* Desktop */
+2xl: 1536px  /* Large desktop */
+```
+
+### Mobile-First Patterns
+
+```yaml
+hero-headline:
+  mobile: text-4xl to text-5xl
+  tablet: text-6xl to text-7xl
+  desktop: text-7xl to text-8xl
+
+section-padding:
+  mobile: py-16 (64px)
+  tablet: py-24 (96px)
+  desktop: py-32 (128px)
+
+card-grid:
+  mobile: 1 column
+  tablet: 2 columns
+  desktop: 3 columns
+```
 
 ---
 
 ## Accessibility
 
-### Minimum Contrast (WCAG 2.1 AA)
-
-All verified against `#0a0a0a` (Obsidian) background:
-
-| Combination | Ratio | Standard |
-|---|---|---|
-| Cream `#f5f5dc` | 15.2:1 | AAA |
-| White `#ffffff` | 21:1 | AAA |
-| Gold `#d4af37` | 7.8:1 | AAA |
-| Gold Light `#f4d47c` | 11.6:1 | AAA |
-| Gray-300 `#d1d5db` | 11.8:1 | AAA |
-| Gray-400 `#9ca3af` | 6.2:1 | AA |
-| Gray-500 `#6b7280` | 4.5:1 | AA (large text) |
-| Amber-300 `#fcd34d` | 11.1:1 | AAA |
-
-### Focus States
-
-All interactive elements: `focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2`
-
-### Motion
-
-`@hive-academy/angular-gsap` applies `prefers-reduced-motion` globally. No additional CSS needed, but custom keyframe animations must include:
+### Motion Preferences
 
 ```css
 @media (prefers-reduced-motion: reduce) {
-  .animate-glow-pulse, .animate-pulse-ring { animation: none; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 ```
 
-### Semantic HTML
+### Color Contrast
 
-- Every major section uses `<section>` with `id` and `aria-label`
-- Decorative backgrounds: `aria-hidden="true"`
-- Icon-only buttons and links: explicit `aria-label`
+| Combination           | Ratio  | Status          |
+| --------------------- | ------ | --------------- |
+| --cream on --obsidian | 15.2:1 | AAA             |
+| --gold on --obsidian  | 7.8:1  | AAA             |
+| --sand on --charcoal  | 6.1:1  | AA              |
+| --stone on --charcoal | 4.6:1  | AA (large text) |
 
----
+### Focus States
 
-## Do / Don't
-
-**Do:**
-- Use `slate-950` for section backgrounds that need slight blue-black warmth (existing pattern)
-- Use `base-100` (`#0a0a0a`) as the pure page background
-- Wrap all heavy sections in `@defer (on viewport)` for bundle budget
-- Export scroll configs as `public readonly` signals in the component class
-- Use `ChangeDetectionStrategy.OnPush` on every component
-- Stack eyebrow → headline → subheadline → CTA in every section header
-- Keep feature cards at 3-column desktop / 2-column tablet / 1-column mobile
-- Use `max-w-7xl mx-auto` as the universal content container
-
-**Don't:**
-- Use `[innerHTML]` — route all AI/markdown content through `libs/frontend/markdown`
-- Add explanatory comments to code (repo rule)
-- Use raw hex values in Tailwind classes when a semantic token exists — prefer `text-secondary`, `bg-base-200`
-- Hardcode `#d4af37` inline more than necessary — use `text-secondary` or the global CSS var `var(--gold)` for new rules
-- Use `@angular/animations` — all motion goes through `@hive-academy/angular-gsap`
-- Create new custom CSS animations when an existing keyframe covers the need
-- Import backend libs in frontend components
+```css
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+```
 
 ---
 
-## Integration Notes for Content Writer
+## Usage in Content Generation
 
-When writing copy for the landing page, use these brand voice anchors:
+When generating content, always reference:
 
-- **Ptah** = the harness, the orchestrator, the platform (never "a chatbot" or "an assistant")
-- **Thoth** = the intelligent memory/learning subsystem (Electron-exclusive premium feature)
-- **Canvas** = the multi-tile orchestra workspace
-- **Harness** = the project-aware configuration layer
-- **Provider** = any LLM backend (never "model provider" — just "provider")
-- **Agent** = a session with a goal; **Orchestra** = multiple agents in parallel
-- **Trial** = 100-day free trial, no credit card, all features unlocked
+1. **Colors**: Use token names (--gold) not hex values in copy
+2. **Typography**: Specify which level for each text element
+3. **Spacing**: Use system values for consistency
+4. **Animations**: Reference named patterns
+5. **Components**: Use defined variants
 
-Headlines follow the pattern: **[Power statement].** not questions. Not "Are you ready to..."
+### Example Content Spec
+
+```yaml
+hero:
+  headline:
+    text: 'VS Code AI, Enlightened'
+    style: display-lg (mobile) → display-xl (desktop)
+    color: gradient-gold-text
+    animation: reveal-up, delay 900ms
+
+  cta:
+    text: 'Begin the Journey'
+    variant: primary
+    size: large
+    animation: bounce-in, delay 1200ms
+```
