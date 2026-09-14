@@ -64,7 +64,8 @@ describe('in-process workspace watch host', () => {
     expect(engine.subscribe).toHaveBeenCalledTimes(1);
 
     callbacks[0](null, [{ path: '/repo/a.ts', type: 'create' }]);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The coalescer holds the first batch after quiet for the 250 ms interval.
+    await new Promise((resolve) => setTimeout(resolve, 300));
     await flush();
     expect(received).toContainEqual(
       expect.objectContaining({

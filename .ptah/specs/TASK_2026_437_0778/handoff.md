@@ -40,7 +40,7 @@ PR #510 CI. Add it back to `context.md` after PR #510 merges.
   cleanly (else keep its current watcher behind the port); measure SQLite main-thread cost before
   moving it; scroll-back paging of old history is deferred.
 
-## 3. Done — committed (13 of 22 batches; Batches 8, 9 and 10 in section 4)
+## 3. Done — committed (14 of 22 batches; Batches 8, 9, 10 and 11 in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
 | ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,7 +64,34 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 10 — COMMITTED (resume at Batch 11)
+## 4. Batch 11 — COMMITTED (resume at Batch 15; Batch 16 is unblocked)
+
+**Update 2026-09-15 (Batch 11):** Batch 11 passed both reviews (logic base NEEDS_REVISION 5/10 →
+delta APPROVE HIGH; style base NEEDS_REVISION 7/10 → delta APPROVE HIGH) and is committed as
+`refactor(electron): watch the workspace through the out-of-process watcher port`.
+`GitWatcherService` and `WorkspaceFileIndexService` now consume `IWorkspaceWatcher`; no recursive
+`fs.watch` or per-event storm work remains on the Electron main loop. Both storm-exit loops (FU-4a)
+and both FU-4d filters are deleted; `@parcel/watcher` reports 0 events for `git status`/`git diff`
+(`b11-probe-parcel.log`). The initial walk (`discoverFiles`) skips nested repos and worktrees (D4).
+An ESLint rule forbids recursive watching in main (best-effort: it cannot see options passed by
+variable, FU-11d).
+
+ST-1b decision (orchestrator, Option B): the coalescer holds the first batch after quiet for
+`minBatchIntervalMs`; the git watcher subscribes with 1000 ms because the `@parcel/watcher`
+Debounce MAX of 500 ms is shared across backends. AC-2 stays "exactly 1". Measured: ST-1b exactly 1
+refresh (+5268/+5288 ms), 1 status push, 1 truncated push, p99 24.9/20.7 ms, max 40.0/33.4 ms; ST-1
+0 batches/spawns/pushes, p99 21.0/23.2 ms, max 38.5/42.8 ms. Trade-off: worst-case git decoration
+refresh ~3,000 ms (P1 ~2,000 ms), `file:content-changed` ~1,500 ms (P1 ~500 ms). Outcome, evidence,
+deviations and FU-11..FU-11h are in `batches.md` "Batch 11 outcome".
+
+**OPEN on PR #510 CI (separate fix, not Batch 11):** two Linux-only failures — the CLI contract
+suite does not see files created in a new directory (inotify), and the platform-electron host entry
+spec aborts with SIGABRT in the `worker_threads` transport.
+
+**Next: Batch 15** (ST-2 host stress + host-kill AC-7, senior-tester). Batch 16 (P3 governor core)
+is file-independent and unblocked; per the phase order it commits after P2 closes.
+
+## 4a. Batch 10 — COMMITTED
 
 **Update 2026-09-15 (Batch 10):** Batch 10 passed both reviews (logic base NEEDS_REVISION 4/10 →
 delta APPROVE HIGH; style base NEEDS_REVISION 7/10 → delta APPROVE) and is committed as
@@ -88,10 +115,6 @@ A local merge of `main` was avoided on purpose: the pre-commit hook runs `nx for
 staged incoming file and would have reformatted other work in PR #510's diff. Local
 `node_modules` is shared with the main checkout, so local tests do not prove `better-sqlite3` 13;
 the PR CI test merge does.
-
-**Next: Batch 11** (migrate `GitWatcherService` and `WorkspaceFileIndexService` onto
-`IWorkspaceWatcher`, delete the storm-exit loops FU-4a, port the FU-4d filters, nested-repo walk
-exclusion D4, ESLint rule). No `project.json` edit is planned, so no `nx reset`.
 
 ### Batch 9 (committed earlier, kept for context)
 
@@ -159,13 +182,11 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
   CLI: build `ptah-tui` then `restore-cli-manifest` before pack; cross-platform CI smoke (only
   win32-x64 proven locally).
 
-## 5. Remaining batches (9 of 22)
+## 5. Remaining batches (8 of 22)
 
 Order and dependencies are in `batches.md`. Summary:
 
-- **P2:** 11 (migrate git watcher + file index onto the port, delete both storm-exit loops
-  (FU-4a), port FU-4d filters, exclude nested repos in the initial `@` scan (D4), ESLint rule) →
-  15 (ST-2 stress + host-kill test AC-7). P2 also needs the OPEN D10 proof: `publish-electron.yml`
+- **P2:** 15 (ST-2 stress + host-kill test AC-7). P2 also needs the OPEN D10 proof: `publish-electron.yml`
   build matrix green on Windows, macOS and Linux (section 4).
 - **P3:** 16 (`BackgroundWorkGovernor` core) → 17 (adopters) and 18 (network back-off).
 - **P4:** 19 (O(E+M) finalization + tab-save quota back-off), 20 (drop duplicate `messages` from
@@ -174,9 +195,12 @@ Order and dependencies are in `batches.md`. Summary:
 ## 6. Open follow-ups (recorded in batches.md)
 
 - FU-3a/b: extract git-info single-flight into a collaborator.
-- FU-4a: Batch 11 must delete the duplicated storm-exit loops.
-- FU-4b: `diff-tabs.service.ts` > 700 lines. FU-4c: direct `search()` before first index build is empty.
-- FU-4d: Batch 11 must port/replace the unattributed-change and own-refresh echo filters; ST-1b is the acceptance check.
+- FU-4a, FU-4c, FU-4d: closed in Batch 11.
+- FU-4b: `diff-tabs.service.ts` > 700 lines.
+- FU-11: rewrite or delete `apps/ptah-electron-e2e/src/specs/git-watcher.spec.ts`. FU-11b: split `workspace-file-index.service.ts` (1,296 lines) under the facade rule with Batch 17. FU-11c: `git-watcher.service.ts` 951 lines.
+- FU-11d: the recursive-watch ESLint rule cannot see options passed by variable or module aliases — INV-1 lint enforcement is best-effort; soften any "enforced by lint" wording.
+- FU-11e: repeated directory-delete rebuilds above 5,000 entries during `nx run-many -t build` — confirm in the manual load test (section 9).
+- FU-11f: spec literals `250`/`300` should reference `WORKSPACE_WATCH_LIMITS.minBatchIntervalMs`. FU-11g: document the content-push latency ratio at the hold constant. FU-11h: timed 1 s hold residual risk on very slow machines.
 - FU-4e: `isGitRepo` treats a transient `rev-parse` failure as "not a repo" → git decorations blank for one cycle under load.
 - FU-5a/b/c: RPC in-flight breadcrumb hook; CLI arms watchdog only with `--verbose`; concurrent hang-log rotation may clobber `.1`.
 - Batch 7: spec for excluded-only churn extending a storm (bounded by `maxStormMs`).

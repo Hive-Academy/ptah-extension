@@ -125,6 +125,13 @@ export interface WorkspaceWatchOptions {
   /**
    * Minimum gap between two listener calls. Default and floor 250 ms (INV-1:
    * at most 4 batches per second); smaller values are raised to the floor.
+   *
+   * It is also the leading-edge hold: the first change after a quiet period
+   * is delivered `minBatchIntervalMs` after it arrives, not at once, so a burst
+   * whose first event the engine reports alone (`@parcel/watcher` does, up to
+   * 500 ms ahead of the rest) still reaches a storm as one incident. A
+   * consumer that must see a storm as exactly one `overflow` picks an interval
+   * longer than that gap.
    */
   readonly minBatchIntervalMs?: number;
   /**
@@ -140,7 +147,9 @@ export type WorkspaceChangeListener = (batch: WorkspaceChangeBatch) => void;
  * Recursive, batched workspace change feed.
  *
  * Guarantees, per subscription:
- * - the listener is called at most once per `minBatchIntervalMs`;
+ * - the listener is called at most once per `minBatchIntervalMs`, and a change
+ *   is delivered no later than `minBatchIntervalMs` after it arrives (the first
+ *   batch after a quiet period is held for the full interval);
  * - never synchronously inside `watch`;
  * - excluded paths (directory names, segment rules, globs, nested repository
  *   roots) never appear in `changes`;

@@ -2,6 +2,7 @@ import type { DependencyContainer } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
   ContentDownloadService,
+  type IWorkspaceWatcher,
 } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
@@ -393,7 +394,17 @@ export function createHeavyServicesBooter(
         const logger = container.resolve<
           import('@ptah-extension/vscode-core').Logger
         >(TOKENS.LOGGER);
-        const watcher = new GitWatcherService(gitInfoSvc, logger);
+        // The workspace feed: phase 0 registers the out-of-main watch host
+        // (TASK_2026_437 C8). `GitWatcherService` has no token of its own, so
+        // its port is resolved here, where it is constructed (C10).
+        const workspaceWatcher = container.resolve<IWorkspaceWatcher>(
+          PLATFORM_TOKENS.WORKSPACE_WATCHER,
+        );
+        const watcher = new GitWatcherService(
+          gitInfoSvc,
+          logger,
+          workspaceWatcher,
+        );
         watcher.start(workspaceRoot, (type, payload) => {
           webviewManager.broadcastMessage(type, payload);
         });

@@ -48,6 +48,11 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 - `src/utils/workspace-change-coalescer.ts` — `WorkspaceChangeCoalescer`: the
   one implementation of the `IWorkspaceWatcher` guarantees (exclusion, nested
   repo detection, storm breaker, ≤ 1 batch per 250 ms, ≤ 500 paths, overflow).
+  The first batch after a quiet period is HELD for `minBatchIntervalMs`
+  (leading-edge hold, TASK_2026_437 Batch 11): `@parcel/watcher` reports a
+  burst's first event alone and the rest up to 500 ms later, and without the
+  hold that lone event became a normal batch ahead of the storm's overflow —
+  two consumer refreshes for one incident.
   Every watcher adapter feeds one per subscription. Exclusions arrive as data
   because this lib cannot import `shared`: `excludeDirNames` (exact,
   case-sensitive — pass `WATCH_IGNORED_DIRS`), `excludeSegmentRules` (ASCII

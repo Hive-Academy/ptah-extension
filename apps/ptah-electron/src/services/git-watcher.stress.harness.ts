@@ -8,14 +8,20 @@
  * tsconfig as well as the spec one.
  *
  * Everything is real: a real temp git repository, a real `GitInfoService`
- * spawning the real git binary through a counting `IProcessSpawner`, and a
- * real `GitWatcherService` arming a real recursive `fs.watch`.
+ * spawning the real git binary through a counting `IProcessSpawner`, a real
+ * `GitWatcherService`, and the real workspace feed — `ElectronWorkspaceWatcher`
+ * supervising the built `workspace-watch-host.mjs` over `@parcel/watcher`
+ * (TASK_2026_437 C10). The host runs as a `child_process.fork` child rather
+ * than the app's `utilityProcess`, which needs Electron; the host entry
+ * supports both transports and everything past the transport is identical.
+ * The bundle is the one `build-workspace-watch-host` writes, which the
+ * `ptah-electron:test` target builds first.
  */
 
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { execFileSync, spawn } from 'child_process';
+import { execFileSync, fork, spawn, type ChildProcess } from 'child_process';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 
 import { GitInfoService, type Logger } from '@ptah-extension/vscode-core';
@@ -25,7 +31,10 @@ import type {
   ProcessExitListener,
   ProcessSpawnRequest,
   SpawnedProcessHandle,
+  WorkspaceChangeBatch,
+  WorkspaceWatchHostProcess,
 } from '@ptah-extension/platform-core';
+import { ElectronWorkspaceWatcher } from '@ptah-extension/platform-electron';
 
 import { GitWatcherService } from './git-watcher.service';
 
@@ -34,6 +43,12 @@ const FILES_PER_DIR = 10;
 
 /** How long the armed watcher must be idle before the measured window opens. */
 const QUIET_BASELINE_MS = 3_000;
+
+/** `dist/apps/ptah-electron/workspace-watch-host.mjs`, from this file's location. */
+const WORKSPACE_WATCH_HOST_BUNDLE = path.resolve(
+  __dirname,
+  '../../../../dist/apps/ptah-electron/workspace-watch-host.mjs',
+);
 
 let gitExecutable: string | undefined;
 
@@ -179,6 +194,42 @@ class CountingProcessSpawner implements IProcessSpawner {
   }
 }
 
+/** The built watch host as a forked Node child behind the adapter's process port. */
+class ForkedWatchHostProcess implements WorkspaceWatchHostProcess {
+  private readonly child: ChildProcess;
+
+  constructor(bundlePath: string) {
+    this.child = fork(bundlePath, [], {
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    });
+    // An IPC write racing a kill surfaces as 'error'; the exit follows it.
+    this.child.on('error', () => undefined);
+  }
+
+  postMessage(message: unknown): void {
+    if (this.child.connected) this.child.send(message as object);
+  }
+
+  on(event: 'message', listener: (message: unknown) => void): void;
+  on(event: 'exit', listener: (code: number | null) => void): void;
+  on(
+    event: 'message' | 'exit',
+    listener: ((message: unknown) => void) | ((code: number | null) => void),
+  ): void {
+    if (event === 'message') {
+      this.child.on('message', listener as (message: unknown) => void);
+    } else {
+      this.child.on('exit', (code) =>
+        (listener as (code: number | null) => void)(code),
+      );
+    }
+  }
+
+  kill(): void {
+    this.child.kill();
+  }
+}
+
 /**
  * Builds `totalFiles` real files across ten synthetic checkouts under `root`,
  * ~`FILES_PER_DIR` per directory (the acceptance table's "75,000 files in
@@ -239,16 +290,12 @@ interface PushRecord {
 
 /** The private `GitWatcherService` state the rig reads. Test support only. */
 interface WatcherInternals {
-  stormBreaker: { isStorming: boolean };
   debounceTimer: unknown;
   gitOpsDebounceTimer: unknown;
   contentChangeTimer: unknown;
-  stormTimer: unknown;
   initialFetchTimer: unknown;
-  unattributedChangeTimer: unknown;
-  ownRefreshesInFlight: number;
-  ownRefreshEchoUntil: number;
-  onWorkspaceEvent(root: string, eventType: string, f: string | null): void;
+  nestedRootsRefreshTimer: unknown;
+  onWorkspaceBatch(generation: number, batch: WorkspaceChangeBatch): void;
 }
 
 export class GitWatcherStressRig {
@@ -256,13 +303,36 @@ export class GitWatcherStressRig {
   readonly warnLines: string[] = [];
   readonly pushes: PushRecord[] = [];
   private readonly spawner = new CountingProcessSpawner();
+  private readonly workspaceWatcher: ElectronWorkspaceWatcher;
   private readonly svc: GitWatcherService;
-  /** `fs.watch` events that reached the watcher, by kind, since the baseline. */
-  namedEvents = 0;
-  unnamedEvents = 0;
+  /** Every batch the port delivered since the baseline: arrival time and shape. */
+  readonly batchLog: Array<{
+    readonly at: number;
+    readonly overflow: boolean;
+    readonly truncated: boolean;
+    readonly paths: number;
+  }> = [];
+  /** Batches the port delivered to the watcher since the baseline, by shape. */
+  batches = 0;
+  overflowBatches = 0;
+  truncatedBatches = 0;
+  /** Paths carried by normal batches, and events the host reported as dropped. */
+  changedPaths = 0;
+  droppedEvents = 0;
+  /** `update` changes whose path is a directory when the batch arrives (NTFS echo probe). */
+  directoryUpdates = 0;
+  /** The first few changes normal batches carried, for the log line. */
+  readonly sampleChanges: string[] = [];
 
   constructor() {
-    this.workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-437-st-'));
+    if (!fs.existsSync(WORKSPACE_WATCH_HOST_BUNDLE)) {
+      throw new Error(
+        `git-watcher stress rig: ${WORKSPACE_WATCH_HOST_BUNDLE} is missing; run \`npx nx run ptah-electron:build-workspace-watch-host\``,
+      );
+    }
+    this.workspaceRoot = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-437-st-')),
+    );
     runGit(['init', '-q'], this.workspaceRoot);
     // Deterministic identity so git never blocks on a prompt.
     runGit(['config', 'user.email', 'stress@ptah.test'], this.workspaceRoot);
@@ -277,38 +347,62 @@ export class GitWatcherStressRig {
         this.warnLines.push(message);
       },
     } as unknown as Logger;
+    this.workspaceWatcher = new ElectronWorkspaceWatcher({
+      host: {
+        fork: () => new ForkedWatchHostProcess(WORKSPACE_WATCH_HOST_BUNDLE),
+      },
+      onDiagnostic: ({ level, message }) => {
+        if (level !== 'info') this.warnLines.push(message);
+      },
+    });
     this.svc = new GitWatcherService(
       new GitInfoService(logger, this.spawner),
       logger,
+      this.workspaceWatcher,
     );
 
-    // Count what `fs.watch` actually delivered, so a run's log explains its
-    // own outcome (a burst that overflowed the OS buffer arrives as a handful
-    // of unnamed events instead of thousands of named ones).
+    // Count what the port actually delivered, so a run's log explains its own
+    // outcome (a storm arrives as one overflow batch, not thousands of paths).
     const internals = this.internals();
-    const deliver = internals.onWorkspaceEvent.bind(this.svc);
-    internals.onWorkspaceEvent = (root, eventType, filename) => {
-      if (filename === null) this.unnamedEvents++;
-      else this.namedEvents++;
-      deliver(root, eventType, filename);
+    const deliver = internals.onWorkspaceBatch.bind(this.svc);
+    internals.onWorkspaceBatch = (generation, batch) => {
+      this.batches++;
+      this.batchLog.push({
+        at: Date.now(),
+        overflow: batch.overflow,
+        truncated: batch.truncated,
+        paths: batch.changes.length,
+      });
+      if (batch.overflow) this.overflowBatches++;
+      if (batch.truncated) this.truncatedBatches++;
+      this.changedPaths += batch.changes.length;
+      this.droppedEvents += batch.droppedCount;
+      for (const change of batch.changes) {
+        if (this.sampleChanges.length < 5) {
+          this.sampleChanges.push(
+            `${change.kind}:${path.relative(this.workspaceRoot, change.path)}@${Date.now()}`,
+          );
+        }
+        if (
+          change.kind === 'update' &&
+          fs.statSync(change.path, { throwIfNoEntry: false })?.isDirectory()
+        ) {
+          this.directoryUpdates++;
+        }
+      }
+      deliver(generation, batch);
     };
   }
 
   /**
    * Arms the watcher, waits for the initial status push, then waits until the
-   * watcher has held no queued work, no live git child, and made no new spawn
-   * or push for {@link QUIET_BASELINE_MS}. Only then are the counters reset.
+   * watcher has held no queued work, no live git child, and received no batch,
+   * spawn or push for {@link QUIET_BASELINE_MS}. Only then are the counters
+   * reset.
    *
-   * Arming right after writing thousands of files delivers a trail of change
-   * events; without this gate that trail could enter a storm whose "entered"
-   * line fell before the reset while its exit and refresh fell inside the
-   * measured window (the first 75,000-file run: 1 entered, 2 exited).
-   *
-   * A pending unattributed-change safety refresh from the arm phase is WAITED
-   * OUT, not flushed: flushing would need a private call that production never
-   * makes. The watcher is not idle until that timer has fired (its refresh
-   * then counts as a spawn and push, restarting the quiet window), so
-   * `timeoutMs` must exceed `UNATTRIBUTED_QUIET_MS` (30 s) plus a refresh.
+   * Arming right after writing thousands of files can deliver a trail of
+   * events from the OS; without this gate that trail could land inside the
+   * measured window.
    */
   async armAndSettleBaseline(timeoutMs: number): Promise<void> {
     this.svc.start(this.workspaceRoot, (type, payload) => {
@@ -322,6 +416,7 @@ export class GitWatcherStressRig {
     let quietSince = Date.now();
     let spawnsSeen = this.spawner.calls.length;
     let pushesSeen = this.pushes.length;
+    let batchesSeen = this.batches;
     while (Date.now() - quietSince < QUIET_BASELINE_MS) {
       if (Date.now() > deadline) {
         throw new Error(`watcher did not go idle within ${timeoutMs} ms`);
@@ -331,10 +426,12 @@ export class GitWatcherStressRig {
         !this.watcherIdle() ||
         this.spawner.liveChildren > 0 ||
         this.spawner.calls.length !== spawnsSeen ||
-        this.pushes.length !== pushesSeen
+        this.pushes.length !== pushesSeen ||
+        this.batches !== batchesSeen
       ) {
         spawnsSeen = this.spawner.calls.length;
         pushesSeen = this.pushes.length;
+        batchesSeen = this.batches;
         quietSince = Date.now();
       }
     }
@@ -342,8 +439,14 @@ export class GitWatcherStressRig {
     this.pushes.length = 0;
     this.spawner.calls = [];
     this.warnLines.length = 0;
-    this.namedEvents = 0;
-    this.unnamedEvents = 0;
+    this.batches = 0;
+    this.batchLog.length = 0;
+    this.overflowBatches = 0;
+    this.truncatedBatches = 0;
+    this.changedPaths = 0;
+    this.droppedEvents = 0;
+    this.directoryUpdates = 0;
+    this.sampleChanges.length = 0;
   }
 
   /** Deletes `tree` recursively, then waits `settleMs`, measuring loop delay throughout. */
@@ -386,18 +489,14 @@ export class GitWatcherStressRig {
     return this.pushes.filter((push) => push.type === 'file:content-changed');
   }
 
-  stormLines(kind: 'entered' | 'exited'): number {
-    return this.warnLines.filter((line) => line.includes(`event storm ${kind}`))
-      .length;
-  }
-
   /** One log line with every mechanism count, for printing before assertions. */
   describe(label: string, window: DeleteWindow): string {
     const { delay } = window;
     return (
       `[${label}] delete=${window.deleteEndedAt - window.deleteStartedAt}ms ` +
-      `events named=${this.namedEvents} unnamed=${this.unnamedEvents} ` +
-      `storm entered=${this.stormLines('entered')} exited=${this.stormLines('exited')} ` +
+      `batches=${this.batches} overflow=${this.overflowBatches} truncated=${this.truncatedBatches} ` +
+      `paths=${this.changedPaths} dropped=${this.droppedEvents} dirUpdates=${this.directoryUpdates} ` +
+      `sample=[${this.sampleChanges.join(', ')}] ` +
       `refreshCycles=${this.refreshCycles().length} statusSpawns=${this.statusSpawns().length} spawns=${this.spawnCount()} ` +
       `statusPushes=${this.statusPushes().length} contentPushes=${this.contentPushes().length} ` +
       `loop p50=${delay.p50Ms.toFixed(2)}ms p99=${delay.p99Ms.toFixed(2)}ms max=${delay.maxMs.toFixed(2)}ms`
@@ -406,6 +505,7 @@ export class GitWatcherStressRig {
 
   dispose(): void {
     this.svc.stop();
+    this.workspaceWatcher.dispose();
     try {
       fs.rmSync(this.workspaceRoot, { recursive: true, force: true });
     } catch {
@@ -421,17 +521,11 @@ export class GitWatcherStressRig {
   private watcherIdle(): boolean {
     const state = this.internals();
     return (
-      !state.stormBreaker.isStorming &&
       state.debounceTimer === null &&
       state.gitOpsDebounceTimer === null &&
       state.contentChangeTimer === null &&
-      state.stormTimer === null &&
       state.initialFetchTimer === null &&
-      // A pending 30 s safety refresh would land inside the measured window.
-      state.unattributedChangeTimer === null &&
-      // An own-refresh echo window would change how delete events are handled.
-      state.ownRefreshesInFlight === 0 &&
-      Date.now() >= state.ownRefreshEchoUntil
+      state.nestedRootsRefreshTimer === null
     );
   }
 }

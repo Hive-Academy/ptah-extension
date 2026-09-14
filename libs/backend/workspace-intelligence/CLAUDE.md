@@ -103,10 +103,10 @@ in one session at 14826 / 9969 / 8626 ms, each followed by a run of 260-554 ms
 - **Eviction is by folder CLOSED, never by folder deactivated.** The one signal
   is `onDidChangeWorkspaceFolders` diffed against `getWorkspaceFolders()`; an
   empty list is treated as "no information" (the CLI reports none permanently).
-  An inactive folder KEEPS ITS WATCHER, which is what keeps its snapshot fresh
-  enough to reuse — chokidar has no recursive mode, so re-arming one readdirp-
-  walks every directory and opens an `fs.watch` per directory, and that burst was
-  the lag run behind each "Ready" line. An LRU cap (8) bounds hosts that pass
+  An inactive folder KEEPS ITS SUBSCRIPTION, which is what keeps its snapshot
+  fresh enough to reuse (re-arming the old per-folder chokidar watcher readdirp-
+  walked every directory, and that burst was the lag run behind each "Ready"
+  line). An LRU cap (8) bounds hosts that pass
   ad-hoc roots the provider never lists; the active folder is never evicted.
   **The cap is SOFT, and enforced against `getWorkspaceFolders()` — not just
   against `lastActiveAt`.** `evictOverflow` skips every entry the provider still
@@ -124,20 +124,47 @@ in one session at 14826 / 9969 / 8626 ms, each followed by a run of 260-554 ms
   classification; do not point the index back at it. `compileMatcher` must keep
   answering exactly what `isIgnored` answers — the table test in
   `ignore-pattern-resolver.service.spec.ts` compares them on the same inputs.
-- **An event storm pauses live updates; the exit rebuilds once** (TASK_2026_437
-  INV-6). Each folder's watcher events pass a per-folder `EventStormBreaker`
-  (`@ptah-extension/platform-core`, thresholds via `PTAH_WATCH_STORM_*`). Above
-  its rate, events are counted and dropped before `isExcluded` runs. When the
-  storm ends (quiet, or forced at `maxStormMs`) the folder runs ONE path-only
-  rebuild with the watcher kept armed. The walk fills a staging snapshot while
-  queries keep serving the previous one; live events land in both, and success
-  swaps the maps in synchronously, so `search`/`getAll`/`searchDirectories`
-  never see a half-built index during a post-storm rebuild. This does not cover
-  the FIRST build: a direct `search()` before it completes still sees an empty
-  index, so callers await `ensureReadyFor` first. A failed rebuild keeps the previous snapshot; a
-  storm ending mid-rebuild queues exactly one more, which runs even if the
-  current one fails. Temporary: Batch 11 moves recursive watching onto the
-  batched `IWorkspaceWatcher` port and replaces this path.
+- **Live updates are batches from `IWorkspaceWatcher`; lost events rebuild
+  once** (TASK_2026_437 C10, INV-1, INV-6). Each folder holds one
+  `PLATFORM_TOKENS.WORKSPACE_WATCHER` subscription (Electron and CLI: the
+  `@parcel/watcher` watch host; VS Code: its own watcher behind the coalescer).
+  Exclusion, storm breaking and coalescing happen where the events are
+  produced: the subscription passes `DEFAULT_WORKSPACE_EXCLUDES` as globs,
+  `NESTED_WORKSPACE_PATH_RULES` as segment rules, `nestedRepoDetection`, and the
+  nested roots the walk skipped (below). This side does no per-event work: one
+  synchronous pass per batch — deletes drop entries (a deleted directory drops
+  everything below it in one sweep while the folder holds at most 5,000
+  entries; above that the batch counts as incomplete and rebuilds instead), and
+  a path not yet indexed is matched against the default excludes and the
+  folder's ignore rules, compiled ONCE per build with `compileMatcher`, before
+  the survivors are statted (a batch does not say file or directory). Every map
+  key, file or directory, goes through `toIndexKey` (normalized separators, no
+  trailing separator, upper-case drive letter), so the walk's `D:/…` and the
+  watcher's `d:\…\` are one entry. An `overflow` or `truncated` batch runs ONE
+  path-only rebuild with the subscription kept: the walk fills a staging
+  snapshot while queries keep serving the previous one, live batches land in
+  both, and success swaps it in synchronously. A failed rebuild keeps the
+  previous snapshot; any number of overflows arriving mid-rebuild queue exactly
+  one more (a degraded adapter repeats `overflow` every 60 s), which runs even
+  if the current one fails. A `watch()` that throws leaves the folder static
+  only until a later `ensureReadyFor` retries it (at most once a minute, no
+  timer); a successful retry rebuilds once.
+- **Query before the first build: nothing, never a partial list** (FU-4c).
+  `search`/`getAll`/`searchDirectories` answer from the active folder only once
+  its first build completed. The contract is that callers await
+  `ensureReadyFor` first — all three production call sites do, in
+  `ContextService.searchFiles`/`getAllFiles`/`getFileSuggestions` — and the gate
+  keeps a caller that forgets from reading a half-walked folder.
+- **Nested repositories never enter the index** (TASK_2026_437 D4).
+  `WorkspaceIndexerService.discoverFiles` (every walk: the picker, `indexWorkspace*`,
+  `getFileCount`) drops any directory below the root holding a `.git` entry — a
+  repository's directory or a worktree's pointer file, which also covers every
+  worktree git registers under the root without spawning git. One existence
+  check per directory that holds a discovered file, one depth level at a time,
+  nothing probed below a root already found. `discoverWorkspacePaths` reports
+  the roots through `onNestedRepoRoots`; the file index seeds its subscription
+  with them, because a repository that already exists produces no `.git` event
+  for the watcher to detect.
 
 ## Type-check worker (`ptah_get_diagnostics`)
 

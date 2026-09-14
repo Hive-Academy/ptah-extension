@@ -16,14 +16,17 @@
  *    so an excluded event costs nothing further and can never START a storm;
  * 5. the event is counted in an {@link EventStormBreaker};
  * 6. distinct paths accumulate up to `maxPathsPerBatch`; at most one batch per
- *    `minBatchIntervalMs` is emitted, always from a timer.
+ *    `minBatchIntervalMs` is emitted, always from a timer, and the first batch
+ *    after a quiet period is held for `minBatchIntervalMs` (leading-edge hold,
+ *    see `scheduleFlush`), so a change reaches the listener at most
+ *    `minBatchIntervalMs` after it arrives.
+ *
+ * It replaced the storm loops once hand-copied into `GitWatcherService` and
+ * `WorkspaceFileIndexService` (TASK_2026_437 Batch 11).
  *
  * One loss-of-events incident yields ONE `overflow` batch: a
  * `signalOverflow()` during a storm, or a storm starting while a signalled
  * overflow is still pending, is carried by the storm's exit overflow.
- *
- * It replaces the storm loops hand-copied into `GitWatcherService` and
- * `WorkspaceFileIndexService` once those consumers move onto the port.
  *
  * Pure: no filesystem, no process, no logger. Timers and the clock are
  * injectable; failures in the listener are handed to the caller.
@@ -350,13 +353,31 @@ export class WorkspaceChangeCoalescer {
     this.overflowOwed = true;
   }
 
+  /**
+   * Arms the one flush timer.
+   *
+   * Leading-edge hold: the first change after a quiet period (no emit within
+   * `minBatchIntervalMs`) waits a full `minBatchIntervalMs` instead of flushing
+   * at once. `@parcel/watcher` notifies the first change of a burst on its own,
+   * immediately, and the rest of the burst up to 500 ms later
+   * (`src/Debounce.cc` `notifyIfReady`, `MAX_WAIT_TIME`). Flushed at once, that
+   * lone change left as a normal batch before the burst could enter a storm,
+   * so a consumer paid one refresh for it and a second for the storm's
+   * overflow (TASK_2026_437 ST-1b). Held, it is still pending when the burst
+   * enters the storm, and `enterStorm` folds it into the storm's one overflow.
+   *
+   * Inside an active cadence (an emit less than `minBatchIntervalMs` ago) the
+   * timer waits out the rest of that interval, as before.
+   */
   private scheduleFlush(): void {
     if (this.disposed || this.flushTimer !== undefined) return;
     const now = this.clock.now();
+    const sinceEmit =
+      this.lastEmitAt === undefined ? Infinity : now - this.lastEmitAt;
     const delay =
-      this.lastEmitAt === undefined
-        ? 0
-        : Math.max(0, this.lastEmitAt + this.minBatchIntervalMs - now);
+      sinceEmit >= this.minBatchIntervalMs
+        ? this.minBatchIntervalMs
+        : this.minBatchIntervalMs - sinceEmit;
     this.flushTimer = this.clock.setTimer(() => {
       this.flushTimer = undefined;
       this.flush();

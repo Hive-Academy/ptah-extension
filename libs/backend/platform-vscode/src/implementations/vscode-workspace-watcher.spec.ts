@@ -165,7 +165,7 @@ describe('VscodeWorkspaceWatcher', () => {
     fire('change', '/repo/b.ts');
     fire('delete', '/repo/c.ts');
     expect(batches).toHaveLength(0);
-    clock.advance(0);
+    clock.advance(250);
 
     expect(batches).toEqual([
       {
@@ -234,7 +234,7 @@ describe('VscodeWorkspaceWatcher', () => {
     watcher.watch(ROOT, options(), (b) => batches.push(b));
 
     expect(batches).toHaveLength(0);
-    clock.advance(0);
+    clock.advance(250);
     expect(batches.map((b) => b.overflow)).toEqual([true]);
     expect(diagnostics).toEqual([
       expect.objectContaining({
@@ -304,7 +304,7 @@ describe('VscodeWorkspaceWatcher', () => {
     expect(createFileSystemWatcher).toHaveBeenCalledTimes(4);
 
     fire('create', '/external/a.ts');
-    clock.advance(0);
+    clock.advance(250);
     expect(batches).toEqual([
       expect.objectContaining({
         overflow: false,
@@ -340,7 +340,7 @@ describe('VscodeWorkspaceWatcher', () => {
       throw new Error('listener down');
     });
     fire('create', '/repo/a.ts');
-    expect(() => clock.advance(0)).not.toThrow();
+    expect(() => clock.advance(250)).not.toThrow();
     watcher.dispose();
   });
 });

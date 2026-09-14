@@ -202,7 +202,7 @@ describe('WorkspaceWatchHostCore', () => {
       })),
     );
     expect(batches()).toHaveLength(0);
-    clock.advance(0);
+    clock.advance(250);
     expect(batches(1)).toHaveLength(1);
     expect(batches(1)[0].changes).toHaveLength(50);
 
@@ -222,7 +222,7 @@ describe('WorkspaceWatchHostCore', () => {
     expect(calls).toHaveLength(1);
 
     calls[0].emit([{ path: '/repo/src/a.ts', type: 'update' }]);
-    clock.advance(0);
+    clock.advance(250);
     expect(batches(1)[0].changes).toEqual([
       { path: '/repo/src/a.ts', kind: 'update' },
     ]);
@@ -304,7 +304,7 @@ describe('WorkspaceWatchHostCore', () => {
       { path: '/repo/node_modules/x/index.js', type: 'create' },
       { path: '/repo/src/kept.ts', type: 'create' },
     ]);
-    clock.advance(0);
+    clock.advance(250);
     expect(batches(1)[0].changes.map((c) => c.path)).toEqual([
       '/repo/src/kept.ts',
     ]);
@@ -394,7 +394,7 @@ describe('WorkspaceWatchHostCore', () => {
         new Error('Events were dropped by the FSEvents client'),
       );
       calls[0].emitError(new Error('again'));
-      clock.advance(0);
+      clock.advance(250);
       expect(batches(1)).toEqual([
         expect.objectContaining({ overflow: true, changes: [] }),
       ]);
@@ -430,7 +430,7 @@ describe('WorkspaceWatchHostCore', () => {
       subscribe(1);
       calls[0].fail(new Error('ENOENT'));
       await flush();
-      clock.advance(0);
+      clock.advance(250);
       expect(batches(1)).toEqual([expect.objectContaining({ overflow: true })]);
       expect(ofType('error')).toEqual([
         expect.objectContaining({ code: 'native-subscribe-failed' }),
@@ -545,7 +545,7 @@ describe('WorkspaceWatchHostCore', () => {
 
       core.handleMessage({ type: 'unsubscribe', id: 1 });
       calls[0].emit([{ path: '/repo/a.ts', type: 'create' }]);
-      clock.advance(0);
+      clock.advance(250);
       expect(batches(1)).toHaveLength(0);
       expect(batches(2)).toHaveLength(1);
       expect(calls[0].unsubscribe).not.toHaveBeenCalled();

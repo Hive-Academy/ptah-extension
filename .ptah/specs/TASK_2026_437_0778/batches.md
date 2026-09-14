@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 56 | Batches: 22 | Complete: 13/22
+Total tasks: 56 | Batches: 22 | Complete: 14/22
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN). Remaining unblocked: P2 Batch 11, then 15; P3 wave 1 Batch 16. P2 is not done until the `publish-electron.yml` matrix is green on all three OSes (see Batch 10 outcome).
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). Remaining unblocked: P2 Batch 15; P3 wave 1 Batch 16. P2 is not done until the `publish-electron.yml` matrix is green on all three OSes (see Batch 10 outcome). PR #510 CI has two OPEN Linux-only failures under investigation by a separate fix (not Batch 11): the CLI contract suite does not see files created in a new directory (inotify), and the platform-electron host entry spec aborts with SIGABRT in the `worker_threads` transport.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `handoff.md` section 2 "User decisions" (formerly in `context.md`)
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -699,7 +699,52 @@ P4 is the COMMIT order" for these four batches only.
 
 ---
 
-## Batch 11: P2 — consumer migration to the port + ESLint rule + nested-root walk exclusion (C10) — PENDING
+## Batch 11: P2 — consumer migration to the port + ESLint rule + nested-root walk exclusion (C10) — COMPLETE
+
+### Batch 11 outcome
+
+- Commit: `refactor(electron): watch the workspace through the out-of-process watcher port` (SHA in `git log`; recorded by subject because this file is part of that commit; resolve with `git log --oneline --grep "out-of-process watcher port"`).
+- Reviews: `b11-code-logic-review.md` base NEEDS_REVISION (5/10) → delta APPROVE, confidence HIGH. `b11-code-style-review.md` base NEEDS_REVISION (7/10) → delta APPROVE, confidence HIGH. Remaining delta minors are recorded as FU-11f and FU-11g.
+- Orchestrator decision (ST-1b): Option B. The coalescer holds the first batch after a quiet period for `minBatchIntervalMs` (leading-edge hold), so the lone first event `@parcel/watcher` reports ahead of a burst folds into the storm's one overflow. The git watcher subscription uses `minBatchIntervalMs` 1000 ms, because the `@parcel/watcher` Debounce MIN/MAX (50/500 ms) is shared across its backends and 250 ms does not cover the 500 ms gap. AC-2 stays "exactly 1" refresh.
+- Evidence (stress; executor logs `D:\projects\ptah-437-backup\b11fix-stress-run1.log`, `b11fix-stress-run2.log`; not re-run by team-leader):
+  - ST-1b before the hold: 2 refreshes (a lone event batch at +90 ms, then the flood's overflow).
+  - ST-1b after: exactly 1 refresh cycle at +5268 ms / +5288 ms (one overflow batch, `dropped` 8810 / 8811), 1 `git status` spawn, 1 status push, 1 truncated content push. Event loop p99 24.87 / 20.68 ms, max 39.98 / 33.44 ms.
+  - ST-1 (delete under `.claude-worktrees/`): 0 batches, 0 spawns, 0 pushes. p99 21.02 / 23.23 ms, max 38.47 / 42.83 ms.
+  - Batch 6 P1 baseline for comparison: ST-1 p99 17 ms / max 67 ms; ST-1b 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline 265–615 ms lag every 2 s.
+  - FU-4d echo filter DELETED with evidence: `b11-probe-parcel.log` shows `@parcel/watcher` reports 0 events for `git status` / `git diff`; ST-1b `dirUpdates=0` in both runs.
+- Evidence (executor tests; `b11fix-test-run1.log`, `b11fix-test-run2.log`, `b11fix-test-run2b.log`, `b11fix-typecheck.log`, `b11fix-lint-all.log`, `b11fix-audit.log`):
+  - Run 1 (4 projects): platform-core 39 suites, 729 passed + 4 todo; workspace-intelligence 42 suites, 1093 passed; vscode-lm-tools 50 suites, 1157 passed; ptah-electron 45 of 47 suites, 602 passed + 6 skipped.
+  - Run 2 (4 projects: platform-electron, platform-cli, platform-vscode, skill-synthesis): 1423 passed + 37 skipped; 216 passed + 3 todo; 206 passed + 3 todo; platform-electron 1 failure under load in `in-process-workspace-watch-host.spec.ts`, then passed alone (run 2b: 613 passed, 2 skipped, 3 todo).
+  - Typecheck 7 projects exit 0. `lint:all` 73 projects, 0 errors. `degradation-audit` TOTAL 303.
+- Evidence (team-leader, worktree `D:\projects\ptah-437`, 0 jest/nx test processes before each run; no CI-executor edits present in the worktree at run time):
+  - `npx nx run-many -t test -p ptah-electron @ptah-extension/workspace-intelligence @ptah-extension/platform-core @ptah-extension/vscode-lm-tools --parallel=1 -- --maxWorkers=2` (header: 4 projects) — exit 0. All 4 test targets were cache hits with inputs identical to the executor's fix run: platform-core 729 passed + 4 todo (39 suites); workspace-intelligence 1093 (42 suites); vscode-lm-tools 1157 (50 suites); ptah-electron 602 passed + 6 skipped (45 of 47 suites).
+  - `npx nx run-many -t test -p @ptah-extension/platform-electron @ptah-extension/platform-vscode --parallel=1 -- --maxWorkers=2` (header: 2) — exit 0, cache hits: platform-electron 613 passed, 2 skipped, 3 todo; platform-vscode 206 passed + 3 todo.
+  - `npx nx run-many -t typecheck -p ptah-electron @ptah-extension/workspace-intelligence @ptah-extension/platform-core --parallel=1` (header: 3) — exit 0, ran fresh.
+  - `npx eslint` on the 3 ESLint configs and the 17 changed TS files — exit 0, 0 errors, 1 warning (`workspace-file-index.service.ts` max-lines, FU-11b).
+  - `npx nx run degradation-audit:lint` — TOTAL 303 (baseline; ptah-electron 4, platform-core 7, workspace-intelligence 1).
+  - Prettier check on all staged files; the two review markdown files were reformatted with `prettier --write`.
+  - Stress specs not re-run (executor evidence stands). `lint:all` not re-run.
+- Accepted deviations:
+  - FU-4a closed: both hand-copied storm-exit loops are deleted; the coalescer carries the storm breaker.
+  - FU-4c closed via a `queryable` gate; the only caller, `ContextService`, awaits readiness.
+  - FU-4d (a) closed: the port's overflow flag replaces the unattributed-change path; the 30 s safety refresh is deleted. FU-4d (b) closed: the own-refresh echo filter is deleted (evidence above).
+  - D4 applies to `discoverFiles`, so `indexWorkspace*` and `getFileCount` also skip nested repos (user decision Q1).
+  - Worktrees are detected via the `.git` pointer file (no git spawn).
+  - The file index stats created paths.
+  - `path` keys are unified via `toIndexKey`. This also fixes a pre-existing Electron bug where live deletes never matched an index entry.
+  - `DIRECTORY_DELETE_SWEEP_LIMIT` 5,000; `retrySubscribeIfDue` 60 s; `worktreeListingSeq` orders overlapping nested-root listings.
+  - The ESLint rule is split into `IN_MAIN_RECURSIVE_WATCH_SELECTORS` and re-stated in the `skill-synthesis` and `web/members` lib configs (flat config replaces rule options).
+  - Shared test double `createMockWorkspaceWatcher` in `platform-core/src/testing/mocks/`.
+- Latency trade-off (logic delta): worst-case git decoration refresh is ~3,000 ms (P1 ~2,000 ms); `file:content-changed` is ~1,500 ms (P1 ~500 ms).
+- Follow-ups (not in this batch):
+  - FU-11: rewrite or delete `apps/ptah-electron-e2e/src/specs/git-watcher.spec.ts`.
+  - FU-11b: split `workspace-file-index.service.ts` (1,296 lines) under the facade rule with Batch 17.
+  - FU-11c: `git-watcher.service.ts` is 951 lines.
+  - FU-11d: the ESLint rule cannot see watch options passed by variable or through module aliases. INV-1 lint enforcement is best-effort; soften any "enforced by lint" wording.
+  - FU-11e: repeated directory-delete rebuilds above 5,000 entries during `nx run-many -t build`. Confirm in the manual load test (`handoff.md` §9).
+  - FU-11f: spec magic numbers `250` / `300` (`workspace-watch-host-core.spec.ts`, `vscode-workspace-watcher.spec.ts`, `in-process-workspace-watch-host.spec.ts`) should reference `WORKSPACE_WATCH_LIMITS.minBatchIntervalMs`.
+  - FU-11g: document the content-push latency ratio at the hold constant (`WORKSPACE_BATCH_INTERVAL_MS`).
+  - FU-11h: residual risk of the timed 1 s hold on very slow machines; the ST-1b strict spec will show it.
 
 - Recommended executor: backend-developer
 - Fallback executor: none
@@ -707,23 +752,23 @@ P4 is the COMMIT order" for these four batches only.
 - Rationale: deletes the P1 in-process watcher paths and replaces them. Coupled changes across two consumers plus a repo-wide rule.
 - Tasks: 4 | Depends on: Batch 10
 
-### Task 11.1: `GitWatcherService` onto `IWorkspaceWatcher` — PENDING
+### Task 11.1: `GitWatcherService` onto `IWorkspaceWatcher` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\apps\ptah-electron\src\services\git-watcher.service.ts` + `.spec.ts`, `D:\projects\ptah-extension\apps\ptah-electron\src\activation\boot-heavy-services.ts` (:380-408), `D:\projects\ptah-extension\apps\ptah-electron\src\services\git-watcher.stress.spec.ts` (switch to the real adapter)
 - Plan reference: implementation-plan.md:545-573
 - Validation notes: DELETE the recursive `fs.watch` path, per-event filter and in-process breaker use. `.git` dedicated watchers `:199-222` unchanged. `overflow` triggers `refreshGitInfo` + truncated push. Nested roots are seeded from `getWorktrees` into `subscribe`.
 
-### Task 11.2: `WorkspaceFileIndexService` onto the port — PENDING
+### Task 11.2: `WorkspaceFileIndexService` onto the port — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\file-indexing\workspace-file-index.service.ts` + `.spec.ts`, `D:\projects\ptah-extension\libs\backend\workspace-intelligence\CLAUDE.md` ("File index")
 - Validation notes: replaces the recursive `createFileWatcher` call (`:635`) and the Batch 4 breaker adoption. One `compileMatcher` pass per batch. `overflow` marks stale and does one path-only rebuild (governor adoption comes later in Batch 17).
 
-### Task 11.3: Nested repo / worktree exclusion in the initial walk (D4) — PENDING
+### Task 11.3: Nested repo / worktree exclusion in the initial walk (D4) — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\file-indexing\workspace-indexer.service.ts` (+ spec)
 - Validation notes: user decision Q1. Skip any directory below the root that holds a `.git` entry (file or dir), and registered worktrees under the root. Architect to confirm placement.
 
-### Task 11.4: ESLint rule against in-main recursive watching — PENDING
+### Task 11.4: ESLint rule against in-main recursive watching — COMPLETE
 
 - Files: `D:\projects\ptah-extension\eslint.config.mjs`
 - Implementation details: forbid `fs.watch` with `recursive` and `chokidar` imports outside `libs/backend/platform-{electron,cli}/src/implementations/*file-system-provider.ts` and `libs/backend/platform-{electron,cli}/src/workspace-watch/*.entry.ts`. Proven by `npm run lint:all`.

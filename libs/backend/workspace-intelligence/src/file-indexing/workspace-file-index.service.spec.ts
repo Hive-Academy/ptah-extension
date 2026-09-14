@@ -3,52 +3,19 @@ import 'reflect-metadata';
 jest.mock('vscode', () => ({}), { virtual: true });
 
 import * as path from 'path';
-import { normalizeWorkspaceRoot } from '@ptah-extension/platform-core';
-import { WorkspaceFileIndexService } from './workspace-file-index.service';
+import {
+  FileType,
+  normalizeWorkspaceRoot,
+} from '@ptah-extension/platform-core';
+import { createMockWorkspaceWatcher } from '@ptah-extension/platform-core/testing';
+import { NESTED_WORKSPACE_PATH_RULES } from '@ptah-extension/shared';
+import {
+  WorkspaceFileIndexService,
+  toIndexKey,
+} from './workspace-file-index.service';
+import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
 
-/**
- * Minimal file-watcher double: captures the create/change/delete listeners the
- * service registers and lets tests fire synthetic events, mirroring what a real
- * IFileWatcher does.
- */
-class FakeWatcher {
-  createListeners: Array<(p: string) => void> = [];
-  changeListeners: Array<(p: string) => void> = [];
-  deleteListeners: Array<(p: string) => void> = [];
-  /** Total dispose() invocations — proves "disposed exactly once" (R2). */
-  disposeCount = 0;
-
-  constructor(readonly cwd: string | undefined) {}
-
-  get disposed(): boolean {
-    return this.disposeCount > 0;
-  }
-
-  readonly onDidCreate = (l: (p: string) => void) => {
-    this.createListeners.push(l);
-    return { dispose: () => undefined };
-  };
-  readonly onDidChange = (l: (p: string) => void) => {
-    this.changeListeners.push(l);
-    return { dispose: () => undefined };
-  };
-  readonly onDidDelete = (l: (p: string) => void) => {
-    this.deleteListeners.push(l);
-    return { dispose: () => undefined };
-  };
-  dispose = () => {
-    this.disposeCount++;
-  };
-
-  fireCreate(p: string): void {
-    this.createListeners.forEach((l) => l(p));
-  }
-  fireDelete(p: string): void {
-    this.deleteListeners.forEach((l) => l(p));
-  }
-}
-
-// Flush the microtask queue so the async onCreate/onChange handlers settle.
+// Flush the macrotask + microtask queues so the async stat step settles.
 const flush = async (): Promise<void> => {
   await new Promise<void>((resolve) => setImmediate(resolve));
   await Promise.resolve();
@@ -73,13 +40,13 @@ interface HarnessOptions {
   parsedIgnoreFiles?: unknown[];
   /**
    * Per-root parsed ignore files, keyed by the RAW root string. Lets a test
-   * tell root A's rules apart from root B's — the service hands whatever is in
-   * its `ignoreFiles` field to `isIgnored`, so the double can report which
-   * root's rules are live.
+   * tell root A's rules apart from root B's — the service compiles whatever is
+   * in its `ignoreFiles` field, so the double can report which root's rules
+   * are live.
    */
   ignoreFilesByRoot?: Record<string, IgnoreRule[]>;
   /**
-   * Ignore predicate that inspects the rules the SERVICE passed in, rather than
+   * Ignore predicate that inspects the rules the SERVICE compiled, rather than
    * just the path. This is what makes cross-root ignore contamination visible.
    */
   isIgnoredWith?: (relativePath: string, rules: IgnoreRule[]) => boolean;
@@ -102,12 +69,15 @@ interface HarnessOptions {
    */
   ignoreGate?: Record<string, Promise<void>>;
   /**
-   * Gate that must resolve before `isIgnored` returns — i.e. it parks a
-   * watcher handler inside `isExcluded()`, between its generation gate and its
-   * write. `ignoreGate` only covers the parse inside `build()` and never
-   * reaches this path, which is how the second off-by-one-await escaped.
+   * Gate that must resolve before `stat` returns — i.e. it parks a batch
+   * handler between its generation gate and its write. `ignoreGate` only
+   * covers the parse inside `build()` and never reaches this path.
    */
-  isIgnoredGate?: Promise<void>;
+  statGate?: Promise<void>;
+  /** Absolute paths `stat` reports as directories; everything else is a file. */
+  directories?: string[];
+  /** Nested repository roots the walk reports for a raw root. */
+  nestedRootsByRoot?: Record<string, string[]>;
 }
 
 /** Tagged ignore rule so a test can see WHICH root's rules are live. */
@@ -140,6 +110,10 @@ function makeHarness(opts: HarnessOptions = {}) {
   for (const [root, rules] of Object.entries(opts.ignoreFilesByRoot ?? {})) {
     ignoreRulesByKey.set(normalizeWorkspaceRoot(root), rules);
   }
+  const nestedRootsByKey = new Map<string, string[]>();
+  for (const [root, roots] of Object.entries(opts.nestedRootsByRoot ?? {})) {
+    nestedRootsByKey.set(normalizeWorkspaceRoot(root), roots);
+  }
 
   const logger = {
     info: jest.fn(),
@@ -157,11 +131,13 @@ function makeHarness(opts: HarnessOptions = {}) {
       workspaceFolder: string;
       batchSize?: number;
       ignoreFiles?: unknown[];
+      onNestedRepoRoots?: (roots: readonly string[]) => void;
     }) {
       const root = options.workspaceFolder;
       const key = normalizeWorkspaceRoot(root);
       const gate = gateByKey.get(key);
       if (gate) await gate;
+      options.onNestedRepoRoots?.(nestedRootsByKey.get(key) ?? []);
       const all = byKey.get(key) ?? defaultFiles;
       const size = Math.max(opts.discoveryBatchSize ?? all.length, 1);
       for (let i = 0; i < all.length; i += size) {
@@ -170,17 +146,26 @@ function makeHarness(opts: HarnessOptions = {}) {
     }),
   };
 
-  // A fresh watcher per createFileWatcher call, so a rebuild's dispose of the
-  // PREVIOUS handle is observable (R2).
-  const watchers: FakeWatcher[] = [];
+  // The shared port double records one subscription per watch call, so a
+  // teardown's dispose of the PREVIOUS handle is observable (R2).
+  const workspaceWatcher = createMockWorkspaceWatcher();
+  const watchers = workspaceWatcher.__state.subscriptions;
+
+  const directorySet = new Set(
+    (opts.directories ?? []).map((p) => path.normalize(p)),
+  );
   const fsProvider = {
-    createFileWatcher: jest.fn(
-      (_pattern: string, options?: { exclude?: string[]; cwd?: string }) => {
-        const w = new FakeWatcher(options?.cwd);
-        watchers.push(w);
-        return w;
-      },
-    ),
+    stat: jest.fn(async (p: string) => {
+      if (opts.statGate) await opts.statGate;
+      return {
+        type: directorySet.has(path.normalize(p))
+          ? FileType.Directory
+          : FileType.File,
+        ctime: 0,
+        mtime: 0,
+        size: 0,
+      };
+    }),
   };
 
   // The folder-change event double. `openFolders` is what the host reports as
@@ -202,6 +187,16 @@ function makeHarness(opts: HarnessOptions = {}) {
     folderChangeListeners.forEach((l) => l());
   };
 
+  // `compiledCheck` is the body of every predicate `compileMatcher` returns,
+  // called with the rules that predicate was compiled from.
+  const compiledCheck = jest.fn(
+    (relativePath: string, rules: IgnoreRule[]): boolean =>
+      opts.isIgnoredWith
+        ? opts.isIgnoredWith(relativePath, rules)
+        : opts.isIgnored
+          ? opts.isIgnored(relativePath)
+          : false,
+  );
   const ignoreResolver = {
     parseWorkspaceIgnoreFiles: jest.fn(async (root: string) => {
       const key = normalizeWorkspaceRoot(root);
@@ -209,16 +204,11 @@ function makeHarness(opts: HarnessOptions = {}) {
       if (gate) await gate;
       return ignoreRulesByKey.get(key) ?? opts.parsedIgnoreFiles ?? [];
     }),
-    isIgnored: jest.fn(async (relativePath: string, rules: IgnoreRule[]) => {
-      if (opts.isIgnoredGate) await opts.isIgnoredGate;
-      return {
-        ignored: opts.isIgnoredWith
-          ? opts.isIgnoredWith(relativePath, rules)
-          : opts.isIgnored
-            ? opts.isIgnored(relativePath)
-            : false,
-      };
-    }),
+    compileMatcher: jest.fn(
+      (rules: IgnoreRule[]) => (relativePath: string) =>
+        compiledCheck(relativePath, rules),
+    ),
+    isIgnored: jest.fn(),
   };
 
   const service = new WorkspaceFileIndexService(
@@ -227,14 +217,17 @@ function makeHarness(opts: HarnessOptions = {}) {
     fsProvider as never,
     workspaceProvider as never,
     ignoreResolver as never,
+    workspaceWatcher as never,
   );
 
   return {
     service,
     watchers,
+    workspaceWatcher,
     fsProvider,
     workspaceProvider,
     ignoreResolver,
+    compiledCheck,
     indexer,
     logger,
     setOpenFolders,
@@ -244,27 +237,41 @@ function makeHarness(opts: HarnessOptions = {}) {
 }
 
 describe('WorkspaceFileIndexService', () => {
-  it('builds the in-memory index once from discoverWorkspacePaths', async () => {
-    const { service, fsProvider } = makeHarness();
+  it('builds the in-memory index once from discoverWorkspacePaths and subscribes with the shared exclusions', async () => {
+    const { service, workspaceWatcher } = makeHarness();
 
     await service.start(ROOT);
 
     expect(service.isReady()).toBe(true);
     expect(service.fileCount).toBe(4);
-    // Watcher wired with node_modules et al. excluded at the OS level.
-    expect(fsProvider.createFileWatcher).toHaveBeenCalledWith(
-      '**/*',
-      expect.objectContaining({ exclude: expect.arrayContaining([]) }),
-    );
-    const excludeArg = fsProvider.createFileWatcher.mock.calls[0][1];
-    expect(excludeArg?.exclude).toContain('**/node_modules/**');
+    expect(workspaceWatcher.watch).toHaveBeenCalledTimes(1);
+    const [root, options] = workspaceWatcher.watch.mock.calls[0];
+    expect(root).toBe(ROOT);
+    expect(options.excludeGlobs).toBe(DEFAULT_WORKSPACE_EXCLUDES);
+    expect(options.excludeGlobs).toContain('**/node_modules/**');
+    expect(options.excludeSegmentRules).toBe(NESTED_WORKSPACE_PATH_RULES);
+    expect(options.nestedRepoDetection).toBe(true);
+    expect(options.nestedRepoRoots).toEqual([]);
+  });
+
+  it('seeds the subscription with the nested repository roots the walk skipped', async () => {
+    const vendor = abs('pkg/vendor');
+    const { service, workspaceWatcher } = makeHarness({
+      nestedRootsByRoot: { [ROOT]: [vendor] },
+    });
+
+    await service.start(ROOT);
+
+    expect(workspaceWatcher.watch.mock.calls[0][1].nestedRepoRoots).toEqual([
+      vendor,
+    ]);
   });
 
   it('start is idempotent for the same root (single build)', async () => {
-    const { service, fsProvider } = makeHarness();
+    const { service, workspaceWatcher } = makeHarness();
     await Promise.all([service.start(ROOT), service.start(ROOT)]);
     await service.start(ROOT);
-    expect(fsProvider.createFileWatcher).toHaveBeenCalledTimes(1);
+    expect(workspaceWatcher.watch).toHaveBeenCalledTimes(1);
   });
 
   it('search scores exact/prefix/substring matches and orders by relevance', async () => {
@@ -312,11 +319,51 @@ describe('WorkspaceFileIndexService', () => {
     await service.start(ROOT);
     expect(service.search('newfile', 10)).toHaveLength(0);
 
-    watchers[0].fireCreate(abs('src/newfile.ts'));
+    watchers[0].fire('create', abs('src/newfile.ts'));
     await flush();
 
     const results = service.search('newfile', 10);
     expect(results.map((r) => r.fileName)).toEqual(['newfile.ts']);
+  });
+
+  it('indexes a created directory as a directory, never as a file', async () => {
+    const { service, watchers } = makeHarness({
+      directories: [abs('src/newdir')],
+    });
+    await service.start(ROOT);
+
+    watchers[0].fire('create', abs('src/newdir'), abs('src/newdir/inner.ts'));
+    await flush();
+
+    expect(service.search('newdir', 10)).toHaveLength(1);
+    expect(service.search('newdir', 10)[0].fileName).toBe('inner.ts');
+    const dirs = service.searchDirectories('newdir', 10);
+    expect(dirs.map((d) => d.fileName)).toEqual(['newdir']);
+    expect(service.fileCount).toBe(5);
+  });
+
+  it('an update for a path not yet indexed adds it; for an indexed one it stats nothing', async () => {
+    const { service, watchers, fsProvider } = makeHarness();
+    await service.start(ROOT);
+
+    watchers[0].fire('update', abs('README.md'), abs('src/missed.ts'));
+    await flush();
+
+    expect(fsProvider.stat).toHaveBeenCalledTimes(1);
+    expect(service.search('missed', 10)).toHaveLength(1);
+  });
+
+  it('a created path that is already gone when statted is not indexed', async () => {
+    const { service, watchers, fsProvider } = makeHarness();
+    await service.start(ROOT);
+    fsProvider.stat.mockRejectedValueOnce(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
+
+    watchers[0].fire('create', abs('src/flash.ts'));
+    await flush();
+
+    expect(service.search('flash', 10)).toHaveLength(0);
   });
 
   it('removes an entry from the index when a file is deleted', async () => {
@@ -324,39 +371,80 @@ describe('WorkspaceFileIndexService', () => {
     await service.start(ROOT);
     expect(service.search('format', 10)).toHaveLength(1);
 
-    watchers[0].fireDelete(abs('src/util/format.ts'));
+    watchers[0].fire('delete', abs('src/util/format.ts'));
     await flush();
 
     expect(service.search('format', 10)).toHaveLength(0);
   });
 
-  it('does NOT index a created file under a default-excluded directory', async () => {
+  it('a deleted directory drops every file and directory below it in one batch', async () => {
     const { service, watchers } = makeHarness();
     await service.start(ROOT);
 
-    watchers[0].fireCreate(abs('node_modules/pkg/index.ts'));
+    // VS Code reports only the directory's own delete.
+    watchers[0].fire('delete', abs('src'));
+    await flush();
+
+    expect(service.search('auth', 10)).toHaveLength(0);
+    expect(service.search('format', 10)).toHaveLength(0);
+    expect(service.searchDirectories('util', 10)).toHaveLength(0);
+    expect(service.searchDirectories('src', 10)).toHaveLength(0);
+    expect(service.fileCount).toBe(2);
+  });
+
+  it('matches a watcher path to the walk entry across separator spellings', async () => {
+    // fast-glob reports `D:/…` on Windows; the watch host reports `D:\…`.
+    if (path.sep !== '\\') return;
+    const root = 'D:\\projects\\ws';
+    const { service, watchers } = makeHarness({
+      filesByRoot: { [root]: ['D:/projects/ws/src/only.ts'] },
+    });
+    await service.start(root);
+
+    watchers[0].fire('delete', 'D:\\projects\\ws\\src\\only.ts');
+    await flush();
+
+    expect(service.fileCount).toBe(0);
+  });
+
+  it('does NOT index a created file under a default-excluded directory', async () => {
+    const { service, watchers, fsProvider } = makeHarness();
+    await service.start(ROOT);
+
+    watchers[0].fire('create', abs('node_modules/pkg/index.ts'));
     await flush();
 
     // node_modules/** is a DEFAULT_WORKSPACE_EXCLUDE → never enters the index.
     expect(service.search('index', 10)).toHaveLength(0);
     expect(service.fileCount).toBe(4);
+    expect(fsProvider.stat).not.toHaveBeenCalled();
   });
 
-  it('does NOT index a created file matched by workspace ignore rules', async () => {
-    const { service, watchers, ignoreResolver } = makeHarness({
-      parsedIgnoreFiles: [{ patterns: [] }],
-      isIgnored: (rel) => rel.replace(/\\/g, '/').includes('generated/'),
-    });
+  it('does NOT index a created file matched by workspace ignore rules, compiled once per build', async () => {
+    const { service, watchers, ignoreResolver, compiledCheck, fsProvider } =
+      makeHarness({
+        parsedIgnoreFiles: [{ patterns: [] }],
+        isIgnored: (rel) => rel.replace(/\\/g, '/').includes('generated/'),
+      });
     await service.start(ROOT);
 
-    watchers[0].fireCreate(abs('src/generated/schema.ts'));
+    watchers[0].fire(
+      'create',
+      abs('src/generated/schema.ts'),
+      abs('src/generated/types.ts'),
+      abs('src/kept.ts'),
+    );
     await flush();
 
-    expect(ignoreResolver.isIgnored).toHaveBeenCalled();
+    expect(ignoreResolver.compileMatcher).toHaveBeenCalledTimes(1);
+    expect(ignoreResolver.isIgnored).not.toHaveBeenCalled();
+    expect(compiledCheck).toHaveBeenCalledTimes(3);
+    expect(fsProvider.stat).toHaveBeenCalledTimes(1);
     expect(service.search('schema', 10)).toHaveLength(0);
+    expect(service.search('kept', 10)).toHaveLength(1);
   });
 
-  it('dispose tears down the watcher and clears state', async () => {
+  it('dispose tears down the subscription and clears state', async () => {
     const { service, watchers } = makeHarness();
     await service.start(ROOT);
 
@@ -487,14 +575,16 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
    * stall itself.
    */
   it('arms one watcher per open folder and keeps it across switches', async () => {
-    const { service, watchers, fsProvider } = makeHarness({ filesByRoot });
+    const { service, watchers, workspaceWatcher } = makeHarness({
+      filesByRoot,
+    });
 
     await service.start(ROOT);
     await service.ensureReadyFor(ROOT_B);
     await service.ensureReadyFor(ROOT);
     await service.ensureReadyFor(ROOT_B);
 
-    expect(fsProvider.createFileWatcher).toHaveBeenCalledTimes(2);
+    expect(workspaceWatcher.watch).toHaveBeenCalledTimes(2);
     expect(watchers).toHaveLength(2);
     // A is inactive right now and its watcher is STILL LIVE — that is what
     // keeps its snapshot fresh enough to reuse.
@@ -579,8 +669,8 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
     await service.ensureReadyFor(ROOT_B);
 
     // A is inactive; a file appears in it and one disappears from it.
-    watchers[0].fireCreate(abs('src/added-while-away.ts'));
-    watchers[0].fireDelete(abs('alpha-only.md'));
+    watchers[0].fire('create', abs('src/added-while-away.ts'));
+    watchers[0].fire('delete', abs('alpha-only.md'));
     await flush();
 
     // B's view is untouched by A's events.
@@ -712,7 +802,9 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
     expect(service.hasIndexFor(adHoc[1])).toBe(false);
     expect(service.hasIndexFor(adHoc[2])).toBe(true);
 
-    const openWatchers = watchers.filter((w) => open.includes(w.cwd as string));
+    const openWatchers = watchers.filter((w) =>
+      open.includes(w.root as string),
+    );
     expect(openWatchers).toHaveLength(8);
     expect(openWatchers.every((w) => w.disposeCount === 0)).toBe(true);
 
@@ -741,16 +833,16 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
    * must not force a redundant rebuild.
    */
   it('treats a trailing-separator variant of the same root as one key (no rebuild)', async () => {
-    const { service, fsProvider } = makeHarness();
+    const { service, workspaceWatcher } = makeHarness();
 
     await service.start(ROOT);
-    expect(fsProvider.createFileWatcher).toHaveBeenCalledTimes(1);
+    expect(workspaceWatcher.watch).toHaveBeenCalledTimes(1);
 
     await service.ensureReadyFor(`${ROOT}${path.sep}`);
     await service.ensureReadyFor(ROOT);
 
     // One build, one watcher — the variants collapsed to a single key.
-    expect(fsProvider.createFileWatcher).toHaveBeenCalledTimes(1);
+    expect(workspaceWatcher.watch).toHaveBeenCalledTimes(1);
     expect(service.indexedRoot).toBe(normalizeWorkspaceRoot(ROOT));
   });
 
@@ -760,17 +852,17 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
     if (path.sep !== '\\') return;
 
     const upper = 'D:\\projects\\ws';
-    const { service, fsProvider } = makeHarness({
+    const { service, workspaceWatcher } = makeHarness({
       filesByRoot: { [upper]: ['D:\\projects\\ws\\src\\only.ts'] },
     });
 
     await service.start(upper);
-    expect(fsProvider.createFileWatcher).toHaveBeenCalledTimes(1);
+    expect(workspaceWatcher.watch).toHaveBeenCalledTimes(1);
 
     await service.ensureReadyFor('d:\\projects\\ws');
     await service.ensureReadyFor('D:/projects/ws/');
 
-    expect(fsProvider.createFileWatcher).toHaveBeenCalledTimes(1);
+    expect(workspaceWatcher.watch).toHaveBeenCalledTimes(1);
     expect(service.search('only', 10)).toHaveLength(1);
   });
 
@@ -828,7 +920,7 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
    * window the defect lived in — and now asserts BOTH folders end up with their
    * own rules, which is the stronger statement.
    *
-   * Note the watcher is looked up by `cwd`, not by "the last one created". Both
+   * Note the watcher is looked up by `root`, not by "the last one created". Both
    * folders now arm their own watcher and keep it, so ordinal indexing would
    * silently pick A's here.
    */
@@ -849,7 +941,7 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
       isIgnoredWith: (rel, rules) =>
         rules.some((r) => rel.replace(/\\/g, '/').includes(r.ignores)),
     });
-    const { service, watchers, ignoreResolver } = harness;
+    const { service, watchers, compiledCheck } = harness;
 
     // A's build is parked inside parseWorkspaceIgnoreFiles.
     const buildA = service.start(ROOT);
@@ -867,22 +959,22 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
     // The active index still belongs to B...
     expect(service.indexedRoot).toBe(normalizeWorkspaceRoot(ROOT_B));
 
-    const watcherB = watchers.find((w) => w.cwd === ROOT_B);
-    const watcherA = watchers.find((w) => w.cwd === ROOT);
+    const watcherB = watchers.find((w) => w.root === ROOT_B);
+    const watcherA = watchers.find((w) => w.root === ROOT);
     expect(watcherB).toBeDefined();
     expect(watcherA).toBeDefined();
 
     // ...and so must its ignore rules. `secret-a.ts` is ignored under A's rules
     // and permitted under B's, so it MUST enter B's index. Pre-fix, A's rules
     // were live and this file was silently dropped from the `@` picker.
-    ignoreResolver.isIgnored.mockClear();
-    watcherB?.fireCreate(absB('secret-a.ts'));
+    compiledCheck.mockClear();
+    watcherB?.fire('create', absB('secret-a.ts'));
     await flush();
 
     expect(service.search('secret-a', 10)).toHaveLength(1);
 
-    // Direct evidence of which rules the service handed the resolver.
-    const rulesUsed = ignoreResolver.isIgnored.mock.calls[0]?.[1] as
+    // Direct evidence of which rules the service's compiled matcher holds.
+    const rulesUsed = compiledCheck.mock.calls[0]?.[1] as
       | IgnoreRule[]
       | undefined;
     expect(rulesUsed).toEqual(rulesB);
@@ -890,17 +982,17 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
 
     // And B's own secret is still correctly excluded — the rules are B's, not
     // merely "not A's".
-    watcherB?.fireCreate(absB('secret-b.ts'));
+    watcherB?.fire('create', absB('secret-b.ts'));
     await flush();
     expect(service.search('secret-b', 10)).toHaveLength(0);
 
     // A kept ITS rules: its own secret stays out of its own snapshot, and the
     // resolver was handed rulesA for it.
-    ignoreResolver.isIgnored.mockClear();
-    watcherA?.fireCreate(abs('secret-a.ts'));
-    watcherA?.fireCreate(abs('welcome.ts'));
+    compiledCheck.mockClear();
+    watcherA?.fire('create', abs('secret-a.ts'));
+    watcherA?.fire('create', abs('welcome.ts'));
     await flush();
-    const rulesUsedForA = ignoreResolver.isIgnored.mock.calls[0]?.[1] as
+    const rulesUsedForA = compiledCheck.mock.calls[0]?.[1] as
       | IgnoreRule[]
       | undefined;
     expect(rulesUsedForA).toEqual(rulesA);
@@ -913,22 +1005,20 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
   /**
    * Supersede, part three — the WATCHER path.
    *
-   * `setupWatcher` gates each callback on the generation, but `onCreate` /
-   * `onChange` then `await isExcluded()` before writing, and `isExcluded`
-   * awaits `isIgnored` whenever the workspace has any ignore file (the normal
-   * case). A switch landing in that window used to let a create event for root
-   * A write an A-rooted path into root B's live maps — the `@` picker listing
-   * a file from the wrong workspace.
+   * `onBatch` gates on the generation, but a new path is then statted — a
+   * batch does not say whether a created path is a file or a directory — and
+   * the write sits behind that await. A switch landing in that window used to
+   * let a create event for root A write an A-rooted path into root B's live
+   * maps — the `@` picker listing a file from the wrong workspace.
    *
    * A generation check upstream does not protect a write that sits behind an
-   * `await`; the handlers re-check immediately before `addFileEntry`. This test
-   * gates the EXCLUSION CHECK, which neither `streamGate` nor `ignoreGate`
-   * reaches.
+   * `await`; the handler re-checks immediately before writing. This test gates
+   * the STAT, which neither `streamGate` nor `ignoreGate` reaches.
    */
   it('drops a watcher event that resolves after a switch instead of writing it into the new root', async () => {
-    let releaseExclusion!: () => void;
-    const exclusionGate = new Promise<void>((resolve) => {
-      releaseExclusion = resolve;
+    let releaseStat!: () => void;
+    const statGate = new Promise<void>((resolve) => {
+      releaseStat = resolve;
     });
 
     const harness = makeHarness({
@@ -936,39 +1026,34 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
         [ROOT]: [abs('base-a.ts')],
         [ROOT_B]: [absB('base-b.ts')],
       },
-      // Non-empty rules are required for `isExcluded` to reach its await at all.
-      ignoreFilesByRoot: {
-        [ROOT]: [{ owner: 'A', ignores: 'nothing-matches' }],
-        [ROOT_B]: [{ owner: 'B', ignores: 'nothing-matches' }],
-      },
-      isIgnoredGate: exclusionGate,
-      // Nothing is ignored: the ONLY thing that may stop this write is the
-      // post-await generation re-check.
-      isIgnoredWith: () => false,
+      statGate,
     });
     const { service, watchers } = harness;
 
     await service.start(ROOT);
     expect(service.indexedRoot).toBe(normalizeWorkspaceRoot(ROOT));
 
-    // A create event for A parks inside isExcluded, mid-handler.
-    watchers[0].fireCreate(abs('late-from-a.ts'));
+    // A create event for A parks inside its stat, mid-handler.
+    watchers[0].fire('create', abs('late-from-a.ts'));
     await flush();
     expect(service.search('late-from-a', 10)).toHaveLength(0);
 
-    // Switch to B and let B build fully while A's handler is still parked.
+    // Switch to B, close A, and let B build fully while A's handler is parked.
     await service.ensureReadyFor(ROOT_B);
+    harness.setOpenFolders([ROOT_B]);
     expect(service.indexedRoot).toBe(normalizeWorkspaceRoot(ROOT_B));
 
-    // Release the parked handler — it now resumes against B's live maps.
-    releaseExclusion();
+    // Release the parked handler — it now resumes against a torn-down entry.
+    releaseStat();
     await flush();
 
     expect(service.indexedRoot).toBe(normalizeWorkspaceRoot(ROOT_B));
-    // The load-bearing assertion: A's late event must NOT appear in B's index.
+    // The load-bearing assertion: A's late event must NOT appear anywhere.
     expect(service.search('late-from-a', 10)).toHaveLength(0);
     expect(service.getAll(100).map((r) => r.fileName)).toEqual(['base-b.ts']);
     expect(service.fileCount).toBe(1);
+    await service.ensureReadyFor(ROOT);
+    expect(service.search('late-from-a', 10)).toHaveLength(0);
   });
 
   /**
@@ -995,13 +1080,13 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
   });
 
   it('ensureReady does not rebuild while the provider root is unchanged', async () => {
-    const { service, fsProvider } = makeHarness({ providerRoot: ROOT });
+    const { service, workspaceWatcher } = makeHarness({ providerRoot: ROOT });
 
     await service.ensureReady();
     await service.ensureReady();
     await service.ensureReady();
 
-    expect(fsProvider.createFileWatcher).toHaveBeenCalledTimes(1);
+    expect(workspaceWatcher.watch).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the existing snapshot when the provider reports no root', async () => {
@@ -1026,8 +1111,8 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
    * (static) snapshot. Re-indexing must not start throwing there.
    */
   it('still rebuilds on a host whose watcher cannot be created', async () => {
-    const { service, fsProvider, logger } = makeHarness({ filesByRoot });
-    fsProvider.createFileWatcher.mockImplementation(() => {
+    const { service, workspaceWatcher, logger } = makeHarness({ filesByRoot });
+    workspaceWatcher.watch.mockImplementation(() => {
       throw new Error('no watcher on this host');
     });
 
@@ -1041,7 +1126,7 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
     expect(service.search('beta-only', 10)).toHaveLength(1);
     expect(service.search('alpha-only', 10)).toHaveLength(0);
     expect(logger.warn).toHaveBeenCalledWith(
-      '[WorkspaceFileIndex] watcher unavailable (index will not stay live)',
+      '[WorkspaceFileIndex] watcher unavailable (index will not stay live until a retry succeeds)',
       expect.any(Error),
     );
   });
@@ -1074,94 +1159,86 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
 });
 
 /**
- * TASK_2026_437 INV-6 — an event storm degrades to "one rebuild later", never
- * to per-event work. The 2026-09-14 freeze delivered tens of thousands of
- * delete events from ten removed worktrees; each ran an awaited ignore check
- * and a map write on the Electron main thread.
- *
- * Fake timers also fake `Date.now`, the breaker's clock. `setImmediate` stays
- * real so `flush()` can settle the async handlers and the rebuild.
+ * TASK_2026_437 C10 / INV-6 — lost events degrade to "one rebuild", never to
+ * per-event work. The 2026-09-14 freeze delivered tens of thousands of delete
+ * events from ten removed worktrees; each ran an awaited ignore check and a
+ * map write on the Electron main thread. Storm breaking and coalescing now
+ * happen in the watch host (`WorkspaceChangeCoalescer`, pinned in
+ * platform-core); this side receives one `overflow` batch and rebuilds once.
  */
-describe('WorkspaceFileIndexService — event storm breaker (TASK_2026_437)', () => {
-  beforeEach(() => {
-    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  /** Fire `count` create events, 10 per fake millisecond (10,000 per second). */
-  function createStorm(
-    watcher: FakeWatcher,
-    count: number,
-    pathFor: (i: number) => string,
-  ): void {
-    for (let i = 0; i < count; i++) {
-      watcher.fireCreate(pathFor(i));
-      if (i % 10 === 9) jest.advanceTimersByTime(1);
-    }
-  }
-
-  it('10,000 events in 1 s stop per-event work and trigger exactly one path-only rebuild after quiet', async () => {
-    const { service, watchers, indexer, ignoreResolver, logger, files } =
-      makeHarness({
-        parsedIgnoreFiles: [{ patterns: [] }],
-      });
+describe('WorkspaceFileIndexService — overflow rebuild (TASK_2026_437)', () => {
+  it('an overflow batch triggers exactly one path-only rebuild with the subscription kept', async () => {
+    const { service, watchers, indexer, fsProvider, logger, files } =
+      makeHarness();
     await service.start(ROOT);
     expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(1);
-    ignoreResolver.isIgnored.mockClear();
-
-    createStorm(watchers[0], 10_000, (i) => abs(`gen/f-${i}.ts`));
-    await flush();
-
-    // Per-event work stopped once the storm was entered: at most the events
-    // before entry reached the ignore check, never all 10,000.
-    const checked = ignoreResolver.isIgnored.mock.calls.length;
-    expect(checked).toBeGreaterThan(0);
-    expect(checked).toBeLessThanOrEqual(500);
-    expect(logger.warn).toHaveBeenCalledWith(
-      '[WorkspaceFileIndex] event storm entered; pausing live updates until it ends',
-      { root: ROOT },
-    );
 
     // The files now on disk, which the rebuild must pick up.
     for (let i = 0; i < 10_000; i++) files.push(abs(`gen/f-${i}.ts`));
-
-    // Inside the quiet window: no rebuild yet.
-    jest.advanceTimersByTime(1_900);
-    await flush();
-    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(1);
-
-    jest.advanceTimersByTime(10_000);
+    watchers[0].deliver({ overflow: true, droppedCount: 10_000 });
     await flush();
     await flush();
 
     expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+    expect(fsProvider.stat).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[WorkspaceFileIndex] watcher reported lost events; rebuilding the index once',
+      { root: ROOT, overflow: true, truncated: false, droppedCount: 10_000 },
+    );
     expect(service.isReady()).toBe(true);
     expect(service.fileCount).toBe(4 + 10_000);
-    // The watcher was kept: a rebuild does not re-arm chokidar.
+    // The subscription was kept: a rebuild does not resubscribe.
     expect(watchers).toHaveLength(1);
     expect(watchers[0].disposed).toBe(false);
 
-    // Live updates resume after the storm.
-    ignoreResolver.isIgnored.mockClear();
-    watchers[0].fireCreate(abs('src/after-storm.ts'));
+    // Live updates continue after the rebuild.
+    watchers[0].fire('create', abs('src/after-overflow.ts'));
     await flush();
-    expect(service.search('after-storm', 10)).toHaveLength(1);
+    expect(service.search('after-overflow', 10)).toHaveLength(1);
   });
 
-  it('dispose during a storm cancels the pending rebuild', async () => {
-    const { service, watchers, indexer } = makeHarness();
+  it('a truncated batch rebuilds instead of patching from a partial path list', async () => {
+    const { service, watchers, indexer, fsProvider, files } = makeHarness();
     await service.start(ROOT);
 
-    createStorm(watchers[0], 2_000, (i) => abs(`gen/f-${i}.ts`));
-    service.dispose();
-
-    jest.advanceTimersByTime(60_000);
+    files.push(abs('gen/dropped-from-batch.ts'));
+    watchers[0].deliver({
+      changes: [{ path: abs('gen/in-batch.ts'), kind: 'create' }],
+      truncated: true,
+      droppedCount: 700,
+    });
+    await flush();
     await flush();
 
-    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(1);
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+    expect(fsProvider.stat).not.toHaveBeenCalled();
+    expect(service.search('dropped-from-batch', 10)).toHaveLength(1);
+  });
+
+  it('dispose during a rebuild keeps the torn-down folder from being written', async () => {
+    let releaseRebuild!: () => void;
+    const rebuildGate = new Promise<void>((resolve) => {
+      releaseRebuild = resolve;
+    });
+    const { service, watchers, indexer } = makeHarness();
+    await service.start(ROOT);
+    const original = indexer.discoverWorkspacePaths.getMockImplementation();
+    indexer.discoverWorkspacePaths.mockImplementationOnce(
+      async function* (options) {
+        await rebuildGate;
+        if (original) yield* original(options);
+      },
+    );
+
+    watchers[0].deliver({ overflow: true });
+    await flush();
+    service.dispose();
+    releaseRebuild();
+    await flush();
+    await flush();
+
+    expect(service.fileCount).toBe(0);
+    expect(service.isReady()).toBe(false);
   });
 
   it('keeps serving the previous snapshot during the rebuild and swaps the new one in at the end', async () => {
@@ -1172,17 +1249,16 @@ describe('WorkspaceFileIndexService — event storm breaker (TASK_2026_437)', ()
     const { service, watchers, indexer, files } = makeHarness();
     await service.start(ROOT);
 
-    createStorm(watchers[0], 2_000, (i) => abs(`gen/f-${i}.ts`));
     files.push(abs('gen/rebuilt.ts'));
     const original = indexer.discoverWorkspacePaths.getMockImplementation();
-    indexer.discoverWorkspacePaths.mockImplementationOnce(async function* (
-      options,
-    ) {
-      await rebuildGate;
-      if (original) yield* original(options);
-    });
+    indexer.discoverWorkspacePaths.mockImplementationOnce(
+      async function* (options) {
+        await rebuildGate;
+        if (original) yield* original(options);
+      },
+    );
 
-    jest.advanceTimersByTime(5_000);
+    watchers[0].deliver({ overflow: true });
     await flush();
     expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
 
@@ -1191,8 +1267,8 @@ describe('WorkspaceFileIndexService — event storm breaker (TASK_2026_437)', ()
     expect(service.search('auth', 10)).toHaveLength(1);
     expect(service.search('rebuilt', 10)).toHaveLength(0);
 
-    // A live event during the rebuild lands in both snapshots.
-    watchers[0].fireCreate(abs('src/during-rebuild.ts'));
+    // A live batch during the rebuild lands in both snapshots.
+    watchers[0].fire('create', abs('src/during-rebuild.ts'));
     await flush();
     expect(service.search('during-rebuild', 10)).toHaveLength(1);
 
@@ -1204,7 +1280,7 @@ describe('WorkspaceFileIndexService — event storm breaker (TASK_2026_437)', ()
     expect(service.search('during-rebuild', 10)).toHaveLength(1);
   });
 
-  it('a queued rebuild still runs when the rebuild ahead of it fails, and a failure keeps the old snapshot', async () => {
+  it('overflows during a rebuild queue exactly one more, which runs even when the first fails; a failure keeps the old snapshot', async () => {
     let failRebuild!: () => void;
     const failGate = new Promise<void>((resolve) => {
       failRebuild = resolve;
@@ -1219,15 +1295,15 @@ describe('WorkspaceFileIndexService — event storm breaker (TASK_2026_437)', ()
       },
     );
 
-    // Storm 1 → rebuild 1 starts and parks.
-    createStorm(watchers[0], 2_000, (i) => abs(`gen/a-${i}.ts`));
-    jest.advanceTimersByTime(5_000);
+    // Overflow 1 → rebuild 1 starts and parks.
+    watchers[0].deliver({ overflow: true });
     await flush();
     expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
 
-    // Storm 2 ends while rebuild 1 is still running → queued.
-    createStorm(watchers[0], 2_000, (i) => abs(`gen/b-${i}.ts`));
-    jest.advanceTimersByTime(5_000);
+    // Degraded rescan ticks while it runs: queued once, never stacked.
+    watchers[0].deliver({ overflow: true });
+    watchers[0].deliver({ overflow: true });
+    watchers[0].deliver({ overflow: true });
     await flush();
     expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
 
@@ -1238,11 +1314,189 @@ describe('WorkspaceFileIndexService — event storm breaker (TASK_2026_437)', ()
     await flush();
 
     expect(logger.error).toHaveBeenCalledWith(
-      '[WorkspaceFileIndex] Rebuild after event storm failed (keeping the previous snapshot)',
+      '[WorkspaceFileIndex] Rebuild after lost watcher events failed (keeping the previous snapshot)',
       expect.any(Error),
     );
     expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(3);
     expect(service.search('after-failure', 10)).toHaveLength(1);
     expect(service.search('auth', 10)).toHaveLength(1);
+
+    await flush();
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(3);
+  });
+});
+
+/**
+ * TASK_2026_437 Batch 11 review fixes: the FU-4c readiness contract, the
+ * bounded directory-delete sweep, the one key normalizer, and the watch()
+ * failure retry.
+ */
+describe('WorkspaceFileIndexService — readiness, sweep bound, keys, subscribe retry', () => {
+  /**
+   * FU-4c. Every production caller (`ContextService.searchFiles`,
+   * `getAllFiles`, `getFileSuggestions`) awaits `ensureReadyFor` first. A
+   * caller that does not must see nothing — never a half-walked folder.
+   */
+  it('queries answer nothing while the first build is still walking, then everything once it is awaited', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const files = Array.from({ length: 6 }, (_, i) =>
+      abs(`src/dir/file-${i}.ts`),
+    );
+    const { service, indexer } = makeHarness({ files, discoveryBatchSize: 2 });
+    const original = indexer.discoverWorkspacePaths.getMockImplementation();
+    indexer.discoverWorkspacePaths.mockImplementationOnce(
+      async function* (options) {
+        if (!original) return;
+        let yielded = 0;
+        for await (const batch of original(options)) {
+          yield batch;
+          if (++yielded === 1) await gate;
+        }
+      },
+    );
+
+    const ready = service.ensureReadyFor(ROOT);
+    await flush();
+    // Files are in the maps already; the query surface still says nothing.
+    expect(service.fileCount).toBeGreaterThan(0);
+    expect(service.isReady()).toBe(false);
+    expect(service.search('file', 10)).toEqual([]);
+    expect(service.getAll(10)).toEqual([]);
+    expect(service.searchDirectories('dir', 10)).toEqual([]);
+
+    release();
+    await ready;
+    expect(service.search('file', 10)).toHaveLength(6);
+    expect(service.getAll(100).filter((r) => !r.isDirectory)).toHaveLength(6);
+    expect(service.searchDirectories('dir', 10)).toHaveLength(1);
+  });
+
+  it('sweeps a deleted directory in place in a small index', async () => {
+    const { service, watchers, indexer } = makeHarness();
+    await service.start(ROOT);
+
+    watchers[0].fire('delete', abs('src'));
+    await flush();
+
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(1);
+    expect(service.search('auth', 10)).toHaveLength(0);
+    expect(service.fileCount).toBe(2);
+  });
+
+  it('rebuilds instead of sweeping when a directory is deleted in an index over 5,000 entries', async () => {
+    const files = Array.from({ length: 5_001 }, (_, i) => abs(`big/f-${i}.ts`));
+    files.push(abs('src/keep.ts'));
+    const { service, watchers, indexer, logger } = makeHarness({ files });
+    await service.start(ROOT);
+    expect(service.fileCount).toBe(5_002);
+
+    // The directory is gone from disk by the time the walk runs.
+    files.splice(0, 5_001);
+    watchers[0].fire('delete', abs('big'));
+    await flush();
+    await flush();
+
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[WorkspaceFileIndex] directory deleted in a large index; rebuilding the index once',
+      expect.objectContaining({ root: ROOT, deletedDirectories: 1 }),
+    );
+    expect(service.fileCount).toBe(1);
+    expect(service.search('keep', 10)).toHaveLength(1);
+  });
+
+  it('one key normalizer: doubled, trailing and mixed separators name the same entry', async () => {
+    expect(toIndexKey(abs('src//util/'))).toBe(toIndexKey(abs('src/util')));
+    expect(toIndexKey(`${abs('src')}${path.sep}`)).toBe(
+      toIndexKey(path.join(ROOT, 'src')),
+    );
+
+    const { service, watchers } = makeHarness();
+    await service.start(ROOT);
+    // A directory key built with path.join at walk time, deleted through a
+    // watcher spelling with a doubled and a trailing separator.
+    const sep = path.sep;
+    watchers[0].fire('delete', `${ROOT}${sep}src${sep}${sep}util${sep}`);
+    await flush();
+
+    expect(service.searchDirectories('util', 10)).toHaveLength(0);
+    expect(service.search('format', 10)).toHaveLength(0);
+    expect(service.search('auth', 10)).toHaveLength(1);
+  });
+
+  it('one key normalizer: Windows forward/back slashes and drive-letter case', async () => {
+    if (path.sep !== '\\') return;
+    expect(toIndexKey('d:/projects/ws/src/')).toBe('D:\\projects\\ws\\src');
+    expect(toIndexKey('D:\\')).toBe('D:\\');
+
+    const root = 'D:\\projects\\ws';
+    const { service, watchers } = makeHarness({
+      filesByRoot: {
+        [root]: ['D:/projects/ws/src/deep/a.ts', 'D:/projects/ws/b.ts'],
+      },
+    });
+    await service.start(root);
+    watchers[0].fire('delete', 'd:\\projects\\ws\\src\\');
+    await flush();
+
+    expect(service.fileCount).toBe(1);
+    expect(service.searchDirectories('deep', 10)).toHaveLength(0);
+  });
+
+  it('a folder whose watch() threw is subscribed again on a later ensureReadyFor, at most once a minute, and rebuilt once', async () => {
+    let clock = 1_000_000;
+    const now = jest.spyOn(Date, 'now').mockImplementation(() => clock);
+    try {
+      const { service, workspaceWatcher, indexer, logger, files } =
+        makeHarness();
+      workspaceWatcher.watch.mockImplementationOnce(() => {
+        throw new Error('host down');
+      });
+      await service.start(ROOT);
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(0);
+      expect(workspaceWatcher.watch).toHaveBeenCalledTimes(1);
+
+      // Inside the retry interval: no attempt, however often it is queried.
+      clock += 30_000;
+      await service.ensureReadyFor(ROOT);
+      await service.ensureReadyFor(ROOT);
+      expect(workspaceWatcher.watch).toHaveBeenCalledTimes(1);
+
+      // Still failing after the interval: one attempt, not warned again.
+      clock += 30_000;
+      workspaceWatcher.watch.mockImplementationOnce(() => {
+        throw new Error('host still down');
+      });
+      await service.ensureReadyFor(ROOT);
+      expect(workspaceWatcher.watch).toHaveBeenCalledTimes(2);
+      await service.ensureReadyFor(ROOT);
+      expect(workspaceWatcher.watch).toHaveBeenCalledTimes(2);
+      const warnings = (logger.warn as jest.Mock).mock.calls.filter(([m]) =>
+        String(m).includes('watcher unavailable'),
+      );
+      expect(warnings).toHaveLength(1);
+
+      // Recovered: subscribed, and the changes it missed are rebuilt once.
+      clock += 60_000;
+      files.push(abs('src/added-while-static.ts'));
+      await service.ensureReadyFor(ROOT);
+      await flush();
+      await flush();
+      expect(workspaceWatcher.watch).toHaveBeenCalledTimes(3);
+      expect(workspaceWatcher.__state.live()).toHaveLength(1);
+      expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+      expect(service.search('added-while-static', 10)).toHaveLength(1);
+
+      // Live now: later queries neither retry nor rebuild.
+      clock += 600_000;
+      await service.ensureReadyFor(ROOT);
+      expect(workspaceWatcher.watch).toHaveBeenCalledTimes(3);
+      expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+    } finally {
+      now.mockRestore();
+    }
   });
 });

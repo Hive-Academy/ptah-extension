@@ -12,12 +12,14 @@
  *      batches. It does NOT stat, read or classify — autocomplete needs only
  *      path metadata, and the stat-per-file walk it used to share cost 8-15 s
  *      of Electron main-loop time per workspace switch (TASK_2026_344).
- *   2. Stays live via one `IFileSystemProvider` watcher PER OPEN FOLDER:
- *      create/delete/change events patch that folder's maps. node_modules and
- *      the other default-excluded trees are excluded at the OS level (the
- *      watcher is created with `{ exclude: DEFAULT_WORKSPACE_EXCLUDES }`), and
- *      created paths are re-checked against that folder's ignore rules so a
- *      file created under an ignored directory never enters the index.
+ *   2. Stays live via one `IWorkspaceWatcher` subscription PER OPEN FOLDER
+ *      (TASK_2026_437 C10): each coalesced batch patches that folder's maps in
+ *      one synchronous pass. node_modules, the other default-excluded trees,
+ *      agent worktrees and nested repositories are excluded where the events
+ *      are produced (the watch host), and new paths are re-checked against the
+ *      folder's compiled ignore rules so a file created under an ignored
+ *      directory never enters the index. An `overflow` batch — events lost or
+ *      suppressed — rebuilds the folder once instead.
  *   3. Exposes SYNCHRONOUS query methods (`search`, `getAll`,
  *      `searchDirectories`) returning the same `FileSearchResult` shape the
  *      autocomplete pipeline already consumes. `ensureReady()` performs the
@@ -88,17 +90,18 @@ import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
 import picomatch from 'picomatch';
 import {
-  EventStormBreaker,
+  FileType,
   PLATFORM_TOKENS,
   normalizeWorkspaceRoot,
-  readEventStormBreakerOptionsFromEnv,
 } from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
   IWorkspaceProvider,
-  IFileWatcher,
+  IWorkspaceWatcher,
   IDisposable,
+  WorkspaceChangeBatch,
 } from '@ptah-extension/platform-core';
+import { NESTED_WORKSPACE_PATH_RULES } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { WorkspaceIndexerService } from './workspace-indexer.service';
 import {
@@ -136,6 +139,30 @@ const LOGGER = Symbol.for('Logger');
  * a user who opens more folders than that has asked for exactly that trade.
  */
 const MAX_CACHED_FOLDERS = 8;
+
+/**
+ * Most new paths one batch stats at once. A batch holds at most 500 paths; a
+ * bounded fan-out keeps a mass create from queueing 500 stats on the thread
+ * pool in one turn.
+ */
+const STAT_CONCURRENCY = 32;
+
+/**
+ * Largest folder index (files + directories) a directory delete is swept in
+ * place for. Sweeping visits every entry once, synchronously, on the host's
+ * main thread; above this a batch holding a directory delete is treated as
+ * incomplete and the coalesced path-only rebuild runs instead, whose walk
+ * yields between batches. 5,000 entries sweep in well under a millisecond; the
+ * largest captured folder (15,249 files, 4,935 directories) rebuilds instead.
+ */
+const DIRECTORY_DELETE_SWEEP_LIMIT = 5_000;
+
+/**
+ * Shortest gap between two attempts to subscribe a folder whose `watch()`
+ * threw (ms). The retry rides on `ensureReadyFor`, which autocomplete calls per
+ * query, so without a floor a dead watch host would be re-tried per keystroke.
+ */
+const SUBSCRIBE_RETRY_INTERVAL_MS = 60_000;
 
 /**
  * Logger interface (avoids a hard dependency on vscode-core's concrete Logger).
@@ -199,46 +226,83 @@ interface FolderIndex extends FolderSnapshot {
    * relative path the entry produces from then on.
    */
   readonly root: string;
-  watcher: IFileWatcher | undefined;
+  /** This folder's live `IWorkspaceWatcher` subscription, once armed. */
+  subscription: IDisposable | undefined;
   /** In-flight or settled build. `undefined` after a FAILED build, so it retries. */
   buildPromise: Promise<void> | undefined;
   ready: boolean;
   /**
-   * Bumped whenever this entry is torn down, so a build or watcher handler
+   * Bumped whenever this entry is torn down, so a build or batch handler
    * still in flight for it stops writing.
    */
   generation: number;
   /** Activation clock stamp, for LRU eviction under the overflow cap. */
   lastActiveAt: number;
   /**
-   * Rate guard for this folder's watcher events (TASK_2026_437 INV-6). While
-   * it reports a storm, events are counted and dropped; the exit triggers one
-   * path-only rebuild instead.
-   */
-  stormBreaker: EventStormBreaker;
-  /** The one timer checking for the storm's exit, armed from `msUntilNextPoll`. */
-  stormTimer: ReturnType<typeof setTimeout> | undefined;
-  /**
-   * The snapshot a post-storm rebuild is filling, while one is in flight.
+   * The snapshot an overflow rebuild is filling, while one is in flight.
    * Queries keep reading the entry's own maps until the rebuild swaps it in.
    */
-  stormStaging: FolderSnapshot | undefined;
-  /** A storm ended while a rebuild was running; rebuild once more after it. */
-  stormRebuildQueued: boolean;
+  rebuildStaging: FolderSnapshot | undefined;
+  /** An overflow arrived while a rebuild was running; rebuild once more after it. */
+  rebuildQueued: boolean;
+  /**
+   * `Date.now()` before which a folder whose `watch()` threw is not retried;
+   * `undefined` while subscribed or never attempted.
+   */
+  subscribeRetryAt: number | undefined;
 }
 
 /**
- * The swappable part of a folder's index: what a build fills. A post-storm
+ * The swappable part of a folder's index: what a build fills. An overflow
  * rebuild fills a fresh one and replaces the entry's in one step, so queries
  * never see a half-built index.
+ *
+ * Map keys come from {@link toIndexKey}, so the walk's spelling (fast-glob
+ * reports `D:/…`) and the watcher's (`D:\…`) name one entry; each entry keeps
+ * the spelling it was added with.
  */
 interface FolderSnapshot {
-  /** Absolute file path → entry. */
+  /** Normalized absolute file path → entry. */
   files: Map<string, IndexEntry>;
-  /** Absolute directory path → entry. */
+  /** Normalized absolute directory path → entry. */
   directories: Map<string, IndexEntry>;
-  /** Parsed ignore files for this folder (for watcher create/change re-checks). */
+  /** Parsed ignore files for this folder. */
   ignoreFiles: ParsedIgnoreFile[];
+  /**
+   * `ignoreFiles` compiled once per build (`compileMatcher`) — the one
+   * synchronous predicate every batch's new paths pass through.
+   */
+  isIgnored: (relativePath: string) => boolean;
+  /**
+   * Nested repository and worktree roots the walk skipped. They seed the
+   * subscription, because a repository that already exists produces no `.git`
+   * event for the watch host to detect.
+   */
+  nestedRepoRoots: readonly string[];
+}
+
+/** An index with no ignore rules compiled yet ignores nothing. */
+const IGNORE_NOTHING = (): boolean => false;
+
+/**
+ * THE key for a path in `files` and `directories` — every write and every
+ * lookup goes through it, so the two maps share one key space.
+ *
+ * - `path.normalize`: separators and `.`/doubled segments (fast-glob reports
+ *   `D:/…`, the watch host `D:\…`);
+ * - no trailing separator (a watcher may report `dir/`);
+ * - an upper-case drive letter (`d:\x` and `D:\x` are one path on Windows).
+ */
+export function toIndexKey(absPath: string): string {
+  let key = path.normalize(absPath);
+  while (
+    key.length > 1 &&
+    /[\\/]$/.test(key) &&
+    !/^[A-Za-z]:[\\/]$/.test(key)
+  ) {
+    key = key.slice(0, -1);
+  }
+  return /^[a-z]:/.test(key) ? key[0].toUpperCase() + key.slice(1) : key;
 }
 
 const IMAGE_EXTENSIONS = new Set([
@@ -312,6 +376,8 @@ export class WorkspaceFileIndexService {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE)
     private readonly ignoreResolver: IgnorePatternResolverService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_WATCHER)
+    private readonly workspaceWatcher: IWorkspaceWatcher,
   ) {}
 
   /**
@@ -351,18 +417,15 @@ export class WorkspaceFileIndexService {
       entry = {
         key,
         root,
-        files: new Map(),
-        directories: new Map(),
-        ignoreFiles: [],
-        watcher: undefined,
+        ...emptySnapshot(),
+        subscription: undefined,
         buildPromise: undefined,
         ready: false,
         generation: 0,
         lastActiveAt: 0,
-        stormBreaker: createStormBreaker(),
-        stormTimer: undefined,
-        stormStaging: undefined,
-        stormRebuildQueued: false,
+        rebuildStaging: undefined,
+        rebuildQueued: false,
+        subscribeRetryAt: undefined,
       };
       this.entries.set(key, entry);
     }
@@ -372,6 +435,7 @@ export class WorkspaceFileIndexService {
     this.evictOverflow();
 
     if (entry.buildPromise) {
+      this.retrySubscribeIfDue(entry);
       return entry.buildPromise;
     }
     const generation = ++this.generationClock;
@@ -411,6 +475,22 @@ export class WorkspaceFileIndexService {
     return this.entries.get(normalizeWorkspaceRoot(root))?.ready === true;
   }
 
+  /**
+   * The folder the three query methods read: the active one, once its FIRST
+   * build has completed (TASK_2026_437 FU-4c).
+   *
+   * Contract: callers await `ensureReadyFor` (or `ensureReady`) before
+   * querying — every production caller does, through `ContextService`'s
+   * `ensureIndexFor` + `assertIndexServes` blocks. This gate makes a caller
+   * that does not see an EMPTY result rather than a partial one while the first
+   * walk is still filling the maps. A later overflow rebuild never needs it: it
+   * fills a staging snapshot and swaps it in whole.
+   */
+  private get queryable(): FolderIndex | undefined {
+    const active = this.active;
+    return active?.ready ? active : undefined;
+  }
+
   /** The folder every query reads, or `undefined` before the first activation. */
   private get active(): FolderIndex | undefined {
     return this.activeKey ? this.entries.get(this.activeKey) : undefined;
@@ -421,9 +501,9 @@ export class WorkspaceFileIndexService {
     try {
       await this.build(entry, generation);
       // The folder was closed (or the service disposed) while this ran. Its
-      // maps are gone; do not arm a watcher over a folder nobody holds.
+      // maps are gone; do not subscribe for a folder nobody holds.
       if (entry.generation !== generation) return;
-      this.setupWatcher(entry, generation);
+      this.subscribe(entry, generation);
       entry.ready = true;
       this.logger.info(
         `[WorkspaceFileIndex] Ready: ${entry.files.size} files, ${entry.directories.size} directories`,
@@ -442,7 +522,7 @@ export class WorkspaceFileIndexService {
 
   /**
    * Walk `entry`'s folder into `into` — the entry itself for a first build, a
-   * staging snapshot for a post-storm rebuild.
+   * staging snapshot for an overflow rebuild.
    */
   private async build(
     entry: FolderIndex,
@@ -453,9 +533,9 @@ export class WorkspaceFileIndexService {
     into.directories.clear();
 
     // Parse into a LOCAL first, then publish behind the generation check.
-    // `ignoreFiles` is read by `isExcluded()` on every watcher create/change
-    // event, so a build for a torn-down folder must never publish its rules
-    // over the rules of the entry that replaced it under the same key.
+    // The compiled rules are read by every batch, so a build for a torn-down
+    // folder must never publish its rules over the rules of the entry that
+    // replaced it under the same key.
     let parsed: ParsedIgnoreFile[];
     try {
       parsed = await this.ignoreResolver.parseWorkspaceIgnoreFiles(entry.root);
@@ -468,6 +548,7 @@ export class WorkspaceFileIndexService {
     }
     if (entry.generation !== generation) return;
     into.ignoreFiles = parsed;
+    into.isIgnored = this.ignoreResolver.compileMatcher(parsed, entry.root);
 
     // Path-only, batched, yielding. The ignore files are handed over rather
     // than re-parsed: they are the same set, and re-reading every ignore file
@@ -475,6 +556,9 @@ export class WorkspaceFileIndexService {
     for await (const batch of this.indexer.discoverWorkspacePaths({
       workspaceFolder: entry.root,
       ignoreFiles: parsed,
+      onNestedRepoRoots: (roots) => {
+        if (entry.generation === generation) into.nestedRepoRoots = roots;
+      },
     })) {
       // Checked per batch, not once up front: the walk yields to the event loop
       // between batches, so an eviction can land at any point inside it.
@@ -577,7 +661,7 @@ export class WorkspaceFileIndexService {
    * free: a real multi-root workspace with more folders open than the cap would
    * dispose the least-recently-used folder's live watcher and clear its
    * snapshot on every activation past the cap, so cycling across those folders
-   * re-walks and re-arms chokidar almost every switch. That is the
+   * re-walks and re-subscribes almost every switch. That is the
    * pre-TASK_2026_344 behaviour, reintroduced at N=9 instead of N=1.
    *
    * So the cap is soft: when every remaining candidate is still open, the cache
@@ -621,32 +705,35 @@ export class WorkspaceFileIndexService {
   /**
    * Release everything one entry holds and mark it dead.
    *
-   * Bumping the generation is what stops a build, or a watcher handler parked
+   * Bumping the generation is what stops a build, or a batch handler parked
    * behind an await, from writing after the caller believes it is gone.
    */
   private teardownEntry(entry: FolderIndex): void {
     entry.generation++;
-    this.clearStorm(entry);
-    this.disposeWatcher(entry);
+    this.disposeSubscription(entry);
+    entry.rebuildStaging = undefined;
+    entry.rebuildQueued = false;
     entry.files.clear();
     entry.directories.clear();
     entry.ignoreFiles = [];
+    entry.isIgnored = IGNORE_NOTHING;
+    entry.nestedRepoRoots = [];
     entry.buildPromise = undefined;
     entry.ready = false;
   }
 
   /**
-   * Dispose this entry's watcher, if any, and drop the reference.
+   * Dispose this entry's subscription, if any, and drop the reference.
    *
-   * Clearing the field guarantees a given watcher is disposed exactly once, and
-   * a throwing `dispose()` never blocks the caller.
+   * Clearing the field guarantees a given subscription is disposed exactly
+   * once, and a throwing `dispose()` never blocks the caller.
    */
-  private disposeWatcher(entry: FolderIndex): void {
-    const watcher = entry.watcher;
-    if (!watcher) return;
-    entry.watcher = undefined;
+  private disposeSubscription(entry: FolderIndex): void {
+    const subscription = entry.subscription;
+    if (!subscription) return;
+    entry.subscription = undefined;
     try {
-      watcher.dispose();
+      subscription.dispose();
     } catch (error: unknown) {
       this.logger.warn(
         '[WorkspaceFileIndex] failed to dispose previous watcher',
@@ -656,141 +743,233 @@ export class WorkspaceFileIndexService {
   }
 
   /**
-   * Arm this folder's watcher — ONCE per folder per process.
+   * Subscribe this folder to the batched workspace feed — ONCE per folder per
+   * process.
    *
-   * It is not disposed when the folder goes inactive: chokidar has no recursive
-   * mode, so arming one is a readdirp walk of every directory plus one
-   * `fs.watch` handle each, and paying that on every switch was a measurable
-   * part of the 260-554 ms event-loop lag runs. Keeping it live also keeps the
-   * inactive folder's snapshot correct, which is what makes switching back free
-   * rather than merely fast.
+   * It is not disposed when the folder goes inactive: keeping it live keeps
+   * the inactive folder's snapshot correct, which is what makes switching back
+   * free rather than merely fast.
+   *
+   * Exclusion happens where the events are produced, not here:
+   * `DEFAULT_WORKSPACE_EXCLUDES` as globs, the agent worktree segment rules
+   * (case-insensitively, which the globs are not), the nested repositories the
+   * walk skipped, and any `.git` entry the watcher sees appear below the root.
    */
-  private setupWatcher(entry: FolderIndex, generation: number): void {
-    // Defensive: teardown disposes, but never let a second watcher be armed
-    // over a live one.
-    this.disposeWatcher(entry);
-    this.clearStorm(entry);
-    entry.stormBreaker = createStormBreaker();
+  private subscribe(entry: FolderIndex, generation: number): void {
+    // Defensive: teardown disposes, but never let a second subscription be
+    // armed over a live one.
+    this.disposeSubscription(entry);
+    const retrying = entry.subscribeRetryAt !== undefined;
     try {
-      const watcher = this.fsProvider.createFileWatcher('**/*', {
-        exclude: [...DEFAULT_WORKSPACE_EXCLUDES],
-        cwd: entry.root,
-      });
-      entry.watcher = watcher;
-      // Every handler is generation-gated: an event a disposed watcher already
-      // had in flight must not patch an entry that has been torn down. The gate
-      // here is necessary but NOT sufficient for the async handlers — they
-      // await inside, so they re-check at their write. See `onCreate`.
-      //
-      // Then the storm gate: during a storm an event costs one counter and is
-      // dropped before `isExcluded` (and its awaited ignore check) ever runs.
-      watcher.onDidCreate((p) => {
-        if (entry.generation !== generation) return;
-        if (!this.admitEvent(entry, generation)) return;
-        void this.onCreate(entry, generation, p);
-      });
-      watcher.onDidChange((p) => {
-        if (entry.generation !== generation) return;
-        if (!this.admitEvent(entry, generation)) return;
-        void this.onChange(entry, generation, p);
-      });
-      watcher.onDidDelete((p) => {
-        if (entry.generation !== generation) return;
-        if (!this.admitEvent(entry, generation)) return;
-        this.onDelete(entry, p);
-      });
-    } catch (error: unknown) {
-      // A host without a real watcher degrades to a static snapshot — still
-      // correct, just not live. Re-indexing must never start throwing here.
-      this.logger.warn(
-        '[WorkspaceFileIndex] watcher unavailable (index will not stay live)',
-        error,
+      entry.subscription = this.workspaceWatcher.watch(
+        entry.root,
+        {
+          excludeGlobs: DEFAULT_WORKSPACE_EXCLUDES,
+          excludeDirNames: [],
+          excludeSegmentRules: NESTED_WORKSPACE_PATH_RULES,
+          nestedRepoDetection: true,
+          nestedRepoRoots: entry.nestedRepoRoots,
+        },
+        // Generation-gated: a batch a disposed subscription already had in
+        // flight must not patch an entry that has been torn down.
+        (batch) => this.onBatch(entry, generation, batch),
       );
-    }
-  }
-
-  /**
-   * Count one watcher event and say whether it may be processed.
-   *
-   * A mass delete or checkout (the 2026-09-14 incident removed ten ~7,400-file
-   * worktrees) otherwise runs `isExcluded` — an awaited ignore check — and a
-   * map write per file. Above the breaker's rate the index stops patching and
-   * rebuilds ONCE from a path-only walk after the storm ends, which is cheaper
-   * than the per-event work and cannot miss an event the watcher dropped.
-   */
-  private admitEvent(entry: FolderIndex, generation: number): boolean {
-    switch (entry.stormBreaker.record(Date.now())) {
-      case 'normal':
-        return true;
-      case 'entered':
-        this.logger.warn(
-          '[WorkspaceFileIndex] event storm entered; pausing live updates until it ends',
+      entry.subscribeRetryAt = undefined;
+      if (retrying) {
+        this.logger.info(
+          '[WorkspaceFileIndex] watcher subscribed on retry; the index is live again',
           { root: entry.root },
         );
-        this.armStormTimer(entry, generation);
-        return false;
-      case 'storming':
-        return false;
-    }
-  }
-
-  /** (Re-)arms the exit check for the earliest moment the storm could end. */
-  private armStormTimer(entry: FolderIndex, generation: number): void {
-    const delay = entry.stormBreaker.msUntilNextPoll(Date.now());
-    if (delay === undefined) return;
-    if (entry.stormTimer) clearTimeout(entry.stormTimer);
-    entry.stormTimer = setTimeout(() => {
-      entry.stormTimer = undefined;
-      if (entry.generation !== generation) return;
-      switch (entry.stormBreaker.poll(Date.now())) {
-        case 'storming':
-          this.armStormTimer(entry, generation);
-          return;
-        case 'exited': {
-          const stats = entry.stormBreaker.stats();
-          this.logger.warn(
-            '[WorkspaceFileIndex] event storm exited; rebuilding the index once',
-            {
-              root: entry.root,
-              reason: stats.lastExitReason,
-              durationMs: stats.lastStormDurationMs,
-              events: stats.stormEvents,
-            },
-          );
-          this.rebuildAfterStorm(entry, generation);
-          return;
-        }
-        case 'idle':
-          return;
       }
-    }, delay);
+    } catch (error: unknown) {
+      // A host without a real watcher degrades to a static snapshot — still
+      // correct, just not live — and re-indexing must never start throwing
+      // here. `retrySubscribeIfDue` tries again on a later `ensureReadyFor`.
+      // Logged once per failure streak, not per retry.
+      entry.subscribeRetryAt = Date.now() + SUBSCRIBE_RETRY_INTERVAL_MS;
+      if (retrying) {
+        this.logger.debug(
+          '[WorkspaceFileIndex] watcher still unavailable on retry',
+          error,
+        );
+      } else {
+        this.logger.warn(
+          '[WorkspaceFileIndex] watcher unavailable (index will not stay live until a retry succeeds)',
+          error,
+        );
+      }
+    }
   }
 
   /**
-   * One path-only rebuild of a folder whose storm events were dropped.
-   *
-   * The watcher stays armed (re-arming chokidar is a walk of its own), so this
-   * reuses `build` under the SAME generation rather than `doStart`. The walk
-   * fills a staging snapshot while queries keep serving the previous one;
-   * watcher events that land meanwhile patch both, and success swaps the
-   * staging maps in synchronously. A failed rebuild keeps the previous
-   * snapshot. A storm that ends while a rebuild is running queues exactly one
-   * more, which runs whether the current one succeeds or fails.
-   *
-   * Temporary by design: Batch 11 moves recursive watching onto the batched
-   * `IWorkspaceWatcher` port and replaces this path.
+   * A built folder whose `watch()` threw is subscribed again, at most once per
+   * {@link SUBSCRIBE_RETRY_INTERVAL_MS}, when a caller next asks for it. No
+   * timer: a folder nobody queries stays static until it is queried. The
+   * snapshot the failure left may be stale by then, so a successful retry also
+   * rebuilds it once.
    */
-  private rebuildAfterStorm(entry: FolderIndex, generation: number): void {
-    if (entry.stormStaging) {
-      entry.stormRebuildQueued = true;
+  private retrySubscribeIfDue(entry: FolderIndex): void {
+    if (!entry.ready || entry.subscription) return;
+    if (entry.subscribeRetryAt === undefined) return;
+    if (Date.now() < entry.subscribeRetryAt) return;
+    const generation = entry.generation;
+    this.subscribe(entry, generation);
+    if (entry.subscription) {
+      this.requestRebuild(entry, generation, {
+        reason: 'watcher subscribed after a failure',
+      });
+    }
+  }
+
+  /**
+   * One coalesced batch for one folder.
+   *
+   * `overflow` (events lost or suppressed: a storm, a host restart, a degraded
+   * rescan tick) and `truncated` (more distinct paths than one batch holds)
+   * both leave the batch incomplete, so the folder rebuilds once instead of
+   * patching from a partial list.
+   *
+   * Otherwise ONE synchronous pass: deletes drop their entry (a deleted
+   * directory drops everything under it, in one sweep for the whole batch);
+   * a path not yet indexed is matched against the default excludes and the
+   * folder's compiled ignore rules, and the survivors are statted — a batch
+   * does not say whether a created path is a file or a directory. A path
+   * already indexed needs nothing: the index tracks no content.
+   *
+   * Runs for INACTIVE folders too, and must: keeping a background folder's
+   * snapshot fresh is exactly what lets a switch back to it skip the rebuild.
+   */
+  private onBatch(
+    entry: FolderIndex,
+    generation: number,
+    batch: WorkspaceChangeBatch,
+  ): void {
+    if (entry.generation !== generation) return;
+    if (batch.overflow || batch.truncated) {
+      this.requestRebuild(entry, generation, {
+        reason: 'watcher reported lost events',
+        overflow: batch.overflow,
+        truncated: batch.truncated,
+        droppedCount: batch.droppedCount,
+      });
       return;
     }
-    const staging: FolderSnapshot = {
-      files: new Map(),
-      directories: new Map(),
-      ignoreFiles: [],
-    };
-    entry.stormStaging = staging;
+
+    const deletedDirectories = new Set<string>();
+    const created: string[] = [];
+    for (const change of batch.changes) {
+      const key = toIndexKey(change.path);
+      if (change.kind === 'delete') {
+        if (entry.directories.has(key)) deletedDirectories.add(key);
+        this.deleteLivePath(entry, key);
+        continue;
+      }
+      if (entry.files.has(key) || entry.directories.has(key)) continue;
+      if (this.isExcluded(entry, change.path)) continue;
+      created.push(change.path);
+    }
+    if (deletedDirectories.size > 0) {
+      if (
+        entry.files.size + entry.directories.size >
+        DIRECTORY_DELETE_SWEEP_LIMIT
+      ) {
+        // Too large to sweep synchronously: the batch is as good as
+        // truncated. The rebuild covers this batch's creates too.
+        this.requestRebuild(entry, generation, {
+          reason: 'directory deleted in a large index',
+          deletedDirectories: deletedDirectories.size,
+          entries: entry.files.size + entry.directories.size,
+        });
+        return;
+      }
+      this.deleteLiveDescendants(entry, deletedDirectories);
+    }
+    if (created.length > 0) {
+      void this.addCreatedPaths(entry, generation, created);
+    }
+  }
+
+  /**
+   * Stat the batch's new paths and index them as files or directories.
+   *
+   * Rule for this file: a generation check upstream does not protect a write
+   * that sits behind an `await` — a teardown can land while the stats run, and
+   * this would then resurrect maps the service has already released. Re-check
+   * immediately before the write.
+   */
+  private async addCreatedPaths(
+    entry: FolderIndex,
+    generation: number,
+    paths: readonly string[],
+  ): Promise<void> {
+    for (let start = 0; start < paths.length; start += STAT_CONCURRENCY) {
+      const slice = paths.slice(start, start + STAT_CONCURRENCY);
+      const types = await Promise.all(
+        slice.map((absPath) => this.statType(absPath)),
+      );
+      if (entry.generation !== generation) return;
+      slice.forEach((absPath, index) => {
+        const type = types[index];
+        if (type === undefined) return;
+        if ((type & FileType.Directory) !== 0) {
+          this.addLiveDirectoryEntry(entry, absPath);
+        } else if ((type & FileType.File) !== 0) {
+          this.addLiveFileEntry(entry, absPath);
+        }
+      });
+    }
+  }
+
+  /** The path's type, or `undefined` when it is already gone or unreadable. */
+  private async statType(absPath: string): Promise<FileType | undefined> {
+    try {
+      return (await this.fsProvider.stat(absPath)).type;
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - a path created and removed
+      // inside one batch window, or locked, is simply not indexed; its own
+      // delete or the next create brings the index back in line.
+      this.logger.debug(
+        '[WorkspaceFileIndex] could not stat a created path (not indexed)',
+        error,
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * The folder's view is stale — an incomplete batch, a directory delete too
+   * large to sweep, or a subscription that missed events — so it rebuilds once
+   * from a path-only walk.
+   *
+   * The subscription stays armed, so this reuses `build` under the SAME
+   * generation rather than `doStart`. The walk fills a staging snapshot while
+   * queries keep serving the previous one; batches that land meanwhile patch
+   * both, and success swaps the staging snapshot in synchronously. A failed
+   * rebuild keeps the previous snapshot. An overflow that arrives while a
+   * rebuild is running queues exactly one more, which runs whether the current
+   * one succeeds or fails — so a degraded adapter's overflow every 60 s never
+   * stacks rebuilds.
+   */
+  private requestRebuild(
+    entry: FolderIndex,
+    generation: number,
+    detail: { readonly reason: string } & Readonly<Record<string, unknown>>,
+  ): void {
+    if (entry.rebuildStaging) {
+      entry.rebuildQueued = true;
+      return;
+    }
+    const { reason, ...rest } = detail;
+    this.logger.warn(
+      `[WorkspaceFileIndex] ${reason}; rebuilding the index once`,
+      { root: entry.root, ...rest },
+    );
+    this.runOverflowRebuild(entry, generation);
+  }
+
+  private runOverflowRebuild(entry: FolderIndex, generation: number): void {
+    const staging = emptySnapshot();
+    entry.rebuildStaging = staging;
     const startedAt = Date.now();
     void this.build(entry, generation, staging)
       .then(
@@ -799,79 +978,65 @@ export class WorkspaceFileIndexService {
           entry.files = staging.files;
           entry.directories = staging.directories;
           entry.ignoreFiles = staging.ignoreFiles;
+          entry.isIgnored = staging.isIgnored;
+          entry.nestedRepoRoots = staging.nestedRepoRoots;
           this.logger.info(
-            `[WorkspaceFileIndex] Rebuilt after event storm: ${entry.files.size} files, ${entry.directories.size} directories`,
+            `[WorkspaceFileIndex] Rebuilt after lost watcher events: ${entry.files.size} files, ${entry.directories.size} directories`,
             { root: entry.root, durationMs: Date.now() - startedAt },
           );
         },
         (error: unknown) => {
           if (entry.generation !== generation) return;
           this.logger.error(
-            '[WorkspaceFileIndex] Rebuild after event storm failed (keeping the previous snapshot)',
+            '[WorkspaceFileIndex] Rebuild after lost watcher events failed (keeping the previous snapshot)',
             error,
           );
         },
       )
       .finally(() => {
         if (entry.generation !== generation) return;
-        entry.stormStaging = undefined;
-        if (!entry.stormRebuildQueued) return;
-        entry.stormRebuildQueued = false;
-        this.rebuildAfterStorm(entry, generation);
+        entry.rebuildStaging = undefined;
+        if (!entry.rebuildQueued) return;
+        entry.rebuildQueued = false;
+        this.runOverflowRebuild(entry, generation);
       });
   }
 
-  /** Cancel a pending storm exit and forget any in-flight or queued rebuild. */
-  private clearStorm(entry: FolderIndex): void {
-    if (entry.stormTimer) clearTimeout(entry.stormTimer);
-    entry.stormTimer = undefined;
-    entry.stormStaging = undefined;
-    entry.stormRebuildQueued = false;
+  /** A batch delete: the live snapshot, plus a rebuild's staging one if any. */
+  private deleteLivePath(entry: FolderIndex, key: string): void {
+    for (const snapshot of liveSnapshots(entry)) {
+      snapshot.files.delete(key);
+      snapshot.directories.delete(key);
+    }
   }
 
   /**
-   * The caller's gate in `setupWatcher` is NOT enough on its own: `isExcluded`
-   * awaits `isIgnored` whenever the folder has any ignore file — the normal
-   * case — so a teardown can land in that window, and this would then resurrect
-   * maps the service has already released.
-   *
-   * Rule for this file: a generation check upstream does not protect a write
-   * that sits behind an `await`. Re-check immediately before the write.
-   *
-   * Note this runs for INACTIVE folders too, and must: keeping a background
-   * folder's snapshot fresh is exactly what lets a switch back to it skip the
-   * rebuild.
+   * Drop every entry below a deleted directory, in one sweep per batch. Some
+   * watchers report only the directory's own delete (VS Code's does), others
+   * each child too (`@parcel/watcher`); both end up with nothing stale.
    */
-  private async onCreate(
+  private deleteLiveDescendants(
     entry: FolderIndex,
-    generation: number,
-    absPath: string,
-  ): Promise<void> {
-    if (entry.files.has(absPath)) return;
-    if (await this.isExcluded(entry, absPath)) return;
-    if (entry.generation !== generation) return;
-    this.addLiveFileEntry(entry, absPath);
-  }
-
-  private async onChange(
-    entry: FolderIndex,
-    generation: number,
-    absPath: string,
-  ): Promise<void> {
-    // Content changes carry no metadata we track. Re-add only if a prior create
-    // event was missed and the path is not ignored.
-    if (entry.files.has(absPath)) return;
-    if (await this.isExcluded(entry, absPath)) return;
-    if (entry.generation !== generation) return;
-    this.addLiveFileEntry(entry, absPath);
-  }
-
-  private onDelete(entry: FolderIndex, absPath: string): void {
-    entry.files.delete(absPath);
-    entry.stormStaging?.files.delete(absPath);
-    // Directory entries are derived from surviving files; a stale directory
-    // entry is harmless for autocomplete and cheaper than pruning on every
-    // unlink. Directory deletes surface as file unlinks per child.
+    deletedDirectories: ReadonlySet<string>,
+  ): void {
+    const underDeleted = (key: string): boolean => {
+      let parent = path.dirname(key);
+      while (parent.length >= entry.root.length) {
+        if (deletedDirectories.has(toIndexKey(parent))) return true;
+        const next = path.dirname(parent);
+        if (next === parent) return false;
+        parent = next;
+      }
+      return false;
+    };
+    for (const snapshot of liveSnapshots(entry)) {
+      for (const key of [...snapshot.files.keys()]) {
+        if (underDeleted(key)) snapshot.files.delete(key);
+      }
+      for (const key of [...snapshot.directories.keys()]) {
+        if (underDeleted(key)) snapshot.directories.delete(key);
+      }
+    }
   }
 
   /**
@@ -886,7 +1051,7 @@ export class WorkspaceFileIndexService {
     const relativePath = path.relative(entry.root, absPath);
     const fileName = path.basename(absPath);
     const directory = path.dirname(absPath);
-    into.files.set(absPath, {
+    into.files.set(toIndexKey(absPath), {
       path: absPath,
       relativePath,
       fileName,
@@ -897,11 +1062,21 @@ export class WorkspaceFileIndexService {
     this.addAncestorDirectories(entry, absPath, into);
   }
 
-  /** A watcher add: the live snapshot, plus a rebuild's staging one if any. */
+  /** A batch add: the live snapshot, plus a rebuild's staging one if any. */
   private addLiveFileEntry(entry: FolderIndex, absPath: string): void {
-    this.addFileEntry(entry, absPath);
-    if (entry.stormStaging) {
-      this.addFileEntry(entry, absPath, entry.stormStaging);
+    for (const snapshot of liveSnapshots(entry)) {
+      this.addFileEntry(entry, absPath, snapshot);
+    }
+  }
+
+  /** A created directory, with its ancestors, in every live snapshot. */
+  private addLiveDirectoryEntry(entry: FolderIndex, absPath: string): void {
+    const relativePath = path.relative(entry.root, absPath);
+    if (!relativePath || relativePath.startsWith('..')) return;
+    for (const snapshot of liveSnapshots(entry)) {
+      // `addAncestorDirectories` indexes every directory ABOVE its path, so a
+      // child segment makes the created directory itself the last of them.
+      this.addAncestorDirectories(entry, path.join(absPath, '_'), snapshot);
     }
   }
 
@@ -921,8 +1096,9 @@ export class WorkspaceFileIndexService {
     for (const segment of segments) {
       soFar.push(segment);
       const absDir = path.join(entry.root, ...soFar);
-      if (into.directories.has(absDir)) continue;
-      into.directories.set(absDir, {
+      const key = toIndexKey(absDir);
+      if (into.directories.has(key)) continue;
+      into.directories.set(key, {
         path: absDir,
         relativePath: path.relative(entry.root, absDir),
         fileName: segment,
@@ -933,43 +1109,31 @@ export class WorkspaceFileIndexService {
     }
   }
 
-  private async isExcluded(
-    entry: FolderIndex,
-    absPath: string,
-  ): Promise<boolean> {
+  /**
+   * Synchronous: the default excludes, then the folder's compiled ignore
+   * rules, read into a local so one decision never mixes two rule sets.
+   */
+  private isExcluded(entry: FolderIndex, absPath: string): boolean {
     const relative = path.relative(entry.root, absPath).replace(/\\/g, '/');
-    if (!relative || relative.startsWith('..')) return true;
-    if (this.defaultExcludeMatcher(relative)) return true;
-    // Resolved into a local in the same synchronous block as the read: this
-    // method awaits below, and re-reading `entry.ignoreFiles` afterwards would
-    // filter against rules a concurrent rebuild had just replaced.
-    const ignoreFiles = entry.ignoreFiles;
-    if (ignoreFiles.length > 0) {
-      try {
-        const result = await this.ignoreResolver.isIgnored(
-          relative,
-          ignoreFiles,
-          entry.root,
-        );
-        if (result.ignored) return true;
-      } catch (error) {
-        this.logger.debug(
-          '[WorkspaceFileIndex] ignore check failed (treating as not ignored)',
-          error,
-        );
-      }
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      return true;
     }
-    return false;
+    if (this.defaultExcludeMatcher(relative)) return true;
+    const isIgnored = entry.isIgnored;
+    return isIgnored(relative);
   }
 
   /**
    * Score + filter the ACTIVE folder's file list against a query. Directories
    * are not included here (use {@link searchDirectories}); this mirrors the
    * files-only search path autocomplete relied on.
+   *
+   * Await `ensureReadyFor` first; before the folder's first build completes
+   * this returns nothing (see `queryable`).
    */
   search(query: string, limit: number): FileSearchResult[] {
     if (!query) return this.getAll(limit);
-    const active = this.active;
+    const active = this.queryable;
     if (!active) return [];
     const queryLower = query.toLowerCase();
     const matches: Array<IndexEntry & { score: number }> = [];
@@ -985,9 +1149,12 @@ export class WorkspaceFileIndexService {
   /**
    * Return every indexed file in the ACTIVE folder, then its directories, up to
    * `limit`. Used for the "no query yet" suggestion list.
+   *
+   * Await `ensureReadyFor` first; before the folder's first build completes
+   * this returns nothing (see `queryable`).
    */
   getAll(limit: number): FileSearchResult[] {
-    const active = this.active;
+    const active = this.queryable;
     if (!active) return [];
     const results: FileSearchResult[] = [];
     for (const entry of active.files.values()) {
@@ -1004,9 +1171,12 @@ export class WorkspaceFileIndexService {
   /**
    * Filter the ACTIVE folder's directory entries by query (name or relative
    * path substring).
+   *
+   * Await `ensureReadyFor` first; before the folder's first build completes
+   * this returns nothing (see `queryable`).
    */
   searchDirectories(query: string, limit: number): FileSearchResult[] {
-    const active = this.active;
+    const active = this.queryable;
     if (!active) return [];
     const queryLower = query.toLowerCase();
     const matches: FileSearchResult[] = [];
@@ -1062,9 +1232,20 @@ export class WorkspaceFileIndexService {
   }
 }
 
-/** Breaker with the default thresholds, overridable through `PTAH_WATCH_STORM_*`. */
-function createStormBreaker(): EventStormBreaker {
-  return new EventStormBreaker(readEventStormBreakerOptionsFromEnv(process.env));
+/** A snapshot with nothing in it and no rules: a new folder, or a rebuild's staging area. */
+function emptySnapshot(): FolderSnapshot {
+  return {
+    files: new Map(),
+    directories: new Map(),
+    ignoreFiles: [],
+    isIgnored: IGNORE_NOTHING,
+    nestedRepoRoots: [],
+  };
+}
+
+/** The snapshot queries read, plus the one an overflow rebuild is filling. */
+function liveSnapshots(entry: FolderIndex): FolderSnapshot[] {
+  return entry.rebuildStaging ? [entry, entry.rebuildStaging] : [entry];
 }
 
 /**

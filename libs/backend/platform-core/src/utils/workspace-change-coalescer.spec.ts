@@ -57,6 +57,9 @@ class FakeClock implements WorkspaceChangeCoalescerClock {
 
 const ROOT = '/ws';
 
+/** The default leading-edge hold: a batch after quiet flushes this long after its first change. */
+const HOLD = WORKSPACE_WATCH_LIMITS.minBatchIntervalMs;
+
 function baseOptions(
   overrides: Partial<WorkspaceWatchOptions> = {},
 ): WorkspaceWatchOptions {
@@ -99,14 +102,77 @@ describe('WorkspaceChangeCoalescer — cadence', () => {
     const { coalescer, batches, clock } = setup();
     coalescer.push('/ws/a.ts', 'update');
     expect(batches).toHaveLength(0);
-    clock.advance(0);
+    clock.advance(HOLD);
     expect(batches).toHaveLength(1);
+  });
+
+  it('holds the first batch after a quiet period for minBatchIntervalMs (leading-edge hold)', () => {
+    const { coalescer, batches, clock } = setup();
+    coalescer.push('/ws/a.ts', 'update');
+    clock.advance(HOLD - 1);
+    expect(batches).toHaveLength(0);
+    coalescer.push('/ws/b.ts', 'update'); // joins the held batch
+    clock.advance(1);
+    expect(batches).toHaveLength(1);
+    expect(batches[0].batch.changes.map((c) => c.path)).toEqual([
+      '/ws/a.ts',
+      '/ws/b.ts',
+    ]);
+
+    // Quiet for longer than the interval: the next change is held again.
+    clock.advance(5_000);
+    coalescer.push('/ws/c.ts', 'update');
+    clock.advance(HOLD - 1);
+    expect(batches).toHaveLength(1);
+    clock.advance(1);
+    expect(batches).toHaveLength(2);
+  });
+
+  it('inside an active cadence waits only for the rest of the interval', () => {
+    const { coalescer, batches, clock } = setup();
+    coalescer.push('/ws/a.ts', 'update');
+    clock.advance(HOLD); // emitted at t = HOLD
+    clock.advance(100);
+    coalescer.push('/ws/b.ts', 'update');
+    clock.advance(HOLD - 100 - 1);
+    expect(batches).toHaveLength(1);
+    clock.advance(1);
+    expect(batches).toHaveLength(2);
+    expect(batches[1].at - batches[0].at).toBe(HOLD);
+  });
+
+  it('a lone leading event followed by a burst within the hold is folded into the storm overflow (ST-1b)', () => {
+    const transitions: string[] = [];
+    const { coalescer, clock, batches } = setup(
+      { minBatchIntervalMs: 1_000 },
+      {
+        stormBreakerOptions: { enterEventsPerWindow: 500, quietMs: 2_000 },
+        onStorm: (t) => transitions.push(t),
+      },
+    );
+    // `@parcel/watcher` notifies the first change of a burst alone...
+    coalescer.push('/ws/pkgs/big/c0/d0/f0.txt', 'delete');
+    // ...and the rest up to ~500 ms later, in one callback.
+    clock.advance(480);
+    expect(batches).toHaveLength(0);
+    for (let i = 1; i <= 8_810; i++) {
+      coalescer.push(`/ws/pkgs/big/f${i}.txt`, 'delete');
+    }
+    clock.advance(60_000);
+
+    expect(transitions).toEqual(['entered', 'exited']);
+    expect(batches).toHaveLength(1);
+    expect(batches[0].batch).toMatchObject({
+      overflow: true,
+      changes: [],
+      droppedCount: 8_811,
+    });
   });
 
   it('emits at most one batch per minBatchIntervalMs and coalesces in between', () => {
     const { coalescer, batches, clock } = setup();
     coalescer.push('/ws/a.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     for (let i = 0; i < 40; i++) {
       coalescer.push(`/ws/f${i}.ts`, 'update');
       clock.advance(10);
@@ -125,7 +191,7 @@ describe('WorkspaceChangeCoalescer — cadence', () => {
   it('clamps minBatchIntervalMs to the INV-1 floor', () => {
     const { coalescer, batches, clock } = setup({ minBatchIntervalMs: 1 });
     coalescer.push('/ws/a.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     coalescer.push('/ws/b.ts', 'update');
     clock.advance(249);
     expect(batches).toHaveLength(1);
@@ -137,7 +203,9 @@ describe('WorkspaceChangeCoalescer — cadence', () => {
   it('honours a longer interval', () => {
     const { coalescer, batches, clock } = setup({ minBatchIntervalMs: 1_000 });
     coalescer.push('/ws/a.ts', 'update');
-    clock.advance(0);
+    clock.advance(999);
+    expect(batches).toHaveLength(0);
+    clock.advance(1);
     coalescer.push('/ws/b.ts', 'update');
     clock.advance(999);
     expect(batches).toHaveLength(1);
@@ -153,7 +221,7 @@ describe('WorkspaceChangeCoalescer — cadence', () => {
     coalescer.push('/ws/b.ts', 'delete');
     coalescer.push('/ws/c.ts', 'delete');
     coalescer.push('/ws/c.ts', 'create');
-    clock.advance(0);
+    clock.advance(HOLD);
     expect(batches[0].batch.changes).toEqual([
       { path: '/ws/a.ts', kind: 'create' },
       { path: '/ws/b.ts', kind: 'delete' },
@@ -174,7 +242,7 @@ describe('WorkspaceChangeCoalescer — cap and truncation', () => {
     for (let i = 0; i < 5; i++) coalescer.push(`/ws/f${i}.ts`, 'update');
     // An already-listed path still updates in place.
     coalescer.push('/ws/f0.ts', 'delete');
-    clock.advance(0);
+    clock.advance(HOLD);
     expect(batches).toHaveLength(1);
     const batch = batches[0].batch;
     expect(batch.changes).toHaveLength(3);
@@ -188,7 +256,7 @@ describe('WorkspaceChangeCoalescer — cap and truncation', () => {
     const { coalescer, batches, clock } = setup({ maxPathsPerBatch: 1 });
     coalescer.push('/ws/a.ts', 'update');
     coalescer.push('/ws/b.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     coalescer.push('/ws/c.ts', 'update');
     clock.advance(250);
     expect(batches[1].batch).toMatchObject({
@@ -200,13 +268,13 @@ describe('WorkspaceChangeCoalescer — cap and truncation', () => {
   it('clamps maxPathsPerBatch to the INV-1 ceiling and ignores values below 1', () => {
     const big = setup({ maxPathsPerBatch: 10_000 });
     for (let i = 0; i < 600; i++) big.coalescer.push(`/ws/f${i}`, 'update');
-    big.clock.advance(0);
+    big.clock.advance(HOLD);
     expect(big.batches[0].batch.changes).toHaveLength(500);
     expect(big.batches[0].batch.droppedCount).toBe(100);
 
     const zero = setup({ maxPathsPerBatch: 0 });
     for (let i = 0; i < 600; i++) zero.coalescer.push(`/ws/f${i}`, 'update');
-    zero.clock.advance(0);
+    zero.clock.advance(HOLD);
     expect(zero.batches[0].batch.changes).toHaveLength(500);
   });
 });
@@ -226,7 +294,7 @@ describe('WorkspaceChangeCoalescer — exclusion', () => {
     coalescer.push('/ws/worktrees/.claude/z', 'update');
     coalescer.push('/ws/foo.claude-worktrees/z', 'update');
     coalescer.push('/ws/src/a.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     expect(paths()).toEqual([
       '/ws/pkg/Node_Modules/y.js',
       '/ws/.claude/commands/x.md',
@@ -244,7 +312,7 @@ describe('WorkspaceChangeCoalescer — exclusion', () => {
     coalescer.push('/ws/libs/a/dist/b.js', 'update');
     coalescer.push('/ws/.hidden/debug.log', 'update');
     coalescer.push('/ws/src/a.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     expect(paths()).toEqual(['/ws/src/a.ts']);
   });
 
@@ -269,7 +337,7 @@ describe('WorkspaceChangeCoalescer — exclusion', () => {
     coalescer.push('D:/Projects/App/src\\A.ts', 'update');
     coalescer.push('D:\\Projects\\App\\dist\\x.js', 'update');
     coalescer.push('D:\\Projects\\Apple\\x.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     // Same file in two spellings is one change; the last spelling wins.
     expect(paths()).toEqual(['D:/Projects/App/src\\A.ts']);
   });
@@ -290,7 +358,7 @@ describe('WorkspaceChangeCoalescer — exclusion', () => {
     coalescer.push('\\\\server\\share\\repo', 'update');
     coalescer.push('\\\\server\\share\\repo\\vendor\\.git', 'create');
     coalescer.push('\\\\server\\share\\repo\\vendor\\lib.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     expect(paths()).toEqual([
       '\\\\server\\share\\repo\\src\\a.ts',
       '//SERVER/Share/repo/src/b.ts',
@@ -309,7 +377,7 @@ describe('WorkspaceChangeCoalescer — exclusion', () => {
     coalescer.push('/ws/vendor/lib', 'delete');
     coalescer.push('/ws/vendor/library/a.ts', 'update');
     coalescer.push('/ws/src/a.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     expect(paths()).toEqual(['/ws/vendor/library/a.ts', '/ws/src/a.ts']);
     expect(coalescer.addNestedRepoRoot('/ws/vendor/lib/deeper')).toBe(false);
     expect(coalescer.addNestedRepoRoot('/ws/other')).toBe(true);
@@ -326,7 +394,7 @@ describe('WorkspaceChangeCoalescer — exclusion', () => {
     coalescer.push('/ws/pkg/sub/src/a.ts', 'update');
     coalescer.push('/ws/pkg/sub/.git/HEAD', 'update'); // already covered
     coalescer.push('/ws/pkg/a.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     expect(detected).toEqual(['/ws/pkg/sub']);
     expect(paths()).toEqual(['/ws/pkg/a.ts']);
   });
@@ -349,7 +417,7 @@ describe('WorkspaceChangeCoalescer — exclusion', () => {
       );
       coalescer.push(path, 'update');
       coalescer.push('/ws/pkg/src/a.ts', 'update');
-      clock.advance(0);
+      clock.advance(HOLD);
       expect(detected).toEqual([]);
       expect(paths()).toEqual([path, '/ws/pkg/src/a.ts']);
     },
@@ -374,7 +442,7 @@ describe('WorkspaceChangeCoalescer — exclusion', () => {
     );
     off.coalescer.push('/ws/pkg/.git', 'create');
     off.coalescer.push('/ws/pkg/a.ts', 'update');
-    off.clock.advance(0);
+    off.clock.advance(HOLD);
     expect(off.paths()).toEqual(['/ws/pkg/.git', '/ws/pkg/a.ts']);
 
     const excluded = setup(
@@ -401,7 +469,7 @@ describe('WorkspaceChangeCoalescer — exclusion', () => {
       coalescer.push(`/ws/node_modules/p/${i}.js`, 'delete');
     }
     coalescer.push('/ws/a.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     expect(storms).toEqual([]);
     expect(batches).toHaveLength(1);
     expect(batches[0].batch.overflow).toBe(false);
@@ -451,7 +519,7 @@ describe('WorkspaceChangeCoalescer — storm and overflow', () => {
       { stormBreakerOptions: storm },
     );
     coalescer.push('/ws/first.ts', 'update');
-    clock.advance(0); // first batch
+    clock.advance(HOLD); // first batch
     coalescer.push('/ws/second.ts', 'update'); // pending behind the cadence
     for (let i = 0; i < 20; i++) coalescer.push(`/ws/s${i}.ts`, 'delete');
     clock.advance(60_000);
@@ -477,7 +545,7 @@ describe('WorkspaceChangeCoalescer — storm and overflow', () => {
   it('signalOverflow folds pending changes into one overflow batch on the cadence', () => {
     const { coalescer, clock, batches } = setup();
     coalescer.push('/ws/a.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     coalescer.push('/ws/b.ts', 'update');
     coalescer.signalOverflow();
     coalescer.push('/ws/c.ts', 'update'); // subsumed by the owed rescan
@@ -559,7 +627,7 @@ describe('WorkspaceChangeCoalescer — storm and overflow', () => {
       { stormBreakerOptions: storm },
     );
     coalescer.push('/ws/first.ts', 'update');
-    clock.advance(0); // first batch; the next flush waits for the cadence
+    clock.advance(HOLD); // first batch; the next flush waits for the cadence
     coalescer.signalOverflow(); // owed, flush timer armed 250 ms out
     for (let i = 0; i < 20; i++) coalescer.push(`/ws/s${i}.ts`, 'delete');
     expect(coalescer.isStorming).toBe(true);
@@ -573,7 +641,7 @@ describe('WorkspaceChangeCoalescer — storm and overflow', () => {
     const { coalescer, batches, clock } = setup();
     coalescer.signalOverflow();
     expect(batches).toHaveLength(0);
-    clock.advance(0);
+    clock.advance(HOLD);
     expect(batches[0].batch.overflow).toBe(true);
   });
 });
@@ -617,7 +685,7 @@ describe('WorkspaceChangeCoalescer — dispose and listener failures', () => {
       { clock, onListenerError: () => undefined },
     );
     coalescer.push('/ws/a.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     coalescer.push('/ws/b.ts', 'update');
     clock.advance(1_000);
     expect(calls).toBe(1);
@@ -641,7 +709,7 @@ describe('WorkspaceChangeCoalescer — dispose and listener failures', () => {
       { clock, onListenerError: (error) => errors.push(error) },
     );
     coalescer.push('/ws/a.ts', 'update');
-    clock.advance(0);
+    clock.advance(HOLD);
     coalescer.push('/ws/b.ts', 'update');
     clock.advance(250);
     expect(errors).toHaveLength(1);
@@ -659,7 +727,7 @@ describe('WorkspaceChangeCoalescer — dispose and listener failures', () => {
     );
     coalescer.push('/ws/a.ts', 'update');
     expect(batches).toHaveLength(0);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, HOLD + 50));
     expect(batches).toHaveLength(1);
     coalescer.dispose();
   });
