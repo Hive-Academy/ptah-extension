@@ -63,15 +63,6 @@ Log: `C:\Users\abdal\AppData\Roaming\Ptah\logs\Ptah Electron-2026-09-14.log`
   (36 manifests, 1,392 value files / 508 MB); legacy `workspace-state.json` 336 MB still present;
   each session save = two commits rewriting a ~290 KB manifest.
 
-## User decisions (2026-09-14, on implementation-plan.md)
-
-- Scope: implement ALL four phases (P1 → P4), shipped in order.
-- Nested git repositories and worktrees are excluded from every consumer, including the `@` picker.
-- Electron `crashReporter` enabled with local dumps only, never uploaded.
-- Defaults taken for the remaining plan questions: CLI uses `@parcel/watcher` only if it packages
-  cleanly (else keep its current watcher behind the port); measure SQLite main-thread cost before
-  moving it; scroll-back paging of old history is deferred.
-
 ### Unconfirmed candidates (from code reading)
 
 - Tile open replays full session history in one synchronous renderer loop; quadratic

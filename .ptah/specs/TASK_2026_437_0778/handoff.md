@@ -27,6 +27,19 @@ User decisions (binding): all four phases; nested repos/worktrees excluded from 
 including the `@` picker; crashReporter local-only; SQLite measured before moving off main;
 scroll-back history paging deferred; `better-sqlite3` upgrade in a separate PR (#512).
 
+### User decisions (2026-09-14, on implementation-plan.md)
+
+This section was in this branch's `context.md`. It moved here on 2026-09-15 so that `context.md`
+matches the copy `main` received from PR #509, which removes the add/add conflict that blocked
+PR #510 CI. Add it back to `context.md` after PR #510 merges.
+
+- Scope: implement ALL four phases (P1 → P4), shipped in order.
+- Nested git repositories and worktrees are excluded from every consumer, including the `@` picker.
+- Electron `crashReporter` enabled with local dumps only, never uploaded.
+- Defaults taken for the remaining plan questions: CLI uses `@parcel/watcher` only if it packages
+  cleanly (else keep its current watcher behind the port); measure SQLite main-thread cost before
+  moving it; scroll-back paging of old history is deferred.
+
 ## 3. Done — committed (13 of 22 batches; Batches 8, 9 and 10 in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
@@ -68,9 +81,13 @@ workflow); darwin-x64 and windows-arm64 are not built at all (FU-10b, product de
 done until that build matrix is green on all three OSes. It has not run on this branch; it runs on
 a `release/electron` push or `workflow_dispatch`.
 
-**PR #510 is blocked:** it has a merge conflict with `main` (`context.md` add/add). While the
-conflict stands, no `pull_request` CI runs. Merge `main` into the branch first (the orchestrator
-owns that step).
+**PR #510 conflict (resolved 2026-09-15 without a merge commit):** `main` received its own
+`context.md` from PR #509, which caused an add/add conflict, so no `pull_request` CI ran. The branch
+now carries `main`'s exact `context.md`, and its "User decisions" section moved to section 2 above.
+A local merge of `main` was avoided on purpose: the pre-commit hook runs `nx format:write` on every
+staged incoming file and would have reformatted other work in PR #510's diff. Local
+`node_modules` is shared with the main checkout, so local tests do not prove `better-sqlite3` 13;
+the PR CI test merge does.
 
 **Next: Batch 11** (migrate `GitWatcherService` and `WorkspaceFileIndexService` onto
 `IWorkspaceWatcher`, delete the storm-exit loops FU-4a, port the FU-4d filters, nested-repo walk
