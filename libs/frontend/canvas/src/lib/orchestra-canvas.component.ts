@@ -69,7 +69,7 @@ import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
       @if (canvasStore.tiles().length > 0) {
         <!-- Reserved canvas control dock outside measured session viewport -->
         <div
-          class="canvas-dock flex items-center justify-end gap-2 px-3 py-1.5 border-b border-base-content/10 shrink-0 bg-base-200/50 backdrop-blur-sm z-20"
+          class="canvas-dock flex items-center justify-end gap-2 pl-3 py-1.5 border-b border-base-content/10 shrink-0 bg-base-200/50 backdrop-blur-sm z-20"
           data-testid="canvas-dock"
         >
           <ptah-canvas-layout-controls
@@ -236,6 +236,19 @@ import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 
       gridstack {
         min-height: 200px;
+      }
+
+      /* The Electron shell floats the activity toast over this corner and
+         publishes its width, so the dock controls stay to the toast's left. */
+      .canvas-dock {
+        padding-right: calc(0.75rem + var(--ptah-activity-toast-inset, 0px));
+        transition: padding-right 160ms ease-out;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .canvas-dock {
+          transition: none;
+        }
       }
     `,
   ],

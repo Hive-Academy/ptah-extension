@@ -22,6 +22,8 @@ import {
   signal,
   effect,
   untracked,
+  viewChild,
+  ElementRef,
   Type,
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
@@ -109,7 +111,10 @@ import {
     }
   `,
   template: `
-    <div class="flex flex-col h-screen w-screen bg-base-100">
+    <div
+      class="flex flex-col h-screen w-screen bg-base-100"
+      [style.--ptah-activity-toast-inset]="toastInset() + 'px'"
+    >
       <!-- Global Navbar (spans full width, draggable on macOS) -->
       <div
         class="flex items-center h-10 px-3 bg-base-200 border-b border-base-content/10 gap-2 flex-shrink-0"
@@ -252,6 +257,10 @@ import {
 
         top-11 clears the h-10 navbar row by 4px. Positioning lives here, not
         in ActivityTickerComponent, which stays presentational.
+
+        The card's width is published as --ptah-activity-toast-inset so docks
+        under this corner (the canvas dock) can pad their right edge and keep
+        their controls to the left of the toast.
       -->
       <div
         class="pointer-events-none fixed top-11 right-3 z-50 no-drag"
@@ -259,6 +268,7 @@ import {
       >
         @if (!activity.isIdle()) {
           <div
+            #toastCard
             class="activity-toast pointer-events-auto rounded-lg border border-base-content/10 bg-base-200/95 shadow-lg backdrop-blur-sm px-1 py-0.5"
             data-testid="activity-toast"
           >
@@ -380,7 +390,28 @@ export class ElectronShellComponent {
    */
   readonly dockLoadFailed = signal(false);
 
+  private readonly toastCard = viewChild<ElementRef<HTMLElement>>('toastCard');
+
+  /**
+   * Horizontal space the visible toast takes from the right edge (card width
+   * plus an 8px gap), 0 when idle. Published as --ptah-activity-toast-inset.
+   */
+  protected readonly toastInset = signal(0);
+
   constructor() {
+    effect((onCleanup) => {
+      const card = this.toastCard()?.nativeElement;
+      if (!card || typeof ResizeObserver === 'undefined') {
+        this.toastInset.set(0);
+        return;
+      }
+      const observer = new ResizeObserver(() =>
+        this.toastInset.set(Math.ceil(card.getBoundingClientRect().width) + 8),
+      );
+      observer.observe(card);
+      onCleanup(() => observer.disconnect());
+    });
+
     // Electron uses the canvas as its sole chat surface — the single-chat
     // layout was removed. Force grid mode so a returning user with a persisted
     // 'single' layoutMode still lands on the canvas.
