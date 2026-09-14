@@ -106,6 +106,14 @@ export type {
 export type { ISessionAttachmentGuard } from './interfaces/session-attachment-guard.interface';
 export type { IBootReadinessProvider } from './interfaces/boot-readiness.interface';
 export type {
+  IWorkspaceWatcher,
+  WorkspaceChange,
+  WorkspaceChangeBatch,
+  WorkspaceChangeKind,
+  WorkspaceChangeListener,
+  WorkspaceWatchOptions,
+} from './interfaces/workspace-watcher.interface';
+export type {
   IAppUpdater,
   AppUpdateState,
 } from './interfaces/app-updater.interface';
@@ -153,6 +161,16 @@ export type {
   StormPollResult,
   StormRecordResult,
 } from './utils/event-storm-breaker';
+export {
+  WORKSPACE_WATCH_LIMITS,
+  WorkspaceChangeCoalescer,
+  isExcludedBySegmentRules,
+} from './utils/workspace-change-coalescer';
+export type {
+  CoalescerTimerHandle,
+  WorkspaceChangeCoalescerClock,
+  WorkspaceChangeCoalescerHooks,
+} from './utils/workspace-change-coalescer';
 export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
 export {
   createExecutableEditorDefinitions,

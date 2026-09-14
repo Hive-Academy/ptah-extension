@@ -25,11 +25,13 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 ## Public API
 
 **Interfaces (all `I`-prefixed, exported as `type`)**:
-`IFileSystemProvider`, `IStateStorage`, `ISecretStorage`, `IWorkspaceProvider`, `IWorkspaceLifecycleProvider`, `IUserInteraction`, `IOutputChannel`, `ICommandRegistry`, `IEditorProvider`, `ITokenCounter`, `IDiagnosticsProvider`, `IMemoryWriter`, `IHttpServerProvider`, `IPlatformCommands`, `IPlatformAuthProvider`, `ISaveDialogProvider`, `IModelDiscovery`, `IBootReadinessProvider`.
+`IFileSystemProvider`, `IStateStorage`, `ISecretStorage`, `IWorkspaceProvider`, `IWorkspaceLifecycleProvider`, `IUserInteraction`, `IOutputChannel`, `ICommandRegistry`, `IEditorProvider`, `ITokenCounter`, `IDiagnosticsProvider`, `IMemoryWriter`, `IHttpServerProvider`, `IPlatformCommands`, `IPlatformAuthProvider`, `ISaveDialogProvider`, `IModelDiscovery`, `IBootReadinessProvider`, `IWorkspaceWatcher` (+ `WorkspaceChangeBatch`, `WorkspaceWatchOptions`).
 
 **Concrete services**: `PtahFileSettingsManager`, `ContentDownloadService`, `AgentPackDownloadService`.
 
-**Constants/helpers**: `PLATFORM_TOKENS`, `FILE_BASED_SETTINGS_KEYS`, `FILE_BASED_SETTINGS_DEFAULTS`, `isFileBasedSettingKey`, `createEvent`, `isPathWithinRoots`, `planGlobWatch` (+ `GlobWatchPlan`).
+**Constants/helpers**: `PLATFORM_TOKENS`, `FILE_BASED_SETTINGS_KEYS`, `FILE_BASED_SETTINGS_DEFAULTS`, `isFileBasedSettingKey`, `createEvent`, `isPathWithinRoots`, `planGlobWatch` (+ `GlobWatchPlan`), `EventStormBreaker`, `WorkspaceChangeCoalescer` (+ `WORKSPACE_WATCH_LIMITS`, `isExcludedBySegmentRules`).
+
+**Contract runners** (`@ptah-extension/platform-core/testing`): one `run*Contract` per port, including `runWorkspaceWatcherContract` which every `IWorkspaceWatcher` adapter runs.
 
 ## Internal Structure
 
@@ -41,6 +43,19 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 - `src/utils/glob-watch-plan.ts` — `planGlobWatch`: glob → watchable directory +
   match/prune predicates, shared by the two chokidar-backed adapters. Not a
   port, same category as `path-containment.ts`
+- `src/utils/event-storm-breaker.ts` — `EventStormBreaker`: pure rate breaker,
+  "stop per-event work, one refresh after quiet" (TASK_2026_437 INV-6)
+- `src/utils/workspace-change-coalescer.ts` — `WorkspaceChangeCoalescer`: the
+  one implementation of the `IWorkspaceWatcher` guarantees (exclusion, nested
+  repo detection, storm breaker, ≤ 1 batch per 250 ms, ≤ 500 paths, overflow).
+  Every watcher adapter feeds one per subscription. Exclusions arrive as data
+  because this lib cannot import `shared`: `excludeDirNames` (exact,
+  case-sensitive — pass `WATCH_IGNORED_DIRS`), `excludeSegmentRules` (ASCII
+  case-insensitive — pass `NESTED_WORKSPACE_PATH_RULES`), `excludeGlobs`. The
+  matching ALGORITHM is duplicated from shared `isExcludedWorkspacePath`, not
+  shared with it: `isExcludedBySegmentRules` must stay behaviourally identical,
+  pinned by `workspace-intelligence/src/file-indexing/workspace-exclusion-drift.spec.ts`.
+  While storming, an event is one counter (no parsing); one incident → one overflow
 - `src/file-settings-manager.ts` + `file-settings-keys.ts` — `~/.ptah/settings.json` routing (TASK_2025_247)
 - `src/content-download.service.ts` — GitHub plugin/template downloader (TASK_2025_248)
 - `src/agent-pack-download.service.ts` — Agent pack downloader (TASK_2025_257)
@@ -49,6 +64,7 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 ## Key Files
 
 - `src/di/tokens.ts:11` — `PLATFORM_TOKENS` registry (28 tokens, the count of `Symbol.for(` entries in `tokens.ts`)
+- `src/interfaces/workspace-watcher.interface.ts` — `IWorkspaceWatcher`: batched, pre-filtered, overflow-signalling recursive change feed (TASK_2026_437 C7)
 - `src/interfaces/platform-abstractions.interface.ts:23` — `IPlatformCommands` (moved here in Wave C8)
 - `src/interfaces/workspace-provider.interface.ts` — workspace folders + configuration read API
 - `src/interfaces/workspace-lifecycle.interface.ts` — workspace mutation API (add/remove/setActive)
@@ -59,7 +75,7 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 ## DI Tokens
 
 All under `PLATFORM_TOKENS`, mostly `Symbol.for('Platform*')` (`TRACER` and
-`FILE_DIALOG` predate the prefix). 27 tokens — the count of `Symbol.for(`
+`FILE_DIALOG` predate the prefix). 28 tokens — the count of `Symbol.for(`
 entries in `src/di/tokens.ts`:
 
 | Token                          | Port                           |
@@ -74,6 +90,7 @@ entries in `src/di/tokens.ts`:
 | `OUTPUT_CHANNEL`               | `IOutputChannel`               |
 | `COMMAND_REGISTRY`             | `ICommandRegistry`             |
 | `EDITOR_PROVIDER`              | `IEditorProvider`              |
+| `EDITOR_LAUNCHER`              | `IEditorLauncher`              |
 | `PLATFORM_INFO`                | `IPlatformInfo`                |
 | `TOKEN_COUNTER`                | `ITokenCounter`                |
 | `DIAGNOSTICS_PROVIDER`         | `IDiagnosticsProvider`         |
@@ -87,10 +104,15 @@ entries in `src/di/tokens.ts`:
 | `SESSION_ATTACHMENT_GUARD`     | `ISessionAttachmentGuard`      |
 | `OAUTH_CALLBACK_LISTENER`      | `IOAuthCallbackListener`       |
 | `FILE_DIALOG`                  | `IFileDialog`                  |
-| `PTY_HOST`                     | `IPtyHost`                     |
 | `APP_UPDATER`                  | `IAppUpdater`                  |
 | `CALLER_WORKSPACE_RESOLVER`    | `ICallerWorkspaceResolver`     |
 | `BOOT_READINESS`               | `IBootReadinessProvider`       |
+| `WORKSPACE_WATCHER`            | `IWorkspaceWatcher`            |
+
+`WORKSPACE_WATCHER` (adapters land in TASK_2026_437 Batches 8–9) — `ElectronWorkspaceWatcher` (`platform-electron`,
+`utilityProcess` host), `CliWorkspaceWatcher` (`platform-cli`, `worker_threads`
+host), `VscodeWorkspaceWatcher` (`platform-vscode`). Each runs
+`runWorkspaceWatcherContract`.
 
 `BOOT_READINESS` — `NullBootReadinessProvider` (`vscode-core`, always ready, the
 VS Code and CLI default) / `ElectronBootReadinessProvider` (`ptah-electron`,

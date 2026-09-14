@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 56 | Batches: 22 | Complete: 5/22
+Total tasks: 56 | Batches: 22 | Complete: 6/22
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (commit recorded in its header). Next unblocked: Batch 6 (P1 wave 3); P2 wave 1 Batches 7, 12, 13, 14; P3 wave 1 Batch 16.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160). P2 wave 1 — Batch 7 COMPLETE, committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). Remaining unblocked: Batch 6 (P1 wave 3, in progress); P2 wave 1 Batches 12, 13, 14; P3 wave 1 Batch 16.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `context.md` "User decisions"
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -416,7 +416,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ---
 
-## Batch 7: P2 — `IWorkspaceWatcher` port + coalescer + contract suite (C7) — PENDING
+## Batch 7: P2 — `IWorkspaceWatcher` port + coalescer + contract suite (C7) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: none
@@ -424,19 +424,19 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Rationale: the contract every adapter and consumer builds on. Must be settled first.
 - Tasks: 3 | Depends on: Batch 1 (Electron GO), Batch 2 | Parallel with: Batches 12, 13, 14
 
-### Task 7.1: Port interface + token — PENDING
+### Task 7.1: Port interface + token — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\libs\backend\platform-core\src\interfaces\workspace-watcher.interface.ts`; MODIFY `D:\projects\ptah-extension\libs\backend\platform-core\src\di\tokens.ts`, `D:\projects\ptah-extension\libs\backend\platform-core\src\index.ts`, `D:\projects\ptah-extension\libs\backend\platform-core\CLAUDE.md` (token table)
 - Plan reference: implementation-plan.md:414-451
 - Validation notes: D5 (`excludeSegmentRules: readonly (readonly string[])[]`). No import from `@ptah-extension/shared`.
 
-### Task 7.2: `WorkspaceChangeCoalescer` — PENDING
+### Task 7.2: `WorkspaceChangeCoalescer` — COMPLETE
 
 - Depends on: Task 7.1
 - Files: CREATE `D:\projects\ptah-extension\libs\backend\platform-core\src\utils\workspace-change-coalescer.ts` + `workspace-change-coalescer.spec.ts`
 - Implementation details: per subscription it accumulates, excludes (segment rules + picomatch globs), runs `EventStormBreaker` (Batch 2) and emits ≤ 1 batch per `minBatchIntervalMs`, ≤ `maxPathsPerBatch` paths, `truncated`/`overflow`/`droppedCount`. Never emits synchronously inside `watch`; nothing after dispose.
 
-### Task 7.3: Contract suite + degradation source — PENDING
+### Task 7.3: Contract suite + degradation source — COMPLETE
 
 - Depends on: Task 7.2
 - Files: CREATE `D:\projects\ptah-extension\libs\backend\platform-core\src\testing\contracts\run-workspace-watcher-contract.ts`; MODIFY `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc\rpc-degradation.types.ts` (union + `DEGRADATION_SOURCE_VALUES` together)
@@ -447,6 +447,29 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - `npx nx run-many -t test -p @ptah-extension/platform-core @ptah-extension/shared` (header: 2)
 - `npx nx run-many -t typecheck,lint -p @ptah-extension/platform-core @ptah-extension/shared`; `npx nx run degradation-audit:lint`
 - Done when: coalescer spec covers cadence, cap, truncation, overflow, exclusion and dispose (INV-1 contract)
+
+### Batch 7 outcome
+
+- Commit: the commit whose subject is `feat(platform-core): add a batched workspace watcher port and change coalescer` (a commit cannot record its own SHA; resolve with `git log --grep "batched workspace watcher port"`).
+- Reviews: `b7-code-logic-review.md` base APPROVE_WITH_FIXES, appended delta APPROVE (HIGH on fixes 1, 2, 3, 5, 6; MEDIUM on 4). `b7-code-style-review.md` APPROVE_WITH_FIXES; both serious items fixed (contract runner is `(name, setup, teardown?)`; algorithm duplication pinned by the new `workspace-exclusion-drift.spec.ts` in workspace-intelligence, 44 rows + fuzz, and cross-referenced in platform-core CLAUDE.md).
+- Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset):
+  - `npx nx run-many -t test,typecheck,lint -p @ptah-extension/platform-core @ptah-extension/shared @ptah-extension/workspace-intelligence` (header: 3 projects). shared 58 suites / 1520 tests passed; workspace-intelligence 42 suites / 1075 passed; platform-core 34/35 suites, 641 passed / 4 todo / 1 failed — the failure is the known load flake `file-settings-manager.bench.spec.ts` (30 s timeout), 2/2 green when re-run alone. typecheck green; lint 0 errors (warnings only).
+  - `npx nx run degradation-audit:lint` — exit 0 (TOTAL 303, every project at or under baseline), run over the working tree holding Batches 7, 12, 13, 14.
+- Accepted deviations:
+  - (a) Out-of-list file `libs/backend/workspace-intelligence/src/file-indexing/workspace-exclusion-drift.spec.ts`: the differential test the style review asked for. It must live in a lib allowed to import both `platform-core` and `shared`.
+  - (b) `excludeDirNames` is required on `WorkspaceWatchOptions` (exact, case-sensitive) and separate from `excludeSegmentRules` (ASCII case-insensitive), matching shared `isExcludedWorkspacePath`. No adapter exists yet.
+  - (c) platform-core CLAUDE.md token table also corrected for pre-existing drift: `EDITOR_LAUNCHER` added, removed `PTY_HOST` dropped; the table now has 28 rows, equal to the 28 `Symbol.for(` entries in `tokens.ts`.
+- Follow-ups (not in this batch):
+  - FU-7a: spec for excluded-only churn extending a storm, still bounded by `maxStormMs` (logic delta §4; the bound is implemented and pinned only for non-excluded churn).
+  - FU-7b: base logic Minor-1 (`.git` substring pre-check cost) stands, harmless.
+
+### Orchestrator decision — phase order deviation (recorded 2026-09-14)
+
+P1 production code is committed (Batches 2–5 + the SonarCloud fix-up). Only Batch 6's stress spec
+and the unnamed-`fs.watch`-event fix in `git-watcher.service.ts` remain in P1. The four approved P2
+batches (7, 13, 14, 12, in that commit order) are committed before Batch 6 to reduce staging risk in
+the shared worktree. Batch 6 commits when its fix lands. This overrides "Phase order P1 → P2 → P3 →
+P4 is the COMMIT order" for these four batches only.
 
 ---
 
