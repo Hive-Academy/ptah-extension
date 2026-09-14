@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 56 | Batches: 22 | Complete: 9/22
+Total tasks: 56 | Batches: 22 | Complete: 10/22
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160). P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). Remaining unblocked: Batch 6 (P1 wave 3, in progress); P2 Batch 8 (depends on 7), then 9 → 10 → 11 → 15; P3 wave 1 Batch 16.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). Remaining unblocked: P2 Batch 8 (in progress) (depends on 7), then 9 → 10 → 11 → 15; P3 wave 1 Batch 16.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `context.md` "User decisions"
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -290,7 +290,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ### Batch 4 follow-up outcome — unnamed events and own-refresh echo
 
-- Commit: the commit whose subject is `fix(electron): stop unnamed and self-caused watcher events from triggering git refreshes` (resolve with `git log --oneline --grep "stop unnamed and self-caused"`). Found by Batch 6: the ST-1/ST-1b stress specs failed AC-1/AC-2 on the Batch 4 code.
+- Commit: `a659830bc` `fix(electron): stop unnamed and self-caused watcher events from triggering git refreshes`. Found by Batch 6: the ST-1/ST-1b stress specs failed AC-1/AC-2 on the Batch 4 code.
 - Files: `apps/ptah-electron/src/services/git-watcher.service.ts`, `apps/ptah-electron/src/services/git-watcher.service.spec.ts`.
 - Behaviour:
   - A null-filename `fs.watch` event (libuv Windows `ReadDirectoryChangesW` 4 KB buffer overflow) counts toward the storm breaker but schedules nothing. It sets an unattributed pending change that the next refresh covers, or one safety refresh runs after `UNATTRIBUTED_QUIET_MS` (30 s) of quiet.
@@ -407,7 +407,21 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ---
 
-## Batch 6: P1 — incident stress tests ST-1 / ST-1b — PENDING
+## Batch 6: P1 — incident stress tests ST-1 / ST-1b — COMPLETE
+
+- Commit: the commit whose subject is `test(electron): pin the 2026-09-14 worktree-delete freeze with real-watcher stress tests` (a commit cannot hold its own SHA; resolve with `git log --oneline --grep "pin the 2026-09-14 worktree-delete freeze"`).
+- Report: `test-report-b6.md` ("Final results" supersedes the first-run verdict). Also in this commit: `ci-sqlite-abort-investigation.md` (docs).
+- Files: `apps/ptah-electron/src/services/git-watcher.stress.spec.ts` (mechanism, always on), `git-watcher.stress.perf.spec.ts` (75,000-file budgets behind `PTAH_PERF_SPECS=1`), `git-watcher.stress.harness.ts` (shared rig: real `GitWatcherService` + `GitInfoService`, counting spawner, real `fs.watch`).
+- First-run outcome: AC-1 and AC-2 FAILED against the Batch 4 code. Root causes: null `fs.watch` filenames (libuv 4 KB overflow) scheduled refreshes; the ST-1b tree held `.git` pointer files so it was not a plain non-excluded tree; the spec reset counters before the arm-phase event trail settled; NTFS directory metadata echo from our own `git status` re-armed a refresh. The two product causes are fixed in the Batch 4 follow-up (`a659830bc`); the two test causes are fixed in the harness.
+- AC-1 mechanism evidence (ST-1, idle machine, 8,000 files): 8,110 named / 1 unnamed events, 0 refreshes, 0 spawns, 0 pushes, breaker never entered; loop delay p50/p99/max 15.4/17/67 ms (earlier idle runs p99 20 and 18 ms).
+- AC-2 P1 mechanism evidence (ST-1b, idle machine, 8,000 files): 7,628 named / 2 unnamed events, 1 refresh, 1 status push, 1 truncated content push, storm entered/exited 1/1; loop delay 15.5/33/71 ms (earlier idle runs p99 24 and 24 ms). Saturated-CPU repro: 5,498 / 13 events, p99 40 ms, max 266 ms, invariants held.
+- Accepted deviation: ST-1b does not require storm entry. Under CPU starvation the delete can arrive as a few unnamed overflow events plus a trickle of named ones and the breaker correctly stays below threshold. The strict invariants kept: no refresh before the delete ends, exactly one refresh cycle and one status push, at most one content push (exactly one, truncated, when a storm entered), storm entered = exited ≤ 1, and a deferred refresh only when unnamed events were seen.
+- Accepted deviation: no real `WorkspaceFileIndexService` in the rig (its storm mechanism is pinned in `workspace-file-index.service.spec.ts`); I1 ablations not run.
+- Verification (team-leader, worktree `D:\projects\ptah-437`, 2026-09-14, working tree also carrying Batch 8's uncommitted files): `npx nx test ptah-electron --maxWorkers=2` — 47 suites (45 passed, 2 skipped: the perf spec and one pre-existing skip), 615 tests (609 passed, 6 skipped), exit 0; `git-watcher.stress.spec.ts` is in the passed set (confirmed with `jest --listTests`). The machine had no other jest/nx test process when the run started. `npx nx run-many -t typecheck,lint -p ptah-electron --parallel=1` — 0 errors, 4 warnings. `nx affected -t lint --max-warnings=-1` (60 projects) exit 0.
+- Open items:
+  - **Pending: the 75,000-file `PTAH_PERF_SPECS=1` budgets (AC-1 p99 ≤ 50 / max ≤ 200 ms; AC-2 P1 p99 ≤ 100 / max ≤ 500 ms) are NOT yet measured on an idle machine.** Record them in `test-report-b6.md`.
+  - The P1 phase gate commands (`npm run lint:all`, `npm run typecheck:all`, `npx nx build ptah-electron`, `degradation-audit:lint`) were not rerun for this commit.
+  - FU-4d binds Batch 11 (and Batch 15's host stress): ST-1b is the acceptance check for the watch host's echo handling.
 
 - Recommended executor: senior-tester
 - Fallback executor: backend-developer
@@ -415,7 +429,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Rationale: an end-to-end regression that pins the 09-14 trigger against the real services.
 - Tasks: 1 | Depends on: Batches 2, 3, 4
 
-### Task 6.1: `git-watcher.stress.spec.ts` — PENDING
+### Task 6.1: `git-watcher.stress.spec.ts` — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\apps\ptah-electron\src\services\git-watcher.stress.spec.ts`
 - Plan reference: implementation-plan.md:803-816, AC-1..AC-4 :786-792
