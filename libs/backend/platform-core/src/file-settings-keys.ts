@@ -331,6 +331,10 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // user turning memory off would see it redraw as off and the next trigger
   // would capture anyway.
   'memory.enabled',
+  'memory.retention.enabled',
+  'memory.retention.processedDays',
+  'memory.retention.stuckDays',
+  'memory.retention.batchSize',
   'memory.triggers.preCompact',
   'memory.triggers.idleMs',
   'memory.triggers.turnThreshold',
@@ -584,6 +588,10 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // Matches `MEMORY_TRIGGER_DEFAULTS.enabled` — memory capture is on unless the
   // user turns it off.
   'memory.enabled': true,
+  'memory.retention.enabled': true,
+  'memory.retention.processedDays': 7,
+  'memory.retention.stuckDays': 14,
+  'memory.retention.batchSize': 500,
   'memory.triggers.preCompact': true,
   'memory.triggers.idleMs': 600000,
   'memory.triggers.turnThreshold': 20,
