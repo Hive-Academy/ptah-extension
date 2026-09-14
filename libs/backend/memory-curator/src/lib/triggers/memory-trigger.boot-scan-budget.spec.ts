@@ -176,7 +176,6 @@ function buildHarness(opts: {
       flush: jest.fn(),
       drainForSession: jest.fn(() => []),
       markProcessed: jest.fn(),
-      purgeOlderThan: jest.fn(() => 0),
       countUnprocessed: jest.fn(() => 0),
       backfillSessionId: jest.fn(() => 0),
     } as unknown as ObservationQueueStore,

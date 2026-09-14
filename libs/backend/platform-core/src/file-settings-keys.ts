@@ -331,6 +331,8 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // user turning memory off would see it redraw as off and the next trigger
   // would capture anyway.
   'memory.enabled',
+  // MemoryRetentionService (memory-curator). Defaults below must equal the
+  // `memory-retention-config.ts` fallbacks; pinned by memory-retention.service.spec.ts.
   'memory.retention.enabled',
   'memory.retention.processedDays',
   'memory.retention.stuckDays',
@@ -588,6 +590,8 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // Matches `MEMORY_TRIGGER_DEFAULTS.enabled` — memory capture is on unless the
   // user turns it off.
   'memory.enabled': true,
+  // Must equal the `memory-retention-config.ts` fallbacks (MemoryRetentionService);
+  // pinned by memory-retention.service.spec.ts.
   'memory.retention.enabled': true,
   'memory.retention.processedDays': 7,
   'memory.retention.stuckDays': 14,

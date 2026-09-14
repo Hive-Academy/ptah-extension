@@ -120,6 +120,24 @@ export type {
   EmbedderStatusError,
   EmbedderStatusChangeListener,
 } from './lib/embedder/embedder-status.service';
+export { MemoryRetentionService } from './lib/retention/memory-retention.service';
+export type {
+  MemoryRetentionReport,
+  MemoryRetentionRunOptions,
+  MemoryRetentionRunReport,
+  MemoryRetentionSkippedReport,
+  RetentionSkipReason,
+  RetentionStopReason,
+} from './lib/retention/memory-retention.types';
+export {
+  MEMORY_RETENTION_DEFAULTS,
+  MEMORY_RETENTION_KEYS,
+  MEMORY_RETENTION_LIMITS,
+} from './lib/retention/memory-retention-config';
+export type {
+  MemoryRetentionLimits,
+  MemoryRetentionSettings,
+} from './lib/retention/memory-retention-config';
 export { MEMORY_TOKENS } from './lib/di/tokens';
 export type { MemoryDIToken } from './lib/di/tokens';
 export { registerMemoryCuratorServices } from './lib/di/register';

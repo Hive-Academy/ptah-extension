@@ -126,7 +126,6 @@ function makeObservationQueue(): ObservationQueueStore {
     peekForSession: jest.fn(() => []),
     markProcessed: jest.fn(),
     countUnprocessed: jest.fn(() => 0),
-    purgeOlderThan: jest.fn(() => 0),
   } as unknown as ObservationQueueStore;
 }
 

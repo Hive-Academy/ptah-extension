@@ -49,6 +49,16 @@ export const MEMORY_TOKENS = {
   ),
   /** Optional idle-teardown override (ms) for the embedder worker — mainly a test seam. */
   EMBEDDER_WORKER_IDLE_MS: Symbol.for('PtahEmbedderWorkerIdleMs'),
+  /** ObservationRetentionStore — retention SQL over the queue, quarantine ledger and run record. */
+  OBSERVATION_RETENTION_STORE: Symbol.for('PtahObservationRetentionStore'),
+  /** MemoryRetentionService — gated, budgeted queue purge + stuck quarantine + page reclaim. */
+  MEMORY_RETENTION_SERVICE: Symbol.for('PtahMemoryRetentionService'),
+  /**
+   * MemoryRetentionLimits (useValue) — the run budgets `MemoryRetentionService`
+   * enforces. Registered with `MEMORY_RETENTION_LIMITS`; a spec constructs the
+   * service with a smaller copy.
+   */
+  MEMORY_RETENTION_LIMITS: Symbol.for('PtahMemoryRetentionLimits'),
 } as const;
 
 export type MemoryDIToken = keyof typeof MEMORY_TOKENS;

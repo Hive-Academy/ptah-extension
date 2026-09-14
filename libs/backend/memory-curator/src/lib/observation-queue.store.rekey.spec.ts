@@ -4,9 +4,10 @@
  * A residual hook path (one whose payload genuinely lacks `session_id` and
  * falls back to the tabId-bearing closure) captures observations under the
  * **tabId**. Every read path here filters `WHERE session_id = ?` with the
- * canonical id, so those rows are un-drainable — and `purgeOlderThan` only
- * deletes rows that WERE processed, so they are un-reapable too. Re-pointing
- * them when the SDK resolves the UUID is what makes them curatable again.
+ * canonical id, so those rows are un-drainable — they could only ever leave the
+ * table uncurated, as stuck rows quarantined by `ObservationRetentionStore`.
+ * Re-pointing them when the SDK resolves the UUID is what makes them curatable
+ * again.
  *
  * Both ids are real UUID v4 strings. A tabId IS a UUID v4, so `tab_N` would
  * make these pass for the wrong reason.

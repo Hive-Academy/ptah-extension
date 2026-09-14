@@ -43,6 +43,9 @@ import { ObservationQueueStore } from '../observation-queue.store';
 import { CorpusStore } from '../knowledge-agents/corpus.store';
 import { CorpusSuggestionService } from '../knowledge-agents/corpus-suggestion.service';
 import { KnowledgeAgentService } from '../knowledge-agents/knowledge-agent.service';
+import { ObservationRetentionStore } from '../retention/observation-retention.store';
+import { MemoryRetentionService } from '../retention/memory-retention.service';
+import { MEMORY_RETENTION_LIMITS } from '../retention/memory-retention-config';
 
 export function registerMemoryCuratorServices(
   container: DependencyContainer,
@@ -129,6 +132,25 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_TOKENS.MEMORY_DECAY_JOB,
     { useClass: MemoryDecayJob },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Retention (TASK_2026_440). Singleton is required, not a default: the
+  // single-flight flag and the boot-deferral `startedAt` are per instance.
+  // Depends on PERSISTENCE_TOKENS.SQLITE_PAGE_RECLAIMER from
+  // registerPersistenceSqliteServices().
+  container.registerInstance(
+    MEMORY_TOKENS.MEMORY_RETENTION_LIMITS,
+    MEMORY_RETENTION_LIMITS,
+  );
+  container.register(
+    MEMORY_TOKENS.OBSERVATION_RETENTION_STORE,
+    { useClass: ObservationRetentionStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    MEMORY_TOKENS.MEMORY_RETENTION_SERVICE,
+    { useClass: MemoryRetentionService },
     { lifecycle: Lifecycle.Singleton },
   );
 
