@@ -146,6 +146,7 @@ import {
   CliPlatformAuth,
   CliSaveDialog,
   CliModelDiscovery,
+  createCliWorkspaceWatcherOptions,
 } from './platform';
 import { CliMessageTransport } from './transport/cli-message-transport';
 import { CliWebviewManagerAdapter } from './transport/cli-webview-manager-adapter';
@@ -335,6 +336,13 @@ export class CliDIContainer {
       userDataPath,
       workspacePath,
       logsPath,
+      // `PLATFORM_TOKENS.WORKSPACE_WATCHER` (TASK_2026_437 C9): the forked
+      // watch host beside this bundle. Nothing forks until a consumer watches;
+      // a missing bundle degrades the watcher, never the boot.
+      workspaceWatchHost: createCliWorkspaceWatcherOptions(
+        container,
+        __dirname,
+      ),
     };
     const bootstrapMode: 'minimal' | 'full' = options.bootstrapMode ?? 'full';
     const host: 'cli' | 'tui' = options.host ?? 'cli';

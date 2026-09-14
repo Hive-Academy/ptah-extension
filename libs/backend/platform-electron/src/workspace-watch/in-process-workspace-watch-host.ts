@@ -15,15 +15,13 @@
  */
 
 import {
-  WorkspaceWatchHostCore,
-  readEventStormBreakerOptionsFromEnv,
+  bootWorkspaceWatchHost,
   type WorkspaceWatchEngine,
+  type WorkspaceWatchHostCore,
+  type WorkspaceWatchHostForker,
+  type WorkspaceWatchHostProcess,
 } from '@ptah-extension/platform-core';
 
-import type {
-  WorkspaceWatchHostForker,
-  WorkspaceWatchHostProcess,
-} from './electron-workspace-watcher';
 import { loadParcelWatcherEngine } from './parcel-watcher-engine';
 
 export interface InProcessWorkspaceWatchHostOptions {
@@ -40,30 +38,13 @@ class InProcessWorkspaceWatchHostProcess implements WorkspaceWatchHostProcess {
   private killed = false;
 
   constructor(options: InProcessWorkspaceWatchHostOptions) {
-    let engine: WorkspaceWatchEngine | undefined;
-    let loadError: string | undefined;
-    try {
-      engine = (options.loadEngine ?? loadParcelWatcherEngine)();
-    } catch (error: unknown) {
-      loadError = error instanceof Error ? error.message : String(error);
-    }
-
-    if (engine === undefined) {
-      // The adapter reads `fatal` as a host failure: restart, then degrade.
-      const message = `watch engine failed to load: ${loadError ?? 'unknown'}`;
-      setImmediate(() => this.emit({ type: 'fatal', message }));
-      this.core = undefined;
-      return;
-    }
-
-    this.core = new WorkspaceWatchHostCore({
-      engine,
+    // An engine that cannot load posts `fatal`, which the adapter reads as a
+    // host failure: restart, then degrade.
+    this.core = bootWorkspaceWatchHost({
       post: (message) => setImmediate(() => this.emit(message)),
-      stormBreakerOptions: readEventStormBreakerOptionsFromEnv(
-        options.env ?? process.env,
-      ),
+      loadEngine: options.loadEngine ?? loadParcelWatcherEngine,
+      env: options.env ?? process.env,
     });
-    this.core.start();
   }
 
   postMessage(message: unknown): void {

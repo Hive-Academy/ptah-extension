@@ -27,7 +27,7 @@ User decisions (binding): all four phases; nested repos/worktrees excluded from 
 including the `@` picker; crashReporter local-only; SQLite measured before moving off main;
 scroll-back history paging deferred; `better-sqlite3` upgrade in a separate PR (#512).
 
-## 3. Done — committed and pushed (11 of 22 batches)
+## 3. Done — committed (12 of 22 batches; Batches 8 and 9 in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
 | ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -51,7 +51,26 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 8 — COMMITTED (resume at Batch 9)
+## 4. Batch 9 — COMMITTED (resume at Batch 10)
+
+**Update 2026-09-14 (Batch 9):** Batch 9 passed both reviews (logic delta APPROVE_WITH_FIXES HIGH,
+both Moderate items fixed before commit; style delta APPROVE HIGH) and is committed as
+`feat(platform-cli): watch CLI and VS Code workspaces through the shared supervised watcher`.
+The watch supervisor and batch relay now live in `platform-core/src/workspace-watch/`; the Electron
+and CLI adapters are facades over it. The CLI host runs under `child_process.fork`. VS Code uses
+`createFileSystemWatcher` with the coalescer and never writes `files.watcherExclude`. Outcome,
+evidence, deviations 1–9 and follow-ups FU-9a..f are in `batches.md` "Batch 9 outcome".
+
+**Next: Batch 10** (build/packaging). Run it ALONE in the worktree and run `npx nx reset` before its
+first command. In addition to the Electron items below, it must build the CLI host bundle: entry
+`libs/backend/platform-cli/src/workspace-watch/workspace-watch-host.entry.ts` → `workspace-watch-host.mjs`
+in `dist/apps/ptah-cli`, ESM with the `createRequire` banner, `@parcel/watcher` external, bare-run
+guard string `must be run by child_process.fork` (Task 10.4).
+
+Pre-existing, not caused by this branch: `ptah-tui:typecheck` fails with 6 "Cannot find name
+'jest'/'describe'" errors in `apps/ptah-tui/src/build-artifact-gate.ts`.
+
+### Batch 8 (committed earlier, kept for context)
 
 **Update 2026-09-14:** Batch 8 passed both reviews (logic delta 2 APPROVE_WITH_FIXES, style delta
 APPROVED) and is committed as `feat(platform-electron): run workspace watching in a supervised
@@ -105,13 +124,12 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
   CLI: build `ptah-tui` then `restore-cli-manifest` before pack; cross-platform CI smoke (only
   win32-x64 proven locally).
 
-## 5. Remaining batches (11 of 22)
+## 5. Remaining batches (10 of 22)
 
 Order and dependencies are in `batches.md`. Summary:
 
-- **P2:** 8 (review + commit) → 9 (CLI + VS Code adapters; CLI host must use `child_process.fork`)
-  → 10 (build/packaging — run ALONE, edits `project.json`, needs `npx nx reset` before first
-  command) → 11 (migrate git watcher + file index onto the port, delete both storm-exit loops
+- **P2:** 10 (build/packaging for the Electron AND CLI watch hosts — run ALONE, edits
+  `project.json`, needs `npx nx reset` before first command) → 11 (migrate git watcher + file index onto the port, delete both storm-exit loops
   (FU-4a), port FU-4d filters, exclude nested repos in the initial `@` scan (D4), ESLint rule) →
   15 (ST-2 stress + host-kill test AC-7).
 - **P3:** 16 (`BackgroundWorkGovernor` core) → 17 (adopters) and 18 (network back-off).

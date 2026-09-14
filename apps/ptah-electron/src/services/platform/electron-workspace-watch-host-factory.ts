@@ -17,13 +17,15 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { DependencyContainer } from 'tsyringe';
 
+import type {
+  WorkspaceWatchHostForker,
+  WorkspaceWatchHostProcess,
+  WorkspaceWatcherDegradation,
+  WorkspaceWatcherDiagnostic,
+} from '@ptah-extension/platform-core';
 import {
   createInProcessWorkspaceWatchHostForker,
   type ElectronWorkspaceWatcherOptions,
-  type WorkspaceWatchHostForker,
-  type WorkspaceWatchHostProcess,
-  type WorkspaceWatcherDegradation,
-  type WorkspaceWatcherDiagnostic,
 } from '@ptah-extension/platform-electron';
 import {
   TOKENS,

@@ -184,6 +184,23 @@ export type {
   WorkspaceWatchHostCoreOptions,
 } from './workspace-watch/workspace-watch-host-core';
 export {
+  bootWorkspaceWatchHost,
+  toWorkspaceWatchEngine,
+} from './workspace-watch/workspace-watch-host-boot';
+export type { WorkspaceWatchHostBootOptions } from './workspace-watch/workspace-watch-host-boot';
+export {
+  WORKSPACE_WATCH_SUPERVISION_DEFAULTS,
+  WorkspaceWatchSupervisor,
+} from './workspace-watch/workspace-watch-supervisor';
+export type {
+  WorkspaceWatchHostForker,
+  WorkspaceWatchHostProcess,
+  WorkspaceWatchSupervision,
+  WorkspaceWatchSupervisorOptions,
+  WorkspaceWatcherDegradation,
+  WorkspaceWatcherDiagnostic,
+} from './workspace-watch/workspace-watch-supervisor';
+export {
   WORKSPACE_WATCH_ERROR_CODES,
   WORKSPACE_WATCH_NOTICE_CODES,
   WORKSPACE_WATCH_PROTOCOL_LIMITS,

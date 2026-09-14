@@ -2,8 +2,8 @@
  * Watch host entry — bundled to `workspace-watch-host.mjs` and forked by the
  * Electron app as a `utilityProcess` (TASK_2026_437 C8).
  *
- * Everything the host does lives in `WorkspaceWatchHostCore` (platform-core).
- * This file only:
+ * Everything the host does lives in `WorkspaceWatchHostCore` (platform-core),
+ * started by `bootWorkspaceWatchHost`. This file only:
  *   1. detects its transport — `process.parentPort` (Electron utilityProcess,
  *      whose 'message' events wrap the payload as `{ data }`),
  *      `node:worker_threads`' `parentPort` (raw payload), or a
@@ -14,8 +14,8 @@
  *      a restartable host in a plain Node parent must be a child process;
  *   2. loads `@parcel/watcher` (an esbuild external; see
  *      `parcel-watcher-engine.ts`);
- *   3. reads the storm breaker tunables from the host's own environment, which
- *      a utilityProcess inherits from main.
+ *   3. hands the host's own environment (which a utilityProcess inherits from
+ *      main) to the boot for the storm breaker tunables.
  *
  * The transport guard runs BEFORE the engine loads, so the ESM bundle gate can
  * run this bundle bare and see only the guard.
@@ -27,9 +27,7 @@
 import { parentPort as workerThreadsParentPort } from 'node:worker_threads';
 
 import {
-  WorkspaceWatchHostCore,
-  readEventStormBreakerOptionsFromEnv,
-  type WorkspaceWatchEngine,
+  bootWorkspaceWatchHost,
   type WorkspaceWatchHostOutbound,
 } from '@ptah-extension/platform-core';
 
@@ -78,24 +76,9 @@ if (electronParentPort) {
   throw new Error(WORKSPACE_WATCH_HOST_ENTRY_GUARD);
 }
 
-let engine: WorkspaceWatchEngine | undefined;
-try {
-  engine = loadParcelWatcherEngine();
-} catch (error: unknown) {
-  post({
-    type: 'fatal',
-    message: `@parcel/watcher failed to load: ${
-      error instanceof Error ? error.message : String(error)
-    }`.slice(0, 2048),
-  });
-}
-
-if (engine) {
-  const core = new WorkspaceWatchHostCore({
-    engine,
-    post,
-    stormBreakerOptions: readEventStormBreakerOptionsFromEnv(process.env),
-  });
-  listen((message) => core.handleMessage(message));
-  core.start();
-}
+const core = bootWorkspaceWatchHost({
+  post,
+  loadEngine: loadParcelWatcherEngine,
+  env: process.env,
+});
+if (core) listen((message) => core.handleMessage(message));

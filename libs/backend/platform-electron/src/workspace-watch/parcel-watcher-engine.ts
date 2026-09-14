@@ -1,8 +1,10 @@
 /**
  * Loads `@parcel/watcher` as a {@link WorkspaceWatchEngine} (TASK_2026_437 C8).
  *
- * One loader for both places the engine runs: the `workspace-watch-host.mjs`
- * utilityProcess entry, and the in-process `PTAH_WATCH_HOST=0` recovery hatch.
+ * One loader for both places the engine runs in Electron: the
+ * `workspace-watch-host.mjs` utilityProcess entry, and the in-process
+ * `PTAH_WATCH_HOST=0` recovery hatch. The shape check is platform-core's
+ * `toWorkspaceWatchEngine`; only the `require` lives here.
  *
  * `require`, not a static import, for two reasons:
  * - `@parcel/watcher` is an esbuild EXTERNAL. It is resolved from the host's
@@ -16,29 +18,12 @@
  *   engine out of. Deferring it means main loads it only in the hatch.
  */
 
-import type {
-  WorkspaceWatchEngine,
-  WorkspaceWatchEngineCallback,
-  WorkspaceWatchEngineSubscription,
+import {
+  toWorkspaceWatchEngine,
+  type WorkspaceWatchEngine,
 } from '@ptah-extension/platform-core';
-
-/** The one function this file uses from `@parcel/watcher`. */
-interface ParcelWatcherModule {
-  subscribe(
-    dir: string,
-    callback: WorkspaceWatchEngineCallback,
-    options?: { ignore?: string[] },
-  ): Promise<WorkspaceWatchEngineSubscription>;
-}
 
 /** Throws when the module or its native binding cannot be loaded. */
 export function loadParcelWatcherEngine(): WorkspaceWatchEngine {
-  const watcher = require('@parcel/watcher') as ParcelWatcherModule;
-  if (typeof watcher.subscribe !== 'function') {
-    throw new Error('@parcel/watcher did not export subscribe()');
-  }
-  return {
-    subscribe: (dir, callback, options) =>
-      watcher.subscribe(dir, callback, options),
-  };
+  return toWorkspaceWatchEngine(require('@parcel/watcher'));
 }

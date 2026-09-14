@@ -23,7 +23,7 @@ Electron-process adapter for the `platform-core` ports. Bridges Electron main-pr
 ## Public API
 
 `registerPlatformElectronServices`, `ElectronPlatformOptions`.
-Implementations: `ElectronFileSystemProvider`, `ElectronStateStorage`, `ElectronSecretStorage` (+ `SafeStorageApi`), `ElectronWorkspaceProvider`, `ElectronUserInteraction` (+ `ElectronDialogApi`, `ElectronBrowserWindowApi`, `ElectronShellApi`), `ElectronOutputChannel`, `ElectronCommandRegistry`, `ElectronEditorProvider`, `ElectronDiagnosticsProvider`, `ElectronWorkspaceWatcher` (+ `WorkspaceWatchHostForker`, `WorkspaceWatchHostProcess`, `createInProcessWorkspaceWatchHostForker`).
+Implementations: `ElectronFileSystemProvider`, `ElectronStateStorage`, `ElectronSecretStorage` (+ `SafeStorageApi`), `ElectronWorkspaceProvider`, `ElectronUserInteraction` (+ `ElectronDialogApi`, `ElectronBrowserWindowApi`, `ElectronShellApi`), `ElectronOutputChannel`, `ElectronCommandRegistry`, `ElectronEditorProvider`, `ElectronDiagnosticsProvider`, `ElectronWorkspaceWatcher` (+ `ElectronWorkspaceWatcherOptions`, `createInProcessWorkspaceWatchHostForker`; the forker/process/diagnostic types come from `platform-core`).
 
 ## Internal Structure
 
@@ -31,26 +31,20 @@ Implementations: `ElectronFileSystemProvider`, `ElectronStateStorage`, `Electron
 - `src/workspace-watch/` — `IWorkspaceWatcher` (TASK_2026_437 C8):
   - `workspace-watch-host.entry.ts` — the host process entry, bundled by the app to
     `workspace-watch-host.mjs`. Detects its transport (Electron `parentPort`,
-    `worker_threads`, `child_process` IPC), loads `@parcel/watcher`, runs
-    `WorkspaceWatchHostCore` (platform-core). No logic of its own.
-  - `electron-workspace-watcher.ts` — the main-side adapter: lazy fork, heartbeat
-    supervision (3 missed × 2 s; a watchdog tick that ran late means MAIN stalled,
-    so it waits one loop turn for queued heartbeats before it kills), restart
-    budget 5 per 10 min then degraded (one `onDegraded` per episode, then an
-    `overflow` rescan every 60 s), resubscribe after restart, per-subscription
-    pacing and containment of host batches.
-    Degraded recovery: after 10 min degraded the budget resets and ONE host is
-    forked. The episode ends only when that host has sent a `subscribed` ack for
-    EVERY subscription re-sent to it (one info line, one rescan `overflow`, the
-    60 s rescans stop). Heartbeats and errors never confirm. A
-    `native-subscribe-failed` / `subscribe-rejected` error, any host failure, or
-    acks still missing after 6 s go back to degraded for another 10 min with a
-    warn line and no second `onDegraded`. The normal restart path does not wait
-    for acks: a native subscribe failure in a live host is the host's own per-root
-    overflow + retry, not a process failure to charge to the restart budget.
+    `worker_threads`, `child_process` IPC), then hands `post` and
+    `loadParcelWatcherEngine` to `bootWorkspaceWatchHost` (platform-core). No
+    logic of its own. Its CLI twin is `platform-cli`'s entry (fork IPC only).
+  - `electron-workspace-watcher.ts` — a facade over `WorkspaceWatchSupervisor`
+    (platform-core, TASK_2026_437 Batch 9): same class name, DI token and
+    `watch` / `dispose` / `isDegraded`. Every supervision rule — lazy fork,
+    stall-aware heartbeat watchdog, restart budget 5 per 10 min, degraded 60 s
+    rescans, ack-confirmed recovery after 10 min, pacing and containment — is
+    specified in `platform-core/CLAUDE.md` and `workspace-watch-supervisor.spec.ts`.
+    Do not add supervision here; `CliWorkspaceWatcher` shares it.
   - `in-process-workspace-watch-host.ts` — the `PTAH_WATCH_HOST=0` recovery hatch:
-    same core, same protocol, in the calling process.
-  - `parcel-watcher-engine.ts` — the one lazy `require('@parcel/watcher')`.
+    same core (via `bootWorkspaceWatchHost`), same protocol, in the calling process.
+  - `parcel-watcher-engine.ts` — the one lazy `require('@parcel/watcher')`
+    (shape check: `toWorkspaceWatchEngine`).
 - `src/registration.ts` — `registerPlatformElectronServices`
 
 ## Dependencies

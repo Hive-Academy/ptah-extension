@@ -18,6 +18,8 @@
 
 import 'reflect-metadata';
 
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer, InjectionToken } from 'tsyringe';
 
@@ -35,6 +37,11 @@ import {
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
+import { createCliWorkspaceWatcherOptions } from '@ptah-extension/cli-engine';
+import {
+  CliWorkspaceWatcher,
+  registerPlatformCliServices,
+} from '@ptah-extension/platform-cli';
 
 import { EXPECTED_RESOLVABLE } from './expected-resolvable';
 
@@ -207,5 +214,56 @@ describe('CLI DI — main-loop watchdog (TASK_2026_437)', () => {
     expect(watchdog.running).toBe(false);
     expect(typeof watchdog.setBreadcrumb).toBe('function');
     expect(c.resolve(TOKENS.MAIN_LOOP_WATCHDOG)).toBe(watchdog);
+  });
+});
+
+/**
+ * `PLATFORM_TOKENS.WORKSPACE_WATCHER` (TASK_2026_437 C9) is bound in PHASE 0 by
+ * `registerPlatformCliServices`, with the wiring
+ * `libs/backend/cli-engine/src/lib/container.ts` passes. Pinned here rather
+ * than in `expected-resolvable.ts` (plan defect D2). Resolving must fork
+ * NOTHING — the host starts on the first `watch`.
+ */
+describe('CLI DI — workspace watcher (TASK_2026_437)', () => {
+  // Left in the OS temp dir: the CLI output channel opens its log stream
+  // asynchronously, and removing the directory under it fails that open.
+  const userDataPath = path.join(
+    os.tmpdir(),
+    `ptah-cli-watch-di-${process.pid}`,
+  );
+
+  afterAll(() => jest.restoreAllMocks());
+
+  it('resolves WORKSPACE_WATCHER from phase 0 as an unforked singleton', () => {
+    const c = rootContainer.createChildContainer();
+    const nodeChildProcess =
+      jest.requireActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    const fork = jest.spyOn(nodeChildProcess, 'fork');
+    // A fresh user data dir has no settings.json; its load warning is noise here.
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const bundleDir = path.join(userDataPath, 'dist', 'apps', 'ptah-cli');
+    const workspaceWatchHost = createCliWorkspaceWatcherOptions(c, bundleDir);
+
+    registerPlatformCliServices(c, {
+      appPath: bundleDir,
+      userDataPath,
+      workspacePath: userDataPath,
+      logsPath: path.join(userDataPath, 'logs'),
+      workspaceWatchHost,
+    });
+
+    // The same file for `main.mjs` and `tui.mjs`, which share this directory.
+    expect(workspaceWatchHost.hostPath).toBe(
+      path.join(bundleDir, 'workspace-watch-host.mjs'),
+    );
+    const watcher = c.resolve<CliWorkspaceWatcher>(
+      PLATFORM_TOKENS.WORKSPACE_WATCHER,
+    );
+    expect(watcher).toBeInstanceOf(CliWorkspaceWatcher);
+    expect(c.resolve(PLATFORM_TOKENS.WORKSPACE_WATCHER)).toBe(watcher);
+    expect(fork).not.toHaveBeenCalled();
+    watcher.dispose();
   });
 });

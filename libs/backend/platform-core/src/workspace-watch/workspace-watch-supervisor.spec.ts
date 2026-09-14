@@ -1,22 +1,21 @@
 /**
- * `ElectronWorkspaceWatcher` supervision, driven through a fake fork shim and a
+ * `WorkspaceWatchSupervisor` supervision, driven through a fake fork shim and a
  * manual clock: restart, resubscribe, heartbeat loss, budget exhaustion, and
- * the main-side pacing/containment of host batches. The adapter against a REAL
- * host (worker_threads + `@parcel/watcher`) runs the shared contract suite in
- * `workspace-watch-host.entry.spec.ts`.
+ * the main-side pacing/containment of host batches. The Electron and CLI
+ * facades run the shared contract suite against a REAL forked host in their
+ * own `workspace-watch-host.entry.spec.ts`.
  */
 import type {
   WorkspaceChangeBatch,
-  WorkspaceChangeCoalescerClock,
   WorkspaceWatchOptions,
-} from '@ptah-extension/platform-core';
-
+} from '../interfaces/workspace-watcher.interface';
+import type { WorkspaceChangeCoalescerClock } from '../utils/workspace-change-coalescer';
 import {
-  ElectronWorkspaceWatcher,
+  WorkspaceWatchSupervisor,
   type WorkspaceWatchHostProcess,
   type WorkspaceWatcherDegradation,
   type WorkspaceWatcherDiagnostic,
-} from './electron-workspace-watcher';
+} from './workspace-watch-supervisor';
 
 class ManualClock implements WorkspaceChangeCoalescerClock {
   private current = 5_000_000;
@@ -170,7 +169,7 @@ function setup(forkImpl?: () => WorkspaceWatchHostProcess) {
         return host;
       }),
   );
-  const watcher = new ElectronWorkspaceWatcher({
+  const watcher = new WorkspaceWatchSupervisor({
     host: { fork },
     clock,
     onDiagnostic: (d) => diagnostics.push(d),
@@ -201,7 +200,7 @@ function setup(forkImpl?: () => WorkspaceWatchHostProcess) {
   };
 }
 
-describe('ElectronWorkspaceWatcher', () => {
+describe('WorkspaceWatchSupervisor', () => {
   describe('host lifecycle', () => {
     it('forks nothing until the first watch, then one host for every subscription', () => {
       const { watcher, fork, hosts, record } = setup();
@@ -456,6 +455,42 @@ describe('ElectronWorkspaceWatcher', () => {
   });
 
   describe('supervision', () => {
+    it("a host's stderr tail rides on the one failure line, clipped to its end", () => {
+      const { watcher, hosts, record, diagnostics } = setup();
+      watcher.watch(ROOT, options(), record().listener);
+      const readStderrTail = jest.fn(
+        () => `${'x'.repeat(3_000)}\nSegmentation fault\n`,
+      );
+      Object.assign(hosts[0], { readStderrTail });
+
+      hosts[0].exit(null);
+
+      expect(readStderrTail).toHaveBeenCalledTimes(1);
+      const restarted = diagnostics.filter(
+        (d) => d.message === '[WorkspaceWatcher] host restarted',
+      );
+      expect(restarted).toHaveLength(1);
+      const detail = String(restarted[0].detail?.['detail']);
+      expect(detail.startsWith('exit code null; host stderr: …')).toBe(true);
+      expect(detail.endsWith('Segmentation fault')).toBe(true);
+      expect(detail.length).toBeLessThan(1_100);
+      watcher.dispose();
+    });
+
+    it('a failure without stderr keeps the plain detail', () => {
+      const { watcher, hosts, record, diagnostics } = setup();
+      watcher.watch(ROOT, options(), record().listener);
+      Object.assign(hosts[0], { readStderrTail: () => '  \n' });
+      hosts[0].exit(1);
+      expect(diagnostics).toContainEqual(
+        expect.objectContaining({
+          message: '[WorkspaceWatcher] host restarted',
+          detail: expect.objectContaining({ detail: 'exit code 1' }),
+        }),
+      );
+      watcher.dispose();
+    });
+
     it('host exit: overflow to every subscription, restart, and resubscribe', () => {
       const { watcher, hosts, clock, record, diagnostics, batch } = setup();
       const a = record();
@@ -959,7 +994,7 @@ describe('ElectronWorkspaceWatcher', () => {
       const clock = new ManualClock();
       const hosts: FakeHostProcess[] = [];
       const diagnostics: WorkspaceWatcherDiagnostic[] = [];
-      const watcher = new ElectronWorkspaceWatcher({
+      const watcher = new WorkspaceWatchSupervisor({
         host: {
           fork: () => {
             const host = new FakeHostProcess();

@@ -31,13 +31,11 @@ import {
   type IWorkspaceWatcher,
   type WorkspaceWatchBatchMessage,
   type WorkspaceWatchHostOutbound,
+  type WorkspaceWatchHostProcess,
 } from '@ptah-extension/platform-core';
 import { runWorkspaceWatcherContract } from '@ptah-extension/platform-core/testing';
 
-import {
-  ElectronWorkspaceWatcher,
-  type WorkspaceWatchHostProcess,
-} from './electron-workspace-watcher';
+import { ElectronWorkspaceWatcher } from './electron-workspace-watcher';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const BUNDLE_DIR = path.join(

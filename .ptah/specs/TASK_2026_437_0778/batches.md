@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 56 | Batches: 22 | Complete: 11/22
+Total tasks: 56 | Batches: 22 | Complete: 12/22
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome). Remaining unblocked: P2 Batch 9 (CLI host on `child_process.fork`, see Task 9.1 correction), then 10 → 11 → 15; P3 wave 1 Batch 16.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`). Remaining unblocked: P2 Batch 10 (run ALONE, `npx nx reset` first; also builds the CLI host bundle, see Task 10.4), then 11 → 15; P3 wave 1 Batch 16.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `context.md` "User decisions"
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -567,7 +567,7 @@ P4 is the COMMIT order" for these four batches only.
 
 ---
 
-## Batch 9: P2 — CLI and VS Code watcher adapters (C9 code) — PENDING
+## Batch 9: P2 — CLI and VS Code watcher adapters (C9 code) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: CLI lanes x2 (CLI adapter vs VS Code adapter, file-disjoint)
@@ -575,14 +575,14 @@ P4 is the COMMIT order" for these four batches only.
 - Rationale: both run the shared contract suite from Batch 7. CLI engine choice depends on the Batch 1 A3 result.
 - Tasks: 2 | Depends on: Batch 8, Batch 1 (A3 result)
 
-### Task 9.1: `CliWorkspaceWatcher` — PENDING
+### Task 9.1: `CliWorkspaceWatcher` — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\libs\backend\platform-cli\src\workspace-watch\workspace-watch-host.entry.ts`, `D:\projects\ptah-extension\libs\backend\platform-cli\src\implementations\cli-workspace-watcher.ts` + spec; MODIFY platform-cli registration file, `D:\projects\ptah-extension\libs\backend\cli-engine\src\lib\container.ts`, `D:\projects\ptah-extension\apps\ptah-cli\src\di\container.smoke.spec.ts`
 - Plan reference: implementation-plan.md:519-543
 - Transport correction (recorded 2026-09-14 from Batch 8, binding): the CLI host MUST run as a `child_process.fork` child, NOT a `worker_threads` Worker. `@parcel/watcher` loads in only one thread per process; a second Worker in the same process fails with "Module did not self-register", so a host restart would fail. The Batch 8 Electron entry already supports the `child_process` IPC transport — follow it.
 - Validation notes: A3 NO-GO means the entry uses chokidar inside the host child (contract unchanged). D7: the entry path must resolve for both `main.mjs` and `tui.mjs`. Restart budget same as Electron.
 
-### Task 9.2: `VscodeWorkspaceWatcher` — PENDING
+### Task 9.2: `VscodeWorkspaceWatcher` — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\libs\backend\platform-vscode\src\implementations\vscode-workspace-watcher.ts` + spec; MODIFY platform-vscode registration file, `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\di\container.smoke.spec.ts`
 - Implementation details: `createFileSystemWatcher(new RelativePattern(root,'**/*'))` feeds `WorkspaceChangeCoalescer`; watcher error emits `overflow`. No native dependency enters the VSIX.
@@ -591,6 +591,33 @@ P4 is the COMMIT order" for these four batches only.
 
 - `npx nx run-many -t test -p @ptah-extension/platform-cli @ptah-extension/platform-vscode @ptah-extension/cli-engine ptah-cli ptah-extension-vscode` (header: 5)
 - `npx nx run-many -t typecheck,lint -p @ptah-extension/platform-cli @ptah-extension/platform-vscode @ptah-extension/cli-engine ptah-cli ptah-extension-vscode ptah-tui`
+
+### Batch 9 outcome
+
+- Commit: `feat(platform-cli): watch CLI and VS Code workspaces through the shared supervised watcher` (SHA in `git log`; recorded by subject because this file is part of that commit).
+- Reviews: `b9-code-logic-review.md` base APPROVE_WITH_FIXES (2 Serious: VS Code has no signal for degraded watching outside a workspace folder; VS Code has no native-level exclusion) → delta APPROVE_WITH_FIXES, confidence HIGH (both Serious resolved as decided below; two new Moderate items in the CLI entry spec — `describe.skip` on a bundle failure and PID-reuse in cleanup). Both Moderate items fixed before commit and verified on disk by the team-leader: plain `describe`, bundle built in `beforeAll` (a bundling error fails the suite), and cleanup kills only pids in a `liveHostPids` set that were never observed gone. `b9-code-style-review.md` base APPROVE_WITH_FIXES (2 Serious: options file wiring and naming) → delta APPROVE, confidence HIGH (renamed to `cli-workspace-watcher-factory.ts`).
+- Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset, no other jest/nx test process running; cache hits only where inputs were unchanged since the executor's run — platform-cli re-ran because its entry spec changed):
+  - `npx nx run-many -t test -p @ptah-extension/platform-core @ptah-extension/platform-electron @ptah-extension/platform-cli @ptah-extension/platform-vscode @ptah-extension/cli-engine ptah-cli ptah-extension-vscode ptah-electron --parallel=1 -- --maxWorkers=2` (header: 8 projects) — exit 0. platform-core 39/39 suites, 726 passed / 4 todo (730). platform-electron 35 passed / 1 skipped of 36, 613 passed / 2 skipped / 3 todo (618). platform-cli (fresh run) 15/15 suites, 216 passed / 3 todo (219). platform-vscode 18/18, 206 passed / 3 todo (209). cli-engine 18/18, 179 passed. ptah-extension-vscode 6/6, 64 passed. ptah-electron 45 passed / 2 skipped of 47, 610 passed / 6 skipped (616). ptah-cli 66 passed / 1 skipped of 67, 990 passed / 3 skipped (993). No load flakes.
+  - `npx nx run-many -t typecheck,lint -p` (same 8, separate command, header: 8 projects) — exit 0. Lint 0 errors (warnings: platform-core 8, platform-electron 8, platform-cli 3, platform-vscode 2, cli-engine 2, ptah-electron 4, ptah-extension-vscode 1, ptah-cli 125).
+  - `npx nx run degradation-audit:lint` — exit 0, TOTAL 303 (at baseline).
+  - Pre-existing, NOT caused by this branch (orchestrator-verified, no `apps/ptah-tui` diff vs origin/main): `ptah-tui:typecheck` fails with 6 "Cannot find name 'jest'/'describe'" errors in `apps/ptah-tui/src/build-artifact-gate.ts`. Not fixed in Batch 9, which is why ptah-tui is absent from the run above.
+- Accepted deviations (both reviewers, orchestrator decision):
+  - (1) The supervisor and batch relay moved from platform-electron into `libs/backend/platform-core/src/workspace-watch/` (`WorkspaceWatchSupervisor`, 714 lines; `WorkspaceWatchBatchRelay`). `ElectronWorkspaceWatcher` and the new `CliWorkspaceWatcher` are facades that inject a fork shim. Behavior unchanged: the logic review diffed code and spec against `13ff6045b` (moved spec assertions byte-identical). `electron-workspace-watcher.spec.ts` deleted (moved to `workspace-watch-supervisor.spec.ts`).
+  - (2) Shared `bootWorkspaceWatchHost` / `toWorkspaceWatchEngine` in platform-core (`workspace-watch-host-boot.ts`). Transport detection and `require('@parcel/watcher')` stay in the adapter libs.
+  - (3) New `libs/backend/cli-engine/src/lib/platform/cli-workspace-watcher-factory.ts` (+ spec), outside the file list.
+  - (4) Supervision types (`WorkspaceWatchHostForker`, `WorkspaceWatchHostProcess`, `WorkspaceWatcherDegradation`, `WorkspaceWatcherDiagnostic`) exported from platform-core; platform-electron no longer re-exports them (no consumer broken; the Electron app factory imports from platform-core).
+  - (5) CLI fatal text: `watch engine failed to load: …`.
+  - (6) The CLI entry spec bundles the host into the repo's gitignored `tmp/` (`workspace-watch-host.bundle.harness.ts`).
+  - (7) The CLI host runs under `child_process.fork` with stdin/stdout ignored and stderr piped into a 4,096-char tail; the last 1,024 chars are appended to the one failure diagnostic. Exit is detected on `'close'`. Child, channel and timers are unref'd.
+  - (8) CLI `shutdownHostRuntime` disposes `WORKSPACE_WATCHER` last.
+  - (9) VS Code: warns once per root outside every workspace folder (no degraded state). The adapter never writes `files.watcherExclude` (orchestrator decision: an adapter must not change user settings). No DegradationReporter in platform-vscode.
+- Follow-ups (not in this batch):
+  - FU-9a (Moderate): the VS Code coalescer allocates per event before the exclusion check outside storms. Bounded by the storm breaker.
+  - FU-9b: VS Code creates one native watcher per subscriber, even for the same root. Revisit after Batch 11 shows subscriber counts.
+  - FU-9c: VS Code has no degradation report (platform-vscode cannot reach DegradationReporter).
+  - FU-9d: the Electron utility process could implement `readStderrTail` for parity with the CLI.
+  - FU-9e: `workspace-watch-host.bundle.harness.ts` is not excluded from `platform-cli/tsconfig.lib.json` (no build target today; exclude it before one is added).
+  - FU-9f: `libs/backend/cli-engine/src/lib/container.ts` is 882 lines.
 
 ---
 
@@ -625,6 +652,7 @@ P4 is the COMMIT order" for these four batches only.
 
 - Files: `D:\projects\ptah-extension\apps\ptah-cli\project.json` (host worker target + externals), `D:\projects\ptah-extension\apps\ptah-cli\package.json` (dependency only if A3 GO), CLI ESM gate spec if the CLI keeps its own copy
 - Validation notes: D7. Launch `ptah tui` from the built dist and confirm the watcher host starts.
+- Added from Batch 9 (binding): build the CLI host bundle too. Entry `D:\projects\ptah-extension\libs\backend\platform-cli\src\workspace-watch\workspace-watch-host.entry.ts`, output `workspace-watch-host.mjs` in `dist/apps/ptah-cli`, ESM with the `createRequire` banner, `@parcel/watcher` external. The bare-run guard string is `must be run by child_process.fork` (any bare-run check must match it).
 - Implementation details (from Batch 1): `apps/ptah-cli/package.json` `dependencies` gains `"@parcel/watcher": "2.5.6"` (A3 GO); `apps/ptah-cli/project.json` `build-esbuild.options.external` gains `"@parcel/watcher"`. ORDER IS MANDATORY: `npx nx build ptah-cli` → `npx nx build ptah-tui` → `npx nx restore-cli-manifest ptah-cli` → only then `npm pack` / smoke-install. `ptah-tui:build` overwrites `dist/apps/ptah-cli/package.json` (name, `bin`, `files`, deps); packing before the restore ships a broken manifest.
 
 ### Task 10.5: Cross-platform `@parcel/watcher` CI smoke (D10) — PENDING

@@ -29,7 +29,7 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 
 **Concrete services**: `PtahFileSettingsManager`, `ContentDownloadService`, `AgentPackDownloadService`.
 
-**Constants/helpers**: `PLATFORM_TOKENS`, `FILE_BASED_SETTINGS_KEYS`, `FILE_BASED_SETTINGS_DEFAULTS`, `isFileBasedSettingKey`, `createEvent`, `isPathWithinRoots`, `planGlobWatch` (+ `GlobWatchPlan`), `EventStormBreaker`, `WorkspaceChangeCoalescer` (+ `WORKSPACE_WATCH_LIMITS`, `isExcludedBySegmentRules`).
+**Constants/helpers**: `PLATFORM_TOKENS`, `FILE_BASED_SETTINGS_KEYS`, `FILE_BASED_SETTINGS_DEFAULTS`, `isFileBasedSettingKey`, `createEvent`, `isPathWithinRoots`, `planGlobWatch` (+ `GlobWatchPlan`), `EventStormBreaker`, `WorkspaceChangeCoalescer` (+ `WORKSPACE_WATCH_LIMITS`, `isExcludedBySegmentRules`), `WorkspaceWatchHostCore`, `bootWorkspaceWatchHost` (+ `toWorkspaceWatchEngine`), `WorkspaceWatchSupervisor` (+ `WORKSPACE_WATCH_SUPERVISION_DEFAULTS`, `WorkspaceWatchHostForker`, `WorkspaceWatchHostProcess`, `WorkspaceWatcherDiagnostic`, `WorkspaceWatcherDegradation`).
 
 **Contract runners** (`@ptah-extension/platform-core/testing`): one `run*Contract` per port, including `runWorkspaceWatcherContract` which every `IWorkspaceWatcher` adapter runs.
 
@@ -56,9 +56,12 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
   shared with it: `isExcludedBySegmentRules` must stay behaviourally identical,
   pinned by `workspace-intelligence/src/file-indexing/workspace-exclusion-drift.spec.ts`.
   While storming, an event is one counter (no parsing); one incident → one overflow
-- `src/workspace-watch/` — the out-of-process watch host, shared by every
-  host-based `IWorkspaceWatcher` adapter (TASK_2026_437 C8). No Electron or
-  Node-IPC import; the adapter lib supplies the transport and the engine:
+- `src/workspace-watch/` — the out-of-process watch host AND its main-side
+  supervisor, shared by every host-based `IWorkspaceWatcher` adapter
+  (TASK_2026_437 C8, C9). No Electron or Node-IPC import, and no
+  `require('@parcel/watcher')` (it would be bundled into every host, the VS Code
+  extension included); the adapter lib supplies the transport, the fork shim and
+  the engine `require`:
   - `workspace-watch-protocol.ts` — Zod `strictObject` wire schemas both ways
     (main → host `subscribe`/`unsubscribe`; host → main `batch`, `heartbeat`,
     `error`, `notice`, `fatal`, and `subscribed` — the per-subscription ack that
@@ -70,6 +73,22 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
     error → overflow + retry, 2 s heartbeat, one `subscribed` ack per
     subscription once a settled native subscribe covers it, invalid inbound
     messages reported at most 10 times
+  - `workspace-watch-host-boot.ts` — `bootWorkspaceWatchHost`: what every host
+    entry does once its transport is bound (engine load → one clipped `fatal`
+    on failure, core construction with env storm tunables, `start`), and
+    `toWorkspaceWatchEngine`, the shape check over a loaded `@parcel/watcher`.
+    Used by the Electron entry, the Electron in-process hatch and the CLI entry
+  - `workspace-watch-supervisor.ts` — `WorkspaceWatchSupervisor` (an `IWorkspaceWatcher`): lazy fork through an injected `WorkspaceWatchHostForker`,
+    heartbeat watchdog (3 missed × 2 s, stall-aware), restart after 250 ms with
+    resubscribe and one `overflow`, budget 5 per 10 min, degraded mode (one
+    `onDegraded` per episode, `overflow` now and every 60 s), recovery after
+    10 min confirmed only by `subscribed` acks, idle stop 30 s after the last
+    unsubscribe, and an optional `readStderrTail()` on the host process whose end
+    rides on that host's one failure diagnostic. `ElectronWorkspaceWatcher` and `CliWorkspaceWatcher` are thin
+    facades over it that differ only in the fork shim; never re-implement
+    supervision in an adapter lib
+  - `workspace-watch-batch-relay.ts` — `WorkspaceWatchBatchRelay` (internal):
+    per-subscription pacing and path containment of host batches
 - `src/file-settings-manager.ts` + `file-settings-keys.ts` — `~/.ptah/settings.json` routing (TASK_2025_247)
 - `src/content-download.service.ts` — GitHub plugin/template downloader (TASK_2025_248)
 - `src/agent-pack-download.service.ts` — Agent pack downloader (TASK_2025_257)
@@ -79,7 +98,8 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 
 - `src/di/tokens.ts:11` — `PLATFORM_TOKENS` registry (28 tokens, the count of `Symbol.for(` entries in `tokens.ts`)
 - `src/interfaces/workspace-watcher.interface.ts` — `IWorkspaceWatcher`: batched, pre-filtered, overflow-signalling recursive change feed (TASK_2026_437 C7). Its doc is the degraded-mode contract every adapter follows: overflow now, then on a fixed 60 s rescan cadence until recovery or dispose
-- `src/workspace-watch/workspace-watch-host-core.ts` — `WorkspaceWatchHostCore`, the watch host every host-based adapter runs (Electron `utilityProcess`, CLI); the entry that wires a transport and `@parcel/watcher` to it lives in the adapter lib
+- `src/workspace-watch/workspace-watch-host-core.ts` — `WorkspaceWatchHostCore`, the watch host every host-based adapter runs (Electron `utilityProcess`, CLI `child_process.fork`); the entry that wires a transport and `@parcel/watcher` to it lives in the adapter lib
+- `src/workspace-watch/workspace-watch-supervisor.ts` — `WorkspaceWatchSupervisor`, the one supervision state machine behind every host-based adapter
 - `src/interfaces/platform-abstractions.interface.ts:23` — `IPlatformCommands` (moved here in Wave C8)
 - `src/interfaces/workspace-provider.interface.ts` — workspace folders + configuration read API
 - `src/interfaces/workspace-lifecycle.interface.ts` — workspace mutation API (add/remove/setActive)
@@ -124,11 +144,11 @@ entries in `src/di/tokens.ts`:
 | `BOOT_READINESS`               | `IBootReadinessProvider`       |
 | `WORKSPACE_WATCHER`            | `IWorkspaceWatcher`            |
 
-`WORKSPACE_WATCHER` (adapters land in TASK_2026_437 Batches 8–9) — `ElectronWorkspaceWatcher` (`platform-electron`,
+`WORKSPACE_WATCHER` (TASK_2026_437 Batches 8–9) — `ElectronWorkspaceWatcher` (`platform-electron`,
 `utilityProcess` host), `CliWorkspaceWatcher` (`platform-cli`, `child_process.fork`
 host — never `worker_threads`: `@parcel/watcher` loads in one thread per process, so a
-restarted Worker host fails with "Module did not self-register"), `VscodeWorkspaceWatcher` (`platform-vscode`). Each runs
-`runWorkspaceWatcherContract`.
+restarted Worker host fails with "Module did not self-register"), `VscodeWorkspaceWatcher` (`platform-vscode`, `createFileSystemWatcher` → coalescer). The first two
+are facades over `WorkspaceWatchSupervisor`. Each runs `runWorkspaceWatcherContract`.
 
 `BOOT_READINESS` — `NullBootReadinessProvider` (`vscode-core`, always ready, the
 VS Code and CLI default) / `ElectronBootReadinessProvider` (`ptah-electron`,
@@ -141,7 +161,7 @@ delegates to `BootCoordinator`).
 
 ## Guidelines
 
-- **Interfaces only** for ports — no concrete adapter classes. Adapters live in `platform-{cli,electron,vscode}`.
+- **Interfaces only** for ports — no concrete adapter classes. Adapters live in `platform-{cli,electron,vscode}`. Transport-agnostic logic two or more adapters share (the coalescer, the watch host core, the watch supervisor) belongs here with its I/O injected, not copied into each adapter lib.
 - **Never import** other backend libs from here. This must remain a leaf.
 - **Symbol.for(...)** convention — every token is global-registry to allow cross-bundle resolution.
 - **No `register.ts`** by design (see `src/di/index.ts:1`). Adapters own their registration.

@@ -151,8 +151,9 @@ export type WorkspaceChangeListener = (batch: WorkspaceChangeBatch) => void;
  * - a DEGRADED adapter (its restart budget is spent) reports one
  *   `'workspace-watcher'` degradation per degraded episode, emits `overflow`
  *   immediately, and then repeats `overflow` on a fixed rescan cadence until it
- *   recovers or is disposed. Electron uses 60 s, and the Batch 9 CLI and
- *   VS Code adapters must use the same cadence. Consumers treat each `overflow`
+ *   recovers or is disposed. Every adapter uses 60 s
+ *   (`WORKSPACE_WATCH_SUPERVISION_DEFAULTS.degradedRescanIntervalMs`; VS Code
+ *   applies it to a watcher that cannot be created). Consumers treat each `overflow`
  *   as "rescan once" and must make that rescan idempotent;
  * - after `dispose()` the listener is never called again, and `dispose()` is
  *   idempotent.

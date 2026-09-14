@@ -18,6 +18,8 @@
 
 import 'reflect-metadata';
 
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer, InjectionToken } from 'tsyringe';
 
@@ -257,5 +259,69 @@ describe('VS Code DI — main-loop watchdog (TASK_2026_437)', () => {
     expect(watchdog.running).toBe(false);
     expect(typeof watchdog.setBreadcrumb).toBe('function');
     expect(c.resolve(TOKENS.MAIN_LOOP_WATCHDOG)).toBe(watchdog);
+  });
+});
+
+/**
+ * `PLATFORM_TOKENS.WORKSPACE_WATCHER` (TASK_2026_437 C9) is bound in PHASE 0 by
+ * `registerPlatformVscodeServices`, which `phase-0-platform.ts` calls. Pinned
+ * here rather than in `expected-resolvable.ts` (plan defect D2). Resolving
+ * creates no `FileSystemWatcher` — that happens per `watch` — and the instance
+ * is on `context.subscriptions`, so deactivation disposes it.
+ *
+ * The registration runs against platform-vscode's stateful `vscode` double in
+ * an isolated module registry: this app's shared `vscode` mock lacks the
+ * window/workspace surface every phase-0 adapter touches, and swapping it for
+ * the whole file would change what the handler suites above resolve against.
+ */
+describe('VS Code DI — workspace watcher (TASK_2026_437)', () => {
+  it('resolves WORKSPACE_WATCHER from phase 0 as a context-disposed singleton', () => {
+    let registerPlatformVscodeServices!: (
+      container: DependencyContainer,
+      context: unknown,
+    ) => void;
+    let vscodeDouble!: { workspace: { createFileSystemWatcher: jest.Mock } };
+    jest.isolateModules(() => {
+      jest.doMock('vscode', () =>
+        jest.requireActual(
+          '../../../../libs/backend/platform-vscode/__mocks__/vscode',
+        ),
+      );
+      vscodeDouble = jest.requireMock('vscode');
+      ({ registerPlatformVscodeServices } = jest.requireActual(
+        '@ptah-extension/platform-vscode',
+      ));
+    });
+
+    const storagePath = path.join(
+      os.tmpdir(),
+      `ptah-vscode-watch-di-${process.pid}`,
+    );
+    const subscriptions: Array<{ dispose(): unknown }> = [];
+    const c = rootContainer.createChildContainer();
+    registerPlatformVscodeServices(c, {
+      extensionPath: storagePath,
+      globalStorageUri: { fsPath: storagePath },
+      storageUri: undefined,
+      globalState: { get: jest.fn(), update: jest.fn(), keys: () => [] },
+      secrets: {
+        onDidChange: () => ({ dispose: jest.fn() }),
+        get: jest.fn(),
+        store: jest.fn(),
+        delete: jest.fn(),
+      },
+      subscriptions,
+    });
+
+    const watcher = c.resolve<{ watch: unknown; dispose: () => void }>(
+      PLATFORM_TOKENS.WORKSPACE_WATCHER,
+    );
+    expect(typeof watcher.watch).toBe('function');
+    expect(c.resolve(PLATFORM_TOKENS.WORKSPACE_WATCHER)).toBe(watcher);
+    expect(subscriptions).toContain(watcher);
+    expect(
+      vscodeDouble.workspace.createFileSystemWatcher,
+    ).not.toHaveBeenCalled();
+    for (const subscription of subscriptions) subscription.dispose();
   });
 });
