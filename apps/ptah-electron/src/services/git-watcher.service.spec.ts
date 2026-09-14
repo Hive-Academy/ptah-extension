@@ -488,7 +488,7 @@ describe('GitWatcherService', () => {
         eventType: string,
         filename: string | null,
       ): void;
-      isIgnoredWorkspaceEvent(filename: string | null): boolean;
+      isIgnoredWorkspaceEvent(filename: string): boolean;
       refreshNestedRepoRoots(root: string, generation: number): Promise<void>;
       armGeneration: number;
     };
@@ -600,13 +600,13 @@ describe('GitWatcherService', () => {
       (svc as unknown as { nestedRepoRoots: NestedRepoRoots }).nestedRepoRoots =
         new NestedRepoRoots(WS);
 
-      expect(internals().isIgnoredWorkspaceEvent('pkg\\vendor\\src\\a.ts')).toBe(
-        false,
-      );
+      expect(
+        internals().isIgnoredWorkspaceEvent('pkg\\vendor\\src\\a.ts'),
+      ).toBe(false);
       emit('rename', 'pkg\\vendor\\.git');
-      expect(internals().isIgnoredWorkspaceEvent('pkg\\vendor\\src\\a.ts')).toBe(
-        true,
-      );
+      expect(
+        internals().isIgnoredWorkspaceEvent('pkg\\vendor\\src\\a.ts'),
+      ).toBe(true);
       expect(internals().isIgnoredWorkspaceEvent('pkg/other/a.ts')).toBe(false);
 
       emit('change', 'pkg\\vendor\\src\\a.ts');
@@ -632,10 +632,12 @@ describe('GitWatcherService', () => {
 
       await internals().refreshNestedRepoRoots(WS, internals().armGeneration);
 
-      expect(internals().isIgnoredWorkspaceEvent('sandbox\\wt1\\src\\a.ts')).toBe(
+      expect(
+        internals().isIgnoredWorkspaceEvent('sandbox\\wt1\\src\\a.ts'),
+      ).toBe(true);
+      expect(internals().isIgnoredWorkspaceEvent('SANDBOX/WT1/a.ts')).toBe(
         true,
       );
-      expect(internals().isIgnoredWorkspaceEvent('SANDBOX/WT1/a.ts')).toBe(true);
       expect(internals().isIgnoredWorkspaceEvent('sandbox/a.ts')).toBe(false);
       expect(internals().isIgnoredWorkspaceEvent('src/a.ts')).toBe(false);
     });
@@ -721,6 +723,125 @@ describe('GitWatcherService', () => {
       expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
     });
 
+    // ---- Unattributed (null-filename) changes — Batch 6 ST-1 finding ----
+
+    function emitNull(): void {
+      internals().onWorkspaceEvent(WS, 'change', null);
+    }
+
+    it('a null-filename event alone schedules no refresh and no push inside 10 s', async () => {
+      emitNull();
+      jest.advanceTimersByTime(10_000);
+      await flush();
+
+      expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
+    });
+
+    it('a null-filename event folds into the next real refresh: one refresh total', async () => {
+      emitNull();
+      emit('change', 'src\\a.ts');
+      jest.advanceTimersByTime(2_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+
+      // The real refresh covered it: no safety refresh follows.
+      jest.advanceTimersByTime(120_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+    });
+
+    it('null-only changes get exactly one safety refresh after 30 s of quiet, never more often', async () => {
+      // Sporadic nulls for 20 s push the quiet window out without re-arming
+      // per event.
+      for (let t = 0; t < 20_000; t += 5_000) {
+        emitNull();
+        jest.advanceTimersByTime(5_000);
+      }
+      await flush();
+      // Last null at t=15 s → quiet deadline t=45 s; now t=20 s.
+      jest.advanceTimersByTime(24_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(1_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(
+        (calls('git:status-update')[0][1] as GitStatusUpdatePayload).causes,
+      ).toEqual(['workspace']);
+      expect(calls('file:content-changed')).toHaveLength(0);
+
+      jest.advanceTimersByTime(120_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+    });
+
+    it('a pending unattributed change is absorbed by a storm: one refresh, no safety refresh mid-storm or after', async () => {
+      emitNull();
+      // A storm that outlasts the 30 s safety window: 1,000 events/s for 29 s,
+      // starting 2 s after the null, so the null's deadline (t=30 s) falls
+      // inside the storm.
+      jest.advanceTimersByTime(2_000);
+      for (let ms = 0; ms < 29_000; ms += 10) {
+        for (let i = 0; i < 10; i++) emit('rename', `pkgs\\big\\f-${ms}-${i}`);
+        jest.advanceTimersByTime(10);
+      }
+      await flush();
+      expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
+
+      // Quiet exit, then long after: exactly the storm's one refresh.
+      jest.advanceTimersByTime(120_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(
+        (svc as unknown as { unattributedChangeTimer: unknown })
+          .unattributedChangeTimer,
+      ).toBeNull();
+    });
+
+    it('a flood of null-filename events enters a storm and exits with one refresh', async () => {
+      for (let i = 0; i < 5_000; i++) {
+        emitNull();
+        if (i % 10 === 9) jest.advanceTimersByTime(1);
+      }
+      expect(
+        warnMessages().filter((m) => m === '[GitWatcher] event storm entered'),
+      ).toHaveLength(1);
+
+      jest.advanceTimersByTime(5_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(calls('file:content-changed')).toHaveLength(1);
+
+      // The pre-storm nulls were covered by the exit refresh.
+      jest.advanceTimersByTime(120_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+    });
+
+    // ---- Exit/enter pairing — Batch 6 ST-1b finding ----
+
+    it('one storm shorter than maxStormMs logs one enter, one exit and issues one refresh, however often its timer re-arms', async () => {
+      // 20 s of 1,000 events/s: the exit timer re-arms roughly every 2 s.
+      for (let ms = 0; ms < 20_000; ms += 10) {
+        for (let i = 0; i < 10; i++) emit('rename', `pkgs\\big\\f-${ms}-${i}`);
+        jest.advanceTimersByTime(10);
+      }
+      jest.advanceTimersByTime(5_000);
+      await flush();
+
+      expect(
+        warnMessages().filter((m) => m === '[GitWatcher] event storm entered'),
+      ).toHaveLength(1);
+      expect(
+        warnMessages().filter((m) => m === '[GitWatcher] event storm exited'),
+      ).toHaveLength(1);
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(calls('git:status-update')).toHaveLength(1);
+      expect(calls('file:content-changed')).toHaveLength(1);
+    });
+
     it('stop() cancels a pending storm exit', async () => {
       for (let i = 0; i < 1_000; i++) emit('rename', `src\\f-${i}.ts`);
       expect(warnMessages()).toContain('[GitWatcher] event storm entered');
@@ -731,6 +852,117 @@ describe('GitWatcherService', () => {
 
       expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
       expect(broadcast).not.toHaveBeenCalled();
+    });
+  });
+
+  // ===========================================================================
+  // OWN-REFRESH ECHO (TASK_2026_437, Batch 6 ST-1b finding)
+  //
+  // `git status` reads every directory; on NTFS reading the parent of a just-
+  // deleted tree makes `fs.watch` report a `change` on that directory, which
+  // scheduled a second, self-inflicted refresh. Real temp directories and real
+  // timers: the echo check `stat`s the path.
+  // ===========================================================================
+
+  describe('own git status echo', () => {
+    let tmpDir: string;
+
+    type EchoInternals = {
+      onWorkspaceEvent(root: string, eventType: string, f: string | null): void;
+      fetchAndPush(): Promise<void>;
+      debounceTimer: unknown;
+      ownRefreshEchoUntil: number;
+      ownRefreshesInFlight: number;
+      unattributedChangeAt: number | null;
+      unattributedChangeTimer: unknown;
+    };
+    const echo = (): EchoInternals => svc as unknown as EchoInternals;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-echo-'));
+      fs.mkdirSync(path.join(tmpDir, 'pkgs'));
+      fs.writeFileSync(path.join(tmpDir, 'a.ts'), 'export {};\n');
+      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
+      (svc as unknown as { workspacePath: string }).workspacePath = tmpDir;
+      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+    });
+
+    afterEach(() => {
+      svc.stop();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('a git status run opens an echo window', async () => {
+      expect(echo().ownRefreshEchoUntil).toBe(0);
+      await echo().fetchAndPush();
+      expect(echo().ownRefreshEchoUntil).toBeGreaterThan(Date.now());
+    });
+
+    it('inside the window a directory change is dropped, a file change still schedules', async () => {
+      echo().ownRefreshEchoUntil = Date.now() + 60_000;
+
+      echo().onWorkspaceEvent(tmpDir, 'change', 'pkgs');
+      // Not scheduled, but not forgotten: the drop is an unattributed change,
+      // covered by the next real refresh or the 30 s safety refresh.
+      expect(
+        await waitFor(() => echo().unattributedChangeAt !== null, 1_500),
+      ).toBe(true);
+      expect(echo().unattributedChangeTimer).not.toBeNull();
+      expect(echo().debounceTimer).toBeNull();
+
+      echo().onWorkspaceEvent(tmpDir, 'change', 'a.ts');
+      expect(await waitFor(() => echo().debounceTimer !== null, 1_500)).toBe(
+        true,
+      );
+    });
+
+    it('inside the window a rename, or a change on a path already gone, still schedules', async () => {
+      echo().ownRefreshEchoUntil = Date.now() + 60_000;
+
+      echo().onWorkspaceEvent(tmpDir, 'change', 'deleted.ts');
+      expect(await waitFor(() => echo().debounceTimer !== null, 1_500)).toBe(
+        true,
+      );
+
+      svc.stop();
+      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+      echo().ownRefreshEchoUntil = Date.now() + 60_000;
+      echo().onWorkspaceEvent(tmpDir, 'rename', 'pkgs');
+      expect(echo().debounceTimer).not.toBeNull();
+    });
+
+    it('outside the window a directory change schedules without any stat', () => {
+      echo().onWorkspaceEvent(tmpDir, 'change', 'pkgs');
+      expect(echo().debounceTimer).not.toBeNull();
+    });
+
+    it('stop() closes the window, and a run from before the stop cannot reopen it', async () => {
+      let finishRun!: () => void;
+      gitInfo.refreshGitInfo.mockImplementationOnce(
+        () =>
+          new Promise<GitInfoResult>((resolve) => {
+            finishRun = () =>
+              resolve({
+                isGitRepo: true,
+                files: [],
+              } as unknown as GitInfoResult);
+          }),
+      );
+      const staleRun = echo().fetchAndPush();
+      expect(echo().ownRefreshesInFlight).toBe(1);
+
+      svc.stop();
+      expect(echo().ownRefreshesInFlight).toBe(0);
+      expect(echo().ownRefreshEchoUntil).toBe(0);
+
+      // The next arm's events must not be read as echoes of the stale run.
+      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+      finishRun();
+      await staleRun;
+      expect(echo().ownRefreshesInFlight).toBe(0);
+      expect(echo().ownRefreshEchoUntil).toBe(0);
+      echo().onWorkspaceEvent(tmpDir, 'change', 'pkgs');
+      expect(echo().debounceTimer).not.toBeNull();
     });
   });
 
@@ -782,7 +1014,7 @@ describe('GitWatcherService', () => {
     function isIgnored(filename: string): boolean {
       return (
         svc as unknown as {
-          isIgnoredWorkspaceEvent(f: string | null): boolean;
+          isIgnoredWorkspaceEvent(f: string): boolean;
         }
       ).isIgnoredWorkspaceEvent(filename);
     }
@@ -871,16 +1103,10 @@ describe('GitWatcherService', () => {
       ]) {
         expect(isIgnored(name)).toBe(false);
       }
-
-      // A null filename (platforms that do not surface it) is never ignored —
-      // the update must still be scheduled.
-      expect(
-        (
-          svc as unknown as {
-            isIgnoredWorkspaceEvent(f: string | null): boolean;
-          }
-        ).isIgnoredWorkspaceEvent(null),
-      ).toBe(false);
+      // A null filename never reaches this predicate: `onWorkspaceEvent`
+      // handles it as an unattributed change — see the "Unattributed
+      // (null-filename) changes" tests inside the "event storms and
+      // nested-repository exclusion (TASK_2026_437)" describe.
     });
 
     it('arms the dedicated .git watchers unfiltered (git ops still detected)', () => {

@@ -162,6 +162,13 @@ export class GitWatcherService {
   /**
    * Rate guard for the recursive workspace watcher. Replaced on every `start`
    * so a storm on one workspace never carries over to the next.
+   *
+   * One counter for the whole workspace. Unnamed (`null`-filename) events
+   * count too, and they cannot be attributed to a directory, so a burst of
+   * them from a delete inside an excluded tree can hold real churn elsewhere
+   * in storm mode until it quiets. The cost is bounded — that churn is covered
+   * by the storm's single exit refresh — but tune `PTAH_WATCH_STORM_*` knowing
+   * the counter mixes both.
    */
   private stormBreaker = GitWatcherService.createStormBreaker();
 
@@ -173,6 +180,30 @@ export class GitWatcherService {
    * allocate per event, so the storm exit re-lists worktrees once instead.
    */
   private gitMarkerSeenDuringStorm = false;
+
+  /**
+   * Git status runs this watcher started that have not settled yet, and the
+   * time until which a just-settled run may still echo. `git status` reads
+   * every directory; on NTFS reading a directory whose children just changed
+   * updates its metadata and `fs.watch` reports that as a `change` on the
+   * directory — which then scheduled a second, self-inflicted refresh. Seen in
+   * the Batch 6 ST-1b traces as one `change` on the parent of the deleted tree,
+   * arriving while the storm-exit `git status` run was still in flight.
+   *
+   * Both are tied to {@link armGeneration}: a run started for a previous
+   * `start` neither counts here nor opens a window for the next workspace.
+   */
+  private ownRefreshesInFlight = 0;
+  private ownRefreshEchoUntil = 0;
+
+  /**
+   * `Date.now()` of the latest change event that carried no filename, while no
+   * refresh has run since; `null` when nothing unattributed is pending.
+   */
+  private unattributedChangeAt: number | null = null;
+
+  /** The one safety-refresh timer for unattributed changes. */
+  private unattributedChangeTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Nested repository and worktree roots below the watched workspace. Seeded
@@ -250,6 +281,22 @@ export class GitWatcherService {
    * cheaper than matching thousands of paths it mostly does not have open.
    */
   private static readonly MAX_PENDING_CONTENT_PATHS = 256;
+
+  /**
+   * Quiet window before the safety refresh for changes `fs.watch` reported
+   * without a filename (ms). Long on purpose: such events usually accompany a
+   * mass delete whose real events already refresh, and a storm of them is
+   * handled by the breaker. It also keeps the safety refresh outside any
+   * "delete + 10 s" measurement window.
+   */
+  private static readonly UNATTRIBUTED_QUIET_MS = 30_000;
+
+  /**
+   * How long after one of our own git status runs settles a directory
+   * `change` is still treated as its echo (ms). The file system can deliver
+   * the notification after git has already exited.
+   */
+  private static readonly OWN_REFRESH_ECHO_MS = 1_000;
 
   /** Debounce for re-listing worktrees (ms). `git worktree add` writes several records at once. */
   private static readonly NESTED_ROOTS_REFRESH_DEBOUNCE_MS = 500;
@@ -450,6 +497,9 @@ export class GitWatcherService {
       this.stormTimer = null;
     }
     this.gitMarkerSeenDuringStorm = false;
+    this.clearUnattributedChange();
+    this.ownRefreshesInFlight = 0;
+    this.ownRefreshEchoUntil = 0;
 
     if (this.nestedRootsRefreshTimer) {
       clearTimeout(this.nestedRootsRefreshTimer);
@@ -546,8 +596,7 @@ export class GitWatcherService {
    * reachable from a unit test without intercepting `fs.watch`, whose export is
    * non-configurable and therefore not spy-able.
    */
-  private isIgnoredWorkspaceEvent(filename: string | null): boolean {
-    if (typeof filename !== 'string') return false;
+  private isIgnoredWorkspaceEvent(filename: string): boolean {
     if (
       isExcludedWorkspacePath(
         filename,
@@ -622,6 +671,14 @@ export class GitWatcherService {
    *   4. Normal: schedule the status refresh and, for `change` events, the
    *      content push.
    *
+   * A `null` filename (Node documents that `fs.watch` may omit it; on Windows
+   * a mass delete produces them, apparently as buffer-overflow markers) cannot
+   * be attributed to a path, so it can be neither excluded nor trusted. It
+   * counts toward the storm breaker, but outside a storm it only marks an
+   * unattributed change pending — see {@link noteUnattributedChange}. Before
+   * this, every such event scheduled a full refresh, which is how a delete
+   * confined to `.claude-worktrees/` still cost a `git status` cycle.
+   *
    * Accepted blind spot: events for files of a freshly created nested
    * repository that arrive before its `.git` entry's event (or before the
    * worktree listing lands, or during a storm) are processed as ordinary
@@ -636,7 +693,21 @@ export class GitWatcherService {
   ): void {
     if (this.isDisposed) return;
 
-    if (filename?.includes('.git')) {
+    if (filename === null) {
+      const now = Date.now();
+      switch (this.stormBreaker.record(now)) {
+        case 'storming':
+          return;
+        case 'entered':
+          this.enterStorm();
+          return;
+        case 'normal':
+          this.noteUnattributedChange(now);
+          return;
+      }
+    }
+
+    if (filename.includes('.git')) {
       if (this.stormBreaker.isStorming) {
         this.gitMarkerSeenDuringStorm = true;
       } else {
@@ -655,9 +726,106 @@ export class GitWatcherService {
         break;
     }
 
+    if (eventType === 'change' && this.mayBeOwnRefreshEcho()) {
+      void this.scheduleUnlessDirectoryEcho(workspaceRoot, filename);
+      return;
+    }
     this.scheduleUpdate(GitWatcherService.WORKSPACE_DEBOUNCE_MS, 'workspace');
-    if (eventType === 'change' && filename) {
+    if (eventType === 'change') {
       this.scheduleContentChange(workspaceRoot, filename);
+    }
+  }
+
+  /** True while one of our own git status runs is alive or has just settled. */
+  private mayBeOwnRefreshEcho(): boolean {
+    return (
+      this.ownRefreshesInFlight > 0 || Date.now() < this.ownRefreshEchoUntil
+    );
+  }
+
+  /**
+   * A `change` event that may be our own `git status` echoing off a directory.
+   *
+   * A directory `change` usually carries nothing git status needs — adding,
+   * removing or renaming a child normally reports a `rename` for the child
+   * itself — so it is not scheduled. That is a heuristic, not a guarantee: the
+   * OS can coalesce a child's own notification away under load. So a dropped
+   * directory is recorded as an unattributed change, and the next real refresh
+   * or the safety refresh covers it. A file, or a path already gone, is
+   * scheduled as usual. The `stat` runs only inside the echo window, never on
+   * the ordinary per-event path.
+   */
+  private async scheduleUnlessDirectoryEcho(
+    workspaceRoot: string,
+    filename: string,
+  ): Promise<void> {
+    const generation = this.armGeneration;
+    let isDirectory = false;
+    try {
+      isDirectory = (
+        await fs.promises.stat(path.join(workspaceRoot, filename))
+      ).isDirectory();
+    } catch {
+      // degradation-audit: optional-capability - the stat only decides whether
+      // this change is our own echo; a path that is gone or unreadable is not
+      // provably an echo, so the change is scheduled like any other.
+    }
+    if (this.isDisposed || this.armGeneration !== generation) return;
+    if (isDirectory) {
+      this.noteUnattributedChange(Date.now());
+      return;
+    }
+    this.scheduleUpdate(GitWatcherService.WORKSPACE_DEBOUNCE_MS, 'workspace');
+    this.scheduleContentChange(workspaceRoot, filename);
+  }
+
+  /**
+   * A change the watcher could not attribute to a path (a `null` filename, or
+   * a dropped directory echo), outside a storm.
+   *
+   * It does not refresh by itself: the next real refresh (any channel) covers
+   * it and clears the flag, and so does a storm — entering one hands the
+   * change to the storm's single exit refresh. Only when none of those happens
+   * does ONE safety refresh run, once {@link UNATTRIBUTED_QUIET_MS} have passed
+   * without another unattributed change — so these can never cause refreshes
+   * more often than that. Per event this is a field write; the timer is armed
+   * once per pending window, and re-armed from the timer itself.
+   */
+  private noteUnattributedChange(now: number): void {
+    if (this.stormBreaker.isStorming) return;
+    this.unattributedChangeAt = now;
+    if (this.unattributedChangeTimer) return;
+    this.armUnattributedChangeTimer(GitWatcherService.UNATTRIBUTED_QUIET_MS);
+  }
+
+  private armUnattributedChangeTimer(delayMs: number): void {
+    this.unattributedChangeTimer = setTimeout(() => {
+      this.unattributedChangeTimer = null;
+      if (this.isDisposed || this.unattributedChangeAt === null) return;
+      // Defensive: `enterStorm` already clears a pending change, and the
+      // storm's exit refresh is the one that covers it.
+      if (this.stormBreaker.isStorming) {
+        this.unattributedChangeAt = null;
+        return;
+      }
+      const quietFor = Date.now() - this.unattributedChangeAt;
+      if (quietFor < GitWatcherService.UNATTRIBUTED_QUIET_MS) {
+        this.armUnattributedChangeTimer(
+          GitWatcherService.UNATTRIBUTED_QUIET_MS - quietFor,
+        );
+        return;
+      }
+      this.pendingCauses.add('workspace');
+      void this.fetchAndPush();
+    }, delayMs);
+  }
+
+  /** A refresh is starting: it covers any unattributed change seen so far. */
+  private clearUnattributedChange(): void {
+    this.unattributedChangeAt = null;
+    if (this.unattributedChangeTimer) {
+      clearTimeout(this.unattributedChangeTimer);
+      this.unattributedChangeTimer = null;
     }
   }
 
@@ -758,6 +926,9 @@ export class GitWatcherService {
   private enterStorm(): void {
     this.clearWorkspaceDebounce();
     this.clearContentChangeTimer();
+    // The exit refresh covers a pending unattributed change too; letting its
+    // safety timer fire mid-storm would be a second refresh for one incident.
+    this.clearUnattributedChange();
     this.logger.warn('[GitWatcher] event storm entered', {
       workspacePath: this.workspacePath,
       stormsEntered: this.stormBreaker.stats().stormsEntered,
@@ -804,14 +975,14 @@ export class GitWatcherService {
       events: stats.stormEvents,
     });
 
-    this.clearWorkspaceDebounce();
-    this.pendingCauses.add('workspace');
-    void this.fetchAndPush();
-
     if (this.gitMarkerSeenDuringStorm) {
       this.gitMarkerSeenDuringStorm = false;
       this.scheduleNestedRootsRefresh();
     }
+
+    this.clearWorkspaceDebounce();
+    this.pendingCauses.add('workspace');
+    void this.fetchAndPush();
 
     this.contentChangeTruncated = true;
     this.flushContentChanges();
@@ -1022,6 +1193,7 @@ export class GitWatcherService {
   private async fetchAndPush(): Promise<void> {
     if (this.isDisposed || !this.workspacePath || !this.broadcastFn) return;
 
+    this.clearUnattributedChange();
     const causes = this.drainCauses();
     const workspaceRoot = this.workspacePath;
 
@@ -1033,8 +1205,20 @@ export class GitWatcherService {
       // status run that started AFTER this call — joining the one queued
       // trailing run when a run is already alive, so a burst of pushes never
       // stacks parallel `git status` pipelines (TASK_2026_437 INV-3).
-      const result: GitInfoResult =
-        await this.gitInfo.refreshGitInfo(workspaceRoot);
+      let result: GitInfoResult;
+      const generation = this.armGeneration;
+      this.ownRefreshesInFlight++;
+      try {
+        result = await this.gitInfo.refreshGitInfo(workspaceRoot);
+      } finally {
+        // A run from before a stop/start must not touch the new arm's
+        // counters: `stop` already zeroed them.
+        if (this.armGeneration === generation) {
+          this.ownRefreshesInFlight--;
+          this.ownRefreshEchoUntil =
+            Date.now() + GitWatcherService.OWN_REFRESH_ECHO_MS;
+        }
+      }
       if (this.workspacePath !== workspaceRoot) return;
       const payload: GitStatusUpdatePayload = {
         ...result,
