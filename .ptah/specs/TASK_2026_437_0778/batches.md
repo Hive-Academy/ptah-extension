@@ -282,7 +282,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
   - Post-storm file-index rebuild uses an atomic `FolderSnapshot` swap (staging snapshot filled while queries serve the previous one) instead of marking the index stale.
   - Runtime-discovered nested repo roots do not expire until restart (a deleted nested repo stays excluded).
   - A `.git/worktrees` root event also triggers the nested-roots refresh (addition beyond the plan).
-  - Early-event blind spot: events inside a freshly created nested repo that arrive before its `.git` entry is seen are processed normally; documented in the service header.
+  - Early-event blind spot: events inside a freshly created nested repo that arrive before its `.git` entry is seen are processed normally; documented in the "Accepted blind spot" doc comment in `git-watcher.service.ts`.
 - Deferred follow-ups:
   - FU-4a: the storm-exit loop is duplicated between `GitWatcherService` and `WorkspaceFileIndexService`. Batch 11's coalescer MUST remove both copies.
   - FU-4b: `diff-tabs.service.ts` is over the 700-line soft ceiling; split under the facade rule in a later task.
