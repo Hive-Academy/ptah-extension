@@ -359,10 +359,23 @@ async function collectDumps(
   depth: number,
   out: { file: string; mtimeMs: number }[],
 ): Promise<void> {
-  let entries: fs.Dirent[];
+  for (const entry of await readDumpDirEntries(dir)) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (depth > 0) await collectDumps(full, depth - 1, out);
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.dmp')) {
+      await pushDumpStat(full, out);
+    }
+  }
+}
+
+/** A crash-dump directory's entries; empty (never rejects) when unreadable. */
+async function readDumpDirEntries(dir: string): Promise<fs.Dirent[]> {
   try {
-    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    return await fs.promises.readdir(dir, { withFileTypes: true });
   } catch (error: unknown) {
+    // degradation-audit: reported — an unreadable dump directory is warned
+    // below; the empty list only means no dumps are listed for this dir.
     // A missing directory is the normal first-run state: nothing crashed yet.
     if (!isNotFound(error)) {
       console.warn(
@@ -371,25 +384,24 @@ async function collectDumps(
         error instanceof Error ? error.message : String(error),
       );
     }
-    entries = [];
+    return [];
   }
+}
 
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (depth > 0) await collectDumps(full, depth - 1, out);
-    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.dmp')) {
-      try {
-        const stat = await fs.promises.stat(full);
-        out.push({ file: full, mtimeMs: stat.mtimeMs });
-      } catch (error: unknown) {
-        console.warn(
-          '[process-lifecycle] crash dump not inspected:',
-          full,
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-    }
+/** Record a dump's mtime; a dump that cannot be stat'ed is skipped with a warning. */
+async function pushDumpStat(
+  file: string,
+  out: { file: string; mtimeMs: number }[],
+): Promise<void> {
+  try {
+    const stat = await fs.promises.stat(file);
+    out.push({ file, mtimeMs: stat.mtimeMs });
+  } catch (error: unknown) {
+    console.warn(
+      '[process-lifecycle] crash dump not inspected:',
+      file,
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
 

@@ -882,3 +882,42 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 - `npx nx run-many -t lint,typecheck -p ptah-electron-e2e`; `npx nx e2e ptah-electron-e2e` with the new spec filtered, recorded locally
 - P4 PHASE GATE: `npm run lint:all`, `npm run typecheck:all`, `npx nx build ptah-electron`, `npx nx run degradation-audit:lint`
+
+---
+
+## PR #510 external review fixes — SonarCloud quality gate (Reliability C) — COMPLETE
+
+Not a numbered batch. Fix-up commit on files already committed by Batches 2, 4, 5. The commit
+carrying this section is the one whose subject is
+`fix: address SonarCloud reliability and maintainability findings on PR 510` (a commit cannot
+record its own SHA; resolve it with `git log --grep "SonarCloud reliability"`).
+
+- S8786 + S7781 — `libs/shared/src/lib/utils/nested-repo-roots.ts` `absoluteKey`: linear pass
+  replaces the lookbehind regex; `replaceAll`. 7 separator-normalization rows added to
+  `nested-repo-roots.spec.ts` — COMPLETE
+- S7758 — `libs/shared/src/lib/constants/workspace-scan.constants.ts` `equalsIgnoringAsciiCase`:
+  `codePointAt(i) ?? -1` — COMPLETE
+- S2699 — `libs/backend/vscode-core/src/diagnostics/main-loop-watchdog.spec.ts` "creates the log
+  directory on first write" now asserts the directory and the hang line (plus prettier reflow of
+  that spec) — COMPLETE
+- S3776 — `apps/ptah-electron/src/services/diagnostics/process-lifecycle-recorder.ts`:
+  `readDumpDirEntries` and `pushDumpStat` extracted from `collectDumps` — COMPLETE
+- S7780 — `libs/backend/vscode-core/src/diagnostics/main-loop-watchdog-source.ts`: two
+  backslash-free literals are plain templates; the `'\n'` literal stays `String.raw` — COMPLETE
+- S6582 — `apps/ptah-electron/src/services/git-watcher.service.ts`: optional chain — COMPLETE
+- S5906 — `libs/backend/workspace-intelligence/src/file-indexing/workspace-default-excludes.spec.ts`:
+  `toHaveLength` — COMPLETE
+- S4822 (`git-info.service.ts`) is fixed inside Batch 12, not here.
+
+Degradation-audit regression found and fixed by team-leader (comment only): the S3776 extraction
+turned `entries = []` into `return []` inside a catch, a new `catch-return-sentinel` that took
+`apps/ptah-electron` to 5 over baseline 4. A `// degradation-audit: reported —` marker in the
+catch's leading comments returns it to 4 (audit exit 0).
+
+Verification: eslint clean on all 8 files; `degradation-audit` check exit 0 (ptah-electron 4/4);
+`run-many -t test -p @ptah-extension/shared @ptah-extension/workspace-intelligence` (header: 2) —
+shared green, one timeout in `toolchain-probe.spec.ts` under 4-way parallel load, green when run
+alone; `main-loop-watchdog.spec.ts` 13/13 on three isolated runs (one failure under the same
+parallel load); `process-lifecycle-recorder` + `git-watcher.service.spec` 58/58. The `nx test
+--testPathPattern` form ran the whole project; failures there were in other batches' uncommitted
+files (`git-info.service*.spec.ts` Batch 12, `git-watcher.stress.spec.ts` Batch 6).

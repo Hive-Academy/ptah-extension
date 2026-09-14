@@ -16,7 +16,7 @@ import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
 describe('DEFAULT_WORKSPACE_EXCLUDES', () => {
   it('is a superset of the globs derived from NESTED_WORKSPACE_PATH_RULES', () => {
     const derived = toWorkspaceExcludeGlobs(NESTED_WORKSPACE_PATH_RULES);
-    expect(derived.length).toBe(NESTED_WORKSPACE_PATH_RULES.length);
+    expect(derived).toHaveLength(NESTED_WORKSPACE_PATH_RULES.length);
     expect(DEFAULT_WORKSPACE_EXCLUDES).toEqual(expect.arrayContaining(derived));
   });
 

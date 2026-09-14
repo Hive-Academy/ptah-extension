@@ -210,12 +210,20 @@ function ruleMatchesAt(
   return true;
 }
 
-/** ASCII case-insensitive equality without allocating (no `toLowerCase`). */
+/**
+ * ASCII case-insensitive equality without allocating (no `toLowerCase`).
+ *
+ * Compares per UTF-16 index. At a high surrogate `codePointAt` returns the full
+ * non-BMP code point (> 0xFFFF) and at a low surrogate the lone unit; neither
+ * is in the A-Z fold range, so a non-BMP character only ever equals the same
+ * character and never an ASCII rule letter. `?? -1` is unreachable (`i` is
+ * always in range) and only narrows the type.
+ */
 function equalsIgnoringAsciiCase(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
-    let x = a.charCodeAt(i);
-    let y = b.charCodeAt(i);
+    let x = a.codePointAt(i) ?? -1;
+    let y = b.codePointAt(i) ?? -1;
     if (x === y) continue;
     if (x >= 65 && x <= 90) x += 32;
     if (y >= 65 && y <= 90) y += 32;

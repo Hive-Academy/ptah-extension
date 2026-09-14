@@ -18,9 +18,12 @@
  * covered instead by `main-loop-watchdog.spec.ts`, which runs this exact text
  * in a real worker against a real temp file.
  *
- * **Constraints on edits.** The literals are `String.raw` templates, so the
- * program text must contain no backticks and no `${` sequence. Use `'a' + b`
- * concatenation, never a template literal.
+ * **Constraints on edits.** The literals are template literals, so the program
+ * text must contain no backticks and no `${` sequence. Use `'a' + b`
+ * concatenation, never a template literal. A literal whose text contains a
+ * backslash escape meant for the worker (the `'\n'` in `append`) MUST be a
+ * `String.raw` template, or the escape is resolved here instead of in the
+ * worker; the backslash-free literals are plain templates.
  *
  * Protocol (see `main-loop-watchdog.ts` for the typed mirror):
  *   workerData: { hangLogPath: string, hangLogMaxBytes: number,
@@ -55,7 +58,7 @@
  * still appends. Returns whether the line landed. No free variables: `nodeFs`
  * and `nodePath` are parameters.
  */
-export const HANG_LOG_APPEND_SOURCE = String.raw`
+export const HANG_LOG_APPEND_SOURCE = `
 function appendHangLogLine(nodeFs, nodePath, hangLogPath, line, maxBytes) {
   try {
     nodeFs.mkdirSync(nodePath.dirname(hangLogPath), { recursive: true });
@@ -76,7 +79,7 @@ function appendHangLogLine(nodeFs, nodePath, hangLogPath, line, maxBytes) {
 `;
 
 export const MAIN_LOOP_WATCHDOG_WORKER_SOURCE =
-  String.raw`
+  `
 'use strict';
 
 const { parentPort, workerData } = require('node:worker_threads');

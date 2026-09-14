@@ -636,7 +636,7 @@ export class GitWatcherService {
   ): void {
     if (this.isDisposed) return;
 
-    if (filename !== null && filename.includes('.git')) {
+    if (filename?.includes('.git')) {
       if (this.stormBreaker.isStorming) {
         this.gitMarkerSeenDuringStorm = true;
       } else {

@@ -175,6 +175,8 @@ describe('MainLoopWatchdog', () => {
 
   it('creates the log directory on first write', async () => {
     const nested = path.join(logsDir, 'not', 'yet', 'there');
+    const hangLog = path.join(nested, HANG_LOG_FILE_NAME);
+    expect(fs.existsSync(nested)).toBe(false);
     watchdog.start({
       logsPath: nested,
       heartbeatIntervalMs: 50,
@@ -183,10 +185,12 @@ describe('MainLoopWatchdog', () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 200));
     blockMainThread(600);
-    await waitFor(
-      () => readLines(path.join(nested, HANG_LOG_FILE_NAME)).length >= 1,
-      2_000,
-    );
+    await waitFor(() => readLines(hangLog).length >= 1, 2_000);
+
+    expect(fs.statSync(nested).isDirectory()).toBe(true);
+    const lines = readLines(hangLog);
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+    expect(lines[0].event).toBe('hang');
   });
 
   it('survives an unwritable hang log without the worker dying', async () => {
@@ -212,9 +216,8 @@ describe('MainLoopWatchdog', () => {
       watchdog.setBreadcrumb(`k${i}`, i);
     }
     watchdog.setBreadcrumb('k0', 'x'.repeat(MAX_BREADCRUMB_VALUE_LENGTH + 50));
-    const crumbs = (
-      watchdog as unknown as { breadcrumbs: Map<string, string> }
-    ).breadcrumbs;
+    const crumbs = (watchdog as unknown as { breadcrumbs: Map<string, string> })
+      .breadcrumbs;
 
     expect(crumbs.size).toBe(MAX_BREADCRUMB_KEYS);
     expect(crumbs.has(`k${MAX_BREADCRUMB_KEYS}`)).toBe(false);
@@ -342,7 +345,8 @@ describe('appendHangLogLine', () => {
     const file = path.join(dir, 'logs', HANG_LOG_FILE_NAME);
     const line = `${'a'.repeat(99)}\n`;
 
-    for (let i = 0; i < 3; i++) expect(appendHangLogLine(file, line, 250)).toBe(true);
+    for (let i = 0; i < 3; i++)
+      expect(appendHangLogLine(file, line, 250)).toBe(true);
     // 300 bytes >= 250: the next append rotates first.
     expect(fs.existsSync(`${file}.1`)).toBe(false);
     expect(appendHangLogLine(file, 'first-after-rotate\n', 250)).toBe(true);
@@ -351,16 +355,18 @@ describe('appendHangLogLine', () => {
 
     fs.appendFileSync(file, 'b'.repeat(300));
     expect(appendHangLogLine(file, 'second-rotate\n', 250)).toBe(true);
-    expect(fs.readFileSync(`${file}.1`, 'utf8')).toMatch(/^first-after-rotate\n/);
+    expect(fs.readFileSync(`${file}.1`, 'utf8')).toMatch(
+      /^first-after-rotate\n/,
+    );
     expect(fs.readFileSync(file, 'utf8')).toBe('second-rotate\n');
   });
 
   it('returns false instead of throwing when the directory cannot exist', () => {
     const blocker = path.join(dir, 'blocker');
     fs.writeFileSync(blocker, 'file, not dir');
-    expect(appendHangLogLine(path.join(blocker, HANG_LOG_FILE_NAME), 'x\n')).toBe(
-      false,
-    );
+    expect(
+      appendHangLogLine(path.join(blocker, HANG_LOG_FILE_NAME), 'x\n'),
+    ).toBe(false);
   });
 
   it('agrees write-for-write with the worker twin HANG_LOG_APPEND_SOURCE', () => {
@@ -377,14 +383,19 @@ describe('appendHangLogLine', () => {
 
     const tsFile = path.join(dir, 'ts', HANG_LOG_FILE_NAME);
     const twinFile = path.join(dir, 'twin', HANG_LOG_FILE_NAME);
-    const writes = Array.from({ length: 25 }, (_, i) => `${'z'.repeat(i * 7)}\n`);
+    const writes = Array.from(
+      { length: 25 },
+      (_, i) => `${'z'.repeat(i * 7)}\n`,
+    );
 
     for (const line of writes) {
       expect(twin(fs, path, twinFile, line, 300)).toBe(
         appendHangLogLine(tsFile, line, 300),
       );
     }
-    expect(fs.readFileSync(twinFile, 'utf8')).toBe(fs.readFileSync(tsFile, 'utf8'));
+    expect(fs.readFileSync(twinFile, 'utf8')).toBe(
+      fs.readFileSync(tsFile, 'utf8'),
+    );
     expect(fs.readFileSync(`${twinFile}.1`, 'utf8')).toBe(
       fs.readFileSync(`${tsFile}.1`, 'utf8'),
     );

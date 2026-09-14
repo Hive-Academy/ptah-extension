@@ -143,11 +143,22 @@ export class NestedRepoRoots {
 
   private absoluteKey(absolutePath: string): string {
     // Separators to '/', doubled separators collapsed (a UNC path keeps its
-    // leading '//'), trailing separators dropped.
-    const normalized = absolutePath
-      .replace(/\\/g, '/')
-      .replace(/(?<!^)\/{2,}/g, '/')
-      .replace(/\/+$/, '');
+    // leading '//'), trailing separators dropped. One linear pass — a regex
+    // with a lookbehind here backtracks super-linearly on long separator runs.
+    const slashed = absolutePath.replaceAll('\\', '/');
+    let end = slashed.length;
+    while (end > 0 && slashed[end - 1] === '/') end--;
+
+    let normalized = '';
+    for (let i = 0; i < end; i++) {
+      const char = slashed[i];
+      // A separator following a separator is dropped, except the second of a
+      // leading pair: output index 1 after a '/' at index 0 is the UNC prefix.
+      if (char === '/' && normalized.length > 1 && normalized.endsWith('/')) {
+        continue;
+      }
+      normalized += char;
+    }
     return this.caseInsensitive ? normalized.toLowerCase() : normalized;
   }
 }

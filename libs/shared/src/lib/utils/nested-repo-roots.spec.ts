@@ -87,6 +87,42 @@ describe('NestedRepoRoots', () => {
       expect(roots.roots()).toEqual(['wt']);
     });
 
+    it.each([
+      [
+        'UNC root with a doubled separator mid-path',
+        '\\\\server\\share\\\\x',
+        '\\\\server\\share',
+        ['x'],
+      ],
+      [
+        'UNC leading run of three separators',
+        '///server/share/x/wt',
+        '//server/share/x',
+        ['wt'],
+      ],
+      ['doubled separators mid-path', 'C:/ws//a///b', 'C:\\ws', ['a/b']],
+      ['mixed doubled separators mid-path', 'C:\\ws\\/a/\\b', 'C:/ws', ['a/b']],
+      [
+        'trailing separators on both sides',
+        'C:\\ws\\a\\b\\\\\\',
+        'C:\\ws\\\\',
+        ['a/b'],
+      ],
+      ['POSIX trailing separators', '/repo/a//', '/repo///', ['a']],
+      [
+        'a UNC leading pair is not collapsed to one',
+        '/server/share/x',
+        '\\\\server\\share',
+        [],
+      ],
+    ])('normalizes separators: %s', (_label, worktree, workspace, expected) => {
+      const roots = NestedRepoRoots.fromWorktreeList(
+        [{ path: worktree }],
+        workspace,
+      );
+      expect(roots.roots()).toEqual(expected);
+    });
+
     it('adds nothing when the workspace root is empty', () => {
       const roots = NestedRepoRoots.fromWorktreeList(
         [{ path: '/anything/x' }],
