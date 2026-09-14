@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 56 | Batches: 22 | Complete: 6/22
+Total tasks: 56 | Batches: 22 | Complete: 7/22
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160). P2 wave 1 — Batch 7 COMPLETE, committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). Remaining unblocked: Batch 6 (P1 wave 3, in progress); P2 wave 1 Batches 12, 13, 14; P3 wave 1 Batch 16.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160). P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE, both committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). Remaining unblocked: Batch 6 (P1 wave 3, in progress); P2 wave 1 Batches 12, 14; P3 wave 1 Batch 16.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `context.md` "User decisions"
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -450,7 +450,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ### Batch 7 outcome
 
-- Commit: the commit whose subject is `feat(platform-core): add a batched workspace watcher port and change coalescer` (a commit cannot record its own SHA; resolve with `git log --grep "batched workspace watcher port"`).
+- Commit: b9ac03426 `feat(platform-core): add a batched workspace watcher port and change coalescer`.
 - Reviews: `b7-code-logic-review.md` base APPROVE_WITH_FIXES, appended delta APPROVE (HIGH on fixes 1, 2, 3, 5, 6; MEDIUM on 4). `b7-code-style-review.md` APPROVE_WITH_FIXES; both serious items fixed (contract runner is `(name, setup, teardown?)`; algorithm duplication pinned by the new `workspace-exclusion-drift.spec.ts` in workspace-intelligence, 44 rows + fuzz, and cross-referenced in platform-core CLAUDE.md).
 - Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset):
   - `npx nx run-many -t test,typecheck,lint -p @ptah-extension/platform-core @ptah-extension/shared @ptah-extension/workspace-intelligence` (header: 3 projects). shared 58 suites / 1520 tests passed; workspace-intelligence 42 suites / 1075 passed; platform-core 34/35 suites, 641 passed / 4 todo / 1 failed — the failure is the known load flake `file-settings-manager.bench.spec.ts` (30 s timeout), 2/2 green when re-run alone. typecheck green; lint 0 errors (warnings only).
@@ -652,7 +652,7 @@ P4 is the COMMIT order" for these four batches only.
 
 ---
 
-## Batch 13: P2 — reusable bounded spawn workers (C12) — PENDING
+## Batch 13: P2 — reusable bounded spawn workers (C12) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: none
@@ -660,13 +660,13 @@ P4 is the COMMIT order" for these four batches only.
 - Rationale: worker lifecycle in one helper with real-child specs (R-P6).
 - Tasks: 2 | Depends on: none | Parallel with: Batches 7–12, 14
 
-### Task 13.1: Worker pool in `OffThreadProcessSpawner` — PENDING
+### Task 13.1: Worker pool in `OffThreadProcessSpawner` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\off-thread-process-spawner.ts` (:245-314, :492-507, :666-698), `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\off-thread-process-spawner-source.ts`, `D:\projects\ptah-extension\libs\backend\agent-sdk\CLAUDE.md`
 - Plan reference: implementation-plan.md:604-624
 - Validation notes: one child per worker; ≤ 4 idle kept for 30 s; above 24 live spawn anyway and warn once/min. An errored or exited worker is never pooled. `PTAH_SDK_INLINE_SPAWN=1` unchanged.
 
-### Task 13.2: Reuse specs — PENDING
+### Task 13.2: Reuse specs — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\off-thread-process-spawner.spec.ts`
 - Implementation details: 50 sequential spawns create ≤ 4 workers (AC-8); stdout isolation between consecutive children; a killed child's worker is not reused.
@@ -675,6 +675,22 @@ P4 is the COMMIT order" for these four batches only.
 
 - `npx nx run-many -t test -p @ptah-extension/agent-sdk` (header: 1); `npx nx run-many -t typecheck,lint -p @ptah-extension/agent-sdk ptah-electron`
 - Done when: AC-8 is green
+
+### Batch 13 outcome
+
+- Commit: the commit whose subject is `perf(agent-sdk): reuse a bounded pool of spawn workers` (resolve with `git log --grep "bounded pool of spawn workers"`).
+- Reviews: `b13-code-logic-review.md` base APPROVE_WITH_FIXES → delta APPROVE_WITH_FIXES; the three delta items were then fixed and verified on disk by team-leader: a lost worker / force-terminate / grace abandon reports `exitCode` null + `signalCode` + `killed` true (no numeric sentinel); cap reports carry `inlineSinceLastReport` / `overCapSinceLastReport`; `WorkerBackedProcess.stdin` has a no-op `error` listener (`off-thread-process-spawner.ts:263`). `b13-code-style-review.md` APPROVE_WITH_FIXES; the fix (extract `SpawnWorkerPool` / `PooledSpawnWorker` to `spawn-worker-pool.ts`, facade rule) is done — `off-thread-process-spawner.ts` 1016 → 805 lines, `spawn-worker-pool.ts` 417.
+- Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset):
+  - `npx nx run-many -t test,typecheck,lint -p @ptah-extension/agent-sdk @ptah-extension/cli-agent-runtime @ptah-extension/persistence-sqlite` (header: 3 projects; one run shared with Batch 14) — exit 0. agent-sdk 106 suites passed / 2 skipped, 1859 tests passed / 3 skipped; cli-agent-runtime 60 suites / 907 passed / 1 skipped; typecheck green; lint 0 errors.
+  - Direct: `spawn-worker-pool` + `off-thread-process-spawner` specs — 2 suites passed (the `PTAH_PERF_SPECS` perf suite skipped by design), 27 passed.
+  - `degradation-audit:lint` exit 0 (see Batch 7 outcome).
+- Accepted deviations:
+  - (a) New file `spawn-worker-pool.ts` (+ spec), from the style review's extraction; its constants are deliberately not in the barrel.
+  - (b) Hard cap 64 live workers: `admit()` refuses and that one child is spawned INLINE, with a `critical` degradation report (`agent.spawn-worker.hard-cap-inline`), rate-limited to once a minute. The soft cap 24 still spawns a worker and warns.
+  - (c) The `ptah-electron` typecheck/lint listed under "Batch 13 verification" was replaced by `cli-agent-runtime` (the `IProcessSpawner` consumer). ptah-electron lint was run separately before the commit: 0 errors.
+- Follow-ups (not in this batch):
+  - FU-13a: a shared off-main-thread Windows tree-kill helper. A dead worker SIGTERMs only its child, and `exec-git.ts` carries a duplicate `taskkill`.
+  - FU-13b: a failed spawn with ENOENT closes as `(null, null)` — pre-existing, not introduced here.
 
 ---
 
