@@ -99,10 +99,21 @@ export type {
 } from './services/git-info.service';
 export {
   execGit,
+  configureGitProcessGate,
+  GitOutputLimitError,
   DEFAULT_GIT_TIMEOUT_MS,
   WORKTREE_GIT_TIMEOUT_MS,
+  DEFAULT_GIT_MAX_OUTPUT_BYTES,
+  GIT_STATUS_MAX_OUTPUT_BYTES,
+  DEFAULT_GIT_MAX_CONCURRENT,
+  MIN_GIT_MAX_CONCURRENT,
 } from './utils/exec-git';
-export type { ExecGitOptions, ExecGitResult } from './utils/exec-git';
+export type {
+  ExecGitOptions,
+  ExecGitResult,
+  GitGateLane,
+  GitProcessGateConfig,
+} from './utils/exec-git';
 export {
   resolveWorktreePath,
   worktreeDirectoryName,

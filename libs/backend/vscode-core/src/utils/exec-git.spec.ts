@@ -12,6 +12,17 @@
  *   execGitBuffer — returns raw stdout bytes, NUL bytes intact
  *   both          — non-zero exit codes and stderr are surfaced, not thrown
  *
+ * TASK_2026_437 additions (C11 git process supervision):
+ *   GitProcessGate — caps live slots, FIFO per workspace, round-robin across
+ *                    workspaces, one saturation warning per minute
+ *   execGit       — 10 concurrent calls never run more than 4 children
+ *   execGit       — a timeout rejects but keeps the slot until the child
+ *                   closes, or 2 s after the forced kill
+ *   execGit       — the output cap kills the child and rejects typed
+ *   execGit       — a spawn error with no pid frees the slot at once
+ *   execGit       — `priority: 'background'` lowers the child's OS priority;
+ *                   a refused `setPriority` does not fail the call
+ *
  * `crossSpawn` is mocked at the module boundary so no git binary is required.
  *
  * Source-under-test:
@@ -37,9 +48,30 @@ jest.mock('which', () => ({
   default: { sync: (...args: unknown[]) => mockWhichSync(...args) },
 }));
 
+// The Windows tree kill spawns `taskkill` through `child_process.spawn`. Mocked
+// so a timeout or output-cap spec can never aim a real kill at a fake pid.
+const mockTreeKill = jest.fn((..._args: unknown[]) => new EventEmitter());
+jest.mock('child_process', () => ({
+  ...jest.requireActual('child_process'),
+  spawn: (...args: unknown[]) => mockTreeKill(...args),
+}));
+
+// `os.setPriority` is mocked so background-priority specs never touch a real
+// process and can observe the call.
+const mockSetPriority = jest.fn();
+jest.mock('os', () => ({
+  ...jest.requireActual('os'),
+  setPriority: (...args: unknown[]) => mockSetPriority(...args),
+}));
+
+import * as os from 'os';
 import {
+  configureGitProcessGate,
   execGit,
   execGitBuffer,
+  GitOutputLimitError,
+  GitProcessGate,
+  resetGitProcessGateForTests,
   resetResolvedGitBinaryForTests,
 } from './exec-git';
 
@@ -108,6 +140,9 @@ const GIT_ABS = '/usr/bin/git';
 
 beforeEach(() => {
   resetResolvedGitBinaryForTests();
+  // A fresh process gate per spec: a child a previous spec left holding a slot
+  // must not change how many this spec may start.
+  resetGitProcessGateForTests();
   // Full reset (not clear): several specs install a throwing or null-returning
   // implementation, and it must not leak into the next spec's default.
   mockWhichSync.mockReset();
@@ -513,5 +548,627 @@ describe('spawner routing', () => {
     await execGit(['status'], WS);
 
     expect(mockSpawn).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ===========================================================================
+// Git process supervision — TASK_2026_437 C11 (INV-3, INV-4, AC-3 P2).
+//
+// The gate is process-wide, so these specs pin what every caller gets: at most
+// `PTAH_GIT_MAX_CONCURRENT` (default 4) live children, a slot held by the
+// CHILD until it exits (a timeout never frees it early), an output cap that
+// kills, and a best-effort background priority.
+// ===========================================================================
+describe('GitProcessGate', () => {
+  it('admits up to the cap and queues the rest without rejecting', async () => {
+    const gate = new GitProcessGate(4);
+    const releases: Array<() => void> = [];
+    const pending = Array.from({ length: 10 }, () =>
+      gate.acquire('/ws').then((release) => {
+        releases.push(release);
+      }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(gate.liveCount).toBe(4);
+    expect(gate.queuedCount).toBe(6);
+
+    for (let i = 0; i < 10; i++) {
+      releases.shift()?.();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(gate.liveCount).toBeLessThanOrEqual(4);
+    }
+    await Promise.all(pending);
+    expect(gate.liveCount).toBe(0);
+    expect(gate.queuedCount).toBe(0);
+  });
+
+  it('ignores a second release of the same slot', async () => {
+    const gate = new GitProcessGate(2);
+    const release = await gate.acquire('/ws', 'background');
+    const second = gate.acquire('/ws', 'background');
+    release();
+    release();
+    await second;
+    expect(gate.liveCount).toBe(1);
+  });
+
+  it('serves FIFO within a workspace and round-robin across workspaces', async () => {
+    const gate = new GitProcessGate(2);
+    const holder = await gate.acquire('/a', 'background');
+    const order: string[] = [];
+    const take = (workspace: string, label: string) =>
+      gate.acquire(workspace, 'background').then((release) => {
+        order.push(label);
+        return release;
+      });
+
+    const a1 = take('/a', 'a1');
+    const a2 = take('/a', 'a2');
+    const a3 = take('/a', 'a3');
+    const b1 = take('/b', 'b1');
+
+    holder();
+    (await a1)();
+    (await b1)();
+    (await a2)();
+    (await a3)();
+
+    expect(order).toEqual(['a1', 'b1', 'a2', 'a3']);
+  });
+
+  it('warns about saturation at most once per minute', async () => {
+    let now = 0;
+    const warn = jest.fn();
+    const gate = new GitProcessGate(2, warn, () => now);
+
+    let release = await gate.acquire('/ws', 'background');
+    const waiters = [
+      gate.acquire('/ws', 'background'),
+      gate.acquire('/ws', 'background'),
+      gate.acquire('/ws', 'background'),
+    ];
+
+    now = 6_000; // the first waiter waited 6 s
+    release();
+    release = await waiters[0];
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('[GitProcessGate] saturated');
+
+    now = 7_000; // the second waited 7 s, inside the same minute
+    release();
+    release = await waiters[1];
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    now = 67_000; // a minute after the first warning
+    release();
+    await waiters[2];
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not warn when the wait stays under 5 s', async () => {
+    let now = 0;
+    const warn = jest.fn();
+    const gate = new GitProcessGate(2, warn, () => now);
+    const release = await gate.acquire('/ws', 'background');
+    const waiter = gate.acquire('/ws', 'background');
+    now = 4_000;
+    release();
+    await waiter;
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('routes the saturation warning to a configured logger', async () => {
+    let now = 0;
+    const gate = new GitProcessGate(2, undefined, () => now);
+    const logger = { warn: jest.fn() };
+    gate.configure({ logger: logger as never });
+
+    const release = await gate.acquire('/ws', 'background');
+    const waiter = gate.acquire('/ws', 'background');
+    now = 6_000;
+    release();
+    await waiter;
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('[GitProcessGate] saturated'),
+    );
+  });
+
+  it('keeps one slot free of background work for interactive calls', async () => {
+    const gate = new GitProcessGate(4);
+    const background = [
+      await gate.acquire('/ws', 'background'),
+      await gate.acquire('/ws', 'background'),
+      await gate.acquire('/ws', 'background'),
+    ];
+    let fourthBackground = false;
+    void gate.acquire('/ws', 'background').then(() => {
+      fourthBackground = true;
+    });
+    await Promise.resolve();
+    expect(fourthBackground).toBe(false);
+    expect(gate.liveCount).toBe(3);
+
+    // The interactive call is admitted at once, ahead of the older
+    // background waiter, because the background lane is at its cap.
+    const interactive = await gate.acquire('/ws', 'interactive');
+    expect(gate.liveCount).toBe(4);
+
+    interactive();
+    background[0]();
+    await Promise.resolve();
+    expect(fourthBackground).toBe(true);
+  });
+
+  it('raises a cap of 1 to 2, so a hung background call never blocks an interactive one', async () => {
+    const warn = jest.fn();
+    const gate = new GitProcessGate(1, warn);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('below the minimum; using 2'),
+    );
+
+    await gate.acquire('/ws', 'background');
+    let secondBackground = false;
+    void gate.acquire('/ws', 'background').then(() => {
+      secondBackground = true;
+    });
+    await Promise.resolve();
+    expect(secondBackground).toBe(false);
+
+    await gate.acquire('/ws', 'interactive');
+    expect(gate.liveCount).toBe(2);
+  });
+
+  it('holds a clamp notice until a logger is configured', () => {
+    const gate = new GitProcessGate(1);
+    const logger = { warn: jest.fn() };
+    gate.configure({ logger: logger as never });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn.mock.calls[0][0]).toContain('below the minimum');
+  });
+
+  it('keeps the first configuration and reports a conflicting one once', async () => {
+    const gate = new GitProcessGate(4);
+    const first = { warn: jest.fn() };
+    const second = { warn: jest.fn() };
+
+    gate.configure({ logger: first as never, maxConcurrent: 3 });
+    gate.configure({ logger: first as never, maxConcurrent: 3 });
+    expect(first.warn).not.toHaveBeenCalled();
+
+    gate.configure({ logger: second as never, maxConcurrent: 8 });
+    gate.configure({ logger: second as never });
+    expect(first.warn).toHaveBeenCalledTimes(1);
+    expect(first.warn.mock.calls[0][0]).toContain('keeping the first');
+    expect(second.warn).not.toHaveBeenCalled();
+
+    // Still 3 slots, not 8.
+    for (let i = 0; i < 4; i++) void gate.acquire('/ws');
+    await Promise.resolve();
+    expect(gate.liveCount).toBe(3);
+  });
+
+  it('picks the longer-waiting head when both lanes are admissible', async () => {
+    let now = 0;
+    const gate = new GitProcessGate(2, undefined, () => now);
+    const holderA = await gate.acquire('/ws');
+    const holderB = await gate.acquire('/ws');
+    const order: string[] = [];
+    now = 1;
+    void gate.acquire('/ws', 'background').then(() => order.push('bg'));
+    now = 2;
+    void gate.acquire('/ws', 'interactive').then(() => order.push('int'));
+
+    holderA();
+    await Promise.resolve();
+    expect(order).toEqual(['bg']);
+    holderB();
+    await Promise.resolve();
+    expect(order).toEqual(['bg', 'int']);
+  });
+});
+
+describe('git process supervision', () => {
+  /** A fake inline child that stays alive until the spec closes it. */
+  interface HeldChild extends EventEmitter {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    stdin: { end: jest.Mock; write: jest.Mock; on: jest.Mock };
+    kill: jest.Mock;
+    pid: number | undefined;
+    killed: boolean;
+  }
+
+  const held: HeldChild[] = [];
+  let live = 0;
+  let maxLive = 0;
+
+  function makeHeldChild(pid: number | null = 4242): HeldChild {
+    const child = new EventEmitter() as HeldChild;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { end: jest.fn(), write: jest.fn(), on: jest.fn() };
+    child.kill = jest.fn();
+    child.pid = pid ?? undefined;
+    child.killed = false;
+    live++;
+    maxLive = Math.max(maxLive, live);
+    child.once('close', () => {
+      live--;
+    });
+    held.push(child);
+    return child;
+  }
+
+  async function drain(): Promise<void> {
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  }
+
+  /**
+   * Background lane. With `PTAH_GIT_MAX_CONCURRENT=2` (the minimum) it has
+   * exactly one slot, which is what the single-slot specs below need.
+   */
+  const BG = { priority: 'background' } as const;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    held.length = 0;
+    live = 0;
+    maxLive = 0;
+    mockSpawn.mockImplementation(() => makeHeldChild());
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    delete process.env['PTAH_GIT_MAX_CONCURRENT'];
+    resetGitProcessGateForTests();
+  });
+
+  it('never runs more than 4 git children for 10 concurrent calls', async () => {
+    const calls = Array.from({ length: 10 }, (_, i) =>
+      execGit(['show', `HEAD:f${i}.ts`], i % 2 === 0 ? WS : '/fake/other'),
+    );
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(4);
+
+    for (let i = 0; i < 10; i++) {
+      held[i].emit('close', 0);
+      await drain();
+      expect(live).toBeLessThanOrEqual(4);
+    }
+
+    const results = await Promise.all(calls);
+    expect(results).toHaveLength(10);
+    expect(mockSpawn).toHaveBeenCalledTimes(10);
+    expect(maxLive).toBe(4);
+  });
+
+  it('honours PTAH_GIT_MAX_CONCURRENT', async () => {
+    process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+    resetGitProcessGateForTests();
+
+    const calls = Array.from({ length: 5 }, () => execGit(['status'], WS));
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+
+    for (let i = 0; i < 5; i++) {
+      held[i].emit('close', 0);
+      await drain();
+    }
+    await Promise.all(calls);
+    expect(maxLive).toBe(2);
+  });
+
+  it('a timeout rejects at once but keeps the slot until the child closes', async () => {
+    process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+    resetGitProcessGateForTests();
+
+    const first = execGit(['status'], WS, { ...BG, timeoutMs: 20 });
+    await expect(first).rejects.toThrow('git status timed out after 20ms');
+    expect(held[0].kill).toHaveBeenCalledWith('SIGTERM');
+    await drain();
+    if (process.platform === 'win32') {
+      expect(mockTreeKill).toHaveBeenCalledWith(
+        'taskkill',
+        ['/F', '/T', '/PID', '4242'],
+        expect.anything(),
+      );
+    }
+
+    const second = execGit(['rev-parse', 'HEAD'], WS, BG);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    // The dying child still owns the only slot.
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    held[0].emit('close', null);
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+
+    held[1].emit('close', 0);
+    await expect(second).resolves.toMatchObject({ exitCode: 0 });
+  });
+
+  it('starts the timeout clock at spawn, not while queued', async () => {
+    jest.useFakeTimers({
+      doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'],
+    });
+    process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+    resetGitProcessGateForTests();
+
+    const first = execGit(['status'], WS, { ...BG, timeoutMs: 60_000 });
+    const queued = execGit(['log'], WS, { ...BG, timeoutMs: 1_000 });
+    await drain();
+
+    // Far past the queued call's own timeout while it is still waiting.
+    await jest.advanceTimersByTimeAsync(5_000);
+    held[0].emit('close', 0);
+    await first;
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+
+    held[1].emit('close', 0);
+    await expect(queued).resolves.toMatchObject({ exitCode: 0 });
+  });
+
+  it('frees the slot 2 s after the forced kill when the child never closes', async () => {
+    jest.useFakeTimers({
+      doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'],
+    });
+    process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+    resetGitProcessGateForTests();
+
+    const first = execGit(['status'], WS, { ...BG, timeoutMs: 1_000 });
+    const firstRejected = expect(first).rejects.toThrow('timed out');
+    await drain();
+    await jest.advanceTimersByTimeAsync(1_000);
+    await firstRejected;
+
+    const second = execGit(['log'], WS, BG);
+    await jest.advanceTimersByTimeAsync(1_999);
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    await jest.advanceTimersByTimeAsync(1);
+    await drain();
+    // `killed` stayed false, so the grace escalated before giving the slot up.
+    expect(held[0].kill).toHaveBeenCalledWith('SIGKILL');
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+
+    held[1].emit('close', 0);
+    await expect(second).resolves.toMatchObject({ exitCode: 0 });
+  });
+
+  it('kills a child whose output passes the cap and rejects with GitOutputLimitError', async () => {
+    process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+    resetGitProcessGateForTests();
+
+    const call = execGitBuffer(['show', 'HEAD:huge.bin'], WS, {
+      ...BG,
+      maxOutputBytes: 10,
+    });
+    await drain();
+    held[0].stdout.emit('data', Buffer.alloc(6));
+    held[0].stderr.emit('data', Buffer.alloc(6));
+
+    const error = await call.catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(GitOutputLimitError);
+    expect((error as GitOutputLimitError).code).toBe('GIT_OUTPUT_LIMIT');
+    expect((error as GitOutputLimitError).limitBytes).toBe(10);
+    expect(held[0].kill).toHaveBeenCalledWith('SIGTERM');
+
+    // The killed child keeps its slot until it exits.
+    const next = execGit(['status'], WS, BG);
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    held[0].emit('close', null);
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    held[1].emit('close', 0);
+    await next;
+  });
+
+  it('resolves normally when output stays within the cap', async () => {
+    const call = execGit(['status'], WS, { ...BG, maxOutputBytes: 10 });
+    await drain();
+    held[0].stdout.emit('data', Buffer.from('0123456789'));
+    held[0].emit('close', 0);
+    await expect(call).resolves.toMatchObject({ stdout: '0123456789' });
+  });
+
+  it('frees the slot at once when the child never started', async () => {
+    process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+    resetGitProcessGateForTests();
+    mockSpawn.mockImplementationOnce(() => makeHeldChild(null));
+
+    const failed = execGit(['status'], WS, BG);
+    await drain();
+    held[0].emit('error', new Error('spawn ENOENT'));
+    await expect(failed).rejects.toThrow('spawn ENOENT');
+
+    const next = execGit(['status'], WS, BG);
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    held[1].emit('close', 0);
+    await next;
+  });
+
+  it('frees the slot when spawning throws synchronously', async () => {
+    process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+    resetGitProcessGateForTests();
+    mockSpawn.mockImplementationOnce(() => {
+      throw new Error('EINVAL');
+    });
+
+    await expect(execGit(['status'], WS, BG)).rejects.toThrow('EINVAL');
+
+    const next = execGit(['status'], WS, BG);
+    await drain();
+    expect(held).toHaveLength(1);
+    held[0].emit('close', 0);
+    await next;
+  });
+
+  it('kills a started child that reports an error, and holds its slot until it closes', async () => {
+    process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+    resetGitProcessGateForTests();
+
+    const failed = execGit(['status'], WS, BG);
+    await drain();
+    held[0].emit('error', new Error('EPIPE'));
+    await expect(failed).rejects.toThrow('EPIPE');
+    await drain();
+
+    expect(held[0].kill).toHaveBeenCalledWith('SIGTERM');
+    if (process.platform === 'win32') {
+      expect(mockTreeKill).toHaveBeenCalledWith(
+        'taskkill',
+        ['/F', '/T', '/PID', '4242'],
+        expect.anything(),
+      );
+    }
+
+    const next = execGit(['status'], WS, BG);
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    held[0].emit('close', null);
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    held[1].emit('close', 0);
+    await next;
+  });
+
+  it('never kills a child that already closed before its error arrived', async () => {
+    const call = execGit(['status'], WS);
+    await drain();
+    held[0].emit('close', 0);
+    await call;
+    held[0].emit('error', new Error('late'));
+    await drain();
+    expect(held[0].kill).not.toHaveBeenCalled();
+    expect(mockTreeKill).not.toHaveBeenCalled();
+  });
+
+  it('never lets 3 hung long commands block an interactive read', async () => {
+    const longCalls = Array.from({ length: 3 }, (_, i) =>
+      execGit(['worktree', 'add', `wt${i}`], WS, { timeoutMs: 300_000 }),
+    );
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(3);
+
+    // A fourth long command waits: the background lane is at max - 1.
+    const fourthLong = execGit(['worktree', 'remove', 'wt9'], WS, {
+      timeoutMs: 300_000,
+    });
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(3);
+
+    const read = execGit(['status'], WS);
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(4);
+    expect(mockSpawn.mock.calls[3][1]).toEqual(['status']);
+
+    held[3].emit('close', 0);
+    await read;
+    for (let i = 0; i < 3; i++) held[i].emit('close', 0);
+    await Promise.all(longCalls);
+    await drain();
+    held[4].emit('close', 0);
+    await fourthLong;
+  });
+
+  it('applies a slot count from configureGitProcessGate, raised to the minimum', async () => {
+    const logger = { warn: jest.fn() };
+    configureGitProcessGate({ logger: logger as never, maxConcurrent: 1 });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('below the minimum; using 2'),
+    );
+    const calls = Array.from({ length: 3 }, () => execGit(['status'], WS));
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    for (let i = 0; i < 3; i++) {
+      held[i].emit('close', 0);
+      await drain();
+    }
+    await Promise.all(calls);
+  });
+
+  it('PTAH_GIT_MAX_CONCURRENT=1 runs with 2 slots: a hung background call never blocks a read', async () => {
+    process.env['PTAH_GIT_MAX_CONCURRENT'] = '1';
+    resetGitProcessGateForTests();
+
+    const hung = execGit(['status'], WS, BG);
+    await drain();
+    const read = execGit(['show', 'HEAD:a.ts'], WS);
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    expect(mockSpawn.mock.calls[1][1]).toEqual(['show', 'HEAD:a.ts']);
+
+    held[1].emit('close', 0);
+    await read;
+    held[0].emit('close', 0);
+    await hung;
+  });
+
+  it('lowers a background child to below-normal priority', async () => {
+    const call = execGit(['status'], WS, { priority: 'background' });
+    await drain();
+    expect(mockSetPriority).toHaveBeenCalledWith(
+      4242,
+      os.constants.priority.PRIORITY_BELOW_NORMAL,
+    );
+    held[0].emit('close', 0);
+    await call;
+  });
+
+  it('leaves a normal-priority child alone', async () => {
+    const call = execGit(['status'], WS);
+    await drain();
+    held[0].emit('close', 0);
+    await call;
+    expect(mockSetPriority).not.toHaveBeenCalled();
+  });
+
+  it('skips setPriority for a child that closed before its pid arrived', async () => {
+    let reportPid!: (pid: number | null) => void;
+    const closeListeners: Array<(code: number) => void> = [];
+    const spawnProcess = jest.fn(() => ({
+      stdin: { on: jest.fn(), end: jest.fn(), write: jest.fn() },
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+      whenSpawned: new Promise<number | null>((resolve) => {
+        reportPid = resolve;
+      }),
+      pid: undefined,
+      killed: false,
+      kill: jest.fn(),
+      on: jest.fn((event: string, listener: (code: number) => void) => {
+        if (event === 'close') closeListeners.push(listener);
+      }),
+    }));
+
+    const call = execGit(['status'], WS, {
+      priority: 'background',
+      spawner: { spawnProcess } as never,
+    });
+    await drain();
+    for (const listener of closeListeners) listener(0);
+    await call;
+    reportPid(5150);
+    await drain();
+
+    expect(mockSetPriority).not.toHaveBeenCalled();
+  });
+
+  it('does not fail the git call when setPriority is refused', async () => {
+    mockSetPriority.mockImplementationOnce(() => {
+      throw new Error('EACCES');
+    });
+    const call = execGit(['status'], WS, { priority: 'background' });
+    await drain();
+    held[0].stdout.emit('data', Buffer.from('ok'));
+    held[0].emit('close', 0);
+    await expect(call).resolves.toMatchObject({ stdout: 'ok', exitCode: 0 });
   });
 });

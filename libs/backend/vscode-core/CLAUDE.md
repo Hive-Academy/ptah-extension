@@ -33,6 +33,7 @@ Messaging: `RpcHandler`, `RpcUserError`, `verifyRpcRegistration`, `assertRpcRegi
 Diagnostics: `armDiagnostics` (+ `DiagnosticsHandle`), `EventLoopMonitor`, `CpuProfileCapture`, `readMsEnv`, `roundMs` — see "Diagnosing a hang".
 Degradation: `DegradationReporter`, `MAX_TRACKED_DEGRADATION_CODES`, and the types `DegradationReport`, `DegradationCount`, `DegradationSnapshot` — see "Counting a degradation".
 Services: `SubagentRegistryService`, `WebviewMessageHandlerService`, `AuthSecretsService`, `LicenseService`.
+Git: `GitInfoService`, `execGit`, `DEFAULT_GIT_TIMEOUT_MS`, `WORKTREE_GIT_TIMEOUT_MS`, `DEFAULT_GIT_MAX_OUTPUT_BYTES`, `GIT_STATUS_MAX_OUTPUT_BYTES`, `DEFAULT_GIT_MAX_CONCURRENT`, `MIN_GIT_MAX_CONCURRENT`, `GitOutputLimitError` (`code: 'GIT_OUTPUT_LIMIT'`), `configureGitProcessGate` (+ `GitProcessGateConfig`), and the types `ExecGitOptions`, `ExecGitResult`, `GitGateLane`. Every git child waits in one process-wide gate (TASK_2026_437 C11): at most `PTAH_GIT_MAX_CONCURRENT` live, background-priority and >60 s calls capped at max-1 so interactive reads always have a slot, and a slot is held until the child exits. The gate is a module instance, not DI — `execGit` is a free function called without a container; `registerVsCodeCorePlatformAgnostic` hands it the host logger in all three hosts (first configuration wins).
 Subsystem bring-up: `bringUpSubsystems` (+ `SubsystemBringUpDeps`) — unconditional MCP server start at activation (no license gate). The CLI skill/agent sync callbacks it used to drive were removed in TASK_2026_278 Batch 2; harness propagation is `HarnessReconciler.reconcile`, called from each host's activation path.
 
 ## Diagnosing a hang
@@ -59,6 +60,7 @@ env vars only change thresholds; the CPU profiler stays dormant unless asked.
 | `PTAH_HISTORY_SLOW_WARN_MS` | `250`   | Warn `[SessionHistoryReader] slow history read` with the phase split.        |
 | `PTAH_PROFILE_ON_LAG_MS`    | unset   | When set, lag above it auto-captures a 10 s CPU profile (max one per 5 min). |
 | `PTAH_PROFILE_DIR`          | unset   | Override where `.cpuprofile` files are written.                              |
+| `PTAH_GIT_MAX_CONCURRENT`   | `4`     | Live git children process-wide (`exec-git` gate); minimum 2 (lower is raised, logged once); background lane gets max-1. |
 
 A malformed or non-positive value is ignored and the default applies — a typo in
 an env var must never stop the app booting. Note `0` counts as unset: it reads

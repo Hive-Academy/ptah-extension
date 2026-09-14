@@ -57,10 +57,12 @@ function makeSourceControlStub() {
   imports: [SourceControlPanelComponent],
   template: `<ptah-source-control-panel
     [files]="files()"
+    [statusUnavailable]="statusUnavailable()"
     (diffRequested)="diffRequested.push($event)"
   />`,
 })
 class HostComponent {
+  readonly statusUnavailable = signal(false);
   readonly files = signal<GitFileStatus[]>([
     { path: 'src/a.ts', status: 'M', staged: true } as GitFileStatus,
     { path: 'src/b.ts', status: 'A', staged: false } as GitFileStatus,
@@ -502,6 +504,41 @@ describe('SourceControlPanelComponent — header controls are siblings, not nest
         'button[aria-label^="Open diff for"]',
       ),
     ).toBeNull();
+  });
+
+  // -- TASK_2026_437: status unavailable --------------------------------------
+
+  it('renders the unavailable notice instead of "No changes" or any count when status could not be read', () => {
+    const noticeText =
+      "Git status is unavailable: this repository's status output is too large to read.";
+    fixture.componentInstance.files.set([]);
+    fixture.componentInstance.statusUnavailable.set(true);
+    fixture.detectChanges();
+
+    const notice = fixture.nativeElement.querySelector(
+      '[data-testid="git-status-unavailable"]',
+    ) as HTMLElement | null;
+    expect(notice).toBeTruthy();
+    expect(notice?.getAttribute('role')).toBe('status');
+    expect((notice?.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
+      noticeText,
+    );
+
+    const text = (fixture.nativeElement.textContent ?? '') as string;
+    expect(text).not.toContain('No changes');
+    expect(text).not.toContain('No staged changes');
+    expect(text).not.toMatch(/Changes \(\d+\)/);
+    expect(lists()).toHaveLength(0);
+
+    // A later readable result restores the normal sections.
+    fixture.componentInstance.statusUnavailable.set(false);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="git-status-unavailable"]',
+      ),
+    ).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('No changes');
   });
 
   it('hides each bulk action when its section is empty (AC6)', () => {

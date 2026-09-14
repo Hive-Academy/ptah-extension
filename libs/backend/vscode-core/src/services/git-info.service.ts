@@ -14,6 +14,8 @@ import type { Logger } from '../logging';
 import {
   execGit,
   execGitBuffer,
+  GitOutputLimitError,
+  GIT_STATUS_MAX_OUTPUT_BYTES,
   WORKTREE_GIT_TIMEOUT_MS,
   type ExecGitOptions,
   type ExecGitResult,
@@ -62,6 +64,18 @@ import {
  * git's own binary heuristic: a NUL byte anywhere in the first 8000 bytes.
  */
 const BINARY_SNIFF_BYTES = 8000;
+
+/**
+ * Untracked files whose line count `getGitInfo` reads from disk per status
+ * run. Git has no numstat for an untracked file, so each one is a full file
+ * read; a fresh `node_modules` or build output left untracked would otherwise
+ * turn one status refresh into thousands of reads (TASK_2026_437, INV-4).
+ * Files past this count report unknown (`null`) additions and deletions.
+ */
+const MAX_UNTRACKED_NUMSTAT_FILES = 200;
+
+/** Largest untracked file whose lines are counted; larger reports unknown. */
+const MAX_UNTRACKED_NUMSTAT_BYTES = 1024 * 1024;
 
 /**
  * A unified-diff hunk header: `@@ -a[,b] +c[,d] @@[ section]`.
@@ -289,6 +303,12 @@ export class GitInfoService {
   }
 
   /**
+   * Workspaces already told their status output passed the cap. One entry
+   * per workspace root that ever hit it; bounded like `invalidatedAt`.
+   */
+  private readonly outputLimitLogged = new Set<string>();
+
+  /**
    * Settled results of the cheap-to-invalidate read methods, held until
    * {@link invalidateReadCache} drops them. Keys are
    * `${method}|${workspacePath}|${variant}`, so two workspace folders never
@@ -368,10 +388,16 @@ export class GitInfoService {
    * one is already running, otherwise a new run. Any number of calls during
    * one run share that single trailing run, so a burst of watcher events
    * costs at most two `git status` pipelines, one after the other.
+   *
+   * Nobody is waiting on this run — the watcher calls it — so a run it starts
+   * spawns its git children at background OS priority. A `getGitInfo` caller
+   * that joins such a run shares its priority.
    */
   refreshGitInfo(workspacePath: string): Promise<GitInfoResult> {
     this.invalidateReadCache(workspacePath);
-    return this.getGitInfo(workspacePath);
+    return this.singleFlight(`info|${workspacePath}|`, workspacePath, () =>
+      this.computeGitInfo(workspacePath, 'background'),
+    );
   }
 
   /** The newest invalidation counter that covers `workspacePath`. */
@@ -387,6 +413,12 @@ export class GitInfoService {
    * computation when no invalidation has covered it since it started;
    * otherwise it gets the queued trailing run (created on first need, shared
    * by every later caller until it starts).
+   *
+   * Priority follows the run, not the caller: a joiner shares the running
+   * computation's priority, and the trailing run keeps the `compute` of
+   * whoever queued it first. So a user `getGitInfo` that lands on a
+   * watcher-started (or watcher-queued) run executes at background OS
+   * priority — accepted, since the run is already underway or already owed.
    */
   private singleFlight<T>(
     key: string,
@@ -424,14 +456,11 @@ export class GitInfoService {
     compute: () => Promise<unknown>,
   ): Promise<unknown> {
     const startedAtGeneration = this.cacheGeneration;
-    let running: Promise<unknown>;
-    try {
-      running = compute();
-    } catch (error: unknown) {
-      // A synchronous throw must settle the flight like a rejection would,
-      // or the record would never clear and the key would be wedged.
-      running = Promise.reject(error);
-    }
+    // A synchronous throw must settle the flight like a rejection would, or the
+    // record would never clear and the key would be wedged. The executor runs
+    // synchronously, so `compute` still starts now (not a microtask later) and
+    // a throw inside it becomes this promise's rejection.
+    const running = new Promise<unknown>((resolve) => resolve(compute()));
     const flight: ReadFlight = this.flights.get(key) ?? {
       running,
       startedAtGeneration,
@@ -488,8 +517,11 @@ export class GitInfoService {
     );
   }
 
-  private async computeGitInfo(workspacePath: string): Promise<GitInfoResult> {
-    const isRepo = await this.isGitRepo(workspacePath);
+  private async computeGitInfo(
+    workspacePath: string,
+    priority: ExecGitOptions['priority'] = 'normal',
+  ): Promise<GitInfoResult> {
+    const isRepo = await this.isGitRepo(workspacePath, priority);
     if (!isRepo) {
       return {
         isGitRepo: false,
@@ -502,6 +534,7 @@ export class GitInfoService {
       const { stdout, exitCode } = await this.execGit(
         ['status', '--porcelain=v2', '--branch', '--untracked-files=all'],
         workspacePath,
+        { priority, maxOutputBytes: GIT_STATUS_MAX_OUTPUT_BYTES },
       );
 
       if (exitCode !== 0) {
@@ -519,22 +552,43 @@ export class GitInfoService {
       const branch = this.parseBranchInfo(stdout);
       const files = this.parseFileStatus(stdout);
       const [stagedStats, worktreeStats] = await Promise.all([
-        this.readNumstat(workspacePath, true),
-        this.readNumstat(workspacePath, false),
+        this.readNumstat(workspacePath, true, priority),
+        this.readNumstat(workspacePath, false, priority),
       ]);
+      let untrackedRead = 0;
       for (const file of files) {
         const stat = (file.staged ? stagedStats : worktreeStats).get(file.path);
         if (stat) Object.assign(file, stat);
         else if (!file.staged && file.status === '??' && !file.isDirectory) {
           Object.assign(
             file,
-            await this.readUntrackedNumstat(workspacePath, file.path),
+            untrackedRead++ < MAX_UNTRACKED_NUMSTAT_FILES
+              ? await this.readUntrackedNumstat(workspacePath, file.path)
+              : { additions: null, deletions: null },
           );
         }
       }
 
       return { isGitRepo: true, branch, files };
     } catch (error: unknown) {
+      if (error instanceof GitOutputLimitError) {
+        // Not a failure to retry and not a clean tree: the repository's own
+        // status is too large to read. Said once per workspace, because the
+        // watcher would otherwise repeat it on every refresh.
+        if (!this.outputLimitLogged.has(workspacePath)) {
+          this.outputLimitLogged.add(workspacePath);
+          this.logger.warn(
+            `[GitInfoService] git status output for ${workspacePath} passed ` +
+              `${error.limitBytes} bytes; status is unavailable for this repository`,
+          );
+        }
+        return {
+          isGitRepo: true,
+          branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
+          files: [],
+          statusUnavailable: 'output-too-large',
+        };
+      }
       // INLINE, not context. `Logger.error`'s console transport renders only
       // `context.error` (the slot for a real `Error` instance) and
       // `context.metadata`; a plain object passed as context is dropped whole.
@@ -964,7 +1018,12 @@ export class GitInfoService {
     const spec = `${rev}:${relativePath}`;
 
     try {
-      const show = await this.execGitBuffer(['show', spec], workspacePath);
+      // Uncapped: a blob is one file the user opened, and a large binary one
+      // must still classify as `binary` with its byte length rather than fail
+      // (the default cap exists for unbounded listings, not single blobs).
+      const show = await this.execGitBuffer(['show', spec], workspacePath, {
+        maxOutputBytes: Number.POSITIVE_INFINITY,
+      });
 
       if (show.exitCode === 0) {
         if (show.stdout.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
@@ -2448,11 +2507,15 @@ export class GitInfoService {
     }
   }
 
-  async isGitRepo(workspacePath: string): Promise<boolean> {
+  async isGitRepo(
+    workspacePath: string,
+    priority: ExecGitOptions['priority'] = 'normal',
+  ): Promise<boolean> {
     try {
       const { stdout, exitCode } = await this.execGit(
         ['rev-parse', '--is-inside-work-tree'],
         workspacePath,
+        { priority },
       );
       return exitCode === 0 && stdout.trim() === 'true';
     } catch {
@@ -2509,13 +2572,14 @@ export class GitInfoService {
   private async readNumstat(
     workspacePath: string,
     staged: boolean,
+    priority: ExecGitOptions['priority'],
   ): Promise<
     Map<string, Pick<GitFileStatus, 'additions' | 'deletions' | 'binary'>>
   > {
     const args = ['diff'];
     if (staged) args.push('--cached');
     args.push('--numstat', '-z', '--find-renames', '--find-copies', '--');
-    const result = await this.execGit(args, workspacePath);
+    const result = await this.execGit(args, workspacePath, { priority });
     return result.exitCode === 0 ? this.parseNumstat(result.stdout) : new Map();
   }
 
@@ -2529,7 +2593,8 @@ export class GitInfoService {
       return { additions: null, deletions: null };
     }
     try {
-      if (!(await readStat(absolutePath)).isFile()) {
+      const stats = await readStat(absolutePath);
+      if (!stats.isFile() || stats.size > MAX_UNTRACKED_NUMSTAT_BYTES) {
         return { additions: null, deletions: null };
       }
       const bytes = await readFile(absolutePath);

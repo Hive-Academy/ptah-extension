@@ -88,6 +88,7 @@ function makeGitStatusStub() {
     activeWorkspacePath: jest.fn(() => '/ws/a'),
     isLoading: jest.fn(() => false),
     isGitRepo: jest.fn(() => true),
+    isStatusUnavailable: jest.fn(() => false),
   };
 }
 
@@ -148,6 +149,7 @@ class SourceControlPanelStubComponent {
   readonly files = input.required<GitFileStatus[]>();
   readonly editorTargets = input<readonly never[]>([]);
   readonly workspaceRoot = input('');
+  readonly statusUnavailable = input(false);
   readonly diffRequested = output<OpenDiffRequest>();
   readonly fileClicked = output<OpenInRequest>();
 }

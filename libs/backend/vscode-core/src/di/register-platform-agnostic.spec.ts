@@ -8,6 +8,15 @@
  * the whole of a boot it is in the middle of.
  */
 import 'reflect-metadata';
+
+// The git gate is a module instance; mocked so the spec observes the call
+// without configuring the real gate for every later spec in the worker.
+const mockConfigureGitProcessGate = jest.fn();
+jest.mock('../utils/exec-git', () => ({
+  ...jest.requireActual('../utils/exec-git'),
+  configureGitProcessGate: (...args: unknown[]) =>
+    mockConfigureGitProcessGate(...args),
+}));
 import { container as rootContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IBootReadinessProvider } from '@ptah-extension/platform-core';
@@ -62,5 +71,18 @@ describe('registerVsCodeCorePlatformAgnostic — BOOT_READINESS default', () => 
     );
     expect(resolved).toBe(hostProvider);
     expect(resolved.getReadiness().readiness).toBe('warming');
+  });
+});
+
+describe('registerVsCodeCorePlatformAgnostic — git process gate', () => {
+  it('hands the host logger to the process-wide git gate', () => {
+    const child = rootContainer.createChildContainer();
+    const logger = createLogger();
+
+    registerVsCodeCorePlatformAgnostic(child, logger, {
+      includeLicensingAndAuth: false,
+    });
+
+    expect(mockConfigureGitProcessGate).toHaveBeenCalledWith({ logger });
   });
 });

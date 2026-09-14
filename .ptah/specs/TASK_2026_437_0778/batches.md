@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 56 | Batches: 22 | Complete: 8/22
+Total tasks: 56 | Batches: 22 | Complete: 9/22
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160). P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE, all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). Remaining unblocked: Batch 6 (P1 wave 3, in progress); P2 wave 1 Batch 12; P3 wave 1 Batch 16.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160). P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (commit recorded in its outcome), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). Remaining unblocked: Batch 6 (P1 wave 3, in progress); P2 Batch 8 (depends on 7), then 9 → 10 → 11 → 15; P3 wave 1 Batch 16.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `context.md` "User decisions"
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -626,7 +626,7 @@ P4 is the COMMIT order" for these four batches only.
 
 ---
 
-## Batch 12: P2 — git process gate, output cap, background priority (C11) — PENDING
+## Batch 12: P2 — git process gate, output cap, background priority (C11) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: none
@@ -634,13 +634,13 @@ P4 is the COMMIT order" for these four batches only.
 - Rationale: process supervision in `exec-git.ts` plus the untracked cap in `git-info.service.ts` (file owned by Batch 3, now committed).
 - Tasks: 2 | Depends on: Batch 3 | Parallel with: Batches 7–11, 13, 14
 
-### Task 12.1: `GitProcessGate` + `GitOutputLimitError` + priority — PENDING
+### Task 12.1: `GitProcessGate` + `GitOutputLimitError` + priority — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\vscode-core\src\utils\exec-git.ts` (:86-115, :156-313), `D:\projects\ptah-extension\libs\backend\vscode-core\src\utils\exec-git.spec.ts`
 - Plan reference: implementation-plan.md:575-602
 - Validation notes: the timeout clock starts at spawn. The slot is released on `close` or 2 s after a forced kill, never on the timeout rejection. Default 4 (`PTAH_GIT_MAX_CONCURRENT`). Saturation warn at most 1/min. `os.setPriority` failure is swallowed with a degradation-audit marker.
 
-### Task 12.2: Untracked numstat cap + watcher refresh priority — PENDING
+### Task 12.2: Untracked numstat cap + watcher refresh priority — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\git-info.service.ts` (:2395-2422), spec
 - Implementation details: first 200 untracked files, ≤ 1 MiB each, else `null` additions/deletions. `refreshGitInfo` passes `priority: 'background'`.
@@ -649,6 +649,27 @@ P4 is the COMMIT order" for these four batches only.
 
 - `npx nx run-many -t test -p @ptah-extension/vscode-core` (header: 1); `npx nx run-many -t typecheck,lint -p @ptah-extension/vscode-core`; `npx nx run degradation-audit:lint`
 - Done when: INV-3 (slot to exit), INV-4 and AC-3 (P2, process-wide ≤ 4) are pinned
+
+### Batch 12 outcome
+
+- Commit: the commit whose subject is `fix(vscode-core): bound concurrent git processes, cap output and keep a lane for UI reads` (resolve with `git log --grep "bound concurrent git processes"`).
+- Reviews: `b12-code-logic-review.md` base APPROVE_WITH_FIXES → delta APPROVE_WITH_FIXES; the delta fixes were then applied and verified on disk by team-leader: `MIN_GIT_MAX_CONCURRENT = 2` (a lower `PTAH_GIT_MAX_CONCURRENT` is raised and logged once, so the background cap max-1 never starves interactive reads); the gate is configured with the host logger in `registerVsCodeCorePlatformAgnostic` (first configuration wins); `GitInfoResult.statusUnavailable: 'output-too-large'` reaches `GitStatusService` and the source-control panel shows "Git status is unavailable: this repository's status output is too large to read." instead of "no changes". `b12-code-style-review.md` REVISE (recorded by the orchestrator as NEEDS_REVISION); all items fixed: logger via `configureGitProcessGate`, `GitOutputLimitError` / gate exports in the vscode-core barrel with a Public API line, `PTAH_GIT_MAX_CONCURRENT` in the env table.
+- Also in this commit: SonarCloud S4822 in `git-info.service.ts` `startFlight` — `compute()` runs inside the Promise executor, so a synchronous throw settles the flight (see "PR #510 external review fixes").
+- Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset):
+  - `npx nx run-many -t test,typecheck,lint -p @ptah-extension/vscode-core @ptah-extension/git-ui @ptah-extension/shared` (header: 3 projects) — exit 0. vscode-core 37 suites / 603 passed; git-ui 25 suites / 349 passed; shared 58 suites / 1520 passed; typecheck green; lint 0 errors.
+  - Host container smoke specs, run directly with each app's jest config: ptah-electron 10/10, ptah-cli 5/5, ptah-extension-vscode 29/29.
+  - `npx nx run-many -t typecheck -p ptah-electron ptah-cli ptah-extension-vscode @ptah-extension/task-specs @ptah-extension/vscode-lm-tools` (header: 5, the `execGit` consumers and hosts) — green.
+  - `degradation-audit:lint` exit 0 (see Batch 7 outcome).
+- Accepted deviations:
+  - (a) The output cap rejects with `GitOutputLimitError` (`code: 'GIT_OUTPUT_LIMIT'`), per plan.
+  - (b) `GitProcessGate` is a module-level instance, not `@injectable`: `execGit` is a free function called without a container by task-specs, vscode-lm-tools and `GitReviewReaderService`.
+  - (c) `readBlob` stays uncapped.
+  - (d) Out-of-list files: `libs/shared/src/lib/types/rpc/rpc-git.types.ts`, `register-platform-agnostic.ts` (+ spec), vscode-core `src/index.ts`, and the git-ui frontend (`git-status.service.ts`, `source-control-panel.component.ts`, `git-dock.component.ts` + specs), all required by the logic delta so the typed signal reaches the user.
+  - (e) The vscode-core CLAUDE.md edit is split across two commits: the two env rows and the C13 paragraph went in Batch 14; the Git Public API line and the `PTAH_GIT_MAX_CONCURRENT` row are here.
+- Follow-ups (not in this batch):
+  - FU-12a: move `GitProcessGate` out of `exec-git.ts` (now 755 lines, over the 700 soft ceiling) into its own file under the facade rule.
+  - FU-12b: `GitReviewReaderService` `git show` still uses a 64 MiB cap.
+  - FU-12c: background-lane starvation under constant interactive load is possible by design and documented only as a cap value (logic delta, Moderate).
 
 ---
 
@@ -720,7 +741,7 @@ P4 is the COMMIT order" for these four batches only.
 
 ### Batch 14 outcome
 
-- Commit: the commit whose subject is `feat(persistence-sqlite): log slow SQLite statements and session history reads` (resolve with `git log --grep "slow SQLite statements"`).
+- Commit: 8d3f3745f `feat(persistence-sqlite): log slow SQLite statements and session history reads`.
 - Reviews: `b14-code-logic-review.md` base APPROVE → delta APPROVE (HIGH); the two base moderates (rate-table full clear, lost slow-read attribution on exception) are closed. `b14-code-style-review.md` REVISE (non-blocking, recorded by the orchestrator as APPROVE_WITH_FIXES); all three items fixed: agent-sdk timing extracted to `helpers/history/session-history-read-timing.ts` (mirrors `slow-statement-timing.ts`), `slow-statement-timing.ts` listed in persistence-sqlite CLAUDE.md, and the `readMs + projectMs` non-partition note.
 - Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset):
   - `npx nx run-many -t test,typecheck,lint -p @ptah-extension/agent-sdk @ptah-extension/cli-agent-runtime @ptah-extension/persistence-sqlite` (header: 3 projects; shared run with Batch 13) — exit 0. persistence-sqlite 28 suites passed / 9 skipped, 360 passed / 80 skipped (native better-sqlite3 ABI skips, pre-existing); agent-sdk 106 suites / 1859 passed; typecheck green; lint 0 errors.

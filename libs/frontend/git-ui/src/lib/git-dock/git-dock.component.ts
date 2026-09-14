@@ -82,6 +82,7 @@ import { FileViewComponent } from '../file-view/file-view.component';
             >
               <ptah-source-control-panel
                 [files]="gitStatus.files()"
+                [statusUnavailable]="gitStatus.isStatusUnavailable()"
                 [editorTargets]="launchers.targets()"
                 [workspaceRoot]="gitStatus.activeWorkspacePath() ?? ''"
                 (diffRequested)="diffTabs.openDiff($event)"

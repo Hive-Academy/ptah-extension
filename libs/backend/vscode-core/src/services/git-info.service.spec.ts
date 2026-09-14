@@ -35,6 +35,12 @@
  *   cachedRead     — a value from a run invalidated mid-flight is not written back
  *   singleFlight   — rejection and timeout settle waiters and still start the trailing run
  *
+ * TASK_2026_437 additions (C11 git process supervision):
+ *   refreshGitInfo — every git child of the run gets background OS priority
+ *   getGitInfo     — a user-driven read keeps normal priority
+ *   getGitInfo     — line counts are read for the first 200 untracked files only
+ *   readUntrackedNumstat — a file over 1 MiB reports unknown line counts
+ *
  * `crossSpawn` is mocked at the module boundary so no git binary is required.
  *
  * Source-under-test:
@@ -42,7 +48,9 @@
  */
 
 import 'reflect-metadata';
+import * as os from 'os';
 import * as path from 'path';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
 
 // ---------------------------------------------------------------------------
 // Mock cross-spawn so we control stdout/stderr/exitCode per test.
@@ -53,7 +61,16 @@ jest.mock('cross-spawn', () => ({
   default: (...args: unknown[]) => mockSpawn(...args),
 }));
 
+// `os.setPriority` is mocked so the background-priority specs observe the call
+// and never reprioritise a real process (TASK_2026_437 C11).
+const mockSetPriority = jest.fn();
+jest.mock('os', () => ({
+  ...jest.requireActual('os'),
+  setPriority: (...args: unknown[]) => mockSetPriority(...args),
+}));
+
 import { GitInfoService, isMutatingGitCommand } from './git-info.service';
+import { GitOutputLimitError } from '../utils/exec-git';
 
 // ---------------------------------------------------------------------------
 // Minimal logger double
@@ -1816,6 +1833,35 @@ describe('GitInfoService — single-flight read runs (TASK_2026_437)', () => {
     expect(compute).toHaveBeenCalledTimes(2);
   });
 
+  it('a synchronous throw starts at once, rejects its callers and never wedges the key', async () => {
+    const service = new GitInfoService(makeLogger() as never);
+    const nextResult = {
+      isGitRepo: true,
+      branch: { branch: 'next', upstream: null, ahead: 0, behind: 0 },
+      files: [],
+    };
+    const compute = jest
+      .spyOn(
+        service as unknown as {
+          computeGitInfo: (ws: string) => Promise<unknown>;
+        },
+        'computeGitInfo',
+      )
+      .mockImplementationOnce(() => {
+        throw new Error('sync boom');
+      })
+      .mockImplementationOnce(() => Promise.resolve(nextResult));
+
+    const failed = service.getGitInfo(WS);
+    // `compute` ran synchronously inside the call, not a microtask later.
+    expect(compute).toHaveBeenCalledTimes(1);
+    await expect(failed).rejects.toThrow('sync boom');
+
+    await drain();
+    await expect(service.getGitInfo(WS)).resolves.toBe(nextResult);
+    expect(compute).toHaveBeenCalledTimes(2);
+  });
+
   it('a timed-out git status resolves its callers and releases the trailing run', async () => {
     jest.useFakeTimers({
       doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'],
@@ -1847,10 +1893,220 @@ describe('GitInfoService — single-flight read runs (TASK_2026_437)', () => {
 
     await drain();
     expect(spawner.state.spawns).toBe(2);
-    // The hung child is still pending at the head of the queue (P1 frees the
-    // slot on settle; holding it to child exit is P2). Close both.
+    // The hung child is still pending at the head of the queue. It keeps its
+    // exec-git process-gate slot until it closes (TASK_2026_437 C11), but the
+    // gate has slots to spare, so the trailing run was not held up. Close both.
     spawner.release();
     spawner.release();
     expect((await refreshed).branch.branch).toBe('run2');
+  });
+});
+
+// ===========================================================================
+// Git process supervision in the status pipeline — TASK_2026_437 C11 (INV-4).
+//
+// A watcher-driven refresh runs its git children at background OS priority;
+// a user-driven `getGitInfo` does not. An untracked file has no git numstat,
+// so its line count is a full disk read: only the first 200, each at most
+// 1 MiB, are counted, and the rest report unknown.
+// ===========================================================================
+describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => {
+  const WS = '/fake/workspace';
+
+  /** A spawner handle with a pid that answers per git verb, then closes. */
+  function makeVerbSpawner(statusStdout: string) {
+    return jest.fn((opts: { args: string[] }) => {
+      const verb = opts.args[0];
+      const stdout =
+        verb === 'rev-parse' ? 'true\n' : verb === 'status' ? statusStdout : '';
+      const dataListeners: Array<(chunk: Buffer) => void> = [];
+      const closeListeners: Array<(code: number) => void> = [];
+      // A macrotask, not a microtask: exec-git skips `setPriority` for a
+      // child already closed when its pid arrives, so the child must still be
+      // alive when `whenSpawned` settles.
+      setTimeout(() => {
+        for (const listener of dataListeners) listener(Buffer.from(stdout));
+        for (const listener of closeListeners) listener(0);
+      }, 0);
+      return {
+        stdin: { on: jest.fn(), end: jest.fn(), write: jest.fn() },
+        stdout: {
+          on: jest.fn((event: string, cb: (chunk: Buffer) => void) => {
+            if (event === 'data') dataListeners.push(cb);
+          }),
+        },
+        stderr: { on: jest.fn() },
+        whenSpawned: Promise.resolve(31337),
+        pid: 31337,
+        killed: false,
+        kill: jest.fn(),
+        on: jest.fn((event: string, cb: (code: number) => void) => {
+          if (event === 'close') closeListeners.push(cb);
+        }),
+      };
+    });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('refreshGitInfo lowers every git child of the run to background priority', async () => {
+    const spawnProcess = makeVerbSpawner('# branch.head main\n');
+    const service = new GitInfoService(
+      makeLogger() as never,
+      { spawnProcess } as never,
+    );
+
+    await service.refreshGitInfo(WS);
+
+    // rev-parse, status, and the staged + worktree numstat reads.
+    expect(spawnProcess).toHaveBeenCalledTimes(4);
+    expect(mockSetPriority).toHaveBeenCalledTimes(4);
+    for (const call of mockSetPriority.mock.calls) {
+      expect(call).toEqual([
+        31337,
+        os.constants.priority.PRIORITY_BELOW_NORMAL,
+      ]);
+    }
+  });
+
+  it('a user-driven getGitInfo keeps normal priority', async () => {
+    const spawnProcess = makeVerbSpawner('# branch.head main\n');
+    const service = new GitInfoService(
+      makeLogger() as never,
+      { spawnProcess } as never,
+    );
+
+    await service.getGitInfo(WS);
+
+    expect(spawnProcess).toHaveBeenCalledTimes(4);
+    expect(mockSetPriority).not.toHaveBeenCalled();
+  });
+
+  it('reads line counts for the first 200 untracked files only', async () => {
+    const untracked = Array.from({ length: 250 }, (_, i) => `? new/f${i}.ts`);
+    const spawnProcess = makeVerbSpawner(
+      ['# branch.head main', ...untracked, ''].join('\n'),
+    );
+    const service = new GitInfoService(
+      makeLogger() as never,
+      { spawnProcess } as never,
+    );
+    const readUntracked = jest
+      .spyOn(
+        service as unknown as {
+          readUntrackedNumstat: (
+            ws: string,
+            p: string,
+          ) => Promise<{ additions: number; deletions: number }>;
+        },
+        'readUntrackedNumstat',
+      )
+      .mockResolvedValue({ additions: 7, deletions: 0 });
+
+    const info = await service.getGitInfo(WS);
+
+    expect(info.files).toHaveLength(250);
+    expect(readUntracked).toHaveBeenCalledTimes(200);
+    expect(info.files[199]).toMatchObject({ additions: 7, deletions: 0 });
+    for (const file of info.files.slice(200)) {
+      expect(file.additions).toBeNull();
+      expect(file.deletions).toBeNull();
+    }
+  });
+
+  it('reports an oversized status as unavailable, not as a clean tree, and warns once', async () => {
+    const logger = makeLogger();
+    const spawnProcess = makeVerbSpawner('# branch.head main\n');
+    const service = new GitInfoService(
+      logger as never,
+      {
+        spawnProcess,
+      } as never,
+    );
+    const seam = service as unknown as {
+      execGit: (args: string[], cwd: string, options?: unknown) => unknown;
+    };
+    const realExecGit = seam.execGit.bind(service);
+    jest
+      .spyOn(seam, 'execGit')
+      .mockImplementation((args: string[], cwd: string, options?: unknown) =>
+        args[0] === 'status'
+          ? Promise.reject(new GitOutputLimitError('status', 32))
+          : realExecGit(args, cwd, options),
+      );
+
+    const first = await service.getGitInfo(WS);
+    const second = await service.refreshGitInfo(WS);
+
+    for (const info of [first, second]) {
+      expect(info).toEqual({
+        isGitRepo: true,
+        branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
+        files: [],
+        statusUnavailable: 'output-too-large',
+      });
+    }
+    const limitWarnings = logger.warn.mock.calls.filter(([message]) =>
+      String(message).includes('status is unavailable'),
+    );
+    expect(limitWarnings).toHaveLength(1);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('reads a blob without an output cap, so a large binary still classifies', async () => {
+    const service = new GitInfoService(makeLogger() as never);
+    const seam = service as unknown as {
+      execGitBuffer: (
+        args: string[],
+        cwd: string,
+        options?: { maxOutputBytes?: number },
+      ) => Promise<unknown>;
+    };
+    const buffer = jest.spyOn(seam, 'execGitBuffer').mockResolvedValue({
+      stdout: Buffer.from([0x00, 0x01]),
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const result = await service.readBlob(WS, 'HEAD', 'big.bin');
+
+    expect(result).toEqual({ outcome: 'binary', byteLength: 2 });
+    expect(buffer.mock.calls[0][2]).toEqual({
+      maxOutputBytes: Number.POSITIVE_INFINITY,
+    });
+  });
+
+  it('reports unknown line counts for an untracked file over 1 MiB', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'git-cap-'));
+    try {
+      await writeFile(path.join(root, 'small.txt'), 'a\nb\nc\n');
+      await writeFile(
+        path.join(root, 'big.txt'),
+        Buffer.alloc(1024 * 1024 + 1, 0x61),
+      );
+      const service = new GitInfoService(makeLogger() as never);
+      const read = (
+        service as unknown as {
+          readUntrackedNumstat: (
+            ws: string,
+            p: string,
+          ) => Promise<{ additions: number | null; deletions: number | null }>;
+        }
+      ).readUntrackedNumstat.bind(service);
+
+      await expect(read(root, 'small.txt')).resolves.toEqual({
+        additions: 3,
+        deletions: 0,
+        binary: false,
+      });
+      await expect(read(root, 'big.txt')).resolves.toEqual({
+        additions: null,
+        deletions: null,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

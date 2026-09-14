@@ -26,6 +26,7 @@ import { EventLoopMonitor } from '../diagnostics/event-loop-monitor';
 import { CpuProfileCapture } from '../diagnostics/cpu-profile-capture';
 import { MainLoopWatchdog } from '../diagnostics/main-loop-watchdog';
 import { DegradationReporter } from '../logging/degradation-reporter';
+import { configureGitProcessGate } from '../utils/exec-git';
 
 export interface PlatformAgnosticRegistrationOptions {
   /**
@@ -59,6 +60,13 @@ export function registerVsCodeCorePlatformAgnostic(
   options: PlatformAgnosticRegistrationOptions = {},
 ): void {
   const { includeLicensingAndAuth = true } = options;
+
+  // The process-wide git gate (TASK_2026_437 C11) is a module instance, not a
+  // binding — `execGit` is called as a plain function. Configured here because
+  // every host runs this before any git caller, so the gate's warnings reach
+  // the host logger whoever spawns git. First configuration wins.
+  configureGitProcessGate({ logger });
+
   container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
   container.registerSingleton(
     TOKENS.MESSAGE_VALIDATOR,
