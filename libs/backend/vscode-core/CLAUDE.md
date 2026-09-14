@@ -50,17 +50,30 @@ env vars only change thresholds; the CPU profiler stays dormant unless asked.
 
 ### Environment variables
 
-| Variable                 | Default | Effect                                                                       |
-| ------------------------ | ------- | ---------------------------------------------------------------------------- |
-| `PTAH_LOOP_LAG_WARN_MS`  | `250`   | Warn `[event-loop] lag` when a 2 s window's worst delay hits this.           |
-| `PTAH_RPC_SLOW_WARN_MS`  | `2000`  | Warn `[RPC] slow handler` with the method name and duration.                 |
-| `PTAH_MCP_SLOW_WARN_MS`  | `2000`  | Warn `[MCP] slow tool` with the tool name and duration.                      |
-| `PTAH_PROFILE_ON_LAG_MS` | unset   | When set, lag above it auto-captures a 10 s CPU profile (max one per 5 min). |
-| `PTAH_PROFILE_DIR`       | unset   | Override where `.cpuprofile` files are written.                              |
+| Variable                    | Default | Effect                                                                       |
+| --------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `PTAH_LOOP_LAG_WARN_MS`     | `250`   | Warn `[event-loop] lag` when a 2 s window's worst delay hits this.           |
+| `PTAH_RPC_SLOW_WARN_MS`     | `2000`  | Warn `[RPC] slow handler` with the method name and duration.                 |
+| `PTAH_MCP_SLOW_WARN_MS`     | `2000`  | Warn `[MCP] slow tool` with the tool name and duration.                      |
+| `PTAH_SQLITE_SLOW_WARN_MS`  | `50`    | Warn `[SQLite] slow statement` with SQL, op, rows and duration.              |
+| `PTAH_HISTORY_SLOW_WARN_MS` | `250`   | Warn `[SessionHistoryReader] slow history read` with the phase split.        |
+| `PTAH_PROFILE_ON_LAG_MS`    | unset   | When set, lag above it auto-captures a 10 s CPU profile (max one per 5 min). |
+| `PTAH_PROFILE_DIR`          | unset   | Override where `.cpuprofile` files are written.                              |
 
 A malformed or non-positive value is ignored and the default applies — a typo in
 an env var must never stop the app booting. Note `0` counts as unset: it reads
 like "disable" but would in fact warn on every call.
+
+The two main-thread cost lines exist to measure before moving synchronous work
+off the host thread (TASK_2026_437 C13). `[SQLite] slow statement` comes from
+`persistence-sqlite`'s `slow-statement-timing.ts`, which wraps the one shared
+connection: `run/get/all/iterate`, `exec`, `pragma` and transaction functions
+(BEGIN to COMMIT). It logs the first 120 chars of SQL, at most one line per SQL
+text per minute, with repeats counted in `suppressedSinceLastLog`.
+`[SessionHistoryReader] slow history read` splits a resume into `readMs` (I/O +
+JSONL parse), `projectMs` (synchronous replay, stats and projection) and
+`pricingMs`, with message, agent-session and event counts — at most one line
+per session per minute.
 
 ### Reading the log
 

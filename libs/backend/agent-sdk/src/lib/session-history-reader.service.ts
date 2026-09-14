@@ -53,6 +53,7 @@ import type {
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import type { HistoryEventFactory } from './helpers/history/history-event-factory';
+import { SessionHistoryReadTiming } from './helpers/history/session-history-read-timing';
 import type {
   SessionHistoryMessage,
   AgentSessionData,
@@ -98,6 +99,8 @@ export class SessionHistoryReaderService {
    */
   private readonly SESSION_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
+  private readonly readTiming: SessionHistoryReadTiming;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_JSONL_READER)
@@ -116,7 +119,9 @@ export class SessionHistoryReaderService {
     private readonly usageTracker: LiveUsageTracker,
     @inject(SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY)
     private readonly compactionBoundaryRegistry: CompactionBoundaryGenerationRegistry,
-  ) {}
+  ) {
+    this.readTiming = new SessionHistoryReadTiming(logger);
+  }
 
   /**
    * Validate sessionId to prevent path traversal attacks.
@@ -195,6 +200,8 @@ export class SessionHistoryReaderService {
     const checkCompactionBoundary = options?.checkCompactionBoundary ?? false;
     let expectation: PendingExpectation | undefined;
     let staleSnapshot: true | undefined;
+    // Slow-read attribution (TASK_2026_437 C13) — see session-history-read-timing.ts.
+    const timing = this.readTiming.begin(sessionId);
 
     try {
       this.validateSessionId(sessionId);
@@ -257,19 +264,25 @@ export class SessionHistoryReaderService {
         sessionsDir,
         sessionId,
       );
+      timing.readDone(mainMessages.length, agentSessions.length);
+      timing.begin('project');
       const events = this.replayService.replayToStreamEvents(
         sessionId,
         mainMessages,
         agentSessions,
       );
+      timing.events(events.length);
       if (isDirectAnthropic(this.authEnv)) {
+        timing.begin('pricing');
         await this.hydrateMissingPricing(mainMessages, agentSessions);
       }
+      timing.begin('project');
       const stats = this.aggregateUsageStats(mainMessages, agentSessions);
       this.seedLiveUsageBaseline(sessionId, mainMessages);
       const messages = this.projectHistoryMessages(mainMessages, (content) =>
         this.eventFactory.extractTextContent(content),
       );
+      timing.finish(false);
 
       this.consumeCompactionExpectation(
         sessionId,
@@ -289,6 +302,7 @@ export class SessionHistoryReaderService {
 
       return { events, messages, stats, staleSnapshot };
     } catch (error) {
+      timing.finish(true);
       this.consumeCompactionExpectation(
         sessionId,
         checkCompactionBoundary,

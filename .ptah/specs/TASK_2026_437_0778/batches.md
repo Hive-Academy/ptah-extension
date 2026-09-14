@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 56 | Batches: 22 | Complete: 7/22
+Total tasks: 56 | Batches: 22 | Complete: 8/22
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160). P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE, both committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). Remaining unblocked: Batch 6 (P1 wave 3, in progress); P2 wave 1 Batches 12, 14; P3 wave 1 Batch 16.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160). P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE, all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). Remaining unblocked: Batch 6 (P1 wave 3, in progress); P2 wave 1 Batch 12; P3 wave 1 Batch 16.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `context.md` "User decisions"
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -678,7 +678,7 @@ P4 is the COMMIT order" for these four batches only.
 
 ### Batch 13 outcome
 
-- Commit: the commit whose subject is `perf(agent-sdk): reuse a bounded pool of spawn workers` (resolve with `git log --grep "bounded pool of spawn workers"`).
+- Commit: b288ffff0 `perf(agent-sdk): reuse a bounded pool of spawn workers`.
 - Reviews: `b13-code-logic-review.md` base APPROVE_WITH_FIXES → delta APPROVE_WITH_FIXES; the three delta items were then fixed and verified on disk by team-leader: a lost worker / force-terminate / grace abandon reports `exitCode` null + `signalCode` + `killed` true (no numeric sentinel); cap reports carry `inlineSinceLastReport` / `overCapSinceLastReport`; `WorkerBackedProcess.stdin` has a no-op `error` listener (`off-thread-process-spawner.ts:263`). `b13-code-style-review.md` APPROVE_WITH_FIXES; the fix (extract `SpawnWorkerPool` / `PooledSpawnWorker` to `spawn-worker-pool.ts`, facade rule) is done — `off-thread-process-spawner.ts` 1016 → 805 lines, `spawn-worker-pool.ts` 417.
 - Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset):
   - `npx nx run-many -t test,typecheck,lint -p @ptah-extension/agent-sdk @ptah-extension/cli-agent-runtime @ptah-extension/persistence-sqlite` (header: 3 projects; one run shared with Batch 14) — exit 0. agent-sdk 106 suites passed / 2 skipped, 1859 tests passed / 3 skipped; cli-agent-runtime 60 suites / 907 passed / 1 skipped; typecheck green; lint 0 errors.
@@ -694,7 +694,7 @@ P4 is the COMMIT order" for these four batches only.
 
 ---
 
-## Batch 14: P2 — main-thread cost attribution: SQLite + resume parse (C13) — PENDING
+## Batch 14: P2 — main-thread cost attribution: SQLite + resume parse (C13) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: CLI lanes x2 (sqlite wrapper vs reader timing)
@@ -702,13 +702,13 @@ P4 is the COMMIT order" for these four batches only.
 - Rationale: measurement only, two small file-disjoint seams.
 - Tasks: 2 | Depends on: none | Parallel with: Batches 7–13
 
-### Task 14.1: Slow-statement wrapper on `SqliteDatabaseFactory` — PENDING
+### Task 14.1: Slow-statement wrapper on `SqliteDatabaseFactory` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\sqlite-connection.service.ts`, `sqlite-connection.service.spec.ts`, `D:\projects\ptah-extension\libs\backend\vscode-core\CLAUDE.md` (env table `PTAH_SQLITE_SLOW_WARN_MS`)
 - Plan reference: implementation-plan.md:626-643
 - Validation notes: never alters results or exceptions; ≤ 1 line per SQL text per minute; `transaction()` callbacks timed.
 
-### Task 14.2: `readSessionHistory` duration log — PENDING
+### Task 14.2: `readSessionHistory` duration log — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\session-history-reader.service.ts` (:155-311) + spec
 - Validation notes: this file is also edited by Batch 20. Batch 20 depends on this batch.
@@ -717,6 +717,20 @@ P4 is the COMMIT order" for these four batches only.
 
 - `npx nx run-many -t test -p @ptah-extension/persistence-sqlite @ptah-extension/agent-sdk` (header: 2); typecheck,lint same projects
 - P2 PHASE GATE (after Batch 15): `npm run lint:all`, `npm run typecheck:all`, `npx nx build ptah-electron`, `npx nx package ptah-electron`, `npx nx run degradation-audit:lint`
+
+### Batch 14 outcome
+
+- Commit: the commit whose subject is `feat(persistence-sqlite): log slow SQLite statements and session history reads` (resolve with `git log --grep "slow SQLite statements"`).
+- Reviews: `b14-code-logic-review.md` base APPROVE → delta APPROVE (HIGH); the two base moderates (rate-table full clear, lost slow-read attribution on exception) are closed. `b14-code-style-review.md` REVISE (non-blocking, recorded by the orchestrator as APPROVE_WITH_FIXES); all three items fixed: agent-sdk timing extracted to `helpers/history/session-history-read-timing.ts` (mirrors `slow-statement-timing.ts`), `slow-statement-timing.ts` listed in persistence-sqlite CLAUDE.md, and the `readMs + projectMs` non-partition note.
+- Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset):
+  - `npx nx run-many -t test,typecheck,lint -p @ptah-extension/agent-sdk @ptah-extension/cli-agent-runtime @ptah-extension/persistence-sqlite` (header: 3 projects; shared run with Batch 13) — exit 0. persistence-sqlite 28 suites passed / 9 skipped, 360 passed / 80 skipped (native better-sqlite3 ABI skips, pre-existing); agent-sdk 106 suites / 1859 passed; typecheck green; lint 0 errors.
+  - Direct: `slow-statement-timing` + `sqlite-connection.service` specs 2 suites, 43 passed / 1 skipped; `session-history-read-timing` + `session-history-reader.service` specs 2 suites, 60 passed.
+  - `degradation-audit:lint` exit 0 (see Batch 7 outcome).
+- Accepted deviations:
+  - (a) New collaborator files `slow-statement-timing.ts` and `session-history-read-timing.ts` (+ specs), not inline edits of the two services.
+  - (b) New env var `PTAH_HISTORY_SLOW_WARN_MS` (default 250) beside the planned `PTAH_SQLITE_SLOW_WARN_MS` (default 50); both documented in vscode-core CLAUDE.md. Only the Batch 14 hunks of that file are in this commit; the `PTAH_GIT_MAX_CONCURRENT` row and the Git Public API line are Batch 12's.
+- Follow-ups (not in this batch):
+  - FU-14a: manual Electron check of an early `break` out of `iterate()` followed at once by process exit, against the real native better-sqlite3 (no spec here loads the native binary; see "CI abort context" in `b14-code-logic-review.md`).
 
 ---
 

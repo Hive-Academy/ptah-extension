@@ -549,6 +549,79 @@ describe('SqliteConnectionService', () => {
   });
 });
 
+/**
+ * TASK_2026_437 C13 — the connection hands out the slow-statement timed view,
+ * so a blocking statement is named in the log without any consumer opting in.
+ */
+describe('SqliteConnectionService — slow statement timing', () => {
+  const ENV = 'PTAH_SQLITE_SLOW_WARN_MS';
+
+  afterEach(() => {
+    delete process.env[ENV];
+  });
+
+  const busyWait = (ms: number): void => {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      // Deliberately synchronous: this is the main-thread block being measured.
+    }
+  };
+
+  it('logs a transaction that blocks past PTAH_SQLITE_SLOW_WARN_MS and returns its result', async () => {
+    process.env[ENV] = '5';
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => new FakeSqliteDatabase(),
+      vecPathResolver: null,
+    });
+    await service.openAndMigrate();
+
+    const result = service.db.transaction(function reindexAll() {
+      busyWait(20);
+      return 'done';
+    })();
+
+    expect(result).toBe('done');
+    // Filter to this transaction: on a loaded machine a migration statement
+    // can cross the 5 ms bar too, and that line is correct, not a failure.
+    const slow = logger.entries.filter(
+      (e) =>
+        e.message === '[SQLite] slow statement' &&
+        (e.context as { sql?: string } | undefined)?.sql ===
+          '<transaction reindexAll>',
+    );
+    expect(slow).toEqual([
+      expect.objectContaining({
+        level: 'warn',
+        context: expect.objectContaining({
+          sql: '<transaction reindexAll>',
+          op: 'transaction',
+          failed: false,
+        }),
+      }),
+    ]);
+  });
+
+  it('stays silent for statements under PTAH_SQLITE_SLOW_WARN_MS', async () => {
+    // A bar no statement here can reach, so a loaded CI box cannot flake this.
+    process.env[ENV] = '600000';
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => new FakeSqliteDatabase(),
+      vecPathResolver: null,
+    });
+    await service.openAndMigrate();
+
+    service.db.prepare('SELECT version FROM schema_migrations').all();
+
+    expect(
+      logger.entries.some((e) => e.message === '[SQLite] slow statement'),
+    ).toBe(false);
+  });
+});
+
 describe('SqliteConnectionService — vec0 smoke (skipped without native)', () => {
   // Real better-sqlite3 + sqlite-vec smoke test. Skipped when the native
   // modules aren't installed.

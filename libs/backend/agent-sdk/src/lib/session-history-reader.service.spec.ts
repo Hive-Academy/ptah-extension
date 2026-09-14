@@ -1281,6 +1281,124 @@ describe('SessionHistoryReaderService', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Slow-read attribution (TASK_2026_437 C13)
+  // -------------------------------------------------------------------------
+
+  describe('slow history read log', () => {
+    let clock: number;
+
+    const userMessage = {
+      type: 'user',
+      uuid: 'u1',
+      message: { role: 'user', content: 'hello' },
+    } as SessionHistoryMessage;
+
+    /** Stubs whose read costs `readMs` and whose replay costs `replayMs`. */
+    const slowStubs = (readMs: number, replayMs: number): Stubs => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockImplementation(async () => {
+        clock += readMs;
+        return [userMessage];
+      });
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockImplementation(() => {
+        clock += replayMs;
+        return [{}, {}, {}] as unknown as ReturnType<
+          SessionReplayService['replayToStreamEvents']
+        >;
+      });
+      return stubs;
+    };
+
+    const slowLines = (stubs: Stubs) =>
+      stubs.logger.warn.mock.calls.filter(
+        ([message]) => message === '[SessionHistoryReader] slow history read',
+      );
+
+    beforeEach(() => {
+      clock = 10_000;
+      jest.spyOn(performance, 'now').mockImplementation(() => clock);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('warns with the read/projection split and counts when a read crosses the threshold', async () => {
+      const stubs = slowStubs(40, 300);
+      const service = makeService(stubs);
+
+      const result = await service.readSessionHistory(
+        'slow-session',
+        '/workspace',
+      );
+
+      expect(result.events).toHaveLength(3);
+      expect(slowLines(stubs)).toEqual([
+        [
+          '[SessionHistoryReader] slow history read',
+          {
+            sessionId: 'slow-session',
+            durationMs: 340,
+            readMs: 40,
+            projectMs: 300,
+            pricingMs: 0,
+            mainMessageCount: 1,
+            agentSessionCount: 0,
+            eventCount: 3,
+            failed: false,
+          },
+        ],
+      ]);
+    });
+
+    it('logs nothing extra for a read under the threshold', async () => {
+      const stubs = slowStubs(10, 20);
+      const service = makeService(stubs);
+
+      await service.readSessionHistory('fast-session', '/workspace');
+
+      expect(slowLines(stubs)).toHaveLength(0);
+    });
+
+    it('still reports a slow read whose projection throws, without changing the failure', async () => {
+      const stubs = slowStubs(40, 0);
+      stubs.replayService.replayToStreamEvents.mockImplementation(() => {
+        clock += 300;
+        throw new Error('replay blew up');
+      });
+      const service = makeService(stubs);
+
+      const result = await service.readSessionHistory(
+        'broken-session',
+        '/workspace',
+      );
+
+      // Same empty payload and error log as before the timing existed.
+      expect(result).toEqual({ events: [], messages: [], stats: null });
+      expect(stubs.logger.error).toHaveBeenCalledWith(
+        '[SessionHistoryReader] Failed to read session history',
+        expect.objectContaining({ message: 'replay blew up' }),
+      );
+      expect(slowLines(stubs)).toEqual([
+        [
+          '[SessionHistoryReader] slow history read',
+          expect.objectContaining({
+            sessionId: 'broken-session',
+            readMs: 40,
+            projectMs: 300,
+            eventCount: undefined,
+            failed: true,
+          }),
+        ],
+      ]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // readHistoryAsMessages
   // -------------------------------------------------------------------------
 
