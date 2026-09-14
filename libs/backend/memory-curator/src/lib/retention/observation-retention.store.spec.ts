@@ -12,6 +12,7 @@ import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite
 import {
   OBSERVATION_RETENTION_SQL,
   ObservationRetentionStore,
+  PENDING_BYTES_MAX_ROWS,
   RetentionStepError,
 } from './observation-retention.store';
 import {
@@ -543,6 +544,77 @@ describe('ObservationRetentionStore (real SQLite)', () => {
         quarantineLedgerRows: 0,
         readErrors: [],
       });
+    });
+
+    it('does not measure pending bytes above 5000 pending rows', () => {
+      const t = openRetentionTestDb();
+      open.push(t);
+      const logger = makeLogger();
+      const store = new ObservationRetentionStore(logger, t.connection);
+      seedObservations(
+        t.raw,
+        rows(PENDING_BYTES_MAX_ROWS + 1, {
+          sessionId: 'large-backlog',
+          kind: 'tool-use',
+          capturedAt: NOW - 20 * DAY,
+          processedAt: null,
+          toolResponseText: 'x',
+        }),
+      );
+
+      const reading = store.readLiveStorage(NOW - 14 * DAY);
+
+      expect(reading.pendingRows).toBe(5001);
+      expect(reading.pendingBytes).toBeNull();
+      expect(reading.oldestPendingAt).toBe(NOW - 20 * DAY);
+      expect(reading.stuckEligibleRows).toBe(5001);
+      expect(reading.readErrors).toEqual([
+        'pendingBytes: not measured above 5000 pending rows',
+      ]);
+      expect(t.issued.filter((sql) => /octet_length/i.test(sql))).toEqual([]);
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('measures exact pending bytes at the 5000-row bound', () => {
+      const { t, store } = fresh();
+      seedObservations(
+        t.raw,
+        rows(PENDING_BYTES_MAX_ROWS, {
+          sessionId: 'bounded-backlog',
+          kind: 'tool-use',
+          capturedAt: NOW - 2 * DAY,
+          processedAt: null,
+          toolResponseText: 'abc',
+        }),
+      );
+
+      const reading = store.readLiveStorage(NOW - 14 * DAY);
+
+      expect(reading.pendingRows).toBe(5000);
+      expect(reading.pendingBytes).toBe(15_000);
+      expect(reading.readErrors).not.toContain(
+        'pendingBytes: not measured above 5000 pending rows',
+      );
+      expect(t.issued.filter((sql) => /octet_length/i.test(sql))).toHaveLength(
+        1,
+      );
+    });
+
+    it('does not report a backlog-bound skip when the pending summary fails', () => {
+      const { t, store } = fresh();
+      t.raw.exec('DROP INDEX idx_obs_queue_drain');
+
+      const reading = store.readLiveStorage(NOW - 14 * DAY);
+
+      expect(reading.pendingRows).toBeNull();
+      expect(reading.pendingBytes).toBeNull();
+      expect(reading.readErrors).toEqual(
+        expect.arrayContaining([expect.stringMatching(/^pending: /)]),
+      );
+      expect(reading.readErrors).not.toContain(
+        'pendingBytes: not measured above 5000 pending rows',
+      );
+      expect(t.issued.filter((sql) => /octet_length/i.test(sql))).toEqual([]);
     });
 
     it('never throws: a closed connection yields nulls and a read error', () => {

@@ -96,6 +96,13 @@ const PENDING_SUMMARY_SQL = `SELECT COUNT(*) AS n, MIN(captured_at) AS oldest
  FROM observation_queue INDEXED BY idx_obs_queue_drain
  WHERE processed_at IS NULL`;
 
+/**
+ * Payload columns are absent from `idx_obs_queue_drain`, so every matching row
+ * requires a base-table lookup. Measured at ~26 ms for ~5k pending rows; above
+ * this bound diagnostics report pending bytes as null instead of running it.
+ */
+export const PENDING_BYTES_MAX_ROWS = 5_000;
+
 const PENDING_BYTES_SQL = `SELECT COALESCE(SUM(
    COALESCE(octet_length(tool_response_text),0) + COALESCE(octet_length(tool_input_json),0)
  + COALESCE(octet_length(assistant_message),0) + COALESCE(octet_length(user_prompt),0)
@@ -451,12 +458,21 @@ export class ObservationRetentionStore {
         oldest: toNumberOrNull(row?.oldest),
       };
     });
-    const pendingBytes = read('pendingBytes', () => {
-      const row = this.statement(db, PENDING_BYTES_SQL).get() as
-        | { bytes: number }
-        | undefined;
-      return Number(row?.bytes ?? 0);
-    });
+    let pendingBytes: number | null = null;
+    if (pending !== null) {
+      if (pending.rows <= PENDING_BYTES_MAX_ROWS) {
+        pendingBytes = read('pendingBytes', () => {
+          const row = this.statement(db, PENDING_BYTES_SQL).get() as
+            | { bytes: number }
+            | undefined;
+          return Number(row?.bytes ?? 0);
+        });
+      } else {
+        readErrors.push(
+          `pendingBytes: not measured above ${PENDING_BYTES_MAX_ROWS} pending rows`,
+        );
+      }
+    }
     const stuckEligibleRows = read('stuckEligible', () => {
       const row = this.statement(db, STUCK_ELIGIBLE_COUNT_SQL).get({
         cutoff: stuckCutoffMs,

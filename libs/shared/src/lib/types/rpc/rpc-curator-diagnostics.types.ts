@@ -176,6 +176,7 @@ export interface MemoryDiagnosticsResult {
   > | null;
   readonly recentEvents: readonly MemoryCuratorEventWire[];
   readonly dbHealth: MemoryDbHealthDto;
+  readonly storage: MemoryStorageHealthDto;
   readonly triggers: MemoryTriggersDto;
 }
 

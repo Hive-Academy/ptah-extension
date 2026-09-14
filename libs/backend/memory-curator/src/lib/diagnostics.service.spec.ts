@@ -6,9 +6,45 @@ import type {
   SqliteDatabase,
   VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
+import type { MemoryStorageHealthDto } from '@ptah-extension/shared';
 import { MemoryDiagnosticsService } from './diagnostics.service';
 import type { MemoryCuratorService } from './memory-curator.service';
 import type { MemoryDecayJob } from './memory-decay.job';
+import type { MemoryRetentionService } from './retention/memory-retention.service';
+
+const STORAGE_HEALTH: MemoryStorageHealthDto = {
+  dbBytes: 4096,
+  reclaimableBytes: 1024,
+  autoVacuumIncremental: true,
+  observations: {
+    pendingRows: 2,
+    pendingBytes: 256,
+    oldestPendingAt: 1700000000000,
+    stuckEligibleRows: 1,
+    processedRows: 10,
+    processedBytesEstimate: 1280,
+    measuredAt: 1700000001000,
+    quarantineLedgerRows: 3,
+  },
+  retention: {
+    enabled: true,
+    processedDays: 30,
+    stuckDays: 7,
+    lastRun: null,
+    lastCompletedAt: null,
+    nextDueAt: null,
+    lastSkippedAt: null,
+    lastSkipReason: null,
+  },
+};
+
+function makeRetention(
+  storage: MemoryStorageHealthDto = STORAGE_HEALTH,
+): MemoryRetentionService {
+  return {
+    storageHealth: jest.fn(() => storage),
+  } as unknown as MemoryRetentionService;
+}
 
 function makeVecStatus(available: boolean): VecStatusService {
   const diagnostic = {
@@ -157,6 +193,7 @@ describe('MemoryDiagnosticsService', () => {
       makeDecay(t),
       makeWorkspace(),
       makeVecStatus(true),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.lastRunAt).toBe(t);
@@ -177,6 +214,23 @@ describe('MemoryDiagnosticsService', () => {
     expect(snap.triggers.idleMs).toBe(600000);
   });
 
+  it('returns the storage health object from the retention service unchanged', async () => {
+    const storage = { ...STORAGE_HEALTH, dbBytes: 8192 };
+    const service = new MemoryDiagnosticsService(
+      makeLogger(),
+      makeSqlite({}),
+      makeCurator(),
+      makeDecay(),
+      makeWorkspace(),
+      makeVecStatus(true),
+      makeRetention(storage),
+    );
+
+    const snap = await service.getSnapshot('/ws');
+
+    expect(snap.storage).toBe(storage);
+  });
+
   it('reports coherent when all paired counts match', async () => {
     const service = new MemoryDiagnosticsService(
       makeLogger(),
@@ -192,6 +246,7 @@ describe('MemoryDiagnosticsService', () => {
       makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.dbHealth.coherent).toBe(true);
@@ -213,6 +268,7 @@ describe('MemoryDiagnosticsService', () => {
       makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.dbHealth.coherent).toBe(false);
@@ -238,6 +294,7 @@ describe('MemoryDiagnosticsService', () => {
       makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
 
@@ -276,6 +333,7 @@ describe('MemoryDiagnosticsService', () => {
       makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
 
@@ -301,6 +359,7 @@ describe('MemoryDiagnosticsService', () => {
       makeDecay(),
       makeWorkspace(),
       makeVecStatus(false),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.dbHealth.coherent).toBe(true);

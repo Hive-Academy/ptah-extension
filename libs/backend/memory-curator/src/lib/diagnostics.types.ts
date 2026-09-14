@@ -1,4 +1,5 @@
 import type { EmbedderDownloadPhase } from '@ptah-extension/memory-contracts';
+import type { MemoryStorageHealthDto } from '@ptah-extension/shared';
 import type { CuratorRunStats } from './memory-curator.service';
 
 export type MemoryCuratorEventKind =
@@ -58,6 +59,7 @@ export interface MemoryDiagnosticsSnapshot {
   readonly lastDecayStats: MemoryDecayStats | null;
   readonly recentEvents: readonly MemoryCuratorEvent[];
   readonly dbHealth: MemoryDbHealth;
+  readonly storage: MemoryStorageHealthDto;
   readonly triggers: {
     readonly preCompact: boolean;
     readonly idleMs: number;
