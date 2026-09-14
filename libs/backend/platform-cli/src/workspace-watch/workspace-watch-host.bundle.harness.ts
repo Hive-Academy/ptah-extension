@@ -10,10 +10,11 @@
  * whole directory.
  */
 
-import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+
+import { buildSync } from 'esbuild';
 
 export interface CliWatchHostBundle {
   /** The directory holding the bundle; specs may put helper scripts in it. */
@@ -36,23 +37,23 @@ export function buildCliWatchHostBundle(label: string): CliWatchHostBundle {
   fs.mkdirSync(dir, { recursive: true });
   const dispose = () => fs.rmSync(dir, { recursive: true, force: true });
   try {
-    execFileSync(
-      process.execPath,
-      [
-        require.resolve('esbuild/bin/esbuild'),
-        path.join(__dirname, 'workspace-watch-host.entry.ts'),
-        '--bundle',
-        '--platform=node',
-        '--format=esm',
-        '--target=node20',
-        '--external:@parcel/watcher',
-        "--banner:js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
-        `--tsconfig=${path.join(REPO_ROOT, 'tsconfig.base.json')}`,
-        `--outfile=${bundlePath}`,
-        '--log-level=error',
-      ],
-      { stdio: 'pipe' },
-    );
+    // esbuild's JS API, not `node node_modules/esbuild/bin/esbuild`: on Linux
+    // and macOS esbuild's install replaces that path with the native binary,
+    // which `node` cannot execute. `buildSync` throws on any build error.
+    buildSync({
+      entryPoints: [path.join(__dirname, 'workspace-watch-host.entry.ts')],
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      target: 'node20',
+      external: ['@parcel/watcher'],
+      banner: {
+        js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
+      },
+      tsconfig: path.join(REPO_ROOT, 'tsconfig.base.json'),
+      outfile: bundlePath,
+      logLevel: 'error',
+    });
   } catch (error: unknown) {
     dispose();
     throw error;

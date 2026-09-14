@@ -187,7 +187,11 @@ describe('publish-cli.yml build sequence', () => {
     // -> manifest copy) that actually produces every bundle in the right
     // order. `restore-cli-manifest` is that graph; requiring the workflow to
     // call it directly is the fix.
-    expect(publishWorkflow).toContain('nx run ptah-cli:restore-cli-manifest');
+    // The publish job calls it through the local binary, not `npx`
+    // (SonarCloud githubactions:S6505 / S8543).
+    expect(publishWorkflow).toContain(
+      'node node_modules/nx/bin/nx.js run ptah-cli:restore-cli-manifest',
+    );
   });
 });
 

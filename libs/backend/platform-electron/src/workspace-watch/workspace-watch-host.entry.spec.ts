@@ -16,15 +16,19 @@
  *    binding load, which (above) only a fresh process gets. In the app the
  *    host is a `utilityProcess` — also its own process.
  *
- * The bundle is written under `node_modules/.cache` so the external
- * `@parcel/watcher` resolves from the repository's `node_modules`, as it
- * resolves beside `main.mjs` in a build.
+ * The bundle is written under the repository's gitignored `tmp/`, in a
+ * directory unique to this run, so the external `@parcel/watcher` resolves
+ * from the repository's `node_modules` (as it resolves beside `main.mjs` in a
+ * build) without writing into `node_modules` itself. `afterAll` removes it.
  */
-import { execFileSync, fork, type ChildProcess } from 'node:child_process';
+import { fork, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Worker } from 'node:worker_threads';
+
+import { buildSync } from 'esbuild';
 
 import {
   parseWorkspaceWatchHostOutbound,
@@ -40,33 +44,29 @@ import { ElectronWorkspaceWatcher } from './electron-workspace-watcher';
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const BUNDLE_DIR = path.join(
   REPO_ROOT,
-  'node_modules',
-  '.cache',
-  'ptah-workspace-watch-host-spec',
+  'tmp',
+  `ptah-electron-watch-host-${process.pid}-${randomBytes(4).toString('hex')}`,
 );
-const BUNDLE_PATH = path.join(
-  BUNDLE_DIR,
-  `workspace-watch-host-${process.pid}.cjs`,
-);
+const BUNDLE_PATH = path.join(BUNDLE_DIR, 'workspace-watch-host.cjs');
 
+/**
+ * Throws when esbuild cannot bundle the entry. esbuild's JS API, not
+ * `node node_modules/esbuild/bin/esbuild`: on Linux and macOS esbuild's
+ * install replaces that path with the native binary, which `node` cannot run.
+ */
 function buildHostBundle(): void {
   fs.mkdirSync(BUNDLE_DIR, { recursive: true });
-  execFileSync(
-    process.execPath,
-    [
-      require.resolve('esbuild/bin/esbuild'),
-      path.join(__dirname, 'workspace-watch-host.entry.ts'),
-      '--bundle',
-      '--platform=node',
-      '--format=cjs',
-      '--target=node20',
-      '--external:@parcel/watcher',
-      `--tsconfig=${path.join(REPO_ROOT, 'tsconfig.base.json')}`,
-      `--outfile=${BUNDLE_PATH}`,
-      '--log-level=error',
-    ],
-    { stdio: 'pipe' },
-  );
+  buildSync({
+    entryPoints: [path.join(__dirname, 'workspace-watch-host.entry.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node20',
+    external: ['@parcel/watcher'],
+    tsconfig: path.join(REPO_ROOT, 'tsconfig.base.json'),
+    outfile: BUNDLE_PATH,
+    logLevel: 'error',
+  });
 }
 
 /** A forked Node child behind the adapter's host-process port. */
@@ -142,7 +142,7 @@ afterAll(() => {
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
-  fs.rmSync(BUNDLE_PATH, { force: true });
+  fs.rmSync(BUNDLE_DIR, { recursive: true, force: true });
 });
 
 describe('workspace-watch-host.entry — worker_threads transport', () => {
