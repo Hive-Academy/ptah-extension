@@ -43,6 +43,108 @@ interface StripContext {
   readonly agentId?: string;
 }
 
+/** Teammate names this short (e.g. `r`) identify nothing on their own. */
+const MIN_MEANINGFUL_NAME_LENGTH = 3;
+
+/**
+ * Pick the row label. The agent type leads when known; the teammate name is a
+ * secondary hint only when it is long enough to mean something and differs from
+ * the type. Without a type, a meaningful teammate name leads, then the task
+ * description, then `fallback`.
+ */
+function agentLabel(
+  agentType: string | undefined,
+  teammateName: string | undefined,
+  description: string | undefined,
+  fallback: string,
+): { name: string; hint?: string } {
+  const type = agentType?.trim();
+  const teammate = teammateName?.trim();
+  const meaningfulTeammate =
+    teammate && teammate.length >= MIN_MEANINGFUL_NAME_LENGTH
+      ? teammate
+      : undefined;
+  if (type) {
+    const hint =
+      meaningfulTeammate &&
+      meaningfulTeammate.toLowerCase() !== type.toLowerCase()
+        ? meaningfulTeammate
+        : undefined;
+    return { name: type, hint };
+  }
+  return { name: meaningfulTeammate || description?.trim() || fallback };
+}
+
+/**
+ * Tidy one-line status summary: the rolling/final summary, else the last tool,
+ * else the task description — skipping a candidate that only repeats the name.
+ */
+function agentSummary(
+  name: string,
+  ...candidates: (string | undefined)[]
+): string | undefined {
+  for (const raw of candidates) {
+    const tidy = raw ? tidyAgentSummary(raw) : '';
+    if (tidy && tidy !== name) return tidy;
+  }
+  return undefined;
+}
+
+/** Path-like token: absolute (drive, `/`, `~`, `./`) or ending in a file name. */
+const PATH_TOKEN =
+  /^(?:[A-Za-z]:[\\/]|[\\/]|~[\\/]|\.{1,2}[\\/])\S*$|^(?:[^\s\\/]+[\\/])+[^\s\\/]*\.[^\s\\/]+$/;
+
+function basename(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : path;
+}
+
+/**
+ * First line of an agent summary with directories stripped from paths, and the
+ * SDK's `WROTE: <path>` completion reply rendered as `Wrote <basename>`.
+ */
+function tidyAgentSummary(raw: string): string {
+  const firstLine = raw.trim().split(/\r?\n/, 1)[0].trim();
+  const wrote = /^wrote:\s*(.+)$/i.exec(firstLine);
+  if (wrote) return `Wrote ${basename(wrote[1].trim())}`;
+  return firstLine
+    .split(/(\s+)/)
+    .map((token) =>
+      !token.includes('://') && PATH_TOKEN.test(token)
+        ? basename(token)
+        : token,
+    )
+    .join('');
+}
+
+/**
+ * Effective strip status for a background entry. A terminal subagent record
+ * overrides a background entry still marked `running` — see `fromBackground`.
+ */
+function backgroundStatus(
+  bgStatus: BackgroundAgentEntry['status'],
+  recStatus: SubagentRecord['status'] | undefined,
+): BackgroundAgentStripEntry['status'] {
+  if (bgStatus === 'running') {
+    switch (recStatus) {
+      case 'completed':
+        return 'completed';
+      case 'failed':
+        return 'error';
+      case 'killed':
+      case 'stopped':
+        return 'stopped';
+      default:
+        return 'background';
+    }
+  }
+  return bgStatus === 'completed'
+    ? 'completed'
+    : bgStatus === 'error'
+      ? 'error'
+      : 'stopped';
+}
+
 /**
  * BackgroundAgentTrayComponent — thin smart wrapper around the presentational
  * {@link BackgroundAgentStripComponent}.
@@ -140,11 +242,26 @@ export class BackgroundAgentTrayComponent {
   }
 
   private fromSubagent(rec: SubagentRecord): StripContext {
+    const label = agentLabel(
+      rec.agentType,
+      rec.teammateName,
+      rec.description,
+      'Subagent',
+    );
     return {
       entry: {
         id: rec.parentToolUseId,
-        name: rec.teammateName ?? rec.description ?? 'Subagent',
-        description: rec.latestSummary || rec.lastToolName,
+        name: label.name,
+        hint: label.hint,
+        agentType: rec.agentType,
+        description: agentSummary(
+          label.name,
+          rec.latestSummary,
+          rec.lastToolName,
+          rec.description,
+        ),
+        durationMs: rec.durationMs,
+        totalTokens: rec.totalTokens,
         status: 'running',
         steerable: true,
         stoppable: !!rec.taskId,
@@ -158,32 +275,50 @@ export class BackgroundAgentTrayComponent {
   }
 
   /**
-   * Background records win over the subagent record for identity and status,
-   * but they carry no progress of their own. The live rolling summary arrives
-   * on `agent_progress` (SDK `task_progress`), which keeps firing after an
-   * agent is backgrounded and lands on the subagent record. Reading it here is
-   * what makes a background chip show whether the agent is working or stuck.
+   * Background records win over the subagent record for identity, but they
+   * carry no progress of their own. The live rolling summary arrives on
+   * `agent_progress` (SDK `task_progress`), which keeps firing after an agent is
+   * backgrounded and lands on the subagent record. Reading it here is what
+   * makes a background row show whether the agent is working or stuck.
+   *
+   * Status reads the subagent record too. A background entry only leaves
+   * `running` on `background_agent_completed` / `_stopped` (or the SubagentStop
+   * reconciliation), while the SDK's `agent_completed` (`task_notification`)
+   * lands on the subagent record — often first, and sometimes alone. Reading
+   * `bg.status` only left a row showing the agent's final "WROTE: …" reply
+   * beside a live background dot.
    */
   private fromBackground(
     bg: BackgroundAgentEntry,
     rec: SubagentRecord | undefined,
   ): StripContext {
     const taskId = rec?.taskId;
-    const progress = rec?.latestSummary || rec?.lastToolName;
-    const status: BackgroundAgentStripEntry['status'] =
-      bg.status === 'running'
-        ? 'background'
-        : bg.status === 'completed'
-          ? 'completed'
-          : bg.status === 'error'
-            ? 'error'
-            : 'stopped';
-    const isRunning = bg.status === 'running';
+    const status = backgroundStatus(bg.status, rec?.status);
+    const isRunning = status === 'background';
+    const agentType =
+      bg.agentType && bg.agentType !== 'unknown'
+        ? bg.agentType
+        : rec?.agentType;
+    const label = agentLabel(
+      agentType,
+      bg.teammateName ?? rec?.teammateName,
+      bg.agentDescription ?? rec?.description,
+      'Agent',
+    );
     return {
       entry: {
         id: bg.toolCallId,
-        name: bg.teammateName ?? bg.agentType ?? 'Agent',
-        description: progress || bg.agentDescription || undefined,
+        name: label.name,
+        hint: label.hint,
+        agentType,
+        description: agentSummary(
+          label.name,
+          rec?.latestSummary,
+          rec?.lastToolName,
+          bg.agentDescription,
+        ),
+        durationMs: rec?.durationMs ?? bg.duration,
+        totalTokens: rec?.totalTokens,
         status,
         steerable: isRunning,
         stoppable: isRunning && !!taskId,
