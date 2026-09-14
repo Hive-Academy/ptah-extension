@@ -3,7 +3,7 @@
  * without knowing which process or transport it runs in (TASK_2026_437 C8,
  * INV-1, INV-2, INV-6).
  *
- * The Electron `utilityProcess` entry and the CLI `worker_threads` entry are
+ * The Electron `utilityProcess` entry and the CLI `child_process.fork` entry are
  * thin: they detect their transport, load `@parcel/watcher`, and hand both to
  * this class. Keeping the logic here keeps `platform-core` free of Electron and
  * Node-IPC imports while letting one spec drive it with a fake engine.
@@ -406,14 +406,14 @@ export class WorkspaceWatchHostCore {
     const callback: WorkspaceWatchEngineCallback = (error, events) =>
       this.onEngineEvents(root, token, error, events);
 
-    let subscribing: Promise<WorkspaceWatchEngineSubscription>;
-    try {
-      subscribing = this.engine.subscribe(root.dir, callback, {
-        ignore: [...ignore],
-      });
-    } catch (error: unknown) {
-      subscribing = Promise.reject(error);
-    }
+    // The executor runs synchronously, so a synchronous throw from the engine
+    // becomes a rejection handled below.
+    const subscribing = new Promise<WorkspaceWatchEngineSubscription>(
+      (resolve) =>
+        resolve(
+          this.engine.subscribe(root.dir, callback, { ignore: [...ignore] }),
+        ),
+    );
 
     void subscribing.then(
       (subscription) =>
@@ -621,7 +621,7 @@ export class WorkspaceWatchHostCore {
       }
     }
 
-    return [...ignore].sort();
+    return [...ignore].sort((a, b) => a.localeCompare(b));
   }
 
   private async teardownRoot(root: RootWatch): Promise<void> {
