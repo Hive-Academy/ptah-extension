@@ -17,7 +17,9 @@
  * ## Adapters
  *
  * - Electron: `@parcel/watcher` in a supervised `utilityProcess` host.
- * - CLI: the same host core on a `worker_threads` Worker.
+ * - CLI: the same host core in a `child_process.fork` child. Not a
+ *   `worker_threads` Worker: `@parcel/watcher` loads in one thread per
+ *   process, so a restarted Worker host fails to load it.
  * - VS Code: `vscode.workspace.createFileSystemWatcher` (already out of
  *   process) feeding `WorkspaceChangeCoalescer` in the extension host.
  *
@@ -145,8 +147,13 @@ export type WorkspaceChangeListener = (batch: WorkspaceChangeBatch) => void;
  * - one loss-of-events incident — a storm, an adapter failure, or both
  *   overlapping — yields one `overflow` batch;
  * - an adapter failure surfaces as one `overflow` batch, followed by
- *   resubscription; a permanently failed adapter emits `overflow` once and
- *   reports a `'workspace-watcher'` degradation;
+ *   resubscription;
+ * - a DEGRADED adapter (its restart budget is spent) reports one
+ *   `'workspace-watcher'` degradation per degraded episode, emits `overflow`
+ *   immediately, and then repeats `overflow` on a fixed rescan cadence until it
+ *   recovers or is disposed. Electron uses 60 s, and the Batch 9 CLI and
+ *   VS Code adapters must use the same cadence. Consumers treat each `overflow`
+ *   as "rescan once" and must make that rescan idempotent;
  * - after `dispose()` the listener is never called again, and `dispose()` is
  *   idempotent.
  */

@@ -6,14 +6,14 @@ point for the next session. Read it first, then `batches.md` (authoritative batc
 
 ## 1. Where the work lives
 
-| Item | Value |
-| --- | --- |
-| Worktree | `D:\projects\ptah-437` (outside the repo root on purpose — never use `.claude-worktrees\`) |
-| Branch | `fix/task-437-main-loop-isolation` (tracks origin, all commits pushed) |
-| PR | #510 (draft) — https://github.com/Hive-Academy/ptah-extension/pull/510 |
-| Related PR | #512 — `chore/bump-better-sqlite3-13` in worktree `D:\projects\ptah-sqlite-bump` |
-| node_modules | `D:\projects\ptah-437\node_modules` is a JUNCTION to `D:\projects\ptah-extension\node_modules`. Never delete it with a tool that follows junctions; remove the junction with `cmd /c rmdir` first. |
-| Main checkout | `D:\projects\ptah-extension` is used by ANOTHER session (branch `feat/chat-composer-card`). Do not edit it or run tests there for this task. |
+| Item          | Value                                                                                                                                                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Worktree      | `D:\projects\ptah-437` (outside the repo root on purpose — never use `.claude-worktrees\`)                                                                                                         |
+| Branch        | `fix/task-437-main-loop-isolation` (tracks origin, all commits pushed)                                                                                                                             |
+| PR            | #510 (draft) — https://github.com/Hive-Academy/ptah-extension/pull/510                                                                                                                             |
+| Related PR    | #512 — `chore/bump-better-sqlite3-13` in worktree `D:\projects\ptah-sqlite-bump`                                                                                                                   |
+| node_modules  | `D:\projects\ptah-437\node_modules` is a JUNCTION to `D:\projects\ptah-extension\node_modules`. Never delete it with a tool that follows junctions; remove the junction with `cmd /c rmdir` first. |
+| Main checkout | `D:\projects\ptah-extension` is used by ANOTHER session (branch `feat/chat-composer-card`). Do not edit it or run tests there for this task.                                                       |
 
 ## 2. Root cause (confirmed)
 
@@ -29,20 +29,20 @@ scroll-back history paging deferred; `better-sqlite3` upgrade in a separate PR (
 
 ## 3. Done — committed and pushed (11 of 22 batches)
 
-| Batch | Commit | Summary |
-| --- | --- | --- |
-| docs | `1f58d1459` | Task spec, research, plan, batches |
-| 3 | `93c360572` | git status single-flight + one trailing rerun |
-| 2 | `ed98e515a` | Exclusion rules (worktrees, nested repos, case-insensitive), `NestedRepoRoots`, `EventStormBreaker` |
-| 5 | `bf247ed3c` | Crash/hang records: process-gone/unresponsive handlers, renderer console forwarding, main-loop watchdog worker + `ptah-hang.log`, local crashReporter |
-| 4 | `2ae430160`, `0a34fea7b` | Git watcher hardening, batched `file:content-changed`, file-index storm breaker + atomic snapshot swap |
-| Sonar | `f96841cdd` | SonarCloud reliability/maintainability fixes |
-| 7 | `b9ac03426` | `IWorkspaceWatcher` port, `WorkspaceChangeCoalescer`, contract suite, exclusion drift spec |
-| 13 | `b288ffff0` | Bounded reusable spawn worker pool (hard cap 64, Node exit-code semantics) |
-| 14 | `8d3f3745f` | Slow SQLite statement + slow session-history read logging |
-| 12 | `2f2416993` | Git process gate (max 4, min 2, UI lane), output cap, `statusUnavailable` shown in git UI |
-| 4 follow-up | `a659830bc` | Unnamed `fs.watch` events + own-refresh NTFS echo filter, 30 s safety refresh |
-| 6 | `321506385` | Real-watcher stress tests ST-1/ST-1b + perf spec + harness |
+| Batch       | Commit                   | Summary                                                                                                                                               |
+| ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| docs        | `1f58d1459`              | Task spec, research, plan, batches                                                                                                                    |
+| 3           | `93c360572`              | git status single-flight + one trailing rerun                                                                                                         |
+| 2           | `ed98e515a`              | Exclusion rules (worktrees, nested repos, case-insensitive), `NestedRepoRoots`, `EventStormBreaker`                                                   |
+| 5           | `bf247ed3c`              | Crash/hang records: process-gone/unresponsive handlers, renderer console forwarding, main-loop watchdog worker + `ptah-hang.log`, local crashReporter |
+| 4           | `2ae430160`, `0a34fea7b` | Git watcher hardening, batched `file:content-changed`, file-index storm breaker + atomic snapshot swap                                                |
+| Sonar       | `f96841cdd`              | SonarCloud reliability/maintainability fixes                                                                                                          |
+| 7           | `b9ac03426`              | `IWorkspaceWatcher` port, `WorkspaceChangeCoalescer`, contract suite, exclusion drift spec                                                            |
+| 13          | `b288ffff0`              | Bounded reusable spawn worker pool (hard cap 64, Node exit-code semantics)                                                                            |
+| 14          | `8d3f3745f`              | Slow SQLite statement + slow session-history read logging                                                                                             |
+| 12          | `2f2416993`              | Git process gate (max 4, min 2, UI lane), output cap, `statusUnavailable` shown in git UI                                                             |
+| 4 follow-up | `a659830bc`              | Unnamed `fs.watch` events + own-refresh NTFS echo filter, 30 s safety refresh                                                                         |
+| 6           | `321506385`              | Real-watcher stress tests ST-1/ST-1b + perf spec + harness                                                                                            |
 
 Phase 1 is CLOSED. Every batch passed a logic review and a style review (files `bN-*.md`).
 
@@ -51,14 +51,20 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. In progress — NOT committed (resume here)
+## 4. Batch 8 — COMMITTED (resume at Batch 9)
+
+**Update 2026-09-14:** Batch 8 passed both reviews (logic delta 2 APPROVE_WITH_FIXES, style delta
+APPROVED) and is committed as `feat(platform-electron): run workspace watching in a supervised
+@parcel/watcher host`. Outcome, evidence and follow-ups FU-8a..d are in `batches.md` "Batch 8
+outcome". Batch 9 correction: the CLI host MUST use `child_process.fork`, not `worker_threads`.
+The text below is the pre-review snapshot, kept for context.
 
 **Batch 8 — Electron watch host (`utilityProcess`/child process + `@parcel/watcher`).**
 Implemented by the executor, all tests green (platform-core 685, platform-electron 634,
 ptah-electron 609; contract suite 8/8 against a real host; degradation-audit at baseline 303).
-**Not reviewed, not committed.**
 
-Uncommitted files (only these should appear in `git status`):
+Files in the Batch 8 commit:
+
 - M `apps/ptah-electron/src/activation/{boot-coordinator,shutdown,wire-runtime}.ts`
 - M `apps/ptah-electron/src/di/{container.smoke.spec,phase-0-platform}.ts`, `apps/ptah-electron/src/main.quit-path.spec.ts`
 - M `libs/backend/platform-core/src/index.ts`
@@ -70,6 +76,7 @@ Uncommitted files (only these should appear in `git status`):
 Backup of this work: `D:\projects\ptah-437-backup\batch8-modified.patch` and `batch8-untracked.tar`.
 
 Executor-reported deviations the reviewers must judge:
+
 1. `@parcel/watcher` loads into only ONE thread per process ("Module did not self-register" in a
    second Worker) → the host entry also supports a `child_process` IPC transport; the contract
    suite runs over a forked host.
@@ -86,6 +93,7 @@ exit / post or fork failure / fatal → kill, one `overflow` to every subscriber
 (`electron.workspace-watcher.host-degraded`).
 
 What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
+
 - `build-workspace-watch-host` target: entry `libs/backend/platform-electron/src/workspace-watch/workspace-watch-host.entry.ts`,
   output `workspace-watch-host.mjs`, ESM with the `createRequire` banner, external `@parcel/watcher`.
 - Add it to `build.dependsOn`, `build-dev`, `serve:watch`, `test.dependsOn`; add `@parcel/watcher`
@@ -100,6 +108,7 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
 ## 5. Remaining batches (11 of 22)
 
 Order and dependencies are in `batches.md`. Summary:
+
 - **P2:** 8 (review + commit) → 9 (CLI + VS Code adapters; CLI host must use `child_process.fork`)
   → 10 (build/packaging — run ALONE, edits `project.json`, needs `npx nx reset` before first
   command) → 11 (migrate git watcher + file index onto the port, delete both storm-exit loops

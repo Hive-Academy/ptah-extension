@@ -56,6 +56,20 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
   shared with it: `isExcludedBySegmentRules` must stay behaviourally identical,
   pinned by `workspace-intelligence/src/file-indexing/workspace-exclusion-drift.spec.ts`.
   While storming, an event is one counter (no parsing); one incident → one overflow
+- `src/workspace-watch/` — the out-of-process watch host, shared by every
+  host-based `IWorkspaceWatcher` adapter (TASK_2026_437 C8). No Electron or
+  Node-IPC import; the adapter lib supplies the transport and the engine:
+  - `workspace-watch-protocol.ts` — Zod `strictObject` wire schemas both ways
+    (main → host `subscribe`/`unsubscribe`; host → main `batch`, `heartbeat`,
+    `error`, `notice`, `fatal`, and `subscribed` — the per-subscription ack that
+    a native subscribe covering it succeeded), size caps in `WORKSPACE_WATCH_PROTOCOL_LIMITS`,
+    `parseWorkspaceWatchHostInbound` / `parseWorkspaceWatchHostOutbound`
+  - `workspace-watch-host-core.ts` — `WorkspaceWatchHostCore`: one native
+    subscription per root with the intersection of subscriber excludes, one
+    `WorkspaceChangeCoalescer` per subscriber, nested `.git` resubscribe, native
+    error → overflow + retry, 2 s heartbeat, one `subscribed` ack per
+    subscription once a settled native subscribe covers it, invalid inbound
+    messages reported at most 10 times
 - `src/file-settings-manager.ts` + `file-settings-keys.ts` — `~/.ptah/settings.json` routing (TASK_2025_247)
 - `src/content-download.service.ts` — GitHub plugin/template downloader (TASK_2025_248)
 - `src/agent-pack-download.service.ts` — Agent pack downloader (TASK_2025_257)
@@ -64,7 +78,8 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 ## Key Files
 
 - `src/di/tokens.ts:11` — `PLATFORM_TOKENS` registry (28 tokens, the count of `Symbol.for(` entries in `tokens.ts`)
-- `src/interfaces/workspace-watcher.interface.ts` — `IWorkspaceWatcher`: batched, pre-filtered, overflow-signalling recursive change feed (TASK_2026_437 C7)
+- `src/interfaces/workspace-watcher.interface.ts` — `IWorkspaceWatcher`: batched, pre-filtered, overflow-signalling recursive change feed (TASK_2026_437 C7). Its doc is the degraded-mode contract every adapter follows: overflow now, then on a fixed 60 s rescan cadence until recovery or dispose
+- `src/workspace-watch/workspace-watch-host-core.ts` — `WorkspaceWatchHostCore`, the watch host every host-based adapter runs (Electron `utilityProcess`, CLI); the entry that wires a transport and `@parcel/watcher` to it lives in the adapter lib
 - `src/interfaces/platform-abstractions.interface.ts:23` — `IPlatformCommands` (moved here in Wave C8)
 - `src/interfaces/workspace-provider.interface.ts` — workspace folders + configuration read API
 - `src/interfaces/workspace-lifecycle.interface.ts` — workspace mutation API (add/remove/setActive)
@@ -110,8 +125,9 @@ entries in `src/di/tokens.ts`:
 | `WORKSPACE_WATCHER`            | `IWorkspaceWatcher`            |
 
 `WORKSPACE_WATCHER` (adapters land in TASK_2026_437 Batches 8–9) — `ElectronWorkspaceWatcher` (`platform-electron`,
-`utilityProcess` host), `CliWorkspaceWatcher` (`platform-cli`, `worker_threads`
-host), `VscodeWorkspaceWatcher` (`platform-vscode`). Each runs
+`utilityProcess` host), `CliWorkspaceWatcher` (`platform-cli`, `child_process.fork`
+host — never `worker_threads`: `@parcel/watcher` loads in one thread per process, so a
+restarted Worker host fails with "Module did not self-register"), `VscodeWorkspaceWatcher` (`platform-vscode`). Each runs
 `runWorkspaceWatcherContract`.
 
 `BOOT_READINESS` — `NullBootReadinessProvider` (`vscode-core`, always ready, the

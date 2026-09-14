@@ -137,6 +137,13 @@ export interface BootRefs extends ThothRuntimeRefs {
    */
   integrityService: { dispose: () => void } | null;
   /**
+   * `PLATFORM_TOKENS.WORKSPACE_WATCHER` — `ElectronWorkspaceWatcher`, which owns
+   * the watch host `utilityProcess` (TASK_2026_437 C8). `dispose()` kills the
+   * host synchronously and touches no SQLite. Captured pre-window with the
+   * other shutdown handles; resolving it forks nothing.
+   */
+  workspaceWatcher: { dispose: () => void } | null;
+  /**
    * Window-bounds persistence storage. Not a disposable — `app.on('activate')`
    * needs it to recreate the window on macOS.
    */
@@ -165,6 +172,7 @@ export function createEmptyBootRefs(): BootRefs {
     agentProcessManager: null,
     providerProxyPool: null,
     integrityService: null,
+    workspaceWatcher: null,
     resolvedStateStorage: null,
   };
 }

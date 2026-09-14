@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 56 | Batches: 22 | Complete: 10/22
+Total tasks: 56 | Batches: 22 | Complete: 11/22
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). Remaining unblocked: P2 Batch 8 (in progress) (depends on 7), then 9 → 10 → 11 → 15; P3 wave 1 Batch 16.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome). Remaining unblocked: P2 Batch 9 (CLI host on `child_process.fork`, see Task 9.1 correction), then 10 → 11 → 15; P3 wave 1 Batch 16.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `context.md` "User decisions"
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -502,7 +502,7 @@ P4 is the COMMIT order" for these four batches only.
 
 ---
 
-## Batch 8: P2 — watch host core + Electron adapter + app wiring (C8 code) — PENDING
+## Batch 8: P2 — watch host core + Electron adapter + app wiring (C8 code) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: none
@@ -510,28 +510,28 @@ P4 is the COMMIT order" for these four batches only.
 - Rationale: cross-lib, cross-process design with supervision logic. No build config here (that is Batch 10).
 - Tasks: 4 | Depends on: Batch 7
 
-### Task 8.1: Host core + protocol (platform-core) — PENDING
+### Task 8.1: Host core + protocol (platform-core) — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\libs\backend\platform-core\src\workspace-watch\workspace-watch-host-core.ts`, `workspace-watch-protocol.ts`, + specs; MODIFY `D:\projects\ptah-extension\libs\backend\platform-core\src\index.ts`
 - Plan reference: implementation-plan.md:453-517
 - Quality requirements: pure (engine + `post` injected); Zod-validated id-correlated messages; host never spawns processes or reads file contents
 - Validation notes: nested `.git` create re-subscribes (debounced 1 s, ≤ 1 per 10 s per root). A native error emits `overflow` and re-subscribes (A1). One native subscription per root using the intersection of excludes.
 
-### Task 8.2: `ElectronWorkspaceWatcher` adapter + entry — PENDING
+### Task 8.2: `ElectronWorkspaceWatcher` adapter + entry — COMPLETE
 
 - Depends on: Task 8.1
-- Files: CREATE `D:\projects\ptah-extension\libs\backend\platform-electron\src\workspace-watch\workspace-watch-host.entry.ts`, `electron-workspace-watcher.ts`, `electron-workspace-watcher.spec.ts`, `workspace-watch-host.entry.spec.ts` (worker_threads transport); MODIFY `D:\projects\ptah-extension\libs\backend\platform-electron\src\registration.ts`, `src\index.ts`, `CLAUDE.md`
+- Files: CREATE `D:\projects\ptah-extension\libs\backend\platform-electron\src\workspace-watch\workspace-watch-host.entry.ts`, `electron-workspace-watcher.ts`, `electron-workspace-watcher.spec.ts`, `workspace-watch-host.entry.spec.ts` (built over the `child_process` transport, see outcome); MODIFY `D:\projects\ptah-extension\libs\backend\platform-electron\src\registration.ts`, `src\index.ts`, `CLAUDE.md`
 - Pattern to follow: transport auto-detect `libs\backend\persistence-sqlite\src\lib\integrity\integrity-worker.ts:65-114`
 - Validation notes: no `electron` import (injected fork shim). Heartbeat missed 3 × 2 s triggers kill + restart. Budget 5 per 10 min, then degraded (overflow + DegradationReporter + 60 s rescan advice). Resends subscriptions after restart. Paths are containment-checked.
 
-### Task 8.3: App factory, phase-0 registration, BootRefs, hatch — PENDING
+### Task 8.3: App factory, phase-0 registration, BootRefs, hatch — COMPLETE
 
 - Depends on: Task 8.2
 - Files: CREATE `D:\projects\ptah-extension\apps\ptah-electron\src\services\platform\electron-workspace-watch-host-factory.ts`; MODIFY `D:\projects\ptah-extension\apps\ptah-electron\src\di\phase-0-platform.ts`, `D:\projects\ptah-extension\apps\ptah-electron\src\activation\boot-coordinator.ts` (BootRefs.workspaceWatcher), `D:\projects\ptah-extension\apps\ptah-electron\src\activation\shutdown.ts` (`nonFatal` in `disposeAfterPersistence`), `D:\projects\ptah-extension\apps\ptah-electron\src\di\container.smoke.spec.ts`
 - Pattern to follow: `electron-integrity-worker-factory.ts:22-31`, `electron-utility-worker-process.ts:26-61`
 - Validation notes: `PTAH_WATCH_HOST=0` selects in-process `@parcel/watcher` inside the same adapter. Record at the flag site: consumer = Electron users hitting A2 faults; delete after one release without host degradations.
 
-### Task 8.4: Host bundle path resolution contract — PENDING
+### Task 8.4: Host bundle path resolution contract — COMPLETE
 
 - Depends on: Task 8.3
 - Implementation details: the factory resolves `workspace-watch-host.mjs` next to `main.mjs` exactly as the integrity worker does. The spec asserts the resolved path. Batch 10 produces the file.
@@ -540,7 +540,30 @@ P4 is the COMMIT order" for these four batches only.
 
 - `npx nx run-many -t test -p @ptah-extension/platform-core @ptah-extension/platform-electron ptah-electron` (header: 3). The ptah-electron ESM gate is unchanged here.
 - `npx nx run-many -t typecheck,lint -p @ptah-extension/platform-core @ptah-extension/platform-electron ptah-electron`
-- Done when: the adapter spec with a fake fork shim proves restart, resubscribe and budget exhaustion; the entry runs as a worker_threads Worker in Jest on a temp tree
+- Done when: the adapter spec with a fake fork shim proves restart, resubscribe and budget exhaustion; the entry runs in Jest on a temp tree (as built: over the `child_process` transport, deviation 1)
+
+### Batch 8 outcome
+
+- Commit: `feat(platform-electron): run workspace watching in a supervised @parcel/watcher host` (SHA in `git log`; recorded by subject because this file is part of that commit).
+- Reviews: `b8-code-logic-review.md` base REVISE (NEEDS_REVISION) → delta 1 APPROVE_WITH_FIXES (serious: recovery confirmed by any non-fatal message) → delta 2 APPROVE_WITH_FIXES, confidence HIGH (serious closed; two Moderate items → FU-8a, FU-8b). `b8-code-style-review.md` base APPROVE_WITH_FIXES (REVISE, doc-only) → delta APPROVED, confidence HIGH (two Minor → FU-8d and a comment note).
+- Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset, no cache hits — the port doc edit below invalidated every input):
+  - `npx nx run-many -t test,typecheck,lint -p @ptah-extension/platform-core @ptah-extension/platform-electron ptah-electron --parallel=1 -- --maxWorkers=2` (header: 3 projects). platform-core 37/37 suites, 690 passed / 4 todo (694). platform-electron 36 passed / 1 skipped (pre-existing `electron-state-storage-large-profile.perf.spec.ts`) of 37, 643 passed / 2 skipped / 3 todo (648). ptah-electron 45 passed / 2 skipped of 47, 610 passed / 6 skipped (616). No load flakes. Lint 0 errors (warnings: 8 / 8 / 4).
+  - typecheck in that run failed only with `TS5023 Unknown compiler option '--maxWorkers=2'` (the trailing Jest flag is forwarded to every target). Re-run without it: `npx nx run-many -t typecheck -p` (same 3, header: 3 projects) — green.
+  - `npx nx run degradation-audit:lint` — exit 0, TOTAL 303 (at baseline).
+- Accepted deviations (both reviewers, orchestrator decision):
+  - (1) Third transport in `workspace-watch-host.entry.ts`: `child_process.fork` IPC. `@parcel/watcher` loads in only one thread per process ("Module did not self-register" in a second Worker); the contract suite runs over a forked host.
+  - (2) `apps/ptah-electron/src/activation/wire-runtime.ts` (outside the file list) sets `refs.workspaceWatcher`.
+  - (3) Degraded mode repeats `overflow` every 60 s; the port doc in `workspace-watcher.interface.ts` was rewritten to match.
+  - (4) `libs/backend/platform-core/CLAUDE.md` lists `src/workspace-watch/`.
+- Review fixes beyond the plan, accepted: stall-aware host watchdog (main-loop lag does not count as host silence); degraded recovery attempt after 10 min, confirmed only by a new `subscribed` protocol ack for every re-sent subscription (heartbeat never confirms; a subscribe `error` or the 6 s deadline is a failure and files no new report); host `invalid-message` error cap of 10; `PTAH_WATCH_HOST=0` logs a selection line. The normal restart path does not wait for acks (reason in the adapter header).
+- Accepted, not split: `electron-workspace-watcher.ts` 822 lines, `workspace-watch-host-core.ts` 734 lines (style delta: state-coupled, no nameable independent slice).
+- Follow-ups (not in this batch):
+  - FU-8a (Moderate, diagnostic only): disposing the last awaited subscription during recovery ends idle via the 6 s ack deadline, logs `recovery-unconfirmed` and keeps `isDegraded` true for up to 6 s. No leak, correct end state. Add a spec and an explicit "no subscriptions left" path (`electron-workspace-watcher.ts` `unwatch` / `confirmRecoveryIfAcked`).
+  - FU-8b (Batch 11 attention): one permanently unwatchable root among several blocks degraded recovery for all roots (the adapter stays on 60 s rescans). Batch 11 consumers must keep overflow → rescan idempotent and cheap; consider per-root recovery later.
+  - FU-8c: the degradation report summary says watching "stopped" and does not mention the 10-min retry (needs a `WorkspaceWatcherDegradation` field).
+  - FU-8d: harness `resolveGitExecutable` (`git-watcher.stress.harness.ts`) duplicates the unexported `gitCommand()` in `libs/backend/vscode-core/src/utils/exec-git.ts`; extract a shared helper if a third caller appears.
+- Batch 9 transport correction (planning, recorded in this commit): the CLI host MUST use `child_process.fork`, not `worker_threads` — see Task 9.1. Also corrected in `implementation-plan.md` (C9 responsibilities, chosen approach, rejected alternatives, C8 verification seam, ST-2), the port doc and `platform-core/CLAUDE.md`.
+- Separate commit: `apps/ptah-electron/src/services/git-watcher.stress.harness.ts` resolves git to an absolute path (SonarCloud S4036 on PR #510; also closes logic delta 1 Moderate-2 — `.exe` only, no `.cmd` shim without a shell).
 
 ---
 
@@ -556,7 +579,8 @@ P4 is the COMMIT order" for these four batches only.
 
 - Files: CREATE `D:\projects\ptah-extension\libs\backend\platform-cli\src\workspace-watch\workspace-watch-host.entry.ts`, `D:\projects\ptah-extension\libs\backend\platform-cli\src\implementations\cli-workspace-watcher.ts` + spec; MODIFY platform-cli registration file, `D:\projects\ptah-extension\libs\backend\cli-engine\src\lib\container.ts`, `D:\projects\ptah-extension\apps\ptah-cli\src\di\container.smoke.spec.ts`
 - Plan reference: implementation-plan.md:519-543
-- Validation notes: A3 NO-GO means the entry uses chokidar inside the worker (contract unchanged). D7: the entry path must resolve for both `main.mjs` and `tui.mjs`. Restart budget same as Electron.
+- Transport correction (recorded 2026-09-14 from Batch 8, binding): the CLI host MUST run as a `child_process.fork` child, NOT a `worker_threads` Worker. `@parcel/watcher` loads in only one thread per process; a second Worker in the same process fails with "Module did not self-register", so a host restart would fail. The Batch 8 Electron entry already supports the `child_process` IPC transport — follow it.
+- Validation notes: A3 NO-GO means the entry uses chokidar inside the host child (contract unchanged). D7: the entry path must resolve for both `main.mjs` and `tui.mjs`. Restart budget same as Electron.
 
 ### Task 9.2: `VscodeWorkspaceWatcher` — PENDING
 

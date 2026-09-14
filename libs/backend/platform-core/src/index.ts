@@ -171,6 +171,44 @@ export type {
   WorkspaceChangeCoalescerClock,
   WorkspaceChangeCoalescerHooks,
 } from './utils/workspace-change-coalescer';
+export {
+  WORKSPACE_WATCH_HOST_DEFAULTS,
+  WorkspaceWatchHostCore,
+  toWorkspaceWatchPathKey,
+} from './workspace-watch/workspace-watch-host-core';
+export type {
+  WorkspaceWatchEngine,
+  WorkspaceWatchEngineCallback,
+  WorkspaceWatchEngineEvent,
+  WorkspaceWatchEngineSubscription,
+  WorkspaceWatchHostCoreOptions,
+} from './workspace-watch/workspace-watch-host-core';
+export {
+  WORKSPACE_WATCH_ERROR_CODES,
+  WORKSPACE_WATCH_NOTICE_CODES,
+  WORKSPACE_WATCH_PROTOCOL_LIMITS,
+  clipWorkspaceWatchText,
+  parseWorkspaceWatchHostInbound,
+  parseWorkspaceWatchHostOutbound,
+  toWorkspaceWatchBatchMessage,
+  toWorkspaceWatchSubscribeMessage,
+  workspaceWatchHostInboundSchema,
+  workspaceWatchHostOutboundSchema,
+} from './workspace-watch/workspace-watch-protocol';
+export type {
+  WorkspaceWatchBatchMessage,
+  WorkspaceWatchErrorCode,
+  WorkspaceWatchErrorMessage,
+  WorkspaceWatchFatalMessage,
+  WorkspaceWatchHeartbeatMessage,
+  WorkspaceWatchHostInbound,
+  WorkspaceWatchHostOutbound,
+  WorkspaceWatchNoticeCode,
+  WorkspaceWatchNoticeMessage,
+  WorkspaceWatchSubscribeMessage,
+  WorkspaceWatchSubscribedMessage,
+  WorkspaceWatchUnsubscribeMessage,
+} from './workspace-watch/workspace-watch-protocol';
 export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
 export {
   createExecutableEditorDefinitions,

@@ -238,6 +238,11 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   }
 
   nonFatal('CLI registry dispose', () => refs.cliRegistry?.disposeAll());
+  // Captured pre-window beside `cliRegistry`, so disposed beside it. Nothing
+  // consumes it yet (Batch 11 moves the git watcher onto it, and that consumer
+  // will stop in `disposeBeforePersistence`). This kills the watch host process
+  // if one was forked, and writes nothing.
+  nonFatal('Workspace watcher dispose', () => refs.workspaceWatcher?.dispose());
   nonFatal('Diagnostics dispose', () => refs.diagnostics?.dispose());
 }
 
