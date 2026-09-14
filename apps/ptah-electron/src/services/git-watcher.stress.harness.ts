@@ -35,6 +35,39 @@ const FILES_PER_DIR = 10;
 /** How long the armed watcher must be idle before the measured window opens. */
 const QUIET_BASELINE_MS = 3_000;
 
+let gitExecutable: string | undefined;
+
+/**
+ * The git binary as an absolute path, found once by walking the absolute
+ * entries of PATH in-process. Spawning the bare name `git` lets the OS search
+ * PATH at exec time, including relative or writable entries (Sonar
+ * typescript:S4036); this spawns nothing to find it and fails loudly when git
+ * is missing, exactly as the bare call would have.
+ * Production code solves the same problem in `gitCommand()`
+ * (`libs/backend/vscode-core/src/utils/exec-git.ts`).
+ */
+function resolveGitExecutable(): string {
+  if (gitExecutable !== undefined) return gitExecutable;
+  // `.exe` only: execFileSync cannot run a `.cmd`/`.bat` shim without a shell.
+  const name = process.platform === 'win32' ? 'git.exe' : 'git';
+  for (const dir of (process.env['PATH'] ?? '').split(path.delimiter)) {
+    if (!path.isAbsolute(dir)) continue;
+    const candidate = path.join(dir, name);
+    if (fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) {
+      gitExecutable = candidate;
+      return candidate;
+    }
+  }
+  throw new Error(
+    `git-watcher stress rig: no ${name} on an absolute PATH entry`,
+  );
+}
+
+/** Runs git synchronously in `cwd` through the resolved absolute binary. */
+function runGit(args: readonly string[], cwd: string): void {
+  execFileSync(resolveGitExecutable(), args, { cwd });
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -230,14 +263,10 @@ export class GitWatcherStressRig {
 
   constructor() {
     this.workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-437-st-'));
-    execFileSync('git', ['init', '-q'], { cwd: this.workspaceRoot });
+    runGit(['init', '-q'], this.workspaceRoot);
     // Deterministic identity so git never blocks on a prompt.
-    execFileSync('git', ['config', 'user.email', 'stress@ptah.test'], {
-      cwd: this.workspaceRoot,
-    });
-    execFileSync('git', ['config', 'user.name', 'ptah-stress'], {
-      cwd: this.workspaceRoot,
-    });
+    runGit(['config', 'user.email', 'stress@ptah.test'], this.workspaceRoot);
+    runGit(['config', 'user.name', 'ptah-stress'], this.workspaceRoot);
 
     const noop = (): void => undefined;
     const logger = {
