@@ -115,6 +115,8 @@ export type { SubsystemBringUpDeps } from './services/subsystem-bringup';
 export {
   EventLoopMonitor,
   CpuProfileCapture,
+  MainLoopWatchdog,
+  appendHangLogLine,
   armDiagnostics,
   readMsEnv,
   roundMs,
@@ -125,8 +127,18 @@ export {
   CPU_PROFILE_DIR_ENV,
   DEFAULT_CPU_PROFILE_DURATION_MS,
   AUTO_CAPTURE_COOLDOWN_MS,
+  HANG_LOG_FILE_NAME,
+  HANG_LOG_MAX_BYTES,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_HANG_THRESHOLD_MS,
+  DEFAULT_HANG_CHECK_INTERVAL_MS,
+  MAX_BREADCRUMB_KEYS,
+  MAX_BREADCRUMB_VALUE_LENGTH,
+  MAX_WORKER_RESTARTS,
+  WORKER_RESTART_WINDOW_MS,
 } from './diagnostics';
 export type {
+  MainLoopWatchdogOptions,
   EventLoopLagSample,
   EventLoopLagListener,
   EventLoopMonitorOptions,

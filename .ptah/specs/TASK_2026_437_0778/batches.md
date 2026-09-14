@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 56 | Batches: 22 | Complete: 3/22
+Total tasks: 56 | Batches: 22 | Complete: 4/22
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (commit recorded in its header), Batch 3 COMPLETE (93c360572). Batch 4 unblocked. Batch 5 IN_PROGRESS.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (commit recorded in its header). Batch 4 IN_PROGRESS.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `context.md` "User decisions"
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -170,7 +170,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ## Batch 2: P1 — workspace exclusion policy + storm breaker (C1, C2) — COMPLETE
 
-- Commit: the commit whose subject is `fix(shared): exclude agent worktrees and nested repos from workspace watching` (a commit cannot hold its own SHA; resolve it with `git log --oneline --grep "exclude agent worktrees"`)
+- Commit: ed98e515a `fix(shared): exclude agent worktrees and nested repos from workspace watching`
 
 - Recommended executor: backend-developer
 - Fallback executor: CLI lane per task (Tasks 2.1–2.2 and 2.3 are file-disjoint)
@@ -273,7 +273,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ---
 
-## Batch 4: P1 — git watcher hardening + batched `file:content-changed` + file-index breaker (C3, C5) — PENDING
+## Batch 4: P1 — git watcher hardening + batched `file:content-changed` + file-index breaker (C3, C5) — IN_PROGRESS
 
 - Recommended executor: backend-developer (Task 4.3 renderer half; fallback frontend-developer for that task only, same batch, same commit)
 - Fallback executor: backend-developer then frontend-developer sequentially in one batch
@@ -317,15 +317,16 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ---
 
-## Batch 5: P1 — crash / hang observability (C6) — IN_PROGRESS
+## Batch 5: P1 — crash / hang observability (C6) — COMPLETE
 
+- Commit: the commit whose subject is `feat(electron): record renderer and process deaths, hangs and local crash dumps` (a commit cannot hold its own SHA; resolve it with `git log --oneline --grep "record renderer and process deaths"`)
 - Recommended executor: backend-developer
 - Fallback executor: CLI lanes x2 (Task 5.1 app side vs Tasks 5.2–5.3 vscode-core side are file-disjoint)
 - Execution mode: sequential
 - Rationale: independent of the watcher work. DI wiring across three hosts needs one owner.
 - Tasks: 3 | Depends on: none | Parallel with: Batches 1, 2, 3
 
-### Task 5.1: `ProcessLifecycleRecorder` + crashReporter (local only) — IN_PROGRESS
+### Task 5.1: `ProcessLifecycleRecorder` + crashReporter (local only) — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\apps\ptah-electron\src\services\diagnostics\process-lifecycle-recorder.ts` + `process-lifecycle-recorder.spec.ts`; MODIFY `D:\projects\ptah-extension\apps\ptah-electron\src\main.ts`, `D:\projects\ptah-extension\apps\ptah-electron\src\activation\post-window.ts`
 - Plan reference: implementation-plan.md:368-412
@@ -334,14 +335,14 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Validation notes: D9. `crashReporter.start({ uploadToServer: false })` runs before `app.whenReady`. On start, prune `app.getPath('crashDumps')` to the newest 5 dumps, best-effort.
 - Implementation details: `app` events `child-process-gone` and `render-process-gone`. Per window: `render-process-gone`, `unresponsive`/`responsive` with duration, `console-message`. Spec with fake emitters.
 
-### Task 5.2: `MainLoopWatchdog` (eval'd worker) — IN_PROGRESS
+### Task 5.2: `MainLoopWatchdog` (eval'd worker) — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\libs\backend\vscode-core\src\diagnostics\main-loop-watchdog.ts`, `main-loop-watchdog-source.ts`, `main-loop-watchdog.spec.ts`; MODIFY `D:\projects\ptah-extension\libs\backend\vscode-core\src\diagnostics\index.ts`
 - Plan reference: implementation-plan.md:381-386
 - Pattern to follow: workspace-intelligence `ts-diagnostics-worker-source.ts` (`eval: true`)
 - Validation notes: D6 (`setBreadcrumb` API). Heartbeat timer unref'd. The worker swallows append failures. Spec: stop heartbeat for 6 s, then exactly one hang line + one recovery line in a temp file (AC-5).
 
-### Task 5.3: DI + arming across hosts — IN_PROGRESS
+### Task 5.3: DI + arming across hosts — COMPLETE
 
 - Depends on: Task 5.2
 - Files: `D:\projects\ptah-extension\libs\backend\vscode-core\src\di\tokens.ts`, `D:\projects\ptah-extension\libs\backend\vscode-core\src\di\register-platform-agnostic.ts`, `D:\projects\ptah-extension\libs\backend\vscode-core\src\diagnostics\arm-diagnostics.ts`, `D:\projects\ptah-extension\apps\ptah-electron\src\di\container.smoke.spec.ts`, `D:\projects\ptah-extension\apps\ptah-cli\src\di\container.smoke.spec.ts`, `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\di\container.smoke.spec.ts`, `D:\projects\ptah-extension\libs\backend\vscode-core\CLAUDE.md` ("Diagnosing a hang")
@@ -354,6 +355,27 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - `npx nx run-many -t typecheck,lint -p ptah-electron @ptah-extension/vscode-core ptah-cli ptah-extension-vscode @ptah-extension/cli-engine`
 - `npx nx run degradation-audit:lint`
 - Done when: INV-8 and AC-5 are pinned by CI specs. AC-6 is optional e2e and not required.
+
+### Batch 5 outcome
+
+- Reviews: `b5-code-logic-review.md` base APPROVE_WITH_FIXES, appended delta APPROVE (HIGH confidence); `b5-code-style-review.md` APPROVE_WITH_FIXES. Fixes applied before commit: one exported `HANG_LOG_FILE_NAME` + `appendHangLogLine` from the vscode-core root barrel; worker restart budget 3 per 10 min, then one `[watchdog] degraded` error; hang log rotation at 1 MiB to `.1` (TS function + worker string twin `HANG_LOG_APPEND_SOURCE`, parity spec); new `arm-diagnostics.spec.ts` (6 cases); AC-5 upper bound gated behind `PTAH_PERF_SPECS=1`.
+- Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset):
+  - `npx nx run-many -t test -p @ptah-extension/vscode-core` — 37 suites / 566 tests passed.
+  - `npx nx test ptah-electron --testPathPattern="process-lifecycle-recorder|container.smoke"` — 43 suites passed, 1 skipped; 583 tests passed, 4 skipped (pattern did not narrow; the full project ran, including Batch 4's `git-watcher.service.spec.ts`, green at that moment).
+  - `npx nx test ptah-cli --testPathPattern=container.smoke` — 66 suites passed, 1 skipped; 989 passed, 3 skipped (full project ran). One Jest "worker failed to exit gracefully" warning; not attributed to the watchdog (smoke spec never starts it).
+  - `npx nx test ptah-extension-vscode --testPathPattern=container.smoke` — 6 suites / 63 tests passed.
+  - `npx nx run-many -t typecheck,lint -p @ptah-extension/vscode-core ptah-electron ptah-cli` — 3 projects, 0 errors (warnings only).
+  - `npx nx build-main ptah-electron` — success.
+  - `npx nx run degradation-audit:lint` — FAILS on a repo-wide baseline (313 findings in files outside this batch); ZERO findings in any Batch 5 file. The two Electron findings at `git-watcher.service.ts:706,709` belong to Batch 4 (in progress).
+  - Not run by team-leader: `ptah-extension-vscode` typecheck — executor reported its only error in `workspace-file-index.service.ts` (Batch 4).
+- Accepted deviations:
+  - (a) Wiring lives in `apps/ptah-electron/src/main.ts`, not `activation/post-window.ts`: the recorder must subscribe to `browser-window-created` before the preparing window opens, and Crashpad must start before `app.whenReady`.
+  - (b) Out-of-list edit `apps/ptah-electron/esbuild.config.cjs` adds `crashReporter` to `ELECTRON_NAMED_EXPORTS`; required for `build-main` (logic review confirmed).
+  - (c) Renderer deaths are recorded from `app` `render-process-gone` only; no per-window duplicate listener.
+- Follow-ups (not in this batch):
+  - FU-5a: RPC in-flight method breadcrumb needs a hook in `RpcHandler` (plan defect D6).
+  - FU-5b: the CLI arms diagnostics only under `--verbose`, so it has the watchdog only under `--verbose`.
+  - FU-5c: concurrent rotation by two writers (watchdog worker + lifecycle recorder) may clobber the `.1` archive; the live file is safe. Delta review suggests one doc-comment line.
 
 ---
 

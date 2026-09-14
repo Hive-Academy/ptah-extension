@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, crashReporter } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { createMainWindow } from './windows/main-window';
@@ -27,6 +27,11 @@ import { createBootReadinessBroadcaster } from './activation/boot-readiness-broa
 import { wireRuntimePreWindow } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
 import { handleWillQuit } from './activation/shutdown';
+import {
+  ProcessLifecycleRecorder,
+  pruneCrashDumps,
+  startLocalCrashReporter,
+} from './services/diagnostics/process-lifecycle-recorder';
 import {
   PtahTrayService,
   handleWindowAllClosed,
@@ -74,6 +79,24 @@ if (!gotLock) {
   // slot read through a closure, not a copy: the responder is registered before
   // a container exists and must see the real one the moment boot produces it.
   let bootContainer: DependencyContainer | null = null;
+
+  // Crash and hang records (TASK_2026_437, INV-8). BEFORE `whenReady`, for two
+  // reasons: Crashpad must start before the app is ready to capture anything,
+  // and the recorder's `browser-window-created` subscription has to exist
+  // before the preparing shell opens. Dumps stay LOCAL — `uploadToServer:
+  // false` (user decision Q5) — and are pruned to the newest five on start.
+  if (startLocalCrashReporter(crashReporter)) {
+    void pruneCrashDumps(app.getPath('crashDumps'));
+  }
+  new ProcessLifecycleRecorder({
+    logsPath: app.getPath('logs'),
+    // Read per record: before the boot container exists (or after a failed
+    // boot) the recorder writes to the console instead.
+    getLogger: () =>
+      bootContainer !== null && bootContainer.isRegistered(TOKENS.LOGGER)
+        ? bootContainer.resolve<Logger>(TOKENS.LOGGER)
+        : null,
+  }).install(app);
 
   app.whenReady().then(async () => {
     // BEFORE the first window. Every renderer's preload blocks on this sync

@@ -21,7 +21,11 @@ import 'reflect-metadata';
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer, InjectionToken } from 'tsyringe';
 
-import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  registerVsCodeCorePlatformAgnostic,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
@@ -222,4 +226,36 @@ describe('VS Code DI — handlers that must NOT be constructed', () => {
       expect(profile.capabilities[capability]).toBe(false);
     },
   );
+});
+
+/**
+ * `TOKENS.MAIN_LOOP_WATCHDOG` (TASK_2026_437) is bound by
+ * `registerVsCodeCorePlatformAgnostic`, which this host reaches through
+ * `libs/backend/vscode-core/src/di/register.ts`. Pinned here rather than in `expected-resolvable.ts`, which
+ * lists RPC handler classes only (batches.md plan defect D2). Resolving must
+ * NOT start the worker — arming belongs to `armDiagnostics`.
+ */
+describe('VS Code DI — main-loop watchdog (TASK_2026_437)', () => {
+  it('resolves MAIN_LOOP_WATCHDOG as an unstarted singleton', () => {
+    const c = rootContainer.createChildContainer();
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    registerVsCodeCorePlatformAgnostic(c, logger, {
+      includeLicensingAndAuth: false,
+    });
+
+    const watchdog = c.resolve<{
+      running: boolean;
+      setBreadcrumb: (key: string, value: string | number) => void;
+    }>(TOKENS.MAIN_LOOP_WATCHDOG);
+
+    expect(watchdog.running).toBe(false);
+    expect(typeof watchdog.setBreadcrumb).toBe('function');
+    expect(c.resolve(TOKENS.MAIN_LOOP_WATCHDOG)).toBe(watchdog);
+  });
 });

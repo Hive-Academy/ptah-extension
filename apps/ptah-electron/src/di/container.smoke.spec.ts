@@ -22,7 +22,11 @@ import 'reflect-metadata';
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer, InjectionToken } from 'tsyringe';
 
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  registerVsCodeCorePlatformAgnostic,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import { SDK_TOKENS, registerSdkServices } from '@ptah-extension/agent-sdk';
@@ -308,5 +312,37 @@ describe('Electron DI — app updater token aliasing (Risk R1)', () => {
 
     expect(viaPort).toBeDefined();
     expect(viaPort).toBe(viaConcreteToken);
+  });
+});
+
+/**
+ * `TOKENS.MAIN_LOOP_WATCHDOG` (TASK_2026_437) is bound by
+ * `registerVsCodeCorePlatformAgnostic`, which this host reaches through
+ * `apps/ptah-electron/src/di/phase-1-infra.ts`. Pinned here rather than in `expected-resolvable.ts`, which
+ * lists RPC handler classes only (batches.md plan defect D2). Resolving must
+ * NOT start the worker — arming belongs to `armDiagnostics`.
+ */
+describe('Electron DI — main-loop watchdog (TASK_2026_437)', () => {
+  it('resolves MAIN_LOOP_WATCHDOG as an unstarted singleton', () => {
+    const c = rootContainer.createChildContainer();
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    registerVsCodeCorePlatformAgnostic(c, logger, {
+      includeLicensingAndAuth: false,
+    });
+
+    const watchdog = c.resolve<{
+      running: boolean;
+      setBreadcrumb: (key: string, value: string | number) => void;
+    }>(TOKENS.MAIN_LOOP_WATCHDOG);
+
+    expect(watchdog.running).toBe(false);
+    expect(typeof watchdog.setBreadcrumb).toBe('function');
+    expect(c.resolve(TOKENS.MAIN_LOOP_WATCHDOG)).toBe(watchdog);
   });
 });

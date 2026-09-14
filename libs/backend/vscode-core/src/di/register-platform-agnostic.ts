@@ -24,6 +24,7 @@ import { NullSessionAttachmentGuard } from '../services/null-session-attachment-
 import { NullBootReadinessProvider } from '../services/null-boot-readiness';
 import { EventLoopMonitor } from '../diagnostics/event-loop-monitor';
 import { CpuProfileCapture } from '../diagnostics/cpu-profile-capture';
+import { MainLoopWatchdog } from '../diagnostics/main-loop-watchdog';
 import { DegradationReporter } from '../logging/degradation-reporter';
 
 export interface PlatformAgnosticRegistrationOptions {
@@ -97,6 +98,9 @@ export function registerVsCodeCorePlatformAgnostic(
   // suspect). `armDiagnostics` is the call that turns them on.
   container.registerSingleton(TOKENS.EVENT_LOOP_MONITOR, EventLoopMonitor);
   container.registerSingleton(TOKENS.CPU_PROFILE_CAPTURE, CpuProfileCapture);
+  // Same rule: constructing the watchdog spawns nothing. Its worker and
+  // heartbeat start only inside `armDiagnostics` (TASK_2026_437).
+  container.registerSingleton(TOKENS.MAIN_LOOP_WATCHDOG, MainLoopWatchdog);
 
   // Degradation counting (TASK_2026_383). Registered here rather than in the
   // VS Code-only `register.ts` because the reporter has zero vscode surface and
@@ -133,6 +137,7 @@ export function registerVsCodeCorePlatformAgnostic(
       'SUBAGENT_REGISTRY_SERVICE',
       'EVENT_LOOP_MONITOR',
       'CPU_PROFILE_CAPTURE',
+      'MAIN_LOOP_WATCHDOG',
       'DEGRADATION_REPORTER',
       ...(includeLicensingAndAuth
         ? [

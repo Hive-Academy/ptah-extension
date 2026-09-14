@@ -104,6 +104,55 @@ itself a suspect), VS Code as soon as the logger exists, the CLI only under
 `unref()`-ed: a hang detector that keeps the process alive would be a poor
 outcome (see commit `5dc525f02` for that defect class).
 
+### The hang log (`ptah-hang.log`)
+
+`[event-loop] lag` is written by a timer on the very loop it measures, so a
+block that ends in a force-quit or a crash never reaches the log. The hang log
+exists for that case (TASK_2026_437, INV-8). It lives beside the other logs in
+`logsPath` and holds one JSON object per line.
+
+- **`MainLoopWatchdog`** (`src/diagnostics/main-loop-watchdog.ts`, token
+  `TOKENS.MAIN_LOOP_WATCHDOG`). `armDiagnostics` starts it only when the host
+  passes `logsPath`, which all three hosts do. The CLI arms diagnostics only
+  under `--verbose`, so the CLI has the watchdog only under `--verbose` too.
+  Main posts a heartbeat every 1 s. An eval'd `worker_threads` worker
+  (`main-loop-watchdog-source.ts`) appends `{"event":"hang"}` after 5 s with no
+  heartbeat. It writes that line WHILE main is still blocked. When heartbeats
+  come back, it appends `{"event":"recovered","blockedForMs":…}`. Each line
+  carries `breadcrumbs`. `setBreadcrumb(key, value)` sets them, with at most 16
+  keys and 200 characters per value. `armDiagnostics` records `lastLag` from
+  every lag warning. The RPC method in flight is not recorded yet: `RpcHandler`
+  has no breadcrumb hook (plan defect D6). A watchdog that fails to start logs
+  `[diagnostics] main-loop watchdog not armed` and leaves the lag monitor
+  running. The worker swallows a failed append. It ignores a gap when its own
+  timer was late too, because that means the machine slept. A worker that dies
+  on its own logs `[watchdog] worker died — restarting` and is respawned, at
+  most 3 times per 10 min. After that it logs one `[watchdog] degraded` error
+  and stays down.
+- **Size bound**: both writers use `appendHangLogLine`. Before an append, a file
+  at or past 1 MiB (`HANG_LOG_MAX_BYTES`) is renamed to `ptah-hang.log.1`,
+  which replaces the older one. The worker runs a string copy of it
+  (`HANG_LOG_APPEND_SOURCE`). `main-loop-watchdog.spec.ts` checks that the copy
+  and the TS function write the same files. Change both together.
+- **Electron lifecycle lines**
+  (`apps/ptah-electron/src/services/diagnostics/process-lifecycle-recorder.ts`)
+  go to the same file with
+  `"source":"process-lifecycle"`. They cover `child-process-gone`,
+  `render-process-gone` and `window-unresponsive` / `window-responsive` (with
+  `unresponsiveForMs`). Each one also goes to the logger. Renderer
+  `console.warn` / `console.error` go to the logger only, as
+  `[renderer] console.*`. At most 20 lines are kept per 10 s, then one
+  `suppressed` line, with 2 KB per message.
+- **Crash dumps**: Electron starts `crashReporter` with `uploadToServer: false`.
+  Minidumps stay under `app.getPath('crashDumps')`, and each start keeps only the
+  newest 5.
+
+Reading it: a `hang` with no matching `recovered` means the process died while
+it was frozen. A `hang` whose `blockedForMs` matches a `window-unresponsive` →
+`window-responsive` pair means main blocked the window. A `window-unresponsive`
+with no watchdog `hang` points at the renderer, or at a main-loop block shorter
+than 5 s — check `[event-loop] lag` for the same minute.
+
 ## Counting a degradation
 
 `src/logging/degradation-reporter.ts` (TASK_2026_383) is the one way a site that
@@ -159,7 +208,7 @@ on its **own** line. Run it with `npx nx run degradation-audit:lint`.
 
 ## Internal Structure
 
-- `src/diagnostics/` — `EventLoopMonitor`, `CpuProfileCapture`, `armDiagnostics`
+- `src/diagnostics/` — `EventLoopMonitor`, `CpuProfileCapture`, `MainLoopWatchdog`, `armDiagnostics`
 - `src/api-wrappers/` — VS Code API wrappers
 - `src/logging/` — `Logger`, `DegradationReporter`
 - `src/error-handling/` — `ErrorHandler`
