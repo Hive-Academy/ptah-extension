@@ -4,6 +4,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   MemoryCuratorEventWire,
   MemoryDbHealthDto,
+  MemoryStorageHealthDto,
   MemoryTriggersDto,
 } from '@ptah-extension/shared';
 
@@ -31,6 +32,7 @@ export class MemoryDiagnosticsStateService {
     [],
   );
   private readonly _dbHealth = signal<MemoryDbHealthDto | null>(null);
+  private readonly _storage = signal<MemoryStorageHealthDto | null>(null);
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
 
@@ -39,6 +41,7 @@ export class MemoryDiagnosticsStateService {
   public readonly lastDecay = this._lastDecay.asReadonly();
   public readonly recentEvents = this._recentEvents.asReadonly();
   public readonly dbHealth = this._dbHealth.asReadonly();
+  public readonly storage = this._storage.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
 
@@ -69,6 +72,7 @@ export class MemoryDiagnosticsStateService {
       );
       this._recentEvents.set(snapshot.recentEvents);
       this._dbHealth.set(snapshot.dbHealth);
+      this._storage.set(snapshot.storage);
     } catch (err) {
       this._error.set(toErrorMessage(err));
     } finally {

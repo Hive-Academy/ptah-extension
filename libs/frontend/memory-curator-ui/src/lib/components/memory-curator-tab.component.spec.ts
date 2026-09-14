@@ -20,6 +20,7 @@ function diagnosticsStateStub(): Partial<MemoryDiagnosticsStateService> {
     lastDecay: signal(null).asReadonly(),
     recentEvents: signal([]).asReadonly(),
     dbHealth: signal(null).asReadonly(),
+    storage: signal(null).asReadonly(),
     loading: signal(false).asReadonly(),
     error: signal(null).asReadonly(),
     hasActiveSession: signal(false).asReadonly(),
