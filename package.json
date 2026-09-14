@@ -134,7 +134,7 @@
     "@workos-inc/node": "^8.10.0",
     "astro": "^6.1.9",
     "axios": "^1.15.0",
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^13.0.3",
     "bottleneck": "^2.19.5",
     "chokidar": "^5.0.0",
     "chrome-launcher": "^1.2.1",
