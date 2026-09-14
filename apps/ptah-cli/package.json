@@ -54,7 +54,7 @@
     "@slack/bolt": "4.4.0",
     "@tavily/core": "^0.7.2",
     "axios": "^1.15.0",
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^13.0.3",
     "bottleneck": "^2.19.5",
     "chokidar": "^5.0.0",
     "commander": "^14.0.1",
