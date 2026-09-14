@@ -269,6 +269,11 @@ describe('memory retention settings', () => {
     );
   });
 
+  it('pins the measured reclaim step limits', () => {
+    expect(MEMORY_RETENTION_LIMITS.reclaimPagesPerStep).toBe(256);
+    expect(MEMORY_RETENTION_LIMITS.minReclaimPagesPerStep).toBe(64);
+  });
+
   it('reads defaults when nothing is set', () => {
     expect(readMemoryRetentionSettings(makeWorkspace())).toEqual({
       enabled: true,
@@ -465,12 +470,12 @@ describe('MemoryRetentionService — run', () => {
     ]);
   });
 
-  it('halves the reclaim step after a slow step, down to 256', async () => {
+  it('halves the reclaim step after a slow step, down to 64', async () => {
     const h = harness();
     h.store.processed = 5000;
     h.reclaimer.stepCostMs = 500;
     await h.service.run(h.options);
-    expect(h.reclaimer.steps.slice(0, 5)).toEqual([2048, 1024, 512, 256, 256]);
+    expect(h.reclaimer.steps.slice(0, 4)).toEqual([256, 128, 64, 64]);
   });
 
   it('the row cap stops the row steps partial with a backlog, and still reclaims', async () => {

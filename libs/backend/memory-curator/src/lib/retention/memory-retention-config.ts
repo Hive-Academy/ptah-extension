@@ -59,10 +59,15 @@ export const RETENTION_MAX_RUN_MS = 60_000;
 export const RETENTION_SLOW_CALL_MS = 120;
 /** Floor for the adaptive batch size. */
 export const RETENTION_MIN_BATCH_SIZE = 50;
-/** Initial `incremental_vacuum` step (8 MB at 4 KB pages). */
-export const RETENTION_RECLAIM_PAGES_PER_STEP = 2_048;
-/** Floor for the adaptive reclaim step. */
-export const RETENTION_MIN_RECLAIM_PAGES_PER_STEP = 256;
+/**
+ * Initial `incremental_vacuum` step (1 MB at 4 KB pages). Halving is per run,
+ * so this first step must itself stay under the 120 ms bound; measured p95
+ * 44 ms on a 1.18 GB copy under production pragmas (TASK_2026_440 test-report
+ * Task 7.4).
+ */
+export const RETENTION_RECLAIM_PAGES_PER_STEP = 256;
+/** Adaptive floor for the reclaim step. */
+export const RETENTION_MIN_RECLAIM_PAGES_PER_STEP = 64;
 /** Pages handed back to the filesystem per run (128 MB at 4 KB pages). */
 export const RETENTION_MAX_RECLAIM_PAGES_PER_RUN = 32_768;
 /** Ledger rows older than this are pruned. */
