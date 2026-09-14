@@ -22,7 +22,9 @@
  *
  * Members other than the timed ones are forwarded bound to the real object —
  * better-sqlite3's native methods brand-check their receiver and throw
- * "Illegal invocation" when called with a Proxy as `this`.
+ * "Illegal invocation" when called with a Proxy as `this`. A member assigned
+ * through the wrapper (a `jest.spyOn`, a test double) is returned as assigned;
+ * see `forwardingProxy`.
  */
 import type { Logger } from '@ptah-extension/vscode-core';
 import { roundMs } from '@ptah-extension/vscode-core';
@@ -244,62 +246,150 @@ function timeIterator(
   return wrapped;
 }
 
+/**
+ * Proxy `target` so every function member read through it is replaced by the
+ * forwarder `wrap` builds, built once per member and cached — reading a method
+ * allocates nothing after the first read.
+ *
+ * The proxy stays transparent to writes. A member assigned, defined or deleted
+ * THROUGH the proxy (`jest.spyOn`, a test double, a monkeypatch) lands on the
+ * target and drops that member's cached forwarder; while such an override is
+ * in place, reads return the assigned value itself, so `jest.spyOn(db,
+ * 'prepare')` hands back the real Jest mock and callers reach it. Deleting the
+ * member (how `mockRestore()` removes a spy on an inherited method) clears the
+ * override, and the next read wraps the inherited method again. Assigning a
+ * member's own forwarder back (how `mockRestore()` restores a spy on an OWN
+ * method: it re-assigns the value it read, which was the forwarder) writes the
+ * original method back to the target and clears the override the same way. A
+ * write the target rejects (a non-writable member) changes nothing.
+ *
+ * Writes made directly on the raw target bypass the traps and are not seen;
+ * nothing in the codebase holds the raw handle past `withSlowStatementTiming`.
+ */
+function forwardingProxy<T extends object>(
+  target: T,
+  wrap: (prop: PropertyKey, method: AnyFn, proxy: T) => AnyFn,
+): T {
+  const methods = new Map<PropertyKey, AnyFn>();
+  const overridden = new Set<PropertyKey>();
+  // Forwarder -> the member and method it was built from.
+  const sources = new WeakMap<AnyFn, { prop: PropertyKey; method: AnyFn }>();
+
+  /** The forwarder built for `prop` that `value` is, if any. */
+  const ownForwarder = (
+    prop: PropertyKey,
+    value: unknown,
+  ): { forwarder: AnyFn; method: AnyFn } | undefined => {
+    if (typeof value !== 'function') return undefined;
+    const source = sources.get(value as AnyFn);
+    return source && source.prop === prop
+      ? { forwarder: value as AnyFn, method: source.method }
+      : undefined;
+  };
+
+  /** Record a write the target accepted. */
+  const afterWrite = (
+    prop: PropertyKey,
+    restored: { forwarder: AnyFn } | undefined,
+  ): void => {
+    if (restored) {
+      overridden.delete(prop);
+      methods.set(prop, restored.forwarder);
+    } else {
+      methods.delete(prop);
+      overridden.add(prop);
+    }
+  };
+
+  const proxy: T = new Proxy(target, {
+    get(real, prop) {
+      const cached = methods.get(prop);
+      if (cached !== undefined) return cached;
+      const value: unknown = Reflect.get(real, prop, real);
+      // Live getters (`open`, `inTransaction`) are never cached, and an
+      // assigned override is returned exactly as it was assigned.
+      if (typeof value !== 'function' || overridden.has(prop)) return value;
+      const method = value as AnyFn;
+      const forwarded = wrap(prop, method, proxy);
+      sources.set(forwarded, { prop, method });
+      methods.set(prop, forwarded);
+      return forwarded;
+    },
+    set(real, prop, value) {
+      const restored = ownForwarder(prop, value);
+      const ok = Reflect.set(real, prop, restored ? restored.method : value);
+      if (ok) afterWrite(prop, restored);
+      return ok;
+    },
+    defineProperty(real, prop, descriptor) {
+      const restored =
+        'value' in descriptor
+          ? ownForwarder(prop, descriptor.value)
+          : undefined;
+      const ok = Reflect.defineProperty(
+        real,
+        prop,
+        restored ? { ...descriptor, value: restored.method } : descriptor,
+      );
+      if (ok) afterWrite(prop, restored);
+      return ok;
+    },
+    deleteProperty(real, prop) {
+      const ok = Reflect.deleteProperty(real, prop);
+      if (ok) {
+        methods.delete(prop);
+        overridden.delete(prop);
+      }
+      return ok;
+    },
+  });
+  return proxy;
+}
+
 /** Proxy a prepared statement so `run/get/all/iterate` are timed. */
 function wrapStatement(
   reporter: SlowStatementReporter,
   sql: string,
   statement: SqliteStatement,
 ): SqliteStatement {
-  const methods = new Map<PropertyKey, unknown>();
-  const proxy: SqliteStatement = new Proxy(statement, {
-    get(target, prop) {
-      const cached = methods.get(prop);
-      if (cached !== undefined) return cached;
-      const value: unknown = Reflect.get(target, prop, target);
-      if (typeof value !== 'function') return value;
-      const method = value as AnyFn;
-      let forwarded: AnyFn;
-      if (prop === 'run' || prop === 'get' || prop === 'all') {
-        const op: SlowStatementOperation = prop;
-        forwarded = function timedStatementCall() {
-          // eslint-disable-next-line prefer-rest-params -- forwarding `arguments` avoids a rest-array allocation per call
-          return reporter.invoke(sql, op, method, target, arguments);
-        };
-      } else if (prop === 'iterate') {
-        forwarded = (...args: unknown[]) => {
-          const startedAt = reporter.now();
-          let inner: IterableIterator<unknown>;
-          try {
-            inner = Reflect.apply(
-              method,
-              target,
-              args,
-            ) as IterableIterator<unknown>;
-          } catch (error: unknown) {
-            reporter.settle(
-              sql,
-              'iterate',
-              reporter.now() - startedAt,
-              undefined,
-              true,
-            );
-            throw error;
-          }
-          return timeIterator(reporter, sql, inner, reporter.now() - startedAt);
-        };
-      } else {
-        // pluck/raw/expand/bind/safeIntegers return the statement itself for
-        // chaining; hand back the proxy so the chained call stays timed.
-        forwarded = (...args: unknown[]) => {
-          const out: unknown = Reflect.apply(method, target, args);
-          return out === target ? proxy : out;
-        };
-      }
-      methods.set(prop, forwarded);
-      return forwarded;
-    },
+  return forwardingProxy(statement, (prop, method, proxy): AnyFn => {
+    if (prop === 'run' || prop === 'get' || prop === 'all') {
+      const op: SlowStatementOperation = prop;
+      return function timedStatementCall() {
+        // eslint-disable-next-line prefer-rest-params -- forwarding `arguments` avoids a rest-array allocation per call
+        return reporter.invoke(sql, op, method, statement, arguments);
+      };
+    }
+    if (prop === 'iterate') {
+      return (...args: unknown[]) => {
+        const startedAt = reporter.now();
+        let inner: IterableIterator<unknown>;
+        try {
+          inner = Reflect.apply(
+            method,
+            statement,
+            args,
+          ) as IterableIterator<unknown>;
+        } catch (error: unknown) {
+          reporter.settle(
+            sql,
+            'iterate',
+            reporter.now() - startedAt,
+            undefined,
+            true,
+          );
+          throw error;
+        }
+        return timeIterator(reporter, sql, inner, reporter.now() - startedAt);
+      };
+    }
+    // pluck/raw/expand/bind/safeIntegers return the statement itself for
+    // chaining; hand back the proxy so the chained call stays timed.
+    return (...args: unknown[]) => {
+      const out: unknown = Reflect.apply(method, statement, args);
+      return out === statement ? proxy : out;
+    };
   });
-  return proxy;
 }
 
 /**
@@ -346,43 +436,31 @@ export function withSlowStatementTiming(
     options.rateWindowMs ?? DEFAULT_SQLITE_SLOW_RATE_WINDOW_MS,
     options.now ?? (() => performance.now()),
   );
-  const methods = new Map<PropertyKey, unknown>();
-
-  return new Proxy(db, {
-    get(target, prop) {
-      const cached = methods.get(prop);
-      if (cached !== undefined) return cached;
-      const value: unknown = Reflect.get(target, prop, target);
-      // `open` / `inTransaction` are live getters — never cache a non-function.
-      if (typeof value !== 'function') return value;
-      const method = value as AnyFn;
-      let forwarded: AnyFn;
-      if (prop === 'prepare') {
-        forwarded = (...args: unknown[]) =>
-          wrapStatement(
-            reporter,
-            String(args[0]),
-            Reflect.apply(method, target, args) as SqliteStatement,
-          );
-      } else if (prop === 'exec' || prop === 'pragma') {
-        const op: SlowStatementOperation = prop;
-        forwarded = function timedDatabaseCall() {
-          // eslint-disable-next-line prefer-rest-params -- forwarding `arguments` avoids a rest-array allocation per call
-          const args = arguments;
-          return reporter.invoke(String(args[0]), op, method, target, args);
-        };
-      } else if (prop === 'transaction') {
-        forwarded = (...args: unknown[]) =>
-          wrapTransaction(
-            reporter,
-            args[0] as AnyFn,
-            Reflect.apply(method, target, args) as AnyFn,
-          );
-      } else {
-        forwarded = method.bind(target);
-      }
-      methods.set(prop, forwarded);
-      return forwarded;
-    },
+  return forwardingProxy(db, (prop, method): AnyFn => {
+    if (prop === 'prepare') {
+      return (...args: unknown[]) =>
+        wrapStatement(
+          reporter,
+          String(args[0]),
+          Reflect.apply(method, db, args) as SqliteStatement,
+        );
+    }
+    if (prop === 'exec' || prop === 'pragma') {
+      const op: SlowStatementOperation = prop;
+      return function timedDatabaseCall() {
+        // eslint-disable-next-line prefer-rest-params -- forwarding `arguments` avoids a rest-array allocation per call
+        const args = arguments;
+        return reporter.invoke(String(args[0]), op, method, db, args);
+      };
+    }
+    if (prop === 'transaction') {
+      return (...args: unknown[]) =>
+        wrapTransaction(
+          reporter,
+          args[0] as AnyFn,
+          Reflect.apply(method, db, args) as AnyFn,
+        );
+    }
+    return method.bind(db);
   });
 }

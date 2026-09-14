@@ -381,4 +381,150 @@ describe('withSlowStatementTiming', () => {
 
     expect(slowLines(logger)).toHaveLength(1);
   });
+
+  describe('transparency to spies and reassignment', () => {
+    it('reuses one forwarder per member while nothing was reassigned', () => {
+      const { db } = setup();
+      const stmt = db.prepare('SELECT 1');
+
+      expect(db.prepare).toBe(db.prepare);
+      expect(db.exec).toBe(db.exec);
+      expect(stmt.get).toBe(stmt.get);
+    });
+
+    it('hands back the Jest mock from jest.spyOn(db, "prepare") and routes calls to it', () => {
+      const { db, real, logger } = setup(50);
+      real.costMs = 60;
+      const originalPrepare = db.prepare.bind(db);
+      const fake = { get: () => 'from-mock' } as unknown as SqliteStatement;
+
+      const spy = jest
+        .spyOn(db, 'prepare')
+        .mockImplementation((sql: string) =>
+          sql === 'SELECT faked' ? fake : originalPrepare(sql),
+        );
+
+      expect(jest.isMockFunction(db.prepare)).toBe(true);
+      expect(db.prepare).toBe(spy);
+      expect(db.prepare('SELECT faked').get()).toBe('from-mock');
+      // Calling through to the captured original stays timed.
+      expect(db.prepare('SELECT real').all()).toHaveLength(3);
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenCalledWith('SELECT faked');
+      expect(slowLines(logger).map((l) => l.context)).toEqual([
+        expect.objectContaining({ sql: 'SELECT real', op: 'all' }),
+      ]);
+    });
+
+    it('restores timed behaviour after mockRestore()', () => {
+      const { db, real, logger } = setup(50);
+      real.costMs = 60;
+      const before = db.prepare;
+
+      const spy = jest
+        .spyOn(db, 'prepare')
+        .mockImplementation(() => ({}) as SqliteStatement);
+      spy.mockRestore();
+
+      expect(jest.isMockFunction(db.prepare)).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(real, 'prepare')).toBe(false);
+      expect(db.prepare).toBe(db.prepare);
+      expect(db.prepare).not.toBe(before);
+      db.prepare('SELECT restored').all();
+      expect(slowLines(logger).map((l) => l.context)).toEqual([
+        expect.objectContaining({ sql: 'SELECT restored', op: 'all' }),
+      ]);
+    });
+
+    it('keeps calls timed through a pass-through spy', () => {
+      const { db, real, logger } = setup(50);
+      real.costMs = 60;
+
+      const spy = jest.spyOn(db, 'exec');
+      expect(db.exec('CREATE TABLE y (a)')).toBe('native:CREATE TABLE y (a)');
+
+      expect(spy).toHaveBeenCalledWith('CREATE TABLE y (a)');
+      expect(slowLines(logger).map((l) => l.context)).toEqual([
+        expect.objectContaining({ op: 'exec', sql: 'CREATE TABLE y (a)' }),
+      ]);
+      spy.mockRestore();
+    });
+
+    it('lets a spy replace a prepared statement method', () => {
+      const { db } = setup();
+      const stmt = db.prepare('INSERT INTO v VALUES (?)');
+
+      const spy = jest.spyOn(stmt, 'run').mockImplementation(() => {
+        throw new Error('vec insert failed');
+      });
+
+      expect(() => stmt.run(1)).toThrow('vec insert failed');
+      expect(spy).toHaveBeenCalledWith(1);
+      spy.mockRestore();
+      expect(stmt.run(1)).toEqual({ changes: 1, lastInsertRowid: 7 });
+    });
+
+    it('restores timing after a spy on an OWN function member is restored by assignment', () => {
+      const { db, real, logger } = setup(50);
+      // An own data property, not the prototype method: jest restores it by
+      // assigning back the value it read (the forwarder), not by deleting it.
+      Object.defineProperty(real, 'pragma', {
+        value: BrandedDatabase.prototype.pragma,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+
+      const spy = jest.spyOn(db, 'pragma').mockImplementation(() => 'mocked');
+      expect(db.pragma).toBe(spy);
+      expect(db.pragma('journal_mode')).toBe('mocked');
+      spy.mockRestore();
+
+      expect(jest.isMockFunction(db.pragma)).toBe(false);
+      expect(db.pragma).toBe(db.pragma);
+      // The original method, not the forwarder, is back on the target.
+      expect(Object.getOwnPropertyDescriptor(real, 'pragma')?.value).toBe(
+        BrandedDatabase.prototype.pragma,
+      );
+      real.costMs = 60;
+      expect(db.pragma('journal_mode')).toBe('journal_mode');
+      expect(slowLines(logger).map((l) => l.context)).toEqual([
+        expect.objectContaining({ op: 'pragma', sql: 'journal_mode' }),
+      ]);
+    });
+
+    it('leaves timing intact when the target rejects a write', () => {
+      const { db, real, logger } = setup(50);
+      Object.defineProperty(real, 'exec', {
+        value: BrandedDatabase.prototype.exec,
+        writable: false,
+        configurable: true,
+      });
+      const timedExec = db.exec;
+
+      expect(() => {
+        (db as unknown as { exec: () => string }).exec = () => 'replaced';
+      }).toThrow(TypeError);
+
+      expect(db.exec).toBe(timedExec);
+      real.costMs = 60;
+      // A dropped cache would hand back the raw method, which throws on the
+      // Proxy receiver (`#secret` brand check).
+      expect(db.exec('VACUUM')).toBe('native:VACUUM');
+      expect(slowLines(logger).map((l) => l.context)).toEqual([
+        expect.objectContaining({ op: 'exec', sql: 'VACUUM' }),
+      ]);
+    });
+
+    it('returns a plain assigned member as assigned', () => {
+      const { db } = setup();
+      const replacement = (): string => 'patched';
+
+      (db as unknown as { secret: () => string }).secret = replacement;
+
+      expect((db as unknown as { secret: () => string }).secret).toBe(
+        replacement,
+      );
+    });
+  });
 });

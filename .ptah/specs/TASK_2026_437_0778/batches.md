@@ -834,6 +834,22 @@ P4 is the COMMIT order" for these four batches only.
 - Follow-ups (not in this batch):
   - FU-14a: manual Electron check of an early `break` out of `iterate()` followed at once by process exit, against the real native better-sqlite3 (no spec here loads the native binary; see "CI abort context" in `b14-code-logic-review.md`).
 
+### Batch 14 CI regression fix — COMPLETE
+
+- Commit: `fix(persistence-sqlite): keep the slow-statement wrapper transparent to spies and reassignment`.
+- Cause: CI on PR #510 (runs on 2f2416993 and 4695a0fcc) failed `libs/backend/memory-curator/src/lib/code-symbol.store.spec.ts` "rolls back code_symbols when vec INSERT throws" with `jest.spyOn(...).mockImplementation is not a function`. `jest.spyOn` assigns the mock through the object and then reads it back; the Batch 14 Proxy had no write traps and its `get` trap returned the cached `prepare` forwarder, so the read gave back the forwarder, not the mock. Local runs did not catch it: the native-gated suite is skipped under plain Node.
+- Fix: one shared `forwardingProxy` in `slow-statement-timing.ts` replaces the two copied `get` traps (`wrapStatement`, `withSlowStatementTiming`). It adds `set` / `defineProperty` / `deleteProperty` traps. Each calls `Reflect` first and changes proxy state only when the target accepted the write. An assigned member is returned as assigned; deleting it restores the timed forwarder. A WeakMap from forwarder to source method means that assigning a member's own forwarder back (how `mockRestore()` restores a spy on an own member) writes the original method back to the target and restores timing. 8 new spec cases under "transparency to spies and reassignment"; persistence-sqlite CLAUDE.md notes the contract.
+- Reviews: `b14-fix-code-logic-review.md` base APPROVED (7/10, 0 blocking, 0 serious, 2 moderate) + delta APPROVE (HIGH) closing moderate 1; `b14-fix-code-style-review.md` APPROVE (HIGH, 9/10, 1 minor, closed by the CLAUDE.md note).
+- Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset):
+  - `npx nx run-many -t test -p @ptah-extension/persistence-sqlite @ptah-extension/memory-curator --parallel=1 -- --maxWorkers=2` (header: 2 projects) — exit 0. persistence-sqlite 28 suites passed / 9 skipped, 368 passed / 80 skipped; memory-curator 31 suites passed / 2 skipped, 489 passed / 60 skipped (native better-sqlite3 ABI skips under plain Node).
+  - Electron's Node (`ELECTRON_RUN_AS_NODE=1`): `code-symbol.store.spec.ts` 1 suite, 20/20 passed, 0 skipped; with `-t "rolls back"` 1 passed (19 filtered). `slow-statement-timing.spec.ts` 1 suite, 21/21 passed.
+  - `npx nx run-many -t typecheck,lint -p @ptah-extension/persistence-sqlite @ptah-extension/memory-curator --parallel=1` (header: 2 projects) — exit 0, lint 0 errors / 6 warnings (none in the touched files; `eslint` on both touched files is clean).
+  - Prettier clean on all staged files.
+- Follow-ups (not in this fix):
+  - FU-14f (logic review moderate 2; pre-existing, not reachable today): the `get` trap returns a forwarder for a function member; if a target had an own non-configurable, non-writable function property, that breaks the Proxy invariant and throws `TypeError`. better-sqlite3 objects have no such member.
+  - FU-14g (minor; not reachable today): a hand-written `const f = db.prepare; db.prepare = f;` on an inherited member writes the original method back as an own enumerable property on the raw target. Behaviour stays correct (timing restored); only the own property is left.
+- Note: the native-gated memory-curator and persistence-sqlite suites are SKIPPED in local plain-Node Jest runs (better-sqlite3 is built for the Electron ABI). When you touch SQLite code, also run the affected spec under Electron's Node: `$env:ELECTRON_RUN_AS_NODE='1'; & node_modules/electron/dist/electron.exe node_modules/jest/bin/jest.js -c libs/backend/<lib>/jest.config.ts <spec>`.
+
 ---
 
 ## Batch 15: P2 — host stress ST-2 + host-kill AC-7 — PENDING

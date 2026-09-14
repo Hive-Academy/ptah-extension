@@ -39,7 +39,10 @@ Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(
   `PTAH_SQLITE_SLOW_WARN_MS` (default 50) it warns `[SQLite] slow statement`, at
   most once per SQL text per minute. Measurement only: results and exceptions
   pass through untouched, and native methods are always called on the real
-  object (better-sqlite3 brand-checks `this`).
+  object (better-sqlite3 brand-checks `this`). Transparent to spies and
+  reassignment: a member written through the wrapper is returned as assigned,
+  deleting it (or assigning its forwarder back) restores timing, and changes
+  made on the raw handle are not seen.
 - `src/lib/migration-runner.ts` — applies pending migrations in order
 - `src/lib/migrations/` — `MIGRATIONS` tuple (forward-only, append-only)
 - `src/lib/backup.service.ts` — `SqliteBackupService`. **Worker-driven since
