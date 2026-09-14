@@ -233,6 +233,23 @@ export interface ApplyHunksRequest extends DiffFileRequest {
 }
 
 /**
+ * Single-flight state for one read key — see `GitInfoService.flights`.
+ * `startedAtGeneration` is the invalidation counter when `running` started;
+ * `trailing` is the one queued rerun, whose `compute` starts when `running`
+ * settles and whose `promise` every post-invalidation caller shares.
+ */
+interface ReadFlight {
+  running: Promise<unknown>;
+  startedAtGeneration: number;
+  trailing?: {
+    readonly promise: Promise<unknown>;
+    readonly compute: () => Promise<unknown>;
+    readonly resolve: (value: unknown) => void;
+    readonly reject: (reason: unknown) => void;
+  };
+}
+
+/**
  * **Every method on this service assumes `workspacePath` is the git repository
  * top level.** It is not merely the process cwd for the subprocess: `readBlob`
  * addresses objects with root-relative `rev:path` specs, `readWorktreeBlob`
@@ -279,35 +296,51 @@ export class GitInfoService {
    *
    * `getGitInfo` is deliberately NOT in here — it is the working-tree status
    * walk and the git watcher's own source of truth, so a settled entry would
-   * make the watcher push status it had already superseded. It gets in-flight
-   * coalescing only, which cannot be stale by construction: a concurrent
-   * identical request is asking about the same instant.
+   * make the watcher push status it had already superseded. It gets
+   * single-flight only.
    */
   private readonly readCache = new Map<string, unknown>();
 
   /**
-   * Computations currently running, keyed as {@link readCache}. Concurrent
-   * identical callers await the same promise instead of spawning a second
-   * git process.
+   * One flight record per read key (same keys as {@link readCache}): the
+   * computation running now, plus at most one queued trailing run.
+   *
+   * Invalidation never deletes a record. Before TASK_2026_437 it did, so the
+   * git watcher's invalidate-then-`getGitInfo` pair found no running entry to
+   * join and every file-system event started its own `git status` pipeline
+   * beside the ones still running (C8). Now a caller that arrives after an
+   * invalidation is handed the single trailing run, which starts only when the
+   * current run settles — never two runs per key (INV-3).
    */
-  private readonly inFlight = new Map<string, Promise<unknown>>();
+  private readonly flights = new Map<string, ReadFlight>();
 
   /**
-   * Bumped by every {@link invalidateReadCache}. A computation that was
-   * already running when the invalidation happened must not write its
-   * pre-change value back into the freshly cleared cache, so every write-back
-   * is conditional on this still being the generation it started under. Same
-   * idiom as the `auth:getAuthStatus` cache (TASK_2026_342).
+   * Monotonic counter bumped by every {@link invalidateReadCache}. A run
+   * records the counter it started under; it is stale once an invalidation
+   * covering its workspace carries a higher value. Same idiom as the
+   * `auth:getAuthStatus` cache (TASK_2026_342).
    */
   private cacheGeneration = 0;
+
+  /** Counter value of the last invalidation with no `workspacePath`. */
+  private invalidatedAllAt = 0;
+
+  /**
+   * Counter value of the last invalidation per workspace. Tracked per root so
+   * invalidating one workspace neither marks another's running flight stale
+   * nor discards its write-back. One entry per workspace ever invalidated and
+   * never evicted: bounded by the workspace roots opened in this process (a
+   * handful of short strings), so no eviction policy is needed.
+   */
+  private readonly invalidatedAt = new Map<string, number>();
 
   /**
    * Drop cached git reads.
    *
-   * Called by every repo-mutating method on this service, and by
-   * `GitWatcherService.fetchAndPush` for changes made outside Ptah (a `git
-   * checkout` in a terminal) — so the status the watcher pushes and the branch
-   * list the renderer asks for next describe the same instant.
+   * Called by every repo-mutating method on this service. Bumps the
+   * generation and drops SETTLED entries only: a run already in flight keeps
+   * its slot, cannot write its now-stale value back, and callers arriving
+   * after this point queue behind it for one fresh trailing run.
    *
    * With no `workspacePath`, every workspace is dropped.
    */
@@ -315,45 +348,134 @@ export class GitInfoService {
     this.cacheGeneration++;
     this.reviewReader.invalidate(workspacePath);
     if (!workspacePath) {
+      this.invalidatedAllAt = this.cacheGeneration;
       this.readCache.clear();
-      this.inFlight.clear();
       return;
     }
+    this.invalidatedAt.set(workspacePath, this.cacheGeneration);
     const suffix = `|${workspacePath}|`;
     for (const key of [...this.readCache.keys()]) {
       if (key.includes(suffix)) this.readCache.delete(key);
     }
-    for (const key of [...this.inFlight.keys()]) {
-      if (key.includes(suffix)) this.inFlight.delete(key);
-    }
   }
 
   /**
-   * In-flight coalescing only — no settled entry. For reads that must always
-   * reflect the current instant but need not run twice concurrently.
+   * Working-tree status after a change made outside Ptah (a `git checkout` in
+   * a terminal, an agent editing files).
+   *
+   * Invalidates the read caches for `workspacePath` and resolves with the
+   * status of a run that STARTED AFTER this call: the queued trailing run when
+   * one is already running, otherwise a new run. Any number of calls during
+   * one run share that single trailing run, so a burst of watcher events
+   * costs at most two `git status` pipelines, one after the other.
    */
-  private coalesce<T>(key: string, compute: () => Promise<T>): Promise<T> {
-    const running = this.inFlight.get(key);
-    if (running) return running as Promise<T>;
-
-    const promise = compute().finally(() => {
-      // Delete by IDENTITY: an invalidated computation settling must not
-      // evict the newer one that has already claimed this key.
-      if (this.inFlight.get(key) === promise) this.inFlight.delete(key);
-    });
-    this.inFlight.set(key, promise);
-    return promise;
+  refreshGitInfo(workspacePath: string): Promise<GitInfoResult> {
+    this.invalidateReadCache(workspacePath);
+    return this.getGitInfo(workspacePath);
   }
 
-  /** In-flight coalescing plus a settled entry held until invalidation. */
-  private cachedRead<T>(key: string, compute: () => Promise<T>): Promise<T> {
+  /** The newest invalidation counter that covers `workspacePath`. */
+  private generationOf(workspacePath: string): number {
+    return Math.max(
+      this.invalidatedAllAt,
+      this.invalidatedAt.get(workspacePath) ?? 0,
+    );
+  }
+
+  /**
+   * Single-flight with one trailing rerun. A caller joins the running
+   * computation when no invalidation has covered it since it started;
+   * otherwise it gets the queued trailing run (created on first need, shared
+   * by every later caller until it starts).
+   */
+  private singleFlight<T>(
+    key: string,
+    workspacePath: string,
+    compute: () => Promise<T>,
+  ): Promise<T> {
+    const flight = this.flights.get(key);
+    if (!flight) {
+      return this.startFlight(key, workspacePath, compute) as Promise<T>;
+    }
+    if (flight.startedAtGeneration >= this.generationOf(workspacePath)) {
+      return flight.running as Promise<T>;
+    }
+    if (!flight.trailing) {
+      let resolve!: (value: unknown) => void;
+      let reject!: (reason: unknown) => void;
+      const promise = new Promise<unknown>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      flight.trailing = { promise, compute, resolve, reject };
+    }
+    return flight.trailing.promise as Promise<T>;
+  }
+
+  /**
+   * Start `compute` as the running flight for `key`. When it settles —
+   * resolved OR rejected, so a timed-out git run never strands the callers
+   * queued behind it — the trailing run (if any) starts in the same record;
+   * otherwise the record is removed.
+   */
+  private startFlight(
+    key: string,
+    workspacePath: string,
+    compute: () => Promise<unknown>,
+  ): Promise<unknown> {
+    const startedAtGeneration = this.cacheGeneration;
+    let running: Promise<unknown>;
+    try {
+      running = compute();
+    } catch (error: unknown) {
+      // A synchronous throw must settle the flight like a rejection would,
+      // or the record would never clear and the key would be wedged.
+      running = Promise.reject(error);
+    }
+    const flight: ReadFlight = this.flights.get(key) ?? {
+      running,
+      startedAtGeneration,
+    };
+    flight.running = running;
+    flight.startedAtGeneration = startedAtGeneration;
+    this.flights.set(key, flight);
+
+    const onSettled = (): void => {
+      if (this.flights.get(key) !== flight || flight.running !== running) {
+        return;
+      }
+      const trailing = flight.trailing;
+      if (!trailing) {
+        this.flights.delete(key);
+        return;
+      }
+      flight.trailing = undefined;
+      this.startFlight(key, workspacePath, trailing.compute).then(
+        trailing.resolve,
+        trailing.reject,
+      );
+    };
+    // Both handlers: this chain only sequences the flight. The rejection
+    // itself reaches the callers through `running`, which they hold.
+    running.then(onSettled, onSettled);
+    return running;
+  }
+
+  /** Single-flight plus a settled entry held until invalidation. */
+  private cachedRead<T>(
+    key: string,
+    workspacePath: string,
+    compute: () => Promise<T>,
+  ): Promise<T> {
     if (this.readCache.has(key)) {
       return Promise.resolve(this.readCache.get(key) as T);
     }
-    const generation = this.cacheGeneration;
-    return this.coalesce(key, async () => {
+    return this.singleFlight(key, workspacePath, async () => {
+      // Captured when the run actually starts — a trailing run starts later
+      // than the caller that queued it.
+      const startedAt = this.cacheGeneration;
       const value = await compute();
-      if (generation === this.cacheGeneration) {
+      if (startedAt >= this.generationOf(workspacePath)) {
         this.readCache.set(key, value);
       }
       return value;
@@ -361,7 +483,7 @@ export class GitInfoService {
   }
 
   async getGitInfo(workspacePath: string): Promise<GitInfoResult> {
-    return this.coalesce(`info|${workspacePath}|`, () =>
+    return this.singleFlight(`info|${workspacePath}|`, workspacePath, () =>
       this.computeGitInfo(workspacePath),
     );
   }
@@ -1882,6 +2004,7 @@ export class GitInfoService {
   ): Promise<GitBranchesResult> {
     return this.cachedRead(
       `branches|${workspacePath}|${includeRemote ? 'remote' : 'local'}`,
+      workspacePath,
       () => this.computeBranches(workspacePath, includeRemote),
     );
   }
@@ -2075,7 +2198,7 @@ export class GitInfoService {
    * messages entered via the CLI, so there is no collision with message content.
    */
   async stashList(workspacePath: string): Promise<GitStashListResult> {
-    return this.cachedRead(`stash|${workspacePath}|`, () =>
+    return this.cachedRead(`stash|${workspacePath}|`, workspacePath, () =>
       this.computeStashList(workspacePath),
     );
   }
@@ -2124,8 +2247,10 @@ export class GitInfoService {
    * Runs: git tag --sort=-creatordate --format=...
    */
   async getTags(workspacePath: string, limit = 20): Promise<GitTagsResult> {
-    return this.cachedRead(`tags|${workspacePath}|${limit}`, () =>
-      this.computeTags(workspacePath, limit),
+    return this.cachedRead(
+      `tags|${workspacePath}|${limit}`,
+      workspacePath,
+      () => this.computeTags(workspacePath, limit),
     );
   }
 
@@ -2188,7 +2313,7 @@ export class GitInfoService {
    * Runs: git remote -v
    */
   async getRemotes(workspacePath: string): Promise<GitRemotesResult> {
-    return this.cachedRead(`remotes|${workspacePath}|`, () =>
+    return this.cachedRead(`remotes|${workspacePath}|`, workspacePath, () =>
       this.computeRemotes(workspacePath),
     );
   }
@@ -2258,8 +2383,10 @@ export class GitInfoService {
     workspacePath: string,
     ref = 'HEAD',
   ): Promise<GitLastCommitResult> {
-    return this.cachedRead(`lastCommit|${workspacePath}|${ref}`, () =>
-      this.computeLastCommit(workspacePath, ref),
+    return this.cachedRead(
+      `lastCommit|${workspacePath}|${ref}`,
+      workspacePath,
+      () => this.computeLastCommit(workspacePath, ref),
     );
   }
 

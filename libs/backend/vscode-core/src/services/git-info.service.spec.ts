@@ -29,6 +29,12 @@
  *   readBlob      — a gitlink classifies as `submodule`, not `unknown`
  *   diffFile      — a directory read classifies as `is-a-directory`
  *
+ * TASK_2026_437 additions (single-flight read runs):
+ *   refreshGitInfo — a burst of invalidate+refresh during one run costs one trailing run
+ *   getGitInfo     — joins a current run; one workspace's refresh never queues another's
+ *   cachedRead     — a value from a run invalidated mid-flight is not written back
+ *   singleFlight   — rejection and timeout settle waiters and still start the trailing run
+ *
  * `crossSpawn` is mocked at the module boundary so no git binary is required.
  *
  * Source-under-test:
@@ -1572,5 +1578,279 @@ describe('GitInfoService — IProcessSpawner threading', () => {
     await service.isGitRepo(WS);
 
     expect(mockSpawn).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ===========================================================================
+// Single-flight with one trailing rerun — TASK_2026_437 C4 (INV-3, AC-3 P1).
+//
+// The git watcher used to call `invalidateReadCache` then `getGitInfo` per
+// file-system event, and invalidation deleted the in-flight entry, so every
+// event started its own `git status` beside the ones still running. These
+// specs pin the replacement: one run per key, one queued trailing run for
+// every caller that arrived after an invalidation, nothing stale written back,
+// and no caller stranded when a run rejects or times out.
+// ===========================================================================
+describe('GitInfoService — single-flight read runs (TASK_2026_437)', () => {
+  const WS = '/fake/workspace';
+
+  /** Let queued microtasks (fake child closes, promise chains) drain. */
+  async function drain(): Promise<void> {
+    for (let i = 0; i < 50; i++) await Promise.resolve();
+  }
+
+  /**
+   * A spawner double that counts live children of one held git verb.
+   *
+   * Every other child emits its stdout and closes on the next microtask. A
+   * held child stays alive until the test calls `release()`, which is what
+   * lets a spec invalidate "during one run" deterministically.
+   */
+  function makeCountingSpawner(heldVerb: string) {
+    const pending: Array<() => void> = [];
+    const state = { spawns: 0, live: 0, maxLive: 0 };
+
+    const spawnProcess = jest.fn((opts: { args: string[] }) => {
+      const verb = opts.args[0];
+      const held = verb === heldVerb;
+      let stdout = '';
+      if (verb === 'rev-parse') stdout = 'true\n';
+      if (held) {
+        state.spawns++;
+        state.live++;
+        state.maxLive = Math.max(state.maxLive, state.live);
+        const name = `run${state.spawns}`;
+        stdout =
+          verb === 'status'
+            ? `# branch.head ${name}\n`
+            : `refs/heads/${name}\t${name}\t*\tabc1234\t\t\t1700000000\n`;
+      }
+
+      const dataListeners: Array<(chunk: Buffer) => void> = [];
+      const closeListeners: Array<(code: number) => void> = [];
+      let closed = false;
+      const close = (): void => {
+        if (closed) return;
+        closed = true;
+        if (held) state.live--;
+        for (const listener of dataListeners) listener(Buffer.from(stdout));
+        for (const listener of closeListeners) listener(0);
+      };
+      if (held) pending.push(close);
+      else queueMicrotask(close);
+
+      return {
+        stdin: { on: jest.fn(), end: jest.fn(), write: jest.fn() },
+        stdout: {
+          on: jest.fn((event: string, cb: (chunk: Buffer) => void) => {
+            if (event === 'data') dataListeners.push(cb);
+          }),
+        },
+        stderr: { on: jest.fn() },
+        // No pid: a timeout's tree kill must never be aimed at a real process.
+        whenSpawned: Promise.resolve(undefined),
+        pid: undefined,
+        killed: false,
+        kill: jest.fn(),
+        on: jest.fn((event: string, cb: (code: number) => void) => {
+          if (event === 'close') closeListeners.push(cb);
+        }),
+      };
+    });
+
+    return {
+      spawnProcess,
+      state,
+      /** Close the oldest still-pending held child. */
+      release: (): void => pending.shift()?.(),
+    };
+  }
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('five invalidate+refresh calls during one run cost exactly one trailing status run', async () => {
+    const spawner = makeCountingSpawner('status');
+    const service = new GitInfoService(
+      makeLogger() as never,
+      {
+        spawnProcess: spawner.spawnProcess,
+      } as never,
+    );
+
+    const first = service.getGitInfo(WS);
+    await drain();
+    expect(spawner.state.spawns).toBe(1);
+
+    const refreshes = Array.from({ length: 5 }, () =>
+      service.refreshGitInfo(WS),
+    );
+    await drain();
+    // Invalidation never starts a parallel run.
+    expect(spawner.state.spawns).toBe(1);
+
+    spawner.release();
+    await drain();
+    expect(spawner.state.spawns).toBe(2);
+
+    spawner.release();
+    const [firstInfo, ...refreshed] = await Promise.all([first, ...refreshes]);
+
+    expect(spawner.state.spawns).toBe(2);
+    expect(spawner.state.maxLive).toBe(1);
+    expect(firstInfo.branch.branch).toBe('run1');
+    // Every refresh resolves with a run that started after it was called.
+    for (const info of refreshed) expect(info.branch.branch).toBe('run2');
+  });
+
+  it('a plain getGitInfo during a run joins it instead of queueing', async () => {
+    const spawner = makeCountingSpawner('status');
+    const service = new GitInfoService(
+      makeLogger() as never,
+      {
+        spawnProcess: spawner.spawnProcess,
+      } as never,
+    );
+
+    const a = service.getGitInfo(WS);
+    await drain();
+    const b = service.getGitInfo(WS);
+    await drain();
+    spawner.release();
+
+    const [infoA, infoB] = await Promise.all([a, b]);
+    expect(spawner.state.spawns).toBe(1);
+    expect(infoB.branch.branch).toBe(infoA.branch.branch);
+  });
+
+  it('refreshing one workspace does not queue a rerun for another', async () => {
+    const spawner = makeCountingSpawner('status');
+    const service = new GitInfoService(
+      makeLogger() as never,
+      {
+        spawnProcess: spawner.spawnProcess,
+      } as never,
+    );
+
+    const other = service.getGitInfo('/fake/other');
+    await drain();
+    const refreshed = service.refreshGitInfo(WS);
+    await drain();
+    const joined = service.getGitInfo('/fake/other');
+    await drain();
+    // One run per root: the other root's run is still current and is joined.
+    expect(spawner.state.spawns).toBe(2);
+
+    spawner.release();
+    spawner.release();
+    await Promise.all([other, refreshed, joined]);
+    expect(spawner.state.spawns).toBe(2);
+  });
+
+  it('a cached read invalidated mid-run discards the stale value and caches the trailing one', async () => {
+    const spawner = makeCountingSpawner('for-each-ref');
+    const service = new GitInfoService(
+      makeLogger() as never,
+      {
+        spawnProcess: spawner.spawnProcess,
+      } as never,
+    );
+
+    const stale = service.getBranches(WS, false);
+    await drain();
+    service.invalidateReadCache(WS);
+    const fresh = service.getBranches(WS, false);
+    await drain();
+    expect(spawner.state.spawns).toBe(1);
+
+    spawner.release();
+    expect((await stale).current).toBe('run1');
+    await drain();
+    expect(spawner.state.spawns).toBe(2);
+
+    spawner.release();
+    expect((await fresh).current).toBe('run2');
+
+    // The trailing run's value was written back; the stale one never was.
+    const served = await service.getBranches(WS, false);
+    expect(served.current).toBe('run2');
+    expect(spawner.state.spawns).toBe(2);
+    expect(spawner.state.maxLive).toBe(1);
+  });
+
+  it('a rejected run settles its waiters and the queued trailing run still starts', async () => {
+    const service = new GitInfoService(makeLogger() as never);
+    let rejectFirst!: (reason: unknown) => void;
+    const secondResult = {
+      isGitRepo: true,
+      branch: { branch: 'second', upstream: null, ahead: 0, behind: 0 },
+      files: [],
+    };
+    const compute = jest
+      .spyOn(
+        service as unknown as {
+          computeGitInfo: (ws: string) => Promise<unknown>;
+        },
+        'computeGitInfo',
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockImplementationOnce(() => Promise.resolve(secondResult));
+
+    const first = service.getGitInfo(WS);
+    const joined = service.getGitInfo(WS);
+    const trailing = service.refreshGitInfo(WS);
+    await drain();
+    expect(compute).toHaveBeenCalledTimes(1);
+
+    rejectFirst(new Error('boom'));
+
+    await expect(first).rejects.toThrow('boom');
+    await expect(joined).rejects.toThrow('boom');
+    await expect(trailing).resolves.toBe(secondResult);
+    expect(compute).toHaveBeenCalledTimes(2);
+  });
+
+  it('a timed-out git status resolves its callers and releases the trailing run', async () => {
+    jest.useFakeTimers({
+      doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'],
+    });
+    const logger = makeLogger();
+    const spawner = makeCountingSpawner('status');
+    const service = new GitInfoService(
+      logger as never,
+      {
+        spawnProcess: spawner.spawnProcess,
+      } as never,
+    );
+
+    const first = service.getGitInfo(WS);
+    await drain();
+    const refreshed = service.refreshGitInfo(WS);
+    await drain();
+    expect(spawner.state.spawns).toBe(1);
+
+    // The first status child never exits; exec-git's 10 s timeout rejects,
+    // `computeGitInfo` maps that to an empty result, and the flight settles.
+    await jest.advanceTimersByTimeAsync(10_000);
+    const firstInfo = await first;
+    expect(firstInfo.branch.branch).toBe('');
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('git status timed out'),
+      expect.any(Error),
+    );
+
+    await drain();
+    expect(spawner.state.spawns).toBe(2);
+    // The hung child is still pending at the head of the queue (P1 frees the
+    // slot on settle; holding it to child exit is P2). Close both.
+    spawner.release();
+    spawner.release();
+    expect((await refreshed).branch.branch).toBe('run2');
   });
 });

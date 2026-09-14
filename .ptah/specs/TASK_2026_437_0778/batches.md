@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 55 | Batches: 22 | Complete: 0/22
+Total tasks: 55 | Batches: 22 | Complete: 1/22
 
-Status note: Batches 1, 2, 3 and 5 are IN_PROGRESS together. They form P1 wave 1: file-disjoint, and Batch 1 runs in its own worktree.
+Status note: P1 wave 1 — Batch 3 COMPLETE; Batches 1, 2 and 5 still IN_PROGRESS (file-disjoint, Batch 1 in its own worktree).
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `context.md` "User decisions"
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -202,7 +202,9 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 
 ---
 
-## Batch 3: P1 — `GitInfoService` single-flight with trailing rerun (C4) — IN_PROGRESS
+## Batch 3: P1 — `GitInfoService` single-flight with trailing rerun (C4) — COMPLETE
+
+- Commit: `fix(vscode-core): run one git status per workspace and queue a single rerun` (SHA recorded in the next team-leader pass; a commit cannot carry its own SHA)
 
 - Recommended executor: backend-developer
 - Fallback executor: none (subtle concurrency; no CLI lane)
@@ -210,7 +212,7 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - Rationale: a single-file concurrency rewrite in a 2,600-line service with a large existing spec.
 - Tasks: 1 | Depends on: none | Parallel with: Batches 1, 2, 5
 
-### Task 3.1: Flight record + `refreshGitInfo` — IN_PROGRESS
+### Task 3.1: Flight record + `refreshGitInfo` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\git-info.service.ts` (:286-367, :2349-2367), `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\git-info.service.spec.ts`
 - Plan reference: implementation-plan.md:316-346
@@ -224,6 +226,19 @@ Status: PASSED WITH RISKS (no BLOCKER; 11 plan defects recorded, none invalidate
 - `npx nx run-many -t test -p @ptah-extension/vscode-core` (header: 1 project)
 - `npx nx run-many -t typecheck,lint -p @ptah-extension/vscode-core @ptah-extension/rpc-handlers ptah-electron`
 - Done when: INV-3 (P1 part) and AC-3 (fake spawner, P1) are pinned by spec
+
+### Batch 3 outcome
+
+- Implemented: per-key `ReadFlight { running, startedAtGeneration, trailing? }`; `coalesce` replaced by `singleFlight`/`startFlight` in place; `invalidateReadCache` drops settled entries only and never deletes an in-flight record; public `refreshGitInfo(workspacePath)`; `cachedRead(key, workspacePath, compute)` with all 5 callers updated; per-workspace invalidation generation (`invalidatedAt` + `invalidatedAllAt`).
+- Evidence (team-leader re-run in `D:\projects\ptah-437`): `npx nx run-many -t test -p @ptah-extension/vscode-core` — 1 project, 36 suites, 554/554 passed; after the comment fixes, filtered `-- git-info.service` 3 suites, 159/159; `npx nx run-many -t typecheck,lint -p @ptah-extension/vscode-core` — pass, 0 errors (warnings pre-existing, incl. `max-lines`). Executor also reported typecheck+lint green for rpc-handlers and ptah-electron.
+- AC-3 pinned: `git-info.service.spec.ts` "single-flight read runs (TASK_2026_437)" — 5 invalidate+refresh calls during one run cost exactly one trailing status run, concurrency never above 1; rejection and timeout settle waiters and still start the trailing run.
+- R-P4 (all `cachedRead` keys): addressed — every caller passes its workspace path; a value from a run invalidated mid-flight is not written back (spec).
+- Reviews: logic APPROVED (`b3-code-logic-review.md`), style APPROVED 8/10 (`b3-code-style-review.md`).
+- Accepted deviation (orchestrator decision): the plan (implementation-plan.md:316) lets a caller join the running flight; the implementation routes any caller that arrives after an invalidation to the queued trailing run instead. Result can be one run later (latency) but is never stale (correctness). Deviation 2 — generation tracked per workspace so invalidating one root does not stale another's flight — accepted as a strict refinement.
+- Fixed by team-leader (comment-only, in-scope): spec top-of-file coverage matrix now lists the TASK_2026_437 block; `invalidatedAt` doc states its bound (one short key per workspace root opened in the process, no eviction needed).
+- Deferred follow-ups:
+  - FU-3a: extract the flight mechanism (`ReadFlight`, `singleFlight`, `startFlight`, `generationOf`, generation fields) from `git-info.service.ts` into a named collaborator under the facade rule. Candidate for the git-service split; not in P1 scope.
+  - FU-3b: `startFlight` readability — replace the `?? { running, startedAtGeneration }` fallback-then-overwrite with an explicit read of the existing record's `trailing`. Pair with FU-3a.
 
 ---
 
