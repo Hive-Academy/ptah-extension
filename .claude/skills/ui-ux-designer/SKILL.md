@@ -1,6 +1,6 @@
 ---
 name: ui-ux-designer
-description: Turns vague design intent into a concrete visual specification — discovers the brand aesthetic through guided questions, systematizes it into design tokens, and produces production-ready component and asset specs. Use when the user wants to create a landing page or marketing site, define a visual identity or brand, build a design system from scratch, generate visual assets such as icons, illustrations, or 3D elements, or systematize reference images and reference sites into a repeatable system.
+description: Turns design intent into a visual specification — brand discovery, design tokens, component and asset specs. Use to define a visual identity or design system, design a landing page, plan icons, illustrations or 3D assets, or systematize reference images. Not for writing copy — use technical-content-writer.
 ---
 
 # UI/UX Designer Skill - Visual Design Excellence

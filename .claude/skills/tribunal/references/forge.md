@@ -36,13 +36,13 @@ for panelist Pk:
   })
 ```
 
-Poll and read each (vendor-panel.md §3). On timeout: resume where `ptah_agent_status` reports a `CLI Session ID`, respawn where it does not. A panelist that fails twice is dropped with a note.
+Run and recover each lane per [agent-lanes](../../agent-lanes/SKILL.md) §4–5; a dropped panelist is named in the verdict.
 
 ### Step 3 — Round-robin cross-vendor review
 
 - For each `Pk`, capture its diff against the base (`git diff` in its worktree).
 - **Assignment:** `Pk` reviews `P(k+1 mod n)`'s diff — every diff gets exactly one peer reviewer, no one reviews their own work.
-- Anonymize (vendor-panel.md §4): the reviewer sees "Implementation A", not the author's brand.
+- Anonymize (vendor-panel.md §3): the reviewer sees "Implementation A", not the author's brand.
 - Spawn each reviewer **in its own worktree** with the peer's diff inlined, asking for a structured review:
 
 ```

@@ -27,6 +27,7 @@ Invoke the orchestration skill for development workflows.
    - `references/task-tracking.md` - Folder structure and registry
    - `references/checkpoints.md` - User validation templates
    - `references/git-standards.md` - Commit rules and hook handling
+   - `references/lane-assignment.md` - CLI lanes: who spawns, per-role hand-offs, phases on lanes
 
 ## Quick Reference
 

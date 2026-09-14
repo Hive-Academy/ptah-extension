@@ -21,7 +21,9 @@ import {
   File as FileIcon,
   Folder as FolderIcon,
   Mic,
+  Plus,
 } from 'lucide-angular';
+import { NativePopoverComponent } from '@ptah-extension/ui';
 import {
   InlineImageAttachment,
   MAX_IMAGE_SIZE_BYTES,
@@ -79,10 +81,14 @@ interface PastedImage {
  * Complexity Level: 2 (Input with model selector and autopilot toggle)
  * Patterns: Signal-based state, Composition
  *
+ * Layout ("card + status line"):
+ * - One rounded card holds attachments, a borderless textarea and a toolbar
+ *   (`+` attach menu, model, effort | voice, stop, round send). The card's
+ *   1px border carries the plan-mode / autopilot tint.
+ * - A quiet status line under the card holds autopilot, MCP, peer send and
+ *   the auth method label.
+ *
  * Features:
- * - DaisyUI textarea with send button
- * - Elegant model selector dropdown with title + description
- * - Autopilot toggle switch
  * - Shift+Enter for newlines, Enter to send
  * - Clear input after send
  * - Disable during streaming
@@ -110,76 +116,20 @@ interface PastedImage {
     EffortSelectorComponent,
     McpStatusChipComponent,
     PeerSessionSendComponent,
+    NativePopoverComponent,
   ],
   providers: [VoiceInputService],
   template: `
     <div
-      class="flex flex-col gap-2 p-4 bg-base-100 relative"
+      class="ptah-composer relative flex flex-col px-3 pt-2 pb-2 bg-base-100"
       (dragover)="handleDragOver($event)"
       (dragleave)="handleDragLeave($event)"
       (drop)="handleDrop($event)"
     >
-      <!-- Compaction overlay on input area -->
-      @if (resolvedIsCompacting()) {
-        <div
-          class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px] rounded-lg"
-        >
-          <div
-            class="flex items-center gap-2 text-base-content-muted text-sm font-medium"
-          >
-            <span class="loading loading-spinner loading-sm"></span>
-            <span>Optimizing context...</span>
-          </div>
-        </div>
-      }
-      <!-- Drop zone overlay -->
-      @if (isDraggingOver()) {
-        <div
-          class="absolute inset-0 z-10 flex items-center justify-center bg-primary/10 border-2 border-dashed border-primary rounded-lg pointer-events-none"
-        >
-          <div class="flex items-center gap-2 text-primary text-sm font-medium">
-            <lucide-angular [img]="ImageIconRef" class="w-5 h-5" />
-            <span>Drop image here</span>
-          </div>
-        </div>
-      }
-      <!-- File Tags + Image Thumbnails Row (above textarea) -->
-      @if (selectedFiles().length > 0 || pastedImages().length > 0) {
-        <div class="flex flex-wrap gap-2">
-          @for (file of selectedFiles(); track file.path) {
-            <ptah-file-tag [file]="file" (removeFile)="removeFile(file.path)" />
-          }
-          @for (img of pastedImages(); track img.id) {
-            <div class="relative group">
-              <div
-                class="w-16 h-16 rounded-lg border border-base-300 bg-cover bg-center"
-                [style.background-image]="'url(' + img.dataUrl + ')'"
-                [attr.aria-label]="img.name"
-                role="img"
-              ></div>
-              <button
-                class="absolute -top-1.5 -right-1.5 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 transition-opacity"
-                (click)="removePastedImage(img.id)"
-                type="button"
-              >
-                <lucide-angular [img]="XIcon" class="w-3 h-3" />
-              </button>
-              <div
-                class="absolute bottom-0 left-0 right-0 bg-black/50 rounded-b-lg px-1 py-0.5"
-              >
-                <span class="text-[9px] text-white truncate block">{{
-                  img.name
-                }}</span>
-              </div>
-            </div>
-          }
-        </div>
-      }
-
       <!-- Image attachment validation error (auto-clears after 4s) -->
       @if (imageAttachmentError()) {
         <div
-          class="flex items-center gap-1.5 text-xs text-error px-2"
+          class="flex items-center gap-1.5 text-xs text-error px-2 pb-1.5"
           role="alert"
           aria-live="polite"
         >
@@ -187,78 +137,78 @@ interface PastedImage {
         </div>
       }
 
-      <!-- Input Row with Textarea and Send Button -->
-      <div class="flex items-end gap-2">
-        <!-- Textarea + Suggestions Dropdown -->
-        <div class="relative flex-1">
-          <!-- Attachment buttons overlaid at top-right of textarea -->
-          <div class="absolute top-1.5 right-2 z-10 flex items-center gap-0.5">
-            <button
-              class="btn btn-ghost btn-xs btn-square text-base-content-muted hover:text-base-content"
-              (click)="handleAttachFiles()"
-              title="Attach files"
-              type="button"
+      <!-- Composer card: attachments, textarea, toolbar. The border carries
+           the mode tint (plan = info, autopilot = primary). -->
+      <div [class]="cardClasses()">
+        <!-- Compaction overlay on the card -->
+        @if (resolvedIsCompacting()) {
+          <div
+            class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px] rounded-2xl"
+          >
+            <div
+              class="flex items-center gap-2 text-base-content-muted text-sm font-medium"
             >
-              <lucide-angular [img]="PaperclipIcon" class="w-3.5 h-3.5" />
-            </button>
-            <button
-              class="btn btn-ghost btn-xs btn-square text-base-content-muted hover:text-base-content"
-              (click)="handleAttachImages()"
-              title="Attach images"
-              type="button"
+              <span class="loading loading-spinner loading-sm"></span>
+              <span>Optimizing context...</span>
+            </div>
+          </div>
+        }
+        <!-- Drop zone overlay -->
+        @if (isDraggingOver()) {
+          <div
+            class="absolute inset-0 z-10 flex items-center justify-center bg-primary/10 border border-dashed border-primary rounded-2xl pointer-events-none"
+          >
+            <div
+              class="flex items-center gap-2 text-primary text-sm font-medium"
             >
-              <lucide-angular [img]="ImagePlusIcon" class="w-3.5 h-3.5" />
-            </button>
-            @if (isElectron) {
-              @if (isRecording()) {
-                <span class="text-[10px] text-error tabular-nums px-0.5">{{
-                  voiceElapsedLabel()
-                }}</span>
-              }
-              <button
-                [class]="
-                  'btn btn-ghost btn-xs btn-square ' +
-                  (isRecording()
-                    ? 'text-error animate-pulse'
-                    : 'text-base-content-muted hover:text-base-content')
-                "
-                [disabled]="isTranscribing()"
-                (click)="handleVoiceButton()"
-                [title]="
-                  isRecording()
-                    ? 'Stop recording'
-                    : isTranscribing()
-                      ? 'Transcribing...'
-                      : 'Record voice'
-                "
-                type="button"
-                data-testid="chat-voice-btn"
-              >
-                @if (isTranscribing()) {
-                  <span class="loading loading-spinner loading-xs"></span>
-                } @else if (isRecording()) {
-                  <lucide-angular [img]="SquareIcon" class="w-3.5 h-3.5" />
-                } @else {
-                  <lucide-angular [img]="MicIcon" class="w-3.5 h-3.5" />
-                }
-              </button>
+              <lucide-angular [img]="ImageIconRef" class="w-5 h-5" />
+              <span>Drop image here</span>
+            </div>
+          </div>
+        }
+
+        <!-- File Tags + Image Thumbnails Row (above textarea) -->
+        @if (selectedFiles().length > 0 || pastedImages().length > 0) {
+          <div class="flex flex-wrap gap-2 px-3 pt-3">
+            @for (file of selectedFiles(); track file.path) {
+              <ptah-file-tag
+                [file]="file"
+                (removeFile)="removeFile(file.path)"
+              />
+            }
+            @for (img of pastedImages(); track img.id) {
+              <div class="relative group">
+                <div
+                  class="w-16 h-16 rounded-lg border border-base-300 bg-cover bg-center"
+                  [style.background-image]="'url(' + img.dataUrl + ')'"
+                  [attr.aria-label]="img.name"
+                  role="img"
+                ></div>
+                <button
+                  class="absolute -top-1.5 -right-1.5 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                  (click)="removePastedImage(img.id)"
+                  type="button"
+                  [attr.aria-label]="'Remove ' + img.name"
+                >
+                  <lucide-angular [img]="XIcon" class="w-3 h-3" />
+                </button>
+                <div
+                  class="absolute bottom-0 left-0 right-0 bg-black/50 rounded-b-lg px-1 py-0.5"
+                >
+                  <span class="text-[9px] text-white truncate block">{{
+                    img.name
+                  }}</span>
+                </div>
+              </div>
             }
           </div>
+        }
+
+        <!-- Textarea + Suggestions Dropdown -->
+        <div class="relative">
           <textarea
             #inputElement
-            class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none transition-colors w-full pr-16"
-            [class.border-info]="
-              autopilotState.agentPlanMode() ||
-              autopilotState.permissionLevel() === 'plan'
-            "
-            [class.border-primary]="
-              !autopilotState.agentPlanMode() &&
-              autopilotState.permissionLevel() !== 'plan' &&
-              autopilotState.enabled()
-            "
-            [class.border-2]="
-              autopilotState.enabled() || autopilotState.agentPlanMode()
-            "
+            class="block w-full min-h-[2.5rem] max-h-[10rem] resize-none bg-transparent border-0 px-3.5 pt-3 pb-1 text-sm leading-relaxed text-base-content placeholder:text-base-content-muted outline-none focus:outline-none focus:ring-0"
             [placeholder]="
               attachedReadOnly()
                 ? 'Session is attached to messaging — read-only'
@@ -302,61 +252,152 @@ interface PastedImage {
           }
         </div>
 
-        <!-- Button Stack: Stop (streaming only) + Send -->
-        <div class="flex flex-col gap-1 pb-1">
-          <!-- Stop Button (above send during streaming) -->
-          <!-- Gated on the same busy predicate the dispatcher queues on, so a
-               queued send always has a Stop to drain it -->
-          @if (isActiveTabStreaming()) {
-            <button
-              class="btn btn-error btn-sm btn-square"
-              (click)="handleStop()"
-              title="Stop generating"
-              type="button"
-              data-testid="chat-stop-btn"
+        <!-- In-card toolbar -->
+        <div class="flex items-center gap-1 px-2 pb-2 pt-1 min-w-0">
+          <!-- Left: attach menu, model, effort -->
+          <div class="flex items-center gap-0.5 min-w-0 flex-1">
+            <ptah-native-popover
+              [isOpen]="attachMenuOpen()"
+              [placement]="'top-start'"
+              [hasBackdrop]="true"
+              [backdropClass]="'transparent'"
+              (closed)="closeAttachMenu()"
             >
-              <lucide-angular [img]="SquareIcon" class="w-4 h-4" />
+              <button
+                trigger
+                class="inline-flex items-center justify-center h-7 w-7 flex-shrink-0 rounded-full text-base-content-muted hover:text-base-content hover:bg-base-content/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30"
+                [class.bg-base-300]="attachMenuOpen()"
+                [class.text-base-content]="attachMenuOpen()"
+                (click)="toggleAttachMenu()"
+                type="button"
+                title="Attach"
+                aria-label="Attach files or images"
+                aria-haspopup="menu"
+                [attr.aria-expanded]="attachMenuOpen()"
+                data-testid="chat-attach-btn"
+              >
+                <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
+              </button>
+
+              <div content class="w-44 p-1 flex flex-col" role="menu">
+                <button
+                  class="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-left hover:bg-base-300 focus-visible:bg-base-300 focus-visible:outline-none transition-colors"
+                  (click)="selectAttachFiles()"
+                  type="button"
+                  role="menuitem"
+                >
+                  <lucide-angular
+                    [img]="PaperclipIcon"
+                    class="w-3.5 h-3.5 text-base-content-muted"
+                  />
+                  <span>Attach files</span>
+                </button>
+                <button
+                  class="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-left hover:bg-base-300 focus-visible:bg-base-300 focus-visible:outline-none transition-colors"
+                  (click)="selectAttachImages()"
+                  type="button"
+                  role="menuitem"
+                >
+                  <lucide-angular
+                    [img]="ImagePlusIcon"
+                    class="w-3.5 h-3.5 text-base-content-muted"
+                  />
+                  <span>Attach images</span>
+                </button>
+              </div>
+            </ptah-native-popover>
+
+            <ptah-model-selector class="min-w-0" />
+
+            <ptah-effort-selector
+              class="min-w-0"
+              (effortChanged)="onEffortChange($event)"
+            />
+          </div>
+
+          <!-- Right: voice, stop, send -->
+          <div class="flex items-center gap-1 flex-shrink-0">
+            @if (isElectron) {
+              @if (isRecording()) {
+                <span class="text-xs text-error tabular-nums px-0.5">{{
+                  voiceElapsedLabel()
+                }}</span>
+              }
+              <button
+                [class]="
+                  'inline-flex items-center justify-center h-7 w-7 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30 disabled:opacity-50 ' +
+                  (isRecording()
+                    ? 'text-error bg-error/10 animate-pulse'
+                    : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5')
+                "
+                [disabled]="isTranscribing()"
+                (click)="handleVoiceButton()"
+                [title]="
+                  isRecording()
+                    ? 'Stop recording'
+                    : isTranscribing()
+                      ? 'Transcribing...'
+                      : 'Record voice'
+                "
+                [attr.aria-label]="
+                  isRecording()
+                    ? 'Stop recording'
+                    : isTranscribing()
+                      ? 'Transcribing...'
+                      : 'Record voice'
+                "
+                type="button"
+                data-testid="chat-voice-btn"
+              >
+                @if (isTranscribing()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                } @else if (isRecording()) {
+                  <lucide-angular [img]="SquareIcon" class="w-3.5 h-3.5" />
+                } @else {
+                  <lucide-angular [img]="MicIcon" class="w-3.5 h-3.5" />
+                }
+              </button>
+            }
+
+            <!-- Stop Button (streaming only). Gated on the same busy predicate
+                 the dispatcher queues on, so a queued send always has a Stop
+                 to drain it. -->
+            @if (isActiveTabStreaming()) {
+              <button
+                class="inline-flex items-center justify-center h-8 w-8 rounded-full bg-error/15 text-error hover:bg-error/25 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-error"
+                (click)="handleStop()"
+                title="Stop generating"
+                aria-label="Stop generating"
+                type="button"
+                data-testid="chat-stop-btn"
+              >
+                <lucide-angular [img]="SquareIcon" class="w-3.5 h-3.5" />
+              </button>
+            }
+
+            <!-- Send Button (always functional - queues message during streaming) -->
+            <button
+              class="btn btn-circle btn-primary btn-sm min-h-0 h-8 w-8"
+              [disabled]="!canSend() || attachedReadOnly()"
+              (click)="handleSend()"
+              type="button"
+              title="Send message"
+              aria-label="Send message"
+              data-testid="chat-send-btn"
+            >
+              <lucide-angular [img]="SendIcon" class="w-4 h-4" />
             </button>
-          }
-          <!-- Send Button (always functional - queues message during streaming) -->
-          <button
-            class="btn btn-primary btn-sm btn-square"
-            [disabled]="!canSend() || attachedReadOnly()"
-            (click)="handleSend()"
-            type="button"
-            data-testid="chat-send-btn"
-          >
-            <lucide-angular [img]="SendIcon" class="w-4 h-4" />
-          </button>
+          </div>
         </div>
       </div>
 
-      <!-- Bottom Controls Row -->
-      <div class="flex items-center justify-between gap-1.5 min-w-0">
-        <!-- Left: Auth Method Badge + Model Selector -->
-        <div
-          class="flex items-center gap-0.5 text-base-content-muted flex-shrink-0"
-        >
-          <!-- Auth Method Badge -->
-          @if (authMethodLabel()) {
-            <div
-              class="badge badge-ghost badge-xs gap-1 opacity-70"
-              [title]="'Authenticated via ' + authMethodLabel()"
-            >
-              <span class="text-[10px]">{{ authMethodLabel() }}</span>
-            </div>
-          }
-
-          <!-- Model Selector Component -->
-          <ptah-model-selector />
-        </div>
-
-        <!-- Right: MCP chip, Effort Selector, Autopilot -->
+      <!-- Status line under the card -->
+      <div class="flex items-center gap-2 px-1 mt-1.5 min-w-0">
         <div class="flex items-center gap-0.5 min-w-0">
-          <!-- MCP status. Lives here, with the other session-scoped capability
-               controls, rather than on a row of its own above the transcript:
-               this row always renders, so the chip no longer has to buy a full
-               row of height for one badge. -->
+          <ptah-autopilot-popover class="min-w-0" />
+
+          <!-- MCP status (host is display: contents; renders nothing when the
+               session reports no servers) -->
           <ptah-mcp-status-chip
             [sessionId]="mcpSessionId()"
             [tabId]="mcpTabId()"
@@ -364,16 +405,39 @@ interface PastedImage {
 
           <!-- Peer session send affordance (TASK_2026_402 §11) -->
           <ptah-peer-session-send />
-
-          <!-- Effort Selector Component -->
-          <ptah-effort-selector (effortChanged)="onEffortChange($event)" />
-
-          <!-- Autopilot Popover Component -->
-          <ptah-autopilot-popover />
         </div>
+
+        @if (authMethodLabel()) {
+          <span
+            class="ml-auto min-w-0 truncate text-xs text-base-content-muted"
+            [title]="'Authenticated via ' + authMethodLabel()"
+            >{{ authMethodLabel() }}</span
+          >
+        }
       </div>
     </div>
   `,
+  // Narrow-width behaviour (canvas tiles). The webview Tailwind config has no
+  // container-queries plugin, so this is a native CSS container query: the
+  // composer root is the query container, and below 400px the secondary text
+  // labels on the child pill triggers (effort, autopilot, peer — each marked
+  // `ptah-composer-label`) collapse to icon-only so the rows never wrap. The
+  // model name is not hidden; it truncates. `::ng-deep` is required because
+  // those labels live in child component views.
+  styles: [
+    `
+      .ptah-composer {
+        container-type: inline-size;
+        container-name: ptah-composer;
+      }
+
+      @container ptah-composer (max-width: 400px) {
+        :host ::ng-deep .ptah-composer-label {
+          display: none;
+        }
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChatInputComponent implements OnInit {
@@ -547,6 +611,33 @@ export class ChatInputComponent implements OnInit {
   readonly PaperclipIcon = Paperclip;
   readonly ImagePlusIcon = ImagePlus;
   readonly MicIcon = Mic;
+  readonly PlusIcon = Plus;
+
+  /** Open state of the `+` attach menu in the composer toolbar. */
+  private readonly _attachMenuOpen = signal(false);
+  readonly attachMenuOpen = this._attachMenuOpen.asReadonly();
+
+  /**
+   * Composer card classes. The 1px border doubles as the mode indicator:
+   * info while plan mode is active (agent plan mode or the `plan` permission
+   * level), primary while autopilot is on, neutral otherwise — the same
+   * conditions the textarea's former `border-info` / `border-primary` used.
+   */
+  readonly cardClasses = computed(() => {
+    const base =
+      'relative flex flex-col rounded-2xl border bg-base-200/60 transition-colors';
+    if (
+      this.autopilotState.agentPlanMode() ||
+      this.autopilotState.permissionLevel() === 'plan'
+    ) {
+      return `${base} border-info/50 focus-within:border-info/70`;
+    }
+    if (this.autopilotState.enabled()) {
+      return `${base} border-primary/40 focus-within:border-primary/60`;
+    }
+    return `${base} border-base-content/10 focus-within:border-base-content/25`;
+  });
+
   private _lastSessionId: string | null = null;
   private readonly _currentMessage = signal('');
   private readonly _showSuggestions = signal(false);
@@ -742,6 +833,26 @@ export class ChatInputComponent implements OnInit {
    */
   removePastedImage(id: string): void {
     this._pastedImages.update((imgs) => imgs.filter((img) => img.id !== id));
+  }
+
+  toggleAttachMenu(): void {
+    this._attachMenuOpen.update((open) => !open);
+  }
+
+  closeAttachMenu(): void {
+    this._attachMenuOpen.set(false);
+  }
+
+  /** `+` menu → Attach files. Closes the menu, then opens the picker. */
+  selectAttachFiles(): void {
+    this.closeAttachMenu();
+    void this.handleAttachFiles();
+  }
+
+  /** `+` menu → Attach images. Closes the menu, then opens the picker. */
+  selectAttachImages(): void {
+    this.closeAttachMenu();
+    void this.handleAttachImages();
   }
 
   /**

@@ -124,13 +124,11 @@ const REQUIRED_AGENTS: readonly string[] = [
 
 /** Required sections in SKILL.md */
 const SKILL_REQUIRED_SECTIONS: readonly RequiredSection[] = [
-  { pattern: /##\s+Quick Start/i, name: 'Quick Start' },
-  { pattern: /##\s+Your Role/i, name: 'Your Role' },
-  { pattern: /##\s+Workflow Selection/i, name: 'Workflow Selection Matrix' },
-  { pattern: /##\s+Core Orchestration Loop/i, name: 'Core Orchestration Loop' },
-  { pattern: /##\s+Validation Checkpoints/i, name: 'Validation Checkpoints' },
-  { pattern: /##\s+Team-Leader Integration/i, name: 'Team-Leader Integration' },
-  { pattern: /##\s+Reference Index/i, name: 'Reference Index' },
+  { pattern: /##\s+Pre-flight/i, name: 'Pre-flight' },
+  { pattern: /##\s+Task folder/i, name: 'Task folder' },
+  { pattern: /##\s+Gates/i, name: 'Gates' },
+  { pattern: /##\s+Invoking agents/i, name: 'Invoking agents' },
+  { pattern: /##\s+References/i, name: 'References' },
 ] as const;
 
 /** Required reference files */
@@ -141,6 +139,7 @@ const REQUIRED_REFERENCES: readonly string[] = [
   'task-tracking.md',
   'checkpoints.md',
   'git-standards.md',
+  'lane-assignment.md',
 ] as const;
 
 /** Target line count for SKILL.md */
@@ -387,16 +386,14 @@ function validateAgentsDocumented(
   const errors: ValidationError[] = [];
 
   for (const agent of REQUIRED_AGENTS) {
-    const headingPattern = new RegExp(
-      `###\\s+${agent.replace(/-/g, '[- ]?')}`,
-      'i',
-    );
-    if (!headingPattern.test(content)) {
+    // Each agent is documented as a row in the catalog tables (Profiles).
+    const rowPattern = new RegExp(`^\\|\\s*${agent}\\s*\\|`, 'im');
+    if (!rowPattern.test(content)) {
       errors.push({
         file: path.relative(process.cwd(), catalogFile),
         type: 'content',
         message: `Missing agent documentation: ${agent}`,
-        suggestion: `Add a section "### ${agent}" with role, triggers, inputs, outputs, dependencies, invocation example`,
+        suggestion: `Add a "| ${agent} |" row to the Profiles table with when it is invoked, what it reads and what runs alongside it`,
       });
     }
   }
@@ -470,7 +467,13 @@ function validateInvocationPatterns(
   while ((match = subagentPattern.exec(content)) !== null) {
     const agentName = match[1];
 
-    if (agentName !== undefined && !REQUIRED_AGENTS.includes(agentName)) {
+    // `<agent>` in the shared invocation template is a placeholder.
+    const isPlaceholder = agentName !== undefined && /^<.+>$/.test(agentName);
+    if (
+      agentName !== undefined &&
+      !isPlaceholder &&
+      !REQUIRED_AGENTS.includes(agentName)
+    ) {
       errors.push({
         file: path.relative(process.cwd(), catalogFile),
         type: 'consistency',

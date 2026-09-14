@@ -17,8 +17,6 @@ import {
   Clock,
   Pencil,
   Trash2,
-  ChevronUp,
-  ChevronDown,
 } from 'lucide-angular';
 import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript.component';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
@@ -247,16 +245,6 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly ClockIcon = Clock;
   protected readonly PencilIcon = Pencil;
   protected readonly TrashIcon = Trash2;
-  protected readonly ChevronUpIcon = ChevronUp;
-  protected readonly ChevronDownIcon = ChevronDown;
-
-  /** Whether the input area is collapsed to give more room to chat */
-  readonly inputCollapsed = signal(false);
-
-  /** Toggle the input area collapse state */
-  toggleInputCollapse(): void {
-    this.inputCollapsed.update((v) => !v);
-  }
 
   /** Local panel open/close state */
   readonly agentPanelOpen = signal(false);
