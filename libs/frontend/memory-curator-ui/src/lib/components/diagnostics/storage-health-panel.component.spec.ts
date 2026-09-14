@@ -190,6 +190,64 @@ describe('StorageHealthPanelComponent', () => {
     ).toContain('at the next idle hourly check');
   });
 
+  it('renders a past nextDueAt (backlog remaining) as the hourly-check wording, not a past time', () => {
+    const root = render(
+      makeStorage({
+        retention: {
+          enabled: true,
+          processedDays: 14,
+          stuckDays: 30,
+          lastRun: {
+            startedAt: NOW - 720_000,
+            finishedAt: NOW - 600_000,
+            durationMs: 120_000,
+            processedPurged: 50_000,
+            stuckQuarantined: 0,
+            ledgerPruned: 0,
+            freedBytes: 134_217_728,
+            pagesReclaimed: 32_768,
+            outcome: 'partial',
+            reason: 'row budget reached',
+            error: null,
+            backlogRemaining: true,
+          },
+          lastCompletedAt: NOW - 600_000,
+          // Backlog → the backend sets nextDueAt to the run's finish time,
+          // which is already in the past.
+          nextDueAt: NOW - 720_000,
+          lastSkippedAt: null,
+          lastSkipReason: null,
+        },
+      }),
+    );
+
+    const nextDue = root.querySelector('[data-testid="storage-next-due"]');
+    expect(nextDue?.textContent ?? '').toContain(
+      'at the next idle hourly check',
+    );
+    expect(nextDue?.textContent ?? '').not.toContain('ago');
+
+    // A future nextDueAt still renders the "in …" form.
+    const futureRoot = render(
+      makeStorage({
+        retention: {
+          enabled: true,
+          processedDays: 14,
+          stuckDays: 30,
+          lastRun: null,
+          lastCompletedAt: NOW - 3_600_000,
+          nextDueAt: NOW + 1_800_000,
+          lastSkippedAt: null,
+          lastSkipReason: null,
+        },
+      }),
+    );
+    expect(
+      futureRoot.querySelector('[data-testid="storage-next-due"]')
+        ?.textContent ?? '',
+    ).toContain('in 30 min');
+  });
+
   it('formats bytes across scales via the pure formatter', () => {
     expect(formatBytes(0)).toBe('0 B');
     expect(formatBytes(1023)).toBe('1023 B');

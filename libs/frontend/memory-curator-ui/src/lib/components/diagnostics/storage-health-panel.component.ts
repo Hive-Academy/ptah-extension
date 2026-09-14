@@ -337,8 +337,11 @@ export class StorageHealthPanelComponent {
       retentionEnabled: s.retention.enabled,
       processedDaysText: formatCount(s.retention.processedDays),
       stuckDaysText: formatCount(s.retention.stuckDays),
+      // A past nextDueAt means the run left a backlog (the backend sets it to
+      // the run's finish time, so the next idle hourly tick takes it) — not
+      // a missed appointment to count down from.
       nextDueText:
-        s.retention.nextDueAt !== null
+        s.retention.nextDueAt !== null && s.retention.nextDueAt > now
           ? formatRelativeTime(s.retention.nextDueAt, now)
           : 'at the next idle hourly check',
       lastRun,
