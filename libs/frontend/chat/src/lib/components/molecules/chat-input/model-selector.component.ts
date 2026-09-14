@@ -16,7 +16,7 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { LucideAngularModule, ChevronDown, Check } from 'lucide-angular';
+import { LucideAngularModule, ChevronDown, Check, Box } from 'lucide-angular';
 import { ModelStateService } from '@ptah-extension/core';
 import {
   NativeDropdownComponent,
@@ -44,22 +44,33 @@ import { SessionId } from '@ptah-extension/shared';
       (closed)="closeDropdown()"
       (backdropClicked)="closeDropdown()"
     >
+      <!-- Composer toolbar pill (h-7). Shares its shape with the effort
+           selector and the attach button in chat-input. -->
       <button
         trigger
-        class="btn btn-ghost btn-xs gap-1 font-normal h-6 min-h-0 px-1.5 max-w-[12rem]"
-        [class.ring-1]="isOpen()"
-        [class.ring-primary]="isOpen()"
+        class="inline-flex items-center gap-1.5 h-7 px-2 rounded-full text-xs font-normal max-w-[12rem] min-w-0 text-base-content-muted hover:text-base-content hover:bg-base-content/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30 disabled:opacity-50 disabled:pointer-events-none"
+        [class.bg-base-300]="isOpen()"
+        [class.text-base-content]="isOpen()"
         type="button"
         (click)="toggleDropdown()"
         [disabled]="modelState.isPending()"
+        aria-label="Select model"
+        [attr.aria-expanded]="isOpen()"
       >
         @if (modelState.isPending()) {
           <span class="loading loading-spinner loading-xs"></span>
+        } @else {
+          <!-- Accent on the icon only: a provider override is active -->
+          <lucide-angular
+            [img]="BoxIcon"
+            class="w-3.5 h-3.5 flex-shrink-0"
+            [class.text-accent]="!!effectiveModelProviderHint()"
+          />
         }
         @if (effectiveModelProviderHint()) {
           <!-- Provider override active: show provider model as primary -->
           <span
-            class="text-[10px] font-mono text-accent truncate"
+            class="truncate"
             [title]="
               effectiveModelDisplay() + ' → ' + effectiveModelProviderHint()
             "
@@ -67,15 +78,13 @@ import { SessionId } from '@ptah-extension/shared';
           >
         } @else {
           <!-- No provider override: show standard display name -->
-          <span
-            class="text-[10px] font-medium truncate"
-            [title]="effectiveModelDisplay()"
-            >{{ effectiveModelDisplay() }}</span
-          >
+          <span class="truncate" [title]="effectiveModelDisplay()">{{
+            effectiveModelDisplay()
+          }}</span>
         }
         <lucide-angular
           [img]="ChevronDownIcon"
-          class="w-2.5 h-2.5 flex-shrink-0 opacity-60"
+          class="w-3 h-3 flex-shrink-0 opacity-60"
         />
       </button>
 
@@ -169,6 +178,7 @@ export class ModelSelectorComponent {
   });
   readonly ChevronDownIcon = ChevronDown;
   readonly CheckIcon = Check;
+  readonly BoxIcon = Box;
   private readonly _isOpen = signal(false);
   readonly isOpen = this._isOpen.asReadonly();
   readonly activeIndex = this.keyboardNav.activeIndex;

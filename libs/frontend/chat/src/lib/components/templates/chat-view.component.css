@@ -72,23 +72,6 @@
   --ptah-ease-gentle-in: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Collapsible input area animation */
-.input-collapse-wrapper {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 260ms var(--ptah-ease-soft);
-  overflow: hidden;
-}
-
-.input-collapse-wrapper.input-collapsed {
-  grid-template-rows: 0fr;
-}
-
-.input-collapse-wrapper > :first-child {
-  min-height: 0;
-  overflow: hidden;
-}
-
 /* ==========================================================================
    Layout-shift-free enter/leave animations.
    Used via Angular 21 native [animate.enter]="className" / [animate.leave]="className".
@@ -156,8 +139,7 @@
   .banner-enter,
   .banner-leave,
   .fade-enter,
-  .fade-leave,
-  .input-collapse-wrapper {
+  .fade-leave {
     animation: none !important;
     transition: none !important;
   }

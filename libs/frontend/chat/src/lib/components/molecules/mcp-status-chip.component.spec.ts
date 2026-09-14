@@ -179,7 +179,22 @@ describe('McpStatusChipComponent', () => {
 
     expect(component.chipLabel()).toBe('1/2');
     expect(component.chipClasses()).toContain('warning');
+    expect(component.dotClasses()).toContain('bg-warning');
     expect(component.chipTitle()).toContain('1 MCP server(s) need attention');
+  });
+
+  it('uses the shared status-line pill shape with a success dot when all servers are connected', async () => {
+    registry.record('s1', {
+      servers: [{ name: 'smithery', status: 'connected' }],
+      notices: [],
+    });
+    await createComponent({ sessionId: 's1' });
+
+    const classes = component.chipClasses();
+    expect(classes).toContain('h-6');
+    expect(classes).toContain('rounded-full');
+    expect(classes).not.toContain('warning');
+    expect(component.dotClasses()).toContain('bg-success');
   });
 
   it('treats failed as actionable — the next move is the same as needs-auth', async () => {

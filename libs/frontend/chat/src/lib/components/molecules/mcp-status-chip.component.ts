@@ -1,6 +1,6 @@
 /**
- * McpStatusChipComponent — the MCP chip in the composer footer, beside the
- * Agents / Effort / Autopilot controls (TASK_2026_375 B4.4).
+ * McpStatusChipComponent — the MCP chip in the composer status line under the
+ * input card, beside the Autopilot and Peer controls (TASK_2026_375 B4.4).
  *
  * The CLI reports every MCP server's status once per session, in the SDK `init`
  * message. Before this task Ptah logged that at debug level and showed nothing,
@@ -57,9 +57,16 @@ export interface McpServerRow {
  */
 const ACTIONABLE_STATUSES: readonly string[] = ['needs-auth', 'failed'];
 
+/**
+ * The composer status-line pill shape, shared by the autopilot, peer and MCP
+ * triggers: h-6, rounded-full, text-xs, no border.
+ */
 const CHIP_BASE_CLASSES =
-  'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] ' +
-  'whitespace-nowrap cursor-pointer transition-colors';
+  'inline-flex items-center gap-1 h-6 px-1.5 rounded-full text-xs font-normal ' +
+  'whitespace-nowrap cursor-pointer transition-colors ' +
+  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30';
+
+const DOT_BASE_CLASSES = 'w-1.5 h-1.5 rounded-full';
 
 const PILL_BASE_CLASSES = 'rounded px-1.5 py-0.5 whitespace-nowrap';
 
@@ -118,7 +125,13 @@ function normalizeUrl(url: string): string {
           [attr.aria-expanded]="isOpen()"
           (click)="toggle()"
         >
-          <span class="text-[10px] uppercase text-base-content-muted">MCP</span>
+          <span
+            class="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center"
+            aria-hidden="true"
+          >
+            <span [class]="dotClasses()"></span>
+          </span>
+          <span>MCP</span>
           <span class="tabular-nums">{{ chipLabel() }}</span>
         </button>
 
@@ -248,10 +261,21 @@ export class McpStatusChipComponent {
   readonly chipClasses = computed(
     () =>
       `${CHIP_BASE_CLASSES} ${
-        this.attentionCount() > 0 || this.notices().length > 0
-          ? 'bg-warning/10 border-warning/30 text-warning hover:bg-warning/20'
-          : 'bg-base-content/5 border-base-content/10 hover:bg-base-content/10'
-      }`,
+        this.needsAttention()
+          ? 'text-warning hover:bg-warning/10'
+          : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'
+      }${this.isOpen() ? ' bg-base-300' : ''}`,
+  );
+
+  /** Status dot: warning when anything needs attention, success when live. */
+  readonly dotClasses = computed(() => {
+    if (this.needsAttention()) return `${DOT_BASE_CLASSES} bg-warning`;
+    if (this.connectedCount() > 0) return `${DOT_BASE_CLASSES} bg-success`;
+    return `${DOT_BASE_CLASSES} bg-base-content/40`;
+  });
+
+  private readonly needsAttention = computed(
+    () => this.attentionCount() > 0 || this.notices().length > 0,
   );
 
   readonly chipTitle = computed(() => {

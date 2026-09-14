@@ -36,16 +36,20 @@ import { PeerSessionSendDialogComponent } from './peer-session-send-dialog.compo
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [LucideAngularModule, PeerSessionSendDialogComponent],
   template: `
-    <!-- Trigger button in session controls bar -->
+    <!-- Composer status-line pill (h-6) -->
     <button
       type="button"
-      class="btn btn-ghost btn-xs px-1.5 min-h-0 h-5 gap-1 text-[10px] font-medium text-base-content-muted hover:text-base-content"
+      class="inline-flex items-center gap-1 h-6 px-1.5 rounded-full text-xs font-normal min-w-0 text-base-content-muted hover:text-base-content hover:bg-base-content/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30"
       (click)="open()"
       [title]="triggerTooltip()"
+      [attr.aria-label]="triggerTooltip()"
       data-testid="peer-session-send-trigger"
     >
-      <lucide-angular [img]="MessageSquareIcon" class="w-3 h-3" />
-      <span>Peer</span>
+      <lucide-angular
+        [img]="MessageSquareIcon"
+        class="w-3.5 h-3.5 flex-shrink-0"
+      />
+      <span class="ptah-composer-label">Peer</span>
     </button>
 
     <!-- Presentational dialog -->

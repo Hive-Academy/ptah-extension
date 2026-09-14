@@ -222,6 +222,72 @@ describe('ChatInputComponent', () => {
   });
 
   // ============================================================================
+  // COMPOSER CARD — 1px mode tint replaces the old border-2 textarea ring
+  // ============================================================================
+
+  describe('composer card mode tint', () => {
+    afterEach(() => {
+      mockAutopilotState.enabled.set(false);
+      mockAutopilotState.agentPlanMode.set(false);
+      mockAutopilotState.permissionLevel.set('default');
+    });
+
+    it('uses a neutral border when no mode is active', () => {
+      const classes = component.cardClasses();
+      expect(classes).toContain('border-base-content/10');
+      expect(classes).not.toContain('border-2');
+    });
+
+    it('tints primary while autopilot is enabled', () => {
+      mockAutopilotState.enabled.set(true);
+      expect(component.cardClasses()).toContain('border-primary/40');
+    });
+
+    it('tints info in plan mode, taking precedence over autopilot', () => {
+      mockAutopilotState.enabled.set(true);
+      mockAutopilotState.permissionLevel.set('plan');
+      const classes = component.cardClasses();
+      expect(classes).toContain('border-info/50');
+      expect(classes).not.toContain('border-primary');
+    });
+
+    it('tints info when agent plan mode is on', () => {
+      mockAutopilotState.agentPlanMode.set(true);
+      expect(component.cardClasses()).toContain('border-info/50');
+    });
+  });
+
+  describe('attach menu', () => {
+    it('toggles open and closed', () => {
+      expect(component.attachMenuOpen()).toBe(false);
+      component.toggleAttachMenu();
+      expect(component.attachMenuOpen()).toBe(true);
+      component.toggleAttachMenu();
+      expect(component.attachMenuOpen()).toBe(false);
+    });
+
+    it('closes and opens the file picker on "Attach files"', () => {
+      const spy = jest
+        .spyOn(component, 'handleAttachFiles')
+        .mockResolvedValue(undefined);
+      component.toggleAttachMenu();
+      component.selectAttachFiles();
+      expect(component.attachMenuOpen()).toBe(false);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes and opens the image picker on "Attach images"', () => {
+      const spy = jest
+        .spyOn(component, 'handleAttachImages')
+        .mockResolvedValue(undefined);
+      component.toggleAttachMenu();
+      component.selectAttachImages();
+      expect(component.attachMenuOpen()).toBe(false);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ============================================================================
   // COMPACTION OVERLAY — one registry derivation shared with the chat-view banner
   // ============================================================================
 
