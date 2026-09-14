@@ -27,7 +27,7 @@ User decisions (binding): all four phases; nested repos/worktrees excluded from 
 including the `@` picker; crashReporter local-only; SQLite measured before moving off main;
 scroll-back history paging deferred; `better-sqlite3` upgrade in a separate PR (#512).
 
-## 3. Done — committed (12 of 22 batches; Batches 8 and 9 in section 4)
+## 3. Done — committed (13 of 22 batches; Batches 8, 9 and 10 in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
 | ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -51,7 +51,32 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 9 — COMMITTED (resume at Batch 10)
+## 4. Batch 10 — COMMITTED (resume at Batch 11)
+
+**Update 2026-09-15 (Batch 10):** Batch 10 passed both reviews (logic base NEEDS_REVISION 4/10 →
+delta APPROVE HIGH; style base NEEDS_REVISION 7/10 → delta APPROVE) and is committed as
+`build(electron): package the @parcel/watcher watch host for Electron and the CLI`. The host bundle
+`workspace-watch-host.mjs` is built and packaged for Electron (asar-unpacked, gated by
+`verify-packed-native.js` require + subscribe) and for the CLI npm package (`main.mjs` and `tui.mjs`
+paths both proven from a clean tarball install). It also fixes a pre-existing bug: the published
+CLI shipped without `integrity-worker.mjs`. The `ptah-tui` typecheck failure is fixed. Outcome,
+evidence, deviations 1–8 and follow-ups FU-10a..c are in `batches.md` "Batch 10 outcome".
+
+**OPEN proof for P2 (D10, corrected):** only win32-x64, darwin-arm64 (macos-latest) and linux-x64
+are built by `publish-electron.yml` (no `arch` in `electron-builder.yml`, no arch flag in the
+workflow); darwin-x64 and windows-arm64 are not built at all (FU-10b, product decision). P2 is not
+done until that build matrix is green on all three OSes. It has not run on this branch; it runs on
+a `release/electron` push or `workflow_dispatch`.
+
+**PR #510 is blocked:** it has a merge conflict with `main` (`context.md` add/add). While the
+conflict stands, no `pull_request` CI runs. Merge `main` into the branch first (the orchestrator
+owns that step).
+
+**Next: Batch 11** (migrate `GitWatcherService` and `WorkspaceFileIndexService` onto
+`IWorkspaceWatcher`, delete the storm-exit loops FU-4a, port the FU-4d filters, nested-repo walk
+exclusion D4, ESLint rule). No `project.json` edit is planned, so no `nx reset`.
+
+### Batch 9 (committed earlier, kept for context)
 
 **Update 2026-09-14 (Batch 9):** Batch 9 passed both reviews (logic delta APPROVE_WITH_FIXES HIGH,
 both Moderate items fixed before commit; style delta APPROVE HIGH) and is committed as
@@ -61,14 +86,7 @@ and CLI adapters are facades over it. The CLI host runs under `child_process.for
 `createFileSystemWatcher` with the coalescer and never writes `files.watcherExclude`. Outcome,
 evidence, deviations 1–9 and follow-ups FU-9a..f are in `batches.md` "Batch 9 outcome".
 
-**Next: Batch 10** (build/packaging). Run it ALONE in the worktree and run `npx nx reset` before its
-first command. In addition to the Electron items below, it must build the CLI host bundle: entry
-`libs/backend/platform-cli/src/workspace-watch/workspace-watch-host.entry.ts` → `workspace-watch-host.mjs`
-in `dist/apps/ptah-cli`, ESM with the `createRequire` banner, `@parcel/watcher` external, bare-run
-guard string `must be run by child_process.fork` (Task 10.4).
-
-Pre-existing, not caused by this branch: `ptah-tui:typecheck` fails with 6 "Cannot find name
-'jest'/'describe'" errors in `apps/ptah-tui/src/build-artifact-gate.ts`.
+Batch 10 then built the CLI host bundle (Task 10.4) and fixed the `ptah-tui:typecheck` failure.
 
 ### Batch 8 (committed earlier, kept for context)
 
@@ -124,14 +142,14 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
   CLI: build `ptah-tui` then `restore-cli-manifest` before pack; cross-platform CI smoke (only
   win32-x64 proven locally).
 
-## 5. Remaining batches (10 of 22)
+## 5. Remaining batches (9 of 22)
 
 Order and dependencies are in `batches.md`. Summary:
 
-- **P2:** 10 (build/packaging for the Electron AND CLI watch hosts — run ALONE, edits
-  `project.json`, needs `npx nx reset` before first command) → 11 (migrate git watcher + file index onto the port, delete both storm-exit loops
+- **P2:** 11 (migrate git watcher + file index onto the port, delete both storm-exit loops
   (FU-4a), port FU-4d filters, exclude nested repos in the initial `@` scan (D4), ESLint rule) →
-  15 (ST-2 stress + host-kill test AC-7).
+  15 (ST-2 stress + host-kill test AC-7). P2 also needs the OPEN D10 proof: `publish-electron.yml`
+  build matrix green on Windows, macOS and Linux (section 4).
 - **P3:** 16 (`BackgroundWorkGovernor` core) → 17 (adopters) and 18 (network back-off).
 - **P4:** 19 (O(E+M) finalization + tab-save quota back-off), 20 (drop duplicate `messages` from
   `chat:resume`, chunked replay; after 14), 21 (inbound burst coalescing), 22 (AC-11 tile-open perf e2e).
@@ -148,6 +166,7 @@ Order and dependencies are in `batches.md`. Summary:
 - Batch 12: move `GitProcessGate` out of `exec-git.ts` (755 lines); `GitReviewReaderService` `git show` still capped at 64 MiB.
 - Batch 13: shared off-main-thread Windows tree-kill helper.
 - Batch 14: manual Electron check — break out of `iterate()` early, then exit, with the real native module.
+- FU-10a: gate helper files (`build-artifact-gate.ts`) are typechecked by no project. FU-10b: darwin-x64 and windows-arm64 Electron builds do not exist (product decision). FU-10c: no per-OS CLI pack smoke for `@parcel/watcher`.
 - **75k-file `PTAH_PERF_SPECS=1` perf budgets (AC-1/AC-2) not yet measured on an idle machine.**
 - Phase 1 gate commands not re-run: `lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`.
 

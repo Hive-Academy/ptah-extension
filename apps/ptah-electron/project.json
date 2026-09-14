@@ -57,6 +57,7 @@
           "jsonrepair",
           "minimatch",
           "picomatch",
+          "@parcel/watcher",
           "rxjs",
           "uuid",
           "which",
@@ -184,6 +185,33 @@
         "external": ["better-sqlite3"]
       }
     },
+    "build-workspace-watch-host": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": [],
+      "outputs": ["{options.outputPath}/workspace-watch-host.mjs"],
+      "options": {
+        "outputPath": "dist/apps/ptah-electron",
+        "main": "libs/backend/platform-electron/src/workspace-watch/workspace-watch-host.entry.ts",
+        "outputFileName": "workspace-watch-host.mjs",
+        "tsConfig": "apps/ptah-electron/tsconfig.workspace-watch-host.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "banner": {
+            "js": "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
+          }
+        },
+        "external": ["@parcel/watcher"]
+      }
+    },
     "build-state-storage-worker": {
       "executor": "@nx/esbuild:esbuild",
       "dependsOn": [],
@@ -240,6 +268,7 @@
         "build-voice-worker",
         "build-integrity-worker",
         "build-state-storage-worker",
+        "build-workspace-watch-host",
         "ptah-extension-webview:build"
       ],
       "options": {
@@ -274,6 +303,7 @@
           "nx build-voice-worker ptah-electron",
           "nx build-integrity-worker ptah-electron",
           "nx build-state-storage-worker ptah-electron",
+          "nx build-workspace-watch-host ptah-electron",
           "node scripts/copy-wasm.js dist/apps/ptah-electron"
         ],
         "parallel": false
@@ -327,6 +357,7 @@
           "nx build-voice-worker ptah-electron --watch",
           "nx build-integrity-worker ptah-electron --watch",
           "nx build-state-storage-worker ptah-electron --watch",
+          "nx build-workspace-watch-host ptah-electron --watch",
           "nx build ptah-extension-webview --configuration=development --watch",
           "node apps/ptah-electron/scripts/watch-renderer.js"
         ],
@@ -390,7 +421,8 @@
         "build-embedder-worker",
         "build-integrity-worker",
         "build-state-storage-worker",
-        "build-voice-worker"
+        "build-voice-worker",
+        "build-workspace-watch-host"
       ],
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {

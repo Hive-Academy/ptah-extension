@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.build.json",
+  "include": [
+    "../../libs/backend/platform-electron/src/workspace-watch/workspace-watch-host.entry.ts",
+    "../../libs/backend/platform-electron/src/workspace-watch/**/*.ts",
+    "../../libs/backend/platform-core/src/workspace-watch/**/*.ts"
+  ],
+  "exclude": ["**/*.spec.ts"]
+}

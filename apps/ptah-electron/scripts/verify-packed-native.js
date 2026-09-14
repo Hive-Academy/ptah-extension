@@ -15,11 +15,24 @@
  *
  * Failing loudly here is the safety net behind Sentry 124004638 — it converts
  * a silent "ships, then crashes every DB feature on first run" into a red CI.
+ *
+ * TASK_2026_437 C8/C9 (Batch 10, Task 10.2) added a second, independent gate
+ * below: `@parcel/watcher` (the workspace watch host's native dependency)
+ * must be require()-able from the packed `app.asar.unpacked` tree AND must
+ * actually subscribe on a real directory. `@parcel/watcher` needs no ABI
+ * check — its prebuilds are N-API (ABI-stable across Node/Electron), unlike
+ * `better-sqlite3` — so the packaging risk here is not "wrong ABI" but
+ * "wrong siblings unpacked": `wrapper.js` requires `picomatch` and `is-glob`
+ * (which requires `is-extglob`) from `app.asar.unpacked`, and `index.js`
+ * requires `detect-libc` on Linux. A `require()` that succeeds but a
+ * `subscribe()` that never resolves would still ship a host that hangs on
+ * its first real watch, which is why this gate does not stop at `require()`.
  */
 
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { pathToFileURL } = require('url');
@@ -86,8 +99,14 @@ function readNativeAbi(file) {
   return null;
 }
 
-/** Recursively collect packed better_sqlite3.node files under dist/release. */
-function findPackedAddons(dir, found) {
+/**
+ * Recursively collect every file under `dir` whose path both (a) sits inside
+ * an `app.asar.unpacked/node_modules/` tree and (b) ends with `suffix`.
+ * Shared by the better-sqlite3 addon search and the `@parcel/watcher` search
+ * below — the two used to be hand-copied, identical apart from the suffix
+ * constant and their own name (code-style-review.md Batch 10 Serious #1).
+ */
+function findPackedFiles(dir, suffix, found) {
   let entries;
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -97,12 +116,93 @@ function findPackedAddons(dir, found) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      findPackedAddons(full, found);
+      findPackedFiles(full, suffix, found);
     } else if (
       full.includes(`app.asar.unpacked${path.sep}node_modules${path.sep}`) &&
-      full.endsWith(ADDON_SUFFIX)
+      full.endsWith(suffix)
     ) {
       found.push(full);
+    }
+  }
+}
+
+const PARCEL_WATCHER_INDEX_SUFFIX = path.join('@parcel', 'watcher', 'index.js');
+
+/** How long `subscribe()`/`unsubscribe()` may take before the gate fails loud
+ * instead of hanging to the surrounding CI job's own timeout. A local
+ * temp-dir subscribe is normally sub-second; a native binding that loads but
+ * never resolves `subscribe()` is a real N-API failure mode, not hypothetical
+ * (code-logic-review.md Batch 10 Serious #1). */
+const PARCEL_WATCHER_SUBSCRIBE_TIMEOUT_MS = 30_000;
+
+/** Rejects with `label` if `promise` does not settle within `ms`. */
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} did not resolve within ${ms}ms`));
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * require()s each packed `@parcel/watcher` and proves it works end to end:
+ * subscribe on a real temp directory, then unsubscribe. A missing sibling
+ * (picomatch/is-glob/is-extglob/detect-libc) fails at require() time; a
+ * broken native binding or asar path issue fails at subscribe() time.
+ */
+async function verifyPackedParcelWatcher() {
+  const found = [];
+  findPackedFiles(RELEASE_DIR, PARCEL_WATCHER_INDEX_SUFFIX, found);
+  if (found.length === 0) {
+    throw new Error(
+      `No packed @parcel/watcher found under ${RELEASE_DIR}. The module may ` +
+        `be trapped inside app.asar (asarUnpack not applied) — the workspace ` +
+        `watch host would crash on its first watch.`,
+    );
+  }
+
+  for (const indexPath of found) {
+    const rel = path.relative(RELEASE_DIR, indexPath);
+    let watcher;
+    try {
+      watcher = require(indexPath);
+    } catch (err) {
+      throw new Error(
+        `${rel}: require() failed — a sibling dep (picomatch/is-glob/` +
+          `is-extglob/detect-libc) is likely still packed inside app.asar ` +
+          `instead of asarUnpack'd. ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'ptah-verify-parcel-watcher-'),
+    );
+    try {
+      const noopListener = () => {
+        /* no-op listener -- this gate only proves subscribe/unsubscribe settle, it does not need real events. */
+      };
+      const handle = await withTimeout(
+        watcher.subscribe(tmpDir, noopListener),
+        PARCEL_WATCHER_SUBSCRIBE_TIMEOUT_MS,
+        `${rel}: subscribe()`,
+      );
+      await withTimeout(
+        handle.unsubscribe(),
+        PARCEL_WATCHER_SUBSCRIBE_TIMEOUT_MS,
+        `${rel}: unsubscribe()`,
+      );
+      console.log(
+        `[verify] OK  ${rel} (require + subscribe + unsubscribe succeeded)`,
+      );
+    } catch (err) {
+      throw new Error(
+        `${rel}: subscribe()/unsubscribe() failed on a real temp dir — ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   }
 }
@@ -129,7 +229,7 @@ function findPackedAddons(dir, found) {
   }
 
   const packed = [];
-  findPackedAddons(RELEASE_DIR, packed);
+  findPackedFiles(RELEASE_DIR, ADDON_SUFFIX, packed);
   if (packed.length === 0) {
     throw new Error(
       `No packed better_sqlite3.node found under ${RELEASE_DIR}. ` +
@@ -175,6 +275,11 @@ function findPackedAddons(dir, found) {
 
   console.log(
     `\n✅ All ${packed.length} packed better-sqlite3 binar${packed.length === 1 ? 'y' : 'ies'} carry the Electron ${expectedAbi ?? ''} ABI.`,
+  );
+
+  await verifyPackedParcelWatcher();
+  console.log(
+    `\n✅ @parcel/watcher requires and subscribes from the packed tree.`,
   );
 })().catch((err) => {
   console.error(

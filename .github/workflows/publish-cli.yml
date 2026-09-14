@@ -125,14 +125,11 @@ jobs:
             npm install @rollup/rollup-linux-x64-gnu --no-save --force
           fi
 
-      - name: Build CLI
-        run: npx nx build ptah-cli
-
-      - name: Build TUI bundle
-        run: npx nx build ptah-tui
-
-      - name: Restore CLI manifest
-        run: node -e "require('fs').copyFileSync('apps/ptah-cli/package.json','dist/apps/ptah-cli/package.json')"
+      # Same nx graph as the publish job's Build step and cli-e2e.yml — see
+      # that step's comment for why the old build+build+manual-copy sequence
+      # was unsafe.
+      - name: Build (restore-cli-manifest)
+        run: npx nx run ptah-cli:restore-cli-manifest
 
       - name: Smoke — pre-publish bash harness
         run: bash apps/ptah-cli/scripts/smoke-pre-publish.sh
@@ -333,19 +330,30 @@ jobs:
       - name: Content manifest is current
         run: npm run manifest:check
 
-      - name: Build
-        run: npx nx build ptah-cli
-
-      - name: Build TUI bundle
-        run: npx nx build ptah-tui
-
-      - name: Restore CLI manifest
-        run: node -e "require('fs').copyFileSync('apps/ptah-cli/package.json','dist/apps/ptah-cli/package.json')"
+      # Build via the SAME nx graph cli-e2e.yml uses (restore-cli-manifest's
+      # dependsOn: build-embedder-worker -> build-integrity-worker ->
+      # build-workspace-watch-host -> ptah-tui:build, then the manifest copy).
+      # A hand-rolled `nx build ptah-cli` + `nx build ptah-tui` + manual copy
+      # sequence used to run here instead: `build-esbuild`'s
+      # `deleteOutputPath: true` combined with an unscoped `outputs` on every
+      # sibling worker/host target meant a later cache-hit replay of any one
+      # of them could silently restore an OLD snapshot of the whole
+      # `dist/apps/ptah-cli` directory, discarding files the other targets had
+      # already written — `embedder-worker.mjs` / `integrity-worker.mjs` /
+      # `workspace-watch-host.mjs` shipped missing from the published tarball
+      # with every step here reporting success (code-logic-review.md Batch 10
+      # Blocking #1). `restore-cli-manifest` is the one target whose
+      # `dependsOn` graph is already correct; the per-target `outputs` are now
+      # also scoped to their own file (Batch 10 fix), so this is safe under a
+      # cache hit either way.
+      - name: Build (restore-cli-manifest — main.mjs, tui.mjs, embedder-worker.mjs, integrity-worker.mjs, workspace-watch-host.mjs, wasm, manifest)
+        run: npx nx run ptah-cli:restore-cli-manifest
 
       - name: Verify dist contents
         run: |
           DIST=dist/apps/ptah-cli
-          for f in main.mjs tui.mjs package.json README.md LICENSE.md docs/jsonrpc-schema.md docs/migration.md \
+          for f in main.mjs tui.mjs embedder-worker.mjs integrity-worker.mjs workspace-watch-host.mjs \
+                   package.json README.md LICENSE.md docs/jsonrpc-schema.md docs/migration.md \
                    wasm/web-tree-sitter.wasm wasm/tree-sitter-javascript.wasm wasm/tree-sitter-typescript.wasm \
                    wasm/tree-sitter-python.wasm wasm/tree-sitter-go.wasm wasm/tree-sitter-c-sharp.wasm; do
             if [[ ! -f "$DIST/$f" ]]; then
