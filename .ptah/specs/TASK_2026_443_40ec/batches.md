@@ -1,6 +1,6 @@
 # Batches - TASK_2026_443_40ec
 
-Total tasks: 25 | Batches: 10 | Complete: 0/10
+Total tasks: 25 | Batches: 10 | Complete: 3/10
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle` (branch
 `feat/task-439-phase2-memory-lifecycle`, base 5e34e39cc). Below, `W` means that absolute path; every lane prompt
@@ -127,6 +127,11 @@ Cross-batch rule XB1 (added 2026-09-15 from PR #513 CI, binding for Batches 3-10
   passes under BOTH bindings; plan-assertion helpers must pass a full bind object. Reviewers reject a spec that
   prepares an unbound `@name` / `?` statement. The phase 1 fix lands on `feat/task-440-memory-retention`; phase 2
   rebases onto it later.
+- Local better-sqlite3 run (mandatory verification for every batch with real-SQLite specs: 3, 5, 6, 7, 10; run from
+  `W` in PowerShell, parent `node_modules` because the worktree has none):
+  `$env:ELECTRON_RUN_AS_NODE='1'; & 'D:\projects\ptah-extension\node_modules\.bin\electron.cmd' 'D:\projects\ptah-extension\node_modules\jest\bin\jest.js' --config <lib>/jest.config.ts --testPathPatterns <pattern> --runInBand`
+  Report its Tests line next to the node:sqlite run. A spec whose opener tries better-sqlite3 first then runs on
+  better-sqlite3 there.
 - Batch 1 check: `0044_memory_lifecycle.spec.ts` has no named parameters; its one parameterised statement (seed
   INSERT) binds all six positional values; the rest is `exec` / `PRAGMA` without params. No hazard.
 
@@ -189,7 +194,7 @@ Edge cases:
 
 ---
 
-## Batch 1: persistence-sqlite — migration 0044 — IN_PROGRESS
+## Batch 1: persistence-sqlite — migration 0044 — COMPLETE (commit 87cda19ef)
 
 - 2026-09-15 Mode 2: files verified on disk (SQL matches plan :241-271 verbatim; registry entry 44; 8 ratchets = 44).
   Team-leader re-run: test 1 project, 30 suites passed / 9 skipped (pre-existing better-sqlite3 Electron ABI
@@ -206,7 +211,15 @@ Edge cases:
   and the snapshot has 2 core rows (pinned, session NULL) and 0 archival rows. No core or archival row with a
   session_id exists or can appear.
 
-### Batch 1 revision 1 fix list (resume codex lane 01a0a5e8-5146-75d2-bb77-b2bb1f4c7785) — PENDING
+- Task-spec docs committed separately: 3be25c0ec (`docs(task-specs)`), before the Batch 2 code commit.
+
+### Batch 1 revision 1 fix list (resume codex lane 01a0a5e8-5146-75d2-bb77-b2bb1f4c7785) — COMPLETE (in 87cda19ef)
+
+- Result (`batch-1-report.md` `## Revision 1`): items 1-5 applied; mutation check detected the deleted clamp UPDATE
+  (expected 1, received 1.7), restored. Team-leader re-run: `0044_memory_lifecycle.ts` SQL still identical to plan
+  :242-271 (text diff); persistence-sqlite test 1 project 30 passed / 9 skipped (pre-existing), typecheck + lint
+  green; 0044 spec 6/6 under node:sqlite AND 6/6 under better-sqlite3 (Electron as Node). No second review (spec and
+  comment files only). Committed with only the 11 persistence-sqlite files.
 
 Scope: test and comment files only; `0044_memory_lifecycle.ts` and `index.ts` must NOT change (if they do, a second
 review round is required).
@@ -239,7 +252,7 @@ review round is required).
 - Suggested commit: `feat(persistence-sqlite): batch 1 - migration 0044 memory lifecycle column, indexes and salience rebase`
 - Tasks: 1 | Depends on: none
 
-### Task 1.1: Migration 0044 (archived_at, indexes, rebase, run-record columns) + ratchet bump — IMPLEMENTED
+### Task 1.1: Migration 0044 (archived_at, indexes, rebase, run-record columns) + ratchet bump — COMPLETE
 
 - Dir: `W\libs\backend\persistence-sqlite\src\lib\migrations\`
   - CREATE `0044_memory_lifecycle.ts`, `0044_memory_lifecycle.spec.ts`
@@ -273,7 +286,7 @@ review round is required).
 
 ---
 
-## Batch 2: memory-contracts usage-recorder port + platform-core lifecycle settings keys — IN_PROGRESS
+## Batch 2: memory-contracts usage-recorder port + platform-core lifecycle settings keys — COMPLETE (commit 0ecab63b3)
 
 - Review (Ollama Cloud, `code-logic-review-batch-2.md`): APPROVED 8/10, 0 blocking/serious/moderate, 2 minor.
   Minor 1 (token literal not spec-pinned) closes in Task 3.2's `register.spec.ts` assertion; minor 2 carried into
@@ -294,7 +307,7 @@ review round is required).
 - Suggested commit: `feat(memory-contracts,platform-core): batch 2 - memory usage recorder port and lifecycle settings keys`
 - Tasks: 2 | Depends on: none
 
-### Task 2.1: `IMemoryUsageRecorder` port + token + barrel + CLAUDE.md — IMPLEMENTED
+### Task 2.1: `IMemoryUsageRecorder` port + token + barrel + CLAUDE.md — COMPLETE
 
 - Dir: `W\libs\backend\memory-contracts\`
   - CREATE `src\lib\memory-usage-recorder.port.ts` — `export interface IMemoryUsageRecorder { recordUse(memoryIds: readonly string[]): void; }`
@@ -308,7 +321,7 @@ review round is required).
   `isOptional`, plan :101).
 - Acceptance: if the lib has a tokens spec, assert the new symbol equals `Symbol.for('PtahMemoryUsageRecorder')`.
 
-### Task 2.2: Four `memory.lifecycle.*` file-based settings keys + defaults — IMPLEMENTED
+### Task 2.2: Four `memory.lifecycle.*` file-based settings keys + defaults — COMPLETE
 
 - File: MODIFY `W\libs\backend\platform-core\src\file-settings-keys.ts` (keys beside `:335-339`, defaults beside
   `:593-598`); MODIFY its spec if one asserts membership (`file-settings-keys.spec.ts`).
@@ -328,7 +341,7 @@ review round is required).
 
 ---
 
-## Batch 3: memory-curator — ranking-only salience + explicit use recording — PENDING
+## Batch 3: memory-curator — ranking-only salience + explicit use recording — IN_PROGRESS
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer)
 - Fallback executor: backend-developer subagent
@@ -339,7 +352,7 @@ review round is required).
 - Suggested commit: `feat(memory-curator): batch 3 - rank by salience at query time and record memory use explicitly`
 - Tasks: 3 | Depends on: Batch 1 (column `archived_at`), Batch 2 (port + token)
 
-### Task 3.1: Ranking module replaces `SalienceScorer`; three ranked reads; curator stores a base — PENDING
+### Task 3.1: Ranking module replaces `SalienceScorer`; three ranked reads; curator stores a base — IN_PROGRESS
 
 - Dir: `W\libs\backend\memory-curator\src\`
   - CREATE `lib\salience-ranking.ts`, `lib\salience-ranking.spec.ts`
@@ -367,7 +380,7 @@ review round is required).
   1e-9 over rows fresh/7/30/90 d x hits 0/3/50 x pinned 0/1; recent low-base outranks 90-day high-base; pinned
   outranks every unpinned; both placeholder texts differ only by the placeholder; `baseSalience` clamps.
 
-### Task 3.2: `recordUse` replaces `recordHit`; search loses its hidden write; archival restore — PENDING
+### Task 3.2: `recordUse` replaces `recordHit`; search loses its hidden write; archival restore — IN_PROGRESS
 
 - Depends on: Task 3.1 (same files)
 - Dir: `W\libs\backend\memory-curator\src\lib\`
@@ -402,7 +415,7 @@ review round is required).
   `searchRich` issues no store write (no `recordUse` call) and returns at most `topK` hits without a reranker; a
   cache hit still records nothing.
 
-### Task 3.3: Electron wizard-seed integration DDL gains `archived_at` — PENDING
+### Task 3.3: Electron wizard-seed integration DDL gains `archived_at` — IN_PROGRESS
 
 - File: MODIFY `W\apps\ptah-electron\src\integration\wizard-seed.integration.spec.ts` (`:119-133`, add
   `archived_at INTEGER` to the hand-written `memories` DDL). Deviation 4.
@@ -413,7 +426,36 @@ review round is required).
   - grep `SalienceScorer|MEMORY_SALIENCE_SCORER|recordHit|updateSalience` under `W\libs` returns nothing
     (`wizard-seed-noop.spec.ts`'s `Symbol.for` literal is removed in Batch 9)
   - R-TL8: if `boot-scan-runner.spec.ts` abort test times out, re-run with `--parallel=1` and record both
+  - XB1 better-sqlite3 run (Plan validation) for `memory-curator` with `--testPathPatterns "salience-ranking|memory.store.spec|memory-search.service.spec|di/register.spec"`
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-3-report.md`
+
+### Batch 3 revision 1 fix list (resume codex session 01a0a611-011c-7982-ad80-e9fd405f9acf) — PENDING
+
+- Review (Ollama Cloud, `code-logic-review-batch-3.md`): APPROVED 8/10, 0 blocking/serious, 1 moderate, minors m1-m4.
+  All nine confirmation items CONFIRMED (R-TL1 split with no RETURNING, no read-path writes, salience immutable,
+  one ranking expression, topK slice, DI alias, XB1, R-TL4, boundaries).
+- Team-leader decision: NOT committed until M1 and m2 are fixed (both spec-only). Batch 4 precedent: M1 guards the
+  cache-invalidation guarantee R-TL1 depends on (the recorder must bump the SAME store instance search reads), and
+  m2 is an acceptance item Task 3.2 lists ("leaves core/pinned tier unchanged") that has no spec. m1 (`updateTier`
+  can set archival without `archived_at`) ACCEPTED: no runner calls `MemoryDecayJob`, and Batch 9 deletes the job
+  (and Task 9.1 must delete `updateTier` too if it has no other caller). m3 (cache staleness after plain use) is the
+  R-TL1 trade; m4 (decay-job spec thinned) accepted, job deleted in Batch 9.
+- Scope: spec files only. `memory.store.ts`, `register.ts` and every other production file must NOT change.
+
+1. M1 — `libs/backend/memory-curator/src/lib/di/register.spec.ts`: resolve and assert identity
+   `expect(child.resolve(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER)).toBe(child.resolve(MEMORY_TOKENS.MEMORY_STORE))`
+   and the same for `Symbol.for('PtahMemoryUsageRecorder')`. If resolving `MEMORY_STORE` needs a dependency the
+   test container lacks, register a minimal stand-in the same way the spec already does for its other tokens and
+   say which in the report.
+2. m2 — `libs/backend/memory-curator/src/lib/memory.store.spec.ts` (real SQLite): `recordUse` on a `core` row and on a
+   pinned `recall` row increments `hits`, sets `last_used_at`, keeps `tier` unchanged and does not bump the write
+   counter.
+3. XB1 — bind every parameter in any new SQL.
+- Commands (from `W`): `npx nx run-many -t test -p @ptah-extension/memory-curator` (1 project) and the XB1 Electron
+  better-sqlite3 run on `--testPathPatterns "di/register.spec|memory.store.spec"`; `git diff --stat` must list only
+  those two spec files as changed since the revision started.
+- Report: append `## Revision 1` to `batch-3-report.md`. Do not edit `batches.md`. Do not commit.
+- Acceptance by team-leader: diff read (spec-only); then the full Batch 3 command set re-run; no re-review.
 
 ### Batch 3 verification
 
@@ -423,7 +465,7 @@ review round is required).
 
 ---
 
-## Batch 4: agent-sdk + vscode-lm-tools — record use at injection and MCP search — PENDING
+## Batch 4: agent-sdk + vscode-lm-tools — record use at injection and MCP search — COMPLETE (commit a6c92e4c2)
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer)
 - Fallback executor: backend-developer subagent
@@ -435,7 +477,7 @@ review round is required).
 - Suggested commit: `feat(agent-sdk,vscode-lm-tools): batch 4 - record memory use for injected and MCP search hits`
 - Tasks: 2 | Depends on: Batch 2
 
-### Task 4.1: `MemoryPromptInjector` records injected hits — PENDING
+### Task 4.1: `MemoryPromptInjector` records injected hits — COMPLETE
 
 - Files: MODIFY `W\libs\backend\agent-sdk\src\lib\helpers\memory-prompt-injector.ts` and
   `memory-prompt-injector.spec.ts`
@@ -448,7 +490,7 @@ review round is required).
 - Acceptance: receives exactly the injected ids; not called for 0 hits or a short query; a throwing recorder does
   not change the returned block; `buildSessionStartBlock` never calls it; `null` recorder works.
 
-### Task 4.2: MCP `ptah.memory.search` records returned hits — PENDING
+### Task 4.2: MCP `ptah.memory.search` records returned hits — COMPLETE
 
 - Files: MODIFY `W\libs\backend\vscode-lm-tools\src\lib\code-execution\ptah-api-builder.service.ts` (optional
   inject beside `memorySearch` :388-389; pass `getMemoryUsageRecorder` into `buildMemoryNamespace` :754-760),
@@ -464,6 +506,44 @@ review round is required).
   - `npx nx run-many -t test -p @ptah-extension/agent-sdk @ptah-extension/vscode-lm-tools` — "for 2 projects"
   - same with `-t typecheck` and `-t lint` — 2 projects each
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-4-report.md`
+
+### Batch 4 revision 1 fix list (resume codex session 01a0a601-894b-78b2-bb32-f81e302de4d5) — COMPLETE (in a6c92e4c2)
+
+- Team-leader diff read: items 1-3 only. M1 `catch (error: unknown)` + optional narrow `logger` dep, passed from
+  `PtahAPIBuilder`, spec asserts one `warn`; m2 `recordUse` now runs after the block is built (malformed-hit spec:
+  `''`, no record); m3 negative specs for MCP reject, injector reject, `buildCorpusBlock`. Re-run: test 2 projects
+  (vscode-lm-tools 50 suites / 1161 passed; agent-sdk 104 passed, 2 suites skipped pre-existing), typecheck 2,
+  lint 2 (0 errors; `eslint` on the six files alone: 0 warnings). Committed with only the six files; no re-review
+  (diff within the fix list).
+
+- Review (Ollama Cloud, `code-logic-review-batch-4.md`): APPROVED 8/10, 0 blocking/serious, 1 moderate, 3 minor.
+  Team-leader decision: NOT committed until M1, m2 and m3 are fixed. Reason: the use signal decides which memories
+  the lifecycle archives and then DELETES; a recorder failure that leaves no log line turns into silent data loss
+  with nothing to diagnose, and the bare `catch {` breaks the repo `catch (error: unknown)` standard. All three are
+  small and stay inside the six Batch 4 files. m4 (recording inert until Batch 3 registers the token) needs no action.
+- Scope: only the six Batch 4 files. Batch 3 is running in memory-curator; do not touch it and do not run
+  memory-curator tests.
+
+1. M1 — `memory-namespace.builder.ts:233-236`: replace the bare `catch {` with `catch (error: unknown)` and log at
+   `warn` (message names `ptah.memory.search` use recording; include `error instanceof Error ? error.message :
+   String(error)`). Add an optional `logger` (the vscode-core `Logger` type, or a narrow `{ warn(...) }` shape) to
+   `MemoryNamespaceDependencies`, following `harness-namespace.builder.ts`'s logger dep; pass the builder's logger
+   from `ptah-api-builder.service.ts` where `buildMemoryNamespace` is called (:764). Spec: a throwing recorder keeps
+   `result.hits` AND `logger.warn` is called once.
+2. m2 — `memory-prompt-injector.ts:117-138`: build the block string first, then call `recordUse` just before the
+   `return`, still inside its own inner try/catch, so a rendering throw records nothing. Spec: a hit whose shape
+   makes rendering throw (e.g. `chunkText` not a string, cast in the spec) returns `''` and `recordUse` is NOT
+   called.
+3. m3 — negative specs: (a) MCP `reader.search` rejects -> error envelope and `recordUse` not called;
+   (b) injector `reader.search` rejects -> `''` and `recordUse` not called; (c) `buildCorpusBlock` never calls
+   `recordUse`.
+4. XB1 not applicable (no SQL in these libs).
+- Commands (from `W`): `npx nx run-many -t test -p @ptah-extension/agent-sdk @ptah-extension/vscode-lm-tools`
+  ("for 2 projects"), same with `-t typecheck` and `-t lint` (2 projects each).
+- Report: append `## Revision 1` to `batch-4-report.md` with the diff summary, command headers and results, and
+  `git diff --stat` limited to the six files. Do not edit `batches.md`. Do not commit.
+- Acceptance by team-leader: line-by-line diff read limited to items 1-3; no re-review unless the diff reaches
+  beyond them.
 
 ### Batch 4 verification
 

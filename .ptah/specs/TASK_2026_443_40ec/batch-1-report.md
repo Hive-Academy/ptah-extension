@@ -173,3 +173,148 @@ None. The SQL body matches Component 1 exactly, remains static and non-vec-gated
 
 - Existing native `better-sqlite3` suites reported a Node module ABI mismatch and skipped by their established behavior; the new migration suite used `node:sqlite` and ran successfully.
 - Nx printed its existing “AI agent configuration is outdated” advisory after commands; it did not affect any target result and is outside this batch.
+
+## Revision 1
+
+Revision 1 applied the approved five-item test/comment fix list. Final production SQL in `0044_memory_lifecycle.ts` and the registry in `migrations/index.ts` were not changed.
+
+### Fix-list evidence
+
+1. **M1 — clamp UPDATE coverage:** Added pinned salience `1.7`, sessionless unpinned salience `-0.2`, and sessionless unpinned salience `1.3` fixtures. After migration they are asserted as `1.0`, `0.0`, and `1.0`.
+2. **M2 — epoch-ms scale:** The spec records the current second immediately before migration execution and `Date.now()` after execution. It asserts the archival timestamp is an integer, divisible by 1000, and inside that time window.
+3. **m3 — archival preservation:** The archival fixture retains `tier = 'archival'` and salience `0.6` while gaining its timestamp.
+4. **m4 — provenance:** All eight version-check specs retain the version-43 history and add `44 since TASK_2026_443 appended 0044_memory_lifecycle.`
+5. **XB1 — bound parameters:** The memory insert has six positional placeholders and supplies all six arguments. The suite also passes under Electron's stricter `better-sqlite3` binding.
+
+Revision files modified:
+
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\persistence-sqlite\src\lib\migrations\0044_memory_lifecycle.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\persistence-sqlite\src\lib\migrations\0028_gateway_conversation_workspace_root.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\persistence-sqlite\src\lib\migrations\0030_skill_event_metrics.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\persistence-sqlite\src\lib\migrations\0038_gateway_message_turn_state.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\persistence-sqlite\src\lib\migrations\0039_reap_orphaned_queue_rows.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\persistence-sqlite\src\lib\migrations\0040_skill_candidate_workspace_root.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\persistence-sqlite\src\lib\migrations\0041_skill_md_migration_state.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\persistence-sqlite\src\lib\migrations\0042_db_integrity_check_state.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\persistence-sqlite\src\lib\migrations\0043_memory_retention.spec.ts`
+
+### Mutation check
+
+The clamp UPDATE was temporarily deleted, the focused suite was run, and the exact SQL was immediately restored. The expected failure was:
+
+```text
+FAIL persistence-sqlite libs/backend/persistence-sqlite/src/lib/migrations/0044_memory_lifecycle.spec.ts
+Expected: 1
+Received: 1.7
+at expect(byId.get('pinned-high')?.salience).toBe(1)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 5 passed, 6 total
+Snapshots:   0 total
+Ran all test suites matching 0044_memory_lifecycle.
+```
+
+This proves deletion of the clamp UPDATE is detected. After restoring it, the required verbose run passed with zero skipped:
+
+```text
+npx jest --config libs/backend/persistence-sqlite/jest.config.ts --testPathPatterns=0044_memory_lifecycle --verbose
+
+Test Suites: 1 passed, 1 total
+Tests:       6 passed, 6 total
+Snapshots:   0 total
+Time:        5.976 s, estimated 8 s
+Ran all test suites matching 0044_memory_lifecycle.
+```
+
+### Electron / better-sqlite3 verification
+
+The worktree has no local `node_modules`, so the command used the equivalent absolute parent installation paths:
+
+```text
+$env:ELECTRON_RUN_AS_NODE='1'; & 'D:\projects\ptah-extension\node_modules\.bin\electron.cmd' 'D:\projects\ptah-extension\node_modules\jest\bin\jest.js' --config libs/backend/persistence-sqlite/jest.config.ts --testPathPatterns 0044_memory_lifecycle --runInBand
+
+Test Suites: 1 passed, 1 total
+Tests:       6 passed, 6 total
+Snapshots:   0 total
+Time:        5.855 s, estimated 6 s
+Ran all test suites matching 0044_memory_lifecycle.
+```
+
+A direct Electron-as-Node in-memory opener probe printed `binding=better-sqlite3`. Because `resolveOpener()` tries `better-sqlite3` first, the Electron suite used **better-sqlite3**.
+
+### Final Nx verification
+
+```text
+npx nx run-many -t test -p @ptah-extension/persistence-sqlite
+
+NX   Running target test for project @ptah-extension/persistence-sqlite:
+- @ptah-extension/persistence-sqlite
+
+Test Suites: 9 skipped, 30 passed, 30 of 39 total
+Tests:       80 skipped, 399 passed, 479 total
+Snapshots:   0 total
+Time:        77.988 s
+Ran all test suites.
+
+NX   Successfully ran target test for project @ptah-extension/persistence-sqlite
+```
+
+The nine skips are unchanged pre-existing Node/native-ABI-dependent suites. The focused 0044 run above independently shows 0 skipped.
+
+```text
+npx nx run-many -t typecheck -p @ptah-extension/persistence-sqlite
+
+NX   Running target typecheck for project @ptah-extension/persistence-sqlite:
+- @ptah-extension/persistence-sqlite
+
+> tsc --noEmit --project libs/backend/persistence-sqlite/tsconfig.lib.json
+
+NX   Successfully ran target typecheck for project @ptah-extension/persistence-sqlite
+```
+
+```text
+npx nx run-many -t lint -p @ptah-extension/persistence-sqlite
+
+NX   Running target lint for project @ptah-extension/persistence-sqlite:
+- @ptah-extension/persistence-sqlite
+
+Linting "@ptah-extension/persistence-sqlite"...
+All files pass linting
+
+NX   Successfully ran target lint for project @ptah-extension/persistence-sqlite
+```
+
+Each Nx header lists exactly one project.
+
+### Diff evidence
+
+```text
+git diff --stat -- libs/backend/persistence-sqlite
+
+.../0028_gateway_conversation_workspace_root.spec.ts | 3 ++-
+.../0030_skill_event_metrics.spec.ts                 | 3 ++-
+.../0038_gateway_message_turn_state.spec.ts          | 3 ++-
+.../0039_reap_orphaned_queue_rows.spec.ts            | 3 ++-
+.../0040_skill_candidate_workspace_root.spec.ts      | 3 ++-
+.../0041_skill_md_migration_state.spec.ts            | 3 ++-
+.../0042_db_integrity_check_state.spec.ts            | 3 ++-
+.../0043_memory_retention.spec.ts                    | 4 +++-
+libs/backend/persistence-sqlite/src/lib/migrations/index.ts | 6 ++++++
+9 files changed, 23 insertions(+), 8 deletions(-)
+```
+
+This folder-level stat is cumulative from HEAD: `index.ts` is the original approved Batch 1 registry addition and remains uncommitted; ordinary `git diff --stat` omits the two untracked 0044 files. Revision 1 did not change `index.ts`, and the temporary SQL mutation was restored. Restricting the stat to tracked Revision 1 ratchet specs shows only spec files:
+
+```text
+.../0028_gateway_conversation_workspace_root.spec.ts | 3 ++-
+.../0030_skill_event_metrics.spec.ts                 | 3 ++-
+.../0038_gateway_message_turn_state.spec.ts          | 3 ++-
+.../0039_reap_orphaned_queue_rows.spec.ts            | 3 ++-
+.../0040_skill_candidate_workspace_root.spec.ts      | 3 ++-
+.../0041_skill_md_migration_state.spec.ts            | 3 ++-
+.../0042_db_integrity_check_state.spec.ts            | 3 ++-
+.../0043_memory_retention.spec.ts                    | 4 +++-
+8 files changed, 17 insertions(+), 8 deletions(-)
+```
+
+Final status lists `0044_memory_lifecycle.spec.ts` and `0044_memory_lifecycle.ts` as the original untracked Batch 1 files. No app, agent-sdk, vscode-lm-tools, memory-contracts, or platform-core file was changed by Revision 1.
