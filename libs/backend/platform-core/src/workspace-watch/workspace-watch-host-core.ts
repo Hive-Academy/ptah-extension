@@ -673,12 +673,11 @@ export class WorkspaceWatchHostCore {
       }, timeoutMs);
       this.inFlightNative.add(call);
 
-      let pending: Promise<T>;
-      try {
-        pending = operation();
-      } catch (error: unknown) {
-        pending = Promise.reject(error);
-      }
+      // The executor runs synchronously, so a synchronous throw from the engine
+      // becomes a rejection handled below.
+      const pending = new Promise<T>((resolveOperation) =>
+        resolveOperation(operation()),
+      );
       pending.then(
         (value) => {
           if (timedOut) {
