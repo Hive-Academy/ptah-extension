@@ -1,7 +1,6 @@
 export type MemoryCuratorEventKind =
   | 'curator-run'
   | 'curator-skipped-no-data'
-  | 'decay-run'
   | 'idle-trigger'
   | 'turn-trigger'
   | 'boot-scan'
@@ -187,10 +186,6 @@ export interface MemoryDiagnosticsParams {
 export interface MemoryDiagnosticsResult {
   readonly lastRunAt: number | null;
   readonly lastRunStats: Readonly<
-    Record<string, number | string | boolean | null>
-  > | null;
-  readonly lastDecayAt: number | null;
-  readonly lastDecayStats: Readonly<
     Record<string, number | string | boolean | null>
   > | null;
   readonly recentEvents: readonly MemoryCuratorEventWire[];

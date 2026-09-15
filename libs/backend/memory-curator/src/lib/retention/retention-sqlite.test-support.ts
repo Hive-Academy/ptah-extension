@@ -392,7 +392,11 @@ export function seedMemories(
     for (const row of rows) insertMemorySeed(statements, row);
     raw.exec('COMMIT');
   } catch (error: unknown) {
-    raw.exec('ROLLBACK');
+    try {
+      raw.exec('ROLLBACK');
+    } catch {
+      // degradation-audit: optional-capability - preserve the original seed failure when rollback also fails
+    }
     throw error;
   }
 }

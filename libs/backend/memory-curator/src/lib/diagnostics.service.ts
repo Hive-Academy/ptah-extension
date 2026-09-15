@@ -9,7 +9,6 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryCuratorService } from './memory-curator.service';
-import { MemoryDecayJob } from './memory-decay.job';
 import { MemoryRetentionService } from './retention/memory-retention.service';
 import { readMemoryTriggers } from './triggers/memory-trigger-config';
 import type {
@@ -30,8 +29,6 @@ export class MemoryDiagnosticsService {
     private readonly sqlite: SqliteConnectionService,
     @inject(MEMORY_TOKENS.MEMORY_CURATOR)
     private readonly curator: MemoryCuratorService,
-    @inject(MEMORY_TOKENS.MEMORY_DECAY_JOB)
-    private readonly decay: MemoryDecayJob,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
     @inject(PERSISTENCE_TOKENS.VEC_STATUS)
@@ -45,7 +42,6 @@ export class MemoryDiagnosticsService {
     eventLimit = 10,
   ): Promise<MemoryDiagnosticsSnapshot> {
     const lastRun = this.curator.lastRunInfo();
-    const lastDecay = this.decay.lastDecayInfo();
     const recentEvents: readonly MemoryCuratorEvent[] =
       this.curator.recentEvents(eventLimit);
     const dbHealth = this.readDbHealth();
@@ -54,8 +50,6 @@ export class MemoryDiagnosticsService {
     return {
       lastRunAt: lastRun.at,
       lastRunStats: lastRun.stats,
-      lastDecayAt: lastDecay.at,
-      lastDecayStats: lastDecay.stats,
       recentEvents,
       dbHealth,
       // Required storage relies on the MemoryRetentionService never-throws contract pinned by its degradation specs.

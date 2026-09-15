@@ -13,8 +13,6 @@ export const MEMORY_TOKENS = {
   MEMORY_SEARCH: Symbol.for('PtahMemorySearch'),
   /** MemoryStore — typed CRUD over `memories` and `memory_chunks` tables. */
   MEMORY_STORE: Symbol.for('PtahMemoryStore'),
-  /** MemoryDecayJob — periodic tier transition + salience recompute. */
-  MEMORY_DECAY_JOB: Symbol.for('PtahMemoryDecayJob'),
   /** ICuratorLLM — small/fast LLM wrapper for extract/resolve prompts. */
   CURATOR_LLM: Symbol.for('PtahCuratorLlm'),
   /** IndexingControlService — workspace indexing state machine. */

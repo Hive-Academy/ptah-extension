@@ -55,7 +55,7 @@ import {
 } from './curator-llm/queue-slot-timeout';
 import type { CuratorWindow } from './curator-llm/transcript-windows';
 import { memoryId, type MemoryTier } from './memory.types';
-import type { MemoryCuratorEvent, MemoryDecayStats } from './diagnostics.types';
+import type { MemoryCuratorEvent } from './diagnostics.types';
 import type { CorpusStore } from './knowledge-agents/corpus.store';
 import type { KnowledgeAgentService } from './knowledge-agents/knowledge-agent.service';
 
@@ -285,15 +285,6 @@ export class MemoryCuratorService {
    */
   networkDeferralMs(): number {
     return this.admission.networkDeferralMs(false);
-  }
-
-  /**
-   * Public hook for {@link MemoryDecayJob} to push a `decay-run` event into
-   * this service's ring buffer. Kept narrow so callers cannot forge other
-   * event kinds via the public surface.
-   */
-  recordDecayEvent(stats: MemoryDecayStats, timestamp = Date.now()): void {
-    this.pushEvent({ kind: 'decay-run', timestamp, stats: { ...stats } });
   }
 
   /** Stop listening. Safe to call multiple times. */

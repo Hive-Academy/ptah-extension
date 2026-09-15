@@ -122,7 +122,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     expect(
       root.querySelector('[data-testid="last-curator-run"]'),
     ).not.toBeNull();
-    expect(root.querySelector('[data-testid="last-decay-run"]')).toBeNull();
     expect(root.textContent ?? '').toContain('Triggers');
     expect(root.textContent ?? '').toContain('Recent events');
     expect(root.textContent ?? '').toContain('DB Health');

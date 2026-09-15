@@ -561,15 +561,6 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
     }
   }
 
-  /** Interim tier-only mutation used by the legacy decay job until its removal. */
-  updateTier(id: MemoryId, tier: MemoryTier): void {
-    const ws = this.lookupWorkspaceRoot(id);
-    this.connection.db
-      .prepare(`UPDATE memories SET tier = ?, updated_at = ? WHERE id = ?`)
-      .run(tier, Date.now(), id);
-    this.bumpWriteCounter(ws);
-  }
-
   /** Append source content to an existing memory's chunk list (used on merge). */
   async appendChunks(
     id: MemoryId,

@@ -106,6 +106,9 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
     expect(child.isRegistered(Symbol.for('PtahMemorySalienceScorer'))).toBe(
       false,
     );
+    expect(
+      child.isRegistered(Symbol.for(['PtahMemory', 'DecayJob'].join(''))),
+    ).toBe(false);
     expect(child.isRegistered(MEMORY_TOKENS.MEMORY_RETENTION_SERVICE)).toBe(
       true,
     );

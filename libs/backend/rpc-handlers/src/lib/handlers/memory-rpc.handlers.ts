@@ -245,6 +245,14 @@ export class MemoryRpcHandlers {
         const memory = this.store.getById(id);
         if (!memory) return { memory: null, chunks: [] };
         const chunks = this.store.getChunks(id);
+        try {
+          this.store.recordUse([params.id]);
+        } catch (error: unknown) {
+          // degradation-audit: reported - usage recording is best-effort and must not change the RPC read result
+          this.logger.warn('[memory] failed to record memory use', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
         return {
           memory: toMemoryWire(memory),
           chunks: chunks.map(toChunkWire),
@@ -527,16 +535,6 @@ export class MemoryRpcHandlers {
                   merged: snapshot.lastRunStats.merged,
                   created: snapshot.lastRunStats.created,
                   skipped: snapshot.lastRunStats.skipped,
-                }
-              : null,
-            lastDecayAt: snapshot.lastDecayAt,
-            lastDecayStats: snapshot.lastDecayStats
-              ? {
-                  scanned: snapshot.lastDecayStats.scanned,
-                  promoted: snapshot.lastDecayStats.promoted,
-                  demoted: snapshot.lastDecayStats.demoted,
-                  archived: snapshot.lastDecayStats.archived,
-                  expired: snapshot.lastDecayStats.expired,
                 }
               : null,
             recentEvents: snapshot.recentEvents.map((e) => ({

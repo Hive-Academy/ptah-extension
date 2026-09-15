@@ -5,8 +5,7 @@
  *   1. EmbedderWorkerClient (concrete IEmbedder) under PERSISTENCE_TOKENS.EMBEDDER
  *   2. MemoryStore (depends on EMBEDDER)
  *   3. MemorySearchService (depends on EMBEDDER, MEMORY_STORE)
- *   4. MemoryDecayJob (depends on MEMORY_STORE)
- *   5. MemoryCuratorService (depends on registry, store, llm)
+ *   4. MemoryCuratorService (depends on registry, store, llm)
  *      The CURATOR_LLM (Symbol.for('PtahCuratorLlm')) is registered by agent-sdk
  *      under SDK_TOKENS.SDK_CURATOR_LLM_ADAPTER — NOT by this function.
  *      registerSdkServices() MUST be called before this function (or before
@@ -29,7 +28,6 @@ import {
 import { EmbedderStatusService } from '../embedder/embedder-status.service';
 import { MemoryStore } from '../memory.store';
 import { MemorySearchService } from '../memory-search.service';
-import { MemoryDecayJob } from '../memory-decay.job';
 import { MemoryCuratorService } from '../memory-curator.service';
 import { MemoryWriterAdapter } from '../memory-writer.adapter';
 import { MemoryStoreSymbolSink } from '../symbol-sink.adapter';
@@ -123,12 +121,6 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_TOKENS.KNOWLEDGE_AGENT_SERVICE,
     { useClass: KnowledgeAgentService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    MEMORY_TOKENS.MEMORY_DECAY_JOB,
-    { useClass: MemoryDecayJob },
     { lifecycle: Lifecycle.Singleton },
   );
 

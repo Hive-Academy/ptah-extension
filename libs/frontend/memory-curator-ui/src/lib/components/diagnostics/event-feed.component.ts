@@ -4,7 +4,10 @@ import {
   computed,
   input,
 } from '@angular/core';
-import type { MemoryCuratorEventWire } from '@ptah-extension/shared';
+import {
+  assertNever,
+  type MemoryCuratorEventWire,
+} from '@ptah-extension/shared';
 
 interface FeedRow {
   readonly key: string;
@@ -162,6 +165,6 @@ function toneFor(ev: MemoryCuratorEventWire): FeedRow['tone'] {
     case 'tool-failure':
       return 'warning';
     default:
-      return 'info';
+      return assertNever(ev.kind);
   }
 }

@@ -59,8 +59,6 @@ export {
   salienceRankOrderBy,
 } from './lib/salience-ranking';
 export type { SalienceRankRow } from './lib/salience-ranking';
-export { MemoryDecayJob } from './lib/memory-decay.job';
-export type { DecayJobOptions, DecayRunStats } from './lib/memory-decay.job';
 export { MemoryTriggerService } from './lib/triggers/memory-trigger.service';
 export {
   DEFAULT_CUE_LIST,
@@ -90,7 +88,6 @@ export type {
   MemoryCuratorEvent,
   MemoryCuratorEventKind,
   MemoryDbHealth,
-  MemoryDecayStats,
   MemoryDiagnosticsSnapshot,
 } from './lib/diagnostics.types';
 export { MemoryCuratorService } from './lib/memory-curator.service';

@@ -228,7 +228,9 @@ describe('StorageHealthPanelComponent', () => {
       normalizedText(
         root.querySelector('[data-testid="storage-memory-lifecycle"]'),
       ),
-    ).toContain('preview after the first run');
+    ).toBe(
+      'archive after 30 d · delete after 60 d · cap 25,000 preview after the first run',
+    );
   });
 
   it('renders the disabled lifecycle note in text', () => {
@@ -247,7 +249,9 @@ describe('StorageHealthPanelComponent', () => {
       normalizedText(
         root.querySelector('[data-testid="storage-memory-lifecycle"]'),
       ),
-    ).toContain('off (preview only)');
+    ).toBe(
+      'archive after 30 d · delete after 60 d · cap 25,000 off (preview only)',
+    );
   });
 
   it('renders the vec-unavailable lifecycle note in text', () => {
@@ -257,6 +261,13 @@ describe('StorageHealthPanelComponent', () => {
         memoryLifecycle: {
           ...storage.memoryLifecycle,
           lastNote: 'vec-unavailable',
+          preview: {
+            measuredAt: NOW,
+            forRunAt: NOW + 3_600_000,
+            archiveEligible: 1_234,
+            deleteEligible: 56,
+            overCap: 7,
+          },
         },
       }),
     );
@@ -265,7 +276,26 @@ describe('StorageHealthPanelComponent', () => {
       normalizedText(
         root.querySelector('[data-testid="storage-memory-lifecycle"]'),
       ),
-    ).toContain('deletes paused: vector extension unavailable');
+    ).toBe(
+      'archive after 30 d · delete after 60 d · cap 25,000 deletes paused: vector extension unavailable',
+    );
+  });
+
+  it('omits the Memories row when no retention run is recorded', () => {
+    const storage = makeStorage();
+    const root = render(
+      makeStorage({
+        retention: {
+          ...storage.retention,
+          lastRun: null,
+        },
+      }),
+    );
+
+    const labels = Array.from(root.querySelectorAll('dt')).map((element) =>
+      normalizedText(element),
+    );
+    expect(labels).not.toContain('Memories');
   });
 
   it('renders last skip time and reason when a skip is recorded', () => {

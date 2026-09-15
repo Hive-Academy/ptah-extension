@@ -143,25 +143,6 @@ describe('MemoryCuratorService — event ring buffer', () => {
     expect(svc.recentEvents().length).toBe(10);
   });
 
-  it('recordDecayEvent pushes a decay-run event into the ring buffer', () => {
-    const svc = buildService();
-    svc.recordDecayEvent(
-      { scanned: 5, promoted: 3, demoted: 1, archived: 2, expired: 0 },
-      9999,
-    );
-    const events = svc.recentEvents(5);
-    const decay = events.find((e) => e.kind === 'decay-run');
-    expect(decay).toBeDefined();
-    expect(decay?.timestamp).toBe(9999);
-    expect(decay?.stats).toMatchObject({
-      scanned: 5,
-      promoted: 3,
-      demoted: 1,
-      archived: 2,
-      expired: 0,
-    });
-  });
-
   it('onEvent fans out every pushEvent to subscribers and dispose detaches', () => {
     const svc = buildService();
     const received: MemoryCuratorEvent[] = [];
@@ -174,7 +155,7 @@ describe('MemoryCuratorService — event ring buffer', () => {
     expect(received[0].kind).toBe('idle-trigger');
     expect(received[1].kind).toBe('curator-run');
     sub.dispose();
-    svc.pushEvent({ kind: 'decay-run', timestamp: 3 });
+    svc.pushEvent({ kind: 'manual-run', timestamp: 3 });
     expect(received.length).toBe(2);
   });
 

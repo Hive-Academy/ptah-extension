@@ -9,7 +9,6 @@ import type {
 import type { MemoryStorageHealthDto } from '@ptah-extension/shared';
 import { MemoryDiagnosticsService } from './diagnostics.service';
 import type { MemoryCuratorService } from './memory-curator.service';
-import type { MemoryDecayJob } from './memory-decay.job';
 import type { MemoryRetentionService } from './retention/memory-retention.service';
 
 const STORAGE_HEALTH: MemoryStorageHealthDto = {
@@ -180,25 +179,13 @@ function makeCurator(
   } as unknown as MemoryCuratorService;
 }
 
-function makeDecay(lastAt: number | null = null): MemoryDecayJob {
-  return {
-    lastDecayInfo: jest.fn(() => ({
-      at: lastAt,
-      stats: lastAt
-        ? { scanned: 10, demoted: 1, archived: 1, expired: 0 }
-        : null,
-    })),
-  } as unknown as MemoryDecayJob;
-}
-
 describe('MemoryDiagnosticsService', () => {
-  it('returns last-run/last-decay from underlying services', async () => {
+  it('returns last-run details from the curator', async () => {
     const t = 1700000000000;
     const service = new MemoryDiagnosticsService(
       makeLogger(),
       makeSqlite({}),
       makeCurator(t, [{ kind: 'curator-run', timestamp: t }]),
-      makeDecay(t),
       makeWorkspace(),
       makeVecStatus(true),
       makeRetention(),
@@ -211,13 +198,6 @@ describe('MemoryDiagnosticsService', () => {
       created: 2,
       skipped: 0,
     });
-    expect(snap.lastDecayAt).toBe(t);
-    expect(snap.lastDecayStats).toEqual({
-      scanned: 10,
-      demoted: 1,
-      archived: 1,
-      expired: 0,
-    });
     expect(snap.recentEvents).toHaveLength(1);
     expect(snap.triggers.idleMs).toBe(600000);
   });
@@ -228,7 +208,6 @@ describe('MemoryDiagnosticsService', () => {
       makeLogger(),
       makeSqlite({}),
       makeCurator(),
-      makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
       makeRetention(storage),
@@ -251,7 +230,6 @@ describe('MemoryDiagnosticsService', () => {
         code_symbols_vec: 50,
       }),
       makeCurator(),
-      makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
       makeRetention(),
@@ -273,7 +251,6 @@ describe('MemoryDiagnosticsService', () => {
         code_symbols_vec: 49,
       }),
       makeCurator(),
-      makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
       makeRetention(),
@@ -299,7 +276,6 @@ describe('MemoryDiagnosticsService', () => {
         ['memory_chunks_fts_docsize'],
       ),
       makeCurator(),
-      makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
       makeRetention(),
@@ -338,7 +314,6 @@ describe('MemoryDiagnosticsService', () => {
         ['memory_chunks_vec', 'code_symbols_vec'],
       ),
       makeCurator(),
-      makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
       makeRetention(),
@@ -364,7 +339,6 @@ describe('MemoryDiagnosticsService', () => {
         false,
       ),
       makeCurator(),
-      makeDecay(),
       makeWorkspace(),
       makeVecStatus(false),
       makeRetention(),

@@ -38,8 +38,6 @@ jest.mock('@ptah-extension/memory-curator', () => ({
     MEMORY_STORE: Symbol.for('PtahMemoryStore'),
     MEMORY_SEARCH: Symbol.for('PtahMemorySearch'),
     MEMORY_CURATOR: Symbol.for('PtahMemoryCurator'),
-    MEMORY_SALIENCE_SCORER: Symbol.for('PtahMemorySalienceScorer'),
-    MEMORY_DECAY_JOB: Symbol.for('PtahMemoryDecayJob'),
     CURATOR_LLM: Symbol.for('PtahCuratorLlm'),
   },
 }));
