@@ -58,6 +58,7 @@ import type {
   WorkspaceWatchHostProcess,
   WorkspaceWatchOptions,
 } from '@ptah-extension/platform-core';
+import { WORKSPACE_WATCH_LIMITS } from '@ptah-extension/platform-core';
 
 import {
   ElectronWorkspaceWatcher,
@@ -676,6 +677,58 @@ export interface DegradedPathResult {
   readonly overflowAfterCadenceWait: number;
 }
 
+const DEGRADED_SCENARIO_SUPERVISION = {
+  heartbeatIntervalMs: 200,
+  missedHeartbeatsBeforeRestart: 2,
+  restartBudget: 2,
+  restartWindowMs: 5_000,
+  restartDelayMs: 50,
+  degradedRescanIntervalMs: 300,
+  degradedRecoveryDelayMs: 700,
+} as const satisfies NonNullable<
+  ElectronWorkspaceWatcherOptions['supervision']
+>;
+
+const DEGRADED_RECOVERY_ACK_TIMEOUT_MS =
+  DEGRADED_SCENARIO_SUPERVISION.heartbeatIntervalMs *
+  DEGRADED_SCENARIO_SUPERVISION.missedHeartbeatsBeforeRestart;
+const DEGRADED_RECOVERY_LOAD_MARGIN_MS = 15_000;
+const DEGRADED_DELIVERY_TIMEOUT_MS =
+  DEGRADED_SCENARIO_SUPERVISION.degradedRecoveryDelayMs +
+  DEGRADED_RECOVERY_ACK_TIMEOUT_MS +
+  2 * WORKSPACE_WATCH_LIMITS.minBatchIntervalMs +
+  DEGRADED_RECOVERY_LOAD_MARGIN_MS;
+
+/** Whole-scenario Jest budget, derived from its supervision windows plus load margin. */
+export const DEGRADED_SCENARIO_TEST_TIMEOUT_MS =
+  3 *
+    (DEGRADED_RECOVERY_ACK_TIMEOUT_MS +
+      DEGRADED_SCENARIO_SUPERVISION.restartDelayMs +
+      DEGRADED_SCENARIO_SUPERVISION.degradedRescanIntervalMs) +
+  DEGRADED_SCENARIO_SUPERVISION.degradedRecoveryDelayMs +
+  DEGRADED_RECOVERY_ACK_TIMEOUT_MS +
+  DEGRADED_DELIVERY_TIMEOUT_MS +
+  DEGRADED_RECOVERY_LOAD_MARGIN_MS;
+
+async function probeUntilDelivered(
+  root: string,
+  recorder: BatchRecorder,
+): Promise<void> {
+  const resumed = path.join(root, 'after-recovery.txt');
+  const deadline = Date.now() + DEGRADED_DELIVERY_TIMEOUT_MS;
+  let attempt = 0;
+
+  while (!recorder.hasPath(resumed)) {
+    writeFile(resumed, String(++attempt));
+    if (Date.now() > deadline) {
+      throw new Error(
+        `Timed out after ${DEGRADED_DELIVERY_TIMEOUT_MS} ms waiting for delivery to resume after recovery (${attempt} probes)`,
+      );
+    }
+    await sleep(WORKSPACE_WATCH_LIMITS.minBatchIntervalMs);
+  }
+}
+
 /**
  * AC-7 degraded path: repeated real kills past a SHORTENED restart budget
  * (a real, documented `WorkspaceWatchSupervisorOptions.supervision`
@@ -685,15 +738,11 @@ export interface DegradedPathResult {
 export async function runDegradedPastBudgetScenario(): Promise<DegradedPathResult> {
   const hosts: WatchHostChildProcess[] = [];
   const recorder = new BatchRecorder();
-  const watcher = makeWatcher(hosts, recorder, {
-    heartbeatIntervalMs: 200,
-    missedHeartbeatsBeforeRestart: 2,
-    restartBudget: 2,
-    restartWindowMs: 5_000,
-    restartDelayMs: 50,
-    degradedRescanIntervalMs: 300,
-    degradedRecoveryDelayMs: 700,
-  });
+  const watcher = makeWatcher(
+    hosts,
+    recorder,
+    DEGRADED_SCENARIO_SUPERVISION,
+  );
 
   const root = makeTempRoot();
   let sub: IDisposable | undefined;
@@ -722,19 +771,25 @@ export async function runDegradedPastBudgetScenario(): Promise<DegradedPathResul
     // asserts them with `expect(...)` like every other check (review follow-up
     // — a hand-rolled `if (...) throw` inside the harness was the odd one out).
     const overflowAtDegraded = recorder.overflowBatches();
-    await sleep(900); // ~3 rescan cadences at 300 ms
+    await sleep(
+      3 * DEGRADED_SCENARIO_SUPERVISION.degradedRescanIntervalMs,
+    );
     const overflowAfterCadenceWait = recorder.overflowBatches();
 
     // Stop killing; recovery is confirmed only by a fresh `subscribed` ack,
     // which the watcher surfaces as `isDegraded` flipping back to false.
-    await waitFor(() => !watcher.isDegraded, 'the watcher to recover', 10_000);
-
-    const resumed = path.join(root, 'after-recovery.txt');
-    writeFile(resumed, 'x');
     await waitFor(
-      () => recorder.hasPath(resumed),
-      'delivery to resume after recovery',
+      () => !watcher.isDegraded,
+      'the watcher to recover',
+      DEGRADED_SCENARIO_SUPERVISION.degradedRecoveryDelayMs +
+        DEGRADED_RECOVERY_ACK_TIMEOUT_MS +
+        DEGRADED_RECOVERY_LOAD_MARGIN_MS,
     );
+
+    // A single filesystem notification is not a reliable readiness probe on a
+    // loaded shared runner. Recovery is already native-subscription-ack gated;
+    // keep writing at the real coalescer cadence until one change is observed.
+    await probeUntilDelivered(root, recorder);
 
     return {
       restarts: hosts.length - 1,

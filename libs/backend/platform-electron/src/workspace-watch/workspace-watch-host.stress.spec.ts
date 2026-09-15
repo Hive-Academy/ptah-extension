@@ -76,6 +76,7 @@
  * one appears.
  */
 import {
+  DEGRADED_SCENARIO_TEST_TIMEOUT_MS,
   ensureHostBundleExists,
   runDegradedPastBudgetScenario,
   runMassDeleteStorm,
@@ -151,5 +152,5 @@ describe('AC-7 — real host-kill while subscriptions are active', () => {
     expect(result.overflowAfterCadenceWait).toBeGreaterThan(
       result.overflowAtDegraded,
     );
-  }, 20_000);
+  }, DEGRADED_SCENARIO_TEST_TIMEOUT_MS);
 });
