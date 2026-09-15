@@ -42,6 +42,7 @@
  * two of three sessions reads "cluster size 3, member sessions 2" rather than
  * quietly reporting itself as smaller than the evidence behind it.
  */
+import type { QueryOrigin } from './internal-query.interface';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -203,18 +204,23 @@ export class SkillCuratorService {
     this.onEvent = null;
   }
 
-  runManual(): Promise<CuratorReport> {
+  /**
+   * One pass now (RPC `skillSynthesis:runCurator`). The RPC handler passes
+   * `userInitiated: true`; the interval in {@link start} never does.
+   */
+  runManual(origin: QueryOrigin = {}): Promise<CuratorReport> {
     if (!this.currentSettings) {
       this.logger.warn(
         '[skill-curator] runManual called before start (no settings); returning empty report',
       );
       return Promise.resolve(this.emptyReport());
     }
-    return this.runPass(this.currentSettings);
+    return this.runPass(this.currentSettings, origin);
   }
 
   private async runPass(
     settings: SkillSynthesisSettings,
+    origin: QueryOrigin = {},
   ): Promise<CuratorReport> {
     this.onEvent?.({ kind: 'curator-pass-start', timestamp: Date.now() });
 
@@ -223,8 +229,8 @@ export class SkillCuratorService {
       this.logger.info(
         '[skill-curator] no promoted skills to review; skipping overlap pass',
       );
-      await this.runEnhancementPass(settings);
-      const suggestionsCreated = await this.runSuggestionPass(settings);
+      await this.runEnhancementPass(settings, origin);
+      const suggestionsCreated = await this.runSuggestionPass(settings, origin);
       this.onEvent?.({
         kind: 'curator-pass',
         timestamp: Date.now(),
@@ -261,7 +267,11 @@ export class SkillCuratorService {
 
     let result;
     try {
-      result = await this.laneRunner.run({ laneId: 'synthesis', prompt });
+      result = await this.laneRunner.run({
+        laneId: 'synthesis',
+        prompt,
+        userInitiated: origin.userInitiated,
+      });
     } catch (err: unknown) {
       this.logger.warn('[skill-curator] lane call threw', {
         error: err instanceof Error ? err.message : String(err),
@@ -327,8 +337,8 @@ export class SkillCuratorService {
       skippedPinned,
     );
 
-    await this.runEnhancementPass(settings);
-    const suggestionsCreated = await this.runSuggestionPass(settings);
+    await this.runEnhancementPass(settings, origin);
+    const suggestionsCreated = await this.runSuggestionPass(settings, origin);
 
     this.onEvent?.({
       kind: 'curator-pass',
@@ -361,6 +371,7 @@ export class SkillCuratorService {
    */
   private async runSuggestionPass(
     settings: SkillSynthesisSettings,
+    origin: QueryOrigin,
   ): Promise<number> {
     if (
       !this.clustering ||
@@ -439,6 +450,7 @@ export class SkillCuratorService {
         const synthesized = await this.synthesizer.synthesizeFromCluster(
           members,
           settings,
+          origin,
         );
         if (!synthesized) continue;
         const verdict = await this.judge.judge(
@@ -449,6 +461,9 @@ export class SkillCuratorService {
           },
           synthesized.body,
           settings,
+          undefined,
+          undefined,
+          origin,
         );
         // A suggestion row carries a NUMBER in `judge_score`, so only a genuine
         // `scored` verdict may create one. Before phase 1 an unparseable or
@@ -624,6 +639,7 @@ export class SkillCuratorService {
 
   private async runEnhancementPass(
     settings: SkillSynthesisSettings,
+    origin: QueryOrigin,
   ): Promise<void> {
     if (!this.registry || !this.enhancer) {
       return;
@@ -660,8 +676,11 @@ export class SkillCuratorService {
         break;
       }
       try {
+        // `userInitiated` but NOT `manual`: a manual curator run still honours
+        // the auto-enhance cooldown and floor; it only skips the governor.
         const result = await this.enhancer.enhance(candidate.slug, settings, {
           kind: candidate.kind,
+          userInitiated: origin.userInitiated,
         });
         if (result.changed) {
           enhancedThisPass += 1;

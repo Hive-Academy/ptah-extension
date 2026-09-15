@@ -36,6 +36,7 @@
  * Runs at the promotion gate and at the suggestion-pass gate — NOT at candidate
  * creation time.
  */
+import type { QueryOrigin } from './internal-query.interface';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { SkillCandidateRow, SkillSynthesisSettings } from './types';
@@ -149,6 +150,9 @@ export class SkillJudgeService {
    * rather than `prompt` because `maxInputChars` clips `prompt`, and a clipped
    * lens turns the second panellist silently back into the first — see
    * `gates/judge-lens.ts`.
+   *
+   * @param origin `userInitiated: true` when an RPC-driven flow is waiting on
+   * this verdict — see {@link QueryOrigin}.
    */
   async judge(
     candidate: SkillCandidateRow,
@@ -156,6 +160,7 @@ export class SkillJudgeService {
     settings: SkillSynthesisSettings,
     context?: string,
     lens?: string,
+    origin?: QueryOrigin,
   ): Promise<JudgeDecision> {
     if (!settings.judgeEnabled) {
       return disabled(JUDGE_REASONS.disabled);
@@ -168,6 +173,7 @@ export class SkillJudgeService {
         systemPromptAppend: withLens(lens),
         prompt: buildJudgePrompt(candidate, body, context),
         outputSchema: JUDGE_VERDICT_JSON_SCHEMA,
+        userInitiated: origin?.userInitiated,
       });
     } catch (error: unknown) {
       // Former fail-open site 3. `LaneRunner` converts timeouts and cancellation

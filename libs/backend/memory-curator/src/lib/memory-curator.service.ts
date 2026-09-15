@@ -29,6 +29,7 @@ import { MemoryStore } from './memory.store';
 import { SalienceScorer } from './salience-scorer';
 import type {
   ICuratorLLM,
+  CuratorCallOptions,
   CuratorExtraction,
   ExtractedMemoryDraft,
   ResolvedMemoryDraft,
@@ -319,24 +320,37 @@ export class MemoryCuratorService {
    * publicly for the `memory:rebuildIndex` flow and for direct callers
    * that want to feed a transcript without waiting for compaction.
    */
-  async curate(input: {
-    sessionId: string;
-    workspaceRoot?: string | null;
-    transcript?: string;
-    tier?: MemoryTier;
-    salienceBoost?: number;
-    signal?: AbortSignal;
-    /**
-     * Narrow this pass's window budget. Clamped into
-     * `[1, CURATOR_MAX_WINDOWS]` downstream, so it can only LOWER the ceiling.
-     * Omit it — every caller but the manual PreCompact path does — to keep the
-     * full budget.
-     */
-    maxWindows?: number;
-  }): Promise<CuratorRunStats> {
+  async curate(
+    input: CuratorCallOptions & {
+      sessionId: string;
+      workspaceRoot?: string | null;
+      transcript?: string;
+      tier?: MemoryTier;
+      salienceBoost?: number;
+      signal?: AbortSignal;
+      /**
+       * Narrow this pass's window budget. Clamped into
+       * `[1, CURATOR_MAX_WINDOWS]` downstream, so it can only LOWER the ceiling.
+       * Omit it — every caller but the manual PreCompact path does — to keep the
+       * full budget.
+       */
+      maxWindows?: number;
+    },
+  ): Promise<CuratorRunStats> {
     const key = this.coalesceKey(input);
     const existing = key === null ? undefined : this.inFlight.get(key);
-    if (existing) return existing;
+    if (existing) {
+      // `userInitiated` (the `memory:runNow` RPC) is honoured only by a pass
+      // this call starts. Joining one already in flight keeps that pass's lane
+      // — possibly governed and deferred (FU-16b-a). Said, not changed.
+      if (input.userInitiated === true) {
+        this.logger.info(
+          "[memory-curator] user-initiated curate joined an in-flight pass; it keeps that pass's lane",
+          { sessionId: input.sessionId },
+        );
+      }
+      return existing;
+    }
     // Queued, not spawned. Coalescing is checked FIRST, so a second trigger for
     // a session already in the queue joins that entry instead of adding one —
     // the queue holds distinct passes only. See `CuratorJobQueue` for why
@@ -489,15 +503,20 @@ export class MemoryCuratorService {
   }
 
   /** Internal worker. Public callers must use {@link curate}, which dedupes. */
-  private async doCurate(input: {
-    sessionId: string;
-    workspaceRoot?: string | null;
-    transcript?: string;
-    tier?: MemoryTier;
-    salienceBoost?: number;
-    signal?: AbortSignal;
-    maxWindows?: number;
-  }): Promise<CuratorRunStats> {
+  private async doCurate(
+    input: CuratorCallOptions & {
+      sessionId: string;
+      workspaceRoot?: string | null;
+      transcript?: string;
+      tier?: MemoryTier;
+      salienceBoost?: number;
+      signal?: AbortSignal;
+      maxWindows?: number;
+    },
+  ): Promise<CuratorRunStats> {
+    const callOptions: CuratorCallOptions = {
+      userInitiated: input.userInitiated,
+    };
     // A pass can sit in the job queue for minutes, and the caller that queued it
     // may have withdrawn in that time. Running the pipeline for it would spend a
     // provider call and a lane slot on a result nobody reads, and would consume
@@ -548,6 +567,7 @@ export class MemoryCuratorService {
       windows,
       input.signal,
       retryBudget,
+      callOptions,
     );
     if (extraction.status === 'deferred') {
       return this.recordCuratorDeferral(input.sessionId, {
@@ -618,6 +638,7 @@ export class MemoryCuratorService {
         related,
         retryBudget,
         input.signal,
+        callOptions,
       );
     } catch (error: unknown) {
       // The resolve call queues for a slot exactly as the extract windows do,
@@ -862,11 +883,12 @@ export class MemoryCuratorService {
     drafts: readonly ExtractedMemoryDraft[],
     related: readonly { id: string; subject: string | null; content: string }[],
     budget: QueueSlotRetryBudget,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    options: CuratorCallOptions,
   ): Promise<readonly ResolvedMemoryDraft[]> {
     for (;;) {
       try {
-        return await this.llm.resolve(drafts, related, signal);
+        return await this.llm.resolve(drafts, related, signal, options);
       } catch (error: unknown) {
         if (!isQueueSlotTimeout(error)) throw error;
         if (signal?.aborted) throw error;

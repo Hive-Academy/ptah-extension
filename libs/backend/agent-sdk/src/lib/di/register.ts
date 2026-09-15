@@ -16,7 +16,10 @@ import {
   Lifecycle,
 } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type {
+  BackgroundWorkGovernor,
+  Logger,
+} from '@ptah-extension/vscode-core';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
@@ -84,11 +87,9 @@ import {
   SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
-import {
-  PeerSessionDirectory,
-  PeerSessionMessenger,
-} from '../peer-sessions';
+import { PeerSessionDirectory, PeerSessionMessenger } from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
+import { TurnStateForegroundSource } from '../helpers/turn-state-foreground-source';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
 import { SDK_TOKENS } from './tokens';
@@ -424,6 +425,21 @@ export function registerSdkServices(
   const turnStateRegistry = container.resolve<SessionTurnStateRegistry>(
     SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
   );
+  // Foreground source for the background-work governor (TASK_2026_437 C14):
+  // background lanes yield while any session is generating (a record stuck in
+  // `generating` past the stale ceiling stops counting). The governor lives in
+  // vscode-core, which this lib already depends on; vscode-core cannot see the
+  // registry, so the source implements the structural `ForegroundActivitySource`.
+  // Every host registers the governor in `registerVsCodeCorePlatformAgnostic`
+  // before this runs; a container without it (a test host) simply has no
+  // foreground signal, and `InternalQueryService` reports that degradation.
+  if (container.isRegistered(TOKENS.BACKGROUND_WORK_GOVERNOR, true)) {
+    container
+      .resolve<BackgroundWorkGovernor>(TOKENS.BACKGROUND_WORK_GOVERNOR)
+      .addForegroundSource(
+        new TurnStateForegroundSource(turnStateRegistry, logger),
+      );
+  }
   container
     .resolve<SessionIdResolvedCallbackRegistry>(
       SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,

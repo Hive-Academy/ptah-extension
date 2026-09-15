@@ -360,9 +360,26 @@ describe('SkillSynthesisService', () => {
     expect(promotion.evaluate).toHaveBeenCalledWith(
       'cand_x',
       expect.objectContaining({ enabled: true, successesToPromote: 3 }),
+      // nowFn stays unset — the promotion service handles its own default.
+      undefined,
+      {},
     );
-    // nowFn is NOT passed — promotion service handles its own default
-    expect((promotion.evaluate as jest.Mock).mock.calls[0]).toHaveLength(2);
+  });
+
+  it('promote() and promoteBulk() forward the RPC origin to every evaluation (C14)', async () => {
+    const { svc, promotion } = setup();
+    (promotion.evaluate as jest.Mock).mockResolvedValue({ promoted: false });
+
+    await svc.promote('cand_x' as CandidateId, { userInitiated: true });
+    await svc.promoteBulk(['cand_a', 'cand_b'] as CandidateId[], {
+      userInitiated: true,
+    });
+
+    const calls = (promotion.evaluate as jest.Mock).mock.calls;
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
+      expect(call[3]).toEqual({ userInitiated: true });
+    }
   });
 
   it('reject() flips the candidate to rejected with the supplied reason', () => {

@@ -730,6 +730,143 @@ describe('SessionTurnStateRegistry', () => {
     });
   });
 
+  describe('foreground signal (TASK_2026_437 C14)', () => {
+    const isGenerating = (): boolean =>
+      registry.generatingSessions().length > 0;
+
+    it('generatingSessions follows generating records across sessions', () => {
+      expect(isGenerating()).toBe(false);
+      registry.markGenerating(SESSION);
+      registry.markGenerating(TAB);
+      expect(isGenerating()).toBe(true);
+      registry.settleTurn(SESSION);
+      expect(isGenerating()).toBe(true);
+      registry.forceIdle(TAB);
+      expect(isGenerating()).toBe(false);
+    });
+
+    it('reports each generating session with the time its turn started', () => {
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+      try {
+        registry.markGenerating(SESSION);
+        nowSpy.mockReturnValue(2_000);
+        registry.markGenerating(TAB);
+        // A dedupe call in the same turn does not move the start.
+        nowSpy.mockReturnValue(3_000);
+        registry.markGenerating(SESSION);
+        // Map order is use recency (the dedupe call touched SESSION last).
+        expect(registry.generatingSessions()).toEqual(
+          expect.arrayContaining([
+            { sessionId: SESSION, since: 1_000 },
+            { sessionId: TAB, since: 2_000 },
+          ]),
+        );
+        expect(registry.generatingSessions()).toHaveLength(2);
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+
+    it('does not count a hook-created record or a background phase as generating', () => {
+      registry.recordStop(SESSION, {
+        backgroundTasks: [task('t1')],
+        sessionCrons: [],
+        terminalReason: null,
+      });
+      expect(isGenerating()).toBe(false);
+      registry.markGenerating(SESSION);
+      registry.settleTurn(SESSION);
+      expect(registry.get(SESSION)?.phase).toBe('awaiting-background');
+      expect(isGenerating()).toBe(false);
+    });
+
+    it('notifies from markGenerating, settleTurn and forceIdle', () => {
+      const listener = jest.fn();
+      registry.onGeneratingChange(listener);
+
+      registry.markGenerating(SESSION);
+      expect(listener).toHaveBeenCalledTimes(1);
+      // The per-turn dedupe commits nothing, so it notifies nothing.
+      registry.markGenerating(SESSION);
+      expect(listener).toHaveBeenCalledTimes(1);
+      registry.settleTurn(SESSION);
+      expect(listener).toHaveBeenCalledTimes(2);
+      registry.forceIdle(SESSION);
+      expect(listener).toHaveBeenCalledTimes(3);
+    });
+
+    it('reads the new answer from inside the listener', () => {
+      const seen: boolean[] = [];
+      registry.onGeneratingChange(() => seen.push(isGenerating()));
+
+      registry.markGenerating(SESSION);
+      registry.settleTurn(SESSION);
+
+      expect(seen).toEqual([true, false]);
+    });
+
+    it('notifies when clear drops a generating record, and only then', () => {
+      const listener = jest.fn();
+      registry.markGenerating(SESSION);
+      registry.forceIdle(TAB);
+      registry.onGeneratingChange(listener);
+
+      registry.clear(TAB);
+      expect(listener).not.toHaveBeenCalled();
+      registry.clear(SESSION);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(isGenerating()).toBe(false);
+    });
+
+    it('notifies when eviction drops a generating record', () => {
+      registry.markGenerating('victim');
+      const listener = jest.fn();
+      registry.onGeneratingChange(listener);
+
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT; i++) {
+        registry.recordStop(`filler-${i}`, {
+          backgroundTasks: [],
+          sessionCrons: [],
+          terminalReason: null,
+        });
+      }
+
+      expect(registry.get('victim')).toBeUndefined();
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(isGenerating()).toBe(false);
+    });
+
+    it('isolates a throwing listener: the transition completes and later listeners run', () => {
+      const later = jest.fn();
+      registry.onGeneratingChange(() => {
+        throw new Error('subscriber bug');
+      });
+      registry.onGeneratingChange(later);
+
+      let generating: ReturnType<typeof registry.markGenerating> = null;
+      expect(() => {
+        generating = registry.markGenerating(SESSION);
+      }).not.toThrow();
+      expect(generating).toMatchObject({ phase: 'generating' });
+      expect(() => registry.settleTurn(SESSION)).not.toThrow();
+      expect(registry.get(SESSION)?.phase).toBe('idle');
+      registry.markGenerating(SESSION);
+      expect(() => registry.forceIdle(SESSION)).not.toThrow();
+      registry.markGenerating(TAB);
+      expect(() => registry.clear(TAB)).not.toThrow();
+      // markGenerating, settleTurn, markGenerating, forceIdle, markGenerating, clear.
+      expect(later).toHaveBeenCalledTimes(6);
+    });
+
+    it('honours unsubscribe', () => {
+      const listener = jest.fn();
+      const unsubscribe = registry.onGeneratingChange(listener);
+      unsubscribe();
+      registry.markGenerating(SESSION);
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
   describe('toTurnStateEvent', () => {
     it('wraps the state as a turn_state flat event with a stable messageId', () => {
       const state = registry.forceIdle(SESSION, 'completed');

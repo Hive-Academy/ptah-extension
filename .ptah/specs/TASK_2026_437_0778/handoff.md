@@ -40,7 +40,7 @@ PR #510 CI. Add it back to `context.md` after PR #510 merges.
   cleanly (else keep its current watcher behind the port); measure SQLite main-thread cost before
   moving it; scroll-back paging of old history is deferred.
 
-## 3. Done — committed (14 of 22 batches; Batches 8, 9, 10 and 11 in section 4)
+## 3. Done — committed (16 of 23 batches; Batches 8, 9, 10, 11, 16 and 16b in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
 | ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,7 +64,7 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11 and the Linux CI fix — COMMITTED (resume at Batch 15; Batch 16 approved, pending 16b)
+## 4. Batch 11, the Linux CI fix, Batches 16 and 16b — COMMITTED (resume at Batch 15)
 
 **Update 2026-09-15 (Batch 11):** Batch 11 passed both reviews (logic base NEEDS_REVISION 5/10 →
 delta APPROVE HIGH; style base NEEDS_REVISION 7/10 → delta APPROVE HIGH) and is committed as
@@ -94,8 +94,17 @@ writes under new directories were silently lost — the host now reconciles crea
 test-only transport is removed. Details, WSL2 evidence and FU-L1..FU-L5 are in `batches.md`
 "PR #510 Linux CI fix".
 
-**Batch 16** (P3 governor core) is APPROVED and uncommitted in the worktree; it commits together
-with Batch 16b (in progress), after P2 closes per the phase order.
+**Batches 16 and 16b — COMMITTED 2026-09-15** as one commit,
+`feat(vscode-core): defer background LLM work while the main loop lags or a turn is generating`
+(the two could not be split by file). Committed before Batch 15 by orchestrator decision (recorded
+under Batch 7 in `batches.md`); release order is unchanged because everything ships in PR #510.
+`BackgroundWorkGovernor` (states `clear | foreground-busy | lagging | disposed`; enter at p99 >
+100 ms × 2 windows or one window max ≥ 1,000 ms; exit at max < 40 ms × 3; `whenClear` ceiling
+600,000 ms) holds the `memory-curator` and `skill-synthesis` internal-query lanes while a turn is
+generating or the main loop lags. RPC-driven clicks (7 paths) run on an ungoverned `user-action`
+lane. The governor is disposed at shutdown in all three hosts. Reviews: 16 logic NEEDS_REVISION →
+delta APPROVE HIGH, style APPROVED → delta APPROVE HIGH; 16b logic APPROVED, style NEEDS_REVISION →
+fixed. Outcomes, evidence and FU-16a..d, FU-16b-a..c are in `batches.md`.
 
 **Next: Batch 15** (ST-2 host stress + host-kill AC-7, senior-tester) when the machine is idle.
 
@@ -190,13 +199,14 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
   CLI: build `ptah-tui` then `restore-cli-manifest` before pack; cross-platform CI smoke (only
   win32-x64 proven locally).
 
-## 5. Remaining batches (8 of 22)
+## 5. Remaining batches (7 of 23)
 
 Order and dependencies are in `batches.md`. Summary:
 
 - **P2:** 15 (ST-2 stress + host-kill test AC-7). P2 also needs the OPEN D10 proof: `publish-electron.yml`
   build matrix green on Windows, macOS and Linux (section 4).
-- **P3:** 16 (`BackgroundWorkGovernor` core) → 17 (adopters) and 18 (network back-off).
+- **P3:** 17 (adopters; treat `'disposed'` as cancellation; carry FU-16b-a) and 18 (network back-off).
+  16 and 16b are committed.
 - **P4:** 19 (O(E+M) finalization + tab-save quota back-off), 20 (drop duplicate `messages` from
   `chat:resume`, chunked replay; after 14), 21 (inbound burst coalescing), 22 (AC-11 tile-open perf e2e).
 
@@ -216,6 +226,8 @@ Order and dependencies are in `batches.md`. Summary:
 - Batch 13: shared off-main-thread Windows tree-kill helper.
 - Batch 14: manual Electron check — break out of `iterate()` early, then exit, with the real native module.
 - FU-10a: gate helper files (`build-artifact-gate.ts`) are typechecked by no project. FU-10b: darwin-x64 and windows-arm64 Electron builds do not exist (product decision). FU-10c: no per-OS CLI pack smoke for `@parcel/watcher`.
+- FU-16a: `whenClear` ceiling is per waiter — all held waiters release together after 10 min of lag (bounded by gate limits). FU-16c: platform-core `internalQuery.maxConcurrent` default 1 vs agent-sdk 2. FU-16d: `internal-query.service.ts` / `skill-enhancer.service.ts` sizes.
+- FU-16b-a (Batch 17): `memory:runNow` joining an in-flight background pass keeps its governed lane (logged). FU-16b-b: `memory-curator.service.ts` 718 code lines. **FU-16b-c (needs a user decision, pre-existing):** background lanes can hold both global internal-query slots, so a wizard/user-action call can time out at 60 s in the queue — options in `batches.md` Batch 16b outcome.
 - **75k-file `PTAH_PERF_SPECS=1` perf budgets (AC-1/AC-2) not yet measured on an idle machine.**
 - Phase 1 gate commands not re-run: `lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`.
 

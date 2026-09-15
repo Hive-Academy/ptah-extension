@@ -421,6 +421,59 @@ describe('SkillEnhancerService', () => {
     });
   });
 
+  /**
+   * TASK_2026_437 C14. The automatic pass is the curator daemon: it must run on
+   * the governed skill-synthesis lane, or it ignores a generating turn. A run
+   * the enhance RPC asked for (`userInitiated`) takes the ungoverned
+   * `user-action` lane (Batch 16b).
+   */
+  describe('enhance: the concurrency lane handed to InternalQuery', () => {
+    const judgeDecision = {
+      status: 'scored',
+      score: 8,
+      criteria: null,
+      reason: 'judge-verdict',
+    } as const;
+
+    async function laneSentWith(options: {
+      manual?: boolean;
+      userInitiated?: boolean;
+    }): Promise<unknown> {
+      const h = makeHarness({ judgeDecision, candidateText: 'Improved body' });
+      await h.svc.enhance('deep-research', makeSettings(), options);
+      expect(h.internalQuery.execute).toHaveBeenCalledTimes(1);
+      return (
+        h.internalQuery.execute.mock.calls[0][0] as Record<string, unknown>
+      )['lane'];
+    }
+
+    it('charges the automatic pass to the governed skill-synthesis lane', async () => {
+      expect(await laneSentWith({})).toBe('skill-synthesis');
+    });
+
+    it('runs a user-initiated call (the enhance RPC) on the user-action lane', async () => {
+      expect(await laneSentWith({ manual: true, userInitiated: true })).toBe(
+        'user-action',
+      );
+    });
+
+    it('hands the same origin to the judge verdict call', async () => {
+      const h = makeHarness({ judgeDecision, candidateText: 'Improved body' });
+      await h.svc.enhance('deep-research', makeSettings(), {
+        manual: true,
+        userInitiated: true,
+      });
+      expect(h.judge.judge.mock.calls[0][5]).toEqual({ userInitiated: true });
+    });
+
+    it('decides the lane by userInitiated, not by manual', async () => {
+      // A manual curator run is userInitiated without `manual`; `manual` alone
+      // (no caller does that today) must not skip the governor.
+      expect(await laneSentWith({ userInitiated: true })).toBe('user-action');
+      expect(await laneSentWith({ manual: true })).toBe('skill-synthesis');
+    });
+  });
+
   describe('enhance: the model handed to InternalQuery (TASK_2026_250)', () => {
     const judgeDecision = {
       status: 'scored',

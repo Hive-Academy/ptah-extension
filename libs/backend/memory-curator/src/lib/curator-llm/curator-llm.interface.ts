@@ -1,5 +1,6 @@
 export type {
   ICuratorLLM,
+  CuratorCallOptions,
   ExtractedMemoryDraft,
   ResolvedMemoryDraft,
   CuratorExtraction,

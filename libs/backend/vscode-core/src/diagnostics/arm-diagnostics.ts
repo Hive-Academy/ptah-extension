@@ -24,6 +24,7 @@ import {
 } from './event-loop-monitor';
 import { CpuProfileCapture } from './cpu-profile-capture';
 import type { MainLoopWatchdog } from './main-loop-watchdog';
+import type { BackgroundWorkGovernor } from './background-work-governor';
 
 export interface ArmDiagnosticsOptions extends EventLoopMonitorOptions {
   /** Container holding the vscode-core platform-agnostic registrations. */
@@ -83,6 +84,9 @@ export function armDiagnostics(
     ];
     if (onLag !== undefined) unsubscribers.push(monitor.onLag(onLag));
 
+    const disposeGovernor = attachGovernor(container, monitor, logger);
+    if (disposeGovernor !== null) unsubscribers.push(disposeGovernor);
+
     monitor.start(monitorOptions);
 
     const watchdog =
@@ -124,6 +128,41 @@ export function armDiagnostics(
         Promise.reject(new Error(`Diagnostics unavailable: ${reason}`)),
     };
   }
+}
+
+/**
+ * Feed the monitor's samples to the background-work governor, on its own
+ * failure boundary: a governor that cannot be resolved must not cost the host
+ * its lag monitor. Adopters then see an always-clear gate, which is the
+ * pre-governor behaviour.
+ *
+ * The handle's `dispose` is the host's shutdown path in all three hosts
+ * (Electron `shutdown.ts`, VS Code `deactivate`, CLI `disposeDiagnostics`), so
+ * disposing the governor here is what stops background work being admitted
+ * during quit. Governor `dispose` also detaches the lag source.
+ *
+ * @returns The governor's disposer, or `null` when it is unavailable.
+ */
+function attachGovernor(
+  container: DependencyContainer,
+  monitor: EventLoopMonitor,
+  logger: Logger,
+): (() => void) | null {
+  // Same shape as `armWatchdog`: the failure is logged, and the null result is
+  // the documented "no governor" answer rather than a swallowed error.
+  let dispose: (() => void) | null = null;
+  try {
+    const governor = container.resolve<BackgroundWorkGovernor>(
+      TOKENS.BACKGROUND_WORK_GOVERNOR,
+    );
+    governor.attachLagSource(monitor);
+    dispose = () => governor.dispose();
+  } catch (error: unknown) {
+    logger.warn('[diagnostics] background-work governor not attached', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return dispose;
 }
 
 /**

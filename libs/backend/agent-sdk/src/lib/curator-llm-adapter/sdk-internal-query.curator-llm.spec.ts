@@ -144,6 +144,7 @@ interface ExecuteCapture {
   auth?: OneShotAuthOverride;
   authWasPresent?: boolean;
   maxTurns?: number;
+  lane?: string;
 }
 
 function makeInternalQuery(opts: {
@@ -160,9 +161,11 @@ function makeInternalQuery(opts: {
         model: string;
         cwd: string;
         maxTurns?: number;
+        lane?: string;
         auth?: OneShotAuthOverride;
       }) => {
         if (opts.capture) {
+          opts.capture.lane = config.lane;
           opts.capture.model = config.model;
           opts.capture.cwd = config.cwd;
           opts.capture.maxTurns = config.maxTurns;
@@ -737,6 +740,66 @@ describe('SdkInternalQueryCuratorLlm — the turn budget (TASK_2026_376 F8)', ()
     await adapter.extract(EXTRACT_TRANSCRIPT);
     expect(capture.maxTurns).toBe(CURATOR_MAX_TURNS);
     expect(capture.maxTurns).not.toBe(1);
+  });
+});
+
+describe('SdkInternalQueryCuratorLlm — the concurrency lane (TASK_2026_437 C14)', () => {
+  it('charges every curation call to the governed memory-curator lane', async () => {
+    // An omitted lane lands on the ungoverned 'default' bucket: the curator
+    // would stop yielding to a generating turn and would take the slot
+    // user-initiated calls share.
+    const capture: ExecuteCapture = {};
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ text: '{"memories":[]}', capture }),
+      makeWorkspace(''),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.lane).toBe('memory-curator');
+  });
+
+  it('runs a user-initiated extract (memory:runNow) on the ungoverned user-action lane', async () => {
+    const capture: ExecuteCapture = {};
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ text: '{"memories":[]}', capture }),
+      makeWorkspace(''),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT, undefined, {
+      userInitiated: true,
+    });
+    expect(capture.lane).toBe('user-action');
+  });
+
+  it('runs a user-initiated resolve on the user-action lane, and a background one on memory-curator', async () => {
+    const draft = {
+      kind: 'fact',
+      subject: 'ptah',
+      content: 'lanes exist',
+      salienceHint: 0.5,
+    } as unknown as Parameters<
+      SdkInternalQueryCuratorLlm['resolve']
+    >[0][number];
+    const related = [{ id: 'm1', subject: 'ptah', content: 'lanes exist' }];
+
+    const userCapture: ExecuteCapture = {};
+    await new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ text: '{"memories":[]}', capture: userCapture }),
+      makeWorkspace(''),
+    ).resolve([draft], related, undefined, { userInitiated: true });
+    expect(userCapture.lane).toBe('user-action');
+
+    const backgroundCapture: ExecuteCapture = {};
+    await new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({
+        text: '{"memories":[]}',
+        capture: backgroundCapture,
+      }),
+      makeWorkspace(''),
+    ).resolve([draft], related);
+    expect(backgroundCapture.lane).toBe('memory-curator');
   });
 });
 

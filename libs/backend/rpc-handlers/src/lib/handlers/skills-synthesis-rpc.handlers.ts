@@ -54,6 +54,7 @@ import {
   type SkillBudgetStageDay,
   type SkillGapCuratorService,
   type DigestItem,
+  type QueryOrigin,
 } from '@ptah-extension/skill-synthesis';
 import {
   CRON_TOKENS,
@@ -219,7 +220,7 @@ const DEFAULT_QUEUE_ITEM_LIMIT = 50;
 const DEFAULT_DRAIN_RUN_LIMIT = 20;
 
 interface ICuratorService {
-  runManual(): Promise<{
+  runManual(origin?: QueryOrigin): Promise<{
     reportPath: string;
     changesQueued: number;
     skippedPinned: number;
@@ -445,7 +446,12 @@ export class SkillsSynthesisRpcHandlers {
         if (!id) {
           return { promoted: false, reason: 'missing-id', filePath: null };
         }
-        const decision = await this.synthesis.promote(id);
+        // A user is waiting on this RPC: its LLM calls take the ungoverned
+        // user-initiated lane, never behind the background-work governor
+        // (TASK_2026_437 C14, Batch 16b). Only RPC handlers set this.
+        const decision = await this.synthesis.promote(id, {
+          userInitiated: true,
+        });
         return {
           promoted: decision.promoted,
           reason: decision.reason ?? null,
@@ -650,7 +656,10 @@ export class SkillsSynthesisRpcHandlers {
             suggestionsCreated: 0,
           };
         }
-        const result = await this.curator.runManual();
+        // A user is waiting on this RPC: its LLM calls take the ungoverned
+        // user-initiated lane, never behind the background-work governor
+        // (TASK_2026_437 C14, Batch 16b). Only RPC handlers set this.
+        const result = await this.curator.runManual({ userInitiated: true });
         return {
           reportPath: result.reportPath,
           changesQueued: result.changesQueued,
@@ -1026,6 +1035,8 @@ export class SkillsSynthesisRpcHandlers {
         const result = await enhancer.enhance(parsed.slug, settings, {
           manual: true,
           kind,
+          // Skips the background-work governor (C14, Batch 16b).
+          userInitiated: true,
         });
         return {
           changed: result.changed,
@@ -1076,6 +1087,8 @@ export class SkillsSynthesisRpcHandlers {
         const result = await enhancer.generateProposal(parsed.slug, settings, {
           manual: true,
           kind,
+          // Skips the background-work governor (C14, Batch 16b).
+          userInitiated: true,
         });
         return {
           proposed: result.proposed,
@@ -1661,7 +1674,12 @@ export class SkillsSynthesisRpcHandlers {
       );
       try {
         const ids = parsed.ids.map((id) => id as CandidateId);
-        const decisions = await this.synthesis.promoteBulk(ids);
+        // A user is waiting on this RPC: its LLM calls take the ungoverned
+        // user-initiated lane, never behind the background-work governor
+        // (TASK_2026_437 C14, Batch 16b). Only RPC handlers set this.
+        const decisions = await this.synthesis.promoteBulk(ids, {
+          userInitiated: true,
+        });
         const promoted = decisions.filter((d) => d.promoted).length;
         return { decisions, promoted };
       } catch (error) {
@@ -1870,6 +1888,10 @@ export class SkillsSynthesisRpcHandlers {
           workspaceRoot,
           limit: parsed?.limit,
           allowRewrite: parsed?.allowRewrite,
+          // A user is waiting on this RPC. The rewrite lane still only runs
+          // when `allowRewrite` is `true`, so the automatic digest refreshes
+          // (which send `false`) never spend on either lane (C14, Batch 16b).
+          userInitiated: true,
         });
         return { items: SkillDigestItemsSchema.parse(items.map(toDigestItem)) };
       } catch (error: unknown) {

@@ -95,11 +95,17 @@ export {
   LANE_MAX_EXECUTIONS_PER_RUN,
   LANE_TOOL_USE_DEFAULT_MAX_TURNS,
   timeoutBackoffMs,
+  SKILL_SYNTHESIS_QUERY_LANE,
+  skillQueryLane,
   type LaneRunRequest,
   type LaneRun,
   type LaneRunResult,
   type LaneDegradedReason,
 } from './lib/lanes/lane-runner.service';
+export {
+  USER_ACTION_QUERY_LANE,
+  type QueryOrigin,
+} from './lib/internal-query.interface';
 export { registerSkillSynthesisServices } from './lib/di/register';
 export {
   migrateSkillMdFiles,

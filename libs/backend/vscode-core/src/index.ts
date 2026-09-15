@@ -127,6 +127,8 @@ export {
   EventLoopMonitor,
   CpuProfileCapture,
   MainLoopWatchdog,
+  BackgroundWorkGovernor,
+  DEFAULT_MAX_DEFER_MS,
   appendHangLogLine,
   armDiagnostics,
   readMsEnv,
@@ -149,6 +151,12 @@ export {
   WORKER_RESTART_WINDOW_MS,
 } from './diagnostics';
 export type {
+  BackgroundWorkSignal,
+  BackgroundWorkState,
+  BackgroundWorkStateListener,
+  ForegroundActivitySource,
+  WhenClearOptions,
+  WhenClearOutcome,
   MainLoopWatchdogOptions,
   EventLoopLagSample,
   EventLoopLagListener,

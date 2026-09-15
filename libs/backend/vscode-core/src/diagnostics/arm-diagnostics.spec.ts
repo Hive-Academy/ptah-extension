@@ -16,6 +16,7 @@ import type {
 
 function createFakes() {
   const listeners = new Set<EventLoopLagListener>();
+  const sampleListeners = new Set<EventLoopLagListener>();
   const logger = {
     debug: jest.fn(),
     info: jest.fn(),
@@ -29,6 +30,12 @@ function createFakes() {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
+      };
+    }),
+    onSample: jest.fn((listener: EventLoopLagListener) => {
+      sampleListeners.add(listener);
+      return () => {
+        sampleListeners.delete(listener);
       };
     }),
   };
@@ -45,12 +52,25 @@ function createFakes() {
   const emitLag = (sample: EventLoopLagSample) => {
     for (const listener of [...listeners]) listener(sample);
   };
-  return { logger, monitor, capture, watchdog, listeners, emitLag };
+  const governor = {
+    attachLagSource: jest.fn(() => jest.fn()),
+    dispose: jest.fn(),
+  };
+  return {
+    logger,
+    monitor,
+    capture,
+    watchdog,
+    governor,
+    listeners,
+    sampleListeners,
+    emitLag,
+  };
 }
 
 function buildContainer(
   fakes: ReturnType<typeof createFakes>,
-  options: { registerWatchdog?: boolean } = {},
+  options: { registerWatchdog?: boolean; registerGovernor?: boolean } = {},
 ): DependencyContainer {
   const c = rootContainer.createChildContainer();
   c.register(TOKENS.LOGGER, { useValue: fakes.logger });
@@ -58,6 +78,9 @@ function buildContainer(
   c.register(TOKENS.CPU_PROFILE_CAPTURE, { useValue: fakes.capture });
   if (options.registerWatchdog !== false) {
     c.register(TOKENS.MAIN_LOOP_WATCHDOG, { useValue: fakes.watchdog });
+  }
+  if (options.registerGovernor !== false) {
+    c.register(TOKENS.BACKGROUND_WORK_GOVERNOR, { useValue: fakes.governor });
   }
   return c;
 }
@@ -154,5 +177,45 @@ describe('armDiagnostics — main-loop watchdog', () => {
     expect(fakes.watchdog.dispose).toHaveBeenCalledTimes(1);
     expect(fakes.monitor.dispose).toHaveBeenCalledTimes(1);
     expect(fakes.listeners.size).toBe(0);
+  });
+});
+
+describe('armDiagnostics — background-work governor (TASK_2026_437 C14)', () => {
+  it('attaches the monitor as the governor lag source, with or without logsPath', () => {
+    const fakes = createFakes();
+    armDiagnostics({
+      container: buildContainer(fakes, { registerWatchdog: false }),
+    });
+
+    expect(fakes.governor.attachLagSource).toHaveBeenCalledTimes(1);
+    expect(fakes.governor.attachLagSource).toHaveBeenCalledWith(fakes.monitor);
+  });
+
+  it('disposes the governor (host shutdown) when the handle is disposed', () => {
+    const fakes = createFakes();
+    const handle = armDiagnostics({
+      container: buildContainer(fakes),
+      logsPath: '/logs',
+    });
+
+    handle.dispose();
+
+    expect(fakes.governor.dispose).toHaveBeenCalledTimes(1);
+    expect(fakes.monitor.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the lag monitor when the governor cannot be resolved', () => {
+    const fakes = createFakes();
+    armDiagnostics({
+      container: buildContainer(fakes, { registerGovernor: false }),
+      logsPath: '/logs',
+    });
+
+    expect(fakes.logger.warn).toHaveBeenCalledWith(
+      '[diagnostics] background-work governor not attached',
+      expect.objectContaining({ reason: expect.any(String) }),
+    );
+    expect(fakes.monitor.start).toHaveBeenCalledTimes(1);
+    expect(fakes.watchdog.start).toHaveBeenCalledTimes(1);
   });
 });

@@ -3,6 +3,7 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   type ICuratorLLM,
+  type CuratorCallOptions,
   type CuratorExtraction,
   type ExtractedMemoryDraft,
   type ResolvedMemoryDraft,
@@ -15,6 +16,10 @@ import {
 } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '../di/tokens';
 import type { InternalQueryService } from '../internal-query';
+import {
+  MEMORY_CURATOR_QUERY_LANE,
+  USER_ACTION_QUERY_LANE,
+} from '../internal-query/internal-query-concurrency-gate';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
 import {
@@ -271,11 +276,13 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
   async extract(
     transcript: string,
     signal?: AbortSignal,
+    options: CuratorCallOptions = {},
   ): Promise<CuratorExtraction> {
     const outcome = await this.runQuery(
       EXTRACT_SYSTEM_PROMPT,
       buildExtractUserPrompt(transcript),
       signal,
+      options,
     );
     if (outcome.kind === 'cooling-down') {
       return {
@@ -325,6 +332,7 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     drafts: readonly ExtractedMemoryDraft[],
     related: readonly { id: string; subject: string | null; content: string }[],
     signal?: AbortSignal,
+    options: CuratorCallOptions = {},
   ): Promise<readonly ResolvedMemoryDraft[]> {
     if (drafts.length === 0) return [];
     if (related.length === 0) {
@@ -334,6 +342,7 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       RESOLVE_SYSTEM_PROMPT,
       buildResolveUserPrompt(drafts, related),
       signal,
+      options,
     );
     if (outcome.kind === 'cooling-down') {
       return drafts.map((d) => ({ ...d, mergeTargetId: null }));
@@ -357,7 +366,8 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
   private async runQuery(
     systemPromptAppend: string,
     prompt: string,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    options: CuratorCallOptions,
   ): Promise<CuratorQueryOutcome> {
     const abortController = new AbortController();
     if (signal) {
@@ -399,7 +409,13 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         // internal one-shot shared a single host-wide slot, so a curation pass
         // queued behind an unrelated skill-synthesis lane call and back again
         // — nine times on one boot (`tmp/logs/log.log:938 … 1424`).
-        lane: 'memory-curator',
+        // A user-initiated pass (`memory:runNow`) takes the ungoverned
+        // `user-action` lane instead, so a click never waits behind the
+        // governor or a wizard call (C14, Batch 16b).
+        lane:
+          options.userInitiated === true
+            ? USER_ACTION_QUERY_LANE
+            : MEMORY_CURATOR_QUERY_LANE,
         abortController,
         auth,
       });

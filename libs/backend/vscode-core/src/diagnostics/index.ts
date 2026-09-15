@@ -33,6 +33,30 @@ export {
 } from './main-loop-watchdog';
 export type { MainLoopWatchdogOptions } from './main-loop-watchdog';
 
+export {
+  BackgroundWorkGovernor,
+  DEFAULT_MAX_DEFER_MS,
+  LAG_ENTER_P99_MS,
+  LAG_ENTER_WINDOWS,
+  LAG_EXIT_MAX_MS,
+  LAG_EXIT_WINDOWS,
+  LAG_FREEZE_MAX_MS,
+} from './background-work-governor';
+// `GovernorTimers` and `LagSampleSource` stop here, deliberately NOT in the
+// package barrel (`src/index.ts`): the first is the governor spec's fake-clock
+// seam, the second a narrowed `EventLoopMonitor` view only `attachLagSource`
+// takes. Neither is a contract an adopter depends on.
+export type {
+  BackgroundWorkSignal,
+  BackgroundWorkState,
+  BackgroundWorkStateListener,
+  ForegroundActivitySource,
+  GovernorTimers,
+  LagSampleSource,
+  WhenClearOptions,
+  WhenClearOutcome,
+} from './background-work-governor';
+
 export { armDiagnostics } from './arm-diagnostics';
 export type {
   ArmDiagnosticsOptions,

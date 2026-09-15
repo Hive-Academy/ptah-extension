@@ -98,7 +98,11 @@ import {
   INTERNAL_QUERY_SERVICE_TOKEN,
   SKILL_SYNTHESIS_TOKENS,
 } from '../di/tokens';
-import type { IInternalQuery } from '../internal-query.interface';
+import {
+  USER_ACTION_QUERY_LANE,
+  type IInternalQuery,
+  type QueryOrigin,
+} from '../internal-query.interface';
 import type {
   SkillBudgetStore,
   SkillBudgetUsage,
@@ -172,6 +176,16 @@ export const LANE_TOOL_USE_DEFAULT_MAX_TURNS = 8;
 export const SKILL_SYNTHESIS_QUERY_LANE = 'skill-synthesis';
 
 /**
+ * The internal-query lane for one call: {@link USER_ACTION_QUERY_LANE} when
+ * a user is waiting on it, else the governed {@link SKILL_SYNTHESIS_QUERY_LANE}.
+ */
+export function skillQueryLane(origin: QueryOrigin | undefined): string {
+  return origin?.userInitiated === true
+    ? USER_ACTION_QUERY_LANE
+    : SKILL_SYNTHESIS_QUERY_LANE;
+}
+
+/**
  * Result subtypes that leave the structured-output ladder eligible for its one
  * re-run: the SDK finished normally (`success`) or reported no subtype at all.
  *
@@ -197,7 +211,12 @@ export type LaneDegradedReason = Extract<
   'structured-output-unsupported' | 'tool-use-unsupported'
 >;
 
-export interface LaneRunRequest {
+/**
+ * `userInitiated` (from {@link QueryOrigin}): a user is waiting on this run, so
+ * it goes to the ungoverned `user-action` lane instead of `skill-synthesis`.
+ * Only an RPC handler's call chain sets it.
+ */
+export interface LaneRunRequest extends QueryOrigin {
   readonly laneId: SkillLaneId;
   /** Clipped to the lane's `maxInputChars` before it is sent. */
   readonly prompt: string;
@@ -311,6 +330,8 @@ interface CallOptions {
     readonly schema: Record<string, unknown>;
   };
   readonly signal?: AbortSignal;
+  /** The internal-query lane — see {@link skillQueryLane}. */
+  readonly lane: string;
 }
 
 @injectable()
@@ -417,6 +438,7 @@ export class LaneRunnerService {
       mcpServerRunning: mcp.mcpServerRunning,
       mcpPort: mcp.mcpPort,
       signal: req.signal,
+      lane: skillQueryLane(req),
     };
 
     // Attempt 1. `outputFormat` goes out only when the caller asked for JSON
@@ -575,8 +597,11 @@ export class LaneRunnerService {
         // pipeline, not independent consumers, so giving each its own slot
         // would let a single drain tick hold the whole host-wide budget. What
         // the name buys is separation from the MEMORY CURATOR, which is the
-        // unrelated pipeline this used to serialise against.
-        lane: SKILL_SYNTHESIS_QUERY_LANE,
+        // unrelated pipeline this used to serialise against. A user-initiated
+        // run (`LaneRunRequest.userInitiated`) goes to the ungoverned
+        // `user-action` lane instead, so a click never waits behind the
+        // governor or behind a wizard call on `default`.
+        lane: opts.lane,
         abortController: controller,
         // R2: BY REFERENCE. Do not spread, clone, parse or filter this.
         auth: lane.auth,
@@ -634,6 +659,12 @@ export class LaneRunnerService {
     } catch (error: unknown) {
       if (timedOut) return { kind: 'timeout' };
       if (controller.signal.aborted) return { kind: 'cancelled' };
+      // The internal-query gate rejects a queued background call with an
+      // `AbortError` when the governor is disposed (host shutdown). Nothing
+      // failed; the host is leaving. A cancellation, not a transport fault.
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { kind: 'cancelled' };
+      }
       throw error;
     } finally {
       clearTimeout(timer);

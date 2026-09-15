@@ -263,6 +263,37 @@ describe('VS Code DI — main-loop watchdog (TASK_2026_437)', () => {
 });
 
 /**
+ * `TOKENS.BACKGROUND_WORK_GOVERNOR` (TASK_2026_437 C14) is bound by
+ * `registerVsCodeCorePlatformAgnostic`, which this host reaches through
+ * `libs/backend/vscode-core/src/di/register.ts`. Pinned here rather than in `expected-resolvable.ts` (plan defect D2).
+ * Resolving attaches no lag source and arms no timer; it starts clear.
+ */
+describe('VS Code DI — background-work governor (TASK_2026_437)', () => {
+  it('resolves BACKGROUND_WORK_GOVERNOR as a clear singleton', () => {
+    const c = rootContainer.createChildContainer();
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    registerVsCodeCorePlatformAgnostic(c, logger, {
+      includeLicensingAndAuth: false,
+    });
+
+    const governor = c.resolve<{
+      isClear: () => boolean;
+      whenClear: () => Promise<string>;
+    }>(TOKENS.BACKGROUND_WORK_GOVERNOR);
+
+    expect(governor.isClear()).toBe(true);
+    expect(typeof governor.whenClear).toBe('function');
+    expect(c.resolve(TOKENS.BACKGROUND_WORK_GOVERNOR)).toBe(governor);
+  });
+});
+
+/**
  * `PLATFORM_TOKENS.WORKSPACE_WATCHER` (TASK_2026_437 C9) is bound in PHASE 0 by
  * `registerPlatformVscodeServices`, which `phase-0-platform.ts` calls. Pinned
  * here rather than in `expected-resolvable.ts` (plan defect D2). Resolving

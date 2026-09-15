@@ -1115,4 +1115,56 @@ describe('SkillCuratorService', () => {
       jest.useRealTimers();
     }
   });
+
+  /**
+   * TASK_2026_437 C14, Batch 16b. `runManual` is the `skillSynthesis:runCurator`
+   * RPC: with `userInitiated` its lane calls skip the governor. The interval
+   * pass is the daemon and never does.
+   */
+  describe('the concurrency lane of a curator pass', () => {
+    function curatorWithQuery() {
+      const query = {
+        execute: jest.fn().mockImplementation(async () => ({
+          stream: (async function* () {
+            yield {
+              type: 'assistant',
+              message: { content: [{ type: 'text', text: '[]' }] },
+            };
+            yield { type: 'result' };
+          })(),
+        })),
+      };
+      const svc = new SkillCuratorService(
+        noopLogger,
+        makeStore([fakePromotedRow('sk1')]),
+        laneRunnerFrom(query),
+        noopRateLimiter,
+        null,
+        null,
+        ...SUGGESTION_DEPS,
+      );
+      return { svc, query };
+    }
+
+    it('runManual({ userInitiated: true }) runs its lane call on the user-action lane', async () => {
+      const { svc, query } = curatorWithQuery();
+      svc.start(makeSettings());
+      await svc.runManual({ userInitiated: true });
+      expect(query.execute.mock.calls[0][0].lane).toBe('user-action');
+    });
+
+    it('the scheduled pass runs on the governed skill-synthesis lane', async () => {
+      const { svc, query } = curatorWithQuery();
+      svc.start(
+        makeSettings({ curatorEnabled: true, curatorIntervalHours: 1 }),
+      );
+      await jest.advanceTimersByTimeAsync(3_600_000);
+      for (let i = 0; i < 10 && query.execute.mock.calls.length === 0; i++) {
+        await jest.advanceTimersByTimeAsync(0);
+      }
+      svc.stop();
+      expect(query.execute).toHaveBeenCalled();
+      expect(query.execute.mock.calls[0][0].lane).toBe('skill-synthesis');
+    });
+  });
 });

@@ -30,7 +30,7 @@ DI: `TOKENS`, `registerVsCodeCoreServices`, `registerVsCodeCorePlatformAgnostic`
 Core: `Logger`, `ErrorHandler`, `ConfigManager`, `MessageValidatorService`, `ValidationError`, `MessageValidationError`, `PtahError`.
 API wrappers: `CommandManager`, `WebviewManager`, `OutputManager`, `StatusBarManager`, `FileSystemManager`.
 Messaging: `RpcHandler`, `RpcUserError`, `verifyRpcRegistration`, `assertRpcRegistration`.
-Diagnostics: `armDiagnostics` (+ `DiagnosticsHandle`), `EventLoopMonitor`, `CpuProfileCapture`, `readMsEnv`, `roundMs` — see "Diagnosing a hang".
+Diagnostics: `armDiagnostics` (+ `DiagnosticsHandle`), `EventLoopMonitor`, `CpuProfileCapture`, `readMsEnv`, `roundMs` — see "Diagnosing a hang". Background work: `BackgroundWorkGovernor`, `DEFAULT_MAX_DEFER_MS`, and the types `BackgroundWorkSignal`, `BackgroundWorkState`, `ForegroundActivitySource`, `WhenClearOptions`, `WhenClearOutcome` — see "Background work yields".
 Degradation: `DegradationReporter`, `MAX_TRACKED_DEGRADATION_CODES`, and the types `DegradationReport`, `DegradationCount`, `DegradationSnapshot` — see "Counting a degradation".
 Services: `SubagentRegistryService`, `WebviewMessageHandlerService`, `AuthSecretsService`, `LicenseService`.
 Git: `GitInfoService`, `execGit`, `DEFAULT_GIT_TIMEOUT_MS`, `WORKTREE_GIT_TIMEOUT_MS`, `DEFAULT_GIT_MAX_OUTPUT_BYTES`, `GIT_STATUS_MAX_OUTPUT_BYTES`, `DEFAULT_GIT_MAX_CONCURRENT`, `MIN_GIT_MAX_CONCURRENT`, `GitOutputLimitError` (`code: 'GIT_OUTPUT_LIMIT'`), `configureGitProcessGate` (+ `GitProcessGateConfig`), and the types `ExecGitOptions`, `ExecGitResult`, `GitGateLane`. Every git child waits in one process-wide gate (TASK_2026_437 C11): at most `PTAH_GIT_MAX_CONCURRENT` live, background-priority and >60 s calls capped at max-1 so interactive reads always have a slot, and a slot is held until the child exits. The gate is a module instance, not DI — `execGit` is a free function called without a container; `registerVsCodeCorePlatformAgnostic` hands it the host logger in all three hosts (first configuration wins).
@@ -51,15 +51,15 @@ env vars only change thresholds; the CPU profiler stays dormant unless asked.
 
 ### Environment variables
 
-| Variable                    | Default | Effect                                                                       |
-| --------------------------- | ------- | ---------------------------------------------------------------------------- |
-| `PTAH_LOOP_LAG_WARN_MS`     | `250`   | Warn `[event-loop] lag` when a 2 s window's worst delay hits this.           |
-| `PTAH_RPC_SLOW_WARN_MS`     | `2000`  | Warn `[RPC] slow handler` with the method name and duration.                 |
-| `PTAH_MCP_SLOW_WARN_MS`     | `2000`  | Warn `[MCP] slow tool` with the tool name and duration.                      |
-| `PTAH_SQLITE_SLOW_WARN_MS`  | `50`    | Warn `[SQLite] slow statement` with SQL, op, rows and duration.              |
-| `PTAH_HISTORY_SLOW_WARN_MS` | `250`   | Warn `[SessionHistoryReader] slow history read` with the phase split.        |
-| `PTAH_PROFILE_ON_LAG_MS`    | unset   | When set, lag above it auto-captures a 10 s CPU profile (max one per 5 min). |
-| `PTAH_PROFILE_DIR`          | unset   | Override where `.cpuprofile` files are written.                              |
+| Variable                    | Default | Effect                                                                                                                  |
+| --------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `PTAH_LOOP_LAG_WARN_MS`     | `250`   | Warn `[event-loop] lag` when a 2 s window's worst delay hits this.                                                      |
+| `PTAH_RPC_SLOW_WARN_MS`     | `2000`  | Warn `[RPC] slow handler` with the method name and duration.                                                            |
+| `PTAH_MCP_SLOW_WARN_MS`     | `2000`  | Warn `[MCP] slow tool` with the tool name and duration.                                                                 |
+| `PTAH_SQLITE_SLOW_WARN_MS`  | `50`    | Warn `[SQLite] slow statement` with SQL, op, rows and duration.                                                         |
+| `PTAH_HISTORY_SLOW_WARN_MS` | `250`   | Warn `[SessionHistoryReader] slow history read` with the phase split.                                                   |
+| `PTAH_PROFILE_ON_LAG_MS`    | unset   | When set, lag above it auto-captures a 10 s CPU profile (max one per 5 min).                                            |
+| `PTAH_PROFILE_DIR`          | unset   | Override where `.cpuprofile` files are written.                                                                         |
 | `PTAH_GIT_MAX_CONCURRENT`   | `4`     | Live git children process-wide (`exec-git` gate); minimum 2 (lower is raised, logged once); background lane gets max-1. |
 
 A malformed or non-positive value is ignored and the default applies — a typo in
@@ -168,6 +168,58 @@ it was frozen. A `hang` whose `blockedForMs` matches a `window-unresponsive` →
 with no watchdog `hang` points at the renderer, or at a main-loop block shorter
 than 5 s — check `[event-loop] lag` for the same minute.
 
+### Background work yields (`BackgroundWorkGovernor`)
+
+`src/diagnostics/background-work-governor.ts` (TASK_2026_437 C14, INV-7),
+token `TOKENS.BACKGROUND_WORK_GOVERNOR`, registered in every host by
+`registerVsCodeCorePlatformAgnostic` (a caching factory; constructing it starts
+nothing). It answers "may background work start a unit now?" and owns derived
+state only: `clear | foreground-busy | lagging | disposed`.
+
+- **Foreground**: `addForegroundSource({ isForegroundBusy, onForegroundChange })`.
+  agent-sdk's `registerSdkServices` adds `TurnStateForegroundSource` over
+  `SessionTurnStateRegistry` (busy while a session is `generating`, except a
+  record generating longer than 60 min, which is ignored for this signal with
+  one warn). The source is structural because this lib cannot import agent-sdk.
+- **Lag**: `armDiagnostics` calls `attachLagSource(monitor)`, which reads
+  `EventLoopMonitor.onSample` (every 2 s window, not only breaches). Enter
+  `lagging` at p99 > 100 ms for 2 windows, OR at once when one window's max
+  reaches `LAG_FREEZE_MAX_MS` (1 s). The second rule exists because a total
+  freeze yields at most one post-freeze window with a healthy p99, so the
+  2-window rule never fires. Leave at max < 40 ms for 3 windows. The CLI
+  without `--verbose` never arms diagnostics, so it gates on the foreground
+  signal alone.
+- **Freeze visibility**: `monitorEventLoopDelay` can miss a whole freeze. On
+  Node 24.15, a 1.5 s or 5 s block that starts within 20 ms after `reset()`
+  left `max` at 0-33 ms in every window. So `EventLoopMonitor` takes `maxMs` as
+  the larger of the histogram max and its own sampler tick's lateness. The
+  remaining gap is a block shorter than 2 s that starts in that 20 ms slot and
+  ends before the next tick. A machine sleep also reads as one lag window after
+  resume.
+- **API**: `isClear()`, `onChange(listener)` (real transitions only, a throwing
+  listener is logged), `whenClear({ signal?, maxDeferMs?, lane? })` →
+  `'clear' | 'timeout'`. The ceiling defaults to `DEFAULT_MAX_DEFER_MS`
+  (10 min); at it the waiter resolves `'timeout'` and the work runs (R-P7:
+  never starved). The `[background-work] deferral ceiling reached — proceeding`
+  line is logged once per lane per deferral episode (an episode ends at the
+  next `clear`). Abort rejects with `AbortError` and removes the waiter. A
+  throwing foreground source counts as idle (fail open). Ceiling timers are
+  `unref()`-ed.
+- **Shutdown**: `dispose()` is terminal. It moves to `disposed` first, tells
+  listeners `'disposed'`, and rejects pending `whenClear` waiters with
+  `AbortError`. It never releases them as `clear`, because that would start
+  background jobs during quit. The diagnostics handle's `dispose` calls it in
+  Electron (`shutdown.ts`), VS Code (`deactivate`) and the CLI with `--verbose`.
+  The CLI without `--verbose` disposes it through `disposeDiagnostics`.
+- **Adopters** depend on `BackgroundWorkSignal` (`isClear` + `onChange`) or
+  `whenClear`, and treat a `'disposed'` notification as cancellation. If the
+  governor cannot be resolved, an adopter treats the gate as always clear and
+  reports ONE degradation. First adopter: `InternalQueryConcurrencyGate` in
+  agent-sdk. It governs only the allow-list `GOVERNED_BACKGROUND_LANES`
+  (`memory-curator`, `skill-synthesis`). `default` (wizard, harness, cron),
+  `user-action` (RPC-driven clicks) and any unlisted lane are never governed. A
+  new background lane must be added to that list.
+
 ## Counting a degradation
 
 `src/logging/degradation-reporter.ts` (TASK_2026_383) is the one way a site that
@@ -223,7 +275,7 @@ on its **own** line. Run it with `npx nx run degradation-audit:lint`.
 
 ## Internal Structure
 
-- `src/diagnostics/` — `EventLoopMonitor`, `CpuProfileCapture`, `MainLoopWatchdog`, `armDiagnostics`
+- `src/diagnostics/` — `EventLoopMonitor`, `CpuProfileCapture`, `MainLoopWatchdog`, `BackgroundWorkGovernor`, `armDiagnostics`
 - `src/api-wrappers/` — VS Code API wrappers
 - `src/logging/` — `Logger`, `DegradationReporter`
 - `src/error-handling/` — `ErrorHandler`

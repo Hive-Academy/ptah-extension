@@ -32,7 +32,7 @@ Domain types: `Memory`, `MemoryChunk`, `MemoryId`, `ChunkId`, `MemoryTier`, `Mem
 Services: `MemoryStore`, `MemorySearchService`, `SalienceScorer`, `MemoryDecayJob`, `MemoryCuratorService`, `EmbedderWorkerClient`, `MemoryWriterAdapter`, `IndexingControlService`.
 Helpers: `sha256Hex`, `formatSeedPrefix`, `parseSeedPrefix`, `deriveWorkspaceFingerprint`, `deriveGitHeadSha`.
 DI: `MEMORY_TOKENS`, `MemoryDIToken`, `registerMemoryCuratorServices`.
-Re-exports `ICuratorLLM`, `ExtractedMemoryDraft`, `ResolvedMemoryDraft` from `memory-contracts`.
+Re-exports `ICuratorLLM`, `CuratorCallOptions`, `ExtractedMemoryDraft`, `ResolvedMemoryDraft` from `memory-contracts`. `curate({ userInitiated })` forwards `CuratorCallOptions` to every extract window and the resolve call; only the `memory:runNow` RPC sets it, and the adapter then runs on the ungoverned `user-action` lane (TASK_2026_437 C14). A user-initiated call that coalesces onto an in-flight background pass for the same session gets that pass on its original lane, and `CuratorJobQueue` still orders it behind any queued pass.
 
 ## Internal Structure
 

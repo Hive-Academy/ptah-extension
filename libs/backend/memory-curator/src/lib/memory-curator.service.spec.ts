@@ -403,7 +403,9 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
     expect(stats.merged).toBe(0);
     expect(stats.skipped).toBe(0);
 
-    expect(extract).toHaveBeenCalledWith(recordedTranscript, undefined);
+    expect(extract).toHaveBeenCalledWith(recordedTranscript, undefined, {
+      userInitiated: undefined,
+    });
     expect(insertMemoryWithChunks).toHaveBeenCalledTimes(1);
 
     const insertedMemory = (insertMemoryWithChunks as jest.Mock).mock
@@ -1819,5 +1821,118 @@ describe('MemoryCuratorService — a pass that never read its input reports STAL
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+/**
+ * TASK_2026_437 C14, Batch 16b. `memory:runNow` is the one curate a user waits
+ * on: it passes `userInitiated`, and every LLM call of that pass — each extract
+ * window and the resolve — must carry it so the adapter skips the governor. A
+ * trigger-driven pass carries nothing.
+ */
+describe('MemoryCuratorService — userInitiated reaches every curator LLM call', () => {
+  function harness() {
+    const draft = {
+      kind: 'fact' as const,
+      subject: 'ptah',
+      content: 'lanes exist',
+      salienceHint: 0.5,
+    };
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [draft] });
+    const resolve = jest
+      .fn()
+      .mockResolvedValue([{ ...draft, mergeTargetId: null }]);
+    const svc = new MemoryCuratorService(
+      makeLogger(),
+      {
+        register: jest.fn(() => () => undefined),
+      } as unknown as ICompactionCallbackRegistry,
+      {
+        list: jest.fn(() => ({ memories: [], total: 0 })),
+        insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
+        appendChunks: jest.fn().mockResolvedValue(undefined),
+        getById: jest.fn(),
+        updateSalience: jest.fn(),
+      } as unknown as MemoryStore,
+      { score: jest.fn(() => 0.75) } as unknown as SalienceScorer,
+      { read: jest.fn() } as unknown as ITranscriptReader,
+      { extract, resolve } as unknown as ICuratorLLM,
+    );
+    return { svc, extract, resolve };
+  }
+
+  it('passes { userInitiated: true } to extract and resolve for the runNow pass', async () => {
+    const { svc, extract, resolve } = harness();
+
+    await svc.curate({
+      sessionId: 'manual-1',
+      workspaceRoot: '/ws',
+      transcript: '{"type":"user","content":"remember the lanes"}',
+      userInitiated: true,
+    });
+
+    expect(extract).toHaveBeenCalled();
+    for (const call of extract.mock.calls) {
+      expect(call[2]).toEqual({ userInitiated: true });
+    }
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(resolve.mock.calls[0][3]).toEqual({ userInitiated: true });
+  });
+
+  it('logs once when a user-initiated curate joins an in-flight pass, and changes nothing else', async () => {
+    const { svc, extract } = harness();
+    const logger = (svc as unknown as { logger: { info: jest.Mock } }).logger;
+    let releaseExtract: () => void = () => undefined;
+    extract.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseExtract = () => resolve({ status: 'extracted', drafts: [] });
+        }),
+    );
+    const input = {
+      sessionId: 'shared-1',
+      workspaceRoot: '/ws',
+      transcript: '{"type":"user","content":"remember the lanes"}',
+    };
+
+    const background = svc.curate(input);
+    const manual = svc.curate({ ...input, userInitiated: true });
+
+    const joined = logger.info.mock.calls.filter((call) =>
+      String(call[0]).includes('joined an in-flight pass'),
+    );
+    expect(joined).toEqual([
+      [
+        "[memory-curator] user-initiated curate joined an in-flight pass; it keeps that pass's lane",
+        { sessionId: 'shared-1' },
+      ],
+    ]);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    releaseExtract();
+    const [backgroundStats, manualStats] = await Promise.all([
+      background,
+      manual,
+    ]);
+    // One pass, shared: the manual call got the background pass's result, and
+    // that pass ran on its own (background) options.
+    expect(manualStats).toEqual(backgroundStats);
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(extract.mock.calls[0][2]).toEqual({ userInitiated: undefined });
+  });
+
+  it('leaves userInitiated unset for a pass nobody is waiting on', async () => {
+    const { svc, extract, resolve } = harness();
+
+    await svc.curate({
+      sessionId: 'trigger-1',
+      workspaceRoot: '/ws',
+      transcript: '{"type":"user","content":"remember the lanes"}',
+    });
+
+    expect(extract.mock.calls[0][2]).toEqual({ userInitiated: undefined });
+    expect(resolve.mock.calls[0][3]).toEqual({ userInitiated: undefined });
   });
 });

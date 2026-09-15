@@ -98,8 +98,12 @@ const NS_PER_MS = 1e6;
 export class EventLoopMonitor {
   private histogram: IntervalHistogram | undefined;
   private sampler: ReturnType<typeof setInterval> | undefined;
+  private sampleIntervalMs = DEFAULT_EVENT_LOOP_SAMPLE_INTERVAL_MS;
+  /** `performance.now()` at the previous read — the freeze fallback's clock. */
+  private lastSampleAt = 0;
   private warnThresholdMs = DEFAULT_EVENT_LOOP_LAG_WARN_MS;
   private readonly listeners = new Set<EventLoopLagListener>();
+  private readonly sampleListeners = new Set<EventLoopLagListener>();
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
@@ -127,6 +131,23 @@ export class EventLoopMonitor {
   }
 
   /**
+   * Subscribe to EVERY window, breach or not (TASK_2026_437 C14).
+   *
+   * `onLag` cannot serve a consumer with hysteresis: the
+   * `BackgroundWorkGovernor` has to see quiet windows to know lag has ENDED,
+   * and `onLag` is silent for exactly those. Listeners here run before the
+   * threshold test and are isolated the same way.
+   *
+   * @returns An unsubscribe function.
+   */
+  onSample(listener: EventLoopLagListener): () => void {
+    this.sampleListeners.add(listener);
+    return () => {
+      this.sampleListeners.delete(listener);
+    };
+  }
+
+  /**
    * Begin sampling. Idempotent — a second call while running is a no-op, so a
    * host that arms the monitor in two places cannot end up with two histograms
    * silently halving each other's windows.
@@ -140,6 +161,8 @@ export class EventLoopMonitor {
       DEFAULT_EVENT_LOOP_LAG_WARN_MS;
     const sampleIntervalMs =
       options.sampleIntervalMs ?? DEFAULT_EVENT_LOOP_SAMPLE_INTERVAL_MS;
+    this.sampleIntervalMs = sampleIntervalMs;
+    this.lastSampleAt = performance.now();
 
     const histogram = monitorEventLoopDelay({
       resolution: HISTOGRAM_RESOLUTION_MS,
@@ -176,6 +199,7 @@ export class EventLoopMonitor {
       this.histogram = undefined;
     }
     this.listeners.clear();
+    this.sampleListeners.clear();
   }
 
   /**
@@ -185,17 +209,42 @@ export class EventLoopMonitor {
    * warning must describe ITS OWN window. Without the reset `max` is a
    * high-water mark for the whole session, so one early stall would keep every
    * later window above the threshold forever.
+   *
+   * ## `maxMs` also counts this sampler's own lateness (TASK_2026_437 C14)
+   *
+   * The histogram can MISS a total freeze. Measured on Node 24.15: a 1.5 s and
+   * a 5 s synchronous block that began within one histogram resolution (20 ms)
+   * after `reset()` left `max` at 0-33 ms in every later window, while the same
+   * block started later was recorded at full length. The interval's own
+   * lateness (`now - lastSampleAt - interval`) is independent of that, and it
+   * sees every block that spans a sample tick. `maxMs` is the larger of the
+   * two, so the post-freeze window carries the freeze whichever one saw it.
+   * Residual: a block shorter than one interval that starts inside that 20 ms
+   * post-reset slot and ends before the next tick is seen by neither. Cost: a
+   * machine sleep also makes the tick late, so the first window after resume
+   * reads as one lag window (one warn line; the governor holds background work
+   * for its 3-window exit, about 6 s).
    */
   private sample(): void {
     const histogram = this.histogram;
     if (histogram === undefined) return;
 
+    const now = performance.now();
+    const lateMs = Math.max(0, now - this.lastSampleAt - this.sampleIntervalMs);
+    this.lastSampleAt = now;
+
     const sample: EventLoopLagSample = {
-      maxMs: toMs(histogram.max),
+      maxMs: Math.max(toMs(histogram.max), roundMs(lateMs)),
       p99Ms: toMs(histogram.percentile(99)),
       meanMs: toMs(histogram.mean),
     };
     histogram.reset();
+
+    this.notify(
+      this.sampleListeners,
+      sample,
+      '[event-loop] sample listener threw',
+    );
 
     if (sample.maxMs < this.warnThresholdMs) return;
 
@@ -203,22 +252,26 @@ export class EventLoopMonitor {
       maxMs: sample.maxMs,
       p99Ms: sample.p99Ms,
     });
-    this.notify(sample);
+    this.notify(this.listeners, sample, '[event-loop] lag listener threw');
   }
 
   /**
-   * Fan a breach out to subscribers, isolating each one.
+   * Fan a sample out to one listener set, isolating each listener.
    *
    * A listener throwing (the CPU-profile auto-capture is one) must not kill the
    * sampling interval — losing the lag log at the exact moment lag is happening
    * is the worst possible failure mode for this class.
    */
-  private notify(sample: EventLoopLagSample): void {
-    for (const listener of this.listeners) {
+  private notify(
+    listeners: ReadonlySet<EventLoopLagListener>,
+    sample: EventLoopLagSample,
+    failureMessage: string,
+  ): void {
+    for (const listener of listeners) {
       try {
         listener(sample);
       } catch (error: unknown) {
-        this.logger.warn('[event-loop] lag listener threw', {
+        this.logger.warn(failureMessage, {
           reason: error instanceof Error ? error.message : String(error),
         });
       }

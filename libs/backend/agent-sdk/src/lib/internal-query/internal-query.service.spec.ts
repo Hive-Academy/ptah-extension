@@ -1,16 +1,21 @@
 import 'reflect-metadata';
 
 import {
-  InternalQueryConcurrencyGate,
   InternalQueryService,
-  DEFAULT_MAX_CONCURRENT,
-  DEFAULT_MAX_CONCURRENT_PER_LANE,
   INTERNAL_QUERY_CONCURRENCY_KEY,
   INTERNAL_QUERY_LANE_CONCURRENCY_KEY,
 } from './internal-query.service';
+import { DEFAULT_MAX_CONCURRENT } from './internal-query-concurrency-gate';
 import { InternalQueryQueueTimeoutError } from '../errors/internal-query-queue-timeout.error';
 import type { InternalQueryConfig } from './internal-query.types';
-import type { Logger } from '@ptah-extension/vscode-core';
+import {
+  BackgroundWorkGovernor,
+  type BackgroundWorkSignal,
+  type DegradationReporter,
+  type Logger,
+} from '@ptah-extension/vscode-core';
+import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
+import { TurnStateForegroundSource } from '../helpers/turn-state-foreground-source';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   SdkQueryRunner,
@@ -198,6 +203,10 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
   function makeGatedHarness(
     maxConcurrent?: number,
     maxConcurrentPerLane?: number,
+    collaborators: {
+      governor?: BackgroundWorkSignal;
+      degradation?: Pick<DegradationReporter, 'report'>;
+    } = {},
   ): GatedHarness {
     const finishers: Array<() => void> = [];
     let started = 0;
@@ -242,6 +251,8 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
       { runOneShot } as unknown as SdkQueryRunner,
       makeLogger(),
       workspace,
+      collaborators.governor ?? null,
+      (collaborators.degradation as DegradationReporter | undefined) ?? null,
     );
 
     return {
@@ -488,175 +499,74 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
       void queued;
     });
   });
-});
 
-describe('InternalQueryConcurrencyGate', () => {
-  /** One-lane acquire at the classic single-slot setting. */
-  function acquire(
-    gate: InternalQueryConcurrencyGate,
-    opts: {
-      limit?: number;
-      perLaneLimit?: number;
-      lane?: string;
-      signal?: AbortSignal;
-      queueTimeoutMs?: number;
-    } = {},
-  ): Promise<() => void> {
-    return gate.acquire({
-      limit: opts.limit ?? 1,
-      perLaneLimit: opts.perLaneLimit ?? 1,
-      lane: opts.lane ?? 'default',
-      signal: opts.signal,
-      queueTimeoutMs: opts.queueTimeoutMs,
-    });
-  }
+  /**
+   * TASK_2026_437 C14 / AC-9 — background lanes yield to the foreground. Driven
+   * through the REAL governor and the REAL turn-state registry, joined exactly
+   * as `di/register.ts` joins them, so the seam itself is under test.
+   */
+  describe('background-work governor (TASK_2026_437 C14)', () => {
+    function makeForeground() {
+      const turns = new SessionTurnStateRegistry();
+      const governor = new BackgroundWorkGovernor(makeLogger());
+      governor.addForegroundSource(
+        new TurnStateForegroundSource(turns, makeLogger()),
+      );
+      return { turns, governor };
+    }
 
-  it('hands slots out in FIFO order', async () => {
-    const gate = new InternalQueryConcurrencyGate();
-    const order: number[] = [];
+    it('admits 0 background-lane queries while a turn generates, then drains on idle (AC-9)', async () => {
+      const { turns, governor } = makeForeground();
+      const h = makeGatedHarness(3, 1, { governor });
 
-    const release = await acquire(gate);
-    const second = acquire(gate).then((r) => {
-      order.push(2);
-      return r;
-    });
-    const third = acquire(gate).then((r) => {
-      order.push(3);
-      return r;
+      turns.markGenerating('session-1');
+      const curator = h.service.execute(makeConfig({ lane: 'memory-curator' }));
+      const skills = h.service.execute(makeConfig({ lane: 'skill-synthesis' }));
+      await settle();
+      expect(h.started()).toBe(0);
+
+      // The default lane is user-initiated and never governed.
+      await h.service.execute(makeConfig());
+      expect(h.started()).toBe(1);
+
+      turns.settleTurn('session-1');
+      await Promise.all([curator, skills]);
+      expect(h.started()).toBe(3);
     });
 
-    expect(gate.queued).toBe(2);
-    release();
-    (await second)();
-    (await third)();
+    it('reports the missing governor exactly once, on the first background call', async () => {
+      const degradation = { report: jest.fn() };
+      const h = makeGatedHarness(3, 3, { degradation });
 
-    expect(order).toEqual([2, 3]);
-    expect(gate.queued).toBe(0);
-    expect(gate.inFlight).toBe(0);
-  });
+      await h.service.execute(makeConfig());
+      expect(degradation.report).not.toHaveBeenCalled();
 
-  it('treats release as idempotent', async () => {
-    const gate = new InternalQueryConcurrencyGate();
-    const release = await acquire(gate);
+      await h.service.execute(makeConfig({ lane: 'memory-curator' }));
+      await h.service.execute(makeConfig({ lane: 'skill-synthesis' }));
 
-    release();
-    release();
-
-    expect(gate.inFlight).toBe(0);
-  });
-
-  describe('per-lane ceilings', () => {
-    it('admits two lanes at once but only one call per lane', async () => {
-      const gate = new InternalQueryConcurrencyGate();
-
-      await acquire(gate, { limit: 2, lane: 'a' });
-      await acquire(gate, { limit: 2, lane: 'b' });
-      const queued = acquire(gate, { limit: 2, lane: 'a' });
-
-      expect(gate.inFlight).toBe(2);
-      expect(gate.inFlightForLane('a')).toBe(1);
-      expect(gate.inFlightForLane('b')).toBe(1);
-      expect(gate.queued).toBe(1);
-
-      void queued;
+      // Always clear without a governor: nothing waited.
+      expect(h.started()).toBe(3);
+      expect(degradation.report).toHaveBeenCalledTimes(1);
+      expect(degradation.report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'agent',
+          code: 'agent.internal-query.ungoverned',
+          severity: 'degraded',
+        }),
+      );
     });
 
-    /**
-     * The reason `drain` scans instead of waking the head. With a strict FIFO
-     * pop, the lane-`a` waiter at the front — inadmissible, because lane `a` is
-     * already at its ceiling — would block the lane-`b` waiter behind it, which
-     * is the cross-pipeline coupling the lanes exist to remove.
-     */
-    it('a lane-blocked waiter does not block an admissible one behind it', async () => {
-      const gate = new InternalQueryConcurrencyGate();
-      const woken: string[] = [];
-
-      const releaseA = await acquire(gate, { limit: 2, lane: 'a' });
-      const releaseB = await acquire(gate, { limit: 2, lane: 'b' });
-
-      const queuedA = acquire(gate, { limit: 2, lane: 'a' }).then((r) => {
-        woken.push('a');
-        return r;
-      });
-      const queuedB = acquire(gate, { limit: 2, lane: 'b' }).then((r) => {
-        woken.push('b');
-        return r;
+    it('reports nothing when a governor is present', async () => {
+      const degradation = { report: jest.fn() };
+      const { governor } = makeForeground();
+      const h = makeGatedHarness(undefined, undefined, {
+        governor,
+        degradation,
       });
 
-      // Free lane b's slot. Only the lane-b waiter is admissible.
-      releaseB();
-      (await queuedB)();
+      await h.service.execute(makeConfig({ lane: 'memory-curator' }));
 
-      expect(woken).toEqual(['b']);
-
-      releaseA();
-      (await queuedA)();
-      expect(woken).toEqual(['b', 'a']);
-      expect(gate.inFlight).toBe(0);
+      expect(degradation.report).not.toHaveBeenCalled();
     });
-
-    it('keeps FIFO order within one lane', async () => {
-      const gate = new InternalQueryConcurrencyGate();
-      const order: number[] = [];
-
-      let release = await acquire(gate, { limit: 2, lane: 'a' });
-      const first = acquire(gate, { limit: 2, lane: 'a' }).then((r) => {
-        order.push(1);
-        return r;
-      });
-      const second = acquire(gate, { limit: 2, lane: 'a' }).then((r) => {
-        order.push(2);
-        return r;
-      });
-
-      release();
-      release = await first;
-      release();
-      (await second)();
-
-      expect(order).toEqual([1, 2]);
-    });
-
-    it('forgets a lane once its last holder releases', async () => {
-      const gate = new InternalQueryConcurrencyGate();
-      const release = await acquire(gate, { lane: 'transient' });
-
-      expect(gate.inFlightForLane('transient')).toBe(1);
-      release();
-      // The map is keyed by caller-supplied strings; an entry that outlived its
-      // last holder would be an unbounded leak on a host with dynamic lanes.
-      expect(gate.inFlightForLane('transient')).toBe(0);
-    });
-
-    it('falls back to the defaults for a nonsensical limit', async () => {
-      const gate = new InternalQueryConcurrencyGate();
-
-      await gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'a' });
-      await gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'b' });
-      const queued = gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'c' });
-
-      expect(gate.inFlight).toBe(DEFAULT_MAX_CONCURRENT);
-      expect(gate.inFlightForLane('a')).toBe(DEFAULT_MAX_CONCURRENT_PER_LANE);
-      expect(gate.queued).toBe(1);
-
-      void queued;
-    });
-  });
-
-  it('rejects a queued waiter with InternalQueryQueueTimeoutError after the ceiling', async () => {
-    const gate = new InternalQueryConcurrencyGate();
-    const release = await acquire(gate);
-    const queued = acquire(gate, { queueTimeoutMs: 20 });
-
-    await expect(queued).rejects.toThrow(InternalQueryQueueTimeoutError);
-    await expect(queued).rejects.toMatchObject({ queueTimeoutMs: 20 });
-
-    // The departed waiter is gone from the queue, and the slot is still held
-    // by the first caller until it releases.
-    expect(gate.queued).toBe(0);
-    expect(gate.inFlight).toBe(1);
-
-    release();
-    expect(gate.inFlight).toBe(0);
   });
 });

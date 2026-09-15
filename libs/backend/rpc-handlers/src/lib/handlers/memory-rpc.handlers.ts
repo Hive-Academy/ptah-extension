@@ -623,6 +623,9 @@ export class MemoryRpcHandlers {
           const stats = await this.curator.curate({
             sessionId: validated.sessionId,
             workspaceRoot: validated.workspaceRoot,
+            // A user is waiting: the pass's LLM calls skip the background-work
+            // governor (TASK_2026_437 C14, Batch 16b). Only this RPC sets it.
+            userInitiated: true,
           });
           // `outcome` rides both the event and the response — TASK_2026_306
           // Batch 10, F-1.

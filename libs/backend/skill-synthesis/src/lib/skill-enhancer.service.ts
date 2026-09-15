@@ -14,7 +14,8 @@ import type {
   UserLayerMirrorService,
   WriteEnhancedResult,
 } from '@ptah-extension/agent-generation';
-import type { IInternalQuery } from './internal-query.interface';
+import type { IInternalQuery, QueryOrigin } from './internal-query.interface';
+import { skillQueryLane } from './lanes/lane-runner.service';
 import type {
   SkillCandidateRow,
   SkillSynthesisSettings,
@@ -88,7 +89,13 @@ export const PROPOSAL_TTL_MS = 15 * 60 * 1000;
 /** Hard cap on cached proposals; oldest is evicted first (insertion order). */
 export const MAX_CACHED_PROPOSALS = 20;
 
-export interface EnhanceOptions {
+/**
+ * `userInitiated` (from `QueryOrigin`): a user is waiting, so the candidate and
+ * judge calls skip the background-work governor. Independent of `manual` — a
+ * manual CURATOR run sets it without `manual`, so it keeps the cooldowns.
+ */
+export interface EnhanceOptions extends QueryOrigin {
+  /** Bypass the auto-enhance cooldown, invocation floor and win-rate skip. */
   readonly manual?: boolean;
   readonly kind?: SkillRegistryKind;
 }
@@ -362,6 +369,9 @@ export class SkillEnhancerService {
         cwd,
         kind,
         scorecardBlock,
+        // A user action (an RPC) skips the governor; the curator daemon's
+        // automatic pass must yield to it (C14).
+        skillQueryLane(options),
       );
       if (!candidateBody) {
         return { ...base, currentBody, skipReason: 'empty-candidate' };
@@ -383,6 +393,8 @@ export class SkillEnhancerService {
         candidateBody,
         settings,
         scorecardBlock ?? undefined,
+        undefined,
+        { userInitiated: options.userInitiated },
       );
 
       const judged: GenerateProposalResult = {
@@ -695,8 +707,9 @@ export class SkillEnhancerService {
     currentBody: string,
     settings: SkillSynthesisSettings,
     cwd: string,
-    kind: SkillRegistryKind = 'skill',
-    scorecardBlock: string | null = null,
+    kind: SkillRegistryKind,
+    scorecardBlock: string | null,
+    lane: string,
   ): Promise<string | null> {
     if (!this.internalQuery) return null;
     const stats = this.candidates.getInvocationStats(slug);
@@ -758,6 +771,7 @@ export class SkillEnhancerService {
         prompt,
         ...resolveMcpSessionWiring(this.mcpServerStatus),
         maxTurns: 1,
+        lane,
         abortController,
       });
       let collected = '';

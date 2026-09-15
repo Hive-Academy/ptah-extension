@@ -1006,4 +1006,46 @@ describe('SkillPromotionService', () => {
     expect(decision.promoted).toBe(true);
     expect(decision.filePath).toBe('/orig/SKILL.md');
   });
+
+  /**
+   * TASK_2026_437 C14, Batch 16b. A manual promote (RPC) hands its origin to
+   * the judge; an automatic one (the invocation tracker) hands nothing.
+   */
+  describe('the origin handed to the judge', () => {
+    function withJudge() {
+      const judge = {
+        judge: jest.fn(async (..._args: unknown[]) => ({
+          status: 'unscored' as const,
+          score: null,
+          criteria: null,
+          reason: 'judge-call-threw',
+        })),
+      };
+      const store = makeStore(row({ successCount: 5 }));
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        judge as unknown as ConstructorParameters<
+          typeof SkillPromotionService
+        >[4],
+      );
+      return { svc, judge };
+    }
+
+    it('forwards userInitiated from a manual promote', async () => {
+      const { svc, judge } = withJudge();
+      await svc.evaluate('cand_test' as CandidateId, SETTINGS, undefined, {
+        userInitiated: true,
+      });
+      expect(judge.judge.mock.calls[0][5]).toEqual({ userInitiated: true });
+    });
+
+    it('hands an empty origin when the caller named none', async () => {
+      const { svc, judge } = withJudge();
+      await svc.evaluate('cand_test' as CandidateId, SETTINGS);
+      expect(judge.judge.mock.calls[0][5]).toEqual({});
+    });
+  });
 });

@@ -171,6 +171,90 @@ describe('EventLoopMonitor', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it('notifies onSample subscribers for EVERY window, quiet ones included', () => {
+    const histogram = createHistogram(30, 20);
+    monitorMock.mockReturnValue(histogram);
+    const onSample = jest.fn();
+    const onLag = jest.fn();
+    monitor.onLag(onLag);
+    const unsubscribe = monitor.onSample(onSample);
+
+    monitor.start({ warnThresholdMs: 250 });
+    tick();
+    histogram.max = 900 * NS_PER_MS;
+    tick();
+
+    // The governor's exit hysteresis needs the quiet window; onLag never sees it.
+    expect(onSample).toHaveBeenNthCalledWith(1, {
+      maxMs: 30,
+      p99Ms: 20,
+      meanMs: 15,
+    });
+    expect(onSample).toHaveBeenCalledTimes(2);
+    expect(onLag).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    tick();
+    expect(onSample).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a freeze the histogram missed, from the sampler tick arriving late', () => {
+    // The histogram misses a block that starts just after reset(); the
+    // interval's own lateness does not (see `sample()`).
+    monitorMock.mockReturnValue(createHistogram(30, 20));
+    const nowSpy = jest.spyOn(performance, 'now');
+    try {
+      nowSpy.mockReturnValue(10_000);
+      const onSample = jest.fn();
+      monitor.onSample(onSample);
+      monitor.start({ warnThresholdMs: 250, sampleIntervalMs: 2_000 });
+
+      nowSpy.mockReturnValue(12_005); // on time
+      tick();
+      nowSpy.mockReturnValue(15_505); // due at 14_005: 1_500 ms late
+      tick();
+
+      expect(onSample).toHaveBeenNthCalledWith(1, {
+        maxMs: 30,
+        p99Ms: 20,
+        meanMs: 15,
+      });
+      expect(onSample).toHaveBeenNthCalledWith(2, {
+        maxMs: 1_500,
+        p99Ms: 20,
+        meanMs: 15,
+      });
+      expect(logger.warn).toHaveBeenCalledWith('[event-loop] lag', {
+        maxMs: 1_500,
+        p99Ms: 20,
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('keeps sampling and still warns when a sample listener throws', () => {
+    monitorMock.mockReturnValue(createHistogram(500, 400));
+    const onLag = jest.fn();
+    monitor.onSample(() => {
+      throw new Error('governor exploded');
+    });
+    monitor.onLag(onLag);
+
+    monitor.start({ warnThresholdMs: 250 });
+
+    expect(() => tick()).not.toThrow();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[event-loop] sample listener threw',
+      { reason: 'governor exploded' },
+    );
+    expect(logger.warn).toHaveBeenCalledWith('[event-loop] lag', {
+      maxMs: 500,
+      p99Ms: 400,
+    });
+    expect(onLag).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps sampling when a listener throws', () => {
     monitorMock.mockReturnValue(createHistogram(500, 400));
     monitor.onLag(() => {
@@ -202,7 +286,9 @@ describe('EventLoopMonitor', () => {
     const histogram = createHistogram(900);
     monitorMock.mockReturnValue(histogram);
     const listener = jest.fn();
+    const sampleListener = jest.fn();
     monitor.onLag(listener);
+    monitor.onSample(sampleListener);
 
     monitor.start({ warnThresholdMs: 250 });
     expect(monitor.running).toBe(true);
@@ -216,6 +302,7 @@ describe('EventLoopMonitor', () => {
     // A tick that somehow still lands after disposal must be inert.
     tick();
     expect(listener).not.toHaveBeenCalled();
+    expect(sampleListener).not.toHaveBeenCalled();
   });
 
   it('dispose is safe before start and safe twice', () => {

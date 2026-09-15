@@ -13,6 +13,7 @@
  *
  * Materializes SKILL.md at the active root and updates `body_path` on the row.
  */
+import type { QueryOrigin } from './internal-query.interface';
 import * as fs from 'node:fs';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -179,6 +180,7 @@ export class SkillPromotionService {
     candidateId: CandidateId,
     settings: SkillSynthesisSettings,
     nowFn: () => number = () => Date.now(),
+    origin: QueryOrigin = {},
   ): Promise<PromotionDecision> {
     const candidate = this.store.findById(candidateId);
     if (!candidate) {
@@ -225,7 +227,7 @@ export class SkillPromotionService {
     }
     let graded = candidate;
     if (this.judge) {
-      const judged = await this.applyJudgeGate(candidate, settings);
+      const judged = await this.applyJudgeGate(candidate, settings, origin);
       if (judged) return { ...judged, ranking: rankingScore(judged.candidate) };
       graded = this.store.findById(candidate.id) ?? candidate;
     }
@@ -468,11 +470,19 @@ export class SkillPromotionService {
   private async applyJudgeGate(
     candidate: SkillCandidateRow,
     settings: SkillSynthesisSettings,
+    origin: QueryOrigin,
   ): Promise<PromotionDecision | null> {
     if (!this.judge) return null;
 
     const body = this.readCandidateBody(candidate);
-    const decision = await this.judge.judge(candidate, body, settings);
+    const decision = await this.judge.judge(
+      candidate,
+      body,
+      settings,
+      undefined,
+      undefined,
+      origin,
+    );
     const judged = this.store.recordJudgeVerdict(candidate.id, {
       status: decision.status,
       score: decision.score,

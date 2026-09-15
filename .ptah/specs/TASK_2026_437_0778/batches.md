@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 56 | Batches: 22 | Complete: 14/22
+Total tasks: 57 | Batches: 23 | Complete: 16/23
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). Remaining unblocked: P2 Batch 15; P3 wave 1 Batch 16. P2 is not done until the `publish-electron.yml` matrix is green on all three OSes (see Batch 10 outcome). PR #510 CI had two Linux-only failures (the CLI contract suite did not see files created in a new directory under inotify; the platform-electron host entry spec aborted with SIGABRT in the `worker_threads` transport). Both are FIXED pending the next PR #510 CI run, which is the first Linux run of the jest specs — see "PR #510 Linux CI fix" after Batch 11. Batch 16 is approved and uncommitted; it commits together with Batch 16b.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). P3 wave 1 — Batch 16 and Batch 16b COMPLETE (one commit, recorded in the Batch 16 outcome), committed ahead of Batch 15 by orchestrator decision (see "Orchestrator decision — phase order deviation for P3 core" under Batch 7). Remaining unblocked: P2 Batch 15; then P3 Batches 17 and 18. P2 is not done until the `publish-electron.yml` matrix is green on all three OSes (see Batch 10 outcome). PR #510 CI had two Linux-only failures (the CLI contract suite did not see files created in a new directory under inotify; the platform-electron host entry spec aborted with SIGABRT in the `worker_threads` transport). Both are FIXED pending the next PR #510 CI run, which is the first Linux run of the jest specs — see "PR #510 Linux CI fix" after Batch 11.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `handoff.md` section 2 "User decisions" (formerly in `context.md`)
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -499,6 +499,13 @@ and the unnamed-`fs.watch`-event fix in `git-watcher.service.ts` remain in P1. T
 batches (7, 13, 14, 12, in that commit order) are committed before Batch 6 to reduce staging risk in
 the shared worktree. Batch 6 commits when its fix lands. This overrides "Phase order P1 → P2 → P3 →
 P4 is the COMMIT order" for these four batches only.
+
+### Orchestrator decision — phase order deviation for P3 core (recorded 2026-09-15)
+
+Batch 16 and Batch 16b (P3) are committed before Batch 15 (P2) closes, to reduce staging risk in
+the shared worktree. All work ships together in PR #510, so the release order is unchanged. This
+overrides "Phase order P1 → P2 → P3 → P4 is the COMMIT order" for Batches 16 and 16b only.
+Batches 17 and 18 still wait for Batch 15.
 
 ---
 
@@ -1000,7 +1007,7 @@ section is `fix(platform-core): recover lost inotify watches in the workspace wa
 
 ---
 
-## Batch 16: P3 — `BackgroundWorkGovernor` core + internal-query gate adoption (C14 core, a) — PENDING
+## Batch 16: P3 — `BackgroundWorkGovernor` core + internal-query gate adoption (C14 core, a) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: none
@@ -1008,18 +1015,18 @@ section is `fix(platform-core): recover lost inotify watches in the workspace wa
 - Rationale: state machine + DI + the gate that controls LLM background lanes. Shares vscode-core DI files with Batch 5 (now committed).
 - Tasks: 3 | Depends on: Batch 5 (P2 committed first per phase order)
 
-### Task 16.1: Governor + `EventLoopMonitor.onSample` — PENDING
+### Task 16.1: Governor + `EventLoopMonitor.onSample` — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\libs\backend\vscode-core\src\diagnostics\background-work-governor.ts` + spec; MODIFY `event-loop-monitor.ts` (+ spec), `arm-diagnostics.ts`, `diagnostics\index.ts`, `D:\projects\ptah-extension\libs\backend\vscode-core\src\di\tokens.ts`, `register-platform-agnostic.ts`, the three hosts' `container.smoke.spec.ts`
 - Plan reference: implementation-plan.md:645-692
 - Validation notes: R-P7. Enter at p99 > 100 for 2 windows, exit at max < 40 for 3 windows; `whenClear` default ceiling 600,000 ms; listener throws isolated. CLI without `--verbose` gives a foreground-only signal.
 
-### Task 16.2: Foreground source over `SessionTurnStateRegistry` — PENDING
+### Task 16.2: Foreground source over `SessionTurnStateRegistry` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\session-turn-state.registry.ts` (+ spec), `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\register.ts`
 - Implementation details: `hasGenerating()` + listener list notified from `markGenerating`/`settleTurn`/`forceIdle`; the registry stays I/O-free.
 
-### Task 16.3: Gate admission for background lanes — PENDING
+### Task 16.3: Gate admission for background lanes — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\internal-query\internal-query.service.ts` (:167-260) + spec
 - Validation notes: `default` lane never gated; drain re-runs on `onChange`; governor resolution failure = always clear + one degradation event.
@@ -1028,6 +1035,56 @@ section is `fix(platform-core): recover lost inotify watches in the workspace wa
 
 - `npx nx run-many -t test -p @ptah-extension/vscode-core @ptah-extension/agent-sdk ptah-electron ptah-cli ptah-extension-vscode` (header: 5); typecheck,lint same; `npx nx run degradation-audit:lint`
 - Done when: INV-7 core and AC-9 are pinned
+
+### Batch 16 outcome
+
+- Commit: `feat(vscode-core): defer background LLM work while the main loop lags or a turn is generating` — ONE commit for Batch 16 and Batch 16b. The two could not be split by file: the new `internal-query-concurrency-gate.ts` (+ spec), `internal-query.types.ts`, the agent-sdk / skill-synthesis barrels, every skill-synthesis service and three CLAUDE.md files carry hunks of both. A Batch-16-only commit would have needed partial staging of untracked files and would not have been verified as a build on its own.
+- Reviews: `b16-code-logic-review.md` base NEEDS_REVISION 6/10 → delta APPROVE (HIGH; all 3 serious + 4 moderate closed). `b16-code-style-review.md` APPROVED 8/10 → delta APPROVE (HIGH).
+- Governor design (`libs/backend/vscode-core/src/diagnostics/background-work-governor.ts`):
+  - States `clear | foreground-busy | lagging | disposed`, derived from foreground sources and event-loop samples.
+  - Enter `lagging` when p99 > 100 ms for 2 consecutive 2 s windows, or at once when one window's max ≥ 1,000 ms (freeze, `LAG_FREEZE_MAX_MS`). Exit only when max < 40 ms for 3 consecutive windows.
+  - `whenClear` default ceiling 600,000 ms (`DEFAULT_MAX_DEFER_MS`); the ceiling is logged once per lane per deferral episode (an episode ends when the state returns to `clear`), in both the governor and the gate.
+  - `whenClear` rejects with `AbortError` on abort and on `dispose()`. `disposed` is terminal: listeners are told `'disposed'`, then dropped; later calls no-op.
+- Monitor: `EventLoopMonitor.onSample` added beside `onLag`. A sample's max is `max(histogram.max, tick lateness)`. Measured (Node 24.15): a 1.5 s and a 5 s block that start within one histogram resolution window after `reset()` left `histogram.max` at 0–33 ms; tick lateness catches them. Residual gap: a block shorter than one interval that starts in that ~20 ms post-reset slot and ends before the next tick is seen by neither signal. System sleep reads as one false freeze window, so background work is held for the 6 s exit hysteresis after resume (accepted, documented).
+- Foreground source seam: vscode-core owns the port `ForegroundActivitySource`; agent-sdk implements it as `TurnStateForegroundSource` over `SessionTurnStateRegistry.generatingSessions()`. A turn generating longer than 60 min from its START (`STALE_GENERATING_CEILING_MS`) stops counting as foreground (one warn per `sessionId@since`), so a stuck record cannot starve background work. Registry listener fan-out is isolated with try/catch.
+- Gate: `InternalQueryConcurrencyGate` moved out of `internal-query.service.ts` to `internal-query-concurrency-gate.ts` (facade rule; the service keeps its name, token and methods). Governed lanes wait on the governor, drain re-runs on `onChange` in FIFO order, governor resolution failure = always clear + one degradation event, and governor `disposed` cancels queued governed waiters with `AbortError`.
+- Shutdown: the governor is disposed in all three hosts — Electron and VS Code through the `armDiagnostics` handle, the CLI through `governorShutdownHandle` in `cli-engine/src/lib/container.ts` (lazy resolve, so a CLI run that never used the governor does not construct it; pinned by `container-governor-shutdown.spec.ts`).
+- Pins: INV-7 core — `libs/backend/vscode-core/src/diagnostics/background-work-governor.spec.ts` (state machine) and `libs/backend/agent-sdk/src/lib/internal-query/internal-query-concurrency-gate.spec.ts` (gate admission, fake timers). AC-9 — `libs/backend/agent-sdk/src/lib/internal-query/internal-query.service.spec.ts` "admits 0 background-lane queries while a turn generates, then drains on idle (AC-9)". New token `BACKGROUND_WORK_GOVERNOR` pinned in the three hosts' `container.smoke.spec.ts` and in `register.compaction-boundary-registry.smoke.spec.ts`.
+- Evidence (team-leader, worktree `D:\projects\ptah-437`, no nx reset, run over Batch 16 + 16b together; the CI executor's uncommitted `git-watcher.service.ts` and platform-core watch-host edits were in the working tree):
+  - `npx nx run-many -t test -p @ptah-extension/vscode-core @ptah-extension/agent-sdk @ptah-extension/skill-synthesis @ptah-extension/memory-curator @ptah-extension/rpc-handlers @ptah-extension/cli-engine ptah-electron ptah-cli ptah-extension-vscode --parallel=1 -- --maxWorkers=2` (header: 9 projects) — exit 0. vscode-core 38 suites / 636 passed; agent-sdk 108 suites passed / 2 skipped, 1898 passed / 3 skipped; memory-curator 31 / 2 skipped, 492 / 60 skipped; skill-synthesis 69 / 6 skipped, 1440 / 37 skipped; rpc-handlers 100 suites, 2999 passed / 33 skipped (these five read from cache: inputs unchanged since the executor's final run `b16d-test.log`, same counts); ptah-electron 45 / 2 skipped, 603 / 6 skipped; cli-engine 19 / 181; ptah-extension-vscode 6 / 65; ptah-cli 67 / 1 skipped, 1015 / 3 skipped (these four ran fresh). Log: `D:\projects\ptah-437-backup\b16-tl-test.log`.
+  - `npx nx run-many -t typecheck,lint` on the same 9 + `@ptah-extension/memory-contracts` (header: 10 projects) — exit 0, 0 lint errors (warnings only). Log: `b16-tl-typecheck-lint.log`.
+  - `npx nx run degradation-audit:lint` — exit 0, TOTAL 303 (at baseline).
+  - Prettier clean on every staged file (the four review files and `vscode-core/CLAUDE.md` were formatted before staging).
+- Follow-ups (not in this batch):
+  - FU-16a: the `whenClear` ceiling is per waiter, so after 10 min of continuous lag every held waiter is released together (a herd). Bounded by the gate limits (global 2, per lane 1).
+  - FU-16c: platform-core `internalQuery.maxConcurrent` default 1 vs agent-sdk `DEFAULT_MAX_CONCURRENT` 2 — the two defaults drift.
+  - FU-16d: `internal-query.service.ts` and `skill-enhancer.service.ts` sizes; watch at the next edit.
+  - Batch 17 note: `BackgroundWorkState` includes `'disposed'`. Every adopter must treat it as cancellation (no exhaustive switch without a `disposed` arm).
+  - Logic delta residual (b): the 60-min stale ceiling is a chosen bound, not derived from a cited turn-length limit in agent-sdk.
+
+## Batch 16b: P3 — user-initiated work bypasses the governor (C14 a, follow-on) — COMPLETE
+
+- Recommended executor: backend-developer
+- Execution mode: sequential
+- Rationale: added after the Batch 16 logic delta found user clicks (promote, run curator, enhance, digest, memory run-now) reached governed lanes and could wait behind a generating turn.
+- Tasks: 1 | Depends on: Batch 16
+
+### Task 16b.1: `userInitiated` origin from RPC handlers to the `user-action` lane — COMPLETE
+
+### Batch 16b outcome
+
+- Commit: the Batch 16 commit (see Batch 16 outcome for why they are one commit).
+- Reviews: `b16b-code-logic-review.md` APPROVED 8/10 (0 blocking, 0 serious, 1 moderate — the stale `promoteBulk` comment, fixed). `b16b-code-style-review.md` NEEDS_REVISION 7/10 (2 serious) → fixed, mechanical, no delta review: (1) lane-string drift pinned by `libs/backend/rpc-handlers/src/lib/handlers/internal-query-lane-drift.spec.ts` (rpc-handlers is the lib that may import both agent-sdk and skill-synthesis); (2) `QueryOrigin` composed with `extends QueryOrigin` into `EnhanceOptions`, `DigestRequest`, `LaneRunRequest`, and memory-contracts `CuratorCallOptions` used by memory-curator (`curate`, `doCurate`, `curator-window-runner.ts`) and the agent-sdk curator adapter; barrel exports added. Logic items also fixed: `promoteBulk` comment now describes the `user-action` slot; memory-curator logs at the coalesce site when a user-initiated `curate` joins an in-flight pass; FIFO spec "keeps FIFO order between two queued user-action callers".
+- Design:
+  - `userInitiated` is set ONLY by RPC handlers, as a literal `true`, never read from a Zod params schema. 7 paths → `user-action` lane: `skillSynthesis:promote`, `skillSynthesis:runCurator`, `skillSynthesis:enhanceNow`, `skillSynthesis:previewEnhancement`, `skillSynthesis:promoteBulk`, `skillSynthesis:digest`, `memory:runNow`.
+  - Governed allow-list `GOVERNED_BACKGROUND_LANES` = `memory-curator`, `skill-synthesis`. Every other lane (`default`, `user-action`, unknown) is never governed. `user-action` has its own per-lane slot (limit 1, FIFO). Setup wizard, harness builder and cron stay on `default`. Lane names are trimmed and lowercased before matching.
+  - `LaneRunnerService.callOnce` classifies an `AbortError` (governor/gate shutdown) as `{ kind: 'cancelled' }`, which callers already map to `unscored`.
+  - `promoteBulk` stays sequential: each judge call takes the one `user-action` slot and releases it before the next id, so another queued click is admitted between items; wizard calls on `default` never share that slot.
+- Evidence: the Batch 16 evidence run covers this batch (same working tree, same commit).
+- Follow-ups (not in this batch):
+  - FU-16b-a (Batch 17): `memory:runNow` for a session with a background pass already in flight joins that pass and keeps its governed `memory-curator` lane, so it may still wait in `CuratorJobQueue`. Now logged at the merge site.
+  - FU-16b-b: `memory-curator.service.ts` is 718 code lines (over the 700 soft ceiling).
+  - FU-16b-c (PRE-EXISTING before Batch 16, needs a user decision): the two background lanes can hold both global slots (global 2, per lane 1), so a wizard or `user-action` call can hit its 60 s queue timeout behind a 90–120 s synthesis/archaeologist call or an untimed curator call. Options: raise the global limit to 3 and cap background at limit − 1; cap background without raising (regresses TASK_2026_352); or let `user-action` overshoot the global limit by one. Deferred.
 
 ---
 
