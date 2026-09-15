@@ -444,6 +444,10 @@ describe('CanvasTileComponent layout menu contract', () => {
   const effort = { currentEffort: signal<string | null>(null), isLoaded: signal(false) };
   const model = { currentModel: signal(''), isLoaded: signal(false) };
 
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   function setup(locked = false) {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -544,5 +548,59 @@ describe('CanvasTileComponent layout menu contract', () => {
     locked.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
     locked.detectChanges();
     expect([...locked.nativeElement.querySelectorAll('[data-layout-item]')].every((item) => (item as HTMLButtonElement).disabled)).toBe(true);
+  });
+
+  it('keeps every layout menu item disabled under lock while the adjacent view-mode toggle stays enabled', () => {
+    const locked = setup(true);
+    const toggle = locked.nativeElement.querySelector(
+      '[data-testid="tile-view-mode-toggle"]',
+    ) as HTMLButtonElement;
+    expect(toggle).not.toBeNull();
+    expect(toggle.disabled).toBe(false);
+    toggle.click();
+    expect(tabManager.toggleTabViewMode).toHaveBeenCalledWith('tile-1');
+  });
+
+  it('labels the view-mode toggle from the current view mode', () => {
+    const full = setup();
+    expect(
+      full.nativeElement
+        .querySelector('[data-testid="tile-view-mode-toggle"]')
+        .getAttribute('aria-label'),
+    ).toBe('Switch to compact view');
+
+    tabManager.getTabViewMode.mockReturnValue('compact');
+    try {
+      const compact = setup();
+      expect(
+        compact.nativeElement
+          .querySelector('[data-testid="tile-view-mode-toggle"]')
+          .getAttribute('aria-label'),
+      ).toBe('Switch to full view');
+    } finally {
+      tabManager.getTabViewMode.mockReturnValue('full');
+    }
+  });
+
+  it('toggles the view mode once per click and swallows every pointer start', () => {
+    const fixture = setup();
+    const toggle = fixture.nativeElement.querySelector(
+      '[data-testid="tile-view-mode-toggle"]',
+    ) as HTMLButtonElement;
+    const focus = jest.fn();
+    fixture.componentInstance.focusRequested.subscribe(focus);
+    const arrivals: string[] = [];
+    for (const type of ['mousedown', 'pointerdown', 'touchstart']) {
+      fixture.nativeElement.addEventListener(type, () => arrivals.push(type));
+    }
+    toggle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    toggle.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    toggle.dispatchEvent(new Event('touchstart', { bubbles: true }));
+    expect(arrivals).toEqual([]);
+
+    toggle.click();
+    expect(tabManager.toggleTabViewMode).toHaveBeenCalledTimes(1);
+    expect(tabManager.toggleTabViewMode).toHaveBeenCalledWith('tile-1');
+    expect(focus).not.toHaveBeenCalled();
   });
 });

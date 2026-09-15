@@ -193,12 +193,22 @@ const MENU_NAVIGATION_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);
             </button>
           </div>
         </ptah-native-popover>
+        <!-- View-mode toggle: header-drag pointer isolation matches the layout
+             menu, and the button stays enabled under layout lock because view
+             mode is owned by TabManagerService, not by canvas layout intent. -->
         <button
           class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-base-content"
           (click)="onToggleViewMode($event)"
+          (mousedown)="$event.stopPropagation()"
+          (pointerdown)="$event.stopPropagation()"
+          (touchstart)="$event.stopPropagation()"
           [title]="
             isCompactMode() ? 'Switch to full view' : 'Switch to compact view'
           "
+          [attr.aria-label]="
+            isCompactMode() ? 'Switch to full view' : 'Switch to compact view'
+          "
+          data-testid="tile-view-mode-toggle"
         >
           <lucide-angular
             [img]="isCompactMode() ? MaximizeIcon : MinimizeIcon"
@@ -260,7 +270,12 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   readonly firstInOrder = input<boolean>(false);
   /** Whether this tile is the workspace's transient layout-focus tile. */
   readonly layoutFocused = input<boolean>(false);
-  /** Canvas lock: every layout action is disabled. */
+  /**
+   * Canvas lock: every layout action is disabled. The compact/full toggle is
+   * the deliberate exception — view mode is owned by `TabManagerService`, not
+   * by canvas layout intent, so it stays enabled and its authoritative
+   * reflow is applied by the workspace grid.
+   */
   readonly layoutLocked = input<boolean>(false);
 
   /**
@@ -404,8 +419,10 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Toggles compact/full view mode for this tile.
-   * Stops propagation to avoid triggering onTileClick / Gridstack drag.
+   * Toggles compact/full view mode for this tile. View mode stays owned by
+   * `TabManagerService`; canvas only projects it. Stops propagation to avoid
+   * triggering onTileClick / Gridstack drag, and stays available under layout
+   * lock because it is not a layout-intent mutation.
    */
   onToggleViewMode(event: Event): void {
     event.stopPropagation();

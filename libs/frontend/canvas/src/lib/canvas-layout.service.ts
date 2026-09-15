@@ -1,8 +1,13 @@
 import { Injectable, DestroyRef, inject, signal } from '@angular/core';
-import { packRows, type TileIntent } from './canvas-layout-intent';
+import {
+  FULL_TILE_HEIGHT_UNITS,
+  projectTileGeometry,
+  totalExtentOf,
+  type TileIntent,
+  type TileViewConstraints,
+} from './canvas-layout-intent';
 
 const MARGIN = 8;
-const TILE_HEIGHT_UNITS = 6;
 const MIN_CELL_HEIGHT = 20;
 /**
  * Each session tile is kept at least this fraction of the viewport height.
@@ -84,11 +89,14 @@ export class CanvasLayoutService {
   /**
    * Derive concrete Gridstack geometry from tile intent plus the measured
    * container. The optional layout-focus tile renders alone at full width.
-   * Total function: no throws, no side effects, safe to call from a `computed`.
+   * Transient view constraints select the compact height tier per tile;
+   * absent constraints keep the full-only behaviour. Total function: no
+   * throws, no side effects, safe to call from a `computed`.
    */
   computeLayout(
     tiles: readonly TileIntent[],
     layoutFocusTabId: string | null = null,
+    viewConstraints: TileViewConstraints = [],
   ): CanvasLayout {
     const width = this._containerWidth();
     const height = this._containerHeight();
@@ -98,25 +106,27 @@ export class CanvasLayoutService {
     }
 
     const columns = this.columnsFor(width);
-    const rows = packRows(tiles, columns, layoutFocusTabId);
+    const projected = projectTileGeometry(
+      tiles,
+      columns,
+      layoutFocusTabId,
+      viewConstraints,
+    );
 
-    const positioned: PositionedTile[] = [];
-    rows.forEach((row, rowIndex) => {
-      let x = 0;
-      for (const tile of row) {
-        positioned.push({
-          tabId: tile.tabId,
-          x,
-          y: rowIndex * TILE_HEIGHT_UNITS,
-          w: tile.units,
-          h: TILE_HEIGHT_UNITS,
-        });
-        x += tile.units;
-      }
-    });
+    const positioned: PositionedTile[] = projected.map((tile) => ({
+      tabId: tile.tabId,
+      x: tile.x,
+      y: tile.y,
+      w: tile.w,
+      h: tile.h,
+    }));
+    const totalExtent = totalExtentOf(projected);
+    const hasFullTile = projected.some(
+      (tile) => tile.h === FULL_TILE_HEIGHT_UNITS,
+    );
 
     return {
-      cellHeight: cellHeightFor(height, rows.length),
+      cellHeight: cellHeightFor(height, totalExtent, hasFullTile),
       columns,
       tiles: positioned,
     };
@@ -133,18 +143,25 @@ export class CanvasLayoutService {
 }
 
 /**
- * Keep each tile at least `MIN_TILE_VIEWPORT_RATIO` of the viewport height;
- * once tiles wrap onto a second row the derived height exceeds the container
- * and the canvas host scrolls instead of shrinking every tile.
+ * Fit cell height to the projected vertical extent. `totalExtent` is
+ * `max(y + h)` over the skyline, so a compact tile's freed space shrinks the
+ * scroll length instead of stretching the rows. The 90%-viewport floor
+ * protects full (six-unit) tiles only; all-compact layouts fit their true
+ * extent, and a compact singleton never stretches its two units back to full
+ * viewport height because the fit denominator is `max(totalExtent, 6)`.
  */
-function cellHeightFor(height: number, rows: number): number {
-  const totalMargins = (rows + 1) * MARGIN;
-  const availableHeight = height - totalMargins;
+function cellHeightFor(
+  height: number,
+  totalExtent: number,
+  hasFullTile: boolean,
+): number {
+  const bands = Math.ceil(totalExtent / FULL_TILE_HEIGHT_UNITS);
+  const totalMargins = (bands + 1) * MARGIN;
   const fitCellHeight = Math.floor(
-    availableHeight / (rows * TILE_HEIGHT_UNITS),
+    (height - totalMargins) / Math.max(totalExtent, FULL_TILE_HEIGHT_UNITS),
   );
-  const minTileCellHeight = Math.floor(
-    (height * MIN_TILE_VIEWPORT_RATIO) / TILE_HEIGHT_UNITS,
-  );
-  return Math.max(MIN_CELL_HEIGHT, fitCellHeight, minTileCellHeight);
+  const fullFloorCellHeight = hasFullTile
+    ? Math.floor((height * MIN_TILE_VIEWPORT_RATIO) / FULL_TILE_HEIGHT_UNITS)
+    : 0;
+  return Math.max(MIN_CELL_HEIGHT, fitCellHeight, fullFloorCellHeight);
 }
