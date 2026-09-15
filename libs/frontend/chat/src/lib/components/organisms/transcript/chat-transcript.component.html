@@ -14,7 +14,7 @@
       <div class="chat-msg-slot" [ptahTranscriptSlot]="msg.id">
         @if (renderWindow.isMounted(msg.id)) {
           <ptah-message-bubble
-            class="block px-2 pb-3 chat-msg-cv"
+            class="block px-2 pb-3"
             [message]="msg"
             [messageIndex]="i"
             [totalMessages]="vm().totalCount"

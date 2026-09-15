@@ -2,20 +2,11 @@
   display: block;
 }
 
-/* Only finalized historical bubbles get content-visibility virtualization.
-   The active streaming bubble (no data-finalized) and any non-finalized
-   bubble must render fully — `content-visibility: auto` reserves an
-   `contain-intrinsic-size` placeholder that mismatches the real growing
-   height during streaming, producing visible layout shift. */
-:host([data-finalized='true']) {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 80px;
-}
-
-:host(.is-streaming) {
-  content-visibility: visible;
-  contain-intrinsic-size: auto none;
-}
+/* No `content-visibility` here: the transcript render window already unmounts
+   off-screen bubbles. A freshly mounted bubble has no remembered size, so
+   `content-visibility: auto` collapsed it to its intrinsic placeholder and then
+   re-expanded it on approach — a height jump under the reader on every
+   scroll up through a long session. */
 
 /* ---------------------------------------------------------------------------
    Smooth collapse/expand of the bubble body using CSS grid `0fr/1fr` rows.
