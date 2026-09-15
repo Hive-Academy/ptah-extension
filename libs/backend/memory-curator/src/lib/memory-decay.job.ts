@@ -14,9 +14,9 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
-import { SalienceScorer } from './salience-scorer';
 import { MemoryCuratorService } from './memory-curator.service';
 import type { MemoryTier } from './memory.types';
+import { rankSalience } from './salience-ranking';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -46,8 +46,6 @@ export class MemoryDecayJob {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
-    @inject(MEMORY_TOKENS.MEMORY_SALIENCE_SCORER)
-    private readonly scorer: SalienceScorer,
     @inject(MEMORY_TOKENS.MEMORY_CURATOR)
     private readonly curator: MemoryCuratorService,
   ) {}
@@ -75,7 +73,7 @@ export class MemoryDecayJob {
         continue;
       }
 
-      const newSalience = this.scorer.scoreMemory(m, now, options.halflifeDays);
+      const newSalience = rankSalience(m, now);
       let nextTier: MemoryTier = m.tier;
       const ageMs = now - m.lastUsedAt;
       if (m.tier === 'core' && !m.pinned && newSalience < 0.5) {
@@ -97,12 +95,8 @@ export class MemoryDecayJob {
         archived++;
       }
 
-      if (nextTier !== m.tier || newSalience !== m.salience) {
-        this.store.updateSalience(
-          m.id,
-          newSalience,
-          nextTier !== m.tier ? nextTier : undefined,
-        );
+      if (nextTier !== m.tier) {
+        this.store.updateTier(m.id, nextTier);
       }
     }
 

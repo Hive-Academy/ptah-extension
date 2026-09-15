@@ -3,11 +3,10 @@
  *
  * Registration order:
  *   1. EmbedderWorkerClient (concrete IEmbedder) under PERSISTENCE_TOKENS.EMBEDDER
- *   2. SalienceScorer
- *   3. MemoryStore (depends on EMBEDDER)
- *   4. MemorySearchService (depends on EMBEDDER, MEMORY_STORE)
- *   5. MemoryDecayJob (depends on MEMORY_STORE, SCORER)
- *   6. MemoryCuratorService (depends on registry, store, scorer, llm)
+ *   2. MemoryStore (depends on EMBEDDER)
+ *   3. MemorySearchService (depends on EMBEDDER, MEMORY_STORE)
+ *   4. MemoryDecayJob (depends on MEMORY_STORE)
+ *   5. MemoryCuratorService (depends on registry, store, llm)
  *      The CURATOR_LLM (Symbol.for('PtahCuratorLlm')) is registered by agent-sdk
  *      under SDK_TOKENS.SDK_CURATOR_LLM_ADAPTER — NOT by this function.
  *      registerSdkServices() MUST be called before this function (or before
@@ -28,7 +27,6 @@ import {
   DEFAULT_EMBEDDER_IDLE_MS,
 } from '../embedder/embedder-worker-client';
 import { EmbedderStatusService } from '../embedder/embedder-status.service';
-import { SalienceScorer } from '../salience-scorer';
 import { MemoryStore } from '../memory.store';
 import { MemorySearchService } from '../memory-search.service';
 import { MemoryDecayJob } from '../memory-decay.job';
@@ -70,12 +68,6 @@ export function registerMemoryCuratorServices(
   );
 
   container.register(
-    MEMORY_TOKENS.MEMORY_SALIENCE_SCORER,
-    { useClass: SalienceScorer },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
     MEMORY_TOKENS.MEMORY_STORE,
     { useClass: MemoryStore },
     { lifecycle: Lifecycle.Singleton },
@@ -110,6 +102,9 @@ export function registerMemoryCuratorServices(
     useToken: MEMORY_TOKENS.MEMORY_SEARCH,
   });
   container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
+    useToken: MEMORY_TOKENS.MEMORY_STORE,
+  });
+  container.register(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER, {
     useToken: MEMORY_TOKENS.MEMORY_STORE,
   });
 

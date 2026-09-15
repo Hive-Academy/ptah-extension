@@ -3,7 +3,7 @@
  *
  * Covers:
  *   - `getWriteCounter` returns 0 for a workspace that has never been written
- *   - Counter increments on insert, setPinned, forget, updateSalience, appendChunks
+ *   - Counter increments on insert, setPinned, forget and appendChunks
  *   - Per-workspace counters are independent
  */
 import 'reflect-metadata';
@@ -16,6 +16,11 @@ import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
 import { MemoryStore } from './memory.store';
 import type { MemoryInsert } from './memory.types';
 import { memoryId } from './memory.types';
+import {
+  adaptSqliteDatabase,
+  requireSqliteOpener,
+  type RawDb,
+} from './retention/retention-sqlite.test-support';
 
 function makeVecStatus(available = false): VecStatusService {
   const diagnostic = {
@@ -181,16 +186,6 @@ describe('MemoryStore write-counter bumps', () => {
     expect(store.getWriteCounter('/ws/B')).toBe(0);
     store.forget(id);
     expect(store.getWriteCounter('/ws/B')).toBe(1);
-  });
-
-  it('bumps counter on updateSalience (looks up workspace_root from DB)', () => {
-    const { stub } = makeDb({ getResult: { workspace_root: '/ws/A' } });
-    const store = makeStore(stub);
-    const id = memoryId('01J000000000000000000000A3');
-
-    expect(store.getWriteCounter('/ws/A')).toBe(0);
-    store.updateSalience(id, 0.9);
-    expect(store.getWriteCounter('/ws/A')).toBe(1);
   });
 
   it('bumps counter on deleteBySubjectPrefix when rows are deleted', () => {
@@ -1244,5 +1239,221 @@ describe('MemoryStore — empty sessionId normalises to NULL (TASK_2026_295)', (
     // The control: normalisation must not touch a usable id.
     const id = '8f1c7d2e-2a5b-4b6e-9d3f-0c1a2b3c4d5e';
     expect((await insertAndReadParams(id)).session_id).toBe(id);
+  });
+});
+
+describe('MemoryStore ranking and explicit use on real SQLite', () => {
+  const opener = requireSqliteOpener();
+  let raw: RawDb;
+  let connection: SqliteConnectionService;
+  let log: Logger;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    raw = opener.open(':memory:');
+    raw.exec(`CREATE TABLE memories (
+      id TEXT PRIMARY KEY, session_id TEXT, workspace_root TEXT,
+      tier TEXT NOT NULL, kind TEXT NOT NULL, subject TEXT, content TEXT NOT NULL,
+      source_message_ids TEXT, salience REAL NOT NULL, decay_rate REAL NOT NULL,
+      hits INTEGER NOT NULL, pinned INTEGER NOT NULL, created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL, last_used_at INTEGER NOT NULL, archived_at INTEGER,
+      expires_at INTEGER, request TEXT, investigated TEXT, learned TEXT,
+      completed TEXT, next_steps TEXT, type TEXT NOT NULL,
+      concepts_json TEXT NOT NULL, files_json TEXT NOT NULL
+    );
+    CREATE TABLE memory_chunks (
+      id TEXT PRIMARY KEY, memory_id TEXT NOT NULL, ord INTEGER NOT NULL,
+      text TEXT NOT NULL, token_count INTEGER NOT NULL, created_at INTEGER NOT NULL
+    );
+    CREATE VIRTUAL TABLE memory_concepts_fts USING fts5(memory_id UNINDEXED, concept);`);
+    const db = adaptSqliteDatabase(raw);
+    connection = {
+      db,
+      handleFatalWriteError: jest.fn(),
+    } as unknown as SqliteConnectionService;
+    log = makeLogger();
+    store = new MemoryStore(
+      log,
+      connection,
+      makeEmbedder(),
+      makeVecStatus(false),
+    );
+  });
+
+  afterEach(() => raw.close());
+
+  function seed(
+    id: string,
+    tier: 'core' | 'recall' | 'archival',
+    workspaceRoot: string | null,
+    options: { salience?: number; lastUsedAt?: number; pinned?: number } = {},
+  ): void {
+    raw.prepare(
+      `INSERT INTO memories (
+        id, session_id, workspace_root, tier, kind, subject, content,
+        source_message_ids, salience, decay_rate, hits, pinned, created_at,
+        updated_at, last_used_at, archived_at, expires_at, request, investigated,
+        learned, completed, next_steps, type, concepts_json, files_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      null,
+      workspaceRoot,
+      tier,
+      'fact',
+      id,
+      id,
+      '[]',
+      options.salience ?? 0.5,
+      0.01,
+      0,
+      options.pinned ?? 0,
+      1,
+      1,
+      options.lastUsedAt ?? 1,
+      tier === 'archival' ? 1 : null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'discovery',
+      '[]',
+      '[]',
+    );
+  }
+
+  it('deduplicates uses, restores archival rows, and invalidates only restored roots', () => {
+    seed('archived', 'archival', '/restored');
+    seed('recall', 'recall', '/plain');
+
+    store.recordUse(['archived', 'archived', 'recall', 'unknown']);
+
+    const rows = raw
+      .prepare(
+        'SELECT id, tier, hits, archived_at, last_used_at FROM memories ORDER BY id',
+      )
+      .all() as Array<{
+      id: string;
+      tier: string;
+      hits: number;
+      archived_at: number | null;
+      last_used_at: number;
+    }>;
+    expect(rows).toEqual([
+      expect.objectContaining({
+        id: 'archived',
+        tier: 'recall',
+        hits: 1,
+        archived_at: null,
+      }),
+      expect.objectContaining({ id: 'recall', tier: 'recall', hits: 1 }),
+    ]);
+    expect(rows.every((row) => row.last_used_at > 1)).toBe(true);
+    expect(store.getWriteCounter('/restored')).toBe(1);
+    expect(store.getWriteCounter('/plain')).toBe(0);
+  });
+
+  it('records core and pinned recall use without changing tier or write counters', () => {
+    seed('core', 'core', '/core');
+    seed('pinned-recall', 'recall', '/pinned', { pinned: 1 });
+    const before = Date.now();
+
+    store.recordUse(['core', 'pinned-recall']);
+    const after = Date.now();
+
+    const rows = raw
+      .prepare(
+        `SELECT id, tier, hits, pinned, last_used_at
+           FROM memories
+          WHERE id IN (?, ?)
+          ORDER BY id`,
+      )
+      .all('core', 'pinned-recall') as Array<{
+      id: string;
+      tier: string;
+      hits: number;
+      pinned: number;
+      last_used_at: number;
+    }>;
+    expect(rows).toEqual([
+      expect.objectContaining({
+        id: 'core',
+        tier: 'core',
+        hits: 1,
+        pinned: 0,
+      }),
+      expect.objectContaining({
+        id: 'pinned-recall',
+        tier: 'recall',
+        hits: 1,
+        pinned: 1,
+      }),
+    ]);
+    expect(
+      rows.every(
+        (row) => row.last_used_at >= before && row.last_used_at <= after,
+      ),
+    ).toBe(true);
+    expect(store.getWriteCounter('/core')).toBe(0);
+    expect(store.getWriteCounter('/pinned')).toBe(0);
+  });
+
+  it('caps a call at 200 ids and treats empty and unknown ids as no-ops', () => {
+    for (let i = 0; i < 201; i++) seed(`id-${i}`, 'recall', '/ws');
+    store.recordUse([]);
+    store.recordUse(['unknown']);
+    store.recordUse(Array.from({ length: 201 }, (_, i) => `id-${i}`));
+    const used = raw.prepare('SELECT COUNT(*) AS n FROM memories WHERE hits = ?').get(1) as {
+      n: number;
+    };
+    expect(used.n).toBe(200);
+  });
+
+  it('never throws after the connection closes and warns once', () => {
+    raw.close();
+    expect(() => store.recordUse(['id'])).not.toThrow();
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    raw = opener.open(':memory:');
+  });
+
+  it('stamps archival inserts and restores archival append targets', async () => {
+    const inserted = await store.insertMemoryWithChunks(
+      { tier: 'archival', kind: 'fact', content: 'archived', workspaceRoot: '/ws' },
+      [],
+    );
+    const archived = raw
+      .prepare('SELECT archived_at FROM memories WHERE id = ?')
+      .get(inserted) as { archived_at: number | null };
+    expect(archived.archived_at).not.toBeNull();
+
+    await store.appendChunks(inserted, [
+      { ord: 0, text: 'restored content', tokenCount: 2 },
+    ]);
+    const restored = raw
+      .prepare('SELECT tier, archived_at FROM memories WHERE id = ?')
+      .get(inserted) as { tier: string; archived_at: number | null };
+    expect(restored).toEqual({ tier: 'recall', archived_at: null });
+  });
+
+  it('orders list and listAll by ranking salience', () => {
+    const now = Date.now();
+    seed('old-high', 'recall', '/ws', {
+      salience: 1,
+      lastUsedAt: now - 90 * 86_400_000,
+    });
+    seed('recent-low', 'recall', '/ws', {
+      salience: 0.25,
+      lastUsedAt: now,
+    });
+    expect(store.list({ workspaceRoot: '/ws' }).memories.map((m) => m.id)).toEqual([
+      'recent-low',
+      'old-high',
+    ]);
+    expect(store.listAll('/ws').memories.map((m) => m.id)).toEqual([
+      'recent-low',
+      'old-high',
+    ]);
   });
 });

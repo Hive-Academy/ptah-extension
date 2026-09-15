@@ -16,7 +16,7 @@ import 'reflect-metadata';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { container } from 'tsyringe';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { NoopTracer, TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
@@ -25,6 +25,7 @@ import {
   PERSISTENCE_TOKENS,
   registerPersistenceSqliteServices,
 } from '@ptah-extension/persistence-sqlite';
+import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from './tokens';
 import { registerMemoryCuratorServices } from './register';
 import { MemoryRetentionService } from '../retention/memory-retention.service';
@@ -68,6 +69,9 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
         getConfiguration: (_s: string, _k: string, def?: unknown) => def,
       } as unknown as IWorkspaceProvider,
     });
+    child.register(PLATFORM_TOKENS.TRACER, {
+      useValue: new NoopTracer(),
+    });
     registerPersistenceSqliteServices(child, logger);
     // The host opens the registered connection; here a real temp-file database
     // stands in for it so the resolved graph talks to actual SQLite.
@@ -80,6 +84,22 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
 
   it('registers the retention service, its store and its limits', () => {
     const child = buildContainer();
+    expect(
+      child.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER),
+    ).toBe(true);
+    expect(child.isRegistered(Symbol.for('PtahMemoryUsageRecorder'))).toBe(
+      true,
+    );
+    const memoryStore = child.resolve(MEMORY_TOKENS.MEMORY_STORE);
+    expect(
+      child.resolve(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER),
+    ).toBe(memoryStore);
+    expect(child.resolve(Symbol.for('PtahMemoryUsageRecorder'))).toBe(
+      memoryStore,
+    );
+    expect(child.isRegistered(Symbol.for('PtahMemorySalienceScorer'))).toBe(
+      false,
+    );
     expect(child.isRegistered(MEMORY_TOKENS.MEMORY_RETENTION_SERVICE)).toBe(
       true,
     );

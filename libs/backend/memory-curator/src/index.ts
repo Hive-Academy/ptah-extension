@@ -49,8 +49,16 @@ export type {
   ObservationCaptureEvent,
   ObservationCaptureListener,
 } from './lib/observation-queue.store';
-export { SalienceScorer } from './lib/salience-scorer';
-export type { ScoreInputs } from './lib/salience-scorer';
+export {
+  SALIENCE_PIN_BONUS,
+  SALIENCE_RANK_HALF_LIFE_MS,
+  SALIENCE_USE_SATURATION,
+  SALIENCE_USE_WEIGHT,
+  baseSalience,
+  rankSalience,
+  salienceRankOrderBy,
+} from './lib/salience-ranking';
+export type { SalienceRankRow } from './lib/salience-ranking';
 export { MemoryDecayJob } from './lib/memory-decay.job';
 export type { DecayJobOptions, DecayRunStats } from './lib/memory-decay.job';
 export { MemoryTriggerService } from './lib/triggers/memory-trigger.service';
