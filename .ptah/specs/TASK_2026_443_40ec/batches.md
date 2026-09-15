@@ -1,6 +1,6 @@
 # Batches - TASK_2026_443_40ec
 
-Total tasks: 25 | Batches: 10 | Complete: 3/10
+Total tasks: 25 | Batches: 10 | Complete: 4/10
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle` (branch
 `feat/task-439-phase2-memory-lifecycle`, base 5e34e39cc). Below, `W` means that absolute path; every lane prompt
@@ -341,7 +341,7 @@ review round is required).
 
 ---
 
-## Batch 3: memory-curator — ranking-only salience + explicit use recording — IN_PROGRESS
+## Batch 3: memory-curator — ranking-only salience + explicit use recording — COMPLETE (commit d85851962)
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer)
 - Fallback executor: backend-developer subagent
@@ -352,7 +352,7 @@ review round is required).
 - Suggested commit: `feat(memory-curator): batch 3 - rank by salience at query time and record memory use explicitly`
 - Tasks: 3 | Depends on: Batch 1 (column `archived_at`), Batch 2 (port + token)
 
-### Task 3.1: Ranking module replaces `SalienceScorer`; three ranked reads; curator stores a base — IN_PROGRESS
+### Task 3.1: Ranking module replaces `SalienceScorer`; three ranked reads; curator stores a base — COMPLETE
 
 - Dir: `W\libs\backend\memory-curator\src\`
   - CREATE `lib\salience-ranking.ts`, `lib\salience-ranking.spec.ts`
@@ -380,7 +380,7 @@ review round is required).
   1e-9 over rows fresh/7/30/90 d x hits 0/3/50 x pinned 0/1; recent low-base outranks 90-day high-base; pinned
   outranks every unpinned; both placeholder texts differ only by the placeholder; `baseSalience` clamps.
 
-### Task 3.2: `recordUse` replaces `recordHit`; search loses its hidden write; archival restore — IN_PROGRESS
+### Task 3.2: `recordUse` replaces `recordHit`; search loses its hidden write; archival restore — COMPLETE
 
 - Depends on: Task 3.1 (same files)
 - Dir: `W\libs\backend\memory-curator\src\lib\`
@@ -415,7 +415,7 @@ review round is required).
   `searchRich` issues no store write (no `recordUse` call) and returns at most `topK` hits without a reranker; a
   cache hit still records nothing.
 
-### Task 3.3: Electron wizard-seed integration DDL gains `archived_at` — IN_PROGRESS
+### Task 3.3: Electron wizard-seed integration DDL gains `archived_at` — COMPLETE
 
 - File: MODIFY `W\apps\ptah-electron\src\integration\wizard-seed.integration.spec.ts` (`:119-133`, add
   `archived_at INTEGER` to the hand-written `memories` DDL). Deviation 4.
@@ -429,7 +429,17 @@ review round is required).
   - XB1 better-sqlite3 run (Plan validation) for `memory-curator` with `--testPathPatterns "salience-ranking|memory.store.spec|memory-search.service.spec|di/register.spec"`
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-3-report.md`
 
-### Batch 3 revision 1 fix list (resume codex session 01a0a611-011c-7982-ad80-e9fd405f9acf) — PENDING
+### Batch 3 revision 1 fix list (resume codex session 01a0a611-011c-7982-ad80-e9fd405f9acf) — COMPLETE (in d85851962)
+
+- Team-leader diff read: only `register.spec.ts` and `memory.store.spec.ts` are newer than the review. M1: both
+  recorder token spellings `toBe` the resolved `MEMORY_STORE` (spec registers the existing `NoopTracer` under
+  `PLATFORM_TOKENS.TRACER` so the store resolves); m2: real-SQLite case, core + pinned recall keep tier, hits 1,
+  `last_used_at` in window, write counters 0. Re-run: test 2 projects (memory-curator 554 passed / 59 skipped
+  pre-existing; ptah-electron 553 passed / 4 skipped), memory-curator typecheck green, lint 0 errors / 5 warnings;
+  removed-symbol grep: only the negative `Symbol.for('PtahMemorySalienceScorer')` assertion; Electron better-sqlite3
+  run on the four suites: 4 suites / 83 passed. Note for later XB1 runs from PowerShell: quote a `|` pattern as
+  `'"a|b"'`, otherwise `electron.cmd` treats `|` as a pipe and exits 255 with no output.
+  Committed with only the 17 Batch 3 paths; no re-review (spec-only revision).
 
 - Review (Ollama Cloud, `code-logic-review-batch-3.md`): APPROVED 8/10, 0 blocking/serious, 1 moderate, minors m1-m4.
   All nine confirmation items CONFIRMED (R-TL1 split with no RETURNING, no read-path writes, salience immutable,

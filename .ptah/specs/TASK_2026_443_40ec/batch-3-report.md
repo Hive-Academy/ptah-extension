@@ -138,3 +138,67 @@ Files additionally modified for this buildability bridge:
 - Pre-existing task documents and Batch 4 review/report files in the dirty worktree were not touched.
 - No live Ptah database, WAL/SHM file, or pre-migration snapshot was opened.
 - No `nx reset`, git commit, push, stash, or staging operation was run.
+
+## Revision 1
+
+Applied the three Batch 3 revision items, changing only the two assigned spec files.
+
+### M1 — usage-recorder alias identity
+
+`register.spec.ts` now resolves `MEMORY_TOKENS.MEMORY_STORE` and proves that both recorder token spellings resolve to that exact singleton instance:
+
+- `MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER`
+- `Symbol.for('PtahMemoryUsageRecorder')`
+
+Resolving the store reached `EmbedderWorkerClient`, whose required tracer token was not present in the existing test container. The spec now registers the repository's existing `NoopTracer` under `PLATFORM_TOKENS.TRACER`; no production registration or implementation changed.
+
+### m2 — core and pinned recall use
+
+The real-SQLite store spec now seeds one core memory and one pinned recall memory, records both in one call, and asserts for each row:
+
+- `hits` increments from 0 to 1;
+- `last_used_at` falls within the call's measured time interval;
+- core remains `core` and pinned recall remains `recall`;
+- neither workspace write counter increments.
+
+### XB1
+
+The new real-SQLite SELECT uses two positional placeholders and binds both ids via `.all('core', 'pinned-recall')`. The identity assertions prepare no SQL.
+
+### Verification
+
+Command:
+
+`npx nx run-many -t test -p @ptah-extension/memory-curator`
+
+Observed header: `NX Running target test for project @ptah-extension/memory-curator:` (1 project).
+
+Observed test lines:
+
+- `Test Suites: 2 skipped, 36 passed, 36 of 38 total`
+- `Tests: 59 skipped, 554 passed, 613 total`
+- `Snapshots: 0 total`
+- `NX Successfully ran target test for project @ptah-extension/memory-curator`
+
+The first run exposed the missing tracer dependency while resolving the store and failed only the new identity assertion. After registering `NoopTracer` in the test container, the required command above passed.
+
+Electron better-sqlite3 command:
+
+`$env:ELECTRON_RUN_AS_NODE='1'; & 'D:\projects\ptah-extension\node_modules\.bin\electron.cmd' 'D:\projects\ptah-extension\node_modules\jest\bin\jest.js' --config libs/backend/memory-curator/jest.config.ts --testPathPatterns '"di/register.spec|memory.store.spec"' --runInBand`
+
+Observed test lines:
+
+- `Test Suites: 2 passed, 2 total`
+- `Tests: 42 passed, 42 total`
+- `Snapshots: 0 total`
+- `Ran all test suites matching di/register.spec|memory.store.spec.`
+
+### Two-spec diff stat
+
+```text
+ .../memory-curator/src/lib/di/register.spec.ts     |  22 +-
+ .../memory-curator/src/lib/memory.store.spec.ts    | 233 ++++++++++++++++++++-
+ 2 files changed, 243 insertions(+), 12 deletions(-)
+```
+
+This stat is against the branch HEAD and therefore includes the original uncommitted Batch 3 changes already present in these two files. Revision 1 itself added only the identity/tracer assertions and the core/pinned real-SQLite case described above. `git diff --check` passed for both files.
