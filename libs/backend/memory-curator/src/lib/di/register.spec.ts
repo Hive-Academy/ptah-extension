@@ -141,4 +141,16 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
       'boot-deferred',
     );
   });
+
+  it('supplies the governor to the retention service when registered', () => {
+    const child = buildContainer();
+    const governor = { isClear: jest.fn(() => true), whenClear: jest.fn() };
+    child.register(TOKENS.BACKGROUND_WORK_GOVERNOR, { useValue: governor });
+    const service = child.resolve<MemoryRetentionService>(
+      MEMORY_TOKENS.MEMORY_RETENTION_SERVICE,
+    );
+    expect((service as unknown as { governor: unknown }).governor).toBe(
+      governor,
+    );
+  });
 });

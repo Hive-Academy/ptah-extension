@@ -34,7 +34,11 @@
  * writes `processed_at`.
  */
 import { inject, injectable } from 'tsyringe';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type BackgroundWorkAdmission,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
@@ -72,6 +76,8 @@ import {
 
 /** `PRAGMA auto_vacuum` value meaning INCREMENTAL. */
 const AUTO_VACUUM_INCREMENTAL = 2;
+
+const GOVERNOR_LANE = 'memory-retention';
 
 const RUN_OUTCOMES: ReadonlySet<string> = new Set([
   'completed',
@@ -152,6 +158,12 @@ export class MemoryRetentionService {
     private readonly store: ObservationRetentionStore,
     @inject(MEMORY_TOKENS.MEMORY_RETENTION_LIMITS)
     private readonly limits: MemoryRetentionLimits,
+    /**
+     * Optional and LAST: specs construct this service positionally, and a host
+     * without a governor runs ungoverned.
+     */
+    @inject(TOKENS.BACKGROUND_WORK_GOVERNOR, { isOptional: true })
+    private readonly governor: BackgroundWorkAdmission | null = null,
   ) {}
 
   /** Run retention if every gate is open and a run is due. Never rejects. */
@@ -304,6 +316,7 @@ export class MemoryRetentionService {
   ): Promise<MemoryRetentionRunReport> {
     const limits = this.limits;
     const deadline = startedAt + limits.maxRunMs;
+    const msLeft = (): number => deadline - now();
     const tally: RunTally = {
       processedPurged: 0,
       stuckQuarantined: 0,
@@ -340,6 +353,17 @@ export class MemoryRetentionService {
       }
     };
 
+    const governorWarned = { value: false };
+    const yieldGovernor = async (): Promise<RetentionStopReason | null> => {
+      const outcome = await this.yieldToGovernor(
+        options.signal,
+        governorWarned,
+        msLeft,
+      );
+      if (outcome === 'aborted') return 'aborted';
+      return hardStop();
+    };
+
     try {
       // 1. Processed purge — `processed_at` older than processedDays.
       const purgeCutoff = startedAt - settings.processedDays * DAY_MS;
@@ -354,6 +378,8 @@ export class MemoryRetentionService {
           stop = 'row-budget';
           break;
         }
+        stop = await yieldGovernor();
+        if (stop) break;
         const t0 = now();
         const batch = this.store.purgeProcessedBatch(
           purgeCutoff,
@@ -387,6 +413,8 @@ export class MemoryRetentionService {
             stop = 'row-budget';
             break;
           }
+          stop = await yieldGovernor();
+          if (stop) break;
           const t0 = now();
           const batch = this.store.quarantineStuckBatch(
             stuckCutoff,
@@ -412,18 +440,29 @@ export class MemoryRetentionService {
 
       // 3. Ledger prune — once per run.
       if (continueAfterRows && hardStop() === null) {
-        tally.ledgerPruned = this.store.pruneLedger(
-          startedAt - limits.ledgerMaxAgeMs,
-          limits.ledgerMaxRows,
-        ).pruned;
+        const pruneStop = await yieldGovernor();
+        if (pruneStop) {
+          stop = pruneStop;
+        } else {
+          tally.ledgerPruned = this.store.pruneLedger(
+            startedAt - limits.ledgerMaxAgeMs,
+            limits.ledgerMaxRows,
+          ).pruned;
+        }
       }
 
       // 4. Page reclaim.
-      if (continueAfterRows) {
-        const reclaim = await this.reclaimPages(hardStop, tally);
+      if (continueAfterRows && (stop === null || stop === 'row-budget')) {
+        const reclaim = await this.reclaimPages(
+          hardStop,
+          tally,
+          yieldGovernor,
+        );
         reclaimDone = reclaim.done;
         reclaimNote = reclaim.note;
-        if (reclaim.stop && stop === null) stop = reclaim.stop;
+        if (reclaim.stop && stop === null) {
+          stop = reclaim.stop;
+        }
       }
     } catch (error: unknown) {
       if (
@@ -453,6 +492,7 @@ export class MemoryRetentionService {
   private async reclaimPages(
     hardStop: () => RetentionStopReason | null,
     tally: RunTally,
+    yieldGovernor: () => Promise<RetentionStopReason | null>,
   ): Promise<{
     done: boolean;
     note: RetentionStopReason | null;
@@ -475,6 +515,8 @@ export class MemoryRetentionService {
         stop = 'reclaim-budget';
         break;
       }
+      stop = await yieldGovernor();
+      if (stop) break;
       const result = this.reclaimer.reclaimStep(Math.min(step, room, freelist));
       steps++;
       tally.pagesReclaimed += result.pagesReclaimed;
@@ -497,6 +539,52 @@ export class MemoryRetentionService {
     }
     if (steps > 0) this.reclaimer.checkpointPassive();
     return { done: freelist <= 0, note: null, stop };
+  }
+
+  /**
+   * Wait on the background-work governor before a write batch.
+   *
+   * Fast-paths when the governor is absent or already clear.
+   * Bounded by the run's remaining wall budget (floor 1 ms). If the deadline
+   * has already passed, skips the wait so hardStop() ends with 'time-budget'.
+   * Resolves 'continue' on 'clear' or governor 'timeout'.
+   * Resolves 'aborted' on AbortError (shutdown or signal).
+   * Any other rejection fails open ('continue') with a single warning log.
+   */
+  private async yieldToGovernor(
+    signal: AbortSignal,
+    warned: { value: boolean },
+    msLeft: () => number,
+  ): Promise<'continue' | 'aborted'> {
+    const governor = this.governor;
+    if (governor === null || governor.isClear()) {
+      return signal.aborted ? 'aborted' : 'continue';
+    }
+    const remainingMs = msLeft();
+    if (remainingMs <= 0) {
+      return signal.aborted ? 'aborted' : 'continue';
+    }
+    const maxDeferMs = Math.max(1, remainingMs);
+    try {
+      await governor.whenClear({
+        signal,
+        lane: GOVERNOR_LANE,
+        maxDeferMs,
+      });
+      return signal.aborted ? 'aborted' : 'continue';
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return 'aborted';
+      }
+      if (!warned.value) {
+        warned.value = true;
+        this.logger.warn(
+          '[memory-curator] background-work wait failed — continuing retention anyway',
+          { error: errorText(error) },
+        );
+      }
+      return signal.aborted ? 'aborted' : 'continue';
+    }
   }
 
   /** Map the run to an outcome, record it, and log once. */

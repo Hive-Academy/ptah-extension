@@ -4,7 +4,12 @@
  * `memory-retention.integration.spec.ts`.
  */
 import 'reflect-metadata';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type {
+  BackgroundWorkAdmission,
+  Logger,
+  WhenClearOptions,
+  WhenClearOutcome,
+} from '@ptah-extension/vscode-core';
 import {
   FILE_BASED_SETTINGS_DEFAULTS,
   type IWorkspaceProvider,
@@ -77,7 +82,7 @@ class FakeStore {
   /** Advance the clock by this much inside each row batch. */
   batchCostMs = 0;
   onPurge: ((call: number) => void) | null = null;
-  private purgeCalls = 0;
+  purgeCalls = 0;
 
   constructor(
     private readonly clock: Clock,
@@ -132,6 +137,25 @@ class FakeStore {
   writeRun(record: RetentionRunRecord): void {
     this.calls.push('writeRun');
     this.runs.push(record);
+    this.state = state({
+      lastStartedAt: record.startedAt,
+      lastFinishedAt: record.finishedAt,
+      lastOutcome: record.outcome,
+      lastReason: record.reason,
+      lastError: record.error,
+      lastDurationMs: record.durationMs,
+      processedPurged: record.processedPurged,
+      stuckQuarantined: record.stuckQuarantined,
+      ledgerPruned: record.ledgerPruned,
+      freedBytes: record.freedBytes,
+      pagesReclaimed: record.pagesReclaimed,
+      backlogRemaining: record.backlogRemaining,
+      lastCompletedAt: record.completedAt,
+      processedRowsAfter: record.processedRowsAfter,
+      avgProcessedRowBytes: record.avgProcessedRowBytes,
+      lastSkippedAt: this.state?.lastSkippedAt ?? null,
+      lastSkipReason: this.state?.lastSkipReason ?? null,
+    });
   }
 
   writeSkip(at: number, reason: string): void {
@@ -196,11 +220,57 @@ function state(overrides: Partial<RetentionState> = {}): RetentionState {
   };
 }
 
+class FakeGovernor implements BackgroundWorkAdmission {
+  clear = true;
+  waiters: Array<{
+    resolve: (outcome: WhenClearOutcome) => void;
+    reject: (err: unknown) => void;
+    options?: WhenClearOptions;
+  }> = [];
+  private onWait: (() => void) | null = null;
+
+  isClear(): boolean {
+    return this.clear;
+  }
+
+  whenClear(options?: WhenClearOptions): Promise<WhenClearOutcome> {
+    if (this.clear) return Promise.resolve('clear');
+    return new Promise((resolve, reject) => {
+      this.waiters.push({ resolve, reject, options });
+      this.onWait?.();
+    });
+  }
+
+  waitForWaiter(): Promise<void> {
+    if (this.waiters.length > 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      this.onWait = () => {
+        this.onWait = null;
+        resolve();
+      };
+    });
+  }
+
+  release(outcome: WhenClearOutcome = 'clear'): void {
+    this.clear = true;
+    const pending = this.waiters;
+    this.waiters = [];
+    for (const w of pending) w.resolve(outcome);
+  }
+
+  reject(error: unknown): void {
+    const pending = this.waiters;
+    this.waiters = [];
+    for (const w of pending) w.reject(error);
+  }
+}
+
 function harness(
   opts: {
     settings?: Record<string, unknown>;
     limits?: Partial<MemoryRetentionLimits>;
     dbThrows?: boolean;
+    governor?: BackgroundWorkAdmission;
   } = {},
 ) {
   const clock: Clock = { t: 0 };
@@ -223,6 +293,7 @@ function harness(
     reclaimer as unknown as SqlitePageReclaimer,
     store as unknown as ObservationRetentionStore,
     { ...MEMORY_RETENTION_LIMITS, ...opts.limits },
+    opts.governor ?? null,
   );
   // Past the 10-minute boot deferral, measured from construction.
   clock.t = Date.now() + HOUR;
@@ -495,6 +566,25 @@ describe('MemoryRetentionService — run', () => {
     expect(h.store.runs[0]).toMatchObject({
       outcome: 'partial',
       completedAt: null,
+      backlogRemaining: true,
+    });
+  });
+
+  it('preserves row-budget reason when purge hits row cap and reclaim stops on reclaim budget', async () => {
+    const h = harness({
+      limits: {
+        maxRowsPerRun: 250,
+        maxReclaimPagesPerRun: 100,
+      },
+    });
+    h.store.processed = 400;
+    h.store.stuck = 50;
+    const report = (await h.service.run(h.options)) as MemoryRetentionRunReport;
+    expect(report).toMatchObject({
+      status: 'partial',
+      reason: 'row-budget',
+      processedPurged: 250,
+      pagesReclaimed: 100,
       backlogRemaining: true,
     });
   });
@@ -862,3 +952,177 @@ describe('MemoryRetentionService — storageHealth', () => {
     }
   });
 });
+
+describe('MemoryRetentionService — background-work governor', () => {
+  it('waits when governor is busy; no batch runs until cleared', async () => {
+    const governor = new FakeGovernor();
+    governor.clear = false;
+    const h = harness({ governor });
+    h.store.processed = 50;
+
+    let finished = false;
+    const runPromise = h.service.run(h.options).then((res) => {
+      finished = true;
+      return res;
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(finished).toBe(false);
+    expect(h.store.purgeCalls).toBe(0);
+    expect(governor.waiters).toHaveLength(1);
+    expect(governor.waiters[0].options?.lane).toBe('memory-retention');
+
+    governor.release('clear');
+    const report = await runPromise;
+
+    expect(report.status).toBe('completed');
+    expect(h.store.purgeCalls).toBe(1);
+  });
+
+  it('ends as partial with time-budget and backlog remaining when wait consumes the wall budget', async () => {
+    const governor = new FakeGovernor();
+    governor.clear = false;
+    const h = harness({ governor });
+    h.store.processed = 100;
+
+    const runPromise = h.service.run(h.options);
+    await governor.waitForWaiter();
+
+    expect(governor.waiters).toHaveLength(1);
+    const waitOpts = governor.waiters[0].options;
+    expect(waitOpts?.maxDeferMs).toBeDefined();
+    expect(waitOpts?.maxDeferMs).toBeLessThanOrEqual(
+      MEMORY_RETENTION_LIMITS.maxRunMs,
+    );
+    expect(waitOpts?.maxDeferMs).toBeGreaterThan(0);
+    expect(waitOpts?.maxDeferMs).not.toBe(600_000);
+
+    h.clock.t += waitOpts?.maxDeferMs ?? MEMORY_RETENTION_LIMITS.maxRunMs;
+    governor.release('timeout');
+
+    const report = (await runPromise) as MemoryRetentionRunReport;
+
+    expect(report.status).toBe('partial');
+    expect(report.reason).toBe('time-budget');
+    expect(report.backlogRemaining).toBe(true);
+    expect(h.store.purgeCalls).toBe(0);
+
+    const health = h.service.storageHealth();
+    expect(health.retention.nextDueAt).toBe(h.clock.t);
+  });
+
+  it('cleanly stops with aborted outcome when governor aborts; earlier committed batches are preserved', async () => {
+    const governor = new FakeGovernor();
+    const h = harness({
+      governor,
+      settings: { 'memory.retention.batchSize': 50 },
+    });
+    h.store.processed = 100;
+
+    governor.clear = true;
+    h.store.onPurge = (callCount) => {
+      if (callCount === 1) {
+        governor.clear = false;
+      }
+    };
+
+    const runPromise = h.service.run(h.options);
+    await governor.waitForWaiter();
+
+    expect(h.store.purgeCalls).toBe(1);
+    expect(governor.waiters).toHaveLength(1);
+
+    governor.reject(
+      Object.assign(new Error('governor disposed'), { name: 'AbortError' }),
+    );
+
+    const report = (await runPromise) as MemoryRetentionRunReport;
+
+    expect(report.status).toBe('partial');
+    expect(report.reason).toBe('aborted');
+    expect(report.backlogRemaining).toBe(true);
+    expect(report.processedPurged).toBe(50);
+    expect(h.store.purgeCalls).toBe(1);
+
+    expect(h.store.runs).toHaveLength(1);
+    expect(h.store.runs[0].outcome).toBe('partial');
+    expect(h.store.runs[0].reason).toBe('aborted');
+    expect(h.store.runs[0].processedPurged).toBe(50);
+  });
+
+  it('fails open and continues run when governor rejects unexpectedly, logging warn once', async () => {
+    const governor = new FakeGovernor();
+    governor.clear = false;
+    const h = harness({
+      governor,
+      settings: { 'memory.retention.batchSize': 50 },
+    });
+    h.store.processed = 100;
+
+    let whenClearCalls = 0;
+    governor.whenClear = jest.fn(async () => {
+      whenClearCalls++;
+      throw new Error('unexpected governor crash');
+    });
+
+    const report = await h.service.run(h.options);
+
+    expect(report.status).toBe('completed');
+    expect(h.store.purgeCalls).toBe(2);
+    expect(whenClearCalls).toBeGreaterThanOrEqual(2);
+
+    const warnCalls = (h.logger.warn as jest.Mock).mock.calls.filter((c) =>
+      c[0].includes('background-work wait failed'),
+    );
+    expect(warnCalls).toHaveLength(1);
+    expect(warnCalls[0][1]).toEqual({
+      error: 'unexpected governor crash',
+    });
+  });
+
+  it('proceeds when governor times out', async () => {
+    const governor = new FakeGovernor();
+    governor.clear = false;
+    const h = harness({ governor });
+    h.store.processed = 50;
+
+    const runPromise = h.service.run(h.options);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(governor.waiters).toHaveLength(1);
+    governor.release('timeout');
+
+    const report = await runPromise;
+    expect(report.status).toBe('completed');
+    expect(h.store.purgeCalls).toBe(1);
+  });
+
+  it('skips governor whenClear call when deadline has already passed', async () => {
+    const governor = new FakeGovernor();
+    const h = harness({
+      governor,
+      settings: { 'memory.retention.batchSize': 50 },
+    });
+    h.store.processed = 100;
+
+    governor.clear = true;
+    h.store.onPurge = (callCount) => {
+      if (callCount === 1) {
+        governor.clear = false;
+        // Advance clock past deadline
+        h.clock.t += MEMORY_RETENTION_LIMITS.maxRunMs + 1000;
+      }
+    };
+
+    const report = (await h.service.run(h.options)) as MemoryRetentionRunReport;
+
+    expect(governor.waiters).toHaveLength(0);
+    expect(report.status).toBe('partial');
+    expect(report.reason).toBe('time-budget');
+    expect(report.processedPurged).toBe(50);
+  });
+});
+

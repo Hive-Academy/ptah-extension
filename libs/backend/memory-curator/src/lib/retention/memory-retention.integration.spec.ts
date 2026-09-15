@@ -13,7 +13,7 @@
  * the boot-deferral gate is open. Battery and foreground gates are open too.
  */
 import 'reflect-metadata';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { BackgroundWorkAdmission, Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { SqlitePageReclaimer } from '@ptah-extension/persistence-sqlite';
 import { MemoryRetentionService } from './memory-retention.service';
@@ -74,6 +74,7 @@ const openDbs: RetentionTestDb[] = [];
 function makeHarness(
   limits: Partial<MemoryRetentionLimits> = {},
   wrapStore?: (store: ObservationRetentionStore) => void,
+  governor?: BackgroundWorkAdmission,
 ): Harness {
   const t = openRetentionTestDb();
   openDbs.push(t);
@@ -90,6 +91,7 @@ function makeHarness(
     new SqlitePageReclaimer(logger, t.connection),
     store,
     { ...MEMORY_RETENTION_LIMITS, ...limits },
+    governor ?? null,
   );
   return {
     t,
@@ -637,6 +639,55 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
     const run2 = (await h.run(NOW + HOUR)) as MemoryRetentionRunReport;
     expect(run2.status).toBe('completed');
     expect(run2.processedPurged).toBe(150);
+    expect(snapshot(t).size).toBe(0);
+  });
+
+  it('waits on governor before purging rows from real SQLite', async () => {
+    let clear = false;
+    let waiter: (() => void) | null = null;
+    const governor: BackgroundWorkAdmission = {
+      isClear: () => clear,
+      whenClear: () => {
+        if (clear) return Promise.resolve('clear');
+        return new Promise((resolve) => {
+          waiter = () => resolve('clear');
+        });
+      },
+    };
+
+    const h = makeHarness({}, undefined, governor);
+    const { t } = h;
+    seedObservations(
+      t.raw,
+      seedGroup(100, () => ({
+        sessionId: 'gov-0',
+        kind: 'tool-use',
+        capturedAt: NOW - 9 * DAY,
+        processedAt: NOW - 8 * DAY,
+      })),
+    );
+
+    let finished = false;
+    const runPromise = h.run(NOW).then((res) => {
+      finished = true;
+      return res;
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(finished).toBe(false);
+    expect(snapshot(t).size).toBe(100);
+    expect(waiter).not.toBeNull();
+
+    clear = true;
+    if (waiter) {
+      (waiter as () => void)();
+    }
+
+    const result = (await runPromise) as MemoryRetentionRunReport;
+    expect(result.status).toBe('completed');
+    expect(result.processedPurged).toBe(100);
     expect(snapshot(t).size).toBe(0);
   });
 });
