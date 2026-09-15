@@ -29,10 +29,14 @@ import type { WebviewManager } from '@ptah-extension/vscode-core';
 import type {
   IMemoryReader,
   IMemoryLister,
+  IMemoryUsageRecorder,
   ICodeSymbolReader,
   IKnowledgeAgent,
 } from '@ptah-extension/memory-contracts';
-import { KNOWLEDGE_AGENT_TOKEN } from '@ptah-extension/memory-contracts';
+import {
+  KNOWLEDGE_AGENT_TOKEN,
+  MEMORY_CONTRACT_TOKENS,
+} from '@ptah-extension/memory-contracts';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -387,6 +391,11 @@ export class PtahAPIBuilder {
 
     @inject(MEMORY_SEARCH_TOKEN, { isOptional: true })
     private readonly memorySearch: IMemoryReader | undefined,
+
+    @inject(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER, {
+      isOptional: true,
+    })
+    private readonly memoryUsageRecorder: IMemoryUsageRecorder | undefined,
 
     @inject(MEMORY_STORE_TOKEN, { isOptional: true })
     private readonly memoryStore: IMemoryLister | undefined,
@@ -754,6 +763,8 @@ export class PtahAPIBuilder {
       memory: this.buildNamespaceSafe('memory', () =>
         buildMemoryNamespace({
           getMemorySearch: () => this.memorySearch,
+          getMemoryUsageRecorder: () => this.memoryUsageRecorder,
+          logger: this.logger,
           getMemoryStore: () => this.memoryStore,
           getMemoryWriter: () => this.memoryWriter,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
