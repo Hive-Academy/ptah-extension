@@ -231,7 +231,8 @@ interface ICuratorService {
   acceptSuggestion(
     id: string,
     settings: SkillSynthesisSettings,
-  ): { accepted: boolean; filePath: string };
+    origin?: QueryOrigin,
+  ): Promise<{ accepted: boolean; filePath: string }>;
   dismissSuggestion(id: string): { dismissed: boolean };
 }
 
@@ -1132,6 +1133,8 @@ export class SkillsSynthesisRpcHandlers {
           kind,
           parsed.slug,
           parsed.proposalId,
+          // The harness refresh after the write skips the governor (FU-17b).
+          { userInitiated: true },
         );
         return { applied: result.applied, historyTs: result.historyTs };
       } catch (error: unknown) {
@@ -1222,6 +1225,8 @@ export class SkillsSynthesisRpcHandlers {
           parsed.slug,
           parsed.historyTs,
           parsed.kind as SkillRegistryKind,
+          // The harness refresh after the restore skips the governor (FU-17b).
+          { userInitiated: true },
         );
         return {
           reverted: result.reverted,
@@ -1547,7 +1552,10 @@ export class SkillsSynthesisRpcHandlers {
         this.requireDesktop(this.suggestionStore);
         const curator = this.requireDesktop(this.curator);
         const settings = this.synthesis.readSettings();
-        const result = curator.acceptSuggestion(parsed.id, settings);
+        const result = await curator.acceptSuggestion(parsed.id, settings, {
+          // The harness refresh after the accept skips the governor (FU-17b).
+          userInitiated: true,
+        });
         return { accepted: result.accepted, filePath: result.filePath };
       } catch (error: unknown) {
         if (error instanceof RpcUserError) throw error;

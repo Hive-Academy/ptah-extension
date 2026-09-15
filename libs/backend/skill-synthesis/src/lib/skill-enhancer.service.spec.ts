@@ -307,10 +307,12 @@ describe('SkillEnhancerService', () => {
       'sha256:new',
     );
     expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+    // No `userInitiated`: the automatic pass re-propagates as background work.
     expect(h.repropagation.repropagate).toHaveBeenCalledWith(
       'skill',
       'deep-research',
       expect.any(String),
+      {},
     );
   });
 
@@ -484,6 +486,39 @@ describe('SkillEnhancerService', () => {
         userInitiated: true,
       });
       expect(h.judge.judge.mock.calls[0][5]).toEqual({ userInitiated: true });
+    });
+
+    // TASK_2026_437 FU-17b: the same origin reaches the harness refresh.
+    it('hands the enhance origin to the re-propagation (enhanceNow click)', async () => {
+      // Frontmatter present, so the candidate is valid and reaches the write.
+      const h = makeHarness({
+        judgeDecision,
+        candidateText:
+          '---\nname: deep-research\ndescription: Research deeply\n---\nImproved body',
+      });
+      await h.svc.enhance('deep-research', makeSettings(), {
+        manual: true,
+        userInitiated: true,
+      });
+      expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+      expect(h.repropagation.repropagate.mock.calls[0][3]).toEqual({
+        userInitiated: true,
+      });
+    });
+
+    it('re-propagates an automatic enhance with no userInitiated (background)', async () => {
+      // Frontmatter present, so the candidate is valid and reaches the write.
+      const h = makeHarness({
+        judgeDecision,
+        candidateText:
+          '---\nname: deep-research\ndescription: Research deeply\n---\nImproved body',
+      });
+      await h.svc.enhance('deep-research', makeSettings(), {});
+      expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+      const origin = h.repropagation.repropagate.mock.calls[0][3] as {
+        userInitiated?: boolean;
+      };
+      expect(origin.userInitiated).toBeUndefined();
     });
 
     it('decides the lane by userInitiated, not by manual', async () => {
@@ -721,6 +756,29 @@ describe('SkillEnhancerService', () => {
     });
     expect(h.registry.markEnhanced).toHaveBeenCalledTimes(1);
     expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+    // No origin given: background.
+    expect(h.repropagation.repropagate.mock.calls[0][3]).toEqual({});
+  });
+
+  it('revert: hands the revertEnhancement click origin to the re-propagation (FU-17b)', async () => {
+    const h = makeHarness({
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
+      candidateText: 'x',
+    });
+    await h.svc.revert('deep-research', '1700000000000', 'agent', {
+      userInitiated: true,
+    });
+    expect(h.repropagation.repropagate).toHaveBeenCalledWith(
+      'agent',
+      'deep-research',
+      expect.any(String),
+      { userInitiated: true },
+    );
   });
 
   it('kind=agent: judge PASS writes via writeEnhancedFileClone + markEnhanced/repropagate agent', async () => {
@@ -757,6 +815,7 @@ describe('SkillEnhancerService', () => {
       'agent',
       'deep-research',
       expect.any(String),
+      {},
     );
   });
 
@@ -809,6 +868,7 @@ describe('SkillEnhancerService', () => {
       'command',
       'deep-research',
       expect.any(String),
+      {},
     );
   });
 
@@ -871,6 +931,7 @@ describe('SkillEnhancerService', () => {
       'agent',
       'deep-research',
       expect.any(String),
+      {},
     );
   });
 
@@ -1201,6 +1262,44 @@ describe('SkillEnhancerService — preview-before-apply', () => {
       'sha256:new',
     );
     expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+  });
+
+  it('applyProposal hands the applyProposal click origin to the re-propagation (FU-17b)', async () => {
+    const h = passingHarness();
+    const proposal = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+
+    await h.svc.applyProposal(
+      'skill',
+      'deep-research',
+      proposal.proposalId as string,
+      { userInitiated: true },
+    );
+
+    expect(h.repropagation.repropagate).toHaveBeenCalledWith(
+      'skill',
+      'deep-research',
+      expect.any(String),
+      { userInitiated: true },
+    );
+  });
+
+  it('applyProposal with no origin re-propagates as background work', async () => {
+    const h = passingHarness();
+    const proposal = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+
+    await h.svc.applyProposal(
+      'skill',
+      'deep-research',
+      proposal.proposalId as string,
+    );
+
+    expect(h.repropagation.repropagate.mock.calls[0][3]).toEqual({});
   });
 
   it('applyProposal(kind=agent) routes through writeEnhancedFileClone', async () => {

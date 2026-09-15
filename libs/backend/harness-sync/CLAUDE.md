@@ -580,6 +580,18 @@ PREVIOUS state and reports a clean pass. The two exceptions are host activation
 (which already mirrors, by hand, in the right order) and `plugins:save-config`
 (which passes `skipUserLayerRefresh` because enabling a plugin changes the
 FILTER, never a source's contents).
+
+**`userLayerRefreshReason` labels the refresh, not the reconcile**
+(TASK_2026_437 FU-17b). `HarnessPropagateOptions.userLayerRefreshReason` is
+handed to `IUserLayerRefresher.refresh(workspaceRoot, reason?)`; absent, it is
+`undefined`, and every refresher MUST treat that exactly like an omitted
+argument (the host's default label). It is distinct from `propagate`'s own
+`reason`, which labels the reconcile. A host may schedule on the label: Electron
+maps it to its user-layer coalescer, where `skill-repropagation` is in
+`GOVERNED_USER_LAYER_REASONS` and waits for the background-work governor. The
+only setter today is `ElectronSkillRepropagation`, for a skill re-propagation
+with no `userInitiated` origin; a click sets nothing. The VS Code and CLI
+refreshers ignore it (no governor).
 Targets: `createCodexTarget`, `createCopilotTarget`, `createCursorTarget`,
 `createAntigravityTarget`, `createVscodeMcpTarget`, `createRivalTargets`.
 Transforms: `transformSkillMarkdown`, `CodexAgentTransformer`,
@@ -704,8 +716,9 @@ host is shutting down.
 | Session start                | `SessionQueryExecutor` + `AgentProcessManager.doSpawn`, via `HarnessPreflightService`                                                   | `preflight` |
 | Plugin enable/disable        | `plugins:save-config` — passes `skipUserLayerRefresh`, because a toggle changes the FILTER and not a source's contents                  | `full`      |
 | Plugin install/uninstall     | `plugins:install-external`, `plugins:uninstall-external`                                                                                | `full`      |
-| Skill promotion / demotion   | `SkillPromotionService` → repropagation port                                                                                            | `full`      |
-| Enhancement apply / revert   | `SkillEnhancerService`                                                                                                                  | `full`      |
+| Skill promotion / demotion   | `SkillPromotionService` → repropagation port (Electron: background sets `userLayerRefreshReason: 'skill-repropagation'`)                | `full`      |
+| Enhancement apply / revert   | `SkillEnhancerService` → repropagation port (same origin rule)                                                                          | `full`      |
+| Suggestion accept            | `SkillCuratorService.acceptSuggestion` → repropagation port (`userInitiated`, never waits)                                              | `full`      |
 | Harness-builder create/apply | `harness:create-skill`, `harness:apply`                                                                                                 | `full`      |
 | Wizard submit                | `wizard:submit-selection` — GRANTS `agentSyncEnabled` first, then propagates                                                            | `full`      |
 | Per-agent disable            | `plugins:save-config` (`disabledAgentIds`) — same path and same mode as a skill or plugin toggle                                        | `full`      |

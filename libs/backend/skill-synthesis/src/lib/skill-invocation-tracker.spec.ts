@@ -122,6 +122,19 @@ describe('SkillInvocationTracker', () => {
     expect(result.successCount).toBe(3);
   });
 
+  // TASK_2026_437 FU-17b: auto-promotion is background work — no origin, so
+  // its re-propagation may wait for the governor.
+  it('auto-promotes with no userInitiated origin', async () => {
+    const { store, promotion, tracker } = setup(row({ successCount: 2 }));
+    (store.incrementSuccess as jest.Mock).mockReturnValue(3);
+    await tracker.recordInvocation(
+      { skillId: 'cand_x' as CandidateId, sessionId: 's1', succeeded: true },
+      SETTINGS,
+    );
+    const call = (promotion.evaluate as jest.Mock).mock.calls[0] as unknown[];
+    expect(call[3]).toBeUndefined();
+  });
+
   it('does not trigger promotion on a failed invocation', async () => {
     const { store, promotion, tracker } = setup(row({ successCount: 5 }));
     (store.incrementFailure as jest.Mock).mockReturnValue(1);

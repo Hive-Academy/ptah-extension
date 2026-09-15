@@ -527,11 +527,16 @@ export class SkillEnhancerService {
    * Consumes the cache entry, so a `proposalId` applies at most once. Throws
    * {@link ProposalNotFoundError} on an unknown / expired id or when
    * `(kind, slug)` do not match the cached proposal — never regenerates.
+   *
+   * `origin` reaches the re-propagation: the `skillSynthesis:applyProposal`
+   * click passes `userInitiated: true` so the harness refresh never waits for
+   * the background-work governor; an auto-enhance passes nothing (FU-17b).
    */
   async applyProposal(
     kind: SkillRegistryKind,
     slug: string,
     proposalId: string,
+    origin: QueryOrigin = {},
   ): Promise<ApplyProposalResult> {
     const proposal = this.takeProposal(kind, slug, proposalId);
 
@@ -555,7 +560,7 @@ export class SkillEnhancerService {
       written.currentContentHash,
     );
 
-    await this.repropagate(proposal.slug, proposal.kind);
+    await this.repropagate(proposal.slug, proposal.kind, origin);
 
     this.logger.info('[skill-enhancer] clone enhanced', {
       slug: proposal.slug,
@@ -608,7 +613,14 @@ export class SkillEnhancerService {
         };
       }
 
-      const applied = await this.applyProposal(kind, slug, proposal.proposalId);
+      const applied = await this.applyProposal(
+        kind,
+        slug,
+        proposal.proposalId,
+        {
+          userInitiated: options.userInitiated,
+        },
+      );
 
       return {
         changed: true,
@@ -672,10 +684,16 @@ export class SkillEnhancerService {
     return proposal;
   }
 
+  /**
+   * Restore a `.history/<ts>/` snapshot. `origin` reaches the re-propagation,
+   * as in {@link applyProposal}; the `skillSynthesis:revertEnhancement` click
+   * passes `userInitiated: true`.
+   */
   async revert(
     slug: string,
     historyTs: string,
     kind: SkillRegistryKind = 'skill',
+    origin: QueryOrigin = {},
   ): Promise<RevertEnhancementResult> {
     try {
       const result = await this.mirror.revert({
@@ -686,7 +704,7 @@ export class SkillEnhancerService {
       });
       if (result.restored) {
         this.registry.markEnhanced(kind, slug, Date.now());
-        await this.repropagate(slug, kind);
+        await this.repropagate(slug, kind, origin);
       }
       return {
         reverted: result.restored,
@@ -712,11 +730,17 @@ export class SkillEnhancerService {
 
   private async repropagate(
     slug: string,
-    kind: SkillRegistryKind = 'skill',
+    kind: SkillRegistryKind,
+    origin: QueryOrigin,
   ): Promise<void> {
     if (!this.repropagation) return;
     try {
-      await this.repropagation.repropagate(kind, slug, this.resolveCwd());
+      await this.repropagation.repropagate(
+        kind,
+        slug,
+        this.resolveCwd(),
+        origin,
+      );
     } catch (error: unknown) {
       this.logger.warn('[skill-enhancer] re-propagation failed', {
         slug,

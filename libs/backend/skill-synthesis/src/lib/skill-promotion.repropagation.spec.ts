@@ -21,6 +21,7 @@ import type {
   SkillRepropagationKind,
   SkillRepropagationPort,
 } from './skill-repropagation.port';
+import type { QueryOrigin } from './internal-query.interface';
 import type {
   CandidateId,
   SkillCandidateRow,
@@ -139,7 +140,7 @@ function makeRepropagation(): jest.Mocked<SkillRepropagationPort> {
   return {
     repropagate: jest.fn<
       Promise<void>,
-      [SkillRepropagationKind, string, string]
+      [SkillRepropagationKind, string, string, QueryOrigin?]
     >(async () => undefined),
   };
 }
@@ -163,10 +164,12 @@ describe('SkillPromotionService — repropagation emit', () => {
 
     expect(decision.promoted).toBe(true);
     expect(repropagation.repropagate).toHaveBeenCalledTimes(1);
+    // `evaluate` given no origin (auto-promotion): background.
     expect(repropagation.repropagate).toHaveBeenCalledWith(
       'skill',
       'do-thing',
       'D:/ws',
+      {},
     );
   });
 
@@ -197,6 +200,37 @@ describe('SkillPromotionService — repropagation emit', () => {
     expect(store.setResidency).toHaveBeenCalledWith('cand_weak', 'dormant');
     const slugs = repropagation.repropagate.mock.calls.map((c) => c[1]);
     expect(slugs.sort()).toEqual(['do-thing', 'weak-skill']);
+  });
+
+  // TASK_2026_437 FU-17b: a promote click must not wait for the governor, so
+  // the origin `evaluate` was given reaches every emitted slug.
+  it('hands the evaluate origin to every emitted slug', async () => {
+    const weakest = row({
+      id: 'cand_weak' as CandidateId,
+      name: 'weak-skill',
+    });
+    const store = makeStore(row(), [weakest]);
+    const repropagation = makeRepropagation();
+    const svc = new SkillPromotionService(
+      noopLogger,
+      store,
+      makeMdGenerator(),
+      null,
+      null,
+      null,
+      makeWorkspace('D:/ws'),
+      repropagation,
+    );
+
+    await svc.evaluate(
+      'cand_test' as CandidateId,
+      { ...SETTINGS, maxActiveSkills: 1 },
+      undefined,
+      { userInitiated: true },
+    );
+
+    const origins = repropagation.repropagate.mock.calls.map((c) => c[3]);
+    expect(origins).toEqual([{ userInitiated: true }, { userInitiated: true }]);
   });
 
   it('emits ONCE when the demoted resident is the candidate itself', async () => {
@@ -262,6 +296,7 @@ describe('SkillPromotionService — repropagation emit', () => {
       'skill',
       'do-thing',
       '',
+      {},
     );
   });
 

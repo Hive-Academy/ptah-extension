@@ -883,10 +883,12 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       historyTs: '1717848000000',
     });
 
+    // A click: the harness refresh after the restore never waits (FU-17b).
     expect(enhancer.revert).toHaveBeenCalledWith(
       'deep-research',
       '1717848000000',
       'skill',
+      { userInitiated: true },
     );
     expect(result).toMatchObject({ reverted: true });
   });
@@ -910,6 +912,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       'my-agent',
       '1717848000000',
       'agent',
+      { userInitiated: true },
     );
   });
 
@@ -2785,7 +2788,7 @@ function makeCurator() {
     }),
     start: jest.fn(),
     stop: jest.fn(),
-    acceptSuggestion: jest.fn().mockReturnValue({
+    acceptSuggestion: jest.fn().mockResolvedValue({
       accepted: true,
       filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
     }),
@@ -2971,7 +2974,7 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:acceptSuggestion', () =>
       suggestionMaxCandidates: 200,
     };
     synthesis.readSettings.mockReturnValue(fakeSettings);
-    curator.acceptSuggestion.mockReturnValue({
+    curator.acceptSuggestion.mockResolvedValue({
       accepted: true,
       filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
     });
@@ -2981,9 +2984,11 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:acceptSuggestion', () =>
     });
 
     expect(synthesis.readSettings).toHaveBeenCalled();
+    // A click: the harness refresh after the accept never waits (FU-17b).
     expect(curator.acceptSuggestion).toHaveBeenCalledWith(
       'sug-42',
       fakeSettings,
+      { userInitiated: true },
     );
     expect(result).toMatchObject({
       accepted: true,
@@ -3389,10 +3394,12 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
       proposalId: PROPOSAL_ID,
     });
 
+    // A click: the harness refresh after the write never waits (FU-17b).
     expect(enhancer.applyProposal).toHaveBeenCalledWith(
       'skill',
       'deep-research',
       PROPOSAL_ID,
+      { userInitiated: true },
     );
     expect(result).toEqual({ applied: true, historyTs: '1700000000000' });
   });

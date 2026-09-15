@@ -5,6 +5,7 @@ import {
   type HarnessPropagationService,
 } from '@ptah-extension/harness-sync';
 import type {
+  QueryOrigin,
   SkillRepropagationKind,
   SkillRepropagationPort,
 } from '@ptah-extension/skill-synthesis';
@@ -37,6 +38,8 @@ export class CliSkillRepropagation implements SkillRepropagationPort {
     kind: SkillRepropagationKind,
     slug: string,
     workspaceRoot: string,
+    // The CLI has no background-work governor, so the origin is ignored (FU-17b).
+    _origin?: QueryOrigin,
   ): Promise<void> {
     const logger = this.resolveLogger();
     try {

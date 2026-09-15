@@ -229,7 +229,10 @@ state only: `clear | foreground-busy | lagging | disposed`.
   `indexing:resume` clicks set it), `FolderIndexLiveSync` (lost-event file-index
   rebuild, coalesced while held, started at once when `ensureReadyFor` asks for
   the folder), `SqliteBackupService` (`daily` only), and the Electron
-  user-layer coalescer (`GOVERNED_USER_LAYER_REASONS`). One rejection rule for
+  user-layer coalescer (`GOVERNED_USER_LAYER_REASONS`: `content-download-complete`
+  and `skill-repropagation` — a skill re-propagation with no `userInitiated`
+  origin, which `ElectronSkillRepropagation` starts without awaiting; FU-17b).
+  One rejection rule for
   all of them: `'timeout'` runs the unit; an `AbortError` cancels it quietly
   (debug/info); any other rejection is a governor defect — warn (once per
   adopter instance where it could repeat) and run the unit (fail open).

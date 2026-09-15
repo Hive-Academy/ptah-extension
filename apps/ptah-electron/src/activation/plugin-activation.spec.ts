@@ -106,6 +106,7 @@ import {
   reconcileUserLayer,
   refreshUserLayer,
 } from './plugin-activation';
+import { ElectronSkillRepropagation } from './skill-repropagation';
 
 const RECONCILER_TOKEN = Symbol.for('HarnessReconciler');
 const PROPAGATION_TOKEN = Symbol.for('HarnessSyncPropagation');
@@ -609,9 +610,10 @@ describe('electron plugin-activation — refreshUserLayer defers background reas
     jest.restoreAllMocks();
   });
 
-  it('governs content-download-complete only', () => {
+  it('governs content-download-complete and background skill re-propagation only', () => {
     expect([...GOVERNED_USER_LAYER_REASONS]).toEqual([
       'content-download-complete',
+      'skill-repropagation',
     ]);
   });
 
@@ -798,6 +800,162 @@ describe('electron plugin-activation — refreshUserLayer defers background reas
       '[Ptah Electron] User-layer pass (content-download-complete) — background-work wait failed; running anyway:',
       'governor bug',
     ]);
+  });
+
+  /**
+   * TASK_2026_437 FU-17b, end to end on the Electron side: the port adapter →
+   * a propagation that forwards `userLayerRefreshReason` to this host's
+   * refresher (the forward itself is pinned in harness-sync's
+   * `harness-propagation.service.spec.ts`) → the shared coalescer and its gate.
+   */
+  function repropagationFor(h: Harness): ElectronSkillRepropagation {
+    const refresher = createUserLayerRefresher(h.container as never);
+    const propagation = {
+      propagate: async (
+        cwd: string,
+        _reason: string,
+        options: { userLayerRefreshReason?: string } = {},
+      ) => {
+        await refresher.refresh(cwd, options.userLayerRefreshReason);
+        return null;
+      },
+    };
+    const container = {
+      isRegistered: () => true,
+      resolve: <T>(token: symbol): T =>
+        token === PROPAGATION_TOKEN
+          ? (propagation as T)
+          : h.container.resolve<T>(token),
+    };
+    return new ElectronSkillRepropagation(container as never);
+  }
+
+  it('a background skill re-propagation (auto-enhance / auto-promote) returns at once; its refresh is held until the governor clears', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+
+    // Resolves while the governor is still busy: the caller is not held.
+    await repropagationFor(h).repropagate('skill', 'caveman', WORKSPACE_ROOT);
+    await settle();
+
+    expect(h.mirrorAll).not.toHaveBeenCalled();
+    expect(governor.whenClear).toHaveBeenCalledTimes(1);
+    expect(logged).toContain(
+      '[Ptah Electron] User-layer pass (skill-repropagation) deferred until background work clears',
+    );
+
+    governor.release('clear');
+    await settle();
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * b17b logic review, serious 1 + minor 3: `SkillCuratorService.runEnhancementPass`
+   * awaits one re-propagation per candidate (`ENHANCE_MAX_SLUGS_PER_PASS` = 3),
+   * in sequence. This drives that exact shape against a busy governor.
+   */
+  it('a 3-candidate enhancement loop finishes while the governor is busy, and its refreshes merge into ONE held pass', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+    const repropagation = repropagationFor(h);
+
+    const candidates = [
+      { kind: 'skill', slug: 'one' },
+      { kind: 'agent', slug: 'two' },
+      { kind: 'command', slug: 'three' },
+    ] as const;
+    let loopFinished = false;
+    const loop = (async () => {
+      for (const candidate of candidates) {
+        await repropagation.repropagate(
+          candidate.kind,
+          candidate.slug,
+          WORKSPACE_ROOT,
+        );
+      }
+      loopFinished = true;
+    })();
+    await settle();
+    await loop;
+
+    expect(loopFinished).toBe(true);
+
+    expect(h.mirrorAll).not.toHaveBeenCalled();
+    expect(governor.whenClear).toHaveBeenCalledTimes(1);
+
+    governor.release('clear');
+    await settle();
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['skill', 'agent', 'command'] as const)(
+    "never holds a clicked '%s' re-propagation (promote, enhanceNow, applyProposal, revert)",
+    async (kind) => {
+      const governor = makeGovernor();
+      const h = makeHarness(emptyReconcileResult(), { governor });
+
+      const pass = repropagationFor(h).repropagate(
+        kind,
+        'caveman',
+        WORKSPACE_ROOT,
+        { userInitiated: true },
+      );
+      await settle();
+      await pass;
+
+      expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+      expect(governor.whenClear).not.toHaveBeenCalled();
+      expect(logged).toContain(
+        '[Ptah Electron] User-layer pass (harness-propagation)',
+      );
+    },
+  );
+
+  it('a clicked re-propagation joining a held background one releases it at once, as ONE pass', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+    const repropagation = repropagationFor(h);
+
+    await repropagation.repropagate('skill', 'caveman', WORKSPACE_ROOT);
+    await settle();
+    expect(h.mirrorAll).not.toHaveBeenCalled();
+
+    const click = repropagation.repropagate(
+      'agent',
+      'reviewer',
+      WORKSPACE_ROOT,
+      {
+        userInitiated: true,
+      },
+    );
+    await settle();
+    // The click resolves only once the released pass has run.
+    await click;
+
+    expect(governor.signals[0]?.aborted).toBe(true);
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+    expect(logged).toContain(
+      '[Ptah Electron] User-layer pass (skill-repropagation + harness-propagation)',
+    );
+  });
+
+  it('a refresh with no label keeps harness-propagation and is never held', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+
+    const pass = createUserLayerRefresher(h.container as never).refresh(
+      WORKSPACE_ROOT,
+      undefined,
+    );
+    await settle();
+    await pass;
+
+    expect(governor.whenClear).not.toHaveBeenCalled();
+    expect(logged).toContain(
+      '[Ptah Electron] User-layer pass (harness-propagation)',
+    );
   });
 
   it('runs at once when the governor is already clear', async () => {

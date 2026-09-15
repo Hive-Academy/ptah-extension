@@ -47,6 +47,7 @@ import {
   type CoalescedJob,
   type CoalescedJobAdmission,
 } from './coalesced-job';
+import { SKILL_REPROPAGATION_USER_LAYER_REASON } from './skill-repropagation';
 import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
 
 const USER_LAYER_MIRRORED_AT = 'user_layer_mirrored_at';
@@ -121,6 +122,11 @@ function userLayerJobFor(
 }
 
 /**
+ * The label a propagation refresh gets when its caller named none.
+ */
+const HARNESS_PROPAGATION_USER_LAYER_REASON = 'harness-propagation';
+
+/**
  * Refresh reasons whose pass is background work and waits for the
  * background-work governor (TASK_2026_437 C14 c).
  *
@@ -129,6 +135,10 @@ function userLayerJobFor(
  * - `content-download-complete` — the post-network re-mirror at boot. Nobody
  *   awaits it for a reply, and it lands exactly when a first turn is most
  *   likely to be generating.
+ * - `skill-repropagation` — a skill, agent or command the synthesis pipeline
+ *   changed on its own schedule (FU-17b). The curator pass awaits it, but no
+ *   person does. The same change made by a click (`promote`, `enhanceNow`,
+ *   `applyProposal`, `revertEnhancement`) refreshes as `harness-propagation`.
  * - NOT `activation` — the boot pass the first window depends on; never
  *   deferred.
  * - NOT `harness-propagation` — every `HarnessPropagationService.propagate`
@@ -142,6 +152,7 @@ function userLayerJobFor(
  */
 export const GOVERNED_USER_LAYER_REASONS: ReadonlySet<string> = new Set([
   'content-download-complete',
+  SKILL_REPROPAGATION_USER_LAYER_REASON,
 ]);
 
 /** `whenClear` lane name; it only labels the governor's ceiling log line. */
@@ -536,16 +547,23 @@ export function refreshUserLayer(
  * reconciler reads it. Without this port a repropagation event reconciled the
  * PREVIOUS state and logged a clean pass (TASK_2026_278 Batch 3).
  *
- * The port carries no reason, so every propagation shares one label here. That
- * is enough for the log to say a pass was propagation-driven; which propagation
- * is already on the reconciler's own line.
+ * A propagation that names no refresh label shares one here,
+ * `harness-propagation`, which is never governed: most propagations are awaited
+ * by an RPC handler answering a click. Which propagation it was is already on
+ * the reconciler's own line. A caller that names a label — today only the
+ * background skill re-propagation — gets that label, and with it the governor
+ * rule of {@link GOVERNED_USER_LAYER_REASONS}.
  */
 export function createUserLayerRefresher(container: DependencyContainer): {
-  refresh(workspaceRoot: string | undefined): Promise<void>;
+  refresh(workspaceRoot: string | undefined, reason?: string): Promise<void>;
 } {
   return {
-    refresh(workspaceRoot: string | undefined): Promise<void> {
-      return refreshUserLayer(container, workspaceRoot, 'harness-propagation');
+    refresh(workspaceRoot: string | undefined, reason?: string): Promise<void> {
+      return refreshUserLayer(
+        container,
+        workspaceRoot,
+        reason ?? HARNESS_PROPAGATION_USER_LAYER_REASON,
+      );
     },
   };
 }

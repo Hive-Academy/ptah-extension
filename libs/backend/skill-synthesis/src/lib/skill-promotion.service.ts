@@ -310,7 +310,7 @@ export class SkillPromotionService {
     // the demotion at the point it happened would ask the harness to reconcile
     // a half-applied state — the weakest skill already gone, the new one not yet
     // materialized — and the reconciler would then run twice for one decision.
-    await this.emitRepropagation([demotedSlug, candidate.name]);
+    await this.emitRepropagation([demotedSlug, candidate.name], origin);
 
     return {
       promoted: true,
@@ -333,15 +333,24 @@ export class SkillPromotionService {
    *
    * `null` entries (no demotion happened) and duplicates are dropped, so
    * promoting a skill that also evicted itself cannot double-fire.
+   *
+   * `origin` is the one `evaluate` was given: a `skillSynthesis:promote` click
+   * propagates at once, an auto-promotion may wait for the governor (FU-17b).
    */
   private async emitRepropagation(
     slugs: readonly (string | null)[],
+    origin: QueryOrigin,
   ): Promise<void> {
     if (!this.repropagation) return;
     const workspaceRoot = this.workspaceRoot();
     for (const slug of new Set(slugs.filter((s): s is string => s !== null))) {
       try {
-        await this.repropagation.repropagate('skill', slug, workspaceRoot);
+        await this.repropagation.repropagate(
+          'skill',
+          slug,
+          workspaceRoot,
+          origin,
+        );
       } catch (err) {
         this.logger.warn(
           '[skill-synthesis] skill repropagation failed (residency change is still committed)',

@@ -365,6 +365,14 @@ describe('SkillCuratorService', () => {
     expect(enhanceMock).toHaveBeenCalledWith('eligible', expect.anything(), {
       kind: 'skill',
     });
+    // No origin: background, so the enhancer's re-propagation may wait (FU-17b).
+    expect(enhanceMock.mock.calls[0][2].userInitiated).toBeUndefined();
+
+    await svc.runManual({ userInitiated: true });
+    expect(enhanceMock.mock.calls[1][2]).toEqual({
+      kind: 'skill',
+      userInitiated: true,
+    });
   });
 
   it('unified pass: selects + enhances eligible agent and command clones with their kind', async () => {
@@ -1165,6 +1173,98 @@ describe('SkillCuratorService', () => {
       svc.stop();
       expect(query.execute).toHaveBeenCalled();
       expect(query.execute.mock.calls[0][0].lane).toBe('skill-synthesis');
+    });
+  });
+
+  /**
+   * b17b logic review, moderate 2: `skillSynthesis:acceptSuggestion` is a click
+   * that materializes a promoted skill, so it re-propagates at once with the
+   * origin the RPC handler gave it.
+   */
+  describe('acceptSuggestion re-propagates the accepted skill', () => {
+    function curatorWithSuggestion(repropagate: jest.Mock) {
+      const suggestionStore = {
+        findById: jest.fn(() => ({
+          id: 'sug-1',
+          name: 'suggested-skill',
+          description: 'd',
+          body: 'b',
+          status: 'pending',
+        })),
+        accept: jest.fn(),
+      } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
+      const mdGenerator = {
+        promoteToActive: jest.fn(() => ({
+          slug: 'suggested-skill',
+          dir: '/a/suggested-skill',
+          filePath: '/a/suggested-skill/SKILL.md',
+        })),
+      } as unknown as ConstructorParameters<typeof SkillCuratorService>[10];
+      const workspace = {
+        getWorkspaceRoot: jest.fn(() => '/ws'),
+      } as unknown as ConstructorParameters<typeof SkillCuratorService>[12];
+      const svc = new SkillCuratorService(
+        noopLogger,
+        makeStore([]),
+        hostlessLaneRunner(),
+        noopRateLimiter,
+        null,
+        null,
+        suggestionStore,
+        null,
+        null,
+        null,
+        mdGenerator,
+        { repropagate },
+        workspace,
+      );
+      return { svc, suggestionStore };
+    }
+
+    it('hands the click origin to the port for the slug it materialized', async () => {
+      const repropagate = jest.fn().mockResolvedValue(undefined);
+      const { svc, suggestionStore } = curatorWithSuggestion(repropagate);
+
+      const result = await svc.acceptSuggestion('sug-1', makeSettings(), {
+        userInitiated: true,
+      });
+
+      expect(result).toEqual({
+        accepted: true,
+        filePath: '/a/suggested-skill/SKILL.md',
+      });
+      expect(suggestionStore?.accept).toHaveBeenCalledWith('sug-1');
+      expect(repropagate).toHaveBeenCalledWith(
+        'skill',
+        'suggested-skill',
+        '/ws',
+        { userInitiated: true },
+      );
+    });
+
+    it('keeps the accept when the port throws', async () => {
+      const repropagate = jest.fn().mockRejectedValue(new Error('down'));
+      const { svc } = curatorWithSuggestion(repropagate);
+
+      await expect(
+        svc.acceptSuggestion('sug-1', makeSettings(), { userInitiated: true }),
+      ).resolves.toEqual({
+        accepted: true,
+        filePath: '/a/suggested-skill/SKILL.md',
+      });
+    });
+
+    it('does not re-propagate a suggestion it did not accept', async () => {
+      const repropagate = jest.fn().mockResolvedValue(undefined);
+      const { svc, suggestionStore } = curatorWithSuggestion(repropagate);
+      (
+        suggestionStore as unknown as { findById: jest.Mock }
+      ).findById.mockReturnValue(null);
+
+      const result = await svc.acceptSuggestion('sug-1', makeSettings());
+
+      expect(result.accepted).toBe(false);
+      expect(repropagate).not.toHaveBeenCalled();
     });
   });
 });
