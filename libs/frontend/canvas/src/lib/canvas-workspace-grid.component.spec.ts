@@ -86,6 +86,7 @@ import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService, MIN_TILE_WIDTH } from './canvas-layout.service';
 import { TabManagerService } from '@ptah-extension/chat';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
+import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 
 const WORKSPACE = '/ws/a';
 /** Container width that derives 3 columns (3 * (480 + 8) - 8). */
@@ -172,7 +173,7 @@ describe('CanvasWorkspaceGridComponent', () => {
   let store: CanvasStore;
   let layoutService: CanvasLayoutService;
   let reorderSpy: jest.SpyInstance;
-  let weightsSpy: jest.SpyInstance;
+  let resizeSpanSpy: jest.SpyInstance;
   let fixture: ReturnType<
     typeof TestBed.createComponent<CanvasWorkspaceGridComponent>
   >;
@@ -247,6 +248,19 @@ describe('CanvasWorkspaceGridComponent', () => {
         CanvasStore,
         CanvasLayoutService,
         CanvasRenderMetricsService,
+        {
+          provide: CanvasLayoutPersistenceService,
+          useValue: {
+            load: jest.fn(() => ({
+              tiles: null,
+              writable: true,
+              needsWrite: false,
+            })),
+            markHydrated: jest.fn(),
+            schedule: jest.fn(),
+            remove: jest.fn(),
+          },
+        },
         { provide: TabManagerService, useValue: tabManagerMock },
       ],
     });
@@ -259,7 +273,7 @@ describe('CanvasWorkspaceGridComponent', () => {
     layoutService = TestBed.inject(CanvasLayoutService);
     layoutService.observe(document.createElement('div'));
     reorderSpy = jest.spyOn(store, 'commitDragIntent');
-    weightsSpy = jest.spyOn(store, 'commitResizeWeights');
+    resizeSpanSpy = jest.spyOn(store, 'commitResizeSpan');
   });
 
   afterEach(() => {
@@ -547,7 +561,7 @@ describe('CanvasWorkspaceGridComponent', () => {
     it('a finished drag reorders by (y, x) and never touches weights', () => {
       mount(['t1', 't2', 't3']);
       reorderSpy.mockClear();
-      weightsSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       // Post-push engine state: t3 dragged to the front, the rest shifted right.
       grid.engine.nodes[0].x = 4;
@@ -566,7 +580,7 @@ describe('CanvasWorkspaceGridComponent', () => {
           expect.objectContaining({ tabId: 't2', order: 2 }),
         ]),
       );
-      expect(weightsSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
       expect(store.tiles().map((t) => t.tabId)).toEqual(['t3', 't1', 't2']);
     });
 
@@ -595,10 +609,10 @@ describe('CanvasWorkspaceGridComponent', () => {
       );
     });
 
-    it('a finished resize writes widths as weights and never touches order', () => {
+    it('a finished resize snaps only the dragged tile and never touches order', () => {
       mount(['t1', 't2', 't3']);
       reorderSpy.mockClear();
-      weightsSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       grid.engine.nodes[0].w = 5;
       grid.engine.nodes[1].w = 4;
@@ -607,17 +621,32 @@ describe('CanvasWorkspaceGridComponent', () => {
       fireResizeStop();
       grid.emitChange();
 
-      expect(weightsSpy).toHaveBeenCalledWith(
+      expect(resizeSpanSpy).toHaveBeenCalledWith(
         WORKSPACE,
         expect.any(Number),
-        new Map([
-          ['t1', 5],
-          ['t2', 4],
-          ['t3', 3],
-        ]),
+        't1',
+        'half',
       );
       expect(reorderSpy).not.toHaveBeenCalled();
-      expect(store.tiles().map((t) => t.weight)).toEqual([5, 4, 3]);
+      expect(store.tiles().map((t) => t.width)).toEqual([
+        { kind: 'span', span: 'half' },
+        { kind: 'auto', weight: 1 },
+        { kind: 'auto', weight: 1 },
+      ]);
+    });
+
+    it('preserves a stored third when its capacity-two width ends at six units', () => {
+      mount(['t1', 't2'], { width: TWO_COLUMN_WIDTH });
+      store.setTileSpan(WORKSPACE, 't1', 'third');
+      flush();
+      resizeSpanSpy.mockClear();
+
+      grid.engine.nodes[0].w = 6;
+      fireResizeStop();
+      grid.emitChange();
+
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+      expect(store.tiles()[0].width).toEqual({ kind: 'span', span: 'third' });
     });
 
     it('re-derives the resized widths unchanged — no snap-back', () => {
@@ -631,21 +660,21 @@ describe('CanvasWorkspaceGridComponent', () => {
       flush();
 
       expect(grid.engine.nodes.map((n) => [n.id, n.x, n.w])).toEqual([
-        ['t1', 0, 5],
-        ['t2', 5, 4],
-        ['t3', 9, 3],
+        ['t1', 0, 6],
+        ['t2', 6, 6],
+        ['t3', 0, 12],
       ]);
     });
 
     it('ignores a change with no latched gesture', () => {
       mount(['t1', 't2']);
       reorderSpy.mockClear();
-      weightsSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       grid.emitChange();
 
       expect(reorderSpy).not.toHaveBeenCalled();
-      expect(weightsSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
     });
 
     it('does not reuse a latch across two changes', () => {
@@ -685,33 +714,28 @@ describe('CanvasWorkspaceGridComponent', () => {
   });
 
   describe('manual intent survives a container resize', () => {
-    it('keeps order and weight byte-identical while columns change', () => {
+    it('keeps intent byte-identical and performs zero store writes while columns change', () => {
       mount(['t1', 't2', 't3'], { width: THREE_COLUMN_WIDTH });
-
-      grid.engine.nodes[0].w = 6;
-      grid.engine.nodes[1].w = 4;
-      grid.engine.nodes[2].w = 2;
-      fireResizeStop();
-      grid.emitChange();
-      grid.engine.nodes[2].x = 0;
-      grid.engine.nodes[0].x = 2;
-      grid.engine.nodes[1].x = 8;
-      fireDragStop(2);
-      grid.emitChange();
-      flush();
-
       const before = store.tiles().map((t) => ({ ...t }));
-      expect(before.map((t) => t.tabId)).toEqual(['t3', 't1', 't2']);
+      reorderSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       measure(TWO_COLUMN_WIDTH);
       flush();
 
       expect(store.tiles().map((t) => ({ ...t }))).toEqual(before);
-      // Two columns now: the first row holds t3 and t1, t2 wraps below.
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
       expect(grid.engine.nodes.map((n) => [n.id, n.y])).toEqual([
         ['t1', 0],
-        ['t2', 6],
-        ['t3', 0],
+        ['t2', 0],
+        ['t3', 6],
+      ]);
+
+      measure(THREE_COLUMN_WIDTH);
+      flush();
+      expect(grid.engine.nodes.map((n) => [n.id, n.y, n.w])).toEqual([
+        ['t1', 0, 4], ['t2', 0, 4], ['t3', 0, 4],
       ]);
     });
   });
@@ -723,7 +747,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(grid.setStatic).toHaveBeenCalledWith(true);
       grid.update.mockClear();
       reorderSpy.mockClear();
-      weightsSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       measure(TWO_COLUMN_WIDTH);
       flush();
@@ -735,7 +759,34 @@ describe('CanvasWorkspaceGridComponent', () => {
       grid.emitChange();
 
       expect(reorderSpy).not.toHaveBeenCalled();
-      expect(weightsSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('layout focus', () => {
+    it('disables move and resize while focused and reapplies intent on exit', () => {
+      mount(['t1', 't2']);
+      store.toggleLayoutFocus(WORKSPACE, 't1');
+      flush();
+      const readItems = () => (
+        fixture.componentInstance as unknown as {
+          items: () => Array<{ options: { noMove?: boolean; noResize?: boolean } }>;
+        }
+      ).items();
+      expect(readItems().every((item) => item.options.noMove && item.options.noResize)).toBe(true);
+      reorderSpy.mockClear();
+      resizeSpanSpy.mockClear();
+      fireDragStop();
+      grid.emitChange();
+      fireResizeStop();
+      grid.emitChange();
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+
+      store.toggleLayoutFocus(WORKSPACE, 't1');
+      flush();
+      expect(readItems().every((item) => !item.options.noMove && !item.options.noResize)).toBe(true);
+      expect(grid.engine.nodes.map((node) => node.w)).toEqual([6, 6]);
     });
   });
 
@@ -769,7 +820,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(grid.update).not.toHaveBeenCalled();
       expect(grid.batchUpdate).not.toHaveBeenCalled();
       expect(reorderSpy).not.toHaveBeenCalled();
-      expect(weightsSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
     });
 
     it('updates only changed nodes in one guarded batch', () => {
@@ -809,7 +860,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       fixture.componentRef.setInput('visible', false);
       flush();
       reorderSpy.mockClear();
-      weightsSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       grid.onResize.mockImplementation(() => grid.emitChange());
       fixture.componentRef.setInput('visible', true);
@@ -817,7 +868,7 @@ describe('CanvasWorkspaceGridComponent', () => {
 
       expect(grid.onResize).toHaveBeenCalled();
       expect(reorderSpy).not.toHaveBeenCalled();
-      expect(weightsSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -912,6 +963,14 @@ class CanvasTileStub {
   @Input() tabId = '';
   @Input() focused = false;
   @Input() visible = true;
+  @Input() widthIntent: unknown;
+  @Input() rowBreakBefore = false;
+  @Input() firstInOrder = false;
+  @Input() layoutFocused = false;
+  @Input() layoutLocked = false;
   @Output() focusRequested = new EventEmitter<string>();
   @Output() closeRequested = new EventEmitter<string>();
+  @Output() spanRequested = new EventEmitter<string>();
+  @Output() layoutFocusToggled = new EventEmitter<void>();
+  @Output() rowBreakToggled = new EventEmitter<void>();
 }

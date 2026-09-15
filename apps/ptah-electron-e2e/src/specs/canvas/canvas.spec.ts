@@ -64,7 +64,14 @@ test.describe('Canvas', () => {
     await expect(tileShell).toHaveAttribute('data-focused', 'true');
 
     // Layout controls are disabled as inapplicable for singleton session
-    await expect(page.getByRole('button', { name: /Layout/ })).toBeDisabled();
+    await expect(
+      page
+        .locator('[data-testid="canvas-dock"]')
+        .getByRole('button', {
+          name: 'Layout controls not applicable for a single session',
+          exact: true,
+        }),
+    ).toBeDisabled();
 
     // Navigate away to a different view and back — the tile must persist.
     await ui.goto('dashboard');
@@ -212,10 +219,11 @@ test.describe('Canvas', () => {
     );
     await page.mouse.down();
     await page.mouse.move(
-      // Land at grid x=2: the tile overlaps both first-row tiles if gravity
-      // tries to lift it, so real Gridstack must retain the deliberate gap.
+      // Land at grid x=2 in the next row: the tile overlaps both first-row
+      // tiles if gravity tries to lift it, so Gridstack retains the gap. Move
+      // the pointer beyond the first row to make the row transition decisive.
       firstBox.x + firstBox.width,
-      firstBox.y + firstBox.height - 12,
+      firstBox.y + firstBox.height + thirdBox.height / 2,
       { steps: 32 },
     );
     await page.mouse.up();
@@ -224,9 +232,9 @@ test.describe('Canvas', () => {
       .poll(async () => (await readGeometry()).map(({ y }) => y))
       .toEqual(['0', '0', '6']);
 
-    // Real east-handle resize: shrink the first tile by roughly one grid unit.
-    // The intent writer stores relative weights and the geometry owner
-    // reapportions the row, so the unequal row must still total 12.
+    // Real east-handle resize: shrink the half-width tile by roughly two grid
+    // units. The intent writer snaps it to the nearest named span (third), and
+    // the auto neighbour fills the remaining two-thirds of the 12-unit row.
     await items.nth(0).hover();
     const eastHandle = items.nth(0).locator('.ui-resizable-e');
     await expect(eastHandle).toBeVisible();
@@ -241,7 +249,7 @@ test.describe('Canvas', () => {
     );
     await page.mouse.down();
     await page.mouse.move(
-      resizeBox.x + resizeBox.width - firstBox.width / 4,
+      resizeBox.x + resizeBox.width - firstBox.width / 2,
       handleBox.y + handleBox.height / 2,
       { steps: 16 },
     );
@@ -363,7 +371,10 @@ test.describe('Canvas', () => {
     await page.mouse.move(cancelBox.x + 80, cancelBox.y - 80, { steps: 8 });
 
     // Open expandable layout controls and lock layout while drag is active
-    const layoutTrigger = page.getByRole('button', { name: 'Layout options' });
+    const layoutTrigger = dock.getByRole('button', {
+      name: 'Layout options',
+      exact: true,
+    });
     await expect(layoutTrigger).toBeEnabled();
     await layoutTrigger.evaluate((button) => {
       (button as HTMLButtonElement).click();
@@ -375,13 +386,26 @@ test.describe('Canvas', () => {
     });
     await page.mouse.up();
 
-    // With layout locked, column preferences (1, 2, 3 columns) are disabled
-    const col1Btn = page.getByRole('button', { name: /1 column/i });
-    const col2Btn = page.getByRole('button', { name: /2 column/i });
-    const col3Btn = page.getByRole('button', { name: /3 column/i });
-    await expect(col1Btn).toBeDisabled();
-    await expect(col2Btn).toBeDisabled();
-    await expect(col3Btn).toBeDisabled();
+    // With layout locked, every dock preset and tile span action is disabled.
+    const presetButtons = dock.locator(
+      '[role="group"][aria-label="Layout presets"] button[data-preset]',
+    );
+    await expect(presetButtons).toHaveCount(3);
+    for (let index = 0; index < 3; index += 1) {
+      await expect(presetButtons.nth(index)).toBeDisabled();
+    }
+
+    await page.keyboard.press('Escape');
+    const tileLayoutTrigger = items
+      .nth(0)
+      .locator('[data-testid="tile-layout-trigger"]');
+    await tileLayoutTrigger.click();
+    const spanButtons = items.nth(0).locator('button[data-span]');
+    await expect(spanButtons).toHaveCount(4);
+    for (let index = 0; index < 4; index += 1) {
+      await expect(spanButtons.nth(index)).toBeDisabled();
+    }
+    await page.keyboard.press('Escape');
 
     await expect.poll(readGeometry).toEqual(beforeCancellation);
     expect(await metric('data-canvas-gesture-commits')).toBe(
@@ -389,22 +413,23 @@ test.describe('Canvas', () => {
     );
 
     // Unlock layout
-    const unlockBtn = page.getByRole('button', {
-      name: /Unlock (tiles|layout)/i,
+    await layoutTrigger.click();
+    const unlockBtn = dock.getByRole('button', {
+      name: 'Unlock tiles',
+      exact: true,
     });
-    if (!(await unlockBtn.isVisible())) {
-      await layoutTrigger.click();
-    }
     await expect(unlockBtn).toBeEnabled();
     await unlockBtn.click();
 
-    // After unlocking, column preferences become enabled again
-    if (!(await col1Btn.isVisible())) {
-      await layoutTrigger.click();
+    // After unlocking, dock presets and tile span actions become enabled again.
+    for (let index = 0; index < 3; index += 1) {
+      await expect(presetButtons.nth(index)).toBeEnabled();
     }
-    await expect(col1Btn).toBeEnabled();
-    await expect(col2Btn).toBeEnabled();
-    await expect(col3Btn).toBeEnabled();
+    await page.keyboard.press('Escape');
+    await tileLayoutTrigger.click();
+    for (let index = 0; index < 4; index += 1) {
+      await expect(spanButtons.nth(index)).toBeEnabled();
+    }
     await page.keyboard.press('Escape');
 
     await expect(grid.locator('gridstack')).not.toHaveClass(

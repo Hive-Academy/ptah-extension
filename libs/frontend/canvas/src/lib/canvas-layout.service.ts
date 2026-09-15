@@ -1,11 +1,6 @@
 import { Injectable, DestroyRef, inject, signal } from '@angular/core';
-import {
-  effectiveCapacity,
-  logicalRows,
-  type ColumnsPreference,
-} from './canvas-layout-intent';
+import { packRows, type TileIntent } from './canvas-layout-intent';
 
-const GRID_COLUMNS = 12;
 const MARGIN = 8;
 const TILE_HEIGHT_UNITS = 6;
 const MIN_CELL_HEIGHT = 20;
@@ -25,23 +20,6 @@ const MIN_TILE_VIEWPORT_RATIO = 0.9;
 export const MIN_TILE_WIDTH = 480;
 /** Upper clamp on derived columns — preserves the 3x3 / `MAX_TILES = 9` grid. */
 export const MAX_COLUMNS = 3;
-/** Floor on a tile's apportioned width, in Gridstack units (of `GRID_COLUMNS`). */
-export const MIN_TILE_UNITS = 2;
-
-/** Default relative width share for a tile the user has never resized. */
-export const DEFAULT_TILE_WEIGHT = 1;
-
-/**
- * Stored tile intent: where a tile sits in reading order and how much width it
- * claims relative to its row-mates. Concrete `x`/`y`/`w`/`h` are derived from
- * this — never stored.
- */
-export interface TileIntent {
-  readonly tabId: string;
-  readonly order: number;
-  readonly weight: number;
-  readonly rowBreakBefore: boolean;
-}
 
 export interface TileLayout {
   x: number;
@@ -105,12 +83,12 @@ export class CanvasLayoutService {
 
   /**
    * Derive concrete Gridstack geometry from tile intent plus the measured
-   * container. Total function: no throws, no side effects, safe to call from a
-   * `computed`.
+   * container. The optional layout-focus tile renders alone at full width.
+   * Total function: no throws, no side effects, safe to call from a `computed`.
    */
   computeLayout(
     tiles: readonly TileIntent[],
-    preference: ColumnsPreference = 'auto',
+    layoutFocusTabId: string | null = null,
   ): CanvasLayout {
     const width = this._containerWidth();
     const height = this._containerHeight();
@@ -119,33 +97,23 @@ export class CanvasLayoutService {
       return { cellHeight: 120, columns: 1, tiles: [] };
     }
 
-    const columns = effectiveCapacity(this.columnsFor(width), preference);
-    const rows = logicalRows(tiles).flatMap((row) => {
-      const chunks: TileIntent[][] = [];
-      for (let index = 0; index < row.length; index += columns) {
-        chunks.push(row.slice(index, index + columns));
-      }
-      return chunks;
-    });
+    const columns = this.columnsFor(width);
+    const rows = packRows(tiles, columns, layoutFocusTabId);
 
     const positioned: PositionedTile[] = [];
-    for (let row = 0; row < rows.length; row++) {
-      const rowTiles = rows[row];
-      const widths = apportionRow(
-        rowTiles.map((t) => normalizeWeight(t.weight)),
-      );
+    rows.forEach((row, rowIndex) => {
       let x = 0;
-      for (let i = 0; i < rowTiles.length; i++) {
+      for (const tile of row) {
         positioned.push({
-          tabId: rowTiles[i].tabId,
+          tabId: tile.tabId,
           x,
-          y: row * TILE_HEIGHT_UNITS,
-          w: widths[i],
+          y: rowIndex * TILE_HEIGHT_UNITS,
+          w: tile.units,
           h: TILE_HEIGHT_UNITS,
         });
-        x += widths[i];
+        x += tile.units;
       }
-    }
+    });
 
     return {
       cellHeight: cellHeightFor(height, rows.length),
@@ -179,55 +147,4 @@ function cellHeightFor(height: number, rows: number): number {
     (height * MIN_TILE_VIEWPORT_RATIO) / TILE_HEIGHT_UNITS,
   );
   return Math.max(MIN_CELL_HEIGHT, fitCellHeight, minTileCellHeight);
-}
-
-/** A weight that never reaches the apportionment as `NaN`, `0` or negative. */
-function normalizeWeight(weight: number): number {
-  return Number.isFinite(weight) && weight > 0 ? weight : DEFAULT_TILE_WEIGHT;
-}
-
-/**
- * Largest-remainder apportionment of `GRID_COLUMNS` units across one row.
- * Every returned row sums to exactly `GRID_COLUMNS` and no entry is below
- * `MIN_TILE_UNITS`. Both correction loops are bounded by the deficit/surplus,
- * which is itself bounded because `row.length * MIN_TILE_UNITS <= GRID_COLUMNS`.
- */
-function apportionRow(weights: readonly number[]): number[] {
-  const n = weights.length;
-  if (n === 0) return [];
-
-  const total = weights.reduce((sum, w) => sum + w, 0);
-  const raw =
-    total > 0
-      ? weights.map((w) => (GRID_COLUMNS * w) / total)
-      : weights.map(() => GRID_COLUMNS / n);
-
-  const units = raw.map((r) => Math.max(MIN_TILE_UNITS, Math.floor(r)));
-  let diff = GRID_COLUMNS - units.reduce((sum, u) => sum + u, 0);
-
-  if (diff > 0) {
-    // Hand the leftover units to the largest fractional remainders first.
-    const byRemainder = raw
-      .map((r, i) => ({ i, frac: r - Math.floor(r) }))
-      .sort((a, b) => b.frac - a.frac || a.i - b.i);
-    for (let k = 0; k < diff; k++) {
-      units[byRemainder[k % n].i] += 1;
-    }
-    diff = 0;
-  }
-
-  // A very lopsided weight vector can push the floored+clamped units past 12
-  // (e.g. weights 10/1/1 -> 10+2+2). Take the surplus back from the widest
-  // tile that is still above the floor.
-  for (let k = 0; k < -diff; k++) {
-    let widest = -1;
-    for (let i = 0; i < n; i++) {
-      if (units[i] <= MIN_TILE_UNITS) continue;
-      if (widest === -1 || units[i] > units[widest]) widest = i;
-    }
-    if (widest === -1) break;
-    units[widest] -= 1;
-  }
-
-  return units;
 }
