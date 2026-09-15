@@ -198,6 +198,31 @@ Upstream status (2026-09-16, orchestrator):
 - TASK_2026_446_198a (memory-curator `*.test-support.ts` exclude) is SATISFIED by Batch 5 (`b1712f35d`,
   `tsconfig.lib.json`); its carrier status is set to `done` in this branch.
 
+Third rebase onto `origin/main` (2026-09-16, orchestrator; main includes #513 `dbffc1938`, #518, #519):
+
+- `git rebase origin/main` from `de5fcd6fc`, NO conflicts. New head `a3b2d7c71`. Main's changes since the #513 head
+  touch only agent-sdk history helpers and shared rpc-chat / rpc-session types; nothing in memory-curator, thoth-runtime,
+  cli-engine, persistence-sqlite or memory-curator-ui.
+- Old -> new (every older SHA in this file is pre-rebase): `052965c4b` -> `c395669db` (docs); `5d1685b72` -> `042a25c09`
+  (Batch 2); `24f0fa0b4` -> `1cdd777de` (Batch 1); `b1b362023` -> `54d69f619` (Batch 4); `36d6e8486` -> `5dae69c5e`
+  (docs); `29f7a602a` -> `fa42f83b2` (Batch 3); `a55f4fb42` -> `c9cefccdf` (docs); `29db8ca38` -> `301909f59` (test
+  fix); `77269e6d4` -> `54e77851a` (docs); `b1712f35d` -> `75a8d90ec` (Batch 5); `c31c06959` -> `9718d68b8` (docs);
+  `15e0be5da` -> `055a29495` (docs); `2938d0727` -> `83acc8444` (docs); `cce109a0f` -> `82410f33d` (Batch 6);
+  `de5fcd6fc` -> `a3b2d7c71` (docs).
+- Checks on `a3b2d7c71` (orchestrator): typecheck 9 projects green (memory-curator, shared, memory-curator-ui,
+  rpc-handlers, thoth-runtime, cli-engine, agent-sdk, vscode-lm-tools, persistence-sqlite); test 11 projects (the 9 +
+  ptah-electron + ptah-extension-vscode) with `--parallel=2`: 10 green, memory-curator 1 failed test in
+  `memory-retention.integration.spec.ts` (suite 73.4 s under load); memory-curator alone re-run 643 passed / 59 skipped
+  (pre-existing), green. `degradation-audit:lint` exit 0 (memory-curator 20/20); better-sqlite3 run 43 suites, 702/702.
+  This is R-TL11 (risk table), handled by Task 7.4.
+- Re-anchored on disk at `a3b2d7c71` for Batches 7-8: `thoth-runtime/src/lib/memory-retention-job.ts` 127 lines, summary
+  literal `:98` (partial suffix `:100-103`); `start-thoth-cron.spec.ts` `describe('memory retention job')` `:787`
+  (handler-reaches-run test `:860`); `cli-engine/src/lib/bootstrap/thoth-runtime.spec.ts`
+  `describe('memory retention job (TASK_2026_440 reachability)')` `:456` (reaches-run `:489`, oneshot `:588`);
+  `thoth-runtime/CLAUDE.md` retention bullet `:48`; storage panel 352 lines ("Last retention run" `<dl>` `:214-223`,
+  "Retention settings" `<dl>` from `:245`); accordion 347 lines (decay tile `:61-66`, `lastDecay` `:226`,
+  `lastDecayLabel` `:242-243`); state service 157 lines (`:30`, `:41`, `:68-70`); event feed `:159`.
+
 Cross-batch rule XB2 (added 2026-09-15 with the rebase, binding for Batches 5-10):
 
 - Every NEW `catch` (or `.catch`) that fails open, swallows, or returns a sentinel or default MUST carry a
@@ -240,6 +265,7 @@ Assumptions:
 | R-TL7 Timing harness `memory-lifecycle.timing.local.spec.ts` gets swept into a Jest run or a commit | MEDIUM | 10.2 runs BEFORE 10.3 creates it; 10.3 deletes it and proves `git status --short -- libs/backend/memory-curator` is empty |
 | R-TL8 Pre-existing load flakes: platform-core `file-settings-manager.bench.spec.ts`, memory-curator `boot-scan-runner.spec.ts` abort test (phase 1 R-TL7/R-TL10) | LOW | On failure re-run the same `run-many` with `--parallel=1`; record both runs |
 | R-TL9 `retention-sqlite.test-support.ts` with vec loading breaks the lib typecheck | MEDIUM | Deviation 8: `*.test-support.ts` exclude in Task 5.1 |
+| R-TL11 (added 2026-09-16) `memory-retention.integration.spec.ts` (real SQLite + sqlite-vec) is slow (73.4 s under `--parallel=2`) and failed once under load; CI runs affected tests with `--maxWorkers=2` across many projects, so a CI flake is likely | MEDIUM | Task 7.4: find the slow cases, keep every assertion, make the suite load-robust, prove it under parallel load |
 | R-TL10 `memory-retention.service.ts` passes 700 lines after integration | LOW | Task 6.1 replaces the closures with `RetentionRunBudget` (net shrink expected); reviewer checks line count |
 | R1 `memory_concepts_fts` contentless drift on real files leaves concept entries after deletes | MEDIUM | Out of scope (filed follow-up); integration uses source DDL; noted in memory-curator/CLAUDE.md (Task 10.1) |
 | R2 Cap deletes start day 7 for workspaces above 25,000 evictable rows | MEDIUM | Decision D1; Task 5.3 grace spec + Task 6.4 cap case |
@@ -1049,30 +1075,34 @@ review round is required).
 
 ---
 
-## Batch 7: REACHABILITY PROOF — Electron + CLI hosts reach the lifecycle; job summary — PENDING
+## Batch 7: REACHABILITY PROOF — Electron + CLI hosts reach the lifecycle; job summary; integration-suite load robustness — IN_PROGRESS
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer)
 - Fallback executor: backend-developer subagent
 - Execution mode: sequential (summary first; both host specs assert its text)
-- Parallel with: Batch 8 (file-disjoint: `libs/backend/thoth-runtime`, `libs/backend/cli-engine` only)
+- Parallel with: Batch 8 (file-disjoint: this batch edits `libs/backend/thoth-runtime`, `libs/backend/cli-engine` and,
+  for Task 7.4 only, `libs/backend/memory-curator/src/lib/retention/memory-retention.integration.spec.ts` +
+  `retention-sqlite.test-support.ts`; Batch 8 edits only `libs/frontend/memory-curator-ui`). Mutation checks edit
+  memory-curator production files temporarily; memory-curator-ui does not compile memory-curator, so Batch 8 is
+  unaffected.
 - Rationale: the two host reach proofs the user named as blocking; production host code is unchanged by design.
 - Reviewer: Ollama Cloud lane, code-logic-reviewer -> `code-logic-review-batch-7.md`
-- Suggested commit: `test(thoth-runtime,cli-engine): batch 7 - prove both hosts reach the memory lifecycle step`
-- Tasks: 3 | Depends on: Batch 6
+- Suggested commit: `test(thoth-runtime,cli-engine,memory-curator): batch 7 - prove both hosts reach the memory lifecycle step`
+- Tasks: 4 | Depends on: Batch 6 (`82410f33d`) on the origin/main rebase (`a3b2d7c71`)
 
-### Task 7.1: Retention job summary names memory counts + thoth-runtime CLAUDE.md — PENDING
+### Task 7.1: Retention job summary names memory counts + thoth-runtime CLAUDE.md — IN_PROGRESS
 
-- Files: MODIFY `W\libs\backend\thoth-runtime\src\lib\memory-retention-job.ts` (:97 summary
+- Files: MODIFY `W\libs\backend\thoth-runtime\src\lib\memory-retention-job.ts` (`:98` summary literal; keep the partial suffix `:100-103`;
   `purged <p> processed, quarantined <q> stuck, archived <a> / deleted <d> / evicted <e> memories, reclaimed <r> pages`),
-  `memory-retention-job.spec.ts`, `W\libs\backend\thoth-runtime\CLAUDE.md` (retention job bullet names the lifecycle
-  step)
+  `memory-retention-job.spec.ts`, `W\libs\backend\thoth-runtime\CLAUDE.md` (retention job bullet `:48` names the lifecycle
+  step and the new summary text)
 - Plan reference: implementation-plan.md:694-708
 - Validation notes: #513 moved service, power monitor and foreground reader resolution into ONE guarded block in
   `memory-retention-job.ts`; keep it and change only the summary text. The reach specs construct the real service in
   the Batch 6 constructor order (lifecycle 7th, governor optional 8th). No change to job id `@ptah/memory-retention`, name, handler name, cron `17 * * * *`, gating or
   failure channel; `start-thoth-cron.ts` and CLI `thoth-runtime.ts` production code stay untouched (plan :1014).
 
-### Task 7.2: REACHABILITY PROOF — Electron host (`startThothCron`) — PENDING
+### Task 7.2: REACHABILITY PROOF — Electron host (`startThothCron`) — IN_PROGRESS
 
 - Depends on: Task 7.1
 - File: MODIFY `W\libs\backend\thoth-runtime\src\lib\start-thoth-cron.spec.ts`, inside
@@ -1083,15 +1113,18 @@ review round is required).
   `@ptah-extension/memory-curator`) with a fake `ObservationRetentionStore` (purge `{ deleted: 0, exhausted: true }`,
   quarantine 0, `readState` null), fake reclaimer (`autoVacuumMode: 0`), `{ db: {} }` connection, defaults workspace
   provider, limits `{ ...MEMORY_RETENTION_LIMITS, bootDeferralMs: 0 }`, spy lifecycle
-  `{ runStep: jest.fn().mockResolvedValue({ archived: 4, deleted: 2, evicted: 1, exhausted: true, stop: null, note: null, preview: null }) }`;
+  `{ runStep: jest.fn().mockResolvedValue({ archived: 4, deleted: 2, evicted: 1, exhausted: true, stop: null, note: null, preview: null, readErrors: [] }) }`
+  (constructor order after Batch 6: logger, workspace, sqlite, reclaimer, store, limits, lifecycle, governor optional;
+  pass `null` or omit the governor; the budget's governor wait then fast-paths);
   `startThothCron`; take the `memory:retention` handler; invoke with a fake ctx; assert `runStep` called once with a
   `RetentionRunBudget`-shaped object and a number, and the summary contains `archived 4 / deleted 2 / evicted 1 memories`.
 - Failure it MUST detect: handler not registered for `@ptah/memory-retention`; handler does not call `service.run`;
   `run` does not call `runStep`; summary drops the memory counts.
-- Mutation check (report; nothing committed): with `runStep` removed from `execute` in memory-curator, this test
-  FAILS; restore.
+- Mutation checks (report; nothing committed; restore and prove with `git diff` on the touched files):
+  (a) remove the `lifecycle.runStep(...)` call from `MemoryRetentionService.execute` -> this test FAILS;
+  (b) remove the `service.run(...)` call from the handler in `memory-retention-job.ts` -> this test FAILS.
 
-### Task 7.3: REACHABILITY PROOF — CLI host (`activateThoth`) — PENDING
+### Task 7.3: REACHABILITY PROOF — CLI host (`activateThoth`) — IN_PROGRESS
 
 - Depends on: Task 7.1
 - File: MODIFY `W\libs\backend\cli-engine\src\lib\bootstrap\thoth-runtime.spec.ts`, inside
@@ -1099,21 +1132,49 @@ review round is required).
   `activateThoth(container, 'runtime', logger)`; the existing `oneshot` registers-nothing test stays.
 - Plan reference: implementation-plan.md:749-751
 - Failure it MUST detect: same four as Task 7.2, for the CLI runtime tier.
-- Mutation check: same as 7.2.
+- Mutation checks: the same (a) and (b) as 7.2 must also make this CLI test FAIL (run both host specs under each
+  mutation).
+
+### Task 7.4: R-TL11 — make the real-SQLite integration suite load-robust — IN_PROGRESS
+
+- Files: MODIFY `W\libs\backend\memory-curator\src\lib\retention\memory-retention.integration.spec.ts`; MODIFY
+  `retention-sqlite.test-support.ts` only if a faster seed helper is needed (e.g. one transaction per seed batch).
+  No production file.
+- Steps:
+  1. Measure: `npx jest --config libs/backend/memory-curator/jest.config.ts --runTestsByPath libs/backend/memory-curator/src/lib/retention/memory-retention.integration.spec.ts --verbose --runInBand`
+     and record every test's duration; name the slowest cases and why (seed volume, per-row inserts outside a
+     transaction, vec blob generation, repeated reopen, reclaim).
+  2. Fix without removing or weakening any assertion, preferring in order: wrap seeding in one transaction per case
+     (and prepare statements once); share an expensive fixture file where cases do not mutate each other's rows;
+     smaller seed counts ONLY where the plan does not fix them (the cap cases need the 1,000 clamp floor and stay at
+     1,006 / 1,010 rows; the plan's 40/10/2/2/2/5 main seed stays); split a very long case into two `it` blocks that
+     share a documented setup; last resort, an explicit per-test timeout on the slow case with a one-line comment giving
+     the measured duration and the reason.
+  3. Re-measure and report before/after per-test durations.
+- Acceptance: identical assertion set (report the `expect(` count before and after for the file); the suite green
+  under node:sqlite and under better-sqlite3; the load proof below green twice in a row.
+- Load proof (report both runs, with headers): `npx nx run-many -t test -p @ptah-extension/memory-curator @ptah-extension/rpc-handlers --parallel=2 --skip-nx-cache`
+  ("for 2 projects"), run twice.
 - Commands (from `W`), for the whole batch:
   - `npx nx run-many -t test -p @ptah-extension/thoth-runtime @ptah-extension/cli-engine` — "for 2 projects"
   - same with `-t typecheck` and `-t lint` — 2 projects each
   - `git diff --stat -- libs/backend/thoth-runtime/src/lib/start-thoth-cron.ts libs/backend/cli-engine/src/lib/bootstrap/thoth-runtime.ts` is empty
-- Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-7-report.md` (include mutation-check outputs)
+  - Task 7.4: `npx nx run-many -t test -p @ptah-extension/memory-curator` (1 project) and the load proof above (2 projects, twice)
+  - `npx nx run degradation-audit:lint` (exit 0)
+  - XB1 better-sqlite3 run from `W` in PowerShell (keep the double quotes inside the single quotes):
+    `$env:ELECTRON_RUN_AS_NODE='1'; & 'D:\projects\ptah-extension\node_modules\.bin\electron.cmd' 'D:\projects\ptah-extension\node_modules\jest\bin\jest.js' --config libs/backend/memory-curator/jest.config.ts --testPathPatterns '"memory-retention.integration|memory-lifecycle|di/register.spec"' --runInBand`
+- Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-7-report.md` (include every mutation-check output and the Task 7.4
+  before/after durations). Write `batch-7.done` last; create no other file in the task folder.
 
 ### Batch 7 verification
 
 - XB1: every spec that prepares SQL binds every named and positional parameter (passes under better-sqlite3 and node:sqlite).
-- Both host tests pass and failed under mutation; production host files unchanged; reviewer accepts.
+- Both host tests pass and failed under mutations (a) and (b); production host files unchanged; R-TL11 load proof
+  green twice with the assertion count unchanged; reviewer accepts.
 
 ---
 
-## Batch 8: memory-curator-ui — lifecycle rows in the storage panel; decay tile removed — PENDING
+## Batch 8: memory-curator-ui — lifecycle rows in the storage panel; decay tile removed — IN_PROGRESS
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role frontend-developer)
 - Fallback executor: frontend-developer subagent
@@ -1122,15 +1183,15 @@ review round is required).
 - Rationale: two template rows + deletions + fixtures; must land before Batch 9 removes the shared fields.
 - Reviewer: Ollama Cloud lane, code-logic-reviewer -> `code-logic-review-batch-8.md`
 - Suggested commit: `feat(memory-curator-ui): batch 8 - show memory lifecycle results and preview; drop the decay tile`
-- Tasks: 2 | Depends on: Batch 6
+- Tasks: 2 | Depends on: Batch 6 (`82410f33d`) on the origin/main rebase (`a3b2d7c71`)
 
-### Task 8.1: Storage panel rows — PENDING
+### Task 8.1: Storage panel rows — IN_PROGRESS
 
 - Files: MODIFY `W\libs\frontend\memory-curator-ui\src\lib\components\diagnostics\storage-health-panel.component.ts`
   and `storage-health-panel.component.spec.ts`
 - Plan reference: implementation-plan.md:709-731
 - Implementation details: "Last retention run" list (:214-223) row `Memories` ->
-  `archived <a> · deleted <d> · evicted <e>` via `formatCount`; "Retention settings" list (:245-252) row
+  `archived <a> · deleted <d> · evicted <e>` via `formatCount`; "Retention settings" list (`<dl>` from `:245`) row
   `Memory lifecycle` -> `archive after <N> d · delete after <M> d · cap <cap>` then on the same `dd`: preview
   `next run: <x> to archive · <y> to delete · up to <z> over cap`, or `preview after the first run` (null preview),
   or `off (preview only)` (disabled), or `deletes paused: vector extension unavailable` (`vec-unavailable`);
@@ -1138,12 +1199,12 @@ review round is required).
 - Quality requirements: OnPush unchanged; text (not colour) carries the note; no settings writes.
 - Acceptance: spec renders both rows for a populated DTO, null preview, disabled, vec-unavailable.
 
-### Task 8.2: Remove decay tile, state and event tone — PENDING
+### Task 8.2: Remove decay tile, state and event tone — IN_PROGRESS
 
 - Files (all under `W\libs\frontend\memory-curator-ui\src\lib\`):
   `components\diagnostics\memory-diagnostics-accordion.component.ts` (tile :61-66, `lastDecay` :226,
   `lastDecayLabel` :242-243) + spec (:30,65,99,131; assert `[data-testid="last-decay-run"]` absent);
-  `services\memory-diagnostics-state.service.ts` (:30,41,68-70) + spec (:69-73,132);
+  `services\memory-diagnostics-state.service.ts` (:30,41,68-70) + spec (:69-73 including the `'decay-run'` event at :73, :132);
   `components\diagnostics\event-feed.component.ts` (:159 `'decay-run'` case);
   `services\memory-diagnostics-rpc.service.spec.ts` (:64-65,102-103);
   `components\memory-curator-tab.component.spec.ts` (:20)
@@ -1154,7 +1215,9 @@ review round is required).
   - `npx nx run-many -t test -p @ptah-extension/memory-curator-ui` — "for 1 project"
   - same with `-t typecheck` and `-t lint` — 1 project each
   - grep `lastDecay|decay-run` in `W\libs\frontend` non-spec files returns nothing
-- Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-8-report.md`
+  - XB2: `npx nx run degradation-audit:lint` (exit 0; memory-curator-ui stays at baseline 15)
+- Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-8-report.md`. Write `batch-8.done` last; create no other file in
+  the task folder.
 
 ### Batch 8 verification
 
