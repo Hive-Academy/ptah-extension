@@ -1,15 +1,21 @@
 import type { WorkspaceWatchOptions } from '../interfaces/workspace-watcher.interface';
 import type { WorkspaceChangeCoalescerClock } from '../utils/workspace-change-coalescer';
 import {
+  CREATED_DIRECTORY_RECONCILER_DEFAULTS,
+  type WorkspaceWatchDirectoryEntry,
+} from './created-directory-reconciler';
+import {
+  WORKSPACE_WATCH_HOST_DEFAULTS,
   WorkspaceWatchHostCore,
-  toWorkspaceWatchPathKey,
   type WorkspaceWatchEngine,
   type WorkspaceWatchEngineCallback,
   type WorkspaceWatchEngineEvent,
+  type WorkspaceWatchHostCoreOptions,
 } from './workspace-watch-host-core';
-import type {
-  WorkspaceWatchBatchMessage,
-  WorkspaceWatchHostOutbound,
+import {
+  toWorkspaceWatchPathKey,
+  type WorkspaceWatchBatchMessage,
+  type WorkspaceWatchHostOutbound,
 } from './workspace-watch-protocol';
 
 /** Deterministic clock: timers fire only from `advance`. */
@@ -33,6 +39,10 @@ class ManualClock implements WorkspaceChangeCoalescerClock {
 
   clearTimer(handle: unknown): void {
     this.timers.delete(handle as number);
+  }
+
+  get pendingTimers(): number {
+    return this.timers.size;
   }
 
   advance(ms: number): void {
@@ -67,13 +77,21 @@ interface FakeSubscribeCall {
   emitError(error: Error): void;
 }
 
-/** An engine whose subscribe promises the test settles by hand. */
+/**
+ * An engine whose subscribe promises the test settles by hand. `log` records
+ * `subscribe:<n>` / `unsubscribe:<n>` in call order.
+ */
 function createFakeEngine(options: { autoSettle?: boolean } = {}) {
   const calls: FakeSubscribeCall[] = [];
+  const log: string[] = [];
   const engine: WorkspaceWatchEngine = {
     subscribe: (dir, callback, { ignore }) =>
       new Promise((resolve, reject) => {
-        const unsubscribe = jest.fn(async () => undefined);
+        const index = calls.length;
+        log.push(`subscribe:${index}`);
+        const unsubscribe = jest.fn(async () => {
+          log.push(`unsubscribe:${index}`);
+        });
         const call: FakeSubscribeCall = {
           dir,
           ignore,
@@ -88,12 +106,18 @@ function createFakeEngine(options: { autoSettle?: boolean } = {}) {
         if (options.autoSettle !== false) call.settle();
       }),
   };
-  return { engine, calls };
+  return { engine, calls, log };
 }
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 const ROOT = '/repo';
+const WORKSPACE_WATCH_REBUILD_DEBOUNCE_MS =
+  WORKSPACE_WATCH_HOST_DEFAULTS.rebuildDebounceMs;
+const WORKSPACE_WATCH_REBUILD_MIN_GAP_MS =
+  WORKSPACE_WATCH_HOST_DEFAULTS.rebuildMinGapMs;
+
+const last = <T>(items: readonly T[]): T | undefined => items[items.length - 1];
 
 function options(
   overrides: Partial<WorkspaceWatchOptions> = {},
@@ -107,15 +131,19 @@ function options(
   };
 }
 
-function setup(engineOptions: { autoSettle?: boolean } = {}) {
+function setup(
+  engineOptions: { autoSettle?: boolean } = {},
+  coreOptions: Partial<WorkspaceWatchHostCoreOptions> = {},
+) {
   const clock = new ManualClock();
-  const { engine, calls } = createFakeEngine(engineOptions);
+  const { engine, calls, log } = createFakeEngine(engineOptions);
   const posted: WorkspaceWatchHostOutbound[] = [];
   const core = new WorkspaceWatchHostCore({
     engine,
     post: (message) => posted.push(message),
     clock,
     stormBreakerOptions: { enterEventsPerWindow: 10_000 },
+    ...coreOptions,
   });
   const subscribe = (
     id: number,
@@ -138,7 +166,7 @@ function setup(engineOptions: { autoSettle?: boolean } = {}) {
       (m): m is Extract<WorkspaceWatchHostOutbound, { type: T }> =>
         m.type === type,
     );
-  return { clock, calls, posted, core, subscribe, batches, ofType };
+  return { clock, calls, log, posted, core, subscribe, batches, ofType };
 }
 
 describe('WorkspaceWatchHostCore', () => {
@@ -242,33 +270,9 @@ describe('WorkspaceWatchHostCore', () => {
     await core.dispose();
   });
 
+  // What goes INTO the set is `native-ignore-set-planner.spec.ts`; these pin
+  // how the host applies it.
   describe('native ignore set', () => {
-    it('is the intersection of subscriber exclusions, in subtree-only form', async () => {
-      const { subscribe, calls, core } = setup();
-      subscribe(1, {
-        excludeDirNames: ['node_modules', 'dist', '.git', 'we*rd'],
-        excludeSegmentRules: [
-          ['.claude', 'worktrees'],
-          ['.GIT', 'x'],
-        ],
-        excludeGlobs: ['**/build/**', '**/*.log', '**/.git/**'],
-        nestedRepoRoots: ['/repo/wt-a', '/repo/wt-b', '/elsewhere/wt'],
-      });
-      await flush();
-
-      expect(calls[0].ignore).toEqual(
-        [
-          '**/node_modules/**',
-          '**/dist/**',
-          '**/.[cC][lL][aA][uU][dD][eE]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/**',
-          '**/build/**',
-          '/repo/wt-a',
-          '/repo/wt-b',
-        ].sort(),
-      );
-      await core.dispose();
-    });
-
     it('re-subscribes natively when a new subscriber narrows the intersection', async () => {
       const { subscribe, calls, core } = setup();
       subscribe(1, {
@@ -384,8 +388,8 @@ describe('WorkspaceWatchHostCore', () => {
   });
 
   describe('native failures (A1)', () => {
-    it('a native error emits one overflow per subscriber and re-subscribes', async () => {
-      const { clock, subscribe, calls, batches, ofType, core } = setup();
+    it('a native error emits one overflow per subscriber, rebuilds (release awaited first), and overflows again once live', async () => {
+      const { clock, subscribe, calls, log, batches, ofType, core } = setup();
       subscribe(1);
       subscribe(2);
       await flush();
@@ -408,18 +412,58 @@ describe('WorkspaceWatchHostCore', () => {
       clock.advance(1_000);
       await flush();
       expect(calls).toHaveLength(2);
-      expect(calls[0].unsubscribe).toHaveBeenCalledTimes(1);
+      // A full rebuild, not an overlap: the engine drops its cached tree only
+      // when no subscription holds it.
+      expect(log).toEqual(['subscribe:0', 'unsubscribe:0', 'subscribe:1']);
       expect(ofType('notice')).toEqual([
-        expect.objectContaining({ code: 'native-resubscribed' }),
+        expect.objectContaining({
+          code: 'native-rebuilt',
+          detail: expect.stringContaining('native error'),
+        }),
       ]);
+
+      // The second overflow covers the gap with no live subscription.
+      clock.advance(250);
+      expect(batches(1)[1]).toEqual(
+        expect.objectContaining({ overflow: true, changes: [] }),
+      );
+      expect(batches(2)[1]).toEqual(
+        expect.objectContaining({ overflow: true, changes: [] }),
+      );
 
       // Delivery resumes from the new subscription; stale callbacks are dropped.
       calls[0].emit([{ path: '/repo/stale.ts', type: 'update' }]);
       calls[1].emit([{ path: '/repo/fresh.ts', type: 'update' }]);
       clock.advance(250);
-      expect(batches(1)[1].changes.map((c) => c.path)).toEqual([
+      expect(batches(1)[2].changes.map((c) => c.path)).toEqual([
         '/repo/fresh.ts',
       ]);
+      await core.dispose();
+    });
+
+    it('ignores an error from a subscription a rebuild is already releasing', async () => {
+      const { clock, subscribe, calls, ofType, core } = setup();
+      subscribe(1);
+      await flush();
+      let release: () => void = () => undefined;
+      calls[0].unsubscribe.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (release = resolve)),
+      );
+
+      calls[0].emitError(new Error('overflow'));
+      clock.advance(1_000);
+      await flush();
+      // Released but not yet settled: a late error from it changes nothing.
+      calls[0].emitError(new Error('late'));
+      expect(
+        ofType('error').filter((e) => e.code === 'native-error'),
+      ).toHaveLength(1);
+      release();
+      await flush();
+      expect(calls).toHaveLength(2);
+      clock.advance(60_000);
+      await flush();
+      expect(calls).toHaveLength(2);
       await core.dispose();
     });
 
@@ -451,9 +495,14 @@ describe('WorkspaceWatchHostCore', () => {
 
       calls[2].settle();
       await flush();
+      // Nothing was watched during the streak: one more overflow once live.
+      clock.advance(250);
+      expect(batches(1)[1]).toEqual(
+        expect.objectContaining({ overflow: true }),
+      );
       calls[2].emit([{ path: '/repo/ok.ts', type: 'create' }]);
       clock.advance(250);
-      expect(batches(1)[1].changes).toEqual([
+      expect(batches(1)[2].changes).toEqual([
         { path: '/repo/ok.ts', kind: 'create' },
       ]);
       await core.dispose();
@@ -519,6 +568,401 @@ describe('WorkspaceWatchHostCore', () => {
         }),
       );
       await core.dispose();
+    });
+  });
+
+  describe('created-directory reconciliation (a listDirectory is given)', () => {
+    /** A fake file system: directory path → entries. Anything else rejects like ENOENT/ENOTDIR. */
+    function reconcilingSetup(
+      coreOptions: Partial<WorkspaceWatchHostCoreOptions> = {},
+    ) {
+      const tree = new Map<string, WorkspaceWatchDirectoryEntry[]>();
+      const listDirectory = jest.fn(async (dir: string) => {
+        const entries = tree.get(dir);
+        if (!entries) throw Object.assign(new Error(dir), { code: 'ENOENT' });
+        return entries;
+      });
+      const harness = setup({}, { listDirectory, ...coreOptions });
+      const dir = (name: string) => ({ name, isDirectory: true });
+      const file = (name: string) => ({ name, isDirectory: false });
+      const rebuilt = () =>
+        harness.ofType('notice').filter((n) => n.code === 'native-rebuilt');
+      const overflows = (id: number) =>
+        harness.batches(id).filter((b) => b.overflow);
+      return { ...harness, tree, listDirectory, dir, file, rebuilt, overflows };
+    }
+
+    const SETTLE = CREATED_DIRECTORY_RECONCILER_DEFAULTS.settleMs;
+    const CONFIRM = CREATED_DIRECTORY_RECONCILER_DEFAULTS.confirmMs;
+
+    it('delivers a child file the engine never reported, without a rebuild', async () => {
+      const h = reconcilingSetup();
+      h.subscribe(1);
+      await flush();
+      h.tree.set('/repo/src', [h.file('created.txt')]);
+
+      // What inotify reports for `mkdir src && echo > src/created.txt`.
+      h.calls[0].emit([{ path: '/repo/src', type: 'create' }]);
+      h.clock.advance(SETTLE);
+      await flush();
+      h.clock.advance(250);
+
+      expect(h.batches(1).flatMap((b) => b.changes)).toEqual([
+        { path: '/repo/src', kind: 'create' },
+        { path: '/repo/src/created.txt', kind: 'create' },
+      ]);
+      h.clock.advance(30_000);
+      await flush();
+      expect(h.calls).toHaveLength(1);
+      expect(h.rebuilt()).toEqual([]);
+      await h.core.dispose();
+    });
+
+    it('does not re-deliver a child the engine did report', async () => {
+      const h = reconcilingSetup();
+      h.subscribe(1);
+      await flush();
+      h.tree.set('/repo/src', [h.file('a.ts')]);
+      h.calls[0].emit([
+        // Out of order within one batch, as the engine may deliver them.
+        { path: '/repo/src/a.ts', type: 'create' },
+        { path: '/repo/src', type: 'create' },
+      ]);
+      h.clock.advance(SETTLE);
+      await flush();
+      h.clock.advance(250);
+      expect(h.batches(1)).toHaveLength(1);
+      expect(
+        h
+          .batches(1)[0]
+          .changes.map((c) => c.path)
+          .sort(),
+      ).toEqual(['/repo/src', '/repo/src/a.ts']);
+      await h.core.dispose();
+    });
+
+    it('a subdirectory still unreported after the confirm window is a lost watch: overflow at once, full rebuild, overflow again', async () => {
+      const h = reconcilingSetup();
+      h.subscribe(1);
+      await flush();
+      h.tree.set('/repo/a', [h.dir('b')]);
+
+      h.calls[0].emit([{ path: '/repo/a', type: 'create' }]);
+      h.clock.advance(SETTLE);
+      await flush();
+      h.clock.advance(CONFIRM - 1);
+      expect(h.overflows(1)).toHaveLength(0);
+      h.clock.advance(1);
+
+      // Detected: told now, on the next batch tick, long before the rebuild.
+      h.clock.advance(250);
+      expect(h.overflows(1)).toHaveLength(1);
+      expect(h.calls).toHaveLength(1);
+
+      // Debounced: one re-walk for the whole burst.
+      h.clock.advance(WORKSPACE_WATCH_REBUILD_DEBOUNCE_MS - 251);
+      await flush();
+      expect(h.calls).toHaveLength(1);
+      h.clock.advance(1);
+      await flush();
+
+      expect(h.calls).toHaveLength(2);
+      expect(h.log).toEqual(['subscribe:0', 'unsubscribe:0', 'subscribe:1']);
+      expect(h.rebuilt()).toEqual([
+        expect.objectContaining({
+          detail: expect.stringContaining('lost-watch: /repo/a/b'),
+        }),
+      ]);
+      h.clock.advance(250);
+      expect(h.overflows(1)).toHaveLength(2);
+      expect(last(h.batches(1))).toEqual(
+        expect.objectContaining({ overflow: true, changes: [] }),
+      );
+      await h.core.dispose();
+    });
+
+    it('a subdirectory whose report arrives inside the confirm window is not a lost watch', async () => {
+      const h = reconcilingSetup();
+      h.subscribe(1);
+      await flush();
+      h.tree.set('/repo/a', [h.dir('b')]);
+      h.tree.set('/repo/a/b', []);
+
+      h.calls[0].emit([{ path: '/repo/a', type: 'create' }]);
+      h.clock.advance(SETTLE);
+      await flush();
+      h.calls[0].emit([{ path: '/repo/a/b', type: 'create' }]);
+      h.clock.advance(CONFIRM + SETTLE);
+      await flush();
+      h.clock.advance(30_000);
+      await flush();
+
+      expect(h.calls).toHaveLength(1);
+      expect(h.rebuilt()).toEqual([]);
+      await h.core.dispose();
+    });
+
+    it('never counts a natively ignored child as lost', async () => {
+      const h = reconcilingSetup();
+      h.subscribe(1, { excludeDirNames: ['node_modules'] });
+      await flush();
+      expect(h.calls[0].ignore).toEqual(['**/node_modules/**']);
+      h.tree.set('/repo/pkg', [h.dir('node_modules'), h.file('index.js')]);
+
+      h.calls[0].emit([{ path: '/repo/pkg', type: 'create' }]);
+      h.clock.advance(SETTLE);
+      await flush();
+      h.clock.advance(30_000);
+      await flush();
+
+      expect(h.calls).toHaveLength(1);
+      expect(h.batches(1).flatMap((b) => b.changes.map((c) => c.path))).toEqual(
+        ['/repo/pkg', '/repo/pkg/index.js'],
+      );
+      await h.core.dispose();
+    });
+
+    it('too many created paths at once is an overflow at once and a rebuild, with no listing', async () => {
+      const h = reconcilingSetup();
+      h.subscribe(1);
+      await flush();
+
+      const limit = CREATED_DIRECTORY_RECONCILER_DEFAULTS.maxTrackedPaths;
+      h.calls[0].emit(
+        Array.from({ length: limit + 1 }, (_, i) => ({
+          path: `/repo/d${i}`,
+          type: 'create' as const,
+        })),
+      );
+      // The immediate overflow replaces the truncated batch those creates made.
+      h.clock.advance(250);
+      expect(h.batches(1)).toEqual([
+        expect.objectContaining({ overflow: true, changes: [] }),
+      ]);
+      expect(h.calls).toHaveLength(1);
+
+      h.clock.advance(WORKSPACE_WATCH_REBUILD_DEBOUNCE_MS - 250);
+      await flush();
+      expect(h.listDirectory).not.toHaveBeenCalled();
+      expect(h.calls).toHaveLength(2);
+      expect(h.rebuilt()).toEqual([
+        expect.objectContaining({
+          detail: expect.stringContaining('limit-exceeded'),
+        }),
+      ]);
+      h.clock.advance(250);
+      expect(h.overflows(1)).toHaveLength(2);
+      await h.core.dispose();
+    });
+
+    it('a created path that is a file or already gone reconciles to nothing', async () => {
+      const h = reconcilingSetup();
+      h.subscribe(1);
+      await flush();
+
+      h.calls[0].emit([
+        { path: '/repo/file.txt', type: 'create' },
+        { path: '/repo/gone', type: 'create' },
+      ]);
+      h.calls[0].emit([{ path: '/repo/gone', type: 'delete' }]);
+      h.clock.advance(SETTLE);
+      await flush();
+      h.clock.advance(30_000);
+      await flush();
+
+      // `gone` was forgotten on its delete; `file.txt` listed and rejected.
+      expect(h.listDirectory.mock.calls.map(([d]) => d)).toEqual([
+        '/repo/file.txt',
+      ]);
+      expect(h.calls).toHaveLength(1);
+      expect(h.rebuilt()).toEqual([]);
+      await h.core.dispose();
+    });
+
+    it('an unreadable created directory posts one directory-unreadable notice and reconciles to nothing', async () => {
+      const h = reconcilingSetup();
+      h.listDirectory.mockImplementation(async (dir: string) => {
+        throw Object.assign(new Error(dir), { code: 'EACCES' });
+      });
+      h.subscribe(1);
+      await flush();
+
+      h.calls[0].emit([
+        { path: '/repo/locked-a', type: 'create' },
+        { path: '/repo/locked-b', type: 'create' },
+      ]);
+      h.clock.advance(SETTLE);
+      await flush();
+      h.clock.advance(30_000);
+      await flush();
+
+      expect(
+        h.ofType('notice').filter((n) => n.code === 'directory-unreadable'),
+      ).toEqual([
+        expect.objectContaining({
+          root: ROOT,
+          detail: 'EACCES: /repo/locked-a',
+        }),
+      ]);
+      expect(h.overflows(1)).toHaveLength(0);
+      expect(h.calls).toHaveLength(1);
+      await h.core.dispose();
+    });
+
+    it('does not list during a storm, and rebuilds after it when creates went unreconciled', async () => {
+      const h = reconcilingSetup({
+        stormBreakerOptions: { enterEventsPerWindow: 5, quietMs: 2_000 },
+      });
+      h.subscribe(1);
+      await flush();
+
+      h.calls[0].emit(
+        Array.from({ length: 20 }, (_, i) => ({
+          path: `/repo/burst${i}`,
+          type: 'create' as const,
+        })),
+      );
+      h.clock.advance(SETTLE);
+      await flush();
+      expect(h.listDirectory).not.toHaveBeenCalled();
+
+      // Quiet → storm exits. The storm's own exit overflow and the lost-watch
+      // overflow fold into ONE batch, on the next tick.
+      h.clock.advance(2_000);
+      await flush();
+      expect(h.calls).toHaveLength(1);
+      h.clock.advance(250);
+      expect(h.overflows(1)).toHaveLength(1);
+      h.clock.advance(1_000);
+      expect(h.overflows(1)).toHaveLength(1);
+
+      // Rebuild after the debounce, then the second overflow once it is live.
+      await flush();
+      expect(h.calls).toHaveLength(2);
+      expect(h.rebuilt()).toEqual([
+        expect.objectContaining({
+          detail: expect.stringContaining('event storm'),
+        }),
+      ]);
+      h.clock.advance(250);
+      expect(h.overflows(1)).toHaveLength(2);
+      await h.core.dispose();
+    });
+
+    it('a storm with no creates ends without a rebuild', async () => {
+      const h = reconcilingSetup({
+        stormBreakerOptions: { enterEventsPerWindow: 5, quietMs: 2_000 },
+      });
+      h.subscribe(1);
+      await flush();
+      h.calls[0].emit(
+        Array.from({ length: 20 }, (_, i) => ({
+          path: `/repo/f${i}`,
+          type: 'update' as const,
+        })),
+      );
+      h.clock.advance(30_000);
+      await flush();
+      expect(h.calls).toHaveLength(1);
+      expect(h.listDirectory).not.toHaveBeenCalled();
+      await h.core.dispose();
+    });
+
+    it('bounds rebuilds of one root by the minimum gap', async () => {
+      const h = reconcilingSetup();
+      h.subscribe(1);
+      await flush();
+      const burst = (label: string) =>
+        Array.from(
+          {
+            length: CREATED_DIRECTORY_RECONCILER_DEFAULTS.maxTrackedPaths + 1,
+          },
+          (_, i) => ({ path: `/repo/${label}${i}`, type: 'create' as const }),
+        );
+
+      h.calls[0].emit(burst('a'));
+      h.clock.advance(WORKSPACE_WATCH_REBUILD_DEBOUNCE_MS);
+      await flush();
+      expect(h.calls).toHaveLength(2);
+
+      h.calls[1].emit(burst('b'));
+      h.clock.advance(WORKSPACE_WATCH_REBUILD_MIN_GAP_MS - 1);
+      await flush();
+      expect(h.calls).toHaveLength(2);
+      h.clock.advance(1);
+      await flush();
+      expect(h.calls).toHaveLength(3);
+      await h.core.dispose();
+    });
+
+    it('dispose during the settle delay leaves no timer and lists nothing', async () => {
+      const h = reconcilingSetup();
+      h.core.start();
+      h.subscribe(1);
+      await flush();
+      h.calls[0].emit([{ path: '/repo/src', type: 'create' }]);
+      await h.core.dispose();
+
+      expect(h.clock.pendingTimers).toBe(0);
+      const count = h.posted.length;
+      h.clock.advance(60_000);
+      await flush();
+      expect(h.listDirectory).not.toHaveBeenCalled();
+      expect(h.posted).toHaveLength(count);
+    });
+
+    it('dispose during an in-flight listing drops its result', async () => {
+      const h = reconcilingSetup();
+      let resolveListing: (
+        entries: WorkspaceWatchDirectoryEntry[],
+      ) => void = () => undefined;
+      h.listDirectory.mockImplementationOnce(
+        () => new Promise((resolve) => (resolveListing = resolve)),
+      );
+      h.subscribe(1);
+      await flush();
+      h.calls[0].emit([{ path: '/repo/src', type: 'create' }]);
+      h.clock.advance(SETTLE);
+      expect(h.listDirectory).toHaveBeenCalledTimes(1);
+
+      await h.core.dispose();
+      const count = h.posted.length;
+      resolveListing([h.dir('lost')]);
+      await flush();
+      h.clock.advance(60_000);
+      await flush();
+      expect(h.clock.pendingTimers).toBe(0);
+      expect(h.posted).toHaveLength(count);
+      expect(h.calls).toHaveLength(1);
+    });
+
+    it('dispose while a rebuild awaits the release never subscribes again', async () => {
+      const h = reconcilingSetup();
+      h.subscribe(1);
+      await flush();
+      let release: () => void = () => undefined;
+      h.calls[0].unsubscribe.mockImplementationOnce(() => {
+        h.log.push('unsubscribe:0');
+        return new Promise<void>((resolve) => (release = resolve));
+      });
+      h.calls[0].emit(
+        Array.from(
+          {
+            length: CREATED_DIRECTORY_RECONCILER_DEFAULTS.maxTrackedPaths + 1,
+          },
+          (_, i) => ({ path: `/repo/d${i}`, type: 'create' as const }),
+        ),
+      );
+      h.clock.advance(WORKSPACE_WATCH_REBUILD_DEBOUNCE_MS);
+      await flush();
+      expect(h.log).toEqual(['subscribe:0', 'unsubscribe:0']);
+
+      const disposing = h.core.dispose();
+      release();
+      await disposing;
+      await flush();
+      expect(h.calls).toHaveLength(1);
+      expect(h.clock.pendingTimers).toBe(0);
     });
   });
 

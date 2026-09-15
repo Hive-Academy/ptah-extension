@@ -303,9 +303,10 @@ describe('worker wiring (three-place rule)', () => {
 // synchronously at module-evaluation time when neither is present -- no
 // `--self-test` entry argument was needed for either (R-8). voice-worker.ts
 // likewise throws synchronously when `process.parentPort` is absent.
-// workspace-watch-host.entry.ts follows the same shape: it probes the same
-// two transports plus a `child_process.fork` IPC channel before loading
-// `@parcel/watcher`, and throws synchronously when none is present. All
+// workspace-watch-host.entry.ts follows the same shape with two transports:
+// it probes an Electron `process.parentPort` or a `child_process.fork` IPC
+// channel before loading `@parcel/watcher`, and throws synchronously when
+// neither is present. All
 // entry guards run before any heavy import (the ONNX/ffmpeg/native-watcher
 // work is behind lazily-invoked functions), so the bounded timeout below is a
 // safety net, not the expected path.
@@ -330,7 +331,7 @@ const WORKER_ENTRY_GUARDS: Record<string, string> = {
   'build-state-storage-worker':
     'Electron state storage worker requires a worker_threads parent port',
   'build-workspace-watch-host':
-    'workspace-watch-host.entry.ts must be run as a worker (no Electron parentPort, no worker_threads parentPort and no IPC channel)',
+    'workspace-watch-host.entry.ts must be run as a worker (no Electron parentPort and no IPC channel)',
 };
 
 const discoveredWorkerTargetNames = [...discoveredTargets.keys()]

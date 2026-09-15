@@ -2,7 +2,7 @@
 
 Total tasks: 56 | Batches: 22 | Complete: 14/22
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). Remaining unblocked: P2 Batch 15; P3 wave 1 Batch 16. P2 is not done until the `publish-electron.yml` matrix is green on all three OSes (see Batch 10 outcome). PR #510 CI has two OPEN Linux-only failures under investigation by a separate fix (not Batch 11): the CLI contract suite does not see files created in a new directory (inotify), and the platform-electron host entry spec aborts with SIGABRT in the `worker_threads` transport.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). Remaining unblocked: P2 Batch 15; P3 wave 1 Batch 16. P2 is not done until the `publish-electron.yml` matrix is green on all three OSes (see Batch 10 outcome). PR #510 CI had two Linux-only failures (the CLI contract suite did not see files created in a new directory under inotify; the platform-electron host entry spec aborted with SIGABRT in the `worker_threads` transport). Both are FIXED pending the next PR #510 CI run, which is the first Linux run of the jest specs — see "PR #510 Linux CI fix" after Batch 11. Batch 16 is approved and uncommitted; it commits together with Batch 16b.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `handoff.md` section 2 "User decisions" (formerly in `context.md`)
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -778,6 +778,58 @@ P4 is the COMMIT order" for these four batches only.
 - `npx nx run-many -t test -p ptah-electron @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools` (header: 3)
 - `npm run lint:all`; `npx nx run-many -t typecheck -p ptah-electron @ptah-extension/workspace-intelligence ptah-cli ptah-extension-vscode`
 - Done when: INV-1 is enforced by lint; INV-2 holds for watchers and the `@` index; grep shows 0 `recursive: true` `fs.watch` in `apps/ptah-electron/src/services`
+
+### PR #510 Linux CI fix — COMPLETE
+
+Not a numbered batch. Fix-up on files committed by Batches 8, 9 and 10. The commit carrying this
+section is `fix(platform-core): recover lost inotify watches in the workspace watch host on Linux`
+(a commit cannot record its own SHA; resolve it with `git log --oneline --grep "lost inotify watches"`).
+
+- Cause A (CLI contract suite on Linux): the `@parcel/watcher` 2.5.6 inotify backend does not list
+  directories it is told were created (`InotifyBackend.cc:167-184`, open issue
+  parcel-bundler/watcher#243). A file created right after its parent directory is missed. Under
+  parallel `mkdir` bursts, directories stay unwatched and later writes under them are silently lost.
+  An overlapping re-subscribe cannot repair this (the DirTree cache is reused); a full
+  unsubscribe-then-subscribe can.
+- Cause B (platform-electron host entry spec SIGABRT): a `worker_threads` Worker that holds a live
+  parcel subscription aborts the whole process when it is terminated (process-wide native singletons
+  plus `tsfn.BlockingCall`). Production never used the `worker_threads` transport; only the spec did.
+- Fix:
+  - `CreatedDirectoryReconciler` (new, `platform-core/src/workspace-watch/created-directory-reconciler.ts`),
+    active on Linux only through an injected `listDirectory`.
+  - Full rebuild (unsubscribe, then subscribe) for lost watches, native errors, refused subscribes, and
+    storm end with unreconciled creates. Debounce 1 s, minimum gap 10 s.
+  - One `overflow` at once on detection, and one more after the rebuilt subscription is live.
+  - EACCES/EPERM while listing → `directory-unreadable` notice, at most 1 per root per 60 s.
+  - A duplicate `create` for a path is allowed (consumers are idempotent).
+  - `native-ignore-set-planner.ts` extracted from the host core.
+  - `worker_threads` transport removed from the Electron host entry and its spec; the host entry
+    probes Electron `parentPort` and `child_process` IPC only.
+  - `toWorkspaceWatchPathKey` moved to `workspace-watch-protocol.ts`.
+- Evidence (executor, WSL2 Ubuntu 24.04, real `@parcel/watcher` + real host core):
+  - Contract cases 20/20 with the fix; without it 19/20 and 2/20.
+  - Paced 800-directory burst + 1,600 later writes: storm breaker off → 519 missed, every one followed
+    by an `overflow`; default storm breaker → 6,160 missed (storm), every one followed by an `overflow`.
+    0 silent misses in both.
+  - Native ignore matcher agrees with parcel on 46/46 paths.
+  - Jest specs green locally on Windows; not yet run on Linux — PR #510 CI is the first Linux run.
+- Evidence (team-leader, worktree `D:\projects\ptah-437`): recorded in the return report of this
+  commit (4-project test run, typecheck + lint, degradation-audit, prettier).
+- Reviews: `linux-watch-fix-code-logic-review.md` base NEEDS_REVISION (6/10) → delta APPROVE, confidence
+  HIGH. `linux-watch-fix-code-style-review.md` base NEEDS_REVISION → delta APPROVE, confidence HIGH.
+  The style delta's minor comment in `apps/ptah-electron/src/config/esm-bundle-gate.spec.ts` (host entry
+  transports) is corrected in this commit; the guard string is unchanged, as the reviewer recommended.
+- Accepted decisions (orchestrator): Q1 — list created directories host-side and rebuild when a watch
+  is lost. Q2 — full rebuild for recovery; the overlapping re-subscribe is kept only for nested-root
+  ignore changes. `overflow` is signalled after the rebuild is live; two overflows per incident.
+- Follow-ups (not in this commit):
+  - FU-L1: rebuild race — a directory created between parcel's walk and its watch add during a rebuild
+    is not detected until the next rebuild or overflow.
+  - FU-L2: delete-then-recreate reported as `update` is not listed by the reconciler.
+  - FU-L3: no spec covers the Electron `parentPort` transport branch of the host entry.
+  - FU-L4: `workspace-watch-host-core.ts` is 817 lines.
+  - FU-L5: Linux cost — every created path costs one `readdir`; a storm with creates ends in one full
+    re-walk.
 
 ---
 

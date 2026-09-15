@@ -16,6 +16,7 @@
 
 import {
   bootWorkspaceWatchHost,
+  workspaceWatchListDirectoryFor,
   type WorkspaceWatchEngine,
   type WorkspaceWatchHostCore,
   type WorkspaceWatchHostForker,
@@ -44,6 +45,7 @@ class InProcessWorkspaceWatchHostProcess implements WorkspaceWatchHostProcess {
       post: (message) => setImmediate(() => this.emit(message)),
       loadEngine: options.loadEngine ?? loadParcelWatcherEngine,
       env: options.env ?? process.env,
+      listDirectory: workspaceWatchListDirectoryFor(process.platform),
     });
   }
 

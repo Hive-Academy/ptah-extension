@@ -74,15 +74,48 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
     `parseWorkspaceWatchHostInbound` / `parseWorkspaceWatchHostOutbound`
   - `workspace-watch-host-core.ts` — `WorkspaceWatchHostCore`: one native
     subscription per root with the intersection of subscriber excludes, one
-    `WorkspaceChangeCoalescer` per subscriber, nested `.git` resubscribe, native
-    error → overflow + retry, 2 s heartbeat, one `subscribed` ack per
-    subscription once a settled native subscribe covers it, invalid inbound
-    messages reported at most 10 times
+    `WorkspaceChangeCoalescer` per subscriber, nested `.git` resubscribe (with
+    overlap), native error → overflow + REBUILD with back-off, 2 s heartbeat,
+    one `subscribed` ack per subscription once a settled native subscribe
+    covers it, invalid inbound messages reported at most 10 times.
+    **Re-subscribe vs rebuild**: only an ignore-set change may subscribe the
+    replacement before releasing the old one. Every recovery (native error,
+    refused subscribe, lost watch, creates during a storm) releases the live
+    subscription, awaits it, then subscribes, and signals `overflow` once the
+    new one is live — and every loss is ALSO signalled when detected (native
+    error, refused subscribe, lost watch, reconcile limit, storm end with
+    unreconciled creates), so no consumer trusts a stale view while the
+    rebuild waits. An overlapping re-subscribe repairs nothing:
+    `@parcel/watcher` keeps a root's cached tree and watches while any
+    subscription holds them (measured on Linux, 16 of 800 writes under lost
+    watches still lost after an overlap, 0 after a rebuild). Notice
+    `native-rebuilt` carries the reason
+  - `native-ignore-set-planner.ts` — `planNativeIgnoreSet` (internal): the
+    native `ignore` list for one root — the intersection of subscriber
+    excludes in subtree-only glob form, nested roots under the root, never
+    `.git`. Pure; the core calls it before each native subscribe
+  - `created-directory-reconciler.ts` — `CreatedDirectoryReconciler` (internal),
+    one per root when the core has a `listDirectory` (the Linux entries only).
+    The inotify backend reports a created directory and watches it only
+    afterwards, never listing it (parcel-bundler/watcher#243): children created
+    in that window are never reported and child directories are never watched.
+    It lists each created path one level after 100 ms (ENOTDIR/ENOENT →
+    nothing; EACCES/EPERM → nothing plus one `directory-unreadable` notice per
+    root per minute), emits unreported children as `create`, skips children the
+    native ignore set covers, lists unreported child directories too, and treats
+    a child directory still unreported after 1 s as a lost watch →
+    `onIncomplete` → the core's immediate `overflow` plus debounced (1 s),
+    gap-limited (10 s) rebuild. More than 2 000 tracked paths or 5 000 listed
+    entries in a pass → the same. Suspended while any subscriber storms (one
+    comparison per event); a create seen meanwhile → the same after the storm
   - `workspace-watch-host-boot.ts` — `bootWorkspaceWatchHost`: what every host
     entry does once its transport is bound (engine load → one clipped `fatal`
-    on failure, core construction with env storm tunables, `start`), and
-    `toWorkspaceWatchEngine`, the shape check over a loaded `@parcel/watcher`.
-    Used by the Electron entry, the Electron in-process hatch and the CLI entry
+    on failure, core construction with env storm tunables and the optional
+    `listDirectory`, `start`); `toWorkspaceWatchEngine`, the shape check over a
+    loaded `@parcel/watcher`; and `workspaceWatchListDirectoryFor(platform)`,
+    the `readdir` listing for `linux` and `undefined` elsewhere (FSEvents and
+    ReadDirectoryChangesW watch whole trees). Used by the Electron entry, the
+    Electron in-process hatch and the CLI entry
   - `workspace-watch-supervisor.ts` — `WorkspaceWatchSupervisor` (an `IWorkspaceWatcher`): lazy fork through an injected `WorkspaceWatchHostForker`,
     heartbeat watchdog (3 missed × 2 s, stall-aware), restart after 250 ms with
     resubscribe and one `overflow`, budget 5 per 10 min, degraded mode (one
@@ -151,8 +184,9 @@ entries in `src/di/tokens.ts`:
 
 `WORKSPACE_WATCHER` (TASK_2026_437 Batches 8–9) — `ElectronWorkspaceWatcher` (`platform-electron`,
 `utilityProcess` host), `CliWorkspaceWatcher` (`platform-cli`, `child_process.fork`
-host — never `worker_threads`: `@parcel/watcher` loads in one thread per process, so a
-restarted Worker host fails with "Module did not self-register"), `VscodeWorkspaceWatcher` (`platform-vscode`, `createFileSystemWatcher` → coalescer). The first two
+host — never `worker_threads`: `@parcel/watcher` keeps process-global state, so a
+second Worker fails with "Module did not self-register" and terminating a Worker with a
+live subscription aborts the process on Linux), `VscodeWorkspaceWatcher` (`platform-vscode`, `createFileSystemWatcher` → coalescer). The first two
 are facades over `WorkspaceWatchSupervisor`. Each runs `runWorkspaceWatcherContract`.
 
 `BOOT_READINESS` — `NullBootReadinessProvider` (`vscode-core`, always ready, the

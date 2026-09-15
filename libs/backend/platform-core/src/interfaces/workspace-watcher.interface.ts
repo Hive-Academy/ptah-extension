@@ -156,7 +156,22 @@ export type WorkspaceChangeListener = (batch: WorkspaceChangeBatch) => void;
  * - one loss-of-events incident — a storm, an adapter failure, or both
  *   overlapping — yields one `overflow` batch;
  * - an adapter failure surfaces as one `overflow` batch, followed by
- *   resubscription;
+ *   resubscription. A host that must REBUILD its native subscription (native
+ *   error, refused subscribe, a lost watch) signals one more `overflow` once
+ *   the rebuilt subscription is live, because the rebuild itself is a window
+ *   with no subscription and a rescan started earlier cannot see it;
+ * - on Linux a created directory's children may arrive a little after the
+ *   directory itself (about 100 ms: the host lists the directory, because
+ *   `@parcel/watcher`'s inotify backend watches a new directory only after
+ *   reporting it). A watch the engine lost that way surfaces as `overflow`
+ *   when the host detects it — about 1 s after the directory's children were
+ *   listed — and again once the host has rebuilt the subscription, about 1 s
+ *   later, or up to 10 s when that root was rebuilt just before. A storm that
+ *   ended with such directories unreconciled folds that first `overflow` into
+ *   its own exit `overflow`;
+ * - the same `create` may be delivered twice, in two batches (a child the host
+ *   found by listing, then the engine's own delayed report of it). Consumers
+ *   treat `create` as "this path may now exist";
  * - a DEGRADED adapter (its restart budget is spent) reports one
  *   `'workspace-watcher'` degradation per degraded episode, emits `overflow`
  *   immediately, and then repeats `overflow` on a fixed rescan cadence until it

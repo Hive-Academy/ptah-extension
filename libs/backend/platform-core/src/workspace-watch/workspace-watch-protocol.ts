@@ -2,8 +2,8 @@
  * Wire protocol between an `IWorkspaceWatcher` adapter and the out-of-main
  * watch host that runs {@link WorkspaceWatchHostCore} (TASK_2026_437 C8).
  *
- * The host is a separate process (Electron `utilityProcess`) or thread (CLI
- * `worker_threads`), so every message crosses an IPC boundary and is validated
+ * The host is a separate process (Electron `utilityProcess`, CLI
+ * `child_process.fork`), so every message crosses an IPC boundary and is validated
  * with Zod on BOTH sides: the host parses what the adapter sends, the adapter
  * parses what the host sends. A message that fails to parse is dropped, never
  * trusted in part.
@@ -49,6 +49,22 @@ export const WORKSPACE_WATCH_PROTOCOL_LIMITS = {
 } as const;
 
 const LIMITS = WORKSPACE_WATCH_PROTOCOL_LIMITS;
+
+const WINDOWS_ABSOLUTE_PATH = /^(?:[A-Za-z]:(?:[\\/]|$)|\\\\|\/\/)/;
+
+/**
+ * How the host compares a path it was sent with one the engine reports:
+ * `/`-separated, trailing-separator-free, case-folded for a Windows path.
+ */
+export function toWorkspaceWatchPathKey(absolutePath: string): string {
+  const normalized = absolutePath
+    .replace(/\\/g, '/')
+    .replace(/(?<!^)\/{2,}/g, '/')
+    .replace(/(?<=.)\/+$/, '');
+  return WINDOWS_ABSOLUTE_PATH.test(absolutePath)
+    ? normalized.toLowerCase()
+    : normalized;
+}
 
 const subscriptionIdSchema = z
   .number()
@@ -150,6 +166,13 @@ export const WORKSPACE_WATCH_NOTICE_CODES = [
   'storm-exited',
   'nested-root-detected',
   'native-resubscribed',
+  /** The native subscription was torn down and re-created; `detail` says why. */
+  'native-rebuilt',
+  /**
+   * A created directory could not be listed (EACCES/EPERM). Nothing under it
+   * can be reconciled or watched; at most one per root per minute.
+   */
+  'directory-unreadable',
 ] as const;
 export type WorkspaceWatchNoticeCode =
   (typeof WORKSPACE_WATCH_NOTICE_CODES)[number];

@@ -21,6 +21,7 @@
 import {
   bootWorkspaceWatchHost,
   toWorkspaceWatchEngine,
+  workspaceWatchListDirectoryFor,
 } from '@ptah-extension/platform-core';
 
 const WORKSPACE_WATCH_HOST_ENTRY_GUARD =
@@ -41,5 +42,8 @@ const core = bootWorkspaceWatchHost({
   },
   loadEngine: () => toWorkspaceWatchEngine(require('@parcel/watcher')),
   env: process.env,
+  // Linux only: reconciles directories the inotify backend reports before it
+  // watches them (see `workspaceWatchListDirectoryFor`).
+  listDirectory: workspaceWatchListDirectoryFor(process.platform),
 });
 if (core) process.on('message', (message) => core.handleMessage(message));

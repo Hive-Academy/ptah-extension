@@ -11,7 +11,10 @@
  * load failure, core construction, storm breaker tunables — lives here once.
  */
 
+import { readdir } from 'node:fs/promises';
+
 import { readEventStormBreakerOptionsFromEnv } from '../utils/event-storm-breaker';
+import type { WorkspaceWatchListDirectory } from './created-directory-reconciler';
 import {
   WorkspaceWatchHostCore,
   type WorkspaceWatchEngine,
@@ -47,6 +50,28 @@ export function toWorkspaceWatchEngine(module: unknown): WorkspaceWatchEngine {
   };
 }
 
+/**
+ * The directory listing that turns on created-directory reconciliation, for
+ * the platforms whose `@parcel/watcher` backend needs it: `linux` only.
+ *
+ * The inotify backend adds a watch per created directory AFTER reporting it
+ * and never lists it, so children created in that window are never reported
+ * and child directories are never watched (parcel-bundler/watcher#243; see
+ * `created-directory-reconciler.ts`). FSEvents (macOS) and
+ * ReadDirectoryChangesW (Windows) watch the whole tree from one handle, so
+ * they have no such window, and returning `undefined` there costs nothing.
+ */
+export function workspaceWatchListDirectoryFor(
+  platform: string,
+): WorkspaceWatchListDirectory | undefined {
+  if (platform !== 'linux') return undefined;
+  return async (dir) =>
+    (await readdir(dir, { withFileTypes: true })).map((entry) => ({
+      name: entry.name,
+      isDirectory: entry.isDirectory(),
+    }));
+}
+
 export interface WorkspaceWatchHostBootOptions {
   /** Sends one message to the supervisor. */
   readonly post: (message: WorkspaceWatchHostOutbound) => void;
@@ -54,6 +79,8 @@ export interface WorkspaceWatchHostBootOptions {
   readonly loadEngine: () => WorkspaceWatchEngine;
   /** Storm breaker tunables source — the host's own environment. */
   readonly env: Readonly<Record<string, string | undefined>>;
+  /** Normally `workspaceWatchListDirectoryFor(process.platform)`. */
+  readonly listDirectory?: WorkspaceWatchListDirectory;
 }
 
 /**
@@ -85,6 +112,7 @@ export function bootWorkspaceWatchHost(
     engine,
     post: options.post,
     stormBreakerOptions: readEventStormBreakerOptionsFromEnv(options.env),
+    listDirectory: options.listDirectory,
   });
   core.start();
   return core;

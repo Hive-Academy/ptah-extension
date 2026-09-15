@@ -3,18 +3,20 @@
  * `build-workspace-watch-host` target bundles it (`@parcel/watcher` external)
  * and pointed at temp trees with the real native engine.
  *
- * Two layers:
- * 1. the host protocol over the `worker_threads` transport (batches,
- *    exclusion, nested `.git`, heartbeat, invalid input). ONE worker serves the
- *    whole block: `@parcel/watcher` is not context-aware, so its binding loads
- *    into a single thread per process — a second worker fails with "Module did
- *    not self-register" (measured while writing this spec);
+ * Two layers, both over the `child_process.fork` transport:
+ * 1. the host protocol (batches, exclusion, nested `.git`, heartbeat, invalid
+ *    input), one forked host for the whole block;
  * 2. `ElectronWorkspaceWatcher` supervising that entry, through the shared
  *    `runWorkspaceWatcherContract` — including the overflow case, driven by
- *    killing the host out from under the adapter. The host here is a
- *    `child_process.fork` of the same bundle, because a restart needs a fresh
- *    binding load, which (above) only a fresh process gets. In the app the
- *    host is a `utilityProcess` — also its own process.
+ *    killing the host out from under the adapter.
+ *
+ * Never a `worker_threads` Worker. `@parcel/watcher` keeps its backends,
+ * watchers and directory trees in process-global singletons, and terminating
+ * a Worker whose subscription is still live aborts the WHOLE process on Linux
+ * (SIGABRT, exit 134) as soon as the next event is dispatched to the dead
+ * thread — that killed this suite's Jest worker in CI. On Windows a second
+ * Worker instead fails with "Module did not self-register". In the app the
+ * host is a `utilityProcess`: its own process, like the fork here.
  *
  * The bundle is written under the repository's gitignored `tmp/`, in a
  * directory unique to this run, so the external `@parcel/watcher` resolves
@@ -26,7 +28,6 @@ import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { Worker } from 'node:worker_threads';
 
 import { buildSync } from 'esbuild';
 
@@ -145,11 +146,11 @@ afterAll(() => {
   fs.rmSync(BUNDLE_DIR, { recursive: true, force: true });
 });
 
-describe('workspace-watch-host.entry — worker_threads transport', () => {
-  let worker: Worker;
+describe('workspace-watch-host.entry — child_process.fork transport', () => {
+  let host: ChildHostProcess;
   const messages: WorkspaceWatchHostOutbound[] = [];
   const invalid: unknown[] = [];
-  const workerErrors: unknown[] = [];
+  const hostExits: Array<number | null> = [];
 
   const batchesFor = (id: number) =>
     messages.filter(
@@ -168,7 +169,7 @@ describe('workspace-watch-host.entry — worker_threads transport', () => {
     root: string,
     overrides: Record<string, unknown> = {},
   ) => {
-    worker.postMessage({
+    host.postMessage({
       type: 'subscribe',
       id,
       root,
@@ -185,9 +186,9 @@ describe('workspace-watch-host.entry — worker_threads transport', () => {
   };
 
   beforeAll(async () => {
-    worker = new Worker(BUNDLE_PATH);
-    worker.on('error', (error) => workerErrors.push(error));
-    worker.on('message', (raw: unknown) => {
+    host = new ChildHostProcess();
+    host.on('exit', (code) => hostExits.push(code));
+    host.on('message', (raw: unknown) => {
       const parsed = parseWorkspaceWatchHostOutbound(raw);
       if (parsed) messages.push(parsed);
       else invalid.push(raw);
@@ -199,12 +200,14 @@ describe('workspace-watch-host.entry — worker_threads transport', () => {
   }, 30_000);
 
   afterAll(async () => {
-    await worker.terminate();
+    const exited = hostExits.length > 0;
+    host.kill();
+    if (!exited) await waitFor(() => hostExits.length > 0, 'the host exit');
   });
 
   afterEach(() => {
     expect(invalid).toEqual([]);
-    expect(workerErrors).toEqual([]);
+    expect(hostExits).toEqual([]);
     expect(messages.filter((m) => m.type === 'fatal')).toEqual([]);
   });
 
@@ -215,7 +218,7 @@ describe('workspace-watch-host.entry — worker_threads transport', () => {
       subscriptions: 0,
       eventsPerSec: 0,
     });
-    worker.postMessage({ type: 'subscribe' });
+    host.postMessage({ type: 'subscribe' });
     await waitFor(
       () =>
         messages.some(
@@ -239,7 +242,7 @@ describe('workspace-watch-host.entry — worker_threads transport', () => {
     await sleep(500);
     const paths = batchesFor(1).flatMap((b) => b.changes.map((c) => c.path));
     expect(paths.some((p) => p.includes('node_modules'))).toBe(false);
-    worker.postMessage({ type: 'unsubscribe', id: 1 });
+    host.postMessage({ type: 'unsubscribe', id: 1 });
   }, 30_000);
 
   it('detects a nested .git, reports it, and excludes everything under it', async () => {
@@ -265,7 +268,7 @@ describe('workspace-watch-host.entry — worker_threads transport', () => {
     await waitFor(() => hasChange(2, sync), 'the sync file');
     await sleep(500);
     expect(hasChange(2, hidden)).toBe(false);
-    worker.postMessage({ type: 'unsubscribe', id: 2 });
+    host.postMessage({ type: 'unsubscribe', id: 2 });
   }, 30_000);
 
   it('reports live subscriptions and event rate on the heartbeat', async () => {
@@ -282,7 +285,7 @@ describe('workspace-watch-host.entry — worker_threads transport', () => {
         ),
       'a heartbeat counting the events',
     );
-    worker.postMessage({ type: 'unsubscribe', id: 3 });
+    host.postMessage({ type: 'unsubscribe', id: 3 });
   }, 30_000);
 });
 

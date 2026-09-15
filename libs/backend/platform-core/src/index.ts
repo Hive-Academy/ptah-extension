@@ -174,7 +174,6 @@ export type {
 export {
   WORKSPACE_WATCH_HOST_DEFAULTS,
   WorkspaceWatchHostCore,
-  toWorkspaceWatchPathKey,
 } from './workspace-watch/workspace-watch-host-core';
 export type {
   WorkspaceWatchEngine,
@@ -183,9 +182,14 @@ export type {
   WorkspaceWatchEngineSubscription,
   WorkspaceWatchHostCoreOptions,
 } from './workspace-watch/workspace-watch-host-core';
+export type {
+  WorkspaceWatchDirectoryEntry,
+  WorkspaceWatchListDirectory,
+} from './workspace-watch/created-directory-reconciler';
 export {
   bootWorkspaceWatchHost,
   toWorkspaceWatchEngine,
+  workspaceWatchListDirectoryFor,
 } from './workspace-watch/workspace-watch-host-boot';
 export type { WorkspaceWatchHostBootOptions } from './workspace-watch/workspace-watch-host-boot';
 export {
@@ -208,6 +212,7 @@ export {
   parseWorkspaceWatchHostInbound,
   parseWorkspaceWatchHostOutbound,
   toWorkspaceWatchBatchMessage,
+  toWorkspaceWatchPathKey,
   toWorkspaceWatchSubscribeMessage,
   workspaceWatchHostInboundSchema,
   workspaceWatchHostOutboundSchema,

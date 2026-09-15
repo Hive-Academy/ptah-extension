@@ -64,7 +64,7 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11 — COMMITTED (resume at Batch 15; Batch 16 is unblocked)
+## 4. Batch 11 and the Linux CI fix — COMMITTED (resume at Batch 15; Batch 16 approved, pending 16b)
 
 **Update 2026-09-15 (Batch 11):** Batch 11 passed both reviews (logic base NEEDS_REVISION 5/10 →
 delta APPROVE HIGH; style base NEEDS_REVISION 7/10 → delta APPROVE HIGH) and is committed as
@@ -84,12 +84,20 @@ refresh (+5268/+5288 ms), 1 status push, 1 truncated push, p99 24.9/20.7 ms, max
 refresh ~3,000 ms (P1 ~2,000 ms), `file:content-changed` ~1,500 ms (P1 ~500 ms). Outcome, evidence,
 deviations and FU-11..FU-11h are in `batches.md` "Batch 11 outcome".
 
-**OPEN on PR #510 CI (separate fix, not Batch 11):** two Linux-only failures — the CLI contract
-suite does not see files created in a new directory (inotify), and the platform-electron host entry
-spec aborts with SIGABRT in the `worker_threads` transport.
+**Linux CI fix — COMMITTED 2026-09-15** as
+`fix(platform-core): recover lost inotify watches in the workspace watch host on Linux`. It fixes
+the two Linux-only PR #510 CI failures, pending the next CI run (the first Linux run of these jest
+specs): (A) `@parcel/watcher` 2.5.6 inotify does not list created directories (parcel#243), so
+writes under new directories were silently lost — the host now reconciles created directories
+(`CreatedDirectoryReconciler`) and does a full rebuild with `overflow` when a watch is lost;
+(B) terminating a `worker_threads` Worker with a live subscription aborts the process — that
+test-only transport is removed. Details, WSL2 evidence and FU-L1..FU-L5 are in `batches.md`
+"PR #510 Linux CI fix".
 
-**Next: Batch 15** (ST-2 host stress + host-kill AC-7, senior-tester). Batch 16 (P3 governor core)
-is file-independent and unblocked; per the phase order it commits after P2 closes.
+**Batch 16** (P3 governor core) is APPROVED and uncommitted in the worktree; it commits together
+with Batch 16b (in progress), after P2 closes per the phase order.
+
+**Next: Batch 15** (ST-2 host stress + host-kill AC-7, senior-tester) when the machine is idle.
 
 ## 4a. Batch 10 — COMMITTED
 

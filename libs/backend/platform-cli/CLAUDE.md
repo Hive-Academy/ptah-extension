@@ -45,7 +45,9 @@ Implementations: `CliFileSystemProvider`, `CliStateStorage`, `CliTokenCounter`, 
 - `src/workspace-watch/workspace-watch-host.entry.ts` — the host entry, bundled to
   `workspace-watch-host.mjs` beside `main.mjs` and `tui.mjs` (one path serves
   both, D7). Fork IPC transport only, one `require('@parcel/watcher')`, then
-  `bootWorkspaceWatchHost`; exits when the parent disconnects. The bundle target
+  `bootWorkspaceWatchHost` with `workspaceWatchListDirectoryFor(process.platform)`
+  (Linux created-directory reconciliation, platform-core); exits when the parent
+  disconnects. The bundle target
   is `apps/ptah-cli`'s (ESM, `createRequire` banner, `@parcel/watcher` external).
   `workspace-watch-host.entry.spec.ts` proves the exit for real: a parent Node
   process forks the bundle, then exits or is killed, and the host pid must be
@@ -69,7 +71,7 @@ Implementations: `CliFileSystemProvider`, `CliStateStorage`, `CliTokenCounter`, 
 - **`createFileWatcher` must never hand its glob to chokidar** — same rule and
   same reason as the Electron adapter's; the translation lives once, in
   `planGlobWatch` (platform-core). See `platform-electron/CLAUDE.md`.
-- **The watch host is a `child_process.fork` child, never a `worker_threads` Worker.** `@parcel/watcher` loads into one thread per process; a restarted Worker host fails with "Module did not self-register". Never load it in `main.mjs` / `tui.mjs`.
+- **The watch host is a `child_process.fork` child, never a `worker_threads` Worker.** `@parcel/watcher` keeps process-global state: a restarted Worker host fails with "Module did not self-register", and terminating a Worker with a live subscription aborts the whole process on Linux. Never load it in `main.mjs` / `tui.mjs`.
 - **Never re-implement watch supervision here.** Restart budget, watchdog, degraded mode and recovery live once in `WorkspaceWatchSupervisor` (platform-core), shared with `ElectronWorkspaceWatcher`.
 - State storage backs onto `~/.ptah/state/` JSON files (or similar) — keep schema compatible with other platforms.
 - `IDiagnosticsProvider`/`IEditorProvider` may be near-no-ops (no editor), but must satisfy the interface.

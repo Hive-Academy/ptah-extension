@@ -14,7 +14,8 @@
  *   `ignore` list is the INTERSECTION of the subscribers' exclusions, so the
  *   native layer drops only what every subscriber would drop. It is a cost
  *   filter, never the exclusion authority: each subscriber's own
- *   {@link WorkspaceChangeCoalescer} applies that subscriber's full rules.
+ *   {@link WorkspaceChangeCoalescer} applies that subscriber's full rules. The
+ *   list itself is planned by `planNativeIgnoreSet`.
  * - One coalescer per subscriber: exclusion, nested-repo detection, the storm
  *   breaker, and at most one batch per 250 ms (INV-1). Batches are posted; the
  *   main process never sees a per-event message.
@@ -23,14 +24,30 @@
  *   10 s per root. `.git` itself is never put in the native ignore set — that
  *   would blind the detection.
  * - A native error means events were lost (A1: Windows buffer overflow): every
- *   subscriber of that root gets `overflow`, and the root is re-subscribed with
+ *   subscriber of that root gets `overflow`, and the root is rebuilt with
  *   back-off.
+ * - With a `listDirectory` (the Linux entries), a {@link CreatedDirectoryReconciler}
+ *   per root lists created directories, delivers children the engine missed,
+ *   and asks for a rebuild when a watch was lost.
  * - A heartbeat every 2 s, so the adapter can tell a hung host from a quiet one.
+ *
+ * ## Re-subscribe versus rebuild
+ *
+ * A nested-root ignore change re-subscribes with overlap: the replacement is
+ * live before the old subscription is released, so no event is lost. That
+ * overlap cannot repair anything: `@parcel/watcher` caches a root's directory
+ * tree and watches while any subscription holds them, so the replacement
+ * reuses them (measured on Linux: 16 of 800 writes under lost watches still
+ * lost after an overlapping re-subscribe, 0 after a full one). Recovery — a
+ * native error, a refused subscribe, a lost watch, creates during a storm —
+ * therefore REBUILDS: release the live subscription, await it, subscribe
+ * again. Every loss is signalled twice: `overflow` when it is detected, so no
+ * consumer trusts a stale view while the rebuild waits out its debounce, and
+ * `overflow` again once the new subscription is live, so a rescan also covers
+ * the gap the rebuild itself opened.
  *
  * It never spawns a process and never reads file contents.
  */
-
-import picomatch from 'picomatch';
 
 import type {
   WorkspaceChangeKind,
@@ -43,9 +60,15 @@ import {
   type WorkspaceChangeCoalescerClock,
 } from '../utils/workspace-change-coalescer';
 import {
+  CreatedDirectoryReconciler,
+  type WorkspaceWatchListDirectory,
+} from './created-directory-reconciler';
+import { planNativeIgnoreSet } from './native-ignore-set-planner';
+import {
   clipWorkspaceWatchText,
   parseWorkspaceWatchHostInbound,
   toWorkspaceWatchBatchMessage,
+  toWorkspaceWatchPathKey,
   type WorkspaceWatchErrorCode,
   type WorkspaceWatchHostOutbound,
   type WorkspaceWatchNoticeCode,
@@ -92,6 +115,13 @@ export const WORKSPACE_WATCH_HOST_DEFAULTS = {
   /** Retry delay ceiling. */
   nativeRetryMaxMs: 30_000,
   /**
+   * Quiet period before a rebuild asked for by reconciliation or a storm, so
+   * one re-walk covers the whole burst that lost watches.
+   */
+  rebuildDebounceMs: 1_000,
+  /** Minimum gap between two such rebuilds of one root: each re-walks the whole tree. */
+  rebuildMinGapMs: 10_000,
+  /**
    * Most runtime-detected nested roots a root keeps in its native ignore set.
    * Beyond it the coalescers still exclude them; only the native saving stops.
    */
@@ -111,6 +141,14 @@ export interface WorkspaceWatchHostCoreOptions {
   readonly nestedResubscribeMinGapMs?: number;
   readonly nativeRetryInitialMs?: number;
   readonly nativeRetryMaxMs?: number;
+  readonly rebuildDebounceMs?: number;
+  readonly rebuildMinGapMs?: number;
+  /**
+   * Enables created-directory reconciliation. Only an engine that adds a watch
+   * per created directory needs it — `@parcel/watcher`'s inotify backend; the
+   * entries pass `workspaceWatchListDirectoryFor(process.platform)`.
+   */
+  readonly listDirectory?: WorkspaceWatchListDirectory;
 }
 
 interface HostSubscription {
@@ -139,8 +177,16 @@ interface RootWatch {
   /** Token of the in-flight engine subscribe, if any. */
   pendingToken: number | undefined;
   nextToken: number;
-  /** Re-subscribe even when the ignore set is unchanged (after a native error). */
-  forceResubscribe: boolean;
+  /** The next native subscribe releases the live one first, even with an unchanged ignore set. */
+  rebuildRequested: boolean;
+  /** Why the pending rebuild was asked for, for its notice. */
+  rebuildReason: string | undefined;
+  /** Every subscriber gets `overflow` once the next native subscribe is live. */
+  overflowOnSettle: boolean;
+  rebuildTimer: CoalescerTimerHandle | undefined;
+  lastRebuildAt: number | undefined;
+  /** Present when the host was given a `listDirectory`. */
+  reconciler: CreatedDirectoryReconciler | undefined;
   /** Another re-subscribe was requested while one was in flight. */
   resubscribeQueued: boolean;
   retryTimer: CoalescerTimerHandle | undefined;
@@ -157,22 +203,6 @@ const DEFAULT_CLOCK: WorkspaceChangeCoalescerClock = {
   clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
-const WINDOWS_ABSOLUTE_PATH = /^(?:[A-Za-z]:(?:[\\/]|$)|\\\\|\/\/)/;
-/** Names safe to turn into a native glob without escaping. */
-const SAFE_GLOB_NAME = /^[A-Za-z0-9._-]+$/;
-const GIT_MARKER = /\.git/i;
-
-/** `/`-separated, trailing-separator-free, case-folded for a Windows path. */
-export function toWorkspaceWatchPathKey(absolutePath: string): string {
-  const normalized = absolutePath
-    .replace(/\\/g, '/')
-    .replace(/(?<!^)\/{2,}/g, '/')
-    .replace(/(?<=.)\/+$/, '');
-  return WINDOWS_ABSOLUTE_PATH.test(absolutePath)
-    ? normalized.toLowerCase()
-    : normalized;
-}
-
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -187,6 +217,9 @@ export class WorkspaceWatchHostCore {
   private readonly nestedMinGapMs: number;
   private readonly retryInitialMs: number;
   private readonly retryMaxMs: number;
+  private readonly rebuildDebounceMs: number;
+  private readonly rebuildMinGapMs: number;
+  private readonly listDirectory: WorkspaceWatchListDirectory | undefined;
 
   private readonly subscriptions = new Map<number, RootWatch>();
   private readonly roots = new Map<string, RootWatch>();
@@ -214,6 +247,10 @@ export class WorkspaceWatchHostCore {
     this.retryInitialMs =
       options.nativeRetryInitialMs ?? defaults.nativeRetryInitialMs;
     this.retryMaxMs = options.nativeRetryMaxMs ?? defaults.nativeRetryMaxMs;
+    this.rebuildDebounceMs =
+      options.rebuildDebounceMs ?? defaults.rebuildDebounceMs;
+    this.rebuildMinGapMs = options.rebuildMinGapMs ?? defaults.rebuildMinGapMs;
+    this.listDirectory = options.listDirectory;
   }
 
   /** Number of live subscriptions. */
@@ -289,12 +326,15 @@ export class WorkspaceWatchHostCore {
           clock: this.clock,
           onListenerError: (error) =>
             this.postError('listener-error', describeError(error), id),
-          onStorm: (transition, stats) =>
+          onStorm: (transition, stats) => {
             this.postNotice(
               transition === 'entered' ? 'storm-entered' : 'storm-exited',
               root.dir,
               `subscription ${id}, ${stats.stormEvents} events`,
-            ),
+            );
+            if (transition === 'entered') root.reconciler?.suspend();
+            else this.resumeReconciliationIfCalm(root);
+          },
           onNestedRepoRoot: (absoluteRoot) =>
             this.onNestedRepoRoot(root, absoluteRoot),
         },
@@ -345,7 +385,11 @@ export class WorkspaceWatchHostCore {
     this.subscriptions.delete(id);
     root.subscribers.get(id)?.coalescer.dispose();
     root.subscribers.delete(id);
-    if (root.subscribers.size > 0) return;
+    if (root.subscribers.size > 0) {
+      // The subscriber that left may have been the one storming.
+      this.resumeReconciliationIfCalm(root);
+      return;
+    }
     // The last subscriber left: the native subscription has no audience. A
     // remaining subscriber keeps the current (possibly narrower) ignore set;
     // widening it is an optimisation not worth a re-subscribe gap.
@@ -362,7 +406,12 @@ export class WorkspaceWatchHostCore {
       active: undefined,
       pendingToken: undefined,
       nextToken: 0,
-      forceResubscribe: false,
+      rebuildRequested: false,
+      rebuildReason: undefined,
+      overflowOnSettle: false,
+      rebuildTimer: undefined,
+      lastRebuildAt: undefined,
+      reconciler: undefined,
       resubscribeQueued: false,
       retryTimer: undefined,
       retryDelayMs: this.retryInitialMs,
@@ -370,6 +419,20 @@ export class WorkspaceWatchHostCore {
       nestedTimer: undefined,
       lastNestedResubscribeAt: undefined,
     };
+    const listDirectory = this.listDirectory;
+    if (listDirectory) {
+      root.reconciler = new CreatedDirectoryReconciler({
+        root: dir,
+        listDirectory,
+        clock: this.clock,
+        nativeIgnore: () => root.active?.ignore ?? [],
+        onDiscovered: (path) => this.onDiscovered(root, path),
+        onIncomplete: (reason, detail) =>
+          this.onWatchesLost(root, `${reason}: ${detail}`),
+        onUnreadable: (path, code) =>
+          this.postNotice('directory-unreadable', root.dir, `${code}: ${path}`),
+      });
+    }
     this.roots.set(key, root);
     return root;
   }
@@ -379,9 +442,13 @@ export class WorkspaceWatchHostCore {
   }
 
   /**
-   * Makes the native subscription match the current ignore set. Subscribes the
-   * replacement BEFORE unsubscribing the old one, so a re-subscribe loses no
-   * events (a duplicate path in the overlap merges inside the coalescer).
+   * Makes the native subscription match the current ignore set.
+   *
+   * - An ignore-set change re-subscribes with overlap: the replacement is
+   *   subscribed BEFORE the old one is released, so no event is lost (a
+   *   duplicate path in the overlap merges inside the coalescer).
+   * - A requested rebuild releases the live subscription first and awaits it,
+   *   so the engine drops its cached tree and walks the root again.
    */
   private ensureNative(root: RootWatch): void {
     if (!this.isCurrent(root) || root.subscribers.size === 0) return;
@@ -391,35 +458,56 @@ export class WorkspaceWatchHostCore {
     }
     if (root.retryTimer !== undefined) return;
 
-    const ignore = this.computeNativeIgnore(root);
+    const ignore = planNativeIgnoreSet({
+      rootKey: root.key,
+      subscribers: [...root.subscribers.values()],
+      detectedNestedRoots: root.detectedNestedRoots,
+    });
     if (
       root.active !== undefined &&
-      !root.forceResubscribe &&
+      !root.rebuildRequested &&
       sameStrings(root.active.ignore, ignore)
     ) {
       return;
     }
 
-    root.forceResubscribe = false;
+    const rebuild = root.rebuildRequested;
+    root.rebuildRequested = false;
     const token = ++root.nextToken;
     root.pendingToken = token;
+    const released = rebuild ? root.active : undefined;
+    if (released) root.active = undefined;
     const callback: WorkspaceWatchEngineCallback = (error, events) =>
       this.onEngineEvents(root, token, error, events);
 
-    // The executor runs synchronously, so a synchronous throw from the engine
-    // becomes a rejection handled below.
-    const subscribing = new Promise<WorkspaceWatchEngineSubscription>(
-      (resolve) =>
-        resolve(
-          this.engine.subscribe(root.dir, callback, { ignore: [...ignore] }),
-        ),
-    );
-
-    void subscribing.then(
-      (subscription) =>
-        this.onNativeSubscribed(root, token, subscription, ignore),
+    void this.subscribeNative(root, released, callback, ignore).then(
+      (subscription) => {
+        if (subscription) {
+          this.onNativeSubscribed(root, token, subscription, ignore, rebuild);
+        } else if (root.pendingToken === token) {
+          root.pendingToken = undefined;
+        }
+      },
       (error: unknown) => this.onNativeSubscribeFailed(root, token, error),
     );
+  }
+
+  /**
+   * Releases `released` (a rebuild) and subscribes. Resolves `undefined` when
+   * the root was abandoned while the release was awaited. A synchronous engine
+   * throw becomes a rejection, because this function is `async`.
+   */
+  private async subscribeNative(
+    root: RootWatch,
+    released: NativeHandle | undefined,
+    callback: WorkspaceWatchEngineCallback,
+    ignore: readonly string[],
+  ): Promise<WorkspaceWatchEngineSubscription | undefined> {
+    if (released) {
+      await this.unsubscribeNative(released.subscription);
+      if (!this.isCurrent(root)) return undefined;
+    }
+    return this.engine.subscribe(root.dir, callback, { ignore: [...ignore] });
   }
 
   private onNativeSubscribed(
@@ -427,6 +515,7 @@ export class WorkspaceWatchHostCore {
     token: number,
     subscription: WorkspaceWatchEngineSubscription,
     ignore: readonly string[],
+    rebuilt: boolean,
   ): void {
     if (root.pendingToken === token) root.pendingToken = undefined;
     if (!this.isCurrent(root)) {
@@ -445,6 +534,22 @@ export class WorkspaceWatchHostCore {
         `${ignore.length} native ignore entries`,
       );
     }
+    if (rebuilt) {
+      this.postNotice(
+        'native-rebuilt',
+        root.dir,
+        `${root.rebuildReason ?? 'recovery'}; ${ignore.length} native ignore entries`,
+      );
+      root.rebuildReason = undefined;
+    }
+    if (root.overflowOnSettle) {
+      // After the gap, not before it: a rescan that starts now sees every
+      // change made while no subscription was live.
+      root.overflowOnSettle = false;
+      for (const subscriber of root.subscribers.values()) {
+        subscriber.coalescer.signalOverflow();
+      }
+    }
     if (root.resubscribeQueued) {
       root.resubscribeQueued = false;
       this.ensureNative(root);
@@ -461,6 +566,8 @@ export class WorkspaceWatchHostCore {
     if (!this.isCurrent(root)) return;
     this.postError('native-subscribe-failed', describeError(error));
     this.lostEvents(root);
+    root.rebuildReason ??= 'native subscribe failed';
+    root.overflowOnSettle = true;
     this.scheduleRetry(root);
   }
 
@@ -476,9 +583,15 @@ export class WorkspaceWatchHostCore {
     if (root.active !== undefined && token < root.active.token) return;
 
     if (error) {
+      // A subscription being released by a rebuild already has its recovery.
+      if (root.active === undefined && token < (root.pendingToken ?? 0)) {
+        return;
+      }
       this.postError('native-error', describeError(error));
       this.lostEvents(root);
-      root.forceResubscribe = true;
+      root.rebuildRequested = true;
+      root.rebuildReason = 'native error';
+      root.overflowOnSettle = true;
       this.scheduleRetry(root);
       return;
     }
@@ -490,6 +603,77 @@ export class WorkspaceWatchHostCore {
         subscriber.coalescer.push(event.path, event.type);
       }
     }
+    // After the push: a storm the push started has already suspended it.
+    root.reconciler?.observe(events);
+  }
+
+  /** A child the engine never reported, found by listing a created directory. */
+  private onDiscovered(root: RootWatch, absolutePath: string): void {
+    if (!this.isCurrent(root)) return;
+    for (const subscriber of root.subscribers.values()) {
+      subscriber.coalescer.push(absolutePath, 'create');
+    }
+  }
+
+  /**
+   * Resumes reconciliation once no subscriber of `root` storms. Creates that
+   * went unreconciled during the storm may have lost watches: rebuild.
+   */
+  private resumeReconciliationIfCalm(root: RootWatch): void {
+    const reconciler = root.reconciler;
+    if (!reconciler?.isSuspended || !this.isCurrent(root)) return;
+    for (const subscriber of root.subscribers.values()) {
+      if (subscriber.coalescer.isStorming) return;
+    }
+    if (reconciler.resume()) {
+      this.onWatchesLost(
+        root,
+        'directories were created during an event storm',
+      );
+    }
+  }
+
+  /**
+   * Watches under `root` are (or may be) missing. Subscribers get `overflow`
+   * NOW, like a native error, so no consumer trusts a stale view while the
+   * debounced, gap-limited rebuild waits, and once more when the rebuilt
+   * subscription is live.
+   *
+   * At a storm's exit this runs inside the coalescer's `exited` hook, before
+   * the coalescer folds its own exit overflow; the two fold into one owed
+   * overflow, so the storming subscriber still receives one batch.
+   */
+  private onWatchesLost(root: RootWatch, reason: string): void {
+    if (!this.isCurrent(root)) return;
+    this.lostEvents(root);
+    this.requestRebuild(root, reason);
+  }
+
+  /**
+   * A debounced, gap-limited rebuild. Subscribers get `overflow` once the new
+   * subscription is live ({@link onNativeSubscribed}).
+   */
+  private requestRebuild(root: RootWatch, reason: string): void {
+    if (!this.isCurrent(root)) return;
+    root.rebuildReason = reason;
+    if (root.rebuildTimer !== undefined) return;
+    const gapDelay =
+      root.lastRebuildAt === undefined
+        ? 0
+        : root.lastRebuildAt + this.rebuildMinGapMs - this.clock.now();
+    root.rebuildTimer = this.clock.setTimer(
+      () => {
+        root.rebuildTimer = undefined;
+        if (!this.isCurrent(root)) return;
+        root.lastRebuildAt = this.clock.now();
+        root.rebuildRequested = true;
+        root.overflowOnSettle = true;
+        // The rebuild walks the whole root; what was tracked is covered.
+        root.reconciler?.clear();
+        this.ensureNative(root);
+      },
+      Math.max(this.rebuildDebounceMs, gapDelay),
+    );
   }
 
   /** Every subscriber of `root` owes a rescan; once per failure streak. */
@@ -507,7 +691,7 @@ export class WorkspaceWatchHostCore {
     root.retryDelayMs = Math.min(this.retryMaxMs, delay * 2);
     root.retryTimer = this.clock.setTimer(() => {
       root.retryTimer = undefined;
-      root.forceResubscribe = true;
+      root.rebuildRequested = true;
       this.ensureNative(root);
     }, delay);
   }
@@ -550,85 +734,16 @@ export class WorkspaceWatchHostCore {
     return true;
   }
 
-  /**
-   * The native ignore set: only what EVERY subscriber excludes, and only in a
-   * form whose native meaning cannot be wider than the coalescer's.
-   *
-   * - directory names and segment rules become `**\/…\/**` globs (subtree
-   *   exclusions, so a backend that prunes a matched directory prunes exactly
-   *   what the coalescer drops); names with characters that would need glob
-   *   escaping are skipped; segment rules are spelled case-insensitively;
-   * - consumer globs pass only when they end in `/**` (a subtree) and compile;
-   * - nested roots pass as absolute paths: seeded ones every subscriber listed,
-   *   detected ones when every subscriber has detection on.
-   *
-   * Nothing naming `.git` is ever included: nested-repo detection needs the
-   * `.git` create events, and a narrower native set is always safe.
-   */
-  private computeNativeIgnore(root: RootWatch): readonly string[] {
-    const subscribers = [...root.subscribers.values()];
-    if (subscribers.length === 0) return [];
-    // An intersection: which subscriber is `first` does not change the result.
-    const [first, ...rest] = subscribers;
-    const ignore = new Set<string>();
-
-    for (const name of first.options.excludeDirNames) {
-      if (!isSafeGlobName(name)) continue;
-      if (rest.every((s) => s.options.excludeDirNames.includes(name))) {
-        ignore.add(`**/${name}/**`);
-      }
-    }
-
-    const ruleKey = (rule: readonly string[]) =>
-      rule
-        .filter((segment) => segment.length > 0)
-        .map((segment) => segment.toLowerCase())
-        .join('/');
-    for (const rule of first.options.excludeSegmentRules) {
-      const segments = rule.filter((segment) => segment.length > 0);
-      if (segments.length === 0 || !segments.every(isSafeGlobName)) continue;
-      const wanted = ruleKey(segments);
-      if (
-        rest.every((s) =>
-          s.options.excludeSegmentRules.some(
-            (other) => ruleKey(other) === wanted,
-          ),
-        )
-      ) {
-        ignore.add(`**/${segments.map(caseInsensitiveGlobName).join('/')}/**`);
-      }
-    }
-
-    for (const glob of first.options.excludeGlobs) {
-      if (!glob.endsWith('/**') || GIT_MARKER.test(glob)) continue;
-      if (!rest.every((s) => s.options.excludeGlobs.includes(glob))) continue;
-      if (compilesAsGlob(glob)) ignore.add(glob);
-    }
-
-    const rootKey = root.key;
-    const isStrictlyUnderRoot = (key: string) =>
-      key.startsWith(rootKey.endsWith('/') ? rootKey : `${rootKey}/`);
-    for (const nestedRoot of first.options.nestedRepoRoots ?? []) {
-      const key = toWorkspaceWatchPathKey(nestedRoot);
-      if (!isStrictlyUnderRoot(key)) continue;
-      if (rest.every((s) => s.seededNestedRootKeys.has(key))) {
-        ignore.add(nestedRoot);
-      }
-    }
-    if (this.allSubscribersDetectNestedRepos(root)) {
-      for (const [key, nestedRoot] of root.detectedNestedRoots) {
-        if (isStrictlyUnderRoot(key)) ignore.add(nestedRoot);
-      }
-    }
-
-    return [...ignore].sort((a, b) => a.localeCompare(b));
-  }
-
   private async teardownRoot(root: RootWatch): Promise<void> {
     if (root.retryTimer !== undefined) this.clock.clearTimer(root.retryTimer);
     if (root.nestedTimer !== undefined) this.clock.clearTimer(root.nestedTimer);
+    if (root.rebuildTimer !== undefined) {
+      this.clock.clearTimer(root.rebuildTimer);
+    }
     root.retryTimer = undefined;
     root.nestedTimer = undefined;
+    root.rebuildTimer = undefined;
+    root.reconciler?.dispose();
     for (const subscriber of root.subscribers.values()) {
       subscriber.coalescer.dispose();
     }
@@ -699,36 +814,4 @@ export class WorkspaceWatchHostCore {
 
 function sameStrings(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
-}
-
-function isSafeGlobName(name: string): boolean {
-  return (
-    SAFE_GLOB_NAME.test(name) &&
-    name !== '.' &&
-    name !== '..' &&
-    name.toLowerCase() !== '.git'
-  );
-}
-
-/** `Worktrees` → `[wW][oO]…` so the native glob folds ASCII case like the rule. */
-function caseInsensitiveGlobName(name: string): string {
-  let glob = '';
-  for (const char of name) {
-    const lower = char.toLowerCase();
-    const upper = char.toUpperCase();
-    glob += lower === upper ? char : `[${lower}${upper}]`;
-  }
-  return glob;
-}
-
-function compilesAsGlob(glob: string): boolean {
-  try {
-    picomatch.makeRe(glob, { dot: true });
-    return true;
-  } catch {
-    // degradation-audit: optional-capability — a glob that does not compile
-    // is left out of the native ignore set only; the subscriber's coalescer
-    // compiled it already, so exclusion is unaffected.
-    return false;
-  }
 }

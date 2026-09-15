@@ -5,17 +5,19 @@
  * Everything the host does lives in `WorkspaceWatchHostCore` (platform-core),
  * started by `bootWorkspaceWatchHost`. This file only:
  *   1. detects its transport — `process.parentPort` (Electron utilityProcess,
- *      whose 'message' events wrap the payload as `{ data }`),
- *      `node:worker_threads`' `parentPort` (raw payload), or a
- *      `child_process.fork` IPC channel (raw payload) — the first two copied
- *      from `persistence-sqlite`'s `integrity-worker.ts`. Only ONE host per
- *      process may use the worker_threads transport: `@parcel/watcher` is not
- *      context-aware, so a second worker in the same process cannot load it;
- *      a restartable host in a plain Node parent must be a child process;
+ *      whose 'message' events wrap the payload as `{ data }`), or a
+ *      `child_process.fork` IPC channel (raw payload; the entry spec's host);
  *   2. loads `@parcel/watcher` (an esbuild external; see
  *      `parcel-watcher-engine.ts`);
  *   3. hands the host's own environment (which a utilityProcess inherits from
- *      main) to the boot for the storm breaker tunables.
+ *      main) to the boot for the storm breaker tunables, and on Linux the
+ *      directory listing that reconciles created directories.
+ *
+ * There is no `worker_threads` transport, on purpose. `@parcel/watcher` keeps
+ * its backends and watchers in process-global singletons: terminating a Worker
+ * whose subscription is live aborts the whole process on Linux (SIGABRT, exit
+ * 134, measured), and a second Worker fails with "Module did not self-register".
+ * The host always owns its process.
  *
  * The transport guard runs BEFORE the engine loads, so the ESM bundle gate can
  * run this bundle bare and see only the guard.
@@ -24,10 +26,9 @@
  * doing nothing; the adapter restarts it within its budget and then degrades.
  */
 
-import { parentPort as workerThreadsParentPort } from 'node:worker_threads';
-
 import {
   bootWorkspaceWatchHost,
+  workspaceWatchListDirectoryFor,
   type WorkspaceWatchHostOutbound,
 } from '@ptah-extension/platform-core';
 
@@ -39,9 +40,9 @@ interface ElectronParentPortLike {
   postMessage(message: unknown): void;
 }
 
-/** Mirrored in the app's ESM bundle gate (`WORKER_ENTRY_GUARDS`) once Batch 10 adds the target. */
+/** Mirrored in the app's ESM bundle gate (`WORKER_ENTRY_GUARDS`). */
 const WORKSPACE_WATCH_HOST_ENTRY_GUARD =
-  'workspace-watch-host.entry.ts must be run as a worker (no Electron parentPort, no worker_threads parentPort and no IPC channel)';
+  'workspace-watch-host.entry.ts must be run as a worker (no Electron parentPort and no IPC channel)';
 
 const electronParentPort = (
   process as unknown as { parentPort?: ElectronParentPortLike }
@@ -56,17 +57,9 @@ if (electronParentPort) {
   const port = electronParentPort;
   post = (message) => port.postMessage(message);
   listen = (handler) => port.on('message', (event) => handler(event.data));
-} else if (workerThreadsParentPort) {
-  const port = workerThreadsParentPort;
-  post = (message) => port.postMessage(message);
-  listen = (handler) =>
-    port.on('message', (message: unknown) => handler(message));
 } else if (sendToParent) {
-  // `child_process.fork` IPC. `@parcel/watcher` is not context-aware: its
-  // binding loads into ONE thread per process ("Module did not self-register"
-  // on the second worker), so a host that must survive a restart inside a
-  // plain Node parent needs its own process. The parent owns this process's
-  // life; when the channel closes there is nobody to report to.
+  // `child_process.fork` IPC. The parent owns this process's life; when the
+  // channel closes there is nobody to report to.
   post = (message) => {
     sendToParent(message);
   };
@@ -80,5 +73,6 @@ const core = bootWorkspaceWatchHost({
   post,
   loadEngine: loadParcelWatcherEngine,
   env: process.env,
+  listDirectory: workspaceWatchListDirectoryFor(process.platform),
 });
 if (core) listen((message) => core.handleMessage(message));
