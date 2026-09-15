@@ -133,7 +133,16 @@ export type SkillLaneFailureKind =
   | 'quota-exhausted'
   | 'structured-output-unsupported'
   | 'tool-use-unsupported'
-  | 'timeout';
+  | 'timeout'
+  /**
+   * The provider never answered: a network-class failure (connection, DNS,
+   * socket timeout, HTTP 5xx or 429 — `QueryNetworkObserver` in agent-sdk), or
+   * a background call held because such a failure opened the network back-off
+   * (TASK_2026_437 C14 f). TRANSPORT, and exempt from the attempt ceiling like
+   * `quota-exhausted`: an outage clears on its own, and a terminal mark would
+   * land before it does. `retryAfterMs` is the back-off window still open.
+   */
+  | 'network-unreachable';
 
 /**
  * The failure kinds that mean NOTHING RAN.
@@ -157,6 +166,7 @@ export const TRANSPORT_LANE_FAILURE_KINDS: ReadonlySet<SkillLaneFailureKind> =
     'timeout',
     'auth-unresolvable',
     'quota-exhausted',
+    'network-unreachable',
   ]);
 
 /** Whether `kind` means the endpoint never answered. See the set above. */

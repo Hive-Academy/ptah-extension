@@ -230,6 +230,7 @@ function makeCurator(): MemoryCuratorService {
       created: 0,
       skipped: 0,
     }),
+    networkDeferralMs: jest.fn(() => 0),
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
@@ -1895,6 +1896,7 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
   it('on curator failure, observation rows STAY unprocessed for retry on next trigger', async () => {
     const failingCurator = {
       curate: jest.fn().mockRejectedValue(new Error('curate boom')),
+      networkDeferralMs: jest.fn(() => 0),
       pushEvent: jest.fn(),
       recentEvents: jest.fn(() => []),
       lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
@@ -1950,6 +1952,7 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
           created: 0,
           skipped: 0,
         }),
+        networkDeferralMs: jest.fn(() => 0),
         pushEvent: jest.fn(),
         recentEvents: jest.fn(() => []),
         lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
@@ -2074,6 +2077,7 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
         created: 0,
         skipped: 0,
       }),
+      networkDeferralMs: jest.fn(() => 0),
       pushEvent: jest.fn(),
       recentEvents: jest.fn(() => []),
       lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
@@ -2496,5 +2500,130 @@ describe('MemoryTriggerService — capture gating and caches (TASK_2026_323)', (
     const [, , options] = (transcriptReader.read as jest.Mock).mock
       .calls[0] as [string, string, { tailBytes: number }];
     expect(options.tailBytes).toBeGreaterThanOrEqual(32 * 1024);
+  });
+});
+
+/**
+ * TASK_2026_437 C14 (f). A pass the network back-off would defer makes no
+ * upstream call, so it must not spend one of `maxCuratesPerHour`: an open
+ * window is checked BEFORE `tryAcquire` on every trigger path, and a pass
+ * deferred at dispatch (a window that opened while it was queued) gives its
+ * slot back.
+ */
+describe('MemoryTriggerService — the network back-off spends no hourly slot (C14 f)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function heldCurator(remainingMs: { value: number }): MemoryCuratorService {
+    return {
+      curate: jest.fn().mockResolvedValue({
+        outcome: 'ran',
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      }),
+      networkDeferralMs: jest.fn(() => remainingMs.value),
+      pushEvent: jest.fn(),
+      recentEvents: jest.fn(() => []),
+      lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+      rekeySession: jest.fn(),
+    } as unknown as MemoryCuratorService;
+  }
+
+  it('cue path: an open window skips the curate and never acquires a slot', async () => {
+    const remaining = { value: 30_000 };
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const acquire = jest.spyOn(rateLimiter, 'tryAcquire');
+    const curator = heldCurator(remaining);
+    const { service, userPromptSubmit } = buildService({
+      curator,
+      rateLimiter,
+    });
+    service.start();
+
+    userPromptSubmit.fire(userPromptPayload());
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(acquire).not.toHaveBeenCalled();
+    expect(curator.curate).not.toHaveBeenCalled();
+    expect(curator.pushEvent).not.toHaveBeenCalled();
+  });
+
+  it('episode path: an open window keeps the episode, spends no slot, and the next boundary curates', async () => {
+    const remaining = { value: 30_000 };
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const acquire = jest.spyOn(rateLimiter, 'tryAcquire');
+    const curator = heldCurator(remaining);
+    const { service, stop } = buildService({
+      curator,
+      rateLimiter,
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+    });
+    service.start();
+
+    stop.fire(stopPayload({ lastAssistantMessage: 'first turn of work' }));
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(acquire).not.toHaveBeenCalled();
+    expect(curator.curate).not.toHaveBeenCalled();
+
+    remaining.value = 0;
+    stop.fire(stopPayload({ lastAssistantMessage: 'second turn of work' }));
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+  });
+
+  it('refunds the slot of a pass the back-off deferred at dispatch', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const curator = heldCurator({ value: 0 });
+    (curator.curate as jest.Mock).mockResolvedValue({
+      outcome: 'stalled',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+      deferral: 'network-backoff',
+    });
+    const { service, userPromptSubmit } = buildService({
+      curator,
+      rateLimiter,
+    });
+    service.start();
+
+    userPromptSubmit.fire(userPromptPayload());
+    for (let i = 0; i < 16; i++) await Promise.resolve();
+
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    expect(rateLimiter.snapshot('memory.curate')?.count ?? 0).toBe(0);
+  });
+
+  it('keeps the slot of a pass that dispatched and found the provider unreachable', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const curator = heldCurator({ value: 0 });
+    (curator.curate as jest.Mock).mockResolvedValue({
+      outcome: 'stalled',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
+    const { service, userPromptSubmit } = buildService({
+      curator,
+      rateLimiter,
+    });
+    service.start();
+
+    userPromptSubmit.fire(userPromptPayload());
+    for (let i = 0; i < 16; i++) await Promise.resolve();
+
+    expect(rateLimiter.snapshot('memory.curate')?.count).toBe(1);
   });
 });

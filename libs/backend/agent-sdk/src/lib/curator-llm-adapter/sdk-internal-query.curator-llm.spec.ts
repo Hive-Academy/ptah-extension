@@ -1076,3 +1076,117 @@ describe('SdkInternalQueryCuratorLlm — a multi-turn run is read from its LAST 
     ).resolves.toMatchObject([{ ...drafts[0], mergeTargetId: 'm1' }]);
   });
 });
+
+/**
+ * TASK_2026_437 C14 (f). On 2026-09-14 the Codex upstream stopped resolving;
+ * the translation proxy answered HTTP 500, the subprocess retried and then
+ * closed the request with an error message whose TEXT is not the model's
+ * answer. Read as text it parsed to zero drafts — a clean empty extraction
+ * that consumes the session's observations. It must be a stall instead.
+ */
+describe('SdkInternalQueryCuratorLlm — an unreachable provider stalls the pass', () => {
+  function adapterOver(
+    stream: () => AsyncIterable<unknown>,
+    logger = makeLogger(),
+  ) {
+    const internalQuery = {
+      execute: jest.fn(async () => ({ stream: stream() })),
+    } as unknown as InternalQueryService;
+    return new SdkInternalQueryCuratorLlm(
+      logger,
+      internalQuery,
+      makeWorkspaceFromConfig({ 'memory.curatorProvider': 'openai-codex' }),
+    );
+  }
+
+  async function* incidentStream(): AsyncIterable<unknown> {
+    yield {
+      type: 'system',
+      subtype: 'api_retry',
+      attempt: 1,
+      max_retries: 10,
+      retry_delay_ms: 500,
+      error_status: 500,
+      error: 'server_error',
+    };
+    yield {
+      type: 'assistant',
+      error: 'server_error',
+      message: {
+        content: [{ type: 'text', text: 'API Error: 500 {"memories": []}' }],
+      },
+    };
+    yield {
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      api_error_status: 500,
+    };
+  }
+
+  it('reports the incident shape as stalled provider-unreachable, not an empty extraction', async () => {
+    const adapter = adapterOver(incidentStream);
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'stalled',
+      reason: 'provider-unreachable',
+      providerId: 'openai-codex',
+    });
+  });
+
+  it('stalls instead of throwing when the query throws a network error', async () => {
+    const internalQuery = makeInternalQuery({
+      throwOnExecute: new Error('fetch failed', {
+        cause: Object.assign(new Error('getaddrinfo ENOTFOUND chatgpt.com'), {
+          code: 'ENOTFOUND',
+        }),
+      }),
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspace(''),
+    );
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'stalled',
+      reason: 'provider-unreachable',
+      providerId: '',
+    });
+  });
+
+  it('stores drafts unmerged when the resolve call finds the provider unreachable', async () => {
+    const drafts = [
+      {
+        kind: 'fact' as const,
+        subject: 'ptah',
+        content: 'lanes exist',
+        salienceHint: 0.5,
+      },
+    ];
+    const adapter = adapterOver(incidentStream);
+    await expect(
+      adapter.resolve(drafts, [
+        { id: 'm1', subject: 'ptah', content: 'older' },
+      ]),
+    ).resolves.toEqual([{ ...drafts[0], mergeTargetId: null }]);
+  });
+
+  it('still parses a run whose retries recovered', async () => {
+    const adapter = adapterOver(async function* () {
+      yield { type: 'system', subtype: 'api_retry', error_status: null };
+      yield {
+        type: 'assistant',
+        message: {
+          content: [
+            {
+              type: 'text',
+              text: '{"memories":[{"kind":"fact","subject":"ptah","content":"lanes exist","salienceHint":0.5}]}',
+            },
+          ],
+        },
+      };
+      yield { type: 'result', subtype: 'success', is_error: false };
+    });
+    const result = await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(result.status).toBe('extracted');
+  });
+});

@@ -572,6 +572,33 @@ maybe('SkillQueueStore', () => {
       ]);
     });
   });
+
+  describe('countEligibleByStage — the drain network short-circuit (C14 f)', () => {
+    it('counts eligible rows per stage across workspaces, with the listEligible predicate', () => {
+      store.enqueue(input({ sessionId: 'a', stage: 'judge' }));
+      store.enqueue(
+        input({ sessionId: 'b', stage: 'judge', workspaceRoot: 'D:/repo-b' }),
+      );
+      store.enqueue(input({ sessionId: 'c', stage: 'embedding' }));
+      // Not eligible yet: behind its not_before.
+      store.enqueue(
+        input({ sessionId: 'd', stage: 'embedding', notBefore: 9_000 }),
+      );
+      // Not eligible: finished.
+      const done = store.enqueue(input({ sessionId: 'e', stage: 'judge' })).row
+        ?.id as string;
+      store.markDone(done, { reason: 'ok' });
+
+      const counts = store.countEligibleByStage(5_000);
+
+      expect(Object.fromEntries(counts)).toEqual({ judge: 2, embedding: 1 });
+      expect(store.countEligibleByStage(9_000).get('embedding')).toBe(2);
+    });
+
+    it('returns an empty map for an empty queue', () => {
+      expect(store.countEligibleByStage(1_000).size).toBe(0);
+    });
+  });
 });
 
 function countRows(db: TestDatabase): number {

@@ -10,6 +10,7 @@ import {
 import { JUDGE_DEFAULT_MODEL_ID, type SkillSynthesisSettings } from './types';
 import type { JudgeDecision } from './skill-judge.service';
 import type { AgentScorecard } from '@ptah-extension/shared';
+import { ProviderNetworkBackoffs } from './lanes/provider-network-backoffs';
 
 function emptyScorecard(slug: string): AgentScorecard {
   return {
@@ -63,6 +64,18 @@ const logger = {
   warn: jest.fn(),
   error: jest.fn(),
 };
+
+function makeStreamQuery(messages: readonly unknown[]) {
+  return {
+    execute: jest.fn().mockImplementation(async () => ({
+      stream: (async function* () {
+        for (const msg of messages) yield msg;
+      })(),
+      abort: jest.fn(),
+      close: jest.fn(),
+    })),
+  };
+}
 
 function makeInternalQuery(text: string) {
   return {
@@ -133,6 +146,10 @@ function makeHarness(opts: {
    * that started none. `undefined` injects no status port at all — the CLI.
    */
   mcpPort?: number | null;
+  /** Replaces the one-text-block stream with these messages (C14 f). */
+  streamMessages?: readonly unknown[];
+  /** The library's per-provider network back-offs; absent = none injected. */
+  networkBackoffs?: ProviderNetworkBackoffs;
 }): Harness {
   const workspaceProvider = {
     getConfiguration: jest.fn(
@@ -209,7 +226,9 @@ function makeHarness(opts: {
       slug: 's',
     }),
   };
-  const internalQuery = makeInternalQuery(opts.candidateText);
+  const internalQuery = opts.streamMessages
+    ? makeStreamQuery(opts.streamMessages)
+    : makeInternalQuery(opts.candidateText);
   const repropagation = { repropagate: jest.fn().mockResolvedValue(undefined) };
   const specFindings = {
     getRecentFindings: jest.fn().mockResolvedValue(opts.specFindings ?? null),
@@ -239,6 +258,7 @@ function makeHarness(opts: {
     (opts.mcpPort === undefined
       ? null
       : { getPort: () => opts.mcpPort ?? null }) as never,
+    opts.networkBackoffs ?? null,
   );
 
   return {
@@ -1642,6 +1662,124 @@ describe('SkillEnhancerService — win rate as an eligibility input', () => {
       expect(result.changed).toBe(false);
       expect(result.skipReason).toBe('win-rate-sufficient');
       expect(h.registry.markEnhanced).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * TASK_2026_437 C14 (f). The subprocess closes a request it gave up retrying
+   * with an error message whose TEXT is not an enhanced body. Read as text it
+   * would have been judged and written over the live skill.
+   */
+  describe('enhance: a network failure writes nothing and stays retryable', () => {
+    const judgeDecision = {
+      status: 'scored',
+      score: 9,
+      criteria: null,
+      reason: 'judge-verdict',
+    } as const;
+    const INCIDENT = [
+      {
+        type: 'system',
+        subtype: 'api_retry',
+        error_status: null,
+        error: 'unknown',
+      },
+      {
+        type: 'assistant',
+        error: 'server_error',
+        message: {
+          content: [{ type: 'text', text: 'API Error: 500 upstream failed' }],
+        },
+      },
+      {
+        type: 'result',
+        subtype: 'success',
+        is_error: true,
+        api_error_status: 500,
+      },
+    ];
+
+    function backoffsAt(now: { value: number }) {
+      return new ProviderNetworkBackoffs({
+        logger: logger as never,
+        logPrefix: '[skill-synthesis]',
+        now: () => now.value,
+        random: () => 0.5,
+      });
+    }
+
+    it('reports provider-unreachable and writes, judges and marks nothing', async () => {
+      const backoffs = backoffsAt({ value: 1_800_000_000_000 });
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: '',
+        streamMessages: INCIDENT,
+        networkBackoffs: backoffs,
+      });
+
+      const result = await h.svc.enhance('deep-research', makeSettings(), {});
+
+      expect(result).toMatchObject({
+        changed: false,
+        skipReason: 'provider-unreachable',
+      });
+      expect(h.judge.judge).not.toHaveBeenCalled();
+      expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+      expect(h.registry.markEnhanced).not.toHaveBeenCalled();
+      expect(backoffs.remainingMs('')).toBe(30_000);
+    });
+
+    it('holds a background enhancement while the window is open, without calling the model', async () => {
+      const now = { value: 1_800_000_000_000 };
+      const backoffs = backoffsAt(now);
+      backoffs.for('').recordFailure('dns');
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        networkBackoffs: backoffs,
+      });
+
+      const result = await h.svc.enhance('deep-research', makeSettings(), {});
+
+      expect(result.skipReason).toBe('provider-unreachable');
+      expect(h.internalQuery.execute).not.toHaveBeenCalled();
+    });
+
+    it('never holds a user-initiated enhancement, and keeps it on the user-action lane', async () => {
+      const backoffs = backoffsAt({ value: 1_800_000_000_000 });
+      backoffs.for('').recordFailure('dns');
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        networkBackoffs: backoffs,
+      });
+
+      await h.svc.enhance('deep-research', makeSettings(), {
+        manual: true,
+        userInitiated: true,
+      });
+
+      expect(h.internalQuery.execute).toHaveBeenCalledTimes(1);
+      expect(
+        (h.internalQuery.execute.mock.calls[0][0] as Record<string, unknown>)[
+          'lane'
+        ],
+      ).toBe('user-action');
+      expect(backoffs.remainingMs('')).toBe(0);
+    });
+
+    it('reports provider-unreachable for a thrown socket error', async () => {
+      const h = makeHarness({ judgeDecision, candidateText: 'Improved body' });
+      h.internalQuery.execute.mockRejectedValueOnce(
+        Object.assign(new Error('connect ECONNREFUSED'), {
+          code: 'ECONNREFUSED',
+        }),
+      );
+
+      const result = await h.svc.enhance('deep-research', makeSettings(), {});
+
+      expect(result.skipReason).toBe('provider-unreachable');
+      expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
     });
   });
 });

@@ -35,11 +35,20 @@ export interface ResolvedMemoryDraft extends ExtractedMemoryDraft {
 /**
  * Why an extraction pass never reached the model.
  *
- * One member today. It is a union rather than a boolean because the caller's
- * decision ("keep the input, this pass consumed nothing") is the same for every
- * future member, while the diagnostics text is not.
+ * A union rather than a boolean because the caller's decision ("keep the
+ * input, this pass consumed nothing") is the same for every member, while the
+ * diagnostics text is not.
+ *
+ * - `provider-cooling-down` — the quota gate stopped the pass before dispatch.
+ * - `provider-unreachable` — the pass was dispatched and the provider never
+ *   answered: a network-class failure (connection, DNS, timeout, HTTP 5xx or
+ *   429) after the subprocess's own retries (TASK_2026_437 C14 f). The model
+ *   read nothing, so the input is kept exactly as for a quota stall, and the
+ *   caller backs its background passes off.
  */
-export type CuratorStallReason = 'provider-cooling-down';
+export type CuratorStallReason =
+  | 'provider-cooling-down'
+  | 'provider-unreachable';
 
 /**
  * The outcome of one extraction pass — TASK_2026_306 Batch 10, finding F1.

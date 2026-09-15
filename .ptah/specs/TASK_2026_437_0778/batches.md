@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 58 | Batches: 24 | Complete: 18/24
+Total tasks: 58 | Batches: 24 | Complete: 19/24
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). P3 wave 1 — Batch 16 and Batch 16b COMPLETE (one commit, recorded in the Batch 16 outcome), committed ahead of Batch 15 by orchestrator decision (see "Orchestrator decision — phase order deviation for P3 core" under Batch 7). P2 — Batch 15 COMPLETE (commit recorded in its outcome; ST-2 75,000-file host stress and AC-7 host kill MET; ST-1b CI assertion is now the bounded form). All P2 batches are COMPLETE. The only open P2 gate is D10: the `publish-electron.yml` matrix green on all three OSes (see Batch 10 outcome); it needs a `workflow_dispatch` or a release push — pending user decision. P3 — Batch 17 COMPLETE (commit recorded in its outcome; governor adopters + FU-11b file-index split; AC-10 manual evidence still pending). Remaining: P3 Batch 18 (in review), then Batch 17b (depends on 18); then P4 Batches 19, 20, 21, 22. PR #510 CI had two Linux-only failures (the CLI contract suite did not see files created in a new directory under inotify; the platform-electron host entry spec aborted with SIGABRT in the `worker_threads` transport). Both are FIXED pending the next PR #510 CI run, which is the first Linux run of the jest specs — see "PR #510 Linux CI fix" after Batch 11.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). P3 wave 1 — Batch 16 and Batch 16b COMPLETE (one commit, recorded in the Batch 16 outcome), committed ahead of Batch 15 by orchestrator decision (see "Orchestrator decision — phase order deviation for P3 core" under Batch 7). P2 — Batch 15 COMPLETE (commit recorded in its outcome; ST-2 75,000-file host stress and AC-7 host kill MET; ST-1b CI assertion is now the bounded form). All P2 batches are COMPLETE. The only open P2 gate is D10: the `publish-electron.yml` matrix green on all three OSes (see Batch 10 outcome); it needs a `workflow_dispatch` or a release push — pending user decision. P3 — Batch 17 COMPLETE (commit recorded in its outcome; governor adopters + FU-11b file-index split; AC-10 manual evidence still pending). P3 — Batch 18 COMPLETE (commit recorded in its outcome; network back-off for background curator and skill-synthesis calls; FU-16b-a and FU-16b-b closed). P3 Batches 16, 16b, 17 and 18 are COMPLETE. Remaining: P3 Batch 17b (PENDING, next); then the P3 PHASE GATE (`npm run lint:all`, `npm run typecheck:all`, `npx nx build ptah-electron`, `npx nx run degradation-audit:lint`); then P4 Batches 19, 20, 21, 22. PR #510 CI had two Linux-only failures (the CLI contract suite did not see files created in a new directory under inotify; the platform-electron host entry spec aborted with SIGABRT in the `worker_threads` transport). Both are FIXED pending the next PR #510 CI run, which is the first Linux run of the jest specs — see "PR #510 Linux CI fix" after Batch 11.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `handoff.md` section 2 "User decisions" (formerly in `context.md`)
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -1236,7 +1236,7 @@ Commit: `fix(platform-core): serialize native watcher calls so a subscribe never
 
 ---
 
-## Batch 18: P3 — network back-off for curator and skill-synthesis lanes (C14 f) — PENDING
+## Batch 18: P3 — network back-off for curator and skill-synthesis lanes (C14 f) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: none
@@ -1244,11 +1244,39 @@ Commit: `fix(platform-core): serialize native watcher calls so a subscribe never
 - Rationale: needs the A4 investigation first, so it cannot be a self-contained lane prompt.
 - Tasks: 2 | Depends on: Batch 16 | Parallel with: Batch 17
 
-### Task 18.1: Resolve A4 — PENDING
+### Batch 18 outcome
+
+- Commit: `feat(agent-sdk): back off background curator and skill-synthesis calls when the provider is unreachable` (SHA in `git log`; this file is part of that commit). Includes FU-16b-a and FU-16b-b.
+- Executed by: `backend-developer-b18` (first pass + review fixes; logs `D:\projects\ptah-437-backup\b18-*.log`, `b18f-*.log`).
+- Reviews: `b18-code-logic-review.md` base NEEDS_REVISION 7/10 (2 serious, 4 moderate) → delta APPROVE HIGH (reviewer re-ran 325 tests). `b18-code-style-review.md` base NEEDS_REVISION → delta APPROVE HIGH.
+- A4 RESOLVED (incident log `Ptah Electron-2026-09-14.log` lines ~1023–1203): 41 failed forwards to `chatgpt.com` with `getaddrinfo ENOTFOUND` in 5 min 52 s across two curator internal queries. The `claude` subprocess ran its own retry ladder (0.6 s → 30 s, ~3.5 min per query); Ptah re-dispatched the next curation window 17 ms later; the error text was most likely parsed as an answer with zero drafts (a clean empty extraction). Retry/requeue sites: agent-sdk `curator-llm-adapter/sdk-internal-query.curator-llm.ts` (extract/resolve); memory-curator `memory-curator.service.ts` `doCurate` and `triggers/memory-trigger.service.ts` (cue, episode and boot-scan paths); skill-synthesis `lanes/lane-runner.service.ts`, `queue/skill-drain.service.ts` and `skill-enhancer.service.ts` `generateCandidate`.
+- Design:
+  - Classifier (`network-failure.ts`: `classifyThrownNetworkFailure`, `QueryNetworkObserver` over SDK stream signals) + `NetworkBackoff` (`network-backoff.ts`) in agent-sdk `internal-query/`. Network class = connection refused/reset, DNS, socket timeout, HTTP 408/429/5xx; NOT auth/4xx/parse/abort. Ladder 30 s doubling, cap 15 min, ±20 % jitter (clamped), reset on the first answered call, in memory only (a restart starts at zero). An in-flight 429 `Retry-After` is not honoured (documented; distinct from the pre-flight quota gate's `retryAfterMs`).
+  - Curator: the adapter reports `{ status: 'stalled', reason: 'provider-unreachable' }` instead of text (the network verdict is checked before text length), so input is kept. `CuratorPassAdmission.recordExtraction` feeds the back-off; background passes defer as `network-backoff` (stalled; observations and the boot-scan watermark stay). User-initiated passes are never deferred and their outcome still counts.
+  - The hourly curate budget is not spent on network-deferred passes: `MemoryTriggerService.heldByNetworkBackoff` pre-checks `networkDeferralMs()` before `tryAcquire` on all three trigger paths, and a pass deferred at dispatch is refunded via `CuratorRateLimitService.refund` (current window only, never below zero).
+  - Skill-synthesis: the `network-unreachable` outcome is exempt from `maxAttempts`; the drain holds token-spending rows without claiming them; `ProviderNetworkBackoffs` keeps one back-off per lane provider; the drain short-circuits via `SkillQueueStore.countEligibleByStage`; `SkillEnhancerService` applies the same classifier (`provider-unreachable` skip, no write).
+  - FU-16b-a CLOSED via `CuratorPassAdmission.clearance`: a background pass waits for the governor before claiming the curator job queue; a same-session `memory:runNow` promotes it.
+  - FU-16b-b CLOSED: `memory-curator.service.ts` 1,068 → 835 lines (facade rule; `CuratorActivityLog` collaborator in `curator-llm/curator-activity-log.ts`).
+  - The governor dependency is vscode-core's shared `BackgroundWorkAdmission` interface (Batch 17).
+- Evidence (executor final run, `b18f-test.log`): agent-sdk 1,948 passed (3 skipped), memory-curator 514 (60 skipped), skill-synthesis 1,466 (37 skipped); `typecheck,lint` 4 projects (incl. memory-contracts) 0 errors (`b18f-typecheck-lint.log`); `degradation-audit:lint` TOTAL 303 (`b18f-audit.log`).
+- Evidence (team-leader re-run before commit, worktree `D:\projects\ptah-437`, no nx reset, jest process count 0 before start): `run-many -t test --parallel=1 -- --maxWorkers=2` on 6 projects (header 6) exit 0 — agent-sdk 1,948 and memory-curator 514 (both from cache, inputs unchanged), skill-synthesis 1,466 (37 skipped), rpc-handlers 2,999 (33 skipped), thoth-runtime 74, cli-engine 181 — the `DrainSummary` and curator consumers compile and pass (`b18-tl-test.log`). `typecheck,lint` on the same 6 + memory-contracts (header 7) exit 0, 0 errors, warnings only (`b18-tl-typecheck-lint.log`). `degradation-audit:lint` TOTAL 303 (`b18-tl-audit.log`). Prettier checked on every staged file incl. the review markdown. Backup: `batch18-final-modified.patch`, `batch18-final-untracked.tar`.
+- Follow-ups:
+  - FU-16b-a: CLOSED. FU-16b-b: CLOSED.
+  - FU-18a: move the network files into an agent-sdk `network/` folder.
+  - FU-18b: `networkSignalForHttpStatus` is exported twice.
+  - FU-18c: `cron:runNow` of a system drain job is still filtered by the network gate.
+  - FU-18d: file growth — `skill-drain.service.ts` 1,318, `lane-runner.service.ts` 915, `memory-trigger.service.ts` 1,279, `skill-enhancer.service.ts` 1,125 lines; a network-gating collaborator is the split candidate.
+  - FU-18e: provider-id canonicalisation — `''` (active) and an explicit provider id naming the active provider get separate back-off windows.
+  - FU-18f: `countEligibleByStage` is an unbounded `GROUP BY` that adds cost on outage ticks where free-stage work is still eligible (`EXISTS` form or an accepted-cost comment).
+  - FU-18g: DI token `NETWORK_BACKOFF` / `'PtahSkillNetworkBackoff'` now resolves `ProviderNetworkBackoffs` — rename later.
+  - FU-18h: remaining gap — a background curator pass already inside the queue whose next window is held at the internal-query gate still blocks passes behind it.
+  - FU-18i: resolve-stage network failures do not feed the back-off (documented in `curator-pass-admission.ts`).
+
+### Task 18.1: Resolve A4 — COMPLETE
 
 - Implementation details: grep `C:\Users\abdal\AppData\Roaming\Ptah\logs\Ptah Electron-2026-09-14.log` for the failing curator Codex proxy line, trace its logger tag to the retry site, and report the file paths before editing.
 
-### Task 18.2: Exponential back-off 30 s → 15 min, reset on success — PENDING
+### Task 18.2: Exponential back-off 30 s → 15 min, reset on success — COMPLETE
 
 - Depends on: Task 18.1
 - Files: retry sites in `D:\projects\ptah-extension\libs\backend\memory-curator\src` and `D:\projects\ptah-extension\libs\backend\skill-synthesis\src` found in 18.1 (+ specs)

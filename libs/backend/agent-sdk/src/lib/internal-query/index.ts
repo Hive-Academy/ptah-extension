@@ -16,3 +16,21 @@ export type {
   InternalQueryConfig,
   InternalQueryHandle,
 } from './internal-query.types';
+export {
+  classifyThrownNetworkFailure,
+  networkSignalForHttpStatus,
+  QueryNetworkObserver,
+} from './network-failure';
+export type {
+  NetworkFailureSignal,
+  NetworkObservableMessage,
+  QueryNetworkVerdict,
+} from './network-failure';
+export {
+  NetworkBackoff,
+  NETWORK_BACKOFF_CEILING_LEVEL,
+  NETWORK_BACKOFF_INITIAL_MS,
+  NETWORK_BACKOFF_MAX_MS,
+  NETWORK_BACKOFF_JITTER_RATIO,
+} from './network-backoff';
+export type { NetworkBackoffOptions } from './network-backoff';

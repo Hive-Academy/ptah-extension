@@ -141,6 +141,7 @@ function buildHarness(opts: {
   });
   const curator = {
     curate,
+    networkDeferralMs: jest.fn(() => 0),
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     lastRunInfo: jest.fn(() => ({ at: null, stats: null })),

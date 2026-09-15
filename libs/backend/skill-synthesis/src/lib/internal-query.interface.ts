@@ -137,6 +137,16 @@ export interface IInternalQuery {
        */
       structured_output?: unknown;
       result?: string;
+      /**
+       * Network evidence, read by `QueryNetworkObserver` (TASK_2026_437 C14 f):
+       * `error` on an assistant or `system/api_retry` message, `error_status`
+       * on `api_retry` (`null` = no HTTP response), `is_error` and
+       * `api_error_status` on the result.
+       */
+      error?: unknown;
+      error_status?: number | null;
+      is_error?: boolean;
+      api_error_status?: number | null;
       /** Fed to `SkillBudgetStore`; absent on providers that report no usage. */
       usage?: { input_tokens?: number; output_tokens?: number };
       total_cost_usd?: number;

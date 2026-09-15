@@ -161,6 +161,15 @@ const ELIGIBLE_SQL = `SELECT q.* FROM skill_synthesis_queue q
     ORDER BY q.enqueued_at ASC
     LIMIT ?`;
 
+/** Eligible rows per stage — {@link ELIGIBLE_SQL}'s predicate, aggregated. */
+const ELIGIBLE_BY_STAGE_SQL = `SELECT q.stage AS stage, COUNT(*) AS n
+     FROM skill_synthesis_queue q
+     LEFT JOIN skill_synthesis_queue d ON d.id = q.depends_on
+    WHERE q.status IN ('queued', 'unscored')
+      AND q.not_before <= ?
+      AND (q.depends_on IS NULL OR d.status = 'done')
+    GROUP BY q.stage`;
+
 /**
  * Distinct eligible workspaces, least-recently-drained first. A workspace with
  * no cursor row sorts first (`COALESCE(..., 0)`), so a brand-new project is
@@ -589,6 +598,20 @@ export class SkillQueueStore {
       workspace_root: string;
     }>;
     return rows.map((r) => r.workspace_root);
+  }
+
+  /**
+   * Eligible rows counted per stage, across every workspace — the same
+   * eligibility as {@link listEligible} in one aggregate. Read by the drain only
+   * while the network back-off holds every lane, to decide whether a tick has
+   * any free-stage work before it walks the queue (TASK_2026_437 C14 f).
+   */
+  countEligibleByStage(now: number = Date.now()): Map<SkillQueueStage, number> {
+    const rows = this.db.prepare(ELIGIBLE_BY_STAGE_SQL).all(now) as Array<{
+      stage: SkillQueueStage;
+      n: number;
+    }>;
+    return new Map(rows.map((r) => [r.stage, Number(r.n)]));
   }
 
   /** Eligible rows for one workspace, oldest first. */

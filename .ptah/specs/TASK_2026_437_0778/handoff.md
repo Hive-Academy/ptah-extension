@@ -40,7 +40,7 @@ PR #510 CI. Add it back to `context.md` after PR #510 merges.
   cleanly (else keep its current watcher behind the port); measure SQLite main-thread cost before
   moving it; scroll-back paging of old history is deferred.
 
-## 3. Done — committed (18 of 24 batches; Batches 8, 9, 10, 11, 15, 16, 16b and 17 in section 4)
+## 3. Done — committed (19 of 24 batches; Batches 8, 9, 10, 11, 15, 16, 16b, 17 and 18 in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
 | ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,7 +64,23 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b and 17 — COMMITTED (resume at Batch 18, then 17b)
+## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17 and 18 — COMMITTED (resume at Batch 17b)
+
+**Batch 18 — COMMITTED 2026-09-15** as
+`feat(agent-sdk): back off background curator and skill-synthesis calls when the provider is unreachable`.
+A4 resolved: on 2026-09-14 the curator made 41 failed forwards to `chatgpt.com`
+(`getaddrinfo ENOTFOUND`) in 5 min 52 s; the `claude` subprocess retried on its own ladder, Ptah
+dispatched the next window 17 ms later, and the error text most likely parsed as zero drafts.
+agent-sdk now classifies network-class failures (not auth/4xx/parse/abort) and keeps an in-memory
+`NetworkBackoff` (30 s doubling, cap 15 min, ±20 % jitter, reset on the first answered call). The
+curator adapter reports `stalled` + `provider-unreachable` (input kept); background curator passes
+defer as `network-backoff` without spending the hourly budget (pre-check + refund); user-initiated
+work is never deferred. Skill-synthesis: `network-unreachable` is exempt from `maxAttempts`, the
+drain holds token-spending rows without claiming, back-off per lane provider
+(`ProviderNetworkBackoffs`), the enhancer skips on `provider-unreachable`. FU-16b-a closed
+(`CuratorPassAdmission.clearance`); FU-16b-b closed (`memory-curator.service.ts` 1,068 → 835 via
+`CuratorActivityLog`). Reviews: logic and style both base NEEDS_REVISION → delta APPROVE HIGH.
+Outcome, evidence and FU-18a..i are in `batches.md` "Batch 18 outcome".
 
 **Batch 17 — COMMITTED 2026-09-15** as
 `feat(workspace-intelligence): defer symbol indexing, file-index rebuilds and daily backups while the app is busy`.
@@ -146,7 +162,7 @@ Reviews: logic and style both base NEEDS_REVISION → delta APPROVE HIGH. Outcom
 
 **All P2 batches are COMPLETE.** The only open P2 gate is D10 (section 4a).
 
-**Next: Batch 18 (P3, in review), then Batch 17b**, then P4 (19, 20, 21, 22).
+**Next: Batch 17b (P3), then the P3 phase gate**, then P4 (19, 20, 21, 22).
 
 ## 4a. Batch 10 — COMMITTED
 
@@ -239,16 +255,16 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
   CLI: build `ptah-tui` then `restore-cli-manifest` before pack; cross-platform CI smoke (only
   win32-x64 proven locally).
 
-## 5. Remaining batches (6 of 24)
+## 5. Remaining batches (5 of 24)
 
-Order and dependencies are in `batches.md`. Resume at Batch 18, then Batch 17b. Summary:
+Order and dependencies are in `batches.md`. Resume at Batch 17b. Summary:
 
 - **P2:** all batches committed. Only the OPEN D10 proof remains: `publish-electron.yml` build matrix
   green on Windows, macOS and Linux (section 4a) — needs a user decision to dispatch.
-- **P3:** 18 (network back-off; imports `BackgroundWorkAdmission` from Batch 17), then 17b
-  (origin-aware skill re-propagation, FU-17b; depends on 18). 16, 16b and 17 are committed. AC-10
+- **P3:** 17b (origin-aware skill re-propagation, FU-17b). 16, 16b, 17 and 18 are committed. AC-10
   manual boot evidence is still open (instructions in `batches.md` Batch 17 outcome). The P3 phase
-  gate runs after 17b.
+  gate runs after 17b: `npm run lint:all`, `npm run typecheck:all`, `npx nx build ptah-electron`,
+  `npx nx run degradation-audit:lint`.
 
 ### Open user decisions
 
@@ -280,7 +296,7 @@ Order and dependencies are in `batches.md`. Resume at Batch 18, then Batch 17b. 
 - Batch 14: manual Electron check — break out of `iterate()` early, then exit, with the real native module.
 - FU-10a: gate helper files (`build-artifact-gate.ts`) are typechecked by no project. FU-10b: darwin-x64 and windows-arm64 Electron builds do not exist (product decision). FU-10c: no per-OS CLI pack smoke for `@parcel/watcher`.
 - FU-16a: `whenClear` ceiling is per waiter — all held waiters release together after 10 min of lag (bounded by gate limits). FU-16c: platform-core `internalQuery.maxConcurrent` default 1 vs agent-sdk 2. FU-16d: `internal-query.service.ts` / `skill-enhancer.service.ts` sizes.
-- FU-16b-a (Batch 17): `memory:runNow` joining an in-flight background pass keeps its governed lane (logged). FU-16b-b: `memory-curator.service.ts` 718 code lines. **FU-16b-c (needs a user decision, pre-existing):** background lanes can hold both global internal-query slots, so a wizard/user-action call can time out at 60 s in the queue — options in `batches.md` Batch 16b outcome.
+- FU-16b-a: CLOSED in Batch 18 (`CuratorPassAdmission.clearance`). FU-16b-b: CLOSED in Batch 18 (`memory-curator.service.ts` 835 lines). **FU-16b-c (needs a user decision, pre-existing):** background lanes can hold both global internal-query slots, so a wizard/user-action call can time out at 60 s in the queue — options in `batches.md` Batch 16b outcome.
 - 75k-file `PTAH_PERF_SPECS=1` perf budgets: measured in Batch 15 on an idle machine (git-watcher rig ST-1 p99 16.6 / max 24–25 ms, ST-1b p99 16.7 / max 33–34 ms; host ST-2 p99 18.55–19.58 / max 26.56–36.14 ms).
 - FU-11h materialized on Linux CI (run 34922130353): ST-1b CI assertion is now the bounded form (Batch 15 decision).
 - FU-15a: rig helpers duplicated between the git-watcher and watch-host stress harnesses; a `/testing` secondary entry point (precedent `@ptah-extension/platform-core/testing`) is the option, deferred. FU-15b: storm re-entry during very long deletes (2–3 refreshes at 75,000 files). FU-15c: host kill during an in-host rebuild untested. FU-15d: force a real native buffer overflow to observe A1 directly.
@@ -288,6 +304,15 @@ Order and dependencies are in `batches.md`. Resume at Batch 18, then Batch 17b. 
   target cache evicts the whole result on one flaky probe. FU-17d: CLI governor now created eagerly
   when an adopter resolves (disposed at shutdown). FU-17e: no end-to-end spec for `ensureReadyFor` →
   `expediteDeferredRebuild`.
+- FU-18a: move the agent-sdk network files into a `network/` folder. FU-18b: `networkSignalForHttpStatus`
+  double export. FU-18c: `cron:runNow` of a system drain job is still filtered by the network gate.
+  FU-18d: file growth (`skill-drain.service.ts` 1,318, `memory-trigger.service.ts` 1,279,
+  `skill-enhancer.service.ts` 1,125, `lane-runner.service.ts` 915) — network-gating collaborator
+  candidate. FU-18e: `''` and an explicit id naming the active provider get separate back-off
+  windows. FU-18f: `countEligibleByStage` unbounded `GROUP BY` cost on outage ticks. FU-18g: rename
+  DI token `NETWORK_BACKOFF` (now resolves `ProviderNetworkBackoffs`). FU-18h: a background curator
+  pass already in the queue, held at the internal-query gate, still blocks passes behind it.
+  FU-18i: resolve-stage network failures do not feed the back-off (documented).
 - Phase 1 gate commands not re-run: `lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`.
 
 ## 7. CI and external review state

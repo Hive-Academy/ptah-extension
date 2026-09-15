@@ -44,6 +44,11 @@ import {
 } from './extract.schema';
 import { ResolvedDraftSchema, ResolvedResponseSchema } from './resolve.schema';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
+import {
+  classifyThrownNetworkFailure,
+  QueryNetworkObserver,
+  type NetworkFailureSignal,
+} from '../internal-query/network-failure';
 
 const CURATOR_MODEL_SECTION = 'ptah';
 const CURATOR_MODEL_KEY = 'memory.curatorModel';
@@ -125,7 +130,15 @@ type CuratorQueryOutcome =
       readonly toolNames: readonly string[];
     }
   | { readonly kind: 'silent' }
-  | { readonly kind: 'cooling-down'; readonly providerId: string };
+  | { readonly kind: 'cooling-down'; readonly providerId: string }
+  /**
+   * The provider never answered: a network-class failure, read off the stream
+   * or a thrown socket error (TASK_2026_437 C14 f). The `claude` subprocess
+   * ends a request it gave up retrying with an error assistant message, whose
+   * text is NOT the model's answer — reading it as `text` parsed zero drafts
+   * and reported a clean empty extraction.
+   */
+  | { readonly kind: 'unreachable'; readonly signal: NetworkFailureSignal };
 
 /**
  * What the curator asks for when the user has pinned no explicit model.
@@ -291,6 +304,15 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         providerId: outcome.providerId,
       };
     }
+    // Dispatched, never answered. The model read nothing, so the input is kept
+    // exactly as for a quota stall; the caller backs its background passes off.
+    if (outcome.kind === 'unreachable') {
+      return {
+        status: 'stalled',
+        reason: 'provider-unreachable',
+        providerId: this.resolveCuratorProviderId(),
+      };
+    }
     // `tools-only` and `silent` both produced no JSON, and neither is an empty
     // extraction. `{ status: 'extracted', drafts: [] }` is what the caller reads
     // as "this pass ran and honestly found nothing", and it consumes the
@@ -344,7 +366,7 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       signal,
       options,
     );
-    if (outcome.kind === 'cooling-down') {
+    if (outcome.kind === 'cooling-down' || outcome.kind === 'unreachable') {
       return drafts.map((d) => ({ ...d, mergeTargetId: null }));
     }
     if (outcome.kind === 'tools-only') {
@@ -442,7 +464,9 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       let toolUses = 0;
       const toolNames: string[] = [];
       let hitTurnCeiling = false;
+      const network = new QueryNetworkObserver();
       for await (const msg of handle.stream as AsyncIterable<SDKMessage>) {
+        network.observe(msg);
         if (isAssistantMessage(msg)) {
           let messageText = '';
           for (const block of msg.message.content) {
@@ -468,6 +492,14 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
           break;
         }
       }
+      const verdict = network.verdict();
+      if (verdict.kind === 'network-failure') {
+        this.logger.debug(
+          '[memory-curator] curator provider unreachable; its error reply is not an answer',
+          { signal: verdict.signal },
+        );
+        return { kind: 'unreachable', signal: verdict.signal };
+      }
       if (hitTurnCeiling) {
         this.logger.warn(
           '[memory-curator] curator run stopped at its turn ceiling; the model had more tool work queued than the budget allows',
@@ -480,6 +512,14 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       return { kind: 'silent' };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      const signal = classifyThrownNetworkFailure(error);
+      if (signal) {
+        this.logger.debug(
+          '[memory-curator] curator provider unreachable; query threw a network error',
+          { signal, error: message },
+        );
+        return { kind: 'unreachable', signal };
+      }
       this.logger.warn('[memory-curator] curator LLM query failed', {
         error: message,
       });

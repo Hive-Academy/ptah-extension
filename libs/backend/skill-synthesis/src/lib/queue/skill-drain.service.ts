@@ -48,6 +48,28 @@
  * than to the lane it happened to run on. Those are different taxonomies and
  * inferring one from the other would be quietly wrong.
  *
+ * ## The network back-off is a ROW FILTER, like the budget (TASK_2026_437 C14 f)
+ *
+ * The back-off is kept per provider (`ProviderNetworkBackoffs`). While EVERY
+ * provider the configured lanes ride has a window open — the default install
+ * has one provider, the active one — token-spending rows are left `queued`
+ * without a claim, counted in `DrainSummary.networkDeferred`, and the free
+ * stages keep draining. Not claiming is the point: a claim increments
+ * `attempt_count`, which would walk a `timeout` row toward its terminal ceiling
+ * for an outage that was never the row's fault. When only SOME providers are
+ * down the rows dispatch — a stage row does not declare its lane, so the drain
+ * cannot tell which provider it would ride — and `LaneRunnerService` holds the
+ * call whose provider is down, which returns `network-unreachable` and is
+ * requeued behind that provider's window. That costs the claim's
+ * `attempt_count` bump, which `network-unreachable` does not count toward the
+ * ceiling (exempt like `quota-exhausted`). No line is logged per held row; the
+ * back-off logs once per level change.
+ *
+ * When every lane is held AND no free-stage row of this tier is eligible, the
+ * tick does not walk the queue at all: one aggregate count
+ * (`SkillQueueStore.countEligibleByStage`) replaces the per-workspace scan and
+ * the cursor writes, and the held rows are counted from it.
+ *
  * ## R4 — starvation
  *
  * Selection NEVER orders by `enqueued_at` globally. It walks distinct eligible
@@ -107,10 +129,11 @@
  *
  * The mapping itself (`applyLaneFailure`):
  *
- *  - `timeout` / `auth-unresolvable` / `quota-exhausted` are TRANSPORT — nothing
- *    ran, so there is no verdict. The row goes back to `queued` behind
- *    `failure.retryAfterMs` (30 min for auth, the provider's own cooldown for
- *    quota, exponential for a timeout) carrying the lane's own user-facing
+ *  - `timeout` / `auth-unresolvable` / `quota-exhausted` / `network-unreachable`
+ *    are TRANSPORT — nothing ran, so there is no verdict. The row goes back to
+ *    `queued` behind `failure.retryAfterMs` (30 min for auth, the provider's own
+ *    cooldown for quota, the open back-off window for the network, exponential
+ *    for a timeout) carrying the lane's own user-facing
  *    reason. The membership test is `isTransportLaneFailure`, which lives with
  *    the union in `lane.types.ts` — see `applyLaneFailure` for why an inline
  *    list of names was the wrong shape.
@@ -169,6 +192,7 @@ import {
   readSkillLanes,
   SKILL_LANE_DEFAULTS,
 } from '../lanes/skill-lane-config';
+import { ProviderNetworkBackoffs } from '../lanes/provider-network-backoffs';
 import type { SkillQueueRow, SkillQueueStage } from './skill-queue.types';
 import type { SkillQueueStore } from './skill-queue.store';
 import type { SkillBudgetStore } from './skill-budget.store';
@@ -228,6 +252,11 @@ export interface DrainSummary {
    * and only one of them is a reason to look at the queue.
    */
   bootDeferred: number;
+  /**
+   * Token-spending rows left `queued`, unclaimed, because every provider the
+   * lanes ride had its network back-off window open (TASK_2026_437 C14 f).
+   */
+  networkDeferred: number;
   budgetExhausted: boolean;
   durationMs: number;
   /** Diagnostic only, never rendered. Set when the drain itself threw. */
@@ -627,6 +656,9 @@ export class SkillDrainService {
     private readonly foreground: ForegroundActivityTracker,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    /** Optional and LAST: specs construct the drain positionally. */
+    @inject(SKILL_SYNTHESIS_TOKENS.NETWORK_BACKOFF, { isOptional: true })
+    private readonly networkBackoffs: ProviderNetworkBackoffs | null = null,
   ) {}
 
   /**
@@ -677,6 +709,47 @@ export class SkillDrainService {
     return false;
   }
 
+  /**
+   * Whether every provider the configured lanes ride has an open network
+   * back-off window. `false` with no back-off registry. Re-read once per tick.
+   */
+  private everyLaneNetworkHeld(): boolean {
+    if (!this.networkBackoffs) return false;
+    const providers = new Set(
+      Object.values(readSkillLanes(this.workspace)).map((lane) =>
+        ProviderNetworkBackoffs.keyFor(lane.provider),
+      ),
+    );
+    return this.networkBackoffs.allDeferring(providers);
+  }
+
+  /**
+   * The scan short-circuit (C14 f). One aggregate count answers whether this
+   * tier has any eligible FREE-stage row; when it has none, every eligible row
+   * would only be held, so they are counted into `networkDeferred` and the
+   * per-workspace scan and cursor writes are skipped. Returns whether it
+   * short-circuited.
+   */
+  private onlySpendingRowsEligible(
+    tier: DrainTier,
+    now: number,
+    summary: DrainSummary,
+  ): boolean {
+    const stages = DRAIN_TIER_STAGES[tier];
+    let held = 0;
+    for (const [stage, count] of this.queue.countEligibleByStage(now)) {
+      if (!stages.has(stage)) continue;
+      if (!TOKEN_SPENDING_STAGES.has(stage)) return false;
+      held += count;
+    }
+    summary.networkDeferred = held;
+    this.logger.debug(
+      '[skill-synthesis] drain held by the network back-off; queue not scanned',
+      { tier, held },
+    );
+    return true;
+  }
+
   /** Reap orphaned claims without draining. Called at service start-up. */
   reapStaleClaims(now: number = Date.now()): number {
     return this.queue.reapStale(this.readConfig().staleClaimTtlMs, now);
@@ -699,6 +772,7 @@ export class SkillDrainService {
       stalled: 0,
       budgetDeferred: 0,
       bootDeferred: 0,
+      networkDeferred: 0,
       budgetExhausted: false,
       durationMs: 0,
     };
@@ -735,6 +809,15 @@ export class SkillDrainService {
       this.assertStaleClaimTtl();
       summary.reaped = this.queue.reapStale(cfg.staleClaimTtlMs, now);
 
+      const networkHeld = this.everyLaneNetworkHeld();
+      if (
+        networkHeld &&
+        this.onlySpendingRowsEligible(opts.tier, now, summary)
+      ) {
+        summary.durationMs = Date.now() - startedAt;
+        return summary;
+      }
+
       for (const row of this.select(cfg, opts.tier, now, summary)) {
         if (opts.signal.aborted) break;
         if (
@@ -745,6 +828,12 @@ export class SkillDrainService {
           // still have work to do that costs nothing.
           summary.budgetExhausted = true;
           summary.budgetDeferred++;
+          continue;
+        }
+        if (TOKEN_SPENDING_STAGES.has(row.stage) && networkHeld) {
+          // Every provider was unreachable moments ago. Unclaimed on purpose —
+          // see the header's network back-off section.
+          summary.networkDeferred++;
           continue;
         }
         await this.runItem(row, cfg, opts, summary);

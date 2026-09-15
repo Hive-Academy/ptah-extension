@@ -115,6 +115,13 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_STAGE_HANDLERS_SERVICE: Symbol.for('PtahSkillStageHandlersService'),
   /** ForegroundActivityTracker — ms since the last chat turn, for the backoff gate. */
   FOREGROUND_ACTIVITY_TRACKER: Symbol.for('PtahSkillForegroundActivityTracker'),
+  /**
+   * `ProviderNetworkBackoffs` — one agent-sdk `NetworkBackoff` per provider a
+   * call rides, ONE registry for this library: the lane runner and the enhancer
+   * report what each call saw, the drain reads the open windows
+   * (TASK_2026_437 C14 f).
+   */
+  NETWORK_BACKOFF: Symbol.for('PtahSkillNetworkBackoff'),
   /** LaneResolverService — lane id → {auth snapshot, model} via the shared auth chain. */
   LANE_RESOLVER_SERVICE: Symbol.for('PtahSkillLaneResolverService'),
   /** LaneRunnerService — the ONE place a background LLM call happens. */

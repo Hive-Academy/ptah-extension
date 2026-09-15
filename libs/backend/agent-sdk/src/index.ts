@@ -26,6 +26,22 @@ export type {
   InternalQueryConfig,
   InternalQueryHandle,
 } from './lib/internal-query';
+export {
+  classifyThrownNetworkFailure,
+  networkSignalForHttpStatus,
+  QueryNetworkObserver,
+  NetworkBackoff,
+  NETWORK_BACKOFF_CEILING_LEVEL,
+  NETWORK_BACKOFF_INITIAL_MS,
+  NETWORK_BACKOFF_MAX_MS,
+  NETWORK_BACKOFF_JITTER_RATIO,
+} from './lib/internal-query';
+export type {
+  NetworkFailureSignal,
+  NetworkObservableMessage,
+  QueryNetworkVerdict,
+  NetworkBackoffOptions,
+} from './lib/internal-query';
 export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 export {
   AgentOutputCursorStaleError,
