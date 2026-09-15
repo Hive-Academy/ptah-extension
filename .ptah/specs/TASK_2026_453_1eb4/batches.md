@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 0/6
+Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 1/6
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -155,7 +155,7 @@ Edge cases:
 
 ---
 
-## Batch 1: C4 perf harness + PR #518 CodeRabbit fixes — IN_PROGRESS
+## Batch 1: C4 perf harness + PR #518 CodeRabbit fixes — COMPLETE
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `senior-tester` sub-agent (harness-only work)
@@ -166,7 +166,7 @@ Edge cases:
 - Review: `code-logic-reviewer` (measurement correctness) + `code-style-reviewer` in parallel →
   fixes to codex → delta review if non-trivial → team-leader commit.
 
-### Task 1.1: Split the perf spec, settle-inclusive window, CodeRabbit fixes, diagnostics flags — IN_PROGRESS
+### Task 1.1: Split the perf spec, settle-inclusive window, CodeRabbit fixes, diagnostics flags — COMPLETE
 
 - Files:
   - MODIFY `W\apps\ptah-electron-e2e\src\specs\chat\tile-open-longtask-budget.perf.spec.ts` (923 lines)
@@ -230,7 +230,7 @@ turnSize >= targetEvents`. The marker is the last text delta of the turn that en
 - Do NOT touch the FU-22a doc comments (:142-154, :525-535, :615-616) beyond moving them with
   their code; Task 3.1 rewrites them after C3 lands.
 
-### Task 1.2: `summarizeTraceEvents` and marker bucketing in perf-diagnostics — IN_PROGRESS
+### Task 1.2: `summarizeTraceEvents` and marker bucketing in perf-diagnostics — COMPLETE
 
 - Depends on: none (used by Task 1.1)
 - File: MODIFY `W\apps\ptah-electron-e2e\src\support\perf-diagnostics.ts` (323 lines)
@@ -246,7 +246,7 @@ number; tid: number }): TraceEventSummary` — pure; returns per event `name` th
      duplicated loop) that assigns each long task to the last marker time at or before its start.
   4. Update the module doc (:1-30) for the new functions. No new dependency.
 
-### Task 1.3: e2e CLAUDE.md "Perf specs" flags — IN_PROGRESS
+### Task 1.3: e2e CLAUDE.md "Perf specs" flags — COMPLETE
 
 - File: MODIFY `W\apps\ptah-electron-e2e\CLAUDE.md` (section "Perf specs" :18-20)
 - Acceptance criteria: documents `PTAH_PERF_RAF_ATTRIBUTION`, `PTAH_PERF_TRACE`,
@@ -254,7 +254,7 @@ number; tid: number }): TraceEventSummary` — pure; returns per event `name` th
   window (1,000 ms quiet, 10 s cap → unusable), the pre-window exclusion, and the scroll sanity
   check; which flags are diagnostic-only. Existing text kept, not duplicated.
 
-### Task 1.4: Mark the superseded auto-animate paragraph in test-report-b22.md; record audit TOTAL — IN_PROGRESS
+### Task 1.4: Mark the superseded auto-animate paragraph in test-report-b22.md; record audit TOTAL — COMPLETE
 
 - File: MODIFY `W\.ptah\specs\TASK_2026_437_0778\test-report-b22.md` (bullet at :242-250)
 - Acceptance criteria:
@@ -285,7 +285,57 @@ number; tid: number }): TraceEventSummary` — pure; returns per event `name` th
 - `code-logic-reviewer` and `code-style-reviewer` accepting verdicts
 - CodeRabbit 1-3 each visibly fixed at their new locations
 
-## Batch 2: M0 baseline measurement — PENDING
+### Batch 1 outcome
+
+- Executor: `codex` CLI lane (session `01a0a6fd-c612-7660-962d-b4168f1b0a1c`), base pass + revise
+  round 1 (cap used 1 of 2). Report: `b1-codex-report.md`.
+- Review chain: `b1-code-logic-review.md` NEEDS_REVISION (serious: `PTAH_PERF_TRACE` could reach
+  the gate; marker 30 s timer raced settle; two unpointed superseded passages in
+  test-report-b22) → `b1-code-logic-review-delta.md` APPROVED (1 moderate, evidence only).
+  `b1-code-style-review.md` APPROVED (serious: spec over 700 lines; 3 minor) →
+  `b1-code-style-review-delta.md` APPROVED (2 minor).
+- Deviation from the task list: an extra support file `perf-measurement-report.ts` (186 lines)
+  holds summarize / assert / persist, so the spec is 602 lines (was 923). Accepted by both
+  delta reviews.
+- Team-leader verification (2026-09-16, worktree HEAD `01307f73e` + batch diff):
+  - CodeRabbit 1: `windowStartMs` recorded before the first click
+    (`perf-page-capture.ts:324`); `startTime < windowStartMs` excluded into `preWindowExcluded`
+    (`perf-measurement-report.ts:90-110`).
+  - CodeRabbit 2: `turnSize = 4 + deltaCount + 2 * toolCount`, `isFinalTurn`
+    (`perf-session-fixture.ts:76-77`, marker :97).
+  - CodeRabbit 3: `clickTimes.push(performance.now())` before `btn.click()`
+    (`perf-page-capture.ts:326-327`).
+  - Gate test hard-disables trace (`spec:231`) and rAF attribution (`spec:255`); settle 1,000 ms
+    quiet / 10,000 ms cap (`perf-page-capture.ts:234, 250`); budgets 200 / 1,500 unchanged
+    (`spec:180, 182`).
+  - `npx nx run-many -t typecheck -p ptah-electron-e2e --parallel=1` — success.
+  - `npx nx run-many -t lint -p ptah-electron-e2e --parallel=1` — 0 errors, 9 pre-existing
+    warnings, none in Batch 1 files. `npx eslint` on the 5 changed `.ts` files — exit 0.
+  - `npx prettier --check` — the 5 `.ts` files, e2e `CLAUDE.md`, `test-report-b22.md` and
+    `batches.md` pass; the 4 review docs were unformatted (lint-staged formats them at commit).
+  - Skip proof, runner count 0, `PTAH_PERF_SPECS` unset:
+    `npx nx run ptah-electron-e2e:e2e -- src/specs/chat/tile-open-longtask-budget.perf.spec.ts --reporter=list`
+    → `Running 4 tests using 1 worker`, 4 rows, `4 skipped`, exit 0. This closes the logic delta's
+    moderate item. The revise-round run that "printed no rows" was most likely a truncated view
+    of the long Electron pre-build output: the rows print only after ~230 lines of dependency
+    build output.
+- **Degradation audit baseline for Batches 3-5**: `npx nx run degradation-audit:lint
+--skip-nx-cache` → `degradation-audit: TOTAL 303 unsuppressed site(s)`, no FAIL row,
+  `libs/frontend/chat: 11 ok (baseline 11)`, `libs/frontend/core` and `libs/frontend/canvas` absent
+  (ceiling 0). Every later batch: TOTAL after == 303.
+- Follow-ups (minor, not blocking):
+  - Split `assertScrollSanity` out of `perf-measurement-report.ts` before the file gains a ninth
+    export (style delta minor 1).
+  - No unit coverage for `bucketByTime` / `findRendererMainThread` / `summarizeTraceEvents`; the
+    e2e project has no Jest target (logic residual).
+  - Diagnostics / `.cpuprofile` write failures only `console.warn` (by design, AC-12); an
+    unwritable `PTAH_PERF_OUT_DIR` leaves no artifact. Batch 2 must list the diagnostics JSON
+    paths it read, which catches this.
+  - `startTraceCapture` has no try/catch around CDP calls; reachable only from diagnostic tests.
+  - Style delta minor 2 (`perf-diagnostics.ts` "modified") is not a no-op concern: that file is
+    the Task 1.2 change (+123 lines vs HEAD), reviewed in the base pass.
+
+## Batch 2: M0 baseline measurement — IN_PROGRESS
 
 - Recommended executor: Claude `senior-tester` sub-agent
 - Fallback executor: none (measurement must be on an idle machine; wait instead)
@@ -295,7 +345,7 @@ number; tid: number }): TraceEventSummary` — pure; returns per event `name` th
 - Review: `code-logic-reviewer` on `test-report.md` methodology (runner counts, discarded runs,
   settle flags); team-leader commits the report.
 
-### Task 2.1: M0 run set and FireAnimationFrame verdict — PENDING
+### Task 2.1: M0 run set and FireAnimationFrame verdict — IN_PROGRESS
 
 - File: CREATE `W\.ptah\specs\TASK_2026_453_1eb4\test-report.md`
 - Plan reference: implementation-plan.md:500-523; handoff.md §8 rules 1, 4, 5

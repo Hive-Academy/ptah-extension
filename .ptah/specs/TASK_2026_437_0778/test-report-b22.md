@@ -107,6 +107,9 @@ revision-2 runs) is also consistent with harness polling noise, not a stable app
    from `AMBIGUOUS_NATIVE_API_FUNCTIONS` (kept as its own, honestly-labeled bucket rather than
    silently counted as either "Playwright" or "app").
 
+   The later FU-22d attribution spike supersedes the auto-animate-specific interpretation; see
+   the note in "Reading this" below.
+
 ### Verification the fix works
 
 The final clean profile (run Q, below) shows the confirmed-unique Playwright bucket at **0 ms — not
@@ -115,6 +118,9 @@ DOM/Animation API (ambiguous)" bucket (15.7%) is very likely mostly `@formkit/au
 cost (its own `autoAnimate` frame — real app URL — is directly present in the same profile at
 comparable magnitude), not test-harness noise — see "Attribution" below for the full breakdown and
 the honest residual ambiguity that's left.
+
+The later FU-22d attribution spike supersedes the auto-animate-specific interpretation; see the
+note in "Reading this" below.
 
 ## Old vs new harness (same fixture size, same budgets, dev build, idle machine)
 
@@ -140,6 +146,9 @@ suspicious at a glance:
   larger blocks — which is the MORE faithful measurement of real single-task blocking, not a worse
   one. **This means the max-single-task budget miss is real, not a harness artifact — if anything the
   old harness was hiding it.**
+
+  The later FU-22d attribution spike supersedes the auto-animate-specific interpretation; see the
+  note in "Reading this" below.
 
 ## Revision 3 runs (dev build, cold 3-tile, idle machine — checked before AND after every run)
 
@@ -239,6 +248,12 @@ directly from `samples`/`timeDeltas` — exact, not approximated.
 
 - **Playwright's confirmed-unique injected-script functions do not appear at all** in this profile —
   the fix worked. The measurement window now genuinely excludes Playwright's own locator engine.
+- **Superseded by the FU-22d attribution spike.** Auto-animate 0.8.4 does not call
+  `getAnimations` by name. Disabling it saved 31-39% of total blocked time but left approximately
+  678 ms of `getAnimations`; the source-backed candidate is Angular `animate.enter/leave`
+  (`determineLongestAnimation` calls `el.getAnimations()` for each entering element). See
+  `fu22d-attribution-spike-report.md` and TASK_2026_453 `implementation-plan.md` E22-E24. The
+  original interpretation is retained immediately below as part of the measurement record.
 - **`getAnimations` (870.96 ms) sits right next to `autoAnimate` (161.04 ms) in self time, in the
   SAME profile, with `autoAnimate` confirmed as a real app-bundled function** (`chunk-EAHQWTN3.js`,
   `@formkit/auto-animate` is a listed production dependency in `package.json`). `@formkit/auto-animate`
