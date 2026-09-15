@@ -78,12 +78,28 @@ describe('ObservationRetentionStore (real SQLite)', () => {
   });
 
   describe('query plans on a database with no sqlite_stat1', () => {
-    const planOf = (t: RetentionTestDb, sql: string): string[] =>
-      (
-        t.raw.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as Array<{
+    const planOf = (t: RetentionTestDb, sql: string): string[] => {
+      const namedParameters = [
+        ...sql.matchAll(/[@:$]([A-Za-z_][A-Za-z0-9_]*)/g),
+      ].map((match) => match[1]);
+      const positionalParameters = Array.from(
+        { length: sql.match(/\?/g)?.length ?? 0 },
+        () => 0,
+      );
+      const bindings: unknown[] = namedParameters.length
+        ? [
+            Object.fromEntries(
+              [...new Set(namedParameters)].map((name) => [name, 0]),
+            ),
+            ...positionalParameters,
+          ]
+        : positionalParameters;
+      return (
+        t.raw.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...bindings) as Array<{
           detail: string;
         }>
       ).map((r) => r.detail);
+    };
 
     it('never runs ANALYZE and never bare-scans observation_queue', () => {
       const { t } = fresh();
