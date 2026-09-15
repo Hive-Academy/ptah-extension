@@ -3,7 +3,6 @@ import {
   Component,
   computed,
   effect,
-  inject,
   input,
   model,
   output,
@@ -12,14 +11,42 @@ import {
 import {
   LucideAngularModule,
   LayoutGrid,
-  Square,
-  Columns2,
-  Columns3,
+  Grid3x3,
+  PanelsTopLeft,
+  Rows2,
   Lock,
   Unlock,
 } from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { CanvasStore } from './canvas.store';
+import type { CanvasLayoutPreset } from './canvas-layout-intent';
+
+const PRESETS: ReadonlyArray<{
+  readonly preset: CanvasLayoutPreset;
+  readonly title: string;
+  readonly label: string;
+  readonly icon: typeof LayoutGrid;
+}> = [
+  {
+    preset: 'even-grid',
+    title: 'Even grid',
+    label: 'Even grid preset: changes all tile widths to equal rows of three',
+    icon: Grid3x3,
+  },
+  {
+    preset: 'one-plus-two',
+    title: '1 + 2',
+    label:
+      'One plus two preset: changes all tile widths to one full-width tile, then pairs',
+    icon: PanelsTopLeft,
+  },
+  {
+    preset: 'focus-plus-stack',
+    title: 'Focus + stack',
+    label:
+      'Focus plus stack preset: changes all tile widths to the active tile at full width, then pairs',
+    icon: Rows2,
+  },
+];
 
 @Component({
   selector: 'ptah-canvas-layout-controls',
@@ -58,50 +85,27 @@ import { CanvasStore } from './canvas.store';
         <span class="text-xs font-medium">Layout</span>
       </button>
 
-      <!-- Expandable dock actions: 1, 2, 3 columns and lock/unlock -->
+      <!-- Expandable dock actions: layout presets and lock/unlock -->
       <div
         content
         class="p-1 flex items-center gap-1 bg-base-200 border border-base-content/10 rounded-lg shadow-lg"
         role="group"
-        aria-label="Maximum tiles per row"
+        aria-label="Layout presets"
         (keydown.escape)="close()"
       >
-        <button
-          type="button"
-          class="btn btn-xs btn-square btn-ghost"
-          [class.btn-active]="selected() === 1"
-          [disabled]="columnActionsDisabled()"
-          [attr.aria-pressed]="selected() === 1"
-          aria-label="1 column"
-          title="1 column"
-          (click)="select(1)"
-        >
-          <lucide-angular [img]="SquareIcon" class="w-3.5 h-3.5" />
-        </button>
-        <button
-          type="button"
-          class="btn btn-xs btn-square btn-ghost"
-          [class.btn-active]="selected() === 2"
-          [disabled]="columnActionsDisabled()"
-          [attr.aria-pressed]="selected() === 2"
-          aria-label="2 columns"
-          title="2 columns"
-          (click)="select(2)"
-        >
-          <lucide-angular [img]="Columns2Icon" class="w-3.5 h-3.5" />
-        </button>
-        <button
-          type="button"
-          class="btn btn-xs btn-square btn-ghost"
-          [class.btn-active]="selected() === 3"
-          [disabled]="columnActionsDisabled()"
-          [attr.aria-pressed]="selected() === 3"
-          aria-label="3 columns"
-          title="3 columns"
-          (click)="select(3)"
-        >
-          <lucide-angular [img]="Columns3Icon" class="w-3.5 h-3.5" />
-        </button>
+        @for (item of presets; track item.preset) {
+          <button
+            type="button"
+            class="btn btn-xs btn-square btn-ghost"
+            [disabled]="presetActionsDisabled()"
+            [attr.aria-label]="item.label"
+            [attr.data-preset]="item.preset"
+            [title]="item.title"
+            (click)="select(item.preset)"
+          >
+            <lucide-angular [img]="item.icon" class="w-3.5 h-3.5" />
+          </button>
+        }
         <div
           class="w-px h-4 bg-base-content/10 my-0.5 mx-0.5"
           aria-hidden="true"
@@ -115,7 +119,7 @@ import { CanvasStore } from './canvas.store';
           [attr.aria-label]="locked() ? 'Unlock tiles' : 'Lock tiles'"
           [title]="
             locked()
-              ? 'Unlock tiles (enable drag & resize)'
+              ? 'Unlock tiles (enable layout changes)'
               : 'Lock tiles (freeze layout)'
           "
           (click)="handleToggleLock()"
@@ -134,13 +138,11 @@ export class CanvasLayoutControlsComponent {
   readonly tileCount = input<number | null>(null);
   readonly isOpen = model(false);
   readonly lockToggled = output<void>();
+  /** The parent applies the preset to the active workspace's intent. */
+  readonly presetRequested = output<CanvasLayoutPreset>();
 
-  private readonly store = inject(CanvasStore);
-
+  protected readonly presets = PRESETS;
   protected readonly LayoutGridIcon = LayoutGrid;
-  protected readonly SquareIcon = Square;
-  protected readonly Columns2Icon = Columns2;
-  protected readonly Columns3Icon = Columns3;
   protected readonly LockIcon = Lock;
   protected readonly UnlockIcon = Unlock;
 
@@ -149,15 +151,10 @@ export class CanvasLayoutControlsComponent {
     return count !== null && count <= 1;
   });
   readonly disabled = computed(() => this.isSingleton());
-  readonly columnActionsDisabled = computed(
+  readonly presetActionsDisabled = computed(
     () => this.locked() || this.isSingleton(),
   );
   readonly lockActionDisabled = computed(() => this.isSingleton());
-
-  protected readonly selected = computed(() => {
-    const path = this.store.activeWorkspacePath();
-    return path === null ? 'auto' : this.store.columnsPreferenceFor(path);
-  });
 
   constructor() {
     effect(() => {
@@ -182,13 +179,11 @@ export class CanvasLayoutControlsComponent {
     this.isOpen.set(!this.isOpen());
   }
 
-  protected select(preference: 1 | 2 | 3): void {
-    if (this.locked() || this.isSingleton()) return;
-    if (this.selected() === preference) {
-      this.store.setColumnsPreference('auto');
-    } else {
-      this.store.setColumnsPreference(preference);
-    }
+  /** Closing returns focus to the dock trigger through the popover. */
+  protected select(preset: CanvasLayoutPreset): void {
+    if (this.presetActionsDisabled()) return;
+    this.presetRequested.emit(preset);
+    this.close();
   }
 
   protected handleToggleLock(): void {

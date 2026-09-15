@@ -1,13 +1,4 @@
-/**
- * CanvasStore — workspace-partitioned tile state coverage.
- */
-
-import {
-  Component,
-  Input,
-  NgModule,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, NgModule, signal } from '@angular/core';
 jest.mock('ngx-markdown', () => {
   @Component({
     // eslint-disable-next-line @angular-eslint/component-selector
@@ -32,406 +23,134 @@ jest.mock('ngx-markdown', () => {
     SANITIZE: 'SANITIZE',
   };
 });
-
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
-
-import {
-  CanvasStore,
-  CanvasSeedTab,
-  RETAINED_WORKSPACE_CAP,
-} from './canvas.store';
-import { DEFAULT_TILE_WEIGHT } from './canvas-layout.service';
 import { TabManagerService } from '@ptah-extension/chat';
+import { CanvasStore, RETAINED_WORKSPACE_CAP } from './canvas.store';
+import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
+import type { TileIntent } from './canvas-layout-intent';
 
-const makeSeed = (
-  id: string,
-  sessionId: string | null = null,
-): CanvasSeedTab => ({
-  id,
-  claudeSessionId: sessionId,
-  name: id,
-});
-
-describe('CanvasStore workspace partitioning', () => {
+describe('CanvasStore', () => {
   let store: CanvasStore;
+  let tabs: ReturnType<typeof signal<Array<{ id: string; claudeSessionId: null; name: string }>>>;
+  let persistence: {
+    load: jest.Mock;
+    markHydrated: jest.Mock;
+    schedule: jest.Mock;
+    remove: jest.Mock;
+  };
 
   beforeEach(() => {
-    const tabManagerMock = {
-      tabs: signal<CanvasSeedTab[]>([]),
-      activeTabId: signal<string | null>(null),
-      createTab: jest.fn(
-        (_name?: string) => `tab-${Math.random().toString(36).slice(2, 7)}`,
-      ),
-      openSessionTab: jest.fn((sessionId: string) => `tab-from-${sessionId}`),
-      switchTab: jest.fn(),
-      closeTab: jest.fn().mockResolvedValue(undefined),
-      forceCloseTab: jest.fn(),
-    } as unknown as TabManagerService;
-
-    // No CanvasLayoutService provider: the store owns intent only and must
-    // resolve without the layout service. Its absence is the assertion.
-    TestBed.configureTestingModule({
-      providers: [
-        CanvasStore,
-        { provide: TabManagerService, useValue: tabManagerMock },
-      ],
-    });
+    tabs = signal([]);
+    persistence = {
+      load: jest.fn(() => ({ tiles: null, writable: true })),
+      markHydrated: jest.fn(),
+      schedule: jest.fn(),
+      remove: jest.fn(),
+    };
+    TestBed.configureTestingModule({ providers: [
+      CanvasStore,
+      { provide: CanvasLayoutPersistenceService, useValue: persistence },
+      { provide: TabManagerService, useValue: {
+        tabs,
+        activeTabId: signal<string | null>(null),
+        activeWorkspacePath$: signal<string | null>(null),
+        createTab: jest.fn(() => `tab-${tabs().length + 1}`),
+        openSessionTab: jest.fn((id: string) => `tab-${id}`),
+        switchTab: jest.fn(),
+        closeTab: jest.fn().mockResolvedValue(undefined),
+      } },
+    ] });
     store = TestBed.inject(CanvasStore);
   });
 
-  it('saves A tiles and seeds B empty when switching A->B with no B tabs', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('a-tab-1');
-    store.adoptTab('a-tab-2');
-    expect(store.tiles().length).toBe(2);
+  const hydrate = (path: string, ids: readonly string[]): void => {
+    tabs.set(ids.map((id) => ({ id, claudeSessionId: null, name: id })));
+    store.hydrateWorkspace(path, ids);
+  };
 
-    store.switchWorkspaceTiles('/ws/b', []);
-    expect(store.tiles().length).toBe(0);
-
-    store.switchWorkspaceTiles('/ws/a', []);
-    expect(store.tiles().map((t) => t.tabId)).toEqual(['a-tab-1', 'a-tab-2']);
+  it('hydrates exact authoritative ids once before enabling writes', () => {
+    const persisted: TileIntent[] = [
+      { tabId: 'kept', order: 0, width: { kind: 'span', span: 'half' }, rowBreakBefore: false },
+      { tabId: 'closed', order: 1, width: { kind: 'span', span: 'full' }, rowBreakBefore: true },
+    ];
+    persistence.load.mockReturnValue({ tiles: persisted, writable: true });
+    store.hydrateWorkspace('/ws/a', ['kept', 'new']);
+    store.hydrateWorkspace('/ws/a', ['kept', 'new']);
+    expect(persistence.load).toHaveBeenCalledTimes(1);
+    expect(store.tiles().map((tile) => tile.tabId)).toEqual(['kept', 'new']);
+    expect(persistence.markHydrated).toHaveBeenCalledWith('/ws/a', true);
+    expect(persistence.schedule).toHaveBeenCalledTimes(1);
   });
 
-  it('round-trip A->B->A preserves custom intent and focused tab', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('a-tab-1');
-    store.adoptTab('a-tab-2');
-    store.reorderTiles(['a-tab-2', 'a-tab-1']);
-    store.setTileWeights(new Map([['a-tab-1', 5]]));
-    store.focusTile('a-tab-2');
-
-    store.switchWorkspaceTiles('/ws/b', []);
-    store.switchWorkspaceTiles('/ws/a', []);
-
-    const restored = store.tiles().find((t) => t.tabId === 'a-tab-1');
-    expect(restored).toEqual({
-      tabId: 'a-tab-1',
-      order: 1,
-      weight: 5,
-      rowBreakBefore: false,
-    });
-    expect(store.tiles().map((t) => t.tabId)).toEqual(['a-tab-2', 'a-tab-1']);
-    expect(store.focusedTabId()).toBe('a-tab-2');
-  });
-
-  it('seeds first-visit workspace from activeTabs with dense order and default weight', () => {
-    store.switchWorkspaceTiles('/ws/a', [
-      makeSeed('t1'),
-      makeSeed('t2'),
-      makeSeed('t3'),
-    ]);
-
-    expect(store.tiles()).toEqual([
-      { tabId: 't1', order: 0, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
-      { tabId: 't2', order: 1, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
-      { tabId: 't3', order: 2, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
-    ]);
-  });
-
-  it('appends tiles at the end of the reading order', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('a-tab-1');
-    store.adoptTab('a-tab-2');
-    store.adoptTab('a-tab-3');
-
-    expect(store.tiles().map((t) => t.order)).toEqual([0, 1, 2]);
-    expect(store.tiles().every((t) => t.weight === DEFAULT_TILE_WEIGHT)).toBe(
-      true,
-    );
-  });
-
-  describe('reorderTiles', () => {
-    beforeEach(() => {
-      store.switchWorkspaceTiles('/ws/a', []);
-      store.adoptTab('t1');
-      store.adoptTab('t2');
-      store.adoptTab('t3');
-    });
-
-    it('assigns dense order in the given sequence', () => {
-      store.reorderTiles(['t3', 't1', 't2']);
-
-      expect(store.tiles()).toEqual([
-        { tabId: 't3', order: 0, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
-        { tabId: 't1', order: 1, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
-        { tabId: 't2', order: 2, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
-      ]);
-    });
-
-    it('leaves weights untouched', () => {
-      store.setTileWeights(new Map([['t2', 7]]));
-      store.reorderTiles(['t2', 't3', 't1']);
-
-      expect(store.tiles().find((t) => t.tabId === 't2')?.weight).toBe(7);
-    });
-
-    it('ignores unknown ids and keeps unlisted tiles after the listed ones', () => {
-      store.reorderTiles(['ghost', 't3']);
-
-      expect(store.tiles().map((t) => t.tabId)).toEqual(['t3', 't1', 't2']);
-      expect(store.tiles().map((t) => t.order)).toEqual([0, 1, 2]);
-    });
-
-    it('returns the same array reference when nothing moved', () => {
-      const before = store.tiles();
-      store.reorderTiles(['t1', 't2', 't3']);
-      expect(store.tiles()).toBe(before);
-    });
-  });
-
-  describe('setTileWeights', () => {
-    beforeEach(() => {
-      store.switchWorkspaceTiles('/ws/a', []);
-      store.adoptTab('t1');
-      store.adoptTab('t2');
-    });
-
-    it('writes the listed weights and leaves others untouched', () => {
-      store.setTileWeights(new Map([['t1', 8]]));
-
-      expect(store.tiles()).toEqual([
-        { tabId: 't1', order: 0, weight: 8, rowBreakBefore: false },
-        { tabId: 't2', order: 1, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
-      ]);
-    });
-
-    it('coerces a non-finite or non-positive weight to the default', () => {
-      store.setTileWeights(
-        new Map([
-          ['t1', Number.NaN],
-          ['t2', -3],
-        ]),
-      );
-
-      expect(store.tiles().map((t) => t.weight)).toEqual([
-        DEFAULT_TILE_WEIGHT,
-        DEFAULT_TILE_WEIGHT,
-      ]);
-    });
-
-    it('leaves order untouched', () => {
-      store.reorderTiles(['t2', 't1']);
-      store.setTileWeights(new Map([['t1', 4]]));
-
-      expect(store.tiles().map((t) => t.tabId)).toEqual(['t2', 't1']);
-      expect(store.tiles().map((t) => t.order)).toEqual([0, 1]);
-    });
-
-    it('returns the same array reference when every weight is unchanged', () => {
-      const before = store.tiles();
-      store.setTileWeights(
-        new Map([
-          ['t1', DEFAULT_TILE_WEIGHT],
-          ['ghost', 5],
-        ]),
-      );
-      expect(store.tiles()).toBe(before);
-    });
-  });
-
-  it('renumbers order densely after a tile is removed', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('t1');
-    store.adoptTab('t2');
-    store.adoptTab('t3');
-
-    store.removeTileOnly('t2');
-
-    expect(store.tiles()).toEqual([
-      { tabId: 't1', order: 0, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
-      { tabId: 't3', order: 1, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
-    ]);
-  });
-
-  it('transfers a row boundary when its first tile is removed', () => {
-    store.switchWorkspaceTiles('/ws/a', [
-      makeSeed('A'),
-      makeSeed('B'),
-      makeSeed('C'),
-      makeSeed('D'),
-    ]);
+  it('sets only the requested span and bumps one revision', () => {
+    hydrate('/ws/a', ['A', 'B']);
     const revision = store.workspaceRevision('/ws/a');
-    expect(
-      store.commitDragIntent('/ws/a', revision, [
-        ...store.tiles().slice(0, 2),
-        { ...store.tiles()[2], rowBreakBefore: true },
-        store.tiles()[3],
-      ]),
-    ).toBe(true);
-
-    store.removeTileOnly('C');
-
-    expect(store.tiles().map((tile) => [tile.tabId, tile.rowBreakBefore])).toEqual([
-      ['A', false],
-      ['B', false],
-      ['D', true],
-    ]);
+    expect(store.setTileSpan('/ws/a', 'B', 'two-thirds')).toBe(true);
+    expect(store.workspaceRevision('/ws/a')).toBe(revision + 1);
+    expect(store.tiles()[0].width).toEqual({ kind: 'auto', weight: 1 });
+    expect(store.tiles()[1].width).toEqual({ kind: 'span', span: 'two-thirds' });
   });
 
-  it('rejects a stale or cross-workspace gesture commit atomically', () => {
-    store.switchWorkspaceTiles('/ws/a', [makeSeed('A'), makeSeed('B')]);
+  it('commits snapped resize only for the addressed workspace and revision', () => {
+    hydrate('/ws/a', ['A', 'B']);
     const revision = store.workspaceRevision('/ws/a');
-    const projected = [store.tiles()[1], store.tiles()[0]];
-    store.adoptTab('C');
-    expect(store.commitDragIntent('/ws/a', revision, projected)).toBe(false);
-    expect(store.tiles().map((tile) => tile.tabId)).toEqual(['A', 'B', 'C']);
-
-    store.switchWorkspaceTiles('/ws/b', [makeSeed('X')]);
-    expect(store.commitDragIntent('/ws/a', revision, projected)).toBe(false);
-    expect(store.tiles().map((tile) => tile.tabId)).toEqual(['X']);
+    expect(store.commitResizeSpan('/ws/a', revision + 1, 'A', 'half')).toBe(false);
+    expect(store.commitResizeSpan('/ws/b', revision, 'A', 'half')).toBe(false);
+    expect(store.commitResizeSpan('/ws/a', revision, 'missing', 'half')).toBe(false);
+    expect(store.commitResizeSpan('/ws/a', revision, 'A', 'half')).toBe(true);
+    expect(store.tiles()[0].width).toEqual({ kind: 'span', span: 'half' });
   });
 
-  it('keeps the columns maximum scoped to each workspace', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.setColumnsPreference(2);
-    store.switchWorkspaceTiles('/ws/b', []);
-    expect(store.columnsPreferenceFor('/ws/b')).toBe('auto');
-    store.setColumnsPreference(1);
-    store.switchWorkspaceTiles('/ws/a', []);
-    expect(store.columnsPreferenceFor('/ws/a')).toBe(2);
+  it('keeps transient layout focus workspace scoped and clears it on removal', () => {
+    hydrate('/ws/a', ['A', 'B']);
+    const before = JSON.stringify(store.tiles());
+    expect(store.toggleLayoutFocus('/ws/a', 'B')).toBe(true);
+    expect(store.layoutFocusTabIdFor('/ws/a')).toBe('B');
+    expect(JSON.stringify(store.tiles())).toBe(before);
+    store.removeTileOnly('B');
+    expect(store.layoutFocusTabIdFor('/ws/a')).toBeNull();
   });
 
-  it('removeWorkspaceTileState clears live signals when removing the active workspace', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('a-tab-1');
-    store.focusTile('a-tab-1');
+  it('lock blocks every layout mutation including focus, breaks and presets', () => {
+    hydrate('/ws/a', ['A', 'B']);
+    store.setLayoutLocked(true);
+    expect(store.setTileSpan('/ws/a', 'A', 'full')).toBe(false);
+    expect(store.toggleRowBreak('/ws/a', 'B')).toBe(false);
+    expect(store.toggleLayoutFocus('/ws/a', 'A')).toBe(false);
+    expect(store.applyPreset('one-plus-two')).toBe(false);
+  });
 
+  it.each(['even-grid', 'one-plus-two', 'focus-plus-stack'] as const)(
+    'applies %s in one revision and one persistence mutation',
+    (preset) => {
+      hydrate('/ws/a', ['A', 'B', 'C', 'D']);
+      persistence.schedule.mockClear();
+      const revision = store.workspaceRevision('/ws/a');
+      expect(store.applyPreset(preset)).toBe(true);
+      expect(store.workspaceRevision('/ws/a')).toBe(revision + 1);
+      expect(persistence.schedule).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('partitions intent, preserves row boundaries on removal, and evicts only mounted grids', () => {
+    hydrate('/ws/a', ['A', 'B', 'C']);
+    store.toggleRowBreak('/ws/a', 'B');
+    store.removeTileOnly('B');
+    expect(store.tiles()[1].rowBreakBefore).toBe(true);
+    for (let i = 0; i <= RETAINED_WORKSPACE_CAP; i++) {
+      store.hydrateWorkspace(`/ws/${i}`, [`T${i}`]);
+    }
+    expect(store.workspacePaths().length).toBe(RETAINED_WORKSPACE_CAP);
+    store.hydrateWorkspace('/ws/a', ['A', 'C']);
+    expect(store.tiles().map((tile) => tile.tabId)).toEqual(['A', 'C']);
+  });
+
+  it('removes background tiles and deletes acknowledged workspace persistence', () => {
+    hydrate('/ws/a', ['A']);
+    store.hydrateWorkspace('/ws/b', ['B']);
+    store.removeTileFromAnyWorkspace('A');
+    expect(store.tilesFor('/ws/a')()).toEqual([]);
     store.removeWorkspaceTileState('/ws/a');
-
-    expect(store.tiles()).toEqual([]);
-    expect(store.focusedTabId()).toBeNull();
-  });
-
-  it('removeWorkspaceTileState for a background workspace does not change active signals', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('a-tab-1');
-    store.switchWorkspaceTiles('/ws/b', []);
-    store.adoptTab('b-tab-1');
-
-    store.removeWorkspaceTileState('/ws/a');
-
-    expect(store.tiles().map((t) => t.tabId)).toEqual(['b-tab-1']);
-
-    store.switchWorkspaceTiles('/ws/a', []);
-    expect(store.tiles()).toEqual([]);
-  });
-
-  it('seeding respects the MAX_TILES cap', () => {
-    const tooMany: CanvasSeedTab[] = Array.from({ length: 15 }, (_, i) =>
-      makeSeed(`t${i}`),
-    );
-    store.switchWorkspaceTiles('/ws/a', tooMany);
-    expect(store.tiles().length).toBe(CanvasStore.MAX_TILES);
-  });
-
-  it('keeps tiles/focusedTabId/tileCount/canAddTile as reactive accessors', () => {
-    expect(typeof store.tiles).toBe('function');
-    expect(typeof store.focusedTabId).toBe('function');
-    expect(typeof store.tileCount).toBe('function');
-    expect(typeof store.canAddTile).toBe('function');
-
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('a-tab-1');
-    expect(store.tileCount()).toBe(1);
-    expect(store.canAddTile()).toBe(true);
-  });
-
-  it('tiles() and focusedTabId() follow activeWorkspacePath across switches', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('a-tab-1');
-    store.focusTile('a-tab-1');
-    store.switchWorkspaceTiles('/ws/b', []);
-    store.adoptTab('b-tab-1');
-
-    expect(store.activeWorkspacePath()).toBe('/ws/b');
-    expect(store.tiles().map((t) => t.tabId)).toEqual(['b-tab-1']);
-    expect(store.focusedTabId()).toBeNull();
-
-    store.switchWorkspaceTiles('/ws/a', []);
-    expect(store.activeWorkspacePath()).toBe('/ws/a');
-    expect(store.tiles().map((t) => t.tabId)).toEqual(['a-tab-1']);
-    expect(store.focusedTabId()).toBe('a-tab-1');
-  });
-
-  it('tilesFor(path) exposes each workspace tiles as a stable memoized signal', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('a-tab-1');
-    store.switchWorkspaceTiles('/ws/b', []);
-    store.adoptTab('b-tab-1');
-
-    const aTiles = store.tilesFor('/ws/a');
-    expect(store.tilesFor('/ws/a')).toBe(aTiles);
-    expect(aTiles().map((t) => t.tabId)).toEqual(['a-tab-1']);
-    expect(
-      store
-        .tilesFor('/ws/b')()
-        .map((t) => t.tabId),
-    ).toEqual(['b-tab-1']);
-  });
-
-  it('workspacePaths lists mounted workspaces in insertion order', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.switchWorkspaceTiles('/ws/b', []);
-    store.switchWorkspaceTiles('/ws/c', []);
-    expect(store.workspacePaths()).toEqual(['/ws/a', '/ws/b', '/ws/c']);
-  });
-
-  it('evicts the LRU workspace beyond RETAINED_WORKSPACE_CAP but restores its tiles on return', () => {
-    expect(RETAINED_WORKSPACE_CAP).toBe(4);
-
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('a-tab-1');
-    store.setTileWeights(new Map([['a-tab-1', 5]]));
-    store.switchWorkspaceTiles('/ws/b', []);
-    store.switchWorkspaceTiles('/ws/c', []);
-    store.switchWorkspaceTiles('/ws/d', []);
-    expect(store.workspacePaths()).toEqual([
-      '/ws/a',
-      '/ws/b',
-      '/ws/c',
-      '/ws/d',
-    ]);
-
-    store.switchWorkspaceTiles('/ws/e', []);
-    // /ws/a is least-recently-active → drops out of the mounted set (grid unmounts)
-    expect(store.workspacePaths()).toEqual([
-      '/ws/b',
-      '/ws/c',
-      '/ws/d',
-      '/ws/e',
-    ]);
-
-    // returning re-mounts /ws/a with its saved tiles + intent intact
-    store.switchWorkspaceTiles('/ws/a', []);
-    expect(store.workspacePaths()).toContain('/ws/a');
-    expect(store.tiles()).toEqual([
-      { tabId: 'a-tab-1', order: 0, weight: 5, rowBreakBefore: false },
-    ]);
-  });
-
-  it('allTabIds returns tabIds across every retained workspace', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('a-tab-1');
-    store.switchWorkspaceTiles('/ws/b', []);
-    store.adoptTab('b-tab-1');
-
-    expect([...store.allTabIds()].sort()).toEqual(['a-tab-1', 'b-tab-1']);
-  });
-
-  it('removeTileFromAnyWorkspace drops a tile from a background workspace', () => {
-    store.switchWorkspaceTiles('/ws/a', []);
-    store.adoptTab('a-tab-1');
-    store.adoptTab('a-tab-2');
-    store.switchWorkspaceTiles('/ws/b', []);
-
-    store.removeTileFromAnyWorkspace('a-tab-1');
-
-    expect(
-      store
-        .tilesFor('/ws/a')()
-        .map((t) => t.tabId),
-    ).toEqual(['a-tab-2']);
-    expect(store.tiles()).toEqual([]);
+    expect(persistence.remove).toHaveBeenCalledWith('/ws/a');
   });
 });

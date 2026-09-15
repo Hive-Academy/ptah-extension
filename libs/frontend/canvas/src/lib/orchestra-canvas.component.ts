@@ -29,6 +29,8 @@ import { CanvasWorkspaceGridComponent } from './canvas-workspace-grid.component'
 import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
 import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
+import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
+import type { CanvasLayoutPreset } from './canvas-layout-intent';
 
 /**
  * OrchestraCanvasComponent — top-level panel for the Orchestra Canvas view.
@@ -42,7 +44,7 @@ import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
  * - Component selector: <gridstack>
  * - Item selector: <gridstack-item [options]="{ x, y, w, h, id }">
  * - Change event: (changeCB) — fires after drag/resize; the workspace grid
- *   translates it into tile intent (order / weight), never into stored coordinates
+ *   translates it into tile intent (order / width), never into stored coordinates
  * - Imports: GridstackComponent + GridstackItemComponent from 'gridstack/dist/angular'
  *
  * Toolbar removed; session management delegated to shared sidebar in AppShellComponent.
@@ -52,7 +54,7 @@ import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 @Component({
   selector: 'ptah-orchestra-canvas',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [CanvasStore, CanvasLayoutService, CanvasRenderMetricsService],
+  providers: [CanvasStore, CanvasLayoutService, CanvasLayoutPersistenceService, CanvasRenderMetricsService],
   imports: [
     FormsModule,
     CanvasWorkspaceGridComponent,
@@ -76,6 +78,7 @@ import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
             [locked]="locked()"
             [tileCount]="canvasStore.tiles().length"
             (lockToggled)="toggleLock()"
+            (presetRequested)="applyPreset($event)"
           />
 
           @if (canvasStore.canAddTile()) {
@@ -259,6 +262,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
   private readonly chatStore = inject(ChatStore);
   private readonly layoutService = inject(CanvasLayoutService);
+  private readonly layoutPersistence = inject(CanvasLayoutPersistenceService);
 
   protected readonly PlusIcon = Plus;
   protected readonly XIcon = X;
@@ -302,7 +306,11 @@ export class OrchestraCanvasComponent implements OnDestroy {
       }
     });
 
-    this.restoreCanvasTilesFromTabs();
+    const initialTabs = this.tabManager.tabs();
+    this.canvasStore.hydrateWorkspace(
+      this.tabManager.activeWorkspacePath$(),
+      initialTabs.map((tab) => tab.id),
+    );
     effect(() => {
       const req = this.appState.canvasSessionRequest();
       if (req) {
@@ -331,7 +339,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
     // (no remount / no workspace switch), `restoreCanvasTilesFromTabs` — which
     // only runs on mount — never sees that new tab, so it would linger as a bare
     // tab. This closes exactly that gap. `adoptTab` dedups (safe if a fresh
-    // mount already tiled it) and returns null at the 9-tile cap, in which case
+    // hydration already tiled it) and returns null at the 9-tile cap, in which case
     // the tab simply stays in the tab list as the graceful fallback.
     effect(() => {
       const req = this.appState.canvasTabRequest();
@@ -386,31 +394,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
     });
   }
 
-  /**
-   * Restore canvas tiles from tabs that were persisted in localStorage.
-   * Runs once at construction — creates a canvas tile for each pre-existing
-   * tab so the canvas reflects sessions the user had open in their last session.
-   */
-  private restoreCanvasTilesFromTabs(): void {
-    const existingTabs = this.tabManager.tabs();
-    if (existingTabs.length === 0) return;
-    const originalActiveTabId = this.tabManager.activeTabId();
-
-    for (const tab of existingTabs) {
-      if (tab.claudeSessionId) {
-        this.canvasStore.addTileFromSession(tab.claudeSessionId, tab.name);
-      } else {
-        this.canvasStore.adoptTab(tab.id);
-      }
-    }
-    if (
-      originalActiveTabId &&
-      this.canvasStore.tiles().some((t) => t.tabId === originalActiveTabId)
-    ) {
-      this.canvasStore.focusTile(originalActiveTabId);
-    }
-  }
-
   /** Open the session name popover. */
   protected openNewSessionPopover(): void {
     this.sessionNameInput.set('');
@@ -441,23 +424,16 @@ export class OrchestraCanvasComponent implements OnDestroy {
    * recomputation. Unlocking restores managed drag/resize behaviour.
    */
   protected toggleLock(): void {
-    this.locked.set(!this.locked());
+    const locked = !this.locked();
+    this.locked.set(locked);
+    this.canvasStore.setLayoutLocked(locked);
   }
 
-  /**
-   * Close all tiles on destroy to prevent orphaned tabs in the root TabManagerService.
-   * CanvasStore is scoped per component instance, so its tabs must be cleaned up here.
-   *
-   * Uses forceCloseTab (no confirmation dialog) since the component is being destroyed
-   * — either the app is shutting down or the canvas is being fully removed from the DOM.
-   * The async removeTile() would show spurious confirmation dialogs during teardown.
-   */
+  protected applyPreset(preset: CanvasLayoutPreset): void {
+    this.canvasStore.applyPreset(preset);
+  }
+
   ngOnDestroy(): void {
-    // Iterate every retained workspace's tiles, not just the active one —
-    // background workspaces keep their tabs open (keep-alive) and would leak
-    // into the root TabManagerService otherwise.
-    for (const tabId of this.canvasStore.allTabIds()) {
-      this.tabManager.forceCloseTab(tabId);
-    }
+    this.layoutPersistence.flush();
   }
 }

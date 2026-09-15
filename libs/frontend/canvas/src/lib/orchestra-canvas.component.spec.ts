@@ -69,6 +69,7 @@ import type { TabState } from '@ptah-extension/chat-types';
 import { OrchestraCanvasComponent } from './orchestra-canvas.component';
 import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
+import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
@@ -113,8 +114,9 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   let removeWorkspaceTileStateMock: jest.Mock;
   let removeTileOnlyMock: jest.Mock;
   let removeTileFromAnyWorkspaceMock: jest.Mock;
-  let allTabIdsMock: jest.Mock;
   let forceCloseTabMock: jest.Mock;
+  let hydrateWorkspaceMock: jest.Mock;
+  let persistenceFlushMock: jest.Mock;
   let canvasTabRequest$: ReturnType<typeof signal<CanvasTabRequest | null>>;
   let clearCanvasTabRequestMock: jest.Mock;
   let canvasStoreMock: CanvasStore;
@@ -144,8 +146,9 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     removeWorkspaceTileStateMock = jest.fn();
     removeTileOnlyMock = jest.fn();
     removeTileFromAnyWorkspaceMock = jest.fn();
-    allTabIdsMock = jest.fn(() => []);
     forceCloseTabMock = jest.fn();
+    hydrateWorkspaceMock = jest.fn();
+    persistenceFlushMock = jest.fn();
     canvasTabRequest$ = signal<CanvasTabRequest | null>(null);
     clearCanvasTabRequestMock = jest.fn(() => canvasTabRequest$.set(null));
 
@@ -163,7 +166,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
         Array<{
           tabId: string;
           order: number;
-          weight: number;
+          width: { kind: 'auto'; weight: number };
           rowBreakBefore: boolean;
         }>
       >([]),
@@ -176,14 +179,15 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       removeWorkspaceTileState: removeWorkspaceTileStateMock,
       removeTileOnly: removeTileOnlyMock,
       removeTileFromAnyWorkspace: removeTileFromAnyWorkspaceMock,
-      allTabIds: allTabIdsMock,
+      hydrateWorkspace: hydrateWorkspaceMock,
       addTileFromSession: jest.fn(),
       addTile: jest.fn(),
       adoptTab: jest.fn(),
       focusTile: jest.fn(),
       removeTile: jest.fn(),
       reorderTiles: jest.fn(),
-      setTileWeights: jest.fn(),
+      setLayoutLocked: jest.fn(),
+      applyPreset: jest.fn(),
     } as unknown as CanvasStore;
 
     const layoutServiceMock = {
@@ -226,6 +230,10 @@ describe('OrchestraCanvasComponent workspace effects', () => {
         providers: [
           { provide: CanvasStore, useValue: canvasStoreMock },
           { provide: CanvasLayoutService, useValue: layoutServiceMock },
+          {
+            provide: CanvasLayoutPersistenceService,
+            useValue: { flush: persistenceFlushMock },
+          },
         ],
       },
     });
@@ -335,16 +343,33 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     expect(clearCanvasTabRequestMock).toHaveBeenCalled();
   });
 
-  it('ngOnDestroy force-closes tabs across ALL retained workspaces', () => {
-    allTabIdsMock.mockReturnValue(['a-tab-1', 'b-tab-1', 'c-tab-1']);
+  it('hydrates exact existing tab ids without opening or loading sessions', () => {
+    tabsSignal.set([
+      { id: 'tab-1', claudeSessionId: 'session-1', name: 'one' },
+      { id: 'tab-2', claudeSessionId: null, name: 'two' },
+    ]);
+    mount();
+    expect(hydrateWorkspaceMock).toHaveBeenCalledWith(null, ['tab-1', 'tab-2']);
+    expect(canvasStoreMock.addTileFromSession).not.toHaveBeenCalled();
+  });
+
+  it('ngOnDestroy flushes persistence and never closes tabs', () => {
     const fixture = mount();
 
     fixture.destroy();
 
-    expect(forceCloseTabMock).toHaveBeenCalledWith('a-tab-1');
-    expect(forceCloseTabMock).toHaveBeenCalledWith('b-tab-1');
-    expect(forceCloseTabMock).toHaveBeenCalledWith('c-tab-1');
-    expect(forceCloseTabMock).toHaveBeenCalledTimes(3);
+    expect(persistenceFlushMock).toHaveBeenCalledTimes(1);
+    expect(forceCloseTabMock).not.toHaveBeenCalled();
+  });
+
+  it('routes a dock preset request to the store exactly once', () => {
+    const fixture = mount();
+    const component = fixture.componentInstance as unknown as {
+      applyPreset(preset: 'one-plus-two'): void;
+    };
+    component.applyPreset('one-plus-two');
+    expect(canvasStoreMock.applyPreset).toHaveBeenCalledWith('one-plus-two');
+    expect(canvasStoreMock.applyPreset).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -481,6 +506,16 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
         providers: [
           CanvasStore,
           { provide: CanvasLayoutService, useValue: layoutServiceMock },
+          {
+            provide: CanvasLayoutPersistenceService,
+            useValue: {
+              load: jest.fn(() => ({ tiles: null, writable: true })),
+              markHydrated: jest.fn(),
+              schedule: jest.fn(),
+              remove: jest.fn(),
+              flush: jest.fn(),
+            },
+          },
         ],
       },
     });
@@ -624,6 +659,16 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
         providers: [
           CanvasStore,
           { provide: CanvasLayoutService, useValue: layoutServiceMock },
+          {
+            provide: CanvasLayoutPersistenceService,
+            useValue: {
+              load: jest.fn(() => ({ tiles: null, writable: true })),
+              markHydrated: jest.fn(),
+              schedule: jest.fn(),
+              remove: jest.fn(),
+              flush: jest.fn(),
+            },
+          },
         ],
       },
     });

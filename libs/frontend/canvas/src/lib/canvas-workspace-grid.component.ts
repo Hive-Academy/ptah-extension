@@ -22,9 +22,10 @@ import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasTileComponent } from './canvas-tile.component';
 import {
-  effectiveCapacity,
   projectDragIntent,
+  snapSpan,
   type TilePositionObservation,
+  type TileSpan,
 } from './canvas-layout-intent';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 
@@ -36,7 +37,8 @@ interface GestureSnapshot {
   readonly workspacePath: string;
   readonly draggedId: string;
   readonly workspaceRevision: number;
-  readonly effectiveCapacity: number;
+  readonly responsiveCapacity: number;
+  readonly layoutFocusTabId: string | null;
   readonly expectedTabIds: readonly string[];
   lastDraggedPosition: TilePositionObservation;
 }
@@ -100,8 +102,16 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
             [tabId]="item.tabId"
             [visible]="visible()"
             [focused]="canvasStore.focusedTabId() === item.tabId"
+            [widthIntent]="item.width"
+            [rowBreakBefore]="item.rowBreakBefore"
+            [firstInOrder]="item.firstInOrder"
+            [layoutFocused]="layoutFocusTabId() === item.tabId"
+            [layoutLocked]="locked()"
             (focusRequested)="canvasStore.focusTile($event)"
             (closeRequested)="canvasStore.removeTile($event)"
+            (spanRequested)="onSpanRequested(item.tabId, $event)"
+            (layoutFocusToggled)="onLayoutFocusToggled(item.tabId)"
+            (rowBreakToggled)="onRowBreakToggled(item.tabId)"
           />
         </gridstack-item>
       }
@@ -162,7 +172,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     float: false,
     margin: 8,
     draggable: { handle: '.tile-header' },
-    // Horizontal only: intent carries a width share, and rows must stay
+    // Horizontal only: intent carries a named span, and rows must stay
     // height-aligned for the cellHeight scroll rule to hold. Vertical resize
     // has no field to write into, so its handles are not offered.
     resizable: { handles: 'e, w' },
@@ -175,11 +185,14 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
 
   readonly isSingleton = computed(() => this.tiles().length === 1);
 
+  /** Responsive column capacity; spans promote against it at render time. */
   private readonly capacity = computed(() =>
-    effectiveCapacity(
-      this.layoutService.columnsFor(this.layoutService.containerWidth()),
-      this.canvasStore.columnsPreferenceFor(this.workspacePath()),
-    ),
+    this.layoutService.columnsFor(this.layoutService.containerWidth()),
+  );
+
+  /** Transient layout focus for this workspace; move/resize pause while set. */
+  protected readonly layoutFocusTabId = computed(() =>
+    this.canvasStore.layoutFocusTabIdFor(this.workspacePath()),
   );
 
   private readonly layout = computed(() => {
@@ -190,7 +203,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     this.metrics.increment('layoutComputations', 1, false);
     return this.layoutService.computeLayout(
       this.tiles(),
-      this.canvasStore.columnsPreferenceFor(this.workspacePath()),
+      this.layoutFocusTabId(),
     );
   });
 
@@ -203,7 +216,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     for (const tabId of this.creationOptions.keys()) {
       if (!liveIds.has(tabId)) this.creationOptions.delete(tabId);
     }
-    const isSingleton = this.isSingleton();
+    const frozen = this.isSingleton() || this.layoutFocusTabId() !== null;
+    const firstId = firstByOrder(this.tiles());
     return this.tiles().map((tile) => {
       const position = derived.get(tile.tabId) ?? UNMEASURED_ITEM;
       let options = this.creationOptions.get(tile.tabId);
@@ -214,17 +228,20 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
           w: position.w,
           h: position.h,
           id: tile.tabId,
-          noMove: isSingleton,
-          noResize: isSingleton,
+          noMove: frozen,
+          noResize: frozen,
         };
         this.creationOptions.set(tile.tabId, options);
         this.metrics.increment('creationOptionWrites', 1, false);
       } else {
-        options.noMove = isSingleton;
-        options.noResize = isSingleton;
+        options.noMove = frozen;
+        options.noResize = frozen;
       }
       return {
         tabId: tile.tabId,
+        width: tile.width,
+        rowBreakBefore: tile.rowBreakBefore,
+        firstInOrder: tile.tabId === firstId,
         options,
       };
     });
@@ -293,6 +310,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       const locked = this.locked();
       const workspacePath = this.workspacePath();
       const capacity = this.capacity();
+      const layoutFocusTabId = this.layoutFocusTabId();
       const revision = this.canvasStore.workspaceRevision(workspacePath);
       const gesture = this._gesture;
       if (
@@ -300,7 +318,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         (!visible ||
           locked ||
           gesture.workspacePath !== workspacePath ||
-          gesture.effectiveCapacity !== capacity ||
+          gesture.responsiveCapacity !== capacity ||
+          gesture.layoutFocusTabId !== layoutFocusTabId ||
           gesture.workspaceRevision !== revision)
       ) {
         this.cancelGesture();
@@ -310,7 +329,14 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
 
   onGestureStart(kind: GestureKind, event: elementCB): void {
     this.cancelGesture();
-    if (!this.visible() || this.locked() || this.isSingleton()) return;
+    if (
+      !this.visible() ||
+      this.locked() ||
+      this.isSingleton() ||
+      this.layoutFocusTabId() !== null
+    ) {
+      return;
+    }
     const draggedId = event.el.gridstackNode?.id;
     if (typeof draggedId !== 'string') {
       this.metrics.increment('rejectedGestures');
@@ -323,7 +349,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       workspacePath,
       draggedId,
       workspaceRevision: this.canvasStore.workspaceRevision(workspacePath),
-      effectiveCapacity: this.capacity(),
+      responsiveCapacity: this.capacity(),
+      layoutFocusTabId: this.layoutFocusTabId(),
       expectedTabIds: tiles.map((tile) => tile.tabId),
       lastDraggedPosition: this.positionFromElement(event.el, draggedId),
     };
@@ -379,7 +406,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       gesture.workspacePath !== this.workspacePath() ||
       gesture.workspaceRevision !==
         this.canvasStore.workspaceRevision(gesture.workspacePath) ||
-      gesture.effectiveCapacity !== this.capacity()
+      gesture.responsiveCapacity !== this.capacity() ||
+      gesture.layoutFocusTabId !== this.layoutFocusTabId()
     ) {
       this.metrics.increment('rejectedGestures');
       this.reconcileGesture(gesture);
@@ -398,7 +426,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         this.tiles(),
         nodes,
         gesture.draggedId,
-        gesture.effectiveCapacity,
+        gesture.responsiveCapacity,
       );
       if (
         !projected ||
@@ -419,24 +447,20 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       return;
     }
 
-    const weights = new Map<string, number>();
-    for (const node of nodes) {
-      const gridNode = grid.engine.nodes.find(
-        (candidate) => candidate.id === node.tabId,
-      );
-      const width = gridNode?.w;
-      if (typeof width !== 'number' || !Number.isFinite(width) || width <= 0) {
-        this.metrics.increment('rejectedGestures');
-        this.reconcileGesture(gesture);
-        return;
-      }
-      weights.set(node.tabId, width);
-    }
+    // Resize writes only the dragged tile's snapped span; neighbours the engine
+    // pushed are settled back from authoritative intent below.
+    const width = grid.engine.nodes.find(
+      (candidate) => candidate.id === gesture.draggedId,
+    )?.w;
     if (
-      this.canvasStore.commitResizeWeights(
+      typeof width === 'number' &&
+      Number.isFinite(width) &&
+      width > 0 &&
+      this.canvasStore.commitResizeSpan(
         gesture.workspacePath,
         gesture.workspaceRevision,
-        weights,
+        gesture.draggedId,
+        snapSpan(width),
       )
     ) {
       this.metrics.increment('acceptedGestures');
@@ -444,6 +468,23 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       this.metrics.increment('rejectedGestures');
     }
     this.reconcileGesture(gesture);
+  }
+
+  /** Tile-menu actions: lock refuses them here as well as in the store. */
+  protected onSpanRequested(tabId: string, span: TileSpan): void {
+    if (this.locked()) return;
+    this.canvasStore.setTileSpan(this.workspacePath(), tabId, span);
+  }
+
+  protected onLayoutFocusToggled(tabId: string): void {
+    if (this.locked()) return;
+    this.cancelGesture();
+    this.canvasStore.toggleLayoutFocus(this.workspacePath(), tabId);
+  }
+
+  protected onRowBreakToggled(tabId: string): void {
+    if (this.locked()) return;
+    this.canvasStore.toggleRowBreak(this.workspacePath(), tabId);
   }
 
   private readCompleteNodes(
@@ -556,7 +597,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     movable?: (el: HTMLElement, val: boolean) => void;
     resizable?: (el: HTMLElement, val: boolean) => void;
   }): void {
-    const enabled = !this.isSingleton() && !this.locked();
+    const enabled =
+      !this.isSingleton() && !this.locked() && this.layoutFocusTabId() === null;
     for (const node of grid.engine?.nodes ?? []) {
       if (!node.el) continue;
       grid.movable?.(node.el, enabled);
@@ -586,4 +628,12 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   ngOnDestroy(): void {
     this.cancelGesture(false);
   }
+}
+
+function firstByOrder(
+  tiles: readonly { tabId: string; order: number }[],
+): string | undefined {
+  return [...tiles].sort(
+    (a, b) => a.order - b.order || a.tabId.localeCompare(b.tabId),
+  )[0]?.tabId;
 }

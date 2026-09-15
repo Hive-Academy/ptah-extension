@@ -1,57 +1,52 @@
 # Canvas (Orchestra Canvas)
 
-↩️ [Back to Main](../../../CLAUDE.md)
+[Back to Main](../../../CLAUDE.md)
 
 ## Purpose
 
-Multi-session "Orchestra Canvas" panel. Renders a drag-and-resize grid of chat tiles (up to 9), each backed by a tab from `@ptah-extension/chat`'s `TabManagerService`. Layout is powered by Gridstack.js.
+Multi-session Orchestra Canvas panel. It renders a drag-and-resize Gridstack grid of up to nine chat tiles, each backed by a `TabManagerService` tab.
 
 ## Boundaries
 
-**Belongs here**: tile composition, per-canvas layout/store, agent indicator widgets.
-**Does NOT belong**: tab lifecycle (lives in `@ptah-extension/chat`), session RPC (core), app routing (core `AppStateManager`).
+**Belongs here**: tile composition, panel-scoped layout/store/persistence, and agent indicator widgets.
+**Does not belong**: tab lifecycle (`@ptah-extension/chat`), session RPC, or app routing (`AppStateManager`).
 
 ## Public API
 
-From `src/index.ts`: `OrchestraCanvasComponent`, `CanvasTileComponent`, `CanvasEmptyStateComponent`, `CanvasStore`, `CanvasLayoutService`, `TileAgentIndicatorComponent`, `TileAgentMiniPanelComponent` plus `CanvasTile`, `CanvasLayout`, `TileLayout` types. **Unchanged by TASK_2026_387** — the intent refactor changed what `CanvasTile` holds, not which names this lib exports. `TileLayout` keeps the exact shape `{ x, y, w, h }`; `libs/frontend/tribunal-panel` imports it, so changing it is a cross-lib break.
-
-## Internal Structure
-
-Flat — all files live directly under `src/lib/`. No subfolders.
+`src/index.ts` exports `OrchestraCanvasComponent`, `CanvasTileComponent`, `CanvasEmptyStateComponent`, `CanvasStore`, `CanvasLayoutService`, `TileAgentIndicatorComponent`, `TileAgentMiniPanelComponent`, and the existing `CanvasTile`, `CanvasLayout`, and `TileLayout` types. `TileLayout` remains exactly `{ x, y, w, h }`; `libs/frontend/tribunal-panel` consumes it.
 
 ## Key Files
 
-- `src/lib/orchestra-canvas.component.ts:50` — top-level panel; OnPush; `providers: [CanvasStore, CanvasLayoutService]` ensures each canvas instance has its own store.
-- `src/lib/canvas.store.ts:21` — scoped (non-root) store; tracks workspace-partitioned tiles, focus, revision and Auto/1/2/3 maximum; capped at `MAX_TILES = 9`; bridges to `TabManagerService` for session→tab resolution. A tile is `{ tabId, order, weight, rowBreakBefore }` — **intent only**; no `x`/`y`/`w`/`h` is ever stored. Gesture commits are addressed by workspace and compare the captured revision atomically.
-- `src/lib/canvas-layout.service.ts` — `ResizeObserver` + RAF driver plus the pure layout function. Columns come from a minimum tile width (`MIN_TILE_WIDTH = 480`) capped by the workspace preference. Explicit logical rows are partitioned first; responsive chunks are render-only and never write intent. Each rendered row's 12 Gridstack units are apportioned by weight.
-- `src/lib/canvas-layout-intent.ts` — pure logical-row removal/reconciliation and drag projection. Removing a row start transfers its boundary to the row's next survivor. Capacity-one geometry can reorder only inside existing logical-row blocks.
-- `src/lib/canvas-workspace-grid.component.ts` — the only file that talks to Gridstack. One grid per retained workspace. Stable creation options prevent Angular's item setter becoming a second geometry writer; one guarded imperative effect diffs and batches changed nodes only.
-- `src/lib/canvas-render-metrics.service.ts` — bounded, panel-local geometry/gesture counters exposed as diagnostic data attributes by the workspace grid.
-- `src/lib/canvas-tile.component.ts` — single tile shell hosting the chat surface.
-- `src/lib/tile-agent-indicator.component.ts` / `tile-agent-mini-panel.component.ts` — per-tile agent status widgets.
+- `orchestra-canvas.component.ts` is the OnPush panel root. Its providers scope the store, layout, persistence, and metrics services to one canvas instance.
+- `canvas.store.ts` is the intent facade. State is partitioned by workspace and contains active-session focus, transient layout focus, revisions, lock state, and at most nine tiles.
+- `canvas-layout-intent.ts` owns the `TileWidthIntent` union, 12-unit deterministic packer, preset projection, resize snapping, row-preserving reconciliation, and span-aware drag projection.
+- `canvas-layout.service.ts` observes the viewport and projects intent to public Gridstack geometry. Responsive capacity derives from `MIN_TILE_WIDTH = 480` and never mutates stored intent.
+- `canvas-layout-persistence.service.ts` is the workspace/panel local-storage boundary. Zod validates v1/v2 records, v1 weights migrate losslessly to `auto`, unknown future records remain byte-preserved and read-only, and writes start only after hydration.
+- `canvas-workspace-grid.component.ts` is the only Gridstack writer. Stable item options prevent Angular from becoming a second geometry authority; a guarded effect diffs and batches only changed nodes.
+- `canvas-tile.component.ts` hosts one chat surface and an accessible `NativePopoverComponent` menu for span, transient focus, and row-boundary actions.
+- `canvas-layout-controls.component.ts` is the presentational preset and lock dock.
+- `canvas-render-metrics.service.ts` exposes bounded, panel-local geometry and gesture counters.
 
-## State Management
+## Intent and State
 
-- Signal-based (`signal`, `computed`, `effect`); zoneless-friendly.
-- `CanvasStore` is **scoped per component** (not `providedIn: 'root'`) so multiple canvases can coexist.
+A tile is `{ tabId, order, width, rowBreakBefore }`. `width` is either a named span (`third | half | two-thirds | full`, mapping to `4 | 6 | 8 | 12` units) or `{ kind: 'auto', weight }`. Concrete `x`, `y`, `w`, and `h` are never stored.
+
+Auto tiles split the remaining width of their rendered row by weight. Named spans keep their chosen width and may leave a deliberate gap. At narrow widths spans promote in the projection only, then restore when the viewport widens.
+
+`focusedTabId` remains active chat selection and synchronizes with `TabManagerService`. `layoutFocusTabId` is separate, transient, workspace-scoped, and not persisted. It projects one tile as a full-width row and disables Gridstack move/resize until focus exits.
+
+Persistence keys are workspace- and panel-scoped. Hydration reconciles validated intent against exact restored tab ids and never opens or loads sessions. Ordinary component destruction flushes pending layout writes and does not close tabs.
+
+## Geometry and Gesture Contracts
+
 - Geometry flows one way: store intent → `CanvasLayoutService.computeLayout()` → `grid.update()`. Gridstack is a renderer, never a store.
-- Gestures capture workspace, revision, capacity, dragged id and complete membership at start. The following stop/change validates the full engine node set before atomically writing order/breaks or weights to the captured workspace. Hide, lock, destroy, capacity/revision change and incomplete observations cancel or reject the whole commit. Every terminal path, including an accepted semantic no-op, then reconciles existing engine nodes from current authoritative intent; it never creates a missing node or projects an old gesture into another workspace.
-- The write-back is suppressed by a synchronous `_applyingLayout` boolean set around the grid-mutation block and cleared in a `finally`. `batchUpdate` is **not** a guard — `batchUpdate(false)` calls `_triggerChangeEvent()` and does emit `change`.
-- Focused tab syncs with `TabManagerService`.
+- Gestures capture workspace, revision, responsive capacity, layout-focus id, dragged id, and complete membership. Stop/change validates the full node set before atomically committing drag intent or the dragged tile's snapped named span.
+- Hide, lock, focus, destroy, capacity/revision changes, and incomplete observations cancel or reject the commit. Every terminal path reconciles existing nodes from current authoritative intent.
+- `_applyingLayout` is set synchronously around mutation and cleared in `finally`. `batchUpdate` is not a guard because `batchUpdate(false)` emits `change`.
+- Vertical resizing remains unavailable (`resizable.handles: 'e, w'`); row height stays aligned with the cell-height scrolling rule.
 
-## Dependencies
+## Angular Conventions
 
-**Internal**: `@ptah-extension/ui` (NativePopover), `@ptah-extension/core` (`AppStateManager`), `@ptah-extension/chat` (`TabManagerService`, `ChatStore`).
-**External**: `gridstack` (v12.6.0, uses `gridstack/dist/angular`), `lucide-angular`, `@angular/forms`.
+Standalone OnPush components, signals, `inject()`, signal-based `viewChild`, and zoneless-safe effects. The store is never root-scoped. No code outside `CanvasWorkspaceGridComponent` calls Gridstack, and `CanvasLayoutService` never imports it.
 
-## Angular Conventions Observed
-
-OnPush everywhere, standalone components, signals + `inject()`, `afterNextRender`, `viewChild` signal-API, `effect()` for signal bridges (TASK_2025_271).
-
-## Guidelines
-
-- Never lift `CanvasStore` to root; it must be scoped per panel.
-- Intent changes flow through Gridstack's `changeCB`; positions are derived on every layout pass and never stored. Do not add an `x`/`y`/`w`/`h` field back to `CanvasTile`.
-- No code outside `CanvasWorkspaceGridComponent` may call a Gridstack API, and `CanvasLayoutService` must never import Gridstack — that is what keeps it unit-testable without the jest module mock.
-- Vertical tile resize is deliberately unavailable (`resizable.handles: 'e, w'`): rows must stay height-aligned for the `cellHeight` scroll rule, and intent has no per-tile height field.
-- Respect `MAX_TILES = 9` — tile-add operations return `null` when capped.
+Lock is enforced in the UI and store. It blocks presets, span, row, layout focus, drag, and resize changes. Do not add geometry back to tile intent or exceed `MAX_TILES = 9`.

@@ -390,3 +390,115 @@ describe('CanvasTileComponent visibility-driven streaming registration', () => {
     expect(mockTabManager.unregisterVisibleTab).toHaveBeenCalledWith('tab-1');
   });
 });
+
+describe('CanvasTileComponent layout menu contract', () => {
+  const tabManager = {
+    tabs: signal([{ id: 'tile-1', title: 'Alpha', name: 'Alpha' }]),
+    setOverrideEffort: jest.fn(),
+    setOverrideModel: jest.fn(),
+    getTabViewMode: jest.fn(() => 'full'),
+    toggleTabViewMode: jest.fn(),
+    registerVisibleTab: jest.fn(),
+    unregisterVisibleTab: jest.fn(),
+  };
+  const effort = { currentEffort: signal<string | null>(null), isLoaded: signal(false) };
+  const model = { currentModel: signal(''), isLoaded: signal(false) };
+
+  function setup(locked = false) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [CanvasTileComponent],
+      providers: [
+        { provide: TabManagerService, useValue: tabManager },
+        { provide: EffortStateService, useValue: effort },
+        { provide: ModelStateService, useValue: model },
+      ],
+    });
+    TestBed.overrideComponent(CanvasTileComponent, {
+      set: {
+        imports: [],
+        template: `
+          <button type="button" aria-haspopup="menu"
+            [attr.aria-expanded]="layoutMenuOpen()"
+            [attr.aria-label]="'Layout options for ' + tabLabel()"
+            (click)="toggleLayoutMenu()">Layout</button>
+          @if (layoutMenuOpen()) {
+            <div #layoutMenu role="menu" (keydown)="onLayoutMenuKeydown($event)">
+              @for (option of spanOptions; track option.span) {
+                <button type="button" role="menuitemradio" data-layout-item tabindex="-1"
+                  [attr.aria-checked]="isSpanChecked(option.span)"
+                  [attr.aria-label]="option.label" [disabled]="layoutLocked()"
+                  (click)="requestSpan(option.span)">{{ option.text }}</button>
+              }
+              <button type="button" role="menuitem" data-layout-item tabindex="-1"
+                aria-label="Focus tile at full width" [disabled]="layoutLocked()"
+                (click)="requestLayoutFocus()">Focus</button>
+              <button type="button" role="menuitem" data-layout-item tabindex="-1"
+                aria-label="Start a new row before this tile"
+                [disabled]="layoutLocked() || firstInOrder()"
+                (click)="requestRowBreak()">Start new row</button>
+            </div>
+          }
+        `,
+      },
+    });
+    const fixture = TestBed.createComponent(CanvasTileComponent);
+    fixture.componentRef.setInput('tabId', 'tile-1');
+    fixture.componentRef.setInput('widthIntent', { kind: 'span', span: 'half' });
+    fixture.componentRef.setInput('layoutLocked', locked);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('exposes trigger/menu ARIA and four stored-span radio choices', () => {
+    const fixture = setup();
+    const trigger = fixture.nativeElement.querySelector('button');
+    expect(trigger.getAttribute('aria-label')).toBe('Layout options for Alpha');
+    expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
+    trigger.click();
+    fixture.detectChanges();
+    const radios = [...fixture.nativeElement.querySelectorAll('[role="menuitemradio"]')] as HTMLButtonElement[];
+    expect(radios.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Set tile width to one third', 'Set tile width to one half',
+      'Set tile width to two thirds', 'Set tile width to full',
+    ]);
+    expect(radios.map((button) => button.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false', 'false']);
+  });
+
+  it('emits span, focus and row actions and closes after selection', () => {
+    const fixture = setup();
+    const span = jest.fn();
+    const focus = jest.fn();
+    const row = jest.fn();
+    fixture.componentInstance.spanRequested.subscribe(span);
+    fixture.componentInstance.layoutFocusToggled.subscribe(focus);
+    fixture.componentInstance.rowBreakToggled.subscribe(row);
+    const open = (): void => { fixture.nativeElement.querySelector('button').click(); fixture.detectChanges(); };
+    open();
+    (fixture.nativeElement.querySelectorAll('[role="menuitemradio"]')[2] as HTMLButtonElement).click();
+    expect(span).toHaveBeenCalledWith('two-thirds');
+    open();
+    (fixture.nativeElement.querySelector('[aria-label="Focus tile at full width"]') as HTMLButtonElement).click();
+    expect(focus).toHaveBeenCalledTimes(1);
+    open();
+    (fixture.nativeElement.querySelector('[aria-label="Start a new row before this tile"]') as HTMLButtonElement).click();
+    expect(row).toHaveBeenCalledTimes(1);
+  });
+
+  it('cycles enabled items with arrows/Home/End and disables all actions when locked', () => {
+    const fixture = setup();
+    fixture.nativeElement.querySelector('button').click();
+    fixture.detectChanges();
+    const items = [...fixture.nativeElement.querySelectorAll('[data-layout-item]')] as HTMLButtonElement[];
+    items[1].focus();
+    items[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(document.activeElement).toBe(items.at(-1));
+    items.at(-1)?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(items[0]);
+
+    const locked = setup(true);
+    locked.nativeElement.querySelector('button').click();
+    locked.detectChanges();
+    expect([...locked.nativeElement.querySelectorAll('[data-layout-item]')].every((item) => (item as HTMLButtonElement).disabled)).toBe(true);
+  });
+});
