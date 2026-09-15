@@ -169,6 +169,26 @@ Rebase onto PR #513 final head (2026-09-15, orchestrator; `rebase-report.md`):
   - `memory-curator.service.ts` gained curator pass admission + network back-off (`CuratorPassAdmission`).
   - `tools/degradation-audit/baseline.json:21` pins `libs/backend/memory-curator` at 20.
 
+Second rebase onto PR #513 `01b155b77` (2026-09-15, orchestrator; #513 CI fully green there):
+
+- `git rebase --onto 01b155b77 9ec3b26e7`, NO conflicts. New head `c31c06959`. Old -> new (every older SHA in this file
+  is pre-rebase): `489fe26f6` -> `052965c4b` (docs); `a1f173a5d` -> `5d1685b72` (Batch 2); `01402b3b3` -> `24f0fa0b4`
+  (Batch 1); `88797e8d2` -> `b1b362023` (Batch 4); `2ed2f95d5` -> `36d6e8486` (docs); `8866acec2` -> `29f7a602a`
+  (Batch 3); `f555ae393` -> `a55f4fb42` (docs); `ab7cf6977` -> `29db8ca38` (test fix); `417251bc2` -> `77269e6d4`
+  (docs); `c7f1f02a8` -> `b1712f35d` (Batch 5); `4c970cce5` -> `c31c06959` (docs).
+- Checks on `c31c06959` (orchestrator): memory-curator test / typecheck / lint for 1 project green (627 passed, 59
+  skipped pre-existing; lint 0 errors / 5 warnings); `degradation-audit:lint` exit 0, memory-curator 20/20;
+  better-sqlite3 run (Batch 5 pattern) 43 suites, 686/686. #513's broader POSIX + home-directory sanitizer rules and
+  its multi-batch governor and sanitize specs pass against `RetentionRunBudget` unchanged.
+- Rebased `memory-retention.service.ts` (team-leader, on disk at `c31c06959`): 702 lines; `sanitizeRetentionError`
+  `:91`; constructor `:142-160` (optional governor last, `:159`); `storageHealth()` `:204-...` (local `readErrors`
+  `:205`, sanitized at the return `:260-261`); `execute` `:303`; `new RetentionRunBudget({...})` `:319`; quarantine
+  step `:374`; `continueAfterRows` `:409`; ledger prune `:411-422`; reclaim `:424-432`; catch `:433-443`;
+  `return this.finish(...)` `:444`; `reclaimPages` `:458`; `finish` `:510` (sanitizes failure text `:531`); `writeRun`
+  `:610`; `readSettings` `:654`; `toRunDto` `:665`. `'memory-row-budget'` already exists in
+  `memory-retention.types.ts:36`. Positional `new MemoryRetentionService(` sites: `memory-retention.service.spec.ts:296`
+  and `memory-retention.integration.spec.ts:87` only.
+
 Cross-batch rule XB2 (added 2026-09-15 with the rebase, binding for Batches 5-10):
 
 - Every NEW `catch` (or `.catch`) that fails open, swallows, or returns a sentinel or default MUST carry a
@@ -833,7 +853,7 @@ review round is required).
 
 ---
 
-## Batch 6: retention integration + shared DTO + REACHABILITY PROOF (DI reach, real-SQLite integration) — PENDING
+## Batch 6: retention integration + shared DTO + REACHABILITY PROOF (DI reach, real-SQLite integration) — IN_PROGRESS
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer)
 - Fallback executor: backend-developer subagent
@@ -844,20 +864,22 @@ review round is required).
 - Reviewer: Ollama Cloud lane, code-logic-reviewer -> `code-logic-review-batch-6.md`. The reviewer must run the
   mutation checks listed in Tasks 6.3 and 6.4 (or read the executor's evidence of them) before accepting.
 - Suggested commit: `feat(memory-curator,shared): batch 6 - run the memory lifecycle inside memory retention`
-- Tasks: 4 | Depends on: Batch 5 (and Batch 4 committed, so the wave has a clean tree)
+- Tasks: 4 | Depends on: Batch 5 (`b1712f35d`) on the `01b155b77` rebase (head `c31c06959`)
 
-### Task 6.1: `MemoryRetentionService` runs the lifecycle step; run record + report + storage health — PENDING
+### Task 6.1: `MemoryRetentionService` runs the lifecycle step; run record + report + storage health — IN_PROGRESS
 
 - Dir: `W\libs\backend\memory-curator\src\lib\retention\`
   - MODIFY `memory-retention.service.ts` (already on `RetentionRunBudget` after Task 5.1): inject
     `MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE` as the 7th param, BEFORE the optional governor, which stays LAST and
-    optional (8 params; update every positional `new MemoryRetentionService(` site); after quarantine, when
+    optional (8 params; update the two positional sites `memory-retention.service.spec.ts:296` and
+    `memory-retention.integration.spec.ts:87`); constructor at `:142-160`; after quarantine (quarantine step `:374`), when
     `stop === null || stop === 'row-budget'`, `await lifecycle.runStep(budget, startedAt)` with the SAME budget, so the
     lifecycle obeys the run's governor wait, wall budget and `maxDeferMs` cap (XB3); its `stop` sets the run's stop if
-    still null; ledger prune + reclaim keep their `continueAfterRows` condition (rebased `:439-466`, re-read after
-    5.1); `completed` also requires `exhausted`; `writeRun` gets counters, note, preview; `storageHealth()` adds `memoryLifecycle`
-    from live settings + state row (no memory-table query).
-  - MODIFY `memory-retention.types.ts` (`'memory-row-budget'` if not already added in 5.3;
+    still null; ledger prune + reclaim keep their `continueAfterRows` condition (`:409`, ledger `:411-422`, reclaim
+    `:424-432` at `c31c06959`); `completed` (decided in `finish` `:510`) also requires `exhausted`; `writeRun` gets counters, note, preview; `storageHealth()` (`:204`) adds `memoryLifecycle`
+    from live settings + state row (no memory-table query); the last run's lifecycle `readErrors` are appended to its
+    local `readErrors` (`:205`) so they leave through the existing `sanitizeRetentionError` map (`:260-261`).
+  - MODIFY `memory-retention.types.ts` (`'memory-row-budget'` already present at `:36`;
     `MemoryRetentionRunReport` + `memoriesArchived`, `memoriesDeleted`, `memoriesEvicted`, `lifecycleNote`)
   - MODIFY `observation-retention.store.ts` (`RetentionRunRecord` / `RetentionState` / `WRITE_RUN_SQL` /
     `READ_STATE_SQL` + nine 0044 columns; preview `null` keeps the previous value, same rule as
@@ -869,8 +891,9 @@ review round is required).
   no lifecycle batch; pin it in `memory-retention.service.spec.ts`. The step result's `readErrors` (Batch 5 revision 1)
   feed `storageHealth()` through `sanitizeRetentionError`.
 - Quality requirements: `run` still never rejects; flag cleared in `finally`; lifecycle `RetentionStepError`
-  goes through the existing catch (rebased `:467-476` before 5.1; busy -> `partial`, else `failed`); file stays
-  <= ~720 lines (R-TL10); `memoryLifecycle` read errors go through the same `sanitizeRetentionError` mapping as
+  goes through the existing catch (`:433-443`; busy -> `partial`, else `failed`; failure text sanitized in
+  `finish` `:531`); file stays <= ~720 lines (R-TL10; 702 before this batch — if it passes 720, move a nameable
+  piece such as the `storageHealth` mapping behind the facade rule rather than compressing code); `memoryLifecycle` read errors go through the same `sanitizeRetentionError` mapping as
   `readErrors`; XB2 annotations on any new fail-open catch.
 - Acceptance (service spec, fakes): lifecycle called once per executed run with a `RetentionRunBudget` and a number;
   NOT called for any skip gate (each gate a case); called after a queue `row-budget` stop; not called after
@@ -879,7 +902,7 @@ review round is required).
   (assert identity); a busy fake governor holds the first lifecycle batch until clear; `AbortError` during a lifecycle
   wait ends the run `partial` with `stop = 'aborted'` and no ledger prune or reclaim dispatch after it.
 
-### Task 6.2: Shared wire DTO additions + typed frontend fixture patch — PENDING
+### Task 6.2: Shared wire DTO additions + typed frontend fixture patch — IN_PROGRESS
 
 - Depends on: Task 6.1
 - Files:
@@ -887,14 +910,14 @@ review round is required).
     `memoriesArchived`, `memoriesDeleted`, `memoriesEvicted` (required numbers); new `MemoryLifecyclePreviewDto`;
     `MemoryStorageHealthDto.memoryLifecycle` (required) exactly as plan :663-686. Do NOT remove `lastDecay*` or
     `'decay-run'` here (Batch 9).
-  - MODIFY `memory-retention.service.ts` `toRunDto` (:656) to map the three counters (same file as 6.1).
+  - MODIFY `memory-retention.service.ts` `toRunDto` (`:665` at `c31c06959`) to map the three counters (same file as 6.1).
   - MODIFY fixture fields only (Deviation 2):
     `W\libs\frontend\memory-curator-ui\src\lib\components\diagnostics\storage-health-panel.component.spec.ts`
     (factory :12-50) and `...\memory-diagnostics-accordion.component.spec.ts` (literal near :144).
 - Plan reference: implementation-plan.md:655-692
 - Validation notes: no RPC method added, so no `rpc.types.ts` method map or `ALLOWED_METHOD_PREFIXES` change.
 
-### Task 6.3: REACHABILITY PROOF — DI graph wires the lifecycle into the registered retention service — PENDING
+### Task 6.3: REACHABILITY PROOF — DI graph wires the lifecycle into the registered retention service — IN_PROGRESS
 
 - Depends on: Task 6.1
 - File: MODIFY `W\libs\backend\memory-curator\src\lib\di\register.spec.ts`
@@ -907,11 +930,11 @@ review round is required).
   or `MEMORY_LIFECYCLE_STORE` not registered -> resolve throws; (b) the registered `MemoryRetentionService` does not
   receive the lifecycle collaborator or `execute` does not call `runStep` -> seeded row stays `recall`; (c) report
   lacks lifecycle counters -> `memoriesArchived` undefined.
-- Mutation check (executor runs and reports; nothing committed): temporarily comment out the `runStep` call in
+- Mutation check (executor runs and reports; nothing committed): temporarily remove the `runStep` call in
   `execute`, run only this spec, confirm it FAILS, restore, confirm it passes; `git diff` of the service identical to
   the intended change afterwards.
 
-### Task 6.4: REACHABILITY PROOF — real SQLite + sqlite-vec integration through `MemoryRetentionService.run` — PENDING
+### Task 6.4: REACHABILITY PROOF — real SQLite + sqlite-vec integration through `MemoryRetentionService.run` — IN_PROGRESS
 
 - Depends on: Tasks 6.1-6.3
 - File: MODIFY `W\libs\backend\memory-curator\src\lib\retention\memory-retention.integration.spec.ts` — new
@@ -938,7 +961,12 @@ review round is required).
   - same set with `-t typecheck` — 6 projects
   - `npx nx run-many -t lint -p @ptah-extension/memory-curator @ptah-extension/shared @ptah-extension/memory-curator-ui` — 3 projects
   - report skipped count in `register.spec.ts` and the integration spec (must be 0)
-- Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-6-report.md` (include both mutation-check outputs)
+  - XB2: `npx nx run degradation-audit:lint` (exit 0; memory-curator stays at baseline 20)
+  - XB1 better-sqlite3 run, from `W` in PowerShell (keep the double quotes inside the single quotes):
+    `$env:ELECTRON_RUN_AS_NODE='1'; & 'D:\projects\ptah-extension\node_modules\.bin\electron.cmd' 'D:\projects\ptah-extension\node_modules\jest\bin\jest.js' --config libs/backend/memory-curator/jest.config.ts --testPathPatterns '"memory-lifecycle|retention-run-budget|memory-retention|observation-retention|di/register.spec|memory.store.spec"' --runInBand`
+  - `wc -l libs/backend/memory-curator/src/lib/retention/memory-retention.service.ts`
+- Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-6-report.md` (include every mutation-check output). Write
+  `batch-6.done` in the task folder as the LAST step. Create no other file in the task folder.
 
 ### Batch 6 verification
 
