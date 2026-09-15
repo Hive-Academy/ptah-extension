@@ -262,23 +262,23 @@ There is no current on-disk canvas record on this branch: current canvas state i
 
 | Action | Absolute path | Change | Estimated size |
 | --- | --- | --- | --- |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-intent.ts` | Own width/span types; responsive unit resolution; deterministic packer; preset projection; span-aware drag projector; resize snap helper. | +140/-70 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-intent.spec.ts` | Packing helpers, fallback, presets and drag projection cases. | +180/-20 lines |
-| REWRITE | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout.service.ts` | Consume packed rows; remove columns preference and general row-weight apportionment; keep measurement/cell-height/public geometry contracts. | net -20 to +20 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout.service.spec.ts` | Mixed spans, auto fill, focus and responsive restoration. | +120/-100 lines |
-| CREATE | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-persistence.service.ts` | Zod v1/v2 boundary, keying, hydration result, migration, debounced save and lifecycle flush. | 220-280 lines |
-| CREATE | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-persistence.service.spec.ts` | Boundary, migration, future-version and flush tests. | 220-280 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas.store.ts` | Width mutations, transient layout focus, presets, hydration and persistence delegation; delete column-preference state. | +110/-70 lines; keep facade cohesive near soft cap |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas.store.spec.ts` | Span/focus/preset, hydration and workspace persistence scheduling. | +180/-80 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-workspace-grid.component.ts` | Pass tile layout inputs/actions; span-aware gesture snapshot; snapped resize commit; focus interaction state. | +70/-45 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-workspace-grid.component.spec.ts` | Drag/resize projection, fallback and focus interaction tests. | +170/-80 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-tile.component.ts` | Accessible per-tile layout popover and typed outputs. | +130 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-tile.component.spec.ts` | Menu keyboard, ARIA, outputs, lock and propagation tests. | +160 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-controls.component.ts` | Replace numeric caps with named preset buttons/output; retain lock. | +35/-55 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-controls.component.spec.ts` | Preset labels/emissions/lock guards. | +50/-80 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\orchestra-canvas.component.ts` | Scoped persistence provider, authoritative hydration, preset routing, non-destructive teardown. | +35/-35 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\orchestra-canvas.component.spec.ts` | Hydration/no-duplicate-session and teardown-flush coverage; preset routing. | +100/-40 lines |
-| MODIFY | `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\CLAUDE.md` | Replace documented cap/weight model with width union, packer, focus and persistence ownership. | +20/-15 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/canvas-layout-intent.ts` | Own width/span types; responsive unit resolution; deterministic packer; preset projection; span-aware drag projector; resize snap helper. | +140/-70 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/canvas-layout-intent.spec.ts` | Packing helpers, fallback, presets and drag projection cases. | +180/-20 lines |
+| REWRITE | `libs/frontend/canvas/src/lib/canvas-layout.service.ts` | Consume packed rows; remove columns preference and general row-weight apportionment; keep measurement/cell-height/public geometry contracts. | net -20 to +20 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/canvas-layout.service.spec.ts` | Mixed spans, auto fill, focus and responsive restoration. | +120/-100 lines |
+| CREATE | `libs/frontend/canvas/src/lib/canvas-layout-persistence.service.ts` | Zod v1/v2 boundary, keying, hydration result, migration, debounced save and lifecycle flush. | 220-280 lines |
+| CREATE | `libs/frontend/canvas/src/lib/canvas-layout-persistence.service.spec.ts` | Boundary, migration, future-version and flush tests. | 220-280 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/canvas.store.ts` | Width mutations, transient layout focus, presets, hydration and persistence delegation; delete column-preference state. | +110/-70 lines; keep facade cohesive near soft cap |
+| MODIFY | `libs/frontend/canvas/src/lib/canvas.store.spec.ts` | Span/focus/preset, hydration and workspace persistence scheduling. | +180/-80 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/canvas-workspace-grid.component.ts` | Pass tile layout inputs/actions; span-aware gesture snapshot; snapped resize commit; focus interaction state. | +70/-45 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/canvas-workspace-grid.component.spec.ts` | Drag/resize projection, fallback and focus interaction tests. | +170/-80 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/canvas-tile.component.ts` | Accessible per-tile layout popover and typed outputs. | +130 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/canvas-tile.component.spec.ts` | Menu keyboard, ARIA, outputs, lock and propagation tests. | +160 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/canvas-layout-controls.component.ts` | Replace numeric caps with named preset buttons/output; retain lock. | +35/-55 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/canvas-layout-controls.component.spec.ts` | Preset labels/emissions/lock guards. | +50/-80 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/orchestra-canvas.component.ts` | Scoped persistence provider, authoritative hydration, preset routing, non-destructive teardown. | +35/-35 lines |
+| MODIFY | `libs/frontend/canvas/src/lib/orchestra-canvas.component.spec.ts` | Hydration/no-duplicate-session and teardown-flush coverage; preset routing. | +100/-40 lines |
+| MODIFY | `libs/frontend/canvas/CLAUDE.md` | Replace documented cap/weight model with width union, packer, focus and persistence ownership. | +20/-15 lines |
 
 No change to `libs/frontend/canvas/src/index.ts`, `libs/shared`, any RPC type, or backend code. The persistence service is internal and the existing public export surface stays intact (`libs/frontend/canvas/src/index.ts:1-10`).
 

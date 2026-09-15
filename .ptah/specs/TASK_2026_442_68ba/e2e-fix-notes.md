@@ -2,7 +2,7 @@
 
 ## Files changed
 
-- `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\apps\ptah-electron-e2e\src\specs\canvas\canvas.spec.ts`
+- `apps/ptah-electron-e2e/src/specs/canvas/canvas.spec.ts`
   - Scoped the singleton layout assertion to `[data-testid="canvas-dock"]` and the exact dynamic label so it cannot match a tile's `tile-layout-trigger`.
   - Made the first drag cross decisively into the next row. The previous pointer endpoint sometimes remained in the original row, making the real Gridstack gesture flaky before the resize assertion ran.
   - Changed the east-handle resize from an approximately one-unit shrink to an approximately two-unit shrink. This lands the six-unit tile at the four-unit `third` snap point; its auto neighbour fills the remaining eight units.
@@ -15,9 +15,9 @@
 
 Searched TypeScript and HTML under:
 
-- `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\apps\ptah-electron-e2e`
-- `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\apps\ptah-extension-vscode-e2e`
-- `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\webview-e2e-harness`
+- `apps/ptah-electron-e2e`
+- `apps/ptah-extension-vscode-e2e`
+- `libs/frontend/webview-e2e-harness`
 
 No additional references to 1/2/3-column buttons, `getByRole('button', { name: /Layout/ })`, or ambiguous `Layout options` selectors remain. The only remaining exact `Layout options` lookup is scoped to the canvas dock.
 

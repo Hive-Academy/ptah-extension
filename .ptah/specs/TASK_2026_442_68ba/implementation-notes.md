@@ -6,23 +6,23 @@ Implemented per-tile fluid canvas spans, deterministic responsive packing, named
 
 ## Files changed
 
-1. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-intent.ts` — added width intent types, span units, responsive row packing, preset projection, snapping, reconciliation, and span-aware drag projection.
-2. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-intent.spec.ts` — replaced legacy capacity/weight tests with mixed-span, auto-weight, responsive fallback, focus, preset, snap, drag, deletion, and invalid-observation coverage.
-3. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout.service.ts` — projects packed intent into the unchanged public `{ x, y, w, h }` geometry and retains measurement/cell-height behavior.
-4. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout.service.spec.ts` — covers exact named-span rows, independent row combinations, auto fill, narrow fallback/restoration, layout focus, measurement, and degenerate inputs.
-5. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-persistence.service.ts` — added strict Zod v1/v2 storage boundary, migration, future-version write protection, hydration gating, debounced byte-equivalent writes, lifecycle flushes, and bounded warnings.
-6. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-persistence.service.spec.ts` — covers v2 round-trip/keying, every v1 cap, arbitrary weights, invalid records, future bytes, hydration gating, debounce, lifecycle flush, and storage failures.
-7. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas.store.ts` — replaced column/weight APIs with workspace-addressed span, row, layout-focus, preset, resize, hydration, lock, and persistence delegation APIs; retained the facade below 700 lines.
-8. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas.store.spec.ts` — covers exact-id hydration, span/revision commits, lock, transient focus, presets, partitioning, LRU, row transfer, and workspace cleanup.
-9. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-workspace-grid.component.ts` — routes tile layout actions, includes focus/capacity in gesture validation, disables interaction during layout focus, and commits snapped resize spans while preserving the single Gridstack writer and `_applyingLayout` guard.
-10. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-workspace-grid.component.spec.ts` — updates the faithful Gridstack harness for snapped spans, responsive no-write restoration, focus suppression/exit, lock, complete validation, and feedback-loop behavior.
-11. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-tile.component.ts` — added the `NativePopoverComponent` layout menu, stored-span radio state, focus/row actions, lock guards, focus management, and arrow/Home/End keyboard navigation.
-12. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-tile.component.spec.ts` — adds layout trigger/menu ARIA, four radio options, typed outputs, keyboard navigation, and lock-disabled action coverage while retaining effort/model/visibility tests.
-13. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-controls.component.ts` — replaced numeric cap controls with three presentational preset outputs while retaining the lock control.
-14. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-controls.component.spec.ts` — covers preset labels/values, close behavior, singleton/lock disablement, and lock operability.
-15. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\orchestra-canvas.component.ts` — provides persistence at panel scope, hydrates authoritative tab ids, routes presets, synchronizes store lock, flushes on destroy, and removes force-close teardown.
-16. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\orchestra-canvas.component.spec.ts` — updates hydration/provider fixtures and covers no session opening/loading, preset routing, persistence flush, non-destructive teardown, and retained workspace visibility.
-17. `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\CLAUDE.md` — documents the new width union, packing/preset/focus contracts, persistence ownership, hydration, lock, and geometry boundaries.
+1. `libs/frontend/canvas/src/lib/canvas-layout-intent.ts` — added width intent types, span units, responsive row packing, preset projection, snapping, reconciliation, and span-aware drag projection.
+2. `libs/frontend/canvas/src/lib/canvas-layout-intent.spec.ts` — replaced legacy capacity/weight tests with mixed-span, auto-weight, responsive fallback, focus, preset, snap, drag, deletion, and invalid-observation coverage.
+3. `libs/frontend/canvas/src/lib/canvas-layout.service.ts` — projects packed intent into the unchanged public `{ x, y, w, h }` geometry and retains measurement/cell-height behavior.
+4. `libs/frontend/canvas/src/lib/canvas-layout.service.spec.ts` — covers exact named-span rows, independent row combinations, auto fill, narrow fallback/restoration, layout focus, measurement, and degenerate inputs.
+5. `libs/frontend/canvas/src/lib/canvas-layout-persistence.service.ts` — added strict Zod v1/v2 storage boundary, migration, future-version write protection, hydration gating, debounced byte-equivalent writes, lifecycle flushes, and bounded warnings.
+6. `libs/frontend/canvas/src/lib/canvas-layout-persistence.service.spec.ts` — covers v2 round-trip/keying, every v1 cap, arbitrary weights, invalid records, future bytes, hydration gating, debounce, lifecycle flush, and storage failures.
+7. `libs/frontend/canvas/src/lib/canvas.store.ts` — replaced column/weight APIs with workspace-addressed span, row, layout-focus, preset, resize, hydration, lock, and persistence delegation APIs; retained the facade below 700 lines.
+8. `libs/frontend/canvas/src/lib/canvas.store.spec.ts` — covers exact-id hydration, span/revision commits, lock, transient focus, presets, partitioning, LRU, row transfer, and workspace cleanup.
+9. `libs/frontend/canvas/src/lib/canvas-workspace-grid.component.ts` — routes tile layout actions, includes focus/capacity in gesture validation, disables interaction during layout focus, and commits snapped resize spans while preserving the single Gridstack writer and `_applyingLayout` guard.
+10. `libs/frontend/canvas/src/lib/canvas-workspace-grid.component.spec.ts` — updates the faithful Gridstack harness for snapped spans, responsive no-write restoration, focus suppression/exit, lock, complete validation, and feedback-loop behavior.
+11. `libs/frontend/canvas/src/lib/canvas-tile.component.ts` — added the `NativePopoverComponent` layout menu, stored-span radio state, focus/row actions, lock guards, focus management, and arrow/Home/End keyboard navigation.
+12. `libs/frontend/canvas/src/lib/canvas-tile.component.spec.ts` — adds layout trigger/menu ARIA, four radio options, typed outputs, keyboard navigation, and lock-disabled action coverage while retaining effort/model/visibility tests.
+13. `libs/frontend/canvas/src/lib/canvas-layout-controls.component.ts` — replaced numeric cap controls with three presentational preset outputs while retaining the lock control.
+14. `libs/frontend/canvas/src/lib/canvas-layout-controls.component.spec.ts` — covers preset labels/values, close behavior, singleton/lock disablement, and lock operability.
+15. `libs/frontend/canvas/src/lib/orchestra-canvas.component.ts` — provides persistence at panel scope, hydrates authoritative tab ids, routes presets, synchronizes store lock, flushes on destroy, and removes force-close teardown.
+16. `libs/frontend/canvas/src/lib/orchestra-canvas.component.spec.ts` — updates hydration/provider fixtures and covers no session opening/loading, preset routing, persistence flush, non-destructive teardown, and retained workspace visibility.
+17. `libs/frontend/canvas/CLAUDE.md` — documents the new width union, packing/preset/focus contracts, persistence ownership, hydration, lock, and geometry boundaries.
 
 ## Deviations from the approved plan
 
@@ -155,10 +155,10 @@ NX   Successfully ran target test for 2 projects
 
 ### Changes
 
-- `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-intent.ts` — kept the approved drag-break rule unchanged and documented that its fit check mirrors `packRows` minimum-unit accounting.
-- `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-intent.spec.ts` — pinned dropped auto-tile row intent and packed geometry at responsive capacities three and two; expanded `focus-plus-stack` to assert exact order, width, and row-break intent for every tile.
-- `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-persistence.service.ts` — treats every numeric version greater than 2, including fractional versions, as future/read-only and uses a class-field `DestroyRef` injection.
-- `D:\projects\ptah-extension\.claude-worktrees\task-442-fluid-canvas-spans\libs\frontend\canvas\src\lib\canvas-layout-persistence.service.spec.ts` — covers version 2.5 preservation, `beforeunload`, hidden `visibilitychange`, and visible `visibilitychange` without flushing.
+- `libs/frontend/canvas/src/lib/canvas-layout-intent.ts` — kept the approved drag-break rule unchanged and documented that its fit check mirrors `packRows` minimum-unit accounting.
+- `libs/frontend/canvas/src/lib/canvas-layout-intent.spec.ts` — pinned dropped auto-tile row intent and packed geometry at responsive capacities three and two; expanded `focus-plus-stack` to assert exact order, width, and row-break intent for every tile.
+- `libs/frontend/canvas/src/lib/canvas-layout-persistence.service.ts` — treats every numeric version greater than 2, including fractional versions, as future/read-only and uses a class-field `DestroyRef` injection.
+- `libs/frontend/canvas/src/lib/canvas-layout-persistence.service.spec.ts` — covers version 2.5 preservation, `beforeunload`, hidden `visibilitychange`, and visible `visibilitychange` without flushing.
 
 No other implementation changes were made in revise round 1.
 
