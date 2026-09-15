@@ -1,4 +1,3 @@
-import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
@@ -38,7 +37,16 @@ import {
   type SkillRegistryStore,
 } from '@ptah-extension/skill-synthesis';
 
-import { createCoalescedJob, type CoalescedJob } from './coalesced-job';
+import {
+  TOKENS,
+  type BackgroundWorkAdmission,
+} from '@ptah-extension/vscode-core';
+
+import {
+  createCoalescedJob,
+  type CoalescedJob,
+  type CoalescedJobAdmission,
+} from './coalesced-job';
 import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
 
 const USER_LAYER_MIRRORED_AT = 'user_layer_mirrored_at';
@@ -106,9 +114,111 @@ function userLayerJobFor(
     windowMs: USER_LAYER_COALESCE_WINDOW_MS,
     run: async ({ reasons, payload }) =>
       runUserLayerPass(container, payload.workspaceRoot, reasons),
+    admit: (request) => admitUserLayerPass(container, request),
   });
   coalescersByContainer.set(container, created);
   return created;
+}
+
+/**
+ * Refresh reasons whose pass is background work and waits for the
+ * background-work governor (TASK_2026_437 C14 c).
+ *
+ * An ALLOW-list, the Batch 16b rule: a reason not listed here is never held.
+ *
+ * - `content-download-complete` — the post-network re-mirror at boot. Nobody
+ *   awaits it for a reply, and it lands exactly when a first turn is most
+ *   likely to be generating.
+ * - NOT `activation` — the boot pass the first window depends on; never
+ *   deferred.
+ * - NOT `harness-propagation` — every `HarnessPropagationService.propagate`
+ *   refreshes through this label, and most of those are awaited by an RPC
+ *   handler answering a click (plugin save, skill install, the setup wizard).
+ *   Holding them would hold the reply until the turn ends — up to the
+ *   governor's 10-minute ceiling. User-initiated work is never governed.
+ *
+ * A batch waits only while EVERY reason in it is listed: a non-listed reason
+ * joining a held batch releases it at once.
+ */
+export const GOVERNED_USER_LAYER_REASONS: ReadonlySet<string> = new Set([
+  'content-download-complete',
+]);
+
+/** `whenClear` lane name; it only labels the governor's ceiling log line. */
+const USER_LAYER_GOVERNOR_LANE = 'user-layer-refresh';
+
+/** The governor, or `null` when this container has none (a spec, a bare host). */
+function resolveUserLayerGovernor(
+  container: DependencyContainer,
+): BackgroundWorkAdmission | null {
+  if (!container.isRegistered(TOKENS.BACKGROUND_WORK_GOVERNOR, true)) {
+    return null;
+  }
+  try {
+    return container.resolve<BackgroundWorkAdmission>(
+      TOKENS.BACKGROUND_WORK_GOVERNOR,
+    );
+  } catch (error: unknown) {
+    // degradation-audit: optional-capability - an unresolvable governor means the pass runs ungoverned, exactly as before TASK_2026_437 C14
+    console.warn(
+      '[Ptah Electron] Background-work governor unavailable; the user-layer pass runs ungoverned:',
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+}
+
+/**
+ * The coalescer's gate for one user-layer batch.
+ *
+ * - Any reason outside {@link GOVERNED_USER_LAYER_REASONS} → run now.
+ * - No governor, or already clear → run now.
+ * - Otherwise wait: `'clear'` or `'timeout'` (the starvation ceiling) → run.
+ * - The wait aborts because a new reason joined → the coalescer asks again
+ *   with the grown reason list (the answer is ignored).
+ * - The governor rejects with an `AbortError` on its own (disposed at
+ *   shutdown) → skip: a directory walk plus copies must not start during quit.
+ * - Any other rejection is a governor defect → warn and run (fail open), the
+ *   rule every adopter follows.
+ */
+async function admitUserLayerPass(
+  container: DependencyContainer,
+  request: CoalescedJobAdmission,
+): Promise<'run' | 'skip'> {
+  if (
+    !request.reasons.every((reason) => GOVERNED_USER_LAYER_REASONS.has(reason))
+  ) {
+    return 'run';
+  }
+  const governor = resolveUserLayerGovernor(container);
+  if (governor === null || governor.isClear()) return 'run';
+
+  console.log(
+    `[Ptah Electron] User-layer pass (${request.reasons.join(' + ')}) deferred until background work clears`,
+  );
+  try {
+    await governor.whenClear({
+      signal: request.signal,
+      lane: USER_LAYER_GOVERNOR_LANE,
+    });
+    return 'run';
+  } catch (error: unknown) {
+    // degradation-audit: optional-capability - a held pass is re-asked when a reason joins, and skipped only at shutdown (governor disposed)
+    if (request.signal.aborted) return 'run';
+    const reason = error instanceof Error ? error.message : String(error);
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.log(
+        `[Ptah Electron] User-layer pass (${request.reasons.join(' + ')}) skipped — host shutting down:`,
+        reason,
+      );
+      return 'skip';
+    }
+    console.warn(
+      `[Ptah Electron] User-layer pass (${request.reasons.join(' + ')}) — background-work wait failed; running anyway:`,
+      reason,
+    );
+    return 'run';
+  }
 }
 
 /** Phase 4.55: initialize plugin loader. Non-fatal on failure. */

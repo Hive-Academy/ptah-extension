@@ -3,6 +3,8 @@ import {
   createExecutableEditorDefinitions,
   detectEditorTargets,
   EDITOR_DESCRIPTORS,
+  EDITOR_PROBE_CONCURRENCY,
+  EditorTargetCache,
   editorExecutableCandidates,
   prepareEditorFileLaunch,
   prepareEditorWorkspaceLaunch,
@@ -159,6 +161,250 @@ describe('detectEditorTargets', () => {
       { id: 'vscode', displayName: 'VS Code', executablePath },
     ]);
   });
+});
+
+/**
+ * TASK_2026_437 C14 (e): `editor:detectTargets` runs at boot. Its PATH probes
+ * are bounded to 8 concurrent stats and its result is cached per PATH +
+ * PATHEXT — but only a conclusive, successful detection is kept.
+ */
+describe('detectEditorTargets — bounded probes and cache', () => {
+  const executable = { isFile: () => true, mode: 0o755 };
+  const enoent = (): Error =>
+    Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+  const codeDefinition = [
+    {
+      id: 'vscode' as const,
+      displayName: 'VS Code',
+      command: 'code',
+      installCandidates: [] as { kind: 'executable'; path: string }[],
+    },
+  ];
+  const manyDirs = Array.from({ length: 40 }, (_, i) => `/p${i}`).join(':');
+
+  it('never runs more than EDITOR_PROBE_CONCURRENCY stats at once', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const probe = jest.fn(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setImmediate(resolve));
+      inFlight -= 1;
+      throw enoent();
+    });
+
+    const result = await detectEditorTargets(definitionsFor(['code', 'zed']), {
+      env: { PATH: manyDirs },
+      platform: 'linux',
+      stat: probe,
+    });
+
+    expect(result).toEqual([]);
+    expect(probe).toHaveBeenCalledTimes(80);
+    expect(EDITOR_PROBE_CONCURRENCY).toBe(8);
+    expect(peak).toBe(EDITOR_PROBE_CONCURRENCY);
+  });
+
+  it('still reports the FIRST PATH match when a later directory answers sooner', async () => {
+    const probe = jest.fn(async (candidate: string) => {
+      if (candidate === '/p1/code') {
+        // The earlier directory is slow; the later one is instant.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return executable;
+      }
+      if (candidate === '/p5/code') return executable;
+      throw enoent();
+    });
+
+    const result = await detectEditorTargets(codeDefinition, {
+      env: { PATH: manyDirs },
+      platform: 'linux',
+      stat: probe,
+    });
+
+    expect(result).toEqual([
+      { id: 'vscode', displayName: 'VS Code', executablePath: '/p1/code' },
+    ]);
+    // Probes queued behind the match were skipped, not run.
+    expect(probe.mock.calls.length).toBeLessThan(40);
+  });
+
+  it('caches a conclusive result per PATH + PATHEXT and probes again when either changes', async () => {
+    const cache = new EditorTargetCache();
+    const probe = jest.fn(async (candidate: string) => {
+      if (candidate === 'C:\\Tools\\code.CMD') return executable;
+      throw enoent();
+    });
+    const run = (env: Record<string, string>) =>
+      detectEditorTargets(codeDefinition, {
+        env,
+        platform: 'win32',
+        stat: probe,
+        cache,
+      });
+
+    const first = await run({ PATH: 'C:\\Tools', PATHEXT: '.EXE;.CMD' });
+    const callsAfterFirst = probe.mock.calls.length;
+    const second = await run({ PATH: 'C:\\Tools', PATHEXT: '.EXE;.CMD' });
+    expect(second).toEqual(first);
+    expect(probe).toHaveBeenCalledTimes(callsAfterFirst);
+
+    // A copy each time: a caller mutating its array cannot poison the cache.
+    second.pop();
+    expect(await run({ PATH: 'C:\\Tools', PATHEXT: '.EXE;.CMD' })).toHaveLength(
+      1,
+    );
+
+    await run({ PATH: 'C:\\Tools', PATHEXT: '.CMD' });
+    expect(probe.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+    const callsAfterPathext = probe.mock.calls.length;
+    await run({ PATH: 'C:\\Other;C:\\Tools', PATHEXT: '.CMD' });
+    expect(probe.mock.calls.length).toBeGreaterThan(callsAfterPathext);
+  });
+
+  it('caches a conclusive EMPTY result (every probe proved absence)', async () => {
+    const cache = new EditorTargetCache();
+    const probe = jest.fn(async () => {
+      throw enoent();
+    });
+    const options = {
+      env: { PATH: '/a:/b' },
+      platform: 'linux' as const,
+      stat: probe,
+      cache,
+    };
+
+    expect(await detectEditorTargets(codeDefinition, options)).toEqual([]);
+    expect(await detectEditorTargets(codeDefinition, options)).toEqual([]);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not keep a result an inconclusive probe could have changed', async () => {
+    const cache = new EditorTargetCache();
+    let busy = true;
+    const probe = jest.fn(async (candidate: string) => {
+      if (candidate === '/net/code') {
+        if (busy) {
+          throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' });
+        }
+        return executable;
+      }
+      if (candidate === '/usr/bin/code') return executable;
+      throw enoent();
+    });
+    const options = {
+      env: { PATH: '/net:/usr/bin' },
+      platform: 'linux' as const,
+      stat: probe,
+      cache,
+    };
+
+    // The busy mount hides the first match: the answer is served, not kept.
+    expect(await detectEditorTargets(codeDefinition, options)).toEqual([
+      { id: 'vscode', displayName: 'VS Code', executablePath: '/usr/bin/code' },
+    ]);
+    busy = false;
+    expect(await detectEditorTargets(codeDefinition, options)).toEqual([
+      { id: 'vscode', displayName: 'VS Code', executablePath: '/net/code' },
+    ]);
+    // Now conclusive: kept.
+    const calls = probe.mock.calls.length;
+    await detectEditorTargets(codeDefinition, options);
+    expect(probe).toHaveBeenCalledTimes(calls);
+  });
+
+  it('keeps a result when the only inconclusive probe comes AFTER the chosen match', async () => {
+    const cache = new EditorTargetCache();
+    const probe = jest.fn(async (candidate: string) => {
+      if (candidate === '/a/code') return executable;
+      throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    });
+    const options = {
+      env: { PATH: '/a:/b' },
+      platform: 'linux' as const,
+      stat: probe,
+      cache,
+    };
+
+    await detectEditorTargets(codeDefinition, options);
+    const calls = probe.mock.calls.length;
+    await detectEditorTargets(codeDefinition, options);
+    expect(probe).toHaveBeenCalledTimes(calls);
+  });
+
+  it('does not keep a detection that rejected, and shares one in-flight detection', async () => {
+    const cache = new EditorTargetCache();
+    let broken = true;
+    const probe = jest.fn(async () => ({
+      mode: 0o755,
+      isFile: () => {
+        if (broken) throw new Error('stat object unusable');
+        return true;
+      },
+    }));
+    const options = {
+      env: { PATH: '/a' },
+      platform: 'linux' as const,
+      stat: probe,
+      cache,
+    };
+
+    const one = detectEditorTargets(codeDefinition, options);
+    const two = detectEditorTargets(codeDefinition, options);
+    await expect(one).rejects.toThrow('stat object unusable');
+    await expect(two).rejects.toThrow('stat object unusable');
+    expect(probe).toHaveBeenCalledTimes(1);
+
+    broken = false;
+    await expect(detectEditorTargets(codeDefinition, options)).resolves.toEqual(
+      [{ id: 'vscode', displayName: 'VS Code', executablePath: '/a/code' }],
+    );
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps nothing for an injected stat without a cache, or with cache: null', async () => {
+    const probe = jest.fn(async () => {
+      throw enoent();
+    });
+    const base = {
+      env: { PATH: '/a' },
+      platform: 'linux' as const,
+      stat: probe,
+    };
+
+    await detectEditorTargets(codeDefinition, base);
+    await detectEditorTargets(codeDefinition, base);
+    await detectEditorTargets(codeDefinition, { ...base, cache: null });
+    expect(probe).toHaveBeenCalledTimes(3);
+  });
+
+  it('clear() drops kept results', async () => {
+    const cache = new EditorTargetCache();
+    const probe = jest.fn(async () => {
+      throw enoent();
+    });
+    const options = {
+      env: { PATH: '/a' },
+      platform: 'linux' as const,
+      stat: probe,
+      cache,
+    };
+
+    await detectEditorTargets(codeDefinition, options);
+    cache.clear();
+    await detectEditorTargets(codeDefinition, options);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  function definitionsFor(commands: readonly string[]) {
+    const ids = { code: 'vscode', zed: 'zed' } as const;
+    return commands.map((command) => ({
+      id: ids[command as keyof typeof ids],
+      displayName: command,
+      command,
+      installCandidates: [] as { kind: 'executable'; path: string }[],
+    }));
+  }
 });
 
 describe('editor process launch', () => {

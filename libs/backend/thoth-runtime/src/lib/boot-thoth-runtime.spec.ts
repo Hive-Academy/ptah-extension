@@ -486,6 +486,12 @@ describe('bootThothRuntime', () => {
     await runDeps.runSymbols('/ws');
 
     expect(symbolIndexer.indexWorkspace).toHaveBeenCalledTimes(1);
+    // These deps only serve `indexing:start` / `indexing:resume` — a click —
+    // so the run never waits on the background-work governor (TASK_2026_437).
+    expect(symbolIndexer.indexWorkspace).toHaveBeenCalledWith(
+      '/ws',
+      expect.objectContaining({ userInitiated: true }),
+    );
     expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
       MESSAGE_TYPES.INDEXING_PROGRESS,
       expect.objectContaining({

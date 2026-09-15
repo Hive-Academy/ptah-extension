@@ -151,6 +151,7 @@ export {
   WORKER_RESTART_WINDOW_MS,
 } from './diagnostics';
 export type {
+  BackgroundWorkAdmission,
   BackgroundWorkSignal,
   BackgroundWorkState,
   BackgroundWorkStateListener,

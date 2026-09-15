@@ -34,6 +34,7 @@ const SKILL_REGISTRY_CATALOG_TOKEN = Symbol.for('SkillRegistryCatalogService');
 const SKILL_CANDIDATE_STORE_TOKEN = Symbol.for('SkillCandidateStore');
 const SQLITE_CONNECTION_TOKEN = Symbol.for('PtahSqliteConnection');
 const AGENT_SYNC_GATE_TOKEN = Symbol.for('HarnessSyncAgentSyncGate');
+const GOVERNOR_TOKEN = Symbol.for('BackgroundWorkGovernor');
 
 const CONFIGURED_SKILLS_ROOT = path.join('/configured', 'skills-root');
 
@@ -44,6 +45,10 @@ jest.mock('@ptah-extension/platform-core', () => ({
     WORKSPACE_PROVIDER: Symbol.for('IWorkspaceProvider'),
     CONTENT_DOWNLOAD: Symbol.for('ContentDownloadService'),
   },
+}));
+
+jest.mock('@ptah-extension/vscode-core', () => ({
+  TOKENS: { BACKGROUND_WORK_GOVERNOR: Symbol.for('BackgroundWorkGovernor') },
 }));
 
 jest.mock('@ptah-extension/agent-sdk', () => ({
@@ -93,6 +98,7 @@ jest.mock('@ptah-extension/skill-synthesis', () => ({
 
 import { resolveSkillsRoot } from '@ptah-extension/skill-synthesis';
 import {
+  GOVERNED_USER_LAYER_REASONS,
   USER_LAYER_COALESCE_WINDOW_MS,
   createUserLayerRefresher,
   mirrorUserLayer,
@@ -137,7 +143,7 @@ function emptyReconcileResult(over: Record<string, unknown> = {}) {
 
 function makeHarness(
   reconcileResult: Record<string, unknown> = emptyReconcileResult(),
-  options: { sqliteOpen?: boolean } = {},
+  options: { sqliteOpen?: boolean; governor?: unknown } = {},
 ): Harness {
   const mirrorAll = jest.fn().mockResolvedValue({
     skillsMirrored: 0,
@@ -194,6 +200,7 @@ function makeHarness(
       { resolve: () => ({ enabled: true, derived: false }) },
     ],
   ]);
+  if (options.governor !== undefined) map.set(GOVERNOR_TOKEN, options.governor);
 
   return {
     container: {
@@ -529,6 +536,285 @@ describe('electron plugin-activation — refreshUserLayer coalescing', () => {
     jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
 
     await expect(pass).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * TASK_2026_437 C14 (c): a background user-layer refresh waits for the
+ * background-work governor; `activation` and click-driven propagation never do;
+ * refreshes that arrive while one is held join it; shutdown skips it.
+ */
+describe('electron plugin-activation — refreshUserLayer defers background reasons', () => {
+  function makeGovernor() {
+    let clear = false;
+    let settle: ((outcome: 'clear' | 'timeout') => void) | undefined;
+    let fail: ((error: Error) => void) | undefined;
+    const signals: AbortSignal[] = [];
+    const whenClear = jest.fn(
+      (options: { signal?: AbortSignal; lane?: string } = {}) =>
+        new Promise<'clear' | 'timeout'>((resolve, reject) => {
+          settle = resolve;
+          fail = reject;
+          if (options.signal) {
+            signals.push(options.signal);
+            // The real governor rejects a waiter whose signal fires.
+            options.signal.addEventListener(
+              'abort',
+              () => reject(abortError('aborted')),
+              { once: true },
+            );
+          }
+        }),
+    );
+    return {
+      isClear: jest.fn(() => clear),
+      whenClear,
+      signals,
+      setClear: (value: boolean) => {
+        clear = value;
+      },
+      release: (outcome: 'clear' | 'timeout' = 'clear') => settle?.(outcome),
+      dispose: () => fail?.(abortError('disposed')),
+      breakWith: (error: Error) => fail?.(error),
+    };
+  }
+
+  function abortError(message: string): Error {
+    const error = new Error(message);
+    error.name = 'AbortError';
+    return error;
+  }
+
+  /** Fire the window timer, then let the promise chain settle. */
+  async function settle(): Promise<void> {
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  }
+
+  let logged: string[];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    (resolveSkillsRoot as jest.Mock).mockReturnValue(CONFIGURED_SKILLS_ROOT);
+    logged = [];
+    jest.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      if (typeof line === 'string') logged.push(line);
+    });
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('governs content-download-complete only', () => {
+    expect([...GOVERNED_USER_LAYER_REASONS]).toEqual([
+      'content-download-complete',
+    ]);
+  });
+
+  it('never defers the activation pass', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'activation',
+    );
+    await settle();
+    await pass;
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+    expect(governor.whenClear).not.toHaveBeenCalled();
+  });
+
+  it('never defers a click-driven harness propagation', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+
+    const pass = createUserLayerRefresher(h.container as never).refresh(
+      WORKSPACE_ROOT,
+    );
+    await settle();
+    await pass;
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+    expect(governor.whenClear).not.toHaveBeenCalled();
+  });
+
+  it('holds a content-download-complete pass until the governor clears, then runs it once', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'content-download-complete',
+    );
+    await settle();
+
+    expect(h.mirrorAll).not.toHaveBeenCalled();
+    expect(governor.whenClear).toHaveBeenCalledWith({
+      signal: expect.any(AbortSignal),
+      lane: 'user-layer-refresh',
+    });
+    expect(logged).toContain(
+      '[Ptah Electron] User-layer pass (content-download-complete) deferred until background work clears',
+    );
+
+    governor.release('clear');
+    await settle();
+    await pass;
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+    expect(h.reconcileAll).toHaveBeenCalledTimes(1);
+    expect(h.catalogSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs a held pass at the governor starvation ceiling', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'content-download-complete',
+    );
+    await settle();
+    governor.release('timeout');
+    await settle();
+    await pass;
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces requests that arrive while a pass is held into that ONE pass', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+
+    const first = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'content-download-complete',
+    );
+    await settle();
+    expect(governor.whenClear).toHaveBeenCalledTimes(1);
+
+    // Long after the window: they join the held batch, not a second one.
+    const second = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'content-download-complete',
+    );
+    const third = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'content-download-complete',
+    );
+    await settle();
+    expect(h.mirrorAll).not.toHaveBeenCalled();
+    expect(governor.whenClear).toHaveBeenCalledTimes(1);
+
+    governor.release('clear');
+    await settle();
+    await Promise.all([first, second, third]);
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+    expect(h.catalogSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('a non-governed reason joining a held pass releases it at once, as ONE pass naming both', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+
+    const held = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'content-download-complete',
+    );
+    await settle();
+    expect(h.mirrorAll).not.toHaveBeenCalled();
+
+    const click = createUserLayerRefresher(h.container as never).refresh(
+      WORKSPACE_ROOT,
+    );
+    await settle();
+    await Promise.all([held, click]);
+
+    expect(governor.signals[0]?.aborted).toBe(true);
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+    expect(logged).toContain(
+      '[Ptah Electron] User-layer pass (content-download-complete + harness-propagation)',
+    );
+  });
+
+  it('skips a held pass when the governor is disposed at shutdown', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'content-download-complete',
+    );
+    await settle();
+    governor.dispose();
+    await settle();
+
+    await expect(pass).resolves.toBeUndefined();
+    expect(h.mirrorAll).not.toHaveBeenCalled();
+    expect(
+      logged.some((line) =>
+        line.startsWith(
+          '[Ptah Electron] User-layer pass (content-download-complete) skipped — host shutting down',
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it('runs a held pass when the governor rejects with anything but an abort (fail open)', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness(emptyReconcileResult(), { governor });
+    const warned: unknown[][] = [];
+    (console.warn as jest.Mock).mockImplementation((...args: unknown[]) => {
+      warned.push(args);
+    });
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'content-download-complete',
+    );
+    await settle();
+    governor.breakWith(new Error('governor bug'));
+    await settle();
+    await pass;
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+    expect(warned).toContainEqual([
+      '[Ptah Electron] User-layer pass (content-download-complete) — background-work wait failed; running anyway:',
+      'governor bug',
+    ]);
+  });
+
+  it('runs at once when the governor is already clear', async () => {
+    const governor = makeGovernor();
+    governor.setClear(true);
+    const h = makeHarness(emptyReconcileResult(), { governor });
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'content-download-complete',
+    );
+    await settle();
+    await pass;
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+    expect(governor.whenClear).not.toHaveBeenCalled();
   });
 });
 

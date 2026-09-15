@@ -149,6 +149,26 @@ in one session at 14826 / 9969 / 8626 ms, each followed by a run of 260-554 ms
   if the current one fails. A `watch()` that throws leaves the folder static
   only until a later `ensureReadyFor` retries it (at most once a minute, no
   timer); a successful retry rebuilds once.
+- **Code split (FU-11b, facade rule).** `WorkspaceFileIndexService` keeps its
+  name, DI token and methods and owns the folder LIFECYCLE: the per-folder
+  cache, activation, first build, eviction and the queries. The live half —
+  subscription, batch patches, directory-delete sweep, lost-event rebuild — is
+  `FolderIndexLiveSync` (`folder-index-live-sync.ts`), constructed by the
+  service (not DI-registered) with the service's `build` injected. The shared
+  snapshot shape and its pure writers (`toIndexKey`, `addFileEntry`, …) are
+  `folder-index-snapshot.ts`.
+- **A rebuild is background work** (TASK_2026_437 C14 d). With the optional
+  `TOKENS.BACKGROUND_WORK_GOVERNOR` not clear, a requested rebuild waits
+  (`entry.rebuildDeferral`); queries keep serving the previous snapshot, still
+  patched by live batches, and every further overflow joins the one pending
+  rebuild. `'clear'`/`'timeout'` starts it; a teardown or the governor's
+  `AbortError` at shutdown cancels it (debug log, snapshot kept); any other
+  rejection warns once and rebuilds anyway (fail open). `ensureReadyFor` — which
+  every `@`-picker query awaits — starts a held rebuild at once
+  (`FolderIndexLiveSync.expediteDeferredRebuild`): a caller needs the folder,
+  and user-initiated work is never governed. A background overflow nobody
+  queries keeps waiting. The one rebuild queued behind a RUNNING rebuild also
+  waits. No governor → starts at once.
 - **Query before the first build: nothing, never a partial list** (FU-4c).
   `search`/`getAll`/`searchDirectories` answer from the active folder only once
   its first build completed. The contract is that callers await
@@ -267,6 +287,19 @@ processing failure. Same for `parseJsonConfigFileContent`.
 - File access via `IFileSystemProvider` (platform-core) — never `node:fs` directly.
 - Tree-sitter WASM grammars load lazily; respect platform-info paths for asset resolution.
 - The symbol indexer writes through `ISymbolSink` (memory-contracts) — concrete sink is registered by memory-curator.
+- **Background indexing yields to the foreground** (TASK_2026_437 C14 b).
+  `CodeSymbolIndexer.indexWorkspace` awaits the optional
+  `TOKENS.BACKGROUND_WORK_GOVERNOR` before EACH batch (the first included;
+  `isClear()` first, so an idle host pays nothing). The wait sits on a batch
+  boundary, so no file's delete + insert is ever split. Abort (the caller's
+  `signal`, or the governor disposed at shutdown) throws the same
+  `DOMException('Aborted', 'AbortError')` as the boundary check, logged at
+  debug only. A run acting for the user or for an agent turn passes
+  `userInitiated: true` and never waits — `ptah.code.reindex` does, because it
+  runs INSIDE a generating turn and would otherwise wait for that same turn,
+  and so do thoth-runtime's run-deps for the `indexing:start` /
+  `indexing:resume` clicks. Any other governor rejection warns once per indexer
+  and indexes anyway (fail open). No governor → runs as before.
 - `IndexingProgress` events flow via `createEvent` (platform-core utility) — keep them disposable.
 - Long-running operations must honor cancellation tokens.
 - `catch (error: unknown)`.

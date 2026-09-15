@@ -30,7 +30,7 @@ DI: `TOKENS`, `registerVsCodeCoreServices`, `registerVsCodeCorePlatformAgnostic`
 Core: `Logger`, `ErrorHandler`, `ConfigManager`, `MessageValidatorService`, `ValidationError`, `MessageValidationError`, `PtahError`.
 API wrappers: `CommandManager`, `WebviewManager`, `OutputManager`, `StatusBarManager`, `FileSystemManager`.
 Messaging: `RpcHandler`, `RpcUserError`, `verifyRpcRegistration`, `assertRpcRegistration`.
-Diagnostics: `armDiagnostics` (+ `DiagnosticsHandle`), `EventLoopMonitor`, `CpuProfileCapture`, `readMsEnv`, `roundMs` — see "Diagnosing a hang". Background work: `BackgroundWorkGovernor`, `DEFAULT_MAX_DEFER_MS`, and the types `BackgroundWorkSignal`, `BackgroundWorkState`, `ForegroundActivitySource`, `WhenClearOptions`, `WhenClearOutcome` — see "Background work yields".
+Diagnostics: `armDiagnostics` (+ `DiagnosticsHandle`), `EventLoopMonitor`, `CpuProfileCapture`, `readMsEnv`, `roundMs` — see "Diagnosing a hang". Background work: `BackgroundWorkGovernor`, `DEFAULT_MAX_DEFER_MS`, and the types `BackgroundWorkAdmission`, `BackgroundWorkSignal`, `BackgroundWorkState`, `ForegroundActivitySource`, `WhenClearOptions`, `WhenClearOutcome` — see "Background work yields".
 Degradation: `DegradationReporter`, `MAX_TRACKED_DEGRADATION_CODES`, and the types `DegradationReport`, `DegradationCount`, `DegradationSnapshot` — see "Counting a degradation".
 Services: `SubagentRegistryService`, `WebviewMessageHandlerService`, `AuthSecretsService`, `LicenseService`.
 Git: `GitInfoService`, `execGit`, `DEFAULT_GIT_TIMEOUT_MS`, `WORKTREE_GIT_TIMEOUT_MS`, `DEFAULT_GIT_MAX_OUTPUT_BYTES`, `GIT_STATUS_MAX_OUTPUT_BYTES`, `DEFAULT_GIT_MAX_CONCURRENT`, `MIN_GIT_MAX_CONCURRENT`, `GitOutputLimitError` (`code: 'GIT_OUTPUT_LIMIT'`), `configureGitProcessGate` (+ `GitProcessGateConfig`), and the types `ExecGitOptions`, `ExecGitResult`, `GitGateLane`. Every git child waits in one process-wide gate (TASK_2026_437 C11): at most `PTAH_GIT_MAX_CONCURRENT` live, background-priority and >60 s calls capped at max-1 so interactive reads always have a slot, and a slot is held until the child exits. The gate is a module instance, not DI — `execGit` is a free function called without a container; `registerVsCodeCorePlatformAgnostic` hands it the host logger in all three hosts (first configuration wins).
@@ -219,6 +219,20 @@ state only: `clear | foreground-busy | lagging | disposed`.
   (`memory-curator`, `skill-synthesis`). `default` (wizard, harness, cron),
   `user-action` (RPC-driven clicks) and any unlisted lane are never governed. A
   new background lane must be added to that list.
+- **`whenClear` adopters (Batch 17)** depend on `BackgroundWorkAdmission`
+  (`isClear` + `whenClear`, implemented by `BackgroundWorkGovernor`; never a
+  local `Pick` of the class), inject the token `{ isOptional: true }` and treat
+  a missing governor as clear (no degradation event: only bare containers lack
+  it). Each checks `isClear()` first and governs background work only; user- or
+  agent-initiated work never waits: `CodeSymbolIndexer` (before each batch;
+  `userInitiated` opts out — `ptah.code.reindex` and the `indexing:start` /
+  `indexing:resume` clicks set it), `FolderIndexLiveSync` (lost-event file-index
+  rebuild, coalesced while held, started at once when `ensureReadyFor` asks for
+  the folder), `SqliteBackupService` (`daily` only), and the Electron
+  user-layer coalescer (`GOVERNED_USER_LAYER_REASONS`). One rejection rule for
+  all of them: `'timeout'` runs the unit; an `AbortError` cancels it quietly
+  (debug/info); any other rejection is a governor defect — warn (once per
+  adopter instance where it could repeat) and run the unit (fail open).
 
 ## Counting a degradation
 

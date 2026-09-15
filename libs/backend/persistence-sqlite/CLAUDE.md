@@ -59,6 +59,13 @@ Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(
   - **Overlapping calls are SERIALIZED, never rejected** — the second awaits the
     first. A pre-migration backup must not be skipped because the daily cron was
     running. The chain tail is advanced synchronously, before the first `await`.
+  - **Only a `daily` backup waits for the background-work governor**
+    (TASK_2026_437 C14 d; optional `TOKENS.BACKGROUND_WORK_GOVERNOR`). It waits
+    BEFORE joining the queue, so it never holds a `pre-migration` (boot path)
+    or `reset` (a user click) backup behind it; neither of those ever waits.
+    `'clear'` or the governor's 10-min `'timeout'` → the backup runs; an
+    `AbortError` (governor disposed at shutdown) → `null`, one `info` line, no
+    worker and no degradation report; any other rejection fails open.
   - **Every `null`-returning path discards the destination AND its `-wal` /
     `-shm` sidecars**, via the worker's own `removeBackupArtifact`. The worker
     cannot do this for itself when the host kills it (budget expiry, early exit):

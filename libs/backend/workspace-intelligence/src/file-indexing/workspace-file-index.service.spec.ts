@@ -9,10 +9,8 @@ import {
 } from '@ptah-extension/platform-core';
 import { createMockWorkspaceWatcher } from '@ptah-extension/platform-core/testing';
 import { NESTED_WORKSPACE_PATH_RULES } from '@ptah-extension/shared';
-import {
-  WorkspaceFileIndexService,
-  toIndexKey,
-} from './workspace-file-index.service';
+import { WorkspaceFileIndexService } from './workspace-file-index.service';
+import { toIndexKey } from './folder-index-snapshot';
 import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
 
 // Flush the macrotask + microtask queues so the async stat step settles.
@@ -78,6 +76,11 @@ interface HarnessOptions {
   directories?: string[];
   /** Nested repository roots the walk reports for a raw root. */
   nestedRootsByRoot?: Record<string, string[]>;
+  /** The injected background-work governor (TASK_2026_437 C14 d); none by default. */
+  governor?: {
+    isClear(): boolean;
+    whenClear(options?: unknown): Promise<'clear' | 'timeout'>;
+  };
 }
 
 /** Tagged ignore rule so a test can see WHICH root's rules are live. */
@@ -218,6 +221,7 @@ function makeHarness(opts: HarnessOptions = {}) {
     workspaceProvider as never,
     ignoreResolver as never,
     workspaceWatcher as never,
+    (opts.governor ?? null) as never,
   );
 
   return {
@@ -1323,6 +1327,71 @@ describe('WorkspaceFileIndexService — overflow rebuild (TASK_2026_437)', () =>
 
     await flush();
     expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(3);
+  });
+
+  it('holds an overflow rebuild on the injected governor and serves the previous snapshot until it clears (C14 d)', async () => {
+    let release!: (outcome: 'clear') => void;
+    const governor = {
+      isClear: jest.fn(() => false),
+      whenClear: jest.fn(
+        () =>
+          new Promise<'clear' | 'timeout'>((resolve) => {
+            release = resolve;
+          }),
+      ),
+    };
+    const { service, watchers, indexer, files } = makeHarness({ governor });
+    await service.start(ROOT);
+
+    files.push(abs('gen/after-wait.ts'));
+    watchers[0].deliver({ overflow: true });
+    watchers[0].deliver({ overflow: true });
+    await flush();
+
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(1);
+    expect(governor.whenClear).toHaveBeenCalledTimes(1);
+    expect(service.search('auth', 10)).toHaveLength(1);
+    expect(service.search('after-wait', 10)).toHaveLength(0);
+
+    release('clear');
+    await flush();
+    await flush();
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+    expect(service.search('after-wait', 10)).toHaveLength(1);
+  });
+
+  it('a query for the folder (ensureReadyFor) starts a held rebuild at once; without one it keeps waiting', async () => {
+    const governor = {
+      isClear: jest.fn(() => false),
+      whenClear: jest.fn(
+        (options?: unknown) =>
+          new Promise<'clear' | 'timeout'>((_resolve, reject) => {
+            const signal = (options as { signal?: AbortSignal } | undefined)
+              ?.signal;
+            signal?.addEventListener('abort', () => {
+              const error = new Error('aborted');
+              error.name = 'AbortError';
+              reject(error);
+            });
+          }),
+      ),
+    };
+    const { service, watchers, indexer, files } = makeHarness({ governor });
+    await service.start(ROOT);
+
+    files.push(abs('gen/queried.ts'));
+    watchers[0].deliver({ overflow: true });
+    await flush();
+    await flush();
+    // Background overflow, nobody asking: still held.
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(1);
+
+    await service.ensureReadyFor(ROOT);
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+    await flush();
+    await flush();
+    expect(service.search('queried', 10)).toHaveLength(1);
+    expect(governor.whenClear).toHaveBeenCalledTimes(1);
   });
 });
 

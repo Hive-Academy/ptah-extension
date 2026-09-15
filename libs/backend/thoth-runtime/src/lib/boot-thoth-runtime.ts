@@ -484,6 +484,11 @@ export async function bootThothRuntime(
             const startedAt = Date.now();
             await symbolIndexer.indexWorkspace(wsRoot, {
               ...(options?.signal ? { signal: options.signal } : {}),
+              // These deps are handed ONLY to `IndexingRpcHandlers`, whose
+              // `indexing:start` / `indexing:resume` are user clicks. A click
+              // is never held behind the background-work governor
+              // (TASK_2026_437 C14 b, Batch 16b rule).
+              userInitiated: true,
               onProgress: (p) => {
                 const percent =
                   p.totalFiles > 0

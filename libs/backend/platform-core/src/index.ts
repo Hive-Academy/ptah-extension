@@ -236,6 +236,8 @@ export {
   createExecutableEditorDefinitions,
   detectEditorTargets,
   EDITOR_DESCRIPTORS,
+  EDITOR_PROBE_CONCURRENCY,
+  EditorTargetCache,
   editorExecutableCandidates,
   prepareEditorFileLaunch,
   prepareEditorWorkspaceLaunch,

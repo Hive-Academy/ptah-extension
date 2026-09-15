@@ -40,7 +40,7 @@ PR #510 CI. Add it back to `context.md` after PR #510 merges.
   cleanly (else keep its current watcher behind the port); measure SQLite main-thread cost before
   moving it; scroll-back paging of old history is deferred.
 
-## 3. Done — committed (17 of 23 batches; Batches 8, 9, 10, 11, 15, 16 and 16b in section 4)
+## 3. Done — committed (18 of 24 batches; Batches 8, 9, 10, 11, 15, 16, 16b and 17 in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
 | ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,7 +64,20 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11, the Linux CI fix, Batches 15, 16 and 16b — COMMITTED (resume at Batches 17 and 18)
+## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b and 17 — COMMITTED (resume at Batch 18, then 17b)
+
+**Batch 17 — COMMITTED 2026-09-15** as
+`feat(workspace-intelligence): defer symbol indexing, file-index rebuilds and daily backups while the app is busy`.
+Governor adopters (C14 b–e): the symbol indexer waits before each batch (`userInitiated` opt-out
+for `ptah.code.reindex` and the thoth indexing clicks); the Electron user-layer coalescer governs
+only `content-download-complete`; the file-index lost-event rebuild is deferred and coalesced
+(previous snapshot served, `ensureReadyFor` expedites it); the `daily` SQLite backup waits;
+editor probes run in a pool of 8 with a PATH-keyed cache. FU-11b done: the file index split into
+`WorkspaceFileIndexService` + `FolderIndexLiveSync` + `folder-index-snapshot.ts`. One shared
+`BackgroundWorkAdmission` type in vscode-core. Reviews: logic REVISE → delta APPROVE_WITH_FIXES
+HIGH; style APPROVED 8/10. Orchestrator decisions (agent tool calls may expedite a rebuild;
+skill re-propagation origin deferred to Batch 17b), AC-10 manual instructions and FU-17a..e are
+in `batches.md` "Batch 17 outcome". **AC-10 still needs a manual boot log.**
 
 **Update 2026-09-15 (Batch 11):** Batch 11 passed both reviews (logic base NEEDS_REVISION 5/10 →
 delta APPROVE HIGH; style base NEEDS_REVISION 7/10 → delta APPROVE HIGH) and is committed as
@@ -133,7 +146,7 @@ Reviews: logic and style both base NEEDS_REVISION → delta APPROVE HIGH. Outcom
 
 **All P2 batches are COMPLETE.** The only open P2 gate is D10 (section 4a).
 
-**Next: Batches 17 and 18 (P3)**, then P4 (19, 20, 21, 22).
+**Next: Batch 18 (P3, in review), then Batch 17b**, then P4 (19, 20, 21, 22).
 
 ## 4a. Batch 10 — COMMITTED
 
@@ -226,14 +239,16 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
   CLI: build `ptah-tui` then `restore-cli-manifest` before pack; cross-platform CI smoke (only
   win32-x64 proven locally).
 
-## 5. Remaining batches (6 of 23)
+## 5. Remaining batches (6 of 24)
 
-Order and dependencies are in `batches.md`. Resume at Batches 17 and 18. Summary:
+Order and dependencies are in `batches.md`. Resume at Batch 18, then Batch 17b. Summary:
 
 - **P2:** all batches committed. Only the OPEN D10 proof remains: `publish-electron.yml` build matrix
   green on Windows, macOS and Linux (section 4a) — needs a user decision to dispatch.
-- **P3:** 17 (adopters; treat `'disposed'` as cancellation; carry FU-16b-a) and 18 (network back-off).
-  16 and 16b are committed.
+- **P3:** 18 (network back-off; imports `BackgroundWorkAdmission` from Batch 17), then 17b
+  (origin-aware skill re-propagation, FU-17b; depends on 18). 16, 16b and 17 are committed. AC-10
+  manual boot evidence is still open (instructions in `batches.md` Batch 17 outcome). The P3 phase
+  gate runs after 17b.
 
 ### Open user decisions
 
@@ -253,7 +268,7 @@ Order and dependencies are in `batches.md`. Resume at Batches 17 and 18. Summary
 - FU-3a/b: extract git-info single-flight into a collaborator.
 - FU-4a, FU-4c, FU-4d: closed in Batch 11.
 - FU-4b: `diff-tabs.service.ts` > 700 lines.
-- FU-11: rewrite or delete `apps/ptah-electron-e2e/src/specs/git-watcher.spec.ts`. FU-11b: split `workspace-file-index.service.ts` (1,296 lines) under the facade rule with Batch 17. FU-11c: `git-watcher.service.ts` 951 lines.
+- FU-11: rewrite or delete `apps/ptah-electron-e2e/src/specs/git-watcher.spec.ts`. FU-11b: CLOSED in Batch 17 (split into 717 + 561 + 249 lines). FU-11c: `git-watcher.service.ts` 951 lines.
 - FU-11d: the recursive-watch ESLint rule cannot see options passed by variable or module aliases — INV-1 lint enforcement is best-effort; soften any "enforced by lint" wording.
 - FU-11e: repeated directory-delete rebuilds above 5,000 entries during `nx run-many -t build` — confirm in the manual load test (section 9).
 - FU-11f: spec literals `250`/`300` should reference `WORKSPACE_WATCH_LIMITS.minBatchIntervalMs`. FU-11g: document the content-push latency ratio at the hold constant. FU-11h: timed 1 s hold residual risk on very slow machines.
@@ -269,6 +284,10 @@ Order and dependencies are in `batches.md`. Resume at Batches 17 and 18. Summary
 - 75k-file `PTAH_PERF_SPECS=1` perf budgets: measured in Batch 15 on an idle machine (git-watcher rig ST-1 p99 16.6 / max 24–25 ms, ST-1b p99 16.7 / max 33–34 ms; host ST-2 p99 18.55–19.58 / max 26.56–36.14 ms).
 - FU-11h materialized on Linux CI (run 34922130353): ST-1b CI assertion is now the bounded form (Batch 15 decision).
 - FU-15a: rig helpers duplicated between the git-watcher and watch-host stress harnesses; a `/testing` secondary entry point (precedent `@ptah-extension/platform-core/testing`) is the option, deferred. FU-15b: storm re-entry during very long deletes (2–3 refreshes at 75,000 files). FU-15c: host kill during an in-host rebuild untested. FU-15d: force a real native buffer overflow to observe A1 directly.
+- FU-17a: CLOSED. FU-17b: background skill re-propagation is ungoverned → Batch 17b. FU-17c: editor
+  target cache evicts the whole result on one flaky probe. FU-17d: CLI governor now created eagerly
+  when an adopter resolves (disposed at shutdown). FU-17e: no end-to-end spec for `ensureReadyFor` →
+  `expediteDeferredRebuild`.
 - Phase 1 gate commands not re-run: `lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`.
 
 ## 7. CI and external review state

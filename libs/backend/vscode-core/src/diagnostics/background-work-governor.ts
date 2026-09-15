@@ -121,6 +121,22 @@ export interface WhenClearOptions {
 
 export type WhenClearOutcome = 'clear' | 'timeout';
 
+/**
+ * The side an adopter that WAITS depends on (TASK_2026_437 Batch 17):
+ * `isClear()` for the fast path, `whenClear()` to hold one unit of background
+ * work. `BackgroundWorkGovernor` implements it. Inject it with
+ * `{ isOptional: true }` and treat a missing governor as clear.
+ *
+ * `whenClear` rejections: an `AbortError` (the caller's signal, or the
+ * governor disposed at shutdown) cancels the held unit quietly; any other
+ * rejection is a defect — warn and run the unit (fail open). `'timeout'` runs
+ * it.
+ */
+export interface BackgroundWorkAdmission {
+  isClear(): boolean;
+  whenClear(options?: WhenClearOptions): Promise<WhenClearOutcome>;
+}
+
 /** Timer seam, so the governor spec drives ceilings without real time. */
 export interface GovernorTimers {
   setTimeout(callback: () => void, ms: number): unknown;
@@ -213,7 +229,9 @@ const DISPOSED_MESSAGE =
  * shutdown (through the diagnostics handle, or the CLI's own teardown when it
  * never armed diagnostics).
  */
-export class BackgroundWorkGovernor implements BackgroundWorkSignal {
+export class BackgroundWorkGovernor
+  implements BackgroundWorkSignal, BackgroundWorkAdmission
+{
   private readonly foreground = new Set<ForegroundEntry>();
   private readonly listeners = new Set<BackgroundWorkStateListener>();
   private readonly waiters = new Set<ClearWaiter>();

@@ -51,6 +51,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   TOKENS,
+  type BackgroundWorkAdmission,
   type Logger,
   type DegradationReporter,
 } from '@ptah-extension/vscode-core';
@@ -65,6 +66,20 @@ import type {
 
 /** Discriminated kind for backup filenames and rotation policy. */
 export type BackupKind = 'pre-migration' | 'daily' | 'reset';
+
+/**
+ * Kinds whose START waits for the background-work governor (TASK_2026_437
+ * C14 d). Only the cron-driven `daily` backup is background work:
+ * - `pre-migration` gates a migration on the boot path — deferring it would
+ *   hold boot, and skipping it removes the safety net at the one moment it
+ *   matters;
+ * - `reset` is a user clicking "reset" (`persistence-rpc.handlers.ts`), and
+ *   user-initiated work is never governed (Batch 16b).
+ */
+const GOVERNED_KINDS: ReadonlySet<BackupKind> = new Set<BackupKind>(['daily']);
+
+/** `whenClear` lane name; it only labels the governor's ceiling log line. */
+const GOVERNOR_LANE = 'sqlite-daily-backup';
 
 /**
  * How long the worker may spend on one backup before it is killed.
@@ -179,6 +194,12 @@ export class SqliteBackupService implements IBackupService {
      */
     @inject(TOKENS.DEGRADATION_REPORTER, { isOptional: true })
     private readonly degradation: DegradationReporter | null = null,
+    /**
+     * Optional: a bare container has none, and then every backup starts at
+     * once, as before TASK_2026_437 C14. Only a `daily` backup consults it.
+     */
+    @inject(TOKENS.BACKGROUND_WORK_GOVERNOR, { isOptional: true })
+    private readonly governor: BackgroundWorkAdmission | null = null,
   ) {}
 
   /**
@@ -233,14 +254,65 @@ export class SqliteBackupService implements IBackupService {
    * normalised with a rejection handler anyway: a rejected tail would wedge
    * every later backup for the life of the process, and "the safety net stopped
    * silently" is the one failure this file must not have.
+   *
+   * A `daily` backup first waits for the background-work governor and only then
+   * links onto the queue (see `waitForBackgroundClear`); its place in the queue
+   * is therefore the moment the wait ended, which is the only order a scheduled
+   * backup needs.
    */
   async backup(kind: BackupKind): Promise<string | null> {
+    if (
+      GOVERNED_KINDS.has(kind) &&
+      !(await this.waitForBackgroundClear(kind))
+    ) {
+      return null;
+    }
     const run = this.queue.then(() => this.takeBackup(kind));
     this.queue = run.then(
       () => undefined,
       () => undefined,
     );
     return run;
+  }
+
+  /**
+   * Hold a scheduled backup until the background-work governor is clear
+   * (TASK_2026_437 C14 d).
+   *
+   * The wait happens BEFORE the backup joins the serialization queue, so a
+   * held daily backup never holds a `pre-migration` or `reset` backup queued
+   * behind it. The copy runs in the integrity worker, but starting it still
+   * spawns a process and reads the whole database file from disk while the
+   * user is mid-turn or the main loop already lags — so the START is deferred.
+   *
+   * `'clear'` and `'timeout'` (the governor's starvation ceiling) both return
+   * true: the backup runs. An `AbortError` means the governor was disposed —
+   * the host is shutting down — so the backup is skipped (false) and logged at
+   * info; starting a worker during quit is the one thing that must not happen.
+   * Any other rejection fails open: the backup runs.
+   */
+  private async waitForBackgroundClear(kind: BackupKind): Promise<boolean> {
+    const governor = this.governor;
+    if (governor === null || governor.isClear()) return true;
+    try {
+      await governor.whenClear({ lane: GOVERNOR_LANE });
+      return true;
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - a scheduled backup held at shutdown is skipped on purpose; the next scheduled run takes it
+      const reason = error instanceof Error ? error.message : String(error);
+      if (error instanceof Error && error.name === 'AbortError') {
+        this.logger.info(
+          '[persistence-sqlite] scheduled backup skipped — the host is shutting down',
+          { kind, reason },
+        );
+        return false;
+      }
+      this.logger.warn(
+        '[persistence-sqlite] background-work wait failed — taking the backup anyway',
+        { kind, reason },
+      );
+      return true;
+    }
   }
 
   /**

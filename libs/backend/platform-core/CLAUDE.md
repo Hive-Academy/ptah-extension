@@ -163,6 +163,7 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 - `src/interfaces/workspace-lifecycle.interface.ts` — workspace mutation API (add/remove/setActive)
 - `src/file-settings-manager.ts` — file-based settings (avoid marketplace scanner trademark rejections)
 - `src/content-download.service.ts` — required by all platforms to fetch plugins/templates at runtime
+- `src/utils/editor-launcher-detection.ts` — `detectEditorTargets` behind every host's `IEditorLauncher.detect` (`editor:detectTargets`). PATH and install-location probes run at most `EDITOR_PROBE_CONCURRENCY` (8) stats at once, still picking the FIRST match in PATH order. Results are cached in `EditorTargetCache`, keyed by `PATH` + `PATHEXT` + platform + the definitions: the process-lifetime cache when `stat` is not injected, `options.cache` when given, nothing for `cache: null`. Only a successful, CONCLUSIVE detection is kept — a rejection, or a probe that failed with anything but `ENOENT`/`ENOTDIR` ahead of the chosen match, is served and then dropped so the next call probes again (TASK_2026_437 C14 e). An editor installed while the process runs is not seen until restart unless PATH changes.
 - `src/index.ts` — public barrel (everything in this list is canonical)
 
 ## DI Tokens

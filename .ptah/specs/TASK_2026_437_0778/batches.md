@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 57 | Batches: 23 | Complete: 17/23
+Total tasks: 58 | Batches: 24 | Complete: 18/24
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). P3 wave 1 — Batch 16 and Batch 16b COMPLETE (one commit, recorded in the Batch 16 outcome), committed ahead of Batch 15 by orchestrator decision (see "Orchestrator decision — phase order deviation for P3 core" under Batch 7). P2 — Batch 15 COMPLETE (commit recorded in its outcome; ST-2 75,000-file host stress and AC-7 host kill MET; ST-1b CI assertion is now the bounded form). All P2 batches are COMPLETE. The only open P2 gate is D10: the `publish-electron.yml` matrix green on all three OSes (see Batch 10 outcome); it needs a `workflow_dispatch` or a release push — pending user decision. Remaining unblocked: P3 Batches 17 and 18; then P4 Batches 19, 20, 21, 22. PR #510 CI had two Linux-only failures (the CLI contract suite did not see files created in a new directory under inotify; the platform-electron host entry spec aborted with SIGABRT in the `worker_threads` transport). Both are FIXED pending the next PR #510 CI run, which is the first Linux run of the jest specs — see "PR #510 Linux CI fix" after Batch 11.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). P3 wave 1 — Batch 16 and Batch 16b COMPLETE (one commit, recorded in the Batch 16 outcome), committed ahead of Batch 15 by orchestrator decision (see "Orchestrator decision — phase order deviation for P3 core" under Batch 7). P2 — Batch 15 COMPLETE (commit recorded in its outcome; ST-2 75,000-file host stress and AC-7 host kill MET; ST-1b CI assertion is now the bounded form). All P2 batches are COMPLETE. The only open P2 gate is D10: the `publish-electron.yml` matrix green on all three OSes (see Batch 10 outcome); it needs a `workflow_dispatch` or a release push — pending user decision. P3 — Batch 17 COMPLETE (commit recorded in its outcome; governor adopters + FU-11b file-index split; AC-10 manual evidence still pending). Remaining: P3 Batch 18 (in review), then Batch 17b (depends on 18); then P4 Batches 19, 20, 21, 22. PR #510 CI had two Linux-only failures (the CLI contract suite did not see files created in a new directory under inotify; the platform-electron host entry spec aborted with SIGABRT in the `worker_threads` transport). Both are FIXED pending the next PR #510 CI run, which is the first Linux run of the jest specs — see "PR #510 Linux CI fix" after Batch 11.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `handoff.md` section 2 "User decisions" (formerly in `context.md`)
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -1156,7 +1156,7 @@ Commit: `fix(platform-core): serialize native watcher calls so a subscribe never
 
 ---
 
-## Batch 17: P3 — governor adopters (C14 b, c, d, e) — PENDING
+## Batch 17: P3 — governor adopters (C14 b, c, d, e) — COMPLETE
 
 - Recommended executor: CLI lanes x4 (one per task)
 - Fallback executor: backend-developer, sequential
@@ -1164,22 +1164,47 @@ Commit: `fix(platform-core): serialize native watcher calls so a subscribe never
 - Rationale: four small edits at independent seams.
 - Tasks: 4 | Depends on: Batches 16, 11 (file index), 14
 
-### Task 17.1: Symbol indexer yields — PENDING
+### Batch 17 outcome
+
+- Commit: `feat(workspace-intelligence): defer symbol indexing, file-index rebuilds and daily backups while the app is busy` (SHA in `git log`; this file is part of that commit). Includes FU-11b (the file-index split) because Task 17.3 edits the same file.
+- Executed by: `backend-developer-b17` (sequential fallback, one executor), not CLI lanes.
+- Reviews: `b17-code-logic-review.md` base REVISE (HIGH; 2 serious, 2 moderate) → delta APPROVE_WITH_FIXES (HIGH). `b17-code-style-review.md` APPROVED 8/10 (HIGH); its three items (shared admission type, dead `path` import, declaration grouping) were verified in the logic delta.
+- Design per task:
+  - 17.1 `CodeSymbolIndexer` waits on the governor before each batch. `userInitiated` opts out: `ptah.code.reindex` (`code-namespace.builder.ts`, an agent tool call inside a generating turn) and the thoth `indexing:start` / `indexing:resume` clicks (`boot-thoth-runtime.ts` `runSymbols`, consumed only by `IndexingRpcHandlers`) pass it. The VS Code host boot indexing passes nothing and stays governed.
+  - 17.2 `CoalescedJob` gained an optional `admit` gate. Only `content-download-complete` is governed (`GOVERNED_USER_LAYER_REASONS` in `plugin-activation.ts`); `activation` and `harness-propagation` never wait. A batch stays pending while admission is awaited, so late joiners attach to it and re-abort the wait.
+  - 17.3 FU-11b split under the facade rule: `workspace-file-index.service.ts` 1,296 → 709 lines + `FolderIndexLiveSync` (`folder-index-live-sync.ts`, 535) + `folder-index-snapshot.ts` (249). Pure move, proven by the unchanged service spec passing before the behaviour change (`b17-fu11b-move-spec.log`). After review fixes the sizes are 717 / 561 / 249. Then the lost-event (overflow) rebuild is deferred through the governor, coalesced while held, the previous snapshot is served meanwhile, and `ensureReadyFor` calls `expediteDeferredRebuild` to start a held rebuild at once. `SqliteBackupService`: `daily` waits before the queue; `pre-migration` and reset never wait (`GOVERNED_KINDS`).
+  - 17.4 editor probes run in a pool of 8; the first match wins in PATH order; `EditorTargetCache` is keyed by PATH + PATHEXT + platform + definitions; failed or partial results are not cached.
+  - `BackgroundWorkAdmission` (`isClear` + `whenClear`) is one shared interface in vscode-core, implemented by `BackgroundWorkGovernor`; it replaces four local `Pick` aliases. Batch 18 imports it too.
+  - Rejection rule in all adopters: `'timeout'` runs the unit; `AbortError` cancels quietly; any other rejection warns once and runs the unit (fail open). Unreachable with the real governor (every `reject` is an `AbortError`); hardening against a non-conforming implementation.
+- Evidence (executor final run, `D:\projects\ptah-437-backup\b17r-*.log`): `run-many -t test` on 7 projects (header 7) — platform-core 777 (+4 todo), vscode-core 636, persistence-sqlite 376 (80 skipped: native better-sqlite3 probe), workspace-intelligence 1,112, vscode-lm-tools 1,157, thoth-runtime 74, ptah-electron 618 (7 skipped). `typecheck,lint` same 7: 0 errors (warnings only). `degradation-audit:lint` TOTAL 303 (baseline).
+- Evidence (team-leader re-run before commit, worktree `D:\projects\ptah-437`, no nx reset; Batch 18's uncommitted files were in the tree): same 7-project `run-many -t test --parallel=1 -- --maxWorkers=2` (header 7) exit 0 with identical counts (4 of 13 tasks from cache, inputs unchanged) — `b17-tl-test.log`; `typecheck,lint` exit 0, 0 errors — `b17-tl-typecheck-lint.log`; `degradation-audit:lint` TOTAL 303 — `b17-tl-audit.log`. Prettier clean on every staged file (the two review files were formatted before staging). Backup: `batch17-final-modified.patch`, `batch17-final-new.tar`.
+- ORCHESTRATOR DECISIONS:
+  1. `ensureReadyFor` expedite also fires for agent tool calls (`execute_code` → `ContextService.getFileSuggestions`, `WorkspaceAnalyzerService`) during a generating turn. Accepted: the agent's tool call is the turn's own foreground work and needs fresh results; the rebuild is a yielding path-only walk. This answers logic-delta outstanding item (2).
+  2. Background skill re-propagation stays ungoverned in Batch 17. Click and background callers share `SkillRepropagationPort.repropagate(kind, slug, root)` with no origin, and the port lives in Batch 18's lib. Fixed in Batch 17b after Batch 18 commits (logic serious 1 / delta outstanding item (1)).
+- AC-10: PENDING manual evidence. Instructions: boot the dev app with `PTAH_PROFILE_ON_LAG_MS=1000`, open the `D:\projects\ptah-437` folder, wait about 3 min, then read `%APPDATA%\Ptah Dev\logs\Ptah Electron-<date>.log` after the line `[Ptah Electron] Clipboard IPC registered`: every `[event-loop] lag` must have maxMs < 1000; record the governor state lines and the adopter lines (symbol indexer, file-index rebuild, backup, user-layer); `ptah-hang.log` must be empty.
+- Follow-ups:
+  - FU-17a: CLOSED — the thoth indexing click passes `userInitiated`.
+  - FU-17b: origin-aware skill re-propagation → Batch 17b.
+  - FU-17c: `EditorTargetCache` evicts the whole result when one probe is flaky; per-editor eviction later.
+  - FU-17d: the CLI governor is now created eagerly when an adopter resolves (it was lazy in Batch 16). Harmless; still disposed at shutdown.
+  - FU-17e (logic delta minor): no spec drives `WorkspaceFileIndexService.ensureReadyFor` → `expediteDeferredRebuild` end to end; the live-sync spec covers the method directly.
+
+### Task 17.1: Symbol indexer yields — COMPLETE
 
 - File: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\services\code-symbol-indexer.service.ts` (:228) + spec
 - Implementation details: `await governor.whenClear()` before each batch.
 
-### Task 17.2: User-layer refresh defer (non-activation reasons) — PENDING
+### Task 17.2: User-layer refresh defer (non-activation reasons) — COMPLETE
 
 - File: `D:\projects\ptah-extension\apps\ptah-electron\src\activation\plugin-activation.ts` + spec
 - Validation notes: `activation` reason is never deferred; go through `refreshUserLayer` only (app CLAUDE.md).
 
-### Task 17.3: Backup start + file-index overflow rebuild governed — PENDING
+### Task 17.3: Backup start + file-index overflow rebuild governed — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\backup.service.ts` + spec; `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\file-indexing\workspace-file-index.service.ts` (overflow rebuild path only) + spec
 - Validation notes: D8. This is the only task touching the file index; the other lanes must not touch it.
 
-### Task 17.4: `editor:detectTargets` bounded concurrency + cache — PENDING
+### Task 17.4: `editor:detectTargets` bounded concurrency + cache — COMPLETE
 
 - File: `D:\projects\ptah-extension\libs\backend\platform-core\src\utils\editor-launcher-detection.ts` (:163-235) + spec
 - Implementation details: concurrency 8; cache per `PATH`+`PATHEXT` for process lifetime.
@@ -1187,7 +1212,27 @@ Commit: `fix(platform-core): serialize native watcher calls so a subscribe never
 ### Batch 17 verification
 
 - `npx nx run-many -t test -p @ptah-extension/workspace-intelligence ptah-electron @ptah-extension/persistence-sqlite @ptah-extension/platform-core` (header: 4); typecheck,lint same
-- Done when: AC-10 measured on a local boot of this repo (log excerpt recorded)
+- Done when: AC-10 measured on a local boot of this repo (log excerpt recorded) — pending manual evidence, see Batch 17 outcome
+
+---
+
+## Batch 17b: P3 — origin-aware skill re-propagation (FU-17b) — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: none
+- Execution mode: sequential
+- Rationale: one origin flag threaded across a port, its callers, the harness-sync seam and the Electron adapter; cross-file and it shares skill-synthesis with Batch 18.
+- Tasks: 1 | Depends on: Batch 18 (committed first — skill-synthesis files are in its working set)
+
+### Task 17b.1: Govern background skill re-propagation, keep clicks immediate — PENDING
+
+- Files: `D:\projects\ptah-437\libs\backend\skill-synthesis\src\lib\skill-repropagation.port.ts` + its direct callers (`skill-enhancer.service.ts`, `skill-promotion.service.ts`) and the background triggers that reach them (logic review cites `skill-curator.service.ts:681`, `skill-invocation-tracker.ts:80`; re-trace after Batch 18) + specs; the seam `D:\projects\ptah-437\libs\backend\harness-sync\src\lib\sources\user-layer-refresher.port.ts`; `D:\projects\ptah-437\apps\ptah-electron\src\activation\skill-repropagation.ts` and `plugin-activation.ts` + specs; `libs/backend/rpc-handlers` only if a click path needs to pass the flag.
+- Implementation details: optional `{ userInitiated? }` on `SkillRepropagationPort.repropagate`; RPC click paths set it; Electron maps it to the ungoverned `harness-propagation` reason, otherwise to a new governed `skill-repropagation` reason added to `GOVERNED_USER_LAYER_REASONS`; `IUserLayerRefresher.refresh` takes an optional reason.
+- Validation notes: same rejection rule as Batch 17 (`AbortError` cancels, other rejection warns + runs); `activation` never waits.
+
+### Batch 17b verification
+
+- `npx nx run-many -t test -p @ptah-extension/skill-synthesis @ptah-extension/harness-sync ptah-electron` (+ `@ptah-extension/rpc-handlers` if touched; check the header count); typecheck,lint same; `npx nx run degradation-audit:lint` (≤ 303)
 
 ---
 

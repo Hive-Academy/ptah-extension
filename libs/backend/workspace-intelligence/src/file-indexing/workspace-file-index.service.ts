@@ -19,7 +19,9 @@
  *      are produced (the watch host), and new paths are re-checked against the
  *      folder's compiled ignore rules so a file created under an ignored
  *      directory never enters the index. An `overflow` batch — events lost or
- *      suppressed — rebuilds the folder once instead.
+ *      suppressed — rebuilds the folder once instead. That live half is the
+ *      collaborator `FolderIndexLiveSync` (`folder-index-live-sync.ts`); the
+ *      snapshot shape and its writers are `folder-index-snapshot.ts`.
  *   3. Exposes SYNCHRONOUS query methods (`search`, `getAll`,
  *      `searchDirectories`) returning the same `FileSearchResult` shape the
  *      autocomplete pipeline already consumes. `ensureReady()` performs the
@@ -88,9 +90,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
-import picomatch from 'picomatch';
 import {
-  FileType,
   PLATFORM_TOKENS,
   normalizeWorkspaceRoot,
 } from '@ptah-extension/platform-core';
@@ -99,16 +99,29 @@ import type {
   IWorkspaceProvider,
   IWorkspaceWatcher,
   IDisposable,
-  WorkspaceChangeBatch,
 } from '@ptah-extension/platform-core';
-import { NESTED_WORKSPACE_PATH_RULES } from '@ptah-extension/shared';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type BackgroundWorkAdmission,
+} from '@ptah-extension/vscode-core';
 import { WorkspaceIndexerService } from './workspace-indexer.service';
 import {
   IgnorePatternResolverService,
   type ParsedIgnoreFile,
 } from './ignore-pattern-resolver.service';
-import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
+import {
+  FolderIndexLiveSync,
+  type FileIndexLogger,
+} from './folder-index-live-sync';
+import {
+  IGNORE_NOTHING,
+  addFileEntry,
+  emptySnapshot,
+  type FolderIndex,
+  type FolderSnapshot,
+  type IndexEntry,
+  type IndexedFileType,
+} from './folder-index-snapshot';
 
 const LOGGER = Symbol.for('Logger');
 
@@ -141,40 +154,6 @@ const LOGGER = Symbol.for('Logger');
 const MAX_CACHED_FOLDERS = 8;
 
 /**
- * Most new paths one batch stats at once. A batch holds at most 500 paths; a
- * bounded fan-out keeps a mass create from queueing 500 stats on the thread
- * pool in one turn.
- */
-const STAT_CONCURRENCY = 32;
-
-/**
- * Largest folder index (files + directories) a directory delete is swept in
- * place for. Sweeping visits every entry once, synchronously, on the host's
- * main thread; above this a batch holding a directory delete is treated as
- * incomplete and the coalesced path-only rebuild runs instead, whose walk
- * yields between batches. 5,000 entries sweep in well under a millisecond; the
- * largest captured folder (15,249 files, 4,935 directories) rebuilds instead.
- */
-const DIRECTORY_DELETE_SWEEP_LIMIT = 5_000;
-
-/**
- * Shortest gap between two attempts to subscribe a folder whose `watch()`
- * threw (ms). The retry rides on `ensureReadyFor`, which autocomplete calls per
- * query, so without a floor a dead watch host would be re-tried per keystroke.
- */
-const SUBSCRIBE_RETRY_INTERVAL_MS = 60_000;
-
-/**
- * Logger interface (avoids a hard dependency on vscode-core's concrete Logger).
- */
-interface ILogger {
-  info(message: string, ...args: unknown[]): void;
-  warn(message: string, ...args: unknown[]): void;
-  error(message: string, error?: unknown): void;
-  debug(message: string, ...args: unknown[]): void;
-}
-
-/**
  * File search result with metadata for `@` syntax autocomplete.
  *
  * Kept structurally identical to what `ContextService` used to return so the
@@ -186,160 +165,12 @@ export interface FileSearchResult {
   readonly path: string;
   readonly relativePath: string;
   readonly fileName: string;
-  readonly fileType: 'text' | 'image' | 'binary' | 'unknown';
+  readonly fileType: IndexedFileType;
   readonly size: number;
   readonly lastModified: number;
   readonly isDirectory: boolean;
   readonly relevanceScore?: number;
 }
-
-/**
- * Lightweight in-memory entry. Deliberately excludes size/mtime.
- */
-interface IndexEntry {
-  readonly path: string;
-  readonly relativePath: string;
-  readonly fileName: string;
-  readonly directory: string;
-  readonly fileType: FileSearchResult['fileType'];
-  readonly isDirectory: boolean;
-}
-
-/**
- * Everything one open workspace folder owns.
- *
- * One record per normalized root. Nothing here is shared between folders —
- * that is the whole point: the pre-TASK_2026_344 service kept `files`,
- * `directories`, `ignoreFiles` and `watcher` as SERVICE fields, which is why a
- * switch had to clear them and why every late-landing async write had to be
- * generation-gated against contaminating the other root.
- */
-interface FolderIndex extends FolderSnapshot {
-  /** `normalizeWorkspaceRoot(root)` — the cache key. */
-  readonly key: string;
-  /**
-   * The host-native root string this snapshot was built from.
-   *
-   * Fixed at creation and never re-assigned: `path.relative` results depend on
-   * it, so swapping in another spelling of the same normalized root (a trailing
-   * separator, a different drive case) mid-life would silently change every
-   * relative path the entry produces from then on.
-   */
-  readonly root: string;
-  /** This folder's live `IWorkspaceWatcher` subscription, once armed. */
-  subscription: IDisposable | undefined;
-  /** In-flight or settled build. `undefined` after a FAILED build, so it retries. */
-  buildPromise: Promise<void> | undefined;
-  ready: boolean;
-  /**
-   * Bumped whenever this entry is torn down, so a build or batch handler
-   * still in flight for it stops writing.
-   */
-  generation: number;
-  /** Activation clock stamp, for LRU eviction under the overflow cap. */
-  lastActiveAt: number;
-  /**
-   * The snapshot an overflow rebuild is filling, while one is in flight.
-   * Queries keep reading the entry's own maps until the rebuild swaps it in.
-   */
-  rebuildStaging: FolderSnapshot | undefined;
-  /** An overflow arrived while a rebuild was running; rebuild once more after it. */
-  rebuildQueued: boolean;
-  /**
-   * `Date.now()` before which a folder whose `watch()` threw is not retried;
-   * `undefined` while subscribed or never attempted.
-   */
-  subscribeRetryAt: number | undefined;
-}
-
-/**
- * The swappable part of a folder's index: what a build fills. An overflow
- * rebuild fills a fresh one and replaces the entry's in one step, so queries
- * never see a half-built index.
- *
- * Map keys come from {@link toIndexKey}, so the walk's spelling (fast-glob
- * reports `D:/…`) and the watcher's (`D:\…`) name one entry; each entry keeps
- * the spelling it was added with.
- */
-interface FolderSnapshot {
-  /** Normalized absolute file path → entry. */
-  files: Map<string, IndexEntry>;
-  /** Normalized absolute directory path → entry. */
-  directories: Map<string, IndexEntry>;
-  /** Parsed ignore files for this folder. */
-  ignoreFiles: ParsedIgnoreFile[];
-  /**
-   * `ignoreFiles` compiled once per build (`compileMatcher`) — the one
-   * synchronous predicate every batch's new paths pass through.
-   */
-  isIgnored: (relativePath: string) => boolean;
-  /**
-   * Nested repository and worktree roots the walk skipped. They seed the
-   * subscription, because a repository that already exists produces no `.git`
-   * event for the watch host to detect.
-   */
-  nestedRepoRoots: readonly string[];
-}
-
-/** An index with no ignore rules compiled yet ignores nothing. */
-const IGNORE_NOTHING = (): boolean => false;
-
-/**
- * THE key for a path in `files` and `directories` — every write and every
- * lookup goes through it, so the two maps share one key space.
- *
- * - `path.normalize`: separators and `.`/doubled segments (fast-glob reports
- *   `D:/…`, the watch host `D:\…`);
- * - no trailing separator (a watcher may report `dir/`);
- * - an upper-case drive letter (`d:\x` and `D:\x` are one path on Windows).
- */
-export function toIndexKey(absPath: string): string {
-  let key = path.normalize(absPath);
-  while (
-    key.length > 1 &&
-    /[\\/]$/.test(key) &&
-    !/^[A-Za-z]:[\\/]$/.test(key)
-  ) {
-    key = key.slice(0, -1);
-  }
-  return /^[a-z]:/.test(key) ? key[0].toUpperCase() + key.slice(1) : key;
-}
-
-const IMAGE_EXTENSIONS = new Set([
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.gif',
-  '.bmp',
-  '.svg',
-  '.webp',
-  '.ico',
-]);
-const TEXT_EXTENSIONS = new Set([
-  '.txt',
-  '.md',
-  '.json',
-  '.js',
-  '.ts',
-  '.jsx',
-  '.tsx',
-  '.css',
-  '.scss',
-  '.html',
-  '.xml',
-  '.yaml',
-  '.yml',
-]);
-const BINARY_EXTENSIONS = new Set([
-  '.exe',
-  '.dll',
-  '.so',
-  '.dylib',
-  '.bin',
-  '.zip',
-  '.tar',
-  '.gz',
-]);
 
 @injectable()
 export class WorkspaceFileIndexService {
@@ -360,25 +191,40 @@ export class WorkspaceFileIndexService {
   /** Latch so "held above the cap" is logged per crossing, not per query. */
   private overCapNoticeLogged = false;
 
-  /** Matcher over DEFAULT_WORKSPACE_EXCLUDES for created-path re-checks. */
-  private readonly defaultExcludeMatcher = picomatch(
-    [...DEFAULT_WORKSPACE_EXCLUDES],
-    { dot: true },
-  );
+  /**
+   * The live half of every folder: its watcher subscription, batch patches and
+   * lost-event rebuilds (FU-11b). Built here rather than registered, because it
+   * is this service's collaborator and nothing else resolves it.
+   */
+  private readonly liveSync: FolderIndexLiveSync;
 
   constructor(
-    @inject(LOGGER) private readonly logger: ILogger,
+    @inject(LOGGER) private readonly logger: FileIndexLogger,
     @inject(TOKENS.WORKSPACE_INDEXER_SERVICE)
     private readonly indexer: WorkspaceIndexerService,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
-    private readonly fsProvider: IFileSystemProvider,
+    fsProvider: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE)
     private readonly ignoreResolver: IgnorePatternResolverService,
     @inject(PLATFORM_TOKENS.WORKSPACE_WATCHER)
-    private readonly workspaceWatcher: IWorkspaceWatcher,
-  ) {}
+    workspaceWatcher: IWorkspaceWatcher,
+    /**
+     * Optional: without one (a bare container, a spec) a lost-event rebuild
+     * starts at once, as it did before TASK_2026_437 C14.
+     */
+    @inject(TOKENS.BACKGROUND_WORK_GOVERNOR, { isOptional: true })
+    governor: BackgroundWorkAdmission | null = null,
+  ) {
+    this.liveSync = new FolderIndexLiveSync({
+      logger,
+      fsProvider,
+      workspaceWatcher,
+      governor,
+      build: (entry, generation, into) => this.build(entry, generation, into),
+    });
+  }
 
   /**
    * Explicitly start the index for a workspace. Activation-time alias for
@@ -403,6 +249,11 @@ export class WorkspaceFileIndexService {
    * - Folder building (this call or another) → shares that build.
    * - Folder unknown, or its last build FAILED (`buildPromise` was reset) →
    *   builds now.
+   * - Folder built but holding a lost-event rebuild for the background-work
+   *   governor → the rebuild starts now: a caller needs this folder, and
+   *   user-initiated work is never governed (TASK_2026_437). The returned
+   *   promise does not wait for it; queries keep the previous snapshot until
+   *   the rebuild swaps in.
    *
    * `activeKey` is assigned before the first await on every path, because
    * `ContextService.assertIndexServes` reads `indexedRoot` synchronously right
@@ -425,6 +276,7 @@ export class WorkspaceFileIndexService {
         lastActiveAt: 0,
         rebuildStaging: undefined,
         rebuildQueued: false,
+        rebuildDeferral: undefined,
         subscribeRetryAt: undefined,
       };
       this.entries.set(key, entry);
@@ -435,7 +287,8 @@ export class WorkspaceFileIndexService {
     this.evictOverflow();
 
     if (entry.buildPromise) {
-      this.retrySubscribeIfDue(entry);
+      this.liveSync.retrySubscribeIfDue(entry);
+      this.liveSync.expediteDeferredRebuild(entry);
       return entry.buildPromise;
     }
     const generation = ++this.generationClock;
@@ -503,7 +356,7 @@ export class WorkspaceFileIndexService {
       // The folder was closed (or the service disposed) while this ran. Its
       // maps are gone; do not subscribe for a folder nobody holds.
       if (entry.generation !== generation) return;
-      this.subscribe(entry, generation);
+      this.liveSync.subscribe(entry, generation);
       entry.ready = true;
       this.logger.info(
         `[WorkspaceFileIndex] Ready: ${entry.files.size} files, ${entry.directories.size} directories`,
@@ -564,7 +417,7 @@ export class WorkspaceFileIndexService {
       // between batches, so an eviction can land at any point inside it.
       if (entry.generation !== generation) return;
       for (const filePath of batch) {
-        this.addFileEntry(entry, filePath, into);
+        addFileEntry(entry.root, filePath, into);
       }
     }
   }
@@ -710,9 +563,7 @@ export class WorkspaceFileIndexService {
    */
   private teardownEntry(entry: FolderIndex): void {
     entry.generation++;
-    this.disposeSubscription(entry);
-    entry.rebuildStaging = undefined;
-    entry.rebuildQueued = false;
+    this.liveSync.release(entry);
     entry.files.clear();
     entry.directories.clear();
     entry.ignoreFiles = [];
@@ -720,407 +571,6 @@ export class WorkspaceFileIndexService {
     entry.nestedRepoRoots = [];
     entry.buildPromise = undefined;
     entry.ready = false;
-  }
-
-  /**
-   * Dispose this entry's subscription, if any, and drop the reference.
-   *
-   * Clearing the field guarantees a given subscription is disposed exactly
-   * once, and a throwing `dispose()` never blocks the caller.
-   */
-  private disposeSubscription(entry: FolderIndex): void {
-    const subscription = entry.subscription;
-    if (!subscription) return;
-    entry.subscription = undefined;
-    try {
-      subscription.dispose();
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[WorkspaceFileIndex] failed to dispose previous watcher',
-        error,
-      );
-    }
-  }
-
-  /**
-   * Subscribe this folder to the batched workspace feed — ONCE per folder per
-   * process.
-   *
-   * It is not disposed when the folder goes inactive: keeping it live keeps
-   * the inactive folder's snapshot correct, which is what makes switching back
-   * free rather than merely fast.
-   *
-   * Exclusion happens where the events are produced, not here:
-   * `DEFAULT_WORKSPACE_EXCLUDES` as globs, the agent worktree segment rules
-   * (case-insensitively, which the globs are not), the nested repositories the
-   * walk skipped, and any `.git` entry the watcher sees appear below the root.
-   */
-  private subscribe(entry: FolderIndex, generation: number): void {
-    // Defensive: teardown disposes, but never let a second subscription be
-    // armed over a live one.
-    this.disposeSubscription(entry);
-    const retrying = entry.subscribeRetryAt !== undefined;
-    try {
-      entry.subscription = this.workspaceWatcher.watch(
-        entry.root,
-        {
-          excludeGlobs: DEFAULT_WORKSPACE_EXCLUDES,
-          excludeDirNames: [],
-          excludeSegmentRules: NESTED_WORKSPACE_PATH_RULES,
-          nestedRepoDetection: true,
-          nestedRepoRoots: entry.nestedRepoRoots,
-        },
-        // Generation-gated: a batch a disposed subscription already had in
-        // flight must not patch an entry that has been torn down.
-        (batch) => this.onBatch(entry, generation, batch),
-      );
-      entry.subscribeRetryAt = undefined;
-      if (retrying) {
-        this.logger.info(
-          '[WorkspaceFileIndex] watcher subscribed on retry; the index is live again',
-          { root: entry.root },
-        );
-      }
-    } catch (error: unknown) {
-      // A host without a real watcher degrades to a static snapshot — still
-      // correct, just not live — and re-indexing must never start throwing
-      // here. `retrySubscribeIfDue` tries again on a later `ensureReadyFor`.
-      // Logged once per failure streak, not per retry.
-      entry.subscribeRetryAt = Date.now() + SUBSCRIBE_RETRY_INTERVAL_MS;
-      if (retrying) {
-        this.logger.debug(
-          '[WorkspaceFileIndex] watcher still unavailable on retry',
-          error,
-        );
-      } else {
-        this.logger.warn(
-          '[WorkspaceFileIndex] watcher unavailable (index will not stay live until a retry succeeds)',
-          error,
-        );
-      }
-    }
-  }
-
-  /**
-   * A built folder whose `watch()` threw is subscribed again, at most once per
-   * {@link SUBSCRIBE_RETRY_INTERVAL_MS}, when a caller next asks for it. No
-   * timer: a folder nobody queries stays static until it is queried. The
-   * snapshot the failure left may be stale by then, so a successful retry also
-   * rebuilds it once.
-   */
-  private retrySubscribeIfDue(entry: FolderIndex): void {
-    if (!entry.ready || entry.subscription) return;
-    if (entry.subscribeRetryAt === undefined) return;
-    if (Date.now() < entry.subscribeRetryAt) return;
-    const generation = entry.generation;
-    this.subscribe(entry, generation);
-    if (entry.subscription) {
-      this.requestRebuild(entry, generation, {
-        reason: 'watcher subscribed after a failure',
-      });
-    }
-  }
-
-  /**
-   * One coalesced batch for one folder.
-   *
-   * `overflow` (events lost or suppressed: a storm, a host restart, a degraded
-   * rescan tick) and `truncated` (more distinct paths than one batch holds)
-   * both leave the batch incomplete, so the folder rebuilds once instead of
-   * patching from a partial list.
-   *
-   * Otherwise ONE synchronous pass: deletes drop their entry (a deleted
-   * directory drops everything under it, in one sweep for the whole batch);
-   * a path not yet indexed is matched against the default excludes and the
-   * folder's compiled ignore rules, and the survivors are statted — a batch
-   * does not say whether a created path is a file or a directory. A path
-   * already indexed needs nothing: the index tracks no content.
-   *
-   * Runs for INACTIVE folders too, and must: keeping a background folder's
-   * snapshot fresh is exactly what lets a switch back to it skip the rebuild.
-   */
-  private onBatch(
-    entry: FolderIndex,
-    generation: number,
-    batch: WorkspaceChangeBatch,
-  ): void {
-    if (entry.generation !== generation) return;
-    if (batch.overflow || batch.truncated) {
-      this.requestRebuild(entry, generation, {
-        reason: 'watcher reported lost events',
-        overflow: batch.overflow,
-        truncated: batch.truncated,
-        droppedCount: batch.droppedCount,
-      });
-      return;
-    }
-
-    const deletedDirectories = new Set<string>();
-    const created: string[] = [];
-    for (const change of batch.changes) {
-      const key = toIndexKey(change.path);
-      if (change.kind === 'delete') {
-        if (entry.directories.has(key)) deletedDirectories.add(key);
-        this.deleteLivePath(entry, key);
-        continue;
-      }
-      if (entry.files.has(key) || entry.directories.has(key)) continue;
-      if (this.isExcluded(entry, change.path)) continue;
-      created.push(change.path);
-    }
-    if (deletedDirectories.size > 0) {
-      if (
-        entry.files.size + entry.directories.size >
-        DIRECTORY_DELETE_SWEEP_LIMIT
-      ) {
-        // Too large to sweep synchronously: the batch is as good as
-        // truncated. The rebuild covers this batch's creates too.
-        this.requestRebuild(entry, generation, {
-          reason: 'directory deleted in a large index',
-          deletedDirectories: deletedDirectories.size,
-          entries: entry.files.size + entry.directories.size,
-        });
-        return;
-      }
-      this.deleteLiveDescendants(entry, deletedDirectories);
-    }
-    if (created.length > 0) {
-      void this.addCreatedPaths(entry, generation, created);
-    }
-  }
-
-  /**
-   * Stat the batch's new paths and index them as files or directories.
-   *
-   * Rule for this file: a generation check upstream does not protect a write
-   * that sits behind an `await` — a teardown can land while the stats run, and
-   * this would then resurrect maps the service has already released. Re-check
-   * immediately before the write.
-   */
-  private async addCreatedPaths(
-    entry: FolderIndex,
-    generation: number,
-    paths: readonly string[],
-  ): Promise<void> {
-    for (let start = 0; start < paths.length; start += STAT_CONCURRENCY) {
-      const slice = paths.slice(start, start + STAT_CONCURRENCY);
-      const types = await Promise.all(
-        slice.map((absPath) => this.statType(absPath)),
-      );
-      if (entry.generation !== generation) return;
-      slice.forEach((absPath, index) => {
-        const type = types[index];
-        if (type === undefined) return;
-        if ((type & FileType.Directory) !== 0) {
-          this.addLiveDirectoryEntry(entry, absPath);
-        } else if ((type & FileType.File) !== 0) {
-          this.addLiveFileEntry(entry, absPath);
-        }
-      });
-    }
-  }
-
-  /** The path's type, or `undefined` when it is already gone or unreadable. */
-  private async statType(absPath: string): Promise<FileType | undefined> {
-    try {
-      return (await this.fsProvider.stat(absPath)).type;
-    } catch (error: unknown) {
-      // degradation-audit: optional-capability - a path created and removed
-      // inside one batch window, or locked, is simply not indexed; its own
-      // delete or the next create brings the index back in line.
-      this.logger.debug(
-        '[WorkspaceFileIndex] could not stat a created path (not indexed)',
-        error,
-      );
-      return undefined;
-    }
-  }
-
-  /**
-   * The folder's view is stale — an incomplete batch, a directory delete too
-   * large to sweep, or a subscription that missed events — so it rebuilds once
-   * from a path-only walk.
-   *
-   * The subscription stays armed, so this reuses `build` under the SAME
-   * generation rather than `doStart`. The walk fills a staging snapshot while
-   * queries keep serving the previous one; batches that land meanwhile patch
-   * both, and success swaps the staging snapshot in synchronously. A failed
-   * rebuild keeps the previous snapshot. An overflow that arrives while a
-   * rebuild is running queues exactly one more, which runs whether the current
-   * one succeeds or fails — so a degraded adapter's overflow every 60 s never
-   * stacks rebuilds.
-   */
-  private requestRebuild(
-    entry: FolderIndex,
-    generation: number,
-    detail: { readonly reason: string } & Readonly<Record<string, unknown>>,
-  ): void {
-    if (entry.rebuildStaging) {
-      entry.rebuildQueued = true;
-      return;
-    }
-    const { reason, ...rest } = detail;
-    this.logger.warn(
-      `[WorkspaceFileIndex] ${reason}; rebuilding the index once`,
-      { root: entry.root, ...rest },
-    );
-    this.runOverflowRebuild(entry, generation);
-  }
-
-  private runOverflowRebuild(entry: FolderIndex, generation: number): void {
-    const staging = emptySnapshot();
-    entry.rebuildStaging = staging;
-    const startedAt = Date.now();
-    void this.build(entry, generation, staging)
-      .then(
-        () => {
-          if (entry.generation !== generation) return;
-          entry.files = staging.files;
-          entry.directories = staging.directories;
-          entry.ignoreFiles = staging.ignoreFiles;
-          entry.isIgnored = staging.isIgnored;
-          entry.nestedRepoRoots = staging.nestedRepoRoots;
-          this.logger.info(
-            `[WorkspaceFileIndex] Rebuilt after lost watcher events: ${entry.files.size} files, ${entry.directories.size} directories`,
-            { root: entry.root, durationMs: Date.now() - startedAt },
-          );
-        },
-        (error: unknown) => {
-          if (entry.generation !== generation) return;
-          this.logger.error(
-            '[WorkspaceFileIndex] Rebuild after lost watcher events failed (keeping the previous snapshot)',
-            error,
-          );
-        },
-      )
-      .finally(() => {
-        if (entry.generation !== generation) return;
-        entry.rebuildStaging = undefined;
-        if (!entry.rebuildQueued) return;
-        entry.rebuildQueued = false;
-        this.runOverflowRebuild(entry, generation);
-      });
-  }
-
-  /** A batch delete: the live snapshot, plus a rebuild's staging one if any. */
-  private deleteLivePath(entry: FolderIndex, key: string): void {
-    for (const snapshot of liveSnapshots(entry)) {
-      snapshot.files.delete(key);
-      snapshot.directories.delete(key);
-    }
-  }
-
-  /**
-   * Drop every entry below a deleted directory, in one sweep per batch. Some
-   * watchers report only the directory's own delete (VS Code's does), others
-   * each child too (`@parcel/watcher`); both end up with nothing stale.
-   */
-  private deleteLiveDescendants(
-    entry: FolderIndex,
-    deletedDirectories: ReadonlySet<string>,
-  ): void {
-    const underDeleted = (key: string): boolean => {
-      let parent = path.dirname(key);
-      while (parent.length >= entry.root.length) {
-        if (deletedDirectories.has(toIndexKey(parent))) return true;
-        const next = path.dirname(parent);
-        if (next === parent) return false;
-        parent = next;
-      }
-      return false;
-    };
-    for (const snapshot of liveSnapshots(entry)) {
-      for (const key of [...snapshot.files.keys()]) {
-        if (underDeleted(key)) snapshot.files.delete(key);
-      }
-      for (const key of [...snapshot.directories.keys()]) {
-        if (underDeleted(key)) snapshot.directories.delete(key);
-      }
-    }
-  }
-
-  /**
-   * Add a file entry plus its ancestor directory entries (derived from the
-   * path, so they inherit the file's not-ignored status for free).
-   */
-  private addFileEntry(
-    entry: FolderIndex,
-    absPath: string,
-    into: FolderSnapshot = entry,
-  ): void {
-    const relativePath = path.relative(entry.root, absPath);
-    const fileName = path.basename(absPath);
-    const directory = path.dirname(absPath);
-    into.files.set(toIndexKey(absPath), {
-      path: absPath,
-      relativePath,
-      fileName,
-      directory,
-      fileType: detectFileType(fileName),
-      isDirectory: false,
-    });
-    this.addAncestorDirectories(entry, absPath, into);
-  }
-
-  /** A batch add: the live snapshot, plus a rebuild's staging one if any. */
-  private addLiveFileEntry(entry: FolderIndex, absPath: string): void {
-    for (const snapshot of liveSnapshots(entry)) {
-      this.addFileEntry(entry, absPath, snapshot);
-    }
-  }
-
-  /** A created directory, with its ancestors, in every live snapshot. */
-  private addLiveDirectoryEntry(entry: FolderIndex, absPath: string): void {
-    const relativePath = path.relative(entry.root, absPath);
-    if (!relativePath || relativePath.startsWith('..')) return;
-    for (const snapshot of liveSnapshots(entry)) {
-      // `addAncestorDirectories` indexes every directory ABOVE its path, so a
-      // child segment makes the created directory itself the last of them.
-      this.addAncestorDirectories(entry, path.join(absPath, '_'), snapshot);
-    }
-  }
-
-  private addAncestorDirectories(
-    entry: FolderIndex,
-    absPath: string,
-    into: FolderSnapshot,
-  ): void {
-    // Derive ancestor dirs from the RELATIVE path so we never mix the
-    // workspace root's native separators/drive with the POSIX separators
-    // fast-glob emits. Each ancestor inherits the file's not-ignored status.
-    const relative = path.relative(entry.root, absPath);
-    if (!relative || relative.startsWith('..')) return;
-    const segments = relative.split(/[\\/]/).filter(Boolean);
-    segments.pop(); // drop the file name
-    const soFar: string[] = [];
-    for (const segment of segments) {
-      soFar.push(segment);
-      const absDir = path.join(entry.root, ...soFar);
-      const key = toIndexKey(absDir);
-      if (into.directories.has(key)) continue;
-      into.directories.set(key, {
-        path: absDir,
-        relativePath: path.relative(entry.root, absDir),
-        fileName: segment,
-        directory: path.dirname(absDir),
-        fileType: 'unknown',
-        isDirectory: true,
-      });
-    }
-  }
-
-  /**
-   * Synchronous: the default excludes, then the folder's compiled ignore
-   * rules, read into a local so one decision never mixes two rule sets.
-   */
-  private isExcluded(entry: FolderIndex, absPath: string): boolean {
-    const relative = path.relative(entry.root, absPath).replace(/\\/g, '/');
-    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-      return true;
-    }
-    if (this.defaultExcludeMatcher(relative)) return true;
-    const isIgnored = entry.isIgnored;
-    return isIgnored(relative);
   }
 
   /**
@@ -1230,35 +680,6 @@ export class WorkspaceFileIndexService {
     this.folderChangeSubscription = undefined;
     this.folderChangeSubscribed = false;
   }
-}
-
-/** A snapshot with nothing in it and no rules: a new folder, or a rebuild's staging area. */
-function emptySnapshot(): FolderSnapshot {
-  return {
-    files: new Map(),
-    directories: new Map(),
-    ignoreFiles: [],
-    isIgnored: IGNORE_NOTHING,
-    nestedRepoRoots: [],
-  };
-}
-
-/** The snapshot queries read, plus the one an overflow rebuild is filling. */
-function liveSnapshots(entry: FolderIndex): FolderSnapshot[] {
-  return entry.rebuildStaging ? [entry, entry.rebuildStaging] : [entry];
-}
-
-/**
- * Classify a file by extension into the coarse autocomplete buckets. Kept
- * intentionally identical to the previous `ContextService.detectFileType` so
- * downstream consumers see the same `fileType` values.
- */
-function detectFileType(fileName: string): FileSearchResult['fileType'] {
-  const ext = path.extname(fileName).toLowerCase();
-  if (IMAGE_EXTENSIONS.has(ext)) return 'image';
-  if (TEXT_EXTENSIONS.has(ext)) return 'text';
-  if (BINARY_EXTENSIONS.has(ext)) return 'binary';
-  return 'unknown';
 }
 
 /**

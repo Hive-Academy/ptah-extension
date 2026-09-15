@@ -47,6 +47,7 @@ export {
 // seam, the second a narrowed `EventLoopMonitor` view only `attachLagSource`
 // takes. Neither is a contract an adopter depends on.
 export type {
+  BackgroundWorkAdmission,
   BackgroundWorkSignal,
   BackgroundWorkState,
   BackgroundWorkStateListener,
