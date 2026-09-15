@@ -3,6 +3,7 @@ import { signal } from '@angular/core';
 import type {
   MemoryCuratorEventWire,
   MemoryDbHealthDto,
+  MemoryStorageHealthDto,
   MemoryTriggersDto,
 } from '@ptah-extension/shared';
 
@@ -10,6 +11,7 @@ import { MemoryDiagnosticsStateService } from '../../services/memory-diagnostics
 import { MemoryDiagnosticsRpcService } from '../../services/memory-diagnostics-rpc.service';
 
 import { MemoryDiagnosticsAccordionComponent } from './memory-diagnostics-accordion.component';
+import { StorageHealthPanelComponent } from './storage-health-panel.component';
 
 describe('MemoryDiagnosticsAccordionComponent', () => {
   const triggers = signal<MemoryTriggersDto | null>({
@@ -40,6 +42,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     coherent: true,
     mismatches: [],
   });
+  const storage = signal<MemoryStorageHealthDto | null>(null);
   const loading = signal<boolean>(false);
   const error = signal<string | null>(null);
   const hasActiveSession = signal<boolean>(true);
@@ -71,6 +74,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
       coherent: true,
       mismatches: [],
     });
+    storage.set(null);
     loading.set(false);
     error.set(null);
     hasActiveSession.set(true);
@@ -95,6 +99,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
             lastDecay,
             recentEvents,
             dbHealth,
+            storage,
             loading,
             error,
             hasActiveSession,
@@ -113,7 +118,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     }).compileComponents();
   });
 
-  it('renders the six panels when state is fully loaded', () => {
+  it('renders the seven panels when state is fully loaded', () => {
     const fixture = TestBed.createComponent(
       MemoryDiagnosticsAccordionComponent,
     );
@@ -127,10 +132,74 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     expect(root.textContent ?? '').toContain('Triggers');
     expect(root.textContent ?? '').toContain('Recent events');
     expect(root.textContent ?? '').toContain('DB Health');
+    expect(root.textContent ?? '').toContain('Storage and Retention');
+    expect(root.querySelector('ptah-storage-health-panel')).not.toBeNull();
     expect(
       root.querySelector('[data-testid="run-curator-now"]'),
     ).not.toBeNull();
     expect(startPollingMock).toHaveBeenCalled();
+  });
+
+  it('renders the storage health panel from the state storage signal', () => {
+    storage.set({
+      dbBytes: 2_097_152,
+      reclaimableBytes: 4_096,
+      autoVacuumIncremental: true,
+      observations: {
+        pendingRows: 12,
+        pendingBytes: 2_048,
+        oldestPendingAt: null,
+        stuckEligibleRows: 3,
+        processedRows: 4_500,
+        processedBytesEstimate: 1_500_000,
+        measuredAt: null,
+        quarantineLedgerRows: 7,
+      },
+      retention: {
+        enabled: true,
+        processedDays: 14,
+        stuckDays: 30,
+        lastRun: null,
+        lastCompletedAt: null,
+        nextDueAt: null,
+        lastSkippedAt: null,
+        lastSkipReason: null,
+      },
+    });
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const panel = root.querySelector('ptah-storage-health-panel');
+    expect(panel).not.toBeNull();
+    expect(panel?.textContent ?? '').toContain('Storage and Retention');
+    expect(panel?.textContent ?? '').toContain('No retention run recorded yet.');
+  });
+
+  it('binds the shared now clock into the storage panel', () => {
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const panelDe = fixture.debugElement.query(
+      (de) => de.componentInstance instanceof StorageHealthPanelComponent,
+    );
+    if (!panelDe) {
+      throw new Error('Storage health panel not found in rendered template');
+    }
+    const accordion = fixture.componentInstance as unknown as {
+      now: () => number;
+    };
+
+    // The accordion's now computed feeds Date.now() (≈ 1.7e12); an unwired
+    // panel input would still hold its 0 default.
+    expect(accordion.now()).toBeGreaterThan(0);
+    const panelInstance =
+      panelDe.componentInstance as StorageHealthPanelComponent;
+    expect(panelInstance.now()).toBe(accordion.now());
   });
 
   it('Run curator now button calls state.runNow()', () => {

@@ -20,17 +20,21 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  BACKUP_DESTINATION_EXISTS,
   BACKUP_DIR_MODE,
   BACKUP_FILE_MODE,
+  BACKUP_STAGING_EXISTS,
   classifyQuickCheck,
   ensureBackupDirectory,
   isBackupRequest,
   isIntegrityCheckRequest,
+  performBackup,
   removeBackupArtifact,
   resolveRealBackupDestination,
   restrictBackupFile,
   validateBackupDestination,
   type BackupArtifactFs,
+  type BackupEnvironment,
 } from './integrity-worker-protocol';
 
 describe('classifyQuickCheck', () => {
@@ -114,6 +118,8 @@ describe('isBackupRequest', () => {
         type: 'backup',
         dbPath: 'C:\\ptah\\ptah.sqlite',
         destPath: 'C:\\ptah\\backups\\ptah-2026-09-06.sqlite',
+        stagingPath:
+          'C:\\ptah\\backups\\ptah-2026-09-06.sqlite.12345678.tmp',
       }),
     ).toBe(true);
   });
@@ -125,6 +131,15 @@ describe('isBackupRequest', () => {
     expect(
       isBackupRequest({ id: 1, type: 'backup', dbPath: 'a', destPath: '' }),
     ).toBe(false); // empty destPath
+    expect(
+      isBackupRequest({
+        id: 1,
+        type: 'backup',
+        dbPath: 'a',
+        destPath: 'b',
+        stagingPath: '',
+      }),
+    ).toBe(false); // empty stagingPath
     expect(
       isBackupRequest({ id: 1, type: 'backup', dbPath: '', destPath: 'b' }),
     ).toBe(false); // empty dbPath
@@ -283,6 +298,9 @@ describe('resolveRealBackupDestination', () => {
       existsSync: (target: string) => existing.includes(target),
       mkdirSync: () => undefined,
       chmodSync: () => undefined,
+      openSync: () => 1,
+      closeSync: () => undefined,
+      linkSync: () => undefined,
       rmdirSync: () => undefined,
       unlinkSync: () => undefined,
       statSync: () => ({ size: 0 }),
@@ -349,6 +367,227 @@ describe('resolveRealBackupDestination', () => {
     expect(
       resolveRealBackupDestination(io, dbPath, path.join(backups, 'x.sqlite')),
     ).toContain('ancestor could not be resolved');
+  });
+});
+
+describe('performBackup destination ownership', () => {
+  let workDir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'integrity-owner-'));
+    dbPath = path.join(workDir, 'ptah.sqlite');
+    fs.writeFileSync(dbPath, 'source');
+  });
+
+  afterEach(() => {
+    fs.rmSync(workDir, { recursive: true, force: true });
+  });
+
+  function makeEnvironment(
+    backup: (destination: string) => Promise<unknown>,
+    options?: {
+      artifactFs?: BackupArtifactFs;
+      quickCheck?: unknown;
+      openCopyError?: Error;
+    },
+  ): { env: BackupEnvironment; openSource: jest.Mock; copyClose: jest.Mock } {
+    const openSource = jest.fn(() => ({
+      backup,
+      close: jest.fn(),
+    }));
+    const copyClose = jest.fn();
+    return {
+      env: {
+        fs: options?.artifactFs ?? fs,
+        openSource,
+        openCopy: () => {
+          if (options?.openCopyError) throw options.openCopyError;
+          return {
+            pragma: () => options?.quickCheck ?? 'ok',
+            close: copyClose,
+          };
+        },
+        now: () => 1_000,
+        inFlight: new Set<string>(),
+      },
+      openSource,
+      copyClose,
+    };
+  }
+
+  function request(dest: string, token: string, id: number) {
+    return {
+      id,
+      type: 'backup' as const,
+      dbPath,
+      destPath: dest,
+      stagingPath: `${dest}.${token}.tmp`,
+    };
+  }
+
+  it('publishes one validated final and removes staging plus sidecars', async () => {
+    const dest = path.join(
+      workDir,
+      'ptah.pre-migration-20260914T101112345Z-aaaaaaaa.sqlite',
+    );
+    const backupRequest = request(dest, '11111111', 40);
+    const backup = jest.fn(async (target: string) => {
+      fs.writeFileSync(target, 'validated-copy');
+      fs.writeFileSync(`${target}-wal`, 'wal');
+      fs.writeFileSync(`${target}-shm`, 'shm');
+    });
+
+    const response = await performBackup(makeEnvironment(backup).env, backupRequest);
+
+    expect(response).toMatchObject({
+      verdict: 'ok',
+      detail: null,
+    });
+    expect(response.bytesWritten).toBe(Buffer.byteLength('validated-copy'));
+    expect(fs.readdirSync(workDir).sort()).toEqual([
+      path.basename(dbPath),
+      path.basename(dest),
+    ].sort());
+    expect(fs.readFileSync(dest, 'utf8')).toBe('validated-copy');
+    expect(fs.existsSync(backupRequest.stagingPath)).toBe(false);
+    expect(fs.existsSync(`${backupRequest.stagingPath}-wal`)).toBe(false);
+    expect(fs.existsSync(`${backupRequest.stagingPath}-shm`)).toBe(false);
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(dest).mode & 0o777).toBe(BACKUP_FILE_MODE);
+    }
+  });
+
+  it('returns BACKUP_DESTINATION_EXISTS without changing the winner', async () => {
+    const dest = path.join(
+      workDir,
+      'ptah.pre-migration-20260914T101112345Z-bbbbbbbb.sqlite',
+    );
+    const backupRequest = request(dest, '22222222', 41);
+    const original = Buffer.from('validated-winner');
+    fs.writeFileSync(dest, original);
+    fs.utimesSync(dest, new Date(1_700_000_000_000), new Date(1_700_000_000_000));
+    const beforeMtime = fs.statSync(dest).mtimeMs;
+    const backup = jest.fn(async (target: string) => {
+      fs.writeFileSync(target, 'validated-loser');
+    });
+
+    const response = await performBackup(makeEnvironment(backup).env, backupRequest);
+
+    expect(response).toMatchObject({
+      verdict: 'unavailable',
+      bytesWritten: 0,
+      detail: BACKUP_DESTINATION_EXISTS,
+    });
+    expect(fs.readFileSync(dest)).toEqual(original);
+    expect(fs.statSync(dest).mtimeMs).toBe(beforeMtime);
+    expect(fs.existsSync(backupRequest.stagingPath)).toBe(false);
+  });
+
+  it('does not clean a staging path when exclusive creation reports EEXIST', async () => {
+    const dest = path.join(workDir, 'ptah.staging-collision.sqlite');
+    const backupRequest = request(dest, '29292929', 49);
+    fs.writeFileSync(backupRequest.stagingPath, 'other-attempt');
+    const backup = jest.fn(async () => undefined);
+    const { env, openSource } = makeEnvironment(backup);
+
+    const response = await performBackup(env, backupRequest);
+
+    expect(response.detail).toBe(BACKUP_STAGING_EXISTS);
+    expect(openSource).not.toHaveBeenCalled();
+    expect(backup).not.toHaveBeenCalled();
+    expect(fs.readFileSync(backupRequest.stagingPath, 'utf8')).toBe(
+      'other-attempt',
+    );
+  });
+
+  it.each([
+    { name: 'corrupt', quickCheck: 'row missing', openCopyError: undefined },
+    {
+      name: 'unavailable',
+      quickCheck: undefined,
+      openCopyError: new Error('validation unavailable'),
+    },
+  ])('$name validation never publishes and removes staging', async (testCase) => {
+    const dest = path.join(workDir, `ptah.${testCase.name}.sqlite`);
+    const backupRequest = request(dest, '33333333', 42);
+    const backup = jest.fn(async (target: string) => {
+      fs.writeFileSync(target, 'unpublished-copy');
+    });
+    const { env } = makeEnvironment(backup, {
+      quickCheck: testCase.quickCheck,
+      openCopyError: testCase.openCopyError,
+    });
+
+    const response = await performBackup(env, backupRequest);
+
+    expect(response.verdict).toBe(testCase.name);
+    expect(response.bytesWritten).toBe(0);
+    expect(fs.existsSync(dest)).toBe(false);
+    expect(fs.existsSync(backupRequest.stagingPath)).toBe(false);
+  });
+
+  it('still removes staging when source.backup fails after writing', async () => {
+    const dest = path.join(workDir, 'ptah.failed.sqlite');
+    const backupRequest = request(dest, '44444444', 43);
+    const backup = jest.fn(async (target: string) => {
+      fs.writeFileSync(target, 'partial-copy');
+      throw new Error('forced backup failure');
+    });
+
+    const response = await performBackup(
+      makeEnvironment(backup).env,
+      backupRequest,
+    );
+
+    expect(response).toMatchObject({
+      verdict: 'unavailable',
+      bytesWritten: 0,
+      detail: 'forced backup failure',
+    });
+    expect(fs.existsSync(dest)).toBe(false);
+    expect(fs.existsSync(backupRequest.stagingPath)).toBe(false);
+  });
+
+  it('reports an atomic-publish failure without a rename or copy fallback', async () => {
+    const dest = path.join(workDir, 'ptah.no-hard-links.sqlite');
+    const backupRequest = request(dest, '45454545', 44);
+    const backup = jest.fn(async (target: string) => {
+      fs.writeFileSync(target, 'validated-copy');
+    });
+    const linkError = Object.assign(new Error('hard links unsupported'), {
+      code: 'EXDEV',
+    });
+    const { env } = makeEnvironment(backup, {
+      artifactFs: {
+        ...fs,
+        linkSync: () => {
+          throw linkError;
+        },
+      },
+    });
+
+    const response = await performBackup(env, backupRequest);
+
+    expect(response.detail).toContain('atomic publish failed');
+    expect(response.detail).toContain('hard links unsupported');
+    expect(fs.existsSync(dest)).toBe(false);
+    expect(fs.existsSync(backupRequest.stagingPath)).toBe(false);
+  });
+
+  it('real fs hard-link publish is no-overwrite and reports EEXIST on a second link', () => {
+    const staging = path.join(workDir, 'copy.sqlite.55555555.tmp');
+    const dest = path.join(workDir, 'copy.sqlite');
+    fs.writeFileSync(staging, 'copy');
+
+    fs.linkSync(staging, dest);
+    fs.unlinkSync(staging);
+    fs.writeFileSync(staging, 'second');
+
+    expect(() => fs.linkSync(staging, dest)).toThrow(
+      expect.objectContaining({ code: 'EEXIST' }),
+    );
+    expect(fs.readFileSync(dest, 'utf8')).toBe('copy');
   });
 });
 
@@ -466,9 +705,8 @@ describe('backup artifact filesystem helpers', () => {
     });
 
     it('removes the WAL sidecars too, so they cannot take a rotation slot', () => {
-      // Rotation selects by filename PREFIX, and `<name>.sqlite-wal` shares the
-      // backup's prefix while sorting after it. Leaving the sidecars behind
-      // evicts a real backup just as surely as leaving a partial file does.
+      // Staging sidecars must not survive failure or block atomic publication;
+      // rotation's strict `.sqlite` filter excludes them from keep counts.
       const dest = path.join(workDir, 'partial.sqlite');
       fs.writeFileSync(dest, 'half a database');
       fs.writeFileSync(`${dest}-wal`, 'wal');
@@ -483,6 +721,9 @@ describe('backup artifact filesystem helpers', () => {
         existsSync: () => true,
         mkdirSync: () => undefined,
         chmodSync: () => undefined,
+        openSync: () => 1,
+        closeSync: () => undefined,
+        linkSync: () => undefined,
         rmdirSync: () => undefined,
         realpathSync: (target: string) => target,
         statSync: () => ({ size: 0 }),
@@ -508,6 +749,9 @@ describe('backup artifact filesystem helpers', () => {
         existsSync: () => true,
         mkdirSync: () => undefined,
         chmodSync: () => undefined,
+        openSync: () => 1,
+        closeSync: () => undefined,
+        linkSync: () => undefined,
         rmdirSync: () => undefined,
         realpathSync: (target: string) => target,
         statSync: () => ({ size: 0 }),

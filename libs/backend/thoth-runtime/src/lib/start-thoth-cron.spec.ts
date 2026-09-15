@@ -5,6 +5,7 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
 import type { JobHandler } from '@ptah-extension/cron-scheduler';
 import { SKILL_SYNTHESIS_TOKENS } from '@ptah-extension/skill-synthesis';
+import { MEMORY_TOKENS } from '@ptah-extension/memory-curator';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES, isActivityEventPayload } from '@ptah-extension/shared';
 
@@ -155,8 +156,13 @@ describe('startThothCron', () => {
     expect(backupService.backup).toHaveBeenCalledWith('daily');
     expect(backupService.rotate).toHaveBeenCalledWith('daily', 7);
     const pragma = refs.sqliteConnection?.db.pragma as jest.Mock;
-    expect(pragma).toHaveBeenCalledWith('incremental_vacuum(100)');
+    // TASK_2026_440: free pages are reclaimed by the retention job in bounded
+    // steps; the backup handler no longer runs an unbounded vacuum.
+    expect(pragma).not.toHaveBeenCalledWith(
+      expect.stringContaining('incremental_vacuum'),
+    );
     expect(pragma).toHaveBeenCalledWith('optimize');
+    expect(pragma).toHaveBeenCalledTimes(1);
     expect(result.summary).toBe('backup written to /backups/daily.db');
   });
 
@@ -769,6 +775,149 @@ describe('startThothCron', () => {
       // No service means no boot timer either — nothing to unref, nothing to
       // keep an exiting host alive.
       expect(timers).toHaveLength(0);
+    });
+  });
+
+  /**
+   * TASK_2026_440 component 11 item 1 — reachability, not only registration.
+   *
+   * The token comes from `@ptah-extension/memory-curator` and is never
+   * re-declared here, so a rename breaks this spec.
+   */
+  describe('memory retention job', () => {
+    const RETENTION_UPSERT = {
+      id: '@ptah/memory-retention',
+      name: 'Memory Retention',
+      cronExpr: '17 * * * *',
+      timezone: 'UTC',
+      prompt: 'handler:memory:retention',
+      enabled: true,
+    };
+
+    function makeRetentionContainer(opts: { withService?: boolean } = {}) {
+      const handlers = new Map<string, JobHandler>();
+      const handlerRegistry = {
+        has: (name: string) => handlers.has(name),
+        register: jest.fn((name: string, fn: JobHandler) => {
+          if (handlers.has(name)) {
+            throw new Error(`duplicate handler '${name}'`);
+          }
+          handlers.set(name, fn);
+        }),
+      };
+      const jobStore = { upsert: jest.fn() };
+      const retention = {
+        run: jest.fn().mockResolvedValue({
+          status: 'completed',
+          reason: null,
+          processedPurged: 3,
+          stuckQuarantined: 1,
+          ledgerPruned: 0,
+          freedBytes: 0,
+          pagesReclaimed: 2,
+          backlogRemaining: false,
+          durationMs: 1,
+          error: null,
+        }),
+      };
+      const entries: Entry[] = [
+        [CRON_TOKENS.CRON_SCHEDULER, { start: jest.fn() }],
+        [CRON_TOKENS.CRON_JOB_STORE, jobStore],
+        [CRON_TOKENS.CRON_HANDLER_REGISTRY, handlerRegistry],
+        [CRON_TOKENS.CRON_POWER_MONITOR, { isOnBattery: jest.fn(() => false) }],
+        [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],
+      ];
+      if (opts.withService !== false) {
+        entries.push([MEMORY_TOKENS.MEMORY_RETENTION_SERVICE, retention]);
+      }
+      return {
+        container: makeContainer(entries),
+        handlers,
+        handlerRegistry,
+        jobStore,
+        retention,
+      };
+    }
+
+    function retentionUpserts(jobStore: { upsert: jest.Mock }): unknown[] {
+      return jobStore.upsert.mock.calls
+        .map((call) => call[0] as { id: string })
+        .filter((job) => job.id === '@ptah/memory-retention');
+    }
+
+    it('upserts the exact @ptah/memory-retention job and registers memory:retention', async () => {
+      const { container, handlerRegistry, jobStore } = makeRetentionContainer();
+
+      await startThothCron(container, refsWithSqlite());
+
+      expect(jobStore.upsert).toHaveBeenCalledWith(RETENTION_UPSERT);
+      expect(handlerRegistry.register).toHaveBeenCalledWith(
+        'memory:retention',
+        expect.any(Function),
+      );
+    });
+
+    it('the registered handler reaches service.run with the cron signal', async () => {
+      const { container, handlers, retention } = makeRetentionContainer();
+      await startThothCron(container, refsWithSqlite());
+      const controller = new AbortController();
+
+      const handler = handlers.get('memory:retention') as JobHandler;
+      const result = await handler({
+        job: { id: '@ptah/memory-retention' } as never,
+        scheduledFor: 0,
+        signal: controller.signal,
+      });
+
+      expect(retention.run).toHaveBeenCalledTimes(1);
+      expect(retention.run.mock.calls[0][0]).toMatchObject({
+        signal: controller.signal,
+      });
+      expect(result).toEqual({
+        summary: 'purged 3 processed, quarantined 1 stuck, reclaimed 2 pages',
+      });
+    });
+
+    it('registers once and upserts twice across two startThothCron calls', async () => {
+      const { container, handlerRegistry, jobStore } = makeRetentionContainer();
+      const refs = refsWithSqlite();
+
+      await startThothCron(container, refs);
+      await startThothCron(container, refs);
+
+      expect(
+        handlerRegistry.register.mock.calls.filter(
+          (call) => call[0] === 'memory:retention',
+        ),
+      ).toHaveLength(1);
+      expect(retentionUpserts(jobStore)).toEqual([
+        RETENTION_UPSERT,
+        RETENTION_UPSERT,
+      ]);
+    });
+
+    it('registers no retention job without the service and leaves other jobs alone', async () => {
+      const { container, handlerRegistry, jobStore } = makeRetentionContainer({
+        withService: false,
+      });
+
+      await startThothCron(container, refsWithSqlite());
+
+      expect(retentionUpserts(jobStore)).toHaveLength(0);
+      expect(
+        handlerRegistry.register.mock.calls.filter(
+          (call) => call[0] === 'memory:retention',
+        ),
+      ).toHaveLength(0);
+      expect(
+        jobStore.upsert.mock.calls.map(
+          (call) => (call[0] as { id: string }).id,
+        ),
+      ).toEqual(['@ptah/daily-backup']);
+      expect(handlerRegistry.register).toHaveBeenCalledWith(
+        'backup:daily',
+        expect.any(Function),
+      );
     });
   });
 

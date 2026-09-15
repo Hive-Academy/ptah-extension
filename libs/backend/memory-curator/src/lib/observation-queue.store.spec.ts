@@ -302,32 +302,6 @@ describe('ObservationQueueStore (native-gated)', () => {
   });
 
   maybe(
-    'purgeOlderThan only deletes processed rows older than the threshold',
-    async () => {
-      const { service, store } = await bootstrap();
-      try {
-        store.enqueue({
-          sessionId: 'session-ζ',
-          workspaceRoot: null,
-          kind: 'tool-use',
-        });
-        store.enqueue({
-          sessionId: 'session-ζ',
-          workspaceRoot: null,
-          kind: 'tool-use',
-        });
-        const drained = store.drainForSession('session-ζ');
-        store.markProcessed([drained[0].id]);
-        const purged = store.purgeOlderThan(Date.now() + 60_000);
-        expect(purged).toBe(1);
-        expect(store.countUnprocessed('session-ζ')).toBe(1);
-      } finally {
-        service.close();
-      }
-    },
-  );
-
-  maybe(
     'onCapture fires for every successful insert and dispose detaches',
     async () => {
       const { service, store } = await bootstrap();
@@ -415,9 +389,9 @@ describe('ObservationQueueStore (native-gated)', () => {
    *
    * Such a row is un-drainable and un-reapable by construction: every read
    * filters `WHERE session_id = ?` and nothing queries `''`, so it is never
-   * drained, never marked processed, and `purgeOlderThan` only deletes rows
-   * that WERE processed. It would sit in the table forever while
-   * `countUnprocessed('')` kept counting it.
+   * drained and never marked processed, so it could only ever leave the table
+   * uncurated, as a stuck row quarantined by `ObservationRetentionStore` after
+   * the grace window — while `countUnprocessed('')` kept counting it.
    */
   maybe(
     'refuses a row with an empty sessionId — nothing reaches the table',

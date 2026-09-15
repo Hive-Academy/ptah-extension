@@ -10,6 +10,7 @@ import {
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryCuratorService } from './memory-curator.service';
 import { MemoryDecayJob } from './memory-decay.job';
+import { MemoryRetentionService } from './retention/memory-retention.service';
 import { readMemoryTriggers } from './triggers/memory-trigger-config';
 import type {
   MemoryCuratorEvent,
@@ -35,6 +36,8 @@ export class MemoryDiagnosticsService {
     private readonly workspace: IWorkspaceProvider,
     @inject(PERSISTENCE_TOKENS.VEC_STATUS)
     private readonly vecStatus: VecStatusService,
+    @inject(MEMORY_TOKENS.MEMORY_RETENTION_SERVICE)
+    private readonly retention: MemoryRetentionService,
   ) {}
 
   async getSnapshot(
@@ -55,6 +58,8 @@ export class MemoryDiagnosticsService {
       lastDecayStats: lastDecay.stats,
       recentEvents,
       dbHealth,
+      // Required storage relies on the MemoryRetentionService never-throws contract pinned by its degradation specs.
+      storage: this.retention.storageHealth(),
       triggers,
     };
   }

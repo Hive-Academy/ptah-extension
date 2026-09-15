@@ -559,6 +559,7 @@ export class MemoryRpcHandlers {
               mismatches: snapshot.dbHealth.mismatches,
               countErrors: snapshot.dbHealth.countErrors,
             },
+            storage: snapshot.storage,
             triggers: {
               preCompact: snapshot.triggers.preCompact,
               idleMs: snapshot.triggers.idleMs,

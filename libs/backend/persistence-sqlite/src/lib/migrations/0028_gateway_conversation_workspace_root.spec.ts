@@ -74,7 +74,8 @@ describe('migration 0028_gateway_conversation_workspace_root — registry entry'
     // for TASK_2026_180's phases 4, 3, 0, 2, 1 and 0). This assertion tracks
     // the current highest version and moves forward with every appended
     // migration (see 0027 → 0028 precedent).
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(42);
+    // 43 since TASK_2026_440 appended 0043_memory_retention.
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(43);
   });
 });
 

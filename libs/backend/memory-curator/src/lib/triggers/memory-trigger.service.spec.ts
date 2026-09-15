@@ -308,7 +308,6 @@ function makeObservationQueue(): FakeQueueStore {
       return arr.filter((r) => r.processedAt === null).slice(0, limit);
     }),
     markProcessed,
-    purgeOlderThan: jest.fn(() => 0),
     countUnprocessed: jest.fn(() => 0),
     backfillSessionId: jest.fn((fromId: string, toId: string) => {
       const rows = rowsBySession.get(fromId);

@@ -3,10 +3,12 @@ import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
+  KEEP_BY_KIND,
   PERSISTENCE_TOKENS,
   type IBackupService,
   type SqliteIntegrityService,
 } from '@ptah-extension/persistence-sqlite';
+import { MEMORY_TOKENS } from '@ptah-extension/memory-curator';
 import {
   CRON_TOKENS,
   type CronScheduler,
@@ -20,6 +22,10 @@ import {
 } from '@ptah-extension/skill-synthesis';
 
 import { SKILL_DRAIN_JOBS } from './skill-drain-jobs';
+import {
+  MEMORY_RETENTION_JOB,
+  createMemoryRetentionHandler,
+} from './memory-retention-job';
 import {
   DEFAULT_THOTH_LOG_PREFIX,
   type StartThothCronOptions,
@@ -245,6 +251,53 @@ function registerIntegrityCheckJob(
 }
 
 /**
+ * Register the memory retention handler and upsert its hourly job
+ * (TASK_2026_440).
+ *
+ * The THIRD SEAM in this file: `memory-curator` must not import
+ * `cron-scheduler` or `skill-synthesis`, so the battery and foreground signals
+ * reach `MemoryRetentionService.run` through the handler built by
+ * `createMemoryRetentionHandler`. Registration does no work and runs no SQL
+ * beyond the upsert; the service decides per tick whether a run is due.
+ *
+ * Non-fatal by construction: a host with no `MEMORY_RETENTION_SERVICE` gets no
+ * job.
+ */
+function registerMemoryRetentionJob(
+  container: DependencyContainer,
+  jobStore: IJobStore,
+  handlerRegistry: IHandlerRegistry,
+  logPrefix: string,
+  emit: ActivityEmitter,
+): void {
+  if (!container.isRegistered(MEMORY_TOKENS.MEMORY_RETENTION_SERVICE)) {
+    return;
+  }
+  // `register` THROWS on a duplicate name; a second `startThothCron` must not.
+  if (!handlerRegistry.has(MEMORY_RETENTION_JOB.handlerName)) {
+    handlerRegistry.register(
+      MEMORY_RETENTION_JOB.handlerName,
+      withActivityEmit(
+        emit,
+        MEMORY_RETENTION_JOB.handlerName,
+        createMemoryRetentionHandler(container),
+      ),
+    );
+  }
+  jobStore.upsert({
+    id: MEMORY_RETENTION_JOB.jobId,
+    name: MEMORY_RETENTION_JOB.name,
+    cronExpr: MEMORY_RETENTION_JOB.cronExpr,
+    timezone: MEMORY_RETENTION_JOB.timezone,
+    prompt: `handler:${MEMORY_RETENTION_JOB.handlerName}`,
+    enabled: true,
+  });
+  console.log(
+    `${logPrefix} Memory retention cron job registered (@ptah/memory-retention)`,
+  );
+}
+
+/**
  * Start the Thoth cron scheduler and register the built-in daily SQLite
  * backup job. Mutates `refs.cronScheduler` in place so the host keeps a
  * single refs object for its LIFO teardown chain.
@@ -321,7 +374,7 @@ export async function startThothCron(
                 );
                 const backupPath = await backupSvc.backup('daily');
                 try {
-                  backupSvc.rotate('daily', 7);
+                  backupSvc.rotate('daily', KEEP_BY_KIND.daily);
                 } catch (rotateErr: unknown) {
                   console.warn(
                     `${logPrefix} Daily backup rotation failed (non-fatal):`,
@@ -330,9 +383,10 @@ export async function startThothCron(
                       : String(rotateErr),
                   );
                 }
-                // The two write pragmas below are the ONLY part of this job
-                // that still needs the live handle, so the connection check
-                // now gates them alone.
+                // `optimize` is the ONLY part of this job that still needs the
+                // live handle, so the connection check gates it alone. Free
+                // pages are reclaimed by the memory retention job, in bounded
+                // steps, not here (TASK_2026_440).
                 const sqliteConn = refs.sqliteConnection;
                 if (!sqliteConn) {
                   return {
@@ -340,16 +394,6 @@ export async function startThothCron(
                       ? `backup written to ${backupPath}; pragmas skipped: no sqlite connection`
                       : 'backup not taken; pragmas skipped: no sqlite connection',
                   };
-                }
-                try {
-                  sqliteConn.db.pragma('incremental_vacuum(100)');
-                } catch (vacuumErr: unknown) {
-                  console.warn(
-                    `${logPrefix} Post-backup incremental_vacuum failed (non-fatal):`,
-                    vacuumErr instanceof Error
-                      ? vacuumErr.message
-                      : String(vacuumErr),
-                  );
                 }
                 try {
                   sqliteConn.db.pragma('optimize');
@@ -423,6 +467,24 @@ export async function startThothCron(
             integrityErr instanceof Error
               ? integrityErr.message
               : String(integrityErr),
+          );
+        }
+        try {
+          registerMemoryRetentionJob(
+            container,
+            container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE),
+            container.resolve<IHandlerRegistry>(
+              CRON_TOKENS.CRON_HANDLER_REGISTRY,
+            ),
+            logPrefix,
+            emitActivity,
+          );
+        } catch (retentionErr: unknown) {
+          console.warn(
+            `${logPrefix} Memory retention cron registration failed (non-fatal):`,
+            retentionErr instanceof Error
+              ? retentionErr.message
+              : String(retentionErr),
           );
         }
       }

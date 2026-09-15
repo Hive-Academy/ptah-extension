@@ -18,16 +18,16 @@
  * implementation alive "just in case" would mean the slow path stays reachable
  * forever and nobody ever learns which one ran.
  *
- * A FAILED BACKUP LEAVES NO ARTIFACT — AND NO SIDECAR. The worker removes its
- * own partial copy whenever it runs to completion, but it CANNOT clean up after
- * a run the host killed: a budget expiry or an early exit tears the process down
- * from outside, so `performBackup`'s own cleanup branch never executes, and a
- * write-mode validation session leaves `<dest>-wal` / `<dest>-shm` behind. So
- * this class removes the destination AND its WAL sidecars on every path that
- * returns `null` — including the `'unavailable'` one, where the worker may
- * deliberately have KEPT an unvalidated copy. That is not a disagreement with
- * the worker: the worker reports, this class decides, and a file this method
- * does not return is a file rotation must never see.
+ * ONLY A VALIDATED COPY IS PUBLISHED AT A FINAL NAME. The worker writes to an
+ * exclusively-created random staging file, validates it, removes its sidecars,
+ * then atomically publishes with a no-overwrite hard link. Every failure path
+ * removes only staging; no failed attempt unlinks a final destination. This is
+ * the cross-process guard required when Electron and CLI share one directory.
+ * A same-day daily final created by the old direct-write implementation earlier
+ * on the upgrade day remains one documented residual: it is trusted once.
+ * A second known limitation: a backups directory without hard-link support
+ * fails the publish, so every backup reports not-taken with a `'critical'`
+ * degradation — permanent and loud, with no copy or rename fallback by design.
  *
  * ONE BACKUP AT A TIME, AND NONE IS EVER DROPPED. Overlapping calls are
  * SERIALIZED, not rejected: the second awaits the first and then runs. Two
@@ -38,15 +38,18 @@
  *
  * That invariant is what makes rotation safe. Rotation is owned directly in
  * this class — no separate helper. The bookkeeping is two lines:
- * `fs.readdirSync` → sort desc by filename (ISO timestamps sort
- * lexicographically) → delete excess files. It has no validity check of its
- * own, so an unvalidated artifact would occupy a keep slot on the newest end
- * and silently evict a genuinely good backup.
+ * `fs.readdirSync` → `.sqlite` suffix filter → sort desc by filename → delete
+ * excess files. Compact ISO timestamps sort lexicographically across seconds;
+ * the one compatibility quirk is that an old second-granular name sorts newer
+ * than a new-format name from that same second. Rotation also sweeps staging
+ * files older than two worker budgets; younger staging files may belong to
+ * another process and are never swept or counted.
  *
  * `backup()` NEVER THROWS. Its callers are a migration runner, two cron jobs
  * and a reset RPC handler; each treats `null` as non-fatal and continues.
  */
 import { inject, injectable } from 'tsyringe';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
@@ -58,7 +61,11 @@ import {
 import { PERSISTENCE_TOKENS } from './di/tokens';
 import { DbWorkerRunner } from './integrity/db-worker-runner';
 import type { IIntegrityWorkerProcessFactory } from './integrity/worker-process.port';
-import { removeBackupArtifact } from './integrity/integrity-worker-protocol';
+import {
+  BACKUP_DESTINATION_EXISTS,
+  BACKUP_STAGING_EXISTS,
+  removeBackupArtifact,
+} from './integrity/integrity-worker-protocol';
 import type {
   BackupRequest,
   BackupResponse,
@@ -108,20 +115,30 @@ export const BACKUP_WORKER_BUDGET_MS = 20 * 60 * 1000;
  */
 const DEGRADE_NO_WORKER = 'database.backup.no-worker-factory';
 const DEGRADE_NOT_TAKEN = 'database.backup.not-taken';
+const STAGING_SUFFIX = /\.[0-9a-f]{8}\.tmp(?:-wal|-shm)?$/;
 
-/** ISO8601-compact timestamp safe as a filename on Windows and macOS. */
+/** Collision-resistant compact timestamp safe as a filename on Windows/macOS. */
 function compactIso(): string {
-  return new Date()
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .replace(/\.\d{3}Z$/, 'Z');
+  const timestamp = new Date().toISOString().replace(/[-:.]/g, '');
+  return `${timestamp}-${crypto.randomBytes(4).toString('hex')}`;
 }
 
-/** Keep-count table keyed by kind. `reset` is 0 = unbounded (never rotated). */
-const KEEP_BY_KIND: Record<BackupKind, number> = {
-  'pre-migration': 3,
+/**
+ * Keep-count table keyed by kind — the ONE keep policy. Every rotation call
+ * site reads it (`rotate(kind, KEEP_BY_KIND[kind])`); none passes a literal.
+ *
+ * - `pre-migration: 1` — each copy is a full image of the database (1.28 GB on
+ *   a real install), and only the newest one is a useful rollback point.
+ * - `daily: 7` — one week of daily copies.
+ * - `reset: 2` — bounded since TASK_2026_440; it used to be unbounded, so every
+ *   user-initiated reset left one more full copy behind forever.
+ *
+ * No kind maps to 0. `rotate(keep <= 0)` stays a no-op for callers.
+ */
+const KEEP_BY_KIND: Readonly<Record<BackupKind, number>> = {
+  'pre-migration': 1,
   daily: 7,
-  reset: 0,
+  reset: 2,
 };
 
 /**
@@ -145,6 +162,14 @@ function asBackupResponse(msg: unknown): BackupResponse | null {
   ) {
     return null;
   }
+  if (
+    typeof candidate.bytesWritten !== 'number' ||
+    typeof candidate.durationMs !== 'number' ||
+    typeof candidate.quickCheck !== 'string' ||
+    (candidate.detail !== null && typeof candidate.detail !== 'string')
+  ) {
+    return null;
+  }
   return candidate as BackupResponse;
 }
 
@@ -156,17 +181,21 @@ export interface IBackupService {
    * The database path is injected, so no handle is passed in: the worker opens
    * the file itself, read-only, and the host's live connection is untouched.
    *
-   * On failure no file is left at the destination, and a returned path has
-   * passed `PRAGMA quick_check` inside the worker. A copy that could not be
-   * validated is discarded and reported, not returned.
+   * Only a copy that passed `PRAGMA quick_check` is atomically published at a
+   * final name. Failures remove staging only; a final path is never overwritten
+   * or discarded. A daily final already present is returned without dispatch.
+   * One upgrade-day exception exists: an old-version partial daily final cannot
+   * be distinguished from a published final and is trusted once.
    */
   backup(kind: BackupKind): Promise<string | null>;
 
   /**
    * Deletes old backup files of the given kind, keeping only the `keep` newest.
    * A `keep` of `0` means unlimited — no files are deleted.
-   * Filenames sort lexicographically by ISO compact timestamp.
-   * Assumes every file under the kind's prefix was validated by `backup()`.
+   * Filenames sort newest-first by compact ISO timestamp. Across mixed formats,
+   * an old-format file sorts newer than a new-format file from the same second.
+   * New code publishes only validated finals. An old-version daily partial on
+   * the upgrade day is the documented compatibility exception.
    */
   rotate(kind: BackupKind, keep: number): void;
 }
@@ -323,9 +352,9 @@ export class SqliteBackupService implements IBackupService {
    * otherwise escape from the one method four callers rely on not to.
    *
    * `destPath` is computed HERE rather than in `backup()`, so a queued call is
-   * stamped with the time it actually runs. Computing it at enqueue time would
-   * give two queued `pre-migration` backups timestamps from the same second and
-   * therefore the same filename.
+   * stamped with the time it actually runs. Non-daily names also carry four
+   * random bytes, preventing separate hosts in one directory from normally
+   * choosing the same destination even within the same millisecond.
    *
    * The worker owns the file permissions (`0600` on the artifact, `0700` on the
    * directory it creates); this method never chmods, because the file is
@@ -333,9 +362,23 @@ export class SqliteBackupService implements IBackupService {
    * the two.
    */
   private async takeBackup(kind: BackupKind): Promise<string | null> {
-    // Declared outside the try so the catch can clean up a partial file.
+    // Declared outside the try so every failed host path cleans staging only.
     let dest: string | null = null;
+    let staging: string | null = null;
     try {
+      dest = this.destPath(kind);
+      if (fs.existsSync(dest)) {
+        if (kind === 'daily') {
+          this.logger.info(
+            '[persistence-sqlite] daily backup for today already exists',
+            { kind, dest },
+          );
+          return dest;
+        }
+        this.reportNotTaken(kind, `backup destination already exists: ${dest}`);
+        return null;
+      }
+
       const factory = this.factory;
       if (!factory) {
         this.logger.warn(
@@ -353,13 +396,14 @@ export class SqliteBackupService implements IBackupService {
         return null;
       }
 
-      dest = this.destPath(kind);
       const request: BackupRequest = {
         id: 1,
         type: 'backup',
         dbPath: this.dbPath,
         destPath: dest,
+        stagingPath: `${dest}.${crypto.randomBytes(4).toString('hex')}.tmp`,
       };
+      staging = request.stagingPath;
       const outcome = await this.runner.run<BackupResponse>(factory, {
         label: 'backup',
         request,
@@ -369,10 +413,9 @@ export class SqliteBackupService implements IBackupService {
 
       const response = outcome.response;
       if (response === null) {
-        // No reply, an early exit, or a spent budget. The runner already said
-        // which at `warn`; what matters here is that no verdict exists, so
-        // whatever is at the destination is unvalidated and must not survive.
-        this.discardArtifact(dest, kind);
+        // The worker may have died mid-copy. Only its randomized staging path
+        // belongs to this attempt; the final path may belong to another host.
+        this.discardArtifact(staging, kind);
         this.reportNotTaken(
           kind,
           'the backup worker produced no result (no reply, early exit, or budget expiry)',
@@ -383,17 +426,29 @@ export class SqliteBackupService implements IBackupService {
       if (response.verdict === 'corrupt') {
         this.logger.warn(
           '[persistence-sqlite] backup discarded — integrity check failed',
-          { kind, dest, quickCheck: response.quickCheck },
+          { kind, dest, staging, quickCheck: response.quickCheck },
         );
-        this.discardArtifact(dest, kind);
+        this.discardArtifact(staging, kind);
         return null;
       }
 
       if (response.verdict === 'unavailable') {
-        // The worker keeps an unvalidatable copy and reports `bytesWritten`;
-        // this class does not return it, so it cannot be allowed to stay and
-        // take the newest rotation slot away from a validated backup.
-        this.discardArtifact(dest, kind);
+        if (response.detail === BACKUP_DESTINATION_EXISTS) {
+          if (kind === 'daily') {
+            this.logger.info(
+              '[persistence-sqlite] daily backup won by another host',
+              { kind, dest },
+            );
+            return dest;
+          }
+          this.reportNotTaken(kind, response.detail);
+          return null;
+        }
+        if (response.detail === BACKUP_STAGING_EXISTS) {
+          this.reportNotTaken(kind, response.detail);
+          return null;
+        }
+        this.discardArtifact(staging, kind);
         this.reportNotTaken(
           kind,
           response.detail ?? 'the backup could not be completed or validated',
@@ -413,7 +468,7 @@ export class SqliteBackupService implements IBackupService {
         kind,
         error: error instanceof Error ? error.message : String(error),
       });
-      if (dest !== null) this.discardArtifact(dest, kind);
+      if (staging !== null) this.discardArtifact(staging, kind);
       return null;
     }
   }
@@ -437,16 +492,17 @@ export class SqliteBackupService implements IBackupService {
   }
 
   /**
-   * Best-effort removal of a backup file — AND its `-wal` / `-shm` sidecars —
-   * that must not be retained.
+   * Best-effort removal of this attempt's randomized staging file and its
+   * `-wal` / `-shm` sidecars. A final destination must never be passed here.
    *
    * The sidecars are not decoration. The worker validates the copy on a
    * read-WRITE connection (`validateCopy`, so the checkpoint on close actually
    * happens), which means a run killed mid-validation leaves them behind; and a
    * run killed from outside — budget expiry, early exit — never reaches
    * `performBackup`'s own cleanup, so nothing else will ever remove them.
-   * `rotate()` cannot mistake one for a backup, so this is disk space rather
-   * than correctness, but it is disk space that grows on every failed attempt.
+   * `rotate()` cannot count staging as a backup, and separately sweeps staging
+   * older than two worker budgets. Host cleanup remains necessary for prompt
+   * recovery after an early exit or budget kill.
    *
    * `removeBackupArtifact` is REUSED from the protocol module rather than
    * reimplemented here. That module is where the suffix list lives, and two
@@ -459,30 +515,30 @@ export class SqliteBackupService implements IBackupService {
    * cleanup must not turn into a thrown error at a call site that only
    * expects `null`.
    */
-  private discardArtifact(dest: string, kind: BackupKind): void {
+  private discardArtifact(staging: string, kind: BackupKind): void {
     try {
-      const existed = fs.existsSync(dest);
-      removeBackupArtifact(fs, dest);
-      if (fs.existsSync(dest)) {
+      const existed = fs.existsSync(staging);
+      removeBackupArtifact(fs, staging);
+      if (fs.existsSync(staging)) {
         // `removeBackupArtifact` swallows its own failures, so this is the only
         // place the one that matters for rotation can still be reported.
         this.logger.warn(
           '[persistence-sqlite] backup artifact cleanup failed (non-fatal) — a stale file may take a rotation slot',
-          { kind, dest },
+          { kind, staging },
         );
         return;
       }
       if (!existed) return;
       this.logger.debug('[persistence-sqlite] backup artifact discarded', {
         kind,
-        dest,
+        staging,
       });
     } catch (error: unknown) {
       this.logger.warn(
         '[persistence-sqlite] backup artifact cleanup failed (non-fatal) — a stale file may take a rotation slot',
         {
           kind,
-          dest,
+          staging,
           error: error instanceof Error ? error.message : String(error),
         },
       );
@@ -493,33 +549,55 @@ export class SqliteBackupService implements IBackupService {
    * Deletes all but the `keep` newest backup files for the given kind.
    * When `keep` is 0, no files are deleted (unbounded retention).
    *
-   * Selection is purely by filename order — there is deliberately no
-   * validity check here, and adding one would mean opening every retained
-   * file on every rotation. The safety of that depends entirely on the
-   * invariant `backup()` upholds: a file only exists under these prefixes if
-   * it was written completely, locked down, and passed `quick_check`. Weaken
-   * that (stop deleting on failure, stop validating) and rotation starts
-   * evicting good backups in favour of junk, because a partial file carries
-   * the newest timestamp and so occupies a keep slot.
+   * Selection is purely by final filename order. This is safe because the
+   * worker publishes a final name only after validation, using an atomic
+   * no-overwrite hard link. Staging files never end in `.sqlite`, so they do not
+   * consume keep slots. Staging groups older than two worker budgets are swept;
+   * a younger group is never touched because another host may still own it.
    *
    * The `.sqlite` suffix test is load-bearing as well as cosmetic: a SQLite
    * sidecar is `<file>.sqlite-wal` / `-shm`, which fails `endsWith('.sqlite')`
    * and so can never take a rotation slot from a real backup, whoever left it
-   * behind.
+   * behind. Mixed old and new names remain chronological across different
+   * seconds. For the same second only, the old `...SSZ.sqlite` form sorts newer
+   * than the new `...SSmmmZ-<hex>.sqlite` form; this compatibility quirk is
+   * documented and intentionally does not add parsing to rotation.
    *
-   * Not guarded on the caller's side either: the daily-backup cron jobs in
-   * `cli-engine` and `thoth-runtime` call `rotate()` unconditionally, without
-   * checking whether `backup()` returned a path — which is why cleanup has to
-   * live in `backup()` rather than at the call sites.
+   * The daily-backup callers invoke `rotate()` unconditionally, so the stale
+   * staging sweep also runs after a failed attempt.
    */
   rotate(kind: BackupKind, keep: number): void {
-    if (keep <= 0) return;
     try {
       const dir = this.dirFor(kind);
       if (!fs.existsSync(dir)) return;
       const prefix = this.prefixFor(kind);
-      const files = fs
-        .readdirSync(dir)
+      const entries = fs.readdirSync(dir);
+      const stagingRoots = new Set(
+        entries
+          .filter((file) => file.startsWith(prefix) && STAGING_SUFFIX.test(file))
+          .map((file) =>
+            path.join(dir, file.replace(/(?:-wal|-shm)$/, '')),
+          ),
+      );
+      const staleBefore = Date.now() - 2 * BACKUP_WORKER_BUDGET_MS;
+      for (const staging of stagingRoots) {
+        const group = [staging, `${staging}-wal`, `${staging}-shm`].filter(
+          (target) => fs.existsSync(target),
+        );
+        if (
+          group.length > 0 &&
+          group.every((target) => fs.statSync(target).mtimeMs < staleBefore)
+        ) {
+          removeBackupArtifact(fs, staging);
+          this.logger.debug('[persistence-sqlite] stale staging swept', {
+            kind,
+            staging,
+          });
+        }
+      }
+
+      if (keep <= 0) return;
+      const files = entries
         .filter((f) => f.startsWith(prefix) && f.endsWith('.sqlite'))
         .sort() // lexicographic = ISO timestamp order, ascending
         .reverse(); // newest first

@@ -28,8 +28,9 @@ describe('migration 0030_skill_event_metrics — registry entry', () => {
     // 32 — TASK_2026_180's phases 4, 3, 0, 2, 1 and 0). This assertion tracks
     // the current highest version and moves forward with every appended
     // migration — that movement is the ratchet, not a failure.
+    // 43 since TASK_2026_440 appended 0043_memory_retention.
     const maxVersion = Math.max(...MIGRATIONS.map((m) => m.version));
-    expect(maxVersion).toBe(42);
+    expect(maxVersion).toBe(43);
   });
 });
 

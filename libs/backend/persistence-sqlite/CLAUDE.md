@@ -24,7 +24,10 @@ Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the for
 
 ## Public API
 
-`SqliteConnectionService` + types (`SqliteDatabase`, `SqliteStatement`, `SqliteDatabaseFactory`, `SqliteVecPathResolver`); `IBackupService`, `BackupKind`, `SqliteBackupService`; `BACKUP_WORKER_BUDGET_MS`; `SqliteMigrationRunner` + `MigrationRunResult`; `MIGRATIONS` array + `Migration` type; `isUniqueConstraintError`; `IEmbedder` interface; `PERSISTENCE_TOKENS`, `PersistenceDIToken`, `registerPersistenceSqliteServices`.
+`SqliteConnectionService` + types (`SqliteDatabase`, `SqliteStatement`, `SqliteDatabaseFactory`, `SqliteVecPathResolver`); `IBackupService`, `BackupKind`, `SqliteBackupService`; `BACKUP_WORKER_BUDGET_MS`; `KEEP_BY_KIND` (the one keep table every rotation call site reads); `SqlitePageReclaimer` + `SqlitePageStats` / `SqliteReclaimStepResult`; `SqliteMigrationRunner` + `MigrationRunResult`; `MIGRATIONS` array + `Migration` type; `isUniqueConstraintError`; `IEmbedder` interface; `PERSISTENCE_TOKENS`, `PersistenceDIToken`, `registerPersistenceSqliteServices`.
+
+Backup collision details are exported as `BACKUP_DESTINATION_EXISTS` and
+`BACKUP_STAGING_EXISTS` so host and worker use the same exact protocol values.
 
 Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(now?)`, `dispatchIfDue()` and `dispose()`; `DB_INTEGRITY_CHECK_INTERVAL_MS`, `INTEGRITY_WORKER_BUDGET_MS`); `DbWorkerRunner` + `DbWorkerRun` / `DbWorkerOutcome` / `DbWorkerRunOptions`; `IntegrityCheckStateStore` + `IntegrityCheckState`; the host port `IIntegrityWorkerProcessFactory` / `IIntegrityWorkerProcess`; `classifyQuickCheck`, `isIntegrityCheckRequest`, `isBackupRequest`, `validateBackupDestination`, `resolveRealBackupDestination` and the protocol types (`IntegrityVerdict`, `IntegrityCheckRequest`, `IntegrityCheckResponse`, `IntegrityErrorResponse`, `BackupRequest`, `BackupResponse`, `IntegrityWorkerInbound`, `IntegrityCheckOutbound`, `IntegrityWorkerOutbound`).
 
@@ -51,11 +54,12 @@ Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(
   `DbWorkerRunner`, maps the verdict, and owns rotation. The copy and its
   `quick_check` happen in the integrity worker, off the host's main thread —
   the pair measured ~27 s inline on a real 1 GB file, all of it on the boot path.
-  - **There is no in-process fallback, by design.** A host that registers no
+  - **There is no in-process fallback, by design.** Except when today's existing
+    daily backup is returned without taking a new copy, a host that registers no
     `INTEGRITY_WORKER_PROCESS_FACTORY` takes NO backup: `null`, one `warn`, and
     one `'critical'` degradation event (`database.backup.no-worker-factory`).
     Re-adding an in-process path would keep the 27 s route alive as a silent
-    fallback and nobody would ever know which one ran.
+    fallback and nobody would ever learn which one ran.
   - **Overlapping calls are SERIALIZED, never rejected** — the second awaits the
     first. A pre-migration backup must not be skipped because the daily cron was
     running. The chain tail is advanced synchronously, before the first `await`.
@@ -66,16 +70,33 @@ Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(
     `'clear'` or the governor's 10-min `'timeout'` → the backup runs; an
     `AbortError` (governor disposed at shutdown) → `null`, one `info` line, no
     worker and no degradation report; any other rejection fails open.
-  - **Every `null`-returning path discards the destination AND its `-wal` /
-    `-shm` sidecars**, via the worker's own `removeBackupArtifact`. The worker
-    cannot do this for itself when the host kills it (budget expiry, early exit):
-    `performBackup`'s cleanup never runs, and a write-mode validation session
-    leaves sidecars behind. `rotate()` cannot mistake one for a backup, but
-    nothing else would ever remove them.
+  - **Only validated copies are published at a final name; publish is an atomic
+    no-overwrite hard link.** The worker exclusively creates a randomized
+    staging file, validates it, removes its sidecars, then links it to the final
+    name. Worker and host failure paths remove staging only. Daily same-day
+    re-runs return the existing final; the one residual is an old-version partial
+    daily final created earlier on the upgrade day, which is trusted once.
+    A second known limitation: when the backups directory sits on a filesystem
+    without hard-link support, atomic publish fails, so every backup reports
+    not-taken with a `'critical'` degradation — the failure is permanent and
+    loud, and there is no copy or rename fallback by design.
   - `BACKUP_WORKER_BUDGET_MS` is 20 min — deliberately 4× `INTEGRITY_WORKER_BUDGET_MS`,
     because a copy plus a validation is strictly more work than one `quick_check`.
     A budget set too tight does not report slowness; it means "the migration ran
     with no backup".
+- `src/lib/sqlite-page-reclaimer.ts` — `SqlitePageReclaimer` (`PERSISTENCE_TOKENS.SQLITE_PAGE_RECLAIMER`,
+  TASK_2026_440): the ONE owner of free-page stats (`readPageStats`) and bounded
+  `incremental_vacuum` steps (`reclaimStep(maxPages)`, `checkpointPassive`). It
+  never issues a full `VACUUM`. `maxPages` must be a finite integer 1..65,536
+  before any SQL runs — the pragma argument cannot be bound, so that check is the
+  injection guard. It reclaims only when `auto_vacuum = 2` and no transaction is
+  open, and every method returns zeros instead of throwing (closed connection,
+  busy pragma).
+- **Backup keep counts live in `KEEP_BY_KIND` only**: `{ 'pre-migration': 1, daily: 7, reset: 2 }`.
+  Call sites pass `KEEP_BY_KIND[kind]`, never a literal. The migration-runner
+  and `db:reset` call sites rotate only after a non-null `backup()` (a failed
+  backup must not shrink the archive); daily cron call sites rotate
+  unconditionally so stale staging cleanup can still run.
 - `src/lib/sqlite-errors.ts` — `isUniqueConstraintError`, the driver-level predicate behind every at-most-once claim (cron slot claim, synthesis-queue enqueue)
 - `src/lib/embedder/embedder.interface.ts` — `IEmbedder` contract
 - `src/lib/integrity/` — the out-of-process `quick_check`/`foreign_key_check`.
@@ -101,16 +122,18 @@ Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(
   Jest cannot import it and any logic left there is unassertable. That is why
   `performBackup` is in the protocol module behind an injected
   `BackupEnvironment`, and why `integrity-worker.ts` is only openers + dispatch.
-- **The backup COPY is validated read-WRITE** (`openForValidation`), not
+- **The backup STAGING COPY is validated read-WRITE** (`openForValidation`), not
   read-only. A read-only connection cannot checkpoint on close and leaves
-  `<file>-wal` / `<file>-shm` beside the backup; rotation selects by filename
-  PREFIX, so those sidecars take rotation slots and evict a real backup. Do not
-  "deduplicate" `openReadOnly` and `openForValidation` — they differ by one flag
-  and that flag is the bug fix.
-- **`destPath` containment is checked twice.** `validateBackupDestination` is
-  pure string containment; `resolveRealBackupDestination` re-checks it against
-  `realpathSync`-resolved ancestors, because a symlinked `backups/` defeats the
-  string check. `performBackup` runs both, before it creates anything.
+  `<staging>-wal` / `<staging>-shm`; both are removed before atomic publish.
+  Rotation's `.sqlite` suffix filter excludes staging and sidecars, and sweeps
+  staging groups older than two backup-worker budgets. Do not "deduplicate"
+  `openReadOnly` and `openForValidation`; their different modes are required.
+- **Both `destPath` and `stagingPath` containment are checked twice.**
+  `validateBackupDestination` is pure string containment;
+  `resolveRealBackupDestination` re-checks it against `realpathSync`-resolved
+  ancestors because a symlinked `backups/` defeats the string check.
+  `performBackup` runs both checks for both paths before creating staging, then
+  enforces `<destPath>.<8 lowercase hex>.tmp` in the same directory.
 - `src/lib/di/{tokens,register}.ts` — includes `INTEGRITY_WORKER_PROCESS_FACTORY`
   and `INTEGRITY_WORKER_PATH` (both host-supplied) and `SQLITE_INTEGRITY_SERVICE`
 

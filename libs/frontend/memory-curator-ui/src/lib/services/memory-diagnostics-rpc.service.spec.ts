@@ -20,6 +20,32 @@ describe('MemoryDiagnosticsRpcService', () => {
     service = TestBed.inject(MemoryDiagnosticsRpcService);
   });
 
+  const baseStorage = {
+    dbBytes: 0,
+    reclaimableBytes: 0,
+    autoVacuumIncremental: true,
+    observations: {
+      pendingRows: 0,
+      pendingBytes: 0,
+      oldestPendingAt: null,
+      stuckEligibleRows: 0,
+      processedRows: 0,
+      processedBytesEstimate: 0,
+      measuredAt: null,
+      quarantineLedgerRows: 0,
+    },
+    retention: {
+      enabled: true,
+      processedDays: 14,
+      stuckDays: 30,
+      lastRun: null,
+      lastCompletedAt: null,
+      nextDueAt: null,
+      lastSkippedAt: null,
+      lastSkipReason: null,
+    },
+  };
+
   const okResult = <T>(data: T) => ({
     success: true,
     isSuccess: () => true,
@@ -48,6 +74,7 @@ describe('MemoryDiagnosticsRpcService', () => {
         coherent: true,
         mismatches: [],
       },
+      storage: baseStorage,
       triggers: {
         preCompact: true,
         idleMs: 600000,
@@ -85,6 +112,7 @@ describe('MemoryDiagnosticsRpcService', () => {
           coherent: true,
           mismatches: [],
         },
+        storage: baseStorage,
         triggers: {
           preCompact: true,
           idleMs: 0,
