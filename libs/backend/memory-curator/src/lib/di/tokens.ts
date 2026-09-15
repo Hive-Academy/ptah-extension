@@ -51,6 +51,10 @@ export const MEMORY_TOKENS = {
   OBSERVATION_RETENTION_STORE: Symbol.for('PtahObservationRetentionStore'),
   /** MemoryRetentionService — gated, budgeted queue purge + stuck quarantine + page reclaim. */
   MEMORY_RETENTION_SERVICE: Symbol.for('PtahMemoryRetentionService'),
+  /** MemoryLifecycleStore — bounded archive and delete SQL batches. */
+  MEMORY_LIFECYCLE_STORE: Symbol.for('PtahMemoryLifecycleStore'),
+  /** MemoryLifecycleService — age and cap policy inside a retention budget. */
+  MEMORY_LIFECYCLE_SERVICE: Symbol.for('PtahMemoryLifecycleService'),
   /**
    * MemoryRetentionLimits (useValue) — the run budgets `MemoryRetentionService`
    * enforces. Registered with `MEMORY_RETENTION_LIMITS`; a spec constructs the

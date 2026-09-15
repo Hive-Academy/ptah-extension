@@ -42,9 +42,10 @@ export interface RawDb {
   pragma?: (sql: string, options?: { simple?: boolean }) => unknown;
   inTransaction?: boolean;
   isTransaction?: boolean;
+  loadExtension?(file: string): void;
 }
 
-export type SqliteOpener = (file: string) => RawDb;
+export type SqliteOpener = (file: string, allowExtension?: boolean) => RawDb;
 
 /** better-sqlite3 when its native binary loads, else `node:sqlite`, else `null`. */
 export function resolveSqliteOpener(): {
@@ -60,10 +61,17 @@ export function resolveSqliteOpener(): {
   }
   try {
     const { DatabaseSync } = require('node:sqlite') as {
-      DatabaseSync: new (file: string) => RawDb;
+      DatabaseSync: new (
+        file: string,
+        options?: { allowExtension?: boolean },
+      ) => RawDb;
     };
     new DatabaseSync(':memory:').close();
-    return { name: 'node:sqlite', open: (file) => new DatabaseSync(file) };
+    return {
+      name: 'node:sqlite',
+      open: (file, allowExtension = false) =>
+        new DatabaseSync(file, { allowExtension }),
+    };
   } catch {
     // degradation-audit: optional-capability - no SQLite binding loads here;
     // requireSqliteOpener turns the null into a thrown spec failure.
@@ -148,6 +156,11 @@ export function migrationSql(version: number): string {
   return migration.sql;
 }
 
+export function migrationVecSql(version: number): string | null {
+  const migration = MIGRATIONS.find((m) => m.version === version);
+  return migration?.vecSql ?? null;
+}
+
 export interface RetentionTestDb {
   readonly openerName: 'better-sqlite3' | 'node:sqlite';
   readonly file: string;
@@ -159,6 +172,8 @@ export interface RetentionTestDb {
   readonly connection: SqliteConnectionService;
   /** Open a second, independent handle to the same file. */
   openSecondHandle(): RawDb;
+  /** Close and reopen the primary handle without loading sqlite-vec. */
+  reopenWithoutVec(): void;
   close(): void;
 }
 
@@ -171,23 +186,44 @@ const tempDirs: string[] = [];
  * `0043` (quarantine ledger + run record) applied.
  */
 export function openRetentionTestDb(
-  options: { autoVacuum?: 'incremental' | 'none' } = {},
+  options: {
+    autoVacuum?: 'incremental' | 'none';
+    memorySchema?: boolean;
+    vec?: boolean;
+  } = {},
 ): RetentionTestDb {
   const opener = requireSqliteOpener();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-retention-test-'));
   tempDirs.push(dir);
   const file = path.join(dir, 'retention.db');
-  const raw = opener.open(file);
+  let raw = opener.open(file, options.vec === true);
   raw.exec(
     options.autoVacuum === 'none'
       ? 'PRAGMA auto_vacuum = NONE'
       : 'PRAGMA auto_vacuum = INCREMENTAL',
   );
   raw.prepare('PRAGMA journal_mode = WAL').all();
-  raw.exec(migrationSql(16));
-  raw.exec(migrationSql(43));
+  raw.exec('PRAGMA foreign_keys = ON');
+  if (options.vec === true) {
+    if (typeof raw.loadExtension !== 'function') {
+      throw new Error(`${opener.name} does not expose loadExtension`);
+    }
+    const sqliteVec = require('sqlite-vec') as { getLoadablePath(): string };
+    raw.loadExtension(sqliteVec.getLoadablePath());
+  }
+  const versions = options.memorySchema
+    ? [2, 7, 10, 15, 16, 17, 18, 19, 43, 44]
+    : [16, 43];
+  for (const version of versions) {
+    const migration = MIGRATIONS.find((item) => item.version === version);
+    if (migration?.sql) raw.exec(migrationSql(version));
+    const vecSql = migrationVecSql(version);
+    if (options.vec === true && vecSql !== null) {
+      raw.exec(vecSql);
+    }
+  }
   const issued: string[] = [];
-  const db = adaptSqliteDatabase(raw, issued);
+  let db = adaptSqliteDatabase(raw, issued);
   let closed = false;
   const connection = {
     get db(): SqliteDatabase {
@@ -198,17 +234,98 @@ export function openRetentionTestDb(
   return {
     openerName: opener.name,
     file,
-    raw,
-    db,
+    get raw() {
+      return raw;
+    },
+    get db() {
+      return db;
+    },
     issued,
     connection,
     openSecondHandle: () => opener.open(file),
+    reopenWithoutVec: () => {
+      raw.close();
+      raw = opener.open(file, false);
+      raw.exec('PRAGMA foreign_keys = ON');
+      db = adaptSqliteDatabase(raw, issued);
+    },
     close: () => {
       if (closed) return;
       closed = true;
       raw.close();
     },
   };
+}
+
+export interface SeedMemoryOptions {
+  readonly id: string;
+  readonly workspaceRoot?: string | null;
+  readonly tier?: 'core' | 'recall' | 'archival';
+  readonly pinned?: boolean;
+  readonly lastUsedAt?: number;
+  readonly archivedAt?: number | null;
+  readonly sessionId?: string | null;
+  readonly salience?: number;
+  readonly chunks?: number;
+  readonly concepts?: readonly string[];
+  readonly token?: string;
+}
+
+/** Seed one complete memory row, including FTS, vec and concept dependants. */
+export function seedMemory(raw: RawDb, options: SeedMemoryOptions): void {
+  const now = options.lastUsedAt ?? 1_000;
+  const concepts = options.concepts ?? [];
+  raw
+    .prepare(
+      `INSERT INTO memories (
+       id, session_id, workspace_root, tier, kind, subject, content,
+       source_message_ids, salience, decay_rate, hits, pinned,
+       created_at, updated_at, last_used_at, expires_at,
+       request, investigated, learned, completed, next_steps,
+       type, concepts_json, files_json, archived_at
+     ) VALUES (?, ?, ?, ?, 'fact', NULL, ?, '[]', ?, 0.01, 0, ?,
+       ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, 'discovery', ?, '[]', ?)`,
+    )
+    .run(
+      options.id,
+      options.sessionId ?? null,
+      options.workspaceRoot ?? null,
+      options.tier ?? 'recall',
+      options.token ?? `memory ${options.id}`,
+      options.salience ?? 0.6,
+      options.pinned ? 1 : 0,
+      now,
+      now,
+      now,
+      JSON.stringify(concepts),
+      options.archivedAt ?? null,
+    );
+  const insertChunk = raw.prepare(
+    `INSERT INTO memory_chunks (id, memory_id, ord, text, token_count, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  const insertVec = raw.prepare(
+    'INSERT INTO memory_chunks_vec(rowid, embedding) VALUES (?, ?)',
+  );
+  for (let ord = 0; ord < (options.chunks ?? 1); ord++) {
+    const id = `${options.id}-chunk-${ord}`;
+    insertChunk.run(
+      id,
+      options.id,
+      ord,
+      `${options.token ?? options.id} ${ord}`,
+      1,
+      now,
+    );
+    const row = raw
+      .prepare('SELECT rowid FROM memory_chunks WHERE id = ?')
+      .get(id) as { rowid: number };
+    insertVec.run(BigInt(row.rowid), Buffer.from(new Float32Array(384).buffer));
+  }
+  const insertConcept = raw.prepare(
+    'INSERT INTO memory_concepts_fts(memory_id, concept) VALUES (?, ?)',
+  );
+  for (const concept of concepts) insertConcept.run(options.id, concept);
 }
 
 /** Remove every temp directory created by {@link openRetentionTestDb}. */

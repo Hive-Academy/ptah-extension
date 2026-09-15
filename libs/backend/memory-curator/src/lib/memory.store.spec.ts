@@ -147,6 +147,14 @@ describe('MemoryStore.getWriteCounter', () => {
 // ---------------------------------------------------------------------------
 
 describe('MemoryStore write-counter bumps', () => {
+  it('marks each changed lifecycle workspace, including the global key', () => {
+    const { stub } = makeDb();
+    const store = makeStore(stub);
+    store.markWorkspacesChanged(['/ws/A', null, '/ws/A']);
+    expect(store.getWriteCounter('/ws/A')).toBe(2);
+    expect(store.getWriteCounter('')).toBe(1);
+  });
+
   /**
    * A minimal MemoryInsert for testing insertMemoryWithChunks.
    * Runs synchronously because the embedder mock returns [] and chunks=[].
@@ -1288,40 +1296,42 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
     workspaceRoot: string | null,
     options: { salience?: number; lastUsedAt?: number; pinned?: number } = {},
   ): void {
-    raw.prepare(
-      `INSERT INTO memories (
+    raw
+      .prepare(
+        `INSERT INTO memories (
         id, session_id, workspace_root, tier, kind, subject, content,
         source_message_ids, salience, decay_rate, hits, pinned, created_at,
         updated_at, last_used_at, archived_at, expires_at, request, investigated,
         learned, completed, next_steps, type, concepts_json, files_json
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      id,
-      null,
-      workspaceRoot,
-      tier,
-      'fact',
-      id,
-      id,
-      '[]',
-      options.salience ?? 0.5,
-      0.01,
-      0,
-      options.pinned ?? 0,
-      1,
-      1,
-      options.lastUsedAt ?? 1,
-      tier === 'archival' ? 1 : null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      'discovery',
-      '[]',
-      '[]',
-    );
+      )
+      .run(
+        id,
+        null,
+        workspaceRoot,
+        tier,
+        'fact',
+        id,
+        id,
+        '[]',
+        options.salience ?? 0.5,
+        0.01,
+        0,
+        options.pinned ?? 0,
+        1,
+        1,
+        options.lastUsedAt ?? 1,
+        tier === 'archival' ? 1 : null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        'discovery',
+        '[]',
+        '[]',
+      );
   }
 
   it('deduplicates uses, restores archival rows, and invalidates only restored roots', () => {
@@ -1405,7 +1415,9 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
     store.recordUse([]);
     store.recordUse(['unknown']);
     store.recordUse(Array.from({ length: 201 }, (_, i) => `id-${i}`));
-    const used = raw.prepare('SELECT COUNT(*) AS n FROM memories WHERE hits = ?').get(1) as {
+    const used = raw
+      .prepare('SELECT COUNT(*) AS n FROM memories WHERE hits = ?')
+      .get(1) as {
       n: number;
     };
     expect(used.n).toBe(200);
@@ -1420,7 +1432,12 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
 
   it('stamps archival inserts and restores archival append targets', async () => {
     const inserted = await store.insertMemoryWithChunks(
-      { tier: 'archival', kind: 'fact', content: 'archived', workspaceRoot: '/ws' },
+      {
+        tier: 'archival',
+        kind: 'fact',
+        content: 'archived',
+        workspaceRoot: '/ws',
+      },
       [],
     );
     const archived = raw
@@ -1447,10 +1464,9 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
       salience: 0.25,
       lastUsedAt: now,
     });
-    expect(store.list({ workspaceRoot: '/ws' }).memories.map((m) => m.id)).toEqual([
-      'recent-low',
-      'old-high',
-    ]);
+    expect(
+      store.list({ workspaceRoot: '/ws' }).memories.map((m) => m.id),
+    ).toEqual(['recent-low', 'old-high']);
     expect(store.listAll('/ws').memories.map((m) => m.id)).toEqual([
       'recent-low',
       'old-high',

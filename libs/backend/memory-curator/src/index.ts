@@ -129,6 +129,22 @@ export type {
   EmbedderStatusChangeListener,
 } from './lib/embedder/embedder-status.service';
 export { MemoryRetentionService } from './lib/retention/memory-retention.service';
+export { RetentionRunBudget } from './lib/retention/retention-run-budget';
+export { MemoryLifecycleStore } from './lib/retention/memory-lifecycle.store';
+export type {
+  MemoryLifecycleBatchResult,
+  MemoryArchiveBatchResult,
+  MemoryEvictBatchResult,
+  MemoryLifecyclePreviewReading,
+  OverCapWorkspace,
+  OverCapWorkspacesReading,
+} from './lib/retention/memory-lifecycle.store';
+export { MemoryLifecycleService } from './lib/retention/memory-lifecycle.service';
+export type {
+  MemoryLifecycleStepResult,
+  MemoryLifecycleNote,
+  MemoryLifecyclePreview,
+} from './lib/retention/memory-lifecycle.service';
 export type {
   MemoryRetentionReport,
   MemoryRetentionRunOptions,
@@ -137,6 +153,13 @@ export type {
   RetentionSkipReason,
   RetentionStopReason,
 } from './lib/retention/memory-retention.types';
+export {
+  MEMORY_LIFECYCLE_DEFAULTS,
+  MEMORY_LIFECYCLE_KEYS,
+  MEMORY_LIFECYCLE_SETTING_RANGES,
+  readMemoryLifecycleSettings,
+} from './lib/retention/memory-lifecycle-config';
+export type { MemoryLifecycleSettings } from './lib/retention/memory-lifecycle-config';
 export {
   MEMORY_RETENTION_DEFAULTS,
   MEMORY_RETENTION_KEYS,

@@ -33,6 +33,7 @@ export type RetentionStopReason =
   | 'foreground-active'
   | 'time-budget'
   | 'row-budget'
+  | 'memory-row-budget'
   | 'reclaim-budget'
   | 'reclaim-stalled'
   | 'database-busy'

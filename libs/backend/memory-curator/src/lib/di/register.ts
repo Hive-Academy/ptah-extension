@@ -44,6 +44,8 @@ import { KnowledgeAgentService } from '../knowledge-agents/knowledge-agent.servi
 import { ObservationRetentionStore } from '../retention/observation-retention.store';
 import { MemoryRetentionService } from '../retention/memory-retention.service';
 import { MEMORY_RETENTION_LIMITS } from '../retention/memory-retention-config';
+import { MemoryLifecycleStore } from '../retention/memory-lifecycle.store';
+import { MemoryLifecycleService } from '../retention/memory-lifecycle.service';
 
 export function registerMemoryCuratorServices(
   container: DependencyContainer,
@@ -141,6 +143,16 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_TOKENS.OBSERVATION_RETENTION_STORE,
     { useClass: ObservationRetentionStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    MEMORY_TOKENS.MEMORY_LIFECYCLE_STORE,
+    { useClass: MemoryLifecycleStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE,
+    { useClass: MemoryLifecycleService },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(

@@ -30,6 +30,8 @@ import { MEMORY_TOKENS } from './tokens';
 import { registerMemoryCuratorServices } from './register';
 import { MemoryRetentionService } from '../retention/memory-retention.service';
 import { ObservationRetentionStore } from '../retention/observation-retention.store';
+import { MemoryLifecycleStore } from '../retention/memory-lifecycle.store';
+import { MemoryLifecycleService } from '../retention/memory-lifecycle.service';
 import { MEMORY_RETENTION_LIMITS } from '../retention/memory-retention-config';
 import {
   openRetentionTestDb,
@@ -91,9 +93,9 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
       true,
     );
     const memoryStore = child.resolve(MEMORY_TOKENS.MEMORY_STORE);
-    expect(
-      child.resolve(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER),
-    ).toBe(memoryStore);
+    expect(child.resolve(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER)).toBe(
+      memoryStore,
+    );
     expect(child.resolve(Symbol.for('PtahMemoryUsageRecorder'))).toBe(
       memoryStore,
     );
@@ -109,12 +111,26 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
     expect(child.isRegistered(MEMORY_TOKENS.MEMORY_RETENTION_LIMITS)).toBe(
       true,
     );
+    expect(child.isRegistered(MEMORY_TOKENS.MEMORY_LIFECYCLE_STORE)).toBe(true);
+    expect(child.isRegistered(MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE)).toBe(
+      true,
+    );
     expect(child.isRegistered(PERSISTENCE_TOKENS.SQLITE_PAGE_RECLAIMER)).toBe(
       true,
     );
     expect(child.resolve(MEMORY_TOKENS.MEMORY_RETENTION_LIMITS)).toBe(
       MEMORY_RETENTION_LIMITS,
     );
+  });
+
+  it('resolves singleton lifecycle collaborators', () => {
+    const child = buildContainer();
+    const store = child.resolve(MEMORY_TOKENS.MEMORY_LIFECYCLE_STORE);
+    const service = child.resolve(MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE);
+    expect(store).toBeInstanceOf(MemoryLifecycleStore);
+    expect(service).toBeInstanceOf(MemoryLifecycleService);
+    expect(child.resolve(MEMORY_TOKENS.MEMORY_LIFECYCLE_STORE)).toBe(store);
+    expect(child.resolve(MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE)).toBe(service);
   });
 
   it('resolves one singleton service whose graph reads the real database', async () => {

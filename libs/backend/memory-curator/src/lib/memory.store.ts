@@ -157,6 +157,11 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
     return this.writeCounts.get(workspaceRoot) ?? 0;
   }
 
+  /** Invalidate search-cache generations after lifecycle writes committed. */
+  markWorkspacesChanged(roots: Iterable<string | null>): void {
+    for (const root of roots) this.bumpWriteCounter(root);
+  }
+
   /** Increment the write counter for the given workspaceRoot (or '' if null). */
   private bumpWriteCounter(workspaceRoot: string | null | undefined): void {
     const key = workspaceRoot ?? '';
@@ -573,7 +578,9 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
     if (additional.length === 0) return;
     const existing = this.connection.db
       .prepare(`SELECT workspace_root, tier FROM memories WHERE id = ?`)
-      .get(id) as { workspace_root: string | null; tier: MemoryTier } | undefined;
+      .get(id) as
+      | { workspace_root: string | null; tier: MemoryTier }
+      | undefined;
     const ws = existing?.workspace_root;
     const now = Date.now();
     const vecAvailable = this.vecStatus.available;
