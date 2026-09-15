@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_446_198a
-status: backlog
+status: done
 type: REFACTORING
 title: Exclude test-support files from the memory-curator lib build
 description: >-

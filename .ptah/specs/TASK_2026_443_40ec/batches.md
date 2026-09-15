@@ -189,6 +189,15 @@ Second rebase onto PR #513 `01b155b77` (2026-09-15, orchestrator; #513 CI fully 
   `memory-retention.types.ts:36`. Positional `new MemoryRetentionService(` sites: `memory-retention.service.spec.ts:296`
   and `memory-retention.integration.spec.ts:87` only.
 
+Upstream status (2026-09-16, orchestrator):
+
+- TASK_2026_440_834c (phase 1) is MERGED into main via PR #513 (merge commit `dbffc1938`; `01b155b77` is an ancestor of
+  `origin/main`). `origin/main` has since advanced with #518 (TASK_2026_437 main-loop isolation) and #519. The
+  orchestrator rebases phase 2 onto `origin/main` after Batch 6 is committed and before Batch 7 starts; Batch 7's line
+  references are re-anchored then.
+- TASK_2026_446_198a (memory-curator `*.test-support.ts` exclude) is SATISFIED by Batch 5 (`b1712f35d`,
+  `tsconfig.lib.json`); its carrier status is set to `done` in this branch.
+
 Cross-batch rule XB2 (added 2026-09-15 with the rebase, binding for Batches 5-10):
 
 - Every NEW `catch` (or `.catch`) that fails open, swallows, or returns a sentinel or default MUST carry a
@@ -967,6 +976,56 @@ review round is required).
   - `wc -l libs/backend/memory-curator/src/lib/retention/memory-retention.service.ts`
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-6-report.md` (include every mutation-check output). Write
   `batch-6.done` in the task folder as the LAST step. Create no other file in the task folder.
+
+### Batch 6 revision 1 fix list (resume the Batch 6 codex session) — PENDING
+
+- Report (`batch-6-report.md`): 6-project test / typecheck green, 3-project lint green, degradation-audit 20/20,
+  better-sqlite3 700/700, both reach suites 19/19 with 0 skipped, facade 662 lines. Mutation A (remove `runStep`)
+  failed both reach specs as required. Mutation B (remove the explicit chunk DELETE) was masked by the FK cascade and
+  failed only with foreign keys switched off for that one uncommitted run.
+- Review (Ollama Cloud, `code-logic-review-batch-6.md`): APPROVED 8/10, 0 blocking/serious, 1 moderate, 3 minor.
+  Reachability, AC2 at T0+30 d / T0+61 d, Task 6.1 wiring, carried m3, `storageHealth()` sanitizing and XB1/XB2 all
+  CONFIRMED.
+- Deviations ACCEPTED by team-leader:
+  - `retention/memory-storage-health.ts` (158 lines) extracted under the facade rule; reviewer verdict CORRECT (one
+    nameable concern, public class / token / signatures unchanged; service now 662 lines). It joins the Batch 6 commit.
+  - `libs/backend/thoth-runtime/src/lib/memory-retention-job.spec.ts` fixture fields for the newly required report
+    counters (fixture only; forced by the typed factory). It joins the Batch 6 commit; Batch 7 edits the same file
+    after it.
+- Team-leader decision: NOT committed until M1, m2 and m4 are fixed (Batch 3/4/5 precedent). Reasons:
+  - M1 touches the "no orphan chunks" guarantee. The plan chose an explicit chunk DELETE precisely so correctness does
+    not depend on `foreign_keys = ON` (plan Architecture decision, "Relying on the FK cascade alone" rejected). With
+    every fixture on `foreign_keys = ON`, a chunk DELETE that is issued but deletes nothing (weakened predicate, bad
+    bind) passes the whole suite.
+  - m2 is a one-line correctness fix on the diagnostics channel; m4 is a one-assertion spec that pins the shared-budget
+    rule XB3 depends on.
+  - m3 (`nextDueAt` precedence for an unproducible state) ACCEPTED, no change.
+- Scope: only Batch 6 files. No change to any SQL constant in `memory-lifecycle.store.ts`, to `deletePair` or to any
+  delete / archive / evict path (otherwise a second review round).
+
+1. M1 — `retention/retention-sqlite.test-support.ts`: add `reopenWithoutForeignKeys()` (mirrors `reopenWithoutVec`
+   `:259-262`: close and reopen the same file, vec still loaded, `PRAGMA foreign_keys = OFF`, read the pragma back and
+   throw if it is not 0). `retention/memory-retention.integration.spec.ts`: add one committed case that runs the
+   T0 archive run, then reopens WITHOUT foreign keys and runs the T0+61 d delete run through
+   `MemoryRetentionService.run`, asserting for every deleted id: 0 rows in `memories`, 0 in `memory_chunks`, 0 FTS
+   docsize rows and 0 vec rowids (by chunk rowid), plus the survivor checks. Mutation check (report, not committed):
+   remove the chunk DELETE from `deletePair`, this new case FAILS with FKs off; restore and show `git diff` is clean
+   for `memory-lifecycle.store.ts`. XB1: bind every parameter.
+2. m2 — `retention/memory-retention.service.ts:377-378`: set `this.lifecycleReadErrors = []` immediately BEFORE the
+   `runStep` call (not only after it returns). Spec in `memory-retention.service.spec.ts`: a run whose lifecycle
+   returns `readErrors: ['x']`, then a run whose lifecycle throws, then `storageHealth().readErrors` does not contain the
+   sanitized `x`.
+3. m4 — `memory-retention.service.spec.ts` (row-budget case or the budget-identity case): capture the budget the fake
+   quarantine/queue phase observed (or expose it through the fake governor / fake store call) and assert
+   `lifecycle.calls[0].budget` is `toBe` that same instance.
+4. XB2: no new unannotated fail-open catch.
+- Commands (from `W`): the Batch 6 command set unchanged (6-project test and typecheck, 3-project lint,
+  `degradation-audit:lint`, the quoted better-sqlite3 run, `wc -l` of the service).
+- Report: append `## Revision 1` to `batch-6-report.md` with the diff summary, all command results, the mutation
+  output and `git diff --stat`. Write `batch-6-r1.done` LAST. Create no other file in the task folder. Do not edit
+  `batches.md`. Do not commit. Never run `nx reset`.
+- Acceptance by team-leader: diff read against items 1-3 plus a full re-run; no re-review while the diff stays in
+  scope.
 
 ### Batch 6 verification
 
