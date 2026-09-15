@@ -64,7 +64,7 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b and 18 — COMMITTED (resume at the P3 phase gate)
+## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b and 18 — COMMITTED (P3 gate passed; resume at P4 Batch 19)
 
 **Batch 17b — COMMITTED 2026-09-15** as
 `feat(skill-synthesis): defer background skill re-propagation while user clicks re-propagate at once`.
@@ -176,7 +176,13 @@ Reviews: logic and style both base NEEDS_REVISION → delta APPROVE HIGH. Outcom
 
 **All P2 batches are COMPLETE.** The only open P2 gate is D10 (section 4a).
 
-**Next: the P3 phase gate**, then P4 (19, 20, 21, 22).
+**P3 PHASE GATE PASSED 2026-09-15 — Phase 3 CLOSED.** `lint:all` 73 projects 0 errors;
+`typecheck:all` 93 projects 0 errors (the first run failed only because this worktree lacked the
+gitignored generated Prisma client, not branch code); `nx build ptah-electron` exit 0;
+`degradation-audit:lint` TOTAL 303. Evidence in `batches.md` under Batch 18 verification. D10 is
+still the only open P2 gate; AC-10 manual evidence is still pending.
+
+**Next: P4 Batches 19, 20, 21, 22.**
 
 ## 4a. Batch 10 — COMMITTED
 
@@ -271,13 +277,13 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
 
 ## 5. Remaining batches (4 of 24)
 
-Order and dependencies are in `batches.md`. Resume at the P3 phase gate. Summary:
+Order and dependencies are in `batches.md`. Resume at P4 Batch 19. Summary:
 
 - **P2:** all batches committed. Only the OPEN D10 proof remains: `publish-electron.yml` build matrix
   green on Windows, macOS and Linux (section 4a) — needs a user decision to dispatch.
 - **P3:** 16, 16b, 17, 17b and 18 are committed. AC-10 manual boot evidence is still open
-  (instructions in `batches.md` Batch 17 outcome). The P3 phase gate runs next: `npm run lint:all`, `npm run typecheck:all`, `npx nx build ptah-electron`,
-  `npx nx run degradation-audit:lint`.
+  (instructions in `batches.md` Batch 17 outcome). The P3 phase gate PASSED 2026-09-15; Phase 3 is
+  CLOSED.
 
 ### Open user decisions
 
@@ -328,7 +334,7 @@ Order and dependencies are in `batches.md`. Resume at the P3 phase gate. Summary
   DI token `NETWORK_BACKOFF` (now resolves `ProviderNetworkBackoffs`). FU-18h: a background curator
   pass already in the queue, held at the internal-query gate, still blocks passes behind it.
   FU-18i: resolve-stage network failures do not feed the back-off (documented).
-- Phase 1 gate commands not re-run: `lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`.
+- Phase gate commands (`lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`) last ran at the P3 gate on 2026-09-15 — all green.
 
 ## 7. CI and external review state
 
@@ -362,6 +368,10 @@ Order and dependencies are in `batches.md`. Resume at the P3 phase gate. Summary
 7. **Known load flakes** (pass when run alone): `file-settings-manager.bench.spec.ts`,
    `toolchain-probe.spec.ts`, `voice-rpc.handlers.spec.ts`, `main-loop-watchdog.spec.ts`,
    `git-info.service.review.spec.ts`.
+8. **Fresh worktree before `typecheck:all`.** The Prisma client is gitignored, so a new worktree
+   fails typecheck on every `api-*` project, `ptah-license-server` and `ptah-landing-page-e2e`.
+   Run `npx nx run ptah-license-server:prisma:generate` first with a process-scoped placeholder
+   `DATABASE_URL` (generate does not connect; do not create a `.env`).
 
 ## 9. Manual load test (to confirm the fix in the real app)
 
