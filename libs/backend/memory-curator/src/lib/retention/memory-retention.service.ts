@@ -573,6 +573,9 @@ export class MemoryRetentionService {
       });
       return signal.aborted ? 'aborted' : 'continue';
     } catch (error: unknown) {
+      // degradation-audit: reported - a governor wait that rejects with anything
+      // but AbortError is a defect in the governor; retention warns once per run
+      // and fails open, as the BackgroundWorkAdmission contract requires.
       if (error instanceof Error && error.name === 'AbortError') {
         return 'aborted';
       }
