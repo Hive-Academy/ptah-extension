@@ -115,7 +115,15 @@ export class UiDriver {
           const compiled = g.__uiCompiledFns ?? new Map();
           let resolver = compiled.get(source);
           if (!resolver) {
-            resolver = new Function(
+            // `source` is the string form of a resolver function literal
+            // authored in a spec file (e.g. fixtures.ts, a *.spec.ts) and
+            // handed to page.evaluate/addInitScript, which serializes it to
+            // text to cross the Playwright -> Electron main-process boundary.
+            // There is no other channel to reconstitute a function from that
+            // boundary, and nothing here is user- or network-supplied: only
+            // e2e specs in this repo populate __uiMockFns, and only e2e runs
+            // this file.
+            resolver = new Function( // NOSONAR typescript:S1523 — test-authored source, see above
               'params',
               `return (${source})(params);`,
             ) as (p: unknown) => unknown;

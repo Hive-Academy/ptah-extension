@@ -1628,3 +1628,39 @@ Verification: `run-many -t test -p @ptah-extension/platform-electron @ptah-exten
 --parallel=1 --maxWorkers=2` (header: 2) — agent-sdk 1948 passed; platform-electron one failure
 (the flake candidate above). eslint 0 errors on both source files; agent-sdk typecheck pass;
 prettier clean on staged files; `degradation-audit:lint --skip-nx-cache` TOTAL 303 (exit 0).
+
+## PR #518 CI fixes — manifest drift + SonarCloud S1523 — COMPLETE
+
+Not a numbered batch. The commit carrying this section is the one whose subject is
+`fix: resolve CI manifest drift and SonarCloud S1523 on PR 518` (resolve its SHA with
+`git log --grep "S1523"`).
+
+- Manifest drift — `content-manifest.json` regenerated with `npm run manifest:generate` (only
+  `contentHash` and `generatedAt` change; 224 files). Cause: the Batch 20 edit to
+  `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/ptah-cli-usage/references/jsonrpc.md`.
+  Fixes the `check` job
+  (https://github.com/Hive-Academy/ptah-extension/actions/runs/35011840035/job/104525457569) —
+  COMPLETE
+- S1523 (VULNERABILITY, security rating 4) — `apps/ptah-electron-e2e/src/support/ui-driver.ts`
+  `new Function(`: block comment gives the reason (test-authored resolver source serialized
+  across the Playwright boundary; nothing user- or network-supplied); line trailer is
+  `// NOSONAR typescript:S1523 — test-authored source, see above` — COMPLETE
+
+Reviews: `pr518-ci-fix-code-logic-review.md` APPROVE 9/10; `pr518-ci-fix-code-style-review.md`
+APPROVE 7/10. The style serious item (trailer duplicated the block comment) was fixed by
+shortening the trailer to a "see above" pointer.
+
+Follow-ups:
+
+- FU-518a — CI flake candidate: `workspace-watch-host.stress.spec.ts` "AC-7 repeated kills past
+  the restart budget ... Timed out after 15000 ms waiting for delivery to resume after recovery"
+  failed the `main` job in `@ptah-extension/platform-electron:test`
+  (https://github.com/Hive-Academy/ptah-extension/actions/runs/35011840081/job/104525457791).
+  PR #518 does not touch platform-electron, and the same spec passed on 36a24f257. Job rerun by
+  the orchestrator; spec unchanged.
+- FU-SEC-c — still OPEN (`network-backoff.ts` S2245 trailer duplication). Both suppression
+  sites now use the same "reason, see above" trailer shape; closing FU-SEC-c should settle
+  that shape once for both files.
+
+Verification: `npm run manifest:check` up to date (224 files); `run-many -t lint,typecheck -p
+ptah-electron-e2e` 0 errors (9 pre-existing warnings); prettier clean on staged files.
