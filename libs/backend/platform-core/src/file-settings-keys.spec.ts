@@ -171,6 +171,24 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('memory lifecycle keys (TASK_2026_443)', () => {
+    const lifecycleDefaults = {
+      'memory.lifecycle.enabled': true,
+      'memory.lifecycle.archiveAfterDays': 30,
+      'memory.lifecycle.deleteAfterDays': 60,
+      'memory.lifecycle.maxPerWorkspace': 25000,
+    } as const;
+
+    it.each(Object.entries(lifecycleDefaults))(
+      'registers and defaults %s to %s',
+      (key, expected) => {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+        expect(isFileBasedSettingKey(key)).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+      },
+    );
+  });
+
   describe('saved Tasks-board view keys (TASK_2026_181)', () => {
     // Gate 1. These two keys have no `package.json contributes.configuration`
     // declaration behind them, so file routing is not a preference here — it is

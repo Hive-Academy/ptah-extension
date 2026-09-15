@@ -6,6 +6,7 @@ export type {
   IMemoryReader,
   IMemoryLister,
 } from './lib/memory-reader.port';
+export type { IMemoryUsageRecorder } from './lib/memory-usage-recorder.port';
 export type {
   ICuratorLLM,
   CuratorCallOptions,
