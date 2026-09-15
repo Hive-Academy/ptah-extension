@@ -100,11 +100,11 @@ test.describe('historical branch review controls', () => {
     ).toBeVisible();
 
     await ui.page
-      .getByRole('button', { name: 'Mark as viewed', exact: true })
+      .getByRole('checkbox', { name: 'Viewed src/review.ts' })
       .click();
     await expect(
-      ui.page.getByRole('button', { name: 'Unmark viewed', exact: true }),
-    ).toBeVisible();
+      ui.page.getByRole('checkbox', { name: 'Viewed src/review.ts' }),
+    ).toBeChecked();
     await ui.page
       .locator('ptah-git-review-file-row [data-testid="open-in-primary"]')
       .click();
