@@ -61,8 +61,6 @@ describe('MemoryDiagnosticsRpcService', () => {
     const payload = {
       lastRunAt: null,
       lastRunStats: null,
-      lastDecayAt: null,
-      lastDecayStats: null,
       recentEvents: [],
       dbHealth: {
         memories: 0,
@@ -99,8 +97,6 @@ describe('MemoryDiagnosticsRpcService', () => {
       okResult({
         lastRunAt: null,
         lastRunStats: null,
-        lastDecayAt: null,
-        lastDecayStats: null,
         recentEvents: [],
         dbHealth: {
           memories: 0,

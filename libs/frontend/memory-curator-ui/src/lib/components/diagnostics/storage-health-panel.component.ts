@@ -61,10 +61,7 @@ function formatSpan(ms: number): string {
  * Format a timestamp relative to `now`, past or future ("3 days ago",
  * "in 40 min"). `null` → `—`.
  */
-export function formatRelativeTime(
-  at: number | null,
-  now: number,
-): string {
+export function formatRelativeTime(at: number | null, now: number): string {
   if (at === null) return NULL_TEXT;
   const diff = now - at;
   if (diff >= 0) return `${formatSpan(diff)} ago`;
@@ -77,6 +74,7 @@ interface LastRunView {
   readonly purgedText: string;
   readonly quarantinedText: string;
   readonly pagesText: string;
+  readonly memoriesText: string;
   readonly detailLabel: string;
   readonly detailText: string | null;
 }
@@ -95,9 +93,14 @@ interface StorageViewModel {
   readonly processedDaysText: string;
   readonly stuckDaysText: string;
   readonly nextDueText: string;
+  readonly memoryLifecycleSettingsText: string;
+  readonly memoryLifecycleStatusText: string;
   readonly lastRun: LastRunView | null;
   readonly lastRunTone: NativeCardTone;
-  readonly lastSkip: { readonly atText: string; readonly reason: string } | null;
+  readonly lastSkip: {
+    readonly atText: string;
+    readonly reason: string;
+  } | null;
   readonly readErrors: readonly string[];
 }
 
@@ -220,6 +223,10 @@ const RUN_TONE: Record<MemoryRetentionRunDto['outcome'], NativeCardTone> = {
                 <dd class="tabular-nums">{{ run.quarantinedText }}</dd>
                 <dt class="text-base-content-muted">Pages reclaimed</dt>
                 <dd class="tabular-nums">{{ run.pagesText }}</dd>
+                <dt class="text-base-content-muted">Memories</dt>
+                <dd class="tabular-nums">
+                  {{ run.memoriesText }}
+                </dd>
               </dl>
               @if (run.detailText; as detail) {
                 <p
@@ -249,6 +256,13 @@ const RUN_TONE: Record<MemoryRetentionRunDto['outcome'], NativeCardTone> = {
               <dd>{{ v.stuckDaysText }} days</dd>
               <dt class="text-base-content-muted">Next run</dt>
               <dd data-testid="storage-next-due">{{ v.nextDueText }}</dd>
+              <dt class="text-base-content-muted">Memory lifecycle</dt>
+              <dd data-testid="storage-memory-lifecycle">
+                <span>{{ v.memoryLifecycleSettingsText }}</span>
+                <span class="block"
+                  >&nbsp;{{ v.memoryLifecycleStatusText }}</span
+                >
+              </dd>
             </dl>
             @if (v.lastSkip; as skip) {
               <div card-footer class="text-xs text-base-content-muted">
@@ -305,9 +319,9 @@ export class StorageHealthPanelComponent {
           purgedText: formatCount(run.processedPurged),
           quarantinedText: formatCount(run.stuckQuarantined),
           pagesText: formatCount(run.pagesReclaimed),
+          memoriesText: `archived ${formatCount(run.memoriesArchived)} · deleted ${formatCount(run.memoriesDeleted)} · evicted ${formatCount(run.memoriesEvicted)}`,
           detailLabel: run.outcome === 'failed' ? 'Error' : 'Reason',
-          detailText:
-            run.outcome === 'failed' ? run.error : run.reason,
+          detailText: run.outcome === 'failed' ? run.error : run.reason,
         }
       : null;
     const skipAt = s.retention.lastSkippedAt;
@@ -344,10 +358,23 @@ export class StorageHealthPanelComponent {
         s.retention.nextDueAt !== null && s.retention.nextDueAt > now
           ? formatRelativeTime(s.retention.nextDueAt, now)
           : 'at the next idle hourly check',
+      memoryLifecycleSettingsText: `archive after ${formatCount(s.memoryLifecycle.archiveAfterDays)} d · delete after ${formatCount(s.memoryLifecycle.deleteAfterDays)} d · cap ${formatCount(s.memoryLifecycle.maxPerWorkspace)}`,
+      memoryLifecycleStatusText: lifecycleStatusText(s),
       lastRun,
       lastRunTone: lastRun ? RUN_TONE[lastRun.outcome] : 'neutral',
       lastSkip,
       readErrors: s.readErrors ?? [],
     };
   });
+}
+
+function lifecycleStatusText(storage: MemoryStorageHealthDto): string {
+  const lifecycle = storage.memoryLifecycle;
+  if (!lifecycle.enabled) return 'off (preview only)';
+  if (lifecycle.lastNote === 'vec-unavailable') {
+    return 'deletes paused: vector extension unavailable';
+  }
+  const preview = lifecycle.preview;
+  if (!preview) return 'preview after the first run';
+  return `next run: ${formatCount(preview.archiveEligible)} to archive · ${formatCount(preview.deleteEligible)} to delete · up to ${formatCount(preview.overCap)} over cap`;
 }

@@ -71,6 +71,10 @@ function render(storage: MemoryStorageHealthDto | null): HTMLElement {
   return fixture.nativeElement as HTMLElement;
 }
 
+function normalizedText(element: Element | null): string {
+  return (element?.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
 describe('StorageHealthPanelComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -122,12 +126,18 @@ describe('StorageHealthPanelComponent', () => {
     const storage = makeStorage();
     const run = storage.retention.lastRun;
     if (!run) throw new Error('fixture must carry a lastRun');
-    storage.retention.lastRun = {
-      ...run,
-      outcome: 'partial',
-      reason: 'row purge failed mid-batch',
-    };
-    const root = render(storage);
+    const root = render(
+      makeStorage({
+        retention: {
+          ...storage.retention,
+          lastRun: {
+            ...run,
+            outcome: 'partial',
+            reason: 'row purge failed mid-batch',
+          },
+        },
+      }),
+    );
 
     const badge = root.querySelector('[data-testid="storage-run-badge"]');
     expect(badge?.textContent?.trim()).toBe('partial');
@@ -141,13 +151,19 @@ describe('StorageHealthPanelComponent', () => {
     const storage = makeStorage();
     const run = storage.retention.lastRun;
     if (!run) throw new Error('fixture must carry a lastRun');
-    storage.retention.lastRun = {
-      ...run,
-      outcome: 'failed',
-      reason: null,
-      error: 'SQLITE_BUSY: database is locked',
-    };
-    const root = render(storage);
+    const root = render(
+      makeStorage({
+        retention: {
+          ...storage.retention,
+          lastRun: {
+            ...run,
+            outcome: 'failed',
+            reason: null,
+            error: 'SQLITE_BUSY: database is locked',
+          },
+        },
+      }),
+    );
 
     const badge = root.querySelector('[data-testid="storage-run-badge"]');
     expect(badge?.textContent?.trim()).toBe('failed');
@@ -171,6 +187,85 @@ describe('StorageHealthPanelComponent', () => {
     expect(root.textContent ?? '').toContain('64');
     expect(root.textContent ?? '').toContain('as of last retention run');
     expect(root.textContent ?? '').toContain('estimate');
+    expect(
+      normalizedText(root.querySelector('ptah-native-card:nth-of-type(5)')),
+    ).toContain('Memories archived 8 · deleted 3 · evicted 2');
+  });
+
+  it('renders lifecycle settings with the populated next-run preview', () => {
+    const root = render(
+      makeStorage({
+        memoryLifecycle: {
+          enabled: true,
+          archiveAfterDays: 30,
+          deleteAfterDays: 60,
+          maxPerWorkspace: 25_000,
+          lastNote: null,
+          preview: {
+            measuredAt: NOW,
+            forRunAt: NOW + 3_600_000,
+            archiveEligible: 1_234,
+            deleteEligible: 56,
+            overCap: 7,
+          },
+        },
+      }),
+    );
+
+    expect(
+      normalizedText(
+        root.querySelector('[data-testid="storage-memory-lifecycle"]'),
+      ),
+    ).toBe(
+      'archive after 30 d · delete after 60 d · cap 25,000 next run: 1,234 to archive · 56 to delete · up to 7 over cap',
+    );
+  });
+
+  it('renders the first-run lifecycle preview note when preview is null', () => {
+    const root = render(makeStorage());
+
+    expect(
+      normalizedText(
+        root.querySelector('[data-testid="storage-memory-lifecycle"]'),
+      ),
+    ).toContain('preview after the first run');
+  });
+
+  it('renders the disabled lifecycle note in text', () => {
+    const storage = makeStorage();
+    const root = render(
+      makeStorage({
+        memoryLifecycle: {
+          ...storage.memoryLifecycle,
+          enabled: false,
+          lastNote: 'disabled',
+        },
+      }),
+    );
+
+    expect(
+      normalizedText(
+        root.querySelector('[data-testid="storage-memory-lifecycle"]'),
+      ),
+    ).toContain('off (preview only)');
+  });
+
+  it('renders the vec-unavailable lifecycle note in text', () => {
+    const storage = makeStorage();
+    const root = render(
+      makeStorage({
+        memoryLifecycle: {
+          ...storage.memoryLifecycle,
+          lastNote: 'vec-unavailable',
+        },
+      }),
+    );
+
+    expect(
+      normalizedText(
+        root.querySelector('[data-testid="storage-memory-lifecycle"]'),
+      ),
+    ).toContain('deletes paused: vector extension unavailable');
   });
 
   it('renders last skip time and reason when a skip is recorded', () => {
@@ -215,6 +310,9 @@ describe('StorageHealthPanelComponent', () => {
             ledgerPruned: 0,
             freedBytes: 134_217_728,
             pagesReclaimed: 32_768,
+            memoriesArchived: 200,
+            memoriesDeleted: 100,
+            memoriesEvicted: 50,
             outcome: 'partial',
             reason: 'row budget reached',
             error: null,

@@ -17,7 +17,6 @@ function diagnosticsStateStub(): Partial<MemoryDiagnosticsStateService> {
   return {
     triggers: signal(null).asReadonly(),
     lastRun: signal(null).asReadonly(),
-    lastDecay: signal(null).asReadonly(),
     recentEvents: signal([]).asReadonly(),
     dbHealth: signal(null).asReadonly(),
     storage: signal(null).asReadonly(),
