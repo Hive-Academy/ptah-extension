@@ -61,6 +61,7 @@ One inaccuracy from the R0 doc ("Daily same-day re-runs reuse the validated dail
 
 ### Moderate: filesystems without hard-link support are a real limitation, not named as a residual
 
+- Status: Resolved. `libs/backend/persistence-sqlite/CLAUDE.md:79-82` now explicitly documents this second known limitation: on filesystems without hard-link support, atomic publish fails, every backup reports not-taken with `'critical'` degradation permanently and loudly, and there is no copy or rename fallback by design.
 - File: `integrity-worker-protocol.ts:708-716` (no fallback on `linkSync` failure other than reporting `'unavailable'`); `backup.service.ts:21-27` and `CLAUDE.md:56-61` (the "residuals" paragraph names only the upgrade-day partial-daily case).
 - Scenario: `~/.ptah` lives on a filesystem that does not support hard links across the relevant path (e.g., certain network mounts or some exFAT/FAT32 configurations). Every backup attempt of every kind then fails with `'unavailable'`/`critical` degradation forever, with no copy-and-rename fallback.
 - Impact: not a correctness bug — failure is loud (`reportNotTaken`, `'critical'` degradation, pinned by `reports an atomic-publish failure without a rename or copy fallback`, `integrity-worker-protocol.spec.ts:552-576`) rather than silent, so this does not reopen any of the closed findings. It is, however, an operational limitation with no code-level named exception, unlike the upgrade-day residual which got an explicit callout.

@@ -101,6 +101,8 @@ export function sanitizeRetentionError(message: string): string {
   return message
     .replace(/[A-Za-z]:[/\\][^\s,'"]+/g, '[path redacted]')
     .replace(/\\\\[^\s,'"]+/g, '[path redacted]')
+    .replace(/(?<=^|[\s'"(=]|:\s)\/[^\s,'"/]+\/[^\s,'"]+/g, '[path redacted]')
+    // Home-directory paths are redacted anywhere, even mid-token (`(file)/home/…`).
     .replace(/\/(?:home|Users|root)\/[^\s,'"]+/g, '[path redacted]');
 }
 

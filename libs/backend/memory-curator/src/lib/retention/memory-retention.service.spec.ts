@@ -19,7 +19,10 @@ import type {
   SqlitePageReclaimer,
   SqlitePageStats,
 } from '@ptah-extension/persistence-sqlite';
-import { MemoryRetentionService } from './memory-retention.service';
+import {
+  MemoryRetentionService,
+  sanitizeRetentionError,
+} from './memory-retention.service';
 import {
   MEMORY_RETENTION_DEFAULTS,
   MEMORY_RETENTION_KEYS,
@@ -222,6 +225,7 @@ function state(overrides: Partial<RetentionState> = {}): RetentionState {
 
 class FakeGovernor implements BackgroundWorkAdmission {
   clear = true;
+  whenClearCalls = 0;
   waiters: Array<{
     resolve: (outcome: WhenClearOutcome) => void;
     reject: (err: unknown) => void;
@@ -234,6 +238,7 @@ class FakeGovernor implements BackgroundWorkAdmission {
   }
 
   whenClear(options?: WhenClearOptions): Promise<WhenClearOutcome> {
+    this.whenClearCalls++;
     if (this.clear) return Promise.resolve('clear');
     return new Promise((resolve, reject) => {
       this.waiters.push({ resolve, reject, options });
@@ -252,7 +257,9 @@ class FakeGovernor implements BackgroundWorkAdmission {
   }
 
   release(outcome: WhenClearOutcome = 'clear'): void {
-    this.clear = true;
+    if (outcome === 'clear') {
+      this.clear = true;
+    }
     const pending = this.waiters;
     this.waiters = [];
     for (const w of pending) w.resolve(outcome);
@@ -951,6 +958,77 @@ describe('MemoryRetentionService — storageHealth', () => {
       expect(err).toContain('[path redacted]');
     }
   });
+
+  it('sanitizes /var and /tmp POSIX paths in readErrors while preserving non-path text and ratios', () => {
+    const h = harness();
+    h.store.readLiveStorage = () => ({
+      pendingRows: 40,
+      pendingBytes: 1000,
+      oldestPendingAt: 5,
+      stuckEligibleRows: 0,
+      quarantineLedgerRows: 0,
+      readErrors: [
+        'pending: query failed on /var/lib/ptah/state.sqlite',
+        'quarantineLedger: table missing in /tmp/ptah-x/db.sqlite',
+      ],
+    });
+    h.store.readState = () => null;
+
+    const health = h.service.storageHealth();
+
+    expect(health.readErrors).toEqual([
+      'pending: query failed on [path redacted]',
+      'quarantineLedger: table missing in [path redacted]',
+    ]);
+    for (const err of health.readErrors ?? []) {
+      expect(err).not.toContain('/var/');
+      expect(err).not.toContain('/tmp/');
+      expect(err).toContain('[path redacted]');
+    }
+  });
+});
+
+describe('sanitizeRetentionError', () => {
+  it('redacts absolute POSIX paths with at least two segments across /var, /tmp, /opt, /home, /Users, /root', () => {
+    expect(sanitizeRetentionError('failed on /var/lib/ptah/state.sqlite')).toBe(
+      'failed on [path redacted]',
+    );
+    expect(sanitizeRetentionError('failed on /tmp/ptah-x/db.sqlite')).toBe(
+      'failed on [path redacted]',
+    );
+    expect(sanitizeRetentionError('failed on /opt/ptah/db')).toBe(
+      'failed on [path redacted]',
+    );
+    expect(sanitizeRetentionError('failed on /home/bob/db.sqlite')).toBe(
+      'failed on [path redacted]',
+    );
+    expect(sanitizeRetentionError('failed on /Users/charlie/db.sqlite')).toBe(
+      'failed on [path redacted]',
+    );
+    expect(sanitizeRetentionError('failed on /root/db.sqlite')).toBe(
+      'failed on [path redacted]',
+    );
+    expect(sanitizeRetentionError('open (file)/home/bob/db.sqlite')).toBe(
+      'open (file)[path redacted]',
+    );
+  });
+
+  it('preserves non-path text, ratios, conjunctions, and single-slash words', () => {
+    expect(sanitizeRetentionError('no such table: memory_retention_state')).toBe(
+      'no such table: memory_retention_state',
+    );
+    expect(sanitizeRetentionError('SQLITE_BUSY: database is locked')).toBe(
+      'SQLITE_BUSY: database is locked',
+    );
+    expect(sanitizeRetentionError('ratio 1/2')).toBe('ratio 1/2');
+    expect(sanitizeRetentionError('processed and/or quarantined')).toBe(
+      'processed and/or quarantined',
+    );
+    expect(sanitizeRetentionError('operation: read/write error')).toBe(
+      'operation: read/write error',
+    );
+    expect(sanitizeRetentionError('options: /help')).toBe('options: /help');
+  });
 });
 
 describe('MemoryRetentionService — background-work governor', () => {
@@ -1089,15 +1167,48 @@ describe('MemoryRetentionService — background-work governor', () => {
     h.store.processed = 50;
 
     const runPromise = h.service.run(h.options);
-    await Promise.resolve();
-    await Promise.resolve();
+    await governor.waitForWaiter();
 
     expect(governor.waiters).toHaveLength(1);
     governor.release('timeout');
+    governor.clear = true;
 
     const report = await runPromise;
     expect(report.status).toBe('completed');
     expect(h.store.purgeCalls).toBe(1);
+  });
+
+  it('preserves governor busy state across timeouts so subsequent batches wait again', async () => {
+    const governor = new FakeGovernor();
+    governor.clear = false;
+    const h = harness({
+      governor,
+      settings: { 'memory.retention.batchSize': 50 },
+    });
+    h.store.processed = 100;
+
+    const runPromise = h.service.run(h.options);
+    await governor.waitForWaiter();
+
+    expect(governor.whenClearCalls).toBe(1);
+    expect(h.store.purgeCalls).toBe(0);
+
+    // Timeout first wait; budget is not exhausted, so batch 1 runs
+    governor.release('timeout');
+
+    // Wait for batch 2's whenClear call to register before batch 2 runs
+    await governor.waitForWaiter();
+
+    expect(governor.whenClearCalls).toBe(2);
+    expect(h.store.purgeCalls).toBe(1);
+
+    // Second wait clears; batch 2 runs and the run completes
+    governor.release('clear');
+    const report = (await runPromise) as MemoryRetentionRunReport;
+
+    expect(report.status).toBe('completed');
+    expect(h.store.purgeCalls).toBe(2);
+    expect(report.processedPurged).toBe(100);
   });
 
   it('skips governor whenClear call when deadline has already passed', async () => {
