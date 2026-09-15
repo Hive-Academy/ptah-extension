@@ -1,6 +1,6 @@
 # Batches - TASK_2026_443_40ec
 
-Total tasks: 25 | Batches: 10 | Complete: 8/10
+Total tasks: 25 | Batches: 10 | Complete: 9/10
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle` (branch
 `feat/task-439-phase2-memory-lifecycle`, base 5e34e39cc). Below, `W` means that absolute path; every lane prompt
@@ -1274,7 +1274,7 @@ review round is required).
 
 ---
 
-## Batch 9: Decay removal across memory-curator, shared, rpc-handlers, memory-curator-ui; rpc-handlers use recording — IN_PROGRESS
+## Batch 9: Decay removal across memory-curator, shared, rpc-handlers, memory-curator-ui; rpc-handlers use recording — COMPLETE (commit af40f909e)
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer)
 - Fallback executor: backend-developer subagent
@@ -1285,7 +1285,7 @@ review round is required).
 - Suggested commit: `refactor(memory-curator,shared,rpc-handlers): batch 9 - delete the unscheduled decay job and record use on memory reads`
 - Tasks: 2 | Depends on: Batches 3, 7 (`d5cb191b4`) and 8 (`51ce3d58e`)
 
-### Task 9.1: Delete `MemoryDecayJob` and decay diagnostics everywhere — IN_PROGRESS
+### Task 9.1: Delete `MemoryDecayJob` and decay diagnostics everywhere — COMPLETE
 
 - Files:
   - DELETE `W\libs\backend\memory-curator\src\lib\memory-decay.job.ts`, `memory-decay.job.spec.ts`
@@ -1320,7 +1320,7 @@ review round is required).
 - Acceptance: grep `MemoryDecayJob|MEMORY_DECAY_JOB|lastDecay|decay-run|recordDecayEvent|MemoryDecayStats` under
   `W\libs` and `W\apps` returns nothing.
 
-### Task 9.2: `memory:get` and `mem:getObservations` record use — IN_PROGRESS
+### Task 9.2: `memory:get` and `mem:getObservations` record use — COMPLETE
 
 - Depends on: Task 9.1 (shared handler file)
 - Files: MODIFY `W\libs\backend\rpc-handlers\src\lib\handlers\memory-rpc.handlers.ts` (`memory:get` :245-252 calls
@@ -1340,6 +1340,30 @@ review round is required).
   - `npx nx run-many -t test -p ptah-extension-vscode` — "for 1 project"
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-9-report.md`
 
+### Batch 9 result
+
+- Report (`batch-9-report.md`): 24 paths (2 deleted, 22 modified). `MemoryStore.updateTier` deleted after a grep showed
+  the deleted job was its only caller. The `MemRpcHandlers` recorder is a REQUIRED injection, with the reasoning recorded.
+- Review (Ollama Cloud, `code-logic-review-batch-9.md`): APPROVED 8/10, 0 blocking/serious, 2 moderate, 3 minor. The
+  reviewer verified the required-injection claim against `register-rpc-surface.ts`, `manifest.ts`, the host profiles and
+  both composition paths, re-ran the removed-symbol grep over ALL file types, and re-ran the degradation audit.
+- Team-leader decision: ACCEPTED and committed; both moderates are DOCUMENTATION-LAYER leftovers Batch 10 already owns,
+  so they are folded into Task 10.1 rather than a Batch 9 revision.
+  - Moderate 1: `libs/backend/memory-curator/CLAUDE.md:13,32,43` still names the decay job and the scorer (Batch 9's grep
+    used `--glob '*.ts'`). Task 10.1 owns that file; its acceptance grep now covers ALL file types.
+  - Moderate 2: `memory.decayHalflifeDays` survives with zero consumers
+    (`libs/backend/platform-core/src/file-settings-keys.ts:214,504`) and four ptah-docs pages still document salience
+    decay / half-life pruning. Folded into Task 10.1 with its own acceptance grep.
+  - Minors: the stale request-time `tier` in the `memory:get` response is accepted snapshot semantics (one docs line in
+    Task 10.1); `register.spec.ts:110` assembling `'PtahMemoryDecayJob'` at runtime so the grep stays clean is sound and
+    disclosed; the `curator-activity-log.ts` touch is comment-only.
+- Team-leader re-run: test 6 projects green (shared 1521; memory-curator-ui 189; memory-curator 639 passed / 59 skipped
+  pre-existing; rpc-handlers 3007 passed / 33 skipped pre-existing; thoth-runtime 91; cli-engine 188); typecheck 6
+  projects green; lint 4 projects 0 errors; `ptah-extension-vscode` 65 passed; `degradation-audit:lint` exit 0 with no
+  baseline raised (`apps/ptah-extension-vscode` 8 of baseline 9); better-sqlite3 via Electron 42 suites / 698 passed; the
+  removed-symbol grep over `libs` + `apps` (all file types) returns ONLY `libs/backend/memory-curator/CLAUDE.md:32`
+  (moderate 1, Task 10.1). Committed with only the 24 Batch 9 paths.
+
 ### Batch 9 verification
 
 - XB1: every spec that prepares SQL binds every named and positional parameter (passes under better-sqlite3 and node:sqlite).
@@ -1347,7 +1371,7 @@ review round is required).
 
 ---
 
-## Batch 10: Final verification — CLAUDE.md drift fix, full suite + greps, AC9 timing on a temp copy — PENDING
+## Batch 10: Final verification — documentation and dead-setting cleanup, full suite + greps, AC9 timing on a temp copy — IN_PROGRESS
 
 - Recommended executor: 10.1 codex CLI lane (docs); 10.2 and 10.3 senior-tester subagent (see Defaults)
 - Fallback executor: 10.1 technical-content-writer or backend-developer subagent; 10.2 codex lane; 10.3 none
@@ -1361,7 +1385,7 @@ review round is required).
   `test-report.md` committed separately after 10.3 passes (`docs: record TASK_2026_443 test report`).
 - Tasks: 3 | Depends on: Batch 9
 
-### Task 10.1: `memory-curator/CLAUDE.md` drift fix — PENDING
+### Task 10.1: Documentation and dead-setting cleanup (memory-curator CLAUDE.md drift + the Batch 9 moderates) — IN_PROGRESS
 
 - File: MODIFY `W\libs\backend\memory-curator\CLAUDE.md`
 - Drift on disk today: `:13` "salience scoring, decay job"; `:32` Public API lists `SalienceScorer`,
@@ -1379,20 +1403,43 @@ review round is required).
   `SET tier = 'archival'` writer is `archiveBatch`; nothing writes `salience` after insert; the R1
   `memory_concepts_fts` drift caveat. Budgets: 25,000 memory rows per run, delete batch 200 (or the value Task 10.3
   reports, updated after 10.3 if different).
-- Acceptance: grep `SalienceScorer|MemoryDecayJob|decay job|salience-scorer` in that file returns nothing; every
-  named symbol exists in `src/index.ts`.
+- ALSO in this task (folded from `code-logic-review-batch-9.md`):
+  - Moderate 2a — DELETE the dead setting `memory.decayHalflifeDays` from
+    `W\libs\backend\platform-core\src\file-settings-keys.ts` (`:214` key, `:504` default) and from
+    `file-settings-keys.spec.ts` if it is named there. Grep first and record the result: the key must have NO consumer
+    left, since the decay job and `SalienceScorer` are gone. If a consumer exists, keep the key and say so instead.
+  - Moderate 2b — update the four ptah-docs pages that still document salience decay / half-life pruning:
+    `W\apps\ptah-docs\src\content\docs\memory\settings.md:21`, `how-it-works.md:50`,
+    `pinning-and-forgetting.md:39-41`, `changelog.md:8`. Describe what ships now: the age lifecycle (recall unused
+    `memory.lifecycle.archiveAfterDays` 30 d becomes archival; archival older than `deleteAfterDays` 60 d, counted FROM
+    the archival stamp, is deleted with its chunks, FTS and vector rows), the per-workspace cap `maxPerWorkspace`
+    25,000 evictable rows with a 7-day grace, the pinned / core / corpus exemption, a recorded use restoring an archival
+    row, ranking-only salience, and deletes pausing when the vector extension is unavailable. Invent no numbers: every
+    figure comes from `memory-lifecycle-config.ts` or `memory-retention-config.ts`. `changelog.md` gets a NEW entry
+    rather than a rewritten history line.
+  - Minor — one line in `memory-curator/CLAUDE.md` (or the `memory:get` docs page): the `memory:get` response carries the
+    tier as read at request time, so a use that restores an archival row shows only on the next read.
+- Acceptance: grep `SalienceScorer|MemoryDecayJob|decay job|salience-scorer` in `memory-curator/CLAUDE.md` returns
+  nothing; grep `decayHalflifeDays` over `libs`, `apps` and `docs` (ALL file types) returns nothing; grep
+  `half-life|halflife` over `apps/ptah-docs` returns only wording about the ranking recency term, never lifecycle
+  pruning; every symbol named in `memory-curator/CLAUDE.md` exists in `src/index.ts`.
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-10-docs-report.md`
 
-### Task 10.2: Full affected-set run + invariant greps — PENDING
+### Task 10.2: Full affected-set run + invariant greps — IN_PROGRESS
 
 - Depends on: Task 10.1 committed
 - Commands (from `W`; record every header; `--parallel=1` re-run rule for R-TL8):
   - `npx nx run-many -t test -p @ptah-extension/persistence-sqlite @ptah-extension/memory-contracts @ptah-extension/memory-curator @ptah-extension/agent-sdk @ptah-extension/vscode-lm-tools @ptah-extension/rpc-handlers @ptah-extension/platform-core @ptah-extension/shared @ptah-extension/thoth-runtime @ptah-extension/cli-engine @ptah-extension/memory-curator-ui` — "for 10 projects" (memory-contracts has no test target; Nx lists it under "do not have a configuration")
   - same set with `-t typecheck` — 11; with `-t lint` — 10 (same reason)
   - `npx nx run-many -t test -p ptah-electron ptah-extension-vscode` — "for 2 projects"
+  - after Task 10.1: `npx nx run-many -t test -p @ptah-extension/platform-core` (1 project, the settings spec)
+    and `npx nx run-many -t build -p ptah-docs` (1 project; ptah-docs has a `build` target)
   - XB2: `npx nx run degradation-audit:lint` (exit 0, baseline not raised)
 - Greps (under `W\libs` and `W\apps`, excluding `.ptah`):
-  - `MemoryDecayJob|SalienceScorer|recordHit|updateSalience|lastDecay|decay-run` -> no matches
+  - `MemoryDecayJob|SalienceScorer|recordHit|updateSalience|lastDecay|decay-run|recordDecayEvent|MemoryDecayStats|updateTier`
+    over ALL file types (not only `*.ts`) -> no matches outside `.ptah/specs` prose. `register.spec.ts` assembles the
+    decay symbol name at runtime on purpose, so the grep must stay clean
+  - `decayHalflifeDays` over `libs`, `apps` and `docs` (all file types) -> no matches
   - `SET tier = 'archival'|tier = 'archival',` in non-spec code -> only `memory-lifecycle.store.ts` `archiveBatch`
     (A4); insert path sets tier from its argument
   - `SET salience|salience = ` writes in non-spec, non-migration code -> none (insert binding excepted)
@@ -1402,7 +1449,7 @@ review round is required).
   `memory-lifecycle.store.spec.ts`, `salience-ranking.spec.ts`, `0044_memory_lifecycle.spec.ts`.
 - Output: section "## Task 10.2" in `W\.ptah\specs\TASK_2026_443_40ec\test-report.md`
 
-### Task 10.3: AC9 timing on a TEMP COPY of the snapshot (plan Component 12) — PENDING
+### Task 10.3: AC9 timing on a TEMP COPY of the snapshot (plan Component 12) — IN_PROGRESS
 
 - Depends on: Task 10.2
 - Plan reference: implementation-plan.md:872-894; procedure `../TASK_2026_440_834c/test-report.md` Task 7.4 (:252-292)
