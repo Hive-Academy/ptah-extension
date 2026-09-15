@@ -40,7 +40,7 @@ PR #510 CI. Add it back to `context.md` after PR #510 merges.
   cleanly (else keep its current watcher behind the port); measure SQLite main-thread cost before
   moving it; scroll-back paging of old history is deferred.
 
-## 3. Done — committed (20 of 24 batches; Batches 8, 9, 10, 11, 15, 16, 16b, 17, 17b and 18 in section 4)
+## 3. Done — committed (21 of 24 batches; Batches 8, 9, 10, 11, 15, 16, 16b, 17, 17b, 18 and 19 in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
 | ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,7 +64,20 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b and 18 — COMMITTED (P3 gate passed; resume at P4 Batch 19)
+## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b, 18 and 19 — COMMITTED (P3 gate passed; P4 Batches 20, 21 in flight)
+
+**Batch 19 — COMMITTED 2026-09-15** as
+`perf(chat-streaming): finalize session history in one pass and back off tab saves after quota errors`.
+C16: `finalizeSessionHistory` indexes message boundaries and root trees in one pass each (first match
+wins, as the replaced `find` calls did), so opening a long session is O(E + M), not O(M × E). An
+equivalence oracle (the old loop, verbatim) covers 4 fixtures, including a ~2,000-event session. A
+counting proxy allows ≤ 2 × E event visits, and the legacy loop exceeds 10 × E. C17 (INV-10, AC-12):
+a failed tab-state write records `{ key, failedAt, attempt, tabCount }`. Later saves skip
+serialization for `min(5 s × 2^attempt, 5 min)`, unless the tab set shrank or teardown flushes. A
+success resets the record. One warn per step, no timers. A first cut added a degradation-audit site
+(304); it was fixed in the batch, and the audit is back to 303. Evidence: chat-state 387,
+chat-streaming 501 (+1 skipped), typecheck,lint 0 errors. Reviews: logic APPROVED 8/10, style
+APPROVED 7/10. Outcome, crash-window analysis and FU-19a..f are in `batches.md` "Batch 19 outcome".
 
 **Batch 17b — COMMITTED 2026-09-15** as
 `feat(skill-synthesis): defer background skill re-propagation while user clicks re-propagate at once`.
@@ -275,9 +288,9 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
   CLI: build `ptah-tui` then `restore-cli-manifest` before pack; cross-platform CI smoke (only
   win32-x64 proven locally).
 
-## 5. Remaining batches (4 of 24)
+## 5. Remaining batches (3 of 24)
 
-Order and dependencies are in `batches.md`. Resume at P4 Batch 19. Summary:
+Order and dependencies are in `batches.md`. Batch 19 is committed; resume at P4 Batches 20 and 21, then 22. Summary:
 
 - **P2:** all batches committed. Only the OPEN D10 proof remains: `publish-electron.yml` build matrix
   green on Windows, macOS and Linux (section 4a) — needs a user decision to dispatch.
@@ -295,7 +308,7 @@ Order and dependencies are in `batches.md`. Resume at P4 Batch 19. Summary:
 4. When to mark PR #510 ready for CodeRabbit (it skips drafts).
 5. Whether to write the property-hub load-test setup/cleanup scripts (section 9).
 
-- **P4:** 19 (O(E+M) finalization + tab-save quota back-off), 20 (drop duplicate `messages` from
+- **P4:** 19 COMMITTED (O(E+M) finalization + tab-save quota back-off), 20 (drop duplicate `messages` from
   `chat:resume`, chunked replay; after 14), 21 (inbound burst coalescing), 22 (AC-11 tile-open perf e2e).
 
 ## 6. Open follow-ups (recorded in batches.md)
@@ -334,6 +347,10 @@ Order and dependencies are in `batches.md`. Resume at P4 Batch 19. Summary:
   DI token `NETWORK_BACKOFF` (now resolves `ProviderNetworkBackoffs`). FU-18h: a background curator
   pass already in the queue, held at the internal-query gate, still blocks passes behind it.
   FU-18i: resolve-stage network failures do not feed the back-off (documented).
+- FU-19a: extract `TabPersistenceCoordinator` from `tab-manager.service.ts` (2,628 lines). FU-19b: per-workspace
+  failure map. FU-19c: payload-size shrink trigger. FU-19d: `extractTextForMessage` O(U×T). FU-19e:
+  partition-service background writes lack back-off. FU-19f: pre-existing spec-tsconfig type errors in
+  chat-streaming/chat-state specs (`typecheck` covers only `tsconfig.lib.json`).
 - Phase gate commands (`lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`) last ran at the P3 gate on 2026-09-15 — all green.
 
 ## 7. CI and external review state

@@ -41,8 +41,12 @@ import { ConversationRegistry } from './conversation-registry.service';
 import { TabId } from './identity/ids';
 import {
   buildPersistedTabState,
+  nextPersistFailure,
+  persistBackedOff,
+  persistBackoffMs,
   persistNeeded,
   sanitizeRestoredTabs,
+  type PersistFailure,
   type PersistedSnapshot,
 } from './tab-persistence';
 import {
@@ -225,6 +229,23 @@ export class TabManagerService {
    * the serialized string.
    */
   private _lastPersisted: PersistedSnapshot | null = null;
+
+  /**
+   * The last failed write, while storage is behind memory (INV-10). A quota
+   * failure repeats on every save, and each attempt re-serializes every tab's
+   * transcript on the main thread first, so the next attempts wait out a
+   * doubling window — see `persistBackedOff` in `tab-persistence.ts`.
+   * Cleared by the next successful write.
+   */
+  private _persistFailure: PersistFailure | null = null;
+
+  /**
+   * A save the back-off skipped since the last attempt. Keeps
+   * `flushPendingSave` from treating skipped work as nothing pending once the
+   * timers have fired, and from retrying twice when several teardown signals
+   * fire in one unload.
+   */
+  private _saveSkippedByBackoff = false;
 
   /**
    * Per-tab AbortControllers for in-flight streaming RPCs.
@@ -1758,10 +1779,16 @@ export class TabManagerService {
    * Seed a verified post-compaction context usage value without touching
    * transcript, reload, compaction count, or any other tab state.
    */
-  seedPostCompactionContext(tabId: string, postTokens: number | undefined): void {
+  seedPostCompactionContext(
+    tabId: string,
+    postTokens: number | undefined,
+  ): void {
     const tab = this.tabs().find((candidate) => candidate.id === tabId);
     this.updateTabInternal(tabId, {
-      liveModelStats: this.postCompactionContextStats(tab?.liveModelStats, postTokens),
+      liveModelStats: this.postCompactionContextStats(
+        tab?.liveModelStats,
+        postTokens,
+      ),
     });
   }
 
@@ -2322,7 +2349,9 @@ export class TabManagerService {
    */
   flushPendingSave(): void {
     const pending =
-      this._saveTimeout !== null || this._saveMaxWaitTimeout !== null;
+      this._saveTimeout !== null ||
+      this._saveMaxWaitTimeout !== null ||
+      this._saveSkippedByBackoff;
     if (!pending) return;
 
     if (this._saveTimeout) {
@@ -2330,7 +2359,8 @@ export class TabManagerService {
       this._saveTimeout = null;
     }
     this._clearSaveMaxWait();
-    this._doSaveTabState();
+    // Teardown is the last chance to write, so it ignores a quota back-off.
+    this._doSaveTabState({ ignoreBackoff: true });
   }
 
   private _clearSaveMaxWait(): void {
@@ -2352,8 +2382,15 @@ export class TabManagerService {
    * The in-memory partition mirror is synced either way — it is a `Map.set`,
    * and letting it drift would hand a stale tab set to the next workspace
    * switch.
+   *
+   * After a failed write (typically `QuotaExceededError`) the next attempts
+   * are skipped until the back-off window passes, the tab set shrinks, or the
+   * teardown flush passes `ignoreBackoff` (INV-10). No timer is added: a
+   * skipped save is retried by the next ordinary save trigger.
    */
-  private _doSaveTabState(): void {
+  private _doSaveTabState(options: { ignoreBackoff?: boolean } = {}): void {
+    let attemptedKey: string | null = null;
+    let attemptedTabCount = 0;
     try {
       const tabs = this._tabs();
       const activeTabId = this._activeTabId();
@@ -2365,17 +2402,46 @@ export class TabManagerService {
 
       this.workspacePartition.syncActiveWorkspaceState(tabs, activeTabId);
 
+      if (
+        !options.ignoreBackoff &&
+        persistBackedOff(this._persistFailure, key, tabs.length, Date.now())
+      ) {
+        this._saveSkippedByBackoff = true;
+        return;
+      }
+      this._saveSkippedByBackoff = false;
+
       if (!persistNeeded(this._lastPersisted, key, tabs, activeTabId)) {
         return;
       }
 
+      attemptedKey = key;
+      attemptedTabCount = tabs.length;
       localStorage.setItem(
         key,
         JSON.stringify(buildPersistedTabState(tabs, activeTabId)),
       );
       this._lastPersisted = { key, tabs, activeTabId };
-    } catch (error) {
-      console.warn('[TabManager] Failed to save tab state:', error);
+      this._persistFailure = null;
+    } catch (error: unknown) {
+      if (attemptedKey === null) {
+        console.warn('[TabManager] Failed to save tab state:', error);
+      } else {
+        // One warn per back-off step: inside the window nothing is attempted,
+        // so nothing fails and nothing is logged.
+        this._persistFailure = nextPersistFailure(
+          this._persistFailure,
+          attemptedKey,
+          attemptedTabCount,
+          Date.now(),
+        );
+        console.warn(
+          `[TabManager] Failed to save tab state; retrying in ${
+            persistBackoffMs(this._persistFailure.attempt) / 1000
+          } s unless a tab closes (attempt ${this._persistFailure.attempt + 1}):`,
+          error,
+        );
+      }
     }
   }
 

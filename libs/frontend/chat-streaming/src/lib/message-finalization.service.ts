@@ -92,6 +92,55 @@ function placeFinalizedTrees(
   return placed;
 }
 
+/** The first `message_start` and `message_complete` recorded for one message. */
+interface MessageBoundaries {
+  start?: MessageStartEvent;
+  complete?: MessageCompleteEvent;
+}
+
+/**
+ * Index every message's boundary events in ONE pass over `events`.
+ *
+ * First match wins, in map iteration order — the same event the per-message
+ * `[...events.values()].find(...)` this replaces returned, so a message with
+ * two `message_start` events still resolves to the earlier one.
+ */
+function indexMessageBoundaries(
+  events: StreamingState['events'],
+): Map<string, MessageBoundaries> {
+  const byMessage = new Map<string, MessageBoundaries>();
+  for (const event of events.values()) {
+    if (
+      event.eventType !== 'message_start' &&
+      event.eventType !== 'message_complete'
+    ) {
+      continue;
+    }
+    let entry = byMessage.get(event.messageId);
+    if (!entry) {
+      entry = {};
+      byMessage.set(event.messageId, entry);
+    }
+    if (event.eventType === 'message_start') {
+      entry.start ??= event;
+    } else {
+      entry.complete ??= event;
+    }
+  }
+  return byMessage;
+}
+
+/** Root trees by id, keeping the first tree for a repeated id (`find` order). */
+function indexTreesById(
+  trees: readonly ExecutionNode[],
+): Map<string, ExecutionNode> {
+  const byId = new Map<string, ExecutionNode>();
+  for (const tree of trees) {
+    if (!byId.has(tree.id)) byId.set(tree.id, tree);
+  }
+  return byId;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MessageFinalizationService {
   private readonly tabManager = inject(TabManagerService);
@@ -300,10 +349,13 @@ export class MessageFinalizationService {
 
     const messages: ExecutionChatMessage[] = [];
     const usedTreeNodeIds = new Set<string>();
+    // One pass over the events and one over the trees, then the message loop
+    // is lookups. Scanning `events` twice per message made a long session's
+    // finalization O(M × E) on the renderer main thread (TASK_2026_437 C16).
+    const boundaries = indexMessageBoundaries(stateCopy.events);
+    const treeById = indexTreesById(allTrees);
     for (const messageId of stateCopy.messageEventIds) {
-      const messageStartEvent = [...stateCopy.events.values()].find(
-        (e) => e.eventType === 'message_start' && e.messageId === messageId,
-      ) as MessageStartEvent | undefined;
+      const messageStartEvent = boundaries.get(messageId)?.start;
 
       if (!messageStartEvent) {
         continue;
@@ -313,12 +365,8 @@ export class MessageFinalizationService {
       }
 
       const role = messageStartEvent.role;
-      const treeNode = allTrees.find(
-        (node) => node.id === messageStartEvent.id,
-      );
-      const completeEvent = [...stateCopy.events.values()].find(
-        (e) => e.eventType === 'message_complete' && e.messageId === messageId,
-      ) as MessageCompleteEvent | undefined;
+      const treeNode = treeById.get(messageStartEvent.id);
+      const completeEvent = boundaries.get(messageId)?.complete;
       let tokens:
         | { input: number; output: number; cacheHit?: number }
         | undefined;
