@@ -12,10 +12,10 @@ import {
   imports: [FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div
-    class="flex flex-wrap items-center gap-2 border-b border-base-content/10 bg-base-200 px-2 py-1 text-xs"
+    class="flex flex-col gap-1 border-b border-base-content/10 bg-base-200 px-2 py-1 text-xs"
     data-testid="git-review-toolbar"
   >
-    <div role="group" aria-label="Review mode" class="join">
+    <div role="group" aria-label="Review mode" class="join self-start">
       <button
         class="btn btn-xs join-item"
         [class.btn-active]="review.mode() === 'working-tree'"
@@ -31,10 +31,11 @@ import {
       </button>
     </div>
     @if (review.mode() === 'branch-review') {
-      <label
-        >Base
+      <div class="flex min-w-0 items-center gap-1.5">
+        <label class="sr-only" for="git-review-base">Base</label>
         <select
-          class="select select-xs"
+          id="git-review-base"
+          class="select select-xs min-w-0 flex-1 truncate"
           aria-label="Review base"
           [ngModel]="review.base()"
           (ngModelChange)="review.setBase($event)"
@@ -42,12 +43,12 @@ import {
           @for (branch of branches.localBranches(); track branch.name) {
             <option [value]="branch.name">{{ branch.name }}</option>
           }
-        </select></label
-      ><span aria-hidden="true">…</span
-      ><label
-        >Head
+        </select>
+        <span class="shrink-0 opacity-50" aria-hidden="true">←</span>
+        <label class="sr-only" for="git-review-head">Head</label>
         <select
-          class="select select-xs"
+          id="git-review-head"
+          class="select select-xs min-w-0 flex-1 truncate"
           aria-label="Review head"
           [ngModel]="review.head()"
           (ngModelChange)="review.setHead($event)"
@@ -56,23 +57,29 @@ import {
           @for (branch of branches.localBranches(); track branch.name) {
             <option [value]="branch.name">{{ branch.name }}</option>
           }
-        </select></label
-      >
-      @if (review.result(); as result) {
-        <span class="ml-auto"
-          ><span class="text-success">+{{ result.totals.additions }}</span>
-          <span class="text-error">-{{ result.totals.deletions }}</span>
-          @if (result.totals.binaryFiles) {
-            <span>{{ result.totals.binaryFiles }} binary</span>
-          }
-        </span>
-      }
+        </select>
+        @if (review.result(); as result) {
+          <span
+            class="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap"
+          >
+            <span>{{ result.files.length }} files changed</span>
+            <span class="text-success">+{{ result.totals.additions }}</span>
+            <span class="text-error">-{{ result.totals.deletions }}</span>
+            @if (result.totals.binaryFiles) {
+              <span class="opacity-60"
+                >{{ result.totals.binaryFiles }} binary</span
+              >
+            }
+          </span>
+        }
+      </div>
     }
   </div>`,
 })
 export class GitReviewToolbarComponent {
   protected readonly review = inject(GitReviewService);
   protected readonly branches = inject(GitBranchesService);
+
   protected mode(mode: GitReviewMode): void {
     this.review.setMode(mode);
   }

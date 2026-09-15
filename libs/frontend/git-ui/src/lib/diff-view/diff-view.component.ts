@@ -741,6 +741,9 @@ export class DiffViewComponent implements OnDestroy {
    */
   readonly showHeader = input<boolean>(true);
 
+  /** Forces a presentation-only layout without changing the saved preference. */
+  readonly layoutOverride = input<'inline' | null>(null);
+
   /**
    * How to stage / unstage / revert hunks (D2). Supplied as a FUNCTION rather
    * than injected, so this component keeps no dependency on the editor
@@ -820,6 +823,9 @@ export class DiffViewComponent implements OnDestroy {
 
   /** D3: side-by-side (true) vs inline (false). Persisted per user. */
   protected readonly renderSideBySide = signal(true);
+  private readonly effectiveRenderSideBySide = computed(
+    () => this.layoutOverride() !== 'inline' && this.renderSideBySide(),
+  );
   /** Prevent a late settings:get response from undoing a newer click. */
   private layoutPreferenceChangedByUser = false;
 
@@ -1132,7 +1138,7 @@ export class DiffViewComponent implements OnDestroy {
     });
 
     effect(() => {
-      const sideBySide = this.renderSideBySide();
+      const sideBySide = this.effectiveRenderSideBySide();
       this.applyRenderSideBySide(sideBySide);
     });
 
@@ -1218,7 +1224,7 @@ export class DiffViewComponent implements OnDestroy {
         // the wrong mechanism for a git-backed diff. Hunk actions (D2) are
         // built as decorations instead, so no accidental edit is possible.
         readOnly: true,
-        renderSideBySide: this.renderSideBySide(),
+        renderSideBySide: this.effectiveRenderSideBySide(),
         // The dock is narrow enough that Monaco's default responsive fallback
         // silently overrides renderSideBySide. The toolbar is an explicit user
         // choice, so do not substitute inline mode behind it.

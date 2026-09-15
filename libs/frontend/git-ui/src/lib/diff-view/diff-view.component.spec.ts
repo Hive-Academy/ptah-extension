@@ -763,6 +763,7 @@ function patchDiff(tab: EditorTab, patch: Partial<DiffTabState>): EditorTab {
 async function createLiveFixture(
   tab: EditorTab | null = makeDiffTab(),
   applyHunks: HunkApplyFn | null = null,
+  layoutOverride: 'inline' | null = null,
 ): Promise<{
   fixture: ComponentFixture<DiffViewComponent>;
   componentRef: ComponentRef<DiffViewComponent>;
@@ -789,6 +790,7 @@ async function createLiveFixture(
   componentRef.setInput('diffTab', tab);
   componentRef.setInput('openDiffKeys', tab ? [tab.filePath] : []);
   componentRef.setInput('applyHunks', applyHunks);
+  componentRef.setInput('layoutOverride', layoutOverride);
   fixture.detectChanges();
   // afterNextRender ran; let the loader promise resolve and the editor build.
   await fixture.whenStable();
@@ -988,6 +990,20 @@ describe('DiffViewComponent — editor lifecycle (B1, B2, D3)', () => {
     expect(editor.options['renderSideBySide']).toBe(true);
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
     expect(monaco.diffEditors).toHaveLength(1);
+  });
+
+  it('forces inline layout without changing the saved side-by-side preference', async () => {
+    const { fixture, componentRef, monaco } = await createLiveFixture(
+      makeDiffTab(),
+      null,
+      'inline',
+    );
+    const editor = monaco.diffEditors[0];
+
+    expect(editor.options['renderSideBySide']).toBe(false);
+    componentRef.setInput('layoutOverride', null);
+    fixture.detectChanges();
+    expect(editor.options['renderSideBySide']).toBe(true);
   });
 
   it('loads and persists the explicit layout choice through settings RPC', async () => {
