@@ -11,6 +11,11 @@
  * - Rows from another workspace carry a visible badge driven by
  *   `inCurrentWorkspace` (criterion 3).
  * - Opening the picker emits `opened` so the host can reload the list (criterion 6).
+ * - When a row carries `ptahTitle` (TASK_2026_449), that title is the primary
+ *   label in the row and the trigger; the CLI registry `name` — the address
+ *   agents use — is shown beneath it as muted monospace text. When the name no
+ *   longer reflects the title (a rename after spawn), a muted hint says the
+ *   address updates on the next resume.
  *
  * Built on the existing `native/dropdown` and `native/option` primitives; no new
  * overlay mechanism is introduced.
@@ -64,6 +69,80 @@ function unreachableReasonText(
   }
 }
 
+/** True when the row carries a non-blank Ptah session title. */
+function hasPtahTitle(session: PeerSessionRow): boolean {
+  return (session.ptahTitle?.trim() ?? '') !== '';
+}
+
+/**
+ * The label a user recognises: the Ptah tab title when Ptah knows the session,
+ * otherwise the CLI registry name. The registry name stays visible as
+ * secondary text because it is the address agents use.
+ */
+function primaryLabel(session: PeerSessionRow): string {
+  return hasPtahTitle(session) ? (session.ptahTitle ?? '').trim() : session.name;
+}
+
+/**
+ * Mirror of `slugify` in
+ * `libs/backend/agent-sdk/src/lib/helpers/session-name.builder.ts` (the rule
+ * `buildSessionName` applies to the role). Copied, not imported: frontend libs
+ * must not import backend libs. Keep the two in step.
+ */
+function slugifyLikeSessionName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * The shortest length a registry name can have once `buildSessionName`
+ * truncated its head. The composed name is capped at 64 characters; the head
+ * is sliced to `64 - suffix - 1` and loses at most one trailing dash (slugs
+ * never hold two in a row), so a truncated name is always at least 63 long,
+ * whatever the suffix length.
+ */
+const TRUNCATED_NAME_MIN_LENGTH = 63;
+
+/**
+ * True when the registry name still reflects the Ptah title, i.e. the session
+ * was NOT renamed since its CLI process spawned.
+ *
+ * The registry name is `ptah-<workspace>-<role>[-<taskId>]-<suffix>` with the
+ * head capped (see `buildSessionName`). Rule:
+ *  1. An empty slug (e.g. an emoji-only title) is never flagged: match.
+ *  2. The name contains the slug: match.
+ *  3. The name is at the cap length and starts with `ptah-<workspace slug>-`:
+ *     take the part between that prefix and the last `-<suffix>` segment. The
+ *     role was cut short, so it is a match when the slug starts with that part.
+ *     The cap-length guard stops a longer new title ("branch view extended")
+ *     from matching a short old role ("branch-view") by prefix.
+ * Anything else is treated as renamed.
+ */
+function titleMatchesRegistryName(session: PeerSessionRow): boolean {
+  const slug = slugifyLikeSessionName(session.ptahTitle ?? '');
+  if (slug === '' || session.name.includes(slug)) {
+    return true;
+  }
+  if (session.name.length < TRUNCATED_NAME_MIN_LENGTH) {
+    return false;
+  }
+  const prefix = `ptah-${slugifyLikeSessionName(session.workspaceLabel)}-`;
+  const suffixStart = session.name.lastIndexOf('-');
+  if (!session.name.startsWith(prefix) || suffixStart < prefix.length) {
+    return false;
+  }
+  const truncatedRole = session.name.slice(prefix.length, suffixStart);
+  return truncatedRole !== '' && slug.startsWith(truncatedRole);
+}
+
+/** Show the rename hint only for a titled row whose address predates a rename. */
+function showRenameHint(session: PeerSessionRow): boolean {
+  return hasPtahTitle(session) && !titleMatchesRegistryName(session);
+}
+
 @Component({
   selector: 'ptah-peer-session-picker',
   standalone: true,
@@ -113,10 +192,10 @@ function unreachableReasonText(
                   (selected)="select(session)"
                   (hovered)="setActive($index)"
                 >
-                  <div class="flex flex-col gap-0.5">
+                  <div class="flex flex-col gap-0.5 min-w-0">
                     <div class="flex items-center gap-2 text-sm">
-                      <span class="font-medium text-base-content" data-testid="peer-session-picker-name">
-                        {{ session.name }}
+                      <span class="font-medium text-base-content truncate" data-testid="peer-session-picker-name">
+                        {{ primaryLabel(session) }}
                       </span>
                       @if (!session.inCurrentWorkspace) {
                         <span
@@ -127,6 +206,23 @@ function unreachableReasonText(
                         </span>
                       }
                     </div>
+                    @if (hasPtahTitle(session)) {
+                      <span
+                        class="font-mono text-xs text-base-content-muted truncate"
+                        [attr.title]="session.name"
+                        data-testid="peer-session-picker-registry-name"
+                      >
+                        {{ session.name }}
+                      </span>
+                    }
+                    @if (showRenameHint(session)) {
+                      <span
+                        class="text-xs italic text-base-content-muted"
+                        data-testid="peer-session-picker-rename-hint"
+                      >
+                        renamed · address updates on next resume
+                      </span>
+                    }
                     <div class="flex items-center gap-2 text-xs text-base-content-muted">
                       <span data-testid="peer-session-picker-workspace">
                         {{ session.workspaceLabel }}
@@ -189,7 +285,7 @@ export class PeerSessionPickerComponent {
 
   protected readonly triggerText = computed(() => {
     const selected = this.selectedSession();
-    return selected ? selected.name : this.placeholder();
+    return selected ? primaryLabel(selected) : this.placeholder();
   });
 
   protected readonly triggerLabel = computed(
@@ -199,6 +295,9 @@ export class PeerSessionPickerComponent {
   protected readonly listLabel = computed(() => `${this.label()} sessions`);
 
   protected readonly unreachableReasonText = unreachableReasonText;
+  protected readonly primaryLabel = primaryLabel;
+  protected readonly hasPtahTitle = hasPtahTitle;
+  protected readonly showRenameHint = showRenameHint;
 
   constructor() {
     effect(() => {

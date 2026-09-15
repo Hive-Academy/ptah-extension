@@ -87,6 +87,14 @@ export interface PeerSessionRow {
   /** Display name. Never empty; see {@link nameSource} before trusting it. */
   readonly name: string;
   readonly nameSource: PeerSessionNameSource;
+  /**
+   * The current Ptah session title for this session, joined by SDK session id.
+   * Absent when Ptah holds no metadata for that session (a session Ptah did
+   * not start, or one stored under another workspace). {@link name} stays the
+   * registry name — the address the peer channel knows — and may lag behind a
+   * rename until the session's process picks the new name up.
+   */
+  readonly ptahTitle?: string;
   /** Absolute working directory the session was started in. */
   readonly workspace: string;
   /** Last path segment of {@link workspace}, for a compact row. */
