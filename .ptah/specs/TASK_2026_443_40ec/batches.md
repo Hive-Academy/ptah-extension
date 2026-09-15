@@ -1,6 +1,6 @@
 # Batches - TASK_2026_443_40ec
 
-Total tasks: 25 | Batches: 10 | Complete: 7/10
+Total tasks: 25 | Batches: 10 | Complete: 8/10
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle` (branch
 `feat/task-439-phase2-memory-lifecycle`, base 5e34e39cc). Below, `W` means that absolute path; every lane prompt
@@ -1075,7 +1075,7 @@ review round is required).
 
 ---
 
-## Batch 7: REACHABILITY PROOF — Electron + CLI hosts reach the lifecycle; job summary; integration-suite load robustness — IN_PROGRESS
+## Batch 7: REACHABILITY PROOF — Electron + CLI hosts reach the lifecycle; job summary; integration-suite load robustness — COMPLETE (commit d5cb191b4)
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer)
 - Fallback executor: backend-developer subagent
@@ -1090,7 +1090,7 @@ review round is required).
 - Suggested commit: `test(thoth-runtime,cli-engine,memory-curator): batch 7 - prove both hosts reach the memory lifecycle step`
 - Tasks: 4 | Depends on: Batch 6 (`82410f33d`) on the origin/main rebase (`a3b2d7c71`)
 
-### Task 7.1: Retention job summary names memory counts + thoth-runtime CLAUDE.md — IN_PROGRESS
+### Task 7.1: Retention job summary names memory counts + thoth-runtime CLAUDE.md — COMPLETE
 
 - Files: MODIFY `W\libs\backend\thoth-runtime\src\lib\memory-retention-job.ts` (`:98` summary literal; keep the partial suffix `:100-103`;
   `purged <p> processed, quarantined <q> stuck, archived <a> / deleted <d> / evicted <e> memories, reclaimed <r> pages`),
@@ -1102,7 +1102,7 @@ review round is required).
   the Batch 6 constructor order (lifecycle 7th, governor optional 8th). No change to job id `@ptah/memory-retention`, name, handler name, cron `17 * * * *`, gating or
   failure channel; `start-thoth-cron.ts` and CLI `thoth-runtime.ts` production code stay untouched (plan :1014).
 
-### Task 7.2: REACHABILITY PROOF — Electron host (`startThothCron`) — IN_PROGRESS
+### Task 7.2: REACHABILITY PROOF — Electron host (`startThothCron`) — COMPLETE
 
 - Depends on: Task 7.1
 - File: MODIFY `W\libs\backend\thoth-runtime\src\lib\start-thoth-cron.spec.ts`, inside
@@ -1124,7 +1124,7 @@ review round is required).
   (a) remove the `lifecycle.runStep(...)` call from `MemoryRetentionService.execute` -> this test FAILS;
   (b) remove the `service.run(...)` call from the handler in `memory-retention-job.ts` -> this test FAILS.
 
-### Task 7.3: REACHABILITY PROOF — CLI host (`activateThoth`) — IN_PROGRESS
+### Task 7.3: REACHABILITY PROOF — CLI host (`activateThoth`) — COMPLETE
 
 - Depends on: Task 7.1
 - File: MODIFY `W\libs\backend\cli-engine\src\lib\bootstrap\thoth-runtime.spec.ts`, inside
@@ -1135,7 +1135,7 @@ review round is required).
 - Mutation checks: the same (a) and (b) as 7.2 must also make this CLI test FAIL (run both host specs under each
   mutation).
 
-### Task 7.4: R-TL11 — make the real-SQLite integration suite load-robust — IN_PROGRESS
+### Task 7.4: R-TL11 — make the real-SQLite integration suite load-robust — COMPLETE
 
 - Files: MODIFY `W\libs\backend\memory-curator\src\lib\retention\memory-retention.integration.spec.ts`; MODIFY
   `retention-sqlite.test-support.ts` only if a faster seed helper is needed (e.g. one transaction per seed batch).
@@ -1165,6 +1165,34 @@ review round is required).
     `$env:ELECTRON_RUN_AS_NODE='1'; & 'D:\projects\ptah-extension\node_modules\.bin\electron.cmd' 'D:\projects\ptah-extension\node_modules\jest\bin\jest.js' --config libs/backend/memory-curator/jest.config.ts --testPathPatterns '"memory-retention.integration|memory-lifecycle|di/register.spec"' --runInBand`
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-7-report.md` (include every mutation-check output and the Task 7.4
   before/after durations). Write `batch-7.done` last; create no other file in the task folder.
+
+### Batch 7 result
+
+- Report (`batch-7-report.md`): 7 files. Host test / typecheck / lint green for 2 projects; memory-curator 643 passed /
+  59 skipped; the `--parallel=2 --skip-nx-cache` load proof passed twice; degradation-audit green; the integration suite
+  went 20.2 s -> 12.5 s with `expect(` unchanged at 159; mutations A (remove `lifecycle.runStep`) and B (remove
+  `service.run` in the handler) each failed BOTH host proofs; the restore proof shows `memory-retention.service.ts`,
+  `start-thoth-cron.ts` and cli-engine `thoth-runtime.ts` unchanged.
+- Review (Ollama Cloud, `code-logic-review-batch-7.md`): APPROVED 8/10, 0 blocking/serious/moderate, 2 minor. The
+  reviewer re-ran both proofs, counted `expect(` on HEAD and in the tree, and confirmed the only production diff is the
+  `:98` summary literal.
+- Team-leader decision: ACCEPTED and committed.
+  - Minor 1 (mutation B's adjusted source text is not quoted in the report): recorded, no action. The restore proof and
+    the independent re-run cover it.
+  - Minor 2 (`seedMemories` in `retention-sqlite.test-support.ts:394-396` runs `raw.exec('ROLLBACK')` inside the catch,
+    so a throwing ROLLBACK replaces the original seed error): CARRIED into Task 9.1 as a one-line test-support fix
+    (wrap the ROLLBACK in its own try/catch and always rethrow the original error, the same rule
+    `MemoryLifecycleStore.inTransaction` already follows).
+- Team-leader re-run: thoth-runtime + cli-engine test / typecheck / lint 2 projects green (5 suites / 91 passed and 19
+  suites / 188 passed; lint 0 errors); memory-curator under `--parallel=2` beside rpc-handlers 643 passed / 59 skipped;
+  `degradation-audit:lint` exit 0 (memory-curator 20/20, cli-engine 12/12); `git diff --stat` empty for
+  `start-thoth-cron.ts`, cli-engine `thoth-runtime.ts` and `memory-retention.service.ts`; `expect(` 159 at HEAD and 159
+  in the tree; better-sqlite3 via Electron 43 suites / 702 passed. Committed with only the 7 Batch 7 files.
+- R-TL12 (new, recorded): the FIRST load-proof run failed `rpc-handlers` `skills-sh/skills-sh-source-root.service.spec.ts`
+  on a 15 s timeout. PRE-EXISTING and unrelated: this task never touches that file (last changed in `2e13ce0d6`
+  `feat(harness-sync)`), it passes alone (20/20), and the identical load proof passed on the immediate re-run (3002
+  passed). Treat it like R-TL8: on failure re-run, or run with `--parallel=1`, and record both runs. Batch 10 must not
+  read it as a phase 2 regression.
 
 ### Batch 7 verification
 
@@ -1246,7 +1274,7 @@ review round is required).
 
 ---
 
-## Batch 9: Decay removal across memory-curator, shared, rpc-handlers; rpc-handlers use recording — PENDING
+## Batch 9: Decay removal across memory-curator, shared, rpc-handlers, memory-curator-ui; rpc-handlers use recording — IN_PROGRESS
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer)
 - Fallback executor: backend-developer subagent
@@ -1255,9 +1283,9 @@ review round is required).
 - Rationale: Deviation 3 — the removal is only type-safe as one commit.
 - Reviewer: Ollama Cloud lane, code-logic-reviewer -> `code-logic-review-batch-9.md`
 - Suggested commit: `refactor(memory-curator,shared,rpc-handlers): batch 9 - delete the unscheduled decay job and record use on memory reads`
-- Tasks: 2 | Depends on: Batches 3, 7, 8
+- Tasks: 2 | Depends on: Batches 3, 7 (`d5cb191b4`) and 8 (`51ce3d58e`)
 
-### Task 9.1: Delete `MemoryDecayJob` and decay diagnostics everywhere — PENDING
+### Task 9.1: Delete `MemoryDecayJob` and decay diagnostics everywhere — IN_PROGRESS
 
 - Files:
   - DELETE `W\libs\backend\memory-curator\src\lib\memory-decay.job.ts`, `memory-decay.job.spec.ts`
@@ -1272,6 +1300,10 @@ review round is required).
     (:117-118,633-634,683)
   - MODIFY `W\apps\ptah-extension-vscode\src\integration\wizard-seed-noop.spec.ts` (drop both `Symbol.for` mocks :41-42)
 - Plan reference: implementation-plan.md:634-653, 129-136
+- Carried from `code-logic-review-batch-7.md` minor 2: in
+  `W\libs\backend\memory-curator\src\lib\retention\retention-sqlite.test-support.ts:394-396`, wrap the
+  `raw.exec('ROLLBACK')` inside the seed catch in its own try/catch and always rethrow the ORIGINAL error, so a
+  failing rollback cannot mask the seed failure (same rule as `MemoryLifecycleStore.inTransaction`).
 - Carried from `code-logic-review-batch-8.md` (all in memory-curator-ui; the commit set for Batch 9 grows by these
   files, and `@ptah-extension/memory-curator-ui` is already in the Batch 9 test / typecheck set; add it to the lint set):
   - Moderate 1: in `W\libs\frontend\memory-curator-ui\src\lib\components\diagnostics\event-feed.component.ts`, restore
@@ -1288,7 +1320,7 @@ review round is required).
 - Acceptance: grep `MemoryDecayJob|MEMORY_DECAY_JOB|lastDecay|decay-run|recordDecayEvent|MemoryDecayStats` under
   `W\libs` and `W\apps` returns nothing.
 
-### Task 9.2: `memory:get` and `mem:getObservations` record use — PENDING
+### Task 9.2: `memory:get` and `mem:getObservations` record use — IN_PROGRESS
 
 - Depends on: Task 9.1 (shared handler file)
 - Files: MODIFY `W\libs\backend\rpc-handlers\src\lib\handlers\memory-rpc.handlers.ts` (`memory:get` :245-252 calls
