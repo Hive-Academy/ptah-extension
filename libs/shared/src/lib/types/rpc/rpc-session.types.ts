@@ -91,13 +91,15 @@ export interface SessionLoadParams {
 /**
  * Response from session:load RPC method
  *
- * NOTE: This is metadata-only validation. Actual conversation messages
- * are loaded via chat:resume, which triggers SDK to replay history.
- * The empty messages array is intentional.
+ * NOTE: This is metadata-only validation. The conversation transcript is
+ * loaded via chat:resume, whose `events` (FlatStreamEventUnion[]) are the
+ * only transcript any RPC returns (TASK_2026_437 C15). There is no text
+ * `{ id, role, content }` projection over RPC. The empty arrays are intentional
+ * and have been since the handler was written.
  */
 export interface SessionLoadResult {
   sessionId: SessionId;
-  /** Always empty - messages come from chat:resume RPC call */
+  /** Always empty. A reader that needs the transcript replays `ChatResumeResult.events`. */
   messages: [];
   /** Always empty - SDK handles all session data */
   agentSessions: [];

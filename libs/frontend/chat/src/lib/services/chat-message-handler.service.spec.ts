@@ -63,6 +63,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     handleTurnFailedNotification: jest.Mock;
     handleSubagentEndedNotification: jest.Mock;
     processStreamEvent: jest.Mock;
+    deferLiveStreamEvent: jest.Mock;
     handleSessionIdResolved: jest.Mock;
   };
   let streamRouter: {
@@ -102,6 +103,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       handleTurnFailedNotification: jest.fn(),
       handleSubagentEndedNotification: jest.fn(),
       processStreamEvent: jest.fn(),
+      deferLiveStreamEvent: jest.fn().mockReturnValue(false),
       handleSessionIdResolved: jest.fn(),
     };
     streamRouter = {
@@ -524,6 +526,46 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       expect(chatStore.processStreamEvent).toHaveBeenCalledTimes(1);
       expect(streamRouter.routeStreamEvent).toHaveBeenCalledTimes(1);
       expect(streamRouter.routeStreamEventForSurface).not.toHaveBeenCalled();
+    });
+
+    // TASK_2026_437 C15: a tab replaying resume history in chunks takes a live
+    // chunk after its history; the deferred delivery is the whole tab path.
+    it('holds a tab-path chunk the replay fence accepts and delivers it through the tab path later', () => {
+      let deferred: (() => void) | null = null;
+      chatStore.deferLiveStreamEvent.mockImplementation(
+        (
+          _event: unknown,
+          _tabId: unknown,
+          _sessionId: unknown,
+          deliver: () => void,
+        ) => {
+          deferred = deliver;
+          return true;
+        },
+      );
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: makeChunkPayload('tab-1'),
+      });
+
+      expect(chatStore.deferLiveStreamEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'evt-1' }),
+        'tab-1',
+        CHUNK_SESSION,
+        expect.any(Function),
+      );
+      expect(chatStore.processStreamEvent).not.toHaveBeenCalled();
+      expect(streamRouter.routeStreamEvent).not.toHaveBeenCalled();
+
+      expect(deferred).not.toBeNull();
+      (deferred as unknown as () => void)();
+      expect(chatStore.processStreamEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'evt-1' }),
+        'tab-1',
+        CHUNK_SESSION,
+      );
+      expect(streamRouter.routeStreamEvent).toHaveBeenCalledTimes(1);
     });
 
     it('skips tab adoption on session:id-resolved for a claimed surface', () => {

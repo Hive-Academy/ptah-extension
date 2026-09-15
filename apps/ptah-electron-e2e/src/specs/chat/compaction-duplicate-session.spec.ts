@@ -77,19 +77,57 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
       'chat:start': { success: true },
       'chat:continue': { success: true },
       'session:load': {},
+      // `events` is the only transcript `chat:resume` carries (TASK_2026_437
+      // C15, INV-9); the renderer replays it through the streaming pipeline.
       'chat:resume': {
-        messages: [
+        events: [
           {
             id: randomUUID(),
-            role: 'user',
+            eventType: 'message_start',
             timestamp: Date.now(),
-            content: 'Please continue after compaction.',
+            sessionId: SHARED_SESSION_ID,
+            messageId: 'restored-user',
+            source: 'stream',
+            role: 'user',
           },
           {
             id: randomUUID(),
-            role: 'assistant',
+            eventType: 'text_delta',
+            timestamp: Date.now(),
+            sessionId: SHARED_SESSION_ID,
+            messageId: 'restored-user',
+            source: 'stream',
+            blockIndex: 0,
+            delta: 'Please continue after compaction.',
+          },
+          {
+            id: randomUUID(),
+            eventType: 'message_start',
             timestamp: Date.now() + 1,
-            content: RESTORED_TRANSCRIPT,
+            sessionId: SHARED_SESSION_ID,
+            messageId: 'restored-assistant',
+            source: 'stream',
+            role: 'assistant',
+          },
+          {
+            id: randomUUID(),
+            eventType: 'text_delta',
+            timestamp: Date.now() + 1,
+            sessionId: SHARED_SESSION_ID,
+            messageId: 'restored-assistant',
+            source: 'stream',
+            blockIndex: 0,
+            delta: RESTORED_TRANSCRIPT,
+          },
+          {
+            id: randomUUID(),
+            eventType: 'message_complete',
+            timestamp: Date.now() + 2,
+            sessionId: SHARED_SESSION_ID,
+            messageId: 'restored-assistant',
+            source: 'stream',
+            stopReason: 'end_turn',
+            tokenUsage: { input: 10, output: 20 },
           },
         ],
         stats: {
@@ -119,9 +157,7 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
     await expect
       .poll(async () => (await ui.getObservedCalls('chat:start')).length)
       .toBe(1);
-    const firstTabId = tabIdFrom(
-      (await ui.getObservedCalls('chat:start'))[0],
-    );
+    const firstTabId = tabIdFrom((await ui.getObservedCalls('chat:start'))[0]);
     await ui.pushEvent({
       type: 'session:id-resolved',
       payload: { tabId: firstTabId, realSessionId: SHARED_SESSION_ID },
@@ -141,9 +177,7 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
     await expect
       .poll(async () => (await ui.getObservedCalls('chat:start')).length)
       .toBe(2);
-    const secondTabId = tabIdFrom(
-      (await ui.getObservedCalls('chat:start'))[1],
-    );
+    const secondTabId = tabIdFrom((await ui.getObservedCalls('chat:start'))[1]);
     expect(secondTabId).not.toBe(firstTabId);
     await ui.pushEvent({
       type: 'session:id-resolved',
@@ -214,9 +248,9 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
     expect(resumeTabIds).toEqual([firstTabId, secondTabId].sort());
 
     for (const tile of [firstTile, secondTile]) {
-      await expect(tile.locator('[data-testid="chat-tool-output"]')).toContainText(
-        RESTORED_TRANSCRIPT,
-      );
+      await expect(
+        tile.locator('[data-testid="chat-tool-output"]'),
+      ).toContainText(RESTORED_TRANSCRIPT);
 
       const stats = tile.locator('ptah-session-stats-summary');
       await expect(stats).toContainText('Tokens');

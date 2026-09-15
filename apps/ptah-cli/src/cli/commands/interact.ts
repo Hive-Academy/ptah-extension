@@ -23,7 +23,8 @@
  *        - `task.submit`     — start/continue a turn, await completion
  *        - `task.cancel`     — race the in-flight runTurn with `chat:abort`
  *        - `session.shutdown`— respond `{shutdown:true}` then drain & exit 0
- *        - `session.history` — proxy `session:load` (best-effort trim)
+ *        - `session.history` — proxy `session:load` (its `messages` are
+ *                              always `[]`; `limit` is ignored, see below)
  *   7. EOF / SIGINT / SIGTERM → graceful drain (≤ 5s) + `process.exit({0|130|143})`.
  *
  * Concurrency invariants:
@@ -186,10 +187,6 @@ interface TaskCancelParams {
   turn_id: string;
 }
 
-interface SessionHistoryParams {
-  limit?: number;
-}
-
 interface RunTurnResult {
   turn_id: string;
   complete: boolean;
@@ -227,15 +224,6 @@ function asTaskCancel(params: unknown): TaskCancelParams {
     throw new Error("task.cancel: 'turn_id' required");
   }
   return { turn_id: turnId };
-}
-
-function asSessionHistory(params: unknown): SessionHistoryParams {
-  if (!isPlainObject(params)) return {};
-  const limit = params['limit'];
-  if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
-    return { limit };
-  }
-  return {};
 }
 
 /**
@@ -521,13 +509,16 @@ export async function execute(
 
       server.register(
         'session.history',
-        async (
-          params: unknown,
-        ): Promise<{
+        async (): Promise<{
           messages: unknown[];
           session_id: string;
         }> => {
-          const { limit } = asSessionHistory(params);
+          // `session:load` validates metadata only and returns
+          // `messages: []` (`SessionLoadResult`), so this proxy carries no
+          // transcript. The shape stays for existing A2A callers; no RPC
+          // returns a text transcript (TASK_2026_437 C15). A `limit` param is
+          // still accepted for wire compatibility and ignored: there is
+          // nothing to trim.
           const resp = await ctx.transport.call<
             unknown,
             { messages?: unknown[] }
@@ -538,12 +529,10 @@ export async function execute(
           if (!resp.success) {
             throw new Error(resp.error ?? 'session:load failed');
           }
-          const all = resp.data?.messages ?? [];
-          const trimmed =
-            limit !== undefined && all.length > limit
-              ? all.slice(all.length - limit)
-              : all;
-          return { messages: trimmed, session_id: sessionId };
+          return {
+            messages: resp.data?.messages ?? [],
+            session_id: sessionId,
+          };
         },
       );
       server.register(

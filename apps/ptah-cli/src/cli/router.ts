@@ -2449,7 +2449,7 @@ export function buildRouter(): Command {
   session
     .command('load <id>')
     .description(
-      'load full session history via session:load and emit session.history (writes JSON to --out when given)',
+      'validate a session via session:load and emit session.history (metadata only, messages always empty; writes JSON to --out when given)',
     )
     .option('--out <path>', 'output path for the JSON dump')
     .action(async (id: string, opts: { out?: string }) => {

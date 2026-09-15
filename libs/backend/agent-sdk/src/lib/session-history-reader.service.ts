@@ -7,15 +7,17 @@
  *
  * - JsonlReaderService: File I/O operations (find directory, read JSONL, load agents)
  * - SessionReplayService: Event conversion and sequencing
- * - HistoryEventFactory: Event creation (used for readHistoryAsMessages)
+ * - HistoryEventFactory: Event creation and content extraction (used for readHistoryForCuration)
  *
  * Architecture: Facade pattern with injected child services
  * The frontend ExecutionTreeBuilder processes these events exactly as it would
  * live streaming events - no UI changes required.
  *
- * CRITICAL: Public API must remain unchanged:
- * - readSessionHistory(sessionId, workspacePath): Promise<{events, stats}>
- * - readHistoryAsMessages(sessionId, workspacePath): Promise<{id, role, content, timestamp}[]>
+ * Public API:
+ * - readSessionHistory(sessionId, workspacePath, options?): Promise<{events, stats, staleSnapshot?}>
+ *   — the `chat:resume` transcript (events only; TASK_2026_437 C15)
+ * - readHistoryForCuration(sessionId, workspacePath, options?): Promise<{id, role, content, timestamp}[]>
+ *   — the memory curator's tool-aware text projection
  *
  */
 
@@ -146,8 +148,10 @@ export class SessionHistoryReaderService {
   /**
    * Read session history and convert to FlatStreamEventUnion events with stats.
    *
-   * Returns a single immutable snapshot containing events, messages, and
-   * aggregated usage stats from one JSONL parse. When `options.checkCompactionBoundary`
+   * Returns a single immutable snapshot containing events and aggregated
+   * usage stats from one JSONL parse. It builds no `{ id, role, content }`
+   * projection: `chat:resume` replays `events` and nothing else
+   * (TASK_2026_437 C15). When `options.checkCompactionBoundary`
    * is true the reader verifies the expected compact-boundary generation with a
    * small bounded number of event-loop yields; if the expected count is not
    * observed the snapshot carries `staleSnapshot: true`.
@@ -155,7 +159,7 @@ export class SessionHistoryReaderService {
    * @param sessionId - Session identifier
    * @param workspacePath - Workspace path for locating session files
    * @param options - Optional read controls
-   * @returns Object with events, messages, aggregated stats, and optional stale flag
+   * @returns Object with events, aggregated stats, and optional stale flag
    */
   async readSessionHistory(
     sessionId: string,
@@ -163,12 +167,6 @@ export class SessionHistoryReaderService {
     options?: { checkCompactionBoundary?: boolean },
   ): Promise<{
     events: FlatStreamEventUnion[];
-    messages: {
-      id: string;
-      role: 'user' | 'assistant';
-      content: string;
-      timestamp: number;
-    }[];
     stats: {
       totalCost: number | null;
       tokens: {
@@ -220,7 +218,6 @@ export class SessionHistoryReaderService {
         );
         return {
           events: [],
-          messages: [],
           stats: null,
           staleSnapshot:
             checkCompactionBoundary && expectation !== undefined
@@ -251,7 +248,6 @@ export class SessionHistoryReaderService {
         );
         return {
           events: [],
-          messages: [],
           stats: null,
           staleSnapshot:
             checkCompactionBoundary && expectation !== undefined
@@ -279,9 +275,6 @@ export class SessionHistoryReaderService {
       timing.begin('project');
       const stats = this.aggregateUsageStats(mainMessages, agentSessions);
       this.seedLiveUsageBaseline(sessionId, mainMessages);
-      const messages = this.projectHistoryMessages(mainMessages, (content) =>
-        this.eventFactory.extractTextContent(content),
-      );
       timing.finish(false);
 
       this.consumeCompactionExpectation(
@@ -293,14 +286,13 @@ export class SessionHistoryReaderService {
       this.logger.info('[SessionHistoryReader] Loaded session with stats', {
         sessionId,
         eventCount: events.length,
-        messageCount: messages.length,
         hasStats: !!stats,
         totalCost: stats?.totalCost,
         totalTokens: (stats?.tokens?.input ?? 0) + (stats?.tokens?.output ?? 0),
         staleSnapshot,
       });
 
-      return { events, messages, stats, staleSnapshot };
+      return { events, stats, staleSnapshot };
     } catch (error) {
       timing.finish(true);
       this.consumeCompactionExpectation(
@@ -314,7 +306,6 @@ export class SessionHistoryReaderService {
       );
       return {
         events: [],
-        messages: [],
         stats: null,
         staleSnapshot:
           checkCompactionBoundary && expectation !== undefined
@@ -414,7 +405,7 @@ export class SessionHistoryReaderService {
 
   /**
    * Project raw JSONL messages to the simple `{ id, role, content, timestamp }`
-   * shape shared by `chat:resume` and the legacy text/curation readers.
+   * shape returned by {@link readHistoryForCuration} (via {@link readHistoryMessages}).
    * Drops everything before the last `compact_boundary` and skips non-user/
    * non-assistant roles, empty content, and task-notification content.
    */
@@ -449,7 +440,7 @@ export class SessionHistoryReaderService {
     for (const msg of effectiveMessages) {
       // Meta and synthetic records are an internal cue, not conversation.
       // Replay suppresses both through the SAME predicate, so projecting either
-      // here broke event/message parity: the one-read resume snapshot showed
+      // here broke event/message parity: the projected messages showed
       // artifacts replay hides (PR #493 review C; the `isMeta` half was left
       // open by the first fix and is round-2 verification Moderate-2).
       if (isHiddenTranscriptRecord(msg)) continue;
@@ -531,38 +522,12 @@ export class SessionHistoryReaderService {
   }
 
   /**
-   * Read session history as simple message objects (for RPC response)
-   *
-   * This is a simpler method that returns complete messages directly,
-   * suitable for returning in the RPC response instead of streaming events.
-   *
-   * @param sessionId - Session identifier
-   * @param workspacePath - Workspace path for locating session files
-   * @returns Array of simple message objects
-   */
-  async readHistoryAsMessages(
-    sessionId: string,
-    workspacePath: string,
-  ): Promise<
-    {
-      id: string;
-      role: 'user' | 'assistant';
-      content: string;
-      timestamp: number;
-    }[]
-  > {
-    return this.readHistoryMessages(sessionId, workspacePath, (content) =>
-      this.eventFactory.extractTextContent(content),
-    );
-  }
-
-  /**
-   * Like {@link readHistoryAsMessages} but includes `tool_use`/`tool_result`
+   * Text projection of the transcript that includes `tool_use`/`tool_result`
    * blocks (via {@link HistoryEventFactory.extractContentForCuration}). Used by
    * the memory curator's transcript reader so curation — including the
    * boot-scan over historical sessions, whose only data source is this JSONL —
    * captures tool inputs/outputs, not just assistant text. NOT for UI use: the
-   * UI history view must stay text-only via {@link readHistoryAsMessages}.
+   * UI replays `readSessionHistory` events (TASK_2026_437 C15).
    */
   async readHistoryForCuration(
     sessionId: string,
@@ -585,12 +550,10 @@ export class SessionHistoryReaderService {
   }
 
   /**
-   * Shared implementation for {@link readHistoryAsMessages} and
-   * {@link readHistoryForCuration}: read the session JSONL, drop everything
-   * before the last compaction boundary, and map each user/assistant message
-   * to `{ id, role, content, timestamp }` using the supplied content extractor.
-   * The extractor is the ONLY behavioural difference between the two public
-   * variants (text-only vs tool-aware).
+   * Implementation of {@link readHistoryForCuration}: read the session JSONL,
+   * drop everything before the last compaction boundary, and map each
+   * user/assistant message to `{ id, role, content, timestamp }` using the
+   * supplied content extractor.
    */
   private async readHistoryMessages(
     sessionId: string,

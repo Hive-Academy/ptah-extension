@@ -2,7 +2,10 @@ import 'reflect-metadata';
 
 import type { AuthEnv, FlatStreamEventUnion } from '@ptah-extension/shared';
 import { findModelPricing } from '@ptah-extension/shared';
-import type { Logger, SubagentRegistryService } from '@ptah-extension/vscode-core';
+import type {
+  Logger,
+  SubagentRegistryService,
+} from '@ptah-extension/vscode-core';
 
 import type { IModelResolver } from '../auth-env.port';
 import { CompactionBoundaryGenerationRegistry } from '../helpers/compaction-boundary-generation-registry';
@@ -116,13 +119,18 @@ function createReader(
 function visibleText(events: FlatStreamEventUnion[]): string[] {
   return events
     .filter(
-      (event): event is Extract<FlatStreamEventUnion, { eventType: 'text_delta' }> =>
+      (
+        event,
+      ): event is Extract<FlatStreamEventUnion, { eventType: 'text_delta' }> =>
         event.eventType === 'text_delta',
     )
     .map((event) => event.delta);
 }
 
-function replayUser(content: unknown, extra: Record<string, unknown> = {}): SessionHistoryMessage {
+function replayUser(
+  content: unknown,
+  extra: Record<string, unknown> = {},
+): SessionHistoryMessage {
   return {
     type: 'user',
     uuid: 'replay-user',
@@ -141,7 +149,10 @@ function replayAssistant(content: unknown): SessionHistoryMessage {
   } as SessionHistoryMessage;
 }
 
-function liveUser(content: unknown, extra: Record<string, unknown> = {}): unknown {
+function liveUser(
+  content: unknown,
+  extra: Record<string, unknown> = {},
+): unknown {
   return {
     type: 'user',
     uuid: 'live-user',
@@ -168,8 +179,18 @@ describe('artifact replay/live visible-text parity (TASK_2026_414)', () => {
    * comparing protocol-only events, timestamps, or event ordering.
    */
   it.each([
-    ['synthetic user payload', 'synthetic payload', { isSynthetic: true }, { isSynthetic: true }],
-    ['sourceToolUseID payload', 'tool-owned payload', { sourceToolUseID: 'tool-1' }, { sourceToolUseID: 'tool-1' }],
+    [
+      'synthetic user payload',
+      'synthetic payload',
+      { isSynthetic: true },
+      { isSynthetic: true },
+    ],
+    [
+      'sourceToolUseID payload',
+      'tool-owned payload',
+      { sourceToolUseID: 'tool-1' },
+      { sourceToolUseID: 'tool-1' },
+    ],
     [
       'task notification',
       '<task-notification>done</task-notification>',
@@ -177,28 +198,66 @@ describe('artifact replay/live visible-text parity (TASK_2026_414)', () => {
       {},
     ],
     ['interrupt sentinel', '<interrupt>interrupted</interrupt>', {}, {}],
-    ['skill format marker', '<skill-format>true</skill-format>skill body', {}, {}],
-    ['command message marker', '<command-message>orchestrate</command-message>', {}, {}],
-    ['command name marker', '<command-name>/orchestrate</command-name>', {}, {}],
-    ['skill base directory', 'Base directory for this skill: C:/skills', {}, {}],
-    ['invoked skills summary', 'The following skills were invoked in this session: audit', {}, {}],
-    ['plan file reference', 'A plan file exists from plan mode at: C:/plan.md', {}, {}],
-    ['skill frontmatter', '---\nname: audit\ndescription: audit a project\n---', {}, {}],
+    [
+      'skill format marker',
+      '<skill-format>true</skill-format>skill body',
+      {},
+      {},
+    ],
+    [
+      'command message marker',
+      '<command-message>orchestrate</command-message>',
+      {},
+      {},
+    ],
+    [
+      'command name marker',
+      '<command-name>/orchestrate</command-name>',
+      {},
+      {},
+    ],
+    [
+      'skill base directory',
+      'Base directory for this skill: C:/skills',
+      {},
+      {},
+    ],
+    [
+      'invoked skills summary',
+      'The following skills were invoked in this session: audit',
+      {},
+      {},
+    ],
+    [
+      'plan file reference',
+      'A plan file exists from plan mode at: C:/plan.md',
+      {},
+      {},
+    ],
+    [
+      'skill frontmatter',
+      '---\nname: audit\ndescription: audit a project\n---',
+      {},
+      {},
+    ],
     ['ordinary user content', 'Explain the current project.', {}, {}],
     ['No response requested probe', 'No response requested.', {}, {}],
-  ])('%s has the same visible user text', (_name, content, liveExtra, replayExtra) => {
-    const live = createLiveTransformer().transform(
-      liveUser(content, liveExtra) as never,
-      SESSION_ID as never,
-    );
-    const replay = createReplayService().replayToStreamEvents(
-      SESSION_ID,
-      [replayUser(content, replayExtra)],
-      [],
-    );
+  ])(
+    '%s has the same visible user text',
+    (_name, content, liveExtra, replayExtra) => {
+      const live = createLiveTransformer().transform(
+        liveUser(content, liveExtra) as never,
+        SESSION_ID as never,
+      );
+      const replay = createReplayService().replayToStreamEvents(
+        SESSION_ID,
+        [replayUser(content, replayExtra)],
+        [],
+      );
 
-    expect(visibleText(replay)).toEqual(visibleText(live));
-  });
+      expect(visibleText(replay)).toEqual(visibleText(live));
+    },
+  );
 
   it('keeps tool-result-only user messages out of normalized visible text', () => {
     const toolResult = [
@@ -233,12 +292,12 @@ describe('artifact replay/live visible-text parity (TASK_2026_414)', () => {
   });
 
   /**
-   * `readSessionHistory` returns events and messages from ONE parse, and
-   * `chat:resume` renders the messages. So the projection must hide exactly
+   * The text history projection (`readHistoryForCuration`) must hide exactly
    * what replay hides: the first fix suppressed `isSynthetic` only, leaving an
-   * `isMeta` record visible in a resumed transcript that the event stream
+   * `isMeta` record visible in a projected transcript that the event stream
    * omits (round-2 verification, Moderate-2). Both sides now ask the one
-   * `isHiddenTranscriptRecord` predicate.
+   * `isHiddenTranscriptRecord` predicate. `chat:resume` no longer carries the
+   * projection at all (TASK_2026_437 C15); it replays the events.
    */
   it('hides isMeta AND isSynthetic records from the projected messages and the replayed events alike', async () => {
     const records: SessionHistoryMessage[] = [
@@ -248,20 +307,17 @@ describe('artifact replay/live visible-text parity (TASK_2026_414)', () => {
       replayAssistant([{ type: 'text', text: 'ordinary answer' }]),
     ];
 
-    const snapshot = await createReader(
-      records,
-      createReplayService(),
-    ).readSessionHistory(SESSION_ID, '/workspace');
-    const events = createReplayService().replayToStreamEvents(
+    const reader = createReader(records, createReplayService());
+    const projectedMessages = await reader.readHistoryForCuration(
       SESSION_ID,
-      records,
-      [],
+      '/workspace',
     );
+    const snapshot = await reader.readSessionHistory(SESSION_ID, '/workspace');
 
-    const projected = snapshot.messages.map((message) => message.content);
+    const projected = projectedMessages.map((message) => message.content);
     expect(projected).toEqual(['ordinary prompt', 'ordinary answer']);
-    expect(visibleText(events)).toEqual(projected);
-    expect(snapshot.messages.map((message) => message.id)).not.toContain(
+    expect(visibleText(snapshot.events)).toEqual(projected);
+    expect(projectedMessages.map((message) => message.id)).not.toContain(
       'u-meta',
     );
   });

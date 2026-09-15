@@ -40,7 +40,7 @@ PR #510 CI. Add it back to `context.md` after PR #510 merges.
   cleanly (else keep its current watcher behind the port); measure SQLite main-thread cost before
   moving it; scroll-back paging of old history is deferred.
 
-## 3. Done — committed (22 of 24 batches; Batches 8, 9, 10, 11, 15, 16, 16b, 17, 17b, 18, 19 and 21 in section 4)
+## 3. Done — committed (23 of 24 batches; Batches 8, 9, 10, 11, 15, 16, 16b, 17, 17b, 18, 19, 20 and 21 in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
 | ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,7 +64,23 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b, 18, 19 and 21 — COMMITTED (P3 gate passed; P4 Batch 20 in flight)
+## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b, 18, 19, 20 and 21 — COMMITTED (P3 gate passed; next P4 Batch 22)
+
+**Batch 20 — COMMITTED 2026-09-15** as
+`perf(chat): replay resumed session history in chunks and drop the duplicate transcript from chat:resume`.
+C15 (INV-9): `ChatResumeResult.messages` is deleted end to end (shared type with a compile-time spec,
+`chat-session.service.ts`, `readHistoryAsMessages`); `events` is the one transcript. NEW
+`SessionHistoryReplayer` collaborator of `SessionLoaderService`: `claim(tabId, sessionId)` before
+`chat:resume`, `release` in `finally`; 250 events per chunk with `yieldToMacrotask`. A session-keyed
+live-event fence opens at claim time (an `activate: true` resume starts the live query before the
+reply); held `chat:chunk` events are delivered once, in order, capped at 2,000.
+`TabManagerService.applyResumedHistory` deleted; `session:load` docs corrected (never carried a
+transcript), including CLI `session.history` (`limit` accepted, no effect). Evidence: shared 1521,
+agent-sdk 1948, chat-state 386, rpc-handlers 2999, chat 1212, ptah-cli 1015, ptah-tui 330;
+typecheck,lint (8 projects) 0 errors; audit 303; e2e `compaction-duplicate-session.spec.ts` 1 passed.
+Reviews: logic REVISE → APPROVE_WITH_FIXES → APPROVE_WITH_FIXES; style REVISE → APPROVED → APPROVED;
+last three items verified by the team-leader, no third round. FU-20a..c in `batches.md` "Batch 20
+outcome".
 
 **Batch 21 — COMMITTED 2026-09-15** (ahead of Batch 20) as
 `perf(core): coalesce inbound webview message bursts into one change-detection pass`.
@@ -303,9 +319,9 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
   CLI: build `ptah-tui` then `restore-cli-manifest` before pack; cross-platform CI smoke (only
   win32-x64 proven locally).
 
-## 5. Remaining batches (3 of 24)
+## 5. Remaining batches (1 of 24)
 
-Order and dependencies are in `batches.md`. Batches 19 and 21 are committed; resume at P4 Batch 20, then 22. Summary:
+Order and dependencies are in `batches.md`. Batches 19, 20 and 21 are committed; resume at P4 Batch 22, then the P4 phase gate. Summary:
 
 - **P2:** all batches committed. Only the OPEN D10 proof remains: `publish-electron.yml` build matrix
   green on Windows, macOS and Linux (section 4a) — needs a user decision to dispatch.
@@ -323,9 +339,10 @@ Order and dependencies are in `batches.md`. Batches 19 and 21 are committed; res
 4. When to mark PR #510 ready for CodeRabbit (it skips drafts).
 5. Whether to write the property-hub load-test setup/cleanup scripts (section 9).
 
-- **P4:** 19 COMMITTED (O(E+M) finalization + tab-save quota back-off), 20 (drop duplicate `messages` from
-  `chat:resume`, chunked replay; after 14; adopts `yieldToMacrotask` from `@ptah-extension/core`), 21 COMMITTED
-  (inbound burst coalescing), 22 (AC-11 tile-open perf e2e).
+- **P4:** 19 COMMITTED (O(E+M) finalization + tab-save quota back-off), 20 COMMITTED (duplicate
+  `messages` dropped from `chat:resume`, chunked replay with a session-keyed live-event fence), 21
+  COMMITTED (inbound burst coalescing), 22 (AC-11 tile-open perf e2e) next, then the P4 phase gate.
+- **SonarCloud:** quality gate green after `36a24f257` (security findings S4036, S2245).
 
 ## 6. Open follow-ups (recorded in batches.md)
 
@@ -367,13 +384,18 @@ Order and dependencies are in `batches.md`. Batches 19 and 21 are committed; res
   failure map. FU-19c: payload-size shrink trigger. FU-19d: `extractTextForMessage` O(U×T). FU-19e:
   partition-service background writes lack back-off. FU-19f: pre-existing spec-tsconfig type errors in
   chat-streaming/chat-state specs (`typecheck` covers only `tsconfig.lib.json`).
+- FU-20a: global `SessionManager` status/sessionId shared across concurrent resumes (review M3,
+  pre-existing). FU-20b: inline the single-caller private `readHistoryMessages` extractor. FU-20c:
+  load-flake candidates `skills-sh-legacy-adoption.spec.ts` and
+  `electron-state-storage-worker-runtime.error-paths.spec.ts` (both pass alone).
 - Phase gate commands (`lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`) last ran at the P3 gate on 2026-09-15 — all green.
 
 ## 7. CI and external review state
 
 - PR #510: CI, Electron/VS Code/Webview/CLI E2E green on earlier pushes. Latest push
   (`321506385`) had no checks reported at handoff time — check `gh pr checks 510`.
-- SonarCloud: quality gate failed on Reliability before `f96841cdd`; re-check after the latest push.
+- SonarCloud: quality gate failed on Reliability before `f96841cdd`; green after `36a24f257`
+  (security findings fixed). Re-check after the Batch 20 push.
 - CodeRabbit skips drafts. Mark the PR ready (or trigger a manual review) when P2 is committed.
 - Intermittent native abort `Assertion failed: (env) != nullptr` in `better-sqlite3`
   `Statement::~Statement()` at process/Jest-worker exit: Node 24.19+ regression

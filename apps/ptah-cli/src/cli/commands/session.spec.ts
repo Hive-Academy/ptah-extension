@@ -164,7 +164,10 @@ interface MockEngine {
    * Canned response per method, or a responder that receives each call's
    * params (for commands that call one method several times, e.g. paging).
    */
-  scripted: Map<string, ScriptedResponse | ((params: unknown) => ScriptedResponse)>;
+  scripted: Map<
+    string,
+    ScriptedResponse | ((params: unknown) => ScriptedResponse)
+  >;
   pushAdapter: EventEmitter;
   storage: IStateStorage;
   storageMap: Map<string, unknown>;
@@ -987,12 +990,11 @@ describe('ptah session load', () => {
   it('emits session.history', async () => {
     const f = makeFormatter();
     const e = makeEngine();
+    // The real `session:load` validates metadata only: `messages` and
+    // `agentSessions` are always empty (`SessionLoadResult`).
     e.scripted.set('session:load', {
       success: true,
-      data: {
-        messages: [{ role: 'user', content: 'hi' }],
-        agentSessions: [],
-      },
+      data: { sessionId: 'sdk-L', messages: [], agentSessions: [] },
     });
     const exit = await execute(
       { subcommand: 'load', id: 'sdk-L' },
@@ -1002,6 +1004,11 @@ describe('ptah session load', () => {
     expect(exit).toBe(ExitCode.Success);
     const hist = f.notifications.find((n) => n.method === 'session.history');
     expect(hist).toBeDefined();
+    expect(hist?.params).toMatchObject({
+      session_id: 'sdk-L',
+      messages: [],
+      agentSessions: [],
+    });
   });
 
   it('writes JSON to --out path when given', async () => {
@@ -1009,7 +1016,7 @@ describe('ptah session load', () => {
     const e = makeEngine();
     e.scripted.set('session:load', {
       success: true,
-      data: { messages: [{ role: 'user', content: 'hi' }], agentSessions: [] },
+      data: { sessionId: 'sdk-L', messages: [], agentSessions: [] },
     });
     const writeFile = jest.fn(
       async (_path: string, _data: string) => undefined,
@@ -1023,8 +1030,12 @@ describe('ptah session load', () => {
     expect(writeFile).toHaveBeenCalledTimes(1);
     const call = writeFile.mock.calls[0] as [string, string];
     expect(call[0]).toBe('D:/tmp/out.json');
-    const parsed = JSON.parse(call[1]) as { messages: unknown[] };
-    expect(parsed.messages).toHaveLength(1);
+    // The whole `session:load` result is written, not just the notification.
+    expect(JSON.parse(call[1])).toEqual({
+      sessionId: 'sdk-L',
+      messages: [],
+      agentSessions: [],
+    });
   });
 });
 
@@ -1107,7 +1118,9 @@ describe('ptah session stats', () => {
     const pages = statsCalls(e);
     expect(pages.map((page) => page.length)).toEqual([20, 20, 5]);
     expect(pages.flat()).toEqual(ids);
-    for (const c of e.rpcCalls.filter((r) => r.method === 'session:stats-batch')) {
+    for (const c of e.rpcCalls.filter(
+      (r) => r.method === 'session:stats-batch',
+    )) {
       expect(c.params).toMatchObject({ workspacePath: 'D:/test-workspace' });
     }
     const emitted = f.notifications
@@ -1155,7 +1168,9 @@ describe('ptah session stats', () => {
 
     expect(exit).toBe(ExitCode.InternalFailure);
     expect(statsCalls(e)).toHaveLength(2);
-    expect(f.notifications.filter((n) => n.method === 'session.stats')).toHaveLength(0);
+    expect(
+      f.notifications.filter((n) => n.method === 'session.stats'),
+    ).toHaveLength(0);
     const error = f.notifications.find((n) => n.method === 'task.error');
     expect(error?.params).toMatchObject({
       command: 'session.stats',

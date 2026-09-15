@@ -19,7 +19,11 @@ import {
   StreamingHandlerService,
   AgentMonitorStore,
 } from '@ptah-extension/chat-streaming';
-import type { CliSessionReference, SessionId } from '@ptah-extension/shared';
+import type {
+  CliSessionReference,
+  FlatStreamEventUnion,
+  SessionId,
+} from '@ptah-extension/shared';
 
 const SESSION = 'sess-reopen' as SessionId;
 const TAB = 'tab-1';
@@ -33,6 +37,8 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
   let service: SessionLoaderService;
   let loadCliSessions: jest.Mock;
   let processStreamEvent: jest.Mock;
+  let applyResumeFailure: jest.Mock;
+  let clearPendingUpdates: jest.Mock;
   let resumeData: Record<string, unknown>;
   let rpcCall: jest.Mock;
   let appendCliOutputPage: jest.Mock;
@@ -62,6 +68,8 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
       };
     });
 
+    applyResumeFailure = jest.fn();
+    clearPendingUpdates = jest.fn();
     const idle = signal<string | null>(null);
     const tabManagerMock = {
       pendingSessionLoad: computed(() => idle()),
@@ -74,13 +82,20 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
       openSessionTab: jest.fn(() => TAB),
       switchTab: jest.fn(),
       applyResumingSession: jest.fn(),
-      applyResumedHistory: jest.fn(),
-      applyResumeFailure: jest.fn(),
+      applyResumeFailure,
       applyLoadedSessionStats: jest.fn(),
       setPreloadedStats: jest.fn(),
       setLiveModelStats: jest.fn(),
       setModelUsageList: jest.fn(),
       markSessionActive: jest.fn(),
+      findTabByIdAcrossWorkspaces: jest.fn((tabId: string) =>
+        tabId === TAB
+          ? {
+              tab: { id: TAB, claudeSessionId: SESSION },
+              workspacePath: 'D:/repo',
+            }
+          : null,
+      ),
     } as unknown as TabManagerService;
 
     processStreamEvent = jest.fn();
@@ -113,6 +128,7 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
             processStreamEvent,
             finalizeSessionHistory: jest.fn(),
             cleanupSessionDeduplication: jest.fn(),
+            clearPendingUpdates,
           },
         },
         {
@@ -189,12 +205,83 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
 
     await expect(service.switchSession(SESSION)).rejects.toThrow('bad event');
     expect(loadCliSessions).toHaveBeenCalledWith(REFS, SESSION);
+    // TASK_2026_437 C15: the half-replayed tab settles through the failure
+    // branch instead of staying `resuming` with a partial transcript.
+    expect(clearPendingUpdates).toHaveBeenCalledWith(TAB);
+    expect(applyResumeFailure).toHaveBeenCalledWith(TAB);
   });
 
-  it('restores the cards when the transcript yields no events or messages', async () => {
-    resumeData = { events: [], messages: [], cliSessions: REFS };
+  it('restores the cards when the transcript yields no events', async () => {
+    resumeData = { events: [], cliSessions: REFS };
 
     await expect(service.switchSession(SESSION)).rejects.toThrow();
     expect(loadCliSessions).toHaveBeenCalledWith(REFS, SESSION);
+  });
+
+  describe('with a chunked replay (TASK_2026_437 C15)', () => {
+    const originalMessageChannel = globalThis.MessageChannel;
+    let yields: number;
+
+    beforeEach(() => {
+      yields = 0;
+      class CountingMessageChannel {
+        readonly port1: { onmessage: (() => void) | null; close: () => void } =
+          { onmessage: null, close: () => undefined };
+        readonly port2 = {
+          postMessage: () => {
+            yields++;
+            void Promise.resolve().then(() => this.port1.onmessage?.());
+          },
+          close: () => undefined,
+        };
+      }
+      globalThis.MessageChannel =
+        CountingMessageChannel as unknown as typeof MessageChannel;
+    });
+
+    afterEach(() => {
+      globalThis.MessageChannel = originalMessageChannel;
+    });
+
+    const manyEvents = (count: number): FlatStreamEventUnion[] =>
+      Array.from(
+        { length: count },
+        (_, index) =>
+          ({
+            eventType: 'text_delta',
+            id: `e${index}`,
+            timestamp: index,
+          }) as unknown as FlatStreamEventUnion,
+      );
+
+    it('restores the cards before the first chunk is replayed', async () => {
+      resumeData = { ...resumeData, events: manyEvents(600) };
+      const yieldsAtFirstEvent: number[] = [];
+      processStreamEvent.mockImplementation(() => {
+        if (yieldsAtFirstEvent.length === 0) {
+          yieldsAtFirstEvent.push(yields);
+          expect(loadCliSessions).toHaveBeenCalledWith(REFS, SESSION);
+        }
+      });
+
+      await service.switchSession(SESSION);
+
+      expect(yieldsAtFirstEvent).toEqual([0]);
+      expect(processStreamEvent).toHaveBeenCalledTimes(600);
+      expect(yields).toBe(3);
+    });
+
+    it('restores the cards when a later chunk throws, and settles the tab as failed', async () => {
+      resumeData = { ...resumeData, events: manyEvents(600) };
+      processStreamEvent.mockImplementation((event: { id: string }) => {
+        if (event.id === 'e300') throw new Error('bad chunk');
+      });
+
+      await expect(service.switchSession(SESSION)).rejects.toThrow('bad chunk');
+
+      expect(loadCliSessions).toHaveBeenCalledWith(REFS, SESSION);
+      expect(yields).toBe(1);
+      expect(applyResumeFailure).toHaveBeenCalledWith(TAB);
+    });
   });
 });

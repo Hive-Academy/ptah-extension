@@ -19,6 +19,8 @@
  *   rename <id> --to <name>                              session:rename
  *   load <id> [--out <path>]                             session:load
  *                                                        emits session.history
+ *                                                        (metadata only; its
+ *                                                        messages are always [])
  *                                                        optionally writes JSON
  *   stats [--ids <csv>]                                  session:stats-batch
  *   validate <id>                                        session:validate
@@ -902,6 +904,10 @@ async function runLoad(
       { sessionId },
     );
 
+    // `session:load` validates metadata only: its `messages` and
+    // `agentSessions` are always `[]` (`SessionLoadResult`). The keys stay on
+    // the wire for existing JSON-RPC readers; no RPC returns a text transcript
+    // (TASK_2026_437 C15 — `chat:resume` `events` is the only one).
     await formatter.writeNotification('session.history', {
       session_id: sessionId,
       tab_id: persisted?.tabId,

@@ -454,9 +454,17 @@ export class ChatMessageHandler implements MessageHandler {
 
     // Liveness is no longer pinged per chunk: `StreamingHandlerService`
     // intercepts the `turn_state` event and `TurnStateApplier` marks it.
-    this.chatStore.processStreamEvent(event, tabId, sessionId);
-    const originTabId = tabId ? TabId.safeParse(tabId) : null;
-    this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);
+    const deliver = (): void => {
+      this.chatStore.processStreamEvent(event, tabId, sessionId);
+      const originTabId = tabId ? TabId.safeParse(tabId) : null;
+      this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);
+    };
+    // A tab still replaying resume history in chunks takes this event after
+    // its history, not between two chunks (TASK_2026_437 C15).
+    if (this.chatStore.deferLiveStreamEvent(event, tabId, sessionId, deliver)) {
+      return;
+    }
+    deliver();
   }
   private handleChatError(payload: unknown): void {
     const { tabId, sessionId, error, surfaceMode } =
