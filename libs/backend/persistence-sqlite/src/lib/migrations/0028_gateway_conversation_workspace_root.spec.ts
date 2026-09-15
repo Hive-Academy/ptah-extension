@@ -75,7 +75,8 @@ describe('migration 0028_gateway_conversation_workspace_root — registry entry'
     // the current highest version and moves forward with every appended
     // migration (see 0027 → 0028 precedent).
     // 43 since TASK_2026_440 appended 0043_memory_retention.
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(43);
+    // 44 since TASK_2026_443 appended 0044_memory_lifecycle.
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(44);
   });
 });
 

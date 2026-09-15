@@ -83,7 +83,8 @@ describe('migration 0038_gateway_message_turn_state — registry entry', () => {
     // 0038_gateway_message_turn_state). Tracks the current highest version and
     // moves forward with every appended migration (0027 → 0028 precedent).
     // 43 since TASK_2026_440 appended 0043_memory_retention.
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(43);
+    // 44 since TASK_2026_443 appended 0044_memory_lifecycle.
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(44);
   });
 
   it('adds exactly the two columns TASK_2026_277 needs and nothing else', () => {
