@@ -40,7 +40,7 @@ PR #510 CI. Add it back to `context.md` after PR #510 merges.
   cleanly (else keep its current watcher behind the port); measure SQLite main-thread cost before
   moving it; scroll-back paging of old history is deferred.
 
-## 3. Done — committed (16 of 23 batches; Batches 8, 9, 10, 11, 16 and 16b in section 4)
+## 3. Done — committed (17 of 23 batches; Batches 8, 9, 10, 11, 15, 16 and 16b in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
 | ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,7 +64,7 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11, the Linux CI fix, Batches 16 and 16b — COMMITTED (resume at Batch 15)
+## 4. Batch 11, the Linux CI fix, Batches 15, 16 and 16b — COMMITTED (resume at Batches 17 and 18)
 
 **Update 2026-09-15 (Batch 11):** Batch 11 passed both reviews (logic base NEEDS_REVISION 5/10 →
 delta APPROVE HIGH; style base NEEDS_REVISION 7/10 → delta APPROVE HIGH) and is committed as
@@ -117,7 +117,23 @@ lane. The governor is disposed at shutdown in all three hosts. Reviews: 16 logic
 delta APPROVE HIGH, style APPROVED → delta APPROVE HIGH; 16b logic APPROVED, style NEEDS_REVISION →
 fixed. Outcomes, evidence and FU-16a..d, FU-16b-a..c are in `batches.md`.
 
-**Next: Batch 15** (ST-2 host stress + host-kill AC-7, senior-tester) when the machine is idle.
+**Batch 15 — COMMITTED 2026-09-15** as
+`test(platform-electron): stress the watch host with a 75,000-file storm and a host kill`. Real
+bundled host + real `@parcel/watcher` + real supervisor. Idle machine: ST-2 at 75,000 files p99
+18.55–19.58 ms, max 26.56–36.14 ms (budget ≤ 30 / ≤ 100); AC-7 restart 902–905 ms (≤ 3,000), exactly
+one overflow per subscriber on a bare kill; degraded path (budget, cadence, recovery) on real
+supervisor code; host RSS ~65 → 78 → 62 MB. The first AC-2 miss was the rig (in-process delete +
+per-sample RSS `spawn`), fixed with a delete child and a persistent RSS monitor child, backported to
+the git-watcher perf rig. A1: no real Windows buffer overflow up to 75,000 files (storm breaker
+absorbs it). Orchestrator decisions: ST-1b in CI asserts the bounded mechanism (FU-11h materialized
+on CI run 34922130353); strict "exactly one refresh" lives in the idle perf spec at 8,000 files; the
+75,000-file case asserts a bounded shape because the breaker re-enters over quiet gaps > 2 s.
+Reviews: logic and style both base NEEDS_REVISION → delta APPROVE HIGH. Outcome and FU-15a..d are in
+`batches.md` "Batch 15 outcome".
+
+**All P2 batches are COMPLETE.** The only open P2 gate is D10 (section 4a).
+
+**Next: Batches 17 and 18 (P3)**, then P4 (19, 20, 21, 22).
 
 ## 4a. Batch 10 — COMMITTED
 
@@ -210,14 +226,25 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
   CLI: build `ptah-tui` then `restore-cli-manifest` before pack; cross-platform CI smoke (only
   win32-x64 proven locally).
 
-## 5. Remaining batches (7 of 23)
+## 5. Remaining batches (6 of 23)
 
-Order and dependencies are in `batches.md`. Summary:
+Order and dependencies are in `batches.md`. Resume at Batches 17 and 18. Summary:
 
-- **P2:** 15 (ST-2 stress + host-kill test AC-7). P2 also needs the OPEN D10 proof: `publish-electron.yml`
-  build matrix green on Windows, macOS and Linux (section 4).
+- **P2:** all batches committed. Only the OPEN D10 proof remains: `publish-electron.yml` build matrix
+  green on Windows, macOS and Linux (section 4a) — needs a user decision to dispatch.
 - **P3:** 17 (adopters; treat `'disposed'` as cancellation; carry FU-16b-a) and 18 (network back-off).
   16 and 16b are committed.
+
+### Open user decisions
+
+1. D10: dispatch `publish-electron.yml` (`workflow_dispatch`) or wait for a release push.
+2. FU-16b-c: background lanes can hold both global internal-query slots (options in `batches.md`
+   Batch 16b outcome).
+3. CI skip rule for `chore/bump-*` branches (PR #512 showed `main`, `electron-e2e`, `vscode-e2e`
+   SKIPPED).
+4. When to mark PR #510 ready for CodeRabbit (it skips drafts).
+5. Whether to write the property-hub load-test setup/cleanup scripts (section 9).
+
 - **P4:** 19 (O(E+M) finalization + tab-save quota back-off), 20 (drop duplicate `messages` from
   `chat:resume`, chunked replay; after 14), 21 (inbound burst coalescing), 22 (AC-11 tile-open perf e2e).
 
@@ -239,7 +266,9 @@ Order and dependencies are in `batches.md`. Summary:
 - FU-10a: gate helper files (`build-artifact-gate.ts`) are typechecked by no project. FU-10b: darwin-x64 and windows-arm64 Electron builds do not exist (product decision). FU-10c: no per-OS CLI pack smoke for `@parcel/watcher`.
 - FU-16a: `whenClear` ceiling is per waiter — all held waiters release together after 10 min of lag (bounded by gate limits). FU-16c: platform-core `internalQuery.maxConcurrent` default 1 vs agent-sdk 2. FU-16d: `internal-query.service.ts` / `skill-enhancer.service.ts` sizes.
 - FU-16b-a (Batch 17): `memory:runNow` joining an in-flight background pass keeps its governed lane (logged). FU-16b-b: `memory-curator.service.ts` 718 code lines. **FU-16b-c (needs a user decision, pre-existing):** background lanes can hold both global internal-query slots, so a wizard/user-action call can time out at 60 s in the queue — options in `batches.md` Batch 16b outcome.
-- **75k-file `PTAH_PERF_SPECS=1` perf budgets (AC-1/AC-2) not yet measured on an idle machine.**
+- 75k-file `PTAH_PERF_SPECS=1` perf budgets: measured in Batch 15 on an idle machine (git-watcher rig ST-1 p99 16.6 / max 24–25 ms, ST-1b p99 16.7 / max 33–34 ms; host ST-2 p99 18.55–19.58 / max 26.56–36.14 ms).
+- FU-11h materialized on Linux CI (run 34922130353): ST-1b CI assertion is now the bounded form (Batch 15 decision).
+- FU-15a: rig helpers duplicated between the git-watcher and watch-host stress harnesses; a `/testing` secondary entry point (precedent `@ptah-extension/platform-core/testing`) is the option, deferred. FU-15b: storm re-entry during very long deletes (2–3 refreshes at 75,000 files). FU-15c: host kill during an in-host rebuild untested. FU-15d: force a real native buffer overflow to observe A1 directly.
 - Phase 1 gate commands not re-run: `lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`.
 
 ## 7. CI and external review state

@@ -87,6 +87,31 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Deletes `targetPath` recursively in a SEPARATE node process, so the
+ * potentially large amount of `fs` work a mass recursive delete does never
+ * runs on the process whose event loop `deleteAndSettle` measures (Batch 15
+ * rig-attribution fix, backported from `workspace-watch-host.stress.harness.ts`).
+ */
+export function deleteInChildProcess(targetPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [
+        '-e',
+        'require("fs").rmSync(process.argv[1], { recursive: true, force: true });',
+        targetPath,
+      ],
+      { stdio: 'ignore' },
+    );
+    child.once('error', reject);
+    child.once('exit', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`delete child exited with code ${String(code)}`));
+    });
+  });
+}
+
 /** Waits until `predicate()` is true or `timeoutMs` elapses; returns the last read. */
 export async function waitFor(
   predicate: () => boolean,
@@ -449,12 +474,23 @@ export class GitWatcherStressRig {
     this.sampleChanges.length = 0;
   }
 
-  /** Deletes `tree` recursively, then waits `settleMs`, measuring loop delay throughout. */
+  /**
+   * Deletes `tree` recursively, then waits `settleMs`, measuring loop delay
+   * throughout. The delete runs in a SEPARATE process (see
+   * `deleteInChildProcess`, backported from
+   * `workspace-watch-host.stress.harness.ts`'s Batch 15 rig-attribution fix):
+   * a recursive `fs.rm` of a 75,000-file tree does real CPU/libuv-threadpool
+   * work, and running it in the SAME process this histogram measures would
+   * conflate that cost with the product's own event-loop-delay contribution
+   * — exactly the false ~270-295 ms reading that fix found and removed in the
+   * sibling spec. This harness has no in-window RSS sampler, so that half of
+   * the fix does not apply here.
+   */
   async deleteAndSettle(tree: string, settleMs: number): Promise<DeleteWindow> {
     const histogram = monitorEventLoopDelay({ resolution: 10 });
     histogram.enable();
     const deleteStartedAt = Date.now();
-    await fs.promises.rm(tree, { recursive: true, force: true });
+    await deleteInChildProcess(tree);
     const deleteEndedAt = Date.now();
     await sleep(settleMs);
     histogram.disable();
