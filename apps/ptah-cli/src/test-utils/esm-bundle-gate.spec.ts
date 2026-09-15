@@ -132,21 +132,32 @@ function discoverEsmTargets(
   return discovered;
 }
 
-/** The three ESM targets `apps/ptah-cli` is known to declare. */
+/** The ESM targets `apps/ptah-cli` is known to declare. */
 const EXPECTED_ESM_TARGETS = [
   'build-esbuild',
   'build-embedder-worker',
   'build-integrity-worker',
+  'build-workspace-watch-host',
 ] as const;
 
 const projectConfig = loadProjectConfig();
 const discoveredTargets = discoverEsmTargets(projectConfig);
 
 describe('ptah-cli ESM bundle discovery (anti-vacuity)', () => {
-  it('discovers at least the three known ESM esbuild targets', () => {
+  it('discovers at least the four known ESM esbuild targets', () => {
     for (const expected of EXPECTED_ESM_TARGETS) {
       expect(discoveredTargets.has(expected)).toBe(true);
     }
+  });
+
+  // Set-equality, not just "contains" (code-logic-review.md Batch 10
+  // review-fix, Logic #1) -- see the Electron copy of this gate for the full
+  // rationale: a future ESM esbuild target not ending in `-worker`/`-host`
+  // would otherwise bypass every anti-vacuity check in this file silently.
+  it('discovers exactly EXPECTED_ESM_TARGETS -- no undeclared ESM esbuild target exists', () => {
+    expect([...discoveredTargets.keys()].sort()).toEqual(
+      [...EXPECTED_ESM_TARGETS].sort(),
+    );
   });
 });
 
@@ -206,21 +217,27 @@ describe.each(EXPECTED_ESM_TARGETS)(
 // Executable self-test — worker-shaped bundles only (R-8).
 //
 // A discovered target counts as "worker-shaped" when its NAME ends in
-// `-worker` -- a structural rule, not a hardcoded id list, so a future
-// worker target is automatically subject to the tie-in anti-vacuity check
-// below instead of silently bypassing it (code-style-review.md minor).
+// `-worker` or `-host` -- a structural rule, not a hardcoded id list, so a
+// future worker or host target is automatically subject to the tie-in
+// anti-vacuity check below instead of silently bypassing it
+// (code-style-review.md minor). `-host` was added in Batch 10 for
+// `build-workspace-watch-host` (mirrors `apps/ptah-electron`'s copy of this
+// gate): it is spawned bare and fails fast on a transport guard exactly like
+// the workers, just under a different suffix.
 //
 // integrity-worker.ts and embedder-worker.ts already fail deterministically
 // when run bare: both probe for `process.parentPort` (Electron
 // utilityProcess) and `node:worker_threads`' `parentPort`, and throw
 // synchronously at module-evaluation time when neither is present -- no
-// `--self-test` entry argument was needed for either (R-8). Both entry
-// guards run before any heavy import (the ONNX work is behind a
-// lazily-invoked function), so the bounded timeout below is a safety net,
-// not the expected path.
+// `--self-test` entry argument was needed for either (R-8).
+// workspace-watch-host.entry.ts (the CLI's copy) throws synchronously when
+// `process.send` is undefined -- the CLI host only ever runs as a
+// `child_process.fork` child, never a worker_threads Worker (`@parcel/watcher`
+// is not context-aware). All entry guards run before any heavy import, so the
+// bounded timeout below is a safety net, not the expected path.
 // ---------------------------------------------------------------------------
 
-const WORKER_TARGET_SUFFIX = /-worker$/;
+const WORKER_TARGET_SUFFIX = /-(worker|host)$/;
 
 /**
  * Hand-maintained entry-guard strings, one per worker-shaped target. Tied to
@@ -234,6 +251,8 @@ const WORKER_ENTRY_GUARDS: Record<string, string> = {
     'integrity-worker.ts must be run as a worker (no Electron parentPort and no worker_threads parentPort)',
   'build-embedder-worker':
     'embedder-worker.ts must be run as a worker (no Electron parentPort and no worker_threads parentPort)',
+  'build-workspace-watch-host':
+    'workspace-watch-host.entry.ts must be run by child_process.fork (no IPC channel)',
 };
 
 const discoveredWorkerTargetNames = [...discoveredTargets.keys()]

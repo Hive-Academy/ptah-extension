@@ -29,6 +29,7 @@ import { CliEditorProvider } from './implementations/cli-editor-provider';
 import { CliTokenCounter } from './implementations/cli-token-counter';
 import { CliDiagnosticsProvider } from './implementations/cli-diagnostics-provider';
 import { CliHttpServerProvider } from './implementations/cli-http-server-provider';
+import { CliWorkspaceWatcher } from './implementations/cli-workspace-watcher';
 import type { CliPlatformOptions } from './types';
 
 /**
@@ -107,6 +108,12 @@ export function registerPlatformCliServices(
   container.register(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER, {
     useValue: new CliHttpServerProvider(),
   });
+  if (options.workspaceWatchHost) {
+    // Constructing it forks nothing; the host starts on the first `watch`.
+    container.register(PLATFORM_TOKENS.WORKSPACE_WATCHER, {
+      useValue: new CliWorkspaceWatcher(options.workspaceWatchHost),
+    });
+  }
 }
 
 /**

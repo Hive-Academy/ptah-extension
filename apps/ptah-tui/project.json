@@ -7,7 +7,7 @@
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
+      "outputs": ["{options.outputPath}/tui.mjs"],
       "dependsOn": [{ "projects": ["ptah-cli"], "target": "build" }],
       "defaultConfiguration": "production",
       "options": {

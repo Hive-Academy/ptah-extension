@@ -14,11 +14,19 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
+import type { Writable } from 'node:stream';
+import type { DegradationReporter } from '@ptah-extension/vscode-core';
 import {
   OffThreadProcessSpawner,
   type OffThreadSpawnHooks,
   type PtahSpawnedProcess,
 } from './off-thread-process-spawner';
+import {
+  LIVE_WORKER_HARD_CAP,
+  LIVE_WORKER_SOFT_CAP,
+  POOL_IDLE_TTL_MS,
+  POOL_MAX_IDLE,
+} from './spawn-worker-pool';
 import type { SpawnOptions } from '../types/sdk-types/claude-sdk.types';
 
 /**
@@ -117,13 +125,56 @@ function waitForError(target: PtahSpawnedProcess): Promise<Error> {
   });
 }
 
+/**
+ * A write to a handle whose worker is gone must fail the way a destroyed Node
+ * stream does — `false` and an errored callback — never a silent success.
+ */
+async function expectWriteRejected(target: {
+  readonly stdin: unknown;
+}): Promise<void> {
+  const stdin = target.stdin as Writable | null;
+  expect(stdin).not.toBeNull();
+
+  // Nothing may escape as an unhandled error: no uncaught exception, and an
+  // 'error' on the destroyed stdin is absorbed by the handle's own listener.
+  const uncaught: unknown[] = [];
+  const onUncaught = (error: unknown): void => {
+    uncaught.push(error);
+  };
+  process.on('uncaughtException', onUncaught);
+  try {
+    let accepted: boolean | undefined;
+    const callbackError = await new Promise<Error | null | undefined>(
+      (resolve) => {
+        accepted = stdin?.write('late', (error) => resolve(error));
+      },
+    );
+    expect(accepted).toBe(false);
+    expect((callbackError as Error & { code?: string }).code).toBe(
+      'ERR_STREAM_DESTROYED',
+    );
+    expect(() =>
+      stdin?.emit('error', new Error('late pipe error')),
+    ).not.toThrow();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(uncaught).toEqual([]);
+  } finally {
+    process.off('uncaughtException', onUncaught);
+  }
+}
+
 describe('OffThreadProcessSpawner', () => {
   let logger: MockLogger;
+  let reporter: { report: jest.Mock };
   let spawner: OffThreadProcessSpawner;
 
   beforeEach(() => {
     logger = createMockLogger();
-    spawner = new OffThreadProcessSpawner(asLogger(logger));
+    reporter = { report: jest.fn() };
+    spawner = new OffThreadProcessSpawner(
+      asLogger(logger),
+      reporter as unknown as DegradationReporter,
+    );
   });
 
   afterEach(async () => {
@@ -509,6 +560,327 @@ describe('OffThreadProcessSpawner', () => {
           expect(JSON.stringify(message?.['args'])).toContain('ptah-probe.cmd');
         },
       );
+    });
+  });
+
+  describe('worker reuse (TASK_2026_437 C12)', () => {
+    /**
+     * Which Worker instance received each `spawn` message, in order.
+     *
+     * `mock.contexts` records `this` for every call, so the identity of the
+     * thread a child ran on is read straight off the port — no test-only
+     * accessor on the spawner.
+     */
+    let postSpy: jest.SpyInstance;
+
+    function spawnWorkers(): Worker[] {
+      const workers: Worker[] = [];
+      postSpy.mock.calls.forEach((call, index) => {
+        const message = call[0] as Record<string, unknown> | undefined;
+        if (message?.['type'] === 'spawn') {
+          workers.push(postSpy.mock.contexts[index] as Worker);
+        }
+      });
+      return workers;
+    }
+
+    beforeEach(() => {
+      postSpy = jest.spyOn(Worker.prototype, 'postMessage');
+    });
+
+    afterEach(() => {
+      postSpy.mockRestore();
+    });
+
+    function run(
+      command: string,
+      args: string[],
+    ): { handle: SpawnedProcessHandle; done: Promise<string> } {
+      const handle = spawner.spawnProcess({ command, args, env: process.env });
+      const done = new Promise<string>((resolve, reject) => {
+        let text = '';
+        handle.stdout?.setEncoding('utf8');
+        handle.stdout?.on('data', (chunk: string) => {
+          text += chunk;
+        });
+        handle.once('error', reject);
+        handle.once('close', () => resolve(text));
+      });
+      return { handle, done };
+    }
+
+    it('50 sequential git-like spawns create at most 4 workers (AC-8)', async () => {
+      for (let i = 0; i < 50; i++) {
+        const { done } = run('git', ['--version']);
+        await expect(done).resolves.toContain('git version');
+      }
+
+      const workers = spawnWorkers();
+      expect(workers).toHaveLength(50);
+      expect(new Set(workers).size).toBeLessThanOrEqual(POOL_MAX_IDLE);
+    }, 120_000);
+
+    it('keeps two consecutive children on one worker apart', async () => {
+      // The first child floods stdout and stderr; the second prints one byte.
+      // Anything the first posted late must not reach the second's streams.
+      const first = run(process.execPath, [
+        '-e',
+        "process.stdout.write('a'.repeat(100000)); process.stderr.write('first-err')",
+      ]);
+      await expect(first.done).resolves.toHaveLength(100000);
+
+      const second = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', "process.stdout.write('b')"],
+        env: process.env,
+      });
+      let stderrText = '';
+      second.stderr?.setEncoding('utf8');
+      second.stderr?.on('data', (chunk: string) => {
+        stderrText += chunk;
+      });
+      let stdoutText = '';
+      second.stdout?.setEncoding('utf8');
+      second.stdout?.on('data', (chunk: string) => {
+        stdoutText += chunk;
+      });
+      await new Promise((resolve) => second.once('close', resolve));
+
+      const workers = spawnWorkers();
+      expect(workers[1]).toBe(workers[0]);
+      expect(stdoutText).toBe('b');
+      expect(stderrText).toBe('');
+      expect(second.exitCode).toBe(0);
+    });
+
+    it('never lends a killed child’s worker to the next child', async () => {
+      const terminateSpy = jest.spyOn(Worker.prototype, 'terminate');
+      try {
+        const idle = spawner.spawn(spawnOptions(['-e', IDLE_SCRIPT]));
+        const drained = readAll(idle);
+        const exited = waitForExit(idle);
+        idle.kill('SIGTERM');
+        await exited;
+        await drained;
+
+        const { done } = run(process.execPath, [
+          '-e',
+          "process.stdout.write('next')",
+        ]);
+        await expect(done).resolves.toBe('next');
+
+        const [killedOn, nextOn] = spawnWorkers();
+        expect(nextOn).not.toBe(killedOn);
+        expect(terminateSpy.mock.contexts).toContain(killedOn);
+      } finally {
+        terminateSpy.mockRestore();
+      }
+    });
+
+    it('fails the in-flight child cleanly when its worker dies, then replaces the worker', async () => {
+      const handle = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', IDLE_SCRIPT],
+        env: process.env,
+      });
+      const events: string[] = [];
+      handle.on('exit', () => events.push('exit'));
+      handle.on('close', () => events.push('close'));
+      // A close handler written exactly the way the rival-CLI adapters write
+      // theirs (pi-cli, antigravity-cli, opencode-cli): Node's idiom for "a
+      // signal death with no exit code is a failure".
+      let adapterExitCode: number | undefined;
+      (handle as unknown as NodeJS.EventEmitter).once(
+        'close',
+        (code: number | null, signal: NodeJS.Signals | null) => {
+          adapterExitCode = code ?? (signal ? 1 : 0);
+        },
+      );
+      const failed = new Promise<Error>((resolve) => {
+        handle.once('error', (error: Error) => {
+          events.push('error');
+          resolve(error);
+        });
+      });
+      const closed = new Promise((resolve) => handle.once('close', resolve));
+      const pid = await handle.whenSpawned;
+      expect(pid).not.toBeNull();
+
+      // Kill the THREAD, not the child — the crash the pool must survive.
+      const [crashed] = spawnWorkers();
+      await crashed.terminate();
+
+      const error = await failed;
+      expect((error as Error & { code?: string }).code).toBe('EWORKER');
+      await closed;
+
+      // The SDK's ProcessTransport records `exitError` from 'error' but only
+      // resolves `waitForExit` / `onExit` from 'exit', so both must fire, in
+      // ChildProcess order.
+      expect(events).toEqual(['error', 'exit', 'close']);
+      // Reported as Node reports a signal death. The SDK's write gate is
+      // `killed || exitCode !== null`, which `killed` alone satisfies.
+      expect(handle.exitCode).toBeNull();
+      expect((handle as unknown as { signalCode: string }).signalCode).toBe(
+        'SIGTERM',
+      );
+      expect((handle as unknown as { killed: boolean }).killed).toBe(true);
+      expect(adapterExitCode).toBe(1);
+      await expectWriteRejected(handle);
+
+      const { done } = run(process.execPath, [
+        '-e',
+        "process.stdout.write('after-crash')",
+      ]);
+      await expect(done).resolves.toBe('after-crash');
+      expect(spawnWorkers()[1]).not.toBe(crashed);
+
+      // The orphan was signalled from the host; make sure it is really gone.
+      if (pid !== null) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch (error: unknown) {
+          // ESRCH: already reaped by the host's direct SIGTERM.
+          void error;
+        }
+      }
+    });
+
+    it('parks at most 4 idle workers, unref’d, and terminates the rest', async () => {
+      const unrefSpy = jest.spyOn(Worker.prototype, 'unref');
+      const terminateSpy = jest.spyOn(Worker.prototype, 'terminate');
+      try {
+        const runs = Array.from({ length: POOL_MAX_IDLE + 2 }, () =>
+          run(process.execPath, ['-e', "process.stdout.write('x')"]),
+        );
+        await Promise.all(runs.map((entry) => entry.done));
+
+        const workers = new Set(spawnWorkers());
+        expect(workers.size).toBe(POOL_MAX_IDLE + 2);
+        // Idle threads must never keep the host process alive.
+        expect(new Set(unrefSpy.mock.contexts).size).toBe(POOL_MAX_IDLE);
+        expect(new Set(terminateSpy.mock.contexts).size).toBe(2);
+      } finally {
+        unrefSpy.mockRestore();
+        terminateSpy.mockRestore();
+      }
+    });
+
+    it('terminates an idle worker once it has waited the idle TTL', async () => {
+      const terminateSpy = jest.spyOn(Worker.prototype, 'terminate');
+      jest.useFakeTimers({
+        doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'],
+      });
+      try {
+        const { done } = run(process.execPath, [
+          '-e',
+          "process.stdout.write('x')",
+        ]);
+        await done;
+        const [parked] = spawnWorkers();
+        expect(terminateSpy.mock.contexts).not.toContain(parked);
+
+        jest.advanceTimersByTime(POOL_IDLE_TTL_MS);
+
+        expect(terminateSpy.mock.contexts).toContain(parked);
+      } finally {
+        jest.useRealTimers();
+        terminateSpy.mockRestore();
+      }
+    });
+
+    it('still spawns above the soft cap, and warns and reports once', async () => {
+      const runs = Array.from({ length: LIVE_WORKER_SOFT_CAP + 2 }, () =>
+        run('git', ['--version']),
+      );
+      await Promise.all(runs.map((entry) => entry.done));
+
+      expect(new Set(spawnWorkers()).size).toBe(LIVE_WORKER_SOFT_CAP + 2);
+      const capWarnings = logger.warn.mock.calls.filter((call) =>
+        String(call[0]).includes('above the soft cap'),
+      );
+      expect(capWarnings).toHaveLength(1);
+      expect(capWarnings[0]?.[1]).toEqual(
+        expect.objectContaining({ softCap: LIVE_WORKER_SOFT_CAP }),
+      );
+      expect(reporter.report).toHaveBeenCalledTimes(1);
+      expect(reporter.report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'agent',
+          code: 'agent.spawn-worker.soft-cap',
+          severity: 'degraded',
+        }),
+      );
+    }, 120_000);
+
+    it('spawns inline past the hard cap instead of creating another thread', async () => {
+      const children = Array.from({ length: LIVE_WORKER_HARD_CAP + 1 }, () =>
+        spawner.spawn(spawnOptions(['--version'], { command: 'git' })),
+      );
+      const settled = children.map(
+        (child) =>
+          new Promise<void>((resolve) => {
+            child.stdout.resume();
+            child.once('exit', () => resolve());
+            child.once('error', () => resolve());
+          }),
+      );
+
+      const transports = children.map((child) => child.transport);
+      expect(transports.filter((t) => t === 'worker')).toHaveLength(
+        LIVE_WORKER_HARD_CAP,
+      );
+      expect(transports[LIVE_WORKER_HARD_CAP]).toBe('inline');
+      expect(new Set(spawnWorkers()).size).toBe(LIVE_WORKER_HARD_CAP);
+      expect(reporter.report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'agent',
+          code: 'agent.spawn-worker.hard-cap-inline',
+          severity: 'critical',
+        }),
+      );
+
+      await Promise.all(settled);
+    }, 180_000);
+
+    it('drops a parked worker that dies and lends a healthy one next', async () => {
+      const first = run(process.execPath, ['-e', "process.stdout.write('1')"]);
+      await expect(first.done).resolves.toBe('1');
+      const [parked] = spawnWorkers();
+
+      // The idle thread dies while nobody holds it.
+      await parked.terminate();
+
+      const second = run(process.execPath, ['-e', "process.stdout.write('2')"]);
+      await expect(second.done).resolves.toBe('2');
+      const third = run(process.execPath, ['-e', "process.stdout.write('3')"]);
+      await expect(third.done).resolves.toBe('3');
+
+      const [, secondOn, thirdOn] = spawnWorkers();
+      expect(secondOn).not.toBe(parked);
+      // The replacement is healthy enough to be pooled and reused in turn.
+      expect(thirdOn).toBe(secondOn);
+    });
+
+    it('ends a force-terminated child with exit, a non-null exitCode and a dead stdin', async () => {
+      const child = spawner.spawn(spawnOptions(['-e', IDLE_SCRIPT]));
+      const events: string[] = [];
+      child.on('exit', () => events.push('exit'));
+      (child as unknown as SpawnedProcessHandle).on('close', () =>
+        events.push('close'),
+      );
+      child.stdout.resume();
+      await (child as unknown as SpawnedProcessHandle).whenSpawned;
+
+      await spawner.dispose();
+
+      expect(events).toEqual(['exit', 'close']);
+      expect(child.killed).toBe(true);
+      expect(child.exitCode).toBeNull();
+      expect((child as unknown as { signalCode: string }).signalCode).toBe(
+        'SIGKILL',
+      );
+      await expectWriteRejected(child);
     });
   });
 

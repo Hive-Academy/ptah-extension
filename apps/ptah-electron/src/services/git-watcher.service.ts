@@ -2,47 +2,73 @@
  * Git Watcher Service
  *
  * Despite the name, this service drives BOTH git status push updates AND
- * per-file content-change notifications to the renderer. The class name is
- * preserved for backward compatibility with DI wiring and call sites;
- * functionally it is a workspace + git watcher hybrid.
+ * content-change notifications to the renderer. The class name is preserved
+ * for backward compatibility with DI wiring and call sites; functionally it is
+ * a workspace + git watcher hybrid.
  *
  * Responsibilities:
  *   1. Watch the .git directory (when present) and push `git:status-update`
  *      events whenever HEAD, index, or refs change. This replaced the
  *      frontend `git:info` polling loop with event-driven push.
- *   2. Watch the workspace root unconditionally (NOT gated on `.git`
+ *   2. Subscribe to the workspace root unconditionally (NOT gated on `.git`
  *      existence) so an agent's working-tree edit schedules a `git status`
  *      refresh even in a non-git workspace.
- *   3. Push `file:content-changed` events when the active editor file
- *      is modified externally.
+ *   3. Push `file:content-changed` batches when workspace files are modified
+ *      externally — one push per coalesced window, never one per file
+ *      (TASK_2026_437 INV-5).
  *
- * Watches (git side):
+ * Watches (git side, dedicated non-recursive `fs.watch` handles):
  * - .git/HEAD      (branch switches, checkouts)
  * - .git/index     (staging area changes: git add/reset)
  * - .git/refs/     (new commits, remote updates, tag creation)
+ * - .git/worktrees/ (worktree add/remove — re-lists the nested-root seed)
+ *
+ * ## The workspace feed is a batched port (TASK_2026_437 C10, INV-1)
+ *
+ * On 2026-09-14 removing ten agent worktrees (~7,400 files each) delivered tens
+ * of thousands of events to this service's recursive `fs.watch` callback on the
+ * Electron main thread and froze the app. The workspace root is no longer
+ * watched here. It is one `IWorkspaceWatcher` subscription
+ * (`PLATFORM_TOKENS.WORKSPACE_WATCHER`): in Electron, `@parcel/watcher` in a
+ * supervised watch host. Everything per-event happens in that host — exclusion
+ * (`WATCH_IGNORED_DIRS`, `NESTED_WORKSPACE_PATH_RULES`, nested repository roots
+ * seeded from `git worktree list` and detected at runtime), storm breaking and
+ * coalescing. This service receives at most four batches a second, each with
+ * at most 500 paths, or one `overflow` marker.
+ *
+ * - A normal batch schedules the debounced status refresh and adds its
+ *   `update` paths to the one pending content set.
+ * - An `overflow` or `truncated` batch means "the paths are incomplete": it is
+ *   folded into exactly ONE `refreshGitInfo` plus ONE truncated content push,
+ *   absorbing any refresh still pending on the debounce. A degraded adapter
+ *   repeats `overflow` every 60 s; each costs one refresh, and a refresh already
+ *   running is joined by `GitInfoService`'s single flight, so they never stack.
  *
  * The file-tree refresh job (`scheduleTreeRefresh`, `FILE_TREE_CHANGED`) was
- * removed in TASK_2026_385 Batch 4.3 along with the file explorer it fed —
- * the workspace-root watcher below still schedules `git status` and
- * content-change refreshes on every event, which is how an agent's
- * working-tree edits keep surfacing at all.
- *
- * Replaces git:info polling with event-driven push, and also drives generic
- * workspace file watching.
+ * removed in TASK_2026_385 Batch 4.3 along with the file explorer it fed.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
+import type {
+  IDisposable,
+  IWorkspaceWatcher,
+  WorkspaceChangeBatch,
+} from '@ptah-extension/platform-core';
 import {
   MESSAGE_TYPES,
+  NESTED_WORKSPACE_PATH_RULES,
+  NestedRepoRoots,
   WATCH_IGNORED_DIRS,
   isExcludedWorkspacePath,
 } from '@ptah-extension/shared';
 import type {
+  FileContentChangedPayload,
   GitChangeKind,
   GitInfoResult,
   GitStatusUpdatePayload,
+  GitWorktreeInfo,
 } from '@ptah-extension/shared';
 
 /**
@@ -61,14 +87,13 @@ const GIT_STATUS_UPDATE = MESSAGE_TYPES.GIT_STATUS_UPDATE;
 /** Message type used for pushing file content change notifications to the renderer. */
 const FILE_CONTENT_CHANGED = MESSAGE_TYPES.FILE_CONTENT_CHANGED;
 
+/** `WATCH_IGNORED_DIRS` as the port's array channel, built once. */
+const WATCH_IGNORED_DIR_NAMES: readonly string[] = [...WATCH_IGNORED_DIRS];
+
 export class GitWatcherService {
   private watchers: fs.FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private gitOpsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly contentChangeTimers = new Map<
-    string,
-    ReturnType<typeof setTimeout>
-  >();
   private workspacePath: string | null = null;
   private broadcastFn: ((type: string, payload: unknown) => void) | null = null;
   private isDisposed = false;
@@ -76,7 +101,7 @@ export class GitWatcherService {
   /**
    * Pending workspace-switch debounce. Rapid successive `switchWorkspace`
    * calls (A→B→A) collapse to a single re-arm on the FINAL target so we do not
-   * tear down and rebuild the recursive `fs.watch` on every intermediate hop.
+   * tear down and rebuild the workspace subscription on every intermediate hop.
    */
   private switchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSwitchPath: string | null = null;
@@ -112,7 +137,47 @@ export class GitWatcherService {
    */
   private workspaceBurstStartedAt: number | null = null;
   private gitOpsBurstStartedAt: number | null = null;
-  private readonly contentChangeBurstStarts = new Map<string, number>();
+  private contentChangeBurstStartedAt: number | null = null;
+
+  /**
+   * Forward-slash absolute paths changed in the current content window. Capped
+   * at {@link MAX_PENDING_CONTENT_PATHS}; a path that does not fit sets
+   * {@link contentChangeTruncated} instead, which tells the renderer to
+   * revalidate everything rather than trust the list.
+   */
+  private readonly pendingContentPaths = new Set<string>();
+  private contentChangeTruncated = false;
+  private contentChangeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** The live workspace-root subscription on the batched port. */
+  private workspaceSubscription: IDisposable | null = null;
+
+  /**
+   * The absolute nested repository roots the live subscription was created
+   * with, sorted. A worktree re-list that yields the same set does not
+   * resubscribe.
+   */
+  private subscribedNestedRoots: readonly string[] = [];
+
+  /** Debounce for re-listing worktrees after a `.git/worktrees` change. */
+  private nestedRootsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Bumped by every `start` and `stop`, so a worktree listing or a batch that
+   * lands after the watcher moved on is discarded instead of acting on the
+   * workspace now being watched.
+   */
+  private armGeneration = 0;
+
+  /**
+   * Sequence of the latest `git worktree list` started. Two listings in flight
+   * together (rapid worktree churn) can resolve in either order; only the one
+   * started last may resubscribe, so a stale list never replaces a newer one.
+   */
+  private worktreeListingSeq = 0;
+
+  /** Latch for "worktree listing failed" — logged once per service, not per refresh. */
+  private worktreeListFailureLogged = false;
 
   /** Debounce interval for file content change notifications (ms). */
   private static readonly CONTENT_CHANGE_DEBOUNCE_MS = 500;
@@ -126,7 +191,8 @@ export class GitWatcherService {
   /**
    * Max-wait ceiling for the workspace `git status` channel (ms).
    *
-   * Three debounce windows. Under sustained churn this caps the shell-out at
+   * Four `WORKSPACE_DEBOUNCE_MS` windows (4 x 2000 ms). Under sustained churn
+   * this caps the shell-out at
    * one `git status` per 8 s — the most expensive of the three channels, and
    * the one whose staleness the user reads as a frozen decoration rather
    * than a missing refresh, so it buys the largest coalescing win per forced
@@ -138,7 +204,7 @@ export class GitWatcherService {
   /**
    * Max-wait ceiling for the .git-operations channel (ms).
    *
-   * Three debounce windows, as with every 500 ms channel. A single git command
+   * Four `GIT_DEBOUNCE_MS` windows (4 x 500 ms). A single git command
    * writes HEAD, index and refs within milliseconds, so a burst that is still
    * alive 2 s later is churn rather than one operation — at that point the
    * pending commit/checkout is worth pushing even if more events follow.
@@ -146,14 +212,37 @@ export class GitWatcherService {
   private static readonly GIT_OPS_MAX_WAIT_MS = 2000;
 
   /**
-   * Max-wait ceiling for per-file content-change notifications (ms).
+   * Max-wait ceiling for content-change notifications (ms).
    *
-   * Three debounce windows. Timers here are per file path, so a burst only
-   * ever means one file being rewritten repeatedly (a generator, a
-   * formatter-on-save loop); 2 s bounds how long the open editor can show
-   * stale content while still coalescing a normal save flurry.
+   * Four `CONTENT_CHANGE_DEBOUNCE_MS` windows (4 x 500 ms), all on the one
+   * content timer. One path set collects every changed file,
+   * so the ceiling bounds how long the open editor can show stale content
+   * while ambient churn keeps re-arming the single content timer.
    */
   private static readonly CONTENT_CHANGE_MAX_WAIT_MS = 2000;
+
+  /**
+   * Most paths one `file:content-changed` push carries. Past this the renderer
+   * gets `truncated: true` and revalidates every open view once, which is
+   * cheaper than matching thousands of paths it mostly does not have open.
+   */
+  private static readonly MAX_PENDING_CONTENT_PATHS = 256;
+
+  /**
+   * Batch interval — and leading-edge hold — for the workspace subscription
+   * (ms). `@parcel/watcher` reports the first change of a burst on its own and
+   * the rest up to `MAX_WAIT_TIME` (500 ms) plus `MIN_WAIT_TIME` (50 ms) later
+   * (`src/Debounce.cc` `notifyIfReady`/`wait`); measured on Windows, a
+   * tree delete's lone first event led its flood by ~470 ms. Holding the first
+   * batch for twice that ceiling lets the flood enter the host's storm while
+   * the lone event is still pending, so one delete costs one refresh (AC-2).
+   * It costs at most one second of extra latency on a change after quiet,
+   * inside the 2 s status debounce.
+   */
+  private static readonly WORKSPACE_BATCH_INTERVAL_MS = 1000;
+
+  /** Debounce for re-listing worktrees (ms). `git worktree add` writes several records at once. */
+  private static readonly NESTED_ROOTS_REFRESH_DEBOUNCE_MS = 500;
 
   /** Debounce interval for workspace switches (ms). Rapid A→B→A switching re-arms watchers only once, on the final target. */
   private static readonly SWITCH_DEBOUNCE_MS = 300;
@@ -164,6 +253,7 @@ export class GitWatcherService {
   constructor(
     private readonly gitInfo: GitInfoService,
     private readonly logger: Logger,
+    private readonly workspaceWatcher: IWorkspaceWatcher,
   ) {}
 
   /**
@@ -182,19 +272,24 @@ export class GitWatcherService {
     this.workspacePath = workspacePath;
     this.broadcastFn = broadcast;
     this.isDisposed = false;
+    this.armGeneration++;
 
     this.logger.info('[GitWatcher] Starting file system watchers', {
       workspacePath,
-    } as unknown as Error);
-    this.watchWorkspaceRoot(workspacePath);
+    });
+    // Subscribed at once with the static rules; the worktree listing below
+    // resubscribes only when it finds a worktree registered under the root.
+    this.subscribeWorkspace(workspacePath, []);
     const gitDir = this.resolveGitDir(workspacePath);
     if (!gitDir) {
       this.logger.debug(
         '[GitWatcher] No .git directory found, skipping git-specific watchers',
-        { workspacePath } as unknown as Error,
+        { workspacePath },
       );
       return;
     }
+
+    void this.refreshNestedRepoRoots(workspacePath, this.armGeneration);
 
     this.watchFile(path.join(gitDir, 'HEAD'), () =>
       this.scheduleGitOpsRefresh('head'),
@@ -209,6 +304,12 @@ export class GitWatcherService {
         this.scheduleGitOpsRefresh(
           filename === 'stash' ? 'refs-stash' : 'refs',
         ),
+      );
+    }
+    const worktreesDir = path.join(gitDir, 'worktrees');
+    if (fs.existsSync(worktreesDir)) {
+      this.watchDirectory(worktreesDir, () =>
+        this.scheduleNestedRootsRefresh(),
       );
     }
     this.watchFile(path.join(gitDir, 'packed-refs'), () =>
@@ -266,7 +367,7 @@ export class GitWatcherService {
       this.logger.warn('[GitWatcher] Failed to resolve gitdir pointer', {
         dotGit,
         error: err instanceof Error ? err.message : String(err),
-      } as unknown as Error);
+      });
       return null;
     }
   }
@@ -307,6 +408,7 @@ export class GitWatcherService {
    */
   stop(): void {
     this.isDisposed = true;
+    this.armGeneration++;
 
     if (this.switchDebounceTimer) {
       clearTimeout(this.switchDebounceTimer);
@@ -319,11 +421,7 @@ export class GitWatcherService {
       this.initialFetchTimer = null;
     }
 
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
-    this.workspaceBurstStartedAt = null;
+    this.clearWorkspaceDebounce();
 
     if (this.gitOpsDebounceTimer) {
       clearTimeout(this.gitOpsDebounceTimer);
@@ -331,11 +429,18 @@ export class GitWatcherService {
     }
     this.gitOpsBurstStartedAt = null;
 
-    for (const timer of this.contentChangeTimers.values()) {
-      clearTimeout(timer);
+    this.clearContentChangeTimer();
+    this.pendingContentPaths.clear();
+    this.contentChangeTruncated = false;
+
+    if (this.nestedRootsRefreshTimer) {
+      clearTimeout(this.nestedRootsRefreshTimer);
+      this.nestedRootsRefreshTimer = null;
     }
-    this.contentChangeTimers.clear();
-    this.contentChangeBurstStarts.clear();
+
+    this.disposeWorkspaceSubscription(this.workspaceSubscription);
+    this.workspaceSubscription = null;
+    this.subscribedNestedRoots = [];
 
     for (const watcher of this.watchers) {
       watcher.close();
@@ -343,6 +448,68 @@ export class GitWatcherService {
     this.watchers = [];
 
     this.pendingCauses.clear();
+  }
+
+  /**
+   * Subscribe to the workspace root, replacing any live subscription.
+   *
+   * The new subscription is created BEFORE the old one is disposed, so a
+   * resubscribe never opens a window with no feed; a change reported by both
+   * during the overlap only re-arms the same debounce.
+   *
+   * Excluded here, in the watch host: `WATCH_IGNORED_DIRS` (the workspace's own
+   * `.git` among them — the dedicated `.git` watchers own it, and routing them
+   * through this exclusion would stop every commit, stage and checkout from
+   * being detected), agent worktree directories, and nested repositories — the
+   * `nestedRoots` seed plus any `.git` entry the host sees below the root.
+   */
+  private subscribeWorkspace(
+    workspaceRoot: string,
+    nestedRoots: readonly string[],
+  ): void {
+    const generation = this.armGeneration;
+    const previous = this.workspaceSubscription;
+    try {
+      this.workspaceSubscription = this.workspaceWatcher.watch(
+        workspaceRoot,
+        {
+          excludeGlobs: [],
+          excludeDirNames: WATCH_IGNORED_DIR_NAMES,
+          excludeSegmentRules: NESTED_WORKSPACE_PATH_RULES,
+          nestedRepoDetection: true,
+          nestedRepoRoots: nestedRoots,
+          minBatchIntervalMs: GitWatcherService.WORKSPACE_BATCH_INTERVAL_MS,
+        },
+        (batch) => this.onWorkspaceBatch(generation, batch),
+      );
+      this.subscribedNestedRoots = nestedRoots;
+    } catch (err) {
+      // degradation-audit: optional-capability - the workspace feed only
+      // schedules refreshes; the dedicated .git watchers and every explicit
+      // RPC read still work without it. A previous subscription stays live.
+      this.logger.warn('[GitWatcher] Failed to watch workspace root', {
+        workspaceRoot,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    this.disposeWorkspaceSubscription(previous);
+  }
+
+  private disposeWorkspaceSubscription(subscription: IDisposable | null): void {
+    if (!subscription) return;
+    try {
+      subscription.dispose();
+    } catch (err) {
+      // degradation-audit: optional-capability - a subscription that fails to
+      // dispose is still unreachable: its batches are generation-gated.
+      this.logger.warn(
+        '[GitWatcher] Failed to dispose workspace subscription',
+        {
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+    }
   }
 
   /**
@@ -362,7 +529,7 @@ export class GitWatcherService {
         this.logger.warn('[GitWatcher] File watcher error', {
           filePath,
           error: err.message,
-        } as unknown as Error);
+        });
       });
 
       this.watchers.push(watcher);
@@ -370,7 +537,7 @@ export class GitWatcherService {
       this.logger.warn('[GitWatcher] Failed to watch file', {
         filePath,
         error: err instanceof Error ? err.message : String(err),
-      } as unknown as Error);
+      });
     }
   }
 
@@ -397,7 +564,7 @@ export class GitWatcherService {
         this.logger.warn('[GitWatcher] Directory watcher error', {
           dirPath,
           error: err.message,
-        } as unknown as Error);
+        });
       });
 
       this.watchers.push(watcher);
@@ -405,81 +572,141 @@ export class GitWatcherService {
       this.logger.warn('[GitWatcher] Failed to watch directory', {
         dirPath,
         error: err instanceof Error ? err.message : String(err),
-      } as unknown as Error);
-    }
-  }
-
-  /**
-   * True when a workspace-root watch event names a path Ptah does not track.
-   *
-   * A one-line adapter over the shared predicate — it holds no list of its
-   * own; `WATCH_IGNORED_DIRS` in `@ptah-extension/shared` is the only place
-   * directory names are enumerated. It exists so the decision is reachable
-   * from a unit test without intercepting `fs.watch`, whose export is
-   * non-configurable and therefore not spy-able.
-   */
-  private isIgnoredWorkspaceEvent(filename: string | null): boolean {
-    return (
-      typeof filename === 'string' &&
-      isExcludedWorkspacePath(filename, WATCH_IGNORED_DIRS)
-    );
-  }
-
-  /**
-   * Watch the workspace root recursively for git status changes and
-   * per-file content changes.
-   *
-   * All file events schedule a git status update — this, not any dedicated
-   * `.git` watcher, is how an agent's or the user's working-tree edits
-   * surface at all.
-   *
-   * Events under an excluded directory are dropped before they can re-arm the
-   * debounce timer — see `WATCH_IGNORED_DIRS` in `@ptah-extension/shared`,
-   * the single source of truth for what this watcher ignores.
-   *
-   * NOTE: the exclusion applies HERE ONLY. The dedicated `.git/HEAD`,
-   * `.git/index` and `.git/refs/` watchers armed via `watchFile` /
-   * `watchDirectory` must never be filtered — `.git` is excluded from this
-   * recursive watcher precisely because those dedicated watchers own it, and
-   * routing them through the same predicate would stop every commit, stage,
-   * checkout and branch switch from being detected.
-   *
-   * Uses recursive: true which is natively supported on Windows and macOS.
-   */
-  private watchWorkspaceRoot(dirPath: string): void {
-    try {
-      const watcher = fs.watch(
-        dirPath,
-        { recursive: true },
-        (eventType, filename) => {
-          if (this.isIgnoredWorkspaceEvent(filename)) {
-            return;
-          }
-          this.scheduleUpdate(
-            GitWatcherService.WORKSPACE_DEBOUNCE_MS,
-            'workspace',
-          );
-
-          if (eventType === 'change' && filename) {
-            this.scheduleContentChange(dirPath, filename);
-          }
-        },
-      );
-
-      watcher.on('error', (err) => {
-        this.logger.warn('[GitWatcher] Workspace watcher error', {
-          dirPath,
-          error: err.message,
-        } as unknown as Error);
       });
-
-      this.watchers.push(watcher);
-    } catch (err) {
-      this.logger.warn('[GitWatcher] Failed to watch workspace root', {
-        dirPath,
-        error: err instanceof Error ? err.message : String(err),
-      } as unknown as Error);
     }
+  }
+
+  /**
+   * One coalesced batch from the workspace subscription.
+   *
+   * Per batch, not per event: one status schedule, and one pass over the
+   * changed paths into the content set. `update` is the content kind — a
+   * create or delete changes git status but not an open file's text.
+   *
+   * No echo filter: `@parcel/watcher` does not report the directory metadata
+   * updates our own `git status` causes on NTFS, which the recursive `fs.watch`
+   * this replaced did (TASK_2026_437 FU-4d; pinned by ST-1b in
+   * `git-watcher.stress.spec.ts`: no batch reaches main after the rescan).
+   */
+  private onWorkspaceBatch(
+    generation: number,
+    batch: WorkspaceChangeBatch,
+  ): void {
+    if (this.isDisposed || generation !== this.armGeneration) return;
+    if (batch.overflow || batch.truncated) {
+      this.onWorkspaceOverflow();
+      return;
+    }
+    if (batch.changes.length === 0) return;
+
+    this.scheduleUpdate(GitWatcherService.WORKSPACE_DEBOUNCE_MS, 'workspace');
+    let contentChanged = false;
+    for (const change of batch.changes) {
+      if (change.kind !== 'update') continue;
+      this.addContentPath(change.path);
+      contentChanged = true;
+    }
+    if (contentChanged) this.armContentChange();
+  }
+
+  /**
+   * The batch's paths are incomplete — a storm, a host restart, a degraded
+   * rescan tick, or more distinct paths than one batch holds.
+   *
+   * Exactly one status refresh and one truncated content push, and both are
+   * idempotent: a refresh still pending on the workspace debounce and any
+   * accumulated content paths are folded in, so a burst of overflows costs one
+   * refresh each at most, and `refreshGitInfo` joins a run already in flight.
+   */
+  private onWorkspaceOverflow(): void {
+    this.clearWorkspaceDebounce();
+    this.pendingCauses.add('workspace');
+    void this.fetchAndPush();
+
+    this.pendingContentPaths.clear();
+    this.contentChangeTruncated = true;
+    this.flushContentChanges();
+  }
+
+  /** Coalesces worktree add/remove bursts into one `git worktree list`. */
+  private scheduleNestedRootsRefresh(): void {
+    if (this.isDisposed) return;
+    const workspaceRoot = this.workspacePath;
+    if (!workspaceRoot) return;
+    if (this.nestedRootsRefreshTimer) {
+      clearTimeout(this.nestedRootsRefreshTimer);
+    }
+    const generation = this.armGeneration;
+    this.nestedRootsRefreshTimer = setTimeout(() => {
+      this.nestedRootsRefreshTimer = null;
+      void this.refreshNestedRepoRoots(workspaceRoot, generation);
+    }, GitWatcherService.NESTED_ROOTS_REFRESH_DEBOUNCE_MS);
+  }
+
+  /**
+   * List the worktrees registered under the workspace and resubscribe when
+   * that set differs from the one the live subscription holds.
+   *
+   * Agent worktree directories are left out: the static rules exclude them by
+   * name already. A failed listing keeps the current subscription — the static
+   * rules and the host's runtime `.git` detection stay in force, so the
+   * degradation is only that a pre-existing worktree registered elsewhere under
+   * the workspace is watched until a `.git` event reveals it.
+   *
+   * Accepted cost of a resubscribe: roots the host discovered at runtime belong
+   * to the old subscription and are re-detected on their next `.git` event.
+   */
+  private async refreshNestedRepoRoots(
+    workspaceRoot: string,
+    generation: number,
+  ): Promise<void> {
+    const seq = ++this.worktreeListingSeq;
+    let worktrees: GitWorktreeInfo[];
+    try {
+      worktrees = await this.gitInfo.getWorktrees(workspaceRoot);
+    } catch (err) {
+      // degradation-audit: optional-capability - nested worktree roots are
+      // an addition to the static exclusion rules, which stay in force.
+      if (!this.worktreeListFailureLogged) {
+        this.worktreeListFailureLogged = true;
+        this.logger.warn(
+          '[GitWatcher] Could not list worktrees; nested worktree roots are not excluded',
+          {
+            workspaceRoot,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
+      return;
+    }
+    if (this.armGeneration !== generation || this.isDisposed) return;
+    // A listing started after this one owns the answer.
+    if (seq !== this.worktreeListingSeq) return;
+
+    const nestedRoots = NestedRepoRoots.fromWorktreeList(
+      worktrees,
+      workspaceRoot,
+    )
+      .roots()
+      .filter(
+        (root) =>
+          !isExcludedWorkspacePath(
+            root,
+            WATCH_IGNORED_DIRS,
+            NESTED_WORKSPACE_PATH_RULES,
+          ),
+      )
+      .map((root) => path.join(workspaceRoot, root))
+      // Any total order will do: it only makes two lists comparable element
+      // by element in `sameRoots`. Code-unit order is what `.sort()` used.
+      .sort(compareCodeUnits);
+    if (sameRoots(nestedRoots, this.subscribedNestedRoots)) return;
+
+    this.logger.debug('[GitWatcher] Excluding nested worktree roots', {
+      workspaceRoot,
+      roots: nestedRoots,
+    });
+    this.subscribeWorkspace(workspaceRoot, nestedRoots);
   }
 
   /**
@@ -494,8 +721,9 @@ export class GitWatcherService {
    *
    * Deliberately NOT applied to `switchDebounceTimer`: that channel coalesces
    * discrete user-initiated workspace switches, not file-system churn, and
-   * forcing it mid-sequence would tear down and re-arm the recursive watcher
-   * on an intermediate target — the exact churn its debounce exists to avoid.
+   * forcing it mid-sequence would tear down and re-subscribe the workspace
+   * feed on an intermediate target — the exact churn its debounce exists to
+   * avoid.
    */
   private static burstExpired(
     burstStartedAt: number | null,
@@ -505,49 +733,87 @@ export class GitWatcherService {
   }
 
   /**
-   * Schedule a debounced content-change notification for a specific file.
-   * Each file gets its own debounce timer so rapid saves to the same file
-   * coalesce, but changes to different files are independent.
+   * Add one changed file to the pending content batch. A path that does not
+   * fit under the cap marks the batch truncated instead.
    */
-  private scheduleContentChange(workspaceRoot: string, filename: string): void {
+  private addContentPath(absolutePath: string): void {
+    if (this.contentChangeTruncated) return;
+    const fullPath = absolutePath.replace(/\\/g, '/');
+    if (
+      this.pendingContentPaths.size <
+        GitWatcherService.MAX_PENDING_CONTENT_PATHS ||
+      this.pendingContentPaths.has(fullPath)
+    ) {
+      this.pendingContentPaths.add(fullPath);
+    } else {
+      this.contentChangeTruncated = true;
+    }
+  }
+
+  /**
+   * (Re-)arm the single content timer. Rapid saves to one file and changes to
+   * many files coalesce into the same push.
+   */
+  private armContentChange(): void {
     if (this.isDisposed) return;
 
-    const fullPath = path.join(workspaceRoot, filename).replace(/\\/g, '/');
-
-    if (!this.contentChangeBurstStarts.has(fullPath)) {
-      this.contentChangeBurstStarts.set(fullPath, Date.now());
+    this.contentChangeBurstStartedAt ??= Date.now();
+    if (this.contentChangeTimer) {
+      clearTimeout(this.contentChangeTimer);
+      this.contentChangeTimer = null;
     }
-
-    const existing = this.contentChangeTimers.get(fullPath);
-    if (existing) {
-      clearTimeout(existing);
-      this.contentChangeTimers.delete(fullPath);
-    }
-
-    const fire = (): void => {
-      this.contentChangeTimers.delete(fullPath);
-      this.contentChangeBurstStarts.delete(fullPath);
-      if (!this.isDisposed && this.broadcastFn) {
-        this.broadcastFn(FILE_CONTENT_CHANGED, { filePath: fullPath });
-      }
-    };
 
     // Bounded by CONTENT_CHANGE_MAX_WAIT_MS so a file being rewritten in a
     // tight loop still surfaces to the open editor.
     if (
       GitWatcherService.burstExpired(
-        this.contentChangeBurstStarts.get(fullPath) ?? null,
+        this.contentChangeBurstStartedAt,
         GitWatcherService.CONTENT_CHANGE_MAX_WAIT_MS,
       )
     ) {
-      fire();
+      this.flushContentChanges();
       return;
     }
 
-    this.contentChangeTimers.set(
-      fullPath,
-      setTimeout(fire, GitWatcherService.CONTENT_CHANGE_DEBOUNCE_MS),
+    this.contentChangeTimer = setTimeout(
+      () => this.flushContentChanges(),
+      GitWatcherService.CONTENT_CHANGE_DEBOUNCE_MS,
     );
+  }
+
+  /**
+   * Push the pending content batch, if there is anything to say. An empty,
+   * untruncated batch is not pushed — the renderer would ignore it anyway.
+   */
+  private flushContentChanges(): void {
+    this.clearContentChangeTimer();
+    if (this.isDisposed || !this.broadcastFn) return;
+    if (this.pendingContentPaths.size === 0 && !this.contentChangeTruncated) {
+      return;
+    }
+    const payload: FileContentChangedPayload = {
+      filePaths: Array.from(this.pendingContentPaths),
+      truncated: this.contentChangeTruncated,
+    };
+    this.pendingContentPaths.clear();
+    this.contentChangeTruncated = false;
+    this.broadcastFn(FILE_CONTENT_CHANGED, payload);
+  }
+
+  private clearContentChangeTimer(): void {
+    if (this.contentChangeTimer) {
+      clearTimeout(this.contentChangeTimer);
+      this.contentChangeTimer = null;
+    }
+    this.contentChangeBurstStartedAt = null;
+  }
+
+  private clearWorkspaceDebounce(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.workspaceBurstStartedAt = null;
   }
 
   /**
@@ -656,19 +922,16 @@ export class GitWatcherService {
     const causes = this.drainCauses();
     const workspaceRoot = this.workspacePath;
 
-    // Reaching here means the repository changed on disk. `GitInfoService`
-    // caches the branch list, stash list, tags, remotes and last commit until
-    // something says otherwise, and a change made OUTSIDE Ptah (a `git
-    // checkout` in the integrated terminal) reaches the service no other way —
-    // its own invalidation only covers commands it ran itself. Dropping the
-    // entries here, before the status fetch, is what keeps the status this
-    // push carries and the branch list the renderer asks for next describing
-    // the same instant (TASK_2026_343).
-    this.gitInfo.invalidateReadCache(workspaceRoot);
-
     try {
+      // Reaching here means the repository changed on disk, possibly outside
+      // Ptah (a `git checkout` in the integrated terminal), which reaches
+      // `GitInfoService` no other way (TASK_2026_343). `refreshGitInfo`
+      // invalidates the branch/stash/tag/remote caches and resolves with a
+      // status run that started AFTER this call — joining the one queued
+      // trailing run when a run is already alive, so a burst of pushes never
+      // stacks parallel `git status` pipelines (TASK_2026_437 INV-3).
       const result: GitInfoResult =
-        await this.gitInfo.getGitInfo(workspaceRoot);
+        await this.gitInfo.refreshGitInfo(workspaceRoot);
       if (this.workspacePath !== workspaceRoot) return;
       const payload: GitStatusUpdatePayload = {
         ...result,
@@ -679,7 +942,19 @@ export class GitWatcherService {
     } catch (err) {
       this.logger.warn('[GitWatcher] Failed to fetch git info', {
         error: err instanceof Error ? err.message : String(err),
-      } as unknown as Error);
+      });
     }
   }
+}
+
+/** Both sorted: equal lengths and equal entries. */
+function sameRoots(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((root, index) => root === b[index]);
+}
+
+/** UTF-16 code-unit order — what `Array.prototype.sort()` uses with no comparator. */
+function compareCodeUnits(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
 }

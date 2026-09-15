@@ -40,6 +40,7 @@
  * Settings are read on demand from the platform `IWorkspaceProvider`
  * (file-based settings) so changes apply without restart.
  */
+import type { QueryOrigin } from './internal-query.interface';
 import { inject, injectable } from 'tsyringe';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
@@ -1205,11 +1206,20 @@ export class SkillSynthesisService {
     return `${y}-${m}-${day}`;
   }
 
-  /** Manual promote (RPC `skillSynthesis:promote`). */
+  /**
+   * Manual promote (RPC `skillSynthesis:promote`). The RPC handler passes
+   * `userInitiated: true` so the judge call skips the background governor.
+   */
   promote(
     candidateId: CandidateId,
+    origin: QueryOrigin = {},
   ): ReturnType<SkillPromotionService['evaluate']> {
-    return this.promotion.evaluate(candidateId, this.readSettings());
+    return this.promotion.evaluate(
+      candidateId,
+      this.readSettings(),
+      undefined,
+      origin,
+    );
   }
 
   /** Manual reject (RPC `skillSynthesis:reject`). */
@@ -1246,11 +1256,16 @@ export class SkillSynthesisService {
    */
   async promoteBulk(
     ids: CandidateId[],
+    origin: QueryOrigin = {},
   ): Promise<SkillSynthesisPromoteBulkDecision[]> {
     const settings = this.readSettings();
     const decisions: SkillSynthesisPromoteBulkDecision[] = [];
+    // Sequential on purpose: with `userInitiated`, each judge call takes the
+    // one `user-action` slot and releases it before the next id asks, so
+    // another click queued meanwhile is admitted between two items (the
+    // gate's drain is FIFO). Wizard calls on `default` never share this slot.
     for (const id of ids) {
-      const d = await this.promotion.evaluate(id, settings);
+      const d = await this.promotion.evaluate(id, settings, undefined, origin);
       decisions.push({
         id: id as string,
         promoted: d.promoted,

@@ -139,6 +139,7 @@ describe('SkillSynthesisService — session end enqueues (P0-1)', () => {
           prompt: 'synthesize',
           mcpServerRunning: false,
           maxTurns: 1,
+          lane: 'skill-synthesis',
         });
         return null;
       }),

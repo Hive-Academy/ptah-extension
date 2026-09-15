@@ -1,6 +1,7 @@
 import type { DependencyContainer } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type {
+  QueryOrigin,
   SkillRepropagationKind,
   SkillRepropagationPort,
 } from '@ptah-extension/skill-synthesis';
@@ -8,6 +9,12 @@ import {
   HARNESS_SYNC_TOKENS,
   type HarnessPropagationService,
 } from '@ptah-extension/harness-sync';
+
+/**
+ * The user-layer label of a BACKGROUND skill re-propagation (TASK_2026_437
+ * FU-17b). `plugin-activation.ts` lists it in `GOVERNED_USER_LAYER_REASONS`.
+ */
+export const SKILL_REPROPAGATION_USER_LAYER_REASON = 'skill-repropagation';
 
 /**
  * Push a skill, command or agent the synthesis pipeline just changed out to
@@ -31,14 +38,53 @@ import {
  * The pass is idempotent: an event that changed nothing costs a directory walk
  * and a hash compare, which is why it is safe to fire on every kind rather than
  * trying to be clever about which surfaces a given change could possibly touch.
+ *
+ * ## Who waits (TASK_2026_437 FU-17b)
+ *
+ * The refresh half is scheduled by its origin. A click (`userInitiated: true`)
+ * names no refresh label, so the user layer refreshes as
+ * `harness-propagation`, which never waits. Everything else — the curator
+ * interval's auto-enhance, an auto-promotion — refreshes as
+ * {@link SKILL_REPROPAGATION_USER_LAYER_REASON}, which
+ * `GOVERNED_USER_LAYER_REASONS` holds while a turn is generating. Both land in
+ * the same coalescer, so a click that arrives while a background pass is held
+ * joins it and releases it at once. A background call returns once the
+ * propagation has started; a click returns once it has finished.
  */
 export class ElectronSkillRepropagation implements SkillRepropagationPort {
   constructor(private readonly container: DependencyContainer) {}
 
+  /**
+   * A click awaits the whole propagation, so its RPC reply reflects a finished
+   * refresh. Background work STARTS the propagation and returns: its refresh
+   * may be held by the governor for up to its ceiling, and the curator's
+   * enhancement loop awaits this call once per candidate, so awaiting here
+   * would stack one hold per candidate inside a single pass (b17b logic review,
+   * serious 1). Nothing later in a curator pass reads the propagated harness
+   * files, and repeated background requests still merge into one held pass in
+   * the user-layer coalescer.
+   */
   async repropagate(
     kind: SkillRepropagationKind,
     slug: string,
     workspaceRoot: string,
+    origin: QueryOrigin = {},
+  ): Promise<void> {
+    const userInitiated = origin.userInitiated === true;
+    if (userInitiated) {
+      await this.propagate(kind, slug, workspaceRoot, true);
+      return;
+    }
+    // Never rejects: `propagate` catches and logs every failure itself.
+    void this.propagate(kind, slug, workspaceRoot, false);
+  }
+
+  /** The propagation itself. Never throws; a failure is logged once. */
+  private async propagate(
+    kind: SkillRepropagationKind,
+    slug: string,
+    workspaceRoot: string,
+    userInitiated: boolean,
   ): Promise<void> {
     const logger = this.resolveLogger();
     try {
@@ -55,16 +101,24 @@ export class ElectronSkillRepropagation implements SkillRepropagationPort {
       const propagation = this.container.resolve<HarnessPropagationService>(
         HARNESS_SYNC_TOKENS.PROPAGATION,
       );
-      await propagation.propagate(workspaceRoot, `skill-repropagation:${kind}`);
+      await propagation.propagate(
+        workspaceRoot,
+        `skill-repropagation:${kind}`,
+        userInitiated
+          ? {}
+          : { userLayerRefreshReason: SKILL_REPROPAGATION_USER_LAYER_REASON },
+      );
       logger?.debug('[SkillRepropagation] Re-propagated enhanced clone', {
         kind,
         slug,
         workspaceRoot,
+        userInitiated,
       });
     } catch (error: unknown) {
       logger?.warn('[SkillRepropagation] Re-propagation failed (non-fatal)', {
         kind,
         slug,
+        userInitiated,
         error: error instanceof Error ? error.message : String(error),
       });
     }

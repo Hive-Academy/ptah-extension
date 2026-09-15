@@ -22,3 +22,5 @@ export {
 } from './implementations/vscode-editor-launcher';
 export { VscodeDiagnosticsProvider } from './implementations/vscode-diagnostics-provider';
 export { VscodeHttpServerProvider } from './implementations/vscode-http-server-provider';
+export { VscodeWorkspaceWatcher } from './implementations/vscode-workspace-watcher';
+export type { VscodeWorkspaceWatcherOptions } from './implementations/vscode-workspace-watcher';

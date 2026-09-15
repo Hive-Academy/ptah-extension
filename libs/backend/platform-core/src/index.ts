@@ -106,6 +106,14 @@ export type {
 export type { ISessionAttachmentGuard } from './interfaces/session-attachment-guard.interface';
 export type { IBootReadinessProvider } from './interfaces/boot-readiness.interface';
 export type {
+  IWorkspaceWatcher,
+  WorkspaceChange,
+  WorkspaceChangeBatch,
+  WorkspaceChangeKind,
+  WorkspaceChangeListener,
+  WorkspaceWatchOptions,
+} from './interfaces/workspace-watcher.interface';
+export type {
   IAppUpdater,
   AppUpdateState,
 } from './interfaces/app-updater.interface';
@@ -140,11 +148,96 @@ export type {
   GlobWatchPlan,
   GlobWatchPlanOptions,
 } from './utils/glob-watch-plan';
+export {
+  EVENT_STORM_BREAKER_DEFAULTS,
+  EVENT_STORM_BREAKER_ENV,
+  EventStormBreaker,
+  readEventStormBreakerOptionsFromEnv,
+} from './utils/event-storm-breaker';
+export type {
+  EventStormBreakerOptions,
+  EventStormStats,
+  StormExitReason,
+  StormPollResult,
+  StormRecordResult,
+} from './utils/event-storm-breaker';
+export {
+  WORKSPACE_WATCH_LIMITS,
+  WorkspaceChangeCoalescer,
+  isExcludedBySegmentRules,
+} from './utils/workspace-change-coalescer';
+export type {
+  CoalescerTimerHandle,
+  WorkspaceChangeCoalescerClock,
+  WorkspaceChangeCoalescerHooks,
+} from './utils/workspace-change-coalescer';
+export {
+  WORKSPACE_WATCH_HOST_DEFAULTS,
+  WorkspaceWatchHostCore,
+} from './workspace-watch/workspace-watch-host-core';
+export type {
+  WorkspaceWatchEngine,
+  WorkspaceWatchEngineCallback,
+  WorkspaceWatchEngineEvent,
+  WorkspaceWatchEngineSubscription,
+  WorkspaceWatchHostCoreOptions,
+} from './workspace-watch/workspace-watch-host-core';
+export type {
+  WorkspaceWatchDirectoryEntry,
+  WorkspaceWatchListDirectory,
+} from './workspace-watch/created-directory-reconciler';
+export {
+  bootWorkspaceWatchHost,
+  toWorkspaceWatchEngine,
+  workspaceWatchListDirectoryFor,
+} from './workspace-watch/workspace-watch-host-boot';
+export type { WorkspaceWatchHostBootOptions } from './workspace-watch/workspace-watch-host-boot';
+export {
+  WORKSPACE_WATCH_SUPERVISION_DEFAULTS,
+  WorkspaceWatchSupervisor,
+} from './workspace-watch/workspace-watch-supervisor';
+export type {
+  WorkspaceWatchHostForker,
+  WorkspaceWatchHostProcess,
+  WorkspaceWatchSupervision,
+  WorkspaceWatchSupervisorOptions,
+  WorkspaceWatcherDegradation,
+  WorkspaceWatcherDiagnostic,
+} from './workspace-watch/workspace-watch-supervisor';
+export {
+  WORKSPACE_WATCH_ERROR_CODES,
+  WORKSPACE_WATCH_NOTICE_CODES,
+  WORKSPACE_WATCH_PROTOCOL_LIMITS,
+  clipWorkspaceWatchText,
+  parseWorkspaceWatchHostInbound,
+  parseWorkspaceWatchHostOutbound,
+  toWorkspaceWatchBatchMessage,
+  toWorkspaceWatchPathKey,
+  toWorkspaceWatchSubscribeMessage,
+  workspaceWatchHostInboundSchema,
+  workspaceWatchHostOutboundSchema,
+} from './workspace-watch/workspace-watch-protocol';
+export type {
+  WorkspaceWatchBatchMessage,
+  WorkspaceWatchErrorCode,
+  WorkspaceWatchErrorMessage,
+  WorkspaceWatchFatalMessage,
+  WorkspaceWatchHeartbeatMessage,
+  WorkspaceWatchHostInbound,
+  WorkspaceWatchHostOutbound,
+  WorkspaceWatchNoticeCode,
+  WorkspaceWatchNoticeMessage,
+  WorkspaceWatchSubscribeMessage,
+  WorkspaceWatchSubscribedMessage,
+  WorkspaceWatchUnsubscribeMessage,
+} from './workspace-watch/workspace-watch-protocol';
 export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
 export {
   createExecutableEditorDefinitions,
   detectEditorTargets,
   EDITOR_DESCRIPTORS,
+  EDITOR_PROBE_CONCURRENCY,
+  EditorTargetCache,
   editorExecutableCandidates,
   prepareEditorFileLaunch,
   prepareEditorWorkspaceLaunch,

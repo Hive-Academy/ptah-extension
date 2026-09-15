@@ -13,6 +13,7 @@
  *
  * Materializes SKILL.md at the active root and updates `body_path` on the row.
  */
+import type { QueryOrigin } from './internal-query.interface';
 import * as fs from 'node:fs';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -179,6 +180,7 @@ export class SkillPromotionService {
     candidateId: CandidateId,
     settings: SkillSynthesisSettings,
     nowFn: () => number = () => Date.now(),
+    origin: QueryOrigin = {},
   ): Promise<PromotionDecision> {
     const candidate = this.store.findById(candidateId);
     if (!candidate) {
@@ -225,7 +227,7 @@ export class SkillPromotionService {
     }
     let graded = candidate;
     if (this.judge) {
-      const judged = await this.applyJudgeGate(candidate, settings);
+      const judged = await this.applyJudgeGate(candidate, settings, origin);
       if (judged) return { ...judged, ranking: rankingScore(judged.candidate) };
       graded = this.store.findById(candidate.id) ?? candidate;
     }
@@ -308,7 +310,7 @@ export class SkillPromotionService {
     // the demotion at the point it happened would ask the harness to reconcile
     // a half-applied state — the weakest skill already gone, the new one not yet
     // materialized — and the reconciler would then run twice for one decision.
-    await this.emitRepropagation([demotedSlug, candidate.name]);
+    await this.emitRepropagation([demotedSlug, candidate.name], origin);
 
     return {
       promoted: true,
@@ -331,15 +333,24 @@ export class SkillPromotionService {
    *
    * `null` entries (no demotion happened) and duplicates are dropped, so
    * promoting a skill that also evicted itself cannot double-fire.
+   *
+   * `origin` is the one `evaluate` was given: a `skillSynthesis:promote` click
+   * propagates at once, an auto-promotion may wait for the governor (FU-17b).
    */
   private async emitRepropagation(
     slugs: readonly (string | null)[],
+    origin: QueryOrigin,
   ): Promise<void> {
     if (!this.repropagation) return;
     const workspaceRoot = this.workspaceRoot();
     for (const slug of new Set(slugs.filter((s): s is string => s !== null))) {
       try {
-        await this.repropagation.repropagate('skill', slug, workspaceRoot);
+        await this.repropagation.repropagate(
+          'skill',
+          slug,
+          workspaceRoot,
+          origin,
+        );
       } catch (err) {
         this.logger.warn(
           '[skill-synthesis] skill repropagation failed (residency change is still committed)',
@@ -468,11 +479,19 @@ export class SkillPromotionService {
   private async applyJudgeGate(
     candidate: SkillCandidateRow,
     settings: SkillSynthesisSettings,
+    origin: QueryOrigin,
   ): Promise<PromotionDecision | null> {
     if (!this.judge) return null;
 
     const body = this.readCandidateBody(candidate);
-    const decision = await this.judge.judge(candidate, body, settings);
+    const decision = await this.judge.judge(
+      candidate,
+      body,
+      settings,
+      undefined,
+      undefined,
+      origin,
+    );
     const judged = this.store.recordJudgeVerdict(candidate.id, {
       status: decision.status,
       score: decision.score,

@@ -33,6 +33,16 @@ Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(
 ## Internal Structure
 
 - `src/lib/sqlite-connection.service.ts` — opens DB, loads sqlite-vec extension
+- `src/lib/slow-statement-timing.ts` — `withSlowStatementTiming`, the Proxy the
+  connection hands out in place of the raw handle (TASK_2026_437 C13). Times
+  `run/get/all/iterate`, `exec`, `pragma` and transaction functions; at or above
+  `PTAH_SQLITE_SLOW_WARN_MS` (default 50) it warns `[SQLite] slow statement`, at
+  most once per SQL text per minute. Measurement only: results and exceptions
+  pass through untouched, and native methods are always called on the real
+  object (better-sqlite3 brand-checks `this`). Transparent to spies and
+  reassignment: a member written through the wrapper is returned as assigned,
+  deleting it (or assigning its forwarder back) restores timing, and changes
+  made on the raw handle are not seen.
 - `src/lib/migration-runner.ts` — applies pending migrations in order
 - `src/lib/migrations/` — `MIGRATIONS` tuple (forward-only, append-only)
 - `src/lib/backup.service.ts` — `SqliteBackupService`. **Worker-driven since
@@ -49,6 +59,13 @@ Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(
   - **Overlapping calls are SERIALIZED, never rejected** — the second awaits the
     first. A pre-migration backup must not be skipped because the daily cron was
     running. The chain tail is advanced synchronously, before the first `await`.
+  - **Only a `daily` backup waits for the background-work governor**
+    (TASK_2026_437 C14 d; optional `TOKENS.BACKGROUND_WORK_GOVERNOR`). It waits
+    BEFORE joining the queue, so it never holds a `pre-migration` (boot path)
+    or `reset` (a user click) backup behind it; neither of those ever waits.
+    `'clear'` or the governor's 10-min `'timeout'` → the backup runs; an
+    `AbortError` (governor disposed at shutdown) → `null`, one `info` line, no
+    worker and no degradation report; any other rejection fails open.
   - **Every `null`-returning path discards the destination AND its `-wal` /
     `-shm` sidecars**, via the worker's own `removeBackupArtifact`. The worker
     cannot do this for itself when the host kills it (budget expiry, early exit):

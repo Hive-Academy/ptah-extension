@@ -218,6 +218,9 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   'disposeVoiceWorker',
   'agentProcessManager',
   'cliRegistry',
+  // The watch host (TASK_2026_437 C8): captured pre-window beside
+  // `cliRegistry`, killed after its consumer stopped; writes nothing.
+  'workspaceWatcher',
   'diagnostics',
 ];
 
@@ -297,6 +300,7 @@ function makeFullRefs(order: string[]): BootRefs {
     },
   };
   refs.cliRegistry = { disposeAll: record('cliRegistry') };
+  refs.workspaceWatcher = { dispose: record('workspaceWatcher') };
   refs.diagnostics = {
     dispose: record('diagnostics'),
   } as unknown as BootRefs['diagnostics'];

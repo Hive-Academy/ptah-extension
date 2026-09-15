@@ -41,6 +41,7 @@ function makeCurator(): MemoryCuratorService {
       created: 0,
       skipped: 0,
     }),
+    networkDeferralMs: jest.fn(() => 0),
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     lastRunInfo: jest.fn(() => ({ at: null, stats: null })),

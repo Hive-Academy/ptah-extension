@@ -683,9 +683,12 @@ describe('MemoryRpcHandlers — memory:runNow', () => {
       workspaceRoot: '/workspace/project',
     });
 
+    // `userInitiated`: a user is waiting, so the pass skips the background-work
+    // governor (TASK_2026_437 C14, Batch 16b). Only this RPC sets it.
     expect(curator.curate).toHaveBeenCalledWith({
       sessionId: 'sess-1',
       workspaceRoot: '/workspace/project',
+      userInitiated: true,
     });
     expect(result).toMatchObject({
       success: true,

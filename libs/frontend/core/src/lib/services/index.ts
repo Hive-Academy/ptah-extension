@@ -46,6 +46,11 @@ export {
 export { pickerWorkspaceScope } from './picker-workspace-scope.util';
 export { defaultSessionName } from './default-session-name.util';
 export { setIfChanged } from './idempotent-setters';
+export {
+  scheduleMacrotask,
+  yieldToMacrotask,
+  type MacrotaskHandle,
+} from './macrotask-scheduler';
 export { LazyViewService } from './lazy-view.service';
 export { BootStatusService } from './boot-status.service';
 export {

@@ -35,11 +35,20 @@ export interface ResolvedMemoryDraft extends ExtractedMemoryDraft {
 /**
  * Why an extraction pass never reached the model.
  *
- * One member today. It is a union rather than a boolean because the caller's
- * decision ("keep the input, this pass consumed nothing") is the same for every
- * future member, while the diagnostics text is not.
+ * A union rather than a boolean because the caller's decision ("keep the
+ * input, this pass consumed nothing") is the same for every member, while the
+ * diagnostics text is not.
+ *
+ * - `provider-cooling-down` — the quota gate stopped the pass before dispatch.
+ * - `provider-unreachable` — the pass was dispatched and the provider never
+ *   answered: a network-class failure (connection, DNS, timeout, HTTP 5xx or
+ *   429) after the subprocess's own retries (TASK_2026_437 C14 f). The model
+ *   read nothing, so the input is kept exactly as for a quota stall, and the
+ *   caller backs its background passes off.
  */
-export type CuratorStallReason = 'provider-cooling-down';
+export type CuratorStallReason =
+  | 'provider-cooling-down'
+  | 'provider-unreachable';
 
 /**
  * The outcome of one extraction pass — TASK_2026_306 Batch 10, finding F1.
@@ -101,8 +110,25 @@ export type CuratorExtraction =
       readonly toolNames: readonly string[];
     };
 
+/**
+ * Who asked for a curator call (TASK_2026_437 C14, Batch 16b).
+ *
+ * `userInitiated: true` means a person is waiting (the `memory:runNow` RPC):
+ * the adapter runs the query on the host's ungoverned user-initiated lane
+ * instead of the background `memory-curator` lane the governor holds. Absent
+ * or `false` — every trigger, PreCompact hook and schedule — keeps the
+ * background lane. Same field name as skill-synthesis's `QueryOrigin`.
+ */
+export interface CuratorCallOptions {
+  readonly userInitiated?: boolean;
+}
+
 export interface ICuratorLLM {
-  extract(transcript: string, signal?: AbortSignal): Promise<CuratorExtraction>;
+  extract(
+    transcript: string,
+    signal?: AbortSignal,
+    options?: CuratorCallOptions,
+  ): Promise<CuratorExtraction>;
 
   /**
    * Merge-resolve the drafts `extract` produced.
@@ -117,5 +143,6 @@ export interface ICuratorLLM {
     drafts: readonly ExtractedMemoryDraft[],
     related: readonly { id: string; subject: string | null; content: string }[],
     signal?: AbortSignal,
+    options?: CuratorCallOptions,
   ): Promise<readonly ResolvedMemoryDraft[]>;
 }

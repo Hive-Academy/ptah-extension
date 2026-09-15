@@ -28,3 +28,7 @@ export { ElectronEditorLauncher } from './implementations/electron-editor-launch
 export type { ElectronEditorLauncherOptions } from './implementations/electron-editor-launcher';
 export { ElectronDiagnosticsProvider } from './implementations/electron-diagnostics-provider';
 export { ElectronHttpServerProvider } from './implementations/electron-http-server-provider';
+export { ElectronWorkspaceWatcher } from './workspace-watch/electron-workspace-watcher';
+export type { ElectronWorkspaceWatcherOptions } from './workspace-watch/electron-workspace-watcher';
+export { createInProcessWorkspaceWatchHostForker } from './workspace-watch/in-process-workspace-watch-host';
+export type { InProcessWorkspaceWatchHostOptions } from './workspace-watch/in-process-workspace-watch-host';

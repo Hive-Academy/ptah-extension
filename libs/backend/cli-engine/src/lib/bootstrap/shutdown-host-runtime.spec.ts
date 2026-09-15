@@ -18,14 +18,17 @@ import {
   shutdownAgentProcesses,
   shutdownHostRuntime,
   shutdownPtahCliProxies,
+  shutdownWorkspaceWatcher,
 } from './shutdown-host-runtime.js';
 
 const AGENT_PROCESS_MANAGER_TOKEN = Symbol.for('AgentProcessManager');
 const PTAH_CLI_REGISTRY_TOKEN = Symbol.for('SdkPtahCliRegistry');
+const WORKSPACE_WATCHER_TOKEN = Symbol.for('PlatformWorkspaceWatcher');
 
 interface FakeSubsystems {
   agentDisposeAll: jest.Mock;
   proxyDisposeAll: jest.Mock;
+  watcherDispose: jest.Mock;
   /** Ordered log of which half ran, appended by the two mocks above. */
   order: string[];
 }
@@ -42,6 +45,7 @@ function makeContainer(
   overrides: {
     agentDisposeAll?: jest.Mock;
     proxyDisposeAll?: jest.Mock;
+    watcherDispose?: jest.Mock;
   } = {},
 ): { container: DependencyContainer; fakes: FakeSubsystems } {
   const order: string[] = [];
@@ -58,6 +62,12 @@ function makeContainer(
       order.push('proxies');
     });
 
+  const watcherDispose =
+    overrides.watcherDispose ??
+    jest.fn(() => {
+      order.push('watcher');
+    });
+
   const registeredSet = new Set<symbol>(registered);
   const container = {
     isRegistered: jest.fn((token: symbol) => registeredSet.has(token)),
@@ -68,11 +78,17 @@ function makeContainer(
       if (token === PTAH_CLI_REGISTRY_TOKEN) {
         return { disposeAll: proxyDisposeAll };
       }
+      if (token === WORKSPACE_WATCHER_TOKEN) {
+        return { dispose: watcherDispose };
+      }
       throw new Error(`unexpected token: ${String(token)}`);
     }),
   } as unknown as DependencyContainer;
 
-  return { container, fakes: { agentDisposeAll, proxyDisposeAll, order } };
+  return {
+    container,
+    fakes: { agentDisposeAll, proxyDisposeAll, watcherDispose, order },
+  };
 }
 
 describe('shutdownHostRuntime', () => {
@@ -95,6 +111,19 @@ describe('shutdownHostRuntime', () => {
       await shutdownHostRuntime(container);
 
       expect(fakes.order).toEqual(['agents', 'proxies']);
+    });
+
+    it('disposes a registered workspace watcher last, once', async () => {
+      const { container, fakes } = makeContainer([
+        AGENT_PROCESS_MANAGER_TOKEN,
+        PTAH_CLI_REGISTRY_TOKEN,
+        WORKSPACE_WATCHER_TOKEN,
+      ]);
+
+      await shutdownHostRuntime(container);
+
+      expect(fakes.order).toEqual(['agents', 'proxies', 'watcher']);
+      expect(fakes.watcherDispose).toHaveBeenCalledTimes(1);
     });
 
     it('disposes each subsystem exactly once', async () => {
@@ -238,8 +267,39 @@ describe('shutdownHostRuntime', () => {
 
       await expect(shutdownHostRuntime(container)).resolves.toBeUndefined();
 
-      // Both halves were attempted — one failure does not skip the other.
-      expect(container.resolve).toHaveBeenCalledTimes(2);
+      // Every step was attempted — one failure does not skip the next.
+      expect(container.resolve).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('workspace watcher', () => {
+    it('is not resolved when unregistered', async () => {
+      const { container, fakes } = makeContainer();
+
+      await shutdownWorkspaceWatcher(container);
+
+      expect(fakes.watcherDispose).not.toHaveBeenCalled();
+      expect(container.resolve).not.toHaveBeenCalled();
+    });
+
+    it('absorbs a throwing dispose and reports it on stderr', async () => {
+      const watcherDispose = jest.fn(() => {
+        throw new Error('watch host kill failed');
+      });
+      const { container } = makeContainer([WORKSPACE_WATCHER_TOKEN], {
+        watcherDispose,
+      });
+
+      await expect(shutdownHostRuntime(container)).resolves.toBeUndefined();
+
+      const written = stderrSpy.mock.calls.map((c) => String(c[0]));
+      expect(
+        written.some((line) =>
+          line.includes(
+            'workspace watcher disposal failed: watch host kill failed',
+          ),
+        ),
+      ).toBe(true);
     });
   });
 

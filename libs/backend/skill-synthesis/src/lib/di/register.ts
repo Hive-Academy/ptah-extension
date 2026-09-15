@@ -46,6 +46,7 @@ import { SkillDrainService } from '../queue/skill-drain.service';
 import { SkillStageHandlersService } from '../queue/stage-handlers.service';
 import { LaneResolverService } from '../lanes/lane-resolver.service';
 import { LaneRunnerService } from '../lanes/lane-runner.service';
+import { ProviderNetworkBackoffs } from '../lanes/provider-network-backoffs';
 import { SessionVerdictStore } from '../archaeology/session-verdict.store';
 import { SessionArchaeologistService } from '../archaeology/session-archaeologist.service';
 import { ReplayValidatorService } from '../gates/replay-validator.service';
@@ -165,6 +166,15 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.FOREGROUND_ACTIVITY_TRACKER, {
     useToken: ForegroundActivityTracker,
+  });
+  // A value, not a class registration: the back-offs are plain state with no
+  // injected collaborators, and the drain, the lane runner and the enhancer
+  // must share the one instance.
+  container.register(SKILL_SYNTHESIS_TOKENS.NETWORK_BACKOFF, {
+    useValue: new ProviderNetworkBackoffs({
+      logger,
+      logPrefix: '[skill-synthesis]',
+    }),
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE, {
     useToken: SkillDrainService,

@@ -35,7 +35,10 @@ import {
   type CuratorRateLimitService,
 } from '@ptah-extension/agent-sdk';
 import { MEMORY_TOKENS } from '../di/tokens';
-import { MemoryCuratorService } from '../memory-curator.service';
+import {
+  MemoryCuratorService,
+  type CuratorRunStats,
+} from '../memory-curator.service';
 import {
   ObservationQueueStore,
   type ObservationDraftRow,
@@ -505,6 +508,7 @@ export class MemoryTriggerService {
       }
     }
     if (!matchedCue) return;
+    if (this.heldByNetworkBackoff(payload.sessionId, 'user-cue')) return;
 
     const decision = this.rateLimiter.tryAcquire(
       RATE_LIMIT_KEY,
@@ -697,6 +701,9 @@ export class MemoryTriggerService {
       this.episodes.reset(sessionId);
       return;
     }
+    // Before the slot is spent and before the buffer is detached: the episode
+    // stays where it is and the next boundary tries again.
+    if (this.heldByNetworkBackoff(sessionId, source)) return;
 
     const decision = this.rateLimiter.tryAcquire(
       RATE_LIMIT_KEY,
@@ -753,6 +760,32 @@ export class MemoryTriggerService {
       episodeSnap,
       detached,
     );
+  }
+
+  /**
+   * Whether the curator's network back-off would defer a background pass right
+   * now. Checked BEFORE `tryAcquire` on every trigger path (TASK_2026_437 C14
+   * f): a deferred pass makes no upstream call, so spending one of
+   * `maxCuratesPerHour` on it would starve real curation for the rest of the
+   * hour once the provider is back. A window that opens between this check
+   * and dispatch (a pass queued behind the one that failed) is covered by the
+   * refund on a `network-backoff` deferral instead.
+   */
+  private heldByNetworkBackoff(sessionId: string, source: string): boolean {
+    const remainingMs = this.curator.networkDeferralMs();
+    if (remainingMs <= 0) return false;
+    this.logger.debug(
+      '[memory-curator] curate trigger held by the network back-off; no hourly slot spent',
+      { sessionId, source, remainingMs },
+    );
+    return true;
+  }
+
+  /** Give back the hourly slot of a pass the network back-off deferred at dispatch. */
+  private refundIfNetworkDeferred(stats: CuratorRunStats): void {
+    if (stats.deferral === 'network-backoff') {
+      this.rateLimiter.refund(RATE_LIMIT_KEY);
+    }
   }
 
   private shouldCoalesce(sessionId: string): boolean {
@@ -819,6 +852,7 @@ export class MemoryTriggerService {
         salienceBoost,
       });
       if (stats.outcome === 'stalled') {
+        this.refundIfNetworkDeferred(stats);
         if (detachedEpisode) {
           this.episodes.reattach(sessionId, detachedEpisode);
         }
@@ -912,6 +946,11 @@ export class MemoryTriggerService {
           // enqueues a local SQLite row and spends nothing upstream, so
           // charging it to the curate budget would starve real curation to pay
           // for free work — see `skill-trigger.service.ts`'s `runBootScan`.
+          // The network back-off would defer this pass: stop the scan with
+          // the watermark in place and spend no slot (C14 f).
+          if (this.heldByNetworkBackoff(scanSessionId, 'boot')) {
+            return 'stalled';
+          }
           const decision = this.rateLimiter.tryAcquire(
             RATE_LIMIT_KEY,
             this.readMaxCuratesPerHour(),
@@ -965,7 +1004,11 @@ export class MemoryTriggerService {
           // The watermark's only input. A stalled pass read this session and
           // curated nothing from it, so recording it as scanned would lose it
           // the moment the next boot filters on `mtime > watermark`.
-          return stats.outcome === 'stalled' ? 'stalled' : 'ran';
+          if (stats.outcome === 'stalled') {
+            this.refundIfNetworkDeferred(stats);
+            return 'stalled';
+          }
+          return 'ran';
         },
       });
       this.curator.pushEvent({

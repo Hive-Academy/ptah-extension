@@ -55,6 +55,32 @@ const SELECTION_SUPERSEDED_MESSAGE =
 const APPLY_TRANSPORT_MESSAGE =
   'Could not reach git to apply this hunk. Nothing was applied.';
 
+/**
+ * Narrow an inbound `file:content-changed` payload. Anything that is not the
+ * batch shape (a missing payload, a non-array `filePaths`) yields `null`;
+ * non-string entries are dropped rather than failing the whole batch.
+ *
+ * Why a guard when other push handlers trust their producer: this payload
+ * changed shape in TASK_2026_437 (`{ filePath }` → `{ filePaths, truncated }`).
+ * An old or malformed payload must be dropped here, not crash the message
+ * router by iterating `undefined`.
+ */
+function toFileContentChange(
+  payload: unknown,
+): FileContentChangedPayload | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const { filePaths, truncated } = payload as Partial<
+    Record<keyof FileContentChangedPayload, unknown>
+  >;
+  if (!Array.isArray(filePaths)) return null;
+  return {
+    filePaths: filePaths.filter(
+      (entry): entry is string => typeof entry === 'string' && entry !== '',
+    ),
+    truncated: truncated === true,
+  };
+}
+
 /** Final path segment of an absolute or relative path. */
 function extractFileName(filePath: string): string {
   const parts = filePath.replace(/\\/g, '/').split('/');
@@ -97,6 +123,14 @@ export class DiffTabsService implements MessageHandler {
     string,
     ReturnType<typeof setTimeout>
   >();
+
+  /**
+   * Set by a truncated `file:content-changed` push: the next debounced
+   * revalidation re-reads file view tabs as well as diff tabs. A
+   * `git:status-update` alone leaves file views alone — git state changing
+   * says nothing about a file's bytes.
+   */
+  private fileViewRevalidationPending = false;
 
   /**
    * Monotonic source for file-view request ids, per SERVICE rather than per
@@ -182,10 +216,8 @@ export class DiffTabsService implements MessageHandler {
         return;
       }
       case MESSAGE_TYPES.FILE_CONTENT_CHANGED: {
-        const payload = message.payload as
-          | Partial<FileContentChangedPayload>
-          | undefined;
-        if (payload?.filePath) this.onFileContentChanged(payload.filePath);
+        const change = toFileContentChange(message.payload);
+        if (change) this.onFileContentChanged(change);
         return;
       }
       default:
@@ -355,29 +387,61 @@ export class DiffTabsService implements MessageHandler {
       setTimeout(() => {
         this.refreshDebounceTimers.delete(target);
         void this.refreshAllDiffTabs();
+        if (this.fileViewRevalidationPending) {
+          this.fileViewRevalidationPending = false;
+          this.refreshAllFileViews();
+        }
       }, DiffTabsService.DIFF_REFRESH_DEBOUNCE_MS),
     );
   }
 
   /**
-   * Handle a `file:content-changed` push for an ABSOLUTE path: only
-   * working-tree diffs read the file on disk, so only those need revalidating.
+   * Handle a batched `file:content-changed` push.
+   *
+   * - `truncated`: the path list is incomplete, so every open diff and file
+   *   view is revalidated ONCE, through the same debounce `git:status-update`
+   *   uses — a storm of truncated pushes collapses into one pass.
+   * - Otherwise the batch's paths are keyed once and matched against the open
+   *   tabs: a file view by its absolute path, a diff only when it is a
+   *   working-tree diff (only those read the file on disk).
+   * - An empty, untruncated batch is ignored.
    */
-  public onFileContentChanged(absolutePath: string): void {
-    const changedKey = fileViewTabKey(absolutePath);
-    for (const tab of this._diffTabs()) {
-      if (tab.view && fileViewTabKey(tab.view.absolutePath) === changedKey) {
-        void this.refreshFileView(tab.filePath);
-      }
+  public onFileContentChanged(change: FileContentChangedPayload): void {
+    if (change.truncated) {
+      this.fileViewRevalidationPending = true;
+      this.onGitStatusUpdate();
+      return;
+    }
+    if (change.filePaths.length === 0) return;
+
+    const changedViewKeys = new Set<string>();
+    const changedRelativePaths = new Set<string>();
+    for (const absolutePath of change.filePaths) {
+      changedViewKeys.add(fileViewTabKey(absolutePath));
+      const relative = this.toWorkspaceRelative(absolutePath);
+      if (relative) changedRelativePaths.add(relative);
     }
 
-    const relative = this.toWorkspaceRelative(absolutePath);
-    if (!relative) return;
-
     for (const tab of this._diffTabs()) {
-      if (tab.diff?.comparison !== 'worktree') continue;
-      if (tab.diff.path !== relative) continue;
-      void this.refreshDiffTab(tab.filePath);
+      if (tab.view) {
+        if (changedViewKeys.has(fileViewTabKey(tab.view.absolutePath))) {
+          void this.refreshFileView(tab.filePath);
+        }
+        continue;
+      }
+      if (
+        tab.diff?.comparison === 'worktree' &&
+        changedRelativePaths.has(tab.diff.path)
+      ) {
+        void this.refreshDiffTab(tab.filePath);
+      }
+    }
+  }
+
+  /** Re-read every open file view tab. */
+  private refreshAllFileViews(): void {
+    for (const tab of this._diffTabs()) {
+      if (tab.view) void this.refreshFileView(tab.filePath);
     }
   }
 
@@ -567,6 +631,7 @@ export class DiffTabsService implements MessageHandler {
       clearTimeout(timer);
     }
     this.refreshDebounceTimers.clear();
+    this.fileViewRevalidationPending = false;
   }
 
   // -------------------------------------------------------------------------

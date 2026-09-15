@@ -36,6 +36,10 @@ import { ElectronEditorProvider } from './implementations/electron-editor-provid
 import { ElectronTokenCounter } from './implementations/electron-token-counter';
 import { ElectronDiagnosticsProvider } from './implementations/electron-diagnostics-provider';
 import { ElectronHttpServerProvider } from './implementations/electron-http-server-provider';
+import {
+  ElectronWorkspaceWatcher,
+  type ElectronWorkspaceWatcherOptions,
+} from './workspace-watch/electron-workspace-watcher';
 
 /**
  * Options for Electron platform registration.
@@ -68,6 +72,12 @@ export interface ElectronPlatformOptions {
   initialFolders?: string[];
   /** Bundled worker_threads entry used by workspace state storage. */
   stateStorageWorkerPath?: string;
+  /**
+   * Watch host wiring for `PLATFORM_TOKENS.WORKSPACE_WATCHER` (TASK_2026_437
+   * C8): the host forker plus the log and degradation sinks. The token is left
+   * unregistered when omitted — a host that never watches forks nothing.
+   */
+  workspaceWatchHost?: ElectronWorkspaceWatcherOptions;
 }
 
 /**
@@ -176,6 +186,12 @@ export function registerPlatformElectronServices(
   container.register(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER, {
     useValue: new ElectronHttpServerProvider(),
   });
+  if (options.workspaceWatchHost) {
+    // Construction forks nothing: the host starts on the first `watch`.
+    container.register(PLATFORM_TOKENS.WORKSPACE_WATCHER, {
+      useValue: new ElectronWorkspaceWatcher(options.workspaceWatchHost),
+    });
+  }
 }
 
 /**

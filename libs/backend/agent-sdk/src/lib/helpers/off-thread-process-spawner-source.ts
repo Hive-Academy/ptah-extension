@@ -26,27 +26,39 @@
  *
  * **The trade this makes.** The body below is not type-checked or linted. It is
  * covered instead by `off-thread-process-spawner.spec.ts`, which drives real
- * child processes through it — round trip, exit, kill, abort and ENOENT — so a
- * typo here fails the suite rather than shipping.
+ * child processes through it — round trip, exit, kill, abort, ENOENT and worker
+ * reuse — so a typo here fails the suite rather than shipping.
  *
  * **Constraints on edits.** The literal is a `String.raw` template, so the
  * program text must contain no backticks and no `${` sequence or it stops being
  * a string and starts being an interpolation. Use `'a' + b` concatenation.
  *
- * Protocol (see `off-thread-process-spawner.ts` for the typed mirror):
- *   host -> worker: { type: 'spawn', command, args, cwd, env, stderrMode,
+ * Protocol (see `off-thread-process-spawner.ts` for the typed mirror). Every
+ * message in both directions carries the `id` of the lease it belongs to:
+ *   host -> worker: { type: 'spawn', id, command, args, cwd, env, stderrMode,
  *                     detached, windowsHide, windowsVerbatimArguments }
- *                 | { type: 'stdin', chunk: Uint8Array }
- *                 | { type: 'stdin-end' }
- *                 | { type: 'kill', signal }
- *                 | { type: 'pause' } | { type: 'resume' }
- *   worker -> host: { type: 'spawned', pid }
- *                 | { type: 'stdout', chunk: Uint8Array }
- *                 | { type: 'stderr', text }
- *                 | { type: 'stderr-chunk', chunk: Uint8Array }
- *                 | { type: 'stdout-end' } | { type: 'stderr-end' }
- *                 | { type: 'exit', code, signal }
- *                 | { type: 'error', message, code, errno, syscall, path }
+ *                 | { type: 'stdin', id, chunk: Uint8Array }
+ *                 | { type: 'stdin-end', id }
+ *                 | { type: 'kill', id, signal }
+ *                 | { type: 'pause', id } | { type: 'resume', id }
+ *   worker -> host: { type: 'spawned', id, pid }
+ *                 | { type: 'stdout', id, chunk: Uint8Array }
+ *                 | { type: 'stderr', id, text }
+ *                 | { type: 'stderr-chunk', id, chunk: Uint8Array }
+ *                 | { type: 'stdout-end', id } | { type: 'stderr-end', id }
+ *                 | { type: 'exit', id, code, signal }
+ *                 | { type: 'error', id, message, code, errno, syscall, path }
+ *
+ * **One worker serves many children, one at a time (TASK_2026_437 C12).** The
+ * host keeps a small pool of these threads instead of paying a fresh V8 isolate
+ * per spawn, so every `spawn` message builds a NEW per-child state object and
+ * nothing about the previous child survives into it. The `id` keeps two
+ * consecutive children apart: the previous child's listeners are closures over
+ * ITS state and keep posting ITS id, which the host has already stopped
+ * accepting, and a non-`spawn` host message whose id is not the current one is
+ * dropped here. The host returns a worker to its pool only after the previous
+ * child exited and its stdio drained, so a `spawn` never lands beside a live
+ * child.
  *
  * **`stderrMode` selects which of the two stderr shapes the host wants.**
  * `'callback'` decodes each chunk here and posts `stderr` text — the SDK seam,
@@ -70,12 +82,12 @@
  * own enumerable extras reliably, so the error is flattened into a plain object
  * here and rebuilt on the host.
  *
- * **`stdout-end` is posted exactly once, from either source.** A successful run
- * ends it when the pipe closes; a failed spawn (ENOENT) never emits `exit` at
- * all and its stdio stream is destroyed rather than ended, so the error handler
- * ends it too. The host tears the thread down only once it has seen both a
- * terminal event and `stdout-end`, so an end that never arrives would leak a
- * thread per failed launch.
+ * **`stdout-end` is posted exactly once per child, from either source.** A
+ * successful run ends it when the pipe closes; a failed spawn (ENOENT) never
+ * emits `exit` at all and its stdio stream is destroyed rather than ended, so
+ * the error handler ends it too. The host releases the worker only once it has
+ * seen both a terminal event and `stdout-end`, so an end that never arrives
+ * would strand a thread per failed launch.
  */
 export const OFF_THREAD_SPAWNER_WORKER_SOURCE = String.raw`
 const { parentPort } = require('node:worker_threads');
@@ -85,13 +97,27 @@ if (!parentPort) {
   throw new Error('off-thread spawner worker started without a parentPort');
 }
 
-let child = null;
-let stdoutEnded = false;
-let stderrEnded = false;
-let streamStderr = false;
-let pendingStdin = [];
-let pendingEnd = false;
-let pendingKill = null;
+// The child this worker serves now. Replaced wholesale by every 'spawn'
+// message, so a reused worker carries nothing over from the previous child.
+let current = null;
+
+function createState(message) {
+  return {
+    id: message.id,
+    child: null,
+    stdoutEnded: false,
+    stderrEnded: false,
+    streamStderr: message.stderrMode === 'stream',
+    pendingStdin: [],
+    pendingEnd: false,
+    pendingKill: null,
+  };
+}
+
+function send(state, message, transfer) {
+  message.id = state.id;
+  parentPort.postMessage(message, transfer);
+}
 
 function flattenError(err) {
   const source = err && typeof err === 'object' ? err : {};
@@ -106,19 +132,20 @@ function flattenError(err) {
   };
 }
 
-function endStdoutOnce() {
-  if (stdoutEnded) return;
-  stdoutEnded = true;
-  parentPort.postMessage({ type: 'stdout-end' });
+function endStdoutOnce(state) {
+  if (state.stdoutEnded) return;
+  state.stdoutEnded = true;
+  send(state, { type: 'stdout-end' });
 }
 
-function endStderrOnce() {
-  if (!streamStderr || stderrEnded) return;
-  stderrEnded = true;
-  parentPort.postMessage({ type: 'stderr-end' });
+function endStderrOnce(state) {
+  if (!state.streamStderr || state.stderrEnded) return;
+  state.stderrEnded = true;
+  send(state, { type: 'stderr-end' });
 }
 
-function writeStdin(chunk) {
+function writeStdin(state, chunk) {
+  const child = state.child;
   if (!child || !child.stdin || child.stdin.writableEnded) return;
   try {
     child.stdin.write(Buffer.from(chunk));
@@ -128,7 +155,8 @@ function writeStdin(chunk) {
   }
 }
 
-function endStdin() {
+function endStdin(state) {
+  const child = state.child;
   if (!child || !child.stdin || child.stdin.writableEnded) return;
   try {
     child.stdin.end();
@@ -137,18 +165,18 @@ function endStdin() {
   }
 }
 
-function killChild(signal) {
-  if (!child) return;
+function killChild(state, signal) {
+  if (!state.child) return;
   try {
-    child.kill(signal || 'SIGTERM');
+    state.child.kill(signal || 'SIGTERM');
   } catch (err) {
     // ESRCH: the host's direct process.kill already reaped it.
   }
 }
 
-function startChild(message) {
+function startChild(state, message) {
   const stderrMode = message.stderrMode || 'ignore';
-  streamStderr = stderrMode === 'stream';
+  let child;
   try {
     child = spawn(message.command, message.args, {
       cwd: message.cwd,
@@ -159,52 +187,56 @@ function startChild(message) {
       windowsVerbatimArguments: message.windowsVerbatimArguments === true,
     });
   } catch (err) {
-    parentPort.postMessage(flattenError(err));
-    endStdoutOnce();
-    endStderrOnce();
+    send(state, flattenError(err));
+    endStdoutOnce(state);
+    endStderrOnce(state);
     return;
   }
+  state.child = child;
 
-  parentPort.postMessage({
+  send(state, {
     type: 'spawned',
     pid: child.pid === undefined ? null : child.pid,
   });
 
   child.on('error', function (err) {
-    parentPort.postMessage(flattenError(err));
-    endStdoutOnce();
-    endStderrOnce();
+    send(state, flattenError(err));
+    endStdoutOnce(state);
+    endStderrOnce(state);
   });
 
   child.on('exit', function (code, signal) {
-    parentPort.postMessage({ type: 'exit', code: code, signal: signal });
+    send(state, { type: 'exit', code: code, signal: signal });
   });
 
+  const onStdoutEnd = function () {
+    endStdoutOnce(state);
+  };
   child.stdout.on('data', function (chunk) {
     const view = new Uint8Array(chunk);
-    parentPort.postMessage({ type: 'stdout', chunk: view }, [view.buffer]);
+    send(state, { type: 'stdout', chunk: view }, [view.buffer]);
   });
-  child.stdout.on('end', endStdoutOnce);
-  child.stdout.on('close', endStdoutOnce);
-  child.stdout.on('error', endStdoutOnce);
+  child.stdout.on('end', onStdoutEnd);
+  child.stdout.on('close', onStdoutEnd);
+  child.stdout.on('error', onStdoutEnd);
 
   if (child.stderr) {
-    if (streamStderr) {
+    if (state.streamStderr) {
+      const onStderrEnd = function () {
+        endStderrOnce(state);
+      };
       child.stderr.on('data', function (chunk) {
         const errView = new Uint8Array(chunk);
-        parentPort.postMessage({ type: 'stderr-chunk', chunk: errView }, [
+        send(state, { type: 'stderr-chunk', chunk: errView }, [
           errView.buffer,
         ]);
       });
-      child.stderr.on('end', endStderrOnce);
-      child.stderr.on('close', endStderrOnce);
-      child.stderr.on('error', endStderrOnce);
+      child.stderr.on('end', onStderrEnd);
+      child.stderr.on('close', onStderrEnd);
+      child.stderr.on('error', onStderrEnd);
     } else {
       child.stderr.on('data', function (chunk) {
-        parentPort.postMessage({
-          type: 'stderr',
-          text: chunk.toString('utf8'),
-        });
+        send(state, { type: 'stderr', text: chunk.toString('utf8') });
       });
       child.stderr.on('error', function () {
         // Nothing to report: stderr is advisory logging only.
@@ -218,43 +250,48 @@ function startChild(message) {
     });
   }
 
-  const queued = pendingStdin;
-  pendingStdin = [];
-  for (let i = 0; i < queued.length; i++) writeStdin(queued[i]);
-  if (pendingEnd) {
-    pendingEnd = false;
-    endStdin();
+  const queued = state.pendingStdin;
+  state.pendingStdin = [];
+  for (let i = 0; i < queued.length; i++) writeStdin(state, queued[i]);
+  if (state.pendingEnd) {
+    state.pendingEnd = false;
+    endStdin(state);
   }
-  if (pendingKill) {
-    const signal = pendingKill;
-    pendingKill = null;
-    killChild(signal);
+  if (state.pendingKill) {
+    const signal = state.pendingKill;
+    state.pendingKill = null;
+    killChild(state, signal);
   }
 }
 
 parentPort.on('message', function (message) {
   if (!message || typeof message !== 'object') return;
+  if (message.type === 'spawn') {
+    current = createState(message);
+    startChild(current, message);
+    return;
+  }
+  const state = current;
+  // A message for a lease this worker no longer serves is stale by definition.
+  if (!state || message.id !== state.id) return;
   switch (message.type) {
-    case 'spawn':
-      if (!child) startChild(message);
-      return;
     case 'stdin':
-      if (child) writeStdin(message.chunk);
-      else pendingStdin.push(message.chunk);
+      if (state.child) writeStdin(state, message.chunk);
+      else state.pendingStdin.push(message.chunk);
       return;
     case 'stdin-end':
-      if (child) endStdin();
-      else pendingEnd = true;
+      if (state.child) endStdin(state);
+      else state.pendingEnd = true;
       return;
     case 'kill':
-      if (child) killChild(message.signal);
-      else pendingKill = message.signal || 'SIGTERM';
+      if (state.child) killChild(state, message.signal);
+      else state.pendingKill = message.signal || 'SIGTERM';
       return;
     case 'pause':
-      if (child && child.stdout) child.stdout.pause();
+      if (state.child && state.child.stdout) state.child.stdout.pause();
       return;
     case 'resume':
-      if (child && child.stdout) child.stdout.resume();
+      if (state.child && state.child.stdout) state.child.stdout.resume();
       return;
     default:
       return;

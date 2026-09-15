@@ -181,6 +181,103 @@ describe('GitStatusService.switchWorkspace freshness (F2)', () => {
 
 // ============================================================================
 
+describe('GitStatusService git:info result handling (TASK_2026_437)', () => {
+  let service: GitStatusService;
+
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 3; i++) await Promise.resolve();
+  }
+
+  beforeEach(() => {
+    mockRpcCall.mockReset();
+    TestBed.configureTestingModule({
+      providers: [
+        GitStatusService,
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+    service = TestBed.inject(GitStatusService);
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('sets statusUnavailable from the git:info RPC and clears it on a later result without the flag', async () => {
+    mockRpcCall.mockResolvedValue(
+      rpcOk(gitInfo({ files: [], statusUnavailable: 'output-too-large' })),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+    expect(service.statusUnavailable()).toBe('output-too-large');
+    expect(service.isStatusUnavailable()).toBe(true);
+
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+    service.startListening(); // eager git:info fetch for /ws/a
+    await flush();
+    expect(service.isStatusUnavailable()).toBe(false);
+    expect(service.changedFileCount()).toBe(1);
+  });
+
+  it('restores the flag per workspace from the cache on switch', async () => {
+    mockRpcCall.mockResolvedValueOnce(
+      rpcOk(gitInfo({ files: [], statusUnavailable: 'output-too-large' })),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+
+    mockRpcCall.mockResolvedValueOnce(rpcOk(gitInfo()));
+    service.switchWorkspace('/ws/b');
+    expect(service.isStatusUnavailable()).toBe(false); // uncached reset
+    await flush();
+    expect(service.isStatusUnavailable()).toBe(false);
+
+    service.switchWorkspace('/ws/a'); // fresh cache → no fetch
+    expect(service.isStatusUnavailable()).toBe(true);
+  });
+
+  it('applies a result whose branch name is empty (detached / unborn HEAD)', async () => {
+    mockRpcCall.mockResolvedValue(
+      rpcOk(
+        gitInfo({
+          branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
+        }),
+      ),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+
+    expect(service.isGitRepo()).toBe(true);
+    expect(service.branchName()).toBe('');
+    expect(service.changedFileCount()).toBe(1);
+  });
+
+  it('still drops a result missing branch or files', async () => {
+    mockRpcCall.mockResolvedValue({
+      success: true,
+      data: { files: [], isGitRepo: true },
+    });
+    service.switchWorkspace('/ws/a');
+    await flush();
+    expect(service.isGitRepo()).toBe(false);
+
+    mockRpcCall.mockResolvedValue({
+      success: true,
+      data: {
+        branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
+        isGitRepo: true,
+      },
+    });
+    service.startListening();
+    await flush();
+    expect(service.isGitRepo()).toBe(false);
+    expect(service.isLoading()).toBe(false);
+  });
+});
+
+// ============================================================================
+
 describe('GitStatusService as a MessageHandler (C1)', () => {
   let service: GitStatusService;
 
@@ -289,6 +386,33 @@ describe('GitStatusService as a MessageHandler (C1)', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('sets statusUnavailable from a push and clears it on the next push without the flag (TASK_2026_437)', async () => {
+    service.switchWorkspace('/ws/a');
+    await Promise.resolve();
+    await Promise.resolve();
+    service.startListening();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(service.isStatusUnavailable()).toBe(false);
+
+    service.handleMessage({
+      type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+      payload: {
+        ...gitInfo({ files: [], statusUnavailable: 'output-too-large' }),
+        workspaceRoot: '/ws/a',
+      },
+    });
+    expect(service.statusUnavailable()).toBe('output-too-large');
+    expect(service.isStatusUnavailable()).toBe(true);
+
+    service.handleMessage({
+      type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+      payload: { ...gitInfo(), workspaceRoot: '/ws/a' },
+    });
+    expect(service.statusUnavailable()).toBeNull();
+    expect(service.isStatusUnavailable()).toBe(false);
   });
 
   it('ignores a payload-less message without throwing', () => {

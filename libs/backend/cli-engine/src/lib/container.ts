@@ -55,7 +55,10 @@ import type {
   IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type {
+  BackgroundWorkGovernor,
+  Logger,
+} from '@ptah-extension/vscode-core';
 import {
   armDiagnostics,
   registerVsCodeCorePlatformAgnostic,
@@ -146,6 +149,7 @@ import {
   CliPlatformAuth,
   CliSaveDialog,
   CliModelDiscovery,
+  createCliWorkspaceWatcherOptions,
 } from './platform';
 import { CliMessageTransport } from './transport/cli-message-transport';
 import { CliWebviewManagerAdapter } from './transport/cli-webview-manager-adapter';
@@ -222,6 +226,26 @@ export interface CliBootstrapResult {
  * Mirrors the Electron ElectronDIContainer but registers only platform-agnostic
  * services and uses CLI-compatible replacements for VS Code/Electron-specific ones.
  */
+/**
+ * The shutdown handle for a CLI boot that did NOT arm diagnostics (no
+ * `--verbose`). There is no sampler to stop, but the background-work governor
+ * is registered on every boot and still gates background lanes on the
+ * foreground signal, so exit must dispose it: queued background queries are
+ * cancelled instead of admitted (TASK_2026_437 C14). The governor is resolved
+ * at dispose time, so a command that never runs a background query constructs
+ * nothing early. Exported for its spec only.
+ */
+export function governorShutdownHandle(container: DependencyContainer): {
+  dispose(): void;
+} {
+  return {
+    dispose: () =>
+      container
+        .resolve<BackgroundWorkGovernor>(TOKENS.BACKGROUND_WORK_GOVERNOR)
+        .dispose(),
+  };
+}
+
 export class CliDIContainer {
   /**
    * The PtahFileSettingsManager instance shared with CliWorkspaceProvider.
@@ -236,7 +260,11 @@ export class CliDIContainer {
    * {@link _fileSettings} is: `apps/ptah-cli/src/main.ts` installs the
    * SIGINT/SIGTERM handlers but never sees a container — `withEngine` owns
    * every container it creates. A static is the only reference the signal
-   * handlers can reach. Undefined unless `setup({ verbose: true })` ran.
+   * handlers can reach. Under `setup({ verbose: true })` it is the armed
+   * diagnostics handle; without `--verbose` it disposes only the
+   * background-work governor, which every boot registers and which must stop
+   * admitting background work on shutdown whether or not the sampler ran.
+   * Undefined before `setup()`.
    */
   private static _diagnostics: { dispose(): void } | undefined;
 
@@ -264,8 +292,10 @@ export class CliDIContainer {
   }
 
   /**
-   * Stop the event-loop lag sampler. Safe from a signal handler — never
-   * throws, and a no-op when diagnostics were never armed.
+   * Stop the event-loop lag sampler (when armed) and dispose the
+   * background-work governor, so queued background queries are cancelled
+   * rather than admitted during exit. Safe from a signal handler — never
+   * throws, and a no-op before `setup()`.
    */
   static disposeDiagnostics(): void {
     try {
@@ -335,6 +365,13 @@ export class CliDIContainer {
       userDataPath,
       workspacePath,
       logsPath,
+      // `PLATFORM_TOKENS.WORKSPACE_WATCHER` (TASK_2026_437 C9): the forked
+      // watch host beside this bundle. Nothing forks until a consumer watches;
+      // a missing bundle degrades the watcher, never the boot.
+      workspaceWatchHost: createCliWorkspaceWatcherOptions(
+        container,
+        __dirname,
+      ),
     };
     const bootstrapMode: 'minimal' | 'full' = options.bootstrapMode ?? 'full';
     const host: 'cli' | 'tui' = options.host ?? 'cli';
@@ -401,6 +438,8 @@ export class CliDIContainer {
           });
         },
       });
+    } else {
+      CliDIContainer._diagnostics = governorShutdownHandle(container);
     }
     container.register(TOKENS.GIT_INFO_SERVICE, {
       useFactory: (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),

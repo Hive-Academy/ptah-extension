@@ -178,6 +178,21 @@ export const EVENT_LOOP_MONITOR = Symbol.for('EventLoopMonitor');
 export const CPU_PROFILE_CAPTURE = Symbol.for('CpuProfileCapture');
 
 /**
+ * MainLoopWatchdog — off-thread heartbeat watcher that appends to
+ * `ptah-hang.log` while the main loop is blocked (TASK_2026_437). Registered
+ * but NOT started; `armDiagnostics` starts it when the host has a `logsPath`.
+ */
+export const MAIN_LOOP_WATCHDOG = Symbol.for('MainLoopWatchdog');
+
+/**
+ * BackgroundWorkGovernor — "may background work start a unit now?", derived
+ * from foreground sources and event-loop samples (TASK_2026_437 C14).
+ * Registered in every host; constructing it starts nothing. `armDiagnostics`
+ * attaches the lag monitor, agent-sdk adds the turn-state foreground source.
+ */
+export const BACKGROUND_WORK_GOVERNOR = Symbol.for('BackgroundWorkGovernor');
+
+/**
  * DegradationReporter — per-boot count of capabilities that fell back to a
  * default (TASK_2026_383). Grouped with the diagnostics tokens above
  * (EVENT_LOOP_MONITOR, CPU_PROFILE_CAPTURE) because it is the same kind of
@@ -267,6 +282,8 @@ export const TOKENS = {
   GIT_INFO_SERVICE,
   EVENT_LOOP_MONITOR,
   CPU_PROFILE_CAPTURE,
+  MAIN_LOOP_WATCHDOG,
+  BACKGROUND_WORK_GOVERNOR,
   DEGRADATION_REPORTER,
 } as const;
 

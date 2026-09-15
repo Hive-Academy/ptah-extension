@@ -48,6 +48,20 @@
  * | `structured-output-unsupported` | the ladder below exhausted BOTH attempts without parseable JSON, OR the first execution ended in a non-`error_max_turns` SDK error subtype |
  * | `tool-use-unsupported`          | a DEGRADATION on a run that still answered; a FAILURE when the run ended `error_max_turns` with no JSON to show for it |
  * | `timeout`                       | our own timer fired; `abort()` + `close()`, backoff by attempt count |
+ * | `network-unreachable`           | the provider never answered (network-class, read off the stream or a thrown socket error), or a BACKGROUND run held by the open network back-off; `retryAfterMs` is the window still open |
+ *
+ * ## The network back-off (TASK_2026_437 C14 f)
+ *
+ * Every call feeds the back-off of the provider its lane resolves to
+ * (`ProviderNetworkBackoffs`, `SKILL_SYNTHESIS_TOKENS.NETWORK_BACKOFF`, keyed by
+ * `lane.config.provider`, `''` = the active provider): a network-class failure
+ * opens or raises that provider's window (30 s doubling to 15 min), a call that
+ * got an answer clears it, and a success on one provider never clears
+ * another's. A background run meeting its provider's open window is not
+ * dispatched at all. A `userInitiated` run is never held — it may still fail
+ * fast and report — and its outcome counts like any other. The structured-output
+ * ladder never re-runs a call that failed on the network: that re-run is what
+ * paid the subprocess's whole retry ladder a second time against a dead endpoint.
  *
  * ## At most TWO executions per `run()`, always
  *
@@ -98,14 +112,26 @@ import {
   INTERNAL_QUERY_SERVICE_TOKEN,
   SKILL_SYNTHESIS_TOKENS,
 } from '../di/tokens';
-import type { IInternalQuery } from '../internal-query.interface';
+import {
+  USER_ACTION_QUERY_LANE,
+  type IInternalQuery,
+  type QueryOrigin,
+} from '../internal-query.interface';
 import type {
   SkillBudgetStore,
   SkillBudgetUsage,
 } from '../queue/skill-budget.store';
 import type { SkillQueueStore } from '../queue/skill-queue.store';
 import type { LaneResolverService } from './lane-resolver.service';
+import {
+  classifyThrownNetworkFailure,
+  NETWORK_BACKOFF_INITIAL_MS,
+  QueryNetworkObserver,
+  type NetworkBackoff,
+  type NetworkFailureSignal,
+} from '@ptah-extension/agent-sdk';
 import { extractJsonObject } from './lane-json';
+import type { ProviderNetworkBackoffs } from './provider-network-backoffs';
 import {
   isTransportLaneFailure,
   type ResolvedSkillLane,
@@ -172,6 +198,16 @@ export const LANE_TOOL_USE_DEFAULT_MAX_TURNS = 8;
 export const SKILL_SYNTHESIS_QUERY_LANE = 'skill-synthesis';
 
 /**
+ * The internal-query lane for one call: {@link USER_ACTION_QUERY_LANE} when
+ * a user is waiting on it, else the governed {@link SKILL_SYNTHESIS_QUERY_LANE}.
+ */
+export function skillQueryLane(origin: QueryOrigin | undefined): string {
+  return origin?.userInitiated === true
+    ? USER_ACTION_QUERY_LANE
+    : SKILL_SYNTHESIS_QUERY_LANE;
+}
+
+/**
  * Result subtypes that leave the structured-output ladder eligible for its one
  * re-run: the SDK finished normally (`success`) or reported no subtype at all.
  *
@@ -197,7 +233,12 @@ export type LaneDegradedReason = Extract<
   'structured-output-unsupported' | 'tool-use-unsupported'
 >;
 
-export interface LaneRunRequest {
+/**
+ * `userInitiated` (from {@link QueryOrigin}): a user is waiting on this run, so
+ * it goes to the ungoverned `user-action` lane instead of `skill-synthesis`.
+ * Only an RPC handler's call chain sets it.
+ */
+export interface LaneRunRequest extends QueryOrigin {
   readonly laneId: SkillLaneId;
   /** Clipped to the lane's `maxInputChars` before it is sent. */
   readonly prompt: string;
@@ -295,9 +336,12 @@ type CallOutcome =
       readonly hasStructured: boolean;
       readonly subtype: string | null;
       readonly usage: SkillBudgetUsage;
+      /** A result arrived that is not an API error — clears the network back-off. */
+      readonly answered: boolean;
     }
   | { readonly kind: 'timeout' }
-  | { readonly kind: 'cancelled' };
+  | { readonly kind: 'cancelled' }
+  | { readonly kind: 'network'; readonly signal: NetworkFailureSignal };
 
 interface CallOptions {
   readonly prompt: string;
@@ -311,6 +355,8 @@ interface CallOptions {
     readonly schema: Record<string, unknown>;
   };
   readonly signal?: AbortSignal;
+  /** The internal-query lane — see {@link skillQueryLane}. */
+  readonly lane: string;
 }
 
 @injectable()
@@ -347,6 +393,13 @@ export class LaneRunnerService {
      */
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpServerStatus: IMcpServerStatus | null = null,
+    /**
+     * The library's one network back-off. Optional and LAST for the same
+     * positional-construction reason as the parameter above; without it no
+     * run is held and no failure is remembered.
+     */
+    @inject(SKILL_SYNTHESIS_TOKENS.NETWORK_BACKOFF, { isOptional: true })
+    private readonly networkBackoffs: ProviderNetworkBackoffs | null = null,
   ) {}
 
   async run(req: LaneRunRequest): Promise<LaneRunResult> {
@@ -378,6 +431,9 @@ export class LaneRunnerService {
         reason: `Lane ${req.laneId}: the SDK was never initialized in this host`,
       };
     }
+
+    const held = this.networkHold(req, lane);
+    if (held) return this.fail(req, held);
 
     const cfg = lane.config;
     const { prompt, truncated } = clip(req.prompt, cfg.maxInputChars);
@@ -417,6 +473,7 @@ export class LaneRunnerService {
       mcpServerRunning: mcp.mcpServerRunning,
       mcpPort: mcp.mcpPort,
       signal: req.signal,
+      lane: skillQueryLane(req),
     };
 
     // Attempt 1. `outputFormat` goes out only when the caller asked for JSON
@@ -435,8 +492,9 @@ export class LaneRunnerService {
     });
     executions++;
     if (first.kind !== 'ok') {
-      return this.fail(req, this.abortFailure(req, first.kind));
+      return this.fail(req, this.callFailure(req, lane, first));
     }
+    if (first.answered) this.backoffFor(lane)?.recordSuccess();
     usage = mergeUsage(usage, first.usage);
     text = first.text;
     this.recordUsage(first.usage);
@@ -503,8 +561,9 @@ export class LaneRunnerService {
       });
       executions++;
       if (second.kind !== 'ok') {
-        return this.fail(req, this.abortFailure(req, second.kind));
+        return this.fail(req, this.callFailure(req, lane, second));
       }
+      if (second.answered) this.backoffFor(lane)?.recordSuccess();
       usage = mergeUsage(usage, second.usage);
       text = second.text;
       this.recordUsage(second.usage);
@@ -541,7 +600,8 @@ export class LaneRunnerService {
 
   /**
    * One `execute` call, fully bounded. Returns rather than throws for the two
-   * abort shapes; anything else propagates to the drain.
+   * abort shapes and for a network-class failure; anything else propagates to
+   * the drain.
    */
   private async callOnce(
     lane: ResolvedSkillLane,
@@ -561,6 +621,7 @@ export class LaneRunnerService {
     opts.signal?.addEventListener('abort', onExternalAbort, { once: true });
 
     let handle: Awaited<ReturnType<IInternalQuery['execute']>> | null = null;
+    const network = new QueryNetworkObserver();
     try {
       handle = await query.execute({
         cwd: opts.cwd,
@@ -575,8 +636,11 @@ export class LaneRunnerService {
         // pipeline, not independent consumers, so giving each its own slot
         // would let a single drain tick hold the whole host-wide budget. What
         // the name buys is separation from the MEMORY CURATOR, which is the
-        // unrelated pipeline this used to serialise against.
-        lane: SKILL_SYNTHESIS_QUERY_LANE,
+        // unrelated pipeline this used to serialise against. A user-initiated
+        // run (`LaneRunRequest.userInitiated`) goes to the ungoverned
+        // `user-action` lane instead, so a click never waits behind the
+        // governor or behind a wizard call on `default`.
+        lane: opts.lane,
         abortController: controller,
         // R2: BY REFERENCE. Do not spread, clone, parse or filter this.
         auth: lane.auth,
@@ -591,6 +655,7 @@ export class LaneRunnerService {
       let usage: SkillBudgetUsage = {};
 
       for await (const msg of handle.stream) {
+        network.observe(msg);
         if (msg.type === 'assistant') {
           for (const block of msg.message?.content ?? []) {
             if (block.type === 'text' && typeof block.text === 'string') {
@@ -619,8 +684,14 @@ export class LaneRunnerService {
 
       // A stream that ends quietly on abort would otherwise look like a short
       // but successful answer.
-      if (timedOut) return { kind: 'timeout' };
+      const verdict = network.verdict();
+      if (timedOut) return timeoutOutcome(network);
       if (controller.signal.aborted) return { kind: 'cancelled' };
+      // The subprocess gave up retrying: its closing error message is not an
+      // answer, however much text it carries.
+      if (verdict.kind === 'network-failure') {
+        return { kind: 'network', signal: verdict.signal };
+      }
 
       return {
         kind: 'ok',
@@ -630,10 +701,19 @@ export class LaneRunnerService {
         hasStructured,
         subtype,
         usage,
+        answered: verdict.kind === 'answered',
       };
     } catch (error: unknown) {
-      if (timedOut) return { kind: 'timeout' };
+      if (timedOut) return timeoutOutcome(network);
       if (controller.signal.aborted) return { kind: 'cancelled' };
+      // The internal-query gate rejects a queued background call with an
+      // `AbortError` when the governor is disposed (host shutdown). Nothing
+      // failed; the host is leaving. A cancellation, not a transport fault.
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { kind: 'cancelled' };
+      }
+      const signal = classifyThrownNetworkFailure(error);
+      if (signal) return { kind: 'network', signal };
       throw error;
     } finally {
       clearTimeout(timer);
@@ -672,15 +752,50 @@ export class LaneRunnerService {
     return { status: 'failed', failure };
   }
 
+  /** The back-off of the provider `lane` resolves to, when one is registered. */
+  private backoffFor(lane: ResolvedSkillLane): NetworkBackoff | null {
+    return this.networkBackoffs?.for(lane.config.provider) ?? null;
+  }
+
+  /**
+   * A background run while the network back-off window is open: not
+   * dispatched, and requeued for the rest of the window. `null` when the run
+   * may go — always for a `userInitiated` run.
+   */
+  private networkHold(
+    req: LaneRunRequest,
+    lane: ResolvedSkillLane,
+  ): SkillLaneFailure | null {
+    if (req.userInitiated === true || !this.networkBackoffs) return null;
+    const remaining = this.networkBackoffs.remainingMs(lane.config.provider);
+    if (remaining <= 0) return null;
+    return {
+      kind: 'network-unreachable',
+      reason: `Lane ${req.laneId}: provider unreachable, waiting out the network back-off`,
+      retryAfterMs: remaining,
+    };
+  }
+
   /**
    * A timed-out run backs off exponentially; a CANCELLED one does not back off
-   * at all, because nothing was wrong with it — the tick simply ended.
+   * at all, because nothing was wrong with it — the tick simply ended. A
+   * network failure raises the shared back-off and waits out its window.
    */
-  private abortFailure(
+  private callFailure(
     req: LaneRunRequest,
-    kind: 'timeout' | 'cancelled',
+    lane: ResolvedSkillLane,
+    outcome: Exclude<CallOutcome, { kind: 'ok' }>,
   ): SkillLaneFailure {
-    if (kind === 'cancelled') {
+    if (outcome.kind === 'network') {
+      const backoff = this.backoffFor(lane);
+      backoff?.recordFailure(outcome.signal);
+      return {
+        kind: 'network-unreachable',
+        reason: `Lane ${req.laneId}: provider unreachable (${outcome.signal})`,
+        retryAfterMs: backoff?.remainingMs() || NETWORK_BACKOFF_INITIAL_MS,
+      };
+    }
+    if (outcome.kind === 'cancelled') {
       return {
         kind: 'timeout',
         reason: `Lane ${req.laneId}: run cancelled before completion`,
@@ -708,6 +823,18 @@ export class LaneRunnerService {
       });
     }
   }
+}
+
+/**
+ * Our own timer fired. With network retries already in the stream the run was
+ * waiting on a dead endpoint, not on a slow model — that is the network
+ * failure, not a timeout.
+ */
+function timeoutOutcome(network: QueryNetworkObserver): CallOutcome {
+  const verdict = network.verdict();
+  return verdict.kind === 'network-failure'
+    ? { kind: 'network', signal: verdict.signal }
+    : { kind: 'timeout' };
 }
 
 /** `2^attempt × 60s`, capped at 6 h. Mirrors the drain's own retry ladder. */

@@ -82,6 +82,21 @@ asarUnpack:
   # the CI signing pass (recursive .node/.dll scan) sign them so Windows SAC
   # does not block the embedder worker.
   - 'node_modules/onnxruntime-node/**'
+  # TASK_2026_437 C8/C9 — @parcel/watcher: native binding used by the workspace
+  # watch host (workspace-watch-host.mjs). Same asar-unpack problem as
+  # better-sqlite3, plus a runtime-resolution wrinkle its wrapper.js has that
+  # better-sqlite3 does not: from app.asar.unpacked/, Node cannot resolve
+  # `picomatch` / `is-glob` if THOSE stay packed inside app.asar (`is-glob`
+  # itself requires `is-extglob`; `detect-libc` is @parcel/watcher's fourth
+  # runtime dep). All four siblings must be unpacked alongside the watcher
+  # package and its per-platform prebuild, or the host dies with
+  # `MODULE_NOT_FOUND: picomatch` on first watch (b1-spike-report.md).
+  - 'node_modules/@parcel/watcher/**'
+  - 'node_modules/@parcel/watcher-*/**'
+  - 'node_modules/picomatch/**'
+  - 'node_modules/is-glob/**'
+  - 'node_modules/is-extglob/**'
+  - 'node_modules/detect-libc/**'
 
 extraResources:
   - from: 'renderer'

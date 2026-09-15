@@ -32,13 +32,19 @@ import 'reflect-metadata';
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  BackgroundWorkGovernor,
+  TOKENS,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
   SDK_TOKENS,
   registerSdkServices,
   SdkMessageTransformer,
   SessionHistoryReaderService,
+  SessionTurnStateRegistry,
+  InternalQueryService,
   // Relative, not `@ptah-extension/agent-sdk`: a project may not import itself
   // by alias (`@nx/enforce-module-boundaries`). This is still the public
   // barrel, so the smoke test proves the same surface.
@@ -73,11 +79,16 @@ function createMockLogger(): Logger {
   } as unknown as Logger;
 }
 
-function buildSmokeContainer(): DependencyContainer {
+function buildSmokeContainer(
+  governor?: BackgroundWorkGovernor,
+): DependencyContainer {
   const c = rootContainer.createChildContainer();
   const logger = createMockLogger();
 
   c.register(TOKENS.LOGGER, { useValue: logger });
+  if (governor !== undefined) {
+    c.register(TOKENS.BACKGROUND_WORK_GOVERNOR, { useValue: governor });
+  }
 
   // Platform dependencies required by ConfigWatcher during registerSdkServices
   c.register(TOKENS.CONFIG_MANAGER, {
@@ -221,5 +232,47 @@ describe('registerSdkServices — CompactionBoundaryGenerationRegistry DI smoke'
       }
     ).compactionBoundaryRegistry;
     expect(injected).toBe(registry);
+  });
+});
+
+/**
+ * TASK_2026_437 C14 — `registerSdkServices` hands the turn-state registry to
+ * the background-work governor as its foreground source, and the internal
+ * query service is constructed with that same governor. Every host registers
+ * the governor before this runs (`registerVsCodeCorePlatformAgnostic`).
+ */
+describe('registerSdkServices — background-work governor foreground source', () => {
+  it('makes the governor foreground-busy while a session generates', () => {
+    const governor = new BackgroundWorkGovernor(createMockLogger());
+    const container = buildSmokeContainer(governor);
+    const turns = container.resolve<SessionTurnStateRegistry>(
+      SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
+    );
+
+    expect(governor.state).toBe('clear');
+    turns.markGenerating('session-1');
+    expect(governor.state).toBe('foreground-busy');
+    turns.settleTurn('session-1');
+    expect(governor.state).toBe('clear');
+  });
+
+  it('injects the governor into InternalQueryService', () => {
+    const governor = new BackgroundWorkGovernor(createMockLogger());
+    const container = buildSmokeContainer(governor);
+    // The runner pulls in the auth and spawn stacks; only the governor
+    // injection is under test.
+    container.register(SDK_TOKENS.SDK_QUERY_RUNNER, { useValue: {} });
+
+    const service = container.resolve<InternalQueryService>(
+      SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE,
+    );
+
+    expect((service as unknown as { governor: unknown }).governor).toBe(
+      governor,
+    );
+  });
+
+  it('registers without a governor (no foreground source, no throw)', () => {
+    expect(() => buildSmokeContainer()).not.toThrow();
   });
 });

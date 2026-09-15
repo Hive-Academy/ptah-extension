@@ -8,6 +8,7 @@ export type {
 } from './lib/memory-reader.port';
 export type {
   ICuratorLLM,
+  CuratorCallOptions,
   ExtractedMemoryDraft,
   ResolvedMemoryDraft,
   CuratorExtraction,

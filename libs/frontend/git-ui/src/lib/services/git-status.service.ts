@@ -15,6 +15,11 @@ import type {
   GitStatusUpdatePayload,
 } from '@ptah-extension/shared';
 
+/** Reason the backend could not read `git status` (TASK_2026_437). */
+type GitStatusUnavailableReason = NonNullable<
+  GitInfoResult['statusUnavailable']
+>;
+
 /**
  * Per-workspace git state snapshot.
  * Cached in the workspace map so switching back is instant.
@@ -23,6 +28,8 @@ interface GitWorkspaceState {
   branch: GitBranchInfo;
   files: GitFileStatus[];
   isGitRepo: boolean;
+  /** Why the status could not be read, or null when `files` is authoritative. */
+  statusUnavailable: GitStatusUnavailableReason | null;
   /** When this cache entry was last written (data applied or state saved). */
   lastUpdated: number;
   /**
@@ -101,6 +108,8 @@ export class GitStatusService implements MessageHandler {
   private readonly _files = signal<GitFileStatus[]>([], { equal: filesEqual });
   private readonly _isGitRepo = signal(false);
   private readonly _isLoading = signal(false);
+  private readonly _statusUnavailable =
+    signal<GitStatusUnavailableReason | null>(null);
 
   /** Current branch info for the active workspace. */
   readonly branch = this._branch.asReadonly();
@@ -113,6 +122,18 @@ export class GitStatusService implements MessageHandler {
 
   /** Whether a git:info RPC call is currently in flight. */
   readonly isLoading = this._isLoading.asReadonly();
+
+  /**
+   * Why the active workspace's status could not be read, or null. While set,
+   * `files` is empty because nothing was read — NOT because the tree is clean —
+   * so `changedFileCount` / `hasChanges` must not be presented as "no changes".
+   */
+  readonly statusUnavailable = this._statusUnavailable.asReadonly();
+
+  /** Whether the active workspace's git status could not be read. */
+  readonly isStatusUnavailable = computed(
+    () => this._statusUnavailable() !== null,
+  );
 
   /** Number of changed files. */
   readonly changedFileCount = computed(() => this._files().length);
@@ -158,10 +179,12 @@ export class GitStatusService implements MessageHandler {
       this._branch.set(cached.branch);
       this._files.set(cached.files);
       this._isGitRepo.set(cached.isGitRepo);
+      this._statusUnavailable.set(cached.statusUnavailable);
     } else {
       this._branch.set(EMPTY_BRANCH);
       this._files.set([]);
       this._isGitRepo.set(false);
+      this._statusUnavailable.set(null);
     }
 
     // Skip the eager fetch when the restored cache entry is still fresh —
@@ -190,6 +213,7 @@ export class GitStatusService implements MessageHandler {
       this._branch.set(EMPTY_BRANCH);
       this._files.set([]);
       this._isGitRepo.set(false);
+      this._statusUnavailable.set(null);
     }
   }
 
@@ -264,10 +288,14 @@ export class GitStatusService implements MessageHandler {
     const target = workspaceRoot ?? active;
     if (!target) return;
 
+    // Every result is a full snapshot: a result without the flag clears it.
+    const statusUnavailable = data.statusUnavailable ?? null;
+
     if (target === active) {
       this._branch.set(data.branch);
       this._files.set(data.files);
       this._isGitRepo.set(data.isGitRepo);
+      this._statusUnavailable.set(statusUnavailable);
       // Fresh data just arrived for the active workspace — stamp fetchedAt.
       this.saveCurrentState(Date.now());
     } else {
@@ -275,6 +303,7 @@ export class GitStatusService implements MessageHandler {
         branch: data.branch,
         files: data.files,
         isGitRepo: data.isGitRepo,
+        statusUnavailable,
         lastUpdated: Date.now(),
         fetchedAt: Date.now(),
       });
@@ -301,7 +330,17 @@ export class GitStatusService implements MessageHandler {
       return;
     }
 
-    if (result.success && result.data?.branch && result.data.files) {
+    // Explicit null checks, not truthiness: the payload shape is what gates
+    // the update, never the value of a field inside it.
+    if (
+      result.success &&
+      result.data !== undefined &&
+      result.data !== null &&
+      result.data.branch !== undefined &&
+      result.data.branch !== null &&
+      result.data.files !== undefined &&
+      result.data.files !== null
+    ) {
       this.applyGitInfo(result.data, workspaceAtFetchTime);
     }
 
@@ -325,6 +364,7 @@ export class GitStatusService implements MessageHandler {
       branch: this._branch(),
       files: this._files(),
       isGitRepo: this._isGitRepo(),
+      statusUnavailable: this._statusUnavailable(),
       lastUpdated: Date.now(),
       fetchedAt: fetchedAt ?? existing?.fetchedAt,
     });

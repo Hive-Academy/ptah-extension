@@ -99,6 +99,30 @@ describe('CuratorRateLimitService', () => {
     expect(typeof snap?.windowStartMs).toBe('number');
   });
 
+  it('refund returns one slot in the current window and never goes below zero', () => {
+    const service = new CuratorRateLimitService(makeLogger());
+    service.tryAcquire('k', 1);
+    expect(service.tryAcquire('k', 1)).toMatchObject({ allowed: false });
+
+    service.refund('k');
+    expect(service.snapshot('k')?.count).toBe(0);
+    expect(service.tryAcquire('k', 1)).toEqual({ allowed: true });
+
+    service.refund('k');
+    service.refund('k');
+    expect(service.snapshot('k')?.count).toBe(0);
+    service.refund('never-seen');
+    expect(service.snapshot('never-seen')).toBeNull();
+  });
+
+  it('refund does not return a slot acquired in a window that has rolled over', () => {
+    const service = new CuratorRateLimitService(makeLogger());
+    service.tryAcquire('k', 5);
+    jest.setSystemTime(new Date('2026-05-21T13:00:01Z'));
+    service.refund('k');
+    expect(service.snapshot('k')?.count).toBe(1);
+  });
+
   it('resolves via DI under SDK_CURATOR_RATE_LIMIT token', () => {
     const testContainer = container.createChildContainer();
     testContainer.registerInstance(TOKENS.LOGGER, makeLogger());

@@ -136,6 +136,19 @@ function buildFileTree(files: readonly GitFileStatus[]): GitFileTreeNode[] {
         </button>
       </div>
 
+      @if (statusUnavailable()) {
+        <!-- The status could not be read (TASK_2026_437). An empty file list
+             here means nothing was read, so neither section nor any count or
+             "No changes" message is rendered. -->
+        <div
+          role="status"
+          class="flex-shrink-0 px-3 py-2 text-[10px] opacity-70 text-center"
+          data-testid="git-status-unavailable"
+        >
+          Git status is unavailable: this repository's status output is too
+          large to read.
+        </div>
+      } @else {
       <!-- Staged Changes section -->
       <div class="flex-shrink-0">
         <!-- Header bar is a PRESENTATIONAL row: the disclosure toggle and the
@@ -280,6 +293,7 @@ function buildFileTree(files: readonly GitFileStatus[]): GitFileTreeNode[] {
           </div>
         }
       </div>
+      }
 
       <!-- Worktrees section (collapsible, below Changes) -->
       <ptah-worktree-section />
@@ -360,6 +374,11 @@ export class SourceControlPanelComponent {
   readonly files = input.required<GitFileStatus[]>();
   readonly editorTargets = input<readonly EditorTarget[]>([]);
   readonly workspaceRoot = input('');
+  /**
+   * True when the backend could not read `git status`, so `files` being empty
+   * does not mean a clean tree. Replaces both change sections with a notice.
+   */
+  readonly statusUnavailable = input(false);
 
   readonly fileClicked = output<OpenInRequest>();
   /** Structured diff request — carries which comparison the row represents. */

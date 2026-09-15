@@ -108,6 +108,12 @@ export interface GitInfoResult {
   files: GitFileStatus[];
   /** Whether the workspace is inside a git repository */
   isGitRepo: boolean;
+  /**
+   * Set when the status could not be read, so an empty `files` list does NOT
+   * mean a clean tree. `output-too-large`: git's status output passed the
+   * backend's cap and the run was killed (TASK_2026_437).
+   */
+  statusUnavailable?: 'output-too-large';
 }
 
 /** Parameters for git:worktrees RPC method */

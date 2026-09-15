@@ -17,7 +17,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { container } from 'tsyringe';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type BackgroundWorkAdmission,
+} from '@ptah-extension/vscode-core';
 import { SqliteBackupService, BACKUP_WORKER_BUDGET_MS } from './backup.service';
 import { PERSISTENCE_TOKENS } from './di/tokens';
 import { DbWorkerRunner } from './integrity/db-worker-runner';
@@ -105,6 +108,7 @@ function makeHarness(opts?: {
   withReporter?: boolean;
   spawnThrows?: boolean;
   script?: WorkerScript;
+  governor?: BackgroundWorkAdmission | null;
 }): Harness {
   const tmpDir = makeTempDir();
   const dbPath = path.join(tmpDir, 'ptah.sqlite');
@@ -167,6 +171,7 @@ function makeHarness(opts?: {
       : (reporter as unknown as ConstructorParameters<
           typeof SqliteBackupService
         >[4]),
+    opts?.governor ?? null,
   );
 
   return {
@@ -607,6 +612,131 @@ describe('SqliteBackupService.backup — never throws', () => {
       },
     });
     await expect(h.service.backup('daily')).resolves.toBeNull();
+  });
+});
+
+// ── background-work governor (TASK_2026_437 C14 d) ──────────────────────────
+
+describe('SqliteBackupService.backup — background-work governor', () => {
+  function makeGovernor(clear = false) {
+    let settle:
+      | {
+          resolve: (outcome: 'clear' | 'timeout') => void;
+          reject: (error: Error) => void;
+        }
+      | undefined;
+    return {
+      isClear: jest.fn(() => clear),
+      whenClear: jest.fn(
+        () =>
+          new Promise<'clear' | 'timeout'>((resolve, reject) => {
+            settle = { resolve, reject };
+          }),
+      ),
+      release: (outcome: 'clear' | 'timeout' = 'clear') =>
+        settle?.resolve(outcome),
+      reject: (error: Error) => settle?.reject(error),
+    };
+  }
+
+  function abortError(): Error {
+    const error = new Error('Background-work governor disposed');
+    error.name = 'AbortError';
+    return error;
+  }
+
+  it('holds a scheduled daily backup until the governor clears, then takes it', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness({ governor });
+
+    const pending = h.service.backup('daily');
+    await flush();
+    expect(governor.whenClear).toHaveBeenCalledWith({
+      lane: 'sqlite-daily-backup',
+    });
+    expect(h.spawnCount()).toBe(0);
+
+    governor.release('clear');
+    await expect(pending).resolves.not.toBeNull();
+    expect(h.spawnCount()).toBe(1);
+  });
+
+  it('takes a held daily backup at the starvation ceiling', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness({ governor });
+
+    const pending = h.service.backup('daily');
+    await flush();
+    governor.release('timeout');
+
+    await expect(pending).resolves.not.toBeNull();
+  });
+
+  it.each(['pre-migration', 'reset'] as const)(
+    'never holds a %s backup',
+    async (kind) => {
+      const governor = makeGovernor();
+      const h = makeHarness({ governor });
+
+      await expect(h.service.backup(kind)).resolves.not.toBeNull();
+      expect(governor.isClear).not.toHaveBeenCalled();
+      expect(governor.whenClear).not.toHaveBeenCalled();
+    },
+  );
+
+  it('a held daily backup does not hold a pre-migration backup requested after it', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness({ governor });
+
+    const daily = h.service.backup('daily');
+    const preMigration = h.service.backup('pre-migration');
+
+    await expect(preMigration).resolves.not.toBeNull();
+    expect(h.spawnCount()).toBe(1);
+
+    governor.release('clear');
+    await expect(daily).resolves.not.toBeNull();
+    expect(h.spawnCount()).toBe(2);
+  });
+
+  it('skips a held daily backup when the governor is disposed at shutdown — no worker, no critical report', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness({ governor });
+
+    const pending = h.service.backup('daily');
+    await flush();
+    governor.reject(abortError());
+
+    await expect(pending).resolves.toBeNull();
+    expect(h.spawnCount()).toBe(0);
+    expect(h.reports).toEqual([]);
+    expect(h.logger.entries).toContainEqual({
+      level: 'info',
+      message:
+        '[persistence-sqlite] scheduled backup skipped — the host is shutting down',
+      context: { kind: 'daily', reason: 'Background-work governor disposed' },
+    });
+    expect(h.logger.entries.filter((e) => e.level !== 'info')).toEqual([]);
+  });
+
+  it('fails open when the wait rejects with anything other than an abort', async () => {
+    const governor = makeGovernor();
+    const h = makeHarness({ governor });
+
+    const pending = h.service.backup('daily');
+    await flush();
+    governor.reject(new Error('unexpected'));
+
+    await expect(pending).resolves.not.toBeNull();
+    expect(h.spawnCount()).toBe(1);
+  });
+
+  it('starts at once when the governor is already clear', async () => {
+    const governor = makeGovernor(true);
+    const h = makeHarness({ governor });
+
+    await expect(h.service.backup('daily')).resolves.not.toBeNull();
+    expect(governor.whenClear).not.toHaveBeenCalled();
   });
 });
 

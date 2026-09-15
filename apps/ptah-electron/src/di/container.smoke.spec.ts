@@ -19,10 +19,16 @@
 
 import 'reflect-metadata';
 
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer, InjectionToken } from 'tsyringe';
 
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  registerVsCodeCorePlatformAgnostic,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import { SDK_TOKENS, registerSdkServices } from '@ptah-extension/agent-sdk';
@@ -35,6 +41,7 @@ import {
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
 import { EXPECTED_RESOLVABLE } from './expected-resolvable';
+import { registerPhase0Platform } from './phase-0-platform';
 import { registerPhase4Handlers } from './phase-4-handlers';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
@@ -308,5 +315,129 @@ describe('Electron DI — app updater token aliasing (Risk R1)', () => {
 
     expect(viaPort).toBeDefined();
     expect(viaPort).toBe(viaConcreteToken);
+  });
+});
+
+/**
+ * `PLATFORM_TOKENS.WORKSPACE_WATCHER` (TASK_2026_437 C8) is bound in PHASE 0,
+ * by the real `registerPhase0Platform`, so every later phase and the heavy boot
+ * can inject it. Pinned here rather than in `expected-resolvable.ts` (plan
+ * defect D2). Resolving must fork NOTHING — the host starts on the first
+ * `watch` — and `will-quit` must get the very instance consumers hold.
+ */
+describe('Electron DI — workspace watcher (TASK_2026_437)', () => {
+  it('resolves WORKSPACE_WATCHER from phase 0 as an unforked singleton', () => {
+    const c = rootContainer.createChildContainer();
+    const userDataPath = path.join(os.tmpdir(), `ptah-watch-di-${Date.now()}`);
+    const fork = jest.fn();
+
+    registerPhase0Platform(c, {
+      appPath: userDataPath,
+      userDataPath,
+      logsPath: path.join(userDataPath, 'logs'),
+      safeStorage: {
+        isEncryptionAvailable: () => false,
+        encryptString: (value: string) => Buffer.from(value),
+        decryptString: (value: Buffer) => value.toString(),
+      },
+      dialog: {} as never,
+      getWindow: () => null,
+      workspaceWatchHost: { host: { fork } },
+    });
+
+    const watcher = c.resolve<{ watch: unknown; dispose: unknown }>(
+      PLATFORM_TOKENS.WORKSPACE_WATCHER,
+    );
+    expect(typeof watcher.watch).toBe('function');
+    expect(typeof watcher.dispose).toBe('function');
+    expect(c.resolve(PLATFORM_TOKENS.WORKSPACE_WATCHER)).toBe(watcher);
+    expect(fork).not.toHaveBeenCalled();
+  });
+
+  it('phase 0 supplies the production host wiring when the caller passes none', () => {
+    const c = rootContainer.createChildContainer();
+    const userDataPath = path.join(
+      os.tmpdir(),
+      `ptah-watch-di-${Date.now()}-b`,
+    );
+
+    registerPhase0Platform(c, {
+      appPath: userDataPath,
+      userDataPath,
+      logsPath: path.join(userDataPath, 'logs'),
+      safeStorage: {
+        isEncryptionAvailable: () => false,
+        encryptString: (value: string) => Buffer.from(value),
+        decryptString: (value: Buffer) => value.toString(),
+      },
+      dialog: {} as never,
+      getWindow: () => null,
+    });
+
+    expect(c.isRegistered(PLATFORM_TOKENS.WORKSPACE_WATCHER)).toBe(true);
+    expect(() => c.resolve(PLATFORM_TOKENS.WORKSPACE_WATCHER)).not.toThrow();
+  });
+});
+
+/**
+ * `TOKENS.MAIN_LOOP_WATCHDOG` (TASK_2026_437) is bound by
+ * `registerVsCodeCorePlatformAgnostic`, which this host reaches through
+ * `apps/ptah-electron/src/di/phase-1-infra.ts`. Pinned here rather than in `expected-resolvable.ts`, which
+ * lists RPC handler classes only (batches.md plan defect D2). Resolving must
+ * NOT start the worker — arming belongs to `armDiagnostics`.
+ */
+describe('Electron DI — main-loop watchdog (TASK_2026_437)', () => {
+  it('resolves MAIN_LOOP_WATCHDOG as an unstarted singleton', () => {
+    const c = rootContainer.createChildContainer();
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    registerVsCodeCorePlatformAgnostic(c, logger, {
+      includeLicensingAndAuth: false,
+    });
+
+    const watchdog = c.resolve<{
+      running: boolean;
+      setBreadcrumb: (key: string, value: string | number) => void;
+    }>(TOKENS.MAIN_LOOP_WATCHDOG);
+
+    expect(watchdog.running).toBe(false);
+    expect(typeof watchdog.setBreadcrumb).toBe('function');
+    expect(c.resolve(TOKENS.MAIN_LOOP_WATCHDOG)).toBe(watchdog);
+  });
+});
+
+/**
+ * `TOKENS.BACKGROUND_WORK_GOVERNOR` (TASK_2026_437 C14) is bound by
+ * `registerVsCodeCorePlatformAgnostic`, which this host reaches through
+ * `apps/ptah-electron/src/di/phase-1-infra.ts`. Pinned here rather than in `expected-resolvable.ts` (plan defect D2).
+ * Resolving attaches no lag source and arms no timer; it starts clear.
+ */
+describe('Electron DI — background-work governor (TASK_2026_437)', () => {
+  it('resolves BACKGROUND_WORK_GOVERNOR as a clear singleton', () => {
+    const c = rootContainer.createChildContainer();
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    registerVsCodeCorePlatformAgnostic(c, logger, {
+      includeLicensingAndAuth: false,
+    });
+
+    const governor = c.resolve<{
+      isClear: () => boolean;
+      whenClear: () => Promise<string>;
+    }>(TOKENS.BACKGROUND_WORK_GOVERNOR);
+
+    expect(governor.isClear()).toBe(true);
+    expect(typeof governor.whenClear).toBe('function');
+    expect(c.resolve(TOKENS.BACKGROUND_WORK_GOVERNOR)).toBe(governor);
   });
 });

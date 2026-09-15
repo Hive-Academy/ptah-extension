@@ -141,6 +141,24 @@ jobs:
       # re-trigger this workflow in an infinite loop). Build jobs receive the
       # new version via the prepare.outputs.version output and patch locally.
 
+  # TASK_2026_437 (Batch 10 review fix — code-logic-review.md Serious/D10,
+  # code-style-review.md Serious #2). What this matrix actually builds AND
+  # PUBLISHES, precisely: neither `electron-builder.yml` nor the `build-args`
+  # below pass an `arch:`/`--arm64`/`--x64` override for `mac:` or `win:`, so
+  # electron-builder defaults to the HOST runner's own architecture for each
+  # leg —
+  #   - windows-latest -> win32-x64 (GitHub's Windows runners are x64)
+  #   - macos-latest   -> darwin-arm64 (GitHub's macos-latest image is Apple
+  #     Silicon; no darwin-x64 (Intel Mac) leg exists or is published)
+  #   - ubuntu-latest   -> linux-x64
+  # So darwin-x64 and windows-arm64 are NOT built and NOT published by this
+  # workflow at all — nothing unproven ships under those two, because nothing
+  # ships under them, period. The three OSes actually published (win32-x64,
+  # darwin-arm64, linux-x64) ARE proven end-to-end by the
+  # `verify-packed-native.js` steps below, including the `@parcel/watcher`
+  # check added in Batch 10. If Windows-arm64 or darwin-x64 distribution is
+  # ever added, it needs its own matrix leg AND its own native-deps proof —
+  # do not assume the existing three legs cover it.
   build:
     needs: prepare
     runs-on: ${{ matrix.os }}
@@ -298,7 +316,17 @@ jobs:
       # Post-pack gates for macOS/Linux (Windows runs its own copies inside the
       # split signing flow below). Prove the packed better-sqlite3 ABI and the
       # tree-sitter WASM assets are present before shipping.
-      - name: Verify packed better-sqlite3 ABI (macOS/Linux)
+      #
+      # TASK_2026_437 (Batch 10, Task 10.5): verify-packed-native.js also
+      # require()s and subscribes the packed @parcel/watcher (the workspace
+      # watch host's native dep) from app.asar.unpacked on THIS runner's OS —
+      # this leg proves darwin-arm64 (macos-latest) or linux-x64
+      # (ubuntu-latest), the only two of those the Batch 1 spike could not
+      # reach locally (win32-x64 was proven by hand there;
+      # b1-spike-report.md "Platform risk (D10)"). It does NOT prove
+      # darwin-x64 or windows-arm64 — see the matrix comment above this job
+      # for why nothing ships under those two today.
+      - name: Verify packed native deps (better-sqlite3 ABI + @parcel/watcher, macOS/Linux)
         if: runner.os != 'Windows'
         run: node apps/ptah-electron/scripts/verify-packed-native.js
 
@@ -321,7 +349,10 @@ jobs:
       # scans dist/release recursively and finds win-unpacked/.../app.asar.unpacked
       # /node_modules/better-sqlite3/build/Release/better_sqlite3.node. WASM lives
       # inside win-unpacked/resources/app.asar (verify-packed-wasm scans for that).
-      - name: Verify packed better-sqlite3 ABI (win-unpacked, pre-sign)
+      # TASK_2026_437 (Batch 10, Task 10.5): also verifies packed @parcel/watcher
+      # (require + subscribe) — proves win32-x64 only (windows-latest is x64;
+      # see the matrix comment above this job for windows-arm64).
+      - name: Verify packed native deps (better-sqlite3 ABI + @parcel/watcher, win-unpacked, pre-sign)
         if: runner.os == 'Windows'
         run: node apps/ptah-electron/scripts/verify-packed-native.js
 
@@ -564,7 +595,7 @@ jobs:
       # installer embeds win-unpacked verbatim. Only Ptah.exe is re-written by
       # the signing phase, so the native modules are byte-identical here — the
       # ABI-marker check is the contract that matters.)
-      - name: Verify packed better-sqlite3 ABI (post-repack)
+      - name: Verify packed native deps (better-sqlite3 ABI + @parcel/watcher, post-repack)
         if: runner.os == 'Windows'
         run: node apps/ptah-electron/scripts/verify-packed-native.js
 

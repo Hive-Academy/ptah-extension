@@ -19,6 +19,8 @@
  *            workspace, debounced 250ms; a push for a different (background)
  *            workspace is ignored
  *   A1     - file:content-changed only revalidates matching WORKTREE diff tabs
+ *   INV-5  - file:content-changed is a path batch (TASK_2026_437): one refresh
+ *            per matching tab; `truncated` -> one debounced full revalidation
  *   A2 AC3 - the same path open as 'staged' AND 'worktree' produces two
  *            independent tabs (comparison is part of the key)
  *   A2 AC4/N3 - originalPath is sent on the wire only when it differs from path
@@ -616,7 +618,7 @@ describe('DiffTabsService.onFileContentChanged', () => {
     await openFresh(service, { path: 'b.ts', comparison: 'worktree' });
 
     mockRpcCall.mockResolvedValue(ok(makeResult({ path: 'a.ts' })));
-    service.onFileContentChanged('/ws/a.ts');
+    service.onFileContentChanged({ filePaths: ['/ws/a.ts'], truncated: false });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -631,10 +633,66 @@ describe('DiffTabsService.onFileContentChanged', () => {
     const { service } = makeService();
     await openFresh(service, { path: 'a.ts', comparison: 'worktree' });
 
-    service.onFileContentChanged('/outside/a.ts');
+    service.onFileContentChanged({
+      filePaths: ['/outside/a.ts'],
+      truncated: false,
+    });
     await Promise.resolve();
 
     expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+
+  // TASK_2026_437 INV-5: one push per coalesced window carries many paths.
+  it('refreshes each matching tab exactly once for a 3-path batch', async () => {
+    const { service } = makeService();
+    await openFresh(service, { path: 'a.ts', comparison: 'worktree' });
+    await openFresh(service, { path: 'b.ts', comparison: 'worktree' });
+    await openFresh(service, { path: 'c.ts', comparison: 'staged' });
+    await openFresh(service, { path: 'untouched.ts', comparison: 'worktree' });
+
+    mockRpcCall.mockResolvedValue(ok(makeResult()));
+    service.onFileContentChanged({
+      // A duplicate path must not refresh its tab twice.
+      filePaths: ['/ws/a.ts', '/ws/b.ts', '/ws/c.ts', '/ws/a.ts'],
+      truncated: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const refreshed = mockRpcCall.mock.calls.map(
+      (call) => (call[2] as { path: string }).path,
+    );
+    expect(refreshed.sort()).toEqual(['a.ts', 'b.ts']);
+  });
+
+  it('ignores an empty batch that is not truncated', async () => {
+    const { service } = makeService();
+    await openFresh(service, { path: 'a.ts', comparison: 'worktree' });
+
+    service.onFileContentChanged({ filePaths: [], truncated: false });
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+
+  it('a truncated batch triggers ONE debounced revalidation of every diff tab', async () => {
+    const { service } = makeService();
+    await openFresh(service, { path: 'a.ts', comparison: 'worktree' });
+    await openFresh(service, { path: 'b.ts', comparison: 'staged' });
+
+    mockRpcCall.mockResolvedValue(ok(makeResult()));
+    // A storm of truncated pushes, even with zero paths, collapses into one pass.
+    for (let i = 0; i < 5; i++) {
+      service.onFileContentChanged({ filePaths: [], truncated: true });
+    }
+    expect(mockRpcCall).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(250);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -726,7 +784,7 @@ describe('DiffTabsService — MessageHandler registration', () => {
     expect(mockRpcCall).toHaveBeenCalledTimes(1);
   });
 
-  it('routes a file:content-changed push by absolute path', async () => {
+  it('routes a file:content-changed batch by absolute path', async () => {
     const { service } = makeService();
     mockRpcCall.mockResolvedValueOnce(ok(makeResult({ path: 'a.ts' })));
     await openDiff(service, { path: 'a.ts', comparison: 'worktree' });
@@ -735,7 +793,7 @@ describe('DiffTabsService — MessageHandler registration', () => {
 
     service.handleMessage({
       type: MESSAGE_TYPES.FILE_CONTENT_CHANGED,
-      payload: { filePath: '/ws/a.ts' },
+      payload: { filePaths: ['/ws/a.ts'], truncated: false },
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -743,13 +801,22 @@ describe('DiffTabsService — MessageHandler registration', () => {
     expect(mockRpcCall).toHaveBeenCalledTimes(1);
   });
 
-  it('ignores a payload-less push and an unrelated type', async () => {
+  it('ignores a payload-less push, a malformed payload and an unrelated type', async () => {
     const { service } = makeService();
     mockRpcCall.mockResolvedValueOnce(ok(makeResult({ path: 'a.ts' })));
     await openDiff(service, { path: 'a.ts', comparison: 'worktree' });
     mockRpcCall.mockReset();
 
     service.handleMessage({ type: MESSAGE_TYPES.FILE_CONTENT_CHANGED });
+    // The pre-batch single-path shape is not the contract any more.
+    service.handleMessage({
+      type: MESSAGE_TYPES.FILE_CONTENT_CHANGED,
+      payload: { filePath: '/ws/a.ts' },
+    });
+    service.handleMessage({
+      type: MESSAGE_TYPES.FILE_CONTENT_CHANGED,
+      payload: { filePaths: '/ws/a.ts', truncated: true },
+    });
     service.handleMessage({ type: 'something:else', payload: {} });
     jest.advanceTimersByTime(1000);
     await Promise.resolve();
@@ -1205,7 +1272,10 @@ describe('DiffTabsService file views', () => {
     mockRpcCall.mockClear();
     mockRpcCall.mockResolvedValue(fileResult('after'));
 
-    service.onFileContentChanged('c:/ws/a.ts');
+    service.onFileContentChanged({
+      filePaths: ['c:/ws/a.ts'],
+      truncated: false,
+    });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -1215,6 +1285,42 @@ describe('DiffTabsService file views', () => {
       expect.anything(),
     );
     expect(service.diffTabs()[0].view?.content).toBe('after');
+  });
+
+  it('a truncated content push re-reads open file views once, after the debounce', async () => {
+    const { service } = makeService();
+    mockRpcCall.mockResolvedValue(fileResult('before'));
+    await service.openFileView({ path: 'C:\\ws\\a.ts' });
+    mockRpcCall.mockClear();
+    mockRpcCall.mockResolvedValue(fileResult('after'));
+
+    service.onFileContentChanged({ filePaths: [], truncated: true });
+    service.onFileContentChanged({ filePaths: [], truncated: true });
+    expect(mockRpcCall).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(250);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const viewReads = mockRpcCall.mock.calls.filter(
+      (call) => call[1] === 'file:viewContent',
+    );
+    expect(viewReads).toHaveLength(1);
+  });
+
+  it('a git:status-update alone does not re-read file views', async () => {
+    const { service } = makeService();
+    mockRpcCall.mockResolvedValue(fileResult('before'));
+    await service.openFileView({ path: 'C:\\ws\\a.ts' });
+    mockRpcCall.mockClear();
+
+    service.onGitStatusUpdate();
+    jest.advanceTimersByTime(250);
+    await Promise.resolve();
+
+    expect(
+      mockRpcCall.mock.calls.filter((call) => call[1] === 'file:viewContent'),
+    ).toHaveLength(0);
   });
 
   it('keeps mixed ordering and falls back across tab kinds on close', async () => {

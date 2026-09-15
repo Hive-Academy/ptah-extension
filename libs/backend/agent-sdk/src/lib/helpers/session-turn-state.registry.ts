@@ -61,6 +61,26 @@
  * so the next commit is strictly greater than anything already emitted under
  * either alias. It is wired to `SessionIdResolvedCallbackRegistry` in
  * `di/register.ts`.
+ *
+ * ## Foreground signal (TASK_2026_437 C14)
+ *
+ * `generatingSessions()` + `onGeneratingChange` are what
+ * `TurnStateForegroundSource` (wired in `di/register.ts`) reads to give the
+ * vscode-core `BackgroundWorkGovernor` its foreground signal: background lanes
+ * yield while a session is generating. The stale-record ceiling for that
+ * signal lives in the source, not here — turn state itself never changes on a
+ * timer, and this class stays timer-free. Listeners are called
+ * synchronously after every mutation that can change the answer
+ * (`markGenerating`, `settleTurn`, `forceIdle`, and a `clear` or eviction that
+ * drops a generating record) — possibly when it did not change, never with
+ * I/O here.
+ *
+ * **A listener that throws is swallowed, and the next listener still runs.**
+ * Every notifying call is on the turn state machine's hot path, inside the
+ * stream transformer; a subscriber's bug must never abort `markGenerating`,
+ * `settleTurn`, `forceIdle`, `clear` or an eviction. The registry has no logger
+ * (it stays I/O-free), so the SUBSCRIBER owns reporting its own failures — the
+ * governor's foreground source logs inside its callback.
  */
 import { injectable } from 'tsyringe';
 import type {
@@ -73,6 +93,13 @@ import type {
   TurnStateEvent,
 } from '@ptah-extension/shared';
 import { generateEventId } from '../message-transform/message-transform-helpers';
+
+/** One record currently `generating`, as the foreground signal reads it. */
+export interface GeneratingSession {
+  readonly sessionId: string;
+  /** Epoch ms of the `generating` commit (`state.timestamp`). */
+  readonly since: number;
+}
 
 /** What the `Stop` hook reports; consumed at `settleTurn`. */
 export interface TurnStopSnapshot {
@@ -250,6 +277,37 @@ export class SessionTurnStateRegistry {
    * `REVISION_FLOOR_MAP_LIMIT` for the bound.
    */
   private readonly revisionFloors = new Map<string, number>();
+  private readonly generatingListeners = new Set<() => void>();
+
+  /**
+   * Every record currently `generating`, with the time it entered that phase.
+   * A scan, bounded by `TURN_RECORD_MAP_LIMIT`, run only when the foreground
+   * source asks. `since` is the generating commit's own timestamp: nothing
+   * re-commits a `generating` record until it settles (`applySnapshot` refuses
+   * to, and `rekey` carries the state object over), so it is the turn's start.
+   */
+  generatingSessions(): GeneratingSession[] {
+    const sessions: GeneratingSession[] = [];
+    for (const [sessionId, record] of this.records) {
+      if (record.state.phase === 'generating') {
+        sessions.push({ sessionId, since: record.state.timestamp });
+      }
+    }
+    return sessions;
+  }
+
+  /**
+   * Subscribe to "the generating set may have changed". See the "Foreground
+   * signal" section of the file header for when it fires.
+   *
+   * @returns An unsubscribe function.
+   */
+  onGeneratingChange(listener: () => void): () => void {
+    this.generatingListeners.add(listener);
+    return () => {
+      this.generatingListeners.delete(listener);
+    };
+  }
 
   /**
    * Root assistant `message_start`. Returns a NEW state on the first call of a
@@ -264,12 +322,14 @@ export class SessionTurnStateRegistry {
       return null;
     }
     record.generatingEmitted = true;
-    return this.commit(sessionId, record, {
+    const state = this.commit(sessionId, record, {
       phase: 'generating',
       backgroundTasks: [],
       sessionCrons: [],
       terminalReason: null,
     });
+    this.notifyGeneratingChange();
+    return state;
   }
 
   /** `Stop` hook — snapshot only, no phase change. */
@@ -305,13 +365,15 @@ export class SessionTurnStateRegistry {
     record.failure = null;
     record.generatingEmitted = false;
 
-    return this.commit(sessionId, record, {
+    const state = this.commit(sessionId, record, {
       phase,
       backgroundTasks,
       sessionCrons,
       terminalReason: failure?.terminalReason ?? stop?.terminalReason ?? null,
       ...(failure ? { error: failure.error } : {}),
     });
+    this.notifyGeneratingChange();
+    return state;
   }
 
   /**
@@ -358,12 +420,14 @@ export class SessionTurnStateRegistry {
     record.stopSnapshot = null;
     record.failure = null;
     record.generatingEmitted = false;
-    return this.commit(sessionId, record, {
+    const state = this.commit(sessionId, record, {
       phase: 'idle',
       backgroundTasks: [],
       sessionCrons: [],
       terminalReason: terminalReason ?? null,
     });
+    this.notifyGeneratingChange();
+    return state;
   }
 
   get(sessionId: string): SessionTurnState | undefined {
@@ -423,7 +487,12 @@ export class SessionTurnStateRegistry {
    * — see the "monotonic per SESSION ID" section of the file header.
    */
   clear(sessionId: string): void {
+    const wasGenerating =
+      this.records.get(sessionId)?.state.phase === 'generating';
     this.records.delete(sessionId);
+    // A loop that exits mid-turn without `forceIdle` must not leave the
+    // foreground signal stuck busy until some other session settles.
+    if (wasGenerating) this.notifyGeneratingChange();
   }
 
   private ensure(sessionId: string): TurnRecord {
@@ -475,12 +544,29 @@ export class SessionTurnStateRegistry {
     if (victim === undefined) {
       return;
     }
-    const revision = this.records.get(victim)?.state.revision ?? 0;
+    const victimRecord = this.records.get(victim);
+    const revision = victimRecord?.state.revision ?? 0;
     this.records.delete(victim);
+    if (victimRecord?.state.phase === 'generating') {
+      this.notifyGeneratingChange();
+    }
     // A floor of 0 is indistinguishable from no floor at `ensure`, so writing
     // one would spend a slot in the bounded floor map to say nothing.
     if (revision > 0) {
       this.noteFloor(victim, revision);
+    }
+  }
+
+  /** Isolated per listener — see "Foreground signal" in the file header. */
+  private notifyGeneratingChange(): void {
+    for (const listener of [...this.generatingListeners]) {
+      try {
+        listener();
+      } catch {
+        // degradation-audit: optional-capability - a throwing subscriber loses
+        // only its own notification; the turn transition that called it must
+        // complete. Subscribers report their own failures (file header).
+      }
     }
   }
 

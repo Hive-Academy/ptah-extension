@@ -47,15 +47,27 @@
  * the rival-CLI adapters spawn through, and it needs both — plus `detached`,
  * a visible console for ConPTY, and Windows `.cmd` resolution. Both build the
  * same `SpawnPlan` and share one worker body.
+ *
+ * **Workers are reused, not created per spawn (TASK_2026_437 C12).** A `new
+ * Worker` is a whole V8 isolate, and in Electron every git child goes through
+ * here, so a status storm used to mint and destroy one isolate per git call.
+ * `SpawnWorkerPool` (`spawn-worker-pool.ts`, owned here as a collaborator)
+ * lends one worker to one child at a time and owns the idle, soft-cap and
+ * hard-cap bounds. This file decides reuse: a worker goes back only if its
+ * child reported a real exit, was never killed, and drained without the grace
+ * timer. At the hard cap the pool refuses and the child is spawned inline.
  */
 
 import * as childProcess from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
-import { Worker } from 'node:worker_threads';
 import crossSpawn from 'cross-spawn';
 import { inject, injectable } from 'tsyringe';
-import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  TOKENS,
+  type DegradationReporter,
+} from '@ptah-extension/vscode-core';
 import type {
   IProcessSpawner,
   ProcessSpawnRequest,
@@ -65,7 +77,16 @@ import type {
   SpawnOptions,
   SpawnedProcess,
 } from '../types/sdk-types/claude-sdk.types';
-import { OFF_THREAD_SPAWNER_WORKER_SOURCE } from './off-thread-process-spawner-source';
+import {
+  SpawnWorkerPool,
+  workerError,
+  type HostMessage,
+  type SpawnFailure,
+  type SpawnWorkerLease,
+  type StderrMode,
+  type WorkerErrorMessage,
+  type WorkerMessage,
+} from './spawn-worker-pool';
 
 const SERVICE_TAG = '[OffThreadProcessSpawner]';
 
@@ -101,9 +122,6 @@ export type SpawnTransport = 'worker' | 'inline';
 export interface PtahSpawnedProcess extends SpawnedProcess {
   readonly transport: SpawnTransport;
 }
-
-/** Which stderr shape the caller asked for. See the worker source's header. */
-type StderrMode = 'stream' | 'callback' | 'ignore';
 
 /**
  * One resolved launch, in the exact terms the worker needs.
@@ -151,46 +169,12 @@ const parseCommand = (
   }
 )._parse;
 
-/** Worker -> host messages. Mirrors the protocol in the worker source. */
-type WorkerErrorMessage = {
-  type: 'error';
-  message: string;
-  code?: string;
-  errno?: number;
-  syscall?: string;
-  path?: string;
-};
-
-type WorkerMessage =
-  | { type: 'spawned'; pid: number | null }
-  | { type: 'stdout'; chunk: Uint8Array }
-  | { type: 'stderr'; text: string }
-  | { type: 'stderr-chunk'; chunk: Uint8Array }
-  | { type: 'stdout-end' }
-  | { type: 'stderr-end' }
-  | { type: 'exit'; code: number | null; signal: NodeJS.Signals | null }
-  | WorkerErrorMessage;
-
-/** An `Error` carrying the `code` the SDK's spawn-failure classifier reads. */
-interface SpawnFailure extends Error {
-  code?: string;
-  errno?: number;
-  syscall?: string;
-  path?: string;
-}
-
 function rebuildError(message: WorkerErrorMessage): Error {
   const error: SpawnFailure = new Error(message.message);
   if (message.code !== undefined) error.code = message.code;
   if (message.errno !== undefined) error.errno = message.errno;
   if (message.syscall !== undefined) error.syscall = message.syscall;
   if (message.path !== undefined) error.path = message.path;
-  return error;
-}
-
-function workerError(message: string): Error {
-  const error: SpawnFailure = new Error(message);
-  error.code = 'EWORKER';
   return error;
 }
 
@@ -228,7 +212,8 @@ class WorkerBackedProcess
   readonly stderr: Readable | null;
   readonly whenSpawned: Promise<number | null>;
 
-  private worker: Worker | null = null;
+  /** `null` once the worker has been handed back; nothing posts after that. */
+  private lease: SpawnWorkerLease | null;
   private childPid: number | null = null;
   private resolveSpawned: ((pid: number | null) => void) | null = null;
   private pendingKill: NodeJS.Signals | null = null;
@@ -236,6 +221,13 @@ class WorkerBackedProcess
   private code: number | null = null;
   private exitSignal: NodeJS.Signals | null = null;
   private settled = false;
+  /** Settled by a real `exit` message, as opposed to an error. */
+  private exitReported = false;
+  /**
+   * The worker's state is no longer trustworthy for another child: the drain
+   * grace expired, the handle was force-terminated, or the thread was lost.
+   */
+  private abandoned = false;
   private closed = false;
   private stdoutEnded = false;
   private stderrEnded: boolean;
@@ -245,10 +237,8 @@ class WorkerBackedProcess
   constructor(
     private readonly plan: SpawnPlan,
     private readonly hooks: OffThreadSpawnHooks,
-    private readonly onTerminate: (
-      target: WorkerBackedProcess,
-      termination: Promise<void>,
-    ) => void,
+    pool: SpawnWorkerPool,
+    private readonly onReleased: (target: WorkerBackedProcess) => void,
   ) {
     super();
     // An EventEmitter with no 'error' listener THROWS on emit. The SDK attaches
@@ -267,6 +257,10 @@ class WorkerBackedProcess
         callback();
       },
     });
+    // Defence in depth: stdin is destroyed when the worker is lost, and a
+    // Writable 'error' with no listener would throw on the host's main loop.
+    // A failed write already reaches its caller through the write callback.
+    this.stdin.on('error', () => undefined);
 
     this.stdout = new Readable({
       read: () => {
@@ -291,8 +285,12 @@ class WorkerBackedProcess
       this.kill('SIGTERM');
     };
 
-    this.worker = new Worker(OFF_THREAD_SPAWNER_WORKER_SOURCE, { eval: true });
-    this.attachWorker(this.worker);
+    // Acquired last among the fields a message handler reads: an idle worker
+    // delivers nothing until `spawn` is posted, and `spawn` is posted below.
+    this.lease = pool.acquire({
+      onMessage: (message) => this.onWorkerMessage(message),
+      onWorkerLost: (error) => this.onWorkerLost(error),
+    });
 
     this.post({
       type: 'spawn',
@@ -321,6 +319,11 @@ class WorkerBackedProcess
     return this.code;
   }
 
+  /** Mirrors `ChildProcess.signalCode`: the signal the child ended by, if any. */
+  get signalCode(): NodeJS.Signals | null {
+    return this.exitSignal;
+  }
+
   get pid(): number | undefined {
     return this.childPid ?? undefined;
   }
@@ -337,25 +340,59 @@ class WorkerBackedProcess
   /** Terminate the worker now, whatever state the child is in. For dispose. */
   forceTerminate(): void {
     this.kill('SIGKILL');
-    this.settled = true;
-    this.detachAbort();
-    this.settleSpawned(this.childPid);
+    this.endAbnormally('SIGKILL', null);
+  }
+
+  /**
+   * The thread died under this child. Nothing more can arrive from it, so fail
+   * now and close out instead of waiting the drain grace for an end that will
+   * never come — and signal the child directly, since no worker is left to.
+   *
+   * On Windows `process.kill` ends only the named process, not its tree. Every
+   * tree-kill helper in the repo is private to another lib (or spawns
+   * `taskkill` on this thread), so that gap is recorded, not papered over here.
+   */
+  private onWorkerLost(error: Error): void {
+    // SIGTERM when there is a live child to send it to; with no pid the thread
+    // vanished before a child existed, and SIGKILL is the honest description.
+    let signal: NodeJS.Signals = 'SIGKILL';
+    if (!this.settled && this.childPid !== null) {
+      this.signalDirectly(this.childPid, 'SIGTERM');
+      signal = 'SIGTERM';
+    }
+    this.endAbnormally(signal, error);
+  }
+
+  /**
+   * End a handle whose real exit status will never arrive.
+   *
+   * Emits in `ChildProcess` order — `error` (when there is one), then `exit`,
+   * then `close` — because the SDK's `ProcessTransport` needs BOTH: its `error`
+   * listener records `exitError`, while `onExit` callbacks, `waitForExit`'s
+   * resolution and `close()`'s live-transport sweep only ever listen to `exit`.
+   * Reported the way Node reports a signal death — `exitCode` null,
+   * `signalCode` set, `killed` true — because `killed` alone satisfies the SDK's
+   * write gate (`killed || exitCode !== null`), and the rival-CLI adapters'
+   * `code ?? (signal ? 1 : 0)` idiom then reads a failure as `1`, never as a
+   * made-up exit code. stdin is destroyed so a later `write()` returns `false`
+   * and calls back with `ERR_STREAM_DESTROYED` instead of silently succeeding.
+   * A child that already reported a real exit keeps its real code.
+   */
+  private endAbnormally(signal: NodeJS.Signals, error: Error | null): void {
+    this.abandoned = true;
+    this.stdin.destroy();
+    if (!this.settled) {
+      this.settled = true;
+      this.markSignalDeath(signal);
+      this.detachAbort();
+      this.settleSpawned(this.childPid);
+      if (error) this.emit('error', error);
+      this.emit('exit', null, signal);
+    }
     this.endStdout();
     this.endStderr();
     this.emitClose();
     this.teardown();
-  }
-
-  private attachWorker(worker: Worker): void {
-    worker.on('message', (raw: unknown) => {
-      this.onWorkerMessage(raw as WorkerMessage);
-    });
-    worker.on('error', (error: Error) => {
-      this.fail(workerError(`Spawn worker failed: ${error.message}`));
-    });
-    worker.on('exit', () => {
-      this.fail(workerError('Spawn worker exited before the child started.'));
-    });
   }
 
   private onWorkerMessage(message: WorkerMessage): void {
@@ -411,6 +448,7 @@ class WorkerBackedProcess
   private finish(code: number | null, signal: NodeJS.Signals | null): void {
     if (this.settled) return;
     this.settled = true;
+    this.exitReported = true;
     this.code = code;
     this.exitSignal = signal;
     this.detachAbort();
@@ -443,6 +481,13 @@ class WorkerBackedProcess
     resolve(pid);
   }
 
+  /** Record a death by `signal` with no exit status, as `ChildProcess` does. */
+  private markSignalDeath(signal: NodeJS.Signals): void {
+    this.killedFlag = true;
+    this.code = null;
+    this.exitSignal = signal;
+  }
+
   /** Push EOF at most once — a second `push(null)` throws ERR_STREAM_PUSH_AFTER_EOF. */
   private endStdout(): void {
     if (this.stdoutEnded) return;
@@ -464,6 +509,15 @@ class WorkerBackedProcess
     if (this.graceTimer || (this.stdoutEnded && this.stderrEnded)) return;
     this.graceTimer = setTimeout(() => {
       this.graceTimer = null;
+      // The child's pipes may still be open inside the worker; do not lend it on.
+      this.abandoned = true;
+      this.stdin.destroy();
+      if (!this.exitReported) {
+        // Settled by an error, never by an exit: the worker is terminated
+        // below, so report it as the forced end it is.
+        this.markSignalDeath('SIGKILL');
+        this.emit('exit', null, 'SIGKILL');
+      }
       this.endStdout();
       this.endStderr();
       this.emitClose();
@@ -489,21 +543,24 @@ class WorkerBackedProcess
     this.emit('close', this.code, this.exitSignal);
   }
 
+  /**
+   * Hand the worker back exactly once.
+   *
+   * Reusable only for a child that reported a real exit, was never killed, and
+   * drained without the grace timer — a killed child may leave a process tree
+   * or open pipes behind inside the worker, and an errored spawn is rare enough
+   * that a fresh thread is the cheaper certainty.
+   */
   private teardown(): void {
     if (this.graceTimer) {
       clearTimeout(this.graceTimer);
       this.graceTimer = null;
     }
-    const worker = this.worker;
-    if (!worker) return;
-    this.worker = null;
-    this.onTerminate(
-      this,
-      worker.terminate().then(
-        () => undefined,
-        () => undefined,
-      ),
-    );
+    const lease = this.lease;
+    if (!lease) return;
+    this.lease = null;
+    lease.release(this.exitReported && !this.killedFlag && !this.abandoned);
+    this.onReleased(this);
   }
 
   /**
@@ -522,11 +579,11 @@ class WorkerBackedProcess
     }
   }
 
-  private post(message: unknown, transfer?: ArrayBuffer[]): void {
-    const worker = this.worker;
-    if (!worker) return;
+  private post(message: HostMessage, transfer?: ArrayBuffer[]): void {
+    const lease = this.lease;
+    if (!lease) return;
     try {
-      worker.postMessage(message, transfer);
+      lease.post(message, transfer);
     } catch (error: unknown) {
       this.fail(
         workerError(
@@ -592,10 +649,21 @@ class InlineProcess
 @injectable()
 export class OffThreadProcessSpawner implements IProcessSpawner {
   private readonly live = new Set<WorkerBackedProcess>();
-  private readonly terminations = new Set<Promise<void>>();
+  private readonly pool: SpawnWorkerPool;
   private warnedInline = false;
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    /**
+     * Optional because `registerSdkServices` does not register it — the
+     * reporter is bound by `vscode-core`'s platform-agnostic registration,
+     * which a bare test container will not have run.
+     */
+    @inject(TOKENS.DEGRADATION_REPORTER, { isOptional: true })
+    degradation: DegradationReporter | null = null,
+  ) {
+    this.pool = new SpawnWorkerPool(logger, degradation);
+  }
 
   /**
    * Spawn the Claude Code CLI without blocking this thread.
@@ -668,11 +736,16 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
       return this.spawnInline(plan, hooks);
     }
 
+    // At the hard cap the pool refuses (and reports it); this child blocks the
+    // calling thread rather than adding one more isolate to a runaway storm.
+    if (!this.pool.admit()) return this.spawnInline(plan, hooks);
+
     try {
       const spawned = new WorkerBackedProcess(
         plan,
         hooks,
-        (target, termination) => this.onTerminate(target, termination),
+        this.pool,
+        (target) => this.live.delete(target),
       );
       this.live.add(spawned);
       return spawned;
@@ -685,27 +758,16 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
   }
 
   /**
-   * Terminate every worker still running and resolve once all threads are gone.
+   * Terminate every worker — busy or idle — and resolve once all threads are gone.
    *
-   * Nothing in production calls this — each worker terminates itself when its
-   * child exits — but a host shutting down, and every spec, needs a join point
+   * Nothing in production calls this — idle workers are unref'd and expire on
+   * their own — but a host shutting down, and every spec, needs a join point
    * that proves no thread is left behind.
    */
   async dispose(): Promise<void> {
     for (const target of [...this.live]) target.forceTerminate();
     this.live.clear();
-    await Promise.all([...this.terminations]);
-  }
-
-  private onTerminate(
-    target: WorkerBackedProcess,
-    termination: Promise<void>,
-  ): void {
-    this.live.delete(target);
-    this.terminations.add(termination);
-    void termination.then(() => {
-      this.terminations.delete(termination);
-    });
+    await this.pool.dispose();
   }
 
   private warnInlineOnce(reason: string): void {
