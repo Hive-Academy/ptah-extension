@@ -65,6 +65,8 @@ export function resolveSqliteOpener(): {
     new DatabaseSync(':memory:').close();
     return { name: 'node:sqlite', open: (file) => new DatabaseSync(file) };
   } catch {
+    // degradation-audit: optional-capability - no SQLite binding loads here;
+    // requireSqliteOpener turns the null into a thrown spec failure.
     return null;
   }
 }

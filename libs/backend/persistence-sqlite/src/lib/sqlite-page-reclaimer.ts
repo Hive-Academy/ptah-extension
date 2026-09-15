@@ -176,6 +176,8 @@ export class SqlitePageReclaimer {
     try {
       return this.connection.db;
     } catch (error: unknown) {
+      // degradation-audit: reported - a closed connection is logged and the
+      // reclaimer's documented contract is to return zeros instead of throwing.
       // Debug, not warn: on a host whose database is closed this fires on every
       // call, and returning zeros is the correct outcome.
       this.logger.debug(

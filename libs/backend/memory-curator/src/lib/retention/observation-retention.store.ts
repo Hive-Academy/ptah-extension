@@ -440,6 +440,8 @@ export class ObservationRetentionStore {
       try {
         return fn();
       } catch (error: unknown) {
+        // degradation-audit: reported - a failed diagnostics read is warned and
+        // surfaced in readErrors; the null field is the documented outcome.
         readErrors.push(`${name}: ${errorText(error)}`);
         this.logger.warn('[memory-curator] retention storage read failed', {
           read: name,
