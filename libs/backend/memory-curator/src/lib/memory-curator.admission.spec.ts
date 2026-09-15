@@ -29,7 +29,6 @@ import type {
 } from '@ptah-extension/memory-contracts';
 import { MemoryCuratorService } from './memory-curator.service';
 import type { MemoryStore } from './memory.store';
-import type { SalienceScorer } from './salience-scorer';
 import type {
   CuratorExtraction,
   ICuratorLLM,
@@ -84,9 +83,7 @@ function build(opts: {
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore,
-    { score: jest.fn(() => 0.5) } as unknown as SalienceScorer,
     { read: jest.fn() } as unknown as ITranscriptReader,
     {
       extract: opts.extract,

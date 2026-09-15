@@ -1831,9 +1831,7 @@ describe('MemoryCuratorService — userInitiated reaches every curator LLM call'
         insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
         appendChunks: jest.fn().mockResolvedValue(undefined),
         getById: jest.fn(),
-        updateSalience: jest.fn(),
       } as unknown as MemoryStore,
-      { score: jest.fn(() => 0.75) } as unknown as SalienceScorer,
       { read: jest.fn() } as unknown as ITranscriptReader,
       { extract, resolve } as unknown as ICuratorLLM,
     );
