@@ -9,19 +9,17 @@ Docs-only change. Two files edited. No code change. No commit.
 Added to the residuals paragraph that names the upgrade-day partial-daily case (the paragraph at lines 57-61 is unchanged):
 
 > A second known limitation: when the backups directory sits on a filesystem
-> without hard-link support, or staging and destination sit on different
-> volumes (`EXDEV`), atomic publish fails, so every backup reports not-taken
-> with a `'critical'` degradation — the failure is permanent and loud, and
-> there is no copy or rename fallback by design.
+> without hard-link support, atomic publish fails, so every backup reports
+> not-taken with a `'critical'` degradation — the failure is permanent and
+> loud, and there is no copy or rename fallback by design.
 
 ### `libs/backend/persistence-sqlite/src/lib/backup.service.ts:28-31`
 
 Added to the module docblock residuals text (the upgrade-day residual sentence at lines 26-27 is unchanged):
 
-> A second known limitation: a backups directory without hard-link support, or
-> staging and destination on different volumes (`EXDEV`), fails the publish,
-> so every backup reports not-taken with a `'critical'` degradation — permanent
-> and loud, with no copy or rename fallback by design.
+> A second known limitation: a backups directory without hard-link support
+> fails the publish, so every backup reports not-taken with a `'critical'`
+> degradation — permanent and loud, with no copy or rename fallback by design.
 
 ## Code evidence for the severity claim
 

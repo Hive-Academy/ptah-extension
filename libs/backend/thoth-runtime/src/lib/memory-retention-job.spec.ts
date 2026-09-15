@@ -22,7 +22,7 @@ type Entry = readonly [unknown, unknown];
 function makeContainer(entries: Entry[]): DependencyContainer {
   const map = new Map<unknown, unknown>(entries);
   return {
-    isRegistered: (token: unknown) => map.has(token),
+    isRegistered: jest.fn((token: unknown) => map.has(token)),
     resolve: jest.fn((token: unknown) => {
       if (!map.has(token)) {
         throw new Error(`not registered: ${String(token)}`);
@@ -205,6 +205,56 @@ describe('createMemoryRetentionHandler', () => {
     (container.resolve as unknown as jest.Mock).mockImplementationOnce(() => {
       throw new Error('container disposed');
     });
+
+    await expect(handler(makeCtx())).resolves.toEqual({
+      outcome: 'skipped',
+      reason: 'retention-service-unavailable',
+    });
+    expect(service.run).not.toHaveBeenCalled();
+  });
+
+  it('returns a skipped outcome when the power monitor cannot be resolved', async () => {
+    const { container, service } = makeDoubles();
+    const handler = createMemoryRetentionHandler(container);
+    (container.resolve as unknown as jest.Mock).mockImplementation(
+      (token: unknown) => {
+        if (token === CRON_TOKENS.CRON_POWER_MONITOR) {
+          throw new Error('power monitor container disposed');
+        }
+        if (token === MEMORY_TOKENS.MEMORY_RETENTION_SERVICE) {
+          return service;
+        }
+        throw new Error(`unexpected token: ${String(token)}`);
+      },
+    );
+
+    await expect(handler(makeCtx())).resolves.toEqual({
+      outcome: 'skipped',
+      reason: 'retention-service-unavailable',
+    });
+    expect(service.run).not.toHaveBeenCalled();
+  });
+
+  it('returns a skipped outcome when isRegistered throws during foreground tracker setup', async () => {
+    const { container, service } = makeDoubles();
+    const handler = createMemoryRetentionHandler(container);
+    (container.isRegistered as unknown as jest.Mock).mockImplementation(() => {
+      throw new Error('container disposed');
+    });
+
+    await expect(handler(makeCtx())).resolves.toEqual({
+      outcome: 'skipped',
+      reason: 'retention-service-unavailable',
+    });
+    expect(service.run).not.toHaveBeenCalled();
+  });
+
+  it('returns a skipped outcome when tracker.start throws during foreground tracker setup', async () => {
+    const { container, service, tracker } = makeDoubles();
+    tracker.start.mockImplementation(() => {
+      throw new Error('tracker start failed');
+    });
+    const handler = createMemoryRetentionHandler(container);
 
     await expect(handler(makeCtx())).resolves.toEqual({
       outcome: 'skipped',

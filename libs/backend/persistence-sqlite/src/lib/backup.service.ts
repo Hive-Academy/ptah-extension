@@ -25,10 +25,9 @@
  * the cross-process guard required when Electron and CLI share one directory.
  * A same-day daily final created by the old direct-write implementation earlier
  * on the upgrade day remains one documented residual: it is trusted once.
- * A second known limitation: a backups directory without hard-link support, or
- * staging and destination on different volumes (`EXDEV`), fails the publish,
- * so every backup reports not-taken with a `'critical'` degradation — permanent
- * and loud, with no copy or rename fallback by design.
+ * A second known limitation: a backups directory without hard-link support
+ * fails the publish, so every backup reports not-taken with a `'critical'`
+ * degradation — permanent and loud, with no copy or rename fallback by design.
  *
  * ONE BACKUP AT A TIME, AND NONE IS EVER DROPPED. Overlapping calls are
  * SERIALIZED, not rejected: the second awaits the first and then runs. Two

@@ -995,7 +995,7 @@ Edge cases:
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\task-440-memory-retention\libs\backend\persistence-sqlite\CLAUDE.md`
   (residuals paragraph) and `...\libs\backend\persistence-sqlite\src\lib\backup.service.ts` (docblock `:21-27`).
-- One sentence each: without hard-link support in the backups directory (or across volumes, `EXDEV`),
+- One sentence each: without hard-link support in the backups directory,
   atomic publish fails, so every backup reports not-taken / critical degradation, permanently and
   loudly. There is no copy or rename fallback by design.
 - Executor: any developer lane (docs only). Committed separately from `test-report.md`.

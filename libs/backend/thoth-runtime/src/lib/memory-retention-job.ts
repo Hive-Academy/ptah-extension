@@ -64,21 +64,22 @@ export function createMemoryRetentionHandler(
 ): JobHandler {
   return async (ctx) => {
     let service: MemoryRetentionService;
+    let monitor: IPowerMonitor;
+    let msSinceForegroundActivity: () => number;
     try {
       service = container.resolve<MemoryRetentionService>(
         MEMORY_TOKENS.MEMORY_RETENTION_SERVICE,
       );
+      monitor = container.resolve<IPowerMonitor>(
+        CRON_TOKENS.CRON_POWER_MONITOR,
+      );
+      msSinceForegroundActivity = foregroundActivityReader(container);
     } catch {
       return {
         outcome: 'skipped' as const,
         reason: 'retention-service-unavailable',
       };
     }
-
-    const monitor = container.resolve<IPowerMonitor>(
-      CRON_TOKENS.CRON_POWER_MONITOR,
-    );
-    const msSinceForegroundActivity = foregroundActivityReader(container);
 
     const report = await service.run({
       signal: ctx.signal,

@@ -822,4 +822,43 @@ describe('MemoryRetentionService — storageHealth', () => {
       'retentionState: no such table: memory_retention_state',
     ]);
   });
+
+  it('sanitizes absolute Windows and POSIX database paths in readErrors for every read-error source', () => {
+    const h = harness();
+    h.store.readLiveStorage = () => ({
+      pendingRows: null,
+      pendingBytes: null,
+      oldestPendingAt: null,
+      stuckEligibleRows: null,
+      quarantineLedgerRows: null,
+      readErrors: [
+        'connection: failed to open C:\\Users\\alice\\.ptah\\state\\db.sqlite - busy',
+        'pending: query failed on /home/bob/.ptah/state/db.sqlite',
+        'pendingBytes: read failed on C:/Users/alice/.ptah/state/db.sqlite',
+        'stuckEligible: scan error at /Users/charlie/.ptah/state/db.sqlite',
+        'quarantineLedger: table missing in /root/.ptah/state/db.sqlite',
+      ],
+    });
+    h.store.readState = () => {
+      throw new Error(
+        'read failure at C:\\Users\\alice\\.ptah\\state\\db.sqlite',
+      );
+    };
+
+    const health = h.service.storageHealth();
+
+    expect(health.readErrors).toEqual([
+      'connection: failed to open [path redacted] - busy',
+      'pending: query failed on [path redacted]',
+      'pendingBytes: read failed on [path redacted]',
+      'stuckEligible: scan error at [path redacted]',
+      'quarantineLedger: table missing in [path redacted]',
+      'retentionState: read failure at [path redacted]',
+    ]);
+    for (const err of health.readErrors ?? []) {
+      expect(err).not.toMatch(/[A-Za-z]:[/\\]/);
+      expect(err).not.toMatch(/\/(?:home|Users|root)\//);
+      expect(err).toContain('[path redacted]');
+    }
+  });
 });

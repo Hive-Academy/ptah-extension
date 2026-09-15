@@ -252,7 +252,9 @@ export class MemoryRetentionService {
         lastSkippedAt: state?.lastSkippedAt ?? null,
         lastSkipReason: state?.lastSkipReason ?? null,
       },
-      ...(readErrors.length > 0 ? { readErrors } : {}),
+      ...(readErrors.length > 0
+        ? { readErrors: readErrors.map(sanitizeRetentionError) }
+        : {}),
     };
   }
 

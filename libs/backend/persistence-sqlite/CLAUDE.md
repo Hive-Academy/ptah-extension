@@ -77,10 +77,9 @@ Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(
     re-runs return the existing final; the one residual is an old-version partial
     daily final created earlier on the upgrade day, which is trusted once.
     A second known limitation: when the backups directory sits on a filesystem
-    without hard-link support, or staging and destination sit on different
-    volumes (`EXDEV`), atomic publish fails, so every backup reports not-taken
-    with a `'critical'` degradation — the failure is permanent and loud, and
-    there is no copy or rename fallback by design.
+    without hard-link support, atomic publish fails, so every backup reports
+    not-taken with a `'critical'` degradation — the failure is permanent and
+    loud, and there is no copy or rename fallback by design.
   - `BACKUP_WORKER_BUDGET_MS` is 20 min — deliberately 4× `INTEGRITY_WORKER_BUDGET_MS`,
     because a copy plus a validation is strictly more work than one `quick_check`.
     A budget set too tight does not report slowness; it means "the migration ran
