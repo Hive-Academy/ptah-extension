@@ -7,6 +7,7 @@ let callback: ObserverCallback | null;
 let originalObserver: typeof ResizeObserver;
 let originalRaf: typeof requestAnimationFrame;
 let originalCancel: typeof cancelAnimationFrame;
+let disconnectMock: jest.Mock;
 
 const width = (span: 'third' | 'half' | 'two-thirds' | 'full'): TileWidthIntent => ({ kind: 'span', span });
 const tile = (tabId: string, order: number, value: TileWidthIntent = { kind: 'auto', weight: 1 }, rowBreakBefore = false): TileIntent => ({
@@ -24,11 +25,12 @@ describe('CanvasLayoutService', () => {
     originalObserver = globalThis.ResizeObserver;
     originalRaf = globalThis.requestAnimationFrame;
     originalCancel = globalThis.cancelAnimationFrame;
+    disconnectMock = jest.fn();
     globalThis.ResizeObserver = class {
       constructor(cb: ObserverCallback) { callback = cb; }
       observe(): void { /* no-op */ }
       unobserve(): void { /* no-op */ }
-      disconnect(): void { /* no-op */ }
+      disconnect(): void { disconnectMock(); }
     } as unknown as typeof ResizeObserver;
     globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 1; }) as typeof requestAnimationFrame;
     globalThis.cancelAnimationFrame = (() => undefined) as typeof cancelAnimationFrame;
@@ -97,5 +99,38 @@ describe('CanvasLayoutService', () => {
     expect(service.computeLayout([tile('A', 0)]).tiles).toEqual([]);
     measure(1464, 900);
     expect(service.computeLayout([tile('A', 0, { kind: 'auto', weight: Number.NaN })]).tiles[0].w).toBe(12);
+  });
+
+  it('keeps wrapped tiles at least ninety percent of the viewport height', () => {
+    measure(MIN_TILE_WIDTH, 600);
+    const layout = service.computeLayout([tile('A', 0), tile('B', 1), tile('C', 2)]);
+    expect(layout.cellHeight).toBe(90);
+    expect(layout.cellHeight * 6).toBeGreaterThanOrEqual(0.9 * 600);
+  });
+
+  it('debounces observed measurements through animation frames and disconnects on destroy', () => {
+    let queuedFrame: FrameRequestCallback | null = null;
+    let nextFrameId = 10;
+    const requestFrame = jest.fn((frame: FrameRequestCallback) => {
+      queuedFrame = frame;
+      nextFrameId += 1;
+      return nextFrameId;
+    });
+    const cancelFrame = jest.fn();
+    globalThis.requestAnimationFrame = requestFrame as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = cancelFrame as typeof cancelAnimationFrame;
+
+    measure(1000.9, 700.8);
+    measure(1234.9, 777.8);
+    expect(cancelFrame).toHaveBeenCalledWith(11);
+    expect(service.containerWidth()).toBe(0);
+    expect(service.containerHeight()).toBe(0);
+    expect(queuedFrame).not.toBeNull();
+    queuedFrame?.(0);
+    expect(service.containerWidth()).toBe(1234);
+    expect(service.containerHeight()).toBe(777);
+
+    TestBed.resetTestingModule();
+    expect(disconnectMock).toHaveBeenCalledTimes(1);
   });
 });

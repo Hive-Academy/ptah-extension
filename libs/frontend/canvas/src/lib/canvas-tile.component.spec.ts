@@ -41,8 +41,48 @@ jest.mock('ngx-markdown', () => {
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { CanvasTileComponent } from './canvas-tile.component';
-import { TabManagerService } from '@ptah-extension/chat';
+import { SendToMessagingComponent, TabManagerService } from '@ptah-extension/chat';
 import { EffortStateService, ModelStateService } from '@ptah-extension/core';
+import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
+import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
+
+@Component({
+  selector: 'ptah-test-chat-view',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class ChatViewStub {}
+
+@Component({
+  selector: 'ptah-tile-agent-indicator',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class TileAgentIndicatorStub {
+  @Input() tabId = '';
+}
+
+@Component({
+  selector: 'ptah-tile-agent-mini-panel',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class TileAgentMiniPanelStub {
+  @Input() agents: readonly unknown[] = [];
+}
+
+@Component({
+  selector: 'ptah-send-to-messaging',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class SendToMessagingStub {
+  @Input() tabId = '';
+}
 
 describe('CanvasTileComponent freeze-at-creation effort', () => {
   const mockEffortState = {
@@ -415,34 +455,27 @@ describe('CanvasTileComponent layout menu contract', () => {
       ],
     });
     TestBed.overrideComponent(CanvasTileComponent, {
-      set: {
-        imports: [],
-        template: `
-          <button type="button" aria-haspopup="menu"
-            [attr.aria-expanded]="layoutMenuOpen()"
-            [attr.aria-label]="'Layout options for ' + tabLabel()"
-            (click)="toggleLayoutMenu()">Layout</button>
-          @if (layoutMenuOpen()) {
-            <div #layoutMenu role="menu" (keydown)="onLayoutMenuKeydown($event)">
-              @for (option of spanOptions; track option.span) {
-                <button type="button" role="menuitemradio" data-layout-item tabindex="-1"
-                  [attr.aria-checked]="isSpanChecked(option.span)"
-                  [attr.aria-label]="option.label" [disabled]="layoutLocked()"
-                  (click)="requestSpan(option.span)">{{ option.text }}</button>
-              }
-              <button type="button" role="menuitem" data-layout-item tabindex="-1"
-                aria-label="Focus tile at full width" [disabled]="layoutLocked()"
-                (click)="requestLayoutFocus()">Focus</button>
-              <button type="button" role="menuitem" data-layout-item tabindex="-1"
-                aria-label="Start a new row before this tile"
-                [disabled]="layoutLocked() || firstInOrder()"
-                (click)="requestRowBreak()">Start new row</button>
-            </div>
-          }
-        `,
+      remove: {
+        imports: [
+          TileAgentIndicatorComponent,
+          TileAgentMiniPanelComponent,
+          SendToMessagingComponent,
+        ],
+      },
+      add: {
+        imports: [
+          TileAgentIndicatorStub,
+          TileAgentMiniPanelStub,
+          SendToMessagingStub,
+        ],
       },
     });
     const fixture = TestBed.createComponent(CanvasTileComponent);
+    (
+      fixture.componentInstance as unknown as {
+        chatViewComponent: typeof ChatViewStub;
+      }
+    ).chatViewComponent = ChatViewStub;
     fixture.componentRef.setInput('tabId', 'tile-1');
     fixture.componentRef.setInput('widthIntent', { kind: 'span', span: 'half' });
     fixture.componentRef.setInput('layoutLocked', locked);
@@ -452,17 +485,25 @@ describe('CanvasTileComponent layout menu contract', () => {
 
   it('exposes trigger/menu ARIA and four stored-span radio choices', () => {
     const fixture = setup();
-    const trigger = fixture.nativeElement.querySelector('button');
+    const trigger = fixture.nativeElement.querySelector(
+      '[data-testid="tile-layout-trigger"]',
+    );
     expect(trigger.getAttribute('aria-label')).toBe('Layout options for Alpha');
     expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
     trigger.click();
     fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="menu"]')).not.toBeNull();
     const radios = [...fixture.nativeElement.querySelectorAll('[role="menuitemradio"]')] as HTMLButtonElement[];
+    expect(radios.map((button) => button.dataset.span)).toEqual([
+      'third', 'half', 'two-thirds', 'full',
+    ]);
     expect(radios.map((button) => button.getAttribute('aria-label'))).toEqual([
       'Set tile width to one third', 'Set tile width to one half',
       'Set tile width to two thirds', 'Set tile width to full',
     ]);
     expect(radios.map((button) => button.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false', 'false']);
+    expect(fixture.nativeElement.querySelector('[data-layout-action="focus"]').getAttribute('aria-label')).toBe('Focus tile at full width');
+    expect(fixture.nativeElement.querySelector('[data-layout-action="row"]').getAttribute('aria-label')).toBe('Start a new row before this tile');
   });
 
   it('emits span, focus and row actions and closes after selection', () => {
@@ -473,7 +514,10 @@ describe('CanvasTileComponent layout menu contract', () => {
     fixture.componentInstance.spanRequested.subscribe(span);
     fixture.componentInstance.layoutFocusToggled.subscribe(focus);
     fixture.componentInstance.rowBreakToggled.subscribe(row);
-    const open = (): void => { fixture.nativeElement.querySelector('button').click(); fixture.detectChanges(); };
+    const open = (): void => {
+      fixture.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
+      fixture.detectChanges();
+    };
     open();
     (fixture.nativeElement.querySelectorAll('[role="menuitemradio"]')[2] as HTMLButtonElement).click();
     expect(span).toHaveBeenCalledWith('two-thirds');
@@ -487,7 +531,7 @@ describe('CanvasTileComponent layout menu contract', () => {
 
   it('cycles enabled items with arrows/Home/End and disables all actions when locked', () => {
     const fixture = setup();
-    fixture.nativeElement.querySelector('button').click();
+    fixture.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
     fixture.detectChanges();
     const items = [...fixture.nativeElement.querySelectorAll('[data-layout-item]')] as HTMLButtonElement[];
     items[1].focus();
@@ -497,7 +541,7 @@ describe('CanvasTileComponent layout menu contract', () => {
     expect(document.activeElement).toBe(items[0]);
 
     const locked = setup(true);
-    locked.nativeElement.querySelector('button').click();
+    locked.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
     locked.detectChanges();
     expect([...locked.nativeElement.querySelectorAll('[data-layout-item]')].every((item) => (item as HTMLButtonElement).disabled)).toBe(true);
   });

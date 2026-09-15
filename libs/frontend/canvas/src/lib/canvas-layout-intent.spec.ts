@@ -39,6 +39,12 @@ describe('canvas layout intent', () => {
     ]);
   });
 
+  it('honours the responsive floor for skewed 10/1/1 auto weights', () => {
+    expect(packRows(tiles([['A', auto(10)], ['B', auto()], ['C', auto()]]), 3)).toEqual([
+      [{ tabId: 'A', units: 4 }, { tabId: 'B', units: 4 }, { tabId: 'C', units: 4 }],
+    ]);
+  });
+
   it('promotes spans responsively without mutating intent', () => {
     const intent = tiles([['A', span('third')], ['B', span('half')]]);
     const before = JSON.stringify(intent);

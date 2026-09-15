@@ -251,7 +251,11 @@ describe('CanvasWorkspaceGridComponent', () => {
         {
           provide: CanvasLayoutPersistenceService,
           useValue: {
-            load: jest.fn(() => ({ tiles: null, writable: true })),
+            load: jest.fn(() => ({
+              tiles: null,
+              writable: true,
+              needsWrite: false,
+            })),
             markHydrated: jest.fn(),
             schedule: jest.fn(),
             remove: jest.fn(),
@@ -629,6 +633,20 @@ describe('CanvasWorkspaceGridComponent', () => {
         { kind: 'auto', weight: 1 },
         { kind: 'auto', weight: 1 },
       ]);
+    });
+
+    it('preserves a stored third when its capacity-two width ends at six units', () => {
+      mount(['t1', 't2'], { width: TWO_COLUMN_WIDTH });
+      store.setTileSpan(WORKSPACE, 't1', 'third');
+      flush();
+      resizeSpanSpy.mockClear();
+
+      grid.engine.nodes[0].w = 6;
+      fireResizeStop();
+      grid.emitChange();
+
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+      expect(store.tiles()[0].width).toEqual({ kind: 'span', span: 'third' });
     });
 
     it('re-derives the resized widths unchanged — no snap-back', () => {

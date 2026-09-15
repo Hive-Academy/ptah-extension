@@ -509,7 +509,11 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
           {
             provide: CanvasLayoutPersistenceService,
             useValue: {
-              load: jest.fn(() => ({ tiles: null, writable: true })),
+              load: jest.fn(() => ({
+                tiles: null,
+                writable: true,
+                needsWrite: false,
+              })),
               markHydrated: jest.fn(),
               schedule: jest.fn(),
               remove: jest.fn(),
@@ -662,7 +666,11 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
           {
             provide: CanvasLayoutPersistenceService,
             useValue: {
-              load: jest.fn(() => ({ tiles: null, writable: true })),
+              load: jest.fn(() => ({
+                tiles: null,
+                writable: true,
+                needsWrite: false,
+              })),
               markHydrated: jest.fn(),
               schedule: jest.fn(),
               remove: jest.fn(),

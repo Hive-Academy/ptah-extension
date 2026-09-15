@@ -426,6 +426,13 @@ export class CanvasStore {
 
     setIn(this._workspaceTiles, path, tiles);
     setIn(this._workspaceFocusedTabId, path, focused);
+    const layoutFocus = this.layoutFocusTabIdFor(path);
+    if (
+      layoutFocus !== null &&
+      !tiles.some((tile) => tile.tabId === layoutFocus)
+    ) {
+      setIn(this._workspaceLayoutFocus, path, null);
+    }
     if (!this._workspaceRevisions().has(path)) {
       setIn(this._workspaceRevisions, path, 0);
     }

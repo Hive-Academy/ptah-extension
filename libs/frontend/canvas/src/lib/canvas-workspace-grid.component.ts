@@ -22,6 +22,7 @@ import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasTileComponent } from './canvas-tile.component';
 import {
+  effectiveUnits,
   projectDragIntent,
   snapSpan,
   type TilePositionObservation,
@@ -452,17 +453,29 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     const width = grid.engine.nodes.find(
       (candidate) => candidate.id === gesture.draggedId,
     )?.w;
-    if (
-      typeof width === 'number' &&
-      Number.isFinite(width) &&
-      width > 0 &&
-      this.canvasStore.commitResizeSpan(
-        gesture.workspacePath,
-        gesture.workspaceRevision,
-        gesture.draggedId,
-        snapSpan(width),
-      )
-    ) {
+    let accepted = false;
+    if (typeof width === 'number' && Number.isFinite(width) && width > 0) {
+      const snappedSpan = snapSpan(width);
+      const currentWidth = this.canvasStore
+        .tilesFor(gesture.workspacePath)()
+        .find((tile) => tile.tabId === gesture.draggedId)?.width;
+      const keepsResponsiveNamedSpan =
+        currentWidth?.kind === 'span' &&
+        effectiveUnits(currentWidth, gesture.responsiveCapacity) ===
+          effectiveUnits(
+            { kind: 'span', span: snappedSpan },
+            gesture.responsiveCapacity,
+          );
+      accepted =
+        keepsResponsiveNamedSpan ||
+        this.canvasStore.commitResizeSpan(
+          gesture.workspacePath,
+          gesture.workspaceRevision,
+          gesture.draggedId,
+          snappedSpan,
+        );
+    }
+    if (accepted) {
       this.metrics.increment('acceptedGestures');
     } else {
       this.metrics.increment('rejectedGestures');

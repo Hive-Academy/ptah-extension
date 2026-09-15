@@ -27,13 +27,14 @@ import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat';
 import { CanvasStore, RETAINED_WORKSPACE_CAP } from './canvas.store';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
+import type { CanvasLayoutLoadResult } from './canvas-layout-persistence.service';
 import type { TileIntent } from './canvas-layout-intent';
 
 describe('CanvasStore', () => {
   let store: CanvasStore;
   let tabs: ReturnType<typeof signal<Array<{ id: string; claudeSessionId: null; name: string }>>>;
   let persistence: {
-    load: jest.Mock;
+    load: jest.Mock<CanvasLayoutLoadResult, [string]>;
     markHydrated: jest.Mock;
     schedule: jest.Mock;
     remove: jest.Mock;
@@ -42,7 +43,11 @@ describe('CanvasStore', () => {
   beforeEach(() => {
     tabs = signal([]);
     persistence = {
-      load: jest.fn(() => ({ tiles: null, writable: true })),
+      load: jest.fn(() => ({
+        tiles: null,
+        writable: true,
+        needsWrite: false,
+      })),
       markHydrated: jest.fn(),
       schedule: jest.fn(),
       remove: jest.fn(),
@@ -73,7 +78,11 @@ describe('CanvasStore', () => {
       { tabId: 'kept', order: 0, width: { kind: 'span', span: 'half' }, rowBreakBefore: false },
       { tabId: 'closed', order: 1, width: { kind: 'span', span: 'full' }, rowBreakBefore: true },
     ];
-    persistence.load.mockReturnValue({ tiles: persisted, writable: true });
+    persistence.load.mockReturnValue({
+      tiles: persisted,
+      writable: true,
+      needsWrite: false,
+    });
     store.hydrateWorkspace('/ws/a', ['kept', 'new']);
     store.hydrateWorkspace('/ws/a', ['kept', 'new']);
     expect(persistence.load).toHaveBeenCalledTimes(1);
@@ -93,12 +102,38 @@ describe('CanvasStore', () => {
 
   it('commits snapped resize only for the addressed workspace and revision', () => {
     hydrate('/ws/a', ['A', 'B']);
-    const revision = store.workspaceRevision('/ws/a');
-    expect(store.commitResizeSpan('/ws/a', revision + 1, 'A', 'half')).toBe(false);
-    expect(store.commitResizeSpan('/ws/b', revision, 'A', 'half')).toBe(false);
-    expect(store.commitResizeSpan('/ws/a', revision, 'missing', 'half')).toBe(false);
-    expect(store.commitResizeSpan('/ws/a', revision, 'A', 'half')).toBe(true);
+    const revisionA = store.workspaceRevision('/ws/a');
+    hydrate('/ws/b', ['C']);
+    expect(store.setTileSpan('/ws/b', 'C', 'full')).toBe(true);
+    expect(store.commitResizeSpan('/ws/b', revisionA, 'C', 'half')).toBe(false);
+    hydrate('/ws/a', ['A', 'B']);
+
+    expect(store.commitResizeSpan('/ws/a', revisionA, 'A', 'half')).toBe(true);
     expect(store.tiles()[0].width).toEqual({ kind: 'span', span: 'half' });
+    const updatedRevisionA = store.workspaceRevision('/ws/a');
+    expect(store.commitResizeSpan('/ws/a', revisionA, 'B', 'full')).toBe(false);
+    expect(store.commitResizeSpan('/ws/a', updatedRevisionA, 'B', 'two-thirds')).toBe(true);
+  });
+
+  it('clears stale layout focus carried from the implicit partition during hydration', () => {
+    store.hydrateWorkspace(null, ['ghost']);
+    expect(store.toggleLayoutFocus('', 'ghost')).toBe(true);
+    store.hydrateWorkspace('/ws/a', ['real']);
+    expect(store.layoutFocusTabIdFor('/ws/a')).toBeNull();
+  });
+
+  it('schedules a v2 persist when migrated intent already matches reconciliation', () => {
+    const migrated: TileIntent[] = [
+      { tabId: 'A', order: 0, width: { kind: 'auto', weight: 5 }, rowBreakBefore: false },
+    ];
+    persistence.load.mockReturnValue({
+      tiles: migrated,
+      writable: true,
+      needsWrite: true,
+    });
+    store.hydrateWorkspace('/ws/a', ['A']);
+    expect(store.tiles()).toEqual(migrated);
+    expect(persistence.schedule).toHaveBeenCalledTimes(1);
   });
 
   it('keeps transient layout focus workspace scoped and clears it on removal', () => {
