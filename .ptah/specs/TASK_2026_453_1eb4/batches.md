@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 1/6
+Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 2/6
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -73,7 +73,9 @@ C5 hold as designed.
 - A1 replayed partial history mounts during replay — unverified; M0 DOM sample (Task 1.1) and
   C5 spec (Task 5.1).
 - A2 `FireAnimationFrame` dominated by execution-node rAF + Angular `animate.enter/leave` —
-  unverified; M0 rAF histogram (Batch 2).
+  **VERIFIED and narrowed by the M0 rAF histogram (Batch 2)**: execution-node `scheduleFrame`
+  (E17) alone is 88.3%; the `animate.enter/leave` half of the assumption did not appear as a
+  distinct rAF site. See "Batch 2 outcome".
 - A3 component effects run before the template in the same CD pass — unverified; C1 spec
   (Task 4.1).
 - A4 injecting the replayer in `ChatViewComponent` needs no new stubs — verified by reading
@@ -147,6 +149,12 @@ Edge cases:
   4. `npx nx run degradation-audit:lint --skip-nx-cache` — quote `degradation-audit: TOTAL N`
      and the rows for touched directories; N must equal the Batch 1 recorded TOTAL.
   5. `npx prettier --check <every changed file>` (use `--write` on your own files if it fails).
+- **Quote every `|` in an nx/jest argument** — on Windows PowerShell an unquoted `|` in
+  `--testPathPatterns a|b` is parsed as a pipe; write `--testPathPatterns '"a|b"'`. Prefer
+  `run-many -t test -p <projects>` over path patterns. A lane that did this left an executor hung
+  with no worker children, no output and no report; it survived the lane's exit and held a CPU core
+  for 3.5 hours. If a run goes unusually long with no output, check for an executor process with no
+  worker children before waiting longer.
 - At most 2 test runners at once across all lanes. Before a perf/Playwright run, the node-runner
   count must be 0:
   `powershell -NoProfile -c "(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ? { $_.CommandLine -match 'jest-worker|run-executor' }).Count"`
@@ -155,7 +163,7 @@ Edge cases:
 
 ---
 
-## Batch 1: C4 perf harness + PR #518 CodeRabbit fixes — COMPLETE
+## Batch 1: C4 perf harness + PR #518 CodeRabbit fixes — COMPLETE (commit `49b436256`)
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `senior-tester` sub-agent (harness-only work)
@@ -335,7 +343,7 @@ number; tid: number }): TraceEventSummary` — pure; returns per event `name` th
   - Style delta minor 2 (`perf-diagnostics.ts` "modified") is not a no-op concern: that file is
     the Task 1.2 change (+123 lines vs HEAD), reviewed in the base pass.
 
-## Batch 2: M0 baseline measurement — IN_PROGRESS
+## Batch 2: M0 baseline measurement — COMPLETE
 
 - Recommended executor: Claude `senior-tester` sub-agent
 - Fallback executor: none (measurement must be on an idle machine; wait instead)
@@ -345,7 +353,7 @@ number; tid: number }): TraceEventSummary` — pure; returns per event `name` th
 - Review: `code-logic-reviewer` on `test-report.md` methodology (runner counts, discarded runs,
   settle flags); team-leader commits the report.
 
-### Task 2.1: M0 run set and FireAnimationFrame verdict — IN_PROGRESS
+### Task 2.1: M0 run set and FireAnimationFrame verdict — COMPLETE
 
 - File: CREATE `W\.ptah\specs\TASK_2026_453_1eb4\test-report.md`
 - Plan reference: implementation-plan.md:500-523; handoff.md §8 rules 1, 4, 5
@@ -364,7 +372,93 @@ number; tid: number }): TraceEventSummary` — pure; returns per event `name` th
      confirmed with `git status`/`git diff`; never committed.
 - Environment: diagnostics to `PTAH_PERF_OUT_DIR` outside the repo; diagnostics JSON paths listed.
 
-## Batch 3: C3 canvas request queue ∥ C2 replay admission — PENDING
+### Batch 2 outcome
+
+- Executor: Claude `senior-tester` sub-agent. Report: `test-report.md` (the only file added; no
+  product or spec code changed — team-leader confirmed `git status --short` showed only
+  `test-report.md` untracked plus the carried-over one-line `batches.md` status edit, and
+  `git diff --stat` showed 1 file / 1 insertion / 1 deletion).
+- Measured build: HEAD `49b436256` (Batch 1 commit), no product change in it.
+- Run set (9 runs, all after the shared-machine idle check first reached 0 at 02:23:47; idle
+  `0`/`0` before and after every run; none discarded; none threw "measurement unusable"): cold
+  3-tile dev ×3, warm 1-tile, warm 3-tile, production cold, rAF attribution, trace at 500 and at
+  2,000 events.
+
+**AC-11 is NOT MET at M0**, in dev and in production:
+
+| Metric               | Budget      | Dev cold (I / J / K)     | Production cold | Gap (production) |
+| -------------------- | ----------- | ------------------------ | --------------- | ---------------- |
+| Max single long task | <= 200 ms   | 1,926 / 1,326 / 1,062 ms | 1,201 ms        | 6.0× over        |
+| Total blocked time   | <= 1,500 ms | 6,941 / 5,463 / 4,077 ms | 4,767 ms        | 3.2× over        |
+
+- The last-clicked tile (TILE_2) carries ~95-98% of each run's blocked time and the budget-busting
+  max task — the Batch 22 / FU-22d shape, reconfirmed on this commit.
+- **E17 correction (the new finding).** The rAF call-site histogram (1,517 captured calls) puts
+  `execution-node.component.ts` `scheduleFrame` (plan evidence E17) at 88.3% of all rAF calls, and
+  `FireAnimationFrame` count scales 3.09× for a 4× event increase (448 → 1,386) — so it is a
+  per-node/per-chunk cost, not a fixed per-tile-open cost. This **corrects** the FU-22d spike,
+  which ruled E17 out by assuming a resumed session takes `scheduleFrame`'s synchronous
+  `publishNow` branch; `SessionHistoryReplayer`'s chunked replay actually streams each node, so
+  the rAF-gated branch is the one taken. A2 is confirmed, and more specifically than assumed.
+  E27 3.5%, E26 2.0%, E11 0.4%; E23 does not appear as a distinct site; 5.4% stays unattributed
+  in minified frames.
+- **Effect on Stage 1 — recorded, no plan change made here.** Batch order is unchanged (C2/C3 →
+  C1 → C5; C5 still needs C1's `historyReplaying` signal). Two consequences the architect must
+  rule on **before Batch 4 starts**:
+  - C1 as specified does NOT reach the 88.3% rAF source. `scheduleFrame`'s rAF branch is gated
+    solely by `isNodeStreaming()` (`execution-node.component.ts:391-398`); `isFinalizing()` drives
+    only `exec-fade-in` (:127 etc.) and `flipAnimationDisabled` (:362-364), neither of which is
+    the rAF path. Task 4.1 AC 6 also states `execution-node.component.ts` is **unchanged**. So
+    `test-report.md`'s claim that C1 gates `scheduleFrame` "by the same `isFinalizing` signal" is
+    not supported by the source — see "Not supported by the report" below. Open question: should
+    C1's scope widen to gate `scheduleFrame` on `historyReplaying`?
+  - **A5 estimate shifts down, C5's expected recovery shifts up.** A5 credited the Angular
+    animation gate with an unmeasured 0-15% of the remainder; E17 reallocates most of
+    `FireAnimationFrame` (18.9% of wall at 2,000 events) to per-node streaming publishes that the
+    animation gate does not touch, so that 0-15% credit should be read at its low end unless C1
+    widens. Conversely, C5 cuts mounted execution nodes during replay, and rAF calls here are
+    per-node, so C5's recovery should scale with the DOM reduction — E17 makes C5 **more**
+    load-bearing for AC-11, consistent with A5's "without C5 it would not".
+- **DOM volume**: replaying node count is ~3.5-4.3× the settled count on the 3-tile cases (e.g.
+  run I 21,113 / 4,980; run J 20,931 / 5,935; production 20,954 / 6,024). Batch 5 (C5)'s own
+  acceptance criterion is <= 2× per tile, so M1 must beat this by roughly half. These are
+  whole-canvas totals; C5/M1 needs its own per-tile breakdown.
+- **M0-cv skipped**, reason recorded (`test-report.md` "M0-cv"): the only remaining path needs a
+  temporary re-add of the `.chat-msg-cv` rule that PR #519 deleted, plus a renderer rebuild before
+  and after, which failed the plan's own "only if cheap" test (`implementation-plan.md` :509-516)
+  on a contended machine after 9 runs. Left for Stage 2 sizing.
+- **Evidence paths**: diagnostics JSON in `D:\projects\ptah-453-perf\m0` — cold
+  `ac11-perf-cold-3tile-1789514716165.json` (I), `...-1789514797099.json` (J),
+  `...-1789514867049.json` (K); `ac11-perf-warm-1tile-1789514932417.json`;
+  `ac11-perf-warm-3tile-1789515004612.json`; production `ac11-perf-cold-3tile-1789515097003.json`;
+  rAF `ac11-perf-diagnostic-cold-3tile-2000-1789515190816.json`; trace
+  `ac11-perf-diagnostic-cold-3tile-500-1789515270688.json` and
+  `...-2000-1789515342074.json`. Console logs `D:\projects\ptah-453-perf\m0-run1.log`, `m0-run2`,
+  `m0-run3`, `m0-warm1`, `m0-warm3`, `m0-prod-cold`, `m0-raf-attribution`, `m0-trace-500`,
+  `m0-trace-2000`.
+- **Not supported by the report** (team-leader check; none invalidates the baseline numbers):
+  1. The C1 claim above (`test-report.md` :339-344) contradicts
+     `execution-node.component.ts:362-364, 391-398`. Treat as an open architect question, not a
+     settled justification.
+  2. Layout/Paint/GPU family total at 2,000 events is given as 2,211.70 ms / 33.2%; the seven rows
+     sum to **2,271.11 ms / 34.1%** — `HitTest` (59.41) was dropped from the 2,000 total but
+     included in the 500 total (which does sum to 1,176.04). Arithmetic only.
+  3. "TILE_2 carries 88-95%" understates it: per-run shares are 94.7 / 96.4 / 94.8%, warm 3-tile
+     97.6%. No run is at 88%.
+  4. "4-4.3×" DOM ratio "every cold/warm 3-tile run" — run J is 3.53× and production 3.48×. The
+     range is ~3.5-4.3×.
+  5. Task 2.1 AC 2 asks for a **scroll sanity result per run**; the report records none (zero
+     occurrences). Marker buckets are given for run I only, and `preWindowExcluded` is omitted from
+     the warm and trace tables. The JSON holds all of it; M1 (Task 6.1) must report it.
+- Every other number checks out: the histogram sums to 1,517 and its shares are exact; per-tile
+  buckets sum to each run's count and total; the 6.0×/3.2× gaps, the 3.09× scaling and every
+  share-of-wall percentage recompute correctly; the 9 JSON timestamps are monotonic and all later
+  than the 02:23:47 idle transition.
+- **Process note**: batches.md scheduled a `code-logic-reviewer` pass on this report's methodology.
+  The orchestrator directed a direct commit instead (documentation-only batch, no product code).
+  Items 1-5 above are the team-leader verification that ran in its place.
+
+## Batch 3: C3 canvas request queue ∥ C2 replay admission — IN_PROGRESS
 
 - Recommended executor: CLI lanes `codex` x 2 (Lane A = Task 3.1, Lane B = Task 3.2)
 - Fallback executor: Claude `frontend-developer` sub-agent, sequential 3.1 then 3.2
@@ -376,7 +470,7 @@ number; tid: number }): TraceEventSummary` — pure; returns per event `name` th
 - Review: `code-logic-reviewer` + `code-style-reviewer` over both lanes' diffs → fixes back to the
   owning lane → delta review if non-trivial → team-leader commits once for the batch.
 
-### Task 3.1 (Lane A): Replace the single-slot canvas session request with a FIFO queue — PENDING
+### Task 3.1 (Lane A): Replace the single-slot canvas session request with a FIFO queue — IN_PROGRESS
 
 - Files:
   - MODIFY `W\libs\frontend\core\src\lib\services\app-state.service.ts`
@@ -415,7 +509,7 @@ readonly CanvasSessionRequest[]` returns the queue and sets `[]` (no write when 
   lint on `@ptah-extension/core @ptah-extension/canvas ptah-electron-e2e`; audit rows
   `libs/frontend/core` and `libs/frontend/canvas` must not appear as FAIL (ceiling 0).
 
-### Task 3.2 (Lane B): One replay-and-finalize at a time across tabs — PENDING
+### Task 3.2 (Lane B): One replay-and-finalize at a time across tabs — IN_PROGRESS
 
 - Files:
   - MODIFY `W\libs\frontend\chat\src\lib\services\chat-store\session-history-replayer.service.ts` (331 lines)
