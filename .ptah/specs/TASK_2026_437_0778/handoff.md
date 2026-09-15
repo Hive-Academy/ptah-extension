@@ -64,7 +64,20 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b, 18, 19, 20, 21 and 22 — COMMITTED (P3 and P4 gates passed; next the FU-22d spike)
+## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b, 18, 19, 20, 21 and 22 — COMMITTED (P3 and P4 gates passed; FU-22d spike COMPLETE; fix direction pending user decision)
+
+**FU-22d attribution spike — COMPLETE 2026-09-15** (docs commit
+`docs(task-specs): record the TASK_2026_437 tile-open attribution spike`). Report only, no product
+code: `fu22d-attribution-spike-report.md`; evidence in `D:\projects\ptah-437-backup\fu22d\`.
+AC-11 still NOT MET. Auto-animate off: max −33 % to −39 %, total −31 % to −37 %, but still 4.6–5.1×
+over on max and 2.4–2.6× on total. CDP tracing: `FireAnimationFrame` (~1.1–1.3 s, 1,400+ firings)
+and Layout/Paint/GPU (~2.2 s, ~40–48 %) do not shrink without auto-animate. Total blocked time
+scales about linearly with events (~2.9–3.1 ms/event). Finalization, replay and CD each < 2 %;
+TILE_2 79–98 %. Ranked fix classes: (1) reduce DOM insertion volume per tile open (tail-paged
+history and/or virtualize the execution-node tree inside mounted messages —
+`TranscriptRenderWindow` virtualizes top-level messages only), (2) stagger concurrent tile opens,
+(3) gate auto-animate off during bulk mount (~30–35 %). Open unknown: the `FireAnimationFrame`
+source. Details and a citation note in `batches.md` "FU-22d attribution spike outcome".
 
 **Batch 22 — COMMITTED 2026-09-15** as
 `test(electron-e2e): measure tile-open long tasks for a 2,000-event session`.
@@ -343,8 +356,9 @@ All 24 batches are committed. **P4 PHASE GATE PASSED 2026-09-15 — Phase 4 CLOS
 `lint:all` 73 projects 0 errors; `typecheck:all` 70 projects (affected vs `main` `e3e366e67`) 0
 errors, plus `run-many -t typecheck --all` 93 projects 0 errors to match P3 coverage;
 `nx build ptah-electron` exit 0; `degradation-audit:lint` TOTAL 303. The Prisma client was already
-present. Evidence in `batches.md` under Batch 22 verification. AC-11 is still NOT MET. Next: the
-FU-22d attribution spike (Q6), then the user opens the new PR. Summary:
+present. Evidence in `batches.md` under Batch 22 verification. AC-11 is still NOT MET. The FU-22d
+attribution spike (Q6) is COMPLETE (section 4). **Next: the user decides the AC-11 fix direction
+(open decision 7); then open the new PR for this branch per user instruction.** Summary:
 
 - **P2:** all batches committed. Only the OPEN D10 proof remains: `publish-electron.yml` build matrix
   green on Windows, macOS and Linux (section 4a) — needs a user decision to dispatch.
@@ -362,8 +376,12 @@ FU-22d attribution spike (Q6), then the user opens the new PR. Summary:
 4. PR for this branch: PR #510 merged; one new PR is due now that the P4 gate has passed (not opened yet).
 5. Whether to write the property-hub load-test setup/cleanup scripts (section 9).
 6. AC-10 manual boot evidence (Batch 17 outcome).
+7. AC-11 fix direction after the FU-22d spike: reduce DOM insertion volume per tile open
+   (tail-paged history and/or execution-node virtualization), stagger concurrent tile opens, gate
+   auto-animate off during bulk mount, or a combination; or first resolve the `FireAnimationFrame`
+   source. Evidence: `fu22d-attribution-spike-report.md` "Ranked fix classes".
 
-Decided: Q6 (2026-09-15) — attribution spike first (FU-22d), report only.
+Decided: Q6 (2026-09-15) — attribution spike first (FU-22d), report only. Spike COMPLETE.
 
 - **P4:** 19 COMMITTED (O(E+M) finalization + tab-save quota back-off), 20 COMMITTED (duplicate
   `messages` dropped from `chat:resume`, chunked replay with a session-keyed live-event fence), 21
@@ -417,7 +435,8 @@ Decided: Q6 (2026-09-15) — attribution spike first (FU-22d), report only.
   `electron-state-storage-worker-runtime.error-paths.spec.ts` (both pass alone).
 - FU-22a: single-slot `_canvasSessionRequest` loses a tile open on rapid clicks (queue requests).
   FU-22b: perf spec 923 lines. FU-22c: `ptah_agent_spawn` rejects working directories outside
-  `D:\projects\ptah-extension`. FU-22d: AC-11 attribution spike (Q6 decided; next).
+  `D:\projects\ptah-extension`. FU-22d: AC-11 attribution spike COMPLETE (fix direction pending
+  user decision; `FireAnimationFrame` source still unknown).
 - Phase gate commands (`lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`) last ran at the P4 gate on 2026-09-15 — all green.
 
 ## 7. CI and external review state
