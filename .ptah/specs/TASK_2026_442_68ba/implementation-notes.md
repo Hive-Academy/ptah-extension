@@ -68,6 +68,89 @@ Tests:       107 passed, 107 total
 NX   Successfully ran target test for 2 projects
 ```
 
+## Revise round 2 (CodeRabbit)
+
+### A. Responsive resize preserves named intent
+
+- Verified the bug in `canvas-workspace-grid.component.ts`: a stored `third` renders at six units at responsive capacity two, while `snapSpan(6)` is `half`.
+- The resize handler now compares the current named span and snapped span through `effectiveUnits` using the gesture snapshot's responsive capacity. Equal rendered widths are accepted as a semantic no-op and reconciled without a store commit. Auto widths still convert to named spans.
+- Added a Gridstack component spec proving a stored `third` resized to six units at capacity two performs no store write and remains `third`.
+
+### B. Hydration clears stale layout focus
+
+- `CanvasStore.hydrateWorkspace` now clears a workspace's transient layout focus when the carried id is absent from reconciled authoritative tiles.
+- Added a store spec covering a stale focus moved from the implicit partition into a real workspace.
+
+### C. Tile layout-menu tests use the production template
+
+- Removed the layout-menu test-authored template override.
+- The tests now render `CanvasTileComponent`'s real template while replacing only child chat/indicator/messaging surfaces with inert stubs.
+- Assertions cover the production `data-testid="tile-layout-trigger"`, trigger ARIA, `role="menu"`, four `menuitemradio` buttons with `data-span` and stored `aria-checked`, focus and row action labels, lock-disabled actions, and keyboard navigation.
+
+### D. Layout service coverage restored
+
+- Added a cell-height assertion proving wrapped tiles retain the 90% viewport-height floor.
+- Added an `observe()` measurement test proving requestAnimationFrame coalescing/cancellation, floored signal publication, and ResizeObserver disconnection on destroy.
+
+### E. Persistence test doubles and migration scheduling
+
+- Added `needsWrite: false` to persistence load doubles in `canvas.store.spec.ts`, `canvas-workspace-grid.component.spec.ts`, and both real-store fixtures in `orchestra-canvas.component.spec.ts`.
+- Typed the store persistence load mock as `CanvasLayoutLoadResult`.
+- Added a store spec proving `needsWrite: true` schedules persistence even when migrated tiles already equal reconciled tiles.
+
+### F. Skewed auto-weight apportionment
+
+- Added the capacity-three `10/1/1` auto-weight case and asserted the responsive floor produces `[4, 4, 4]`.
+
+### G. Revision scope is discriminating
+
+- Expanded the resize revision test with an independently hydrated `/ws/b` partition and a valid mutation that advances only B.
+- The test proves `/ws/a` still accepts its unchanged captured revision, then rejects that stale revision after A advances and accepts A's updated revision.
+
+### H. Review documentation corrected and resolved
+
+- Corrected `code-style-review.md` to state that an older client treats an unknown v2 span as corrupt/writable and may overwrite it.
+- Corrected `code-logic-review.md` scope to eight production and eight spec files.
+- Appended `## Resolution after revise rounds` to both reviews. The logic resolution records the deliberate auto-row break decision and round-one lifecycle, preset assertion, and fractional-future-version fixes. The style resolution records the `DestroyRef` fix, declines menu-query caching as negligible, and corrects the round-one total to 445 tests.
+
+### Skipped items
+
+None.
+
+### Verification
+
+#### `npx nx typecheck @ptah-extension/canvas`
+
+Result: PASS
+
+```text
+NX   Successfully ran target typecheck for project @ptah-extension/canvas
+```
+
+#### `npx nx lint @ptah-extension/canvas`
+
+Result: PASS
+
+```text
+✔ All files pass linting
+NX   Successfully ran target lint for project @ptah-extension/canvas
+```
+
+#### `npx nx run-many -t test -p @ptah-extension/canvas @ptah-extension/tribunal-panel`
+
+Result: PASS. Nx reported exactly two projects.
+
+```text
+NX   Running target test for 2 projects:
+- @ptah-extension/canvas
+- @ptah-extension/tribunal-panel
+Test Suites: 16 passed, 16 total
+Tests:       333 passed, 333 total
+Test Suites: 9 passed, 9 total
+Tests:       118 passed, 118 total
+NX   Successfully ran target test for 2 projects
+```
+
 ## Revise round 1
 
 ### Changes

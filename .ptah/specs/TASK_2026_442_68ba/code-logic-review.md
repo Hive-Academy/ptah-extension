@@ -11,7 +11,7 @@
 | Moderate issues     | 1                                    |
 | Failure modes found | 3                                    |
 
-Scope: all seven production files under `libs/frontend/canvas/src/lib/` changed by this task (read in full), all seven spec files (read in full), `implementation-plan.md`, `context.md`, `implementation-notes.md`, and the TabManager bootstrap path in `libs/frontend/chat-state` that the hydration timing depends on. The review is read-only. No test run was executed by this reviewer; the notes' `run-many` claim (16 + 9 suites, 333 + 107 tests, two projects named) was checked for shape, not re-run.
+Scope: all eight production files under `libs/frontend/canvas/src/lib/` changed by this task (read in full), all eight spec files (read in full), `implementation-plan.md`, `context.md`, `implementation-notes.md`, and the TabManager bootstrap path in `libs/frontend/chat-state` that the hydration timing depends on. The review is read-only. No test run was executed by this reviewer; the notes' `run-many` claim (16 + 9 suites, 333 + 107 tests, two projects named) was checked for shape, not re-run.
 
 ## Five logic questions
 
@@ -141,3 +141,11 @@ Implicit requirements not addressed: none beyond the two plan ambiguities named 
   3. Full width and break assertions for the `focus-plus-stack` preset.
   4. Optional: per-tile intent merge for carried implicit tiles when a stored record exists.
   5. Optional: extend the future-version guard to any `version > 2`, integer or not.
+
+## Resolution after revise rounds
+
+- Failure mode 1, the auto-row drag break, was kept by explicit product decision. The fit check intentionally mirrors `packRows` minimum-unit accounting, and capacity-two and capacity-three behavior is now pinned by specs.
+- The direct lifecycle flush coverage gap for `beforeunload` and hidden/visible `visibilitychange` was resolved in revise round 1.
+- The incomplete `focus-plus-stack` assertion was resolved in revise round 1 with exact order, width, and row-break expectations.
+- Non-integer numeric future versions are now preserved byte-for-byte and marked read-only, resolved in revise round 1.
+- The corrected review scope is eight production files and eight spec files, as reflected in the scope line above.
