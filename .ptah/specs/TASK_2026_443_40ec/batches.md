@@ -135,6 +135,55 @@ Cross-batch rule XB1 (added 2026-09-15 from PR #513 CI, binding for Batches 3-10
 - Batch 1 check: `0044_memory_lifecycle.spec.ts` has no named parameters; its one parameterised statement (seed
   INSERT) binds all six positional values; the rest is `exec` / `PRAGMA` without params. No hazard.
 
+Rebase onto PR #513 final head (2026-09-15, orchestrator; `rebase-report.md`):
+
+- New base `9ec3b26e7` (#513 head). Phase 2 head `ab7cf6977`. Old -> new SHAs (every older SHA in this file is
+  pre-rebase): `3be25c0ec` -> `489fe26f6` (docs); `0ecab63b3` -> `a1f173a5d` (Batch 2); `87cda19ef` -> `01402b3b3`
+  (Batch 1); `a6c92e4c2` -> `88797e8d2` (Batch 4); `eca8e3e4b` -> `2ed2f95d5` (docs); `d85851962` -> `8866acec2`
+  (Batch 3); new `f555ae393` (docs, Batch 3 revision record).
+- Conflict: `libs/backend/memory-contracts/CLAUDE.md` (docs), both sides kept.
+- Semantic break fixed in `ab7cf6977` (`test(memory-curator): drop the salience scorer argument from specs rebased
+  onto PR 513`): the #513 harnesses `memory-curator.admission.spec.ts` and `memory-curator.service.spec.ts` still
+  passed the removed `SalienceScorer` constructor argument.
+- Post-fix checks (orchestrator): typecheck 7 projects green; tests 7 projects green (platform-core bench flaked once
+  in parallel, passed on rerun, R-TL8); lint 0 errors; removed-symbol grep clean; better-sqlite3 via Electron:
+  memory-curator 152/152, `0044_memory_lifecycle.spec.ts` 6/6.
+- `rebase-report.md` records an earlier intermediate rebase onto `bd149c305`; the orchestrator's final base is
+  `9ec3b26e7` and the SHAs above are the final ones.
+- What #513 changed under Batches 5-7 (team-leader verified on disk at `ab7cf6977`):
+  - `memory-retention.service.ts` is 786 lines. Constructor `:149-167` has a 7th OPTIONAL, LAST param
+    `@inject(TOKENS.BACKGROUND_WORK_GOVERNOR, { isOptional: true }) governor: BackgroundWorkAdmission | null = null`.
+  - `execute` `:310-489`: `msLeft` `:319`, `rowsUsed` `:334-335`, `hardStop` `:337-345`, `adaptBatch` `:346-354`,
+    `governorWarned` + `yieldGovernor` `:356-365` (governor wait, then `hardStop()`; `'aborted'` wins). Each write batch
+    is `hardStop()` -> row room -> `await yieldGovernor()` -> batch (purge `:373-399`, quarantine `:408-434`, ledger
+    prune `:441-452`). `continueAfterRows` `:439`; reclaim `:455-466` calls `reclaimPages(hardStop, tally,
+    yieldGovernor)` `:492-542` (a reclaim stop sets `stop` only if still null, so `row-budget` is kept); catch
+    `:467-476`; `finish(...)` `:478-488`.
+  - `yieldToGovernor(signal, warned, msLeft)` `:554-591`: fast path when no governor or clear; `maxDeferMs =
+    max(1, msLeft())`, skipped when the deadline passed; `AbortError` -> `'aborted'`; any other rejection fails open
+    with ONE warn per run, annotated `// degradation-audit: reported - ...` (`:576`).
+  - `storageHealth()` `:211` sanitizes `readErrors` with `sanitizeRetentionError` at its return; `readSettings`
+    `:738-747`; `toRunDto` `:749`.
+  - `thoth-runtime/src/lib/memory-retention-job.ts` resolves service, power monitor and foreground reader inside ONE
+    guarded block (skip on failure).
+  - `memory-curator.service.ts` gained curator pass admission + network back-off (`CuratorPassAdmission`).
+  - `tools/degradation-audit/baseline.json:21` pins `libs/backend/memory-curator` at 20.
+
+Cross-batch rule XB2 (added 2026-09-15 with the rebase, binding for Batches 5-10):
+
+- Every NEW `catch` (or `.catch`) that fails open, swallows, or returns a sentinel or default MUST carry a
+  `// degradation-audit: optional-capability - <reason>` or `// degradation-audit: reported - <reason>` comment inside
+  it (format: `tools/degradation-audit/check-degradation.ts:27-46`; example `memory-retention.service.ts:576`). The
+  per-lib baseline must not grow. Every batch that adds or moves such a catch runs `npx nx run degradation-audit:lint`
+  (exit 0) and reports it; reviewers reject an unannotated fail-open catch.
+
+Cross-batch rule XB3 (governor, binding for Batches 5-7):
+
+- Every lifecycle write batch (age delete, archive, cap evict) waits on the background-work governor BEFORE the
+  batch, exactly like the queue steps: `hardStop()` -> row room -> governor wait (budget-capped `maxDeferMs`) ->
+  batch. `'aborted'` from the wait ends the step with `stop = 'aborted'`. Preview reads are not write batches and do
+  not wait.
+
 Assumptions:
 
 - A1 (`require('sqlite-vec').getLoadablePath()` + `node:sqlite` `allowExtension` load in Jest) — verified locally by
@@ -562,7 +611,7 @@ review round is required).
 
 ---
 
-## Batch 5: memory-curator — lifecycle store, run budget, lifecycle service, settings, DI, vec harness — PENDING
+## Batch 5: memory-curator — lifecycle store, run budget, lifecycle service, settings, DI, vec harness — IN_PROGRESS
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer)
 - Fallback executor: backend-developer subagent
@@ -571,9 +620,13 @@ review round is required).
 - Rationale: destructive SQL with plan assertions on real SQLite + sqlite-vec; design-sensitive, one lane.
 - Reviewer: Ollama Cloud lane, code-logic-reviewer -> `code-logic-review-batch-5.md`
 - Suggested commit: `feat(memory-curator): batch 5 - memory lifecycle store, run budget and lifecycle service`
-- Tasks: 3 | Depends on: Batch 3 (Batch 1, 2 transitively)
+- Tasks: 3 | Depends on: Batch 3 (Batch 1, 2 transitively) and the #513 rebase (`ab7cf6977`)
+- Scope change after the rebase (team-leader): Task 5.1 now also moves `MemoryRetentionService.execute` onto
+  `RetentionRunBudget` (behaviour-preserving; the governor wait moves into the budget). A budget-only Batch 5 would
+  leave a second copy of `yieldToGovernor` for one commit; the swap also brings `memory-retention.service.ts` back
+  under the 700 soft ceiling before Batch 6 adds the lifecycle call.
 
-### Task 5.1: Vec-capable test harness + `RetentionRunBudget` + limits + tsconfig exclude — PENDING
+### Task 5.1: Vec-capable test harness + `RetentionRunBudget` (absorbs the governor wait) + limits + tsconfig exclude + service swap — IN_PROGRESS
 
 - Dir: `W\libs\backend\memory-curator\`
   - MODIFY `tsconfig.lib.json`: add `"src/**/*.test-support.ts"` to `exclude` (Deviation 8; closes TASK_2026_446_198a)
@@ -589,16 +642,51 @@ review round is required).
   - MODIFY `src\lib\retention\memory-retention-config.ts`: `MemoryRetentionLimits` + `MEMORY_RETENTION_LIMITS` gain
     `maxMemoryRowsPerRun: 25_000`, `memoryDeleteBatchSize: 200`, `capEvictionGraceMs: 7 d` (named constants with
     doc comments, like the existing ones)
-- Plan reference: implementation-plan.md:534-541, 573-580, 761-773
-- Pattern to follow: closures at `memory-retention.service.ts:319-339` and `adaptBatch` (the budget must reproduce
-  their exact semantics: stop order abort -> battery -> foreground -> `time-budget`; halve above `slowCallMs`, floor
-  `minBatchSize`)
-- Validation notes: `RetentionRunBudget` is a plain class, not in DI. Batch 5 does NOT yet change
-  `MemoryRetentionService` (Batch 6 swaps the closures). Constructor signature exactly as plan :536.
-- Acceptance (`retention-run-budget.spec.ts`): stop order; per-kind halving and floors independent across
-  `queue`/`archive`/`delete`; queue and memory row budgets independent; `yield` resolves via `setImmediate`.
+  - MODIFY `src\lib\retention\memory-retention.service.ts` and `memory-retention.service.spec.ts` (service swap below)
+- Plan reference: implementation-plan.md:534-541, 573-580, 761-773. AMENDED by the rebase: the plan predates the
+  governor, and this task text wins where they differ.
+- Pattern to follow (rebased `memory-retention.service.ts` at `ab7cf6977`): `msLeft` `:319`, `rowsUsed` `:334-335`,
+  `hardStop` `:337-345`, `adaptBatch` `:346-354`, `governorWarned`/`yieldGovernor` `:356-365`, `yieldToGovernor`
+  `:554-591`, per-batch order in purge `:373-399` / quarantine `:408-434` / ledger `:441-452`, `reclaimPages`
+  `:492-542`.
+- `RetentionRunBudget` design (plain class, constructed once per run by `execute`, not in DI):
+  - Constructor takes ONE options object: `{ options: MemoryRetentionRunOptions, limits: MemoryRetentionLimits,
+    now: () => number, startedAt: number, logger: Logger, governor: BackgroundWorkAdmission | null, queueBatchSize:
+    number, archiveBatchSize: number, deleteBatchSize: number }`. The governor lane stays the constant the service
+    uses today (`GOVERNOR_LANE`): move or export it, never duplicate the literal.
+  - `msLeft(): number` (deadline `startedAt + limits.maxRunMs`); `hardStop(): RetentionStopReason | null`, same order
+    as `:337-345` (abort -> battery -> foreground -> `time-budget`).
+  - `waitForGovernor(): Promise<RetentionStopReason | null>`: the MOVED body of `yieldToGovernor` + `yieldGovernor`.
+    No governor or `isClear()` -> no wait; `msLeft() <= 0` -> no wait; else `governor.whenClear({ signal, lane,
+    maxDeferMs: Math.max(1, msLeft()) })`. `AbortError`, or `signal.aborted` after the wait -> `'aborted'`. Any other
+    rejection -> ONE `warn` per budget instance (= per run) and continue, keeping the
+    `// degradation-audit: reported - ...` annotation (XB2). Otherwise return `hardStop()`.
+  - Row budgets: `queueRowRoom()` / `consumeQueueRows(n)` (`limits.maxRowsPerRun`) and `memoryRowRoom()` /
+    `consumeMemoryRows(n)` (`limits.maxMemoryRowsPerRun`), independent.
+  - `batchSize(kind: 'queue' | 'archive' | 'delete')`; `observe(kind, durationMs)` halves that kind above
+    `slowCallMs`, floor `minBatchSize`, with the same debug log as `adaptBatch`.
+  - `yieldToEventLoop(): Promise<void>` via `setImmediate` (reuse the existing helper; never add a second one).
+- Service swap (behaviour-preserving): `execute` builds ONE budget (`queueBatchSize = settings.batchSize`,
+  `archiveBatchSize = settings.batchSize`, `deleteBatchSize = limits.memoryDeleteBatchSize`). Purge and quarantine run
+  `hardStop()` -> `queueRowRoom()` -> `waitForGovernor()` -> batch -> `observe('queue', ...)` -> `consumeQueueRows`.
+  Ledger prune runs `hardStop()` then `waitForGovernor()`. `reclaimPages(budget, tally)` uses `budget.hardStop()` and
+  `budget.waitForGovernor()`; reclaim step halving stays in `reclaimPages`. DELETE the closures `:319-365`,
+  `adaptBatch` and the private `yieldToGovernor` `:554-591` from the service. Reason precedence unchanged (a reclaim
+  stop sets `stop` only if still null). Constructor unchanged in Batch 5.
+- Validation notes: every existing `memory-retention.service.spec.ts` case, including the #513 governor cases (wait
+  before each batch, `maxDeferMs` capped by the remaining budget, AbortError -> `partial` / `aborted`, fail-open warn
+  once per run), must pass WITHOUT weakening any assertion. If a spec reached a removed private, re-point it at the
+  budget and say so in the report. `memory-retention.service.ts` must end <= 700 lines (report `wc -l`).
+- Acceptance (`retention-run-budget.spec.ts`, fake clock + fake governor):
+  - stop order; per-kind halving and floors independent across `queue` / `archive` / `delete`; queue and memory row
+    budgets independent; `yieldToEventLoop` resolves via `setImmediate`;
+  - GOVERNOR: no governor -> resolves with no call; clear governor -> `whenClear` not called; busy governor ->
+    `whenClear` called with the lane and `maxDeferMs === Math.max(1, msLeft())`, pinned at two elapsed times (e.g.
+    1,000 ms and 59,500 ms into a 60,000 ms budget); deadline passed -> `whenClear` not called and the result is
+    `'time-budget'`; `whenClear` rejects `AbortError` -> `'aborted'`; rejects another error twice in one budget ->
+    `hardStop()` result both times and exactly ONE `warn`; a new budget instance warns again.
 
-### Task 5.2: `MemoryLifecycleStore` — PENDING
+### Task 5.2: `MemoryLifecycleStore` — IN_PROGRESS
 
 - Depends on: Task 5.1 (harness)
 - Dir: `W\libs\backend\memory-curator\src\lib\`
@@ -624,7 +712,7 @@ review round is required).
   trigger present and true with the trigger absent; a thrown memory DELETE rolls back the chunk DELETE of the same
   batch; `SQLITE_BUSY` -> `RetentionStepError('database-busy')`; no statement text contains `SET salience`.
 
-### Task 5.3: `MemoryLifecycleService` + `memory-lifecycle-config.ts` + `markWorkspacesChanged` + DI — PENDING
+### Task 5.3: `MemoryLifecycleService` + `memory-lifecycle-config.ts` + `markWorkspacesChanged` + DI — IN_PROGRESS
 
 - Depends on: Task 5.2
 - Dir: `W\libs\backend\memory-curator\src\lib\`
@@ -636,13 +724,14 @@ review round is required).
     `MemoryLifecycleStepResult`, `MemoryLifecycleNote`, `MemoryLifecyclePreview`)
 - Plan reference: implementation-plan.md:542-606
 - Pattern to follow: `memory-retention-config.ts:22-50,114-165` (keys, defaults, clamps);
-  `MemoryRetentionService.readSettings` :645-654
+  `MemoryRetentionService.readSettings` `:738-747` (rebased)
 - Quality requirements: 5 injected deps exactly (logger, workspace provider, lifecycle store, memory store, limits);
   step order disabled-check -> `canDelete` -> age delete -> archive -> cap (archival with grace first, then recall
   only when `recallEvictable > cap`, excess recomputed from returned counts) -> preview (always unless a hard stop
   ended the step; `forRunAt = nowMs + limits.intervalMs`) -> `markWorkspacesChanged(union of roots)`; each loop
-  `hardStop()` -> `memoryRowRoom()` (0 -> `stop = 'memory-row-budget'`) -> one batch -> `observe` -> `consume` ->
-  `yield`; `vec-unavailable` warns once per run and leaves `exhausted` true; clamps: archiveAfterDays 7-365,
+  `hardStop()` -> `memoryRowRoom()` (0 -> `stop = 'memory-row-budget'`) -> `await budget.waitForGovernor()` (XB3;
+  any non-null result, including `'aborted'`, ends the step with that stop) -> one batch -> `observe` -> `consume` ->
+  `yieldToEventLoop`; `vec-unavailable` warns once per run and leaves `exhausted` true; clamps: archiveAfterDays 7-365,
   deleteAfterDays 7-730, maxPerWorkspace 1,000-1,000,000; settings read failure -> defaults + `warn`.
 - Validation notes: `'memory-row-budget'` is added to `RetentionStopReason` in Batch 6; in Batch 5 declare the step
   result's `stop` type so it compiles now (e.g. add the member to `memory-retention.types.ts` here if needed — if
@@ -651,12 +740,20 @@ review round is required).
   recorded, note `disabled`, exhausted true; vec-unavailable -> archive only + note + exhausted true; row budget ->
   `stop = 'memory-row-budget'`, exhausted false; hard stop mid-step -> no preview; cap order + recall-alone rule;
   grace cutoff passed to the store; `markWorkspacesChanged` receives the union; settings parity: each default
-  equals `FILE_BASED_SETTINGS_DEFAULTS` from `@ptah-extension/platform-core`; clamps.
+  equals `FILE_BASED_SETTINGS_DEFAULTS` from `@ptah-extension/platform-core`; clamps; GOVERNOR (XB3): with a busy
+  governor, no store batch method is called until `whenClear` resolves, and the wait happens once before EACH delete,
+  archive and evict batch (count them against batch calls); `AbortError` from the wait mid-step -> `stop =
+  'aborted'`, no further batch, no preview; preview reads do not wait. A settings-read catch that falls back to
+  defaults carries `// degradation-audit: optional-capability - ...` (XB2).
 - Commands (from `W`), for the whole batch:
   - `npx nx run-many -t test -p @ptah-extension/memory-curator` — "for 1 project" (R-TL8 re-run rule applies)
   - `npx nx run-many -t typecheck -p @ptah-extension/memory-curator` — 1 project
   - `npx nx run-many -t lint -p @ptah-extension/memory-curator` — 1 project
   - report the count of skipped tests in the new specs (must be 0)
+  - XB2: `npx nx run degradation-audit:lint` (exit 0)
+  - XB1 better-sqlite3 run, from `W` in PowerShell (the `|` pattern MUST be double-quoted inside single quotes):
+    `$env:ELECTRON_RUN_AS_NODE='1'; & 'D:\projects\ptah-extension\node_modules\.bin\electron.cmd' 'D:\projects\ptah-extension\node_modules\jest\bin\jest.js' --config libs/backend/memory-curator/jest.config.ts --testPathPatterns '"memory-lifecycle|retention-run-budget|memory-retention|observation-retention|di/register.spec|memory.store.spec"' --runInBand`
+  - `wc -l libs/backend/memory-curator/src/lib/retention/memory-retention.service.ts` (<= 700)
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-5-report.md`
 
 ### Batch 5 verification
@@ -664,6 +761,8 @@ review round is required).
 - XB1: every spec that prepares SQL binds every named and positional parameter (passes under better-sqlite3 and node:sqlite).
 - Store, budget, service, config, harness, exclude on disk; vec loads (0 skipped); plan assertions pass; reviewer
   accepts. TASK_2026_446_198a closable after commit.
+- XB2: degradation-audit lint exit 0; every new or moved fail-open catch annotated. XB3: governor wait before every
+  lifecycle batch pinned by spec; the service swap keeps every #513 governor spec green unchanged.
 
 ---
 
@@ -683,11 +782,13 @@ review round is required).
 ### Task 6.1: `MemoryRetentionService` runs the lifecycle step; run record + report + storage health — PENDING
 
 - Dir: `W\libs\backend\memory-curator\src\lib\retention\`
-  - MODIFY `memory-retention.service.ts`: inject `MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE` (7 deps); `execute` builds
-    `RetentionRunBudget` and the purge + quarantine loops use it (closures :319-339 and `adaptBatch` DELETED); after
-    quarantine, when `stop === null || stop === 'row-budget'`, `await lifecycle.runStep(budget, startedAt)`; its
-    `stop` sets the run's stop if still null; ledger prune + reclaim keep their condition (:407-425); `completed`
-    also requires `exhausted`; `writeRun` gets counters, note, preview; `storageHealth()` adds `memoryLifecycle`
+  - MODIFY `memory-retention.service.ts` (already on `RetentionRunBudget` after Task 5.1): inject
+    `MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE` as the 7th param, BEFORE the optional governor, which stays LAST and
+    optional (8 params; update every positional `new MemoryRetentionService(` site); after quarantine, when
+    `stop === null || stop === 'row-budget'`, `await lifecycle.runStep(budget, startedAt)` with the SAME budget, so the
+    lifecycle obeys the run's governor wait, wall budget and `maxDeferMs` cap (XB3); its `stop` sets the run's stop if
+    still null; ledger prune + reclaim keep their `continueAfterRows` condition (rebased `:439-466`, re-read after
+    5.1); `completed` also requires `exhausted`; `writeRun` gets counters, note, preview; `storageHealth()` adds `memoryLifecycle`
     from live settings + state row (no memory-table query).
   - MODIFY `memory-retention.types.ts` (`'memory-row-budget'` if not already added in 5.3;
     `MemoryRetentionRunReport` + `memoriesArchived`, `memoriesDeleted`, `memoriesEvicted`, `lifecycleNote`)
@@ -697,11 +798,15 @@ review round is required).
   - MODIFY `memory-retention.service.spec.ts` (update the `new MemoryRetentionService(` site)
 - Plan reference: implementation-plan.md:607-632
 - Quality requirements: `run` still never rejects; flag cleared in `finally`; lifecycle `RetentionStepError`
-  goes through the existing catch (:426-435; busy -> `partial`, else `failed`); file stays <= ~700 lines (R-TL10).
+  goes through the existing catch (rebased `:467-476` before 5.1; busy -> `partial`, else `failed`); file stays
+  <= ~720 lines (R-TL10); `memoryLifecycle` read errors go through the same `sanitizeRetentionError` mapping as
+  `readErrors`; XB2 annotations on any new fail-open catch.
 - Acceptance (service spec, fakes): lifecycle called once per executed run with a `RetentionRunBudget` and a number;
   NOT called for any skip gate (each gate a case); called after a queue `row-budget` stop; not called after
   `time-budget`; `partial` when not exhausted with the lifecycle stop token; counters persisted; preview `null`
-  keeps previous; `storageHealth().memoryLifecycle` shape.
+  keeps previous; `storageHealth().memoryLifecycle` shape; GOVERNOR (XB3): the lifecycle receives the run's budget
+  (assert identity); a busy fake governor holds the first lifecycle batch until clear; `AbortError` during a lifecycle
+  wait ends the run `partial` with `stop = 'aborted'` and no ledger prune or reclaim dispatch after it.
 
 ### Task 6.2: Shared wire DTO additions + typed frontend fixture patch — PENDING
 
@@ -790,7 +895,9 @@ review round is required).
   `memory-retention-job.spec.ts`, `W\libs\backend\thoth-runtime\CLAUDE.md` (retention job bullet names the lifecycle
   step)
 - Plan reference: implementation-plan.md:694-708
-- Validation notes: no change to job id `@ptah/memory-retention`, name, handler name, cron `17 * * * *`, gating or
+- Validation notes: #513 moved service, power monitor and foreground reader resolution into ONE guarded block in
+  `memory-retention-job.ts`; keep it and change only the summary text. The reach specs construct the real service in
+  the Batch 6 constructor order (lifecycle 7th, governor optional 8th). No change to job id `@ptah/memory-retention`, name, handler name, cron `17 * * * *`, gating or
   failure channel; `start-thoth-cron.ts` and CLI `thoth-runtime.ts` production code stay untouched (plan :1014).
 
 ### Task 7.2: REACHABILITY PROOF — Electron host (`startThothCron`) — PENDING
@@ -983,6 +1090,7 @@ review round is required).
   - `npx nx run-many -t test -p @ptah-extension/persistence-sqlite @ptah-extension/memory-contracts @ptah-extension/memory-curator @ptah-extension/agent-sdk @ptah-extension/vscode-lm-tools @ptah-extension/rpc-handlers @ptah-extension/platform-core @ptah-extension/shared @ptah-extension/thoth-runtime @ptah-extension/cli-engine @ptah-extension/memory-curator-ui` — "for 10 projects" (memory-contracts has no test target; Nx lists it under "do not have a configuration")
   - same set with `-t typecheck` — 11; with `-t lint` — 10 (same reason)
   - `npx nx run-many -t test -p ptah-electron ptah-extension-vscode` — "for 2 projects"
+  - XB2: `npx nx run degradation-audit:lint` (exit 0, baseline not raised)
 - Greps (under `W\libs` and `W\apps`, excluding `.ptah`):
   - `MemoryDecayJob|SalienceScorer|recordHit|updateSalience|lastDecay|decay-run` -> no matches
   - `SET tier = 'archival'|tier = 'archival',` in non-spec code -> only `memory-lifecycle.store.ts` `archiveBatch`
