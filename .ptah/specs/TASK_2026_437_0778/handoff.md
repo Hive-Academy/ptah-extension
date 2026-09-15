@@ -64,7 +64,7 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b, 18, 19, 20, 21 and 22 — COMMITTED (P3 gate passed; next the P4 gate)
+## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b, 18, 19, 20, 21 and 22 — COMMITTED (P3 and P4 gates passed; next the FU-22d spike)
 
 **Batch 22 — COMMITTED 2026-09-15** as
 `test(electron-e2e): measure tile-open long tasks for a 2,000-event session`.
@@ -339,7 +339,12 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
 
 ## 5. Remaining work (0 of 24 batches)
 
-All 24 batches are committed. Next: the P4 phase gate, then the FU-22d attribution spike (Q6). Summary:
+All 24 batches are committed. **P4 PHASE GATE PASSED 2026-09-15 — Phase 4 CLOSED** (at `3e5cf8b87`):
+`lint:all` 73 projects 0 errors; `typecheck:all` 70 projects (affected vs `main` `e3e366e67`) 0
+errors, plus `run-many -t typecheck --all` 93 projects 0 errors to match P3 coverage;
+`nx build ptah-electron` exit 0; `degradation-audit:lint` TOTAL 303. The Prisma client was already
+present. Evidence in `batches.md` under Batch 22 verification. AC-11 is still NOT MET. Next: the
+FU-22d attribution spike (Q6), then the user opens the new PR. Summary:
 
 - **P2:** all batches committed. Only the OPEN D10 proof remains: `publish-electron.yml` build matrix
   green on Windows, macOS and Linux (section 4a) — needs a user decision to dispatch.
@@ -354,7 +359,7 @@ All 24 batches are committed. Next: the P4 phase gate, then the FU-22d attributi
    Batch 16b outcome).
 3. CI skip rule for `chore/bump-*` branches (PR #512 showed `main`, `electron-e2e`, `vscode-e2e`
    SKIPPED).
-4. PR for this branch: PR #510 merged; open one new PR after the P4 gate (not opened yet).
+4. PR for this branch: PR #510 merged; one new PR is due now that the P4 gate has passed (not opened yet).
 5. Whether to write the property-hub load-test setup/cleanup scripts (section 9).
 6. AC-10 manual boot evidence (Batch 17 outcome).
 
@@ -362,8 +367,8 @@ Decided: Q6 (2026-09-15) — attribution spike first (FU-22d), report only.
 
 - **P4:** 19 COMMITTED (O(E+M) finalization + tab-save quota back-off), 20 COMMITTED (duplicate
   `messages` dropped from `chat:resume`, chunked replay with a session-keyed live-event fence), 21
-  COMMITTED (inbound burst coalescing), 22 COMMITTED (AC-11 tile-open perf e2e; AC-11 NOT MET),
-  then the P4 phase gate.
+  COMMITTED (inbound burst coalescing), 22 COMMITTED (AC-11 tile-open perf e2e; AC-11 NOT MET).
+  P4 phase gate PASSED; Phase 4 CLOSED.
 - **SonarCloud:** quality gate green after `36a24f257` (security findings S4036, S2245).
 
 ## 6. Open follow-ups (recorded in batches.md)
@@ -413,7 +418,7 @@ Decided: Q6 (2026-09-15) — attribution spike first (FU-22d), report only.
 - FU-22a: single-slot `_canvasSessionRequest` loses a tile open on rapid clicks (queue requests).
   FU-22b: perf spec 923 lines. FU-22c: `ptah_agent_spawn` rejects working directories outside
   `D:\projects\ptah-extension`. FU-22d: AC-11 attribution spike (Q6 decided; next).
-- Phase gate commands (`lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`) last ran at the P3 gate on 2026-09-15 — all green.
+- Phase gate commands (`lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`) last ran at the P4 gate on 2026-09-15 — all green.
 
 ## 7. CI and external review state
 
