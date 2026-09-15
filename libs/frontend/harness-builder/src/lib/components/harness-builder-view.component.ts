@@ -321,6 +321,17 @@ function rankTranscriptKind(item: TranscriptItem): number {
           </div>
 
           <div class="px-4 py-3 border-t border-base-300 bg-base-100 shrink-0">
+            @if (applyError(); as error) {
+              <div role="alert" class="alert alert-error mb-3 py-2 text-sm">
+                <span class="flex-1">{{ error }}</span>
+                <button
+                  class="btn btn-ghost btn-xs"
+                  (click)="applyError.set(null)"
+                >
+                  Dismiss
+                </button>
+              </div>
+            }
             @if (state.isConfigComplete() && !isProcessing()) {
               <div
                 class="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-success/10 border border-success/20"
@@ -491,6 +502,8 @@ export class HarnessBuilderViewComponent implements OnInit {
   readonly isInitializing = signal(true);
   readonly initError = signal<string | null>(null);
   readonly isApplying = signal(false);
+  /** Apply failure shown inline; it must not replace the build session with the init-error screen. */
+  readonly applyError = signal<string | null>(null);
   readonly showSidePanel = signal(true);
   readonly showCloseConfirmation = signal(false);
 
@@ -794,6 +807,7 @@ export class HarnessBuilderViewComponent implements OnInit {
 
   protected async applyConfig(): Promise<void> {
     this.isApplying.set(true);
+    this.applyError.set(null);
 
     try {
       const now = new Date().toISOString();
@@ -839,8 +853,8 @@ export class HarnessBuilderViewComponent implements OnInit {
         outputFormat: 'claude-md',
         ...(pinnedRoot ? { workspaceRoot: pinnedRoot } : {}),
       });
-    } catch (err) {
-      this.initError.set(
+    } catch (err: unknown) {
+      this.applyError.set(
         err instanceof Error ? err.message : 'Failed to apply configuration',
       );
     } finally {

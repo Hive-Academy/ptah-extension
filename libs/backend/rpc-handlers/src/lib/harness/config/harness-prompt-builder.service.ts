@@ -116,7 +116,7 @@ export class HarnessPromptBuilderService {
         lines.push('');
         lines.push(`- **Role**: ${sub.role}`);
         lines.push(`- **Execution Mode**: ${sub.executionMode}`);
-        lines.push(`- **Tools**: ${sub.tools.join(', ')}`);
+        lines.push(`- **Tools**: ${(sub.tools ?? []).join(', ')}`);
         if (sub.triggers && sub.triggers.length > 0) {
           lines.push(`- **Triggers**: ${sub.triggers.join(', ')}`);
         }

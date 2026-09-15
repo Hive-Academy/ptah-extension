@@ -61,7 +61,7 @@ export class HarnessDocumentGenerationService {
         ? harnessSubagents
             .map(
               (s) =>
-                `- **${s.name}** (${s.executionMode}): ${s.description}\n  Tools: ${s.tools.join(', ')}\n  Triggers: ${s.triggers?.join(', ') ?? 'on-demand'}\n  Instructions: ${s.instructions}`,
+                `- **${s.name}** (${s.executionMode}): ${s.description}\n  Tools: ${(s.tools ?? []).join(', ')}\n  Triggers: ${s.triggers?.join(', ') ?? 'on-demand'}\n  Instructions: ${s.instructions}`,
             )
             .join('\n')
         : '(none designed)';
@@ -237,7 +237,7 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
         lines.push(`### ${sub.name}`);
         lines.push(`- **Role**: ${sub.role}`);
         lines.push(`- **Mode**: ${sub.executionMode}`);
-        lines.push(`- **Tools**: ${sub.tools.join(', ')}`);
+        lines.push(`- **Tools**: ${(sub.tools ?? []).join(', ')}`);
         lines.push(`- **Description**: ${sub.description}`);
         lines.push('');
       }
