@@ -946,15 +946,6 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(tab?.streamingState).toBe(state);
     });
 
-    it('applyResumedHistory installs replay messages and marks loaded', () => {
-      const id = service.createTab('replay');
-      const msgs = [makeMessage('h', 'hist')];
-      service.applyResumedHistory(id, msgs);
-      const tab = service.tabs().find((t) => t.id === id);
-      expect(tab?.messages).toBe(msgs);
-      expect(tab?.status).toBe('loaded');
-    });
-
     it('applyResumeFailure clears streamingState', () => {
       const id = service.createTab('failure');
       service.setStreamingState(id, createEmptyStreamingState());

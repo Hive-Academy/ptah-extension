@@ -164,7 +164,6 @@ function makeHarness(opts: SessionState, autopilot = false): Harness {
     } as never,
     {
       readSessionHistory: jest.fn().mockResolvedValue({ events: [] }),
-      readHistoryAsMessages: jest.fn().mockResolvedValue([]),
     } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),

@@ -116,7 +116,7 @@ test.describe('Concurrent session isolation on the canvas (TASK_2026_370)', () =
     // an empty reload is also what makes the cleared tile observable.
     await ui.mockRpc({
       'session:load': { session: null },
-      'chat:resume': { events: [], messages: [] },
+      'chat:resume': { events: [] },
       'session:list': { sessions: [], total: 0, hasMore: false },
     });
 

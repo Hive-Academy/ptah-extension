@@ -234,18 +234,8 @@ export interface ChatResumeResult {
   success: boolean;
   sessionId?: SessionId;
   /**
-   * Complete history messages (for session resume/replay).
-   * Returns complete messages directly instead of streaming events.
-   * @deprecated Use `events` instead - messages only contain text, not tool calls
-   */
-  messages?: {
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: number;
-  }[];
-  /**
-   * Full streaming events for session history replay.
+   * Full streaming events for session history replay — the ONE transcript
+   * this reply carries (TASK_2026_437 C15, INV-9).
    * Includes tool_start, tool_result, thinking, agent_start events.
    * Frontend processes these through StreamingHandler to build ExecutionNode tree.
    */

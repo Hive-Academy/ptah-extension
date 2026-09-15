@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 58 | Batches: 24 | Complete: 22/24
+Total tasks: 58 | Batches: 24 | Complete: 24/24
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). P3 wave 1 — Batch 16 and Batch 16b COMPLETE (one commit, recorded in the Batch 16 outcome), committed ahead of Batch 15 by orchestrator decision (see "Orchestrator decision — phase order deviation for P3 core" under Batch 7). P2 — Batch 15 COMPLETE (commit recorded in its outcome; ST-2 75,000-file host stress and AC-7 host kill MET; ST-1b CI assertion is now the bounded form). All P2 batches are COMPLETE. The only open P2 gate is D10: the `publish-electron.yml` matrix green on all three OSes (see Batch 10 outcome); it needs a `workflow_dispatch` or a release push — pending user decision. P3 — Batch 17 COMPLETE (commit recorded in its outcome; governor adopters + FU-11b file-index split; AC-10 manual evidence still pending). P3 — Batch 18 COMPLETE (commit recorded in its outcome; network back-off for background curator and skill-synthesis calls; FU-16b-a and FU-16b-b closed). P3 — Batch 17b COMPLETE (commit recorded in its outcome; origin-aware skill re-propagation, FU-17b closed). P3 Batches 16, 16b, 17, 17b and 18 are COMPLETE. P3 PHASE GATE PASSED 2026-09-15 (evidence under Batch 18 verification): `lint:all` 73 projects 0 errors, `typecheck:all` 93 projects 0 errors, `nx build ptah-electron` exit 0, `degradation-audit:lint` TOTAL 303. Phase 3 CLOSED. D10 remains the only open P2 gate; AC-10 manual evidence is still pending. P4 — Batch 19 COMPLETE (commit recorded in its outcome; O(E+M) `finalizeSessionHistory`, tab-save quota back-off INV-10; FU-19a..f). P4 — Batch 21 COMPLETE (commit recorded in its outcome; inbound message burst coalescing into one zone entry, R-P8 synchronous `rpc:response` flush, shared `scheduleMacrotask`/`yieldToMacrotask` in `@ptah-extension/core`; FU-21a, FU-21b), committed ahead of Batch 20. Remaining: P4 Batch 20 (review fixes in flight), then 22. PR #510 CI had two Linux-only failures (the CLI contract suite did not see files created in a new directory under inotify; the platform-electron host entry spec aborted with SIGABRT in the `worker_threads` transport). Both are FIXED pending the next PR #510 CI run, which is the first Linux run of the jest specs — see "PR #510 Linux CI fix" after Batch 11.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). P3 wave 1 — Batch 16 and Batch 16b COMPLETE (one commit, recorded in the Batch 16 outcome), committed ahead of Batch 15 by orchestrator decision (see "Orchestrator decision — phase order deviation for P3 core" under Batch 7). P2 — Batch 15 COMPLETE (commit recorded in its outcome; ST-2 75,000-file host stress and AC-7 host kill MET; ST-1b CI assertion is now the bounded form). All P2 batches are COMPLETE. The only open P2 gate is D10: the `publish-electron.yml` matrix green on all three OSes (see Batch 10 outcome); it needs a `workflow_dispatch` or a release push — pending user decision. P3 — Batch 17 COMPLETE (commit recorded in its outcome; governor adopters + FU-11b file-index split; AC-10 manual evidence still pending). P3 — Batch 18 COMPLETE (commit recorded in its outcome; network back-off for background curator and skill-synthesis calls; FU-16b-a and FU-16b-b closed). P3 — Batch 17b COMPLETE (commit recorded in its outcome; origin-aware skill re-propagation, FU-17b closed). P3 Batches 16, 16b, 17, 17b and 18 are COMPLETE. P3 PHASE GATE PASSED 2026-09-15 (evidence under Batch 18 verification): `lint:all` 73 projects 0 errors, `typecheck:all` 93 projects 0 errors, `nx build ptah-electron` exit 0, `degradation-audit:lint` TOTAL 303. Phase 3 CLOSED. D10 remains the only open P2 gate; AC-10 manual evidence is still pending. P4 — Batch 19 COMPLETE (commit recorded in its outcome; O(E+M) `finalizeSessionHistory`, tab-save quota back-off INV-10; FU-19a..f). P4 — Batch 21 COMPLETE (commit recorded in its outcome; inbound message burst coalescing into one zone entry, R-P8 synchronous `rpc:response` flush, shared `scheduleMacrotask`/`yieldToMacrotask` in `@ptah-extension/core`; FU-21a, FU-21b), committed ahead of Batch 20. P4 — Batch 20 COMPLETE (commit recorded in its outcome; `ChatResumeResult.messages` deleted end to end, chunked replay through `SessionHistoryReplayer` with a session-keyed live-event fence; FU-20a..c). P4 — Batch 22 COMPLETE (commit recorded in its outcome; AC-11 perf e2e spec gated by `PTAH_PERF_SPECS=1`; AC-11 NOT MET on a valid measurement; Q6 DECIDED — attribution spike first (FU-22d); FU-22a..d). All 24 batches COMPLETE. P4 PHASE GATE PASSED 2026-09-15 (evidence under Batch 22 verification): `lint:all` 73 projects 0 errors, `typecheck:all` 70 affected projects plus `run-many --all` 93 projects 0 errors, `nx build ptah-electron` exit 0, `degradation-audit:lint` TOTAL 303. Phase 4 CLOSED. Still open: AC-11 NOT MET (FU-22d spike COMPLETE — top fix class: reduce DOM insertion volume per tile open plus staggered tile opens; fix direction pending user decision), D10, AC-10 manual evidence. SonarCloud quality gate green after `36a24f257`. PR #510 CI had two Linux-only failures (the CLI contract suite did not see files created in a new directory under inotify; the platform-electron host entry spec aborted with SIGABRT in the `worker_threads` transport). Both are FIXED pending the next PR #510 CI run, which is the first Linux run of the jest specs — see "PR #510 Linux CI fix" after Batch 11.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `handoff.md` section 2 "User decisions" (formerly in `context.md`)
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -1372,7 +1372,7 @@ Run by team-leader on 2026-09-15 in worktree `D:\projects\ptah-437` at `b9335708
 
 ---
 
-## Batch 20: P4 — bounded `chat:resume` + chunked replay (C15) — PENDING
+## Batch 20: P4 — bounded `chat:resume` + chunked replay (C15) — COMPLETE
 
 - Recommended executor: frontend-developer (backend field removal included)
 - Fallback executor: backend-developer for Task 20.1, then frontend-developer for Task 20.2, same batch and commit
@@ -1380,12 +1380,40 @@ Run by team-leader on 2026-09-15 in worktree `D:\projects\ptah-437` at `b9335708
 - Rationale: removing the shared field breaks the renderer fallback compile unless both land together.
 - Tasks: 2 | Depends on: Batch 14 (`session-history-reader.service.ts`)
 
-### Task 20.1: Delete `ChatResumeResult.messages` end to end — PENDING
+### Batch 20 outcome
+
+- Commit: `perf(chat): replay resumed session history in chunks and drop the duplicate transcript from chat:resume` (SHA in `git log`; this file is part of that commit).
+- Executed by: frontend-developer (first pass, review fix, delta fix, delta2 fixes; logs `D:\projects\ptah-437-backup\b20-*.log`, `b20r-*.log`, `b20-fix-*.log`, `b20-delta-*.log`, `b20-delta2-*.log`).
+- Review chain: `b20-code-logic-review.md` REVISE 6/10 and `b20-code-style-review.md` REVISE 6/10 → `b20-code-logic-review-delta.md` APPROVE_WITH_FIXES and `b20-code-style-review-delta.md` APPROVED → `b20-code-logic-review-delta2.md` APPROVE_WITH_FIXES (S2 closed; 2 moderates) and `b20-code-style-review-delta2.md` APPROVED (1 non-blocking serious: `chat/CLAUDE.md` rule 7 shape). The developer fixed all three remaining items; the team-leader verified them on the diff: (1) `describe.each` in `session-history-replayer.service.spec.ts` (two tabs resume one session, tab A fails by a throwing chunk or by `chat:resume` failing before replay); (2) the dead `limit` trim is deleted from `apps/ptah-cli/src/cli/commands/interact.ts` — `limit` is accepted and documented as having no effect in `apps/ptah-cli/docs/jsonrpc-schema.md` and both `ptah-cli-usage/references/jsonrpc.md` copies (byte-identical); (3) `chat/CLAUDE.md` rule 7 reflowed into sub-bullets.
+- Design:
+  - INV-9, one transcript: `ChatResumeResult.messages` is deleted end to end — shared type (`rpc-chat.types.spec.ts` fails at compile time if the key returns), `chat-session.service.ts`, and `session-history-reader.service.ts` (`readHistoryAsMessages` deleted). `ChatResumeResult.events` is the only history in the reply.
+  - `SessionHistoryReplayer` (`libs/frontend/chat/src/lib/services/chat-store/session-history-replayer.service.ts`) is a collaborator of `SessionLoaderService`: the loader decides what a resume writes, the replayer how the events reach the tab. `claim(tabId, sessionId)` runs before `chat:resume` is sent; `release` runs in a `finally`. A newer claim on a tab supersedes the older one, which then writes nothing.
+  - Chunks: at most 250 events replay in one pass; longer histories yield one macrotask per chunk with `yieldToMacrotask` from `@ptah-extension/core` (Batch 21), 8 yields for 2,000 events. The tab stays `resuming` until finalization; a throwing chunk or a failed yield post runs the failure branch.
+  - Live-event fence: opens at claim time, not at reply time, because an `activate: true` resume starts the live query before the reply arrives. It is keyed by session, not by tab, because the tab path fans a session event out to every tile bound to that session. Held `chat:chunk` events are delivered once, in arrival order, after finalization or on release for every other exit. Cap 2,000 buffered events; past it the fence overflows and later events for the session bypass it. `ChatMessageHandler.handleChatChunk` routes through `ChatStore.deferLiveStreamEvent`.
+  - `TabManagerService.applyResumedHistory` deleted. `session:load` contract docs corrected (`SessionLoadResult.messages` / `agentSessions` are always `[]`; it never carried a transcript), including the CLI docs, README and `session.ts` notes. `libs/frontend/chat/CLAUDE.md` and `libs/shared/CLAUDE.md` updated. The e2e mock in `compaction-duplicate-session.spec.ts` was rewritten for events-only resume.
+- Orchestrator decisions:
+  - Correct the `session:load` contract docs rather than add a new transcript RPC.
+  - The fence covers the whole session (every tile), not only the replaying tab.
+  - No third review round after delta2: the three remaining items were small, verified by the team-leader on the diff.
+- Evidence:
+  - Executor: shared 1521, agent-sdk 1948, chat-state 386, rpc-handlers 2998 + 1 load timeout in `skills-sh-legacy-adoption.spec.ts` (13/13 alone), chat 1212, ptah-cli 1015, ptah-tui 330; typecheck 0 errors; lint 0 errors; audit TOTAL 303. E2E `compaction-duplicate-session.spec.ts` run once on an idle machine: 1 passed (`b20-fix-e2e.log`).
+  - Team-leader (worktree `D:\projects\ptah-437`, runner count 0 before each run, no nx reset): `run-many -t test -p @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/agent-sdk @ptah-extension/chat @ptah-extension/chat-state ptah-cli ptah-tui --parallel=1 --maxWorkers=2` (header 7) exit 0 at 18:41, after the last source edit (18:37) — shared 1521, agent-sdk 1948 + 3 skipped, chat-state 386, rpc-handlers 2999 + 33 skipped (fresh run, no timeout), chat 1212 + 2 skipped, ptah-cli 1015 + 3 skipped, ptah-tui 330; 35 of 40 tasks from the Nx content-hash cache (`b20-tl-test.log`). A `--skip-nx-cache` rerun was interrupted by an Nx daemon EPIPE during dependency builds and ran no tests (`b20-tl-test-nocache.log`). `run-many -t typecheck` on the same 7 + `ptah-extension-webview` (header 8) exit 0 (`b20-tl-typecheck.log`); `-t lint` (header 8) exit 0, 0 errors, warnings only (`b20-tl-lint.log`); `degradation-audit:lint --skip-nx-cache` exit 0, TOTAL 303 (`b20-tl-audit.log`). `git grep` outside `.ptah`: no `readHistoryAsMessages`, no `applyResumedHistory`; `ChatResumeResult` has no `messages` key. No e2e rerun. Backup: `batch20-final-modified.patch`, `batch20-final-untracked.tar`.
+- Deviations from the plan:
+  - The plan put chunked replay inside `SessionLoaderService`; it is a separate `SessionHistoryReplayer` collaborator (facade rule — `session-loader.service.ts` is already large).
+  - The plan asked for a `MessageChannel` yield; the batch uses the shared `yieldToMacrotask` from `@ptah-extension/core` added by Batch 21 instead of a second helper.
+  - The live-event fence (session-keyed, opened at claim time) was not in the plan; review found live `chat:chunk` events could interleave with replayed history.
+  - Scope grew into ptah-cli docs and `session.history` because they documented a transcript that `session:load` never returned.
+- Follow-ups:
+  - FU-20a: `SessionManager` status is global, so concurrent resumes on different tabs share one status (review M3). Pre-existing; not introduced by this batch.
+  - FU-20b: the private `readHistoryMessages` extractor in `session-history-reader.service.ts` has one caller and could be inlined.
+  - FU-20c: load-flake candidates under parallel runs — `skills-sh-legacy-adoption.spec.ts` (rpc-handlers; 13/13 alone) and `electron-state-storage-worker-runtime.error-paths.spec.ts` (platform-electron; 47/47 alone).
+
+### Task 20.1: Delete `ChatResumeResult.messages` end to end — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc\rpc-chat.types.ts` (:233-252), `D:\projects\ptah-extension\libs\backend\rpc-handlers\src\lib\chat\session\chat-session.service.ts` (:876-883), `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\session-history-reader.service.ts` (legacy projection only if unreferenced)
 - Validation notes: A5/D11. `ptah_lsp_references` on the field first. Update `chat-session-resume-activate.spec.ts` and any spec asserting `messages`.
 
-### Task 20.2: Chunked replay in `SessionLoaderService` — PENDING
+### Task 20.2: Chunked replay in `SessionLoaderService` — COMPLETE
 
 - Depends on: Task 20.1
 - Files: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat-store\session-loader.service.ts` (:743-799) + `session-loader.service.spec.ts`, `session-loader.cli-restore.spec.ts`
@@ -1445,7 +1473,7 @@ Run by team-leader on 2026-09-15 in worktree `D:\projects\ptah-437` at `b9335708
 
 ---
 
-## Batch 22: P4 — AC-11 tile-open perf e2e — PENDING
+## Batch 22: P4 — AC-11 tile-open perf e2e — COMPLETE
 
 - Recommended executor: senior-tester
 - Fallback executor: frontend-developer
@@ -1453,7 +1481,49 @@ Run by team-leader on 2026-09-15 in worktree `D:\projects\ptah-437` at `b9335708
 - Rationale: end-to-end measurement against the "3 tiles opened" crash path.
 - Tasks: 1 | Depends on: Batches 19, 20, 21
 
-### Task 22.1: Long-task spec for 3 tiles on a 2,000-event session — PENDING
+### Batch 22 outcome
+
+- Commit: `test(electron-e2e): measure tile-open long tasks for a 2,000-event session` (SHA in `git log`; this file is part of that commit).
+- Executed by: senior-tester (revisions 1–4; report `test-report-b22.md`).
+- **Result: AC-11 NOT MET.** The spec is valid; the product misses the budget. The budget was not loosened. Budgets: no long task > 200 ms, total ≤ 1,500 ms.
+  - Dev build, cold 3 tiles, 3 clean idle runs (I, J, K): max 1,493 / 1,705 / 1,864 ms, total 5,404 / 6,193 / 5,639 ms. The report's verdict quotes max 1,201–1,864 ms across all new-harness runs.
+  - Dev build, warm 1 tile: max 119 ms, total 433 ms (within budget). Warm 3 tiles: max 1,394 ms, total 7,587 ms.
+  - Production build, cold 3 tiles, 1 clean run: max 973 ms, total 4,657 ms.
+  - The last-clicked tile carries 88–98 % of blocked time in every run; no first or second tile bucket exceeds 200 ms (highest 164 ms).
+  - Attribution (one CDP profile, hypothesis only): Playwright injected script 0 %; finalization (C16) + chunked replay + Angular CD < 2 % combined; the cost sits in `(program)` 31.5 %, unclassified app/native DOM work 38.6 %, and ambiguous native `getAnimations` 15.7 % next to `@formkit/auto-animate`.
+- Measurement validity: Playwright locator work is outside the timed window (native click + in-page `MutationObserver` inside one `page.evaluate`); runner count 0 before and after every run used; 2 runs discarded. The ~16 ms `requestAnimationFrame` click spacing is a disclosed near-simultaneous stress case, harsher than real pacing.
+- Files: NEW `apps/ptah-electron-e2e/src/specs/chat/tile-open-longtask-budget.perf.spec.ts` (923 lines; skipped unless `PTAH_PERF_SPECS=1`; `PTAH_PERF_PROFILE=1` adds a CDP profile); NEW `apps/ptah-electron-e2e/src/support/perf-diagnostics.ts` (323 lines; pure `bucketByClick`, `classifyFrame`, `summarizeCpuProfile`); M `apps/ptah-electron-e2e/src/support/ui-driver.ts` (function-string mock resolver memoized by source text, so concurrent resumes are not serialized behind `new Function` compiles); M `apps/ptah-electron-e2e/CLAUDE.md` ("Perf specs" convention, both flags).
+- Review chain: `b22-code-logic-review.md` NEEDS_REVISION and `b22-code-style-review.md` APPROVED → `b22-code-logic-review-delta.md` APPROVE_WITH_FIXES (measurement valid; 1 serious: fix-class confidence overstated) and `b22-code-style-review-delta.md` NEEDS_REVISION (1 serious: ~290 lines of diagnostics inline in a 1,184-line spec). The developer fixed all items (revision 4). Orchestrator decision: no third review round. The team-leader verified on the diff: diagnostics extracted to `perf-diagnostics.ts` with no behaviour change; `PTAH_PERF_PROFILE` named in `CLAUDE.md`; the unbounded-cache comment added in `ui-driver.ts`; render virtualization downgraded to a hypothesis with confirmation steps; the "exceeds slightly" claim corrected; the stress cadence and the product bug disclosed in the spec header and the report.
+- Team-leader evidence (worktree `D:\projects\ptah-437`, runner count 0, no nx reset): `npx nx run-many -t lint,typecheck -p ptah-electron-e2e` exit 0, 0 errors, 9 warnings in untouched files (`b22-tl-lint-typecheck.log`); `eslint` on the 3 changed TS files exit 0; `prettier --check` on every staged file clean after `--write` on the 4 review markdown files; `degradation-audit:lint --skip-nx-cache` exit 0, TOTAL 303 (`b22-tl-audit.log`). The perf spec was not re-run by the team-leader (orchestrator instruction). Executor skip proof: without `PTAH_PERF_SPECS`, all 3 tests skipped. Backup: `D:\projects\ptah-437-backup\batch22-*`.
+- **Q6 — DECIDED by the user 2026-09-15: "Attribution spike first".** Before any product change, a spike replicates the CPU profile, attributes it with a flame chart, and measures with `@formkit/auto-animate` disabled, to find the real fix class (auto-animate, render virtualization or tail paging). It runs in this worktree after the P4 gate, as a spike inside TASK_2026_437 (FU-22d), and produces a report only, no product code. AC-11 stays NOT MET until then. Evidence: `test-report-b22.md` "Verdict" and "Attribution".
+- Minor items accepted without a fix: the spec header still says `summarizeCpuProfile` "below" (it moved to `perf-diagnostics.ts`); the diagnostics directory `D:\projects\ptah-437-backup` is hard-coded (only reached under `PTAH_PERF_SPECS=1`; the JSON write is guarded, the `.cpuprofile` write is not); per-entry log verbosity and the `makeRand` LCG duplication stay as the base style review accepted.
+- Follow-ups:
+  - FU-22a (product bug): `AppStateManager.requestCanvasSession` writes the single-slot `_canvasSessionRequest` signal (`libs/frontend/core/src/lib/services/app-state.service.ts:255,696-714`), consumed by one `effect()` in `libs/frontend/canvas/src/lib/orchestra-canvas.component.ts:293-308`. Two sidebar clicks before the effect flushes lose the first tile open with no visible error. Fix: queue requests (or serialize the click handler).
+  - FU-22b: `tile-open-longtask-budget.perf.spec.ts` is 923 lines (soft ceiling 700). Candidates: move the fixture builder to `src/support/` and share the cold / warm log-and-write sequence; fix the stale "below" reference and make the backup directory configurable at the same time.
+  - FU-22c: `ptah_agent_spawn` rejects working directories outside `D:\projects\ptah-extension`, so CLI lanes cannot work in external worktrees such as `D:\projects\ptah-437`.
+  - FU-22d (scheduled by Q6, next after the P4 gate): attribution spike, report only — replicate the CDP profile 2–3 times, a source-mapped flame chart to attribute native DOM calls to their caller, and a run with `@formkit/auto-animate` disabled on the transcript list. Output: the fix class for AC-11. **COMPLETE 2026-09-15** — see "FU-22d attribution spike outcome" below.
+
+### FU-22d attribution spike outcome — COMPLETE
+
+- Executed by: senior-tester, report only, at `510848cf7`. Report: `fu22d-attribution-spike-report.md`. Raw traces, profiles and the reverted experiment diffs: `D:\projects\ptah-437-backup\fu22d\`. All temporary patches were reverted; the team-leader confirmed `git status --short` showed only the new report before this commit. Runner count 0 before and after all 9 runs.
+- **AC-11 still NOT MET.** No product code changed.
+- Headline numbers:
+  - Replication: the CPU-profile category split is stable within 1–2 points over 3 runs (`other/unclassified` 38–39 %, `(program)` 31–33 %, ambiguous native API ~15 %).
+  - `@formkit/auto-animate` disabled (2 clean runs): max −33 % to −39 %, total −31 % to −37 %. AC-11 still fails: best max 928 ms (4.6–5.1× the 200 ms budget), best total 3,632 ms (2.4–2.6× the 1,500 ms budget).
+  - CDP `Tracing.*` (new): `FireAnimationFrame` ~1.1–1.3 s over 1,400+ firings, and the Layout/Paint/GPU family ~2.2 s (~40–48 % of the window). Neither shrinks with auto-animate off. Auto-animate's measured cost is its own JS self-time (~160–190 ms) plus GC/compile pressure.
+  - Render volume (1 run per size): total blocked time scales about linearly with events, ~2.9–3.1 ms/event at 500 / 1,000 / 2,000 events. Max is non-linear (457 / 519 / ~1,520 ms), not replicated.
+  - Finalization, chunked replay and Angular CD each < 2 %. Markdown 0.3–0.4 % (markup-free fixture). The last-clicked tile (TILE_2) carries 79–98 % of blocked time.
+  - `TranscriptRenderWindow` virtualizes top-level messages only (`ALWAYS_MOUNTED_TAIL = 6`); the nested execution-node tree inside a mounted message is not virtualized.
+- Ranked fix classes (from the report):
+  1. Reduce DOM insertion volume per tile open — tail-paged history and/or virtualize the execution-node tree inside mounted messages. Confidence MEDIUM-HIGH. Alone it likely does not close the 200 ms max budget (457 ms even at 500 events).
+  2. Stagger or throttle concurrent tile opens — bounds any single tile's blocked time (targets max). Confidence HIGH.
+  3. Gate auto-animate off during a tile's initial bulk mount (extend the existing `flipAnimationDisabled` gate) — measured ~30–35 % recovery, insufficient alone. Confidence HIGH.
+  4. Find the `FireAnimationFrame` source (prerequisite, not a fix). 5. Markdown deferral (low for this fixture). 6. Further finalization/replay work (minimal).
+- **Open unknown: the `FireAnimationFrame` source is not found.** Ruled out: auto-animate (3a), the execution-node streaming throttle, the transcript scroll-stick rAF. Also open: the residual ~678 ms `getAnimations` with auto-animate off, the DOM node count of the always-mounted tail per fixture size, and the max-task non-linearity (1 run per size).
+- **Fix direction: PENDING USER DECISION.** AC-11 stays NOT MET until a fix class is chosen and implemented.
+- Team-leader citation spot-check (report not edited): `transcript-render-window.ts:9,17,118,142`, `chat-transcript.component.html:15`, `chat-transcript.component.ts:486,534-548,554-572`, `execution-node.component.ts:73,355,391-392`, and the `canvas-tile.component.ts` → `ChatViewComponent` path all match. One imprecision: the report cites `execution-node.component.ts:362-364` as "the existing `[autoAnimateDisabled]` input"; those lines are the `flipAnimationDisabled` computed, which is bound to `[autoAnimateDisabled]` at lines 192 and 244. The fix-class meaning is unchanged. The report's "zero application call sites" for `getAnimations` holds: the only repo hits are the classifier list and comments in `apps/ptah-electron-e2e/src/support/perf-diagnostics.ts`.
+
+### Task 22.1: Long-task spec for 3 tiles on a 2,000-event session — COMPLETE
 
 - Files: CREATE a spec under `D:\projects\ptah-extension\apps\ptah-electron-e2e\src\specs\chat\`
 - Validation notes: `PerformanceObserver('longtask')`; no task > 200 ms, total ≤ 1,500 ms; gated behind `PTAH_PERF_SPECS=1`. If it misses the budget, report for Q6 (history paging) rather than loosening it.
@@ -1462,6 +1532,23 @@ Run by team-leader on 2026-09-15 in worktree `D:\projects\ptah-437` at `b9335708
 
 - `npx nx run-many -t lint,typecheck -p ptah-electron-e2e`; `npx nx e2e ptah-electron-e2e` with the new spec filtered, recorded locally
 - P4 PHASE GATE: `npm run lint:all`, `npm run typecheck:all`, `npx nx build ptah-electron`, `npx nx run degradation-audit:lint`
+
+### P4 PHASE GATE PASSED — Phase 4 CLOSED
+
+Run by team-leader on 2026-09-15 in worktree `D:\projects\ptah-437` at `3e5cf8b87` (Batch 22), clean tree, no nx reset, runner count 0 before each command, one command at a time. Logs in `D:\projects\ptah-437-backup\`.
+
+| Command                                             | Exit | Projects                                  | Result                                   | Log                                 |
+| --------------------------------------------------- | ---- | ----------------------------------------- | ---------------------------------------- | ----------------------------------- |
+| `npm run lint:all -- --parallel=1`                  | 0    | 73                                        | 0 errors (warnings only; 70 of 73 cache) | `p4-gate-lint-all.log`              |
+| `npm run typecheck:all -- --parallel=1`             | 0    | 70 (affected vs `main` = `e3e366e67`)     | 0 errors                                 | `p4-gate-typecheck-all.log`         |
+| `npx nx run-many -t typecheck --all --parallel=1`   | 0    | 93                                        | 0 errors                                 | `p4-gate-typecheck-runmany-all.log` |
+| `npx nx build ptah-electron --parallel=1`           | 0    | 1 + 11 dependencies (11 of 12 from cache) | built                                    | `p4-gate-build-electron.log`        |
+| `npx nx run degradation-audit:lint --skip-nx-cache` | 0    | 1                                         | TOTAL 303 (baseline)                     | `p4-gate-degradation-audit.log`     |
+
+- Prep: the generated Prisma client was already present in this worktree (`libs/api/core/src/lib/generated-prisma-client/client.ts`, from the P3 gate), so `prisma:generate` was not run.
+- `typecheck:all` is `nx affected`. After PR #510 merged, its base (`main` = `origin/main` = `e3e366e67`, merge base `36a24f257`) covers 70 of 93 projects. The P3 gate covered 93, so `run-many -t typecheck --all` was also run to match that coverage.
+- `--parallel=1` was passed through npm for `lint:all` and `typecheck:all` (handoff §8 rule 1); the scripts are unchanged.
+- Still open outside the gate: AC-11 NOT MET (Batch 22 outcome; FU-22d attribution spike COMPLETE, fix direction pending user decision); D10 (the `publish-electron.yml` matrix on all three OSes); AC-10 manual boot evidence (Batch 17 outcome).
 
 ---
 
@@ -1541,3 +1628,39 @@ Verification: `run-many -t test -p @ptah-extension/platform-electron @ptah-exten
 --parallel=1 --maxWorkers=2` (header: 2) — agent-sdk 1948 passed; platform-electron one failure
 (the flake candidate above). eslint 0 errors on both source files; agent-sdk typecheck pass;
 prettier clean on staged files; `degradation-audit:lint --skip-nx-cache` TOTAL 303 (exit 0).
+
+## PR #518 CI fixes — manifest drift + SonarCloud S1523 — COMPLETE
+
+Not a numbered batch. The commit carrying this section is the one whose subject is
+`fix: resolve CI manifest drift and SonarCloud S1523 on PR 518` (resolve its SHA with
+`git log --grep "S1523"`).
+
+- Manifest drift — `content-manifest.json` regenerated with `npm run manifest:generate` (only
+  `contentHash` and `generatedAt` change; 224 files). Cause: the Batch 20 edit to
+  `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/ptah-cli-usage/references/jsonrpc.md`.
+  Fixes the `check` job
+  (https://github.com/Hive-Academy/ptah-extension/actions/runs/35011840035/job/104525457569) —
+  COMPLETE
+- S1523 (VULNERABILITY, security rating 4) — `apps/ptah-electron-e2e/src/support/ui-driver.ts`
+  `new Function(`: block comment gives the reason (test-authored resolver source serialized
+  across the Playwright boundary; nothing user- or network-supplied); line trailer is
+  `// NOSONAR typescript:S1523 — test-authored source, see above` — COMPLETE
+
+Reviews: `pr518-ci-fix-code-logic-review.md` APPROVE 9/10; `pr518-ci-fix-code-style-review.md`
+APPROVE 7/10. The style serious item (trailer duplicated the block comment) was fixed by
+shortening the trailer to a "see above" pointer.
+
+Follow-ups:
+
+- FU-518a — CI flake candidate: `workspace-watch-host.stress.spec.ts` "AC-7 repeated kills past
+  the restart budget ... Timed out after 15000 ms waiting for delivery to resume after recovery"
+  failed the `main` job in `@ptah-extension/platform-electron:test`
+  (https://github.com/Hive-Academy/ptah-extension/actions/runs/35011840081/job/104525457791).
+  PR #518 does not touch platform-electron, and the same spec passed on 36a24f257. Job rerun by
+  the orchestrator; spec unchanged.
+- FU-SEC-c — still OPEN (`network-backoff.ts` S2245 trailer duplication). Both suppression
+  sites now use the same "reason, see above" trailer shape; closing FU-SEC-c should settle
+  that shape once for both files.
+
+Verification: `npm run manifest:check` up to date (224 files); `run-many -t lint,typecheck -p
+ptah-electron-e2e` 0 errors (9 pre-existing warnings); prettier clean on staged files.

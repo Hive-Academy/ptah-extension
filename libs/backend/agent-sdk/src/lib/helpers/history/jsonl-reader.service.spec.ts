@@ -664,9 +664,8 @@ describe('JsonlReaderService', () => {
   // -------------------------------------------------------------------------
   // Parsed-transcript cache (TASK_2026_353)
   //
-  // `chat:resume` parses the same transcript twice — `readSessionHistory()`
-  // then `readHistoryAsMessages()` — and `session:stats-batch` parses it a
-  // third time moments later. The validity token is (size, mtimeMs).
+  // `chat:resume` parses the transcript once via `readSessionHistory()`, and
+  // `session:stats-batch` parses it again moments later. The validity token is (size, mtimeMs).
   // -------------------------------------------------------------------------
   describe('transcript cache', () => {
     const FILE = '/tmp/session.jsonl';

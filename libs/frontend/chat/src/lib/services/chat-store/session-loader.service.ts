@@ -10,9 +10,10 @@
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  *
  * Cleanup note: all message conversion logic has been removed.
- * Session switching now uses SDK resume flow (chat:resume RPC), which streams
- * replayed events via chat:chunk. The existing ExecutionTreeBuilder handles
- * all message reconstruction.
+ * Session switching uses the SDK resume flow (chat:resume RPC), whose reply
+ * carries the history as replayable events — its only transcript.
+ * `SessionHistoryReplayer` replays them into the tab in bounded chunks, and
+ * the existing ExecutionTreeBuilder handles all message reconstruction.
  */
 
 import { Injectable, signal, inject, effect, untracked } from '@angular/core';
@@ -22,7 +23,6 @@ import {
   CliSessionReference,
   TabId,
   SessionId,
-  FlatStreamEventUnion,
   SubagentRecord,
   getModelContextWindow,
   type ChatResumeResult,
@@ -33,6 +33,10 @@ import {
   AgentMonitorStore,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  SessionHistoryReplayer,
+  type ReplayClaim,
+} from './session-history-replayer.service';
 import {
   createEmptyStreamingState,
   type TabState,
@@ -76,6 +80,7 @@ export class SessionLoaderService {
   private readonly sessionManager = inject(SessionManager);
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly historyReplayer = inject(SessionHistoryReplayer);
 
   private readonly _sessions = signal<readonly ChatSessionSummary[]>([]);
   private readonly _hasMoreSessions = signal(false);
@@ -117,8 +122,8 @@ export class SessionLoaderService {
   /**
    * Timeout for `chat:resume`, well above the 30 s RPC default.
    *
-   * The handler reads the whole JSONL transcript TWICE (events + legacy
-   * messages) and rehydrates every persisted agent's output. Measured on
+   * The handler parses the whole JSONL transcript into replay events and
+   * rehydrates every persisted agent's output. Measured on
    * 2026-09-04: a 2.5 MB transcript with 11 restored agents took under a
    * second warm, and a cold read during app start ran past 31 s — long enough
    * for the default to fire. A timeout is not a soft failure here: the reply
@@ -615,6 +620,7 @@ export class SessionLoaderService {
     }
 
     this._inFlightSessions.add(loadKey);
+    let replayClaim: ReplayClaim | null = null;
     try {
       const workspacePath = this.vscodeService.config().workspaceRoot;
       if (!workspacePath) {
@@ -644,6 +650,11 @@ export class SessionLoaderService {
       const resolvedTabId = targetTabId
         ? this.requireTargetTab(sessionId, targetTabId).id
         : this.tabManager.openSessionTab(sessionId, title);
+      // Claims the tab and opens the session's live-event fence BEFORE
+      // `chat:resume` is sent: an `activate: true` resume starts the live query
+      // on the backend before its reply arrives. The `finally` below releases
+      // the claim on every exit, which closes the fence exactly once.
+      replayClaim = this.historyReplayer.claim(resolvedTabId, sessionId);
 
       // [compaction-diag] TEMPORARY — remove after the 2-tile stale-transcript
       // repro is confirmed. Reveals the explicit reload target so a missing or
@@ -712,6 +723,12 @@ export class SessionLoaderService {
         this.requireTargetTab(sessionId, targetTabId);
       }
 
+      // A newer resume claimed this tab while this one awaited the RPC. Its
+      // reply owns the tab; this older reply must write nothing into it.
+      if (!this.historyReplayer.isCurrent(replayClaim)) {
+        return { staleSnapshot: false };
+      }
+
       if (
         opts?.reason === 'compaction' &&
         targetTabId &&
@@ -736,7 +753,6 @@ export class SessionLoaderService {
       }
 
       const events = resumeResult.data?.events;
-      const messages = resumeResult.data?.messages;
       const stats = resumeResult.data?.stats;
       const resumableSubagents = resumeResult.data?.resumableSubagents;
       const cliSessions = resumeResult.data?.cliSessions;
@@ -745,7 +761,7 @@ export class SessionLoaderService {
       // restores them on a reopen — `restoreCliSessionsForSession` refuses to
       // fetch twice per session per app run. Anything that throws while
       // replaying 250+ events (or a transcript that yields none at all, the
-      // third branch below) therefore cost the whole Agents panel silently.
+      // failure branch below) therefore cost the whole Agents panel silently.
       this.applyCliSessions(cliSessions, sessionId);
       if (stats) {
         this.applyResumeStats(resolvedTabId, stats, {
@@ -755,39 +771,35 @@ export class SessionLoaderService {
       } else if (
         !targetTabId &&
         resumeResult.success &&
-        ((events?.length ?? 0) > 0 || (messages?.length ?? 0) > 0)
+        (events?.length ?? 0) > 0
       ) {
         this.tabManager.setPreloadedStats(resolvedTabId, null);
         this.tabManager.setLiveModelStats(resolvedTabId, null);
         this.tabManager.setModelUsageList(resolvedTabId, []);
       }
       if (resumeResult.success && events && events.length > 0) {
-        for (const event of events) {
-          this.streamingHandler.processStreamEvent(
-            event as FlatStreamEventUnion,
-            resolvedTabId,
+        try {
+          const outcome = await this.historyReplayer.replay(
+            events,
+            replayClaim,
             sessionId,
-            { isReplay: true, fanOut: false },
+            resumableSubagents,
           );
+          if (outcome === 'superseded') {
+            return { staleSnapshot: false };
+          }
+        } catch (error: unknown) {
+          // A throwing chunk must not leave a half-replayed tab that looks
+          // complete: drop the partial state (and its queued flush) and settle
+          // the tab through the ordinary failure branch.
+          if (this.historyReplayer.isCurrent(replayClaim)) {
+            this.streamingHandler.clearPendingUpdates(resolvedTabId);
+            this.tabManager.applyResumeFailure(resolvedTabId);
+            this.sessionManager.setStatus('loaded');
+          }
+          throw error;
         }
-        this.streamingHandler.finalizeSessionHistory(
-          resolvedTabId,
-          resumableSubagents,
-        );
 
-        this.sessionManager.setStatus('loaded');
-        this._resumableSubagents.set(resumableSubagents ?? []);
-        this._resumableSubagentsSessionId = sessionId;
-      } else if (resumeResult.success && messages && messages.length > 0) {
-        const executionMessages = messages.map((msg) => ({
-          id: msg.id,
-          role: msg.role as 'user' | 'assistant',
-          timestamp: msg.timestamp,
-          streamingState: null,
-          rawContent: msg.content,
-          sessionId,
-        }));
-        this.tabManager.applyResumedHistory(resolvedTabId, executionMessages);
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set(resumableSubagents ?? []);
         this._resumableSubagentsSessionId = sessionId;
@@ -798,7 +810,7 @@ export class SessionLoaderService {
         this._resumableSubagentsSessionId = sessionId;
         throw new Error(
           `[SessionLoaderService] chat:resume failed for ${sessionId}: ${
-            resumeResult.error ?? 'No messages or events found'
+            resumeResult.error ?? 'No events found'
           }`,
         );
       }
@@ -809,6 +821,7 @@ export class SessionLoaderService {
       throw error;
     } finally {
       this._inFlightSessions.delete(loadKey);
+      this.historyReplayer.release(replayClaim);
     }
   }
 

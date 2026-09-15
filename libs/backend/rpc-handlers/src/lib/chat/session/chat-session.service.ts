@@ -820,9 +820,9 @@ export class ChatSessionService {
 
   /**
    * chat:resume - Load session history from JSONL files. Returns full
-   * `events` (FlatStreamEventUnion[]) for tree reconstruction plus `messages`
-   * (deprecated, backward compat), aggregated usage stats, resumable
-   * subagents, and any CLI session references.
+   * `events` (FlatStreamEventUnion[]) for tree reconstruction — the only
+   * transcript in the reply (TASK_2026_437 INV-9) — plus aggregated usage
+   * stats, resumable subagents, and any CLI session references.
    */
   async resumeSession(params: ChatResumeParams): Promise<ChatResumeResult> {
     try {
@@ -879,7 +879,6 @@ export class ChatSessionService {
         { checkCompactionBoundary: true },
       );
       const events = result.events;
-      const messages = result.messages;
       const stats = result.stats;
       const staleSnapshot = result.staleSnapshot;
 
@@ -940,7 +939,6 @@ export class ChatSessionService {
 
       this.logger.info('[RPC] Session history loaded from JSONL', {
         sessionId,
-        messageCount: messages.length,
         eventCount: events.length,
         hasStats: !!stats,
         totalCost: stats?.totalCost,
@@ -988,7 +986,6 @@ export class ChatSessionService {
 
       return {
         success: true,
-        messages,
         events,
         stats,
         resumableSubagents,

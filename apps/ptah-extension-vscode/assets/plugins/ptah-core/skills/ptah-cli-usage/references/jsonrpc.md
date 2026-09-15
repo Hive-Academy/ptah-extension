@@ -18,15 +18,15 @@ stderr. Never parse stderr as protocol.
 
 ### 1.1 Inbound requests (client → CLI, in `interact` mode)
 
-| Method                | Params                                                      | Result                                                   |
-| --------------------- | ----------------------------------------------------------- | -------------------------------------------------------- |
-| `task.submit`         | `{ task, cwd?, profile? }`                                  | `{ turn_id, complete, cancelled?, error?, session_id? }` |
-| `task.cancel`         | `{ turn_id }`                                               | `{ cancelled, turn_id?, reason? }`                       |
-| `session.shutdown`    | `{}`                                                        | `{ shutdown: true }` then drain + exit 0                 |
-| `session.history`     | `{ limit? }`                                                | `{ messages, session_id }`                               |
-| `permission.response` | `{ id, decision: 'allow'\|'deny'\|'always_allow', scope? }` | (fire-and-forget, no response)                           |
-| `question.response`   | `{ id, answer, custom? }`                                   | (fire-and-forget, no response)                           |
-| `proxy.shutdown`      | `{}`                                                        | `{ stopped, port?, reason? }` (only when proxy embedded) |
+| Method                | Params                                                      | Result                                                                     |
+| --------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `task.submit`         | `{ task, cwd?, profile? }`                                  | `{ turn_id, complete, cancelled?, error?, session_id? }`                   |
+| `task.cancel`         | `{ turn_id }`                                               | `{ cancelled, turn_id?, reason? }`                                         |
+| `session.shutdown`    | `{}`                                                        | `{ shutdown: true }` then drain + exit 0                                   |
+| `session.history`     | `{ limit? }` (accepted, no effect)                          | `{ messages: [], session_id }` — no transcript, `messages` is always empty |
+| `permission.response` | `{ id, decision: 'allow'\|'deny'\|'always_allow', scope? }` | (fire-and-forget, no response)                                             |
+| `question.response`   | `{ id, answer, custom? }`                                   | (fire-and-forget, no response)                                             |
+| `proxy.shutdown`      | `{}`                                                        | `{ stopped, port?, reason? }` (only when proxy embedded)                   |
 
 Only one `task.submit` may be in flight; a concurrent submit returns
 `-32603 'turn already in flight'`.

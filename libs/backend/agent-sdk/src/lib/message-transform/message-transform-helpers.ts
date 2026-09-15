@@ -23,9 +23,9 @@ export function generateEventId(): string {
  *
  * Both readers of a JSONL transcript must ask this same question — the replay
  * that produces the live-shaped event stream (`session-replay.service.ts`) and
- * the projection that produces the one-read resume snapshot
+ * the projection behind the text history readers
  * (`SessionHistoryReaderService.projectHistoryMessages`). When they disagree,
- * `chat:resume` shows a record the replayed event stream hides, which is the
+ * a history reader shows a record the replayed event stream hides, which is the
  * event/message parity break PR #493 review C set out to close and closed only
  * for `isSynthetic`. Shared rather than duplicated so a third flag cannot be
  * added to one side alone.

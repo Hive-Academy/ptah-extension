@@ -843,14 +843,14 @@ describe('ptah interact', () => {
   });
 
   describe('session.history', () => {
-    it('proxies session:load and trims by limit', async () => {
+    it('proxies session:load with the session and workspace, ignoring a limit', async () => {
       const h = makeHarness();
-      const messages = [
-        { id: 'm1', text: 'one' },
-        { id: 'm2', text: 'two' },
-        { id: 'm3', text: 'three' },
-      ];
-      h.scripted.set('session:load', { success: true, data: { messages } });
+      // The real `session:load` validates metadata only: `messages` is always
+      // empty (`SessionLoadResult`), so the proxy has no transcript to trim.
+      h.scripted.set('session:load', {
+        success: true,
+        data: { messages: [], agentSessions: [] },
+      });
 
       const promise = execute({}, baseGlobals, h.hooks);
       await flushAsync();
@@ -872,15 +872,15 @@ describe('ptah interact', () => {
         (m) => isJsonRpcSuccessResponse(m) && m.id === 1,
       );
       if (isJsonRpcSuccessResponse(resp)) {
-        const r = resp.result as {
-          messages: typeof messages;
-          session_id: string;
-        };
-        expect(r.messages).toEqual([
-          { id: 'm2', text: 'two' },
-          { id: 'm3', text: 'three' },
+        expect(resp.result).toEqual({ messages: [], session_id: sessionId });
+        expect(
+          h.rpcCalls.filter((call) => call.method === 'session:load'),
+        ).toEqual([
+          {
+            method: 'session:load',
+            params: { sessionId, workspacePath: expect.any(String) },
+          },
         ]);
-        expect(r.session_id).toBe(sessionId);
       } else {
         throw new Error('expected history response');
       }

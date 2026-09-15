@@ -2130,19 +2130,6 @@ export class TabManagerService {
     });
   }
 
-  /**
-   * Resume-fallback path: install the simple-message replay, drop streaming
-   * state, mark `loaded`. Used when the backend has only legacy messages
-   * (no events array).
-   */
-  applyResumedHistory(tabId: string, messages: ExecutionChatMessage[]): void {
-    this.updateTabInternal(tabId, {
-      messages,
-      status: 'loaded',
-      streamingState: null,
-    });
-  }
-
   /** Resume-failure path: drop streamingState, mark `loaded`. */
   applyResumeFailure(tabId: string): void {
     this.updateTabInternal(tabId, {

@@ -10,7 +10,7 @@ point for the next session. Read it first, then `batches.md` (authoritative batc
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Worktree      | `D:\projects\ptah-437` (outside the repo root on purpose — never use `.claude-worktrees\`)                                                                                                         |
 | Branch        | `fix/task-437-main-loop-isolation` (tracks origin, all commits pushed)                                                                                                                             |
-| PR            | #510 (draft) — https://github.com/Hive-Academy/ptah-extension/pull/510                                                                                                                             |
+| PR            | #510 MERGED (at `36a24f257`). Batches 20–22 are after it; no PR yet — user decision: open one new PR after the P4 gate                                                                             |
 | Related PR    | #512 — `chore/bump-better-sqlite3-13` in worktree `D:\projects\ptah-sqlite-bump`                                                                                                                   |
 | node_modules  | `D:\projects\ptah-437\node_modules` is a JUNCTION to `D:\projects\ptah-extension\node_modules`. Never delete it with a tool that follows junctions; remove the junction with `cmd /c rmdir` first. |
 | Main checkout | `D:\projects\ptah-extension` is used by ANOTHER session (branch `feat/chat-composer-card`). Do not edit it or run tests there for this task.                                                       |
@@ -40,7 +40,7 @@ PR #510 CI. Add it back to `context.md` after PR #510 merges.
   cleanly (else keep its current watcher behind the port); measure SQLite main-thread cost before
   moving it; scroll-back paging of old history is deferred.
 
-## 3. Done — committed (22 of 24 batches; Batches 8, 9, 10, 11, 15, 16, 16b, 17, 17b, 18, 19 and 21 in section 4)
+## 3. Done — committed (24 of 24 batches; Batches 8, 9, 10, 11, 15, 16, 16b, 17, 17b, 18, 19, 20, 21 and 22 in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
 | ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,7 +64,54 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b, 18, 19 and 21 — COMMITTED (P3 gate passed; P4 Batch 20 in flight)
+## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b, 18, 19, 20, 21 and 22 — COMMITTED (P3 and P4 gates passed; FU-22d spike COMPLETE; fix direction pending user decision)
+
+**FU-22d attribution spike — COMPLETE 2026-09-15** (docs commit
+`docs(task-specs): record the TASK_2026_437 tile-open attribution spike`). Report only, no product
+code: `fu22d-attribution-spike-report.md`; evidence in `D:\projects\ptah-437-backup\fu22d\`.
+AC-11 still NOT MET. Auto-animate off: max −33 % to −39 %, total −31 % to −37 %, but still 4.6–5.1×
+over on max and 2.4–2.6× on total. CDP tracing: `FireAnimationFrame` (~1.1–1.3 s, 1,400+ firings)
+and Layout/Paint/GPU (~2.2 s, ~40–48 %) do not shrink without auto-animate. Total blocked time
+scales about linearly with events (~2.9–3.1 ms/event). Finalization, replay and CD each < 2 %;
+TILE_2 79–98 %. Ranked fix classes: (1) reduce DOM insertion volume per tile open (tail-paged
+history and/or virtualize the execution-node tree inside mounted messages —
+`TranscriptRenderWindow` virtualizes top-level messages only), (2) stagger concurrent tile opens,
+(3) gate auto-animate off during bulk mount (~30–35 %). Open unknown: the `FireAnimationFrame`
+source. Details and a citation note in `batches.md` "FU-22d attribution spike outcome".
+
+**Batch 22 — COMMITTED 2026-09-15** as
+`test(electron-e2e): measure tile-open long tasks for a 2,000-event session`.
+NEW `apps/ptah-electron-e2e/src/specs/chat/tile-open-longtask-budget.perf.spec.ts` (skipped unless
+`PTAH_PERF_SPECS=1`) measures `PerformanceObserver('longtask')` while 3 tiles of ~2,000-event
+sessions open; NEW `src/support/perf-diagnostics.ts`; `ui-driver.ts` memoizes function-string mock
+resolvers. **AC-11 NOT MET** on a valid measurement (Playwright work outside the window, idle
+machine): dev cold 3 tiles max 1,493–1,864 ms, total 5,404–6,193 ms (3 runs); warm 1 tile 119 / 433
+ms (passes); production cold 3 tiles max 973, total 4,657 ms (1 run). Budget 200 / 1,500 ms, not
+loosened. The last-clicked tile carries 88–98 % of blocked time. One CDP profile (hypothesis):
+finalization + replay + Angular CD < 2 %; cost in native DOM/animation work (`getAnimations` next to
+`@formkit/auto-animate`) and `(program)`. Reviews: logic NEEDS_REVISION → delta APPROVE_WITH_FIXES;
+style APPROVED → delta NEEDS_REVISION; all fixed, verified by the team-leader on the diff, no third
+round. **Q6 DECIDED (user, 2026-09-15): attribution spike first** — FU-22d, next after the P4 gate,
+in this worktree, report only, no product code; AC-11 stays NOT MET until then. Evidence:
+`test-report-b22.md` "Verdict". FU-22a (single-slot `_canvasSessionRequest` loses rapid tile opens),
+FU-22b (spec 923 lines), FU-22c (`ptah_agent_spawn` rejects external worktrees) are in `batches.md`
+"Batch 22 outcome".
+
+**Batch 20 — COMMITTED 2026-09-15** as
+`perf(chat): replay resumed session history in chunks and drop the duplicate transcript from chat:resume`.
+C15 (INV-9): `ChatResumeResult.messages` is deleted end to end (shared type with a compile-time spec,
+`chat-session.service.ts`, `readHistoryAsMessages`); `events` is the one transcript. NEW
+`SessionHistoryReplayer` collaborator of `SessionLoaderService`: `claim(tabId, sessionId)` before
+`chat:resume`, `release` in `finally`; 250 events per chunk with `yieldToMacrotask`. A session-keyed
+live-event fence opens at claim time (an `activate: true` resume starts the live query before the
+reply); held `chat:chunk` events are delivered once, in order, capped at 2,000.
+`TabManagerService.applyResumedHistory` deleted; `session:load` docs corrected (never carried a
+transcript), including CLI `session.history` (`limit` accepted, no effect). Evidence: shared 1521,
+agent-sdk 1948, chat-state 386, rpc-handlers 2999, chat 1212, ptah-cli 1015, ptah-tui 330;
+typecheck,lint (8 projects) 0 errors; audit 303; e2e `compaction-duplicate-session.spec.ts` 1 passed.
+Reviews: logic REVISE → APPROVE_WITH_FIXES → APPROVE_WITH_FIXES; style REVISE → APPROVED → APPROVED;
+last three items verified by the team-leader, no third round. FU-20a..c in `batches.md` "Batch 20
+outcome".
 
 **Batch 21 — COMMITTED 2026-09-15** (ahead of Batch 20) as
 `perf(core): coalesce inbound webview message bursts into one change-detection pass`.
@@ -303,9 +350,15 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
   CLI: build `ptah-tui` then `restore-cli-manifest` before pack; cross-platform CI smoke (only
   win32-x64 proven locally).
 
-## 5. Remaining batches (3 of 24)
+## 5. Remaining work (0 of 24 batches)
 
-Order and dependencies are in `batches.md`. Batches 19 and 21 are committed; resume at P4 Batch 20, then 22. Summary:
+All 24 batches are committed. **P4 PHASE GATE PASSED 2026-09-15 — Phase 4 CLOSED** (at `3e5cf8b87`):
+`lint:all` 73 projects 0 errors; `typecheck:all` 70 projects (affected vs `main` `e3e366e67`) 0
+errors, plus `run-many -t typecheck --all` 93 projects 0 errors to match P3 coverage;
+`nx build ptah-electron` exit 0; `degradation-audit:lint` TOTAL 303. The Prisma client was already
+present. Evidence in `batches.md` under Batch 22 verification. AC-11 is still NOT MET. The FU-22d
+attribution spike (Q6) is COMPLETE (section 4). **Next: the user decides the AC-11 fix direction
+(open decision 7); then open the new PR for this branch per user instruction.** Summary:
 
 - **P2:** all batches committed. Only the OPEN D10 proof remains: `publish-electron.yml` build matrix
   green on Windows, macOS and Linux (section 4a) — needs a user decision to dispatch.
@@ -320,12 +373,21 @@ Order and dependencies are in `batches.md`. Batches 19 and 21 are committed; res
    Batch 16b outcome).
 3. CI skip rule for `chore/bump-*` branches (PR #512 showed `main`, `electron-e2e`, `vscode-e2e`
    SKIPPED).
-4. When to mark PR #510 ready for CodeRabbit (it skips drafts).
+4. PR for this branch: PR #510 merged; one new PR is due now that the P4 gate has passed (not opened yet).
 5. Whether to write the property-hub load-test setup/cleanup scripts (section 9).
+6. AC-10 manual boot evidence (Batch 17 outcome).
+7. AC-11 fix direction after the FU-22d spike: reduce DOM insertion volume per tile open
+   (tail-paged history and/or execution-node virtualization), stagger concurrent tile opens, gate
+   auto-animate off during bulk mount, or a combination; or first resolve the `FireAnimationFrame`
+   source. Evidence: `fu22d-attribution-spike-report.md` "Ranked fix classes".
 
-- **P4:** 19 COMMITTED (O(E+M) finalization + tab-save quota back-off), 20 (drop duplicate `messages` from
-  `chat:resume`, chunked replay; after 14; adopts `yieldToMacrotask` from `@ptah-extension/core`), 21 COMMITTED
-  (inbound burst coalescing), 22 (AC-11 tile-open perf e2e).
+Decided: Q6 (2026-09-15) — attribution spike first (FU-22d), report only. Spike COMPLETE.
+
+- **P4:** 19 COMMITTED (O(E+M) finalization + tab-save quota back-off), 20 COMMITTED (duplicate
+  `messages` dropped from `chat:resume`, chunked replay with a session-keyed live-event fence), 21
+  COMMITTED (inbound burst coalescing), 22 COMMITTED (AC-11 tile-open perf e2e; AC-11 NOT MET).
+  P4 phase gate PASSED; Phase 4 CLOSED.
+- **SonarCloud:** quality gate green after `36a24f257` (security findings S4036, S2245).
 
 ## 6. Open follow-ups (recorded in batches.md)
 
@@ -367,13 +429,22 @@ Order and dependencies are in `batches.md`. Batches 19 and 21 are committed; res
   failure map. FU-19c: payload-size shrink trigger. FU-19d: `extractTextForMessage` O(U×T). FU-19e:
   partition-service background writes lack back-off. FU-19f: pre-existing spec-tsconfig type errors in
   chat-streaming/chat-state specs (`typecheck` covers only `tsconfig.lib.json`).
-- Phase gate commands (`lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`) last ran at the P3 gate on 2026-09-15 — all green.
+- FU-20a: global `SessionManager` status/sessionId shared across concurrent resumes (review M3,
+  pre-existing). FU-20b: inline the single-caller private `readHistoryMessages` extractor. FU-20c:
+  load-flake candidates `skills-sh-legacy-adoption.spec.ts` and
+  `electron-state-storage-worker-runtime.error-paths.spec.ts` (both pass alone).
+- FU-22a: single-slot `_canvasSessionRequest` loses a tile open on rapid clicks (queue requests).
+  FU-22b: perf spec 923 lines. FU-22c: `ptah_agent_spawn` rejects working directories outside
+  `D:\projects\ptah-extension`. FU-22d: AC-11 attribution spike COMPLETE (fix direction pending
+  user decision; `FireAnimationFrame` source still unknown).
+- Phase gate commands (`lint:all`, `typecheck:all`, `nx build ptah-electron`, `degradation-audit:lint`) last ran at the P4 gate on 2026-09-15 — all green.
 
 ## 7. CI and external review state
 
 - PR #510: CI, Electron/VS Code/Webview/CLI E2E green on earlier pushes. Latest push
   (`321506385`) had no checks reported at handoff time — check `gh pr checks 510`.
-- SonarCloud: quality gate failed on Reliability before `f96841cdd`; re-check after the latest push.
+- SonarCloud: quality gate failed on Reliability before `f96841cdd`; green after `36a24f257`
+  (security findings fixed). Re-check after the Batch 20 push.
 - CodeRabbit skips drafts. Mark the PR ready (or trigger a manual review) when P2 is committed.
 - Intermittent native abort `Assertion failed: (env) != nullptr` in `better-sqlite3`
   `Statement::~Statement()` at process/Jest-worker exit: Node 24.19+ regression

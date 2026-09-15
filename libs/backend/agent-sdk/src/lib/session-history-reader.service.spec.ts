@@ -15,7 +15,7 @@
  *     service's event stream alongside aggregated stats.
  *   - Aggregation honours the `compact_boundary` — usage in pre-compact
  *     messages is NOT counted in `tokens.input/output`.
- *   - `readHistoryAsMessages` returns only user/assistant messages, skips
+ *   - `readHistoryForCuration` returns only user/assistant messages, skips
  *     task-notification content, and starts after the last compact_boundary.
  *
  * Every collaborator is a typed stub — no real fs access, no live replay.
@@ -162,7 +162,7 @@ describe('SessionHistoryReaderService', () => {
         '/workspace',
       );
 
-      expect(result).toEqual({ events: [], messages: [], stats: null });
+      expect(result).toEqual({ events: [], stats: null });
       // Traversal rejected pre-filesystem — reader must never be called.
       expect(stubs.jsonlReader.findSessionsDirectory).not.toHaveBeenCalled();
       // The facade catches the SdkError internally and logs via `error`.
@@ -173,7 +173,7 @@ describe('SessionHistoryReaderService', () => {
       const stubs = makeStubs();
       const service = makeService(stubs);
       const result = await service.readSessionHistory('', '/workspace');
-      expect(result).toEqual({ events: [], messages: [], stats: null });
+      expect(result).toEqual({ events: [], stats: null });
     });
 
     // -----------------------------------------------------------------------
@@ -190,7 +190,7 @@ describe('SessionHistoryReaderService', () => {
         '/workspace',
       );
 
-      expect(result).toEqual({ events: [], messages: [], stats: null });
+      expect(result).toEqual({ events: [], stats: null });
       expect(stubs.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Sessions directory not found'),
       );
@@ -208,9 +208,14 @@ describe('SessionHistoryReaderService', () => {
       async (_kind, hasBaseline, expectedAfterRead) => {
         const stubs = makeStubs();
         if (hasBaseline) {
-          stubs.compactionBoundaryRegistry.observeBoundaryCount('valid-session-id', 1);
+          stubs.compactionBoundaryRegistry.observeBoundaryCount(
+            'valid-session-id',
+            1,
+          );
         }
-        stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid-session-id');
+        stubs.compactionBoundaryRegistry.recordExpectedBoundary(
+          'valid-session-id',
+        );
         stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(null);
 
         const service = makeService(stubs);
@@ -222,7 +227,6 @@ describe('SessionHistoryReaderService', () => {
 
         expect(result).toEqual({
           events: [],
-          messages: [],
           stats: null,
           staleSnapshot: true,
         });
@@ -245,7 +249,7 @@ describe('SessionHistoryReaderService', () => {
         { checkCompactionBoundary: true },
       );
 
-      expect(result).toEqual({ events: [], messages: [], stats: null });
+      expect(result).toEqual({ events: [], stats: null });
     });
 
     // -----------------------------------------------------------------------
@@ -267,7 +271,7 @@ describe('SessionHistoryReaderService', () => {
         '/workspace',
       );
 
-      expect(result).toEqual({ events: [], messages: [], stats: null });
+      expect(result).toEqual({ events: [], stats: null });
       expect(stubs.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Session file not found'),
         expect.objectContaining({ sessionId: 'valid-session' }),
@@ -748,7 +752,9 @@ describe('SessionHistoryReaderService', () => {
 
     it('ordinary read records observed boundary count and has no staleSnapshot', async () => {
       const stubs = makeStubs();
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'system',
@@ -777,7 +783,9 @@ describe('SessionHistoryReaderService', () => {
 
     it('compaction-read without a pending expectation leaves staleSnapshot absent', async () => {
       const stubs = makeStubs();
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'system',
@@ -801,7 +809,9 @@ describe('SessionHistoryReaderService', () => {
       const stubs = makeStubs();
       stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
       stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'system',
@@ -842,7 +852,9 @@ describe('SessionHistoryReaderService', () => {
         'valid',
         'b-new-2',
       );
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'system',
@@ -881,7 +893,9 @@ describe('SessionHistoryReaderService', () => {
       const stubs = makeStubs();
       stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
       stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid', 'b-new');
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'system',
@@ -908,7 +922,9 @@ describe('SessionHistoryReaderService', () => {
       const stubs = makeStubs();
       stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
       stubs.compactionBoundaryRegistry.recordPreCompact('valid');
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'system',
@@ -935,7 +951,9 @@ describe('SessionHistoryReaderService', () => {
       const stubs = makeStubs();
       stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
       stubs.compactionBoundaryRegistry.recordPreCompact('valid');
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
       const before = [
         {
           type: 'system',
@@ -1043,7 +1061,9 @@ describe('SessionHistoryReaderService', () => {
         'valid',
         'b-new-2',
       );
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'system',
@@ -1080,7 +1100,9 @@ describe('SessionHistoryReaderService', () => {
       const stubs = makeStubs();
       stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
       stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'system',
@@ -1108,7 +1130,9 @@ describe('SessionHistoryReaderService', () => {
       const stubs = makeStubs();
       // Baseline is never observed before the expectation is recorded.
       stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'system',
@@ -1140,7 +1164,9 @@ describe('SessionHistoryReaderService', () => {
       const stubs = makeStubs();
       stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
       stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
       stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
       stubs.replayService.replayToStreamEvents.mockReturnValue([]);
 
@@ -1195,9 +1221,7 @@ describe('SessionHistoryReaderService', () => {
       mockedStat
         .mockResolvedValueOnce(transcriptStats(oldTranscript.length, 1))
         .mockResolvedValueOnce(transcriptStats(oldTranscript.length, 1))
-        .mockResolvedValueOnce(
-          transcriptStats(changedTranscript.length, 2),
-        );
+        .mockResolvedValueOnce(transcriptStats(changedTranscript.length, 2));
       mockedCreateReadStream
         .mockReturnValueOnce(transcriptStream(oldTranscript))
         .mockReturnValueOnce(transcriptStream(changedTranscript));
@@ -1224,14 +1248,16 @@ describe('SessionHistoryReaderService', () => {
       // The second observation reused the cached old parse; only the changed
       // validity token streamed and parsed again.
       expect(mockedCreateReadStream).toHaveBeenCalledTimes(2);
-      expect(
-        registry.capturePendingExpectation('valid'),
-      ).toBeUndefined();
+      expect(registry.capturePendingExpectation('valid')).toBeUndefined();
     });
 
-    it('single parse supplies events and messages from the same boundary snapshot', async () => {
+    // TASK_2026_437 C15 / INV-9: the snapshot carries the replayed events and
+    // no second `{ id, role, content }` transcript beside them.
+    it('single parse supplies events and no messages projection', async () => {
       const stubs = makeStubs();
-      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
 
       const mainMessages: SessionHistoryMessage[] = [
         {
@@ -1269,9 +1295,13 @@ describe('SessionHistoryReaderService', () => {
       const service = makeService(stubs);
       const result = await service.readSessionHistory('valid', '/workspace');
 
-      expect(result.messages).toHaveLength(2);
-      expect(result.messages[0].id).toBe('u1');
-      expect(result.messages[1].id).toBe('a1');
+      expect(result).not.toHaveProperty('messages');
+      expect(result.events.map((event) => event.id)).toEqual([
+        'boundary',
+        'u1',
+        'a1',
+      ]);
+      expect(stubs.jsonlReader.readJsonlMessages).toHaveBeenCalledTimes(1);
       expect(stubs.replayService.replayToStreamEvents).toHaveBeenCalledWith(
         'valid',
         mainMessages,
@@ -1378,7 +1408,7 @@ describe('SessionHistoryReaderService', () => {
       );
 
       // Same empty payload and error log as before the timing existed.
-      expect(result).toEqual({ events: [], messages: [], stats: null });
+      expect(result).toEqual({ events: [], stats: null });
       expect(stubs.logger.error).toHaveBeenCalledWith(
         '[SessionHistoryReader] Failed to read session history',
         expect.objectContaining({ message: 'replay blew up' }),
@@ -1399,10 +1429,10 @@ describe('SessionHistoryReaderService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // readHistoryAsMessages
+  // readHistoryForCuration — text projection
   // -------------------------------------------------------------------------
 
-  describe('readHistoryAsMessages', () => {
+  describe('readHistoryForCuration projection', () => {
     it('returns simple user/assistant messages and skips task-notification payloads', async () => {
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
@@ -1439,7 +1469,7 @@ describe('SessionHistoryReaderService', () => {
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue(messages);
 
       const service = makeService(stubs);
-      const out = await service.readHistoryAsMessages('valid', '/workspace');
+      const out = await service.readHistoryForCuration('valid', '/workspace');
 
       expect(out.map((m) => m.id).sort()).toEqual(['a1', 'u1']);
       expect(out.find((m) => m.id === 'u1')?.role).toBe('user');
@@ -1474,7 +1504,7 @@ describe('SessionHistoryReaderService', () => {
       ]);
 
       const service = makeService(stubs);
-      const out = await service.readHistoryAsMessages('valid', '/workspace');
+      const out = await service.readHistoryForCuration('valid', '/workspace');
 
       expect(out.map((m) => m.id)).toEqual(['new']);
       expect(out[0].content).toBe('NEW post-compact');
@@ -1484,7 +1514,7 @@ describe('SessionHistoryReaderService', () => {
       const stubs = makeStubs();
       const service = makeService(stubs);
       await expect(
-        service.readHistoryAsMessages('../bad', '/workspace'),
+        service.readHistoryForCuration('../bad', '/workspace'),
       ).resolves.toEqual([]);
       expect(stubs.jsonlReader.findSessionsDirectory).not.toHaveBeenCalled();
     });
@@ -1494,7 +1524,7 @@ describe('SessionHistoryReaderService', () => {
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(null);
       const service = makeService(stubs);
       await expect(
-        service.readHistoryAsMessages('valid', '/workspace'),
+        service.readHistoryForCuration('valid', '/workspace'),
       ).resolves.toEqual([]);
     });
 
