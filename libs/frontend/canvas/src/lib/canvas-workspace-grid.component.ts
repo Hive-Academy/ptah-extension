@@ -25,10 +25,15 @@ import {
   effectiveUnits,
   projectDragIntent,
   snapSpan,
+  viewConstraintsFingerprint,
+  type TileHeightTier,
   type TilePositionObservation,
   type TileSpan,
+  type TileViewConstraint,
+  type TileViewConstraints,
 } from './canvas-layout-intent';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
+import { TabManagerService } from '@ptah-extension/chat';
 
 /** Which gesture just ended, latched before Gridstack's `change` fires. */
 type GestureKind = 'drag' | 'resize';
@@ -40,6 +45,7 @@ interface GestureSnapshot {
   readonly workspaceRevision: number;
   readonly responsiveCapacity: number;
   readonly layoutFocusTabId: string | null;
+  readonly viewFingerprint: string;
   readonly expectedTabIds: readonly string[];
   lastDraggedPosition: TilePositionObservation;
 }
@@ -89,6 +95,7 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
     <gridstack
       [options]="gsOptions"
       [class.singleton]="isSingleton()"
+      [class.singleton-expanded]="isSingletonExpanded()"
       (changeCB)="onGridChange()"
       (dragStartCB)="onGestureStart('drag', $event)"
       (dragCB)="onGestureMove($event)"
@@ -133,7 +140,9 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
         height: 100% !important;
       }
 
-      gridstack.singleton > gridstack-item {
+      /* Only a full or layout-focused singleton fills the canvas; a compact
+         singleton keeps its projected h = 2 instead of stretching. */
+      gridstack.singleton-expanded > gridstack-item {
         top: 0 !important;
         left: 0 !important;
         width: 100% !important;
@@ -159,6 +168,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   readonly locked = input<boolean>(false);
 
   readonly canvasStore = inject(CanvasStore);
+  private readonly tabManager = inject(TabManagerService);
   protected readonly layoutService = inject(CanvasLayoutService);
   protected readonly metrics = inject(CanvasRenderMetricsService);
 
@@ -186,6 +196,59 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
 
   readonly isSingleton = computed(() => this.tiles().length === 1);
 
+  /**
+   * Transient per-tile height tiers, derived from `TabManagerService` view
+   * mode in reading order. Missing tabs or missing `viewMode` project as
+   * full. Structural equality over `(tabId, heightTier)` keeps unrelated
+   * `TabState` writes (streaming, status) from producing layout work.
+   */
+  readonly viewConstraints = computed<TileViewConstraints>(
+    () => {
+      const tabs = this.tabManager.tabs();
+      const byId = new Map(tabs.map((tab) => [tab.id as string, tab]));
+      return [...this.tiles()]
+        .sort((a, b) => a.order - b.order || a.tabId.localeCompare(b.tabId))
+        .map((tile): TileViewConstraint => ({
+          tabId: tile.tabId,
+          heightTier:
+            (byId.get(tile.tabId)?.viewMode ?? 'full') === 'compact'
+              ? ('compact' as TileHeightTier)
+              : ('full' as TileHeightTier),
+        }));
+    },
+    {
+      equal: (a, b) =>
+        a.length === b.length &&
+        a.every(
+          (constraint, index) =>
+            constraint.tabId === b[index].tabId &&
+            constraint.heightTier === b[index].heightTier,
+        ),
+    },
+  );
+
+  /** Structural fingerprint of the current view constraints. */
+  readonly viewFingerprint = computed(() =>
+    viewConstraintsFingerprint(this.viewConstraints()),
+  );
+
+  private readonly compactTabIds = computed(
+    () =>
+      new Set(
+        this.viewConstraints()
+          .filter((constraint) => constraint.heightTier === 'compact')
+          .map((constraint) => constraint.tabId),
+      ),
+  );
+
+  /** A singleton fills the canvas only when full or layout-focused. */
+  protected readonly isSingletonExpanded = computed(() => {
+    if (!this.isSingleton()) return false;
+    if (this.layoutFocusTabId() !== null) return true;
+    const constraints = this.viewConstraints();
+    return !(constraints.length === 1 && constraints[0].heightTier === 'compact');
+  });
+
   /** Responsive column capacity; spans promote against it at render time. */
   private readonly capacity = computed(() =>
     this.layoutService.columnsFor(this.layoutService.containerWidth()),
@@ -205,6 +268,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     return this.layoutService.computeLayout(
       this.tiles(),
       this.layoutFocusTabId(),
+      this.viewConstraints(),
     );
   });
 
@@ -218,9 +282,13 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       if (!liveIds.has(tabId)) this.creationOptions.delete(tabId);
     }
     const frozen = this.isSingleton() || this.layoutFocusTabId() !== null;
+    const compactIds = this.compactTabIds();
     const firstId = firstByOrder(this.tiles());
     return this.tiles().map((tile) => {
       const position = derived.get(tile.tabId) ?? UNMEASURED_ITEM;
+      // Compact width is derived, not stored: a resize handle would write a
+      // hidden span the user cannot see until returning to full mode.
+      const noResize = frozen || compactIds.has(tile.tabId);
       let options = this.creationOptions.get(tile.tabId);
       if (!options) {
         options = {
@@ -230,13 +298,13 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
           h: position.h,
           id: tile.tabId,
           noMove: frozen,
-          noResize: frozen,
+          noResize,
         };
         this.creationOptions.set(tile.tabId, options);
         this.metrics.increment('creationOptionWrites', 1, false);
       } else {
         options.noMove = frozen;
-        options.noResize = frozen;
+        options.noResize = noResize;
       }
       return {
         tabId: tile.tabId,
@@ -264,13 +332,31 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
 
   private _wasVisible = false;
 
+  /**
+   * View fingerprint this grid last applied to Gridstack. While locked, an
+   * ordinary layout effect run is forbidden, but a tab-owned view-mode change
+   * is not a layout-intent mutation: a differing fingerprint is the one
+   * application a locked grid may still perform. Hidden locked grids keep the
+   * pending difference and apply it when they become visible again.
+   */
+  private _appliedViewFingerprint: string | null = null;
+
   constructor() {
     // Responsive layout: project derived geometry into Gridstack. Skipped while
     // hidden so Gridstack never runs layout math against a 0-width display:none
-    // grid, and while locked so a frozen arrangement stays frozen.
+    // grid, and while locked so a frozen arrangement stays frozen — except the
+    // view-mode exception below.
     effect(() => {
       if (!this.visible()) return;
-      if (this.locked()) return;
+      if (this.locked()) {
+        if (this.viewFingerprint() !== this._appliedViewFingerprint) {
+          // The one application a locked grid may perform: tab-owned view-mode
+          // geometry. `force` opens the lock guard for this path only; every
+          // other mutation stays frozen.
+          this.applyAuthoritativeGeometry(true);
+        }
+        return;
+      }
       this.applyAuthoritativeGeometry();
     });
 
@@ -312,6 +398,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       const workspacePath = this.workspacePath();
       const capacity = this.capacity();
       const layoutFocusTabId = this.layoutFocusTabId();
+      const viewFingerprint = this.viewFingerprint();
       const revision = this.canvasStore.workspaceRevision(workspacePath);
       const gesture = this._gesture;
       if (
@@ -321,6 +408,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
           gesture.workspacePath !== workspacePath ||
           gesture.responsiveCapacity !== capacity ||
           gesture.layoutFocusTabId !== layoutFocusTabId ||
+          gesture.viewFingerprint !== viewFingerprint ||
           gesture.workspaceRevision !== revision)
       ) {
         this.cancelGesture();
@@ -343,6 +431,12 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       this.metrics.increment('rejectedGestures');
       return;
     }
+    // Compact width is derived from the responsive capacity, so a resize has
+    // no durable value to write. Refuse a stale handle event defensively.
+    if (kind === 'resize' && this.compactTabIds().has(draggedId)) {
+      this.metrics.increment('rejectedGestures');
+      return;
+    }
     const workspacePath = this.workspacePath();
     const tiles = this.tiles();
     this._gesture = {
@@ -352,6 +446,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       workspaceRevision: this.canvasStore.workspaceRevision(workspacePath),
       responsiveCapacity: this.capacity(),
       layoutFocusTabId: this.layoutFocusTabId(),
+      viewFingerprint: this.viewFingerprint(),
       expectedTabIds: tiles.map((tile) => tile.tabId),
       lastDraggedPosition: this.positionFromElement(event.el, draggedId),
     };
@@ -408,7 +503,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       gesture.workspaceRevision !==
         this.canvasStore.workspaceRevision(gesture.workspacePath) ||
       gesture.responsiveCapacity !== this.capacity() ||
-      gesture.layoutFocusTabId !== this.layoutFocusTabId()
+      gesture.layoutFocusTabId !== this.layoutFocusTabId() ||
+      gesture.viewFingerprint !== this.viewFingerprint()
     ) {
       this.metrics.increment('rejectedGestures');
       this.reconcileGesture(gesture);
@@ -428,6 +524,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         nodes,
         gesture.draggedId,
         gesture.responsiveCapacity,
+        this.viewConstraints(),
       );
       if (
         !projected ||
@@ -516,7 +613,11 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         typeof node.x !== 'number' ||
         !Number.isFinite(node.x) ||
         typeof node.y !== 'number' ||
-        !Number.isInteger(node.y)
+        !Number.isInteger(node.y) ||
+        typeof node.w !== 'number' ||
+        !Number.isFinite(node.w) ||
+        typeof node.h !== 'number' ||
+        !Number.isInteger(node.h)
       ) {
         return null;
       }
@@ -524,7 +625,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       observations.push(
         gesture.kind === 'drag' && node.id === gesture.draggedId
           ? gesture.lastDraggedPosition
-          : { tabId: node.id, x: node.x, y: node.y },
+          : { tabId: node.id, x: node.x, y: node.y, w: node.w, h: node.h },
       );
     }
     return seen.size === expected.size ? observations : null;
@@ -557,8 +658,13 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     if (!force && (!this.visible() || this.locked())) return;
     const { cellHeight, tiles: positioned } = this.layout();
     this.metrics.increment('applyChecks');
+    const viewFingerprint = this.viewFingerprint();
+    if (positioned.length === 0) {
+      this._appliedViewFingerprint = viewFingerprint;
+      return;
+    }
     const grid = this.gridComp()?.grid;
-    if (!grid || positioned.length === 0) return;
+    if (!grid) return;
 
     const derived = new Map(positioned.map((tile) => [tile.tabId, tile]));
     const changed: Array<{
@@ -583,7 +689,12 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     }
 
     this._applyingLayout = true;
+    const restoreStatic = this.locked();
     try {
+      // Gridstack may ignore programmatic updates while static. Suspend static
+      // mode only inside the guarded authoritative write, then restore it in
+      // `finally` before re-applying per-node interaction state.
+      if (restoreStatic) grid.setStatic(false);
       if (changed.length > 0) {
         this.metrics.increment('applyPasses');
         grid.batchUpdate(true);
@@ -596,12 +707,21 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       } else if (grid.getCellHeight() !== cellHeight) {
         grid.cellHeight(cellHeight);
       }
-      this.applyNodeInteractionState(grid);
+      this._appliedViewFingerprint = viewFingerprint;
+      if (!restoreStatic) this.applyNodeInteractionState(grid);
     } finally {
-      this._applyingLayout = false;
-      // Publishes layout-computation increments that intentionally avoided a
-      // signal write from inside the computed callback.
-      this.metrics.publish();
+      try {
+        if (restoreStatic) {
+          grid.setStatic(true);
+          // setStatic() can reset node-level movable/resizable overrides.
+          this.applyNodeInteractionState(grid);
+        }
+      } finally {
+        this._applyingLayout = false;
+        // Publishes layout-computation increments that intentionally avoided a
+        // signal write from inside the computed callback.
+        this.metrics.publish();
+      }
     }
   }
 
@@ -610,12 +730,17 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     movable?: (el: HTMLElement, val: boolean) => void;
     resizable?: (el: HTMLElement, val: boolean) => void;
   }): void {
-    const enabled =
+    const movable =
       !this.isSingleton() && !this.locked() && this.layoutFocusTabId() === null;
+    const compactIds = this.compactTabIds();
     for (const node of grid.engine?.nodes ?? []) {
       if (!node.el) continue;
-      grid.movable?.(node.el, enabled);
-      grid.resizable?.(node.el, enabled);
+      // Compact tiles stay movable but never resizable: their width is a
+      // projection of the responsive capacity, not stored intent.
+      const resizable =
+        movable && !(typeof node.id === 'string' && compactIds.has(node.id));
+      grid.movable?.(node.el, movable);
+      grid.resizable?.(node.el, resizable);
     }
   }
 
@@ -635,6 +760,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       tabId,
       x: typeof node?.x === 'number' && Number.isFinite(node.x) ? node.x : 0,
       y: typeof node?.y === 'number' && Number.isInteger(node.y) ? node.y : 0,
+      w: typeof node?.w === 'number' && Number.isFinite(node.w) ? node.w : 0,
+      h: typeof node?.h === 'number' && Number.isInteger(node.h) ? node.h : 0,
     };
   }
 
