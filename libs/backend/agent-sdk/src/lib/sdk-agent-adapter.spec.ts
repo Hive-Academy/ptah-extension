@@ -397,8 +397,8 @@ function makeAdapter(
 }
 
 function makeSessionConfig(
-  overrides: Partial<AISessionConfig> & { tabId?: string } = {},
-): AISessionConfig & { tabId: string } {
+  overrides: Partial<AISessionConfig> & { tabId?: string; name?: string } = {},
+): AISessionConfig & { tabId: string; name?: string } {
   return {
     model: 'claude-sonnet-4-20250514',
     projectPath: '/fake/workspace',
@@ -960,6 +960,72 @@ describe('SdkAgentAdapter', () => {
       expect(callArg.initialPrompt).toMatchObject({
         content: 'Write a spec',
       });
+    });
+
+    it.each([undefined, '', '   '])(
+      'resolves an empty initial name %p once for query options and metadata',
+      async (name) => {
+        const h = makeAdapter();
+        await h.adapter.initialize();
+        h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+          sdkQuery: createFakeQuery(),
+          initialModel: 'claude-sonnet-4-20250514',
+          abortController: new AbortController(),
+        } as ExecuteQueryResult);
+
+        await h.adapter.startChatSession(makeSessionConfig({ name }));
+
+        const queryArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
+        const sessionConfig = queryArg.sessionConfig;
+        if (!sessionConfig) throw new Error('Expected session config');
+        expect(sessionConfig.sessionName).toMatch(/^Session /);
+        expect(sessionConfig.sessionTitle).toBeUndefined();
+
+        const transformArg = h.streamTransformer.transform.mock.calls[0][0];
+        await (
+          transformArg.onSessionIdResolved as unknown as (
+            tabId: string | undefined,
+            realSessionId: string,
+          ) => Promise<void>
+        )('tab_1', 'resolved-session-id');
+        expect(h.metadataStore.create).toHaveBeenCalledWith(
+          'resolved-session-id',
+          '/fake/workspace',
+          sessionConfig.sessionName,
+        );
+      },
+    );
+
+    it('preserves a supplied user name for query options and metadata', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      const userName = '  Billing Review  ';
+      await h.adapter.startChatSession(makeSessionConfig({ name: userName }));
+
+      const queryArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
+      const sessionConfig = queryArg.sessionConfig;
+      if (!sessionConfig) throw new Error('Expected session config');
+      expect(sessionConfig.sessionName).toBe(userName);
+      expect(sessionConfig.sessionTitle).toBe(userName);
+
+      const transformArg = h.streamTransformer.transform.mock.calls[0][0];
+      await (
+        transformArg.onSessionIdResolved as unknown as (
+          tabId: string | undefined,
+          realSessionId: string,
+        ) => Promise<void>
+      )('tab_1', 'resolved-session-id');
+      expect(h.metadataStore.create).toHaveBeenCalledWith(
+        'resolved-session-id',
+        '/fake/workspace',
+        userName,
+      );
     });
 
     it('threads the no-activity watchdog from executeQuery() into StreamTransformer.transform()', async () => {

@@ -51,7 +51,9 @@ import type {
   PeerSessionRow,
   PeerSessionUnreachableReason,
 } from '@ptah-extension/shared';
+import { SDK_TOKENS } from '../di/tokens';
 import { deriveWorkspaceLabel } from '../helpers/session-name.builder';
+import type { SessionMetadataStore } from '../session-metadata-store';
 import {
   currentPidDomain,
   recordStartFingerprint,
@@ -78,6 +80,13 @@ export class PeerSessionDirectory {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    /**
+     * Source of the Ptah title joined onto each row (TASK_2026_449). Only
+     * `getAll` is read; the registry stays the source of truth for which
+     * sessions exist and whether they can be reached.
+     */
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
+    private readonly metadataStore: Pick<SessionMetadataStore, 'getAll'>,
     probe?: ProcessStartTimeProbe,
   ) {
     this.probe = probe ?? new ProcessStartTimeProbe();
@@ -101,9 +110,10 @@ export class PeerSessionDirectory {
       throw error;
     }
 
-    const startTimes = await this.probe.probe(
-      scan.records.map((record) => record.pid),
-    );
+    const [startTimes, ptahTitles] = await Promise.all([
+      this.probe.probe(scan.records.map((record) => record.pid)),
+      this.readPtahTitles(),
+    ]);
 
     const rows: PeerSessionRow[] = [];
 
@@ -115,10 +125,15 @@ export class PeerSessionDirectory {
         continue;
       }
       rows.push(
-        this.toRow(record, currentWorkspace, {
-          startTimes,
-          toleranceMs: this.probe.toleranceMs,
-        }),
+        this.toRow(
+          record,
+          currentWorkspace,
+          {
+            startTimes,
+            toleranceMs: this.probe.toleranceMs,
+          },
+          ptahTitles.get(record.sessionId),
+        ),
       );
     }
 
@@ -144,10 +159,36 @@ export class PeerSessionDirectory {
     };
   }
 
+  /**
+   * Ptah titles keyed by SDK session id. A read failure costs only the titles:
+   * every row is still listed with its registry name, so the picker degrades
+   * to what it showed before this join existed.
+   */
+  private async readPtahTitles(): Promise<ReadonlyMap<string, string>> {
+    try {
+      const all = await this.metadataStore.getAll();
+      const titles = new Map<string, string>();
+      for (const metadata of all) {
+        const title = metadata.name?.trim();
+        if (title) {
+          titles.set(metadata.sessionId, title);
+        }
+      }
+      return titles;
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[PeerSessionDirectory] session metadata read failed; listing without titles',
+        { reason: error instanceof Error ? error.message : String(error) },
+      );
+      return new Map();
+    }
+  }
+
   private toRow(
     record: PeerSessionRecord,
     currentWorkspace: string | null,
     context: ReachabilityContext,
+    ptahTitle: string | undefined,
   ): PeerSessionRow {
     const unreachableReason = resolveUnreachableReason(record, context);
     const { name, nameSource } = resolveName(record);
@@ -156,6 +197,7 @@ export class PeerSessionDirectory {
       sessionId: record.sessionId,
       name,
       nameSource,
+      ...(ptahTitle ? { ptahTitle } : {}),
       workspace: record.cwd,
       // `deriveWorkspaceLabel`, not `path.basename`: the platform `path` does not
       // split a Windows-shaped cwd on a POSIX host, so the label came out as the

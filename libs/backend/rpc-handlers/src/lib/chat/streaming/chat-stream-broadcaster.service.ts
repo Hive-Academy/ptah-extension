@@ -205,9 +205,9 @@ export class ChatStreamBroadcaster {
           childMetadataSaved = true;
           const workspacePath = this.workspaceProvider.getWorkspaceRoot() ?? '';
           const ptahCliAgentId = this.ptahCli.getAgentId(tabId);
-          const sessionName = ptahCliAgentId
-            ? `CLI Agent: ${ptahCliAgentId}`
-            : 'CLI Agent Session';
+          const sessionName =
+            this.ptahCli.getSessionName(tabId) ??
+            `Session ${new Date().toLocaleDateString()}`;
           try {
             await this.sessionMetadataStore.createChild(
               event.sessionId,

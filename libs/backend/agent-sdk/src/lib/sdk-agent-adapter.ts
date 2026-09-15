@@ -672,18 +672,21 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const currentCliJsPath = this.runtimeState.getCliJsPath();
     const effectiveCliJsPath = providerProfile?.cliJsPath ?? currentCliJsPath;
     const effectiveAuthEnv = providerProfile?.authEnv;
-    // `config.name` is the name the user typed for this session (it already
-    // becomes the metadata record's name below). Carrying it onto
-    // `AISessionConfig.sessionName` is what lets `SdkQueryOptionsBuilder`
-    // reach BOTH name surfaces — the registry `--name` a peer reads and the
-    // raw `Options.title` a human reads (TASK_2026_402 Requirement 9). A new
-    // tab has no name yet, so this is usually absent.
+    // Resolve the caller's name once, preserving a nonblank value exactly.
+    // The metadata/registry fallback is deliberately separate from the SDK
+    // title: providing Options.title disables the SDK's automatic title.
+    const callerSuppliedName = config.sessionName?.trim()
+      ? config.sessionName
+      : config.name?.trim()
+        ? config.name
+        : undefined;
+    const resolvedSessionName =
+      callerSuppliedName ?? `Session ${new Date().toLocaleDateString()}`;
     const sessionConfigWithProfileModel: typeof config = {
       ...config,
       ...(providerProfile ? { model: providerProfile.model } : {}),
-      ...((config.sessionName ?? config.name)
-        ? { sessionName: config.sessionName ?? config.name }
-        : {}),
+      sessionName: resolvedSessionName,
+      ...(callerSuppliedName ? { sessionTitle: callerSuppliedName } : {}),
     };
 
     this.logger.info(
@@ -719,7 +722,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const resolvedProjectPath = config?.projectPath || os.homedir();
     const sessionIdCallback = this.createSessionIdCallback(
       resolvedProjectPath,
-      config?.name || `Session ${new Date().toLocaleDateString()}`,
+      resolvedSessionName,
       config?.tabId,
     );
 

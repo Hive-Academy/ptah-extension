@@ -1007,8 +1007,8 @@ export class SdkQueryOptionsBuilder {
         // PERSISTED title precedence (`sdk.d.ts` `Options.title`), so setting
         // it there is a silent no-op. `SessionTitleService.retitle` is the
         // path that changes an existing session's title.
-        ...(!resumeSessionId && sessionConfig.sessionName
-          ? { title: sessionConfig.sessionName }
+        ...(!resumeSessionId && sessionConfig.sessionTitle
+          ? { title: sessionConfig.sessionTitle }
           : {}),
         forkSession: resumeSessionId ? forkSession : undefined,
       },

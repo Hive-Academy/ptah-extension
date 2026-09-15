@@ -898,12 +898,12 @@ export class AgentRpcHandlers {
 
     if (spawnResult.handle.onSessionResolved) {
       spawnResult.handle.onSessionResolved((sessionId: string) => {
-        const sessionName = `CLI Agent: ${spawnResult.agentName}`;
         this.sessionMetadataStore
-          .createChild(sessionId, workspaceRoot, sessionName)
-          .catch((err) =>
+          .createChild(sessionId, workspaceRoot, spawnResult.agentName)
+          .catch((err: unknown) =>
             this.logger.warn(
-              `[AgentRpc] Failed to save child session metadata: ${err}`,
+              '[AgentRpc] Failed to save child session metadata',
+              { error: err instanceof Error ? err.message : String(err) },
             ),
           );
       });
