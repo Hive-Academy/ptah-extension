@@ -96,7 +96,11 @@ export class NetworkBackoff {
 
   constructor(private readonly options: NetworkBackoffOptions) {
     this.now = options.now ?? (() => Date.now());
-    this.random = options.random ?? (() => Math.random());
+    // Math.random() only spreads the ±20 % back-off window so hosts sharing a
+    // provider do not probe it on the same tick. The value is never a secret,
+    // token, id or nonce, and guessing it gains nothing: the window is clamped
+    // to NETWORK_BACKOFF_MAX_MS and gates only this process's background work.
+    this.random = options.random ?? (() => Math.random()); // NOSONAR typescript:S2245 — non-security jitter, see above
   }
 
   /** `0` when no back-off is in effect; `1` is the 30 s window. */

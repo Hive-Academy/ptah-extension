@@ -20,6 +20,48 @@
 
 const { execFileSync } = require('child_process');
 const fs = require('fs');
+const path = require('path');
+
+/**
+ * Absolute locations of the OS tools this sampler spawns. Spawning a bare
+ * `powershell` / `ps` lets the OS search PATH at exec time, including relative
+ * or user-writable entries (Sonar javascript:S4036). Each tool is looked up
+ * only in the OS-owned directory it ships in, never on PATH. Same concern as
+ * `resolveGitExecutable()` in
+ * `apps/ptah-electron/src/services/git-watcher.stress.harness.ts`; unlike git,
+ * these tools have a fixed install location, so no PATH walk is needed.
+ */
+const WINDOWS_POWERSHELL_PATH = path.win32.join(
+  process.env.SystemRoot || 'C:\\Windows',
+  'System32',
+  'WindowsPowerShell',
+  'v1.0',
+  'powershell.exe',
+);
+const POSIX_PS_CANDIDATES = ['/bin/ps', '/usr/bin/ps'];
+
+/** @type {string | undefined} */
+let psExecutable;
+
+/**
+ * @returns {string} The first existing `ps` among the fixed POSIX locations.
+ * @throws {Error} When none exists — the same loud failure a missing bare
+ *   `ps` produced, which both callers already report (harness: "not
+ *   sampled"; monitor child: an `error` IPC message).
+ */
+function resolvePsExecutable() {
+  if (psExecutable !== undefined) return psExecutable;
+  for (const candidate of POSIX_PS_CANDIDATES) {
+    const stat = fs.statSync(candidate, { throwIfNoEntry: false });
+    if (stat && stat.isFile()) {
+      psExecutable = candidate;
+      return candidate;
+    }
+  }
+  throw new Error(
+    'workspace-watch RSS sampler: no ps at ' + POSIX_PS_CANDIDATES.join(' or '),
+  );
+}
 
 /**
  * @param {number} pid
@@ -34,16 +76,18 @@ function sampleRssKb(pid) {
   }
   if (process.platform === 'win32') {
     const out = execFileSync(
-      'powershell',
+      WINDOWS_POWERSHELL_PATH,
       ['-NoProfile', '-Command', '(Get-Process -Id ' + pid + ').WorkingSet64'],
       { encoding: 'utf8', windowsHide: true },
     );
     const bytes = Number(out.trim());
     return Number.isFinite(bytes) ? Math.round(bytes / 1024) : undefined;
   }
-  const out = execFileSync('ps', ['-o', 'rss=', '-p', String(pid)], {
-    encoding: 'utf8',
-  });
+  const out = execFileSync(
+    resolvePsExecutable(),
+    ['-o', 'rss=', '-p', String(pid)],
+    { encoding: 'utf8' },
+  );
   const kb = Number(out.trim());
   return Number.isFinite(kb) ? kb : undefined;
 }

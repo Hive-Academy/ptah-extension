@@ -1501,3 +1501,43 @@ alone; `main-loop-watchdog.spec.ts` 13/13 on three isolated runs (one failure un
 parallel load); `process-lifecycle-recorder` + `git-watcher.service.spec` 58/58. The `nx test
 --testPathPattern` form ran the whole project; failures there were in other batches' uncommitted
 files (`git-info.service*.spec.ts` Batch 12, `git-watcher.stress.spec.ts` Batch 6).
+
+## PR #510 external review fixes — SonarCloud security rating (S4036, S2245) — COMPLETE
+
+Not a numbered batch. The commit carrying this section is the one whose subject is
+`fix: resolve SonarCloud security findings on PR 510` (resolve its SHA with
+`git log --grep "SonarCloud security"`). Batch 20 files were in flight in the same worktree and
+were not staged.
+
+- S4036 — `libs/backend/platform-electron/src/workspace-watch/workspace-watch-host-rss-sampler.js`:
+  Windows spawns the absolute `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`
+  (fallback `C:\Windows`); POSIX spawns the first existing `/bin/ps` or `/usr/bin/ps` via
+  `resolvePsExecutable()` (memoised, throws loudly when neither exists) — COMPLETE
+- S2245 — `libs/backend/agent-sdk/src/lib/internal-query/network-backoff.ts`: `Math.random()` is
+  ±20 % back-off jitter, never a secret; justification comment plus
+  `// NOSONAR typescript:S2245` — COMPLETE
+
+Reviews: style APPROVED 8/10 (2 minor). Logic NEEDS_REVISION, resolved by orchestrator decision:
+
+- Blocking claim "NOSONAR does not close Security Hotspots" — REFUTED. The Sonar API shows all
+  three items on PR 510 are `type=VULNERABILITY` issues (`hotspots/search` total 0), and NOSONAR
+  closes issues.
+- Serious: `SystemRoot` is not validated the way
+  `apps/ptah-electron/scripts/windows-system-executable.js` validates it — ACCEPTED as follow-up
+  FU-SEC-a. A lib cannot import an app script; the sampler is stress-harness-only and ENOENT is
+  already reported by both callers.
+
+Follow-ups:
+
+- FU-SEC-a — validate `SystemRoot` (absolute, existing, drive-rooted) in the RSS sampler, sharing
+  one helper with `windows-system-executable.js` once it lives in a lib.
+- FU-SEC-b — resolve the Windows PowerShell path lazily (at first sample) instead of at module load.
+- FU-SEC-c — de-duplicate the S2245 justification between the leading comment and the NOSONAR
+  trailer.
+- Load-flake candidate: `electron-state-storage-worker-runtime.error-paths.spec.ts` failed once
+  in the two-project run; 47/47 alone, and a platform-electron rerun passed 616.
+
+Verification: `run-many -t test -p @ptah-extension/platform-electron @ptah-extension/agent-sdk
+--parallel=1 --maxWorkers=2` (header: 2) — agent-sdk 1948 passed; platform-electron one failure
+(the flake candidate above). eslint 0 errors on both source files; agent-sdk typecheck pass;
+prettier clean on staged files; `degradation-audit:lint --skip-nx-cache` TOTAL 303 (exit 0).
