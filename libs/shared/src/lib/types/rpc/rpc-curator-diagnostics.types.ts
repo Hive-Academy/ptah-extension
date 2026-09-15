@@ -112,21 +112,32 @@ export interface MemoryRetentionRunDto {
   readonly ledgerPruned: number;
   readonly freedBytes: number;
   readonly pagesReclaimed: number;
+  readonly memoriesArchived: number;
+  readonly memoriesDeleted: number;
+  readonly memoriesEvicted: number;
   readonly backlogRemaining: boolean;
 }
 
+export interface MemoryLifecyclePreviewDto {
+  readonly measuredAt: number;
+  readonly forRunAt: number;
+  readonly archiveEligible: number;
+  readonly deleteEligible: number;
+  readonly overCap: number;
+}
+
 export interface MemoryStorageHealthDto {
-  readonly dbBytes: number | null;              // page_count × page_size, live
-  readonly reclaimableBytes: number | null;     // freelist_count × page_size, live
+  readonly dbBytes: number | null; // page_count × page_size, live
+  readonly reclaimableBytes: number | null; // freelist_count × page_size, live
   readonly autoVacuumIncremental: boolean | null;
   readonly observations: {
-    readonly pendingRows: number | null;        // live, idx_obs_queue_drain
-    readonly pendingBytes: number | null;       // live, octet_length over pending rows
-    readonly oldestPendingAt: number | null;    // live
-    readonly stuckEligibleRows: number | null;  // live: pending and older than stuckDays
-    readonly processedRows: number | null;      // as of the last run (not polled)
+    readonly pendingRows: number | null; // live, idx_obs_queue_drain
+    readonly pendingBytes: number | null; // live, octet_length over pending rows
+    readonly oldestPendingAt: number | null; // live
+    readonly stuckEligibleRows: number | null; // live: pending and older than stuckDays
+    readonly processedRows: number | null; // as of the last run (not polled)
     readonly processedBytesEstimate: number | null; // processedRows × avg freed bytes per purged row
-    readonly measuredAt: number | null;         // when processedRows was counted
+    readonly measuredAt: number | null; // when processedRows was counted
     readonly quarantineLedgerRows: number | null;
   };
   readonly retention: {
@@ -135,9 +146,17 @@ export interface MemoryStorageHealthDto {
     readonly stuckDays: number;
     readonly lastRun: MemoryRetentionRunDto | null;
     readonly lastCompletedAt: number | null;
-    readonly nextDueAt: number | null;          // null = never ran → due at the next idle tick
+    readonly nextDueAt: number | null; // null = never ran → due at the next idle tick
     readonly lastSkippedAt: number | null;
     readonly lastSkipReason: string | null;
+  };
+  readonly memoryLifecycle: {
+    readonly enabled: boolean;
+    readonly archiveAfterDays: number;
+    readonly deleteAfterDays: number;
+    readonly maxPerWorkspace: number;
+    readonly lastNote: 'disabled' | 'vec-unavailable' | null;
+    readonly preview: MemoryLifecyclePreviewDto | null;
   };
   readonly readErrors?: readonly string[];
 }

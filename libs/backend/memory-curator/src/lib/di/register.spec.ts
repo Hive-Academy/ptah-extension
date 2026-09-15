@@ -36,6 +36,7 @@ import { MEMORY_RETENTION_LIMITS } from '../retention/memory-retention-config';
 import {
   openRetentionTestDb,
   removeRetentionTempDirs,
+  seedMemory,
   seedObservations,
   type RetentionTestDb,
 } from '../retention/retention-sqlite.test-support';
@@ -53,7 +54,7 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
   let t: RetentionTestDb;
 
   beforeEach(() => {
-    t = openRetentionTestDb();
+    t = openRetentionTestDb({ memorySchema: true, vec: true });
   });
   afterEach(() => t.close());
   afterAll(() => removeRetentionTempDirs());
@@ -79,6 +80,9 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
     // stands in for it so the resolved graph talks to actual SQLite.
     child.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
       useValue: t.connection,
+    });
+    child.register(PERSISTENCE_TOKENS.VEC_STATUS, {
+      useValue: { available: true },
     });
     registerMemoryCuratorServices(child, logger);
     return child;
@@ -133,7 +137,7 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
     expect(child.resolve(MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE)).toBe(service);
   });
 
-  it('resolves one singleton service whose graph reads the real database', async () => {
+  it('resolved graph calls lifecycle and exposes counters by archiving a real row', async () => {
     const child = buildContainer();
     const service = child.resolve<MemoryRetentionService>(
       MEMORY_TOKENS.MEMORY_RETENTION_SERVICE,
@@ -164,18 +168,29 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
     expect(health.dbBytes).toBeGreaterThan(0);
     expect(health.readErrors).toBeUndefined();
 
-    // A freshly resolved service is inside its boot deferral: the first cron
-    // tick after start does no row work.
-    await expect(
-      service.run({
-        signal: new AbortController().signal,
-        isOnBattery: () => false,
-        msSinceForegroundActivity: () => Number.POSITIVE_INFINITY,
-      }),
-    ).resolves.toEqual({ status: 'skipped', reason: 'boot-deferred' });
-    expect(service.storageHealth().retention.lastSkipReason).toBe(
-      'boot-deferred',
-    );
+    const runAt = Date.now() + 2 * 3_600_000;
+    seedMemory(t.raw, {
+      id: 'di-old-recall',
+      workspaceRoot: '/di-reach',
+      lastUsedAt: runAt - 31 * 24 * 3_600_000,
+    });
+    const report = await service.run({
+      signal: new AbortController().signal,
+      isOnBattery: () => false,
+      msSinceForegroundActivity: () => Number.POSITIVE_INFINITY,
+      now: () => runAt,
+    });
+    expect(report.status).not.toBe('skipped');
+    if (report.status === 'skipped')
+      throw new Error('run unexpectedly skipped');
+    expect(report.error).toBeNull();
+    expect(typeof report.memoriesArchived).toBe('number');
+    expect(report.memoriesArchived).toBe(1);
+    expect(
+      t.raw
+        .prepare('SELECT tier FROM memories WHERE id = ?')
+        .get('di-old-recall'),
+    ).toEqual({ tier: 'archival' });
   });
 
   it('supplies the governor to the retention service when registered', () => {

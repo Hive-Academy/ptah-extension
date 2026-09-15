@@ -34,6 +34,14 @@ import type {
   MemoryRetentionRunOptions,
   MemoryRetentionRunReport,
 } from './memory-retention.types';
+import type {
+  MemoryLifecycleStepResult,
+  MemoryLifecycleService,
+} from './memory-lifecycle.service';
+import { MemoryLifecycleService as RealMemoryLifecycleService } from './memory-lifecycle.service';
+import type { MemoryLifecycleStore } from './memory-lifecycle.store';
+import type { MemoryStore } from '../memory.store';
+import { RetentionRunBudget } from './retention-run-budget';
 import {
   RetentionStepError,
   type LiveStorageReading,
@@ -85,6 +93,7 @@ class FakeStore {
   /** Advance the clock by this much inside each row batch. */
   batchCostMs = 0;
   onPurge: ((call: number) => void) | null = null;
+  onQuarantine: (() => void) | null = null;
   purgeCalls = 0;
 
   constructor(
@@ -106,6 +115,7 @@ class FakeStore {
 
   quarantineStuckBatch(_cutoff: number, limit: number, _now: number) {
     this.calls.push('quarantine');
+    this.onQuarantine?.();
     this.clock.t += this.batchCostMs;
     const quarantined = Math.min(limit, this.stuck);
     this.stuck -= quarantined;
@@ -156,6 +166,24 @@ class FakeStore {
       lastCompletedAt: record.completedAt,
       processedRowsAfter: record.processedRowsAfter,
       avgProcessedRowBytes: record.avgProcessedRowBytes,
+      memoriesArchived: record.memoriesArchived,
+      memoriesDeleted: record.memoriesDeleted,
+      memoriesEvicted: record.memoriesEvicted,
+      lifecycleNote: record.lifecycleNote,
+      previewMeasuredAt:
+        record.preview?.measuredAt ?? this.state?.previewMeasuredAt ?? null,
+      previewForRunAt:
+        record.preview?.forRunAt ?? this.state?.previewForRunAt ?? null,
+      previewArchiveEligible:
+        record.preview?.archiveEligible ??
+        this.state?.previewArchiveEligible ??
+        null,
+      previewDeleteEligible:
+        record.preview?.deleteEligible ??
+        this.state?.previewDeleteEligible ??
+        null,
+      previewOverCap:
+        record.preview?.overCap ?? this.state?.previewOverCap ?? null,
       lastSkippedAt: this.state?.lastSkippedAt ?? null,
       lastSkipReason: this.state?.lastSkipReason ?? null,
     });
@@ -200,6 +228,41 @@ class FakeReclaimer {
   }
 }
 
+const EMPTY_LIFECYCLE_RESULT: MemoryLifecycleStepResult = {
+  archived: 0,
+  deleted: 0,
+  evicted: 0,
+  exhausted: true,
+  stop: null,
+  note: null,
+  preview: null,
+  readErrors: [],
+};
+
+class FakeLifecycle {
+  calls: Array<{ budget: RetentionRunBudget; startedAt: number }> = [];
+  result: MemoryLifecycleStepResult = EMPTY_LIFECYCLE_RESULT;
+  implementation:
+    | ((
+        budget: RetentionRunBudget,
+        startedAt: number,
+      ) => Promise<MemoryLifecycleStepResult>)
+    | null = null;
+
+  constructor(private readonly log: string[]) {}
+
+  async runStep(
+    budget: RetentionRunBudget,
+    startedAt: number,
+  ): Promise<MemoryLifecycleStepResult> {
+    this.log.push('lifecycle');
+    this.calls.push({ budget, startedAt });
+    return this.implementation
+      ? this.implementation(budget, startedAt)
+      : this.result;
+  }
+}
+
 function state(overrides: Partial<RetentionState> = {}): RetentionState {
   return {
     lastStartedAt: null,
@@ -217,6 +280,15 @@ function state(overrides: Partial<RetentionState> = {}): RetentionState {
     lastCompletedAt: null,
     processedRowsAfter: null,
     avgProcessedRowBytes: null,
+    memoriesArchived: 0,
+    memoriesDeleted: 0,
+    memoriesEvicted: 0,
+    lifecycleNote: null,
+    previewMeasuredAt: null,
+    previewForRunAt: null,
+    previewArchiveEligible: null,
+    previewDeleteEligible: null,
+    previewOverCap: null,
     lastSkippedAt: null,
     lastSkipReason: null,
     ...overrides,
@@ -278,6 +350,7 @@ function harness(
     limits?: Partial<MemoryRetentionLimits>;
     dbThrows?: boolean;
     governor?: BackgroundWorkAdmission;
+    lifecycle?: MemoryLifecycleService;
   } = {},
 ) {
   const clock: Clock = { t: 0 };
@@ -293,6 +366,7 @@ function harness(
     },
   } as unknown as SqliteConnectionService;
   const logger = makeLogger();
+  const lifecycle = opts.lifecycle ?? new FakeLifecycle(log);
   const service = new MemoryRetentionService(
     logger,
     makeWorkspace(opts.settings),
@@ -300,6 +374,7 @@ function harness(
     reclaimer as unknown as SqlitePageReclaimer,
     store as unknown as ObservationRetentionStore,
     { ...MEMORY_RETENTION_LIMITS, ...opts.limits },
+    lifecycle as unknown as MemoryLifecycleService,
     opts.governor ?? null,
   );
   // Past the 10-minute boot deferral, measured from construction.
@@ -319,6 +394,7 @@ function harness(
     store,
     reclaimer,
     service,
+    lifecycle: lifecycle as FakeLifecycle,
     logger,
     options,
     abort: () => signal.abort(),
@@ -410,6 +486,7 @@ describe('MemoryRetentionService — gates', () => {
     });
     expect(h.log).toEqual(['writeSkip']);
     expect(h.store.skips[0].reason).toBe('disabled');
+    expect(h.lifecycle.calls).toHaveLength(0);
   });
 
   it('boot-deferred within 10 minutes of construction', async () => {
@@ -420,6 +497,7 @@ describe('MemoryRetentionService — gates', () => {
       reason: 'boot-deferred',
     });
     expect(h.log).toEqual(['writeSkip']);
+    expect(h.lifecycle.calls).toHaveLength(0);
   });
 
   it('on-battery', async () => {
@@ -430,6 +508,7 @@ describe('MemoryRetentionService — gates', () => {
       reason: 'on-battery',
     });
     expect(h.log).toEqual(['writeSkip']);
+    expect(h.lifecycle.calls).toHaveLength(0);
   });
 
   it('foreground-active when chat moved in the last 5 minutes', async () => {
@@ -440,6 +519,7 @@ describe('MemoryRetentionService — gates', () => {
       reason: 'foreground-active',
     });
     expect(h.log).toEqual(['writeSkip']);
+    expect(h.lifecycle.calls).toHaveLength(0);
   });
 
   it('aborted', async () => {
@@ -449,6 +529,7 @@ describe('MemoryRetentionService — gates', () => {
       status: 'skipped',
       reason: 'aborted',
     });
+    expect(h.lifecycle.calls).toHaveLength(0);
   });
 
   it('persistence-unavailable writes nothing', async () => {
@@ -458,6 +539,7 @@ describe('MemoryRetentionService — gates', () => {
       reason: 'persistence-unavailable',
     });
     expect(h.log).toEqual([]);
+    expect(h.lifecycle.calls).toHaveLength(0);
   });
 
   it('not-due costs one state read and writes nothing', async () => {
@@ -469,6 +551,7 @@ describe('MemoryRetentionService — gates', () => {
       reason: 'not-due',
     });
     expect(h.log).toEqual(['readState']);
+    expect(h.lifecycle.calls).toHaveLength(0);
   });
 
   it('is due after 24 h, and immediately when the last run left a backlog', async () => {
@@ -512,6 +595,10 @@ describe('MemoryRetentionService — run', () => {
       ledgerPruned: 2,
       freedBytes: 1200 * 4096,
       pagesReclaimed: 1200,
+      memoriesArchived: 0,
+      memoriesDeleted: 0,
+      memoriesEvicted: 0,
+      lifecycleNote: null,
       backlogRemaining: false,
       durationMs: 0,
       error: null,
@@ -521,6 +608,7 @@ describe('MemoryRetentionService — run', () => {
       'readState',
       'purge',
       'quarantine',
+      'lifecycle',
       'prune',
       'reclaim',
       'checkpoint',
@@ -534,6 +622,129 @@ describe('MemoryRetentionService — run', () => {
       backlogRemaining: false,
       processedRowsAfter: 60,
       avgProcessedRowBytes: 4096,
+    });
+  });
+
+  it('passes the run budget by identity to lifecycle and persists its counters, note and preview', async () => {
+    const h = harness();
+    const queueBudgets: RetentionRunBudget[] = [];
+    const waitForGovernor = RetentionRunBudget.prototype.waitForGovernor;
+    const waitSpy = jest
+      .spyOn(RetentionRunBudget.prototype, 'waitForGovernor')
+      .mockImplementation(function (this: RetentionRunBudget) {
+        queueBudgets.push(this);
+        return waitForGovernor.call(this);
+      });
+    const preview = {
+      measuredAt: h.clock.t,
+      forRunAt: h.clock.t + DAY,
+      archiveEligible: 7,
+      deleteEligible: 3,
+      overCap: 2,
+    };
+    h.lifecycle.result = {
+      archived: 7,
+      deleted: 3,
+      evicted: 2,
+      exhausted: true,
+      stop: null,
+      note: 'vec-unavailable',
+      preview,
+      readErrors: ['preview: C:\\Users\\alice\\ptah.sqlite'],
+    };
+
+    let report: MemoryRetentionRunReport;
+    try {
+      report = (await h.service.run(h.options)) as MemoryRetentionRunReport;
+    } finally {
+      waitSpy.mockRestore();
+    }
+
+    expect(h.lifecycle.calls).toHaveLength(1);
+    expect(queueBudgets.length).toBeGreaterThan(0);
+    expect(h.lifecycle.calls[0].budget).toBe(queueBudgets[0]);
+    expect(h.lifecycle.calls[0].startedAt).toBe(h.clock.t);
+    expect(report).toMatchObject({
+      memoriesArchived: 7,
+      memoriesDeleted: 3,
+      memoriesEvicted: 2,
+      lifecycleNote: 'vec-unavailable',
+    });
+    expect(h.store.runs[0]).toMatchObject({
+      memoriesArchived: 7,
+      memoriesDeleted: 3,
+      memoriesEvicted: 2,
+      lifecycleNote: 'vec-unavailable',
+      preview,
+    });
+    expect(h.service.storageHealth().readErrors).toEqual([
+      'preview: [path redacted]',
+    ]);
+  });
+
+  it('clears lifecycle read errors before a later lifecycle throw', async () => {
+    const h = harness();
+    h.lifecycle.result = {
+      ...EMPTY_LIFECYCLE_RESULT,
+      readErrors: ['x'],
+    };
+    await expect(h.service.run(h.options)).resolves.toMatchObject({
+      status: 'completed',
+    });
+    expect(h.service.storageHealth().readErrors).toContain('x');
+
+    h.store.state = null;
+    h.lifecycle.implementation = async () => {
+      throw new Error('later lifecycle failure');
+    };
+    await expect(h.service.run(h.options)).resolves.toMatchObject({
+      status: 'failed',
+    });
+    expect(h.service.storageHealth().readErrors ?? []).not.toContain('x');
+  });
+
+  it('uses lifecycle exhaustion in the completed decision', async () => {
+    const h = harness();
+    h.lifecycle.result = {
+      ...EMPTY_LIFECYCLE_RESULT,
+      exhausted: false,
+      stop: 'memory-row-budget',
+    };
+    await expect(h.service.run(h.options)).resolves.toMatchObject({
+      status: 'partial',
+      reason: 'memory-row-budget',
+      backlogRemaining: true,
+    });
+  });
+
+  it('a canDelete throw fails the run, dispatches no lifecycle batch and releases single-flight', async () => {
+    const logger = makeLogger();
+    const archiveBatch = jest.fn();
+    const deleteArchivedBatch = jest.fn();
+    const lifecycle = new RealMemoryLifecycleService(
+      logger,
+      makeWorkspace(),
+      {
+        canDelete: jest.fn(() => {
+          throw new Error('connection.db unavailable');
+        }),
+        archiveBatch,
+        deleteArchivedBatch,
+      } as unknown as MemoryLifecycleStore,
+      { markWorkspacesChanged: jest.fn() } as unknown as MemoryStore,
+      MEMORY_RETENTION_LIMITS,
+    );
+    const h = harness({ lifecycle });
+
+    await expect(h.service.run(h.options)).resolves.toMatchObject({
+      status: 'failed',
+      reason: 'unexpected-error',
+    });
+    expect(archiveBatch).not.toHaveBeenCalled();
+    expect(deleteArchivedBatch).not.toHaveBeenCalled();
+    h.store.state = null;
+    await expect(h.service.run(h.options)).resolves.toMatchObject({
+      status: 'failed',
     });
   });
 
@@ -570,6 +781,7 @@ describe('MemoryRetentionService — run', () => {
       pagesReclaimed: 250,
     });
     expect(h.log).not.toContain('quarantine');
+    expect(h.lifecycle.calls).toHaveLength(1);
     expect(h.store.runs[0]).toMatchObject({
       outcome: 'partial',
       completedAt: null,
@@ -606,6 +818,7 @@ describe('MemoryRetentionService — run', () => {
     expect(report.processedPurged).toBeGreaterThan(0);
     expect(h.log).not.toContain('prune');
     expect(h.log).not.toContain('reclaim');
+    expect(h.lifecycle.calls).toHaveLength(0);
   });
 
   it('a mid-run foreground change stops after the current batch', async () => {
@@ -874,12 +1087,23 @@ describe('MemoryRetentionService — storageHealth', () => {
           ledgerPruned: 0,
           freedBytes: 0,
           pagesReclaimed: 0,
+          memoriesArchived: 0,
+          memoriesDeleted: 0,
+          memoriesEvicted: 0,
           backlogRemaining: false,
         },
         lastCompletedAt: 2000,
         nextDueAt: 2000 + DAY,
         lastSkippedAt: 3000,
         lastSkipReason: 'foreground-active',
+      },
+      memoryLifecycle: {
+        enabled: true,
+        archiveAfterDays: 30,
+        deleteAfterDays: 60,
+        maxPerWorkspace: 25_000,
+        lastNote: null,
+        preview: null,
       },
     });
   });
@@ -1014,9 +1238,9 @@ describe('sanitizeRetentionError', () => {
   });
 
   it('preserves non-path text, ratios, conjunctions, and single-slash words', () => {
-    expect(sanitizeRetentionError('no such table: memory_retention_state')).toBe(
-      'no such table: memory_retention_state',
-    );
+    expect(
+      sanitizeRetentionError('no such table: memory_retention_state'),
+    ).toBe('no such table: memory_retention_state');
     expect(sanitizeRetentionError('SQLITE_BUSY: database is locked')).toBe(
       'SQLITE_BUSY: database is locked',
     );
@@ -1032,6 +1256,64 @@ describe('sanitizeRetentionError', () => {
 });
 
 describe('MemoryRetentionService — background-work governor', () => {
+  it('holds the first lifecycle batch behind the same run budget until clear', async () => {
+    const governor = new FakeGovernor();
+    const h = harness({ governor });
+    let lifecycleBatchDispatched = false;
+    h.store.onQuarantine = () => {
+      governor.clear = false;
+    };
+    h.lifecycle.implementation = async (budget) => {
+      expect(budget).toBe(h.lifecycle.calls[0].budget);
+      const stop = await budget.waitForGovernor();
+      if (stop !== null) {
+        return { ...EMPTY_LIFECYCLE_RESULT, exhausted: false, stop };
+      }
+      lifecycleBatchDispatched = true;
+      return EMPTY_LIFECYCLE_RESULT;
+    };
+
+    const runPromise = h.service.run(h.options);
+    await governor.waitForWaiter();
+    expect(lifecycleBatchDispatched).toBe(false);
+    expect(h.log).not.toContain('prune');
+
+    governor.release('clear');
+    await expect(runPromise).resolves.toMatchObject({ status: 'completed' });
+    expect(lifecycleBatchDispatched).toBe(true);
+  });
+
+  it('an AbortError during lifecycle wait is partial/aborted and dispatches no prune or reclaim', async () => {
+    const governor = new FakeGovernor();
+    const h = harness({ governor });
+    let lifecycleBatchDispatched = false;
+    h.store.onQuarantine = () => {
+      governor.clear = false;
+    };
+    h.lifecycle.implementation = async (budget) => {
+      const stop = await budget.waitForGovernor();
+      if (stop !== null) {
+        return { ...EMPTY_LIFECYCLE_RESULT, exhausted: false, stop };
+      }
+      lifecycleBatchDispatched = true;
+      return EMPTY_LIFECYCLE_RESULT;
+    };
+
+    const runPromise = h.service.run(h.options);
+    await governor.waitForWaiter();
+    governor.reject(
+      Object.assign(new Error('governor disposed'), { name: 'AbortError' }),
+    );
+
+    await expect(runPromise).resolves.toMatchObject({
+      status: 'partial',
+      reason: 'aborted',
+    });
+    expect(lifecycleBatchDispatched).toBe(false);
+    expect(h.log).not.toContain('prune');
+    expect(h.log).not.toContain('reclaim');
+  });
+
   it('waits when governor is busy; no batch runs until cleared', async () => {
     const governor = new FakeGovernor();
     governor.clear = false;
@@ -1236,4 +1518,3 @@ describe('MemoryRetentionService — background-work governor', () => {
     expect(report.processedPurged).toBe(50);
   });
 });
-

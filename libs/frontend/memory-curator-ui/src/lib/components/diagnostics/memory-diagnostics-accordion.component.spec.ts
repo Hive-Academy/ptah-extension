@@ -165,6 +165,14 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
         lastSkippedAt: null,
         lastSkipReason: null,
       },
+      memoryLifecycle: {
+        enabled: true,
+        archiveAfterDays: 30,
+        deleteAfterDays: 60,
+        maxPerWorkspace: 25_000,
+        lastNote: null,
+        preview: null,
+      },
     });
     const fixture = TestBed.createComponent(
       MemoryDiagnosticsAccordionComponent,
@@ -175,7 +183,9 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     const panel = root.querySelector('ptah-storage-health-panel');
     expect(panel).not.toBeNull();
     expect(panel?.textContent ?? '').toContain('Storage and Retention');
-    expect(panel?.textContent ?? '').toContain('No retention run recorded yet.');
+    expect(panel?.textContent ?? '').toContain(
+      'No retention run recorded yet.',
+    );
   });
 
   it('binds the shared now clock into the storage panel', () => {

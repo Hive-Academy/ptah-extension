@@ -45,11 +45,12 @@ import {
   SqlitePageReclaimer,
   type SqlitePageStats,
 } from '@ptah-extension/persistence-sqlite';
-import type {
-  MemoryRetentionRunDto,
-  MemoryStorageHealthDto,
-} from '@ptah-extension/shared';
+import type { MemoryStorageHealthDto } from '@ptah-extension/shared';
 import { MEMORY_TOKENS } from '../di/tokens';
+import {
+  MemoryLifecycleService,
+  type MemoryLifecycleStepResult,
+} from './memory-lifecycle.service';
 import {
   DAY_MS,
   MEMORY_RETENTION_DEFAULTS,
@@ -70,15 +71,10 @@ import {
   type RetentionState,
 } from './observation-retention.store';
 import { RetentionRunBudget } from './retention-run-budget';
+import { readMemoryStorageHealth } from './memory-storage-health';
 
 /** `PRAGMA auto_vacuum` value meaning INCREMENTAL. */
 const AUTO_VACUUM_INCREMENTAL = 2;
-
-const RUN_OUTCOMES: ReadonlySet<string> = new Set([
-  'completed',
-  'partial',
-  'failed',
-]);
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -89,12 +85,14 @@ function errorText(error: unknown): string {
  * rule as the persistence RPC handler's `sanitiseErrorMessage`.
  */
 export function sanitizeRetentionError(message: string): string {
-  return message
-    .replace(/[A-Za-z]:[/\\][^\s,'"]+/g, '[path redacted]')
-    .replace(/\\\\[^\s,'"]+/g, '[path redacted]')
-    .replace(/(?<=^|[\s'"(=]|:\s)\/[^\s,'"/]+\/[^\s,'"]+/g, '[path redacted]')
-    // Home-directory paths are redacted anywhere, even mid-token (`(file)/home/…`).
-    .replace(/\/(?:home|Users|root)\/[^\s,'"]+/g, '[path redacted]');
+  return (
+    message
+      .replace(/[A-Za-z]:[/\\][^\s,'"]+/g, '[path redacted]')
+      .replace(/\\\\[^\s,'"]+/g, '[path redacted]')
+      .replace(/(?<=^|[\s'"(=]|:\s)\/[^\s,'"/]+\/[^\s,'"]+/g, '[path redacted]')
+      // Home-directory paths are redacted anywhere, even mid-token (`(file)/home/…`).
+      .replace(/\/(?:home|Users|root)\/[^\s,'"]+/g, '[path redacted]')
+  );
 }
 
 /**
@@ -139,6 +137,9 @@ export class MemoryRetentionService {
   /** Set synchronously before the first `await`; cleared in `finally`. */
   private running = false;
 
+  /** Advisory read failures from the latest lifecycle step in this process. */
+  private lifecycleReadErrors: readonly string[] = [];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -151,6 +152,8 @@ export class MemoryRetentionService {
     private readonly store: ObservationRetentionStore,
     @inject(MEMORY_TOKENS.MEMORY_RETENTION_LIMITS)
     private readonly limits: MemoryRetentionLimits,
+    @inject(MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE)
+    private readonly lifecycle: MemoryLifecycleService,
     /**
      * Optional and LAST: specs construct this service positionally, and a host
      * without a governor runs ungoverned.
@@ -187,6 +190,10 @@ export class MemoryRetentionService {
         ledgerPruned: 0,
         freedBytes: 0,
         pagesReclaimed: 0,
+        memoriesArchived: 0,
+        memoriesDeleted: 0,
+        memoriesEvicted: 0,
+        lifecycleNote: null,
         backlogRemaining: true,
         durationMs: Math.max(0, now() - startedAt),
         error: message,
@@ -202,65 +209,17 @@ export class MemoryRetentionService {
    * from a live count. Never throws.
    */
   storageHealth(): MemoryStorageHealthDto {
-    const readErrors: string[] = [];
     const settings = this.readSettings();
-    const nowMs = Date.now();
-
-    const stats = this.reclaimer.readPageStats();
-    const statsKnown = stats.pageSize > 0;
-    if (!statsKnown) readErrors.push('pageStats: unavailable');
-
-    const live = this.store.readLiveStorage(
-      nowMs - settings.stuckDays * DAY_MS,
-    );
-    readErrors.push(...live.readErrors);
-
-    let state: RetentionState | null = null;
-    try {
-      state = this.store.readState();
-    } catch (error: unknown) {
-      readErrors.push(`retentionState: ${errorText(error)}`);
-    }
-
-    const processedRows = state?.processedRowsAfter ?? null;
-    const avgBytes = state?.avgProcessedRowBytes ?? null;
-
-    return {
-      dbBytes: statsKnown ? stats.pageCount * stats.pageSize : null,
-      reclaimableBytes: statsKnown
-        ? stats.freelistCount * stats.pageSize
-        : null,
-      autoVacuumIncremental: statsKnown
-        ? stats.autoVacuumMode === AUTO_VACUUM_INCREMENTAL
-        : null,
-      observations: {
-        pendingRows: live.pendingRows,
-        pendingBytes: live.pendingBytes,
-        oldestPendingAt: live.oldestPendingAt,
-        stuckEligibleRows: live.stuckEligibleRows,
-        processedRows,
-        processedBytesEstimate:
-          processedRows !== null && avgBytes !== null
-            ? processedRows * avgBytes
-            : null,
-        measuredAt:
-          processedRows !== null ? (state?.lastFinishedAt ?? null) : null,
-        quarantineLedgerRows: live.quarantineLedgerRows,
-      },
-      retention: {
-        enabled: settings.enabled,
-        processedDays: settings.processedDays,
-        stuckDays: settings.stuckDays,
-        lastRun: state ? this.toRunDto(state) : null,
-        lastCompletedAt: state?.lastCompletedAt ?? null,
-        nextDueAt: state ? this.nextDueAt(state) : null,
-        lastSkippedAt: state?.lastSkippedAt ?? null,
-        lastSkipReason: state?.lastSkipReason ?? null,
-      },
-      ...(readErrors.length > 0
-        ? { readErrors: readErrors.map(sanitizeRetentionError) }
-        : {}),
-    };
+    return readMemoryStorageHealth({
+      workspace: this.workspace,
+      reclaimer: this.reclaimer,
+      store: this.store,
+      logger: this.logger,
+      settings,
+      intervalMs: this.limits.intervalMs,
+      lifecycleReadErrors: this.lifecycleReadErrors,
+      sanitizeError: sanitizeRetentionError,
+    });
   }
 
   private async gateAndExecute(
@@ -331,6 +290,16 @@ export class MemoryRetentionService {
     let failure: RetentionStepError | Error | null = null;
     let reclaimNote: RetentionStopReason | null = null;
     let reclaimDone = false;
+    let lifecycleResult: MemoryLifecycleStepResult = {
+      archived: 0,
+      deleted: 0,
+      evicted: 0,
+      exhausted: false,
+      stop: null,
+      note: null,
+      preview: null,
+      readErrors: [],
+    };
 
     try {
       // 1. Processed purge — `processed_at` older than processedDays.
@@ -404,6 +373,15 @@ export class MemoryRetentionService {
         }
       }
 
+      if (stop === null || stop === 'row-budget') {
+        this.lifecycleReadErrors = [];
+        lifecycleResult = await this.lifecycle.runStep(budget, startedAt);
+        this.lifecycleReadErrors = lifecycleResult.readErrors;
+        if (lifecycleResult.stop !== null && stop === null) {
+          stop = lifecycleResult.stop;
+        }
+      }
+
       // A row-budget stop ends only the row steps: the ledger prune and the
       // page reclaim are bounded on their own and return space sooner.
       const continueAfterRows = stop === null || stop === 'row-budget';
@@ -451,6 +429,7 @@ export class MemoryRetentionService {
       reclaimDone,
       reclaimNote,
       previous,
+      lifecycleResult,
     });
   }
 
@@ -517,6 +496,7 @@ export class MemoryRetentionService {
     reclaimDone: boolean;
     reclaimNote: RetentionStopReason | null;
     previous: RetentionState | null;
+    lifecycleResult: MemoryLifecycleStepResult;
   }): MemoryRetentionRunReport {
     const { startedAt, now, settings, tally, stop, failure } = input;
     let status: MemoryRetentionRunReport['status'];
@@ -532,6 +512,9 @@ export class MemoryRetentionService {
     } else if (stop !== null) {
       status = 'partial';
       reason = stop;
+    } else if (!input.lifecycleResult.exhausted) {
+      status = 'partial';
+      reason = input.lifecycleResult.stop ?? 'memory-row-budget';
     } else if (!input.reclaimDone) {
       status = 'partial';
       reason = 'reclaim-budget';
@@ -550,6 +533,10 @@ export class MemoryRetentionService {
       ledgerPruned: tally.ledgerPruned,
       freedBytes: tally.freedBytes,
       pagesReclaimed: tally.pagesReclaimed,
+      memoriesArchived: input.lifecycleResult.archived,
+      memoriesDeleted: input.lifecycleResult.deleted,
+      memoriesEvicted: input.lifecycleResult.evicted,
+      lifecycleNote: input.lifecycleResult.note,
       backlogRemaining: status !== 'completed',
       durationMs,
       error,
@@ -561,6 +548,7 @@ export class MemoryRetentionService {
       finishedAt,
       settings,
       tally.freedBytesMeasured,
+      input.lifecycleResult,
     );
 
     if (status === 'failed') {
@@ -579,6 +567,11 @@ export class MemoryRetentionService {
         ledgerPruned: report.ledgerPruned,
         freedBytes: report.freedBytes,
         pagesReclaimed: report.pagesReclaimed,
+        memoriesArchived: report.memoriesArchived,
+        memoriesDeleted: report.memoriesDeleted,
+        memoriesEvicted: report.memoriesEvicted,
+        lifecycleNote: report.lifecycleNote,
+        preview: input.lifecycleResult.preview,
         durationMs,
       });
     }
@@ -592,6 +585,7 @@ export class MemoryRetentionService {
     finishedAt: number,
     settings: MemoryRetentionSettings,
     freedBytesMeasured: boolean,
+    lifecycleResult: MemoryLifecycleStepResult,
   ): void {
     let processedRowsAfter: number | null = null;
     try {
@@ -628,6 +622,11 @@ export class MemoryRetentionService {
           freedBytesMeasured && report.processedPurged > 0
             ? Math.round(report.freedBytes / report.processedPurged)
             : null,
+        memoriesArchived: report.memoriesArchived,
+        memoriesDeleted: report.memoriesDeleted,
+        memoriesEvicted: report.memoriesEvicted,
+        lifecycleNote: report.lifecycleNote,
+        preview: lifecycleResult.preview,
       });
     } catch (error: unknown) {
       this.logger.warn('[memory-curator] retention run record not written', {
@@ -660,43 +659,5 @@ export class MemoryRetentionService {
       });
       return MEMORY_RETENTION_DEFAULTS;
     }
-  }
-
-  private toRunDto(state: RetentionState): MemoryRetentionRunDto | null {
-    if (
-      state.lastOutcome === null ||
-      !RUN_OUTCOMES.has(state.lastOutcome) ||
-      state.lastStartedAt === null ||
-      state.lastFinishedAt === null
-    ) {
-      return null;
-    }
-    return {
-      startedAt: state.lastStartedAt,
-      finishedAt: state.lastFinishedAt,
-      outcome: state.lastOutcome as MemoryRetentionRunDto['outcome'],
-      reason: state.lastReason,
-      error: state.lastError,
-      durationMs: state.lastDurationMs ?? 0,
-      processedPurged: state.processedPurged,
-      stuckQuarantined: state.stuckQuarantined,
-      ledgerPruned: state.ledgerPruned,
-      freedBytes: state.freedBytes,
-      pagesReclaimed: state.pagesReclaimed,
-      backlogRemaining: state.backlogRemaining,
-    };
-  }
-
-  /**
-   * `last_finished_at` when the last run left a backlog (the next idle hourly
-   * tick), otherwise `last_completed_at + 24 h`; `null` when never completed.
-   */
-  private nextDueAt(state: RetentionState): number | null {
-    if (state.backlogRemaining && state.lastFinishedAt !== null) {
-      return state.lastFinishedAt;
-    }
-    return state.lastCompletedAt !== null
-      ? state.lastCompletedAt + this.limits.intervalMs
-      : null;
   }
 }

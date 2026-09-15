@@ -458,6 +458,17 @@ describe('ObservationRetentionStore (real SQLite)', () => {
       completedAt: NOW + 5,
       processedRowsAfter: 7,
       avgProcessedRowBytes: 409,
+      memoriesArchived: 8,
+      memoriesDeleted: 3,
+      memoriesEvicted: 2,
+      lifecycleNote: null,
+      preview: {
+        measuredAt: NOW + 5,
+        forRunAt: NOW + DAY,
+        archiveEligible: 4,
+        deleteEligible: 5,
+        overCap: 6,
+      },
     };
 
     it('readState is null before anything is written', () => {
@@ -485,6 +496,15 @@ describe('ObservationRetentionStore (real SQLite)', () => {
         lastCompletedAt: NOW + 5,
         processedRowsAfter: 7,
         avgProcessedRowBytes: 409,
+        memoriesArchived: 8,
+        memoriesDeleted: 3,
+        memoriesEvicted: 2,
+        lifecycleNote: null,
+        previewMeasuredAt: NOW + 5,
+        previewForRunAt: NOW + DAY,
+        previewArchiveEligible: 4,
+        previewDeleteEligible: 5,
+        previewOverCap: 6,
         lastSkippedAt: NOW + 3600_000,
         lastSkipReason: 'foreground-active',
       });
@@ -502,7 +522,7 @@ describe('ObservationRetentionStore (real SQLite)', () => {
       });
     });
 
-    it('a partial run keeps the previous last_completed_at and average row bytes', () => {
+    it('a partial run keeps the previous completed time, average bytes and preview when null', () => {
       const { store } = fresh();
       store.writeRun(run);
       store.writeRun({
@@ -515,6 +535,11 @@ describe('ObservationRetentionStore (real SQLite)', () => {
         completedAt: null,
         processedPurged: 0,
         avgProcessedRowBytes: null,
+        memoriesArchived: 1,
+        memoriesDeleted: 0,
+        memoriesEvicted: 0,
+        lifecycleNote: 'disabled',
+        preview: null,
       });
       expect(store.readState()).toMatchObject({
         lastOutcome: 'partial',
@@ -522,6 +547,13 @@ describe('ObservationRetentionStore (real SQLite)', () => {
         backlogRemaining: true,
         lastCompletedAt: NOW + 5,
         avgProcessedRowBytes: 409,
+        memoriesArchived: 1,
+        lifecycleNote: 'disabled',
+        previewMeasuredAt: NOW + 5,
+        previewForRunAt: NOW + DAY,
+        previewArchiveEligible: 4,
+        previewDeleteEligible: 5,
+        previewOverCap: 6,
       });
     });
   });

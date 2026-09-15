@@ -174,6 +174,8 @@ export interface RetentionTestDb {
   openSecondHandle(): RawDb;
   /** Close and reopen the primary handle without loading sqlite-vec. */
   reopenWithoutVec(): void;
+  /** Close and reopen the primary handle with sqlite-vec and foreign keys off. */
+  reopenWithoutForeignKeys(): void;
   close(): void;
 }
 
@@ -197,6 +199,13 @@ export function openRetentionTestDb(
   tempDirs.push(dir);
   const file = path.join(dir, 'retention.db');
   let raw = opener.open(file, options.vec === true);
+  const loadVec = (handle: RawDb): void => {
+    if (typeof handle.loadExtension !== 'function') {
+      throw new Error(`${opener.name} does not expose loadExtension`);
+    }
+    const sqliteVec = require('sqlite-vec') as { getLoadablePath(): string };
+    handle.loadExtension(sqliteVec.getLoadablePath());
+  };
   raw.exec(
     options.autoVacuum === 'none'
       ? 'PRAGMA auto_vacuum = NONE'
@@ -205,11 +214,7 @@ export function openRetentionTestDb(
   raw.prepare('PRAGMA journal_mode = WAL').all();
   raw.exec('PRAGMA foreign_keys = ON');
   if (options.vec === true) {
-    if (typeof raw.loadExtension !== 'function') {
-      throw new Error(`${opener.name} does not expose loadExtension`);
-    }
-    const sqliteVec = require('sqlite-vec') as { getLoadablePath(): string };
-    raw.loadExtension(sqliteVec.getLoadablePath());
+    loadVec(raw);
   }
   const versions = options.memorySchema
     ? [2, 7, 10, 15, 16, 17, 18, 19, 43, 44]
@@ -221,6 +226,19 @@ export function openRetentionTestDb(
     if (options.vec === true && vecSql !== null) {
       raw.exec(vecSql);
     }
+  }
+  if (options.memorySchema !== true) {
+    raw.exec(`
+      ALTER TABLE memory_retention_state ADD COLUMN memories_archived INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE memory_retention_state ADD COLUMN memories_deleted INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE memory_retention_state ADD COLUMN memories_evicted INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE memory_retention_state ADD COLUMN lifecycle_note TEXT;
+      ALTER TABLE memory_retention_state ADD COLUMN preview_measured_at INTEGER;
+      ALTER TABLE memory_retention_state ADD COLUMN preview_for_run_at INTEGER;
+      ALTER TABLE memory_retention_state ADD COLUMN preview_archive_eligible INTEGER;
+      ALTER TABLE memory_retention_state ADD COLUMN preview_delete_eligible INTEGER;
+      ALTER TABLE memory_retention_state ADD COLUMN preview_over_cap INTEGER;
+    `);
   }
   const issued: string[] = [];
   let db = adaptSqliteDatabase(raw, issued);
@@ -247,6 +265,16 @@ export function openRetentionTestDb(
       raw.close();
       raw = opener.open(file, false);
       raw.exec('PRAGMA foreign_keys = ON');
+      db = adaptSqliteDatabase(raw, issued);
+    },
+    reopenWithoutForeignKeys: () => {
+      raw.close();
+      raw = opener.open(file, true);
+      loadVec(raw);
+      raw.exec('PRAGMA foreign_keys = OFF');
+      if (pragmaNumber(raw, 'foreign_keys') !== 0) {
+        throw new Error('failed to reopen retention test database with foreign_keys = OFF');
+      }
       db = adaptSqliteDatabase(raw, issued);
     },
     close: () => {

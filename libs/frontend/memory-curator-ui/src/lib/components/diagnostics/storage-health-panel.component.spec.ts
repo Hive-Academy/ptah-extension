@@ -38,6 +38,9 @@ function makeStorage(
         ledgerPruned: 2,
         freedBytes: 512_000,
         pagesReclaimed: 64,
+        memoriesArchived: 8,
+        memoriesDeleted: 3,
+        memoriesEvicted: 2,
         outcome: 'completed',
         reason: null,
         error: null,
@@ -47,6 +50,14 @@ function makeStorage(
       nextDueAt: NOW + 1_800_000,
       lastSkippedAt: null,
       lastSkipReason: null,
+    },
+    memoryLifecycle: {
+      enabled: true,
+      archiveAfterDays: 30,
+      deleteAfterDays: 60,
+      maxPerWorkspace: 25_000,
+      lastNote: null,
+      preview: null,
     },
     ...overrides,
   };
@@ -69,9 +80,7 @@ describe('StorageHealthPanelComponent', () => {
 
   it('renders the null state when no storage data is supplied', () => {
     const root = render(null);
-    expect(
-      root.querySelector('[data-testid="storage-empty"]'),
-    ).not.toBeNull();
+    expect(root.querySelector('[data-testid="storage-empty"]')).not.toBeNull();
     expect(root.textContent ?? '').toContain('No storage data yet.');
   });
 
@@ -281,9 +290,7 @@ describe('StorageHealthPanelComponent', () => {
           measuredAt: NOW - 3_600_000,
           quarantineLedgerRows: 7,
         },
-        readErrors: [
-          'pendingBytes: not measured above 5000 pending rows',
-        ],
+        readErrors: ['pendingBytes: not measured above 5000 pending rows'],
       }),
     );
 

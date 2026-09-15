@@ -13,9 +13,22 @@
  * the boot-deferral gate is open. Battery and foreground gates are open too.
  */
 import 'reflect-metadata';
-import type { BackgroundWorkAdmission, Logger } from '@ptah-extension/vscode-core';
+import type {
+  BackgroundWorkAdmission,
+  Logger,
+} from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import { SqlitePageReclaimer } from '@ptah-extension/persistence-sqlite';
+import {
+  SqlitePageReclaimer,
+  type IEmbedder,
+  type VecStatusService,
+} from '@ptah-extension/persistence-sqlite';
+import { MemoryStore } from '../memory.store';
+import {
+  MEMORY_LIFECYCLE_SQL,
+  MemoryLifecycleStore,
+} from './memory-lifecycle.store';
+import { MemoryLifecycleService } from './memory-lifecycle.service';
 import { MemoryRetentionService } from './memory-retention.service';
 import {
   MEMORY_RETENTION_LIMITS,
@@ -35,6 +48,7 @@ import {
   removeRetentionTempDirs,
   requireSqliteOpener,
   seedObservations,
+  seedMemory,
   type RetentionTestDb,
   type SeedRow,
 } from './retention-sqlite.test-support';
@@ -91,6 +105,18 @@ function makeHarness(
     new SqlitePageReclaimer(logger, t.connection),
     store,
     { ...MEMORY_RETENTION_LIMITS, ...limits },
+    {
+      runStep: jest.fn(async () => ({
+        archived: 0,
+        deleted: 0,
+        evicted: 0,
+        exhausted: true,
+        stop: null,
+        note: null,
+        preview: null,
+        readErrors: [],
+      })),
+    } as unknown as MemoryLifecycleService,
     governor ?? null,
   );
   return {
@@ -178,7 +204,590 @@ function ledgerSum(t: RetentionTestDb): number {
 afterEach(() => {
   for (const t of openDbs.splice(0)) t.close();
 });
+
+describe('memory lifecycle — integration (real SQLite + sqlite-vec, fake clock)', () => {
+  it('loads sqlite-vec without skipping', () => {
+    const h = makeLifecycleHarness();
+    expect(h.t.raw.prepare('SELECT vec_version() AS version').get()).toEqual({
+      version: expect.any(String),
+    });
+  });
+
+  it('archives at T0, restores use, waits through +30 d, then deletes all dependants at +61 d', async () => {
+    const h = makeLifecycleHarness();
+    const old = Array.from({ length: 40 }, (_, i) => `r-old-${i}`);
+    const workspaceB = Array.from({ length: 5 }, (_, i) => `w-b-${i}`);
+    const fresh = Array.from({ length: 10 }, (_, i) => `r-fresh-${i}`);
+    for (let i = 0; i < old.length; i++) {
+      seedMemory(h.t.raw, {
+        id: old[i],
+        workspaceRoot: '/a',
+        lastUsedAt: NOW - 31 * DAY,
+        chunks: 2,
+        concepts: [`concept-${i}`],
+        token: `alphaold${i}`,
+      });
+    }
+    for (const id of workspaceB) {
+      seedMemory(h.t.raw, {
+        id,
+        workspaceRoot: '/b',
+        lastUsedAt: NOW - 31 * DAY,
+        chunks: 2,
+      });
+    }
+    for (const id of fresh)
+      seedMemory(h.t.raw, {
+        id,
+        workspaceRoot: '/a',
+        lastUsedAt: NOW - 29 * DAY,
+      });
+    for (const id of ['p-0', 'p-1'])
+      seedMemory(h.t.raw, {
+        id,
+        workspaceRoot: '/a',
+        pinned: true,
+        lastUsedAt: NOW - 200 * DAY,
+      });
+    for (const id of ['c-0', 'c-1'])
+      seedMemory(h.t.raw, {
+        id,
+        workspaceRoot: '/a',
+        tier: 'core',
+        pinned: true,
+        lastUsedAt: NOW - 200 * DAY,
+      });
+    h.t.raw
+      .prepare(
+        'INSERT INTO corpora (id, workspace_root, name, query_json, built_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run('corpus-1', '/a', 'protected', '{}', NOW);
+    for (const [ord, id] of ['k-0', 'k-1'].entries()) {
+      seedMemory(h.t.raw, {
+        id,
+        workspaceRoot: '/a',
+        lastUsedAt: NOW - 200 * DAY,
+      });
+      h.t.raw
+        .prepare(
+          'INSERT INTO corpus_memories (corpus_id, memory_id, ord) VALUES (?, ?, ?)',
+        )
+        .run('corpus-1', id, ord);
+    }
+    const deleted = [...old.slice(1), ...workspaceB];
+    const rowids = new Map<string, number[]>();
+    for (const id of deleted) {
+      rowids.set(
+        id,
+        (
+          h.t.raw
+            .prepare('SELECT rowid FROM memory_chunks WHERE memory_id = ?')
+            .all(id) as Array<{ rowid: number }>
+        ).map((row) => Number(row.rowid)),
+      );
+    }
+    const before = [
+      scalar(h.t, 'SELECT COUNT(*) AS n FROM memory_chunks'),
+      scalar(h.t, 'SELECT COUNT(*) AS n FROM memory_chunks_fts_docsize'),
+      scalar(h.t, 'SELECT COUNT(*) AS n FROM memory_chunks_vec_rowids'),
+    ];
+    await expect(h.run(NOW)).resolves.toMatchObject({
+      status: 'completed',
+      memoriesArchived: 45,
+      memoriesDeleted: 0,
+    });
+    expect(
+      scalar(
+        h.t,
+        'SELECT COUNT(*) AS n FROM memories WHERE tier = ? AND archived_at = ?',
+        'archival',
+        NOW,
+      ),
+    ).toBe(45);
+    expect([
+      scalar(h.t, 'SELECT COUNT(*) AS n FROM memory_chunks'),
+      scalar(h.t, 'SELECT COUNT(*) AS n FROM memory_chunks_fts_docsize'),
+      scalar(h.t, 'SELECT COUNT(*) AS n FROM memory_chunks_vec_rowids'),
+    ]).toEqual(before);
+
+    h.memoryStore.recordUse([old[0] as never]);
+    expect(
+      h.t.raw
+        .prepare('SELECT tier, archived_at, hits FROM memories WHERE id = ?')
+        .get(old[0]),
+    ).toEqual({ tier: 'recall', archived_at: null, hits: 1 });
+    await expect(h.run(NOW + 30 * DAY)).resolves.toMatchObject({
+      memoriesDeleted: 0,
+    });
+    const at61 = (await h.run(NOW + 61 * DAY)) as MemoryRetentionRunReport;
+    expect(at61).toMatchObject({ status: 'completed', memoriesDeleted: 44 });
+    // Keep the explicit chunk half of the atomic delete pair pinned even
+    // though this test database also has FK cascades: production files can
+    // have foreign-key enforcement disabled on independently opened handles.
+    expect(h.t.issued).toContain(MEMORY_LIFECYCLE_SQL.DELETE_CHUNKS_SQL);
+    for (const id of deleted) {
+      expect(
+        scalar(h.t, 'SELECT COUNT(*) AS n FROM memories WHERE id = ?', id),
+      ).toBe(0);
+      expect(
+        scalar(
+          h.t,
+          'SELECT COUNT(*) AS n FROM memory_chunks WHERE memory_id = ?',
+          id,
+        ),
+      ).toBe(0);
+      expect(
+        scalar(
+          h.t,
+          'SELECT COUNT(*) AS n FROM memory_concepts_fts WHERE memory_id = ?',
+          id,
+        ),
+      ).toBe(0);
+      for (const rowid of rowids.get(id) ?? []) {
+        expect(
+          scalar(
+            h.t,
+            'SELECT COUNT(*) AS n FROM memory_chunks_fts_docsize WHERE id = ?',
+            rowid,
+          ),
+        ).toBe(0);
+        expect(
+          scalar(
+            h.t,
+            'SELECT COUNT(*) AS n FROM memory_chunks_vec_rowids WHERE rowid = ?',
+            rowid,
+          ),
+        ).toBe(0);
+      }
+    }
+    expect(
+      scalar(
+        h.t,
+        'SELECT COUNT(*) AS n FROM memory_chunks_fts WHERE memory_chunks_fts MATCH ?',
+        'alphaold1',
+      ),
+    ).toBe(0);
+    const nearest = h.t.raw
+      .prepare(
+        'SELECT rowid FROM memory_chunks_vec WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?',
+      )
+      .all(Buffer.from(new Float32Array(384).buffer), 20) as Array<{
+      rowid: number;
+    }>;
+    expect(nearest.map((row) => Number(row.rowid))).not.toContain(
+      rowids.get(old[1])?.[0],
+    );
+    expect(
+      scalar(
+        h.t,
+        'SELECT COUNT(*) AS n FROM memories WHERE id IN (?, ?, ?, ?, ?, ?, ?)',
+        old[0],
+        'p-0',
+        'p-1',
+        'c-0',
+        'c-1',
+        'k-0',
+        'k-1',
+      ),
+    ).toBe(7);
+    expect(
+      fresh.every(
+        (id) =>
+          scalar(h.t, 'SELECT COUNT(*) AS n FROM memories WHERE id = ?', id) ===
+          1,
+      ),
+    ).toBe(true);
+    expect(typeof at61.pagesReclaimed).toBe('number');
+    expect(h.service.storageHealth().memoryLifecycle.preview).not.toBeNull();
+  });
+
+  it('deletes every dependent row at T0 + 61 d when foreign keys are off', async () => {
+    const h = makeLifecycleHarness();
+    const deleted = ['fk-off-old-0', 'fk-off-old-1'];
+    for (const [index, id] of deleted.entries()) {
+      seedMemory(h.t.raw, {
+        id,
+        workspaceRoot: '/fk-off',
+        lastUsedAt: NOW - 31 * DAY,
+        chunks: 2,
+        concepts: [`fk-off-concept-${index}`],
+      });
+    }
+    seedMemory(h.t.raw, {
+      id: 'fk-off-fresh',
+      workspaceRoot: '/fk-off',
+      lastUsedAt: NOW - 29 * DAY,
+    });
+    seedMemory(h.t.raw, {
+      id: 'fk-off-pinned',
+      workspaceRoot: '/fk-off',
+      pinned: true,
+      lastUsedAt: NOW - 200 * DAY,
+    });
+    seedMemory(h.t.raw, {
+      id: 'fk-off-core',
+      workspaceRoot: '/fk-off',
+      tier: 'core',
+      pinned: true,
+      lastUsedAt: NOW - 200 * DAY,
+    });
+    const rowids = new Map<string, number[]>();
+    for (const id of deleted) {
+      rowids.set(
+        id,
+        (
+          h.t.raw
+            .prepare('SELECT rowid FROM memory_chunks WHERE memory_id = ?')
+            .all(id) as Array<{ rowid: number }>
+        ).map((row) => Number(row.rowid)),
+      );
+    }
+
+    await expect(h.run(NOW)).resolves.toMatchObject({
+      status: 'completed',
+      memoriesArchived: 2,
+      memoriesDeleted: 0,
+    });
+    h.t.reopenWithoutForeignKeys();
+    expect(pragmaNumber(h.t.raw, 'foreign_keys')).toBe(0);
+    await expect(h.run(NOW + 61 * DAY)).resolves.toMatchObject({
+      status: 'completed',
+      memoriesDeleted: 2,
+    });
+
+    for (const id of deleted) {
+      expect(
+        scalar(h.t, 'SELECT COUNT(*) AS n FROM memories WHERE id = ?', id),
+      ).toBe(0);
+      expect(
+        scalar(
+          h.t,
+          'SELECT COUNT(*) AS n FROM memory_chunks WHERE memory_id = ?',
+          id,
+        ),
+      ).toBe(0);
+      expect(
+        scalar(
+          h.t,
+          'SELECT COUNT(*) AS n FROM memory_concepts_fts WHERE memory_id = ?',
+          id,
+        ),
+      ).toBe(0);
+      for (const rowid of rowids.get(id) ?? []) {
+        expect(
+          scalar(
+            h.t,
+            'SELECT COUNT(*) AS n FROM memory_chunks_fts_docsize WHERE id = ?',
+            rowid,
+          ),
+        ).toBe(0);
+        expect(
+          scalar(
+            h.t,
+            'SELECT COUNT(*) AS n FROM memory_chunks_vec_rowids WHERE rowid = ?',
+            rowid,
+          ),
+        ).toBe(0);
+      }
+    }
+    expect(
+      scalar(
+        h.t,
+        'SELECT COUNT(*) AS n FROM memories WHERE id IN (?, ?, ?)',
+        'fk-off-fresh',
+        'fk-off-pinned',
+        'fk-off-core',
+      ),
+    ).toBe(3);
+  });
+
+  it('evicts only six oldest grace-eligible archival rows in A, leaving B and protected rows', async () => {
+    const h = makeLifecycleHarness({
+      'memory.lifecycle.maxPerWorkspace': 1000,
+    });
+    for (let i = 0; i < 1003; i++)
+      seedMemory(h.t.raw, {
+        id: `cap-old-${i}`,
+        workspaceRoot: '/a',
+        tier: 'archival',
+        archivedAt: NOW - 8 * DAY,
+        lastUsedAt: i + 1,
+      });
+    for (let i = 0; i < 3; i++)
+      seedMemory(h.t.raw, {
+        id: `cap-grace-${i}`,
+        workspaceRoot: '/a',
+        tier: 'archival',
+        archivedAt: NOW - 2 * DAY,
+        lastUsedAt: 10_000 + i,
+      });
+    for (let i = 0; i < 20; i++)
+      seedMemory(h.t.raw, {
+        id: `cap-b-${i}`,
+        workspaceRoot: '/b',
+        tier: 'archival',
+        archivedAt: NOW - 8 * DAY,
+      });
+    seedMemory(h.t.raw, {
+      id: 'cap-pinned',
+      workspaceRoot: '/a',
+      pinned: true,
+      lastUsedAt: 0,
+    });
+    seedMemory(h.t.raw, {
+      id: 'cap-core',
+      workspaceRoot: '/a',
+      tier: 'core',
+      pinned: true,
+      lastUsedAt: 0,
+    });
+    await expect(h.run(NOW)).resolves.toMatchObject({ memoriesEvicted: 6 });
+    expect(
+      h.t.raw
+        .prepare(
+          "SELECT id FROM memories WHERE id LIKE 'cap-old-%' ORDER BY last_used_at LIMIT 1",
+        )
+        .get(),
+    ).toEqual({ id: 'cap-old-6' });
+    expect(
+      scalar(
+        h.t,
+        "SELECT COUNT(*) AS n FROM memories WHERE id LIKE 'cap-grace-%'",
+      ),
+    ).toBe(3);
+    expect(
+      scalar(h.t, "SELECT COUNT(*) AS n FROM memories WHERE id LIKE 'cap-b-%'"),
+    ).toBe(20);
+    expect(
+      scalar(
+        h.t,
+        'SELECT COUNT(*) AS n FROM memories WHERE id IN (?, ?)',
+        'cap-pinned',
+        'cap-core',
+      ),
+    ).toBe(2);
+  }, 120_000);
+
+  it('evicts the ten oldest recall rows over cap', async () => {
+    const h = makeLifecycleHarness({
+      'memory.lifecycle.maxPerWorkspace': 1000,
+    });
+    for (let i = 0; i < 1010; i++)
+      seedMemory(h.t.raw, {
+        id: `recall-cap-${i}`,
+        workspaceRoot: '/a',
+        lastUsedAt: NOW - DAY + i,
+      });
+    await expect(h.run(NOW)).resolves.toMatchObject({ memoriesEvicted: 10 });
+    expect(
+      h.t.raw
+        .prepare(
+          "SELECT id FROM memories WHERE id LIKE 'recall-cap-%' ORDER BY last_used_at LIMIT 1",
+        )
+        .get(),
+    ).toEqual({ id: 'recall-cap-10' });
+  }, 120_000);
+
+  it('does not delete rows archived by a back-to-back first run', async () => {
+    const h = makeLifecycleHarness();
+    for (let i = 0; i < 30; i++)
+      seedMemory(h.t.raw, { id: `guard-${i}`, lastUsedAt: NOW - 400 * DAY });
+    await expect(h.run(NOW)).resolves.toMatchObject({
+      memoriesArchived: 30,
+      memoriesDeleted: 0,
+    });
+    h.t.raw.exec(
+      'UPDATE memory_retention_state SET backlog_remaining = 1 WHERE id = 1',
+    );
+    await expect(h.run(NOW + HOUR)).resolves.toMatchObject({
+      memoriesArchived: 0,
+      memoriesDeleted: 0,
+    });
+    expect(
+      scalar(h.t, "SELECT COUNT(*) AS n FROM memories WHERE id LIKE 'guard-%'"),
+    ).toBe(30);
+  });
+
+  it('archives without deleting when vec is unavailable, then is not due', async () => {
+    const h = makeLifecycleHarness();
+    seedMemory(h.t.raw, { id: 'vec-old', lastUsedAt: NOW - 100 * DAY });
+    h.t.reopenWithoutVec();
+    h.vecStatus.available = false;
+    await expect(h.run(NOW)).resolves.toMatchObject({
+      status: 'completed',
+      lifecycleNote: 'vec-unavailable',
+      memoriesArchived: 1,
+      memoriesDeleted: 0,
+    });
+    await expect(h.run(NOW + HOUR)).resolves.toEqual({
+      status: 'skipped',
+      reason: 'not-due',
+    });
+  });
+
+  it('shares the memory budget and finishes the committed archive backlog next hour', async () => {
+    const h = makeLifecycleHarness({}, { maxMemoryRowsPerRun: 25 });
+    for (let i = 0; i < 30; i++)
+      seedMemory(h.t.raw, { id: `budget-${i}`, lastUsedAt: NOW - 31 * DAY });
+    await expect(h.run(NOW)).resolves.toMatchObject({
+      status: 'partial',
+      reason: 'memory-row-budget',
+      memoriesArchived: 25,
+    });
+    await expect(h.run(NOW + HOUR)).resolves.toMatchObject({
+      status: 'completed',
+      memoriesArchived: 5,
+    });
+  });
+
+  it('rolls back the second delete pair after a mid-delete failure and releases single-flight', async () => {
+    let fail = true;
+    let memoryDeleteCalls = 0;
+    const h = makeLifecycleHarness({}, {}, (t) => {
+      const db = t.db as unknown as {
+        prepare(sql: string): {
+          run(...params: unknown[]): unknown;
+          get(...params: unknown[]): unknown;
+          all(...params: unknown[]): unknown[];
+        };
+      };
+      const originalPrepare = db.prepare.bind(db);
+      db.prepare = (sql: string) => {
+        const statement = originalPrepare(sql);
+        if (!/^DELETE FROM memories\b/.test(sql)) return statement;
+        return {
+          ...statement,
+          run: (...params: unknown[]) => {
+            memoryDeleteCalls++;
+            if (fail && memoryDeleteCalls === 2)
+              throw new Error('injected memory delete failure');
+            return statement.run(...params);
+          },
+        };
+      };
+    });
+    for (let i = 0; i < 250; i++)
+      seedMemory(h.t.raw, {
+        id: `fail-delete-${i}`,
+        tier: 'archival',
+        archivedAt: NOW - 61 * DAY,
+        lastUsedAt: NOW - 100 * DAY,
+      });
+    await expect(h.run(NOW)).resolves.toMatchObject({ status: 'failed' });
+    expect(
+      scalar(
+        h.t,
+        "SELECT COUNT(*) AS n FROM memories WHERE id LIKE 'fail-delete-%'",
+      ),
+    ).toBe(50);
+    expect(
+      scalar(
+        h.t,
+        "SELECT COUNT(*) AS n FROM memory_chunks WHERE memory_id LIKE 'fail-delete-%'",
+      ),
+    ).toBe(50);
+    fail = false;
+    await expect(h.run(NOW + HOUR)).resolves.toMatchObject({
+      status: 'completed',
+      memoriesDeleted: 50,
+    });
+  });
+
+  it('disabled lifecycle performs no writes but records the enabled-run preview', async () => {
+    const h = makeLifecycleHarness({ 'memory.lifecycle.enabled': false });
+    seedMemory(h.t.raw, { id: 'disabled-old', lastUsedAt: NOW - 100 * DAY });
+    await expect(h.run(NOW)).resolves.toMatchObject({
+      status: 'completed',
+      lifecycleNote: 'disabled',
+      memoriesArchived: 0,
+      memoriesDeleted: 0,
+      memoriesEvicted: 0,
+    });
+    expect(
+      h.t.raw
+        .prepare('SELECT tier FROM memories WHERE id = ?')
+        .get('disabled-old'),
+    ).toEqual({ tier: 'recall' });
+    expect(h.service.storageHealth().memoryLifecycle.preview).toMatchObject({
+      archiveEligible: 1,
+    });
+  });
+});
 afterAll(() => removeRetentionTempDirs());
+
+interface LifecycleHarness extends Harness {
+  readonly memoryStore: MemoryStore;
+  readonly lifecycleStore: MemoryLifecycleStore;
+  readonly vecStatus: { available: boolean };
+}
+
+function makeLifecycleHarness(
+  settings: Record<string, unknown> = {},
+  limits: Partial<MemoryRetentionLimits> = {},
+  beforeStores?: (t: RetentionTestDb) => void,
+): LifecycleHarness {
+  const t = openRetentionTestDb({ memorySchema: true, vec: true });
+  openDbs.push(t);
+  beforeStores?.(t);
+  const logger = makeLogger();
+  const workspaceSettings: Record<string, unknown> = {
+    'memory.retention.batchSize': 100,
+    ...settings,
+  };
+  const workspace = makeWorkspace(workspaceSettings);
+  const vecStatus = { available: true };
+  const memoryStore = new MemoryStore(
+    logger,
+    t.connection,
+    { embed: jest.fn() } as unknown as IEmbedder,
+    vecStatus as unknown as VecStatusService,
+  );
+  const lifecycleStore = new MemoryLifecycleStore(
+    logger,
+    t.connection,
+    vecStatus as unknown as VecStatusService,
+  );
+  const runLimits = { ...MEMORY_RETENTION_LIMITS, ...limits };
+  const lifecycle = new MemoryLifecycleService(
+    logger,
+    workspace,
+    lifecycleStore,
+    memoryStore,
+    runLimits,
+  );
+  const store = new ObservationRetentionStore(logger, t.connection);
+  const service = new MemoryRetentionService(
+    logger,
+    workspace,
+    t.connection,
+    new SqlitePageReclaimer(logger, t.connection),
+    store,
+    runLimits,
+    lifecycle,
+    null,
+  );
+  return {
+    t,
+    store,
+    service,
+    settings: workspaceSettings,
+    memoryStore,
+    lifecycleStore,
+    vecStatus,
+    run: (at: number) =>
+      service.run({
+        signal: new AbortController().signal,
+        isOnBattery: () => false,
+        msSinceForegroundActivity: () => Number.POSITIVE_INFINITY,
+        now: () => at,
+      }),
+  };
+}
+
+function scalar(t: RetentionTestDb, sql: string, ...params: unknown[]): number {
+  const row = t.raw.prepare(sql).get(...params) as { n: number | bigint };
+  return Number(row.n);
+}
 
 describe('memory retention — integration (real SQLite, fake clock)', () => {
   it('has a real SQLite binding (fails, never skips, without one)', () => {
@@ -412,6 +1021,10 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
       ledgerPruned: 0,
       freedBytes: 0,
       pagesReclaimed: 0,
+      memoriesArchived: 0,
+      memoriesDeleted: 0,
+      memoriesEvicted: 0,
+      lifecycleNote: null,
       backlogRemaining: false,
       durationMs: 0,
       error: null,

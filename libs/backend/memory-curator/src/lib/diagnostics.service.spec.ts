@@ -36,6 +36,14 @@ const STORAGE_HEALTH: MemoryStorageHealthDto = {
     lastSkippedAt: null,
     lastSkipReason: null,
   },
+  memoryLifecycle: {
+    enabled: true,
+    archiveAfterDays: 30,
+    deleteAfterDays: 60,
+    maxPerWorkspace: 25_000,
+    lastNote: null,
+    preview: null,
+  },
 };
 
 function makeRetention(
