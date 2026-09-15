@@ -160,3 +160,160 @@ Exit 0.
 
 - The six-project test output retains pre-existing skipped binding-specific suites and Jest worker teardown warnings; neither required reachability spec skips.
 - Existing lint warnings remain unchanged in the three linted projects.
+
+## Revision 1
+
+### Fix-list completion
+
+1. **M1 — foreign-keys-off reachability and orphan proof**
+   - Added `RetentionTestDb.reopenWithoutForeignKeys()`. It closes and reopens the same temp-file database, reloads sqlite-vec, executes `PRAGMA foreign_keys = OFF`, reads the pragma back, and throws unless the observed value is exactly `0`.
+   - Added a committed real-SQLite/sqlite-vec integration case that archives two old recall memories at T0, reopens with foreign keys off, and deletes them through `MemoryRetentionService.run` at T0 + 61 d.
+   - For every deleted memory the case asserts zero `memories`, zero `memory_chunks`, zero `memory_concepts_fts`, zero `memory_chunks_fts_docsize` rows for every captured chunk rowid, and zero `memory_chunks_vec_rowids` rows for every captured chunk rowid. Fresh, pinned, and core survivors remain.
+   - Every prepared statement in the new helper/spec binds all positional parameters (XB1).
+2. **m2 — stale lifecycle read errors**
+   - `MemoryRetentionService` now clears `lifecycleReadErrors` immediately before awaiting `lifecycle.runStep(...)`.
+   - Added a regression spec: one run returns `readErrors: ['x']`; a later due run throws in lifecycle; `storageHealth().readErrors` no longer contains `x`.
+3. **m4 — run-budget identity**
+   - Strengthened the lifecycle persistence spec by capturing the `RetentionRunBudget` instance observed by the queue phase's `waitForGovernor()` call and asserting with `toBe` that lifecycle receives that exact instance.
+4. **XB2 / scope guard**
+   - No new fail-open/default-return catch was added, so no new degradation annotation was required. The audit remains at the memory-curator baseline of 20.
+   - No SQL constant, `deletePair`, or delete/archive/evict production path was changed. The mutation was fully restored.
+
+### Revision 1 files modified
+
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\memory-curator\src\lib\retention\retention-sqlite.test-support.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\memory-curator\src\lib\retention\memory-retention.service.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\memory-curator\src\lib\retention\memory-retention.service.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\memory-curator\src\lib\retention\memory-retention.integration.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\.ptah\specs\TASK_2026_443_40ec\batch-6-report.md` (this appended section)
+
+### FK-off mutation check
+
+Baseline command:
+
+`npx jest --config libs/backend/memory-curator/jest.config.ts --runTestsByPath libs/backend/memory-curator/src/lib/retention/memory-retention.integration.spec.ts --testNamePattern "deletes every dependent row at T0 \+ 61 d when foreign keys are off" --runInBand`
+
+Baseline output:
+
+```text
+Test Suites: 1 passed, 1 total
+Tests:       15 skipped, 1 passed, 16 total
+```
+
+Mutation: temporarily removed only `this.statement(db, DELETE_CHUNKS_SQL).run(bound);` from `deletePair`, without changing the SQL constant. The same command failed as required:
+
+```text
+FAIL memory-curator ...memory-retention.integration.spec.ts
+Expected: 0
+Received: 2
+at memory-retention.integration.spec.ts:468:9
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 15 skipped, 16 total
+```
+
+After restoring the invocation, the same case passed again:
+
+```text
+Test Suites: 1 passed, 1 total
+Tests:       15 skipped, 1 passed, 16 total
+```
+
+Restore proof: `git diff -- libs/backend/memory-curator/src/lib/retention/memory-lifecycle.store.ts` produced no output. `git diff --check` exited 0.
+
+### Unchanged Batch 6 command set
+
+#### Tests
+
+`npx nx run-many -t test -p @ptah-extension/memory-curator @ptah-extension/shared @ptah-extension/memory-curator-ui @ptah-extension/rpc-handlers @ptah-extension/thoth-runtime @ptah-extension/cli-engine`
+
+```text
+NX   Running target test for 6 projects:
+NX   Successfully ran target test for 6 projects
+```
+
+Exit 0. Project Tests lines:
+
+```text
+shared:            Tests: 1520 passed, 1520 total
+memory-curator-ui: Tests: 184 passed, 184 total
+memory-curator:    Tests: 59 skipped, 643 passed, 702 total
+rpc-handlers:      Tests: 33 skipped, 3002 passed, 3035 total
+thoth-runtime:     Tests: 90 passed, 90 total
+cli-engine:        Tests: 187 passed, 187 total
+```
+
+The first unchanged invocation was cut off by the command harness at 124 seconds with no buffered Nx output. Its three scoped processes were terminated, and the exact command above was rerun unchanged to the successful result recorded here.
+
+#### Typecheck
+
+`npx nx run-many -t typecheck -p @ptah-extension/memory-curator @ptah-extension/shared @ptah-extension/memory-curator-ui @ptah-extension/rpc-handlers @ptah-extension/thoth-runtime @ptah-extension/cli-engine`
+
+```text
+NX   Running target typecheck for 6 projects:
+NX   Successfully ran target typecheck for 6 projects
+```
+
+Exit 0; all six TypeScript/Angular compiler targets passed.
+
+#### Lint
+
+`npx nx run-many -t lint -p @ptah-extension/memory-curator @ptah-extension/shared @ptah-extension/memory-curator-ui`
+
+```text
+NX   Running target lint for 3 projects:
+NX   Successfully ran target lint for 3 projects
+```
+
+Exit 0. Existing warnings only: shared 2, memory-curator-ui 27, memory-curator 5; zero errors.
+
+#### Degradation audit
+
+`npx nx run degradation-audit:lint`
+
+```text
+degradation-audit: scanned 2847 file(s)
+libs/backend/memory-curator: 20 ok (baseline 20)
+degradation-audit: TOTAL 303 unsuppressed site(s)
+NX   Successfully ran target lint for project degradation-audit
+```
+
+Exit 0.
+
+#### Electron / better-sqlite3
+
+`$env:ELECTRON_RUN_AS_NODE='1'; & 'D:\projects\ptah-extension\node_modules\.bin\electron.cmd' 'D:\projects\ptah-extension\node_modules\jest\bin\jest.js' --config libs/backend/memory-curator/jest.config.ts --testPathPatterns '"memory-lifecycle|retention-run-budget|memory-retention|observation-retention|di/register.spec|memory.store.spec"' --runInBand`
+
+```text
+Test Suites: 43 passed, 43 total
+Tests:       702 passed, 702 total
+Snapshots:   0 total
+```
+
+Exit 0. The required reachability specs therefore execute under better-sqlite3/sqlite-vec as well as the focused node:sqlite run above.
+
+#### Line and skip counts
+
+- `memory-retention.service.ts`: **663 physical lines** (`[System.IO.File]::ReadAllLines(...).Length`), below the ~720 ceiling.
+- `di/register.spec.ts`: **0** skipped tests.
+- `memory-retention.integration.spec.ts`: **0** skipped tests.
+
+### Requested `git diff --stat`
+
+```text
+ .../memory-curator/src/lib/di/register.spec.ts     |  43 +-
+ .../src/lib/diagnostics.service.spec.ts            |   8 +
+ .../retention/memory-retention.integration.spec.ts | 617 ++++++++++++++++++++-
+ .../lib/retention/memory-retention.service.spec.ts | 289 +++++++++-
+ .../src/lib/retention/memory-retention.service.ts  | 185 +++---
+ .../src/lib/retention/memory-retention.types.ts    |   4 +
+ .../retention/observation-retention.store.spec.ts  |  34 +-
+ .../lib/retention/observation-retention.store.ts   |  69 ++-
+ .../lib/retention/retention-sqlite.test-support.ts |  38 +-
+ .../src/lib/memory-retention-job.spec.ts           |   4 +
+ .../memory-diagnostics-accordion.component.spec.ts |  12 +-
+ .../storage-health-panel.component.spec.ts         |  21 +-
+ .../lib/types/rpc/rpc-curator-diagnostics.types.ts |  37 +-
+ 13 files changed, 1203 insertions(+), 158 deletions(-)
+```
+
+The stat is for the complete uncommitted Batch 6 worktree, including the original Batch 6 implementation. The new untracked `memory-storage-health.ts` is not represented by plain `git diff --stat`; it remains listed in `git status --short` as part of the original Batch 6 work.

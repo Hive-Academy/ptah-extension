@@ -1,6 +1,6 @@
 # Batches - TASK_2026_443_40ec
 
-Total tasks: 25 | Batches: 10 | Complete: 5/10
+Total tasks: 25 | Batches: 10 | Complete: 6/10
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle` (branch
 `feat/task-439-phase2-memory-lifecycle`, base 5e34e39cc). Below, `W` means that absolute path; every lane prompt
@@ -862,7 +862,7 @@ review round is required).
 
 ---
 
-## Batch 6: retention integration + shared DTO + REACHABILITY PROOF (DI reach, real-SQLite integration) — IN_PROGRESS
+## Batch 6: retention integration + shared DTO + REACHABILITY PROOF (DI reach, real-SQLite integration) — COMPLETE (commit cce109a0f, pre-origin/main rebase)
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer)
 - Fallback executor: backend-developer subagent
@@ -875,7 +875,7 @@ review round is required).
 - Suggested commit: `feat(memory-curator,shared): batch 6 - run the memory lifecycle inside memory retention`
 - Tasks: 4 | Depends on: Batch 5 (`b1712f35d`) on the `01b155b77` rebase (head `c31c06959`)
 
-### Task 6.1: `MemoryRetentionService` runs the lifecycle step; run record + report + storage health — IN_PROGRESS
+### Task 6.1: `MemoryRetentionService` runs the lifecycle step; run record + report + storage health — COMPLETE
 
 - Dir: `W\libs\backend\memory-curator\src\lib\retention\`
   - MODIFY `memory-retention.service.ts` (already on `RetentionRunBudget` after Task 5.1): inject
@@ -911,7 +911,7 @@ review round is required).
   (assert identity); a busy fake governor holds the first lifecycle batch until clear; `AbortError` during a lifecycle
   wait ends the run `partial` with `stop = 'aborted'` and no ledger prune or reclaim dispatch after it.
 
-### Task 6.2: Shared wire DTO additions + typed frontend fixture patch — IN_PROGRESS
+### Task 6.2: Shared wire DTO additions + typed frontend fixture patch — COMPLETE
 
 - Depends on: Task 6.1
 - Files:
@@ -926,7 +926,7 @@ review round is required).
 - Plan reference: implementation-plan.md:655-692
 - Validation notes: no RPC method added, so no `rpc.types.ts` method map or `ALLOWED_METHOD_PREFIXES` change.
 
-### Task 6.3: REACHABILITY PROOF — DI graph wires the lifecycle into the registered retention service — IN_PROGRESS
+### Task 6.3: REACHABILITY PROOF — DI graph wires the lifecycle into the registered retention service — COMPLETE
 
 - Depends on: Task 6.1
 - File: MODIFY `W\libs\backend\memory-curator\src\lib\di\register.spec.ts`
@@ -943,7 +943,7 @@ review round is required).
   `execute`, run only this spec, confirm it FAILS, restore, confirm it passes; `git diff` of the service identical to
   the intended change afterwards.
 
-### Task 6.4: REACHABILITY PROOF — real SQLite + sqlite-vec integration through `MemoryRetentionService.run` — IN_PROGRESS
+### Task 6.4: REACHABILITY PROOF — real SQLite + sqlite-vec integration through `MemoryRetentionService.run` — COMPLETE
 
 - Depends on: Tasks 6.1-6.3
 - File: MODIFY `W\libs\backend\memory-curator\src\lib\retention\memory-retention.integration.spec.ts` — new
@@ -977,7 +977,21 @@ review round is required).
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-6-report.md` (include every mutation-check output). Write
   `batch-6.done` in the task folder as the LAST step. Create no other file in the task folder.
 
-### Batch 6 revision 1 fix list (resume the Batch 6 codex session) — PENDING
+### Batch 6 revision 1 fix list (resume the Batch 6 codex session) — COMPLETE (in cce109a0f)
+
+- Team-leader diff read: M1 `reopenWithoutForeignKeys()` (reloads vec, sets `foreign_keys = OFF`, reads it back,
+  throws unless 0) + a committed FK-off T0+61 d integration case through `MemoryRetentionService.run` asserting 0
+  memories / chunks / concepts / FTS docsize / vec rowids per deleted id and intact survivors; mutation (only the
+  `DELETE_CHUNKS_SQL` `.run` call removed) FAILED (expected 0, received 2) and was restored. m2
+  `lifecycleReadErrors = []` set before `runStep`, with a spec. m4 `toBe` identity between the queue phase's budget
+  and the lifecycle's. `memory-lifecycle.store.ts` and `memory-lifecycle.service.ts` unchanged since `b1712f35d`
+  (empty `git diff`); no second review.
+- Team-leader re-run: test 6 projects green (memory-curator 643 passed / 59 skipped pre-existing; rpc-handlers 3002
+  passed / 33 skipped pre-existing; shared 1520; memory-curator-ui 184; thoth-runtime 187; cli-engine 90); typecheck 6
+  projects green; lint 3 projects 0 errors (warnings pre-existing); `degradation-audit:lint` exit 0, memory-curator 20
+  (baseline 20); better-sqlite3 via Electron 43 suites / 702 passed; `memory-retention.service.ts` 663 lines,
+  `memory-storage-health.ts` 158 lines. Committed with only the 14 Batch 6 files (13 modified + the new
+  `memory-storage-health.ts`).
 
 - Report (`batch-6-report.md`): 6-project test / typecheck green, 3-project lint green, degradation-audit 20/20,
   better-sqlite3 700/700, both reach suites 19/19 with 0 skipped, facade 662 lines. Mutation A (remove `runStep`)
