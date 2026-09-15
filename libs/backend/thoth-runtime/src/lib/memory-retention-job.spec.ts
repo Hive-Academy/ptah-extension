@@ -120,7 +120,8 @@ describe('createMemoryRetentionHandler', () => {
     const handler = createMemoryRetentionHandler(container);
 
     await expect(handler(makeCtx())).resolves.toEqual({
-      summary: 'purged 120 processed, quarantined 4 stuck, reclaimed 9 pages',
+      summary:
+        'purged 120 processed, quarantined 4 stuck, archived 8 / deleted 3 / evicted 2 memories, reclaimed 9 pages',
     });
   });
 
@@ -137,7 +138,7 @@ describe('createMemoryRetentionHandler', () => {
 
     await expect(handler(makeCtx())).resolves.toEqual({
       summary:
-        'purged 120 processed, quarantined 4 stuck, reclaimed 9 pages (partial: time-budget)',
+        'purged 120 processed, quarantined 4 stuck, archived 8 / deleted 3 / evicted 2 memories, reclaimed 9 pages (partial: time-budget)',
     });
   });
 

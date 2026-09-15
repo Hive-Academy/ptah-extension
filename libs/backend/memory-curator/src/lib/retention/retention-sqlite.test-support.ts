@@ -299,12 +299,17 @@ export interface SeedMemoryOptions {
   readonly token?: string;
 }
 
-/** Seed one complete memory row, including FTS, vec and concept dependants. */
-export function seedMemory(raw: RawDb, options: SeedMemoryOptions): void {
-  const now = options.lastUsedAt ?? 1_000;
-  const concepts = options.concepts ?? [];
-  raw
-    .prepare(
+interface MemorySeedStatements {
+  readonly insertMemory: RawStatement;
+  readonly insertChunk: RawStatement;
+  readonly selectChunkRowid: RawStatement;
+  readonly insertVec: RawStatement;
+  readonly insertConcept: RawStatement;
+}
+
+function prepareMemorySeedStatements(raw: RawDb): MemorySeedStatements {
+  return {
+    insertMemory: raw.prepare(
       `INSERT INTO memories (
        id, session_id, workspace_root, tier, kind, subject, content,
        source_message_ids, salience, decay_rate, hits, pinned,
@@ -313,31 +318,46 @@ export function seedMemory(raw: RawDb, options: SeedMemoryOptions): void {
        type, concepts_json, files_json, archived_at
      ) VALUES (?, ?, ?, ?, 'fact', NULL, ?, '[]', ?, 0.01, 0, ?,
        ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, 'discovery', ?, '[]', ?)`,
-    )
-    .run(
-      options.id,
-      options.sessionId ?? null,
-      options.workspaceRoot ?? null,
-      options.tier ?? 'recall',
-      options.token ?? `memory ${options.id}`,
-      options.salience ?? 0.6,
-      options.pinned ? 1 : 0,
-      now,
-      now,
-      now,
-      JSON.stringify(concepts),
-      options.archivedAt ?? null,
-    );
-  const insertChunk = raw.prepare(
-    `INSERT INTO memory_chunks (id, memory_id, ord, text, token_count, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  );
-  const insertVec = raw.prepare(
-    'INSERT INTO memory_chunks_vec(rowid, embedding) VALUES (?, ?)',
+    ),
+    insertChunk: raw.prepare(
+      `INSERT INTO memory_chunks (id, memory_id, ord, text, token_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ),
+    selectChunkRowid: raw.prepare(
+      'SELECT rowid FROM memory_chunks WHERE id = ?',
+    ),
+    insertVec: raw.prepare(
+      'INSERT INTO memory_chunks_vec(rowid, embedding) VALUES (?, ?)',
+    ),
+    insertConcept: raw.prepare(
+      'INSERT INTO memory_concepts_fts(memory_id, concept) VALUES (?, ?)',
+    ),
+  };
+}
+
+function insertMemorySeed(
+  statements: MemorySeedStatements,
+  options: SeedMemoryOptions,
+): void {
+  const now = options.lastUsedAt ?? 1_000;
+  const concepts = options.concepts ?? [];
+  statements.insertMemory.run(
+    options.id,
+    options.sessionId ?? null,
+    options.workspaceRoot ?? null,
+    options.tier ?? 'recall',
+    options.token ?? `memory ${options.id}`,
+    options.salience ?? 0.6,
+    options.pinned ? 1 : 0,
+    now,
+    now,
+    now,
+    JSON.stringify(concepts),
+    options.archivedAt ?? null,
   );
   for (let ord = 0; ord < (options.chunks ?? 1); ord++) {
     const id = `${options.id}-chunk-${ord}`;
-    insertChunk.run(
+    statements.insertChunk.run(
       id,
       options.id,
       ord,
@@ -345,15 +365,36 @@ export function seedMemory(raw: RawDb, options: SeedMemoryOptions): void {
       1,
       now,
     );
-    const row = raw
-      .prepare('SELECT rowid FROM memory_chunks WHERE id = ?')
-      .get(id) as { rowid: number };
-    insertVec.run(BigInt(row.rowid), Buffer.from(new Float32Array(384).buffer));
+    const row = statements.selectChunkRowid.get(id) as { rowid: number };
+    statements.insertVec.run(
+      BigInt(row.rowid),
+      Buffer.from(new Float32Array(384).buffer),
+    );
   }
-  const insertConcept = raw.prepare(
-    'INSERT INTO memory_concepts_fts(memory_id, concept) VALUES (?, ?)',
-  );
-  for (const concept of concepts) insertConcept.run(options.id, concept);
+  for (const concept of concepts) {
+    statements.insertConcept.run(options.id, concept);
+  }
+}
+
+/** Seed one complete memory row, including FTS, vec and concept dependants. */
+export function seedMemory(raw: RawDb, options: SeedMemoryOptions): void {
+  insertMemorySeed(prepareMemorySeedStatements(raw), options);
+}
+
+/** Seed complete memory rows in one transaction with statements prepared once. */
+export function seedMemories(
+  raw: RawDb,
+  rows: readonly SeedMemoryOptions[],
+): void {
+  const statements = prepareMemorySeedStatements(raw);
+  raw.exec('BEGIN');
+  try {
+    for (const row of rows) insertMemorySeed(statements, row);
+    raw.exec('COMMIT');
+  } catch (error: unknown) {
+    raw.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 /** Remove every temp directory created by {@link openRetentionTestDb}. */

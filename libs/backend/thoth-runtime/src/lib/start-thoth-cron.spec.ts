@@ -5,7 +5,12 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
 import type { JobHandler } from '@ptah-extension/cron-scheduler';
 import { SKILL_SYNTHESIS_TOKENS } from '@ptah-extension/skill-synthesis';
-import { MEMORY_TOKENS } from '@ptah-extension/memory-curator';
+import {
+  MEMORY_RETENTION_LIMITS,
+  MEMORY_TOKENS,
+  MemoryRetentionService,
+  RetentionRunBudget,
+} from '@ptah-extension/memory-curator';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES, isActivityEventPayload } from '@ptah-extension/shared';
 
@@ -794,7 +799,78 @@ describe('startThothCron', () => {
       enabled: true,
     };
 
-    function makeRetentionContainer(opts: { withService?: boolean } = {}) {
+    function makeRealRetentionService() {
+      const runStep = jest.fn().mockResolvedValue({
+        archived: 4,
+        deleted: 2,
+        evicted: 1,
+        exhausted: true,
+        stop: null,
+        note: null,
+        preview: null,
+        readErrors: [],
+      });
+      const logger = {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      } as unknown as ConstructorParameters<typeof MemoryRetentionService>[0];
+      const sqlite = {
+        db: {},
+      } as ConstructorParameters<typeof MemoryRetentionService>[2];
+      const reclaimer = {
+        readPageStats: jest.fn(() => ({
+          pageSize: 4096,
+          pageCount: 1,
+          freelistCount: 0,
+          autoVacuumMode: 0,
+        })),
+      } as unknown as ConstructorParameters<typeof MemoryRetentionService>[3];
+      const store = {
+        purgeProcessedBatch: jest.fn(() => ({
+          deleted: 0,
+          nextCursor: '',
+          exhausted: true,
+        })),
+        quarantineStuckBatch: jest.fn(() => ({
+          quarantined: 0,
+          payloadBytes: 0,
+        })),
+        pruneLedger: jest.fn(() => ({ pruned: 0 })),
+        readLiveStorage: jest.fn(() => ({
+          pendingRows: 0,
+          pendingBytes: 0,
+          oldestPendingAt: null,
+          stuckEligibleRows: 0,
+          quarantineLedgerRows: 0,
+          readErrors: [],
+        })),
+        countTotalRows: jest.fn(() => 0),
+        readState: jest.fn(() => null),
+        writeRun: jest.fn(),
+        writeSkip: jest.fn(),
+      } as unknown as ConstructorParameters<typeof MemoryRetentionService>[4];
+      const service = new MemoryRetentionService(
+        logger,
+        makeWorkspaceProvider() as unknown as ConstructorParameters<
+          typeof MemoryRetentionService
+        >[1],
+        sqlite,
+        reclaimer,
+        store,
+        { ...MEMORY_RETENTION_LIMITS, bootDeferralMs: 0 },
+        { runStep } as unknown as ConstructorParameters<
+          typeof MemoryRetentionService
+        >[6],
+        null,
+      );
+      return { service, runStep };
+    }
+
+    function makeRetentionContainer(
+      opts: { withService?: boolean; service?: unknown } = {},
+    ) {
       const handlers = new Map<string, JobHandler>();
       const handlerRegistry = {
         has: (name: string) => handlers.has(name),
@@ -815,6 +891,10 @@ describe('startThothCron', () => {
           ledgerPruned: 0,
           freedBytes: 0,
           pagesReclaimed: 2,
+          memoriesArchived: 0,
+          memoriesDeleted: 0,
+          memoriesEvicted: 0,
+          lifecycleNote: null,
           backlogRemaining: false,
           durationMs: 1,
           error: null,
@@ -828,7 +908,10 @@ describe('startThothCron', () => {
         [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],
       ];
       if (opts.withService !== false) {
-        entries.push([MEMORY_TOKENS.MEMORY_RETENTION_SERVICE, retention]);
+        entries.push([
+          MEMORY_TOKENS.MEMORY_RETENTION_SERVICE,
+          opts.service ?? retention,
+        ]);
       }
       return {
         container: makeContainer(entries),
@@ -874,7 +957,32 @@ describe('startThothCron', () => {
         signal: controller.signal,
       });
       expect(result).toEqual({
-        summary: 'purged 3 processed, quarantined 1 stuck, reclaimed 2 pages',
+        summary:
+          'purged 3 processed, quarantined 1 stuck, archived 0 / deleted 0 / evicted 0 memories, reclaimed 2 pages',
+      });
+    });
+
+    it('the registered handler runs the memory lifecycle step through a real MemoryRetentionService', async () => {
+      const { service, runStep } = makeRealRetentionService();
+      const { container, handlers } = makeRetentionContainer({ service });
+      await startThothCron(container, refsWithSqlite());
+
+      const handler = handlers.get('memory:retention') as JobHandler;
+      const result = await handler({
+        job: { id: '@ptah/memory-retention' } as never,
+        scheduledFor: 0,
+        signal: new AbortController().signal,
+      });
+
+      expect(runStep).toHaveBeenCalledTimes(1);
+      expect(runStep).toHaveBeenCalledWith(
+        expect.any(RetentionRunBudget),
+        expect.any(Number),
+      );
+      expect(result).toMatchObject({
+        summary: expect.stringContaining(
+          'archived 4 / deleted 2 / evicted 1 memories',
+        ),
       });
     });
 

@@ -1,5 +1,10 @@
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
-import { MEMORY_TOKENS } from '@ptah-extension/memory-curator';
+import {
+  MEMORY_RETENTION_LIMITS,
+  MEMORY_TOKENS,
+  MemoryRetentionService,
+  RetentionRunBudget,
+} from '@ptah-extension/memory-curator';
 import { SKILL_SYNTHESIS_TOKENS } from '@ptah-extension/skill-synthesis';
 import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
 import { GATEWAY_TOKENS } from '@ptah-extension/messaging-gateway';
@@ -134,6 +139,10 @@ function makeRuntimeDoubles(
         ledgerPruned: 0,
         freedBytes: 0,
         pagesReclaimed: 1,
+        memoriesArchived: 0,
+        memoriesDeleted: 0,
+        memoriesEvicted: 0,
+        lifecycleNote: null,
         backlogRemaining: false,
         durationMs: 2,
         error: null,
@@ -170,10 +179,12 @@ function makeRuntimeDoubles(
 function makeRuntimeContainer(
   doubles: RuntimeDoubles,
   registered: Set<symbol>,
+  overrides: ReadonlyMap<symbol, unknown> = new Map(),
 ) {
   return {
     isRegistered: (token: symbol) => registered.has(token),
     resolve: (token: symbol) => {
+      if (overrides.has(token)) return overrides.get(token);
       switch (token) {
         case PERSISTENCE_TOKENS.SQLITE_CONNECTION:
           return doubles.sqliteConnection;
@@ -459,6 +470,79 @@ describe('activateThoth — runtime tier', () => {
       MEMORY_TOKENS.MEMORY_RETENTION_SERVICE,
     ]);
 
+    function makeRealRetentionService() {
+      const runStep = jest.fn().mockResolvedValue({
+        archived: 4,
+        deleted: 2,
+        evicted: 1,
+        exhausted: true,
+        stop: null,
+        note: null,
+        preview: null,
+        readErrors: [],
+      });
+      const logger = {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      } as unknown as ConstructorParameters<typeof MemoryRetentionService>[0];
+      const workspace = {
+        getConfiguration: jest.fn(
+          (_section: string, _key: string, defaultValue: unknown) =>
+            defaultValue,
+        ),
+      } as unknown as ConstructorParameters<typeof MemoryRetentionService>[1];
+      const sqlite = {
+        db: {},
+      } as ConstructorParameters<typeof MemoryRetentionService>[2];
+      const reclaimer = {
+        readPageStats: jest.fn(() => ({
+          pageSize: 4096,
+          pageCount: 1,
+          freelistCount: 0,
+          autoVacuumMode: 0,
+        })),
+      } as unknown as ConstructorParameters<typeof MemoryRetentionService>[3];
+      const store = {
+        purgeProcessedBatch: jest.fn(() => ({
+          deleted: 0,
+          nextCursor: '',
+          exhausted: true,
+        })),
+        quarantineStuckBatch: jest.fn(() => ({
+          quarantined: 0,
+          payloadBytes: 0,
+        })),
+        pruneLedger: jest.fn(() => ({ pruned: 0 })),
+        readLiveStorage: jest.fn(() => ({
+          pendingRows: 0,
+          pendingBytes: 0,
+          oldestPendingAt: null,
+          stuckEligibleRows: 0,
+          quarantineLedgerRows: 0,
+          readErrors: [],
+        })),
+        countTotalRows: jest.fn(() => 0),
+        readState: jest.fn(() => null),
+        writeRun: jest.fn(),
+        writeSkip: jest.fn(),
+      } as unknown as ConstructorParameters<typeof MemoryRetentionService>[4];
+      const service = new MemoryRetentionService(
+        logger,
+        workspace,
+        sqlite,
+        reclaimer,
+        store,
+        { ...MEMORY_RETENTION_LIMITS, bootDeferralMs: 0 },
+        { runStep } as unknown as ConstructorParameters<
+          typeof MemoryRetentionService
+        >[6],
+        null,
+      );
+      return { service, runStep };
+    }
+
     it('upserts @ptah/memory-retention and registers memory:retention once', async () => {
       const doubles = makeRuntimeDoubles();
       const container = makeRuntimeContainer(doubles, WITH_RETENTION);
@@ -505,7 +589,42 @@ describe('activateThoth — runtime tier', () => {
         signal,
       });
       expect(result).toEqual({
-        summary: 'purged 5 processed, quarantined 0 stuck, reclaimed 1 pages',
+        summary:
+          'purged 5 processed, quarantined 0 stuck, archived 0 / deleted 0 / evicted 0 memories, reclaimed 1 pages',
+      });
+    });
+
+    it('the registered handler runs the memory lifecycle step through a real MemoryRetentionService', async () => {
+      const doubles = makeRuntimeDoubles();
+      const { service, runStep } = makeRealRetentionService();
+      const container = makeRuntimeContainer(
+        doubles,
+        WITH_RETENTION,
+        new Map([[MEMORY_TOKENS.MEMORY_RETENTION_SERVICE, service]]),
+      );
+      await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+      const retentionCall = doubles.handlerRegistry.register.mock.calls.find(
+        (call) => call[0] === 'memory:retention',
+      );
+      expect(retentionCall).toBeDefined();
+      const result = await (
+        retentionCall?.[1] as (ctx: unknown) => Promise<unknown>
+      )({
+        job: { id: '@ptah/memory-retention' },
+        scheduledFor: 0,
+        signal: new AbortController().signal,
+      });
+
+      expect(runStep).toHaveBeenCalledTimes(1);
+      expect(runStep).toHaveBeenCalledWith(
+        expect.any(RetentionRunBudget),
+        expect.any(Number),
+      );
+      expect(result).toMatchObject({
+        summary: expect.stringContaining(
+          'archived 4 / deleted 2 / evicted 1 memories',
+        ),
       });
     });
 

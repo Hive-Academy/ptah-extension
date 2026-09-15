@@ -48,6 +48,7 @@ import {
   removeRetentionTempDirs,
   requireSqliteOpener,
   seedObservations,
+  seedMemories,
   seedMemory,
   type RetentionTestDb,
   type SeedRow,
@@ -505,42 +506,41 @@ describe('memory lifecycle — integration (real SQLite + sqlite-vec, fake clock
     const h = makeLifecycleHarness({
       'memory.lifecycle.maxPerWorkspace': 1000,
     });
-    for (let i = 0; i < 1003; i++)
-      seedMemory(h.t.raw, {
+    seedMemories(h.t.raw, [
+      ...Array.from({ length: 1003 }, (_, i) => ({
         id: `cap-old-${i}`,
         workspaceRoot: '/a',
-        tier: 'archival',
+        tier: 'archival' as const,
         archivedAt: NOW - 8 * DAY,
         lastUsedAt: i + 1,
-      });
-    for (let i = 0; i < 3; i++)
-      seedMemory(h.t.raw, {
+      })),
+      ...Array.from({ length: 3 }, (_, i) => ({
         id: `cap-grace-${i}`,
         workspaceRoot: '/a',
-        tier: 'archival',
+        tier: 'archival' as const,
         archivedAt: NOW - 2 * DAY,
         lastUsedAt: 10_000 + i,
-      });
-    for (let i = 0; i < 20; i++)
-      seedMemory(h.t.raw, {
+      })),
+      ...Array.from({ length: 20 }, (_, i) => ({
         id: `cap-b-${i}`,
         workspaceRoot: '/b',
-        tier: 'archival',
+        tier: 'archival' as const,
         archivedAt: NOW - 8 * DAY,
-      });
-    seedMemory(h.t.raw, {
-      id: 'cap-pinned',
-      workspaceRoot: '/a',
-      pinned: true,
-      lastUsedAt: 0,
-    });
-    seedMemory(h.t.raw, {
-      id: 'cap-core',
-      workspaceRoot: '/a',
-      tier: 'core',
-      pinned: true,
-      lastUsedAt: 0,
-    });
+      })),
+      {
+        id: 'cap-pinned',
+        workspaceRoot: '/a',
+        pinned: true,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'cap-core',
+        workspaceRoot: '/a',
+        tier: 'core',
+        pinned: true,
+        lastUsedAt: 0,
+      },
+    ]);
     await expect(h.run(NOW)).resolves.toMatchObject({ memoriesEvicted: 6 });
     expect(
       h.t.raw
@@ -572,12 +572,14 @@ describe('memory lifecycle — integration (real SQLite + sqlite-vec, fake clock
     const h = makeLifecycleHarness({
       'memory.lifecycle.maxPerWorkspace': 1000,
     });
-    for (let i = 0; i < 1010; i++)
-      seedMemory(h.t.raw, {
+    seedMemories(
+      h.t.raw,
+      Array.from({ length: 1010 }, (_, i) => ({
         id: `recall-cap-${i}`,
         workspaceRoot: '/a',
         lastUsedAt: NOW - DAY + i,
-      });
+      })),
+    );
     await expect(h.run(NOW)).resolves.toMatchObject({ memoriesEvicted: 10 });
     expect(
       h.t.raw
