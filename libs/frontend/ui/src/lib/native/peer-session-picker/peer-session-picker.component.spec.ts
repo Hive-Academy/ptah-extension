@@ -283,6 +283,74 @@ describe('PeerSessionPickerComponent', () => {
         expect(el(fixture, HINT)).not.toBeNull();
       });
 
+      it('shows the hint when the title only matches the workspace segment', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              ...ws,
+              name: 'ptah-ptah-extension-chat-0b8a10',
+              ptahTitle: 'Ptah Extension',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, HINT)).not.toBeNull();
+      });
+
+      it('shows the hint when the title only matches the prefix or suffix', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              ...ws,
+              sessionId: 'prefix',
+              name: 'ptah-ptah-extension-chat-0b8a10',
+              ptahTitle: 'ptah',
+            }),
+            row({
+              ...ws,
+              sessionId: 'suffix',
+              name: 'ptah-ptah-extension-chat-0b8a10',
+              ptahTitle: '0b8a10',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(
+          (fixture.nativeElement as HTMLElement).querySelectorAll(
+            `[data-testid="${HINT}"]`,
+          ),
+        ).toHaveLength(2);
+      });
+
+      it('shows no hint for the date fallback name of a nameless session', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              ...ws,
+              name: 'ptah-ptah-extension-session-9-15-2026-0b8a10',
+              ptahTitle: 'Session 9/15/2026',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, HINT)).toBeNull();
+      });
+
+      it('falls back to a contains match when the name has no parseable role', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              workspace: '/src/other',
+              workspaceLabel: 'other',
+              name: 'branch-view-derived-by-cli',
+              ptahTitle: 'Branch View',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, HINT)).toBeNull();
+      });
+
       it('shows no hint when the 64-character cap cut a long title short', async () => {
         // buildSessionName: head budget 64 - 6 - 1 = 57, trailing dash trimmed.
         const name = 'ptah-ptah-extension-we-have-an-issue-in-the-team-builder-dc3acf';

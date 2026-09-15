@@ -110,32 +110,39 @@ const TRUNCATED_NAME_MIN_LENGTH = 63;
  * True when the registry name still reflects the Ptah title, i.e. the session
  * was NOT renamed since its CLI process spawned.
  *
- * The registry name is `ptah-<workspace>-<role>[-<taskId>]-<suffix>` with the
- * head capped (see `buildSessionName`). Rule:
+ * The registry name is `ptah-<workspace>-<role>-<suffix>` with the head capped
+ * (see `buildSessionName`). Only the ROLE is compared: matching anywhere in the
+ * name let a title collide with the prefix or the workspace segment ("Ptah
+ * Extension" against `ptah-ptah-extension-chat-0b8a10`) and hid a real rename.
+ * Rule:
  *  1. An empty slug (e.g. an emoji-only title) is never flagged: match.
- *  2. The name contains the slug: match.
- *  3. The name is at the cap length and starts with `ptah-<workspace slug>-`:
- *     take the part between that prefix and the last `-<suffix>` segment. The
- *     role was cut short, so it is a match when the slug starts with that part.
- *     The cap-length guard stops a longer new title ("branch view extended")
- *     from matching a short old role ("branch-view") by prefix.
- * Anything else is treated as renamed.
+ *  2. A name that does not parse as `ptah-<workspace slug>-<role>-<suffix>`
+ *     (a CLI-derived name, or a workspace label that differs from the spawn
+ *     cwd) has no role to compare, so it falls back to "contains the slug".
+ *  3. The role equals the slug: match.
+ *  4. The name is at the cap length, so the role was cut short: match when the
+ *     slug starts with the role. The cap-length guard stops a longer new title
+ *     ("branch view extended") from matching a short old role ("branch-view").
+ * Anything else is treated as renamed. A `-<taskId>` segment is not modelled:
+ * no chat or Ptah CLI caller passes one to `buildSessionName`.
  */
 function titleMatchesRegistryName(session: PeerSessionRow): boolean {
   const slug = slugifyLikeSessionName(session.ptahTitle ?? '');
-  if (slug === '' || session.name.includes(slug)) {
+  if (slug === '') {
     return true;
-  }
-  if (session.name.length < TRUNCATED_NAME_MIN_LENGTH) {
-    return false;
   }
   const prefix = `ptah-${slugifyLikeSessionName(session.workspaceLabel)}-`;
   const suffixStart = session.name.lastIndexOf('-');
-  if (!session.name.startsWith(prefix) || suffixStart < prefix.length) {
-    return false;
+  if (!session.name.startsWith(prefix) || suffixStart <= prefix.length) {
+    return session.name.includes(slug);
   }
-  const truncatedRole = session.name.slice(prefix.length, suffixStart);
-  return truncatedRole !== '' && slug.startsWith(truncatedRole);
+  const role = session.name.slice(prefix.length, suffixStart);
+  if (role === slug) {
+    return true;
+  }
+  return (
+    session.name.length >= TRUNCATED_NAME_MIN_LENGTH && slug.startsWith(role)
+  );
 }
 
 /** Show the rename hint only for a titled row whose address predates a rename. */
