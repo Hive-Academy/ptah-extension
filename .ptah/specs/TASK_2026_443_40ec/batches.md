@@ -1,6 +1,6 @@
 # Batches - TASK_2026_443_40ec
 
-Total tasks: 25 | Batches: 10 | Complete: 6/10
+Total tasks: 25 | Batches: 10 | Complete: 7/10
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle` (branch
 `feat/task-439-phase2-memory-lifecycle`, base 5e34e39cc). Below, `W` means that absolute path; every lane prompt
@@ -1174,7 +1174,7 @@ review round is required).
 
 ---
 
-## Batch 8: memory-curator-ui — lifecycle rows in the storage panel; decay tile removed — IN_PROGRESS
+## Batch 8: memory-curator-ui — lifecycle rows in the storage panel; decay tile removed — COMPLETE (commit 51ce3d58e)
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role frontend-developer)
 - Fallback executor: frontend-developer subagent
@@ -1185,7 +1185,7 @@ review round is required).
 - Suggested commit: `feat(memory-curator-ui): batch 8 - show memory lifecycle results and preview; drop the decay tile`
 - Tasks: 2 | Depends on: Batch 6 (`82410f33d`) on the origin/main rebase (`a3b2d7c71`)
 
-### Task 8.1: Storage panel rows — IN_PROGRESS
+### Task 8.1: Storage panel rows — COMPLETE
 
 - Files: MODIFY `W\libs\frontend\memory-curator-ui\src\lib\components\diagnostics\storage-health-panel.component.ts`
   and `storage-health-panel.component.spec.ts`
@@ -1199,7 +1199,7 @@ review round is required).
 - Quality requirements: OnPush unchanged; text (not colour) carries the note; no settings writes.
 - Acceptance: spec renders both rows for a populated DTO, null preview, disabled, vec-unavailable.
 
-### Task 8.2: Remove decay tile, state and event tone — IN_PROGRESS
+### Task 8.2: Remove decay tile, state and event tone — COMPLETE
 
 - Files (all under `W\libs\frontend\memory-curator-ui\src\lib\`):
   `components\diagnostics\memory-diagnostics-accordion.component.ts` (tile :61-66, `lastDecay` :226,
@@ -1218,6 +1218,26 @@ review round is required).
   - XB2: `npx nx run degradation-audit:lint` (exit 0; memory-curator-ui stays at baseline 15)
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-8-report.md`. Write `batch-8.done` last; create no other file in
   the task folder.
+
+### Batch 8 result
+
+- Report (`batch-8-report.md`): 9 files, all in `libs/frontend/memory-curator-ui`; test 188/188 (the first run's two
+  failures were fixed in-batch without weakening assertions, review item 6); typecheck + lint green;
+  degradation-audit memory-curator-ui 15/15; no non-spec `lastDecay` / `decay-run` reads.
+- Review (Ollama Cloud, `code-logic-review-batch-8.md`): APPROVED 8/10, 0 blocking/serious, 1 moderate, 4 minor.
+- Team-leader decision: ACCEPTED and committed; nothing to fix inside Batch 8.
+  - Moderate 1 (`event-feed.component.ts:164-165` lost `default: return assertNever(ev.kind)` and now returns `'info'`)
+    cannot be fixed while the shared union still contains `'decay-run'`, which Batch 8 must not remove (Deviation 3).
+    It is CARRIED into Task 9.1, where the union loses `'decay-run'` in the same commit.
+  - Minors 2-4 (spec-only; they live in the files Task 9.1 already touches in memory-curator-ui) are CARRIED into
+    Task 9.1 instead of a separate revision round while Batch 7 is running. Minor 5 (untyped rpc spec fixtures) is
+    recorded for Batch 9.
+  - UI behaviour note: `vec-unavailable` shows the pause message in place of a populated preview. The plan lists the
+    four texts as alternatives ("or"), so this is per plan; Task 9.1 pins it with a spec.
+- Team-leader re-run (memory-curator-ui only; the Batch 7 lane was still editing backend libs): test / typecheck /
+  lint for 1 project green (17 suites / 188 passed; lint 0 errors, 27 pre-existing warnings); degradation-audit
+  memory-curator-ui 15 (baseline 15); non-spec grep for `lastDecay|decay-run` under `libs/frontend`: no match.
+  Committed with only the 9 Batch 8 files.
 
 ### Batch 8 verification
 
@@ -1252,6 +1272,19 @@ review round is required).
     (:117-118,633-634,683)
   - MODIFY `W\apps\ptah-extension-vscode\src\integration\wizard-seed-noop.spec.ts` (drop both `Symbol.for` mocks :41-42)
 - Plan reference: implementation-plan.md:634-653, 129-136
+- Carried from `code-logic-review-batch-8.md` (all in memory-curator-ui; the commit set for Batch 9 grows by these
+  files, and `@ptah-extension/memory-curator-ui` is already in the Batch 9 test / typecheck set; add it to the lint set):
+  - Moderate 1: in `W\libs\frontend\memory-curator-ui\src\lib\components\diagnostics\event-feed.component.ts`, restore
+    `import { assertNever } from '@ptah-extension/shared'` and `default: return assertNever(ev.kind);` in the same
+    commit that removes `'decay-run'` from `MemoryCuratorEventKind` in shared. Typecheck must prove the switch is
+    exhaustive again.
+  - Minor 2: `storage-health-panel.component.spec.ts` case: `lastNote: 'vec-unavailable'` with a populated preview
+    renders exactly `deletes paused: vector extension unavailable` in the lifecycle dd (the preview text is absent).
+  - Minor 3: promote the three status assertions that use `toContain` to `toBe` on the full, trimmed dd text.
+  - Minor 4: a spec asserts the `Memories` row is absent when `retention.lastRun` is null.
+  - Minor 5: the rpc diagnostics spec fixtures in `memory-diagnostics-rpc.service.spec.ts` are untyped literals; when
+    Task 9.1 removes `lastDecayAt` / `lastDecayStats` there, type the fixture as `MemoryDiagnosticsResult` so a future
+    field change fails at compile time.
 - Acceptance: grep `MemoryDecayJob|MEMORY_DECAY_JOB|lastDecay|decay-run|recordDecayEvent|MemoryDecayStats` under
   `W\libs` and `W\apps` returns nothing.
 
@@ -1271,7 +1304,7 @@ review round is required).
 - Commands (from `W`), for the whole batch:
   - `npx nx run-many -t test -p @ptah-extension/memory-curator @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/memory-curator-ui @ptah-extension/thoth-runtime @ptah-extension/cli-engine` — "for 6 projects"
   - same set with `-t typecheck` — 6 projects
-  - `npx nx run-many -t lint -p @ptah-extension/memory-curator @ptah-extension/shared @ptah-extension/rpc-handlers` — 3 projects
+  - `npx nx run-many -t lint -p @ptah-extension/memory-curator @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/memory-curator-ui` — 4 projects
   - `npx nx run-many -t test -p ptah-extension-vscode` — "for 1 project"
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-9-report.md`
 
