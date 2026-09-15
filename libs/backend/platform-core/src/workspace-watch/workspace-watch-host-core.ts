@@ -122,6 +122,22 @@ export const WORKSPACE_WATCH_HOST_DEFAULTS = {
   /** Minimum gap between two such rebuilds of one root: each re-walks the whole tree. */
   rebuildMinGapMs: 10_000,
   /**
+   * Longest one native unsubscribe may take before the engine counts as wedged
+   * (`fatal`, host restart). Every native call waits behind the previous one,
+   * so a hung call would otherwise stop the host for good. An unsubscribe
+   * walks nothing — it removes watches — so a slow one IS the failure. Also
+   * the most `dispose` waits, so it never holds up an app quit for long.
+   */
+  nativeUnsubscribeTimeoutMs: 10_000,
+  /**
+   * Longest one native subscribe may take. A subscribe walks the whole root
+   * before it resolves, so this must cover a legitimate walk of a large
+   * workspace on a slow disk (the manual load test's workspace holds 238k
+   * files): a timeout here restarts the host, and repeated restarts end in
+   * degraded mode. Two minutes still bounds a call that truly hangs.
+   */
+  nativeSubscribeTimeoutMs: 120_000,
+  /**
    * Most runtime-detected nested roots a root keeps in its native ignore set.
    * Beyond it the coalescers still exclude them; only the native saving stops.
    */
@@ -143,6 +159,8 @@ export interface WorkspaceWatchHostCoreOptions {
   readonly nativeRetryMaxMs?: number;
   readonly rebuildDebounceMs?: number;
   readonly rebuildMinGapMs?: number;
+  readonly nativeUnsubscribeTimeoutMs?: number;
+  readonly nativeSubscribeTimeoutMs?: number;
   /**
    * Enables created-directory reconciliation. Only an engine that adds a watch
    * per created directory needs it — `@parcel/watcher`'s inotify backend; the
@@ -197,9 +215,20 @@ interface RootWatch {
   lastNestedResubscribeAt: number | undefined;
 }
 
+/**
+ * Every host timer — heartbeat, coalescers (they receive this clock), rebuild,
+ * retry, reconciliation, native-call timeouts — is unref'd: none of them may
+ * keep a quitting process alive. A host lives exactly as long as its channel to
+ * the supervisor (fork IPC, utilityProcess `parentPort`) or its hosting process
+ * (the in-process hatch), both of which keep the process referenced.
+ */
 const DEFAULT_CLOCK: WorkspaceChangeCoalescerClock = {
   now: () => Date.now(),
-  setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
+  setTimer: (callback, delayMs) => {
+    const timer = setTimeout(callback, delayMs);
+    timer.unref?.();
+    return timer;
+  },
   clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
@@ -219,6 +248,10 @@ export class WorkspaceWatchHostCore {
   private readonly retryMaxMs: number;
   private readonly rebuildDebounceMs: number;
   private readonly rebuildMinGapMs: number;
+  private readonly nativeUnsubscribeTimeoutMs: number;
+  private readonly nativeSubscribeTimeoutMs: number;
+  /** Native calls started and not yet settled or timed out. */
+  private readonly inFlightNative = new Set<{ abandon(): void }>();
   private readonly listDirectory: WorkspaceWatchListDirectory | undefined;
 
   private readonly subscriptions = new Map<number, RootWatch>();
@@ -230,6 +263,8 @@ export class WorkspaceWatchHostCore {
   private invalidMessagesReported = 0;
   private started = false;
   private disposed = false;
+  /** Tail of the native subscribe/unsubscribe queue ({@link serializeNative}). */
+  private nativeOperations: Promise<unknown> = Promise.resolve();
 
   constructor(options: WorkspaceWatchHostCoreOptions) {
     const defaults = WORKSPACE_WATCH_HOST_DEFAULTS;
@@ -250,6 +285,10 @@ export class WorkspaceWatchHostCore {
     this.rebuildDebounceMs =
       options.rebuildDebounceMs ?? defaults.rebuildDebounceMs;
     this.rebuildMinGapMs = options.rebuildMinGapMs ?? defaults.rebuildMinGapMs;
+    this.nativeUnsubscribeTimeoutMs =
+      options.nativeUnsubscribeTimeoutMs ?? defaults.nativeUnsubscribeTimeoutMs;
+    this.nativeSubscribeTimeoutMs =
+      options.nativeSubscribeTimeoutMs ?? defaults.nativeSubscribeTimeoutMs;
     this.listDirectory = options.listDirectory;
   }
 
@@ -285,7 +324,17 @@ export class WorkspaceWatchHostCore {
     }
   }
 
-  /** Stops every subscription and timer. Never rejects. */
+  /**
+   * Stops every subscription and timer, and waits for the native calls already
+   * queued — the releases of every root, and of a subscription that resolved
+   * after its root was abandoned — for at most `nativeUnsubscribeTimeoutMs`,
+   * so an app quit is never held longer. Never rejects.
+   *
+   * A native call still running at that cap (a subscribe mid-walk) is
+   * abandoned: its timer stops, its caller sees a failure (inert — every root
+   * is gone), and a subscription it resolves with later is released through
+   * the same late-result path a timeout uses.
+   */
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
@@ -296,7 +345,35 @@ export class WorkspaceWatchHostCore {
     const roots = [...this.roots.values()];
     this.roots.clear();
     this.subscriptions.clear();
-    await Promise.all(roots.map((root) => this.teardownRoot(root)));
+    const released = Promise.all(
+      roots.map((root) => this.teardownRoot(root)),
+    ).then(() => this.nativeOperations);
+    const settled = await this.settlesWithin(
+      released,
+      this.nativeUnsubscribeTimeoutMs,
+    );
+    if (settled) return;
+    for (const call of [...this.inFlightNative]) call.abandon();
+  }
+
+  /** True when `promise` settles before `timeoutMs`; false at the timeout. */
+  private settlesWithin(
+    promise: Promise<unknown>,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const timer = this.clock.setTimer(() => resolve(false), timeoutMs);
+      void promise.then(
+        () => {
+          this.clock.clearTimer(timer);
+          resolve(true);
+        },
+        () => {
+          this.clock.clearTimer(timer);
+          resolve(true);
+        },
+      );
+    });
   }
 
   private subscribe(message: WorkspaceWatchSubscribeMessage): void {
@@ -494,8 +571,8 @@ export class WorkspaceWatchHostCore {
 
   /**
    * Releases `released` (a rebuild) and subscribes. Resolves `undefined` when
-   * the root was abandoned while the release was awaited. A synchronous engine
-   * throw becomes a rejection, because this function is `async`.
+   * the root was abandoned while the release or the queue was awaited. A
+   * synchronous engine throw becomes a rejection.
    */
   private async subscribeNative(
     root: RootWatch,
@@ -507,7 +584,121 @@ export class WorkspaceWatchHostCore {
       await this.unsubscribeNative(released.subscription);
       if (!this.isCurrent(root)) return undefined;
     }
-    return this.engine.subscribe(root.dir, callback, { ignore: [...ignore] });
+    return this.serializeNative(
+      'subscribe',
+      async () =>
+        // Re-checked in the queue: the root may have been abandoned meanwhile.
+        this.isCurrent(root)
+          ? this.engine.subscribe(root.dir, callback, { ignore: [...ignore] })
+          : undefined,
+      // Resolved after its timeout: nobody owns it any more.
+      (late) => {
+        if (late) void this.unsubscribeNative(late);
+      },
+    );
+  }
+
+  /**
+   * Runs one native subscribe or unsubscribe after every earlier one settled.
+   *
+   * `@parcel/watcher` keeps ONE backend per process. When an unsubscribe removes
+   * that backend's last subscription while a subscribe — for any root — is in
+   * flight, the new subscription attaches to the backend being torn down: it
+   * resolves, and never delivers an event. Measured on Linux with 2.5.6:
+   * overlapping unsubscribe(A) + subscribe(B) pairs were dead in 100 of 100
+   * runs idle and 94 of 100 under CPU load; awaiting the unsubscribe first, 0
+   * of 100 either way. That is a workspace-folder switch, and the entry spec's
+   * back-to-back tests on a loaded CI runner. Serializing keeps the nested-root
+   * overlap intact: that replacement subscribe is queued before the old
+   * subscription's unsubscribe.
+   *
+   * A queue is only as live as its slowest call, so each call is bounded:
+   * `nativeSubscribeTimeoutMs` for a subscribe (it walks the root),
+   * `nativeUnsubscribeTimeoutMs` for an unsubscribe. A call that misses it
+   * means the engine is wedged: the host posts `fatal` (the supervisor restarts
+   * it, within its budget), the call rejects so the queue moves on, and
+   * whatever the call resolves with later goes to `onLate` instead of its
+   * caller.
+   */
+  private serializeNative<T>(
+    kind: 'subscribe' | 'unsubscribe',
+    operation: () => Promise<T>,
+    onLate?: (value: T) => void,
+  ): Promise<T> {
+    const run = this.nativeOperations.then(() =>
+      this.withNativeTimeout(kind, operation, onLate),
+    );
+    // The queue only orders operations; each caller handles its own failure,
+    // so a rejected one must not stall the ones behind it.
+    this.nativeOperations = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private withNativeTimeout<T>(
+    kind: 'subscribe' | 'unsubscribe',
+    operation: () => Promise<T>,
+    onLate: ((value: T) => void) | undefined,
+  ): Promise<T> {
+    // Once disposed a call still runs — releases must reach the engine, the
+    // in-process hatch shares its process with a successor host — but untimed:
+    // nothing may be posted any more, `dispose` already bounds its own wait,
+    // and a queue behind a call `dispose` abandoned drains without arming a
+    // fresh timer per release.
+    if (this.disposed) return operation();
+    const timeoutMs =
+      kind === 'subscribe'
+        ? this.nativeSubscribeTimeoutMs
+        : this.nativeUnsubscribeTimeoutMs;
+    return new Promise<T>((resolve, reject) => {
+      // Set once the caller has been answered by a timeout or by dispose.
+      let timedOut = false;
+      const call = {
+        abandon: () => {
+          if (timedOut) return;
+          timedOut = true;
+          this.inFlightNative.delete(call);
+          this.clock.clearTimer(timer);
+          reject(new Error(`native ${kind} abandoned by dispose`));
+        },
+      };
+      const timer = this.clock.setTimer(() => {
+        timedOut = true;
+        this.inFlightNative.delete(call);
+        const message = `native ${kind} did not settle within ${timeoutMs} ms`;
+        if (!this.disposed) this.post({ type: 'fatal', message });
+        reject(new Error(message));
+      }, timeoutMs);
+      this.inFlightNative.add(call);
+
+      let pending: Promise<T>;
+      try {
+        pending = operation();
+      } catch (error: unknown) {
+        pending = Promise.reject(error);
+      }
+      pending.then(
+        (value) => {
+          if (timedOut) {
+            onLate?.(value);
+            return;
+          }
+          this.inFlightNative.delete(call);
+          this.clock.clearTimer(timer);
+          resolve(value);
+        },
+        (error: unknown) => {
+          // After a timeout this failure was already reported as `fatal` (or
+          // the host is disposed); before it, the caller receives it.
+          if (timedOut) return;
+          this.inFlightNative.delete(call);
+          this.clock.clearTimer(timer);
+          reject(error);
+        },
+      );
+    });
   }
 
   private onNativeSubscribed(
@@ -757,7 +948,9 @@ export class WorkspaceWatchHostCore {
     subscription: WorkspaceWatchEngineSubscription,
   ): Promise<void> {
     try {
-      await subscription.unsubscribe();
+      await this.serializeNative('unsubscribe', () =>
+        subscription.unsubscribe(),
+      );
     } catch (error: unknown) {
       if (!this.disposed) {
         this.postError('native-unsubscribe-failed', describeError(error));

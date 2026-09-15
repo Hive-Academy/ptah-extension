@@ -75,6 +75,11 @@ Implementations: `ElectronFileSystemProvider`, `ElectronStateStorage`, `Electron
   transport. A host needs its own process — the Electron `utilityProcess`, or a
   `child_process.fork` in plain Node. Never load it statically: the main bundle
   would pay the native load on every boot.
+- **One native watcher call at a time, per process.** Overlapping a subscribe with
+  another root's last unsubscribe yields a dead `@parcel/watcher` subscription;
+  `WorkspaceWatchHostCore` queues every call (unsubscribe 10 s, subscribe 120 s →
+  `fatal`). Code here
+  that talks to the engine goes through the core, never around it.
 - `ElectronWorkspaceWatcher` never imports `vscode-core`: logging and
   `DegradationReporter` arrive as the `onDiagnostic` / `onDegraded` callbacks the
   app binds (`apps/ptah-electron/src/services/platform/electron-workspace-watch-host-factory.ts`).

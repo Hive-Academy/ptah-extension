@@ -472,6 +472,7 @@ describe('WorkspaceWatchHostCore', () => {
         autoSettle: false,
       });
       subscribe(1);
+      await flush();
       calls[0].fail(new Error('ENOENT'));
       await flush();
       clock.advance(250);
@@ -699,6 +700,37 @@ describe('WorkspaceWatchHostCore', () => {
 
       expect(h.calls).toHaveLength(1);
       expect(h.rebuilt()).toEqual([]);
+      await h.core.dispose();
+    });
+
+    it('a nested .git found only by listing is detected like a reported one: notice, then native ignore', async () => {
+      const h = reconcilingSetup();
+      h.subscribe(1, { nestedRepoDetection: true });
+      await flush();
+      h.tree.set('/repo/clone', [h.file('.git'), h.file('README.md')]);
+
+      // inotify reported the directory but not the `.git` written into it.
+      h.calls[0].emit([{ path: '/repo/clone', type: 'create' }]);
+      expect(
+        h.ofType('notice').filter((n) => n.code === 'nested-root-detected'),
+      ).toEqual([]);
+      h.clock.advance(SETTLE);
+      await flush();
+
+      expect(
+        h.ofType('notice').filter((n) => n.code === 'nested-root-detected'),
+      ).toEqual([expect.objectContaining({ detail: '/repo/clone' })]);
+      h.clock.advance(
+        WORKSPACE_WATCH_HOST_DEFAULTS.nestedResubscribeDebounceMs,
+      );
+      await flush();
+      expect(last(h.calls)?.ignore).toEqual(['/repo/clone']);
+      h.clock.advance(250);
+      // Everything under the new nested root stays out of the batches.
+      const delivered = h
+        .batches(1)
+        .flatMap((b) => b.changes.map((c) => c.path));
+      expect(delivered.filter((p) => p.startsWith('/repo/clone/'))).toEqual([]);
       await h.core.dispose();
     });
 
@@ -1004,10 +1036,236 @@ describe('WorkspaceWatchHostCore', () => {
     it('releases a subscription that resolves after its root was abandoned', async () => {
       const { subscribe, calls, core } = setup({ autoSettle: false });
       subscribe(1);
+      await flush();
       core.handleMessage({ type: 'unsubscribe', id: 1 });
       calls[0].settle();
       await flush();
       expect(calls[0].unsubscribe).toHaveBeenCalledTimes(1);
+      await core.dispose();
+    });
+
+    it('never runs a native subscribe while another root’s unsubscribe is in flight', async () => {
+      const { subscribe, calls, log, core } = setup();
+      subscribe(1, {}, '/a');
+      await flush();
+      let release: () => void = () => undefined;
+      calls[0].unsubscribe.mockImplementationOnce(() => {
+        log.push('unsubscribe:0');
+        return new Promise<void>((resolve) => (release = resolve));
+      });
+
+      // A folder switch: the last subscription of one root goes, another comes.
+      core.handleMessage({ type: 'unsubscribe', id: 1 });
+      subscribe(2, {}, '/b');
+      await flush();
+      expect(log).toEqual(['subscribe:0', 'unsubscribe:0']);
+
+      release();
+      await flush();
+      expect(log).toEqual(['subscribe:0', 'unsubscribe:0', 'subscribe:1']);
+      expect(calls[1].dir).toBe('/b');
+      await core.dispose();
+    });
+
+    it('a hung native unsubscribe times out: fatal, the queued subscribe runs, the late resolve is inert', async () => {
+      const TIMEOUT = WORKSPACE_WATCH_HOST_DEFAULTS.nativeUnsubscribeTimeoutMs;
+      const { clock, subscribe, calls, posted, ofType, core } = setup();
+      subscribe(1, {}, '/a');
+      await flush();
+      let release: () => void = () => undefined;
+      calls[0].unsubscribe.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (release = resolve)),
+      );
+
+      core.handleMessage({ type: 'unsubscribe', id: 1 });
+      subscribe(2, {}, '/b');
+      await flush();
+      clock.advance(TIMEOUT - 1);
+      await flush();
+      expect(calls).toHaveLength(1);
+      expect(ofType('fatal')).toEqual([]);
+
+      clock.advance(1);
+      await flush();
+      expect(ofType('fatal')).toEqual([
+        {
+          type: 'fatal',
+          message: `native unsubscribe did not settle within ${TIMEOUT} ms`,
+        },
+      ]);
+      expect(ofType('error')).toEqual([
+        expect.objectContaining({ code: 'native-unsubscribe-failed' }),
+      ]);
+      expect(calls.map((c) => c.dir)).toEqual(['/a', '/b']);
+
+      const count = posted.length;
+      release();
+      await flush();
+      expect(posted).toHaveLength(count);
+      await core.dispose();
+    });
+
+    it('a hung subscribe is fatal only after the subscribe timeout; its late result is released and the root retries', async () => {
+      const TIMEOUT = WORKSPACE_WATCH_HOST_DEFAULTS.nativeSubscribeTimeoutMs;
+      const { clock, subscribe, calls, ofType, core } = setup({
+        autoSettle: false,
+      });
+      subscribe(1);
+      await flush();
+      // A long walk is not a hang: the unsubscribe bound does not apply.
+      clock.advance(TIMEOUT - 1);
+      await flush();
+      expect(ofType('fatal')).toEqual([]);
+      clock.advance(1);
+      await flush();
+      expect(ofType('fatal')).toEqual([
+        expect.objectContaining({
+          message: `native subscribe did not settle within ${TIMEOUT} ms`,
+        }),
+      ]);
+      expect(ofType('error')).toEqual([
+        expect.objectContaining({ code: 'native-subscribe-failed' }),
+      ]);
+
+      // The late subscription belongs to nobody: released, never acked.
+      calls[0].settle();
+      await flush();
+      expect(calls[0].unsubscribe).toHaveBeenCalledTimes(1);
+      expect(ofType('subscribed')).toEqual([]);
+
+      clock.advance(WORKSPACE_WATCH_HOST_DEFAULTS.nativeRetryInitialMs);
+      await flush();
+      expect(calls).toHaveLength(2);
+      calls[1].settle();
+      await flush();
+      expect(ofType('subscribed')).toEqual([{ type: 'subscribed', id: 1 }]);
+      await core.dispose();
+    });
+
+    it('dispose waits for a cleanup release queued before it, bounded by the timeout', async () => {
+      const { clock, subscribe, calls, core } = setup({ autoSettle: false });
+      subscribe(1);
+      await flush();
+      // Abandoned while subscribing: its late subscription gets released.
+      core.handleMessage({ type: 'unsubscribe', id: 1 });
+      let release: () => void = () => undefined;
+      calls[0].unsubscribe.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (release = resolve)),
+      );
+      calls[0].settle();
+      await flush();
+      expect(calls[0].unsubscribe).toHaveBeenCalledTimes(1);
+
+      let disposed = false;
+      void core.dispose().then(() => (disposed = true));
+      await flush();
+      expect(disposed).toBe(false);
+      release();
+      await flush();
+      expect(disposed).toBe(true);
+      expect(clock.pendingTimers).toBe(0);
+    });
+
+    it('dispose with a subscribe mid-walk resolves after at most the unsubscribe timeout; the late subscription is released', async () => {
+      const CAP = WORKSPACE_WATCH_HOST_DEFAULTS.nativeUnsubscribeTimeoutMs;
+      const { clock, subscribe, calls, ofType, core } = setup({
+        autoSettle: false,
+      });
+      subscribe(1);
+      await flush();
+
+      let disposed = false;
+      void core.dispose().then(() => (disposed = true));
+      await flush();
+      clock.advance(CAP - 1);
+      await flush();
+      expect(disposed).toBe(false);
+      clock.advance(1);
+      await flush();
+      expect(disposed).toBe(true);
+      expect(ofType('fatal')).toEqual([]);
+      expect(clock.pendingTimers).toBe(0);
+
+      // The walk finishes after the app has moved on: released, never acked.
+      calls[0].settle();
+      await flush();
+      expect(calls[0].unsubscribe).toHaveBeenCalledTimes(1);
+      expect(ofType('subscribed')).toEqual([]);
+      expect(ofType('fatal')).toEqual([]);
+      expect(clock.pendingTimers).toBe(0);
+    });
+
+    it('releases queued behind a call dispose abandoned still run after dispose, without fresh timers', async () => {
+      const CAP = WORKSPACE_WATCH_HOST_DEFAULTS.nativeUnsubscribeTimeoutMs;
+      const { clock, subscribe, calls, ofType, core } = setup({
+        autoSettle: false,
+      });
+      subscribe(1, {}, '/a');
+      await flush();
+      calls[0].settle();
+      await flush();
+      // A release that will never settle, queued behind a subscribe mid-walk.
+      calls[0].unsubscribe.mockImplementationOnce(
+        () => new Promise<void>(() => undefined),
+      );
+      subscribe(2, {}, '/b');
+      await flush();
+      expect(calls).toHaveLength(2);
+
+      let disposed = false;
+      void core.dispose().then(() => (disposed = true));
+      await flush();
+      expect(calls[0].unsubscribe).not.toHaveBeenCalled();
+
+      clock.advance(CAP);
+      await flush();
+      expect(disposed).toBe(true);
+      // The abandoned walk let the queue move: `/a` is released, untimed.
+      expect(calls[0].unsubscribe).toHaveBeenCalledTimes(1);
+      expect(clock.pendingTimers).toBe(0);
+
+      clock.advance(WORKSPACE_WATCH_HOST_DEFAULTS.nativeSubscribeTimeoutMs);
+      await flush();
+      expect(ofType('fatal')).toEqual([]);
+      expect(clock.pendingTimers).toBe(0);
+    });
+
+    it('dispose does not wait past the unsubscribe timeout for a release that never settles', async () => {
+      const TIMEOUT = WORKSPACE_WATCH_HOST_DEFAULTS.nativeUnsubscribeTimeoutMs;
+      const { clock, subscribe, calls, ofType, core } = setup();
+      subscribe(1);
+      await flush();
+      calls[0].unsubscribe.mockImplementationOnce(
+        () => new Promise<void>(() => undefined),
+      );
+
+      let disposed = false;
+      void core.dispose().then(() => (disposed = true));
+      await flush();
+      expect(disposed).toBe(false);
+      clock.advance(TIMEOUT);
+      await flush();
+      expect(disposed).toBe(true);
+      // Disposed: nothing is posted any more, fatal included.
+      expect(ofType('fatal')).toEqual([]);
+      expect(clock.pendingTimers).toBe(0);
+    });
+
+    it('drops a queued subscribe whose root was abandoned before its turn', async () => {
+      const { subscribe, calls, core } = setup();
+      subscribe(1, {}, '/a');
+      await flush();
+      let release: () => void = () => undefined;
+      calls[0].unsubscribe.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (release = resolve)),
+      );
+      core.handleMessage({ type: 'unsubscribe', id: 1 });
+      subscribe(2, {}, '/b');
+      core.handleMessage({ type: 'unsubscribe', id: 2 });
+      await flush();
+      release();
+      await flush();
+      expect(calls).toHaveLength(1);
       await core.dispose();
     });
 

@@ -445,3 +445,174 @@ No behavioural drift found.
   for up to ~11 s — is closed by `onWatchesLost` calling `lostEvents(root)` synchronously before
   `requestRebuild`, matching the native-error path's existing shape and removing the asymmetry
   that was the base review's central finding.
+
+---
+
+## Follow-up review (native call serialization + S2871)
+
+Scope: `workspace-watch-host-core.ts` (`serializeNative` at `:534-543`, the `nativeOperations`
+field at `:234`, its two call sites `subscribeNative` `:502-518` and `unsubscribeNative`
+`:788-798`), the three new/changed specs in `workspace-watch-host-core.spec.ts` (`:706` nested
+`.git` found only by listing, `:1047` cross-root queueing, `:1070` abandoned queued subscribe),
+`workspace-watch-host.entry.spec.ts:167-191` (waits for the `subscribed` ack instead of a fixed
+sleep), and `git-watcher.service.ts:685-701` (Sonar S2871). Read every file in full at its current
+state.
+
+### Verification
+
+`npx jest -c libs/backend/platform-core/jest.config.ts workspace-watch-host-core.spec.ts
+--maxWorkers=2` from `D:\projects\ptah-437`: 38/38 passed (up from 35 in the prior round — the 3
+new tests are present and green). The platform-electron entry spec spawns a real child process
+against the real native binary and was not re-run (heavier integration test outside what a quick
+single-spec check should carry); read in full instead.
+
+### 1. Every native subscribe/unsubscribe path goes through the queue
+
+Confirmed by exhaustive grep, not sampling: `engine.subscribe(` appears exactly once in the file
+(`:515`), inside `serializeNative`'s callback in `subscribeNative`. `subscription.unsubscribe()`
+appears exactly once (`:792`), inside `serializeNative`'s callback in `unsubscribeNative`. Every
+call to `unsubscribeNative` — the rebuild release (`:509`), the "abandoned while subscribing"
+cleanup (`:554`), the overlap's old-subscription release (`:562`), and root teardown (`:785`) — all
+four route through the same wrapped method. No direct engine call bypasses the queue.
+
+### 2. Does the same-root overlap re-subscribe hit the same race?
+
+No, and the reasoning holds without needing new evidence: the race requires the backend's _last_
+subscription to be removed while an unrelated subscribe is attaching (a moment the live-subscription
+count hits zero). In the same-root overlap path, the OLD subscription is only unsubscribed
+**after** the NEW one for that root is already confirmed live (`onNativeSubscribed:557-568` calls
+`unsubscribeNative(previous.subscription)` only once `root.active` already holds the new one) — so
+during the new subscribe's attach, the root's own old subscription is still present, and the
+backend's count never reaches zero. This holds regardless of how many other roots' operations
+share the same queue, because the ordering guarantee is per-root (new-then-old), not merely
+queue position. The rebuild path (release-then-subscribe, same root) does not overlap at all —
+`subscribeNative` already `await`s the release before attempting the new subscribe (`:508-517`),
+so there is no concurrent window to race in the first place. The doc comment's claim that "nested-root
+re-subscribes still overlap because the replacement subscribe is queued before the old unsubscribe"
+is accurate and the two failure modes (cross-root overlap, now fixed; same-root overlap, never
+exposed) are correctly distinguished.
+
+### 3. Residual risk: a hung native call blocks the queue with no signal
+
+Real and unaddressed. `serializeNative` (`:534-543`) has no per-operation timeout: `this.nativeOperations
+= run.then(() => undefined, () => undefined)` only advances the queue once `operation()` _settles_,
+however long that takes. The heartbeat (`beat()`, `:800-816`) is a fully independent `setTimer`
+loop that reads no state from `nativeOperations`, so it keeps ticking normally while every
+subsequent subscribe/unsubscribe in this host queues up behind the stuck one. The supervisor's
+only liveness signal is missed heartbeats (`workspace-watch-supervisor.ts:22-28`,
+`missedHeartbeatsBeforeRestart: 3`), so it has no way to detect or recover from this state — a
+single wedged native call permanently disables watching for every root in the process, silently
+(no error posted, no heartbeat anomaly), until something external (the user, an OS-level timeout
+inside `@parcel/watcher` itself, if any) intervenes.
+
+Recommendation, concretely: wrap the operation in `serializeNative` with a race against a timer
+(e.g. a new `WORKSPACE_WATCH_HOST_DEFAULTS.nativeOperationTimeoutMs`, 10 s, analogous to the
+existing `rebuildDebounceMs`/`nestedResubscribeDebounceMs` constants already in this file): if the
+timeout wins, treat the operation as failed for queue-advancement purposes (the `.then(() =>
+undefined, () => undefined)` tail already tolerates a reject, so the queue is not itself blocked
+by this) and `postError('native-operation-timeout', …)` so the supervisor's `onHostFailure` path
+restarts the host the same way a `fatal` message does today. The real operation may still resolve
+later out-of-band (the underlying native call is not cancellable) — its `.then` continuation in
+`subscribeNative`/`onNativeSubscribed` already re-checks `isCurrent(root)`/`pendingToken === token`
+before touching state, so a late resolution after the host has been torn down or superseded is
+already inert by the existing token/generation guards; no new guard would be needed for that part.
+
+### 4. Dispose/shutdown with queued operations
+
+No late `engine.subscribe` calls after dispose: `dispose()` clears `this.roots` before
+`teardownRoot` runs (`:298-301`), and the queued subscribe's callback re-checks `this.isCurrent(root)`
+at execution time, inside the closure passed to `serializeNative` (`:512-517`) — not at enqueue
+time — so a subscribe still sitting in the queue when dispose runs finds its root already gone and
+never reaches the engine. Pinned by `workspace-watch-host-core.spec.ts:1070-1085` ("drops a queued
+subscribe whose root was abandoned before its turn").
+
+One narrower, untested residual: if a subscribe has already been **dequeued** and is actually
+awaiting the real `engine.subscribe(...)` call (not merely queued) at the moment its last
+subscriber unsubscribes — as opposed to being unsubscribed while still queued — the cleanup path
+(`:552-556`, `void this.unsubscribeNative(subscription)`) enqueues a new unsubscribe _after_
+`dispose()`'s own `Promise.all(roots.map(teardownRoot))` (`:301`) was already constructed from the
+root list at that earlier instant. If this happens for a root whose last subscriber left **before**
+`core.dispose()` was called (so the root was already removed from `this.roots` and is not in
+dispose's own list), `dispose()`'s returned promise can resolve before that orphaned cleanup
+unsubscribe settles. No unhandled rejection results (`unsubscribeNative` catches and only reports
+if `!this.disposed`, silently swallowing it post-dispose) and no late `subscribe` call happens, but
+a native `unsubscribe()` call can still be in flight after `await core.dispose()` returns. In
+practice this is low-impact — both hosts (Electron `utilityProcess`, CLI `child_process.fork`) are
+expected to exit their own process shortly after disposing, which drops the OS-level watch
+regardless of whether the JS promise settled — but it is a real, unexercised gap between "dispose
+resolved" and "every native handle is confirmed released." Not spec'd; worth a `dispose()` that
+also awaits `this.nativeOperations` itself as a final catch-all, or worth explicitly documenting the
+assumption that process exit — not `dispose()` — is what guarantees native cleanup.
+
+### 5. Latency: acceptable
+
+A subscribe now waits behind unrelated unsubscribes, but only when they are genuinely concurrent
+(folder switches, rebuilds, teardown) — situations that are already low-frequency and where the
+unsubscribe itself is the bottleneck operation being awaited (as it always was for the rebuild
+path). No new steady-state cost: when the queue tail is already settled, `serializeNative` adds one
+microtask hop, not a new timer or macrotask. Acceptable trade-off for closing a 94-100%-reproducible
+data-loss bug.
+
+### 6. Contract-suite timing on Windows/macOS
+
+Not expected to change, and nothing in the diff touches the coalescer's batching cadence
+(`minBatchIntervalMs`, storm breaker) that the contract suite's `cadenceToleranceMs` guards. The
+serialization only inserts a delay when a subscribe and an unsubscribe are actually racing in real
+time, which the existing single-root, sequential-subscribe contract tests (`runWorkspaceWatcherContract`)
+do not construct outside the two new cases added here. Not independently re-run against a real
+Windows/macOS native binary in this pass — this conclusion follows from reading the change, not
+from re-executing the contract suite on those platforms.
+
+### Style (brief)
+
+- Naming is consistent with the file's existing `subscribeNative`/`unsubscribeNative` verb-noun
+  scheme; `serializeNative` and `nativeOperations` read clearly and match. No issue.
+- The `serializeNative` doc comment states its measured evidence (100/100, 94/100, 0/100) in the
+  same evidence-first style the rest of this task uses (`created-directory-reconciler.ts`'s WSL
+  numbers) — consistent, not a repeat of unfounded claims.
+- Minor: neither `libs/backend/platform-core/CLAUDE.md` nor `libs/backend/platform-electron/CLAUDE.md`
+  mentions the native-call queue at all (`grep -n "serializ"` over both returns nothing). Given this
+  file's own convention of documenting every load-bearing mechanism in its module's `CLAUDE.md`
+  (the reconciler, the rebuild-vs-overlap distinction, and the planner extraction all got entries
+  in the prior round), this is a real gap for a mechanism that exists specifically to prevent a
+  94-100%-reproducible data loss bug — worth a short addition before this is considered fully
+  documented.
+- `git-watcher.service.ts:685-701` (S2871 fix): behaviour-preserving, confirmed by reasoning — the
+  default `Array.prototype.sort()` for strings and `(a, b) => (a < b ? -1 : a > b ? 1 : 0)` both
+  order by UTF-16 code unit, so `sameRoots`'s element-by-element comparison sees identical output.
+  The comment correctly states this is why any total order suffices. The nested ternary is a real,
+  separate risk for Sonar's S3358 (nested ternary, typically Code Smell/Major in TypeScript
+  profiles) — whether that fails _this_ project's maintainability gate depends on the gate's own
+  configured conditions (a Code Smell alone often does not fail a gate unless the profile counts it
+  toward the maintainability rating threshold), which this review has no access to confirm from a
+  read-only, no-nx pass. Since the fix for S3358 costs nothing here, the safer move is to avoid the
+  question entirely with an equivalent, non-nested comparator:
+  ```ts
+  .sort((a, b) => {
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+  })
+  ```
+  Same code-unit ordering, same behaviour, no nested ternary.
+
+### Follow-up verdict
+
+- Recommendation: APPROVE, with one recommended follow-up (not blocking)
+- Confidence: HIGH
+- The core fix is correct: exhaustive grep confirms no native call bypasses the queue, the
+  same-root overlap path is safe by construction (not merely by the queue), and dispose/abandoned-subscribe
+  handling is correctly guarded for the case that matters most (no late `engine.subscribe` calls).
+  Latency and contract-suite impact are both acceptable by reasoning from the change's shape.
+- Top residual risk: a hung native subscribe/unsubscribe call now silently disables watching for
+  the entire host process, undetectable by the existing heartbeat-based supervisor liveness check
+  — recommend a per-operation timeout on `serializeNative` that posts an error that feeds the
+  supervisor's existing restart path, per the concrete recommendation under (3).
+- Secondary residual: `dispose()` can resolve before an orphaned cleanup-unsubscribe (for a root
+  abandoned before dispose was called, whose subscribe was already in flight to the engine)
+  settles — low real-world impact given both hosts exit their process shortly after disposing, but
+  unexercised and worth either awaiting the queue tail in `dispose()` or documenting the
+  process-exit assumption explicitly.
+- Style: no naming issues; recommend documenting `serializeNative` in the two affected `CLAUDE.md`
+  files, and applying the non-nested-ternary comparator rewrite for `git-watcher.service.ts:702`
+  pre-emptively rather than waiting to find out whether S3358 fails the gate.

@@ -89,7 +89,27 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
     `@parcel/watcher` keeps a root's cached tree and watches while any
     subscription holds them (measured on Linux, 16 of 800 writes under lost
     watches still lost after an overlap, 0 after a rebuild). Notice
-    `native-rebuilt` carries the reason
+    `native-rebuilt` carries the reason.
+    **Native call queue** (`serializeNative`): every native subscribe and
+    unsubscribe, for every root, runs one at a time. `@parcel/watcher` keeps one
+    backend per process; a subscribe in flight while an unsubscribe removes the
+    backend's last subscription resolves into a DEAD subscription (Linux, 2.5.6:
+    100/100 overlapping unsubscribe(A)+subscribe(B) pairs dead idle, 94/100 under
+    load, 0/100 serialized) — a workspace-folder switch. Each call is bounded:
+    `nativeUnsubscribeTimeoutMs` 10 s (an unsubscribe walks nothing, so a slow one
+    is the hang being guarded), `nativeSubscribeTimeoutMs` 120 s (a subscribe
+    walks the whole root first; the 238k-file load-test workspace on a slow disk
+    must not trip it, because each trip restarts the host and repeated restarts
+    end in degraded mode). A miss posts `fatal` (the supervisor restarts the
+    host), rejects so the queue moves on, and a late subscription is released.
+    `dispose` waits for queued releases for at most 10 s so an app quit is never
+    held longer; a subscribe still walking then is abandoned, and its late
+    subscription is released the same way. Calls made after `dispose` (releases
+    queued behind an abandoned call, late releases) still run, but untimed:
+    nothing is posted after dispose and no fresh timer is armed. The core's
+    default clock unrefs every timer (host timers never keep a quitting process
+    alive; the IPC channel or hosting process does). Never call
+    `engine.subscribe` or `subscription.unsubscribe` outside the queue
   - `native-ignore-set-planner.ts` — `planNativeIgnoreSet` (internal): the
     native `ignore` list for one root — the intersection of subscriber
     excludes in subtree-only glob form, nested roots under the root, never

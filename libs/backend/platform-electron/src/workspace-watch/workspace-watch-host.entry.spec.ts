@@ -181,8 +181,13 @@ describe('workspace-watch-host.entry — child_process.fork transport', () => {
         ...overrides,
       },
     });
-    // The native subscription is asynchronous and has no ack by design.
-    await sleep(750);
+    // The host acks once the native subscription is live. A fixed sleep here
+    // raced a loaded CI runner: writes landed before the watch existed and
+    // were never reported.
+    await waitFor(
+      () => messages.some((m) => m.type === 'subscribed' && m.id === id),
+      `the subscribed ack for ${id}`,
+    );
   };
 
   beforeAll(async () => {

@@ -94,6 +94,17 @@ writes under new directories were silently lost — the host now reconciles crea
 test-only transport is removed. Details, WSL2 evidence and FU-L1..FU-L5 are in `batches.md`
 "PR #510 Linux CI fix".
 
+**Linux CI follow-up — COMMITTED 2026-09-15** as
+`fix(platform-core): serialize native watcher calls so a subscribe never races an unsubscribe`.
+CI run 34913948101 confirmed the CLI contract suite on Linux, but the Electron host entry spec
+"detects a nested .git" timed out and Sonar reported reliability D (S2871 in
+`git-watcher.service.ts`). Cause: in parcel 2.5.6 a subscribe in flight while an unsubscribe drops
+the last subscription resolves but never delivers events (a workspace-folder switch in the product).
+Fix: all native calls serialized with per-call timeouts (subscribe 120 s, unsubscribe 10 s → `fatal`
+→ supervisor restart); the spec awaits the `subscribed` ack; S2871 fixed with `compareCodeUnits`.
+Logic follow-up review APPROVE HIGH. FU-L6 (extract `native-call-queue.ts`) and FU-L7 (120 s walk
+ceiling) are in `batches.md` under "PR #510 Linux CI fix".
+
 **Batches 16 and 16b — COMMITTED 2026-09-15** as one commit,
 `feat(vscode-core): defer background LLM work while the main loop lags or a turn is generating`
 (the two could not be split by file). Committed before Batch 15 by orchestrator decision (recorded

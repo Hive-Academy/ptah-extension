@@ -838,6 +838,45 @@ section is `fix(platform-core): recover lost inotify watches in the workspace wa
   - FU-L5: Linux cost — every created path costs one `readdir`; a storm with creates ends in one full
     re-walk.
 
+#### Follow-up — native watcher calls serialized (CI run 34913948101) — COMPLETE
+
+Commit: `fix(platform-core): serialize native watcher calls so a subscribe never races an unsubscribe`
+(resolve with `git log --oneline --grep "serialize native watcher calls"`).
+
+- CI run 34913948101: the CLI contract suite passed on Linux (first fix confirmed). The
+  `platform-electron` host entry spec "detects a nested .git" timed out. SonarCloud reliability D from
+  S2871 (`.sort()` without a comparator) at `apps/ptah-electron/src/services/git-watcher.service.ts:700`.
+- Cause (WSL evidence, `@parcel/watcher` 2.5.6): when `unsubscribe(A)` drops parcel's last
+  subscription while `subscribe(B)` for another root is in flight, B resolves but never delivers
+  events. Overlapping pairs dead 100/100 idle and 94/100 under load; awaited first, 0/100. Real bundled
+  host under one-core starvation: 1/10 nested-root notices without the fix, 10/10 with it. Product
+  impact: switching workspace folders. The spec also slept 750 ms instead of awaiting the
+  `subscribed` ack. Reconciler-discovered `.git` already went through `detectNestedRoot` (now pinned
+  by a spec).
+- Fix:
+  - Every native subscribe/unsubscribe runs through one queue (`serializeNative`).
+  - Per-call timeouts: `nativeSubscribeTimeoutMs` 120,000 (a subscribe walks the root),
+    `nativeUnsubscribeTimeoutMs` 10,000. A miss → host posts `fatal` → supervisor restart. A late
+    result is released, not handed to the caller.
+  - `dispose` waits for queued releases at most 10 s, abandons in-flight calls, and posts nothing after
+    dispose; calls after dispose run without timers. Default clock timers are unref'd.
+  - Same-root nested re-subscribe overlap stays safe: the replacement subscribe is queued before the
+    old subscription's unsubscribe, so the old one is released only after the new one is live.
+  - Entry spec awaits the `subscribed` ack instead of a fixed sleep.
+  - S2871 fixed with a named `compareCodeUnits` comparator (no nested ternary, S3358).
+- Evidence (team-leader, worktree `D:\projects\ptah-437`, after the executor's last edit):
+  `nx run-many -t test` — platform-core 768 passed + 4 todo (41 suites), platform-electron 613 passed,
+  2 skipped, 3 todo; ptah-electron 603 passed + 6 skipped (Nx cache hits on unchanged inputs);
+  typecheck + lint pass for the 3 projects (0 errors, warnings only); `degradation-audit:lint` pass;
+  prettier clean on staged files.
+- Review: `linux-watch-fix-code-logic-review.md` "Follow-up review (native call serialization +
+  S2871)" — APPROVE, confidence HIGH (every native call routed through the queue; same-root overlap
+  analysis).
+- Follow-ups (not in this commit):
+  - FU-L6: extract `native-call-queue.ts` — `workspace-watch-host-core.ts` is 742 counted lines
+    (`max-lines` warning; supersedes FU-L4).
+  - FU-L7: a subscribe walk longer than 120 s on an extreme tree would restart the host (not measured).
+
 ---
 
 ## Batch 12: P2 — git process gate, output cap, background priority (C11) — COMPLETE

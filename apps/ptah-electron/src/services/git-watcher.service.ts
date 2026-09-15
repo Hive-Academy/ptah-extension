@@ -697,7 +697,9 @@ export class GitWatcherService {
           ),
       )
       .map((root) => path.join(workspaceRoot, root))
-      .sort();
+      // Any total order will do: it only makes two lists comparable element
+      // by element in `sameRoots`. Code-unit order is what `.sort()` used.
+      .sort(compareCodeUnits);
     if (sameRoots(nestedRoots, this.subscribedNestedRoots)) return;
 
     this.logger.debug('[GitWatcher] Excluding nested worktree roots', {
@@ -948,4 +950,11 @@ export class GitWatcherService {
 /** Both sorted: equal lengths and equal entries. */
 function sameRoots(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((root, index) => root === b[index]);
+}
+
+/** UTF-16 code-unit order — what `Array.prototype.sort()` uses with no comparator. */
+function compareCodeUnits(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
 }
