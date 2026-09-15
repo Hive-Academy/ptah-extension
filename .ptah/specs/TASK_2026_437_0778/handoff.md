@@ -40,7 +40,7 @@ PR #510 CI. Add it back to `context.md` after PR #510 merges.
   cleanly (else keep its current watcher behind the port); measure SQLite main-thread cost before
   moving it; scroll-back paging of old history is deferred.
 
-## 3. Done — committed (21 of 24 batches; Batches 8, 9, 10, 11, 15, 16, 16b, 17, 17b, 18 and 19 in section 4)
+## 3. Done — committed (22 of 24 batches; Batches 8, 9, 10, 11, 15, 16, 16b, 17, 17b, 18, 19 and 21 in section 4)
 
 | Batch       | Commit                   | Summary                                                                                                                                               |
 | ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,7 +64,22 @@ refreshes, 0 renderer pushes, event loop p99 17 ms / max 67 ms. ST-1b (delete un
 → exactly 1 refresh + 1 truncated push, p99 33 ms / max 71 ms. Incident baseline: 265–615 ms lag
 every 2 s.
 
-## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b, 18 and 19 — COMMITTED (P3 gate passed; P4 Batches 20, 21 in flight)
+## 4. Batch 11, the Linux CI fix, Batches 15, 16, 16b, 17, 17b, 18, 19 and 21 — COMMITTED (P3 gate passed; P4 Batch 20 in flight)
+
+**Batch 21 — COMMITTED 2026-09-15** (ahead of Batch 20) as
+`perf(core): coalesce inbound webview message bursts into one change-detection pass`.
+C18 (AC-13, INV-11): `MessageRouterService` listens outside Angular and queues; one macrotask drains
+the queue snapshot inside one `ngZone.run`, so 1,000 queued messages cost 1 zone entry, in order.
+R-P8: an `rpc:response` (or a BATCH carrying one, reported once as a producer regression) flushes
+synchronously; the capture-phase listener runs that flush before `rpc-call.util.ts`'s listener.
+Per-message and per-BATCH-member errors go to `ErrorHandler`; a malformed BATCH is reported; a
+failed drain post resets, reports and drains synchronously; teardown cancels. NEW shared
+`scheduleMacrotask` / `yieldToMacrotask` in `@ptah-extension/core` (no-`MessageChannel` fallback for
+jsdom only). Price: a burst with k responses costs up to k + 1 zone entries; a throwing BATCH member
+no longer drops the rest of the batch. Evidence: core 717, webview 152, typecheck,lint 0 errors,
+audit 303, reviewer re-ran 35/35. Reviews: logic APPROVED → delta APPROVE HIGH; style APPROVED 7/10
+(serious items closed). FU-21a (route `rpc:response` through the router), FU-21b (log the fallback
+outside tests) are in `batches.md` "Batch 21 outcome".
 
 **Batch 19 — COMMITTED 2026-09-15** as
 `perf(chat-streaming): finalize session history in one pass and back off tab saves after quota errors`.
@@ -290,7 +305,7 @@ What Batch 10 must add (from the Batch 8 executor + `b1-spike-report.md`):
 
 ## 5. Remaining batches (3 of 24)
 
-Order and dependencies are in `batches.md`. Batch 19 is committed; resume at P4 Batches 20 and 21, then 22. Summary:
+Order and dependencies are in `batches.md`. Batches 19 and 21 are committed; resume at P4 Batch 20, then 22. Summary:
 
 - **P2:** all batches committed. Only the OPEN D10 proof remains: `publish-electron.yml` build matrix
   green on Windows, macOS and Linux (section 4a) — needs a user decision to dispatch.
@@ -309,7 +324,8 @@ Order and dependencies are in `batches.md`. Batch 19 is committed; resume at P4 
 5. Whether to write the property-hub load-test setup/cleanup scripts (section 9).
 
 - **P4:** 19 COMMITTED (O(E+M) finalization + tab-save quota back-off), 20 (drop duplicate `messages` from
-  `chat:resume`, chunked replay; after 14), 21 (inbound burst coalescing), 22 (AC-11 tile-open perf e2e).
+  `chat:resume`, chunked replay; after 14; adopts `yieldToMacrotask` from `@ptah-extension/core`), 21 COMMITTED
+  (inbound burst coalescing), 22 (AC-11 tile-open perf e2e).
 
 ## 6. Open follow-ups (recorded in batches.md)
 

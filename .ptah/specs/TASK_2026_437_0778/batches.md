@@ -1,8 +1,8 @@
 # Batches - TASK_2026_437_0778
 
-Total tasks: 58 | Batches: 24 | Complete: 21/24
+Total tasks: 58 | Batches: 24 | Complete: 22/24
 
-Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). P3 wave 1 — Batch 16 and Batch 16b COMPLETE (one commit, recorded in the Batch 16 outcome), committed ahead of Batch 15 by orchestrator decision (see "Orchestrator decision — phase order deviation for P3 core" under Batch 7). P2 — Batch 15 COMPLETE (commit recorded in its outcome; ST-2 75,000-file host stress and AC-7 host kill MET; ST-1b CI assertion is now the bounded form). All P2 batches are COMPLETE. The only open P2 gate is D10: the `publish-electron.yml` matrix green on all three OSes (see Batch 10 outcome); it needs a `workflow_dispatch` or a release push — pending user decision. P3 — Batch 17 COMPLETE (commit recorded in its outcome; governor adopters + FU-11b file-index split; AC-10 manual evidence still pending). P3 — Batch 18 COMPLETE (commit recorded in its outcome; network back-off for background curator and skill-synthesis calls; FU-16b-a and FU-16b-b closed). P3 — Batch 17b COMPLETE (commit recorded in its outcome; origin-aware skill re-propagation, FU-17b closed). P3 Batches 16, 16b, 17, 17b and 18 are COMPLETE. P3 PHASE GATE PASSED 2026-09-15 (evidence under Batch 18 verification): `lint:all` 73 projects 0 errors, `typecheck:all` 93 projects 0 errors, `nx build ptah-electron` exit 0, `degradation-audit:lint` TOTAL 303. Phase 3 CLOSED. D10 remains the only open P2 gate; AC-10 manual evidence is still pending. P4 — Batch 19 COMPLETE (commit recorded in its outcome; O(E+M) `finalizeSessionHistory`, tab-save quota back-off INV-10; FU-19a..f). Remaining: P4 Batches 20, 21, 22 (next). PR #510 CI had two Linux-only failures (the CLI contract suite did not see files created in a new directory under inotify; the platform-electron host entry spec aborted with SIGABRT in the `worker_threads` transport). Both are FIXED pending the next PR #510 CI run, which is the first Linux run of the jest specs — see "PR #510 Linux CI fix" after Batch 11.
+Status note: P1 wave 1 — Batch 1 COMPLETE (Electron GO, CLI GO; no commit by design), Batch 2 COMPLETE (ed98e515a), Batch 3 COMPLETE (93c360572), Batch 5 COMPLETE (bf247ed3c). P1 wave 2 — Batch 4 COMPLETE (2ae430160; follow-up a659830bc). P1 wave 3 — Batch 6 COMPLETE (commit recorded in its outcome); Phase 1 closed. P2 wave 1 — Batch 7 COMPLETE (b9ac03426), Batch 13 COMPLETE (b288ffff0), Batch 14 COMPLETE (8d3f3745f), Batch 12 COMPLETE (2f2416993), all committed ahead of Batch 6 by orchestrator decision (see "Orchestrator decision — phase order deviation" under Batch 7). P2 — Batch 8 COMPLETE (commit recorded in its outcome), Batch 9 COMPLETE (commit recorded in its outcome; supervisor now in platform-core, CLI host on `child_process.fork`), Batch 10 COMPLETE (commit recorded in its outcome; host bundle packaged for Electron and the CLI; the release build matrix proof for D10 is still OPEN), Batch 11 COMPLETE (commit recorded in its outcome; git watcher and file index consume `IWorkspaceWatcher`, coalescer leading-edge hold, nested-repo walk exclusion D4, ESLint rule). P3 wave 1 — Batch 16 and Batch 16b COMPLETE (one commit, recorded in the Batch 16 outcome), committed ahead of Batch 15 by orchestrator decision (see "Orchestrator decision — phase order deviation for P3 core" under Batch 7). P2 — Batch 15 COMPLETE (commit recorded in its outcome; ST-2 75,000-file host stress and AC-7 host kill MET; ST-1b CI assertion is now the bounded form). All P2 batches are COMPLETE. The only open P2 gate is D10: the `publish-electron.yml` matrix green on all three OSes (see Batch 10 outcome); it needs a `workflow_dispatch` or a release push — pending user decision. P3 — Batch 17 COMPLETE (commit recorded in its outcome; governor adopters + FU-11b file-index split; AC-10 manual evidence still pending). P3 — Batch 18 COMPLETE (commit recorded in its outcome; network back-off for background curator and skill-synthesis calls; FU-16b-a and FU-16b-b closed). P3 — Batch 17b COMPLETE (commit recorded in its outcome; origin-aware skill re-propagation, FU-17b closed). P3 Batches 16, 16b, 17, 17b and 18 are COMPLETE. P3 PHASE GATE PASSED 2026-09-15 (evidence under Batch 18 verification): `lint:all` 73 projects 0 errors, `typecheck:all` 93 projects 0 errors, `nx build ptah-electron` exit 0, `degradation-audit:lint` TOTAL 303. Phase 3 CLOSED. D10 remains the only open P2 gate; AC-10 manual evidence is still pending. P4 — Batch 19 COMPLETE (commit recorded in its outcome; O(E+M) `finalizeSessionHistory`, tab-save quota back-off INV-10; FU-19a..f). P4 — Batch 21 COMPLETE (commit recorded in its outcome; inbound message burst coalescing into one zone entry, R-P8 synchronous `rpc:response` flush, shared `scheduleMacrotask`/`yieldToMacrotask` in `@ptah-extension/core`; FU-21a, FU-21b), committed ahead of Batch 20. Remaining: P4 Batch 20 (review fixes in flight), then 22. PR #510 CI had two Linux-only failures (the CLI contract suite did not see files created in a new directory under inotify; the platform-electron host entry spec aborted with SIGABRT in the `worker_threads` transport). Both are FIXED pending the next PR #510 CI run, which is the first Linux run of the jest specs — see "PR #510 Linux CI fix" after Batch 11.
 
 Source: `implementation-plan.md` (components C1–C18, phases P1–P4), `handoff.md` section 2 "User decisions" (formerly in `context.md`)
 (all four phases, nested repos excluded everywhere including the `@` picker, local-only
@@ -1398,7 +1398,7 @@ Run by team-leader on 2026-09-15 in worktree `D:\projects\ptah-437` at `b9335708
 
 ---
 
-## Batch 21: P4 — inbound message burst coalescing (C18) — PENDING
+## Batch 21: P4 — inbound message burst coalescing (C18) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -1406,7 +1406,33 @@ Run by team-leader on 2026-09-15 in worktree `D:\projects\ptah-437` at `b9335708
 - Rationale: one file, timing-sensitive (R-P8).
 - Tasks: 1 | Depends on: none by file; commits after P3 | Parallel with: Batches 19, 20
 
-### Task 21.1: Queue + single zone drain — PENDING
+### Batch 21 outcome
+
+- Commit: `perf(core): coalesce inbound webview message bursts into one change-detection pass` (SHA in `git log`; this file is part of that commit). Committed before Batch 20, which was still applying review fixes in the same worktree.
+- Executed by: `frontend-developer-b21` (first pass and review fixes; logs `D:\projects\ptah-437-backup\b21-*.log`, `b21-fix-*.log`).
+- Reviews: `b21-code-logic-review.md` APPROVED → delta APPROVE HIGH (all three findings closed: R-P8 pinned against the real `rpc-call.util.ts`, guarded drain post, BATCH-embedded response flush). `b21-code-style-review.md` APPROVED 7/10; both serious items (duplicated `MessageChannel` technique, missing `CLAUDE.md` contract) closed and verified in the logic delta. The logic reviewer re-ran the router and scheduler specs: 35/35.
+- Design:
+  - `MessageRouterService` attaches its `message` listener with `runOutsideAngular`; the listener only appends to a FIFO queue.
+  - One macrotask wake-up drains the queue inside ONE `ngZone.run`. The drain takes the queue snapshot as it stands when it starts; messages enqueued during the drain get their own drain task, so a drain never loops unboundedly and order is kept.
+  - R-P8: an `rpc:response` flushes the queue synchronously in its own task. The listener uses the capture phase, so the flush runs before `rpc-call.util.ts`'s bubble-phase listener whichever registered first. A BATCH carrying an `rpc:response` member is flushed the same way and reported to `ErrorHandler` once per router instance as a producer regression.
+  - Error isolation: each dispatched message and each BATCH member is guarded and reported via Angular `ErrorHandler`; a malformed BATCH envelope (no `payload.events` array) and members without a string `type` are reported.
+  - A failed drain post resets `drainScheduled`, reports, and drains synchronously, so the queue cannot wedge.
+  - Teardown removes the listener, cancels the pending drain handle and clears the queue.
+  - Shared scheduler: NEW `macrotask-scheduler.ts` in `@ptah-extension/core` exports `scheduleMacrotask` (fresh `MessageChannel` per call, both ports closed on run, cancel or failed post; rethrows post errors) and `yieldToMacrotask` (Batch 20 consumer). Without `MessageChannel` (jsdom only) the callback runs synchronously / the promise resolves on a microtask.
+- Evidence:
+  - AC-13: 1,000 queued messages → 1 zone entry, arrival order preserved (spec).
+  - Executor (after fixes): core 717 passed, webview 152 passed; `typecheck,lint` 0 errors (11 warnings); degradation audit TOTAL 303 (`b21-fix-*.log`).
+  - Team-leader (worktree `D:\projects\ptah-437`, no nx reset, runner count 0 before each run): `run-many -t test -p @ptah-extension/core ptah-extension-webview --parallel=1 --maxWorkers=2` header 2, exit 0 — core 30 suites / 717 passed, webview 9 suites / 152 passed (`b21-tl-test.log`); `typecheck,lint` header 2, exit 0, 0 errors / 11 warnings (`b21-tl-typecheck-lint.log`); `degradation-audit:lint --skip-nx-cache` exit 0, TOTAL 303 (`b21-tl-audit.log`). Prettier checked on every staged file, including the review markdown. Backup: `batch21-final-modified.patch`, `batch21-final-untracked.tar`.
+  - Verification scope deviation: the planned `@ptah-extension/chat` test run was not repeated here because `libs/frontend/chat` carries Batch 20's uncommitted work; Batch 20's own verification covers it.
+- Orchestrator decisions:
+  - Keep the no-`MessageChannel` fallback: only jsdom lacks it; every shipping host has it.
+  - FU-21a: route `rpc:response` through the router instead of `rpc-call.util.ts`'s own window listener (would remove the capture-phase dependency).
+  - FU-21b: log when the no-`MessageChannel` fallback runs outside tests.
+- Deviations:
+  - A burst carrying k responses costs up to k + 1 zone entries (the R-P8 price), not 1.
+  - Behaviour change: a throwing BATCH member no longer drops the rest of the batch.
+
+### Task 21.1: Queue + single zone drain — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\core\src\lib\services\message-router.service.ts` (:53-86) + `message-router.service.spec.ts`
 - Plan reference: implementation-plan.md:739-750
@@ -1415,6 +1441,7 @@ Run by team-leader on 2026-09-15 in worktree `D:\projects\ptah-437` at `b9335708
 ### Batch 21 verification
 
 - `npx nx run-many -t test -p @ptah-extension/core @ptah-extension/chat ptah-extension-webview` (header: 3); typecheck,lint same
+- Ran 2026-09-15 with `@ptah-extension/chat` dropped (it holds Batch 20's uncommitted work): header 2, core 717 + webview 152 passed; typecheck,lint 0 errors; audit TOTAL 303. See "Batch 21 outcome".
 
 ---
 
