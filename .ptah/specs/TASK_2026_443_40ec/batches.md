@@ -1,6 +1,6 @@
 # Batches - TASK_2026_443_40ec
 
-Total tasks: 25 | Batches: 10 | Complete: 4/10
+Total tasks: 25 | Batches: 10 | Complete: 5/10
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle` (branch
 `feat/task-439-phase2-memory-lifecycle`, base 5e34e39cc). Below, `W` means that absolute path; every lane prompt
@@ -611,7 +611,7 @@ review round is required).
 
 ---
 
-## Batch 5: memory-curator — lifecycle store, run budget, lifecycle service, settings, DI, vec harness — IN_PROGRESS
+## Batch 5: memory-curator — lifecycle store, run budget, lifecycle service, settings, DI, vec harness — COMPLETE (commit c7f1f02a8, pre-#513-01b155b77 rebase)
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer)
 - Fallback executor: backend-developer subagent
@@ -626,7 +626,7 @@ review round is required).
   leave a second copy of `yieldToGovernor` for one commit; the swap also brings `memory-retention.service.ts` back
   under the 700 soft ceiling before Batch 6 adds the lifecycle call.
 
-### Task 5.1: Vec-capable test harness + `RetentionRunBudget` (absorbs the governor wait) + limits + tsconfig exclude + service swap — IN_PROGRESS
+### Task 5.1: Vec-capable test harness + `RetentionRunBudget` (absorbs the governor wait) + limits + tsconfig exclude + service swap — COMPLETE
 
 - Dir: `W\libs\backend\memory-curator\`
   - MODIFY `tsconfig.lib.json`: add `"src/**/*.test-support.ts"` to `exclude` (Deviation 8; closes TASK_2026_446_198a)
@@ -686,7 +686,7 @@ review round is required).
     `'time-budget'`; `whenClear` rejects `AbortError` -> `'aborted'`; rejects another error twice in one budget ->
     `hardStop()` result both times and exactly ONE `warn`; a new budget instance warns again.
 
-### Task 5.2: `MemoryLifecycleStore` — IN_PROGRESS
+### Task 5.2: `MemoryLifecycleStore` — COMPLETE
 
 - Depends on: Task 5.1 (harness)
 - Dir: `W\libs\backend\memory-curator\src\lib\`
@@ -712,7 +712,7 @@ review round is required).
   trigger present and true with the trigger absent; a thrown memory DELETE rolls back the chunk DELETE of the same
   batch; `SQLITE_BUSY` -> `RetentionStepError('database-busy')`; no statement text contains `SET salience`.
 
-### Task 5.3: `MemoryLifecycleService` + `memory-lifecycle-config.ts` + `markWorkspacesChanged` + DI — IN_PROGRESS
+### Task 5.3: `MemoryLifecycleService` + `memory-lifecycle-config.ts` + `markWorkspacesChanged` + DI — COMPLETE
 
 - Depends on: Task 5.2
 - Dir: `W\libs\backend\memory-curator\src\lib\`
@@ -756,6 +756,73 @@ review round is required).
   - `wc -l libs/backend/memory-curator/src/lib/retention/memory-retention.service.ts` (<= 700)
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-5-report.md`
 
+### Batch 5 revision 1 fix list (resume codex session 01a0a68d-0d3f-72f3-b6e0-ae66a9d0f132) — COMPLETE (in c7f1f02a8)
+
+- Team-leader diff read: M1 singleton `readErrors` field deleted; `overCapWorkspaces` returns `{ workspaces,
+  readErrors }` and `readPreview` returns counts + its own `readErrors` from local arrays; `overCap` null only when its
+  own read failed; `MemoryLifecycleStepResult.readErrors` always present and fed by cap + preview reads. M2 store and
+  service read-failure specs added. m4 dead reassignment gone (recall still decided from `recallEvictable`). m5 doc
+  paragraph restored. Every SQL constant in `memory-lifecycle.store.ts:11-60` still matches plan :442-503; the batch
+  methods, `deletePair` and `inTransaction` are unchanged in shape; `memory-retention.service.spec.ts` untouched. No
+  second review (diagnostics path only).
+- Team-leader re-run: memory-curator test 1 project 623 passed / 59 skipped (pre-existing; 0 skip markers in the new
+  specs); typecheck + lint green (0 errors, 5 pre-existing warnings); `degradation-audit:lint` exit 0, memory-curator
+  20 ok (baseline 20); better-sqlite3 via Electron 43 suites / 682 passed; `memory-retention.service.ts` 700 lines.
+  Committed with only the 18 Batch 5 files (11 modified, 7 new).
+
+- Review (Ollama Cloud, `code-logic-review-batch-5.md`): APPROVED 8/10, 0 blocking/serious, 2 moderate, 3 minor.
+  All nine confirmation items CONFIRMED: the swap preserves behaviour (`memory-retention.service.spec.ts` unchanged,
+  all seven #513 governor cases intact), the store SQL matches the plan, exemptions are in every predicate, AC2 counts
+  from `archived_at`, XB1/XB2/XB3 hold, and the destructive-safety sweep found no defect.
+- Team-leader decision: NOT committed until M1, M2, m4 and m5 are fixed. Reasons:
+  - M1 is a real defect, not just a diagnostics nicety. `readErrors` is a field on a DI SINGLETON
+    (`memory-lifecycle.store.ts:124`) that only grows, one entry per failed read, for the life of the Electron
+    process. Batch 6 feeds lifecycle read errors into `storageHealth()`, so stale entries would reach the panel as if
+    current. `readPreview` also decides `overCap` by comparing the singleton array's length before and after
+    (`:262-264`), which breaks as soon as anything else pushes to it.
+  - M2: `overCapWorkspaces` failing returns `[]`, which makes the cap step do nothing. That is the safe direction for
+    deletes, but it is unpinned, so a regression that turns a read failure into `0` (or into a thrown write) passes
+    the suite. Deletion-adjacent code gets the Batch 3/4 precedent.
+  - m4 (dead reassignment in the cap loop) and m5 (a deleted accurate doc paragraph) are cheap and in files this
+    revision already touches.
+  - m3 (`canDelete()` lets a `connection.db` throw propagate) is ACCEPTED here and CARRIED into Task 6.1 as an
+    acceptance item: the retention run must map that throw to `failed`, release the single-flight flag, and run no
+    lifecycle batch.
+- Scope: only the Batch 5 files listed below. Do not touch `memory-retention.service.spec.ts` (PR #513 rebase is
+  pending on it).
+
+1. M1 — replace the singleton `readErrors` field with per-call results, following the precedent
+   `observation-retention.store.ts:224,424` (a local array returned in the result object):
+   - `overCapWorkspaces(cap)` returns `{ workspaces: readonly OverCapWorkspace[]; readErrors: readonly string[] }`.
+   - `readPreview(...)` returns its counts plus `readErrors: readonly string[]` built from a local array; `overCap` is
+     `null` exactly when its own over-cap read failed (decided from the local result, not an array length).
+   - Delete the `readErrors` class field. `MemoryLifecycleService` passes the preview's `readErrors` out in
+     `MemoryLifecycleStepResult` (add `readErrors: readonly string[]`, always present, empty when none) so Batch 6 can
+     surface them; a failed `overCapWorkspaces` in the cap step also contributes its message to that array.
+   - Keep the XB2 annotations on every catch you move.
+2. M2 — specs:
+   - `memory-lifecycle.store.spec.ts` (real SQLite): force each read to fail (for example drop or rename
+     `corpus_memories` inside the spec DB, or close the handle; bind every parameter, XB1) and assert
+     `overCapWorkspaces` returns `workspaces: []` plus one message; `readPreview` returns `null` for exactly the
+     failed counts (not `0`) and one message per failed read; a second call after the DB is repaired returns
+     `readErrors: []` (proves no carry-over).
+   - `memory-lifecycle.service.spec.ts` (fakes): an `overCapWorkspaces` failure makes the cap step run no evict batch,
+     does not throw, keeps `exhausted` as the rest of the step decides, and puts the message in the step result's
+     `readErrors`; a preview read error reaches the step result.
+3. m4 — `memory-lifecycle.service.ts:151-162`: drop the unused reassignment of `archivalExcess` (do not change the
+   approved AC4 rule: recall eviction is still decided from `recallEvictable` alone).
+4. m5 — restore the accurate doc paragraph about the hourly cron tick that the swap removed from
+   `memory-retention.service.ts` (text only; the file must stay <= 700 lines).
+5. XB1 and XB2 as before.
+- Commands (from `W`): `npx nx run-many -t test -p @ptah-extension/memory-curator` (1 project); typecheck and lint
+  (1 project each); `npx nx run degradation-audit:lint` (exit 0); the quoted better-sqlite3 run from Batch 5's
+  command list; `wc -l` of `memory-retention.service.ts`.
+- Report: append `## Revision 1` to `batch-5-report.md` with the diff summary, all command results and `git diff
+  --stat`. Write `batch-5-r1.done` last. Do not edit `batches.md`. Do not commit.
+- Acceptance by team-leader: diff read against items 1-4 plus a full re-run. Items 1-2 change production code on the
+  diagnostics path only (no delete, archive or exemption SQL may change); if any lifecycle SQL constant or delete
+  path changes, a second review round is required.
+
 ### Batch 5 verification
 
 - XB1: every spec that prepares SQL binds every named and positional parameter (passes under better-sqlite3 and node:sqlite).
@@ -797,6 +864,10 @@ review round is required).
     `avg_processed_row_bytes`) and `observation-retention.store.spec.ts`
   - MODIFY `memory-retention.service.spec.ts` (update the `new MemoryRetentionService(` site)
 - Plan reference: implementation-plan.md:607-632
+- Carried from `code-logic-review-batch-5.md` m3: a throw from `MemoryLifecycleStore.canDelete()` (for example
+  `connection.db` unavailable) inside `runStep` ends the run `failed`, releases the single-flight flag and dispatches
+  no lifecycle batch; pin it in `memory-retention.service.spec.ts`. The step result's `readErrors` (Batch 5 revision 1)
+  feed `storageHealth()` through `sanitizeRetentionError`.
 - Quality requirements: `run` still never rejects; flag cleared in `finally`; lifecycle `RetentionStepError`
   goes through the existing catch (rebased `:467-476` before 5.1; busy -> `partial`, else `failed`); file stays
   <= ~720 lines (R-TL10); `memoryLifecycle` read errors go through the same `sanitizeRetentionError` mapping as
