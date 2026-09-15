@@ -72,9 +72,14 @@ interface Harness {
   ptahCli: jest.Mocked<
     Pick<
       ChatPtahCliService,
-      'hasSession' | 'deleteSession' | 'getAgentId' | 'setSdkSessionId'
+      | 'hasSession'
+      | 'deleteSession'
+      | 'getAgentId'
+      | 'getSessionName'
+      | 'setSdkSessionId'
     >
   >;
+  sessionMetadataStore: jest.Mocked<Pick<SessionMetadataStore, 'createChild'>>;
   turnState: SessionTurnStateRegistry;
 }
 
@@ -109,7 +114,7 @@ function makeHarness(): Harness {
   } as unknown as SentryService;
   const sessionMetadataStore = {
     createChild: jest.fn().mockResolvedValue(undefined),
-  } as unknown as SessionMetadataStore;
+  } as jest.Mocked<Pick<SessionMetadataStore, 'createChild'>>;
   const workspaceProvider = {
     getWorkspaceRoot: jest.fn().mockReturnValue('/fake/workspace'),
   } as unknown as IWorkspaceProvider;
@@ -117,11 +122,16 @@ function makeHarness(): Harness {
     hasSession: jest.fn().mockReturnValue(false),
     deleteSession: jest.fn(),
     getAgentId: jest.fn().mockReturnValue(undefined),
+    getSessionName: jest.fn().mockReturnValue(undefined),
     setSdkSessionId: jest.fn(),
   } as jest.Mocked<
     Pick<
       ChatPtahCliService,
-      'hasSession' | 'deleteSession' | 'getAgentId' | 'setSdkSessionId'
+      | 'hasSession'
+      | 'deleteSession'
+      | 'getAgentId'
+      | 'getSessionName'
+      | 'setSdkSessionId'
     >
   >;
 
@@ -135,7 +145,7 @@ function makeHarness(): Harness {
     sdkAdapter as unknown as IAgentAdapter,
     subagentRegistry,
     sentryService,
-    sessionMetadataStore,
+    sessionMetadataStore as unknown as SessionMetadataStore,
     workspaceProvider,
     ptahCli as unknown as ChatPtahCliService,
     turnState,
@@ -146,6 +156,7 @@ function makeHarness(): Harness {
     webviewManager,
     sdkAdapter,
     ptahCli,
+    sessionMetadataStore,
     logger,
     turnState,
   };
@@ -160,6 +171,25 @@ function makeEvent(eventType: string): FlatStreamEventUnion {
 }
 
 describe('ChatStreamBroadcaster.isStreaming', () => {
+  it('uses the interactive conversation name for Ptah CLI child metadata', async () => {
+    const h = makeHarness();
+    h.ptahCli.hasSession.mockReturnValue(true);
+    h.ptahCli.getAgentId.mockReturnValue('configured-agent-id');
+    h.ptahCli.getSessionName.mockReturnValue('Review the billing flow');
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(h.sessionMetadataStore.createChild).toHaveBeenCalledWith(
+      SESSION_ID,
+      '/fake/workspace',
+      'Review the billing flow',
+    );
+  });
+
   it('marks the session streaming WHILE the loop runs and clears it after NORMAL completion', async () => {
     const h = makeHarness();
     let observedMidStream = false;

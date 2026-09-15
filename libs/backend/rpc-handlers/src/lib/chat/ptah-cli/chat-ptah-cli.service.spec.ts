@@ -200,6 +200,25 @@ describe('ChatPtahCliService', () => {
       expect(out.tabId).toBe(TAB_UUID);
       expect(s.service.hasSession(TAB_UUID)).toBe(true);
       expect(s.service.getAgentId(TAB_UUID)).toBe(AGENT_ID);
+      expect(s.service.getSessionName(TAB_UUID)).toBeUndefined();
+    });
+
+    it('retains the exact conversation name passed to startChatSession', async () => {
+      const s = makeSuite();
+      const conversationName = 'Review the billing flow';
+
+      await s.service.handleStart({
+        prompt: 'hi',
+        tabId: TAB_UUID,
+        workspacePath: '/tmp/ws',
+        ptahCliId: AGENT_ID,
+        name: conversationName,
+      } as ChatStartParams);
+
+      expect(s.agentAdapter.startChatSession).toHaveBeenCalledWith(
+        expect.objectContaining({ name: conversationName }),
+      );
+      expect(s.service.getSessionName(TAB_UUID)).toBe(conversationName);
     });
 
     it('returns failure result when registry.getProfile returns undefined', async () => {
