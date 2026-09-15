@@ -8,7 +8,6 @@
    falls back to Anubis theme (Electron desktop) via global styles.css */
 :host ::ng-deep .overflow-y-auto,
 .chat-scroll-container {
-  overflow-anchor: none;
   scrollbar-width: thin;
   scrollbar-color: var(
       --vscode-scrollbarSlider-background,
@@ -17,7 +16,15 @@
     var(--vscode-scrollbar-shadow, transparent);
 }
 
+:host ::ng-deep .overflow-y-auto {
+  overflow-anchor: none;
+}
+
+/* Native scroll anchoring: when a bubble above the viewport mounts, unmounts
+   or re-measures, the browser shifts scrollTop by the same delta, so the text
+   the user reads stays still. With `none` every such change jolted the view. */
 .chat-scroll-container {
+  overflow-anchor: auto;
   display: block;
   min-height: 0;
   height: 100%;
@@ -30,15 +37,6 @@
   flex-direction: column;
   gap: 0.75rem;
   width: 100%;
-}
-
-/* Browser-native windowing: off-screen bubbles skip layout + paint, giving
-   virtual-scroll-class performance without a JS estimator. contain-intrinsic-
-   size: auto <fallback> lets the browser remember each bubble's last rendered
-   height so the scrollbar stays stable. */
-.chat-msg-cv {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 120px;
 }
 
 /* Persistent per-message slot. Carries no padding and no containment of its

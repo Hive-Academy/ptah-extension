@@ -17,9 +17,9 @@ export const RENDER_WINDOW_MARGIN_PX = 2000;
 export const ALWAYS_MOUNTED_TAIL = 6;
 
 /**
- * Placeholder height for a message that has never been measured. Matches
- * `contain-intrinsic-size: auto 120px` in `chat-transcript.component.css`, so
- * the scrollbar estimate for never-visited content is unchanged by windowing.
+ * Placeholder height for a message that has never been measured. Any error in
+ * this estimate above the viewport is absorbed by native scroll anchoring on
+ * the transcript container (`chat-transcript.component.css`).
  */
 export const PLACEHOLDER_FALLBACK_PX = 120;
 

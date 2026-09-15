@@ -266,6 +266,37 @@ describe('ChatTranscriptComponent — hidden-transcript reactivity pause', () =>
 
     expect(container.scrollTop).toBe(42);
   });
+
+  it('unpins on a single small scroll up and never pulls the user back', () => {
+    const h = makeHarness();
+    h.fixture.detectChanges();
+    const container: HTMLElement = h.fixture.nativeElement.querySelector(
+      '.chat-scroll-container',
+    );
+    Object.defineProperty(container, 'scrollHeight', { value: 5000 });
+    Object.defineProperty(container, 'clientHeight', { value: 500 });
+    const state = h.component as unknown as { pinnedToBottom: boolean };
+
+    // Pinned at the bottom.
+    container.scrollTop = 4500;
+    h.component.onScroll(new Event('scroll'));
+    expect(state.pinnedToBottom).toBe(true);
+
+    // One wheel tick up — still inside NEAR_BOTTOM_PX, but it is the user.
+    container.scrollTop = 4440;
+    h.component.onScroll(new Event('scroll'));
+    expect(state.pinnedToBottom).toBe(false);
+
+    // Streaming content arrives: the transcript must not re-stick.
+    h.messagesSig.set([makeMessage('m1')]);
+    h.fixture.detectChanges();
+    expect(container.scrollTop).toBe(4440);
+
+    // Scrolling back down near the bottom re-pins.
+    container.scrollTop = 4450;
+    h.component.onScroll(new Event('scroll'));
+    expect(state.pinnedToBottom).toBe(true);
+  });
 });
 
 /**
