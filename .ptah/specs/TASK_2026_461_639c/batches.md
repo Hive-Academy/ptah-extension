@@ -1,6 +1,6 @@
 # Batches - TASK_2026_461_639c
 
-Total tasks: 18 | Batches: 7 | Complete: 6/7
+Total tasks: 21 | Batches: 8 | Complete: 7/8
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase3-skills-unblock` (branch
 `feat/task-439-phase3-skills-unblock`, base `97239e814`). Below, `W` means that absolute path and `T` means
@@ -21,6 +21,8 @@ Wave 2:  Batch 3 (D2 outside skill-synthesis: platform-core, rpc-handlers, share
 Wave 3:  Batch 5 (cleanup DI + cron job in both hosts + namer deletion + CLAUDE.md)                            needs 4
 Wave 4:  Batch 6 (REACHABILITY PROOF: real container, real SQLite, fake lane, mutations M1-M5)                 needs 1, 5 (and 3 committed)
 Wave 5:  Batch 7 (full verification + prefilter corpus measurement + cleanup byte-copy measurement)            needs all
+Wave 6:  Batch 8 (user decisions on the Batch 7 findings: non-MCP tool evidence, keep root-unknown candidates,
+         re-verify + re-measure)                                                                               needs 7
 ```
 
 - Max lanes in flight: 2 (waves 1 and 2), under the cap of 3.
@@ -806,7 +808,38 @@ Edge cases:
 
 ---
 
-## Batch 7: Final verification and measurement — IN_PROGRESS
+## Batch 7: Final verification and measurement — COMPLETE (c4f9c4df8)
+
+- Commits: `c4f9c4df8` test(skill-synthesis): batch 7 - track transaction state in the reachability node:sqlite
+  adapter (1 file, Task 7.4); task-folder docs commit `docs(task-specs): record TASK_2026_461 batch 7 and plan batch 8`
+  follows it (test-report.md, backlog-cleanup-measurement.md, batch-7.done, context.md, this file).
+- Executor: senior-tester subagent (Claude family), all four tasks.
+- Review: Task 7.4 is test-support only; the orchestrator accepted it without a separate review lane. Team-leader read
+  the diff line by line: `inTransaction` prefers the own-property or prototype `isTransaction` getter, else a flag set
+  by `exec` of `BEGIN`, cleared by `COMMIT` / `END` / `ROLLBACK` (not `ROLLBACK TO`); the `.transaction()` wrapper
+  sets and clears it on success and on throw; doc comment states the adapter covers only the members the proof reaches
+  and `.transaction()` has no nesting / savepoints. No production file. Tasks 7.1-7.3 changed no code.
+- Team-leader confirmation before commit: waited for another worktree's `run-many -t typecheck` to finish; then
+  `run-many -t test -p @ptah-extension/skill-synthesis --testPathPatterns=skill-synthesis.reachability --runInBand
+  --skip-nx-cache` -> 1 suite, 5/5 passed (node:sqlite). `git status` held only the Task 7.4 file plus task-folder files.
+- Measured figures (`test-report.md`, `backlog-cleanup-measurement.md`):
+  - 7.4: `inTransaction` false / true / false / true / false across BEGIN IMMEDIATE, COMMIT, BEGIN, ROLLBACK;
+    reachability 5/5 both bindings, 0 skipped.
+  - 7.1: test "for 8 projects" green (skill-synthesis 1512 passed / 37 skipped; persistence-sqlite 438 / 80 skipped
+    native-probe suites; rpc-handlers 3016 / 33; platform-core 431; thoth-runtime 100; cli-engine 190); typecheck "for
+    12 projects" green; lint "for 10 projects" 0 errors; degradation-audit exit 0, every lib at its baseline
+    (skill-synthesis 6, cli-engine 12, persistence-sqlite 5, platform-core 7, rpc-handlers 1, shared 3,
+    skill-synthesis-ui 5, ptah-electron 4, ptah-cli 29; thoth-runtime 0). XB1 better-sqlite3: skill-synthesis 8 suites
+    182/182, persistence-sqlite 10 suites 83/83 (node:sqlite 74 + 9 native-only skips). Greps clean; A3 clean; R3 / R4
+    / R5 recorded as phase-5 notes.
+  - 7.2: 1,710 sessions scanned, 1,695 extracted; phase-2 eligible 1,641, phase-3 eligible 1,639 (2 removed, 0.12%);
+    22.2 s. No tool-only split (harness does not compute it).
+  - 7.3: snapshot 1,178,537,984 bytes unchanged; schema 41 -> 45; 2,418 candidates examined in 13 ticks (max tick
+    1,007 ms, largest read 226 ms); kept evidence 120 / verdict 174 / degraded 265; rejected no evidence 0 / transcript
+    unreadable 1,859; invocations deleted 2,424; deferred on error 0; state row = summed counters. Of the 1,859
+    unreadable rejections, 13 candidates have a transcript file on disk (1,093 distinct sessions checked).
+- **Findings put to the user (context.md 2026-09-16)**: tool evidence is too broad (MCP calls count) and the unreadable
+  rejection fires when no workspace root resolves, so no read was attempted. User decisions -> Batch 8.
 
 - Recommended executor: senior-tester SUBAGENT for all four tasks (orchestrator decision at the Batch 6 commit:
   Task 7.3 must not run on a lane, and the Ollama lane is out of quota).
@@ -876,7 +909,7 @@ Edge cases:
 - **Stale text corrected here:** Task 7.1 lint set 8 -> 10; XB1 pattern lists widened; report file `batch-7-report.md`
   -> `test-report.md`; reviewer no longer the Ollama lane by default; Task 7.4 added from the Batch 6 review.
 
-### Task 7.4: Reachability node:sqlite adapter tracks transaction state (carried Batch 6 moderate) — IN_PROGRESS
+### Task 7.4: Reachability node:sqlite adapter tracks transaction state (carried Batch 6 moderate) — COMPLETE
 
 - File: MODIFY `W\libs\backend\skill-synthesis\src\lib\skill-synthesis.reachability.test-support.ts` (`adaptNodeDatabase`
   `:41-83`). No production file, no change to the five proof groups.
@@ -892,7 +925,7 @@ Edge cases:
   skipped under BOTH bindings (XB1 commands); (c) `run-many -t typecheck` and `lint` for skill-synthesis green;
   (d) `git status --short` shows only this file changed under `libs/`.
 
-### Task 7.1: Full suite + typecheck + lint + greps — IN_PROGRESS
+### Task 7.1: Full suite + typecheck + lint + greps — COMPLETE
 
 - Commands (from `W`, `NX_DAEMON=false`, `D:\projects\ptah-extension\node_modules\.bin\nx.cmd`):
   - `run-many -t test -p @ptah-extension/skill-synthesis @ptah-extension/persistence-sqlite @ptah-extension/thoth-runtime @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/platform-core @ptah-extension/shared @ptah-extension/skill-synthesis-ui` — "for 8 projects" (R9 / HANDOFF rule 8 flakes: re-run `--parallel=1`, record both)
@@ -910,14 +943,14 @@ Edge cases:
 - Record R3 (automatic promotion still impossible; UI text), R4 (generalization shortcut unreachable), R5
   (`SkillInvocationTracker` registered, unused) as phase-5 notes in `test-report.md`.
 
-### Task 7.2: Prefilter narrowing measurement (opt-in corpus harness) — IN_PROGRESS
+### Task 7.2: Prefilter narrowing measurement (opt-in corpus harness) — COMPLETE
 
 - Run `libs/backend/skill-synthesis/src/lib/prefilter-corpus-measurement.spec.ts` with `PTAH_PREFILTER_CORPUS=1`
   (command in its header `:17`) over `~/.claude/projects` JSONL. Reads transcripts, never the database; counts only.
   Record phase-2 vs phase-3 eligible counts, depth-only passes, tool-only passes (R2), session total, wall time.
 - Plan reference: implementation-plan.md:500-505
 
-### Task 7.3: Cleanup outcome on a byte copy (senior-tester only) — IN_PROGRESS
+### Task 7.3: Cleanup outcome on a byte copy (senior-tester only) — COMPLETE
 
 - Procedure (HANDOFF rule 5, R-TL9, implementation-plan.md:506-518):
   1. Never open `~/.ptah/state/ptah.sqlite`, `ptah.sqlite-wal`, `ptah.sqlite-shm` or any `ptah.pre-migration-*.sqlite`
@@ -954,4 +987,175 @@ Edge cases:
 - Task 7.4 file changed only as specified; reachability 5/5 under both bindings.
 - Every command green with the stated `for N projects` headers (8 / 12 / 10); greps clean; XB1 lists pasted.
 - `test-report.md` and `backlog-cleanup-measurement.md` exist with every number above; safety proofs pasted.
-- `batch-7.done` written last; reviewer (different family) accepting verdict.
+- `batch-7.done` written last; reviewer (different family) accepting verdict. (Superseded for Task 7.4 by the
+  orchestrator: test-support only, accepted on the team-leader's line-by-line read.)
+
+---
+
+## Batch 8: User decisions on the Batch 7 findings — non-MCP tool evidence, keep root-unknown candidates, re-measure — IN_PROGRESS
+
+Source: `context.md` "Conversation Summary" 2026-09-16 (binding user decisions 1 and 2). No architect revision: both
+decisions are narrow predicate changes inside components the plan already owns (Component 3 prefilter, Component 4
+cleanup). The extractor is phase-5 territory in the plan; decision 1 authorises exactly ONE additive field there.
+
+- Recommended executor: 8.1 and 8.2 — codex CLI lane (`{ cli: 'codex', role: 'backend-developer' }`); 8.3 —
+  senior-tester SUBAGENT, never a lane (reads `~/.claude/projects`, `~/.ptah/state`, OS temp under HANDOFF rule 5).
+- Fallback executor: backend-developer subagent for 8.1 / 8.2; none for 8.3 (return to orchestrator).
+- Execution mode: **sequential, 8.1 -> 8.2 -> 8.3.**
+- Parallelism verdict: 8.1 and 8.2 are disjoint in PRODUCTION files (8.1: `eligibility/`, `trajectory-extractor.ts`;
+  8.2: `cleanup/`, the thoth-runtime job) but NOT safely parallel: (1) a required `nonMcpToolUseCount` on
+  `ExtractedTrajectory` forces 8.1 to edit the trajectory fixtures in
+  `cleanup/skill-backlog-cleanup.service.spec.ts:124-135,222-232`, which 8.2 also edits; (2) both edit
+  `libs/backend/skill-synthesis/CLAUDE.md`; (3) 8.1's mutation transiently breaks the predicate that 8.2's cleanup
+  specs exercise, in one shared worktree (R-TL5). Both tasks are small, so sequential costs little.
+- Reviewer: different family from the implementer. If 8.1 / 8.2 ran on codex -> code-logic-reviewer SUBAGENT (Claude)
+  or the Ollama lane; if either fell back to a Claude subagent -> codex lane code-logic-reviewer. One review over
+  8.1 + 8.2 together after 8.2 returns -> `T\code-logic-review-batch-8.md`. 8.3 is verification + measurement only.
+- Commits (team-leader, after the review): (1) `feat(skill-synthesis): batch 8 - count only non-MCP tools as work
+  evidence` (8.1 files); (2) `fix(skill-synthesis,thoth-runtime): batch 8 - keep backlog candidates whose workspace
+  root never resolves` (8.2 files); (3) `docs(task-specs): record TASK_2026_461 batch 8` after 8.3.
+- Tasks: 3 | Depends on: Batch 7 (committed)
+- Report: `T\batch-8-report.md`, one section per task (`## Task 8.1`, `## Task 8.2`, `## Task 8.3`); each executor
+  appends ONLY its own section, creating the file if absent. Markers: 8.1 writes `T\batch-8.1.done`, 8.2 writes
+  `T\batch-8.2.done`, 8.3 writes `T\batch-8.done` (one line: ISO timestamp + `DONE` or `BLOCKED: <reason>`), each as
+  its LAST step. Executors never edit `batches.md` and never commit.
+
+### Batch 8 plan validation
+
+Status: PASSED WITH RISKS
+
+Assumptions:
+
+- A6 — MCP tools are exactly the `tool_use` blocks whose `name` starts with `mcp__` (Claude Code naming
+  `mcp__<server>__<tool>`). Checked by 8.3's corpus re-measurement (`mcpOnlyRejected` reported).
+- A7 — decision 2 read literally: `reject-unreadable` iff at least one source session had a resolved workspace root
+  (candidate `workspaceRoot`, else the prefilter queue row) so `extract` was called, and no call returned a
+  trajectory. Consequences, each pinned by a spec in 8.2: (a) session A root unknown + session B root resolved and
+  `extract` null -> `reject-unreadable`; (b) empty `sourceSessionIds` -> no read attempted -> kept root-unknown (was
+  `reject-unreadable`); (c) root resolved but `extract` returns null because no sessions directory exists -> `extract`
+  was called -> `reject-unreadable` (unchanged).
+- A8 — the skill-synthesis-ui label for `prefilterMinToolUses` is not changed (frontend, outside the decision); the
+  docs row and lib CLAUDE.md carry the non-MCP rule.
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| R-TL10 A required extractor field breaks every spec fixture typed `ExtractedTrajectory` (~15 specs by grep) | MEDIUM | Task 8.1 greps `toolUseCount` under `libs/backend/skill-synthesis/src` and updates every typed fixture; full lib test + typecheck gate |
+| R-TL11 Tightened predicate silently drops the reachability proof's code-work session | MEDIUM | Fixture carries `Edit` (edit evidence) + `Bash` test; 8.1 re-runs reachability 5/5 under both bindings |
+| R-TL12 Persisted counters no longer sum to `examined` | LOW | Documented in `skill-backlog-cleanup.types.ts`, both CLAUDE.md files; 8.3 checks kept + rejected + summed `keptRootUnknown` + summed `deferredOnError` = examined |
+| R-TL13 `keptRootUnknown` is per-run (migration 0045 frozen) | LOW | Same shape as `deferredOnError`; 8.3 sums across ticks |
+| R-TL14 Kept root-unknown candidates are passed by the cursor and not re-examined in this cleanup version | LOW | Accepted by the decision (keep, never reject); counted |
+
+Edge cases:
+
+- MCP-only session with many tool calls, no edit, no test command -> no evidence — Task 8.1
+- 2 non-MCP tools -> evidence; 1 non-MCP + many MCP -> no evidence; threshold edges on `nonMcpToolUseCount` — Task 8.1
+- `tool_use` block with a missing or non-string name counts as non-MCP (it cannot start with `mcp__`) — Task 8.1
+- Edit-only and test-command-only sessions unchanged — Task 8.1
+- No root for any session, no verdict -> kept root-unknown, counter 1, no rejection, cursor advances — Task 8.2
+- Root resolved + `extract` null -> `reject-unreadable` unchanged; A7(a), A7(b) — Task 8.2
+- A verdict still keeps the candidate before any root logic runs — Task 8.2 (existing cases stay green)
+
+### Task 8.1: Tool evidence counts only non-MCP tools (decision 1) — IN_PROGRESS
+
+- Files (under `W\libs\backend\skill-synthesis\`):
+  - MODIFY `src\lib\trajectory-extractor.ts` — add `nonMcpToolUseCount: number` to `ExtractedTrajectory` right after
+    `toolUseCount` (`:91-92`), doc "Count of tool_use blocks whose name does not start with `mcp__`"; count it in
+    `collectToolSignals` (`:331-361`), sum it in `extract` (`:183-193`), return it (`:234-246`). Do NOT rename or change
+    `toolUseCount`, `editCount` or `bashTestPassed`.
+  - MODIFY `src\lib\eligibility\session-work-evidence.ts` — tool evidence is `trajectory.nonMcpToolUseCount >=
+    thresholds.prefilterMinToolUses`; doc comment says MCP tools (`mcp__*`) do not count. Threshold key and default
+    (2) unchanged. Edit and test evidence unchanged.
+  - MODIFY `src\lib\eligibility\session-work-evidence.spec.ts` — MCP-only (`toolUseCount` 12, `nonMcpToolUseCount` 0,
+    no edit, no test) -> false; 2 non-MCP -> true; mixed 1 non-MCP + 10 MCP -> false; edges threshold-1 / threshold.
+  - MODIFY `src\lib\trajectory-extractor.spec.ts` — transcript with `mcp__ptah__ptah_search_files`,
+    `mcp__firecrawl__firecrawl_scrape`, `Read`, `Grep` -> `toolUseCount` 4, `nonMcpToolUseCount` 2.
+  - MODIFY `src\lib\prefilter-corpus-measurement.spec.ts` — keep the `PTAH_PREFILTER_CORPUS=1` opt-in; add an inline
+    "phase-3 untightened" predicate (the Batch 7 rule, `toolUseCount`) beside the real `passesPrefilter`; report
+    `phase3UntightenedEligible`, `phase3Eligible`, `mcpOnlyRejected` (passes untightened, fails real). Counts only.
+  - MODIFY every other spec under `src` with a fixture typed `ExtractedTrajectory` (grep `toolUseCount`; includes
+    `cleanup\skill-backlog-cleanup.service.spec.ts:131,228`, `skill-synthesis.service.spec.ts`,
+    `skill-synthesis.stage-handlers.spec.ts`, `skill-synthesizer.service.spec.ts`, `subagent-metrics-extractor.spec.ts`,
+    `skill-synthesis.service.enqueue.spec.ts`, `gates\verdict-fallback.spec.ts`,
+    `gates\replay-validator.service.spec.ts`, `gates\cluster-holdout-end-to-end.spec.ts`,
+    `archaeology\regex-demotion.spec.ts`) — add `nonMcpToolUseCount`; where a fixture relies on tool evidence to pass,
+    set it equal to `toolUseCount`.
+  - MODIFY `CLAUDE.md` ("Prefilter eligibility is evidence-only" bullet, `:58`) and
+    `W\apps\ptah-docs\src\content\docs\skill-synthesis\settings.md:34` (`prefilterMinToolUses` row: non-MCP tool calls;
+    keep table alignment).
+- Constraints: `archaeology\regex-demotion.spec.ts` scans production text — new comments must not name the tail-regex
+  success field. No change to settings keys, schema, UI, or `skill-synthesizer.service.ts`'s use of `toolUseCount`.
+- Acceptance: AC-8.1a the cases above pass; AC-8.1b reachability 5/5, 0 skipped, under BOTH bindings (XB1);
+  AC-8.1c `run-many` test / typecheck / lint for skill-synthesis green ("for 1 project"); degradation-audit exit 0,
+  skill-synthesis <= 6.
+- Mutation (paste fail + restore + `git diff --stat`): **8.1-mut** predicate reads `toolUseCount` again -> the
+  MCP-only and mixed cases fail.
+
+### Task 8.2: Keep candidates whose workspace root never resolves (decision 2) — PENDING
+
+- Depends on: Task 8.1 (shared spec file and CLAUDE.md)
+- Files:
+  - MODIFY `W\libs\backend\skill-synthesis\src\lib\cleanup\skill-backlog-cleanup.service.ts` — `evaluateCandidate`
+    (`:262-306`): set `attempted = true` immediately before `extractor.extract` is called; after the loop return
+    `readable ? 'reject-no-evidence' : attempted ? 'reject-unreadable' : 'kept-root-unknown'`. Add
+    `'kept-root-unknown'` to `CandidateDisposition` (`:51-57`); `RunProgress` (`:59-62`, init `:82`) gains
+    `keptRootUnknown`, incremented where `deferredOnError` is (per run, NOT in the persisted counters);
+    `runCounters` (`:414-422`) returns it. No rejection pushed; the cursor advances as for any keep. Migration 0045 and
+    `SkillBacklogCleanupStore` untouched.
+  - MODIFY `...\cleanup\skill-backlog-cleanup.types.ts` — `BacklogCleanupRunCounters` (`:27-31`) gains
+    `keptRootUnknown: number` with a doc comment: per run, not persisted; candidates kept because no source session
+    resolved a workspace root, so no transcript read was attempted; persisted kept + rejected counters therefore sum
+    to `examined` minus the run-summed `keptRootUnknown` and `deferredOnError`.
+  - MODIFY `...\cleanup\skill-backlog-cleanup.service.spec.ts` — no root anywhere, no verdict -> report
+    `keptRootUnknown` 1, `rejectedTranscriptUnreadable` 0, no rejection row for it; root resolved + `extract` null ->
+    `reject-unreadable` unchanged; A7(a) mixed -> `reject-unreadable`; A7(b) empty `sourceSessionIds` -> kept
+    root-unknown.
+  - MODIFY `...\cleanup\skill-backlog-cleanup.integration.spec.ts` — seed a candidate with NULL `workspace_root`, no
+    prefilter queue row, no verdict: stays `status='candidate'`, report `keptRootUnknown` 1; update any existing
+    expectation the new rule changes and explain each in the report.
+  - MODIFY `W\libs\backend\thoth-runtime\src\lib\skill-backlog-cleanup-job.ts` (`summarizeCleanup` `:80-88`) — append
+    `, root unknown ${report.keptRootUnknown}`; `kept` stays the persisted three. MODIFY
+    `skill-backlog-cleanup-job.spec.ts` (`:45`, `:101-110`) fixture + expected summary.
+  - MODIFY `W\libs\backend\cli-engine\src\lib\bootstrap\thoth-runtime.spec.ts:151-165` — add `keptRootUnknown: 0` to
+    the report fixture if typecheck requires it (report either way).
+  - MODIFY `W\libs\backend\skill-synthesis\CLAUDE.md` ("Backlog cleanup is conservative and resumable" bullet) and
+    `W\libs\backend\thoth-runtime\CLAUDE.md` (skills backlog cleanup job bullet: counters include root unknown).
+- Acceptance: AC-8.2a service spec cases above; AC-8.2b integration spec under BOTH bindings; AC-8.2c `run-many`
+  test / typecheck / lint for skill-synthesis, thoth-runtime, cli-engine ("for 3 projects"); degradation-audit exit 0
+  (skill-synthesis <= 6, cli-engine <= 12, thoth-runtime 0).
+- Mutation (paste fail + restore + `git diff --stat`): **8.2-mut** restore `readable ? 'reject-no-evidence' :
+  'reject-unreadable'` -> the no-root service case and the integration case fail.
+
+### Task 8.3: Re-verification and re-measurement (senior-tester only) — PENDING
+
+- Depends on: Tasks 8.1 and 8.2 returned and reviewed. Changes no code.
+- Before every heavy run: no live `jest` / `nx run-many` process (wait if one runs). `NX_DAEMON=false`, binaries
+  from `D:\projects\ptah-extension\node_modules`. Never `nx reset`, never `--update-baseline`.
+- Verification (paste headers and totals):
+  - `run-many -t test -p @ptah-extension/skill-synthesis @ptah-extension/thoth-runtime @ptah-extension/cli-engine` —
+    "for 3 projects"
+  - `run-many -t typecheck -p` the same 3 + `@ptah-extension/rpc-handlers ptah-electron ptah-cli` — "for 6 projects"
+  - `run-many -t lint -p` the same 3 — "for 3 projects"
+  - `run degradation-audit:lint` — exit 0; lines for skill-synthesis (<= 6), cli-engine (<= 12), thoth-runtime (0)
+  - XB1 both bindings (PowerShell, `'"a|b"'` quoting): `--config libs/backend/skill-synthesis/jest.config.ts
+    --testPathPatterns '"skill-synthesis.reachability|skill-backlog-cleanup|skill-synthesis.stage-handlers|cluster-holdout-end-to-end"'
+    --runInBand`; paste both `Tests:` lines
+  - greps: `mcp__` in `libs/backend/skill-synthesis/src` production files (extractor only); `keptRootUnknown` over
+    `libs`
+- Re-measurement 1 (corpus, Task 7.2 procedure): sessions scanned, extracted, phase-2 eligible, phase-3 untightened
+  eligible (Batch 7: 1,639), phase-3 tightened eligible, `mcpOnlyRejected`, wall time.
+- Re-measurement 2 (byte copy, Task 7.3 procedure verbatim, HANDOFF rule 5 / R-TL9: fresh fail-if-exists temp dir not
+  starting with `ptah`, `COPYFILE_EXCL`, six pragmas read back, only the copy opened, temp harness spec deleted, temp
+  dir removed and proven gone, source size + mtime unchanged): every Task 7.3 counter plus `keptRootUnknown` summed
+  across ticks, as a before/after table against Batch 7 (kept evidence 120, verdict 174, degraded 265, rejected no
+  evidence 0, unreadable 1,859, invocations 2,424, deferred 0); the sum check kept + rejected + summed
+  `keptRootUnknown` + summed `deferredOnError` = examined; and the new disposition of the 13 candidates Batch 7 found
+  unreadable-rejected with a transcript on disk (same read-only existence check; counts per disposition only).
+- Report: `T\batch-8-report.md` `## Task 8.3` (counts and timings only; no session ids, paths or transcript content);
+  `git status --short` proving no harness remains; marker `T\batch-8.done` LAST.
+
+### Batch 8 verification
+
+- 8.1 / 8.2 files exist with real code; 8.1-mut and 8.2-mut pasted fail + restore; reachability 5/5 both bindings;
+  reviewer of a different family accepting verdict.
+- 8.3 headers 3 / 6 / 3; degradation audit at baselines; both re-measurements recorded with safety proofs.
+- `batch-8.done` written last.

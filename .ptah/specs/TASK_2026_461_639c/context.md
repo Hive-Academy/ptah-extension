@@ -92,3 +92,13 @@ twice is dropped and its work moves to a subagent.
   5-agent limit with other sessions' agents). The Batch 6 review lane (ollama cloud) exited 0 with no
   deliverable: `429 session usage limit`. Batch 6 review moved to a code-logic-reviewer subagent
   (Claude family, implemented nothing in Batch 6). antigravity stays reserved for Gate 3.
+- 2026-09-16: Batch 7 measurement findings put to the user (AskUserQuestion):
+  1. Corpus: the evidence-only prefilter keeps 1,639 of 1,641 phase-2-eligible sessions (removes 0.12%)
+     because "tool evidence" counts any 2 tool calls, MCP included. User chose **tighten now**: tool
+     evidence counts only non-MCP tools (name not starting with `mcp__`), threshold stays 2; edit and
+     test evidence unchanged; re-measure the corpus and re-run the reachability proof.
+  2. Byte copy: 1,859 of 2,418 candidates rejected as transcript unreadable (99.3% have no transcript
+     on disk); 13 have a file present, likely because no workspace root resolves and the service skips
+     the read (`skill-backlog-cleanup.service.ts:287`). User chose **keep, never reject**: reject as
+     unreadable only when a read was attempted and failed; an unresolvable root keeps the candidate and
+     is counted separately.
