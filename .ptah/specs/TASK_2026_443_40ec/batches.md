@@ -1,6 +1,6 @@
 # Batches - TASK_2026_443_40ec
 
-Total tasks: 25 | Batches: 10 | Complete: 9/10
+Total tasks: 26 | Batches: 10 | Complete: 10/10
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle` (branch
 `feat/task-439-phase2-memory-lifecycle`, base 5e34e39cc). Below, `W` means that absolute path; every lane prompt
@@ -1371,7 +1371,7 @@ review round is required).
 
 ---
 
-## Batch 10: Final verification — documentation and dead-setting cleanup, full suite + greps, AC9 timing on a temp copy — IN_PROGRESS
+## Batch 10: Final verification — documentation and dead-setting cleanup, full suite + greps, AC9 timing on a temp copy — COMPLETE (commits 15322161c, f3a03bd33, a72961184)
 
 - Recommended executor: 10.1 codex CLI lane (docs); 10.2 and 10.3 senior-tester subagent (see Defaults)
 - Fallback executor: 10.1 technical-content-writer or backend-developer subagent; 10.2 codex lane; 10.3 none
@@ -1674,7 +1674,21 @@ review round is required).
   1730 ms synchronous batch on the Electron main thread is exactly the stall class this umbrella exists to remove, and
   the plan's fixed rule (`:889-891`) names the remedy. At 100 the sweep PASSES. Task 10.4 applies it.
 
-### Task 10.4: Set `memoryDeleteBatchSize` to 100 from the Task 10.3 sweep — PENDING
+### Task 10.4: Set `memoryDeleteBatchSize` to 100 from the Task 10.3 sweep — COMPLETE (commit a72961184)
+
+- Report (`task-10-4-report.md`) and review (`code-logic-review-task-10-4.md`): APPROVED 9/10, 0 blocking, 0 serious,
+  0 moderate, 1 minor. The reviewer confirmed only the batch-size constant changed value (every other constant, the
+  halving floor and the clamp ranges untouched), the integration-spec edit is arithmetic only with `expect(` 159 before
+  and after, and no statement, predicate, transaction shape or public signature changed.
+- Minor (the comment cites the M4 cap-eviction sweep although the constant also governs age delete): ACCEPTED as is, no
+  change. The team-leader does not edit production code, a comment clause is not worth a fourth lane round, and the
+  direction is safe: M3 (age delete) PASSED at 200 in Task 10.3, so 100 only makes that path safer. Recorded here
+  instead, which is where a reader of the batch record will look.
+- Team-leader re-run: memory-curator test / typecheck / lint 1 project green (640 passed, 59 pre-existing skips; 0 lint
+  errors); thoth-runtime + cli-engine test 2 projects green (91 and 188 passed); `degradation-audit:lint` exit 0
+  (memory-curator 20/20); better-sqlite3 via Electron 42 suites / 699 passed. The only remaining `200` in
+  `memory-curator/CLAUDE.md` is the unrelated boot-scan throttle. Committed with only the 3 Task 10.4 files.
+
 
 - Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer). Fallback: backend-developer subagent.
 - Reviewer: Ollama Cloud lane, code-logic-reviewer -> `code-logic-review-task-10-4.md`. REQUIRED before commit: this
