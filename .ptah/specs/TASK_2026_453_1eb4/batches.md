@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 32 | Batches: 18 (13 code, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 8/18
+Total tasks: 32 | Batches: 18 (13 code, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 9/18
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -1258,7 +1258,7 @@ ptah-extension-vscode ptah-cli --parallel=1` (drop any app a batch cannot affect
    `chat-transcript.component.css`; `git diff | grep content-visibility` empty; no
    `ALLOWED_METHOD_PREFIXES` diff; no TODO/stub; no new `catch { return <literal> }`.
 
-## Batch 9: C6 paged history contract (`libs/shared`) — IN_PROGRESS
+## Batch 9: C6 paged history contract (`libs/shared`) — COMPLETE (commit: `feat(shared): add tail history page contracts and cursor utils`)
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `backend-developer` sub-agent
@@ -1267,7 +1267,7 @@ ptah-extension-vscode ptah-cli --parallel=1` (drop any app a batch cannot affect
 - Tasks: 1 | Depends on: Batch 8 PASS
 - Review: logic + style in parallel → same lane → delta → commit. Revise cap 2.
 
-### Task 9.1: Page selection, cursor, wire types, error code, anchor hint field — IN_PROGRESS
+### Task 9.1: Page selection, cursor, wire types, error code, anchor hint field — COMPLETE
 
 - Files:
   - CREATE `W\libs\shared\src\lib\utils\history-page.utils.ts`
@@ -1497,6 +1497,11 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
   4. `loadOlder`: stale → cursor `null` + `'stale'` (D14); failed → cursor kept; `null` or
      `undefined` cursor → `'none'`. Uses the `RpcResult` shape (no literal-return catch).
   5. The replayer stays < 700 lines.
+  6. (Batch 11 review carry-over) `HistoryPagingService` MUST wrap `accumulate()` + `build()` in
+     ONE outer `try/finally` that calls `HistoryMessageBuilder.clearCache(cacheKey)`.
+     `build({ releaseCacheAfterBuild: true })` only releases when `build` is reached; a throw inside
+     `accumulate()` happens before it. Also: never hold a `tab.messages` snapshot across an `await`
+     before `prependHistoryMessages` — it reads current state at commit time and must stay so.
 
 ### Task 12.2: Chat view anchor hint + older-history handler — PENDING
 

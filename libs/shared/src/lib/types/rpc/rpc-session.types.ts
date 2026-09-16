@@ -290,6 +290,11 @@ export interface MessageAnchorHint {
    * Defaults to `0`.
    */
   occurrence?: number;
+  /**
+   * Number of identical user prompts after the anchor. When present, this
+   * from-the-end count is preferred over `occurrence`.
+   */
+  occurrenceFromEnd?: number;
 }
 
 /** Parameters for session:forkSession RPC method */

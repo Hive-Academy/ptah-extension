@@ -10,6 +10,20 @@ export * from './image-media-type';
 export { pickPrimaryModel, type ModelUsageEntry } from './pick-primary-model';
 export { blankToUndefined, blankToNull } from './session-id.utils';
 export {
+  decodeHistoryCursor,
+  encodeHistoryCursor,
+  HISTORY_PAGE_DEFAULT_EVENTS,
+  HISTORY_PAGE_MAX_EVENTS,
+  HISTORY_TAIL_PAGE_EVENTS,
+  HistoryCursorInvalidError,
+  HistoryCursorStaleError,
+  HistoryPageInvalidOptionsError,
+  resolveHistoryCursorEndIndex,
+  selectHistoryPage,
+  type HistoryPageSelection,
+  type HistoryPageSelectionOptions,
+} from './history-page.utils';
+export {
   decodeJwtExpiry,
   isCodexAccessTokenStale,
   CODEX_TOKEN_MAX_AGE_MS,

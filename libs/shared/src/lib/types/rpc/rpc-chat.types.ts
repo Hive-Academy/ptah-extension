@@ -9,6 +9,7 @@ import type { SessionId } from '../branded.types';
 import type { ThinkingConfig, EffortLevel } from '../ai-provider.types';
 import type { FlatStreamEventUnion } from '../execution';
 import type { AskUserQuestionRequest } from '../permission.types';
+import type { SubagentRecord } from '../subagent-registry.types';
 import type { RpcUserErrorCode } from './rpc-error-codes.types';
 
 /**
@@ -227,6 +228,11 @@ export interface ChatResumeParams {
    * Required for the resume-and-retry rewind path.
    */
   activate?: boolean;
+  /**
+   * Requests a whole-turn tail page instead of the full transcript.
+   * Omit this field to preserve the legacy full-history response.
+   */
+  historyPage?: { readonly maxEvents: number };
 }
 
 /** Response from chat:resume RPC method */
@@ -236,10 +242,17 @@ export interface ChatResumeResult {
   /**
    * Full streaming events for session history replay — the ONE transcript
    * this reply carries (TASK_2026_437 C15, INV-9).
-   * Includes tool_start, tool_result, thinking, agent_start events.
+   * When `historyPage` is absent this remains the full replayable history.
+   * When requested, it is a whole-turn tail page. Includes tool_start,
+   * tool_result, thinking, agent_start events.
    * Frontend processes these through StreamingHandler to build ExecutionNode tree.
    */
   events?: FlatStreamEventUnion[];
+  /**
+   * Paging metadata, present only for a successful request that included
+   * `historyPage`. `null` means the replayable start has been reached.
+   */
+  historyPage?: { readonly olderCursor: string | null };
   /**
    * Aggregated usage stats from session history
    * Extracted from JSONL message.usage fields for old session cost display
@@ -320,4 +333,21 @@ export interface ChatResumeResult {
   errorCode?: RpcUserErrorCode;
   /** Provider whose auth is required, when errorCode is 'AUTH_REQUIRED'. */
   providerId?: string;
+}
+
+/** Parameters for the side-effect-free chat:history-page RPC method. */
+export interface ChatHistoryPageParams {
+  readonly sessionId: SessionId;
+  /** Opaque cursor returned by a prior history page response. */
+  readonly cursor: string;
+  /** Preferred event budget; defaults on the server when omitted. */
+  readonly maxEvents?: number;
+  readonly workspacePath?: string;
+}
+
+/** Response from the side-effect-free chat:history-page RPC method. */
+export interface ChatHistoryPageResult {
+  readonly events: readonly FlatStreamEventUnion[];
+  readonly olderCursor: string | null;
+  readonly resumableSubagents: readonly SubagentRecord[];
 }
