@@ -1,6 +1,6 @@
 # Batches - TASK_2026_463_f13d
 
-Total tasks: 9 | Batches: 4 (3 code, 1 PR prep) | Complete: 2/4
+Total tasks: 9 | Batches: 4 (3 code, 1 PR prep) | Complete: 4/4
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files,
 never modify `W\node_modules` — it is a junction):
@@ -306,8 +306,23 @@ verifies on disk and commits the batch's paths only.
 
 ---
 
-## Batch 2: CI bump guard + publish-electron dry run (C1 + C3) — IN_PROGRESS
+## Batch 2: CI bump guard + publish-electron dry run (C1 + C3) — COMPLETE
 
+- Commit: see `ci(workflows): narrow bump-branch guard and add publish-electron dry-run` on
+  `chore/task-463-437-leftovers`
+- Outcome: revise round 1 of 2. Logic APPROVE 8/10 (moderate: duplicated dry-run predicate between
+  `concurrency.group` and `Resolve release mode`) and style APPROVE 8/10 (minor: no inline
+  `release_mode` invariant comment; guard comments not verbatim). All three closed in round 1:
+  cross-reference comments at both predicate sites, invariant comment beside the job output,
+  identical guard prose except the trigger-specific last clause.
+- Deviation accepted: AC 2.2.3 said dry-run only when event is `workflow_dispatch` AND input
+  `'true'`; round 1 keys on the input alone so the step matches `concurrency.group` exactly. A push
+  has no inputs, so it still resolves to `publish`, and the push self-check stays.
+- Team-leader verification: strict `yaml` parse of all six files OK; 7 build steps carry the
+  positive `release_mode == 'publish'` term (all four eSigner steps, both checks, copy-back);
+  `jobs.release.if` gated, first step `Refuse unless publishing`; retry anchors resolve to
+  `batch_sign`; `dry-run` boolean default false; each guarded job has exactly the three prefixes;
+  `git diff --check` clean. No dispatch run.
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `devops-engineer` sub-agent
 - Execution mode: sequential
@@ -316,7 +331,7 @@ verifies on disk and commits the batch's paths only.
   outward-facing pipeline, so one lane with one structural assertion over all six files.
 - Tasks: 2 | Depends on: none
 
-### Task 2.1: Narrow the `chore/bump-` skip guard (C1) — IN_PROGRESS
+### Task 2.1: Narrow the `chore/bump-` skip guard (C1) — COMPLETE
 
 - Files:
   - MODIFY `W\.github\workflows\ci.yml` (guard :48, comment :41-45)
@@ -338,7 +353,7 @@ verifies on disk and commits the batch's paths only.
      `vscode-e2e.yml`. No other line in those two files changes.
 - Validation notes: guard prefix risk.
 
-### Task 2.2: `dry-run` mode for publish-electron (C3) — IN_PROGRESS
+### Task 2.2: `dry-run` mode for publish-electron (C3) — COMPLETE
 
 - File: MODIFY `W\.github\workflows\publish-electron.yml` (719 lines)
 - Plan reference: implementation-plan.md:204-226 (D3), :402-489
@@ -496,14 +511,39 @@ refusal OK`, `self-test junction cleanup OK`, `self-test OK`, exit 0; no TODO/st
 
 ---
 
-## Batch 4: PR prep — PENDING
+## Batch 4: PR prep — COMPLETE
 
 - Recommended executor: team-leader (Mode 3) then orchestrator
 - Execution mode: sequential
 - Parallel group: none (after Batches 1-3 are COMPLETE)
 - Tasks: 1 | Depends on: Batches 1, 2, 3
 
-### Task 4.1: Final verification, carrier status, PR hand-off — PENDING
+### Task 4.1: Final verification, carrier status, PR hand-off — COMPLETE
+
+- Done by team-leader: Batches 1-3 COMPLETE with commits; `task.md` `status:` set to `in_review`;
+  spec folder and b2 review files committed; branch pushed. PR not opened (orchestrator owns it).
+
+#### Manual post-merge actions (user-owned)
+
+1. Dispatch **Publish Electron** from `main` with `dry-run=true`. Expect: three build legs green,
+   zero eSigner steps run, `release` job skipped, step summary `release_mode=dry-run`, artifacts
+   kept 5 days. Record the run id in `S437/batches.md` Batch 10 D10. Never distribute its artifacts.
+2. AC-10 boot evidence: start the app with `PTAH_PROFILE_ON_LAG_MS=1000` on an idle machine (no
+   load test, no other perf run) and capture the boot lag log.
+3. Load-test run (`scripts/perf/property-hub-loadtest-setup.mjs --execute`, then cleanup) stays
+   manual.
+4. Confirm the CI guard on the next human `chore/bump-<dep>` PR (CI runs) and the next bot bump PR
+   (CI skips).
+
+#### Follow-ups (not in this task)
+
+- Runtime signal when `internalQuery.maxConcurrent <= 2`: background cap `limit - 1` leaves at
+  most one background lane; surface a warning instead of silent starvation.
+- Lane literal constants: lane strings are repeated as literals; hoist to shared constants.
+- Naming asymmetry between the gate's background-cap naming and the settings key / `blockedBy`
+  value; align in one rename pass.
+- Optional: back-port the positive `release_mode` gating pattern to `publish-cli.yml` /
+  `publish-extension.yml`; commit the Batch 2 structural assertion script as a CI lint step.
 
 - Files: `W\.ptah\specs\TASK_2026_463_f13d\task.md` (`status:` line only), `batches.md`
 - Acceptance criteria:

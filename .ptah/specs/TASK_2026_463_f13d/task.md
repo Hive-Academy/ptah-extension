@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_463_f13d
-status: in_progress
+status: in_review
 type: DEVOPS
 title: >-
   TASK_2026_437 leftovers: CI bump-branch guard, internal-query slot reservation, Electron publish dry-run, load-test scripts
