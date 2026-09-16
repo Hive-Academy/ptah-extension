@@ -71,7 +71,8 @@ describe('migration 0040_skill_candidate_workspace_root — registry entry', () 
     // TASK_2026_331 B4 appended 0041_skill_md_migration_state).
     // 43 since TASK_2026_440 appended 0043_memory_retention.
     // 44 since TASK_2026_443 appended 0044_memory_lifecycle.
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(44);
+    // 45 since TASK_2026_461 appended 0045_skill_backlog_cleanup.
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(45);
   });
 });
 
