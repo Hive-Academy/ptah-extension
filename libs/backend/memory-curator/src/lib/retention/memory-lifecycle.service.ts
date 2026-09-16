@@ -22,6 +22,7 @@ import {
   RetentionRunBudget,
   type RetentionBatchKind,
 } from './retention-run-budget';
+import { RetentionStepError } from './observation-retention.store';
 
 export type MemoryLifecycleNote = 'disabled' | 'vec-unavailable';
 
@@ -42,6 +43,7 @@ export interface MemoryLifecycleStepResult {
   readonly note: MemoryLifecycleNote | null;
   readonly preview: MemoryLifecyclePreview | null;
   readonly readErrors: readonly string[];
+  readonly error?: RetentionStepError | null;
 }
 
 interface MutableResult {
@@ -53,6 +55,7 @@ interface MutableResult {
   note: MemoryLifecycleNote | null;
   preview: MemoryLifecyclePreview | null;
   readErrors: string[];
+  error: RetentionStepError | null;
 }
 
 type CountedBatch =
@@ -88,6 +91,7 @@ export class MemoryLifecycleService {
       note: null,
       preview: null,
       readErrors: [],
+      error: null,
     };
     const roots = new Set<string | null>();
 
@@ -99,101 +103,112 @@ export class MemoryLifecycleService {
       return result;
     }
 
-    const deleteAdmission = this.store.canDelete();
-    if (!deleteAdmission.allowed) {
-      result.note = 'vec-unavailable';
-      this.logger.warn(
-        '[memory-curator] lifecycle deletes paused because sqlite-vec is unavailable',
-      );
-    } else {
-      await this.runLoop(
-        budget,
-        'delete',
-        (limit) =>
-          this.store.deleteArchivedBatch(
-            nowMs - settings.deleteAfterDays * DAY_MS,
-            limit,
-          ),
-        (batch) => {
-          const deleted = 'deleted' in batch ? batch.deleted : 0;
-          result.deleted += deleted;
-          if ('workspaceRoots' in batch) {
-            for (const root of batch.workspaceRoots) roots.add(root);
-          }
-          return deleted;
-        },
-        result,
-      );
-    }
-
-    if (result.stop === null) {
-      await this.runLoop(
-        budget,
-        'archive',
-        (limit) =>
-          this.store.archiveBatch(
-            nowMs - settings.archiveAfterDays * DAY_MS,
-            nowMs,
-            limit,
-          ),
-        (batch) => {
-          const archived = 'archived' in batch ? batch.archived : 0;
-          result.archived += archived;
-          if ('workspaceRoots' in batch) {
-            for (const root of batch.workspaceRoots) roots.add(root);
-          }
-          return archived;
-        },
-        result,
-      );
-    }
-
-    if (result.stop === null && deleteAdmission.allowed) {
-      const overCap = this.store.overCapWorkspaces(settings.maxPerWorkspace);
-      result.readErrors.push(...overCap.readErrors);
-      for (const workspace of overCap.workspaces) {
-        const evictedBefore = result.evicted;
-        const archivalExcess = Math.max(
-          0,
-          workspace.evictable - settings.maxPerWorkspace,
+    try {
+      const deleteAdmission = this.store.canDelete();
+      if (!deleteAdmission.allowed) {
+        result.note = 'vec-unavailable';
+        this.logger.warn(
+          '[memory-curator] lifecycle deletes paused because sqlite-vec is unavailable',
         );
-        await this.runEviction(
+      } else {
+        await this.runLoop(
           budget,
-          workspace.workspaceRoot,
-          'archival',
-          archivalExcess,
-          nowMs - this.limits.capEvictionGraceMs,
+          'delete',
+          (limit) =>
+            this.store.deleteArchivedBatch(
+              nowMs - settings.deleteAfterDays * DAY_MS,
+              limit,
+            ),
+          (batch) => {
+            const deleted = 'deleted' in batch ? batch.deleted : 0;
+            result.deleted += deleted;
+            if ('workspaceRoots' in batch) {
+              for (const root of batch.workspaceRoots) roots.add(root);
+            }
+            return deleted;
+          },
           result,
         );
-        if (result.stop !== null) break;
-        const recallExcess = Math.max(
-          0,
-          workspace.recallEvictable - settings.maxPerWorkspace,
+      }
+
+      if (result.stop === null) {
+        await this.runLoop(
+          budget,
+          'archive',
+          (limit) =>
+            this.store.archiveBatch(
+              nowMs - settings.archiveAfterDays * DAY_MS,
+              nowMs,
+              limit,
+            ),
+          (batch) => {
+            const archived = 'archived' in batch ? batch.archived : 0;
+            result.archived += archived;
+            if ('workspaceRoots' in batch) {
+              for (const root of batch.workspaceRoots) roots.add(root);
+            }
+            return archived;
+          },
+          result,
         );
-        if (recallExcess > 0) {
+      }
+
+      if (result.stop === null && deleteAdmission.allowed) {
+        const overCap = this.store.overCapWorkspaces(settings.maxPerWorkspace);
+        result.readErrors.push(...overCap.readErrors);
+        for (const workspace of overCap.workspaces) {
+          const evictedBefore = result.evicted;
+          const archivalExcess = Math.max(
+            0,
+            workspace.evictable - settings.maxPerWorkspace,
+          );
           await this.runEviction(
             budget,
             workspace.workspaceRoot,
-            'recall',
-            recallExcess,
+            'archival',
+            archivalExcess,
             nowMs - this.limits.capEvictionGraceMs,
             result,
           );
+          if (result.stop !== null) break;
+          const recallExcess = Math.max(
+            0,
+            workspace.recallEvictable - settings.maxPerWorkspace,
+          );
+          if (recallExcess > 0) {
+            await this.runEviction(
+              budget,
+              workspace.workspaceRoot,
+              'recall',
+              recallExcess,
+              nowMs - this.limits.capEvictionGraceMs,
+              result,
+            );
+          }
+          if (result.evicted > evictedBefore) {
+            roots.add(workspace.workspaceRoot);
+          }
+          if (result.stop !== null) break;
         }
-        if (result.evicted > evictedBefore) {
-          roots.add(workspace.workspaceRoot);
-        }
-        if (result.stop !== null) break;
       }
-    }
 
-    if (result.stop === null) {
-      const preview = this.preview(settings, nowMs);
-      result.preview = preview.value;
-      result.readErrors.push(...preview.readErrors);
+      if (result.stop === null) {
+        const preview = this.preview(settings, nowMs);
+        result.preview = preview.value;
+        result.readErrors.push(...preview.readErrors);
+      }
+      return result;
+    } catch (error: unknown) {
+      // degradation-audit: reported - the retention service receives the
+      // attached step error, persists committed counters, and reports outcome.
+      if (!(error instanceof RetentionStepError)) throw error;
+      result.error = error;
+      result.exhausted = false;
+      if (error.reason === 'database-busy') result.stop = 'database-busy';
+      return result;
+    } finally {
+      if (roots.size > 0) this.memoryStore.markWorkspacesChanged(roots);
     }
-    if (roots.size > 0) this.memoryStore.markWorkspacesChanged(roots);
-    return result;
   }
 
   private async runLoop(

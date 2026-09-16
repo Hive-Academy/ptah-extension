@@ -76,6 +76,10 @@ import { readMemoryStorageHealth } from './memory-storage-health';
 /** `PRAGMA auto_vacuum` value meaning INCREMENTAL. */
 const AUTO_VACUUM_INCREMENTAL = 2;
 
+function isRowBudgetStop(stop: RetentionStopReason | null): boolean {
+  return stop === 'row-budget' || stop === 'memory-row-budget';
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -299,6 +303,7 @@ export class MemoryRetentionService {
       note: null,
       preview: null,
       readErrors: [],
+      error: null,
     };
 
     try {
@@ -377,6 +382,7 @@ export class MemoryRetentionService {
         this.lifecycleReadErrors = [];
         lifecycleResult = await this.lifecycle.runStep(budget, startedAt);
         this.lifecycleReadErrors = lifecycleResult.readErrors;
+        if (lifecycleResult.error) throw lifecycleResult.error;
         if (lifecycleResult.stop !== null && stop === null) {
           stop = lifecycleResult.stop;
         }
@@ -384,7 +390,7 @@ export class MemoryRetentionService {
 
       // A row-budget stop ends only the row steps: the ledger prune and the
       // page reclaim are bounded on their own and return space sooner.
-      const continueAfterRows = stop === null || stop === 'row-budget';
+      const continueAfterRows = stop === null || isRowBudgetStop(stop);
 
       // 3. Ledger prune — once per run.
       if (continueAfterRows && budget.hardStop() === null) {
@@ -400,7 +406,7 @@ export class MemoryRetentionService {
       }
 
       // 4. Page reclaim.
-      if (continueAfterRows && (stop === null || stop === 'row-budget')) {
+      if (continueAfterRows && (stop === null || isRowBudgetStop(stop))) {
         const reclaim = await this.reclaimPages(budget, tally);
         reclaimDone = reclaim.done;
         reclaimNote = reclaim.note;

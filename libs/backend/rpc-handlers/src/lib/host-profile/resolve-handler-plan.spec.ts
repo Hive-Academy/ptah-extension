@@ -38,12 +38,16 @@ jest.mock('@ptah-extension/memory-curator', () => ({
 
 import 'reflect-metadata';
 
+import { container } from 'tsyringe';
+import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
+
 import {
   capabilities,
   resolveRpcHandlerPlan,
   type HostProfile,
   type RpcHandlerCtor,
 } from './index';
+import { installNullImplementations } from './register-rpc-surface';
 import { AgentRpcHandlers } from '../handlers';
 
 class FakeHandler {
@@ -125,5 +129,35 @@ describe('resolveRpcHandlerPlan', () => {
     const hostOwned = plan.filter((step) => !step.libOwned);
     expect(hostOwned.map((step) => step.key)).toEqual(['host.fileOpen']);
     expect(plan.some((step) => step.libOwned)).toBe(true);
+  });
+});
+
+describe('installNullImplementations', () => {
+  it('registers a no-op usage recorder when memory is disabled', () => {
+    const child = container.createChildContainer();
+    installNullImplementations(child, profile());
+
+    expect(() =>
+      child
+        .resolve<{
+          recordUse(ids: readonly string[]): void;
+        }>(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER)
+        .recordUse(['mem-1']),
+    ).not.toThrow();
+  });
+
+  it('keeps a host-provided usage recorder', () => {
+    const child = container.createChildContainer();
+    const recorder = { recordUse: jest.fn() };
+    child.registerInstance(
+      MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER,
+      recorder,
+    );
+
+    installNullImplementations(child, profile());
+
+    expect(child.resolve(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER)).toBe(
+      recorder,
+    );
   });
 });

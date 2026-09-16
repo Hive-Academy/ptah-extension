@@ -1423,9 +1423,7 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
     store.recordUse(['pinned-archival']);
 
     const restored = raw
-      .prepare(
-        'SELECT tier, archived_at, pinned FROM memories WHERE id = ?',
-      )
+      .prepare('SELECT tier, archived_at, pinned FROM memories WHERE id = ?')
       .get('pinned-archival') as {
       tier: string;
       archived_at: number | null;
@@ -1453,10 +1451,13 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
     expect(store.getById(memoryId('pinned-archival'))?.tier).toBe('recall');
   });
 
-  it('caps a call at 200 ids and treats empty and unknown ids as no-ops', () => {
+  it('caps a call at 200 ids and logs once only when distinct ids are truncated', () => {
     for (let i = 0; i < 201; i++) seed(`id-${i}`, 'recall', '/ws');
     store.recordUse([]);
     store.recordUse(['unknown']);
+    store.recordUse(Array.from({ length: 200 }, (_, i) => `short-${i}`));
+    expect(log.debug).not.toHaveBeenCalled();
+
     store.recordUse(Array.from({ length: 201 }, (_, i) => `id-${i}`));
     const used = raw
       .prepare('SELECT COUNT(*) AS n FROM memories WHERE hits = ?')
@@ -1464,6 +1465,11 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
       n: number;
     };
     expect(used.n).toBe(200);
+    expect(log.debug).toHaveBeenCalledTimes(1);
+    expect(log.debug).toHaveBeenCalledWith(
+      '[memory-curator] recordUse truncated memory ids',
+      { received: 201, recorded: 200 },
+    );
   });
 
   it('never throws after the connection closes and warns once', () => {

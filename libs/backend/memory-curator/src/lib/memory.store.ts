@@ -527,7 +527,14 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
   }
 
   recordUse(memoryIds: readonly string[]): void {
-    const ids = [...new Set(memoryIds)].slice(0, 200);
+    const uniqueIds = [...new Set(memoryIds)];
+    if (uniqueIds.length > 200) {
+      this.logger.debug('[memory-curator] recordUse truncated memory ids', {
+        received: uniqueIds.length,
+        recorded: 200,
+      });
+    }
+    const ids = uniqueIds.slice(0, 200);
     if (ids.length === 0) return;
     const params = { ids: JSON.stringify(ids), now: Date.now() };
     try {

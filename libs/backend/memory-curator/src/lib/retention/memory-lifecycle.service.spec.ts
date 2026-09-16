@@ -23,6 +23,7 @@ import {
   type MemoryRetentionLimits,
 } from './memory-retention-config';
 import { RetentionRunBudget } from './retention-run-budget';
+import { RetentionStepError } from './observation-retention.store';
 
 function logger(): Logger {
   return {
@@ -225,6 +226,29 @@ describe('MemoryLifecycleService', () => {
       preview: null,
     });
     expect(h.store.calls.filter((call) => call === 'delete')).toHaveLength(1);
+  });
+
+  it('returns committed counts and invalidates touched roots after a mid-step error', async () => {
+    const h = harness();
+    h.store.deletes = Array.from({ length: 11 }, () => 1);
+    let calls = 0;
+    h.store.onBatch = () => {
+      calls++;
+      if (calls === 11) {
+        throw new RetentionStepError(
+          'sql-error',
+          'delete-archived',
+          new Error('injected delete failure'),
+        );
+      }
+    };
+
+    await expect(h.service.runStep(h.budget, 1_000)).resolves.toMatchObject({
+      deleted: 10,
+      exhausted: false,
+      error: expect.objectContaining({ reason: 'sql-error' }),
+    });
+    expect(h.changed).toEqual([['/delete']]);
   });
 
   it('evicts archival first, then recall only when recall alone exceeds cap', async () => {

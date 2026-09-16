@@ -675,13 +675,21 @@ describe('memory lifecycle — integration (real SQLite + sqlite-vec, fake clock
         archivedAt: NOW - 61 * DAY,
         lastUsedAt: NOW - 100 * DAY,
       });
-    await expect(h.run(NOW)).resolves.toMatchObject({ status: 'failed' });
+    const failedRun = await h.run(NOW);
+    expect(failedRun).toMatchObject({
+      status: 'failed',
+      memoriesDeleted: 100,
+    });
     expect(
       scalar(
         h.t,
         "SELECT COUNT(*) AS n FROM memories WHERE id LIKE 'fail-delete-%'",
       ),
     ).toBe(150);
+    expect(h.store.readState()).toMatchObject({
+      memoriesDeleted: 100,
+      lastOutcome: 'failed',
+    });
     expect(
       scalar(
         h.t,

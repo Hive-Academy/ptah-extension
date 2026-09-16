@@ -237,6 +237,7 @@ const EMPTY_LIFECYCLE_RESULT: MemoryLifecycleStepResult = {
   note: null,
   preview: null,
   readErrors: [],
+  error: null,
 };
 
 class FakeLifecycle {
@@ -715,6 +716,24 @@ describe('MemoryRetentionService — run', () => {
       reason: 'memory-row-budget',
       backlogRemaining: true,
     });
+  });
+
+  it('prunes the ledger and reclaims pages after a memory row budget stop', async () => {
+    const h = harness();
+    h.lifecycle.result = {
+      ...EMPTY_LIFECYCLE_RESULT,
+      exhausted: false,
+      stop: 'memory-row-budget',
+    };
+    h.reclaimer.freelist = 5;
+
+    await expect(h.service.run(h.options)).resolves.toMatchObject({
+      status: 'partial',
+      reason: 'memory-row-budget',
+      pagesReclaimed: 5,
+    });
+    expect(h.store.calls).toContain('prune');
+    expect(h.log).toContain('reclaim');
   });
 
   it('a canDelete throw fails the run, dispatches no lifecycle batch and releases single-flight', async () => {

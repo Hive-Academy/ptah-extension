@@ -10,7 +10,11 @@ import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
 import { GATEWAY_TOKENS } from '@ptah-extension/messaging-gateway';
 import { SKILL_REPROPAGATION_TOKEN } from '@ptah-extension/skill-synthesis';
 
-import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
+import {
+  MEMORY_TOKENS,
+  registerMemoryCuratorServices,
+} from '@ptah-extension/memory-curator';
+import { MemRpcHandlers } from '@ptah-extension/rpc-handlers';
 
 import { registerThothLibraries } from './register-thoth-libraries';
 import { CliSkillRepropagation } from './cli-skill-repropagation';
@@ -101,6 +105,10 @@ describe('registerThothLibraries — real Thoth registration', () => {
       MEMORY_CONTRACT_TOKENS.MEMORY_READER,
     );
     expect(reader.constructor.name).not.toBe('Object');
+    const recorder = c.resolve<{ constructor: { name: string } }>(
+      MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER,
+    );
+    expect(recorder.constructor.name).not.toBe('Object');
   });
 });
 
@@ -149,7 +157,7 @@ describe('registerThothLibraries — memory-contract fallback when Track 1 throw
     );
   });
 
-  it('registers no-op MEMORY_READER/LISTER/SYMBOL_SINK when registerMemoryCuratorServices throws', async () => {
+  it('keeps MemRpcHandlers resolvable with no-op memory contracts when Track 1 throws', async () => {
     const c = buildBaseContainer();
     const logger = c.resolve<import('@ptah-extension/vscode-core').Logger>(
       TOKENS.LOGGER,
@@ -164,6 +172,9 @@ describe('registerThothLibraries — memory-contract fallback when Track 1 throw
     expect(c.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)).toBe(true);
     expect(c.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER)).toBe(true);
     expect(c.isRegistered(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)).toBe(true);
+    expect(c.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER)).toBe(
+      true,
+    );
 
     const reader = c.resolve<{
       search: (q: string) => Promise<{ hits: unknown[]; bm25Only: boolean }>;
@@ -185,6 +196,32 @@ describe('registerThothLibraries — memory-contract fallback when Track 1 throw
     expect(sink.deleteSymbolsForFile()).toBe(0);
     await expect(sink.insertSymbols()).resolves.toBeUndefined();
 
+    const methods = new Map<string, (params: unknown) => Promise<unknown>>();
+    c.registerInstance(TOKENS.RPC_HANDLER, {
+      registerMethod: (
+        name: string,
+        handler: (params: unknown) => Promise<unknown>,
+      ) => methods.set(name, handler),
+    });
+    c.registerInstance(MEMORY_TOKENS.MEMORY_SEARCH, {
+      getObservations: () => ({
+        memories: [{ id: 'mem-1' }],
+        observationsBySession: {},
+      }),
+    });
+    c.register(MemRpcHandlers, { useClass: MemRpcHandlers });
+    const handlers = c.resolve(MemRpcHandlers);
+    handlers.register();
+    await expect(
+      methods.get('mem:getObservations')?.({ ids: ['mem-1'] }),
+    ).resolves.toMatchObject({ memories: [{ id: 'mem-1' }] });
+
     expect((logger.warn as jest.Mock).mock.calls.length).toBeGreaterThan(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        tokens: expect.arrayContaining(['MEMORY_USAGE_RECORDER']),
+      }),
+    );
   });
 });

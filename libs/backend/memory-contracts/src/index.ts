@@ -40,5 +40,6 @@ export { MEMORY_CONTRACT_TOKENS, KNOWLEDGE_AGENT_TOKEN } from './lib/tokens';
 export {
   NullMemoryReader,
   NullMemoryLister,
+  NullMemoryUsageRecorder,
   NullSymbolSink,
 } from './lib/null-implementations';
