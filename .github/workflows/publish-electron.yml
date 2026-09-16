@@ -12,6 +12,11 @@
 #   5. Creates git tag + GitHub Release with all installers
 #   6. Opens a PR to merge the version bump into main
 #
+# Dry run: builds, packages, and verifies all three OS legs, while skipping
+# eSigner signing, the tag, bump PR, and GitHub Release. Cost is zero eSigner
+# signatures and about 3 runner legs of minutes. Dry-run artifacts are unsigned
+# and must never be distributed.
+#
 # Version bump goes to a chore/ branch with a PR to main — never pushes back
 # to release/electron (which would re-trigger this workflow in an infinite loop).
 # A commit message filter provides extra safety.
@@ -54,9 +59,15 @@ on:
           - minor
           - major
         default: patch
+      dry-run:
+        description: 'Build, package and verify on all three OSes; no signing, tag, bump PR or release'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
-  group: publish-electron
+  # Must match Resolve release mode: only a dry-run input of 'true' is dry-run.
+  group: publish-electron-${{ github.event.inputs.dry-run == 'true' && 'dry-run' || 'publish' }}
   cancel-in-progress: false
 
 permissions:
@@ -78,7 +89,30 @@ jobs:
       version: ${{ steps.bump.outputs.new_version }}
       tag: ${{ steps.bump.outputs.tag }}
       should_release: ${{ steps.check.outputs.should_release }}
+      # Every paid/outward step must positively require publish; missing means no signing/release.
+      release_mode: ${{ steps.mode.outputs.release_mode }}
     steps:
+      - name: Resolve release mode
+        id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ github.event.inputs.dry-run }}
+        run: |
+          # Keep this input predicate in sync with concurrency.group above.
+          if [ "$DRY_RUN" = "true" ]; then
+            RELEASE_MODE="dry-run"
+          else
+            RELEASE_MODE="publish"
+          fi
+
+          echo "release_mode=$RELEASE_MODE" >> "$GITHUB_OUTPUT"
+          echo "release_mode=$RELEASE_MODE" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$EVENT_NAME" = "push" ] && [ "$RELEASE_MODE" != "publish" ]; then
+            echo "::error::Push releases must resolve to publish mode."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -455,7 +489,7 @@ jobs:
       # that actually failed. Three attempts can never cost more than one
       # signature per staged file.
       - name: Sign main app executable with SSL.com eSigner
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish'
         uses: sslcom/esigner-codesign@v1.3.2
         with: &batch_sign_with
           command: batch_sign
@@ -475,7 +509,7 @@ jobs:
 
       - name: Check batch-sign output (attempt 1)
         id: sign-check-1
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish'
         shell: pwsh
         run: |
           $stageDir  = "${{ steps.stage-sign.outputs.stage_dir }}"
@@ -505,14 +539,14 @@ jobs:
           }
 
       - name: Batch-sign retry (attempt 2)
-        if: runner.os == 'Windows' && steps.sign-check-1.outputs.complete != 'true'
+        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish' && steps.sign-check-1.outputs.complete != 'true'
         uses: sslcom/esigner-codesign@v1.3.2
         with: *batch_sign_with
         continue-on-error: true
 
       - name: Check batch-sign output (attempt 2)
         id: sign-check-2
-        if: runner.os == 'Windows' && steps.sign-check-1.outputs.complete != 'true'
+        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish' && steps.sign-check-1.outputs.complete != 'true'
         shell: pwsh
         run: |
           $stageDir  = "${{ steps.stage-sign.outputs.stage_dir }}"
@@ -542,7 +576,7 @@ jobs:
           }
 
       - name: Batch-sign retry (attempt 3)
-        if: runner.os == 'Windows' && steps.sign-check-1.outputs.complete != 'true' && steps.sign-check-2.outputs.complete != 'true'
+        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish' && steps.sign-check-1.outputs.complete != 'true' && steps.sign-check-2.outputs.complete != 'true'
         uses: sslcom/esigner-codesign@v1.3.2
         with: *batch_sign_with
         continue-on-error: true
@@ -553,7 +587,7 @@ jobs:
       # if — after all sign attempts above — any staged file is missing or did
       # not receive a Valid Authenticode signature.
       - name: Copy signed binaries back into win-unpacked
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish'
         shell: pwsh
         run: |
           $signedDir = "${{ steps.stage-sign.outputs.signed_dir }}"
@@ -614,7 +648,7 @@ jobs:
           echo "exe_path=$exe" >> $env:GITHUB_OUTPUT
 
       - name: Sign Windows installer with SSL.com eSigner
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish'
         uses: sslcom/esigner-codesign@v1.3.2
         with:
           command: sign
@@ -637,12 +671,22 @@ jobs:
             !dist/release/linux-unpacked/
             !dist/release/mac/
             !dist/release/mac-arm64/
-          retention-days: 30
+          retention-days: ${{ needs.prepare.outputs.release_mode == 'publish' && 30 || 5 }}
 
   release:
     needs: [prepare, build]
+    if: needs.prepare.outputs.release_mode == 'publish'
     runs-on: ubuntu-latest
     steps:
+      - name: Refuse unless publishing
+        env:
+          RELEASE_MODE: ${{ needs.prepare.outputs.release_mode }}
+        run: |
+          if [ "$RELEASE_MODE" != "publish" ]; then
+            echo "::error::Refusing release in mode: $RELEASE_MODE"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -654,6 +698,7 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           TAG="${{ needs.prepare.outputs.tag }}"
+          # Renaming this branch requires the same edit in the bump guards of ci.yml, electron-e2e.yml and vscode-e2e.yml.
           BRANCH="chore/bump-electron-v${VERSION}"
 
           git config user.name "github-actions[bot]"
