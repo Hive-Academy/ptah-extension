@@ -2285,6 +2285,44 @@ describe('SessionLoaderService', () => {
       expect(harness.service.resumableSubagents()).toEqual([]);
     });
 
+    it('keeps a completed replay successful when the handoff failure is reported on the next tab', async () => {
+      const tabB = 'tab-handoff-waiter' as TabId;
+      const sessionB = 'session-handoff-waiter' as SessionId;
+      const harness = makeChunkedService();
+      harness.setTabs([
+        { id: TAB, claudeSessionId: SESSION },
+        { id: tabB, claudeSessionId: sessionB },
+      ]);
+      resumeWith(historyEvents(251, 'a-'), historyEvents(1, 'b-'));
+      holdYields = true;
+
+      const replayA = harness.service.switchSession(SESSION, {
+        targetTabId: TAB,
+      });
+      await until(() => yields === 1);
+      const replayB = harness.service.switchSession(sessionB, {
+        targetTabId: tabB,
+      });
+      const replayBFailure = expect(replayB).rejects.toThrow(
+        `Replay admission handoff failed for tab ${tabB}`,
+      );
+
+      failPostAt = 3;
+      holdYields = false;
+      heldDeliveries.forEach((deliver) => deliver());
+
+      await expect(replayA).resolves.toEqual({ staleSnapshot: false });
+      await replayBFailure;
+      expect(harness.finalizeSessionHistory).toHaveBeenCalledTimes(1);
+      expect(harness.finalizeSessionHistory).toHaveBeenCalledWith(
+        TAB,
+        undefined,
+      );
+      expect(harness.applyResumeFailure).not.toHaveBeenCalledWith(TAB);
+      expect(harness.applyResumeFailure).toHaveBeenCalledWith(tabB);
+      expect(harness.clearPendingUpdates).toHaveBeenCalledWith(tabB);
+    });
+
     it('cancels a stale replay when a newer resume claims the same tab', async () => {
       const harness = makeChunkedService();
       resumeWith(historyEvents(1000, 'old-'), historyEvents(10, 'new-'));
@@ -2296,12 +2334,13 @@ describe('SessionLoaderService', () => {
       // A targeted load has a different in-flight key, so it is not
       // deduplicated against the older one — but it claims the same tab.
       holdYields = false;
-      await expect(
-        harness.service.switchSession(SESSION, { targetTabId: TAB }),
-      ).resolves.toEqual({ staleSnapshot: false });
+      const newer = harness.service.switchSession(SESSION, {
+        targetTabId: TAB,
+      });
 
       heldDeliveries.forEach((deliver) => deliver());
       await expect(older).resolves.toEqual({ staleSnapshot: false });
+      await expect(newer).resolves.toEqual({ staleSnapshot: false });
 
       const replayedIds = harness.processStreamEvent.mock.calls.map(
         ([event]) => (event as { id: string }).id,

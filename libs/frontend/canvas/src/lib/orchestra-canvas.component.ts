@@ -54,7 +54,12 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
 @Component({
   selector: 'ptah-orchestra-canvas',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [CanvasStore, CanvasLayoutService, CanvasLayoutPersistenceService, CanvasRenderMetricsService],
+  providers: [
+    CanvasStore,
+    CanvasLayoutService,
+    CanvasLayoutPersistenceService,
+    CanvasRenderMetricsService,
+  ],
   imports: [
     FormsModule,
     CanvasWorkspaceGridComponent,
@@ -312,18 +317,31 @@ export class OrchestraCanvasComponent implements OnDestroy {
       initialTabs.map((tab) => tab.id),
     );
     effect(() => {
-      const req = this.appState.canvasSessionRequest();
-      if (req) {
-        const sessionId = SessionId.from(req.sessionId);
-        const tabId = this.canvasStore.addTileFromSession(sessionId, req.name);
-        this.appState.clearCanvasSessionRequest();
-        if (tabId) {
-          this.chatStore
-            .switchSession(sessionId)
-            .then(() => req.resolve?.(true))
-            .catch(() => req.resolve?.(false));
-        } else {
-          req.resolve?.(false);
+      const pendingRequests = this.appState.canvasSessionRequests();
+      if (pendingRequests.length > 0) {
+        const requests = untracked(() =>
+          this.appState.takeCanvasSessionRequests(),
+        );
+        for (const req of requests) {
+          const sessionId = SessionId.from(req.sessionId);
+          const tabId = this.canvasStore.addTileFromSession(
+            sessionId,
+            req.name,
+          );
+          if (tabId) {
+            this.chatStore
+              .switchSession(sessionId)
+              .then(() => req.resolve?.(true))
+              .catch((error: unknown) => {
+                console.error(
+                  '[OrchestraCanvas] Failed to open queued session tile',
+                  error,
+                );
+                req.resolve?.(false);
+              });
+          } else {
+            req.resolve?.(false);
+          }
         }
       }
     });

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 2/6
+Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 3/6
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -458,7 +458,7 @@ number; tid: number }): TraceEventSummary` — pure; returns per event `name` th
   The orchestrator directed a direct commit instead (documentation-only batch, no product code).
   Items 1-5 above are the team-leader verification that ran in its place.
 
-## Batch 3: C3 canvas request queue ∥ C2 replay admission — IN_PROGRESS
+## Batch 3: C3 canvas request queue ∥ C2 replay admission — COMPLETE
 
 - Recommended executor: CLI lanes `codex` x 2 (Lane A = Task 3.1, Lane B = Task 3.2)
 - Fallback executor: Claude `frontend-developer` sub-agent, sequential 3.1 then 3.2
@@ -470,7 +470,7 @@ number; tid: number }): TraceEventSummary` — pure; returns per event `name` th
 - Review: `code-logic-reviewer` + `code-style-reviewer` over both lanes' diffs → fixes back to the
   owning lane → delta review if non-trivial → team-leader commits once for the batch.
 
-### Task 3.1 (Lane A): Replace the single-slot canvas session request with a FIFO queue — IN_PROGRESS
+### Task 3.1 (Lane A): Replace the single-slot canvas session request with a FIFO queue — COMPLETE
 
 - Files:
   - MODIFY `W\libs\frontend\core\src\lib\services\app-state.service.ts`
@@ -509,7 +509,7 @@ readonly CanvasSessionRequest[]` returns the queue and sets `[]` (no write when 
   lint on `@ptah-extension/core @ptah-extension/canvas ptah-electron-e2e`; audit rows
   `libs/frontend/core` and `libs/frontend/canvas` must not appear as FAIL (ceiling 0).
 
-### Task 3.2 (Lane B): One replay-and-finalize at a time across tabs — IN_PROGRESS
+### Task 3.2 (Lane B): One replay-and-finalize at a time across tabs — COMPLETE
 
 - Files:
   - MODIFY `W\libs\frontend\chat\src\lib\services\chat-store\session-history-replayer.service.ts` (331 lines)
@@ -544,7 +544,15 @@ readonly CanvasSessionRequest[]` returns the queue and sets `[]` (no write when 
      delivered after that session's finalize; no timers pending after the last release;
      hidden-window case (rAF never fires) still advances via the 50 ms timer.
   9. Existing `session-history-replayer.service.spec.ts`, `session-loader.service.spec.ts`,
-     `session-loader.cli-restore.spec.ts` green unchanged.
+     `session-loader.cli-restore.spec.ts` green. **Corrected at commit**: "unchanged" was
+     incompatible with global admission. `session-history-replayer.service.spec.ts` (tests at
+     :456-495, :541-569, :571-595, :699-728) and `session-loader.service.spec.ts` (:2326-2356)
+     were restructured for scheduling only — they release the older replay before driving the
+     newer one, because the admission slot forbids the old same-time schedule. No assertion was
+     weakened (fence ownership, finalize order, exact-once delivery, event order, supersession,
+     250/10 event counts all still asserted). The loader test at :2288-2323 is additive.
+     `session-loader.cli-restore.spec.ts` is unchanged. Evidence: `b3-revise-codex-report.md`
+     "Revise round 2" §5; both diffs read by `b3-code-logic-review-delta2.md`.
   10. CLAUDE.md bullet: admission is global FIFO over the replay phase only, released in
       `finally`, paint yield races rAF with a 50 ms timer, `session:load`/`chat:resume` stay
       concurrent; FU-20a (global status may read `loaded` while a later replay waits) noted.
@@ -559,6 +567,35 @@ readonly CanvasSessionRequest[]` returns the queue and sets `[]` (no write when 
   lane's in-flight edits)
 - Grep: no `canvasSessionRequest(` / `clearCanvasSessionRequest` left
 - Reviewers accept
+
+### Batch 3 outcome
+
+- **Executors**: CLI lanes `codex` x 2 (Lane A = Task 3.1, Lane B = Task 3.2), then one codex
+  revise lane for both rounds. Reports: `b3-lane-a-codex-report.md`, `b3-lane-b-codex-report.md`,
+  `b3-revise-codex-report.md`.
+- **Review chain** (Claude reviewers, never the implementer):
+  - Base: `b3-code-logic-review.md`, `b3-code-style-review.md` — both NEEDS_REVISION.
+  - Delta (after revise round 1): `b3-code-logic-review-delta.md` raised a new Serious defect (a
+    failed admission hand-off rejected the already-succeeded replay, so the loader ran failure
+    recovery on a successful tab) plus Moderates (no real C2 x C3 spec, stale perf-helper prose);
+    `b3-code-style-review-delta.md` APPROVED with 2 minors.
+  - Delta 2 (after revise round 2): `b3-code-logic-review-delta2.md` APPROVED (1 Moderate = AC 9
+    text, reconciled above); `b3-code-style-review-delta2.md` APPROVED.
+- **Revise cap**: 2 of 2 used.
+- **Evidence (lane-reported, team-leader did not run tests)**: `run-many -t test` header 3
+  projects — core 719, chat 1,245 passed + 2 skipped, canvas 121; typecheck 3 projects exit 0;
+  lint 4 projects 0 errors; prettier clean; degradation audit TOTAL 303 (= reference).
+- **Team-leader verification**: all 12 modified files + new
+  `session-history-replayer.admission.spec.ts` exist with real implementations (no
+  TODO/PLACEHOLDER/STUB in the product files); `git status --short` has no stray files
+  (`macrotask-scheduler.ts` is a 2-line reviewed doc pointer, style delta Minor 2);
+  `git grep "canvasSessionRequest(\|clearCanvasSessionRequest"` returns nothing;
+  `session-history-replayer.service.ts` is 445 lines (< 700).
+- **Also carried in this commit**: `implementation-plan.md` C1 subsection 1a (architect's M0 scope
+  decision) and its two `batches.md` amendments (Task 4.1 AC 6 "why" clause, Task 5.1 AC 5 live
+  direction case).
+- **Follow-ups**: FU-20a (global status may read `loaded` while a later replay waits — noted in
+  chat CLAUDE.md, no fix planned); C2 per-tile latency cost measured in Batch 6 (Task 6.1 AC 2).
 
 ## Batch 4: C1 replay motion gate — PENDING
 
@@ -610,7 +647,10 @@ this.historyReplaying() || this.isFinalizingTransition())`; template :22 binds
      and `[animate.leave]="isFinalizing() ? '' : 'bubble-fade-leave'"` (value `''`, never `null`).
   6. Inline agent bubble: `[autoAnimateDisabled]="isFinalizing()"` on the `[auto-animate]`
      container (:449); footer :517-518 → bound forms with `'agent-fade-in'` / `'agent-fade-out'`.
-     Toast at :413 unchanged. `execution-node.component.ts` unchanged.
+     Toast at :413 unchanged. `execution-node.component.ts` unchanged: its `scheduleFrame` rAF
+     branch is gated by `isNodeStreaming()` (`:348-350, 385-404`), not by `isFinalizing()`, and is
+     recovered in Batch 5 by C5's `streamingBoundary` binding. Task 4.1 must NOT add a second gate
+     for it (implementation-plan.md C1 subsection 1a).
   7. Specs: replayer — flag set on entry, cleared on replayed / superseded / throw, claim-keyed
      clear across a superseding replay. `chat-transcript.replay-motion.spec.ts` — with
      `historyReplaying` true bubbles get `isFinalizing = true`; after it turns false and status
@@ -657,8 +697,11 @@ ptah-extension-webview`; `npx nx run ptah-extension-webview:build:development` a
   5. Spec with a LOCAL fake `IntersectionObserver` (do not edit `chat-transcript.component.spec.ts`):
      while replaying, a 50-message streaming list mounts only the last 6 until the observer
      reports; a slot reported intersecting stays mounted when it leaves the tail (A7); replayed
-     bubbles get `isStreaming = false`; after replay ends and status settles, a live streaming
-     message is exempt from the window again.
+     bubbles get `isStreaming = false`; with `historyReplaying` false and a live streaming
+     message present, the message at index `>= finalizedCount` gets `isStreaming = true` (live
+     typing-throttle regression guard, one test of its own — implementation-plan.md C1 subsection
+     1a); after replay ends and status settles, a live streaming message is exempt from the
+     window again. `execution-node.render-throttle.spec.ts` stays green and unedited.
 - Verification: tests `-p @ptah-extension/chat` (header 1; Gate A :556 and scroll specs green);
   typecheck and lint `@ptah-extension/chat`; audit TOTAL = reference; same `content-visibility` /
   scroll-method diff check as Batch 4.

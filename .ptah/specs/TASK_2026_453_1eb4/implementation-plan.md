@@ -163,12 +163,30 @@ Recorded 2026-09-15, relayed by the coordinator.
     spec asserts no `bubble-fade-enter` class and no FLIP controller on the finalize render.
   - A4: injecting `SessionHistoryReplayer` in `ChatViewComponent` needs no new spec stubs (E30).
     Check: run `@ptah-extension/chat` specs after C1.
-  - A5: Stage 1 with C5 may meet AC-11; without C5 it would not. Estimate without C5: total
-    5,745 ms × 0.63-0.69 (spike 3a) minus an unmeasured 0-15 % from the Angular animation gate ≈
-    3.0-3.9 s. C5 then removes D × ~90 % of the remainder (Stage 2 model: D = 55-70 %) → about
-    1.1-2.0 s total; max bounded by one tile's largest task (estimate 150-500 ms). The scroll work
-    removes content-visibility, which raises the DOM share D before C5 and so raises M0 above the
-    Batch 22 numbers. All figures are Assumptions. Check: M0 and M1.
+  - A5 (**revised against M0, 2026-09-16**): Stage 1 with C5 may meet AC-11; without C5 it would
+    not — M0 makes that stronger, not weaker. M0 measured (`test-report.md`): dev cold max
+    1,926 / 1,326 / 1,062 ms and total 6,941 / 5,463 / 4,077 ms (mean total ≈ 5,494 ms);
+    production cold max 1,201 ms, total 4,767 ms. AC-11 is missed by 6.0× on max and 3.2× on
+    total, so the baseline this estimate starts from is 5,494 ms, not 5,745 ms.
+    **The animation-gate credit is cut to its low end.** A5 previously credited the Angular
+    animation gate with an unmeasured 0-15 % of the remainder. M0's rAF histogram shows E23
+    (`animate.enter` / `animateLeaveClassRunner`) does not appear as a distinct rAF call site at
+    all, and E26 (`scheduleCallbackWithRafRace`, the scheduler the Angular animation callbacks may
+    route through) is 30 calls / 2.0 %. Read the credit as **0-5 %**, and attribute no part of the
+    `scheduleFrame` share to it: `scheduleFrame`'s branch is gated by `isNodeStreaming()`, not by
+    `isFinalizing()` (C1 subsection 1a), so C1 does not touch it.
+    Revised estimate: C1 + C2 + C3 without C5 ≈ 5,494 ms × 0.63-0.69 (spike 3a, auto-animate off)
+    minus 0-5 % ≈ **3.3-3.8 s total** — still ~2.2-2.5× over the 1,500 ms budget, and the max task
+    still bounded by one tile's own replay. C5 then removes D × ~90 % of the remainder (Stage 2
+    model: D = 55-70 %) AND the `scheduleFrame` rAF path in full (88.3 % of 1,517 captured rAF
+    calls; `FireAnimationFrame` is 18.9 % of the 2,000-event window, 1,386 calls / 1,257.53 ms,
+    scaling 3.09× for a 4× event increase) → about **1.0-1.9 s total**; max bounded by one tile's
+    largest task (estimate 150-500 ms). The scroll work removes content-visibility, which raises
+    the DOM share D before C5 and is part of why M0 sits above the Batch 22 numbers. All figures
+    are Assumptions. Check: M1 (see "What M1 must show" below).
+  - A8: the per-message-node residual rAF (a message whose `message_complete` has not yet
+    replayed, `message-node.fn.ts:47`) is bounded at about one node per chunk flush and needs no
+    fix. Check: the M1 rAF histogram (C1 subsection 1a).
   - A7: with the scroll work, a replayed bubble that leaves the tail of 6 while still inside the
     viewport stays mounted because the observer has already reported it intersecting (observer
     callbacks and the replay flush both run at frame cadence). Check: C5 spec (tail shift with an
@@ -257,6 +275,87 @@ isFinalizingTransition())`. The `resuming → loaded` edge starts the existing 3
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\components\organisms\execution\inline-agent-bubble.component.spec.ts`
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.replay-motion.spec.ts`
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\CLAUDE.md`
+
+#### 1a. C1 scope decision — the `scheduleFrame` rAF path stays with C5 (M0 correction)
+
+**Decision: C1 does NOT widen. The 88.3 % rAF cost is recovered by C5, through the `isStreaming`
+contract that already exists, and `execution-node.component.ts` stays unchanged in both
+components.** This is an architecture decision, not a user decision: the source settles it.
+
+**The team-leader's finding is correct, and it is a finding about attribution, not about design.**
+Verified in this worktree:
+
+| Evidence                                                                                                                                    | Location                                                                                                        | Implication                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `isFinalizing` drives only `[class.exec-fade-in]` and `flipAnimationDisabled`                                                                | `execution-node.component.ts:127, 133, 153-177, 321, 362-364`                                                   | C1's gate cannot reach the rAF branch. The team-leader is right.                                                   |
+| The render-throttle effect branches on `isNodeStreaming()` alone: `publishNow` and `return` when false, `scheduleFrame` when true            | `execution-node.component.ts:385-404` (`:391-393` early return, `:398` `scheduleFrame`)                          | One gate owns the whole rAF path, and it is `isNodeStreaming`, not `isFinalizing`.                                 |
+| `isNodeStreaming = isStreaming() \|\| node().status === 'streaming'`                                                                        | `execution-node.component.ts:348-350`; input at `:312`                                                          | The gate is reachable from the transcript without touching this file — through the `isStreaming` input.            |
+| The transcript binds `[isStreaming]="i >= vm().finalizedCount"`                                                                              | `chat-transcript.component.html:21`; `finalizedCount` at `chat-transcript.component.ts:407`                     | This single binding is the sole producer of the flag for every replayed bubble.                                    |
+| During replay every replayed tree is a `streamingMessages` entry — it is excluded only once its id is in the tab's `messages`                | `chat-transcript.component.ts:316-342` (`:323-327`); finalize writes `messages` (E10)                          | Replay ⇒ replayed bubbles sit at or past `finalizedCount` ⇒ `isStreaming` true ⇒ `scheduleFrame`. Cause confirmed. |
+| Text and thinking nodes are built with `status: 'complete'`, never `'streaming'`                                                             | `chat-execution-tree/src/lib/builders/message-node.fn.ts:144-153`                                               | For the nodes that carry markdown, the bubble input is the ONLY term that can make `isNodeStreaming` true.         |
+| C5 already replaces exactly that binding: `streamingBoundary = historyReplaying() ? totalCount : finalizedCount`, bound as `i >= boundary`   | this plan, C5 responsibilities                                                                                   | C5 flips `isStreaming` to false for every replayed bubble, so the effect takes `publishNow` — the rAF path is gone. |
+
+So the rAF branch is not "ungated by C1 and therefore unowned". It is owned by C5, by construction,
+and always was — C5's own text already names the consequence ("text nodes `publishNow` instead of
+one rAF per node (E17)"). What M0 changes is the SIZE of that C5 line item, not who owns it.
+
+- **Options compared**:
+  - **(a) Leave it to C5 (chosen).** Expected recovery: the whole of the `scheduleFrame` share —
+    1,339 of 1,517 captured rAF calls, 88.3 % (`test-report.md` rAF histogram) — because the
+    branch is not taken at all when `isStreaming` is false, on top of the ~380 → ~20-40 mount
+    reduction that removes most of the node instances that would call it. Risk to live streaming:
+    none beyond what C5 already carries — `streamingBoundary` collapses to `finalizedCount` when
+    `historyReplaying()` is false, so a live turn keeps `isStreaming` true, keeps the one-render-
+    per-frame throttle, and keeps its typing behaviour. The live-event fence means no live chunk
+    renders during replay anyway (E6). Spec cost: zero new inputs, zero new files beyond those C5
+    already creates. File-ownership order: unchanged — Batch 4 does not touch
+    `execution-node.component.ts` and does not pre-empt Batch 5's binding.
+  - **(b) Widen C1 to pass `historyReplaying` into `execution-node` (rejected).** It would add a
+    second gate on a branch that already has one, and Batch 5 would then have to unpick it: C1
+    would set `isStreaming` semantics one way at `:21` while C5 replaces that very binding at
+    `:21` two batches later. That is Batch 4 breaking Batch 5's premise, which the decomposition
+    explicitly forbids. It also pushes `historyReplaying` three components deep
+    (transcript → bubble → node → nested node, `execution-node.component.ts:198, 233, 250`) for a
+    signal the bubble's existing `isStreaming` input already carries, duplicating a contract — the
+    same reason this plan already rejected "a new 'motion suppressed' input threaded through
+    bubble/node/agent bubble". Recovery over (a): ~0 %, since (a) already removes the branch.
+  - **(c) Move C5's `streamingBoundary` binding forward into C1 (rejected).** It reaches the cost
+    one batch earlier and is otherwise identical, but it reorders the stage/batch content, which
+    this decision is not permitted to do, and it would split C5's mount-window change from the
+    `isStreaming` change that shares its correctness argument and its spec file.
+- **Residual not covered by C5, recorded as an Assumption (A8).** A message node carries
+  `status: completeEvent ? 'complete' : 'streaming'`
+  (`chat-execution-tree/src/lib/builders/message-node.fn.ts:47`), so the single message whose
+  `message_complete` has not yet been replayed still takes the rAF branch on its own status, with
+  `isStreaming` false. That is bounded at roughly one node per chunk flush — about 8 per tile at
+  `REPLAY_CHUNK_SIZE = 250` over 2,000 events
+  (`session-history-replayer.service.ts:84`) — versus 1,339 measured calls. No fix is planned.
+  Check: the M1 rAF histogram; if `scheduleFrame` does not fall below ~10 % of a much smaller
+  total, reopen this decision before Stage 2.
+- **Verification seam (no new component change).** The property "a replayed node publishes
+  synchronously while a live node still schedules a frame" is asserted by two existing/planned
+  specs composed:
+  1. `execution-node.render-throttle.spec.ts` already pins the node half, with a
+     `requestAnimationFrame` spy at `:100`: `:191-205` (leaving streaming publishes on the same
+     tick, no frame flush), `:207-211` (a settled node renders on the first pass without waiting
+     for a frame), `:233-240` (a node whose own `status` is `'streaming'` is still throttled — the
+     A8 residual, already pinned). Batch 4 and Batch 5 must both leave this file green and
+     unedited.
+  2. C5's `chat-transcript.replay-mount.spec.ts` pins the transcript half and MUST assert both
+     directions explicitly, as one test each: while `historyReplaying` is true, every rendered
+     `<ptah-message-bubble>` receives `isStreaming = false`; with `historyReplaying` false and a
+     live streaming message present, the message at index `>= finalizedCount` receives
+     `isStreaming = true` (so the live typing throttle survives). C5's verification seam already
+     names the first; the second is added by this decision and is the live-streaming regression
+     guard.
+- **Change the team-leader must make to Task 4.1 AC 6**: keep the sentence
+  "`execution-node.component.ts` unchanged" exactly as it is, and append one clause recording why,
+  so the next reader does not re-open it —
+  "…unchanged: its `scheduleFrame` rAF branch is gated by `isNodeStreaming()`
+  (`:348-350, 385-404`), not by `isFinalizing()`, and is recovered in Batch 5 by C5's
+  `streamingBoundary` binding. Task 4.1 must NOT add a second gate for it." No other Task 4.1
+  acceptance criterion changes, and Task 4.1's file list is unchanged. Task 5.1 gains the second
+  spec case named above.
 
 ### 2. C2 — Replay admission (staggered tile opens)
 
@@ -461,11 +560,40 @@ totalCount : finalizedCount`.
   replaced by the next resume's `applyResumingSession`.
 - **Quality requirements**: expected mounted bubbles per tile during replay ≤ 6 + observer set
   (about 20-40 with 120 px placeholders and a 2,000 px margin) instead of ~380.
+- **Expected recovery (revised against M0, 2026-09-16)**: C5 is the single largest Stage 1 line
+  item, and M0 raised it. It now carries two effects, not one:
+  1. _Mount volume_ — D × ~90 % of the layout/paint/GPU share (D = 55-70 %). Unchanged.
+  2. _The `scheduleFrame` rAF path (new; see C1 subsection 1a)_ — binding
+     `[isStreaming]="i >= vm().streamingBoundary"` makes `isNodeStreaming()` false for every
+     replayed bubble, so the render-throttle effect takes `publishNow` and never reaches
+     `scheduleFrame` (`execution-node.component.ts:348-350, 385-404`). M0 attributes **1,339 of
+     1,517 captured rAF calls (88.3 %)** to that one call site, inside a `FireAnimationFrame`
+     bucket worth **18.9 % of the 2,000-event window (1,386 calls, 1,257.53 ms)** that scales
+     **3.09× for a 4× event increase**. C1 does not reach any of it.
+  Combined, C5 is expected to take the Stage 1 remainder from ≈ 3.3-3.8 s to ≈ 1.0-1.9 s (A5).
+  This is an Assumption sized from M0 counts; a call-count share is not a time share.
+- **What M1 must show to confirm** (all from the C4 amendments, per 3-tile cold run):
+  1. `scheduleFrame` falls below ~10 % of a much smaller rAF total, and under ~150 absolute calls
+     (from 1,339) — the A8 residual is the only expected source left.
+  2. `FireAnimationFrame` self-time share falls from 18.9 % to under ~5 % of the window.
+  3. DOM node count sampled while `resuming` falls from ~21,000 whole-canvas (M0 runs I/J and
+     production: 21,113 / 20,931 / 20,954) to **≤ 2× the settled count per tile**, reported
+     per-tile, not whole-canvas.
+  4. AC-11: all 3 cold dev runs and the production cold run pass max ≤ 200 ms and total
+     ≤ 1,500 ms (from 1,926 / 1,326 / 1,062 and 6,941 / 5,463 / 4,077; production 1,201 / 4,767).
+  5. The C4 post-window scroll sanity check passes (C5 residual risk, item 1).
+  If 1 and 2 hold but 4 fails, the remaining cost is mount/paint volume and Stage 2 (iii-b) is the
+  indicated next step. If 1 fails, reopen the C1 subsection 1a decision before Stage 2.
 - **Verification seam**: CREATE `chat-transcript.replay-mount.spec.ts` (local fake
   `IntersectionObserver`, not a shared helper, so the scroll work's spec file is not edited):
   while replaying, a 50-message streaming list mounts only the tail until the observer reports;
   a slot reported intersecting stays mounted when it leaves the tail; bubbles get
-  `isStreaming = false`; when replay ends and status settles, a live streaming message is exempt
+  `isStreaming = false`; **and (added by the C1 subsection 1a decision) the live direction: with
+  `historyReplaying` false and a live streaming message present, the message at index
+  `>= finalizedCount` still receives `isStreaming = true`** — this is the regression guard that a
+  real live turn keeps its per-frame typing throttle. The node half of the property is already
+  pinned by `execution-node.render-throttle.spec.ts:100, 191-211, 233-240`, which C5 must leave
+  green and unedited. When replay ends and status settles, a live streaming message is exempt
   from the window again. The spec must not reference `isAdjusting` (removed by the scroll work).
   The existing "Gate A: mounted bubbles are bounded" and scroll specs stay green. Perf: M1 DOM
   node count, totals, and the C4 scroll sanity check.
@@ -537,7 +665,9 @@ event-driven JS share J = 30-45 % (accumulator, tree build, finalize, GC). The t
 threads, so these shares are Assumptions until M0's main-thread trace summary.
 
 C5 (formerly option (iii-a): mounted bubbles per tile during replay ~380 → ~20-40, D × ~90 %
-recovery) moved to Stage 1 by User Decision 1, so the table below sizes what is left after M1.
+recovery, **plus the whole `scheduleFrame` rAF path — 88.3 % of M0's captured rAF calls, inside a
+`FireAnimationFrame` bucket worth 18.9 % of the 2,000-event window; see C5 "Expected recovery"**)
+moved to Stage 1 by User Decision 1, so the table below sizes what is left after M1.
 
 | Option                                                                | What it cuts                                                                | Expected recovery (of the Stage 1 remainder)                                                                   | UX impact                                                                                 | Files                                                                                                                                                                                                                              | Risks                                                                                                                                                                                                  |
 | --------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -648,6 +778,9 @@ recovery) moved to Stage 1 by User Decision 1, so the table below sizes what is 
     either commit them after M0, or build M0 from the commit before them. The team-leader picks
     one and records it.
   - C1 before C5 (shared transcript files and the `historyReplaying` input).
+  - **C1 must not gate `scheduleFrame`** (C1 subsection 1a). Amend Task 4.1 AC 6 with the recorded
+    clause; add the live-direction case to Task 5.1's spec. Neither batch edits
+    `execution-node.component.ts` or `execution-node.render-throttle.spec.ts`.
   - C1 and C2 share `session-history-replayer.service.ts`: sequential or one batch.
   - M1 after C1, C2, C3 and C5 are all in the build.
   - Stage 2 only after M1 fails and the user chooses an option.

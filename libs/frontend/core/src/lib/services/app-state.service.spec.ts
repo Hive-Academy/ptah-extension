@@ -49,7 +49,7 @@ interface AppStoreState {
   isConnected: boolean;
   openViews: readonly ViewType[];
   layoutMode: LayoutMode;
-  canvasSessionRequest: CanvasSessionRequest | null;
+  canvasSessionRequests: readonly CanvasSessionRequest[];
   newCanvasSessionRequest: string | null;
   canSwitchViews: boolean;
   appTitle: string;
@@ -615,30 +615,100 @@ describe('AppStateManager', () => {
   });
 
   describe('canvas session request signal bridge', () => {
-    it('requestCanvasSession / clearCanvasSessionRequest flip the signal', () => {
+    it('queues two requests in order and takeCanvasSessionRequests empties the queue', async () => {
       const service = createService();
-      const pending = service.requestCanvasSession('sess-1', 'Session One');
-      expect(pending).toBeInstanceOf(Promise);
-      expect(service.canvasSessionRequest()).toEqual(
+      const firstPending = service.requestCanvasSession(
+        'sess-1',
+        'Session One',
+      );
+      const secondPending = service.requestCanvasSession(
+        'sess-2',
+        'Session Two',
+      );
+
+      expect(service.canvasSessionRequests()).toEqual([
         expect.objectContaining({
           sessionId: 'sess-1',
           name: 'Session One',
           resolve: expect.any(Function),
         }),
-      );
-      service.canvasSessionRequest()?.resolve?.(true);
-      service.clearCanvasSessionRequest();
-      expect(service.canvasSessionRequest()).toBeNull();
-      return expect(pending).resolves.toBe(true);
+        expect.objectContaining({
+          sessionId: 'sess-2',
+          name: 'Session Two',
+          resolve: expect.any(Function),
+        }),
+      ]);
+
+      const requests = service.takeCanvasSessionRequests();
+      expect(requests.map(({ sessionId }) => sessionId)).toEqual([
+        'sess-1',
+        'sess-2',
+      ]);
+      expect(service.canvasSessionRequests()).toEqual([]);
+      expect(service.takeCanvasSessionRequests()).toEqual([]);
+
+      requests[0]?.resolve?.(true);
+      requests[1]?.resolve?.(true);
+      await expect(firstPending).resolves.toBe(true);
+      await expect(secondPending).resolves.toBe(true);
     });
 
-    it('requestCanvasSession promise resolves to false when the safety timeout fires (no canvas mounted)', async () => {
+    it('removes a timed-out request and resolves false when no canvas consumes it', async () => {
       jest.useFakeTimers();
       const service = createService();
       const pending = service.requestCanvasSession('sess-orphan', 'Orphan');
+
+      expect(service.canvasSessionRequests()).toHaveLength(1);
       jest.advanceTimersByTime(5000);
-      jest.useRealTimers();
+      expect(service.canvasSessionRequests()).toEqual([]);
       await expect(pending).resolves.toBe(false);
+      jest.useRealTimers();
+    });
+
+    it('resolves true and clears the safety timer when the canvas accepts the request', async () => {
+      jest.useFakeTimers();
+      const service = createService();
+      const pending = service.requestCanvasSession('sess-accepted');
+      const [request] = service.takeCanvasSessionRequests();
+
+      request?.resolve?.(true);
+
+      await expect(pending).resolves.toBe(true);
+      expect(jest.getTimerCount()).toBe(0);
+      jest.useRealTimers();
+    });
+
+    it('keeps three consumed requests in flight past the orphan timeout and settles their real outcomes FIFO', async () => {
+      jest.useFakeTimers();
+      const service = createService();
+      const settlementOrder: string[] = [];
+      const pending = ['sess-1', 'sess-2', 'sess-3'].map((sessionId) =>
+        service.requestCanvasSession(sessionId).then((result) => {
+          settlementOrder.push(sessionId);
+          return result;
+        }),
+      );
+
+      const requests = service.takeCanvasSessionRequests();
+      expect(requests.map(({ sessionId }) => sessionId)).toEqual([
+        'sess-1',
+        'sess-2',
+        'sess-3',
+      ]);
+
+      jest.advanceTimersByTime(15_000);
+      await Promise.resolve();
+      expect(settlementOrder).toEqual([]);
+
+      for (const request of requests) {
+        request.resolve?.(true);
+        await Promise.resolve();
+      }
+
+      await expect(Promise.all(pending)).resolves.toEqual([true, true, true]);
+      expect(settlementOrder).toEqual(['sess-1', 'sess-2', 'sess-3']);
+      expect(jest.getTimerCount()).toBe(0);
+      jest.useRealTimers();
     });
 
     it('requestNewCanvasSession / clearNewCanvasSessionRequest flip the signal', () => {

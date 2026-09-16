@@ -150,24 +150,14 @@ import {
  * sessions moderately quickly" — a reader should not assume the ~16 ms gap
  * models normal pacing.
  *
- * ── A real product bug this harness surfaced (not fixed here) ──────────────
- * Firing the 3 clicks with no yield between them (tried first) silently
- * dropped 2 of 3 tiles: `AppStateManager.requestCanvasSession`
- * (`libs/frontend/core/src/lib/services/app-state.service.ts:255,696-714`)
- * writes to a single-slot signal (`_canvasSessionRequest`) consumed by
- * exactly one `effect()` in `OrchestraCanvasComponent`
- * (`libs/frontend/canvas/src/lib/orchestra-canvas.component.ts:293-308`).
- * Two `.set()` calls before that effect's next flush leave only the second
- * request standing — the first is gone with no visible error (its promise
- * resolves `false` only after a 5 s safety timeout, per
- * `app-state.service.ts`'s own doc comment, and the sidebar's click handler
- * does not appear to surface even that). This is a real, if narrow, PRODUCT
- * bug a rapid multi-click in the sidebar can hit — not fixed in this batch
- * (test-only); the `requestAnimationFrame` yield here is a test-harness
- * accommodation, not a substitute for a product fix. Recommended follow-up:
- * queue `canvasSessionRequest`s (or serialize/debounce the click handler) so
- * a second click can't overwrite a first one still waiting to be consumed.
- * See test-report-b22.md's "Product bug found" section.
+ * ── Product bug this harness surfaced, fixed by TASK_2026_453 C3 ─────────
+ * The first no-yield version of this harness silently dropped 2 of 3 tiles
+ * because rapid requests overwrote one single pending value. TASK_2026_453 C3
+ * replaced that bridge with the FIFO `canvasSessionRequests` queue, drained
+ * in order by `OrchestraCanvasComponent`, so every rapid click is now handled.
+ * The one-rAF gap remains intentionally: it is the disclosed stress cadence
+ * used by the M0 baseline and later comparisons, not a product workaround.
+ * See test-report-b22.md's historical "Product bug found" section.
  */
 
 const PERF_ENABLED = process.env['PTAH_PERF_SPECS'] === '1';

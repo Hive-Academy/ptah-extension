@@ -172,8 +172,9 @@ export async function stopTraceCapture(
  * locator resolution, runs during this call — that is the entire point: the
  * long-task window this wraps measures the app, not the test harness.
  *
- * Clicks are separated by one `requestAnimationFrame` yield because the
- * product currently consumes tile-open requests through a single-slot signal.
+ * Clicks are separated by one `requestAnimationFrame` yield to preserve the
+ * harness's disclosed stress cadence. This is a deliberate pacing choice, not
+ * a workaround for the single-slot bug fixed by TASK_2026_453 C3.
  * The spec header is the canonical incident write-up; keep this capture helper
  * focused on the scheduling contract it must implement.
  *

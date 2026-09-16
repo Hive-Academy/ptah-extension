@@ -73,7 +73,11 @@ import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.serv
 import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
-import { AppStateManager, type CanvasTabRequest } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  type CanvasSessionRequest,
+  type CanvasTabRequest,
+} from '@ptah-extension/core';
 
 function createMockTabState(
   name: string,
@@ -117,8 +121,11 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   let forceCloseTabMock: jest.Mock;
   let hydrateWorkspaceMock: jest.Mock;
   let persistenceFlushMock: jest.Mock;
+  let canvasSessionRequests$: WritableSignal<readonly CanvasSessionRequest[]>;
+  let takeCanvasSessionRequestsMock: jest.Mock;
   let canvasTabRequest$: ReturnType<typeof signal<CanvasTabRequest | null>>;
   let clearCanvasTabRequestMock: jest.Mock;
+  let switchSessionMock: jest.Mock;
   let canvasStoreMock: CanvasStore;
 
   function mount() {
@@ -149,6 +156,14 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     forceCloseTabMock = jest.fn();
     hydrateWorkspaceMock = jest.fn();
     persistenceFlushMock = jest.fn();
+    canvasSessionRequests$ = signal<readonly CanvasSessionRequest[]>([]);
+    takeCanvasSessionRequestsMock = jest.fn(() => {
+      const requests = canvasSessionRequests$();
+      if (requests.length > 0) {
+        canvasSessionRequests$.set([]);
+      }
+      return requests;
+    });
     canvasTabRequest$ = signal<CanvasTabRequest | null>(null);
     clearCanvasTabRequestMock = jest.fn(() => canvasTabRequest$.set(null));
 
@@ -202,15 +217,16 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       })),
     } as unknown as CanvasLayoutService;
 
+    switchSessionMock = jest.fn().mockResolvedValue(undefined);
     const chatStoreMock = {
-      switchSession: jest.fn().mockResolvedValue(undefined),
+      switchSession: switchSessionMock,
     } as unknown as ChatStore;
 
     const appStateMock = {
-      canvasSessionRequest: signal<unknown>(null),
+      canvasSessionRequests: canvasSessionRequests$,
+      takeCanvasSessionRequests: takeCanvasSessionRequestsMock,
       newCanvasSessionRequest: signal<string | null>(null),
       canvasTabRequest: canvasTabRequest$,
-      clearCanvasSessionRequest: jest.fn(),
       clearNewCanvasSessionRequest: jest.fn(),
       clearCanvasTabRequest: clearCanvasTabRequestMock,
     } as unknown as AppStateManager;
@@ -341,6 +357,90 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     expect(canvasStoreMock.focusTile).not.toHaveBeenCalled();
     // Still acked so a stale request never re-fires.
     expect(clearCanvasTabRequestMock).toHaveBeenCalled();
+  });
+
+  it('drains two queued canvas session requests in FIFO order in one tick', async () => {
+    const firstSessionId = '00000000-0000-4000-8000-000000000001';
+    const secondSessionId = '00000000-0000-4000-8000-000000000002';
+    const firstResolve = jest.fn();
+    const secondResolve = jest.fn();
+    (canvasStoreMock.addTileFromSession as jest.Mock)
+      .mockReturnValueOnce('tab-1')
+      .mockReturnValueOnce('tab-2');
+    const fixture = mount();
+
+    canvasSessionRequests$.set([
+      { sessionId: firstSessionId, name: 'One', resolve: firstResolve },
+      { sessionId: secondSessionId, name: 'Two', resolve: secondResolve },
+    ]);
+    flush();
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(takeCanvasSessionRequestsMock).toHaveBeenCalledTimes(1);
+    expect(canvasStoreMock.addTileFromSession).toHaveBeenNthCalledWith(
+      1,
+      firstSessionId,
+      'One',
+    );
+    expect(canvasStoreMock.addTileFromSession).toHaveBeenNthCalledWith(
+      2,
+      secondSessionId,
+      'Two',
+    );
+    expect(switchSessionMock).toHaveBeenNthCalledWith(1, firstSessionId);
+    expect(switchSessionMock).toHaveBeenNthCalledWith(2, secondSessionId);
+    expect(firstResolve).toHaveBeenCalledWith(true);
+    expect(secondResolve).toHaveBeenCalledWith(true);
+  });
+
+  it('resolves only the second queued request false when the second tile hits the cap', async () => {
+    const firstSessionId = '00000000-0000-4000-8000-000000000001';
+    const secondSessionId = '00000000-0000-4000-8000-000000000002';
+    const firstResolve = jest.fn();
+    const secondResolve = jest.fn();
+    (canvasStoreMock.addTileFromSession as jest.Mock)
+      .mockReturnValueOnce('tab-1')
+      .mockReturnValueOnce(null);
+    const fixture = mount();
+
+    canvasSessionRequests$.set([
+      { sessionId: firstSessionId, resolve: firstResolve },
+      { sessionId: secondSessionId, resolve: secondResolve },
+    ]);
+    flush();
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(switchSessionMock).toHaveBeenCalledTimes(1);
+    expect(switchSessionMock).toHaveBeenCalledWith(firstSessionId);
+    expect(firstResolve).toHaveBeenCalledWith(true);
+    expect(firstResolve).not.toHaveBeenCalledWith(false);
+    expect(secondResolve).toHaveBeenCalledTimes(1);
+    expect(secondResolve).toHaveBeenCalledWith(false);
+  });
+
+  it('reports a queued session switch failure and resolves that request false', async () => {
+    const sessionId = '00000000-0000-4000-8000-000000000001';
+    const resolve = jest.fn();
+    const error = new Error('resume failed');
+    const consoleError = jest.spyOn(console, 'error').mockImplementation();
+    (canvasStoreMock.addTileFromSession as jest.Mock).mockReturnValue('tab-1');
+    switchSessionMock.mockRejectedValue(error);
+    const fixture = mount();
+
+    canvasSessionRequests$.set([{ sessionId, resolve }]);
+    flush();
+    fixture.detectChanges();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(resolve).toHaveBeenCalledWith(false);
+    expect(consoleError).toHaveBeenCalledWith(
+      '[OrchestraCanvas] Failed to open queued session tile',
+      error,
+    );
+    consoleError.mockRestore();
   });
 
   it('hydrates exact existing tab ids without opening or loading sessions', () => {
@@ -474,10 +574,10 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
     } as unknown as ChatStore;
 
     const appStateMock = {
-      canvasSessionRequest: signal<unknown>(null),
+      canvasSessionRequests: signal<readonly CanvasSessionRequest[]>([]),
+      takeCanvasSessionRequests: jest.fn(() => []),
       newCanvasSessionRequest: signal<string | null>(null),
       canvasTabRequest: signal<CanvasTabRequest | null>(null),
-      clearCanvasSessionRequest: jest.fn(),
       clearNewCanvasSessionRequest: jest.fn(),
       clearCanvasTabRequest: jest.fn(),
     } as unknown as AppStateManager;
@@ -633,10 +733,10 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
     };
 
     const appStateMock = {
-      canvasSessionRequest: signal(null),
+      canvasSessionRequests: signal<readonly CanvasSessionRequest[]>([]),
+      takeCanvasSessionRequests: jest.fn(() => []),
       newCanvasSessionRequest: signal(null),
       canvasTabRequest: signal(null),
-      clearCanvasSessionRequest: jest.fn(),
       clearNewCanvasSessionRequest: jest.fn(),
       clearCanvasTabRequest: jest.fn(),
     };
