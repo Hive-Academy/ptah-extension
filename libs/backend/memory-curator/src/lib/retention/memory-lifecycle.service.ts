@@ -204,7 +204,7 @@ export class MemoryLifecycleService {
       if (!(error instanceof RetentionStepError)) throw error;
       result.error = error;
       result.exhausted = false;
-      if (error.reason === 'database-busy') result.stop = 'database-busy';
+      // The retention service maps the attached RetentionStepError to the run outcome (database-busy -> partial, anything else -> failed), so error paths carry the error and committed counters, never a stop token.
       return result;
     } finally {
       if (roots.size > 0) this.memoryStore.markWorkspacesChanged(roots);
