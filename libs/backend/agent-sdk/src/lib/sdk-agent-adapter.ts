@@ -672,21 +672,29 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const currentCliJsPath = this.runtimeState.getCliJsPath();
     const effectiveCliJsPath = providerProfile?.cliJsPath ?? currentCliJsPath;
     const effectiveAuthEnv = providerProfile?.authEnv;
-    // Resolve the caller's name once, preserving a nonblank value exactly.
-    // The metadata/registry fallback is deliberately separate from the SDK
-    // title: providing Options.title disables the SDK's automatic title.
-    const callerSuppliedName = config.sessionName?.trim()
+    // Metadata/registry naming and the SDK title are deliberately separate:
+    // providing Options.title disables the SDK's automatic title generation.
+    const callerSuppliedSessionName = config.sessionName?.trim()
       ? config.sessionName
       : config.name?.trim()
         ? config.name
         : undefined;
+    const callerSuppliedSessionTitle = config.sessionTitle?.trim()
+      ? config.sessionTitle
+      : config.name?.trim()
+        ? config.name
+        : undefined;
     const resolvedSessionName =
-      callerSuppliedName ?? `Session ${new Date().toLocaleDateString()}`;
+      callerSuppliedSessionName ?? `Session ${new Date().toLocaleDateString()}`;
+    const { sessionTitle: _ignoredSessionTitle, ...configWithoutSessionTitle } =
+      config;
     const sessionConfigWithProfileModel: typeof config = {
-      ...config,
+      ...configWithoutSessionTitle,
       ...(providerProfile ? { model: providerProfile.model } : {}),
       sessionName: resolvedSessionName,
-      ...(callerSuppliedName ? { sessionTitle: callerSuppliedName } : {}),
+      ...(callerSuppliedSessionTitle
+        ? { sessionTitle: callerSuppliedSessionTitle }
+        : {}),
     };
 
     this.logger.info(

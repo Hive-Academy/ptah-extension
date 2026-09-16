@@ -91,3 +91,64 @@ The SDK init callback invokes `SessionMetadataStore.create` asynchronously (`lib
 - `npx nx run-many -t typecheck -p @ptah-extension/agent-sdk @ptah-extension/rpc-handlers @ptah-extension/gateway-chat-bridge @ptah-extension/cli-agent-runtime @ptah-extension/shared` — PASS; 5/5 project targets passed, 0 failed or skipped.
 - `npx eslint "libs/shared/src/lib/types/ai-provider.types.ts" "libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts" "libs/backend/agent-sdk/src/lib/sdk-agent-adapter.spec.ts" "libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts" "libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.spec.ts" "libs/backend/rpc-handlers/src/lib/chat/ptah-cli/chat-ptah-cli.service.ts" "libs/backend/rpc-handlers/src/lib/chat/ptah-cli/chat-ptah-cli.service.spec.ts" "libs/backend/rpc-handlers/src/lib/chat/streaming/chat-stream-broadcaster.service.ts" "libs/backend/rpc-handlers/src/lib/chat/streaming/chat-stream-broadcaster.service.spec.ts" "libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts" "libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.resume-parent-session.spec.ts"` — PASS with 0 errors and 3 existing soft `max-lines` warnings (`sdk-query-options-builder.ts`, `sdk-agent-adapter.ts`, and `agent-rpc.handlers.ts`).
 - `git diff --check` — PASS with no whitespace errors.
+
+## Revise round 2 (PR #517 review comments)
+
+Implemented by the codex lane; its own notes turn died on a provider
+"model is at capacity" error, so this section was written by the orchestrator
+after re-running every check.
+
+### Finding 1 — an explicit `sessionTitle` was discarded
+
+`SdkAgentAdapter.startChatSession` spread `config` and then always wrote
+`sessionTitle: callerSuppliedName`, which preferred `config.sessionName`. A
+caller's own `sessionTitle` was overwritten, and a caller that passed
+`sessionName` got it as the SDK title even though that field is the
+metadata/registry source.
+
+`sdk-agent-adapter.ts:675-697` now resolves the two surfaces separately:
+
+- registry/metadata name = `sessionName` -> `name` -> `Session <localeDate>`
+- SDK title = `sessionTitle` -> `name`, never `sessionName` and never the
+  fallback; absent when the caller supplied neither, so `Options.title` stays
+  unset and the SDK auto-title keeps working for a nameless start.
+
+`config.sessionTitle` is destructured out before the spread so the conditional
+re-add is the only writer. `ai-provider.types.ts:153-176` states both rules and
+keeps the earlier ones (registry `--name` fixed at spawn, never substitute
+`tabId`). Specs: `sdk-agent-adapter.spec.ts` covers an explicit title that
+survives, `sessionName` alone that does NOT become the title, `name` alone that
+reaches both, and no name at all.
+
+### Finding 2 — the `Session <date>` fallback was computed twice
+
+`ChatPtahCliService.handleStart` (`chat-ptah-cli.service.ts:122`) now resolves
+the name ONCE, stores it on the session entry unconditionally
+(`chat-ptah-cli.service.ts:176-181`) and passes it as `sessionName` while
+leaving `name` untouched, so a nameless Ptah CLI start still produces no
+`Options.title`. `ChatStreamBroadcaster` (`chat-stream-broadcaster.service.ts:205-222`)
+reads that stored name and no longer computes a second fallback; with no stored
+name it skips `createChild` and logs one `warn` rather than inventing a name
+that would overwrite the adapter's record.
+
+The reviewer's suggested diff was NOT applied: it passes the fallback as `name`,
+which would set `Options.title` and re-break auto-title generation.
+
+Midnight spec: `chat-stream-broadcaster.service.spec.ts` freezes the clock at
+2026-09-15 23:59:59.500 with `freezeTime()` from `@ptah-extension/shared/testing`,
+starts a real `ChatPtahCliService` with no name, advances 1000 ms past local
+midnight (asserting the two date strings now differ), then drives the broadcaster
+and asserts `createChild` received the SAME name the start resolved. A second
+spec covers the unavailable-name path.
+
+### Files changed
+
+- `libs/shared/src/lib/types/ai-provider.types.ts`
+- `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` (+ spec)
+- `libs/backend/rpc-handlers/src/lib/chat/ptah-cli/chat-ptah-cli.service.ts` (+ spec)
+- `libs/backend/rpc-handlers/src/lib/chat/streaming/chat-stream-broadcaster.service.ts` (+ spec)
+
+### Verification (orchestrator, not the lane)
+
+- `npx nx run-many -t test -p @ptah-extension/agent-sdk @ptah-extension/rpc-handlers @ptah-extension/gateway-chat-bridge @ptah-extension/shared --outputStyle=static` — header "4 projects"; shared 58 suites / 1520 tests, agent-sdk 110 suites (2 skipped) / 1958 tests, rpc-handlers 101 suites / 3005 tests (33 skipped), gateway-chat-bridge 2 suites / 66 tests. 0 failed.
+- `npx nx run-many -t typecheck lint -p @ptah-extension/agent-sdk @ptah-extension/rpc-handlers @ptah-extension/shared` — passed; only pre-existing `no-unused-vars` warnings in untouched files.

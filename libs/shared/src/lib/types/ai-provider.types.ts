@@ -152,8 +152,11 @@ export interface AISessionConfig {
   readonly tabId?: string;
   /**
    * Source for metadata and the registry `--name` a peer session reads.
-   * `SdkAgentAdapter` supplies a human-readable fallback for unnamed new
-   * sessions so those two surfaces remain consistent.
+   * For a new session, `SdkAgentAdapter` uses the first nonblank value of this
+   * field or `name`, then supplies a human-readable fallback when both are
+   * absent so metadata and the registry remain consistent. This field never
+   * becomes the SDK `Options.title` unless the caller also supplies it through
+   * `sessionTitle` or `name`.
    *
    * The registry name is slugified through `buildSessionName` and is FIXED AT
    * SPAWN: no documented API changes it afterwards, so a rename reaches it only
@@ -167,7 +170,8 @@ export interface AISessionConfig {
   /**
    * Raw caller-supplied title for a NEW SDK session. Kept separate from
    * `sessionName`: providing `Options.title` disables the SDK's automatic title
-   * generation, so an adapter fallback must never be copied here.
+   * generation. The adapter uses the first nonblank value of this field or
+   * `name`; it never copies `sessionName` or an adapter fallback here.
    */
   readonly sessionTitle?: string;
   /**

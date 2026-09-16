@@ -119,6 +119,9 @@ export class ChatPtahCliService {
     // and leaving it outside left the identical leak for that one caller.
     let stream: AsyncIterable<unknown>;
     let agentName = agentId;
+    const sessionName = name?.trim()
+      ? name
+      : `Session ${new Date().toLocaleDateString()}`;
     try {
       const summaries = await this.ptahCliRegistry.listAgents();
       const summary = summaries.find((s) => s.id === agentId);
@@ -158,6 +161,7 @@ export class ChatPtahCliService {
         systemPrompt: options?.systemPrompt,
         projectPath: workspacePath,
         name,
+        sessionName,
         prompt,
         files: options?.files,
         mcpServerRunning,
@@ -172,7 +176,7 @@ export class ChatPtahCliService {
     this.ptahCliSessions.set(tabId, {
       agentId,
       agentName,
-      ...(name?.trim() ? { sessionName: name } : {}),
+      sessionName,
       leaseKey,
     });
 

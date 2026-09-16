@@ -15,14 +15,22 @@
 
 import 'reflect-metadata';
 
+jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  CLI_AGENT_RUNTIME_TOKENS: {
+    SDK_PTAH_CLI_REGISTRY: Symbol.for('PtahCliRegistry'),
+  },
+}));
+
 import type {
   Logger,
   SubagentRegistryService,
   SentryService,
 } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { SessionMetadataStore } from '@ptah-extension/agent-sdk';
+import type { SdkAgentAdapter, SessionMetadataStore } from '@ptah-extension/agent-sdk';
 import { SessionTurnStateRegistry } from '@ptah-extension/agent-sdk';
+import type { PtahCliRegistry } from '@ptah-extension/cli-agent-runtime';
+import type { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   MESSAGE_TYPES,
   type IAgentAdapter,
@@ -30,7 +38,10 @@ import {
   type FlatStreamEventUnion,
   type BatchMessagePayload,
   type TurnStateEvent,
+  type ChatStartParams,
+  type ProviderProfile,
 } from '@ptah-extension/shared';
+import { freezeTime } from '@ptah-extension/shared/testing';
 
 import {
   ChatStreamBroadcaster,
@@ -40,7 +51,8 @@ import {
   STREAM_BATCH_MAX_EVENTS,
   STREAM_BATCH_MAX_IN_FLIGHT,
 } from './stream-batch-buffer';
-import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
+import { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
+import type { ChatSdkContextService } from '../session/chat-sdk-context.service';
 
 const SESSION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' as SessionId;
 const TAB_ID = 'tab-1';
@@ -83,7 +95,7 @@ interface Harness {
   turnState: SessionTurnStateRegistry;
 }
 
-function makeHarness(): Harness {
+function makeHarness(ptahCliOverride?: ChatPtahCliService): Harness {
   const logger = createMockLogger();
   const webviewManager: jest.Mocked<WebviewManager> = {
     sendMessage: jest.fn().mockResolvedValue(undefined),
@@ -147,7 +159,7 @@ function makeHarness(): Harness {
     sentryService,
     sessionMetadataStore as unknown as SessionMetadataStore,
     workspaceProvider,
-    ptahCli as unknown as ChatPtahCliService,
+    ptahCliOverride ?? (ptahCli as unknown as ChatPtahCliService),
     turnState,
   );
 
@@ -187,6 +199,97 @@ describe('ChatStreamBroadcaster.isStreaming', () => {
       SESSION_ID,
       '/fake/workspace',
       'Review the billing flow',
+    );
+  });
+
+  it('keeps one fallback name when start and child creation cross local midnight', async () => {
+    const clock = freezeTime(new Date(2026, 8, 15, 23, 59, 59, 500));
+    try {
+      const fallbackName = `Session ${new Date().toLocaleDateString()}`;
+      const profile: ProviderProfile = {
+        providerId: 'moonshot',
+        authEnv: {},
+        model: 'claude-sonnet-4-20250514',
+        baseUrl: 'https://example.test',
+        cliJsPath: '/tmp/cli.js',
+      };
+      const startedStream: AsyncIterable<unknown> = {
+        [Symbol.asyncIterator]: () => ({
+          next: () => Promise.resolve({ done: true, value: undefined }),
+        }),
+      };
+      const startChatSession = jest.fn().mockResolvedValue(startedStream);
+      const ptahCli = new ChatPtahCliService(
+        createMockLogger() as unknown as Logger,
+        {
+          ensureRegisteredForSubagents: jest
+            .fn()
+            .mockResolvedValue({ registered: true }),
+        } as unknown as CodeExecutionMCP,
+        {
+          getProfile: jest.fn().mockResolvedValue(profile),
+          releaseProfile: jest.fn().mockResolvedValue(undefined),
+          listAgents: jest.fn().mockResolvedValue([]),
+        } as unknown as PtahCliRegistry,
+        { startChatSession } as unknown as SdkAgentAdapter,
+        {
+          isMcpServerRunning: jest.fn().mockReturnValue(false),
+          resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
+        } as unknown as ChatSdkContextService,
+      );
+      const params = {
+        prompt: 'hi',
+        tabId: TAB_ID,
+        workspacePath: '/fake/workspace',
+        ptahCliId: 'configured-agent-id',
+      } as ChatStartParams;
+
+      await ptahCli.handleStart(params);
+      expect(startChatSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: undefined,
+          sessionName: fallbackName,
+        }),
+      );
+
+      clock.advanceBy(1_000);
+      expect(`Session ${new Date().toLocaleDateString()}`).not.toBe(fallbackName);
+
+      const h = makeHarness(ptahCli);
+      async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+        yield makeEvent('message_start');
+      }
+      await h.broadcaster.streamEventsToWebview(
+        TAB_ID as SessionId,
+        stream(),
+        TAB_ID,
+      );
+
+      expect(h.sessionMetadataStore.createChild).toHaveBeenCalledWith(
+        SESSION_ID,
+        '/fake/workspace',
+        fallbackName,
+      );
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('does not invent or overwrite child metadata when the stored name is unavailable', async () => {
+    const h = makeHarness();
+    h.ptahCli.hasSession.mockReturnValue(true);
+    h.ptahCli.getSessionName.mockReturnValue(undefined);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(h.sessionMetadataStore.createChild).not.toHaveBeenCalled();
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('name unavailable'),
+      expect.objectContaining({ tabId: TAB_ID, sessionId: SESSION_ID }),
     );
   });
 

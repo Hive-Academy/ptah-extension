@@ -1028,6 +1028,49 @@ describe('SdkAgentAdapter', () => {
       );
     });
 
+    it('preserves an explicit sessionTitle independently of sessionName', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      await h.adapter.startChatSession(
+        makeSessionConfig({
+          sessionName: 'Registry and metadata name',
+          sessionTitle: 'Explicit SDK title',
+        }),
+      );
+
+      const sessionConfig =
+        h.sessionLifecycle.executeQuery.mock.calls[0][0].sessionConfig;
+      expect(sessionConfig).toMatchObject({
+        sessionName: 'Registry and metadata name',
+        sessionTitle: 'Explicit SDK title',
+      });
+    });
+
+    it('does not derive the SDK title from sessionName alone', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      await h.adapter.startChatSession(
+        makeSessionConfig({ sessionName: 'Registry-only name' }),
+      );
+
+      const sessionConfig =
+        h.sessionLifecycle.executeQuery.mock.calls[0][0].sessionConfig;
+      expect(sessionConfig?.sessionName).toBe('Registry-only name');
+      expect(sessionConfig).not.toHaveProperty('sessionTitle');
+    });
+
     it('threads the no-activity watchdog from executeQuery() into StreamTransformer.transform()', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();

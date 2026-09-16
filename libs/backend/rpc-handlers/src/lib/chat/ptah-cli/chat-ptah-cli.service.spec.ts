@@ -200,7 +200,13 @@ describe('ChatPtahCliService', () => {
       expect(out.tabId).toBe(TAB_UUID);
       expect(s.service.hasSession(TAB_UUID)).toBe(true);
       expect(s.service.getAgentId(TAB_UUID)).toBe(AGENT_ID);
-      expect(s.service.getSessionName(TAB_UUID)).toBeUndefined();
+      expect(s.service.getSessionName(TAB_UUID)).toMatch(/^Session /);
+      expect(s.agentAdapter.startChatSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: undefined,
+          sessionName: s.service.getSessionName(TAB_UUID),
+        }),
+      );
     });
 
     it('retains the exact conversation name passed to startChatSession', async () => {
@@ -216,7 +222,10 @@ describe('ChatPtahCliService', () => {
       } as ChatStartParams);
 
       expect(s.agentAdapter.startChatSession).toHaveBeenCalledWith(
-        expect.objectContaining({ name: conversationName }),
+        expect.objectContaining({
+          name: conversationName,
+          sessionName: conversationName,
+        }),
       );
       expect(s.service.getSessionName(TAB_UUID)).toBe(conversationName);
     });
