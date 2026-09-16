@@ -108,3 +108,9 @@ twice is dropped and its work moves to a subagent.
   session id**. When no workspace root resolves, locate `<sessionId>.jsonl` across the transcript
   folders with an existence check; found → read and apply the normal evidence rule; not found anywhere
   → reject with a distinct reason ("no transcript found for any session"). Re-measure after.
+- 2026-09-17: All 9 batches committed (b7da25171 last code commit). Gate 3 whole-branch review by
+  antigravity (implemented and reviewed nothing): APPROVED 9/10, 0 blocking, 0 serious, 2 moderate
+  (`code-logic-review-branch.md`). Moderate 1 — a candidate deferred on error is passed by the cursor and
+  never retried before `finished_at` (safe direction: it stays `candidate`; measured 0 on the byte copy) —
+  carried as a follow-up. Moderate 2 — `ptah config` cannot clear removed keys — already carried.
+  Task status set to in_review. Push / PR await the user.
