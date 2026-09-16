@@ -27,6 +27,10 @@ import {
   createMemoryRetentionHandler,
 } from './memory-retention-job';
 import {
+  SKILL_BACKLOG_CLEANUP_JOB,
+  createSkillBacklogCleanupHandler,
+} from './skill-backlog-cleanup-job';
+import {
   DEFAULT_THOTH_LOG_PREFIX,
   type StartThothCronOptions,
   type ThothRuntimeRefs,
@@ -297,6 +301,43 @@ function registerMemoryRetentionJob(
   );
 }
 
+function registerSkillBacklogCleanupJob(
+  container: DependencyContainer,
+  jobStore: IJobStore,
+  handlerRegistry: IHandlerRegistry,
+  logPrefix: string,
+  emit: ActivityEmitter,
+): void {
+  if (
+    !container.isRegistered(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE,
+    )
+  ) {
+    return;
+  }
+  if (!handlerRegistry.has(SKILL_BACKLOG_CLEANUP_JOB.handlerName)) {
+    handlerRegistry.register(
+      SKILL_BACKLOG_CLEANUP_JOB.handlerName,
+      withActivityEmit(
+        emit,
+        SKILL_BACKLOG_CLEANUP_JOB.handlerName,
+        createSkillBacklogCleanupHandler(container),
+      ),
+    );
+  }
+  jobStore.upsert({
+    id: SKILL_BACKLOG_CLEANUP_JOB.jobId,
+    name: SKILL_BACKLOG_CLEANUP_JOB.name,
+    cronExpr: SKILL_BACKLOG_CLEANUP_JOB.cronExpr,
+    timezone: SKILL_BACKLOG_CLEANUP_JOB.timezone,
+    prompt: `handler:${SKILL_BACKLOG_CLEANUP_JOB.handlerName}`,
+    enabled: true,
+  });
+  console.log(
+    `${logPrefix} Skills backlog cleanup cron job registered (@ptah/skills-backlog-cleanup)`,
+  );
+}
+
 /**
  * Start the Thoth cron scheduler and register the built-in daily SQLite
  * backup job. Mutates `refs.cronScheduler` in place so the host keeps a
@@ -485,6 +526,24 @@ export async function startThothCron(
             retentionErr instanceof Error
               ? retentionErr.message
               : String(retentionErr),
+          );
+        }
+        try {
+          registerSkillBacklogCleanupJob(
+            container,
+            container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE),
+            container.resolve<IHandlerRegistry>(
+              CRON_TOKENS.CRON_HANDLER_REGISTRY,
+            ),
+            logPrefix,
+            emitActivity,
+          );
+        } catch (cleanupErr: unknown) {
+          console.warn(
+            `${logPrefix} Skills backlog cleanup cron registration failed (non-fatal):`,
+            cleanupErr instanceof Error
+              ? cleanupErr.message
+              : String(cleanupErr),
           );
         }
       }

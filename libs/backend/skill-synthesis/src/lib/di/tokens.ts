@@ -73,6 +73,10 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_INVOCATION_TRACKER: Symbol.for('PtahSkillInvocationTracker'),
   /** SkillCandidateStore — SQLite persistence layer for candidates + vec rows. */
   SKILL_CANDIDATE_STORE: Symbol.for('PtahSkillCandidateStore'),
+  /** SkillBacklogCleanupStore — durable cursor and candidate cleanup batches. */
+  SKILL_BACKLOG_CLEANUP_STORE: Symbol.for('PtahSkillBacklogCleanupStore'),
+  /** SkillBacklogCleanupService — one-time conservative candidate cleanup. */
+  SKILL_BACKLOG_CLEANUP_SERVICE: Symbol.for('PtahSkillBacklogCleanupService'),
   /** SkillClusterDedupService — cluster-centroid dedup for promoted skills. */
   SKILL_CLUSTER_DEDUP_SERVICE: Symbol.for('PtahSkillClusterDedupService'),
   /** SkillJudgeService — LLM-as-judge gate during promotion. */
@@ -130,8 +134,6 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SESSION_VERDICT_STORE: Symbol.for('PtahSkillSessionVerdictStore'),
   /** SessionArchaeologistService — the orchestrated multi-pass session analyzer. */
   SESSION_ARCHAEOLOGIST_SERVICE: Symbol.for('PtahSkillSessionArchaeologist'),
-  /** CandidateNamerService — cheap {name,description} pass that fills `display_name`. */
-  CANDIDATE_NAMER_SERVICE: Symbol.for('PtahSkillCandidateNamerService'),
   /** ReplayValidatorService — the empirical replay gate (`0036`). */
   REPLAY_VALIDATOR_SERVICE: Symbol.for('PtahSkillReplayValidatorService'),
   /** TriggerEvalService — measured, zero-LLM description-retrieval gate (`0036`). */

@@ -16,7 +16,6 @@ import {
   activateThoth,
   disposeThoth,
   resetVecDiagnosticForTest,
-  type ThothRefs,
 } from './thoth-runtime';
 
 const wireMock = jest.fn();
@@ -54,6 +53,7 @@ interface RuntimeDoubles {
   skillDrain: { drain: jest.Mock };
   powerMonitor: { isOnBattery: jest.Mock };
   retention: { run: jest.Mock };
+  backlogCleanup: { run: jest.Mock };
   backupService: { backup: jest.Mock; rotate: jest.Mock };
   gateway: { start: jest.Mock; stop: jest.Mock };
   chatBridge: { start: jest.Mock; stop: jest.Mock };
@@ -148,6 +148,22 @@ function makeRuntimeDoubles(
         error: null,
       })),
     },
+    backlogCleanup: {
+      run: jest.fn(async () => ({
+        status: 'completed',
+        reason: null,
+        examined: 3,
+        keptEvidence: 1,
+        keptVerdict: 0,
+        keptDegradedVerdict: 0,
+        rejectedNoEvidence: 2,
+        rejectedTranscriptUnreadable: 0,
+        invocationsDeleted: 4,
+        deferredOnError: 0,
+        durationMs: 2,
+        error: null,
+      })),
+    },
     backupService: {
       backup: jest.fn(async () => '/backups/daily.db'),
       rotate: jest.fn(),
@@ -212,6 +228,8 @@ function makeRuntimeContainer(
           return doubles.skillDrain;
         case MEMORY_TOKENS.MEMORY_RETENTION_SERVICE:
           return doubles.retention;
+        case SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE:
+          return doubles.backlogCleanup;
         case PERSISTENCE_TOKENS.BACKUP_SERVICE:
           return doubles.backupService;
         case GATEWAY_TOKENS.GATEWAY_SERVICE:
@@ -713,6 +731,51 @@ describe('activateThoth — runtime tier', () => {
       expect(doubles.handlerRegistry.register).not.toHaveBeenCalled();
       expect(doubles.jobStore.upsert).not.toHaveBeenCalled();
       expect(doubles.retention.run).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('skills backlog cleanup job reachability', () => {
+    const WITH_CLEANUP = new Set<symbol>([
+      ...ALL_RUNTIME_TOKENS,
+      SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE,
+    ]);
+
+    it('upserts @ptah/skills-backlog-cleanup and registers skills:backlog-cleanup when its service is registered', async () => {
+      const doubles = makeRuntimeDoubles();
+      const container = makeRuntimeContainer(doubles, WITH_CLEANUP);
+
+      await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+      expect(doubles.jobStore.upsert).toHaveBeenCalledWith({
+        id: '@ptah/skills-backlog-cleanup',
+        name: 'Skills Backlog Cleanup',
+        cronExpr: '41 * * * *',
+        timezone: 'UTC',
+        prompt: 'handler:skills:backlog-cleanup',
+        enabled: true,
+      });
+      expect(doubles.handlerRegistry.register).toHaveBeenCalledWith(
+        'skills:backlog-cleanup',
+        expect.any(Function),
+      );
+    });
+
+    it('registers no cleanup job when its service token is absent', async () => {
+      const doubles = makeRuntimeDoubles();
+      const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+
+      await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+      expect(
+        doubles.jobStore.upsert.mock.calls.some(
+          (call) =>
+            (call[0] as { id: string }).id === '@ptah/skills-backlog-cleanup',
+        ),
+      ).toBe(false);
+      expect(doubles.handlerRegistry.register).not.toHaveBeenCalledWith(
+        'skills:backlog-cleanup',
+        expect.any(Function),
+      );
     });
   });
 

@@ -1641,32 +1641,6 @@ describe('SkillCandidateStore', () => {
     });
   });
 
-  describe('setDisplayName', () => {
-    maybe('sets a human title without touching the slug', () => {
-      const db = createInMemoryDb();
-      const store = makeStore(db);
-      const { candidate } = store.registerCandidate(candidateInput('name-1'));
-
-      const row = store.setDisplayName(candidate.id, '  Bisect A Flaky Spec  ');
-
-      expect(row.displayName).toBe('Bisect A Flaky Spec');
-      expect(row.name).toBe('skill-name-1');
-      expect(store.findById(candidate.id)?.displayName).toBe(
-        'Bisect A Flaky Spec',
-      );
-      expect(store.findById(candidate.id)?.name).toBe('skill-name-1');
-    });
-
-    maybe('clears the column when given a blank name', () => {
-      const db = createInMemoryDb();
-      const store = makeStore(db);
-      const { candidate } = store.registerCandidate(candidateInput('name-2'));
-      store.setDisplayName(candidate.id, 'Something');
-
-      expect(store.setDisplayName(candidate.id, '   ').displayName).toBeNull();
-    });
-  });
-
   // ── 0036 empirical gates (B3.1.2) ─────────────────────────────────────────
 
   describe('recordReplay', () => {

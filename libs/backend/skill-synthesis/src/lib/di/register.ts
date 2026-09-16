@@ -14,6 +14,8 @@
 import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SkillCandidateStore } from '../skill-candidate.store';
+import { SkillBacklogCleanupStore } from '../cleanup/skill-backlog-cleanup.store';
+import { SkillBacklogCleanupService } from '../cleanup/skill-backlog-cleanup.service';
 import { SkillMdGenerator } from '../skill-md-generator';
 import { SkillPromotionService } from '../skill-promotion.service';
 import { SkillInvocationTracker } from '../skill-invocation-tracker';
@@ -52,7 +54,6 @@ import { SessionArchaeologistService } from '../archaeology/session-archaeologis
 import { ReplayValidatorService } from '../gates/replay-validator.service';
 import { TriggerEvalService } from '../gates/trigger-eval.service';
 import { JudgePanelService } from '../gates/judge-panel.service';
-import { CandidateNamerService } from '../naming/candidate-namer.service';
 import { SkillGapCuratorService } from '../digest/skill-gap-curator.service';
 import { SPEC_FINDINGS_TOKEN } from '../spec-findings.port';
 import { SKILL_SYNTHESIS_TOKENS } from './tokens';
@@ -63,6 +64,8 @@ export function registerSkillSynthesisServices(
 ): void {
   logger.info('[skill-synthesis] registering services');
   container.registerSingleton(SkillCandidateStore);
+  container.registerSingleton(SkillBacklogCleanupStore);
+  container.registerSingleton(SkillBacklogCleanupService);
   container.registerSingleton(SkillMdGenerator);
   container.registerSingleton(TrajectoryExtractor);
   container.registerSingleton(SkillClusterDedupService);
@@ -96,10 +99,15 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(ReplayValidatorService);
   container.registerSingleton(TriggerEvalService);
   container.registerSingleton(JudgePanelService);
-  container.registerSingleton(CandidateNamerService);
   container.registerSingleton(SkillGapCuratorService);
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_STORE, {
+    useToken: SkillBacklogCleanupStore,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE, {
+    useToken: SkillBacklogCleanupService,
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_PROMOTION_SERVICE, {
     useToken: SkillPromotionService,
@@ -202,9 +210,6 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.JUDGE_PANEL_SERVICE, {
     useToken: JudgePanelService,
-  });
-  container.register(SKILL_SYNTHESIS_TOKENS.CANDIDATE_NAMER_SERVICE, {
-    useToken: CandidateNamerService,
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_GAP_CURATOR_SERVICE, {
     useToken: SkillGapCuratorService,

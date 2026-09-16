@@ -701,27 +701,6 @@ export class SkillCandidateStore {
   }
 
   /**
-   * Set the human-readable title a naming pass produced. `name` stays the slug
-   * — it is the SKILL.md folder name and carries a UNIQUE index, so it is an
-   * internal id and is never what a human should read. An empty or
-   * whitespace-only name clears the column so the UI falls back rather than
-   * rendering a blank title.
-   */
-  setDisplayName(id: CandidateId, displayName: string): SkillCandidateRow {
-    const trimmed = displayName.trim();
-    const stmt = this.db.prepare(
-      `UPDATE skill_candidates SET display_name = ? WHERE id = ?`,
-    );
-    stmt.run(trimmed.length > 0 ? trimmed : null, id);
-
-    const updated = this.findById(id);
-    if (!updated) {
-      throw new Error(`[skill-synthesis] setDisplayName: ${id} not found`);
-    }
-    return updated;
-  }
-
-  /**
    * Persist a replay-validation measurement (`0036`).
    *
    * A SIBLING of `updateStatus` and `recordJudgeVerdict`, and deliberately not
