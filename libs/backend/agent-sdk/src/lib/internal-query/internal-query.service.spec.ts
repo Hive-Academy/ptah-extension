@@ -195,6 +195,7 @@ describe('InternalQueryService', () => {
 describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
   interface GatedHarness {
     service: InternalQueryService;
+    logger: Logger;
     /** Resolve the Nth query's stream, letting it release its slot. */
     finish(index: number): void;
     started(): number;
@@ -247,9 +248,10 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
             ),
           } as unknown as IWorkspaceProvider);
 
+    const logger = makeLogger();
     const service = new InternalQueryService(
       { runOneShot } as unknown as SdkQueryRunner,
-      makeLogger(),
+      logger,
       workspace,
       collaborators.governor ?? null,
       (collaborators.degradation as DegradationReporter | undefined) ?? null,
@@ -257,6 +259,7 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
 
     return {
       service,
+      logger,
       finish: (index: number) => finishers[index]?.(),
       started: () => started,
     };
@@ -414,19 +417,20 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
   });
 
   it('honours a configured limit above the default', async () => {
-    // Both ceilings raised: the global one alone would not let a THIRD query on
+    // Both ceilings raised: the global one alone would not let a FOURTH query on
     // one lane through, which is the per-lane limit doing its job.
-    const h = makeGatedHarness(3, 3);
+    const h = makeGatedHarness(4, 4);
 
     await h.service.execute(makeConfig());
     await h.service.execute(makeConfig());
     await h.service.execute(makeConfig());
-    const fourth = h.service.execute(makeConfig());
+    await h.service.execute(makeConfig());
+    const fifth = h.service.execute(makeConfig());
 
     await settle();
-    expect(h.started()).toBe(3);
+    expect(h.started()).toBe(4);
 
-    void fourth;
+    void fifth;
   });
 
   /**
@@ -458,17 +462,55 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
       void queued;
     });
 
-    it('holds a third lane at the global ceiling', async () => {
+    it('holds a fourth lane at the global ceiling', async () => {
       const h = makeGatedHarness();
 
       await h.service.execute(makeConfig({ lane: 'memory-curator' }));
       await h.service.execute(makeConfig({ lane: 'skill-synthesis' }));
-      const third = h.service.execute(makeConfig({ lane: 'default' }));
+      await h.service.execute(makeConfig({ lane: 'default' }));
+      const fourth = h.service.execute(makeConfig({ lane: 'user-action' }));
 
       await settle();
       expect(h.started()).toBe(DEFAULT_MAX_CONCURRENT);
 
-      void third;
+      void fourth;
+    });
+
+    it('admits a user-action query while both background lanes hold slots at the defaults', async () => {
+      const h = makeGatedHarness();
+
+      await h.service.execute(makeConfig({ lane: 'memory-curator' }));
+      await h.service.execute(makeConfig({ lane: 'skill-synthesis' }));
+      await h.service.execute(makeConfig({ lane: 'user-action' }));
+
+      expect(h.started()).toBe(3);
+    });
+
+    it('logs blockedBy background when the background cap binds', async () => {
+      const h = makeGatedHarness(3, 2);
+      const abortController = new AbortController();
+
+      await h.service.execute(makeConfig({ lane: 'memory-curator' }));
+      await h.service.execute(makeConfig({ lane: 'memory-curator' }));
+      const capped = h.service.execute(
+        makeConfig({
+          lane: 'skill-synthesis',
+          abortController,
+        }),
+      );
+      await settle();
+
+      expect(h.logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('waiting for a concurrency slot'),
+        expect.objectContaining({
+          blockedBy: 'background',
+          backgroundInFlight: 2,
+          backgroundCapped: true,
+        }),
+      );
+
+      abortController.abort();
+      await expect(capped).rejects.toMatchObject({ name: 'AbortError' });
     });
 
     it('treats a lane name as case- and whitespace-insensitive', async () => {

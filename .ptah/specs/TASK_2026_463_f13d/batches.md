@@ -1,6 +1,6 @@
 # Batches - TASK_2026_463_f13d
 
-Total tasks: 9 | Batches: 4 (3 code, 1 PR prep) | Complete: 1/4
+Total tasks: 9 | Batches: 4 (3 code, 1 PR prep) | Complete: 2/4
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files,
 never modify `W\node_modules` — it is a junction):
@@ -159,7 +159,26 @@ verifies on disk and commits the batch's paths only.
 
 ---
 
-## Batch 1: Internal-query slot reservation + default alignment (C2) — IN_PROGRESS
+## Batch 1: Internal-query slot reservation + default alignment (C2) — COMPLETE
+
+- Commit: see `feat(agent-sdk): reserve an internal-query slot for user actions over background
+  lanes` on `chore/task-463-437-leftovers`
+- Outcome: no revise round. Logic review APPROVE (HIGH; 1 moderate, 2 pre-existing minors). Style
+  review APPROVE (HIGH; 3 minors). Task 1.0 reference TOTAL **303**; post-change TOTAL 303, no
+  `FAIL` row.
+- Lane evidence: test header 2 projects (41 suites / 781 passed + 4 todo; 110 of 112 suites /
+  1976 passed + 3 skipped); typecheck header 3 projects OK; lint header 3 projects, 0 errors (56
+  pre-existing warnings, none in Batch 1 files); prettier clean on 9 files; `git diff --check` clean.
+- Team-leader verification: `libs/**` diff is exactly the 9 Batch 1 files; no TODO/stub markers;
+  `admissible()` carries the one background term over current `this.limit`;
+  `backgroundLimit` = `limit >= 2 ? limit - 1 : 1`; defaults 3 / per-lane 1 registered.
+- Follow-ups (not blocking):
+  - Runtime signal / degradation report when `maxConcurrent <= 2` re-serialises background lanes
+    (today documented + pinned only).
+  - Hard-coded lane literals at `curator-pass-admission.ts:59` and `lane-runner.service.ts:198`
+    should import the lane constants.
+  - Naming asymmetry: gate `inFlightInBackground` vs service/log `backgroundInFlight`.
+  - Two doc phrasing minors from the style review.
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `backend-developer` sub-agent
@@ -171,7 +190,7 @@ verifies on disk and commits the batch's paths only.
 - Projects: `@ptah-extension/agent-sdk`, `@ptah-extension/platform-core`,
   `@ptah-extension/memory-curator`
 
-### Task 1.0: Record the degradation-audit reference TOTAL — IN_PROGRESS
+### Task 1.0: Record the degradation-audit reference TOTAL — COMPLETE
 
 - File: none (measurement only)
 - Plan reference: implementation-plan.md:672-674
@@ -183,7 +202,7 @@ verifies on disk and commits the batch's paths only.
   2. Report N as the task reference TOTAL (last recorded 303 at the TASK_2026_437 P4 gate; the
      base has moved since, so the measured value wins). Team-leader records it in this file.
 
-### Task 1.1: Gate — default 3, background cap, docs — IN_PROGRESS
+### Task 1.1: Gate — default 3, background cap, docs — COMPLETE
 
 - Files:
   - MODIFY `W\libs\backend\agent-sdk\src\lib\internal-query\internal-query-concurrency-gate.ts` (486 lines)
@@ -221,7 +240,7 @@ verifies on disk and commits the batch's paths only.
 - Validation notes: risks "counts governor-held waiters", "capped head blocks foreground",
   "limit = 1 starvation".
 
-### Task 1.2: Service — `blockedBy: 'background'` + service specs — IN_PROGRESS
+### Task 1.2: Service — `blockedBy: 'background'` + service specs — COMPLETE
 
 - Depends on: Task 1.1
 - Files:
@@ -244,7 +263,7 @@ verifies on disk and commits the batch's paths only.
      two `memory-curator` calls, a third background call's debug log has `blockedBy: 'background'`.
 - Validation notes: risk "service log reports governor".
 
-### Task 1.3: Settings defaults, per-lane key, docs and comments — IN_PROGRESS
+### Task 1.3: Settings defaults, per-lane key, docs and comments — COMPLETE
 
 - Depends on: Task 1.1 (numbers must match)
 - Files:

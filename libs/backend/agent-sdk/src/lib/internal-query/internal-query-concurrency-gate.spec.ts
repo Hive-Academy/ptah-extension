@@ -2,6 +2,7 @@ import 'reflect-metadata';
 
 import {
   InternalQueryConcurrencyGate,
+  backgroundLimit,
   DEFAULT_MAX_CONCURRENT,
   DEFAULT_MAX_CONCURRENT_PER_LANE,
   GOVERNED_BACKGROUND_LANES,
@@ -158,13 +159,154 @@ describe('InternalQueryConcurrencyGate', () => {
 
       await gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'a' });
       await gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'b' });
-      const queued = gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'c' });
+      await gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'c' });
+      const queued = gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'd' });
 
       expect(gate.inFlight).toBe(DEFAULT_MAX_CONCURRENT);
       expect(gate.inFlightForLane('a')).toBe(DEFAULT_MAX_CONCURRENT_PER_LANE);
       expect(gate.queued).toBe(1);
 
       void queued;
+    });
+  });
+
+  describe('background slot cap (FU-16b-c)', () => {
+    it('admits both background families and a user action at the defaults', async () => {
+      const gate = new InternalQueryConcurrencyGate();
+      const releaseCurator = await acquire(gate, {
+        limit: 3,
+        lane: MEMORY_CURATOR_QUERY_LANE,
+      });
+      const releaseSkills = await acquire(gate, {
+        limit: 3,
+        lane: SKILL_SYNTHESIS_QUERY_LANE,
+      });
+      const releaseUser = await acquire(gate, {
+        limit: 3,
+        lane: USER_ACTION_QUERY_LANE,
+      });
+
+      expect(gate.inFlight).toBe(3);
+      expect(gate.inFlightInBackground).toBe(2);
+      expect(gate.queued).toBe(0);
+      releaseCurator();
+      releaseSkills();
+      releaseUser();
+    });
+
+    it('skips a capped background waiter to admit a user action behind it', async () => {
+      const gate = new InternalQueryConcurrencyGate();
+      const releaseFirst = await gate.acquire({
+        limit: 3,
+        perLaneLimit: 2,
+        lane: MEMORY_CURATOR_QUERY_LANE,
+      });
+      const releaseSecond = await gate.acquire({
+        limit: 3,
+        perLaneLimit: 2,
+        lane: MEMORY_CURATOR_QUERY_LANE,
+      });
+      const capped = gate.acquire({
+        limit: 3,
+        perLaneLimit: 2,
+        lane: SKILL_SYNTHESIS_QUERY_LANE,
+      });
+      const releaseUser = await gate.acquire({
+        limit: 3,
+        perLaneLimit: 2,
+        lane: USER_ACTION_QUERY_LANE,
+      });
+
+      expect(gate.inFlight).toBe(3);
+      expect(gate.queued).toBe(1);
+      releaseFirst();
+      const releaseCapped = await capped;
+      releaseSecond();
+      releaseUser();
+      releaseCapped();
+    });
+
+    it('keeps background capped when foreground frees and admits it when background frees', async () => {
+      const gate = new InternalQueryConcurrencyGate();
+      const releaseCurator = await gate.acquire({
+        limit: 3,
+        perLaneLimit: 2,
+        lane: MEMORY_CURATOR_QUERY_LANE,
+      });
+      const releaseSkills = await gate.acquire({
+        limit: 3,
+        perLaneLimit: 2,
+        lane: SKILL_SYNTHESIS_QUERY_LANE,
+      });
+      const releaseDefault = await gate.acquire({
+        limit: 3,
+        perLaneLimit: 2,
+        lane: 'default',
+      });
+      let admitted = false;
+      const capped = gate
+        .acquire({
+          limit: 3,
+          perLaneLimit: 2,
+          lane: MEMORY_CURATOR_QUERY_LANE,
+        })
+        .then((release) => {
+          admitted = true;
+          return release;
+        });
+
+      releaseDefault();
+      await Promise.resolve();
+      expect(admitted).toBe(false);
+      expect(gate.queued).toBe(1);
+      releaseCurator();
+      const releaseCapped = await capped;
+      expect(admitted).toBe(true);
+      releaseSkills();
+      releaseCapped();
+    });
+
+    it('allows background to use the only slot when the limit is one', async () => {
+      const gate = new InternalQueryConcurrencyGate();
+      const releaseBackground = await acquire(gate, {
+        limit: 1,
+        lane: MEMORY_CURATOR_QUERY_LANE,
+      });
+      const foreground = acquire(gate, { limit: 1, lane: 'default' });
+
+      expect(gate.inFlightInBackground).toBe(1);
+      expect(gate.queued).toBe(1);
+      releaseBackground();
+      (await foreground)();
+    });
+
+    it.each([
+      [1, 1],
+      [2, 1],
+      [3, 2],
+      [5, 4],
+    ])('derives backgroundLimit(%i) as %i', (limit, expected) => {
+      expect(backgroundLimit(limit)).toBe(expected);
+    });
+
+    it('does not count a governor-held background waiter as in flight', async () => {
+      const governor: BackgroundWorkSignal = {
+        isClear: () => false,
+        onChange: () => () => undefined,
+      };
+      const gate = new InternalQueryConcurrencyGate({ governor });
+      const abortController = new AbortController();
+      const held = gate.acquire({
+        limit: 3,
+        perLaneLimit: 1,
+        lane: MEMORY_CURATOR_QUERY_LANE,
+        signal: abortController.signal,
+      });
+
+      expect(gate.queued).toBe(1);
+      expect(gate.inFlightInBackground).toBe(0);
+      abortController.abort();
+      await expect(held).rejects.toMatchObject({ name: 'AbortError' });
     });
   });
 
