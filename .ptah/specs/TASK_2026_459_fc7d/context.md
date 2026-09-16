@@ -36,6 +36,13 @@ common case.
 - A read-only aggregate metadata reader that probes
   `isWorkspaceScopedStateStorage`, reads every registered delegate, validates
   records and deduplicates by session id.
+- **Duplicate precedence is the lister's, not a new one.** Two delegates can
+  hold a record for one session id — a worktree session written under both
+  roots, for example — so the rule must be stated or two implementations give
+  two titles. Keep the record with the HIGHEST `lastActiveAt`, and on a tie
+  keep the FIRST one read (`metadata-gateway-session-lister.ts:78-85`, the
+  `existing.lastActiveAt >= entry.lastActiveAt` skip). A spec asserts both
+  halves.
 - `PeerSessionDirectory` uses it for the title join only.
 - `SessionMetadataStore`'s ambient WRITE behaviour stays unchanged.
 
@@ -64,6 +71,8 @@ discovery, which is a separate decision.
   peer picker, with both workspaces registered in ONE Electron process.
 - A row whose workspace is not registered in this process still lists, with the
   registry name and no title.
+- One session id held by two delegates resolves to the record with the higher
+  `lastActiveAt`, and to the first one read when the two are equal.
 - A metadata read failure for one workspace still lists every row, without
   titles, and logs one warn.
 - No new `PLATFORM_TOKENS` entry, no write path change.
