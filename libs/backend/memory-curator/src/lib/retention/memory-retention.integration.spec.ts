@@ -681,17 +681,17 @@ describe('memory lifecycle — integration (real SQLite + sqlite-vec, fake clock
         h.t,
         "SELECT COUNT(*) AS n FROM memories WHERE id LIKE 'fail-delete-%'",
       ),
-    ).toBe(50);
+    ).toBe(150);
     expect(
       scalar(
         h.t,
         "SELECT COUNT(*) AS n FROM memory_chunks WHERE memory_id LIKE 'fail-delete-%'",
       ),
-    ).toBe(50);
+    ).toBe(150);
     fail = false;
     await expect(h.run(NOW + HOUR)).resolves.toMatchObject({
       status: 'completed',
-      memoriesDeleted: 50,
+      memoriesDeleted: 150,
     });
   });
 

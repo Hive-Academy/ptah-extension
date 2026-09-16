@@ -55,8 +55,12 @@ export const DAY_MS = 86_400_000;
 export const RETENTION_MAX_ROWS_PER_RUN = 50_000;
 /** Archive, age-delete and cap-eviction rows combined, per run. */
 export const RETENTION_MAX_MEMORY_ROWS_PER_RUN = 25_000;
-/** Initial batch size for deletes that fan out through FTS and vec triggers. */
-export const RETENTION_MEMORY_DELETE_BATCH_SIZE = 200;
+/**
+ * Initial batch size for deletes that fan out through FTS and vec triggers.
+ * 100 from the TASK_2026_443 cap-eviction sweep: 200 reached max 133-1730 ms
+ * on a 1.18 GB file; 100 passed the 120 ms bound.
+ */
+export const RETENTION_MEMORY_DELETE_BATCH_SIZE = 100;
 /** Newly archived rows remain protected from cap eviction for seven days. */
 export const RETENTION_CAP_EVICTION_GRACE_MS = 7 * DAY_MS;
 /** Wall clock per run, yields included. */
