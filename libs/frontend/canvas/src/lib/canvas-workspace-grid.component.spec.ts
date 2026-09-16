@@ -1181,6 +1181,30 @@ describe('CanvasWorkspaceGridComponent', () => {
       ).toMatch(/^\d+px$/);
     });
 
+    it('freezes compact singleton height while locked and follows height when unlocked', () => {
+      mount(['tab-1']);
+      setViewMode('tab-1', 'compact');
+      const gridstackEl = fixture.debugElement.query(By.css('gridstack'));
+      const compactHeight = (): string =>
+        gridstackEl.nativeElement.style.getPropertyValue(
+          '--ptah-compact-singleton-height',
+        );
+      const lockedHeight = compactHeight();
+
+      fixture.componentRef.setInput('locked', true);
+      flush();
+      measure(THREE_COLUMN_WIDTH, 600);
+      flush();
+
+      expect(compactHeight()).toBe(lockedHeight);
+
+      fixture.componentRef.setInput('locked', false);
+      flush();
+
+      expect(compactHeight()).toBe('194px');
+      expect(compactHeight()).not.toBe(lockedHeight);
+    });
+
     it('suppresses gestures on a singleton session', () => {
       mount(['tab-1']);
       gridStub().dragStartCB.emit({

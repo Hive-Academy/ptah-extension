@@ -290,9 +290,20 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     );
   });
 
-  protected readonly compactSingletonHeight = computed(
-    () => `${this.layout().cellHeight * 2}px`,
-  );
+  protected readonly compactSingletonHeight = computed(() => {
+    const measurements = this.locked()
+      ? (this._lockedMeasurements ??
+        this._lastAppliedMeasurements ??
+        this.currentMeasurements())
+      : this.currentMeasurements();
+    const layout = this.layoutService.computeLayout(
+      this.tiles(),
+      this.layoutFocusTabId(),
+      this.viewConstraints(),
+      measurements,
+    );
+    return `${layout.cellHeight * 2}px`;
+  });
 
   private readonly creationOptions = new Map<string, GridStackWidget>();
 
