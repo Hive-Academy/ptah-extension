@@ -275,6 +275,28 @@ describe('ChatPtahCliService', () => {
       expect(s.service.hasSession(TAB_UUID)).toBe(false);
     });
 
+    it('releases the proxy lease when a non-string name throws during resolution', async () => {
+      // `ChatStartParamsSchema` is `.passthrough()` and does not validate
+      // `name`, so a non-string value reaches `name?.trim()`. That throw must
+      // land inside the lease guard, not before it.
+      const s = makeSuite();
+
+      await expect(
+        s.service.handleStart({
+          prompt: 'hi',
+          tabId: TAB_UUID,
+          workspacePath: '/tmp/ws',
+          ptahCliId: AGENT_ID,
+          name: 42 as unknown as string,
+        } as ChatStartParams),
+      ).rejects.toBeInstanceOf(TypeError);
+
+      expect(s.registry.releaseProfile).toHaveBeenCalledTimes(1);
+      expect(s.registry.releaseProfile).toHaveBeenCalledWith(TAB_UUID);
+      expect(s.agentAdapter.startChatSession).not.toHaveBeenCalled();
+      expect(s.service.hasSession(TAB_UUID)).toBe(false);
+    });
+
     it('releases the proxy lease when the registry listing rejects before the spawn', async () => {
       const s = makeSuite();
       const boom = new Error('registry unreachable');
