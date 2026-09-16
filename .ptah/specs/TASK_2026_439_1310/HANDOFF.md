@@ -37,8 +37,9 @@ Phase 2 shipped four such proofs (DI graph, real SQLite with sqlite-vec, Electro
   background-work-governor wait before every batch, capped by the run's remaining wall budget.
 - `MemoryDecayJob`, `SalienceScorer`, `MemoryStore.updateTier`, the decay diagnostics, the `'decay-run'`
   event kind and the `lastDecay*` DTO fields are **deleted**. Do not resurrect them.
-- Salience is an immutable base in `[0,1]`; ranking is a query-time SQL expression. Nothing writes
-  salience after insert.
+- Salience is an immutable base in `[0,1]`; ranking is a query-time SQL expression. Migration `0044`
+  rebases the stored values once, as a backfill. After that, no runtime code writes `salience`: it is
+  set at insert and never again.
 - "Used" is recorded explicitly through `IMemoryUsageRecorder` (injected hits, MCP search hits,
   `memory:get`, `mem:getObservations`, curator merge). `MemorySearchService` no longer writes on a read.
 - New files worth knowing: `retention/memory-lifecycle.store.ts`, `memory-lifecycle.service.ts`,
@@ -54,14 +55,22 @@ Phase 2 shipped four such proofs (DI graph, real SQLite with sqlite-vec, Electro
    3.5 hours before another session noticed it.
 3. **CI loads `better-sqlite3`; local Node falls back to `node:sqlite`.** A spec that leaves a named SQL
    parameter unbound passes locally and fails on CI. Run SQLite specs both ways:
-   `$env:ELECTRON_RUN_AS_NODE='1'; & 'D:\projects\ptah-extension\node_modules\.bin\electron.cmd' 'D:\projects\ptah-extension\node_modules\jest\bin\jest.js' --config <lib>/jest.config.ts --testPathPatterns '"<pattern>"' --runInBand`
+   ```powershell
+   $root = git rev-parse --show-toplevel
+   $env:ELECTRON_RUN_AS_NODE = '1'
+   & "$root/node_modules/.bin/electron.cmd" "$root/node_modules/jest/bin/jest.js" `
+     --config <lib>/jest.config.ts --testPathPatterns '"<pattern>"' --runInBand
+   ```
+   In a worktree without its own `node_modules`, point `$root` at the main checkout instead.
 4. **`npx nx run degradation-audit:lint` must stay at its per-lib baselines.** Any new catch that fails
    open or returns a default needs `// degradation-audit: optional-capability - <reason>` or
    `// degradation-audit: reported - <reason>`, and the marker must sit inside the catch's leading-comment
    zone or the scanner reports an orphaned suppression.
-5. **Never open `C:\Users\abdal\.ptah\state\ptah.sqlite` (or `-wal`, `-shm`) or any
-   `ptah.pre-migration-*.sqlite` with SQLite.** Measure on a byte copy in a fail-if-exists temp dir, named
-   so it does not start with `ptah`, with the six production pragmas read back.
+5. **Never open the live database or a migration snapshot with SQLite.** That is
+   `<state>/ptah.sqlite` and its `-wal` and `-shm` files, plus every `ptah.pre-migration-*.sqlite`,
+   where `<state>` is `$PTAH_STATE_DIR` if set and `~/.ptah/state` otherwise. Measure on a byte copy in
+   a fail-if-exists temp dir, named so it does not start with `ptah`, with the six production pragmas
+   read back.
 6. **Lanes do not report completion.** Give every lane a marker file to write as its last step and watch
    for that file; a lane can exit 0 without writing its deliverable (TASK_2026_438).
 7. **Reviews come from a different model family than the implementer.** In phase 2, codex implemented,

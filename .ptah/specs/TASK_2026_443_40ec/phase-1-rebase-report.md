@@ -47,7 +47,7 @@ All other commits applied cleanly. Hooks were not bypassed (`.husky/pre-commit`,
 
 `git log --oneline origin/main..HEAD` shows 15 commits. `Compare-Object` of subjects (`merge-base..e1fe2e49e` against `origin/main..HEAD`) showed no differences.
 
-```
+```text
 fae072a28 test(memory-curator): bind every parameter in the retention query-plan helper
 aaea619f6 fix(memory-curator): annotate the three deliberate catch sites for the degradation audit
 a6471476d docs: record TASK_2026_440 Gate 3 branch review and fix
@@ -81,7 +81,7 @@ ba684b018 feat(memory-curator): batch 3 - add bounded observation retention serv
 
 `npx nx run-many -t typecheck -p <8 projects> --skip-nx-cache`
 
-```
+```text
  NX   Running target typecheck for 8 projects:
 > nx run @ptah-extension/platform-core:typecheck
 > nx run @ptah-extension/shared:typecheck
@@ -113,7 +113,7 @@ Header: `NX   Running target test for 8 projects:`. Exit 1, with 2 timeout failu
 
 The two failures, verbatim:
 
-```
+```text
 ● Performance smoke — PtahFileSettingsManager (Gap E) › keeps per-write cost flat across 1000 sequential set() calls (no O(n²) growth)
     thrown: "Exceeded timeout of 30000 ms for a test."
     at src/file-settings-manager.bench.spec.ts:86:3
@@ -129,7 +129,7 @@ Neither file is touched by the branch. Both are timeouts under parallel load.
 
 `npx nx run-many -t test -p @ptah-extension/platform-core @ptah-extension/rpc-handlers --parallel=1 --skip-nx-cache`
 
-```
+```text
  NX   Running target test for 2 projects:
 > nx run @ptah-extension/platform-core:test
 Test Suites: 41 passed, 41 total
@@ -146,7 +146,7 @@ Exit 0. All 8 projects now have a green test run.
 
 `npx nx run-many -t lint -p <8 projects> --skip-nx-cache`
 
-```
+```text
  NX   Running target lint for 8 projects:
 platform-core 9 warnings · shared 2 warnings · persistence-sqlite clean · memory-curator-ui 27 warnings
 memory-curator 6 warnings · thoth-runtime clean · cli-engine 2 warnings · rpc-handlers 19 warnings
@@ -161,7 +161,7 @@ The prescribed command was `ELECTRON_RUN_AS_NODE=1 electron.cmd jest.js --config
 
 The worktree path itself contains `retention` (`task-440-memory-retention`), so that pattern matched every memory-curator suite:
 
-```
+```text
 Test Suites: 39 passed, 39 total
 Tests:       635 passed, 635 total
 ```
@@ -170,7 +170,7 @@ Exit 0, 0 skipped. The 59 tests that were skipped under plain Node ran and passe
 
 Narrowed to the retention folder with `--testPathPatterns 'lib[\\/]retention[\\/]'`:
 
-```
+```text
 Test Suites: 3 passed, 3 total
 Tests:       59 passed, 59 total
 ```
