@@ -458,7 +458,7 @@ number; tid: number }): TraceEventSummary` — pure; returns per event `name` th
   The orchestrator directed a direct commit instead (documentation-only batch, no product code).
   Items 1-5 above are the team-leader verification that ran in its place.
 
-## Batch 3: C3 canvas request queue ∥ C2 replay admission — COMPLETE
+## Batch 3: C3 canvas request queue ∥ C2 replay admission — COMPLETE (commit `b9cc2f193`)
 
 - Recommended executor: CLI lanes `codex` x 2 (Lane A = Task 3.1, Lane B = Task 3.2)
 - Fallback executor: Claude `frontend-developer` sub-agent, sequential 3.1 then 3.2

@@ -22,6 +22,7 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | `01307f73e`  | Plan: `task.md`, `context.md`, `implementation-plan.md`, `batches.md`                 |
 | `49b436256`  | Batch 1 — C4 perf harness, settle-inclusive window, 3 CodeRabbit fixes from PR #518   |
 | `93c41c41d`  | Batch 2 — M0 baseline, 9 runs, `test-report.md`                                       |
+| `b9cc2f193`  | Batch 3 — C3 canvas request queue + C2 replay admission                               |
 
 ## 3. Batch state
 
@@ -29,7 +30,7 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | ----- | ------------------------------------------------ | ---------------------------------------------- |
 | B1    | C4 perf harness                                 | COMPLETE, committed                           |
 | B2    | M0 baseline                                     | COMPLETE, committed                           |
-| B3    | C3 canvas request queue + C2 replay admission   | COMPLETE, committed (see `git log`)           |
+| B3    | C3 canvas request queue + C2 replay admission   | COMPLETE, committed `b9cc2f193`         |
 | B4    | C1 replay motion gate                           | PENDING                                       |
 | B5    | C5 replay render-window fence                   | PENDING — this one decides AC-11              |
 | B6    | M1 measurement + decision point                 | PENDING — needs an idle machine               |
@@ -53,7 +54,7 @@ now expects about 3.3-3.8 s without C5 and about 1.0-1.9 s with it.
 ## 5. Batch 3 — committed
 
 **State**: delta-2 logic and style reviews both APPROVED; team-leader verified and committed
-Batch 3 (commit on the branch after `93c41c41d`), corrected Task 3.2 AC 9, and applied the plan's
+Batch 3 (commit `b9cc2f193`), corrected Task 3.2 AC 9, and applied the plan's
 C1 subsection 1a amendments to Task 4.1 AC 6 and Task 5.1 AC 5. Next: Batch 4 (C1). The notes
 below are the pre-commit record.
 
