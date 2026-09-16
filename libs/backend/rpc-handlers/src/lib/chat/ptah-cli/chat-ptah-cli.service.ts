@@ -119,10 +119,16 @@ export class ChatPtahCliService {
     // and leaving it outside left the identical leak for that one caller.
     let stream: AsyncIterable<unknown>;
     let agentName = agentId;
-    const sessionName = name?.trim()
-      ? name
-      : `Session ${new Date().toLocaleDateString()}`;
+    // Resolved INSIDE the guard: `ChatStartParamsSchema` is a `.passthrough()`
+    // object that does not validate `name`, so a non-string value reaches
+    // `name?.trim()` and throws. Outside the `try` that throw would skip
+    // `releaseLeaseAfterFailedStart` and strand the proxy lease taken by
+    // `getProfile` above — the exact leak TASK_2026_326 closed.
+    let sessionName: string;
     try {
+      sessionName = name?.trim()
+        ? name
+        : `Session ${new Date().toLocaleDateString()}`;
       const summaries = await this.ptahCliRegistry.listAgents();
       const summary = summaries.find((s) => s.id === agentId);
       agentName = summary?.name ?? agentId;
