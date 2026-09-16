@@ -1385,7 +1385,7 @@ review round is required).
   `test-report.md` committed separately after 10.3 passes (`docs: record TASK_2026_443 test report`).
 - Tasks: 3 | Depends on: Batch 9
 
-### Task 10.1: Documentation and dead-setting cleanup (memory-curator CLAUDE.md drift + the Batch 9 moderates) — IN_PROGRESS
+### Task 10.1: Documentation and dead-setting cleanup (memory-curator CLAUDE.md drift + the Batch 9 moderates) — COMPLETE (commit 15322161c)
 
 - File: MODIFY `W\libs\backend\memory-curator\CLAUDE.md`
 - Drift on disk today: `:13` "salience scoring, decay job"; `:32` Public API lists `SalienceScorer`,
@@ -1424,6 +1424,165 @@ review round is required).
   `half-life|halflife` over `apps/ptah-docs` returns only wording about the ranking recency term, never lifecycle
   pruning; every symbol named in `memory-curator/CLAUDE.md` exists in `src/index.ts`.
 - Report: `W\.ptah\specs\TASK_2026_443_40ec\batch-10-docs-report.md`
+
+### Task 10.1 revision 1 fix list (resume codex lane dccd962f) — COMPLETE (in 15322161c)
+
+- Review (Ollama Cloud, `code-logic-review-batch-10.md`): NEEDS_REVISION 6/10, 0 blocking, 2 serious, 2 moderate,
+  3 minor. The diff's own content is accurate (every figure traces to a config file, the dead
+  `memory.decayHalflifeDays` is gone everywhere, `changelog.md` is additive, the memory-curator CLAUDE.md drift is
+  fixed). The verdict is about pages the task's file list missed, so the deletion is still half-done at the
+  documentation layer.
+- MACHINE HOLD: another session is running a performance baseline. The revision lane EDITS FILES ONLY and runs NO
+  command (no nx, jest or build). The team-leader runs every verification command in one block after the ping, together
+  with Tasks 10.2 and 10.3.
+- Team-leader decisions on the findings:
+  - S1, S2, M1, M2, m3, m4: FIX in this revision (items 1-6 below).
+  - m5 (a pinned archival row is restored to `recall` on use, `memory.store.ts:544-551`, against
+    `pinning-and-forgetting.md:15` "locks its tier"): DOCS FIX, no code change (item 7). Evidence and reasoning:
+    `recordUse`'s `CASE WHEN tier = 'archival' THEN 'recall'` is the plan's approved SQL (AC3,
+    `implementation-plan.md:362-370`); the lifecycle never archives a pinned row (`pinned = 0` in every archive,
+    delete and evict predicate), so the only way to reach the case is a user pinning an already-archival row through
+    `memory:pin` (`memory-rpc.handlers.ts:264-268`), and after the restore the row is `recall` + pinned, still exempt
+    from archival, deletion and eviction. No data is at risk and no invariant breaks (the row keeps no stale
+    `archived_at`: the same statement nulls it). The doc sentence predates this phase and described the deleted decay
+    job's salience demotion, so it is the sentence that is wrong. A spec pins today's behaviour so a future change is
+    deliberate. This keeps a destructive-path statement untouched at the end of the phase, which is why it needs no
+    second review round for code.
+- Scope: documentation plus the dead-key deletions in `platform-core`, and ONE new spec case in memory-curator
+  (`memory.store.spec.ts`). No other production code.
+
+1. S1 — `W\apps\ptah-docs\src\content\docs\memory\index.mdx`: `:20` ("Salience scoring decides which memories rise to
+   `core` and which decay out of `archival`") and the tier table at `:14-18` must match the corrected
+   `how-it-works.md`. Replace with: tiers are set by the writer (`core` for wizard seeds and pinned identity,
+   `recall` for curated memories); salience is RANKING ONLY; an age lifecycle moves unused `recall` rows to `archival`
+   and deletes archival rows after the delete window; there is no promotion or demotion by salience. Drop the "Cap
+   (default)" column, since the three `memory.tierLimits.*` keys it cites are dead (item 2).
+2. S2 — `settings.md:18-20` documents `memory.tierLimits.core|recall|archival` as enforced caps. Team-leader verified
+   they have ZERO consumers: the only occurrences are the key list and the default table
+   (`libs/backend/platform-core/src/file-settings-keys.ts:211-213,500-502`). Treat them exactly like
+   `memory.decayHalflifeDays`: DELETE all six lines from `file-settings-keys.ts`, delete their rows from
+   `settings.md`, and remove the matching claim from `index.mdx` (item 1). Record the grep in the report. If a
+   consumer turns up, keep the keys and document them as advisory instead.
+3. M1 — `settings.md` claims to list "Every memory tunable" but documents no `memory.retention.*`. Add a Retention and
+   lifecycle table with the four `memory.retention.*` keys (`enabled`, `processedDays` 7, `stuckDays` 14, `batchSize`
+   500 — from `memory-retention-config.ts`) and the four `memory.lifecycle.*` keys (`enabled` true,
+   `archiveAfterDays` 30, `deleteAfterDays` 60, `maxPerWorkspace` 25000 — from `memory-lifecycle-config.ts`), each
+   with its clamp range. Invent no number.
+4. M2 — `libs/backend/memory-curator/CLAUDE.md:36` names `CuratorCallOptions` in the Public API, but `src/index.ts:99-105`
+   does not export it. Either drop the name from the doc line or export the type from the barrel — choose the one that
+   matches what consumers actually import (grep `CuratorCallOptions` across `libs` and `apps` and record it). This is
+   Task 10.1's own acceptance criterion, so it must end green.
+5. m3 — in `memory-curator/CLAUDE.md`, narrow "the only writer of `tier = 'archival'`" to: the insert path may store an
+   `archival` row (stamping `archived_at`, `memory.store.ts:205`), and `MemoryLifecycleStore.archiveBatch` is the only
+   statement that MOVES an existing row to `archival`.
+6. m4 — in `memory-curator/CLAUDE.md` and wherever the docs repeat it, state the vec-pause condition as it is coded
+   (`memory-lifecycle.store.ts:141-152`): deletes pause when the vector extension is unavailable AND the
+   `memory_chunks_vec_ad` trigger exists; with no trigger, deletes proceed.
+7. m5 — `pinning-and-forgetting.md:15`: replace "Locks its tier" with the shipped behaviour: pinning exempts a memory
+   from lifecycle archival, deletion and cap eviction; tiers are otherwise set by the writer, and a recorded use
+   restores ANY archival row (pinned or not) to `recall`, where a pinned row stays exempt. Add ONE spec case in
+   `W\libs\backend\memory-curator\src\lib\memory.store.spec.ts`: `recordUse` on a PINNED archival row sets
+   `tier = 'recall'`, nulls `archived_at`, keeps `pinned = 1`, and the row is never picked up by
+   `archiveBatch` afterwards (reuse the existing real-SQLite harness; XB1: bind every parameter).
+- Acceptance greps (a missed page must not pass again; run from `W`, all file types):
+  - `grep -rniE "salience[ -]?(scor|decay)|decay(s)? out of|promote[sd]? (a memory )?to .?core|demot" apps/ptah-docs/src/content` ->
+    no hit that describes lifecycle behaviour; a hit is allowed only where it says salience is ranking-only or names the
+    deleted decay job as history in `changelog.md`.
+  - `grep -rniE "prune|pruning" apps/ptah-docs/src/content/docs/memory` -> no claim that salience or half-life prunes.
+  - `grep -rn "decayHalflifeDays\|tierLimits" libs apps docs` -> no matches.
+  - Every `memory.*` key documented as enforced in `settings.md` and `index.mdx` exists in
+    `libs/backend/platform-core/src/file-settings-keys.ts` AND has at least one consumer outside that file; every
+    `memory.retention.*` and `memory.lifecycle.*` key in `file-settings-keys.ts` appears in `settings.md`. Paste both
+    lists in the report and state that the two sets match.
+  - `grep -rnE "SalienceScorer|MemoryDecayJob|decay job|salience-scorer" libs/backend/memory-curator/CLAUDE.md` ->
+    no matches; every symbol the file names in its Public API exists in `src/index.ts` (M2).
+- Report: append `## Revision 1` to `batch-10-docs-report.md` with the per-item diff summary, the greps you ran with
+  `grep` only (NO nx, jest or build while the machine hold is in force), and the source of every number. Write
+  `batch-10-docs-r1.done` LAST; create no other file in the task folder.
+- Team-leader acceptance: diff read plus, after the machine-hold ping, the Task 10.1 command set (platform-core test /
+  typecheck / lint, `ptah-docs build`, `degradation-audit:lint`, memory-curator test for the new spec case) and the
+  acceptance greps above. A second Ollama Cloud review round IS required for this revision, because S1-S2 change what
+  the product documents and item 7 adds a spec that fixes today's behaviour in place.
+
+### Task 10.1 revision 2 fix list (resume codex lane 01a0a75f-94e3-7700-bcd4-89f2fe25b581) — COMPLETE (in 15322161c)
+
+- Round-2 review closed S1, S2, M1, M2, m3, m4 and m5 and confirmed the four legacy-key labels; revision 2 closed the
+  one new serious finding N1.
+- Team-leader acceptance (conditional rule met, so no third review round): `git diff --name-only` after revision 2 listed
+  only `apps/ptah-docs/src/content/**` plus the three files revision 1 had already changed, and the mtimes prove no `.ts`
+  file was touched after the round-2 review (`memory.store.spec.ts` and `file-settings-keys.ts` 02:40,
+  `memory-curator/CLAUDE.md` 02:40, review 02:53, `searching.md` 02:57). Every rewritten fact traces to
+  `memory-search.service.ts` (RRF `k = 25`; weights 0.6/0.4 under 4 tokens and 0.3/0.7 at 4+; `search` topK default 10;
+  injection 5; MCP caller's `maxResults`; `mem:searchIndex` clamp 1-100 default 20). The do-nothing tuning advice is gone
+  and the legacy-key sentence is present.
+- Team-leader re-run: platform-core test / typecheck / lint 1 project green (41 suites, 781 passed, 0 lint errors);
+  `ptah-docs build` 1 project green; memory-curator test 1 project green (640 passed, 59 pre-existing skips, including
+  the new pinned-archival case); `degradation-audit:lint` exit 0 (memory-curator 20/20, platform-core 7/7). Acceptance
+  greps: the lifecycle sweep returns only the allowed ranking-only sentence in `index.mdx:20`; `prune|pruning` under the
+  memory docs, `decayHalflifeDays|tierLimits` over `libs apps docs`, `half-life|halflife` over ptah-docs, and the decay /
+  scorer / `CuratorCallOptions` sweep over `memory-curator/CLAUDE.md` all return nothing; the two-way key check has both
+  difference sets empty.
+- REVISE CAP REACHED for the documentation pass (2 rounds, `context.md`). Any further ptah-docs accuracy gap is a
+  FOLLOW-UP TASK the orchestrator files, not another revision round of this task.
+
+
+- Review round 2 (`code-logic-review-batch-10-r1.md`): NEEDS_REVISION 7/10, 0 blocking, 1 NEW serious, 0 moderate.
+  Every round-1 finding (S1, S2, M1, M2, m3, m4, m5) is CLOSED with file:line evidence, and all four "Legacy registered
+  key" labels are confirmed accurate (`memory.curatorEnabled`, `memory.embeddingModel`, `memory.searchTopK`,
+  `memory.searchAlpha` have no consumer outside `file-settings-keys.ts`; the `curatorEnabled` hits belong to the
+  separate `skillSynthesis.curatorEnabled` key).
+- N1 (serious): `apps/ptah-docs/src/content/docs/memory/searching.md:17-21,25-27` still sells `memory.searchAlpha` as a
+  blend control and tells the reader to tune `memory.searchTopK` ("default 10 ... raise it if the agent is missing
+  relevant facts"). Nothing reads either key, so the page now contradicts the `settings.md` labels this revision added.
+- REVISE CAP: this is revision 2, the cap for the lane (`context.md`). Any further ptah-docs accuracy gap found after
+  this revision does NOT get another round — the orchestrator files it as a follow-up task.
+- Machine budget: the lane may run ONLY `npx nx run-many -t build -p ptah-docs` (1 project) plus `grep`. The
+  team-leader re-runs everything else.
+- Scope: `apps/ptah-docs/src/content/**` prose ONLY. NO `.ts` file and NO spec may change — if one does, the revision
+  goes back to the reviewer for a third round.
+
+1. N1 — rewrite `searching.md:17-21` and `:25-27` to the shipped behaviour, keeping the rest of the page (the two
+   retrievers, the BM25-only degrade with its `bm25Only: true` flag, the inspection panel, the tip) intact. The facts,
+   all from `libs/backend/memory-curator/src/lib/memory-search.service.ts`:
+   - Fusion is Reciprocal Rank Fusion with a fixed `k = 25` (`:159-160` `RRF_K_DEFAULT`, applied at `:309-310`), chosen
+     for stores of roughly 100-5,000 chunks. There is no user-facing blend setting.
+   - The BM25 / vector weights are chosen PER QUERY by length, not by configuration: a query under 4 tokens weights
+     BM25 `0.6` and vector `0.4`; 4 tokens or more weights BM25 `0.3` and vector `0.7` (`:308-310`). Say why in one
+     clause: short queries are usually proper nouns or identifiers, where exact term matching wins.
+   - Top-K is a per-call argument, not a setting: `MemorySearchService.search` defaults to `10` (`:239-241`), prompt
+     injection asks for `MAX_HITS` = 5 (`agent-sdk` `memory-prompt-injector.ts`), the MCP `ptah.memory.search` passes
+     the caller's `maxResults` (default 10, service-capped), and `mem:searchIndex` clamps `filter.topK` to 1-100 with a
+     default of 20 (`:554`).
+   - Delete the "Lower it if context budget is tight; raise it if ..." advice: it names an action that does nothing.
+     Replace it with the fact that the caller decides the count.
+2. Consistency line — add ONE sentence to `searching.md` (or amend its intro) saying the search knobs are fixed in code
+   today, and that `memory.searchAlpha` / `memory.searchTopK` remain only as legacy registered keys with no consumer,
+   matching the `settings.md` table. Do not re-document them as tunable anywhere.
+3. Sweep for the same class of error on every OTHER ptah-docs page: no page may advertise a `memory.*` key the two-way
+   check labelled legacy (`memory.curatorEnabled`, `memory.embeddingModel`, `memory.searchTopK`, `memory.searchAlpha`)
+   as if it changed behaviour. Where such a page exists, correct it in the same way (state the shipped behaviour, keep
+   the explanation). Report every page you checked.
+- Acceptance greps (from `W`; the key sweep now covers ALL of `apps/ptah-docs/src/content`, not just the memory folder,
+  so a page outside it cannot hide one):
+  - `grep -rnoE "memory\.[a-zA-Z.]+" apps/ptah-docs/src/content | sort -u` -> every key named anywhere in the docs is
+    either registered in `libs/backend/platform-core/src/file-settings-keys.ts` WITH a consumer outside that file, or is
+    named ONLY as a legacy key with no consumer. Paste the list and mark each key `enforced` or `legacy`.
+  - `grep -rniE "searchAlpha|searchTopK" apps/ptah-docs/src/content` -> every remaining hit reads as a legacy key with
+    no effect; no hit tells the reader to tune one.
+  - the round-1 sweeps stay green: the lifecycle-wording sweep over `apps/ptah-docs/src/content` (only the ranking-only
+    sentence in `index.mdx` and the unrelated skill-synthesis demotion pages), `prune|pruning` under the memory folder
+    (none), `decayHalflifeDays|tierLimits` over `libs apps docs` (none), `half-life|halflife` over `apps/ptah-docs`
+    (none).
+  - `git diff --name-only` lists no `.ts` file.
+- Commands the lane may run: `npx nx run-many -t build -p ptah-docs` (1 project) only.
+- Report: append `## Revision 2` to `batch-10-docs-report.md` with the per-item diff summary, every grep and its output,
+  the enforced / legacy key table, and the `git diff --name-only` output. Write `batch-10-docs-r2.done` LAST; create no
+  other file in the task folder. Do not commit.
+- Team-leader acceptance (no third review round, by orchestrator decision, CONDITIONAL): the diff touches only
+  `apps/ptah-docs/src/content/**`; every fact traces to `memory-search.service.ts`; every acceptance grep above is
+  green; and the full Task 10.1 command set re-runs green (platform-core test / typecheck / lint, `ptah-docs build`,
+  `degradation-audit:lint`, memory-curator test). Any `.ts` change voids this and sends the revision back to the
+  Ollama Cloud reviewer.
 
 ### Task 10.2: Full affected-set run + invariant greps — IN_PROGRESS
 
