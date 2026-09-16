@@ -37,9 +37,25 @@ function adaptStatement(statement: ReturnType<QueueDatabase['prepare']>): Sqlite
  * A1 adapter. The shared queue opener deliberately exposes only the store
  * subset. node:sqlite therefore needs the lifecycle surface used by the real
  * SqliteConnectionService; better-sqlite3 already has it and is passed through.
+ *
+ * This adapter covers ONLY the members the reachability proof reaches. In
+ * particular `.transaction()` below is a thin BEGIN/COMMIT/ROLLBACK wrapper,
+ * not a verified equivalent of better-sqlite3's `Database.transaction()` —
+ * it does not support nesting or savepoints.
  */
 function adaptNodeDatabase(raw: QueueDatabase): SqliteDatabase {
   let open = true;
+  // Node v24.15.0's node:sqlite DatabaseSync exposes a native `isTransaction`
+  // getter; prefer it when present and fall back to manual tracking of
+  // BEGIN (any form) / COMMIT / END / ROLLBACK (but not ROLLBACK TO ...,
+  // which ends a savepoint, not the transaction) otherwise.
+  const nativeGetter =
+    Object.getOwnPropertyDescriptor(raw, 'isTransaction')?.get ??
+    Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(raw) as object,
+      'isTransaction',
+    )?.get;
+  let trackedInTransaction = false;
   const pragma = (text: string, options?: { simple?: boolean }): unknown => {
     if (/=/.test(text) || /^wal_checkpoint\(/i.test(text)) {
       raw.exec(`PRAGMA ${text}`);
@@ -52,8 +68,21 @@ function adaptNodeDatabase(raw: QueueDatabase): SqliteDatabase {
     const first = rows[0];
     return first ? Object.values(first)[0] : undefined;
   };
+  const trackExec = (sql: string): void => {
+    if (/^\s*BEGIN\b/i.test(sql)) {
+      trackedInTransaction = true;
+    } else if (
+      /^\s*(COMMIT|END)\b/i.test(sql) ||
+      (/^\s*ROLLBACK\b/i.test(sql) && !/^\s*ROLLBACK\s+TO\b/i.test(sql))
+    ) {
+      trackedInTransaction = false;
+    }
+  };
   return {
-    exec: (sql: string) => raw.exec(sql),
+    exec: (sql: string) => {
+      raw.exec(sql);
+      trackExec(sql);
+    },
     prepare: (sql: string) => adaptStatement(raw.prepare(sql)),
     pragma,
     close: () => {
@@ -65,17 +94,22 @@ function adaptNodeDatabase(raw: QueueDatabase): SqliteDatabase {
       return open;
     },
     get inTransaction() {
-      return false;
+      return nativeGetter
+        ? (nativeGetter.call(raw) as boolean)
+        : trackedInTransaction;
     },
     transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T =>
       function (this: unknown, ...args: Parameters<T>): ReturnType<T> {
         raw.exec('BEGIN IMMEDIATE');
+        trackedInTransaction = true;
         try {
           const result = fn.apply(this, args) as ReturnType<T>;
           raw.exec('COMMIT');
+          trackedInTransaction = false;
           return result;
         } catch (error: unknown) {
           raw.exec('ROLLBACK');
+          trackedInTransaction = false;
           throw error;
         }
       } as T,
