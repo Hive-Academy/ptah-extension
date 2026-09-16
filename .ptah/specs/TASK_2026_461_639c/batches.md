@@ -1,6 +1,6 @@
 # Batches - TASK_2026_461_639c
 
-Total tasks: 17 | Batches: 7 | Complete: 2/7
+Total tasks: 17 | Batches: 7 | Complete: 4/7
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase3-skills-unblock` (branch
 `feat/task-439-phase3-skills-unblock`, base `97239e814`). Below, `W` means that absolute path and `T` means
@@ -389,7 +389,21 @@ Edge cases:
 
 ---
 
-## Batch 3: D2 outside skill-synthesis — dead settings keys removed end to end — IN_PROGRESS
+## Batch 3: D2 outside skill-synthesis — dead settings keys removed end to end — COMPLETE (a20cfa1b1)
+
+- Commit: `a20cfa1b1` refactor(skill-synthesis-ui,rpc-handlers,shared,platform-core): batch 3 - drop dead depth settings
+  (11 files: platform-core, rpc-handlers, shared, skill-synthesis-ui, webview-e2e-harness, ptah-electron-e2e).
+- Review: `code-logic-review-batch-3.md` APPROVED 8/10 (3 minor, no code change needed). Reviewer ran focused specs.
+  Carried findings:
+  1. `apps/ptah-docs/src/content/docs/skill-synthesis/settings.md:30,35` still documents both removed keys ->
+     assigned to Task 5.3 (docs).
+  2. `libs/backend/skill-synthesis/CLAUDE.md:57` still says `passesPrefilter` applies `eligibilityMinTurns` ->
+     Task 5.3 deletes that clause.
+  3. A stale key left in a user's `settings.json` cannot be listed or cleared through `ptah config` ->
+     OUT-OF-SCOPE follow-up, no batch.
+- Team-leader confirmation before commit: `skills-synthesis-rpc.schema` spec 1 suite 208/208 (includes A4 case);
+  `run-many -t typecheck` skill-synthesis + rpc-handlers + platform-core + shared + skill-synthesis-ui "for 5 projects"
+  green. Diff scope matched the task file list; no cross-batch file.
 
 - Recommended executor: codex CLI lane (`{ cli: 'codex', role: 'frontend-developer' }`)
 - Fallback executor: frontend-developer subagent
@@ -404,7 +418,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 1 (committed)
 - Report: `T\batch-3-report.md` | Marker: `T\batch-3.done`
 
-### Task 3.1: Delete `skillSynthesis.eligibilityMinTurns` and `skillSynthesis.prefilterMinChars` (Component 7) — IN_PROGRESS
+### Task 3.1: Delete `skillSynthesis.eligibilityMinTurns` and `skillSynthesis.prefilterMinChars` (Component 7) — COMPLETE
 
 - Files (absolute under `W`):
   - `libs\backend\platform-core\src\file-settings-keys.ts` (`:230,235,509,514`) + `file-settings-keys.spec.ts` /
@@ -435,7 +449,27 @@ Edge cases:
 
 ---
 
-## Batch 4: skill-synthesis — backlog cleanup store, service, types, integration; gate stages skip rejected — IN_PROGRESS
+## Batch 4: skill-synthesis — backlog cleanup store, service, types, integration; gate stages skip rejected — COMPLETE (e420f1b5d)
+
+- Commit: `e420f1b5d` feat(skill-synthesis): batch 4 - resumable backlog cleanup and gate skip for rejected (8 files:
+  six new under `skill-synthesis/src/lib/cleanup/`, `queue/stage-handlers.service.ts`,
+  `skill-synthesis.stage-handlers.spec.ts`). No DI, barrel or migration file touched.
+- Review: `code-logic-review-batch-4.md` CHANGES_REQUESTED 7/10 (1 major, 6 minor). Revise round 1
+  (`batch-4-report.md` `## Revise round 1`): (1) MAJOR per-candidate catch turned any thrown error (e.g. `SQLITE_BUSY`
+  in the verdict lookup) into terminal `reject-unreadable` -> now `deferred-error`: no rejection pushed, cursor still
+  advances, report-only `deferredOnError` counter incremented, warning with candidate id (migration 0045 untouched);
+  mutation proof restoring the old catch fails the new spec, restore passes. (3) delete loop checks abort + wall budget
+  per page and returns resumable `partial`. (4) empty/malformed `sourceSessionIds` warns once with candidate id only.
+  (5) abort-between-candidates, wall-budget resume, >200 row cap, between-delete-pages stop specs added. (6) `''`
+  workspace root falls back to the prefilter queue row. (7) `failed` report carries committed counters. Orchestrator
+  read `skill-backlog-cleanup.service.ts:184-239` and accepted without a second lane review.
+- **ACCEPTED RISK (finding 2, orchestrator decision under D4a):** `TrajectoryExtractor` does not distinguish a
+  transient read error (`EBUSY`) from a missing transcript (`ENOENT`), so a locked transcript with no verdict is
+  rejected `backlog-cleanup: transcript unreadable and no verdict`. Not fixed this phase. **Task 7.3 must report** the
+  `rejected_transcript_unreadable` count and, where observable, whether any of those transcripts exist on disk.
+- Carry to Batch 5: the job handler surfaces `deferredOnError` in its cron summary (Task 5.2).
+- Team-leader confirmation before commit: `skill-backlog-cleanup` specs (store + service + integration) 3 suites 20/20
+  under node:sqlite; typecheck "for 5 projects" green (shared run with Batch 3). Diff scope matched; no cross-batch file.
 
 - Recommended executor: codex CLI lane (`{ cli: 'codex', role: 'backend-developer' }`)
 - Fallback executor: backend-developer subagent
@@ -453,7 +487,7 @@ Edge cases:
   `cutoff_created_at` and `started_at` (NOT NULL, no default) on every full-row write; the reason column is
   `last_reason`, never `last_error`.
 
-### Task 4.1: `SkillBacklogCleanupStore` + real-SQLite spec — IN_PROGRESS
+### Task 4.1: `SkillBacklogCleanupStore` + real-SQLite spec — COMPLETE
 
 - Files: CREATE `W\libs\backend\skill-synthesis\src\lib\cleanup\skill-backlog-cleanup.store.ts`,
   `skill-backlog-cleanup.store.spec.ts`
@@ -472,7 +506,7 @@ Edge cases:
 - Mutation (paste fail + restore): **AC8-mut** drop `context_id IS NOT NULL` -> tracker-row case fails.
 - Validation notes: A3 grep (no third `context_id` writer) pasted in the report.
 
-### Task 4.2: `SkillBacklogCleanupService` + types + stub spec — IN_PROGRESS
+### Task 4.2: `SkillBacklogCleanupService` + types + stub spec — COMPLETE
 
 - Files: CREATE `W\libs\backend\skill-synthesis\src\lib\cleanup\skill-backlog-cleanup.service.ts`,
   `skill-backlog-cleanup.types.ts`, `skill-backlog-cleanup.service.spec.ts`
@@ -498,7 +532,7 @@ Edge cases:
   abort -> `partial`; thrown store -> `failed` with a token, never a rejection.
 - Mutation (paste fail + restore): **AC9-mut** remove the wall-budget check -> the `partial` case fails.
 
-### Task 4.3: Real-SQLite cleanup integration spec — IN_PROGRESS
+### Task 4.3: Real-SQLite cleanup integration spec — COMPLETE
 
 - Files: CREATE `W\libs\backend\skill-synthesis\src\lib\cleanup\skill-backlog-cleanup.integration.spec.ts`
 - Plan reference: implementation-plan.md:372-384
@@ -513,7 +547,7 @@ Edge cases:
 - Mutation (paste fail + restore): **AC7-mut** delete the batch-reject call in the service -> the conversation-only
   candidate stays `candidate` -> spec fails.
 
-### Task 4.4: Gate stages skip rejected candidates (item 4d) — IN_PROGRESS
+### Task 4.4: Gate stages skip rejected candidates (item 4d) — COMPLETE
 
 - Files: MODIFY `W\libs\backend\skill-synthesis\src\lib\queue\stage-handlers.service.ts` (`gateTarget` `:479-483`,
   callers `:519`, `:594`, `:720`); MODIFY `W\libs\backend\skill-synthesis\src\lib\skill-synthesis.stage-handlers.spec.ts`
@@ -536,7 +570,7 @@ Edge cases:
 
 ---
 
-## Batch 5: cleanup DI + cron job in Electron and CLI hosts; delete `CandidateNamerService` — PENDING
+## Batch 5: cleanup DI + cron job in Electron and CLI hosts; delete `CandidateNamerService` — IN_PROGRESS
 
 - Recommended executor: codex CLI lane (`{ cli: 'codex', role: 'backend-developer' }`)
 - Fallback executor: backend-developer subagent
@@ -549,7 +583,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 4 (committed)
 - Report: `T\batch-5-report.md` | Marker: `T\batch-5.done`
 
-### Task 5.1: DI token + registration for the cleanup store and service — PENDING
+### Task 5.1: DI token + registration for the cleanup store and service — IN_PROGRESS
 
 - Files: MODIFY `W\libs\backend\skill-synthesis\src\lib\di\tokens.ts` (`SKILL_BACKLOG_CLEANUP_STORE`,
   `SKILL_BACKLOG_CLEANUP_SERVICE` as `Symbol.for(...)`), `di\register.ts` (singletons), `di\register.spec.ts` (resolve
@@ -558,14 +592,15 @@ Edge cases:
 - Acceptance: `register.spec.ts` green; resolving `SKILL_BACKLOG_CLEANUP_SERVICE` from a registered container yields
   the service.
 
-### Task 5.2: `@ptah/skills-backlog-cleanup` job in both hosts (Component 4e) — PENDING
+### Task 5.2: `@ptah/skills-backlog-cleanup` job in both hosts (Component 4e) — IN_PROGRESS
 
 - Files:
   - CREATE `W\libs\backend\thoth-runtime\src\lib\skill-backlog-cleanup-job.ts` + `.spec.ts` —
     `SKILL_BACKLOG_CLEANUP_JOB` (`jobId: '@ptah/skills-backlog-cleanup'`, `handlerName: 'skills:backlog-cleanup'`,
     `cronExpr: '41 * * * *'`, `timezone: 'UTC'`) and `createSkillBacklogCleanupHandler(container)`: resolve per run;
     `skipped` -> `{outcome:'skipped', reason}`; `failed` -> throw the reason token only; else counters summary
-    `examined N, rejected N, kept N, invocations deleted N`.
+    `examined N, rejected N, kept N, invocations deleted N, deferred on error N` (carried from Batch 4 revise: the
+    report's `deferredOnError` MUST appear in the summary; it is report-only and not persisted). Spec pins it.
   - MODIFY `W\libs\backend\thoth-runtime\src\lib\start-thoth-cron.ts` — `registerSkillBacklogCleanupJob` beside
     `registerMemoryRetentionJob` (`:266`, call `:473`), guarded by
     `container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE)` and `handlerRegistry.has`; runs no
@@ -584,7 +619,7 @@ Edge cases:
   `start-thoth-cron.ts` -> Electron spec fails; **AC10-mut-C** remove the call in `cli-engine thoth-runtime.ts` -> CLI
   spec fails.
 
-### Task 5.3: Delete `CandidateNamerService` and `setDisplayName` (Component 5) — PENDING
+### Task 5.3: Delete `CandidateNamerService` and `setDisplayName` (Component 5) — IN_PROGRESS
 
 - Files: DELETE `W\libs\backend\skill-synthesis\src\lib\naming\candidate-namer.service.ts`,
   `candidate-namer.service.spec.ts`; MODIFY `di\register.ts` (import `:55`, singleton `:99`, binding `:206-208`),
@@ -592,7 +627,11 @@ Edge cases:
   `:710-722`; keep `displayName` mapping `:1590`), `skill-candidate.store.spec.ts` (delete `:1644-1668`),
   `W\libs\backend\skill-synthesis\CLAUDE.md` (Public API list, Internal Structure namer line, lane-rule bullet naming
   the namer, namer bullet; add the cleanup job, evidence predicate, manual promote path, removed depth branch and
-  fake invocation in the matching sections).
+  fake invocation in the matching sections; carried Batch 3 finding 2: delete the `eligibilityMinTurns` clause in the
+  guideline at `CLAUDE.md:57` - "which is where `eligibilityMinTurns` is applied" is false after D2),
+  `W\apps\ptah-docs\src\content\docs\skill-synthesis\settings.md` (carried Batch 3 finding 1: delete the
+  `skillSynthesis.eligibilityMinTurns` row `:30` and the `skillSynthesis.prefilterMinChars` row `:35`; reword the
+  `prefilterMinEdits` / `prefilterMinToolUses` rows if they name the depth path; keep table alignment).
 - Plan reference: implementation-plan.md:391-428
 - Acceptance: AC12 — `grep -rn "CandidateNamer\|CANDIDATE_DISPLAY_NAME_MAX_CHARS\|CANDIDATE_NAMING_JSON_SCHEMA\|CandidateNaming\|setDisplayName" W\libs W\apps --include=*.ts` returns nothing; `display_name` column, `SkillCandidateRow.displayName` and its readers (`skill-gap-curator.service.ts:726,1039`, `trigger-eval.service.ts:236,791`) untouched. Also update the
   `thoth-runtime/CLAUDE.md` job list if it enumerates jobs.
@@ -716,6 +755,8 @@ Edge cases:
   migrations through 0045; run `SkillBacklogCleanupService.run` in a loop until `skipped: complete` with gates
   satisfied, against real transcripts read-only; delete the harness file after use and prove
   `git status --short -- libs/backend/skill-synthesis` is empty.
+- Accepted risk from Batch 4 finding 2 (EBUSY vs ENOENT in the extractor): report `rejected_transcript_unreadable`
+  and, where observable read-only, how many of those transcripts exist on disk; report `deferredOnError` totals.
 - Record: examined, kept by evidence / verdict / degraded verdict, rejected per reason, fake invocations deleted,
   ticks, wall time per tick, largest single transcript read time; source size + mtime unchanged; temp dir deleted and
   confirmed gone.
