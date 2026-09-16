@@ -79,12 +79,10 @@ const validFull = {
   dedupCosineThreshold: 0.85,
   maxActiveSkills: 50,
   candidatesDir: '',
-  eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
   generalizationContextThreshold: 3,
   dedupClusterThreshold: 0.78,
   prefilterMinEdits: 1,
-  prefilterMinChars: 800,
   prefilterMinToolUses: 2,
   judgeEnabled: true,
   minJudgeScore: 6.0,
@@ -494,6 +492,21 @@ describe('UpdateSkillSynthesisSettingsParamsSchema', () => {
     expect(() =>
       UpdateSkillSynthesisSettingsParamsSchema.parse({ settings: {} }),
     ).not.toThrow();
+  });
+
+  it('strips stale depth settings from an update payload', () => {
+    const staleTurnsKey = ['eligibility', 'MinTurns'].join('');
+    const staleCharsKey = ['prefilter', 'MinChars'].join('');
+    const result = UpdateSkillSynthesisSettingsParamsSchema.parse({
+      settings: {
+        [staleTurnsKey]: 5,
+        [staleCharsKey]: 800,
+      },
+    });
+
+    expect(result).toEqual({ settings: {} });
+    expect(result.settings).not.toHaveProperty(staleTurnsKey);
+    expect(result.settings).not.toHaveProperty(staleCharsKey);
   });
 
   it('rejects an invalid value in a partial update', () => {

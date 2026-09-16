@@ -2659,12 +2659,10 @@ export interface SkillSynthesisSettingsDto {
   dedupCosineThreshold: number;
   maxActiveSkills: number;
   candidatesDir: string;
-  eligibilityMinTurns: number;
   evictionDecayRate: number;
   generalizationContextThreshold: number;
   dedupClusterThreshold: number;
   prefilterMinEdits: number;
-  prefilterMinChars: number;
   prefilterMinToolUses: number;
   judgeEnabled: boolean;
   minJudgeScore: number;
