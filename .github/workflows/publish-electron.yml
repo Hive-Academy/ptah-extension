@@ -257,7 +257,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Fix Python distutils (native module builds)
-        run: 'python -m pip install --only-binary :all: setuptools'
+        run: 'python -m pip install --only-binary :all: setuptools==84.0.0'
 
       # Rebuild better-sqlite3 for the runner's Node ABI before the real-native
       # migration tests run, so Jest can require() it directly and the SQL-M
