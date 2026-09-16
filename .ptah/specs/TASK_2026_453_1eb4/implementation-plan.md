@@ -285,15 +285,15 @@ components.** This is an architecture decision, not a user decision: the source 
 **The team-leader's finding is correct, and it is a finding about attribution, not about design.**
 Verified in this worktree:
 
-| Evidence                                                                                                                                    | Location                                                                                                        | Implication                                                                                                       |
-| ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `isFinalizing` drives only `[class.exec-fade-in]` and `flipAnimationDisabled`                                                                | `execution-node.component.ts:127, 133, 153-177, 321, 362-364`                                                   | C1's gate cannot reach the rAF branch. The team-leader is right.                                                   |
-| The render-throttle effect branches on `isNodeStreaming()` alone: `publishNow` and `return` when false, `scheduleFrame` when true            | `execution-node.component.ts:385-404` (`:391-393` early return, `:398` `scheduleFrame`)                          | One gate owns the whole rAF path, and it is `isNodeStreaming`, not `isFinalizing`.                                 |
-| `isNodeStreaming = isStreaming() \|\| node().status === 'streaming'`                                                                        | `execution-node.component.ts:348-350`; input at `:312`                                                          | The gate is reachable from the transcript without touching this file — through the `isStreaming` input.            |
-| The transcript binds `[isStreaming]="i >= vm().finalizedCount"`                                                                              | `chat-transcript.component.html:21`; `finalizedCount` at `chat-transcript.component.ts:407`                     | This single binding is the sole producer of the flag for every replayed bubble.                                    |
-| During replay every replayed tree is a `streamingMessages` entry — it is excluded only once its id is in the tab's `messages`                | `chat-transcript.component.ts:316-342` (`:323-327`); finalize writes `messages` (E10)                          | Replay ⇒ replayed bubbles sit at or past `finalizedCount` ⇒ `isStreaming` true ⇒ `scheduleFrame`. Cause confirmed. |
-| Text and thinking nodes are built with `status: 'complete'`, never `'streaming'`                                                             | `chat-execution-tree/src/lib/builders/message-node.fn.ts:144-153`                                               | For the nodes that carry markdown, the bubble input is the ONLY term that can make `isNodeStreaming` true.         |
-| C5 already replaces exactly that binding: `streamingBoundary = historyReplaying() ? totalCount : finalizedCount`, bound as `i >= boundary`   | this plan, C5 responsibilities                                                                                   | C5 flips `isStreaming` to false for every replayed bubble, so the effect takes `publishNow` — the rAF path is gone. |
+| Evidence                                                                                                                                   | Location                                                                                    | Implication                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `isFinalizing` drives only `[class.exec-fade-in]` and `flipAnimationDisabled`                                                              | `execution-node.component.ts:127, 133, 153-177, 321, 362-364`                               | C1's gate cannot reach the rAF branch. The team-leader is right.                                                    |
+| The render-throttle effect branches on `isNodeStreaming()` alone: `publishNow` and `return` when false, `scheduleFrame` when true          | `execution-node.component.ts:385-404` (`:391-393` early return, `:398` `scheduleFrame`)     | One gate owns the whole rAF path, and it is `isNodeStreaming`, not `isFinalizing`.                                  |
+| `isNodeStreaming = isStreaming() \|\| node().status === 'streaming'`                                                                       | `execution-node.component.ts:348-350`; input at `:312`                                      | The gate is reachable from the transcript without touching this file — through the `isStreaming` input.             |
+| The transcript binds `[isStreaming]="i >= vm().finalizedCount"`                                                                            | `chat-transcript.component.html:21`; `finalizedCount` at `chat-transcript.component.ts:407` | This single binding is the sole producer of the flag for every replayed bubble.                                     |
+| During replay every replayed tree is a `streamingMessages` entry — it is excluded only once its id is in the tab's `messages`              | `chat-transcript.component.ts:316-342` (`:323-327`); finalize writes `messages` (E10)       | Replay ⇒ replayed bubbles sit at or past `finalizedCount` ⇒ `isStreaming` true ⇒ `scheduleFrame`. Cause confirmed.  |
+| Text and thinking nodes are built with `status: 'complete'`, never `'streaming'`                                                           | `chat-execution-tree/src/lib/builders/message-node.fn.ts:144-153`                           | For the nodes that carry markdown, the bubble input is the ONLY term that can make `isNodeStreaming` true.          |
+| C5 already replaces exactly that binding: `streamingBoundary = historyReplaying() ? totalCount : finalizedCount`, bound as `i >= boundary` | this plan, C5 responsibilities                                                              | C5 flips `isStreaming` to false for every replayed bubble, so the effect takes `publishNow` — the rAF path is gone. |
 
 So the rAF branch is not "ungated by C1 and therefore unowned". It is owned by C5, by construction,
 and always was — C5's own text already names the consequence ("text nodes `publishNow` instead of
@@ -570,8 +570,8 @@ totalCount : finalizedCount`.
      1,517 captured rAF calls (88.3 %)** to that one call site, inside a `FireAnimationFrame`
      bucket worth **18.9 % of the 2,000-event window (1,386 calls, 1,257.53 ms)** that scales
      **3.09× for a 4× event increase**. C1 does not reach any of it.
-  Combined, C5 is expected to take the Stage 1 remainder from ≈ 3.3-3.8 s to ≈ 1.0-1.9 s (A5).
-  This is an Assumption sized from M0 counts; a call-count share is not a time share.
+     Combined, C5 is expected to take the Stage 1 remainder from ≈ 3.3-3.8 s to ≈ 1.0-1.9 s (A5).
+     This is an Assumption sized from M0 counts; a call-count share is not a time share.
 - **What M1 must show to confirm** (all from the C4 amendments, per 3-tile cold run):
   1. `scheduleFrame` falls below ~10 % of a much smaller rAF total, and under ~150 absolute calls
      (from 1,339) — the A8 residual is the only expected source left.
@@ -582,8 +582,8 @@ totalCount : finalizedCount`.
   4. AC-11: all 3 cold dev runs and the production cold run pass max ≤ 200 ms and total
      ≤ 1,500 ms (from 1,926 / 1,326 / 1,062 and 6,941 / 5,463 / 4,077; production 1,201 / 4,767).
   5. The C4 post-window scroll sanity check passes (C5 residual risk, item 1).
-  If 1 and 2 hold but 4 fails, the remaining cost is mount/paint volume and Stage 2 (iii-b) is the
-  indicated next step. If 1 fails, reopen the C1 subsection 1a decision before Stage 2.
+     If 1 and 2 hold but 4 fails, the remaining cost is mount/paint volume and Stage 2 (iii-b) is the
+     indicated next step. If 1 fails, reopen the C1 subsection 1a decision before Stage 2.
 - **Verification seam**: CREATE `chat-transcript.replay-mount.spec.ts` (local fake
   `IntersectionObserver`, not a shared helper, so the scroll work's spec file is not edited):
   while replaying, a 50-message streaming list mounts only the tail until the observer reports;
@@ -673,7 +673,7 @@ moved to Stage 1 by User Decision 1, so the table below sizes what is left after
 | --------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | (iii-b) per-frame mount budget in `TranscriptRenderWindow`            | Mounts at most K newly intersecting ids per frame (K ≈ 8), rest next frames | Max task only (spreads mounts); total roughly unchanged                                                        | Brief placeholder band on a fast flick                                                    | `transcript-render-window.ts` + spec, `chat-transcript.component.ts`                                                                                                                                                               | Medium: interacts with the scroll work's `overflow-anchor: auto` and placeholder mounting — design with the scroll-work owner; needs a rAF-with-timer rule for hidden windows; no `content-visibility` |
 | (i) virtualize the nested execution-node tree inside mounted messages | Nodes inside each mounted message                                           | Fixture: small (≤ 1 text + 2 tools per message), below 10 % once C5 is in. Large for agent-heavy real sessions | Collapsed/deferred children inside long messages; permission prompts must stay mounted    | `execution-node.component.ts`, `inline-agent-bubble.component.ts`, `message-bubble.component.html` + specs                                                                                                                         | High: recursive template, FLIP containers, permission and question cards inside virtualized subtrees                                                                                                   |
-| (ii) tail-paged history                                               | Replayed events per tile 2,000 → N (e.g. 250), both D and J                 | ~80-88 % of total at N = 250                                                                                   | "Load older" on scroll-up; search/branch/rewind anchors on unloaded messages need a fetch | shared `rpc-chat.types.ts` (`ChatResumeResult` cursor), `agent-sdk` `session-history-reader.service.ts`, `rpc-handlers` `chat-session.service.ts`, CLI `interact.ts` + JSON-RPC docs, replayer, finalization, transcript paging UI | High: public contract change across backend, CLI and renderer; stats, compaction boundary, dedup and live-event fence at page edges                                                                    |
+| (ii) tail-paged history — **CHOSEN (User Decision, 2026-09-16)**      | Replayed events per tile 2,000 → N (e.g. 250), both D and J                 | ~80-88 % of total at N = 250                                                                                   | "Load older" on scroll-up; search/branch/rewind anchors on unloaded messages need a fetch | shared `rpc-chat.types.ts` (`ChatResumeResult` cursor), `agent-sdk` `session-history-reader.service.ts`, `rpc-handlers` `chat-session.service.ts`, CLI `interact.ts` + JSON-RPC docs, replayer, finalization, transcript paging UI | High: public contract change across backend, CLI and renderer; stats, compaction boundary, dedup and live-event fence at page edges                                                                    |
 
 - **Recommendation** (applies only if M1 fails):
   - (iii-b) if M1 total is within 1,500 ms and only the max task fails.
@@ -683,6 +683,650 @@ moved to Stage 1 by User Decision 1, so the table below sizes what is left after
 - **Stage 2 acceptance criteria**: AC-11 MET under the same M1 run set, with the scroll sanity
   check. No regression in existing transcript specs ("Gate A: mounted bubbles are bounded" and
   the scroll work's specs; re-cite their lines after P3).
+
+## Stage 2 — (ii) tail-paged history (User Decision, 2026-09-16)
+
+The user chose option (ii) after M1 (`test-report.md` "M1 verdict"): AC-11 NOT met in dev
+(cold max 220 / 337 / 185 ms, total 3,226 / 4,927 / 2,169 ms); production cold passes (166 /
+985 ms). The budget is unchanged: max <= 200 ms and total <= 1,500 ms on all 3 dev cold runs AND
+the production cold run, settle-inclusive window. Stage 1 (C1-C5) stays in place; nothing here
+reverts it.
+
+### (ii).0 Inputs, dependency and scope
+
+- Read for this section: this plan (Stage 1, Stage 2 table, risks, Integration architecture,
+  Conflicts), `test-report.md` M0 + M1, `batches.md` Batch 3-5 outcomes and follow-ups,
+  `context.md`, `handoff.md` §6-§7, root and per-lib `CLAUDE.md` (shared, rpc-handlers,
+  agent-sdk, ptah-cli, chat, chat-state, chat-streaming, ptah-electron-e2e).
+- **Hard dependency (not designed here)**: the M1 scroll-sanity regression (2 of 11 attempts,
+  132 px and 31,155 px) is being analysed by a parallel architect in
+  `scroll-regression-analysis.md`. That C5 fix lands FIRST. C13 below edits the same transcript
+  files (`chat-transcript.component.{ts,html}`) and M2 re-runs the same scroll sanity check, so
+  C13 and M2 are blocked on it. C6-C12 and C14 are not.
+- **Out of scope**: pre-compaction history. `SessionReplayService.replayToStreamEvents` already
+  drops everything before the last `compact_boundary`
+  (`libs/backend/agent-sdk/src/lib/helpers/history/session-replay.service.ts:91-104`), so
+  "load earlier" stops at the compaction boundary exactly as the full replay does today.
+
+### (ii).1 Codebase evidence (new, verified in this worktree at `0149adef8`)
+
+| #   | Evidence                                                                                                                                                                                                               | Location                                                                                                                                                                 | Implication                                                                                                                                                                                            |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| P1  | `ChatResumeParams` = `sessionId, tabId, workspacePath?, model?, ptahCliId?, activate?`; `ChatResumeResult.events` is "the ONE transcript this reply carries"; `stats` is the aggregate                                 | `libs/shared/src/lib/types/rpc/rpc-chat.types.ts:210-230, 233-279`                                                                                                       | Paging is added as OPTIONAL fields; absent = today's full reply.                                                                                                                                       |
+| P2  | `chat:resume` registry + method-entries map                                                                                                                                                                            | `libs/shared/src/lib/types/rpc.types.ts:645, 3373`                                                                                                                       | A new method needs both sites (compile-time).                                                                                                                                                          |
+| P3  | `chat:` and `session:` are already allowed prefixes                                                                                                                                                                    | `libs/backend/vscode-core/src/messaging/rpc-handler.ts:44-46`                                                                                                            | A `chat:` method needs NO `ALLOWED_METHOD_PREFIXES` edit.                                                                                                                                              |
+| P4  | `ChatRpcHandlers.METHODS` tuple; manifest `chat` entry uses it with `requires: []`                                                                                                                                     | `libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.handlers.ts:86-94`; `host-profile/manifest.ts:141-145`                                                              | Registered on VS Code, Electron and CLI hosts automatically.                                                                                                                                           |
+| P5  | `ChatResumeParamsSchema` = `{tabId, sessionId}` `.passthrough()`; `uuidString` helper                                                                                                                                  | `libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.schema.ts:36, 70-75`; parsed at `chat-rpc.handlers.ts:222`                                                          | A new `historyPage` key is forwarded UNVALIDATED today; it must be added to the schema explicitly.                                                                                                     |
+| P6  | Resume reads history with `checkCompactionBoundary: true`, then `registerFromHistoryEvents(events)`, then returns `events` + `stats`                                                                                   | `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts:876-901, 987-997`                                                                                | The subagent registry must keep receiving the FULL event list; only the wire payload is sliced.                                                                                                        |
+| P7  | Working directory resolution for resume is private to `ChatSessionService`; `historyReader` is used only at `:876`                                                                                                     | `chat-session.service.ts:778-819, 137, 876`                                                                                                                              | A page read must resolve the SAME JSONL directory as resume, so it belongs beside resume, not in `SessionRpcHandlers` (which authorizes by `metadata.workspaceId`, `session-rpc.handlers.ts:269-282`). |
+| P8  | `readSessionHistory` has side effects: compaction expectation capture/consume, pricing hydration, `seedLiveUsageBaseline`; stats aggregated over ALL main messages                                                     | `libs/backend/agent-sdk/src/lib/session-history-reader.service.ts:198-208, 271-284`                                                                                      | Stats stay full-history for free. A page read must NOT reuse this method as is.                                                                                                                        |
+| P9  | Event ids are `evt_${index}_${timestamp}`; user `messageId` = `msg.uuid` or a random `generateId()` fallback                                                                                                           | `history-event-factory.ts:65-83, 473-475`; `session-replay.service.ts:171, 220`                                                                                          | Anchor pages on the root user `messageId`, which is stable under append when a uuid exists; a random fallback makes the anchor unfindable → stale.                                                     |
+| P10 | A root message (user, or assistant spanning all JSONL assistant records until the next real user record) carries its `tool_start`+`tool_result` pairs and the whole nested agent subtree inline                        | `session-replay.service.ts:156-170, 306-438`                                                                                                                             | Cutting at a root user `message_start` can never split a tool pair, an agent subtree or a turn.                                                                                                        |
+| P11 | Paged-read precedent: `session:cli-output-page` — opaque `cursor` (max 4096), `nextCursor`, `done`; stale cursor → `RpcUserError('…', 'OUTPUT_CURSOR_STALE')`; frontend loop compares `state.cursor !== requestCursor` | `rpc-session.types.ts:162-177`; `session-rpc.schema.ts:65-72`; `session-rpc.handlers.ts:816-858`; `rpc-error-codes.types.ts:7-20`; `session-loader.service.ts:1120-1165` | Reuse the cursor, stale-error and stale-reply guard shapes.                                                                                                                                            |
+| P12 | CLI: `session resume` calls `chat:resume` and ignores `events`; `interact` exposes `rpc.call` passthrough; `session.history` proxies `session:load` only                                                               | `apps/ptah-cli/src/cli/commands/session.ts:434-438`; `interact.ts:26-27, 539-549`; `apps/ptah-cli/docs/jsonrpc-schema.md` §3                                             | An additive optional param keeps every CLI consumer byte-identical; only the schema doc changes.                                                                                                       |
+| P13 | Other `chat:resume` consumers read `events` in full                                                                                                                                                                    | `libs/frontend/harness-builder/src/lib/services/harness-workflow.service.ts:645-660`; `session-loader.service.ts:1286` (refresh path, discards events)                   | They do not send `historyPage`, so they keep the full reply.                                                                                                                                           |
+| P14 | Loader sends `chat:resume` (no page), applies CLI cards + stats BEFORE replay, replays via replayer, `release` in `finally`                                                                                            | `libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts:702-713, 755-779, 780-825`                                                                     | Two call-site additions: the request field and recording the cursor next to stats.                                                                                                                     |
+| P15 | Replayer: `REPLAY_CHUNK_SIZE = 250`; `chunked = events.length > 250`; uncontended admission returns `null` and the body has no `await`                                                                                 | `session-history-replayer.service.ts:100, 193-228, 249-253`                                                                                                              | A tail of <= 250 events replays AND finalizes in one synchronous task and releases admission in the same task — C2's queue never forms.                                                                |
+| P16 | `finalizeSessionHistory` = `flushSync` + build messages from the TAB's `streamingState` (tree cache key `tab-${tabId}`) + `applyFinalizedHistory`                                                                      | `libs/frontend/chat-streaming/src/lib/message-finalization.service.ts:326-447`; `tab-manager.service.ts:1647-1653`                                                       | An older page cannot use it as is (it would read/overwrite the live tab state). The build loop must be shareable.                                                                                      |
+| P17 | `StreamingAccumulatorCore.process(state, event, ctx)` works on any state; `onAgentStart` optional; stores default                                                                                                      | `libs/frontend/chat-streaming/src/lib/accumulator-core.service.ts:62-78, 233-243`                                                                                        | An older page can accumulate into a scratch state without touching the tab.                                                                                                                            |
+| P18 | `ExecutionTreeBuilderService.clearCache(cacheKey?)` is public                                                                                                                                                          | `execution-tree-builder.service.ts:757, 782-789`                                                                                                                         | A scratch cache key can be released after the page build.                                                                                                                                              |
+| P19 | Transcript: 673 lines; `onScroll`, `scheduleStickToBottom`, `restoreScrollOnActivation` (scroll-work owned); render-window fed with ids + `streamingBoundary`; template `@for` inside `#messageContent`                | `chat-transcript.component.ts:530-540, 562-625`; `.html:6-36`                                                                                                            | UI additions must go in a new directive; the component may grow ~15 lines at most.                                                                                                                     |
+| P20 | `.chat-scroll-container { overflow-anchor: auto }`                                                                                                                                                                     | `chat-transcript.component.css:24-27`                                                                                                                                    | Prepending above the viewport is absorbed by native scroll anchoring — no scroll write is needed.                                                                                                      |
+| P21 | `buildAnchorHint` counts `occurrence` among LOADED messages; backend resolves `matches[occurrence]` counted from the transcript START                                                                                  | `chat-view.component.ts:939-958`; `session-history-reader.service.ts:739-764`                                                                                            | With paging (and already across compaction) the count is wrong when an identical earlier prompt is unloaded. Needs a from-the-end count.                                                               |
+| P22 | Header totals prefer backend `preloadedStats`; message-derived fallbacks exist when it is absent                                                                                                                       | `session-stats-summary.component.ts:760-772`; `compact-session-stats.component.ts:92`; `compaction-lifecycle.service.ts:557-558`                                         | Totals stay full-history while `stats` is present; fallbacks undercount on a paged tab (risk R-ii-6).                                                                                                  |
+| P23 | `projectTabForPersist` spreads the tab and strips a fixed field list                                                                                                                                                   | `libs/frontend/chat-state/src/lib/tab-persistence.ts:105-117`                                                                                                            | A new `TabState` field persists unless explicitly stripped.                                                                                                                                            |
+| P24 | Perf harness MOCKS `chat:resume` in the renderer with the full event list; the marker sits in the LAST turn                                                                                                            | `apps/ptah-electron-e2e/src/support/perf-session-fixture.ts:69-101, 163-201`; `ui.getObservedCalls` at `ui-driver.ts:218`                                                | M2 is only valid if the mock applies the same page selection as the backend. The marker stays in the tail page.                                                                                        |
+| P25 | e2e already imports `@ptah-extension/shared`; `libs/shared` utils are pure and barrelled                                                                                                                               | `apps/ptah-electron-e2e/src/support/git-diff-mock.ts:1-6`; `libs/shared/src/lib/utils/index.ts`; `libs/shared/src/index.ts:44`                                           | Page selection in `libs/shared` is usable by backend, frontend specs and the harness mock — one implementation.                                                                                        |
+| P26 | No in-transcript search or jump-to-message exists in chat libs (no `scrollIntoView` / jump helper under `libs/frontend/chat*`); branch and rewind emit ids only from rendered bubbles                                  | grep over `libs/frontend`; `chat-transcript.component.html:24-25`; `chat-view.component.ts:966-1060`                                                                     | "Anchors to unloaded messages" reduces to the anchor-hint count (P21). No fetch-to-anchor path is needed.                                                                                              |
+
+### (ii).2 Architecture decision
+
+- **Chosen approach**: the backend keeps reading and projecting the whole post-compaction
+  transcript (stats, subagent registry and fork/rewind resolution unchanged) and sends the
+  renderer only a **tail page of whole turns**. Older pages are fetched on demand by an opaque,
+  message-anchored cursor through a new pure read `chat:history-page`, accumulated into a
+  scratch state in the renderer, finalized with the same builder as the tail, and PREPENDED to
+  `tab.messages`. Page selection is one pure function in `libs/shared`, used by the backend, the
+  renderer specs and the perf-harness mock.
+- **Rationale**: M1 shows the remaining cost is event-volume-driven (trace 500 → 2,000 events per
+  session: total 537 → 2,129 ms, `FireAnimationFrame` 49 → 86, `test-report.md` M1 trace table).
+  The renderer replays 3 × 2,000 events today; the tail page cuts that to 3 × <= 250 and also cuts
+  the IPC payload the renderer deserializes. Stats already come from the backend aggregate (P8,
+  P22), so paging the transcript does not touch totals.
+- **Rejected alternatives**:
+  - _Page in the reader (`readSessionHistory` returns a slice)_: the subagent registry
+    (`registerFromHistoryEvents`, P6) and `resolveNativeMessageId` need the full list; slicing
+    inside the reader would silently lose interrupted-agent registration for unloaded turns.
+  - _Index-based cursor (event offset)_: stable under append, but a compaction or a rewrite
+    shifts indices silently and returns the WRONG page instead of a detectable stale error.
+    A message-id anchor fails loudly (P9).
+  - _Split pages at any event boundary_: splits `tool_start`/`tool_result` pairs and agent
+    subtrees (P10) and leaves an assistant reply without its prompt.
+  - _`session:history-page` in `SessionRpcHandlers`_ (the cli-output-page precedent): that class
+    authorizes via `metadata.workspaceId` while resume reads from the resolved working directory
+    (P7); two resolutions can disagree and read a different JSONL. The namespace choice follows
+    where the resolution lives.
+  - _Re-replay [older page + loaded events] into the tab on "load older"_: destroys live
+    `streamingState`, needs the fence again, and costs O(loaded) per page.
+  - _Remove C2 (admission)_: see (ii).5 — it becomes inert for tail pages but still orders
+    oversize-turn tails and chunked older pages at zero uncontended cost.
+- **Assumptions** (each with its check):
+  - A-ii-1: SDK JSONL user records carry `uuid`, so root user `messageId`s are stable (P9).
+    Check: C7 spec on a real fixture transcript; a record without uuid yields a stale cursor, not
+    a wrong page.
+  - A-ii-2: Chromium does not pick a scroll anchor when the container's block scroll offset is 0,
+    so a prepend landing exactly at `scrollTop === 0` moves content under the reader. Check: the
+    C14 functional e2e (scroll to the very top, load, measure). Mitigation in C13: the auto-load
+    fires while the sentinel is still a margin away from the top.
+  - A-ii-3: `StreamingAccumulatorCore.process` schedules no tab-keyed batched update itself (the
+    tab path schedules at `streaming-handler.service.ts:423-428`). Check: C10 spec asserts no
+    `BatchedUpdateService.scheduleUpdate` call during an older-page build.
+  - A-ii-4: re-registering agent events of an older page in `AgentMonitorStore` /
+    `BackgroundAgentStore` is idempotent (the fan-out path already relies on this,
+    `streaming-handler.service.ts:314-318`). Check: C10 spec with an agent turn in the older page.
+  - A-ii-5: `setMessages(tabId, [...tab.messages, x])` call sites have no `await` between read
+    and write (`message-dispatch.service.ts:256, 314`; `message-sender.service.ts:400, 643, 735`),
+    so a synchronous prepend cannot be lost. Check: C12 implementer reads each site; any await
+    found becomes a finding before merge.
+  - A-ii-6: the (ii).5 recovery numbers (all derived, none measured). Check: M2.
+- **Effect on existing code**: additive optional contract fields; `chat:resume` without
+  `historyPage` is byte-identical. The build loop of `finalizeSessionHistory` moves into a
+  collaborator (facade rule; public signature unchanged). Resume working-directory resolution
+  moves from `ChatSessionService` into a collaborator shared with the page read.
+  `MessageAnchorHint` gains a from-the-end count. Left alone: C1-C5, the scroll methods and CSS,
+  `TranscriptRenderWindow`, the live-event fence, C2 admission, session list/metadata, CLI
+  command code.
+
+### (ii).3 Contract
+
+All names below are proposed; the implementer creates them. Existing references are cited.
+
+- **Constants** (`libs/shared`, new `history-page.utils.ts`):
+  `HISTORY_PAGE_DEFAULT_EVENTS = 250` (renderer tail and older-page size; equal to
+  `REPLAY_CHUNK_SIZE`, P15, so a normal page is one synchronous pass) and
+  `HISTORY_PAGE_MAX_EVENTS = 2000` (server clamp).
+- **Page unit = whole turns.** A turn starts at an event with `eventType === 'message_start'`,
+  `role === 'user'`, and no `parentToolUseId` (`MessageStartEvent`,
+  `libs/shared/src/lib/types/execution/stream.ts:96-112`); index 0 is always a start. Because a
+  root message carries its tool pairs and agent subtree inline (P10), a turn cut never splits
+  them, and compaction boundaries never occur inside `events` (`session-replay.service.ts:91-104`).
+- **Selection** `selectHistoryPage(events, { endIndex, maxEvents })`: walk turn starts `< endIndex`
+  from the end; take the earliest start `s` with `endIndex - s <= maxEvents`. If even the last
+  turn exceeds `maxEvents`, return that one turn whole (an oversize page; the renderer chunks it,
+  see C12). Result `{ events: events.slice(s, endIndex), olderCursor: s > 0 ? encode(events[s].messageId) : null }`.
+  Tail = `endIndex = events.length`.
+- **Cursor**: opaque to clients. Encoding `h1:<root user messageId>`; decode accepts only
+  `/^h1:[A-Za-z0-9_-]{1,512}$/` (uuid and `msg_<ts>_<rand>` charset, P9). `endIndex` for an older
+  page = index of the root user `message_start` whose `messageId` matches; not found →
+  `HistoryCursorStaleError` (compaction moved the start past it, the transcript was rewritten,
+  or the id was random). Malformed → invalid-cursor error. `olderCursor: null` = the
+  replayable (post-compaction) history is fully loaded.
+- **`chat:resume` (additive)** — `rpc-chat.types.ts`:
+  - `ChatResumeParams.historyPage?: { readonly maxEvents: number }`.
+  - `ChatResumeResult.historyPage?: { readonly olderCursor: string | null }` — present only when
+    the request carried `historyPage` and `success` is true. `events` is then the tail page.
+    `stats`, `resumableSubagents`, `cliSessions`, `staleSnapshot`, `activated` keep full-history
+    semantics.
+- **`chat:history-page` (new, pure read)** — `rpc-chat.types.ts` + `rpc.types.ts:645` registry and
+  `:3373` entries:
+  - `ChatHistoryPageParams { sessionId: SessionId; cursor: string; maxEvents?: number; workspacePath?: string }`.
+  - `ChatHistoryPageResult { events: FlatStreamEventUnion[]; olderCursor: string | null; resumableSubagents: SubagentRecord[] }`.
+    `resumableSubagents` = `SubagentRegistryService.getResumableBySession(sessionId)` (read only,
+    as at `chat-session.service.ts:909-910`), so an older page marks interrupted agents without
+    depending on the loader's single active-session signal.
+  - Errors thrown (cli-output-page style, P11): stale → `RpcUserError('Session history changed', 'HISTORY_CURSOR_STALE')`;
+    malformed cursor → `'INVALID_PARAMS'`; unauthorized workspace → same message as resume
+    (`chat-session.service.ts:839-847`). Never a raw `error.message`.
+- **Error code**: append `'HISTORY_CURSOR_STALE'` to `RpcUserErrorCode`
+  (`rpc-error-codes.types.ts:7-20`).
+- **Anchor hint (additive)** — `MessageAnchorHint` (`rpc-session.types.ts:284-293`) gains
+  `occurrenceFromEnd?: number` = number of identical user prompts AFTER the anchor in the loaded
+  window. Loaded windows are always contiguous to the end, so this count is exact. The backend
+  prefers it: `matches[matches.length - 1 - occurrenceFromEnd]`; `occurrence` stays for old
+  callers.
+- **Zod** (`chat-rpc.schema.ts`, the repo's RPC-param schema home, P5):
+  - `ChatResumeParamsSchema` adds `historyPage: z.object({ maxEvents: z.number().int().min(1).max(HISTORY_PAGE_MAX_EVENTS) }).strict().optional()`.
+  - `ChatHistoryPageParamsSchema = z.object({ sessionId: uuidString('sessionId'), cursor: z.string().min(1).max(4096), maxEvents: …same….optional(), workspacePath: z.string().min(1).optional() }).strict()`
+    (`.strict()` follows the paged-read precedent `session-rpc.schema.ts:65-72`).
+  - Anchor hint: extend whichever schema validates `anchorHint` today for fork/rewind with
+    `occurrenceFromEnd: z.number().int().min(0).optional()` (Assumption: locate it with
+    `grep -n anchorHint libs/backend/rpc-handlers/src/lib/handlers/session-rpc.schema.ts`).
+- **RPC registration**: `chat:history-page` in `ChatRpcHandlers.METHODS` (P4) + registry + entries
+  (P2). No `ALLOWED_METHOD_PREFIXES` change (P3). The manifest entry needs no edit because it
+  references `METHODS`; `rpc-allowlist.spec.ts` must stay green.
+- **Backwards compatibility**:
+  - CLI `session resume`, `interact` `rpc.call('chat:resume')`, harness-builder and the loader's
+    refresh path send no `historyPage` → full `events`, no `historyPage` key (P12, P13).
+  - A renderer talking to a backend that ignores `historyPage` (e2e mocks, older builds) gets no
+    `historyPage` in the result → cursor `null` → no "load earlier" UI, full replay as today.
+  - `chat:history-page` is reachable through `rpc.call` on the CLI; documented, not wrapped in a
+    new CLI verb (user question Q-ii-4).
+
+### (ii).4 Backend and frontend design summary
+
+- **Backend**: the cursor lives in the client (opaque string); the server is stateless. Each
+  page request re-reads the transcript through the existing memoized JSONL parse and re-projects
+  events (backend main thread, not the renderer), then slices. Stats/usage totals keep coming
+  from `aggregateUsageStats` over all main messages in the resume read (P8); the page read
+  computes no stats and has no side effects.
+- **Frontend**:
+  - Initial tail: `HISTORY_PAGE_DEFAULT_EVENTS` (250) whole turns (fixture ≈ 20 turns ≈ 40
+    messages, P24).
+  - Trigger: a top "Load earlier messages" button, plus auto-load when the sentinel is within
+    half a viewport of the top AND the container is scrollable AND the user has scrolled UP since
+    the last load (armed by the directive's own passive scroll listener; the stick-to-bottom only
+    ever moves down, `chat-transcript.component.ts:244-251`). Never during `historyReplaying`,
+    never on open.
+  - Prepend without a jump: new messages enter `tab.messages` ahead of the loaded ones, render as
+    placeholders (not observed yet), and native `overflow-anchor: auto` (P20) absorbs the height
+    change, then the observer-mounted heights, exactly as C5 item 3 already relies on. **No scroll
+    method, `lastScrollTop` or CSS changes** (User Decision 4). If A-ii-2 fails at
+    `scrollTop === 0`, the fix is a scroll write and goes to the scroll-work owner.
+  - Dedup: pages are index-disjoint by construction; `prependHistoryMessages` also drops any
+    message whose id is already in the tab (defence against a changed transcript).
+  - Fence: the tail page goes through the existing claim/fence/replay unchanged. An older page
+    never touches `streamingState`, so live events need no fence for it; it is refused while the
+    tab holds a resume claim, and it cannot contain a live event (it strictly predates the first
+    loaded turn).
+  - Finalize semantics for prepended pages: same builder as the tail (`markResumableAgentsAsInterrupted`,
+    `markStreamingAgentsAsInterrupted`, `capFinalizedTree`, P16), with a scratch tree cache key
+    released afterwards. The tab's `status`, `streamingState`, stats and turn-state fields are
+    not written.
+  - Anchors: branch/rewind act only on rendered (loaded) bubbles (P26); the anchor-hint count is
+    fixed with `occurrenceFromEnd` (P21). No search or jump-to-message path exists to extend.
+  - Subagent restoration: backend registry sees full events (P6); older pages carry
+    `resumableSubagents` (contract above); CLI agent cards are independent of events
+    (`session-loader.service.ts:759-765`).
+  - Canvas tiles: every tile is a `ChatViewComponent` + transcript bound by tab id, so paging is
+    per tab with no canvas change. Electron, VS Code and CLI hosts share `rpc-handlers` (P4).
+
+### (ii).5 Expected AC-11 recovery (from M1 data) and C2
+
+All figures below are Assumptions derived from `test-report.md` M1; M2 is the proof.
+
+- **Total**: the two M1 trace runs give a near-linear fit, total ≈ 1.06 ms × per-session events
+  - ~6 ms (500 → 537 ms; 2,000 → 2,129 ms). At <= 250 events per tile: **≈ 270 ms** on the trace
+    build. The three dev cold runs sat at 1.02× / 1.52× / 2.31× the trace-2,000 total, so dev cold
+    ≈ **280-630 ms**; production (985 ms at 2,000) ≈ **130-300 ms**. Budget 1,500 ms. Two-point fit:
+    fixed per-tile costs (tile mount, IPC, first render) may be larger than the ~6 ms intercept, so
+    read this as "well under budget" with an honest band of up to ~0.9 s.
+- **Max**: the 500-event trace max was 130 ms (2,000: 193 ms). A tail tile is one synchronous task
+  (250 events + finalize of 250, P15) plus its render; estimate 90-150 ms on the trace build and
+  up to ~150-260 ms under the dev run spread (M1 max spread 185-337 vs trace 193). **The max clause
+  is the part at risk.** If M2 passes total everywhere but fails max, the first lever is a smaller
+  `HISTORY_PAGE_DEFAULT_EVENTS` (user question Q-ii-5), then Stage 2 (iii-b).
+- **Per-tile wall / TILE_2 share**: M1 TILE_2 click-to-marker 1,985-4,588 ms was mostly waiting
+  for C2's slot behind TILE_0/TILE_1's chunked replays. With single-task tails nothing waits.
+  The `bucketByClick` TILE_2 share (89.8-91.5 %) is a bucketing artifact (plan correction 3) and
+  will stay large; judge by totals and per-marker buckets.
+- **C2 at N = 250**: tail replays enter admission on the synchronous fast path and release it in
+  the same task (`session-history-replayer.service.ts:196-227, 249-253, 267-271`), so the queue
+  never forms and no paint yield is inserted. **C2 stays, unchanged**: it still serializes an
+  oversize-turn tail (> 250 events, chunked) and chunked older pages, and it costs nothing when
+  uncontended. Deleting it would reintroduce stacked chunk flushes for agent-heavy sessions.
+- **Volume independence check**: with paging, the `PTAH_PERF_EVENTS=500` and `=2000` diagnostics
+  both replay <= 250 per tile, so their totals should match within run noise. A 2,000-event total
+  materially above the 500-event total means the renderer still pays per-session volume
+  somewhere (e.g. the mock ignored paging).
+
+### (ii).6 Component specifications
+
+#### 6. C6 — Paged history contract (`libs/shared`)
+
+- Purpose: one definition of the page, the cursor and the wire shapes.
+- Responsibilities: constants; `selectHistoryPage`; `encodeHistoryCursor` / `decodeHistoryCursor`;
+  `HistoryCursorStaleError` and an invalid-cursor error (pure `Error` subclasses, no Node APIs);
+  `ChatResumeParams/Result.historyPage`; `ChatHistoryPageParams/Result`; registry + entries;
+  `'HISTORY_CURSOR_STALE'`; `MessageAnchorHint.occurrenceFromEnd`; barrel exports;
+  `libs/shared/CLAUDE.md` `chat:resume` bullet updated ("`events` is the tail page when
+  `historyPage` is requested; older pages via `chat:history-page`").
+- Verified contracts: P1, P2, P9, P10, P11, P21, P25; `MessageStartEvent` `stream.ts:96-112`.
+- Dependencies: none (foundation layer).
+- Integration points: C7, C8, C10-C12, C14.
+- Failure behaviour: malformed cursor and missing anchor throw distinct typed errors; an empty
+  event list returns an empty page with `olderCursor: null`.
+- Quality: pure, deterministic, O(events) per call; no `Buffer`/`btoa`.
+- Verification seam: CREATE `history-page.utils.spec.ts` — tail snaps to root user starts; a
+  tool pair and an agent subtree are never split; oversize single turn returned whole; exact
+  `maxEvents` fit; assistant-first transcript (start 0); cursor round trip; malformed cursor;
+  anchor missing → stale; `endIndex` semantics for an older page; `rpc-chat.types.spec.ts`
+  compile-time guard stays green.
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\shared\src\lib\utils\history-page.utils.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\shared\src\lib\utils\history-page.utils.spec.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\shared\src\lib\utils\index.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\shared\src\lib\types\rpc\rpc-chat.types.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\shared\src\lib\types\rpc\rpc-session.types.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\shared\src\lib\types\rpc\rpc-error-codes.types.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\shared\src\lib\types\rpc.types.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\shared\CLAUDE.md`
+
+#### 7. C7 — Side-effect-free transcript event read (`agent-sdk`)
+
+- Purpose: give the page read the same event projection as resume, without resume's side effects,
+  and resolve anchor hints from the end.
+- Responsibilities:
+  - `SessionHistoryReaderService.readSessionEvents(sessionId, workspacePath): Promise<FlatStreamEventUnion[]>`:
+    validate id, find the sessions dir, read main messages, load agent sessions, replay. No
+    compaction expectation, no pricing hydration, no stats, no `seedLiveUsageBaseline` (P8).
+    `readSessionHistory` and this method share one private load step so the projection cannot
+    drift. Missing directory/file → `[]` (which the page read turns into stale).
+  - `resolveAnchorByPromptText` prefers `occurrenceFromEnd` when present (P21).
+- Verified contracts: P8, P9, P21; `readSessionHistory` `:164-316`; facade doc `:1-22`.
+- Dependencies: C6 types. No new injection.
+- Failure behaviour: throws `SdkError` on an invalid id (as `validateSessionId`, `:134-138`);
+  I/O absence returns `[]`.
+- Quality: the reader is 1,086 lines — add only the public method and the shared private step;
+  no page selection here (that is C6).
+- Verification seam: CREATE `session-history-reader.events-read.spec.ts` — equal events to
+  `readSessionHistory` on the same fixture; `seedResumedSession`, the compaction registry and
+  pricing are never called; anchor resolution with duplicates using `occurrenceFromEnd`, and
+  legacy `occurrence` unchanged.
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\backend\agent-sdk\src\lib\session-history-reader.service.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\backend\agent-sdk\src\lib\session-history-reader.events-read.spec.ts`
+
+#### 8. C8 — History paging RPC (`rpc-handlers`)
+
+- Purpose: serve the tail on `chat:resume` and older pages on `chat:history-page`, reading the
+  same JSONL directory for both.
+- Responsibilities:
+  - CREATE `ChatHistoryReadService` (`CHAT_TOKENS.HISTORY_READ`, registered in
+    `registerChatServices`): owns `resolveResumeWorkingDirectory` (moved from
+    `chat-session.service.ts:778-819`), `readForResume(...)` (wraps `readSessionHistory`, P6) and
+    `readPage(params)` (authorize workspace → resolve dir → `readSessionEvents` (C7) → decode
+    cursor → `selectHistoryPage` → `getResumableBySession`).
+  - `ChatSessionService.resumeSession`: injects the collaborator instead of
+    `SDK_SESSION_HISTORY_READER` (its only use is `:876`, P7); calls `registerFromHistoryEvents`
+    with the FULL events; when `params.historyPage` is set, slices with `selectHistoryPage` right
+    before building the reply and adds `historyPage.olderCursor`.
+  - `ChatRpcHandlers`: `chat:history-page` in `METHODS`, `wire(...)` with
+    `ChatHistoryPageParamsSchema.parse`; maps `HistoryCursorStaleError` →
+    `RpcUserError(…, 'HISTORY_CURSOR_STALE')`, invalid cursor → `'INVALID_PARAMS'`. The messaging
+    `attachmentGuard` backstop (`chat-rpc.handlers.ts:232-236`) is NOT applied: the page read
+    starts nothing and writes nothing.
+  - Anchor hint schema gains `occurrenceFromEnd`.
+- Verified contracts: P3-P8, P11; `wire` pattern `chat-rpc.handlers.ts:210-236`; `CHAT_TOKENS`
+  `chat/tokens.ts:10-13`.
+- Dependencies: agent-sdk (existing edge), shared; no platform adapter import.
+- Failure behaviour: unauthorized/unsafe workspace → same user-safe error as resume; stale and
+  invalid cursors as above; any other error logged and rethrown (Sentry via the existing `wire`
+  path) — no sentinel return.
+- Quality: `chat-session.service.ts` (1,419) must shrink or stay flat (resolution moves out); no
+  file created only for size — the collaborator owns "which transcript to read and how much".
+- Verification seam: CREATE `chat-history-read.service.spec.ts` (resolution parity with the moved
+  code; page read never calls `readSessionHistory`); CREATE `chat-session-history-page.spec.ts`:
+  resume without `historyPage` returns the full list and no `historyPage` key; with it returns
+  the tail and cursor while `registerFromHistoryEvents` and `stats` receive the full data;
+  `chat:history-page` stale → `HISTORY_CURSOR_STALE`; schema rejects `maxEvents` 0 / 2,001,
+  unknown keys, a 4,097-char cursor; `rpc-allowlist.spec.ts`,
+  `chat-session-resume-activate.spec.ts` green.
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\backend\rpc-handlers\src\lib\chat\session\chat-history-read.service.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\backend\rpc-handlers\src\lib\chat\session\chat-history-read.service.spec.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\backend\rpc-handlers\src\lib\chat\session\chat-session-history-page.spec.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\backend\rpc-handlers\src\lib\chat\session\chat-session.service.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\backend\rpc-handlers\src\lib\chat\tokens.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\backend\rpc-handlers\src\lib\chat\di.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\backend\rpc-handlers\src\lib\handlers\chat-rpc.handlers.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\backend\rpc-handlers\src\lib\handlers\chat-rpc.schema.ts`
+  - MODIFY the schema file that validates `anchorHint` (Assumption: `libs\backend\rpc-handlers\src\lib\handlers\session-rpc.schema.ts`; confirm by grep)
+
+#### 9. C9 — CLI and contract documentation
+
+- Purpose: CLI JSON-RPC consumers learn the opt-in paging without any behaviour change.
+- Responsibilities: `jsonrpc-schema.md` — document `chat:resume` `historyPage` (opt-in; default
+  full), `chat:history-page` via `rpc.call` (params, result, `HISTORY_CURSOR_STALE`, opaque
+  cursor, turn-whole pages, compaction stop), and that `session.history` is unchanged;
+  `libs/frontend/chat/CLAUDE.md` rule 7 gains a **Tail paging** bullet (tail size, prepend
+  rules, older pages never touch `streamingState`, refused under a claim).
+- Verified contracts: P12; chat CLAUDE.md rule 7.
+- Failure behaviour: not applicable. Verification seam: review; `packaged-files.spec.ts` stays
+  green (doc path unchanged).
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\apps\ptah-cli\docs\jsonrpc-schema.md`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\CLAUDE.md`
+
+#### 10. C10 — History message builder (`chat-streaming`)
+
+- Purpose: one "history events / state → finalized messages" implementation for the tail and
+  older pages.
+- Responsibilities: CREATE `HistoryMessageBuilder` (root service) with
+  `createPageState()`, `accumulate(state, events, sessionId)` (via `StreamingAccumulatorCore.process`
+  with the real dedup/session/stores, no `onAgentStart`, P17), and
+  `build(state, { cacheKey, sessionId, resumableSubagents })` = the loop now at
+  `message-finalization.service.ts:338-443` moved verbatim (index-based, O(E + M)).
+  `finalizeSessionHistory` keeps its name and signature: `flushSync` → copy tab state → `build`
+  with `tab-${tabId}` → `applyFinalizedHistory` (facade rule). Page builds use cache key
+  `history-page-${tabId}` and `clearCache` it in a `finally` (P18). Export from the lib index.
+- Verified contracts: P16-P18; chat-streaming CLAUDE.md `finalizeSessionHistory` O(E + M) rule.
+- Dependencies: chat-streaming internal + shared (existing).
+- Failure behaviour: a throwing event propagates (caller C12 discards the scratch state and
+  clears the cache key); no partial message list is returned.
+- Quality: `message-finalization.service.ts` (726) shrinks; the O(E + M) counting proxy stays.
+- Verification seam: `message-finalization.session-history.spec.ts` green UNEDITED (equivalence
+  oracle + 2 × E visit budget); CREATE `history-message-builder.spec.ts`: page build equals the
+  tail build for the same events; no `scheduleUpdate` (A-ii-3); agent turn idempotent in stores
+  (A-ii-4); cache key cleared.
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat-streaming\src\lib\history-message-builder.service.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat-streaming\src\lib\history-message-builder.service.spec.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat-streaming\src\lib\message-finalization.service.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat-streaming\src\index.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat-streaming\CLAUDE.md`
+
+#### 11. C11 — Tab history window state (`chat-types`, `chat-state`)
+
+- Purpose: the tab knows whether older history exists and accepts a prepend atomically.
+- Responsibilities:
+  - `TabState.olderHistoryCursor?: string | null` (`chat-types.ts:490`): `undefined` = not paged,
+    `null` = start reached, string = more. Persisted (the spread in `projectTabForPersist`, P23,
+    keeps it; no strip).
+  - `TabManagerService.setOlderHistoryCursor(tabId, cursor)`;
+    `prependHistoryMessages(tabId, older, nextCursor)`: reads the tab's CURRENT messages at call
+    time, drops ids already present, writes `[...older, ...current]` and the cursor in ONE
+    `updateTabInternal` (`tab-manager.service.ts:1056`); never writes `status`,
+    `streamingState` or stats.
+  - `applyResumingSession` (`:2107-2131`) resets `olderHistoryCursor` to `undefined`.
+- Verified contracts: P23; `applyResumingSession`, `applyFinalizedHistory`, `updateTabInternal`.
+- Dependencies: none new (chat-state stays free of outbound imports).
+- Failure behaviour: unknown tab → no-op; empty `older` still records the cursor.
+- Quality: immutable updates; one write per prepend.
+- Verification seam: CREATE `tab-manager.history-window.spec.ts`: prepend after a live append
+  keeps both; duplicate ids dropped; cursor set; resume resets; restore round trip keeps the
+  cursor through `sanitizeRestoredTab`.
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat-types\src\lib\chat-types.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat-state\src\lib\tab-manager.service.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat-state\src\lib\tab-manager.history-window.spec.ts`
+
+#### 12. C12 — Paging orchestration (`chat`)
+
+- Purpose: request the tail, fetch and prepend older pages safely, fix the anchor hint.
+- Responsibilities:
+  - CREATE `HistoryPagingService` (`services/chat-store/history-paging.service.ts`, root):
+    `tailRequest()` → `{ maxEvents: HISTORY_PAGE_DEFAULT_EVENTS }`; `recordTail(tabId, result)`
+    → `setOlderHistoryCursor(tabId, result.historyPage?.olderCursor ?? null)`;
+    `loadOlder(tabId): Promise<'prepended' | 'none' | 'superseded' | 'stale' | 'failed'>` — one
+    in-flight request per tab (shared promise), `loadingTabIds` signal, `chat:history-page` with
+    the tab's cursor, stale → cursor `null` + `'stale'`, other failure → cursor kept + `'failed'`,
+    then `replayer.replayOlderPage(...)`. Uses the `RpcResult` return (no `try/catch` with a
+    literal return — degradation audit, E34).
+  - `SessionLoaderService.switchSession`: adds `historyPage: tailRequest()` to the `chat:resume`
+    params (`:702-713`) and calls `recordTail` beside `applyResumeStats` (`:766`), after the
+    `isCurrent` check. Nothing else in the loader changes; the refresh path (`:1286`) is untouched.
+  - `SessionHistoryReplayer.replayOlderPage(events, tabId, sessionId, requestCursor, nextCursor, resumableSubagents)`:
+    refuses (`'superseded'`) when the tab holds a claim, is gone, is bound to another session, or
+    its cursor no longer equals `requestCursor`; takes C2 admission; chunks at
+    `REPLAY_CHUNK_SIZE` with `yieldToMacrotask` and re-checks after admission and each yield;
+    builds with C10; prepends with C11; clears the page cache key and releases admission in
+    `finally`. It does NOT mark the tab replaying (that would flip C5's `streamingBoundary` for a
+    live message in the same tab).
+  - `ChatViewComponent`: `buildAnchorHint` also returns `occurrenceFromEnd` (`:939-958`);
+    `onOlderHistoryRequested()` calls `loadOlder` and reports `'stale'` / `'failed'` through the
+    existing `showActionError` (`:1018` precedent).
+- Verified contracts: P11, P14-P16, P21, P26; claims/admission `session-history-replayer.service.ts:138-174, 196-315`.
+- Dependencies: chat → chat-streaming, chat-state, core, shared (existing edges).
+- Failure behaviour: throw inside a page build → scratch discarded, cursor kept, `'failed'`; a
+  resume that starts mid-page wins (claim check); a stale cursor never loops (cursor `null`).
+- Quality: replayer stays < 700 (474 now); loader +~5 lines; chat-view +~20 lines.
+- Verification seam: CREATE `history-paging.service.spec.ts` (in-flight dedup, stale, failed,
+  none when cursor null/undefined); CREATE `session-history-replayer.older-page.spec.ts` (claim,
+  rebind, cursor-changed refusals; > 250 events yields; admission ordering against a chunked tail
+  on another tab; no `replayingTabIds` change); `session-loader.service.spec.ts` adds "sends
+  `historyPage`" and "records cursor; absent `historyPage` → null"; `chat-view.component.spec.ts`
+  adds the `occurrenceFromEnd` case; existing replayer/admission/loader specs green.
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\services\chat-store\history-paging.service.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\services\chat-store\history-paging.service.spec.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\services\chat-store\session-history-replayer.older-page.spec.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\services\chat-store\session-history-replayer.service.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\services\chat-store\session-loader.service.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\services\chat-store\session-loader.service.spec.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\services\chat-store\index.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\components\templates\chat-view.component.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\components\templates\chat-view.component.spec.ts`
+
+#### 13. C13 — "Load earlier" affordance (`chat` transcript)
+
+- Purpose: let the user reach older pages without moving what they are reading.
+- Responsibilities:
+  - CREATE `TranscriptOlderHistorySentinelDirective` (transcript folder; precedent
+    `transcript-slot.directive.ts`): `IntersectionObserver` rooted on the scroll container with a
+    top margin of half the container height; its OWN passive `scroll` listener arms auto-load
+    only after `scrollTop` decreases; emits a request when intersecting AND armed AND scrollable
+    AND not disabled; disarms after each emit; disconnects on destroy.
+  - Transcript: `hasOlderHistory = input(false)`, `olderHistoryLoading = input(false)`,
+    `olderHistoryRequested = output<void>()`; `vm` gains `hasOlderHistory` (freeze discipline);
+    template renders, inside `#messageContent` before the `@for`, a sentinel row with a real
+    `<button>` "Load earlier messages" (`aria-busy`, disabled while loading) only when
+    `vm().hasOlderHistory && !historyReplaying()`.
+  - `chat-view.component.html` binds `[hasOlderHistory]`, `[olderHistoryLoading]`,
+    `(olderHistoryRequested)` per tab.
+  - No edit to `onScroll`, `scheduleStickToBottom`, `restoreScrollOnActivation`,
+    `chat-transcript.component.css`; no `content-visibility`; no scroll writes.
+- Verified contracts: P19, P20; transcript inputs `:180-198`; chat-view transcript binding
+  `chat-view.component.html:64-72`.
+- Prerequisite: the C5 scroll-sanity fix from `scroll-regression-analysis.md` is merged; re-cite
+  transcript lines after it.
+- Failure behaviour: no `IntersectionObserver` → button only (no auto-load); a failed load leaves
+  the button enabled.
+- Quality: OnPush, signals, `inject()`; keyboard-operable button with visible focus;
+  `chat-transcript.component.ts` stays < 700 (673 now).
+- Verification seam: CREATE `chat-transcript.older-history.spec.ts` (local fake observer): button
+  hidden while replaying and when `hasOlderHistory` false; not emitted on open or during a
+  downward stick; emitted after an upward scroll + intersection; once per arm. Scroll specs and
+  Gate A green. `git diff` shows no hunk in the three scroll methods or the CSS.
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-older-history-sentinel.directive.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.older-history.spec.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.html`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\libs\frontend\chat\src\lib\components\templates\chat-view.component.html`
+
+#### 14. C14 — Paging-faithful harness, functional e2e, M2
+
+- Purpose: M2 measures the paged contract, not a mock that ignores it.
+- Responsibilities:
+  - `mockSessions` (`perf-session-fixture.ts:163-201`): the `chat:resume` resolver returns
+    `selectHistoryPage` (C6) output when `params.historyPage` is present (precomputed in Node per
+    session for `HISTORY_PAGE_DEFAULT_EVENTS`) plus `historyPage.olderCursor`, and the full list
+    otherwise; add a `chat:history-page` mock.
+  - Diagnostics JSON records, per tile, the observed `chat:resume` `historyPage.maxEvents` and the
+    replayed event count; the asserting test throws "measurement unusable" if any tile resumed
+    without `historyPage` (so a regression cannot silently measure the old path).
+  - CREATE a non-gated functional spec (no budget): one tile, scroll up, one page prepended, the
+    previously top-visible message keeps its viewport offset within 2 px (A-ii-2 check including
+    the `scrollTop === 0` case), no duplicate message ids, button gone when the cursor is null,
+    stale cursor shows the action error, a mock without `historyPage` shows no button.
+  - `apps/ptah-electron-e2e/CLAUDE.md` "Perf specs": note the mock follows the shared pager.
+- Verified contracts: P24, P25; `ui.getObservedCalls` `ui-driver.ts:218`.
+- Failure behaviour: unusable measurement throws with a reason; functional spec failures are
+  functional regressions, not perf numbers.
+- Verification seam: `lint,typecheck` on `ptah-electron-e2e`; skip proof without
+  `PTAH_PERF_SPECS`; M2.
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\apps\ptah-electron-e2e\src\support\perf-session-fixture.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\apps\ptah-electron-e2e\src\specs\chat\tile-open-longtask-budget.perf.spec.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\apps\ptah-electron-e2e\src\specs\chat\tile-load-older-history.spec.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks\apps\ptah-electron-e2e\CLAUDE.md`
+
+### (ii).7 Stage 2 (ii) acceptance criteria
+
+- S2ii-AC1 (compat): `chat:resume` without `historyPage` is unchanged (full `events`, no
+  `historyPage` key); CLI `session resume`, `rpc.call`, harness-builder unaffected.
+- S2ii-AC2 (pages): tail and older pages contain whole turns only, <= `maxEvents` unless one
+  turn is larger; never split a tool pair or agent subtree; `olderCursor` null exactly at the
+  replayable start; stale anchor → `HISTORY_CURSOR_STALE`.
+- S2ii-AC3 (full-history facts): `stats`, `resumableSubagents`, subagent registry and fork/rewind
+  resolution use the full transcript; anchor hints resolve correctly with unloaded duplicates.
+- S2ii-AC4 (prepend): no duplicate ids, live appends survive, no write to status/streamingState,
+  refused under a resume claim, no auto-load on open or during replay, reading position held
+  (functional e2e).
+- S2ii-AC5 (M2): AC-11 MET exactly as defined in "Decision point after M1" on the M2 run set, and
+  scroll sanity passes on every run.
+- S2ii-AC6 (gates): tests via `run-many` with the header count checked; lint + typecheck on every
+  touched project plus `ptah-extension-webview`, `ptah-electron-e2e`, `ptah-cli`; degradation
+  audit TOTAL 303; no `content-visibility`; no hunk in the three scroll methods or transcript CSS;
+  webview `build:development` and `build:production` succeed.
+
+### (ii).8 M2 measurement definition
+
+- Build: C6-C14 committed AND the C5 scroll-sanity fix merged; no other product change.
+- Protocol: identical to M0/M1 (idle checks 0/0, `--maxWorkers=2`, peer-session hold messages,
+  retries reported, never averaged).
+- Run set: cold 3-tile dev ×3 (assertion); warm 1-tile ×1; warm 3-tile ×1; production cold ×1;
+  `PTAH_PERF_RAF_ATTRIBUTION=1` cold ×1; `PTAH_PERF_TRACE=1` cold at 500 and 2,000 events ×1 each;
+  scroll sanity on every run; per-tile `historyPage.maxEvents` and replayed-event counts; per-tile
+  wall time; DOM counts.
+- Additional reads: 500 vs 2,000 trace totals within run noise (volume independence);
+  `FireAnimationFrame` count flat across the two.
+- Functional (not gated by budget, run once): `tile-load-older-history.spec.ts`.
+- Verdict: AC-11 MET iff all 3 dev cold runs AND production cold have max <= 200, total <= 1,500,
+  `settled: true`, scroll sanity passing. Otherwise report max/total/buckets and return; if only
+  max fails, see Q-ii-5.
+
+### (ii).9 Risks
+
+- R-ii-1 (HIGH): max-task clause — (ii).5 estimate reaches ~260 ms at the M1 dev spread.
+- R-ii-2 (MEDIUM): prepend at `scrollTop === 0` jumps if A-ii-2 holds; the fix is a scroll write
+  owned by the scroll-work owner.
+- R-ii-3 (MEDIUM): C13 and M2 wait on the parallel C5 scroll-sanity fix; transcript line numbers
+  shift again.
+- R-ii-4 (MEDIUM): M2 validity depends on the mock applying the shared pager (C14); a mock that
+  ignores `historyPage` measures the old path.
+- R-ii-5 (MEDIUM): an agent-heavy single turn > 250 events is one oversize page, chunked as today;
+  AC-11's fixture has none, so M2 does not cover it.
+- R-ii-6 (LOW): message-derived totals fallbacks (P22) undercount on a paged tab when `stats` is
+  null.
+- R-ii-7 (LOW): each older page re-parses/re-projects the transcript on the host main thread; a
+  live, growing JSONL misses the parse memo every time.
+- R-ii-8 (LOW): random `generateId` message ids (P9) make that session's older history
+  unreachable (stale) until reopen.
+- R-ii-9 (LOW): prepended bubbles run normal enter motion when mounted (E23); not in the AC-11
+  window.
+
+### (ii).10 Open questions for the user (not decided here)
+
+- Q-ii-1 — Initial tail size: 250 events of whole turns (≈ 20 turns in the fixture;
+  Recommended), 150 events (more headroom on max, less visible history), or a turn count instead
+  of an event budget.
+- Q-ii-2 — "Load earlier" trigger: button + auto-load armed by an upward scroll (Recommended),
+  button only, or auto-load only.
+- Q-ii-3 — Stale cursor UX: error message + "reopen the session" and hide the button
+  (Recommended), or automatically re-resume the tab (position resets to the bottom).
+- Q-ii-4 — CLI surface: documentation only, paging opt-in through `rpc.call` (Recommended), or a
+  first-class CLI verb / transcript pages on `session.history` now.
+- Q-ii-5 — If M2 passes total everywhere but fails max: allow lowering the tail to 150 without
+  another decision (Recommended), or come back to decide between a smaller tail and (iii-b).
+
+#### Resolved user questions (2026-09-16)
+
+1. Q-ii-1 Initial page: **250 events, whole turns**.
+2. Q-ii-2 Load older: **button plus auto-load**. Auto-load turns on only after the user scrolls up.
+3. Q-ii-3 Stale cursor: **show an error that tells the user to reopen the session**. No automatic
+   re-open.
+4. Q-ii-4 CLI scope: **docs only**, paging through `rpc.call` (orchestrator default, the
+   recommended option; the user did not object).
+5. Q-ii-5 If M2 meets total but fails the 200 ms max: **drop the initial page to 150 events and
+   re-measure without asking again**. The budget is never loosened.
+
+Team-leader decomposition of these answers: `batches.md` "Stage 2 (ii) tail-paged history"
+(Batches 9-17, defaults D10-D14).
+
+### (ii).11 Team-leader handoff
+
+- Recommended executors:
+  - C6, C7, C8: backend-developer (contract + agent-sdk + rpc-handlers, backend specs).
+  - C9: backend-developer or technical-content-writer (docs only).
+  - C10, C11, C12, C13: frontend-developer.
+  - C14: senior-tester (harness + functional e2e); M2: senior-tester on an idle machine.
+- Complexity: HIGH — public contract change across three hosts and two sides, async ordering in
+  the replayer, and a measurement that must stay faithful to the contract.
+- Dependencies and ordering (component level):
+  - C6 before everything else.
+  - C7 before C8. C10 and C11 before C12. C12 before C13.
+  - C13 after the C5 scroll-sanity fix merges.
+  - C14 after C6 (pager) and C12 (request shape); its functional spec needs C13.
+  - M2 after C6-C14 and the scroll fix.
+- Parallel-safe work: after C6, the backend chain (C7 → C8), the frontend chain (C10 + C11 are
+  file-disjoint from each other) and C14's mock half touch disjoint files. C9 touches only docs.
+  C12 and C13 share `chat-view.component.*` (ts vs html) — keep them sequential.
+- Files affected: CREATE / MODIFY lists in C6-C14 above (REWRITE: none).
+- Verification points:
+  - Re-cite transcript and chat-view lines after the scroll fix lands.
+  - `grep -n "anchorHint" libs/backend/rpc-handlers/src/lib/handlers/*.schema.ts` to locate the
+    hint schema (C8 assumption).
+  - Confirm A-ii-5 (no `await` between read and write at the five `setMessages` sites).
+  - Tests (never `nx test a b c`): `npx nx run-many -t test -p @ptah-extension/shared
+@ptah-extension/agent-sdk @ptah-extension/rpc-handlers --parallel=1 --maxWorkers=2` (header
+    3), and the frontend set `@ptah-extension/chat-types @ptah-extension/chat-state
+@ptah-extension/chat-streaming @ptah-extension/chat` (header 4; use the names in each
+    `project.json`), plus `ptah-cli` if its specs cover the docs packaging.
+  - `run-many -t lint,typecheck` on all touched projects plus `ptah-extension-webview`,
+    `ptah-electron-e2e`, `ptah-cli`; `npx nx run degradation-audit:lint --skip-nx-cache` TOTAL 303.
+  - No `ALLOWED_METHOD_PREFIXES` diff (the `chat:` prefix already exists); registry + entries +
+    `METHODS` all carry `chat:history-page`.
 
 ## Integration architecture
 

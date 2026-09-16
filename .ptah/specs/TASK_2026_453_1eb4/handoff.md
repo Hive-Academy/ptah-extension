@@ -6,52 +6,58 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 
 ## 1. Where the work lives
 
-| Item          | Value                                                                                                                                      |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Worktree      | `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks` (inside the repo on purpose, so CLI lanes can run there)      |
-| Branch        | `perf/task-453-tile-open-long-tasks`, tracks origin, all commits pushed                                                                     |
-| PR            | none yet — Stage 1 is committed; to be opened as a draft                                                                                  |
-| Base          | `51d0d2e1f` (main with PR #518 and PR #519)                                                                                               |
-| node_modules  | a junction to `D:\projects\ptah-extension\node_modules`. Never delete it with a tool that follows junctions; use `cmd /c rmdir` first.     |
-| Old worktree  | `D:\projects\ptah-437` (TASK_2026_437) is merged and idle. Its removal is a user decision.                                                 |
+| Item         | Value                                                                                                                                  |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Worktree     | `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks` (inside the repo on purpose, so CLI lanes can run there)  |
+| Branch       | `perf/task-453-tile-open-long-tasks`, tracks origin, all commits pushed                                                                |
+| PR           | #524, draft; CI all green at `d8951fa03`                                                                                               |
+| Base         | `51d0d2e1f` (main with PR #518 and PR #519)                                                                                            |
+| node_modules | a junction to `D:\projects\ptah-extension\node_modules`. Never delete it with a tool that follows junctions; use `cmd /c rmdir` first. |
+| Old worktree | `D:\projects\ptah-437` (TASK_2026_437) is merged and idle. Its removal is a user decision.                                             |
 
 ## 2. Commits on the branch
 
-| Commit       | Content                                                                              |
-| ------------ | -------------------------------------------------------------------------------------- |
-| `01307f73e`  | Plan: `task.md`, `context.md`, `implementation-plan.md`, `batches.md`                 |
-| `49b436256`  | Batch 1 — C4 perf harness, settle-inclusive window, 3 CodeRabbit fixes from PR #518   |
-| `93c41c41d`  | Batch 2 — M0 baseline, 9 runs, `test-report.md`                                       |
-| `b9cc2f193`  | Batch 3 — C3 canvas request queue + C2 replay admission                               |
-| `3f70c986e`  | Docs — Batch 3 commit hash recorded                                                   |
-| `408ddffb2`  | Batch 4 — C1 replay motion gate                                                       |
-| `1b59aa816`  | Docs — Batch 4 commit hash recorded                                                   |
-| `b19077d03`  | Batch 5 — C5 replay render-window fence                                               |
-| `0149adef8`  | Docs — Batch 5 commit hash recorded                                                   |
-| (this one)   | Batch 6 — M1 measurement in `test-report.md` + methodology review (docs only)          |
+| Commit      | Content                                                                                                                                                                                             |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `01307f73e` | Plan: `task.md`, `context.md`, `implementation-plan.md`, `batches.md`                                                                                                                               |
+| `49b436256` | Batch 1 — C4 perf harness, settle-inclusive window, 3 CodeRabbit fixes from PR #518                                                                                                                 |
+| `93c41c41d` | Batch 2 — M0 baseline, 9 runs, `test-report.md`                                                                                                                                                     |
+| `b9cc2f193` | Batch 3 — C3 canvas request queue + C2 replay admission                                                                                                                                             |
+| `3f70c986e` | Docs — Batch 3 commit hash recorded                                                                                                                                                                 |
+| `408ddffb2` | Batch 4 — C1 replay motion gate                                                                                                                                                                     |
+| `1b59aa816` | Docs — Batch 4 commit hash recorded                                                                                                                                                                 |
+| `b19077d03` | Batch 5 — C5 replay render-window fence                                                                                                                                                             |
+| `0149adef8` | Docs — Batch 5 commit hash recorded                                                                                                                                                                 |
+| `d8951fa03` | Batch 6 — M1 measurement in `test-report.md` + methodology review (docs only)                                                                                                                       |
+| (docs)      | `docs(task-specs): design the TASK_2026_453 scroll fix and tail-paged history` — `scroll-regression-analysis.md`, Stage 2 (ii) in `implementation-plan.md`, Batches 7-17 in `batches.md`, this file |
+| (fix)       | Batch 7 — `fix(chat): keep replayed transcript mounts monotonic so tiles stay pinned` (C5 replay mount retention + `b7-*` reports)                                                                  |
 
-**Stage 1 (C1, C2, C3, C4, C5) is fully committed.**
+**Stage 1 (C1, C2, C3, C4, C5) is fully committed. The Batch 7 scroll fix is committed; draft PR
+#524 CI was all green at `d8951fa03` (before the Batch 7 commits).**
 
 ## 3. Batch state
 
-| Batch | Content                                        | State                                        |
-| ----- | ------------------------------------------------ | ---------------------------------------------- |
-| B1    | C4 perf harness                                 | COMPLETE, committed                           |
-| B2    | M0 baseline                                     | COMPLETE, committed                           |
-| B3    | C3 canvas request queue + C2 replay admission   | COMPLETE, committed `b9cc2f193`         |
-| B4    | C1 replay motion gate                           | COMPLETE, committed `408ddffb2`               |
-| B5    | C5 replay render-window fence                   | COMPLETE, committed `b19077d03`               |
-| B6    | M1 measurement + decision point                 | COMPLETE, committed (docs only)               |
+| Batch  | Content                                                    | State                                                      |
+| ------ | ---------------------------------------------------------- | ---------------------------------------------------------- |
+| B1     | C4 perf harness                                            | COMPLETE, committed                                        |
+| B2     | M0 baseline                                                | COMPLETE, committed                                        |
+| B3     | C3 canvas request queue + C2 replay admission              | COMPLETE, committed `b9cc2f193`                            |
+| B4     | C1 replay motion gate                                      | COMPLETE, committed `408ddffb2`                            |
+| B5     | C5 replay render-window fence                              | COMPLETE, committed `b19077d03`                            |
+| B6     | M1 measurement + decision point                            | COMPLETE, committed `d8951fa03` (docs only)                |
+| B7     | C5 scroll retention fix                                    | COMPLETE, committed (revise 1 of 2; F1 carried to B8 / U1) |
+| B8     | Scroll sanity re-check (Electron, 23 attempts)             | IN_PROGRESS                                                |
+| B9-B17 | Stage 2 (ii) tail-paged history + M2 (B16-B17 conditional) | PENDING, all gated on B8 PASS                              |
 
 **M1 result** (committed evidence: `test-report.md` "M1" section, review
 `b6-m1-methodology-review.md` base NEEDS_REVISION → Delta APPROVED): **AC-11 NOT MET.**
 
-| Run            | Max (ms) | Total (ms) |
-| -------------- | -------- | ---------- |
-| Dev cold 1     | 220      | 3,226      |
-| Dev cold 2     | 337      | 4,927      |
-| Dev cold 3 (retry) | 185  | 2,169      |
-| Production cold | 166 (pass) | 985 (pass) |
+| Run                | Max (ms)   | Total (ms) |
+| ------------------ | ---------- | ---------- |
+| Dev cold 1         | 220        | 3,226      |
+| Dev cold 2         | 337        | 4,927      |
+| Dev cold 3 (retry) | 185        | 2,169      |
+| Production cold    | 166 (pass) | 985 (pass) |
 
 Stage 1 cut max 5.4-8.8x and total 2.1-2.6x in dev; production now passes. TILE_2 (last admitted)
 still carries ~90 % of blocked time. AC 2 is PARTIAL (DOM ratio measured whole-canvas only, 0.21-0.39x
@@ -127,15 +133,30 @@ assertion weakened (evidence in `b3-revise-codex-report.md` section 5).
 - Stage 2 option: **(ii) tail-paged history**.
 - Scroll regression: the architect finds the cause, then a codex lane fixes it inside C5 with logic
   and style reviews, then the scroll check is repeated — all before any Stage 2 code.
-- PR: open this branch as a **draft** PR.
+- PR: open this branch as a **draft** PR. Done: PR #524 (draft), CI all green at `d8951fa03`.
+
+**Stage 2 (ii) decisions, 2026-09-16** (full record: `implementation-plan.md` "Resolved user
+questions", `batches.md` Stage 2):
+
+1. Initial page: 250 events, whole turns.
+2. Load older: a button, plus auto-load that turns on only after the user scrolls up.
+3. Stale cursor: show an error telling the user to reopen the session. No automatic re-open.
+4. CLI scope: docs only; paging goes through `rpc.call`.
+5. If M2 meets total but fails only the 200 ms max: drop the initial page to 150 events and
+   re-measure without asking again (Batches 16-17). The budget is never loosened.
+6. Orchestrator accepted the V1 retarget: Task 10.2 edits `sanitizeAnchorHint`.
+
+**Done**: architect analysis (`scroll-regression-analysis.md`) and Stage 2 design
+(`implementation-plan.md`); team-leader Batches 7-17 in `batches.md`; Batch 7 scroll fix committed
+(logic + style APPROVED, revise 1 of 2). F1 (serious, open): the release window can still coincide
+with live growth below — Batch 8 re-check and U1 escalation cover it.
 
 **Next steps, in order**:
 
-1. Architect: scroll-regression cause analysis (`scroll-regression-analysis.md`) and Stage 2 (ii)
-   design in `implementation-plan.md` (both in progress).
-2. Team-leader adds the scroll-fix batch and the Stage 2 batches to `batches.md`.
-3. Scroll fix inside C5 (codex lane, logic + style review), then repeat the scroll sanity check.
-4. Stage 2 implementation, then a new measurement.
+1. Batch 8: 23-attempt Electron scroll re-check on an idle machine (peer hold first), plus the M1
+   TILE_1 correction. PASS = 0 failures.
+2. On PASS: Batches 9-17 (C6-C14, M2, conditional 150-event fallback). On FAIL: classify H1/H2 and
+   return to the orchestrator before any Stage 2 code.
 
 **Still open**:
 
