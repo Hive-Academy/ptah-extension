@@ -1,6 +1,6 @@
 # Batches - TASK_2026_461_639c
 
-Total tasks: 17 | Batches: 7 | Complete: 4/7
+Total tasks: 17 | Batches: 7 | Complete: 5/7
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase3-skills-unblock` (branch
 `feat/task-439-phase3-skills-unblock`, base `97239e814`). Below, `W` means that absolute path and `T` means
@@ -570,7 +570,26 @@ Edge cases:
 
 ---
 
-## Batch 5: cleanup DI + cron job in Electron and CLI hosts; delete `CandidateNamerService` — IN_PROGRESS
+## Batch 5: cleanup DI + cron job in Electron and CLI hosts; delete `CandidateNamerService` — COMPLETE (625b3861c)
+
+- Commit: `625b3861c` feat(skill-synthesis,thoth-runtime,cli-engine,docs): batch 5 - backlog cleanup job, drop namer
+  (18 files: skill-synthesis DI/barrel/store + namer deletion, thoth-runtime job + `start-thoth-cron`, cli-engine
+  `thoth-runtime`, both lib CLAUDE.md files, `apps/ptah-docs/.../skill-synthesis/settings.md`).
+- Review: `code-logic-review-batch-5.md` APPROVED 9/10 (3 minor). The review ran read-only after a machine hold; the
+  reviewer disclosed what it verified by reading and what it ran before the hold (focused suites 39/23/89 passed).
+- Revise round 1 (`batch-5-report.md` `## Revise round 1`): (1) distinct skip tokens
+  `backlog-cleanup-service-unavailable` / `backlog-cleanup-power-monitor-unavailable`, one spec per token;
+  (2) `register.spec` singleton case resolves both cleanup tokens twice from the real registration and asserts `toBe`,
+  mutation `registerSingleton` -> `register` fails it, restore passes; (3) docs count corrected to 78 (46 named + 4
+  lanes x 8 fields) with the method recorded. AC10-mut-E re-proven. Orchestrator accepted the round without a second
+  review (minor fixes; the batch was already approved by a reviewer of another family).
+- **Executor change:** the initial round ran on a codex CLI lane; revise round 1 ran on a backend-developer SUBAGENT
+  because the lane host was at its 5-agent limit with other sessions' agents.
+- Team-leader confirmation before commit: no jest/nx run process alive (two idle daemons only); thoth-runtime
+  `skill-backlog-cleanup-job|start-thoth-cron` 2 suites 40/40; cli-engine `thoth-runtime.spec` 23/23; skill-synthesis
+  `register.spec` 9/9; `run-many -t typecheck` skill-synthesis + thoth-runtime + cli-engine + rpc-handlers "for 4
+  projects" green; grep `CandidateNamerService|setDisplayName|nameCandidate` over `libs` and `apps` -> no matches. Diff
+  scope matched Tasks 5.1-5.3 plus the three revise fixes. Lane scratch `agent-output-root.md` deleted (untracked).
 
 - Recommended executor: codex CLI lane (`{ cli: 'codex', role: 'backend-developer' }`)
 - Fallback executor: backend-developer subagent
@@ -583,7 +602,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 4 (committed)
 - Report: `T\batch-5-report.md` | Marker: `T\batch-5.done`
 
-### Task 5.1: DI token + registration for the cleanup store and service — IN_PROGRESS
+### Task 5.1: DI token + registration for the cleanup store and service — COMPLETE
 
 - Files: MODIFY `W\libs\backend\skill-synthesis\src\lib\di\tokens.ts` (`SKILL_BACKLOG_CLEANUP_STORE`,
   `SKILL_BACKLOG_CLEANUP_SERVICE` as `Symbol.for(...)`), `di\register.ts` (singletons), `di\register.spec.ts` (resolve
@@ -592,7 +611,7 @@ Edge cases:
 - Acceptance: `register.spec.ts` green; resolving `SKILL_BACKLOG_CLEANUP_SERVICE` from a registered container yields
   the service.
 
-### Task 5.2: `@ptah/skills-backlog-cleanup` job in both hosts (Component 4e) — IN_PROGRESS
+### Task 5.2: `@ptah/skills-backlog-cleanup` job in both hosts (Component 4e) — COMPLETE
 
 - Files:
   - CREATE `W\libs\backend\thoth-runtime\src\lib\skill-backlog-cleanup-job.ts` + `.spec.ts` —
@@ -619,7 +638,7 @@ Edge cases:
   `start-thoth-cron.ts` -> Electron spec fails; **AC10-mut-C** remove the call in `cli-engine thoth-runtime.ts` -> CLI
   spec fails.
 
-### Task 5.3: Delete `CandidateNamerService` and `setDisplayName` (Component 5) — IN_PROGRESS
+### Task 5.3: Delete `CandidateNamerService` and `setDisplayName` (Component 5) — COMPLETE
 
 - Files: DELETE `W\libs\backend\skill-synthesis\src\lib\naming\candidate-namer.service.ts`,
   `candidate-namer.service.spec.ts`; MODIFY `di\register.ts` (import `:55`, singleton `:99`, binding `:206-208`),
@@ -647,10 +666,11 @@ Edge cases:
 
 ---
 
-## Batch 6: REACHABILITY PROOF — production trigger -> drain -> prefilter -> manual promote — PENDING
+## Batch 6: REACHABILITY PROOF — production trigger -> drain -> prefilter -> manual promote — IN_PROGRESS
 
 - Recommended executor: codex CLI lane (`{ cli: 'codex', role: 'backend-developer' }`)
-- Fallback executor: backend-developer subagent
+- Fallback executor: backend-developer subagent (use it directly if the lane host is still at its agent limit, as in
+  Batch 5 revise round 1; the executor prompt is written to work for either)
 - Execution mode: sequential (one spec + optional test-support)
 - Parallel with: none (needs the final DI graph; mutations edit production files transiently)
 - Rationale: the proof is the phase gate (HANDOFF "rule that governs every phase"); it needs undivided attention
@@ -660,7 +680,54 @@ Edge cases:
 - Tasks: 2 | Depends on: Batches 1, 3, 4, 5 (committed)
 - Report: `T\batch-6-report.md` | Marker: `T\batch-6.done`
 
-### Task 6.1: Real-container harness — PENDING
+### Batch 6 re-read against Batches 1-5 as shipped (team-leader, HEAD `625b3861c`)
+
+- **D1a confirmed on disk.** `SkillSynthesisService.promote(candidateId, origin = {})` (`skill-synthesis.service.ts:1155-1164`)
+  calls `promotion.promoteManually` (`:1159`); `promoteBulk` (`:1199-1210`) likewise. `SkillPromotionService` has one
+  private pipeline with `mode: 'automatic' | 'manual'` (`skill-promotion.service.ts:212`); only `mode === 'automatic'`
+  (`:242`) returns `below-threshold` (`:249`). So group 4 pins automatic `evaluate` -> `below-threshold` with zero judge
+  calls, and group 5 ends `promoted` through the manual path. The proof does not assert automatic promotion.
+- **Line anchors moved.** `registerSkillSynthesisServices` is at `di/register.ts:61` (was `:59`). `resolveOpener` is
+  `queue/queue-db.test-support.ts:98`. M4's `this.stageHandlers?.registerStageHandlers(this)` is still
+  `skill-synthesis.service.ts:313`, above both early returns of `start()` (`:304-323`).
+- **M2 / M3 restore code that no longer exists.** Take the original text from the parent of the Batch 1 commit:
+  `git show fdff9b105^:libs/backend/skill-synthesis/src/lib/skill-synthesis.service.ts` — the `depthOk` branch in
+  `passesPrefilter` (then `:1182-1199`, settings then carried `eligibilityMinTurns` / `prefilterMinChars`, so M2 may
+  inline literal thresholds 5 / 800 inside the mutation) and the `recordInvocation` block + `contextId` hash (then
+  `:892-898`, `:917-925`). Today `passesPrefilter` ends in `hasSessionWorkEvidence(trajectory, settings)`
+  (`:1136-1139`).
+- **Batch 5 added two registered tokens.** `SKILL_BACKLOG_CLEANUP_STORE` / `SKILL_BACKLOG_CLEANUP_SERVICE` are
+  singletons in the production registration. The proof must NOT resolve them (they are not on the promote path);
+  tsyringe resolves lazily, so they add no host token. For reference `register.spec.ts:44-70` shows their host-token
+  set: `TOKENS.LOGGER`, `PERSISTENCE_TOKENS.SQLITE_CONNECTION`, `SDK_TOKENS.SDK_JSONL_READER`,
+  `PLATFORM_TOKENS.WORKSPACE_PROVIDER`. `CandidateNamerService` is gone, so no namer token or namer lane call exists.
+- **Migrations through 45.** `openAndMigrate()` now applies `0045_skill_backlog_cleanup`; nothing in the proof reads
+  that table.
+- **Settings the harness must serve** (no `eligibilityMinTurns` / `prefilterMinChars` any more — Batch 3):
+  `skillSynthesis.enabled: true` (else `start()` returns at `:315` before opening the DB and registering the
+  session-end callback at `:382`), `skillSynthesis.skillsRoot` (`skill-md-generator.ts:34`, temp) and
+  `candidatesDir`, `judgeEnabled: true`, `prefilterMinEdits` 1 / `prefilterMinToolUses` 2 (defaults), and drain keys so
+  the frequent tick is not gated: `drain.foregroundBackoffMs` passes by default (tracker reports `Infinity` before a
+  chat turn), budget not exhausted, `pauseOnBattery` irrelevant with `onBattery: false`. Session-end rows carry
+  `source: 'session-end'` (`:385`), so `bootDeferralMs` (boot rows only) does not hold them.
+- **Reuse path check (s-beta).** `analyzeSession` returns `{reused: true}` from `store.findByTrajectoryHash` at
+  `skill-synthesis.service.ts:749-751` without appending `s-beta` to `source_session_ids`; the prefilter handler maps it
+  to `reused existing candidate` (`queue/stage-handlers.service.ts:290`); a null result maps to
+  `no candidate from this session` (`:283`). `source_session_ids = ["s-alpha"]` therefore holds only if both
+  transcripts normalise to one hash — verify by reading the extractor's normalisation before writing fixtures. If the
+  production code cannot produce one hash for two workspace roots, STOP and report (do not change production code).
+- **`start()` side effects the proof must account for.** It starts the curator (`:396`, its own timer; a curator pass
+  could call the fake lane and pollute group 4's "zero judge calls") and enqueues an `embedding` backfill row
+  (`:413`). The session-end callback is fire-and-forget (`void this.enqueueAnalyze(...)`, `:384`), so after firing it
+  the spec must wait until the three `prefilter` rows exist (bounded poll) before draining. Count judge calls from the
+  fake lane per group (snapshot before group 4), not cumulatively from boot.
+- **Teardown.** `SkillSynthesisService.stop()` (`:421-427`) disposes the session-end registration and stops the
+  curator; call it in `afterAll`, then close the connection and delete the temp dir.
+- **Test-support files present:** `lanes/lane-runner.test-support.ts` (`makeQueryStub` `:150`, `resultMessage` `:253`,
+  `assistantText` `:259`), `queue/queue-db.test-support.ts` (`resolveOpener`, `makeTempDbPath`, `noopLogger`),
+  `queue/skill-drain.test-support.ts` (`liveSignal`).
+
+### Task 6.1: Real-container harness — IN_PROGRESS
 
 - Files: CREATE `W\libs\backend\skill-synthesis\src\lib\skill-synthesis.reachability.integration.spec.ts`; optional
   `skill-synthesis.reachability.test-support.ts` if the setup passes ~150 lines (already excluded from lib typecheck).
@@ -675,7 +742,7 @@ Edge cases:
 - Acceptance: report lists the final bound token set, each with one-line justification, and how the fake lane tells
   synthesis from judge requests. Spec `it.skip`s only when neither binding loads.
 
-### Task 6.2: Scenario groups 1-5 + mutations M1-M5 — PENDING
+### Task 6.2: Scenario groups 1-5 + mutations M1-M5 — IN_PROGRESS
 
 - Scenario (one `it` per group, shared `beforeAll`):
   1. `synthesis.start()`; fire the captured session-end callback for `s-alpha` (`<tmp>/ws-a`) and `s-beta`
