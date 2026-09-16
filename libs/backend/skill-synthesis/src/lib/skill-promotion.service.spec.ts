@@ -35,12 +35,10 @@ const SETTINGS: SkillSynthesisSettings = {
   dedupCosineThreshold: 0.85,
   maxActiveSkills: 50,
   candidatesDir: '',
-  eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
   generalizationContextThreshold: 3,
   dedupClusterThreshold: 0.78,
   prefilterMinEdits: 1,
-  prefilterMinChars: 800,
   prefilterMinToolUses: 2,
   judgeEnabled: false,
   minJudgeScore: 6.0,
@@ -168,6 +166,216 @@ describe('SkillPromotionService', () => {
       'promoted',
       expect.objectContaining({ bodyPath: '/tmp/active/do-thing/SKILL.md' }),
     );
+  });
+
+  describe('manual promotion path', () => {
+    const MANUAL_ORIGIN = { userInitiated: true };
+
+    function scoredJudge(score: number) {
+      return {
+        judge: jest.fn(async () => ({
+          status: 'scored' as const,
+          score,
+          criteria: {
+            novelty: score,
+            actionability: score,
+            scope: score,
+            generalization: score,
+            triggerClarity: score,
+          },
+          reason: JUDGE_REASONS.verdict,
+        })),
+      } as unknown as ConstructorParameters<typeof SkillPromotionService>[4];
+    }
+
+    it('promotes a zero-success candidate when the judge score passes', async () => {
+      const store = makeStore(row({ successCount: 0 }));
+      const judge = scoredJudge(8);
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        judge,
+      );
+
+      const decision = await svc.promoteManually(
+        'cand_test' as CandidateId,
+        { ...SETTINGS, judgeEnabled: true },
+        MANUAL_ORIGIN,
+      );
+
+      expect(decision.reason).toBe('promoted');
+      expect(store.countDistinctContexts).not.toHaveBeenCalled();
+    });
+
+    it('keeps the judge score gate', async () => {
+      const store = makeStore(row({ successCount: 0 }));
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        scoredJudge(3),
+      );
+
+      const decision = await svc.promoteManually(
+        'cand_test' as CandidateId,
+        { ...SETTINGS, judgeEnabled: true },
+        MANUAL_ORIGIN,
+      );
+
+      expect(decision.reason).toBe('below-judge-score');
+    });
+
+    it('leaves an unscored candidate pending', async () => {
+      const store = makeStore(row({ successCount: 0 }));
+      const judge = {
+        judge: jest.fn(async () => ({
+          status: 'unscored' as const,
+          score: null,
+          criteria: null,
+          reason: 'rate limited',
+        })),
+      } as unknown as ConstructorParameters<typeof SkillPromotionService>[4];
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        judge,
+      );
+
+      const decision = await svc.promoteManually(
+        'cand_test' as CandidateId,
+        SETTINGS,
+        MANUAL_ORIGIN,
+      );
+
+      expect(decision.reason).toBe('judge-unscored');
+      expect(decision.candidate?.status).toBe('candidate');
+      expect(store.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('keeps active-skill duplicate rejection', async () => {
+      const store = makeStore(row({ successCount: 0, embeddingRowid: 1 }));
+      (store.getEmbedding as jest.Mock).mockReturnValue(
+        new Float32Array([1, 0]),
+      );
+      (store.searchActiveByEmbedding as jest.Mock).mockReturnValue([
+        { row: row({ id: 'other' as CandidateId }), similarity: 0.9 },
+      ]);
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        null,
+      );
+
+      const decision = await svc.promoteManually(
+        'cand_test' as CandidateId,
+        SETTINGS,
+        MANUAL_ORIGIN,
+      );
+
+      expect(decision.reason).toBe('duplicate');
+    });
+
+    it('keeps cluster duplicate rejection', async () => {
+      const store = makeStore(row({ successCount: 0, embeddingRowid: 1 }));
+      (store.getEmbedding as jest.Mock).mockReturnValue(
+        new Float32Array([1, 0]),
+      );
+      const clusterDedup = {
+        isDuplicate: jest.fn(() => true),
+      } as unknown as ConstructorParameters<typeof SkillPromotionService>[3];
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        clusterDedup,
+        null,
+      );
+
+      const decision = await svc.promoteManually(
+        'cand_test' as CandidateId,
+        SETTINGS,
+        MANUAL_ORIGIN,
+      );
+
+      expect(decision.reason).toBe('duplicate');
+      expect(store.updateStatus).toHaveBeenCalledWith('cand_test', 'rejected', {
+        reason: 'cluster-duplicate',
+      });
+    });
+
+    it('keeps the replay-confidence floor', async () => {
+      const store = makeStore(row({ successCount: 0, replayConfidence: 0.2 }));
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        null,
+      );
+
+      const decision = await svc.promoteManually(
+        'cand_test' as CandidateId,
+        SETTINGS,
+        MANUAL_ORIGIN,
+      );
+
+      expect(decision.reason).toBe('below-replay-confidence');
+    });
+
+    it('short-circuits an already-rejected candidate without judging', async () => {
+      const store = makeStore(row({ status: 'rejected', successCount: 0 }));
+      const judge = scoredJudge(8) as unknown as { judge: jest.Mock };
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        judge as never,
+      );
+
+      const decision = await svc.promoteManually(
+        'cand_test' as CandidateId,
+        SETTINGS,
+        MANUAL_ORIGIN,
+      );
+
+      expect(decision.reason).toBe('already-rejected');
+      expect(judge.judge).not.toHaveBeenCalled();
+    });
+
+    it('still enforces the residency cap', async () => {
+      const store = makeStore(row({ successCount: 0 }));
+      (store.listActiveOrderedByDecayScore as jest.Mock).mockReturnValue(
+        Array.from({ length: SETTINGS.maxActiveSkills }, (_, index) =>
+          row({ id: `resident-${index}` as CandidateId, name: `r-${index}` }),
+        ),
+      );
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        null,
+      );
+
+      await svc.promoteManually(
+        'cand_test' as CandidateId,
+        SETTINGS,
+        MANUAL_ORIGIN,
+      );
+
+      expect(store.setResidency).toHaveBeenCalledWith(
+        expect.any(String),
+        'dormant',
+      );
+    });
   });
 
   it('rejects an already-promoted candidate (idempotent)', async () => {
@@ -993,19 +1201,53 @@ describe('SkillPromotionService', () => {
     });
   });
 
-  it('continues with original bodyPath when SKILL.md materialization fails', async () => {
-    const store = makeStore(
-      row({ successCount: 3, bodyPath: '/orig/SKILL.md' }),
-    );
-    const md = makeMdGenerator();
-    (md.promoteToActive as jest.Mock).mockImplementation(() => {
-      throw new Error('disk full');
-    });
-    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
-    const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
-    expect(decision.promoted).toBe(true);
-    expect(decision.filePath).toBe('/orig/SKILL.md');
-  });
+  it.each(['automatic', 'manual'] as const)(
+    'returns write-failed on the %s path when SKILL.md materialization fails',
+    async (mode) => {
+      const store = makeStore(
+        row({ successCount: 3, bodyPath: '/orig/SKILL.md' }),
+      );
+      (store.listActiveOrderedByDecayScore as jest.Mock).mockReturnValue(
+        Array.from({ length: SETTINGS.maxActiveSkills }, (_, index) =>
+          row({ id: `resident-${index}` as CandidateId, name: `r-${index}` }),
+        ),
+      );
+      const md = makeMdGenerator();
+      (md.promoteToActive as jest.Mock).mockImplementation(() => {
+        throw new Error('disk full');
+      });
+      const repropagation = { repropagate: jest.fn() };
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        md,
+        null,
+        null,
+        null,
+        null,
+        repropagation as never,
+      );
+      const decision =
+        mode === 'automatic'
+          ? await svc.evaluate('cand_test' as CandidateId, SETTINGS)
+          : await svc.promoteManually('cand_test' as CandidateId, SETTINGS, {
+              userInitiated: true,
+            });
+      expect(decision).toMatchObject({
+        promoted: false,
+        reason: 'write-failed',
+        candidate: { status: 'candidate' },
+      });
+      expect(store.updateStatus).not.toHaveBeenCalledWith(
+        'cand_test',
+        'promoted',
+        expect.anything(),
+      );
+      expect(decision.evictedSkillId).toBeUndefined();
+      expect(store.setResidency).not.toHaveBeenCalled();
+      expect(repropagation.repropagate).not.toHaveBeenCalled();
+    },
+  );
 
   /**
    * TASK_2026_437 C14, Batch 16b. A manual promote (RPC) hands its origin to
@@ -1036,7 +1278,7 @@ describe('SkillPromotionService', () => {
 
     it('forwards userInitiated from a manual promote', async () => {
       const { svc, judge } = withJudge();
-      await svc.evaluate('cand_test' as CandidateId, SETTINGS, undefined, {
+      await svc.promoteManually('cand_test' as CandidateId, SETTINGS, {
         userInitiated: true,
       });
       expect(judge.judge.mock.calls[0][5]).toEqual({ userInitiated: true });

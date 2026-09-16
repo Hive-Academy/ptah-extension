@@ -64,6 +64,7 @@ import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import { SkillCandidateStore } from './skill-candidate.store';
 import { SkillMdGenerator } from './skill-md-generator';
 import { SkillPromotionService } from './skill-promotion.service';
+import type { PromotionDecision } from './skill-promotion.service';
 import { SkillCuratorService } from './skill-curator.service';
 import {
   MIN_ROLE_TURNS_FLOOR,
@@ -87,6 +88,7 @@ import type {
   RegisterCandidateResult,
   SkillSynthesisSettings,
 } from './types';
+import { hasSessionWorkEvidence } from './eligibility/session-work-evidence';
 import type {
   EligibilityHistogram,
   SkillSynthesisEvent,
@@ -131,12 +133,10 @@ const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
   dedupCosineThreshold: 0.85,
   maxActiveSkills: 200,
   candidatesDir: '',
-  eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
   generalizationContextThreshold: 3,
   dedupClusterThreshold: 0.78,
   prefilterMinEdits: 1,
-  prefilterMinChars: 800,
   prefilterMinToolUses: 2,
   judgeEnabled: true,
   minJudgeScore: 6.0,
@@ -527,10 +527,9 @@ export class SkillSynthesisService {
       return null;
     }
 
-    // The extractor's own FLOOR, not the eligibility threshold. Enqueuing is
-    // free and a short session may grow, so this path asks only "is there a
-    // readable session here"; `settings.eligibilityMinTurns` is spent in
-    // `passesPrefilter`, where the decision to spend tokens is actually made.
+    // Enqueuing is free and a short session may grow, so extraction uses only
+    // the extractor's readable-session floor. Work evidence is checked later
+    // by `passesPrefilter`, before any tokens are spent.
     const trajectory = await this.extractor.extract(
       sessionId,
       workspaceRoot,
@@ -684,8 +683,8 @@ export class SkillSynthesisService {
       this.analyzedSessions.delete(sessionId);
     }
 
-    // Floor, not threshold — see `enqueueAnalyze`. `passesPrefilter` below is
-    // the one place `eligibilityMinTurns` is applied.
+    // Use the extractor's readability floor; `passesPrefilter` below applies
+    // the separate work-evidence gate before any tokens are spent.
     const trajectory = await this.extractor.extract(
       sessionId,
       workspaceRoot,
@@ -889,14 +888,6 @@ export class SkillSynthesisService {
       });
       return null;
     }
-    const contextId = workspaceRoot
-      ? crypto
-          .createHash('sha256')
-          .update(workspaceRoot)
-          .digest('hex')
-          .slice(0, 16)
-      : null;
-
     const result = this.store.registerCandidate({
       name: chosenSlug,
       description: candidateDescription,
@@ -909,20 +900,10 @@ export class SkillSynthesisService {
       // review queue to one project. `|| null` and never `|| ''`: a session
       // with no known root is UNKNOWN origin, which a scoped read includes,
       // whereas `''` would claim the capture is deliberately cross-project.
-      // This is the same root the `contextId` above is hashed from — that hash
-      // is a generality COUNT (`countDistinctContexts`) and cannot be reversed
-      // to a path, which is why the path is stored as well as hashed.
+      // Candidate creation records origin only; it does not fabricate an
+      // invocation or claim the skill succeeded in this session.
       workspaceRoot: workspaceRoot || null,
     });
-    if (!result.reused && contextId) {
-      this.store.recordInvocation({
-        skillId: result.candidate.id,
-        sessionId,
-        succeeded: true,
-        invokedAt: Date.now(),
-        contextId,
-      });
-    }
     this.logger.info('[skill-synthesis] candidate registered', {
       candidateId: result.candidate.id,
       slug: chosenSlug,
@@ -1142,42 +1123,8 @@ export class SkillSynthesisService {
   }
 
   /**
-   * ELIGIBILITY TO SPEND TOKENS. Nothing more (phase 2).
-   *
-   * This used to double as a quality verdict, and the two AND-ed halves of the
-   * tool branch are what made it one: a session was only worth keeping if it had
-   * been tool-active AND had produced a lot of text, which selects for work that
-   * went WELL. A session that fought its way to an answer — three failed
-   * attempts, a correction, then a fix — is the most valuable material the
-   * pipeline can get, and the whole point of the archaeologist's `frictionMap`
-   * is to capture it. It is also frequently SHORT, because a debugging loop is
-   * terse.
-   *
-   * So the branches are now independent signals of "there is something here",
-   * and any one of them is enough:
-   *
-   *  - `editOk`  — code changed hands.
-   *  - `toolOk`  — the assistant DID things. `prefilterMinChars` no longer
-   *                conjoins this, which is the widening: retries are tool calls,
-   *                and a friction-rich session is tool-dense before it is long.
-   *  - `testOk`  — a test command ran. NOT "tests passed" — the extractor cannot
-   *                know that, and pretending it does is the same regex-as-verdict
-   *                mistake `SUCCESS_MARKERS` was demoted for.
-   *  - `depthOk` — a sustained back-and-forth with real content in it. This is
-   *                where a corrective session with no edits lands: the user and
-   *                the assistant went round `eligibilityMinTurns` times, which is
-   *                friction by definition. `prefilterMinChars` conjoins HERE,
-   *                where "long conversation" needs to mean more than a dozen
-   *                one-word turns.
-   *
-   * Deliberately still a REJECTION, not a pass-through: the analyzer is the only
-   * stage that runs once per session and it dominates the token budget (R3). The
-   * regex gate keeps gating spend; it just stops pretending to judge outcomes.
-   *
-   * No branch below reads the extractor's tail-regex success flag, and none may
-   * start. `regex-demotion.spec.ts` proves that with a substring scan over
-   * production file text, so the field is not named here either — a scan cannot
-   * tell code from a comment about code.
+   * Eligibility to spend tokens. A readable session must contain observable
+   * workspace work; conversation length alone cannot admit it.
    */
   private passesPrefilter(
     trajectory: ExtractedTrajectory,
@@ -1186,13 +1133,7 @@ export class SkillSynthesisService {
     if (trajectory.turnCount < MIN_ROLE_TURNS_FLOOR) {
       return { ok: false, reason: 'tooThin' };
     }
-    const editOk = trajectory.editCount >= settings.prefilterMinEdits;
-    const toolOk = trajectory.toolUseCount >= settings.prefilterMinToolUses;
-    const testOk = trajectory.bashTestPassed === true;
-    const depthOk =
-      trajectory.turnCount >= settings.eligibilityMinTurns &&
-      trajectory.charLength >= settings.prefilterMinChars;
-    if (editOk || toolOk || testOk || depthOk) {
+    if (hasSessionWorkEvidence(trajectory, settings)) {
       return { ok: true };
     }
     return { ok: false, reason: 'noWork' };
@@ -1209,15 +1150,15 @@ export class SkillSynthesisService {
   /**
    * Manual promote (RPC `skillSynthesis:promote`). The RPC handler passes
    * `userInitiated: true` so the judge call skips the background governor.
+   * Manual path: the frequency threshold is not applied.
    */
   promote(
     candidateId: CandidateId,
     origin: QueryOrigin = {},
-  ): ReturnType<SkillPromotionService['evaluate']> {
-    return this.promotion.evaluate(
+  ): Promise<PromotionDecision> {
+    return this.promotion.promoteManually(
       candidateId,
       this.readSettings(),
-      undefined,
       origin,
     );
   }
@@ -1251,8 +1192,9 @@ export class SkillSynthesisService {
   }
 
   /**
-   * Bulk promote (RPC `skillSynthesis:promoteBulk`). Runs the promotion
-   * evaluation for each id and returns one decision per id (preserving order).
+   * Bulk promote (RPC `skillSynthesis:promoteBulk`). Runs the manual promotion
+   * path for each id and returns one decision per id (preserving order).
+   * Manual path: the frequency threshold is not applied.
    */
   async promoteBulk(
     ids: CandidateId[],
@@ -1265,7 +1207,7 @@ export class SkillSynthesisService {
     // another click queued meanwhile is admitted between two items (the
     // gate's drain is FIFO). Wizard calls on `default` never share this slot.
     for (const id of ids) {
-      const d = await this.promotion.evaluate(id, settings, undefined, origin);
+      const d = await this.promotion.promoteManually(id, settings, origin);
       decisions.push({
         id: id as string,
         promoted: d.promoted,
@@ -1331,6 +1273,12 @@ export class SkillSynthesisService {
         return fallback;
       }
     };
+    const getNonNegativeFiniteNumber = (key: string, fallback: number) => {
+      const value = get<unknown>(key, fallback);
+      return typeof value === 'number' && Number.isFinite(value) && value >= 0
+        ? value
+        : fallback;
+    };
     return {
       enabled: get('skillSynthesis.enabled', SETTINGS_DEFAULTS.enabled),
       successesToPromote: get(
@@ -1349,10 +1297,6 @@ export class SkillSynthesisService {
         'skillSynthesis.candidatesDir',
         SETTINGS_DEFAULTS.candidatesDir,
       ),
-      eligibilityMinTurns: get(
-        'skillSynthesis.eligibilityMinTurns',
-        SETTINGS_DEFAULTS.eligibilityMinTurns,
-      ),
       evictionDecayRate: get(
         'skillSynthesis.evictionDecayRate',
         SETTINGS_DEFAULTS.evictionDecayRate,
@@ -1365,15 +1309,11 @@ export class SkillSynthesisService {
         'skillSynthesis.dedupClusterThreshold',
         SETTINGS_DEFAULTS.dedupClusterThreshold,
       ),
-      prefilterMinEdits: get(
+      prefilterMinEdits: getNonNegativeFiniteNumber(
         'skillSynthesis.prefilterMinEdits',
         SETTINGS_DEFAULTS.prefilterMinEdits,
       ),
-      prefilterMinChars: get(
-        'skillSynthesis.prefilterMinChars',
-        SETTINGS_DEFAULTS.prefilterMinChars,
-      ),
-      prefilterMinToolUses: get(
+      prefilterMinToolUses: getNonNegativeFiniteNumber(
         'skillSynthesis.prefilterMinToolUses',
         SETTINGS_DEFAULTS.prefilterMinToolUses,
       ),

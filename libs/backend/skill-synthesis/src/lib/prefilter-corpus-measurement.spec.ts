@@ -15,20 +15,20 @@
  *
  * Run:
  *   PTAH_PREFILTER_CORPUS=1 npx jest --config libs/backend/skill-synthesis/jest.config.ts \
- *     -t 'prefilter widening' --runTestsByPath \
+ *     -t 'prefilter evidence narrowing' --runTestsByPath \
  *     libs/backend/skill-synthesis/src/lib/prefilter-corpus-measurement.spec.ts
  *
  * WHY THIS EXISTS
  * ---------------
- * Batch B2.4.3 (commit 34e5aac04) deliberately widened `passesPrefilter`, and
+ * Phase 3 removes the conversation-depth branch from `passesPrefilter`, and
  * prefilter success is what chains the nightly, token-spending `archaeology`
- * stage. This measures how many more sessions become eligible, using the REAL
+ * stage. This measures how many sessions stop being eligible, using the REAL
  * `TrajectoryExtractor` (so `editCount`/`toolUseCount`/`charLength`/`turnCount`
  * are the product's own numbers, not a reimplementation) and the REAL private
  * `passesPrefilter` on a real `SkillSynthesisService` instance.
  *
- * The OLD predicate is necessarily re-stated here — it no longer exists in the
- * tree. It is copied verbatim from the `-` side of the diff in 34e5aac04.
+ * The OLD phase-2 predicate is necessarily re-stated here because its depth
+ * branch no longer exists in production.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -53,25 +53,30 @@ const noopLogger = {
 };
 
 /** Production defaults — `FILE_BASED_SETTINGS_DEFAULTS` / `SETTINGS_DEFAULTS`. */
-const SETTINGS = {
+const OLD_SETTINGS = {
   eligibilityMinTurns: 5,
   prefilterMinEdits: 1,
   prefilterMinChars: 800,
   prefilterMinToolUses: 2,
+};
+
+const SETTINGS = {
+  prefilterMinEdits: OLD_SETTINGS.prefilterMinEdits,
+  prefilterMinToolUses: OLD_SETTINGS.prefilterMinToolUses,
 } as unknown as SkillSynthesisSettings;
 
 /**
- * The predicate as it stood BEFORE 34e5aac04. Verbatim from the diff's `-` side.
- * There is no way to call the real one; it was deleted.
+ * The phase-2 predicate, including its conversation-depth branch.
  */
 function passesPrefilterOld(t: ExtractedTrajectory): boolean {
-  if (t.turnCount < 2) return false;
-  const editOk = t.editCount >= SETTINGS.prefilterMinEdits;
-  const toolOk =
-    t.toolUseCount >= SETTINGS.prefilterMinToolUses &&
-    t.charLength >= SETTINGS.prefilterMinChars;
+  if (t.turnCount < MIN_ROLE_TURNS_FLOOR) return false;
+  const editOk = t.editCount >= OLD_SETTINGS.prefilterMinEdits;
+  const toolOk = t.toolUseCount >= OLD_SETTINGS.prefilterMinToolUses;
   const testOk = t.bashTestPassed === true;
-  return editOk || toolOk || testOk;
+  const depthOk =
+    t.turnCount >= OLD_SETTINGS.eligibilityMinTurns &&
+    t.charLength >= OLD_SETTINGS.prefilterMinChars;
+  return editOk || toolOk || testOk || depthOk;
 }
 
 function listJsonl(dir: string): string[] {
@@ -93,7 +98,7 @@ function listJsonl(dir: string): string[] {
   return out;
 }
 
-suite('prefilter widening — corpus measurement (opt-in)', () => {
+suite('prefilter evidence narrowing — corpus measurement (opt-in)', () => {
   jest.setTimeout(45 * 60_000);
 
   it('counts OLD vs NEW eligibility over ~/.claude/projects', async () => {
@@ -143,10 +148,7 @@ suite('prefilter widening — corpus measurement (opt-in)', () => {
     let nullTrajectory = 0;
     let oldEligible = 0;
     let newEligible = 0;
-    // Branch attribution for the NEWLY eligible only.
-    let newlyFromDepthOnly = 0;
-    let newlyFromToolConjunctDrop = 0;
-    let newlyFromBoth = 0;
+    let phase2DepthOnly = 0;
     const perWorkspace: Record<
       string,
       { files: number; extracted: number; old: number; new: number }
@@ -197,19 +199,8 @@ suite('prefilter widening — corpus measurement (opt-in)', () => {
           perWorkspace[ws].new++;
           perDayEligibleNew[day] = (perDayEligibleNew[day] ?? 0) + 1;
         }
-        if (!o && n) {
-          // Which NEW branch admitted it? `editOk`/`testOk` are unchanged, so a
-          // newly eligible row was admitted by the widened `toolOk`, by
-          // `depthOk`, or by both.
-          const toolNow =
-            t.toolUseCount >= SETTINGS.prefilterMinToolUses &&
-            t.charLength < SETTINGS.prefilterMinChars;
-          const depth =
-            t.turnCount >= SETTINGS.eligibilityMinTurns &&
-            t.charLength >= SETTINGS.prefilterMinChars;
-          if (toolNow && depth) newlyFromBoth++;
-          else if (toolNow) newlyFromToolConjunctDrop++;
-          else if (depth) newlyFromDepthOnly++;
+        if (o && !n) {
+          phase2DepthOnly++;
         }
       }
     }
@@ -226,16 +217,14 @@ suite('prefilter widening — corpus measurement (opt-in)', () => {
       scanned,
       nullTrajectory,
       extracted: scanned - nullTrajectory,
-      oldEligible,
-      newEligible,
-      multiplier:
+      phase2Eligible: oldEligible,
+      phase3Eligible: newEligible,
+      retainedFraction:
         oldEligible === 0 ? null : +(newEligible / oldEligible).toFixed(3),
-      newlyEligible: newEligible - oldEligible,
-      newlyFromDepthOnly,
-      newlyFromToolConjunctDrop,
-      newlyFromBoth,
-      oldRate: pct(oldEligible, scanned - nullTrajectory),
-      newRate: pct(newEligible, scanned - nullTrajectory),
+      removedFromEligibility: oldEligible - newEligible,
+      phase2DepthOnly,
+      phase2Rate: pct(oldEligible, scanned - nullTrajectory),
+      phase3Rate: pct(newEligible, scanned - nullTrajectory),
       charLength: {
         p50: quantile(charLengths, 0.5),
         p90: quantile(charLengths, 0.9),
@@ -256,7 +245,6 @@ suite('prefilter widening — corpus measurement (opt-in)', () => {
       perDayEligibleNew,
     };
 
-    // eslint-disable-next-line no-console -- measurement harness, opt-in only
     console.log('PREFILTER_CORPUS_REPORT ' + JSON.stringify(report, null, 2));
     expect(scanned).toBeGreaterThan(0);
   });

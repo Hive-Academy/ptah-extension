@@ -111,18 +111,7 @@ describe('SkillSynthesisService', () => {
         reused: false,
       })),
       updateStatus: jest.fn(() => fakeRow({ status: 'rejected' })),
-      recordInvocation: jest.fn(() => ({
-        invocation: {
-          id: 'inv_1',
-          skillId: 'cand_existing',
-          sessionId: 's1',
-          succeeded: true,
-          invokedAt: 1,
-          notes: null,
-          contextId: 'ctx_1',
-        },
-        candidate: fakeRow(),
-      })),
+      recordInvocation: jest.fn(),
       getDominantSkillSlugForSessions: jest.fn(() => opts.dominantSlug ?? null),
       // Per-session supersession. `null` by default: almost every case here is
       // a session being analyzed for the first time.
@@ -146,6 +135,11 @@ describe('SkillSynthesisService', () => {
     } as unknown as jest.Mocked<SkillMdGenerator>;
     const promotion = {
       evaluate: jest.fn(() => ({
+        promoted: true,
+        reason: 'promoted',
+        candidate: fakeRow({ status: 'promoted' }),
+      })),
+      promoteManually: jest.fn(() => ({
         promoted: true,
         reason: 'promoted',
         candidate: fakeRow({ status: 'promoted' }),
@@ -336,6 +330,7 @@ describe('SkillSynthesisService', () => {
     expect(store.registerCandidate).toHaveBeenCalledWith(
       expect.objectContaining({ embedding: embedVec }),
     );
+    expect(store.recordInvocation).not.toHaveBeenCalled();
   });
 
   it('analyzeSession() continues without embedding when the embedder throws', async () => {
@@ -357,29 +352,31 @@ describe('SkillSynthesisService', () => {
   it('promote() delegates to the promotion service with current settings', () => {
     const { svc, promotion } = setup();
     svc.promote('cand_x' as CandidateId);
-    expect(promotion.evaluate).toHaveBeenCalledWith(
+    expect(promotion.promoteManually).toHaveBeenCalledWith(
       'cand_x',
       expect.objectContaining({ enabled: true, successesToPromote: 3 }),
-      // nowFn stays unset — the promotion service handles its own default.
-      undefined,
       {},
     );
+    expect(promotion.evaluate).not.toHaveBeenCalled();
   });
 
   it('promote() and promoteBulk() forward the RPC origin to every evaluation (C14)', async () => {
     const { svc, promotion } = setup();
-    (promotion.evaluate as jest.Mock).mockResolvedValue({ promoted: false });
+    (promotion.promoteManually as jest.Mock).mockResolvedValue({
+      promoted: false,
+    });
 
     await svc.promote('cand_x' as CandidateId, { userInitiated: true });
     await svc.promoteBulk(['cand_a', 'cand_b'] as CandidateId[], {
       userInitiated: true,
     });
 
-    const calls = (promotion.evaluate as jest.Mock).mock.calls;
+    const calls = (promotion.promoteManually as jest.Mock).mock.calls;
     expect(calls).toHaveLength(3);
     for (const call of calls) {
-      expect(call[3]).toEqual({ userInitiated: true });
+      expect(call[2]).toEqual({ userInitiated: true });
     }
+    expect(promotion.evaluate).not.toHaveBeenCalled();
   });
 
   it('reject() flips the candidate to rejected with the supplied reason', () => {
@@ -495,8 +492,8 @@ describe('SkillSynthesisService', () => {
    * `frictionMap` exists to capture exactly it — and it was being dropped before
    * a single token was spent.
    *
-   * Each case below is a session that today's gate REJECTS and phase 2 accepts,
-   * paired with a rejection that must survive the widening.
+   * Each accepted case contains observable workspace work. Conversation length
+   * alone is deliberately rejected.
    */
   describe('prefilter widening (B2.4.3)', () => {
     function shape(overrides: Record<string, unknown>) {
@@ -532,10 +529,7 @@ describe('SkillSynthesisService', () => {
       expect(svc.getEligibilityHistogram().accepted).toBe(1);
     });
 
-    it('accepts a long corrective conversation with no edits and no tools', async () => {
-      // Eight turns of back-and-forth, 900 characters, nothing written to disk.
-      // This is a session where the user corrected the assistant repeatedly —
-      // friction by definition — and it had no branch at all before phase 2.
+    it('rejects a long corrective conversation with no edits and no tools', async () => {
       const { svc, store, extractor } = setup();
       await svc.start();
       (extractor.extract as jest.Mock).mockResolvedValue(
@@ -544,14 +538,12 @@ describe('SkillSynthesisService', () => {
 
       const result = await svc.analyzeSession('s-corrective', '/repo');
 
-      expect(result?.reused).toBe(false);
-      expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+      expect(result).toBeNull();
+      expect(store.registerCandidate).not.toHaveBeenCalled();
+      expect(svc.getEligibilityHistogram().prefilterRejected).toBe(1);
     });
 
     it('still rejects a session with nothing in it', async () => {
-      // The widening is a widening, not a removal — the analyzer is the only
-      // stage that runs once per session (R3) and the gate still has to bound
-      // what it costs.
       const { svc, store, extractor } = setup();
       await svc.start();
       (extractor.extract as jest.Mock).mockResolvedValue(
@@ -563,16 +555,38 @@ describe('SkillSynthesisService', () => {
       expect(svc.getEligibilityHistogram().prefilterRejected).toBe(1);
     });
 
-    it('rejects a long conversation that is all one-word turns', async () => {
-      // `eligibilityMinTurns` alone would let "ok / ok / ok / ok / ok" through.
-      // The depth branch conjoins `prefilterMinChars` for exactly this.
-      const { svc, extractor } = setup();
+    it('accepts edit evidence alone', async () => {
+      const { svc, store, extractor } = setup();
       await svc.start();
       (extractor.extract as jest.Mock).mockResolvedValue(
-        shape({ turnCount: 9, sessionTurnCount: 9, charLength: 60 }),
+        shape({ editCount: 1 }),
       );
 
-      expect(await svc.analyzeSession('s-chatter', '/repo')).toBeNull();
+      expect(await svc.analyzeSession('s-edit', '/repo')).not.toBeNull();
+      expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+    });
+
+    it('accepts test-command evidence alone', async () => {
+      const { svc, store, extractor } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(
+        shape({ bashTestPassed: true }),
+      );
+
+      expect(await svc.analyzeSession('s-test', '/repo')).not.toBeNull();
+      expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+    });
+
+    it('still rejects a work-bearing session below the role-turn floor', async () => {
+      const { svc, store, extractor } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(
+        shape({ turnCount: 1, sessionTurnCount: 1, editCount: 1 }),
+      );
+
+      expect(await svc.analyzeSession('s-too-thin', '/repo')).toBeNull();
+      expect(store.registerCandidate).not.toHaveBeenCalled();
+      expect(svc.getEligibilityHistogram().prefilterTooThin).toBe(1);
     });
   });
 
@@ -831,12 +845,10 @@ describe('SkillSynthesisService', () => {
       dedupCosineThreshold: 0.85,
       maxActiveSkills: 200,
       candidatesDir: '',
-      eligibilityMinTurns: 5,
       evictionDecayRate: 0.95,
       generalizationContextThreshold: 3,
       dedupClusterThreshold: 0.78,
       prefilterMinEdits: 1,
-      prefilterMinChars: 800,
       prefilterMinToolUses: 2,
       judgeEnabled: true,
       minJudgeScore: 6.0,
@@ -847,6 +859,34 @@ describe('SkillSynthesisService', () => {
       suggestionMinClusterSize: 2,
       suggestionMaxCandidates: 200,
     });
+  });
+
+  it('falls back from a non-numeric prefilter threshold and still accepts edit evidence', async () => {
+    const { svc, workspaceProvider, extractor, store } = setup();
+    (workspaceProvider.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, fallback: unknown) =>
+        key === 'skillSynthesis.prefilterMinEdits' ? 'one' : fallback,
+    );
+    (extractor.extract as jest.Mock).mockResolvedValue({
+      hash: 'edit-hash',
+      canonicalText: 'edited a file',
+      turnCount: 2,
+      sessionTurnCount: 2,
+      shortDescription: 'edit',
+      slug: 'edit',
+      editCount: 1,
+      toolUseCount: 0,
+      bashTestPassed: false,
+      charLength: 13,
+      hasSuccessMarker: false,
+    });
+
+    expect(svc.readSettings().prefilterMinEdits).toBe(1);
+    await svc.start();
+    expect(
+      await svc.analyzeSession('s-invalid-setting', '/repo'),
+    ).not.toBeNull();
+    expect(store.registerCandidate).toHaveBeenCalledTimes(1);
   });
 
   /**
