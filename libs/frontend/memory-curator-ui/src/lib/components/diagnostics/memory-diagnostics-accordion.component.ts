@@ -58,12 +58,6 @@ import { EventFeedComponent } from './event-feed.component';
             {{ lastRunLabel() }}
           </div>
         </div>
-        <div class="rounded-xl border border-base-300 bg-base-200/40 px-4 py-3">
-          <div class="text-xs text-base-content-muted">Last decay sweep</div>
-          <div class="mt-1 text-sm" data-testid="last-decay-run">
-            {{ lastDecayLabel() }}
-          </div>
-        </div>
       </section>
 
       <section class="rounded-xl border border-base-300 bg-base-200/40">
@@ -223,7 +217,6 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
 
   protected readonly triggers = this.state.triggers;
   protected readonly lastRun = this.state.lastRun;
-  protected readonly lastDecay = this.state.lastDecay;
   protected readonly recentEvents = this.state.recentEvents;
   protected readonly dbHealth = this.state.dbHealth;
   protected readonly storage = this.state.storage;
@@ -239,10 +232,6 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
   protected readonly lastRunLabel = computed(() =>
     formatSnapshot(this.lastRun()),
   );
-  protected readonly lastDecayLabel = computed(() =>
-    formatSnapshot(this.lastDecay()),
-  );
-
   protected readonly cueListText = computed<string>(() => {
     const cues = this.triggers()?.userPromptSubmit?.cueList ?? [];
     return cues.join('\n');

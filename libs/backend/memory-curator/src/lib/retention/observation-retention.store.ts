@@ -126,12 +126,18 @@ const WRITE_RUN_SQL = `INSERT INTO memory_retention_state
   (id, last_started_at, last_finished_at, last_outcome, last_reason, last_error,
    last_duration_ms, processed_purged, stuck_quarantined, ledger_pruned,
    freed_bytes, pages_reclaimed, backlog_remaining, last_completed_at,
-   processed_rows_after, avg_processed_row_bytes)
+   processed_rows_after, avg_processed_row_bytes, memories_archived,
+   memories_deleted, memories_evicted, lifecycle_note, preview_measured_at,
+   preview_for_run_at, preview_archive_eligible, preview_delete_eligible,
+   preview_over_cap)
 VALUES
   (1, @startedAt, @finishedAt, @outcome, @reason, @error,
    @durationMs, @processedPurged, @stuckQuarantined, @ledgerPruned,
    @freedBytes, @pagesReclaimed, @backlogRemaining, @completedAt,
-   @processedRowsAfter, @avgProcessedRowBytes)
+   @processedRowsAfter, @avgProcessedRowBytes, @memoriesArchived,
+   @memoriesDeleted, @memoriesEvicted, @lifecycleNote, @previewMeasuredAt,
+   @previewForRunAt, @previewArchiveEligible, @previewDeleteEligible,
+   @previewOverCap)
 ON CONFLICT(id) DO UPDATE SET
   last_started_at         = excluded.last_started_at,
   last_finished_at        = excluded.last_finished_at,
@@ -147,7 +153,16 @@ ON CONFLICT(id) DO UPDATE SET
   backlog_remaining       = excluded.backlog_remaining,
   last_completed_at       = COALESCE(excluded.last_completed_at, last_completed_at),
   processed_rows_after    = excluded.processed_rows_after,
-  avg_processed_row_bytes = COALESCE(excluded.avg_processed_row_bytes, avg_processed_row_bytes)`;
+  avg_processed_row_bytes = COALESCE(excluded.avg_processed_row_bytes, avg_processed_row_bytes),
+  memories_archived        = excluded.memories_archived,
+  memories_deleted         = excluded.memories_deleted,
+  memories_evicted         = excluded.memories_evicted,
+  lifecycle_note           = excluded.lifecycle_note,
+  preview_measured_at      = COALESCE(excluded.preview_measured_at, preview_measured_at),
+  preview_for_run_at       = COALESCE(excluded.preview_for_run_at, preview_for_run_at),
+  preview_archive_eligible = COALESCE(excluded.preview_archive_eligible, preview_archive_eligible),
+  preview_delete_eligible  = COALESCE(excluded.preview_delete_eligible, preview_delete_eligible),
+  preview_over_cap         = COALESCE(excluded.preview_over_cap, preview_over_cap)`;
 
 const WRITE_SKIP_SQL = `INSERT INTO memory_retention_state (id, last_skipped_at, last_skip_reason)
 VALUES (1, @at, @reason)
@@ -241,6 +256,15 @@ export interface RetentionState {
   readonly lastCompletedAt: number | null;
   readonly processedRowsAfter: number | null;
   readonly avgProcessedRowBytes: number | null;
+  readonly memoriesArchived: number;
+  readonly memoriesDeleted: number;
+  readonly memoriesEvicted: number;
+  readonly lifecycleNote: 'disabled' | 'vec-unavailable' | null;
+  readonly previewMeasuredAt: number | null;
+  readonly previewForRunAt: number | null;
+  readonly previewArchiveEligible: number | null;
+  readonly previewDeleteEligible: number | null;
+  readonly previewOverCap: number | null;
   readonly lastSkippedAt: number | null;
   readonly lastSkipReason: string | null;
 }
@@ -263,6 +287,18 @@ export interface RetentionRunRecord {
   readonly processedRowsAfter: number | null;
   /** `null` keeps the previous value. */
   readonly avgProcessedRowBytes: number | null;
+  readonly memoriesArchived: number;
+  readonly memoriesDeleted: number;
+  readonly memoriesEvicted: number;
+  readonly lifecycleNote: 'disabled' | 'vec-unavailable' | null;
+  /** A null preview keeps every previous preview column. */
+  readonly preview: {
+    readonly measuredAt: number;
+    readonly forRunAt: number;
+    readonly archiveEligible: number | null;
+    readonly deleteEligible: number | null;
+    readonly overCap: number | null;
+  } | null;
 }
 
 interface StateDbRow {
@@ -281,6 +317,15 @@ interface StateDbRow {
   last_completed_at: number | null;
   processed_rows_after: number | null;
   avg_processed_row_bytes: number | null;
+  memories_archived: number;
+  memories_deleted: number;
+  memories_evicted: number;
+  lifecycle_note: 'disabled' | 'vec-unavailable' | null;
+  preview_measured_at: number | null;
+  preview_for_run_at: number | null;
+  preview_archive_eligible: number | null;
+  preview_delete_eligible: number | null;
+  preview_over_cap: number | null;
   last_skipped_at: number | null;
   last_skip_reason: string | null;
 }
@@ -530,6 +575,15 @@ export class ObservationRetentionStore {
       lastCompletedAt: toNumberOrNull(row.last_completed_at),
       processedRowsAfter: toNumberOrNull(row.processed_rows_after),
       avgProcessedRowBytes: toNumberOrNull(row.avg_processed_row_bytes),
+      memoriesArchived: Number(row.memories_archived),
+      memoriesDeleted: Number(row.memories_deleted),
+      memoriesEvicted: Number(row.memories_evicted),
+      lifecycleNote: row.lifecycle_note,
+      previewMeasuredAt: toNumberOrNull(row.preview_measured_at),
+      previewForRunAt: toNumberOrNull(row.preview_for_run_at),
+      previewArchiveEligible: toNumberOrNull(row.preview_archive_eligible),
+      previewDeleteEligible: toNumberOrNull(row.preview_delete_eligible),
+      previewOverCap: toNumberOrNull(row.preview_over_cap),
       lastSkippedAt: toNumberOrNull(row.last_skipped_at),
       lastSkipReason: row.last_skip_reason,
     };
@@ -554,6 +608,15 @@ export class ObservationRetentionStore {
       completedAt: record.completedAt,
       processedRowsAfter: record.processedRowsAfter,
       avgProcessedRowBytes: record.avgProcessedRowBytes,
+      memoriesArchived: record.memoriesArchived,
+      memoriesDeleted: record.memoriesDeleted,
+      memoriesEvicted: record.memoriesEvicted,
+      lifecycleNote: record.lifecycleNote,
+      previewMeasuredAt: record.preview?.measuredAt ?? null,
+      previewForRunAt: record.preview?.forRunAt ?? null,
+      previewArchiveEligible: record.preview?.archiveEligible ?? null,
+      previewDeleteEligible: record.preview?.deleteEligible ?? null,
+      previewOverCap: record.preview?.overCap ?? null,
     });
   }
 

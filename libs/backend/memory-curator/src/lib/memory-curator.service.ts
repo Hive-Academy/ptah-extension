@@ -31,7 +31,7 @@ import {
 import { blankToUndefined } from '@ptah-extension/shared';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
-import { SalienceScorer } from './salience-scorer';
+import { baseSalience } from './salience-ranking';
 import type {
   ICuratorLLM,
   CuratorCallOptions,
@@ -55,7 +55,7 @@ import {
 } from './curator-llm/queue-slot-timeout';
 import type { CuratorWindow } from './curator-llm/transcript-windows';
 import { memoryId, type MemoryTier } from './memory.types';
-import type { MemoryCuratorEvent, MemoryDecayStats } from './diagnostics.types';
+import type { MemoryCuratorEvent } from './diagnostics.types';
 import type { CorpusStore } from './knowledge-agents/corpus.store';
 import type { KnowledgeAgentService } from './knowledge-agents/knowledge-agent.service';
 
@@ -174,8 +174,6 @@ export class MemoryCuratorService {
     @inject(MEMORY_CONTRACT_TOKENS.COMPACTION_CALLBACK_REGISTRY)
     private readonly registry: ICompactionCallbackRegistry,
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
-    @inject(MEMORY_TOKENS.MEMORY_SALIENCE_SCORER)
-    private readonly scorer: SalienceScorer,
     @inject(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER)
     private readonly transcriptReader: ITranscriptReader,
     @inject(MEMORY_TOKENS.CURATOR_LLM) private readonly llm: ICuratorLLM,
@@ -287,15 +285,6 @@ export class MemoryCuratorService {
    */
   networkDeferralMs(): number {
     return this.admission.networkDeferralMs(false);
-  }
-
-  /**
-   * Public hook for {@link MemoryDecayJob} to push a `decay-run` event into
-   * this service's ring buffer. Kept narrow so callers cannot forge other
-   * event kinds via the public surface.
-   */
-  recordDecayEvent(stats: MemoryDecayStats, timestamp = Date.now()): void {
-    this.pushEvent({ kind: 'decay-run', timestamp, stats: { ...stats } });
   }
 
   /** Stop listening. Safe to call multiple times. */
@@ -657,8 +646,6 @@ export class MemoryCuratorService {
     let merged = 0;
     let created = 0;
     let skipped = 0;
-    const now = Date.now();
-
     for (const r of resolved) {
       try {
         if (r.mergeTargetId) {
@@ -671,31 +658,14 @@ export class MemoryCuratorService {
                 tokenCount: this.estimateTokens(r.content),
               },
             ]);
-            const newSalience = this.scorer.score({
-              base: Math.max(target.salience, r.salienceHint),
-              tier: target.tier,
-              pinned: target.pinned,
-              hits: target.hits,
-              lastUsedAt: now,
-              now,
-            });
-            this.store.updateSalience(target.id, newSalience);
             merged++;
             continue;
           }
         }
-        const baseSalience = Math.min(
-          1,
-          r.salienceHint + (input.salienceBoost ?? 0),
+        const memorySalience = baseSalience(
+          r.salienceHint,
+          input.salienceBoost,
         );
-        const memorySalience = this.scorer.score({
-          base: baseSalience,
-          tier,
-          pinned: false,
-          hits: 0,
-          lastUsedAt: now,
-          now,
-        });
         await this.store.insertMemoryWithChunks(
           {
             sessionId: input.sessionId,

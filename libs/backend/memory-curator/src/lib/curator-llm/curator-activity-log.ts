@@ -4,7 +4,7 @@
  * Extracted from {@link MemoryCuratorService} under the facade rule
  * (TASK_2026_437 C14 f, FU-16b-b): the service keeps its name, its DI token and
  * every public signature (`pushEvent`, `onEvent`, `recentEvents`,
- * `lastRunInfo`, `recordDecayEvent`) and delegates them here. This file owns
+ * `lastRunInfo`) and delegates them here. This file owns
  * the one concern those methods and the pass-outcome recorders share: the
  * event ring buffer the Activity surface reads and the last-run cache the
  * diagnostics panel reads.

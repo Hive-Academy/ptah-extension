@@ -15,6 +15,10 @@ import {
   MEMORY_TOKENS,
   type MemorySearchService,
 } from '@ptah-extension/memory-curator';
+import {
+  MEMORY_CONTRACT_TOKENS,
+  type IMemoryUsageRecorder,
+} from '@ptah-extension/memory-contracts';
 import type {
   MemSearchIndexParams,
   MemSearchIndexResult,
@@ -44,6 +48,8 @@ export class MemRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(MEMORY_TOKENS.MEMORY_SEARCH)
     private readonly search: MemorySearchService,
+    @inject(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER)
+    private readonly usageRecorder: IMemoryUsageRecorder,
   ) {}
 
   register(): void {
@@ -146,6 +152,14 @@ export class MemRpcHandlers {
             ids: validated.ids,
             includeQueueRows: validated.includeQueueRows,
           });
+          try {
+            this.usageRecorder.recordUse(r.memories.map((memory) => memory.id));
+          } catch (error: unknown) {
+            // degradation-audit: reported - usage recording is best-effort and must not change the RPC read result
+            this.logger.warn('[mem] failed to record memory use', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
           return {
             memories: r.memories,
             observationsBySession: r.observationsBySession,

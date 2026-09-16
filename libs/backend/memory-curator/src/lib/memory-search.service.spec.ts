@@ -113,7 +113,7 @@ function makeConnection(): SqliteConnectionService {
 function makeStore(writeCounter = 0): MemoryStore {
   return {
     getById: jest.fn(() => undefined),
-    recordHit: jest.fn(),
+    recordUse: jest.fn(),
     getWriteCounter: jest.fn(() => writeCounter),
   } as unknown as MemoryStore;
 }
@@ -162,7 +162,12 @@ function makeServiceWithReranker(options: {
     created_at: number;
   }>;
   memoryLookup?: (id: string) => unknown;
-}): { service: MemorySearchService; rerankMock: jest.Mock; logger: Logger } {
+}): {
+  service: MemorySearchService;
+  rerankMock: jest.Mock;
+  logger: Logger;
+  store: MemoryStore;
+} {
   const rerankMock = options.rerankImpl ?? jest.fn(async () => []);
   const workerClient = makeWorkerClient(rerankMock);
   const logger = makeLogger();
@@ -182,7 +187,7 @@ function makeServiceWithReranker(options: {
     getById: memoryLookup
       ? jest.fn((id) => memoryLookup(String(id)))
       : jest.fn(() => undefined),
-    recordHit: jest.fn(),
+    recordUse: jest.fn(),
     getWriteCounter: jest.fn(() => 0),
   } as unknown as MemoryStore;
 
@@ -194,7 +199,7 @@ function makeServiceWithReranker(options: {
     makeObservationQueue(),
     makeVecStatus(false),
   );
-  return { service, rerankMock, logger };
+  return { service, rerankMock, logger, store };
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +277,26 @@ describe('MemorySearchService.searchRich — reranker (R1)', () => {
     await service.searchRich('test query', 4);
 
     expect(rerankMock).not.toHaveBeenCalled();
+  });
+
+  it('returns at most topK without a reranker and performs no store write', async () => {
+    const rows = [1, 2, 3, 4].map((i) => ftsRow(i, `text ${i}`));
+    const { service, store } = makeServiceWithReranker({
+      rows,
+      memoryLookup: (id) => ({
+        id,
+        subject: id,
+        content: id,
+        tier: 'recall',
+      }),
+    });
+
+    const first = await service.searchRich('test query', 2);
+    const cached = await service.searchRich('test query', 2);
+
+    expect(first.hits).toHaveLength(2);
+    expect(cached.hits).toHaveLength(2);
+    expect(store.recordUse).not.toHaveBeenCalled();
   });
 
   it('worker rerank error => falls back to RRF order, search resolves', async () => {
@@ -388,7 +413,7 @@ describe('MemorySearchService.searchRich — reranker (R1)', () => {
     const embedder = makeEmbedder(); // plain IEmbedder — no rerank()
     const store: MemoryStore = {
       getById: jest.fn(() => undefined),
-      recordHit: jest.fn(),
+      recordUse: jest.fn(),
       getWriteCounter: jest.fn(() => 0),
     } as unknown as MemoryStore;
 
@@ -440,7 +465,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
     const counterRef = opts.writeCounter ?? { value: 0 };
     const rows = opts.rows ?? [];
     const allMock = jest.fn(() => rows);
-    const prepareMock = jest.fn(() => ({ all: allMock }));
+    const prepareMock = jest.fn((_sql: string) => ({ all: allMock }));
     const connection: SqliteConnectionService = {
       vecExtensionLoaded: false,
       db: { prepare: prepareMock },
@@ -451,7 +476,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
       getById: memoryLookup
         ? jest.fn((id) => memoryLookup(String(id)))
         : jest.fn(() => undefined),
-      recordHit: jest.fn(),
+      recordUse: jest.fn(),
       getWriteCounter: jest.fn(() => counterRef.value),
     } as unknown as MemoryStore;
 
@@ -488,7 +513,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
     const logger = makeLogger();
     const store: MemoryStore = {
       getById: jest.fn(() => undefined),
-      recordHit: jest.fn(),
+      recordUse: jest.fn(),
       getWriteCounter: jest.fn(() => counterRef.value),
     } as unknown as MemoryStore;
 
@@ -521,7 +546,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
     } as unknown as SqliteConnectionService;
     const store: MemoryStore = {
       getById: jest.fn(() => undefined),
-      recordHit: jest.fn(),
+      recordUse: jest.fn(),
       getWriteCounter: jest.fn(() => counterRef.value),
     } as unknown as MemoryStore;
     const service = new MemorySearchService(
@@ -557,7 +582,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
     } as unknown as SqliteConnectionService;
     const store: MemoryStore = {
       getById: jest.fn(() => undefined),
-      recordHit: jest.fn(),
+      recordUse: jest.fn(),
       getWriteCounter: jest.fn(() => 0),
     } as unknown as MemoryStore;
     const service = new MemorySearchService(
@@ -775,7 +800,7 @@ describe('MemorySearchService — workspaceRoot filtering', () => {
     } as unknown as SqliteConnectionService;
     const store: MemoryStore = {
       getById: jest.fn(() => undefined),
-      recordHit: jest.fn(),
+      recordUse: jest.fn(),
       getWriteCounter: jest.fn(() => 0),
     } as unknown as MemoryStore;
     const service = new MemorySearchService(
@@ -946,10 +971,11 @@ describe('MemorySearchService — Porter stemming integration (skipped without n
 describe('MemorySearchService.searchIndex — empty query (pure-filter)', () => {
   function makeServiceForFilter(rows: Array<Record<string, unknown>>) {
     const allMock = jest.fn(() => rows);
+    const prepareMock = jest.fn((_sql: string) => ({ all: allMock }));
     const connection: SqliteConnectionService = {
       vecExtensionLoaded: false,
       db: {
-        prepare: jest.fn(() => ({ all: allMock })),
+        prepare: prepareMock,
       },
     } as unknown as SqliteConnectionService;
     const service = new MemorySearchService(
@@ -960,7 +986,7 @@ describe('MemorySearchService.searchIndex — empty query (pure-filter)', () => 
       makeObservationQueue(),
       makeVecStatus(false),
     );
-    return { service, allMock };
+    return { service, allMock, prepareMock };
   }
 
   it('returns compact rows with NO content field and bm25Only=true', async () => {
@@ -1001,6 +1027,19 @@ describe('MemorySearchService.searchIndex — empty query (pure-filter)', () => 
     expect(r.rows[0].concepts).toEqual([]);
     expect(r.rows[0].files).toEqual([]);
     expect(r.rows[0].type).toBe('discovery');
+  });
+
+  it('orders by ranking salience and binds rank time before the limit', async () => {
+    const { service, allMock, prepareMock } = makeServiceForFilter([]);
+    await service.searchIndex({ topK: 7, workspaceRoot: '/ws' });
+    expect(prepareMock.mock.calls[0]?.[0]).toContain(
+      '604800000.0 + MAX(0, ? - m.last_used_at)',
+    );
+    expect(allMock).toHaveBeenCalledWith(
+      '/ws',
+      expect.any(Number),
+      7,
+    );
   });
 });
 

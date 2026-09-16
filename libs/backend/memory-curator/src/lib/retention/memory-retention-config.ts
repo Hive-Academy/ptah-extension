@@ -53,6 +53,16 @@ export const DAY_MS = 86_400_000;
 
 /** Both row steps combined, per run. */
 export const RETENTION_MAX_ROWS_PER_RUN = 50_000;
+/** Archive, age-delete and cap-eviction rows combined, per run. */
+export const RETENTION_MAX_MEMORY_ROWS_PER_RUN = 25_000;
+/**
+ * Initial batch size for deletes that fan out through FTS and vec triggers.
+ * 100 from the TASK_2026_443 cap-eviction sweep: 200 reached max 133-1730 ms
+ * on a 1.18 GB file; 100 passed the 120 ms bound.
+ */
+export const RETENTION_MEMORY_DELETE_BATCH_SIZE = 100;
+/** Newly archived rows remain protected from cap eviction for seven days. */
+export const RETENTION_CAP_EVICTION_GRACE_MS = 7 * DAY_MS;
 /** Wall clock per run, yields included. */
 export const RETENTION_MAX_RUN_MS = 60_000;
 /** A batch or reclaim step slower than this halves its size for the rest of the run. */
@@ -83,6 +93,9 @@ export const RETENTION_FOREGROUND_BACKOFF_MS = 5 * 60 * 1000;
 
 export interface MemoryRetentionLimits {
   readonly maxRowsPerRun: number;
+  readonly maxMemoryRowsPerRun: number;
+  readonly memoryDeleteBatchSize: number;
+  readonly capEvictionGraceMs: number;
   readonly maxRunMs: number;
   readonly slowCallMs: number;
   readonly minBatchSize: number;
@@ -98,6 +111,9 @@ export interface MemoryRetentionLimits {
 
 export const MEMORY_RETENTION_LIMITS: MemoryRetentionLimits = Object.freeze({
   maxRowsPerRun: RETENTION_MAX_ROWS_PER_RUN,
+  maxMemoryRowsPerRun: RETENTION_MAX_MEMORY_ROWS_PER_RUN,
+  memoryDeleteBatchSize: RETENTION_MEMORY_DELETE_BATCH_SIZE,
+  capEvictionGraceMs: RETENTION_CAP_EVICTION_GRACE_MS,
   maxRunMs: RETENTION_MAX_RUN_MS,
   slowCallMs: RETENTION_SLOW_CALL_MS,
   minBatchSize: RETENTION_MIN_BATCH_SIZE,

@@ -33,6 +33,7 @@ export type RetentionStopReason =
   | 'foreground-active'
   | 'time-budget'
   | 'row-budget'
+  | 'memory-row-budget'
   | 'reclaim-budget'
   | 'reclaim-stalled'
   | 'database-busy'
@@ -67,6 +68,10 @@ export interface MemoryRetentionRunReport {
   /** Freelist growth caused by the processed purge, in bytes. */
   readonly freedBytes: number;
   readonly pagesReclaimed: number;
+  readonly memoriesArchived: number;
+  readonly memoriesDeleted: number;
+  readonly memoriesEvicted: number;
+  readonly lifecycleNote: 'disabled' | 'vec-unavailable' | null;
   /** `true` unless `completed` — the next hourly tick is then due. */
   readonly backlogRemaining: boolean;
   readonly durationMs: number;

@@ -27,10 +27,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     at: 1_700_000_000_000,
     stats: { promoted: 3 },
   });
-  const lastDecay = signal<{
-    at: number;
-    stats: Record<string, number> | null;
-  } | null>(null);
   const recentEvents = signal<readonly MemoryCuratorEventWire[]>([]);
   const dbHealth = signal<MemoryDbHealthDto | null>({
     memories: 10,
@@ -62,7 +58,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
       bootScan: true,
     });
     lastRun.set({ at: 1_700_000_000_000, stats: { promoted: 3 } });
-    lastDecay.set(null);
     recentEvents.set([]);
     dbHealth.set({
       memories: 10,
@@ -96,7 +91,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
           useValue: {
             triggers,
             lastRun,
-            lastDecay,
             recentEvents,
             dbHealth,
             storage,
@@ -118,7 +112,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     }).compileComponents();
   });
 
-  it('renders the seven panels when state is fully loaded', () => {
+  it('renders the diagnostics panels without the removed decay tile', () => {
     const fixture = TestBed.createComponent(
       MemoryDiagnosticsAccordionComponent,
     );
@@ -128,7 +122,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     expect(
       root.querySelector('[data-testid="last-curator-run"]'),
     ).not.toBeNull();
-    expect(root.querySelector('[data-testid="last-decay-run"]')).not.toBeNull();
     expect(root.textContent ?? '').toContain('Triggers');
     expect(root.textContent ?? '').toContain('Recent events');
     expect(root.textContent ?? '').toContain('DB Health');
@@ -165,6 +158,14 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
         lastSkippedAt: null,
         lastSkipReason: null,
       },
+      memoryLifecycle: {
+        enabled: true,
+        archiveAfterDays: 30,
+        deleteAfterDays: 60,
+        maxPerWorkspace: 25_000,
+        lastNote: null,
+        preview: null,
+      },
     });
     const fixture = TestBed.createComponent(
       MemoryDiagnosticsAccordionComponent,
@@ -175,7 +176,9 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     const panel = root.querySelector('ptah-storage-health-panel');
     expect(panel).not.toBeNull();
     expect(panel?.textContent ?? '').toContain('Storage and Retention');
-    expect(panel?.textContent ?? '').toContain('No retention run recorded yet.');
+    expect(panel?.textContent ?? '').toContain(
+      'No retention run recorded yet.',
+    );
   });
 
   it('binds the shared now clock into the storage panel', () => {

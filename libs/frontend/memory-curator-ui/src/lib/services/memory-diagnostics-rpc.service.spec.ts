@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import type { MemoryDiagnosticsResult } from '@ptah-extension/shared';
 import { MemoryDiagnosticsRpcService } from './memory-diagnostics-rpc.service';
 
 describe('MemoryDiagnosticsRpcService', () => {
@@ -44,6 +45,14 @@ describe('MemoryDiagnosticsRpcService', () => {
       lastSkippedAt: null,
       lastSkipReason: null,
     },
+    memoryLifecycle: {
+      enabled: true,
+      archiveAfterDays: 30,
+      deleteAfterDays: 60,
+      maxPerWorkspace: 25_000,
+      lastNote: null,
+      preview: null,
+    },
   };
 
   const okResult = <T>(data: T) => ({
@@ -58,11 +67,9 @@ describe('MemoryDiagnosticsRpcService', () => {
   });
 
   it('diagnostics() targets memory:diagnostics with default workspaceRoot null', async () => {
-    const payload = {
+    const payload: MemoryDiagnosticsResult = {
       lastRunAt: null,
       lastRunStats: null,
-      lastDecayAt: null,
-      lastDecayStats: null,
       recentEvents: [],
       dbHealth: {
         memories: 0,
@@ -80,6 +87,16 @@ describe('MemoryDiagnosticsRpcService', () => {
         idleMs: 600000,
         turnThreshold: 20,
         bootScan: true,
+        userPromptSubmit: {
+          enabled: true,
+          cueList: [],
+          minPromptLength: 20,
+        },
+        postToolUse: { enabled: true },
+        turnComplete: { enabled: true },
+        episode: { enabled: true },
+        sessionEnd: { enabled: true },
+        maxCuratesPerHour: 20,
       },
     };
     rpcCall.mockResolvedValue(okResult(payload));
@@ -95,32 +112,39 @@ describe('MemoryDiagnosticsRpcService', () => {
   });
 
   it('diagnostics() forwards workspaceRoot + eventLimit', async () => {
-    rpcCall.mockResolvedValue(
-      okResult({
-        lastRunAt: null,
-        lastRunStats: null,
-        lastDecayAt: null,
-        lastDecayStats: null,
-        recentEvents: [],
-        dbHealth: {
-          memories: 0,
-          memory_chunks: 0,
-          memory_chunks_vec: 0,
-          memory_chunks_fts: 0,
-          code_symbols: 0,
-          code_symbols_vec: 0,
-          coherent: true,
-          mismatches: [],
+    const payload: MemoryDiagnosticsResult = {
+      lastRunAt: null,
+      lastRunStats: null,
+      recentEvents: [],
+      dbHealth: {
+        memories: 0,
+        memory_chunks: 0,
+        memory_chunks_vec: 0,
+        memory_chunks_fts: 0,
+        code_symbols: 0,
+        code_symbols_vec: 0,
+        coherent: true,
+        mismatches: [],
+      },
+      storage: baseStorage,
+      triggers: {
+        preCompact: true,
+        idleMs: 0,
+        turnThreshold: 0,
+        bootScan: true,
+        userPromptSubmit: {
+          enabled: true,
+          cueList: [],
+          minPromptLength: 20,
         },
-        storage: baseStorage,
-        triggers: {
-          preCompact: true,
-          idleMs: 0,
-          turnThreshold: 0,
-          bootScan: true,
-        },
-      }),
-    );
+        postToolUse: { enabled: true },
+        turnComplete: { enabled: true },
+        episode: { enabled: true },
+        sessionEnd: { enabled: true },
+        maxCuratesPerHour: 20,
+      },
+    };
+    rpcCall.mockResolvedValue(okResult(payload));
 
     await service.diagnostics('/ws', 25);
 

@@ -200,6 +200,7 @@ import type {
   IDiagnosticsProvider,
   ISecretStorage,
 } from '@ptah-extension/platform-core';
+import type { IMemoryUsageRecorder } from '@ptah-extension/memory-contracts';
 import type {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
@@ -319,6 +320,7 @@ function buildTestBuilder(
   rawProvider: IWorkspaceProvider,
   sessionManager: ReturnType<typeof makeSessionManager>,
   agentRoleResolver?: AgentRoleResolver,
+  memoryUsageRecorder?: IMemoryUsageRecorder,
 ): PtahAPIBuilder {
   return new PtahAPIBuilder(
     {} as unknown as WorkspaceAnalyzerService,
@@ -348,6 +350,7 @@ function buildTestBuilder(
     undefined, // harnessReconciler
     undefined, // ptahCliRegistry
     undefined, // memorySearch
+    memoryUsageRecorder,
     undefined, // memoryStore
     undefined, // knowledgeAgent
     undefined, // codeSymbolReader
@@ -373,6 +376,26 @@ function buildTestBuilder(
 describe('PtahAPIBuilder.build() — session-aware root resolution (criterion 6)', () => {
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('passes the optional memory usage recorder getter to the memory namespace', () => {
+    const usage: IMemoryUsageRecorder = { recordUse: jest.fn() };
+    const builder = buildTestBuilder(
+      makeRawWorkspaceProvider(),
+      makeSessionManager(),
+      undefined,
+      usage,
+    );
+
+    builder.build();
+
+    const memoryBuilder = namespaceBuilders.buildMemoryNamespace as jest.Mock;
+    const dependencies = memoryBuilder.mock.calls[0][0] as {
+      getMemoryUsageRecorder: () => IMemoryUsageRecorder | undefined;
+      logger?: { warn(message: string): void };
+    };
+    expect(dependencies.getMemoryUsageRecorder()).toBe(usage);
+    expect(typeof dependencies.logger?.warn).toBe('function');
   });
 
   it('resolves the calling session root, never the raw process-global provider root, from every root-capable namespace bag it constructs', () => {

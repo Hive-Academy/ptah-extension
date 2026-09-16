@@ -64,6 +64,7 @@ function makeMemoryStore() {
     list: jest.fn(),
     getById: jest.fn(),
     getChunks: jest.fn(),
+    recordUse: jest.fn(),
     setPinned: jest.fn(),
     forget: jest.fn(),
     rebuildIndex: jest
@@ -76,6 +77,27 @@ function makeMemoryStore() {
       lastCuratedAt: null,
     }),
     purgeBySubjectPattern: jest.fn().mockReturnValue(0),
+  };
+}
+
+function makeMemory(id = 'mem-1') {
+  return {
+    id,
+    sessionId: 'session-1',
+    workspaceRoot: '/workspace/project',
+    tier: 'recall',
+    kind: 'fact',
+    subject: 'subject',
+    content: 'content',
+    sourceMessageIds: [],
+    salience: 0.5,
+    decayRate: 0,
+    hits: 1,
+    pinned: false,
+    createdAt: 1,
+    updatedAt: 1,
+    lastUsedAt: 1,
+    expiresAt: null,
   };
 }
 
@@ -114,8 +136,6 @@ function makeMemoryDiagnostics() {
     getSnapshot: jest.fn().mockResolvedValue({
       lastRunAt: null,
       lastRunStats: null,
-      lastDecayAt: null,
-      lastDecayStats: null,
       recentEvents: [],
       dbHealth: {
         memories: 0,
@@ -356,6 +376,57 @@ describe('MemoryRpcHandlers — memory:search workspaceRoot forwarding', () => {
     });
 
     expect(search.searchRich).toHaveBeenCalledWith('x', 51, '/ws');
+  });
+});
+
+describe('MemoryRpcHandlers — explicit use recording', () => {
+  it('records a found memory:get result', async () => {
+    const { rpcHandler, store } = buildHandlers();
+    store.getById.mockReturnValue(makeMemory());
+    store.getChunks.mockReturnValue([]);
+
+    const result = await rpcHandler.call('memory:get', { id: 'mem-1' });
+
+    expect(store.recordUse).toHaveBeenCalledWith(['mem-1']);
+    expect(result).toMatchObject({ memory: { id: 'mem-1' }, chunks: [] });
+  });
+
+  it('does not record memory:get when the memory is not found', async () => {
+    const { rpcHandler, store } = buildHandlers();
+    store.getById.mockReturnValue(undefined);
+
+    const result = await rpcHandler.call('memory:get', { id: 'missing' });
+
+    expect(store.recordUse).not.toHaveBeenCalled();
+    expect(result).toEqual({ memory: null, chunks: [] });
+  });
+
+  it('does not record memory:list or memory:search results', async () => {
+    const { rpcHandler, store, search } = buildHandlers();
+    store.list.mockReturnValue({ memories: [makeMemory()], total: 1 });
+    search.searchRich.mockResolvedValue({ hits: [], bm25Only: false });
+
+    await rpcHandler.call('memory:list', {});
+    await rpcHandler.call('memory:search', { query: 'content' });
+
+    expect(store.recordUse).not.toHaveBeenCalled();
+  });
+
+  it('returns a found memory unchanged when recording fails', async () => {
+    const { rpcHandler, store, logger } = buildHandlers();
+    store.getById.mockReturnValue(makeMemory());
+    store.getChunks.mockReturnValue([]);
+    store.recordUse.mockImplementation(() => {
+      throw new Error('usage ledger unavailable');
+    });
+
+    const result = await rpcHandler.call('memory:get', { id: 'mem-1' });
+
+    expect(result).toMatchObject({ memory: { id: 'mem-1' }, chunks: [] });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[memory] failed to record memory use',
+      { error: 'usage ledger unavailable' },
+    );
   });
 });
 
@@ -630,8 +701,6 @@ describe('MemoryRpcHandlers — memory:diagnostics', () => {
     diagnostics.getSnapshot.mockResolvedValue({
       lastRunAt: 1700000000000,
       lastRunStats: { extracted: 5, merged: 2, created: 3, skipped: 0 },
-      lastDecayAt: 1699000000000,
-      lastDecayStats: { scanned: 100, demoted: 4, archived: 1, expired: 0 },
       recentEvents: [
         {
           kind: 'curator-run',
@@ -680,7 +749,6 @@ describe('MemoryRpcHandlers — memory:diagnostics', () => {
     expect(result).toMatchObject({
       lastRunAt: 1700000000000,
       lastRunStats: { extracted: 5, merged: 2, created: 3, skipped: 0 },
-      lastDecayAt: 1699000000000,
       dbHealth: { coherent: true },
       storage,
       triggers: { preCompact: true, idleMs: 600000 },

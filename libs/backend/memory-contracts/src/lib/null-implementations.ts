@@ -11,6 +11,7 @@
  */
 
 import type { IMemoryLister, IMemoryReader } from './memory-reader.port';
+import type { IMemoryUsageRecorder } from './memory-usage-recorder.port';
 import type { ISymbolSink } from './symbol-sink.port';
 
 /** Recalls nothing. `bm25Only` is true — there is no vector index to consult. */
@@ -21,6 +22,11 @@ export const NullMemoryReader: IMemoryReader = Object.freeze({
 /** Lists nothing. */
 export const NullMemoryLister: IMemoryLister = Object.freeze({
   listAll: () => ({ memories: [], total: 0 }),
+});
+
+/** Accepts explicit-use notifications without persisting them. */
+export const NullMemoryUsageRecorder: IMemoryUsageRecorder = Object.freeze({
+  recordUse: () => undefined,
 });
 
 /** Swallows symbol chunks; nothing is persisted and nothing was deleted. */

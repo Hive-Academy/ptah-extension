@@ -66,11 +66,9 @@ describe('MemoryDiagnosticsStateService', () => {
   const snapshot = {
     lastRunAt: 1000,
     lastRunStats: { promoted: 3 },
-    lastDecayAt: 500,
-    lastDecayStats: { decayed: 1 },
     recentEvents: [
       { kind: 'curator-run' as const, timestamp: 100 },
-      { kind: 'decay-run' as const, timestamp: 200 },
+      { kind: 'manual-run' as const, timestamp: 200 },
     ],
     dbHealth: baseDbHealth,
     storage: baseStorage,
@@ -129,7 +127,6 @@ describe('MemoryDiagnosticsStateService', () => {
     expect(diagnosticsMock).toHaveBeenCalledWith('/ws');
     expect(service.triggers()).toEqual(baseTriggers);
     expect(service.lastRun()).toEqual({ at: 1000, stats: { promoted: 3 } });
-    expect(service.lastDecay()).toEqual({ at: 500, stats: { decayed: 1 } });
     expect(service.recentEvents().length).toBe(2);
     expect(service.dbHealth()).toEqual(baseDbHealth);
     expect(service.storage()).toEqual(baseStorage);

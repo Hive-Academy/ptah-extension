@@ -10,7 +10,6 @@ import type {
 } from '@ptah-extension/memory-contracts';
 import { MemoryCuratorService } from './memory-curator.service';
 import type { MemoryStore } from './memory.store';
-import type { SalienceScorer } from './salience-scorer';
 import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
 import { CURATOR_TRANSCRIPT_MAX_CHARS } from './curator-llm/clamp-transcript';
 import { CURATOR_MAX_WINDOWS } from './curator-llm/transcript-windows';
@@ -60,11 +59,7 @@ function buildService(opts?: {
     insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
     appendChunks: jest.fn().mockResolvedValue(undefined),
     getById: jest.fn(),
-    updateSalience: jest.fn(),
   } as unknown as MemoryStore;
-  const scorer = {
-    score: jest.fn(() => 0.5),
-  } as unknown as SalienceScorer;
   const transcriptReader = {
     read: jest.fn().mockResolvedValue(''),
   } as unknown as ITranscriptReader;
@@ -78,7 +73,6 @@ function buildService(opts?: {
     opts?.logger ?? makeLogger(),
     registry,
     store,
-    scorer,
     transcriptReader,
     llm,
   );
@@ -149,25 +143,6 @@ describe('MemoryCuratorService — event ring buffer', () => {
     expect(svc.recentEvents().length).toBe(10);
   });
 
-  it('recordDecayEvent pushes a decay-run event into the ring buffer', () => {
-    const svc = buildService();
-    svc.recordDecayEvent(
-      { scanned: 5, promoted: 3, demoted: 1, archived: 2, expired: 0 },
-      9999,
-    );
-    const events = svc.recentEvents(5);
-    const decay = events.find((e) => e.kind === 'decay-run');
-    expect(decay).toBeDefined();
-    expect(decay?.timestamp).toBe(9999);
-    expect(decay?.stats).toMatchObject({
-      scanned: 5,
-      promoted: 3,
-      demoted: 1,
-      archived: 2,
-      expired: 0,
-    });
-  });
-
   it('onEvent fans out every pushEvent to subscribers and dispose detaches', () => {
     const svc = buildService();
     const received: MemoryCuratorEvent[] = [];
@@ -180,7 +155,7 @@ describe('MemoryCuratorService — event ring buffer', () => {
     expect(received[0].kind).toBe('idle-trigger');
     expect(received[1].kind).toBe('curator-run');
     sub.dispose();
-    svc.pushEvent({ kind: 'decay-run', timestamp: 3 });
+    svc.pushEvent({ kind: 'manual-run', timestamp: 3 });
     expect(received.length).toBe(2);
   });
 
@@ -281,9 +256,7 @@ describe('MemoryCuratorService — placeholder skip event', () => {
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue(''),
     } as unknown as ITranscriptReader;
@@ -291,7 +264,6 @@ describe('MemoryCuratorService — placeholder skip event', () => {
       makeLogger(),
       registry,
       store,
-      scorer,
       transcriptReader,
       llm,
     );
@@ -376,9 +348,7 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
       insertMemoryWithChunks,
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.75) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue(recordedTranscript),
     } as unknown as ITranscriptReader;
@@ -387,7 +357,6 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
       makeLogger(),
       registry,
       store,
-      scorer,
       transcriptReader,
       llm,
     );
@@ -410,6 +379,7 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
 
     const insertedMemory = (insertMemoryWithChunks as jest.Mock).mock
       .calls[0][0];
+    expect(insertedMemory.salience).toBe(0.6);
     expect(insertedMemory.request).toBe(populatedDraft.request);
     expect(insertedMemory.investigated).toBe(populatedDraft.investigated);
     expect(insertedMemory.learned).toBe(populatedDraft.learned);
@@ -452,9 +422,7 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue(''),
     } as unknown as ITranscriptReader;
@@ -480,7 +448,6 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
       makeLogger(),
       registry,
       store,
-      scorer,
       transcriptReader,
       llm,
       corpusStore,
@@ -695,9 +662,7 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue(''),
     } as unknown as ITranscriptReader;
@@ -709,7 +674,6 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
       makeLogger(),
       registry,
       store,
-      scorer,
       transcriptReader,
       llm,
       null,
@@ -1321,9 +1285,7 @@ describe('MemoryCuratorService — manual PreCompact window budget', () => {
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue(transcript),
     } as unknown as ITranscriptReader;
@@ -1340,7 +1302,6 @@ describe('MemoryCuratorService — manual PreCompact window budget', () => {
       logger,
       registry,
       store,
-      scorer,
       transcriptReader,
       { extract, resolve } as unknown as ICuratorLLM,
     );
@@ -1654,9 +1615,7 @@ describe('MemoryCuratorService — a pass that never read its input reports STAL
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue('a real transcript'),
     } as unknown as ITranscriptReader;
@@ -1665,7 +1624,6 @@ describe('MemoryCuratorService — a pass that never read its input reports STAL
       logger,
       registry,
       store,
-      scorer,
       transcriptReader,
       llm,
     );
@@ -1854,9 +1812,7 @@ describe('MemoryCuratorService — userInitiated reaches every curator LLM call'
         insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
         appendChunks: jest.fn().mockResolvedValue(undefined),
         getById: jest.fn(),
-        updateSalience: jest.fn(),
       } as unknown as MemoryStore,
-      { score: jest.fn(() => 0.75) } as unknown as SalienceScorer,
       { read: jest.fn() } as unknown as ITranscriptReader,
       { extract, resolve } as unknown as ICuratorLLM,
     );

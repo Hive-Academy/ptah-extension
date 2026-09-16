@@ -29,8 +29,9 @@ describe('migration 0030_skill_event_metrics — registry entry', () => {
     // the current highest version and moves forward with every appended
     // migration — that movement is the ratchet, not a failure.
     // 43 since TASK_2026_440 appended 0043_memory_retention.
+    // 44 since TASK_2026_443 appended 0044_memory_lifecycle.
     const maxVersion = Math.max(...MIGRATIONS.map((m) => m.version));
-    expect(maxVersion).toBe(43);
+    expect(maxVersion).toBe(44);
   });
 });
 

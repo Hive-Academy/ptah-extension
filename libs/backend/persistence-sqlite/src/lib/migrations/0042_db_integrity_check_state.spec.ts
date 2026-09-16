@@ -62,7 +62,8 @@ describe('migration 0042_db_integrity_check_state — registry entry', () => {
     // migration — that movement is the ratchet, not a failure (0028 / 0030 /
     // 0038 / 0039 / 0040 / 0041 carry the identical test for the same reason).
     // 43 since TASK_2026_440 appended 0043_memory_retention.
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(43);
+    // 44 since TASK_2026_443 appended 0044_memory_lifecycle.
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(44);
   });
 });
 

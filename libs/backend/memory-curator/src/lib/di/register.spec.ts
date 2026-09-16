@@ -16,7 +16,7 @@ import 'reflect-metadata';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { container } from 'tsyringe';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { NoopTracer, TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
@@ -25,14 +25,18 @@ import {
   PERSISTENCE_TOKENS,
   registerPersistenceSqliteServices,
 } from '@ptah-extension/persistence-sqlite';
+import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from './tokens';
 import { registerMemoryCuratorServices } from './register';
 import { MemoryRetentionService } from '../retention/memory-retention.service';
 import { ObservationRetentionStore } from '../retention/observation-retention.store';
+import { MemoryLifecycleStore } from '../retention/memory-lifecycle.store';
+import { MemoryLifecycleService } from '../retention/memory-lifecycle.service';
 import { MEMORY_RETENTION_LIMITS } from '../retention/memory-retention-config';
 import {
   openRetentionTestDb,
   removeRetentionTempDirs,
+  seedMemory,
   seedObservations,
   type RetentionTestDb,
 } from '../retention/retention-sqlite.test-support';
@@ -50,7 +54,7 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
   let t: RetentionTestDb;
 
   beforeEach(() => {
-    t = openRetentionTestDb();
+    t = openRetentionTestDb({ memorySchema: true, vec: true });
   });
   afterEach(() => t.close());
   afterAll(() => removeRetentionTempDirs());
@@ -68,11 +72,17 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
         getConfiguration: (_s: string, _k: string, def?: unknown) => def,
       } as unknown as IWorkspaceProvider,
     });
+    child.register(PLATFORM_TOKENS.TRACER, {
+      useValue: new NoopTracer(),
+    });
     registerPersistenceSqliteServices(child, logger);
     // The host opens the registered connection; here a real temp-file database
     // stands in for it so the resolved graph talks to actual SQLite.
     child.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
       useValue: t.connection,
+    });
+    child.register(PERSISTENCE_TOKENS.VEC_STATUS, {
+      useValue: { available: true },
     });
     registerMemoryCuratorServices(child, logger);
     return child;
@@ -80,6 +90,25 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
 
   it('registers the retention service, its store and its limits', () => {
     const child = buildContainer();
+    expect(
+      child.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER),
+    ).toBe(true);
+    expect(child.isRegistered(Symbol.for('PtahMemoryUsageRecorder'))).toBe(
+      true,
+    );
+    const memoryStore = child.resolve(MEMORY_TOKENS.MEMORY_STORE);
+    expect(child.resolve(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER)).toBe(
+      memoryStore,
+    );
+    expect(child.resolve(Symbol.for('PtahMemoryUsageRecorder'))).toBe(
+      memoryStore,
+    );
+    expect(child.isRegistered(Symbol.for('PtahMemorySalienceScorer'))).toBe(
+      false,
+    );
+    expect(
+      child.isRegistered(Symbol.for(['PtahMemory', 'DecayJob'].join(''))),
+    ).toBe(false);
     expect(child.isRegistered(MEMORY_TOKENS.MEMORY_RETENTION_SERVICE)).toBe(
       true,
     );
@@ -87,6 +116,10 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
       true,
     );
     expect(child.isRegistered(MEMORY_TOKENS.MEMORY_RETENTION_LIMITS)).toBe(
+      true,
+    );
+    expect(child.isRegistered(MEMORY_TOKENS.MEMORY_LIFECYCLE_STORE)).toBe(true);
+    expect(child.isRegistered(MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE)).toBe(
       true,
     );
     expect(child.isRegistered(PERSISTENCE_TOKENS.SQLITE_PAGE_RECLAIMER)).toBe(
@@ -97,7 +130,17 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
     );
   });
 
-  it('resolves one singleton service whose graph reads the real database', async () => {
+  it('resolves singleton lifecycle collaborators', () => {
+    const child = buildContainer();
+    const store = child.resolve(MEMORY_TOKENS.MEMORY_LIFECYCLE_STORE);
+    const service = child.resolve(MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE);
+    expect(store).toBeInstanceOf(MemoryLifecycleStore);
+    expect(service).toBeInstanceOf(MemoryLifecycleService);
+    expect(child.resolve(MEMORY_TOKENS.MEMORY_LIFECYCLE_STORE)).toBe(store);
+    expect(child.resolve(MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE)).toBe(service);
+  });
+
+  it('resolved graph calls lifecycle and exposes counters by archiving a real row', async () => {
     const child = buildContainer();
     const service = child.resolve<MemoryRetentionService>(
       MEMORY_TOKENS.MEMORY_RETENTION_SERVICE,
@@ -128,18 +171,29 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
     expect(health.dbBytes).toBeGreaterThan(0);
     expect(health.readErrors).toBeUndefined();
 
-    // A freshly resolved service is inside its boot deferral: the first cron
-    // tick after start does no row work.
-    await expect(
-      service.run({
-        signal: new AbortController().signal,
-        isOnBattery: () => false,
-        msSinceForegroundActivity: () => Number.POSITIVE_INFINITY,
-      }),
-    ).resolves.toEqual({ status: 'skipped', reason: 'boot-deferred' });
-    expect(service.storageHealth().retention.lastSkipReason).toBe(
-      'boot-deferred',
-    );
+    const runAt = Date.now() + 2 * 3_600_000;
+    seedMemory(t.raw, {
+      id: 'di-old-recall',
+      workspaceRoot: '/di-reach',
+      lastUsedAt: runAt - 31 * 24 * 3_600_000,
+    });
+    const report = await service.run({
+      signal: new AbortController().signal,
+      isOnBattery: () => false,
+      msSinceForegroundActivity: () => Number.POSITIVE_INFINITY,
+      now: () => runAt,
+    });
+    expect(report.status).not.toBe('skipped');
+    if (report.status === 'skipped')
+      throw new Error('run unexpectedly skipped');
+    expect(report.error).toBeNull();
+    expect(typeof report.memoriesArchived).toBe('number');
+    expect(report.memoriesArchived).toBe(1);
+    expect(
+      t.raw
+        .prepare('SELECT tier FROM memories WHERE id = ?')
+        .get('di-old-recall'),
+    ).toEqual({ tier: 'archival' });
   });
 
   it('supplies the governor to the retention service when registered', () => {

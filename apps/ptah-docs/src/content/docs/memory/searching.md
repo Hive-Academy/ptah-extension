@@ -14,15 +14,13 @@ Two retrievers run in parallel:
 1. **BM25** (SQLite FTS5) — exact term matching, fast, great for proper nouns and code identifiers
 2. **Vector** (sqlite-vec) — semantic similarity using 384-dim `bge-small-en-v1.5` embeddings
 
-Their ranked lists are fused with **Reciprocal Rank Fusion**. The blend is governed by `memory.searchAlpha`:
+Their ranked lists are fused with **Reciprocal Rank Fusion** using a fixed `k = 25`. The per-query weights are also fixed: queries under 4 tokens use BM25 `0.6` and vector `0.4`, while queries of 4 or more tokens use BM25 `0.3` and vector `0.7`.
 
-- `0.0` — pure vector
-- `1.0` — pure BM25
-- `0.5` (default) — even mix
+The search knobs are fixed in code; `memory.searchAlpha` and `memory.searchTopK` survive only as legacy registered keys with no runtime consumer.
 
-## Top-K
+## Result counts
 
-`memory.searchTopK` (default `10`) caps the number of memories returned per query. Lower it if context budget is tight; raise it if the agent is missing relevant facts.
+Result count is supplied per call rather than through a setting. `MemorySearchService.search` defaults to 10 results, prompt injection asks for 5, MCP search passes the caller's `maxResults`, and `mem:searchIndex` clamps `topK` to 1–100 with a default of 20.
 
 ## When sqlite-vec is missing
 

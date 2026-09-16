@@ -6,6 +6,7 @@ export type {
   IMemoryReader,
   IMemoryLister,
 } from './lib/memory-reader.port';
+export type { IMemoryUsageRecorder } from './lib/memory-usage-recorder.port';
 export type {
   ICuratorLLM,
   CuratorCallOptions,
@@ -39,5 +40,6 @@ export { MEMORY_CONTRACT_TOKENS, KNOWLEDGE_AGENT_TOKEN } from './lib/tokens';
 export {
   NullMemoryReader,
   NullMemoryLister,
+  NullMemoryUsageRecorder,
   NullSymbolSink,
 } from './lib/null-implementations';
