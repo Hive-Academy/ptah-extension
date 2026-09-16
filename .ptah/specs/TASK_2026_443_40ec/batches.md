@@ -1,6 +1,6 @@
 # Batches - TASK_2026_443_40ec
 
-Total tasks: 31 | Batches: 11 | Complete: 10/11 (Batch 11 closes with Task 11.5)
+Total tasks: 31 | Batches: 11 | Complete: 11/11
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle` (branch
 `feat/task-439-phase2-memory-lifecycle`, base 5e34e39cc). Below, `W` means that absolute path; every lane prompt
@@ -1734,7 +1734,7 @@ review round is required).
 
 ---
 
-## Batch 11: Gate 3 fixes — budget-stop reclaim, crash-safe lifecycle accounting, degraded-boot recorder — IN_PROGRESS
+## Batch 11: Gate 3 fixes — budget-stop reclaim, crash-safe lifecycle accounting, degraded-boot recorder — COMPLETE (commits 2a2c20ca2, 03a06f0c3)
 
 - Gate 3 whole-branch logic review (antigravity, the only family that wrote none of this code):
   `code-logic-review-branch.md`, APPROVED WITH FIXES 8/10, 0 blocking, 2 serious, 1 moderate, 2 minor. It cleared the
@@ -1857,7 +1857,7 @@ review round is required).
     an OPTIONAL `error` field (additive, no consumer breaks); `installNullImplementations` gained a module-level export
     while staying out of the `host-profile` barrel.
 
-### Task 11.5: Minor 2 — delete the unreachable stop assignment, and correct the report wording — PENDING
+### Task 11.5: Minor 2 — delete the unreachable stop assignment, and correct the report wording — COMPLETE (commit 03a06f0c3)
 
 - Executor: resume the Batch 11 codex lane. Reviewer: none — a one-line deletion plus a report correction; the
   team-leader verifies by diff and re-run (the Batch 11 reviewer already has full context and raised this itself).
@@ -1878,6 +1878,15 @@ review round is required).
   `npx nx run degradation-audit:lint` (exit 0).
 - Report: append `## Task 11.5` to `batch-11-report.md`; write `batch-11-5.done` LAST; create no other file in the task
   folder. Do not commit. Never run `nx reset`.
+
+### Task 11.5 result
+
+- Team-leader diff read: exactly the one-line deletion plus its replacement comment in
+  `memory-lifecycle.service.ts:207` and the report wording. No spec, no other source.
+- Team-leader re-run: memory-curator test + typecheck 1 project green (642 passed, 59 pre-existing skips);
+  `degradation-audit:lint` exit 0 (memory-curator 20/20); the untouched `database-busy` -> `partial` mapping spec passes
+  by name; better-sqlite3 via Electron 42 suites / 701 passed. No review round (a one-line deletion the Batch 11
+  reviewer itself raised).
 
 ### Batch 11 verification
 

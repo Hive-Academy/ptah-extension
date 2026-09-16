@@ -289,6 +289,55 @@ Result: exit 0; 42 suites passed, 701 tests passed, 0 skipped in the selected se
 
 ## Plan deviations and out-of-scope observations
 
-Plan deviations: none. The internal RPC null-installer was exported from its module solely for a direct colocated spec; it is not added to the library public barrel. No production dependency, adapter boundary, injection optionality, outcome mapping, single-flight behavior, row cap, or public memory contract changed.
+Plan deviations: none. `MemoryLifecycleStepResult` is exported from the memory-curator barrel and gained an optional `error` field; this is an additive public-surface change that breaks no consumer. `installNullImplementations` gained a module-level export solely for a direct colocated spec and remains absent from the `host-profile` barrel. No production dependency, adapter boundary, injection optionality, outcome mapping, single-flight behavior, or row cap changed.
 
 Out-of-scope observations: the first parallel test run reproduced unrelated RPC filesystem/time-limit flakes and passed under the required serial rerun. Lint reported only pre-existing warnings. No out-of-scope source was edited.
+
+## Task 11.5
+
+### Diff
+
+- Modified `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\libs\backend\memory-curator\src\lib\retention\memory-lifecycle.service.ts`: removed the unreachable `database-busy` stop assignment. Its replacement comment records the actual ownership boundary: `MemoryRetentionService` maps the attached `RetentionStepError` to `partial` for `database-busy` and `failed` otherwise, while the step error path returns the attached error and committed counters with no stop token.
+- Modified `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle\.ptah\specs\TASK_2026_443_40ec\batch-11-report.md`: corrected the public-surface account. `MemoryLifecycleStepResult` is exported from the memory-curator barrel and its optional `error` field is additive; `installNullImplementations` has a module-level export but remains absent from the `host-profile` barrel.
+- No assertion or acceptance spec was changed or weakened.
+
+### Verification
+
+Tests:
+
+```text
+npx nx run-many -t test -p @ptah-extension/memory-curator
+NX Running target test for project @ptah-extension/memory-curator
+Test Suites: 2 skipped, 40 passed, 40 of 42 total
+Tests: 59 skipped, 642 passed, 701 total
+NX Successfully ran target test for project @ptah-extension/memory-curator
+```
+
+Typecheck:
+
+```text
+npx nx run-many -t typecheck -p @ptah-extension/memory-curator
+NX Running target typecheck for project @ptah-extension/memory-curator
+NX Successfully ran target typecheck for project @ptah-extension/memory-curator
+```
+
+Degradation audit:
+
+```text
+npx nx run degradation-audit:lint
+degradation-audit: scanned 2848 file(s)
+libs/backend/memory-curator: 20 ok (baseline 20)
+degradation-audit: TOTAL 303 unsuppressed site(s)
+NX Successfully ran target lint for project degradation-audit
+```
+
+Existing outcome-mapping spec, run unchanged and explicitly by name:
+
+```text
+npx nx test @ptah-extension/memory-curator --testPathPatterns=memory-retention.service.spec --testNamePattern='database-busy stops the run partial, not failed' --runInBand
+Test Suites: 1 passed, 1 total
+Tests: 1 passed, 49 skipped, 50 total
+NX Successfully ran target test for project @ptah-extension/memory-curator
+```
+
+This confirms the established `database-busy` -> `partial` mapping remains owned by `MemoryRetentionService` and passes without any spec modification.
