@@ -1,6 +1,6 @@
 # Batches - TASK_2026_461_639c
 
-Total tasks: 24 | Batches: 9 | Complete: 8/9
+Total tasks: 24 | Batches: 9 | Complete: 9/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase3-skills-unblock` (branch
 `feat/task-439-phase3-skills-unblock`, base `97239e814`). Below, `W` means that absolute path and `T` means
@@ -1199,7 +1199,62 @@ Edge cases:
 
 ---
 
-## Batch 9: User decision 3 — root-unknown candidates look up `<sessionId>.jsonl` by id; re-verify + re-measure — IN_PROGRESS
+## Batch 9: User decision 3 — root-unknown candidates look up `<sessionId>.jsonl` by id; re-verify + re-measure — COMPLETE (b7da25171)
+
+- Commits: `b7da25171` feat(agent-sdk,skill-synthesis,thoth-runtime,cli-engine): batch 9 - look up backlog transcripts
+  by session id (15 files, Task 9.1 + revise round 1 COMBINED; the revise edits the same four skill-synthesis files);
+  task-folder docs commit `docs(task-specs): record TASK_2026_461 batch 9 and phase 3 completion` follows it.
+- Executors: 9.1 and its revise round codex lane (backend-developer); 9.3 senior-tester subagent (ran in parallel with
+  the 9.2 review on orchestrator instruction, against the pre-revise code).
+- Review: `code-logic-review-batch-9.md` CHANGES_REQUESTED 6/10 (code-logic-reviewer subagent, Claude family,
+  implemented nothing). Seam, A9/A10/A12 precedence, counter identity and DI order confirmed. Findings:
+  - **SERIOUS** — a successful but EMPTY transcript-root listing (`[]`) ran zero stats and returned `absent`, so every
+    root-unknown candidate would be rejected `no transcript found` although nothing was searched.
+  - MINOR — lookup stats logged only at debug (not observable in production).
+  - MINOR — one `readable` flag shared by the root loop and the lookup loop.
+- Revise round 1 (`batch-9-report.md` `## Task 9.1 — revise round 1`): `session-transcript-locator.ts:95`
+  `sessionDirectories === null || sessionDirectories.length === 0` -> cached `unavailable` before any stat (locator spec
+  listings 1 / stats 0; service spec with a real locator over `[]` -> `keptRootUnknown` 1, no rejection); one `info`
+  record per `execute()` with counts only (`directoryListings`, `pathStats`, `cacheHits`; no id or path); separate
+  `rootReadable` / `lookupReadable` flags, precedence unchanged. Mutations: **9.1-mutD** (guard reverted to `=== null`)
+  -> 2 suites / 2 tests fail, restore green; **9.1-mutA** re-proven. Verification: test and lint "for 4 projects",
+  typecheck "for 7 projects", both SQLite bindings 47/47, degradation-audit exit 0 (skill-synthesis 6, cli-engine 12,
+  agent-sdk 4, thoth-runtime 0).
+- Orchestrator accepted the revise without a second review: the serious fix is a one-line guard proven by mutation,
+  and the Claude family already reviewed the batch.
+- 9.3 numbers stand after the revise: the byte-copy run listed a non-empty root (41 child folders; 12 listings, 42,750
+  path stats), so the empty-listing guard could not trigger; the other two revise items change logging and local flag
+  names, not dispositions. Note added to `backlog-cleanup-measurement.md`.
+- Team-leader confirmation before commit: no live jest / nx run process; `run-many -t test -p
+  @ptah-extension/skill-synthesis --testPathPatterns '"session-transcript-locator|skill-backlog-cleanup"' --runInBand`
+  -> 4 suites, 42/42 passed (node:sqlite); `run-many -t typecheck -p` agent-sdk skill-synthesis thoth-runtime
+  cli-engine -> "for 4 projects" green; guard confirmed on disk at `session-transcript-locator.ts:95`. Untracked
+  lane-host scratch `agent-output-root.md` (a pointer summary of the report) deleted.
+- Measured (`batch-9-report.md` Task 9.3, `backlog-cleanup-measurement.md` "Batch 9 re-measurement"):
+  - Verification: test "for 9 projects" green (agent-sdk 1968 / 3 skipped, skill-synthesis 1537 / 37, persistence-sqlite
+    438 / 80, rpc-handlers 3016 / 33, platform-core 781 + 4 todo, shared 1521, thoth-runtime 100, cli-engine 190);
+    typecheck "for 13 projects"; lint "for 11 projects" 0 errors; degradation-audit exit 0 TOTAL 303; XB1
+    skill-synthesis 202/202 both bindings, persistence-sqlite 83 (9 native-probe skips on node:sqlite). Greps clean.
+
+    | Metric | Batch 7 | Batch 8 | Batch 9 |
+    | --- | --- | --- | --- |
+    | Examined / ticks | 2,418 / 13 | 2,418 / 13 | 2,418 / 13 |
+    | Kept evidence / verdict / degraded | 120 / 174 / 265 | 109 / 174 / 265 | 122 / 174 / 265 |
+    | Kept root unknown (run-summed) | n/a | 1,553 | 0 |
+    | Rejected no evidence | 0 | 0 | 0 |
+    | Rejected unreadable (persisted) | 1,859 | 317 | 1,857 |
+    | ...of which no transcript (run-summed subset) | n/a | n/a | 1,540 |
+    | Deferred on error / invocations deleted | 0 / 2,424 | 0 / 2,424 | 0 / 2,424 |
+    | Tick wall ms min / median / max | 18 / 29 / 1,007 | 16 / 25 / 916 | 105 / 200 / 992 |
+
+  - Identity: 2,418 - (122+174+265+0+1,857+0+0) = 0. The 13 Batch 8 file-on-disk candidates moved to kept evidence;
+    the other 1,540 moved to reject-no-transcript. Independent existence check: 0 of the 1,540 (and 0 of the 317) have
+    a transcript file on disk.
+  - Lookup cost (R-TL15): per-lookup median <= 1.82 ms, max 7.14 ms; far below the 5,000 ms escalation line. No
+    escalation.
+- Minor items recorded, not fixed: none open from the 9.2 review (all three addressed in revise round 1). Carried
+  observation: `rejectedNoTranscript` and `keptRootUnknown` are per-run only (migration 0045 frozen); rows stay
+  separable through `rejected_reason`.
 
 Source: `context.md` "Conversation Summary" 2026-09-17 (binding user decision 3). No architect revision: a narrow
 extension of Component 4 (cleanup) plus ONE additive read method on the agent-sdk reader the lib already injects. The
@@ -1299,7 +1354,7 @@ Edge cases:
 - Any session with a resolved root -> lookup never called; verdict -> lookup never called — Task 9.1
 - Empty `sourceSessionIds` -> kept-root-unknown, lookup never called — Task 9.1
 
-### Task 9.1: Look up root-unknown transcripts by session id (decision 3) — IN_PROGRESS
+### Task 9.1: Look up root-unknown transcripts by session id (decision 3) — COMPLETE
 
 - Files:
   - MODIFY `W\libs\backend\agent-sdk\src\lib\helpers\history\jsonl-reader.service.ts` — private projects-root helper
@@ -1368,7 +1423,7 @@ Edge cases:
   case fail. **9.1-mutB** the per-run cache never hits -> cache-hit cases fail. **9.1-mutC** a non-ENOENT stat error
   treated as absent -> EBUSY case fails.
 
-### Task 9.2: Review of 9.1 (different family) — PENDING
+### Task 9.2: Review of 9.1 (different family) — COMPLETE
 
 - Depends on: Task 9.1 returned, `batch-9.1.done` DONE, team-leader verified files on disk.
 - Scope: logic (A9-A12, R-TL15 to R-TL20, counters on every report path, cursor still advances past every
@@ -1376,7 +1431,7 @@ Edge cases:
   extractor untouched, optional-member detection in the local port. Deliverable `T\code-logic-review-batch-9.md`
   (verdict, score, file:line), marker `T\review-9.done`. Revise cap 2 rounds.
 
-### Task 9.3: Re-verification and byte-copy re-measurement (senior-tester only) — PENDING
+### Task 9.3: Re-verification and byte-copy re-measurement (senior-tester only) — COMPLETE
 
 - Depends on: 9.2 APPROVED. Changes no code.
 - Before every heavy run: no live `jest` / `nx run-many` process (wait). `NX_DAEMON=false`, binaries from
@@ -1408,3 +1463,140 @@ Edge cases:
 - 9.2 accepting verdict from a different family.
 - 9.3 headers 9 / 13 / 11; degradation audit at baselines; Batch 7 / 8 / 9 comparison with safety proofs.
 - `batch-9.done` written last.
+
+---
+
+## Completion (Mode 3, team-leader, 2026-09-17)
+
+Status: ALL 9 BATCHES COMPLETE, 24/24 tasks COMPLETE. Every batch SHA is an ancestor of HEAD (`git merge-base
+--is-ancestor`). Base `97239e814` = `git merge-base origin/main HEAD`. Branch diff: 118 files (80 outside `.ptah`);
+every path outside `.ptah` exists on disk except the two intended Batch 5 deletions
+(`naming/candidate-namer.service.ts` and its spec).
+
+### Commits on the branch since origin/main (oldest first)
+
+| Batch | Commit | Subject |
+| --- | --- | --- |
+| 2 | `d72d1493e` | feat(persistence-sqlite): batch 2 - migration 0045 skill backlog cleanup state |
+| 1 | `fdff9b105` | feat(skill-synthesis): batch 1 - manual promote path, evidence-only prefilter, drop creation invocation |
+| docs | `53224575d` | docs(task-specs): file TASK_2026_461 phase 3 spec and record batches 1-2 |
+| 3 | `a20cfa1b1` | refactor(skill-synthesis-ui,rpc-handlers,shared,platform-core): batch 3 - drop dead depth settings |
+| 4 | `e420f1b5d` | feat(skill-synthesis): batch 4 - resumable backlog cleanup and gate skip for rejected |
+| docs | `bb887ef40` | docs(task-specs): record TASK_2026_461 batches 3-4 and carry review items to batch 5 |
+| 5 | `625b3861c` | feat(skill-synthesis,thoth-runtime,cli-engine,docs): batch 5 - backlog cleanup job, drop namer |
+| docs | `55dba650c` | docs(task-specs): record TASK_2026_461 batch 5 and refresh batch 6 against shipped code |
+| 6 | `83002016f` | test(skill-synthesis): batch 6 - reachability proof for manual promote and evidence prefilter |
+| docs | `c4ee77453` | docs(task-specs): record TASK_2026_461 batch 6 and refresh batch 7 against shipped code |
+| 7 | `c4f9c4df8` | test(skill-synthesis): batch 7 - track transaction state in the reachability node:sqlite adapter |
+| docs | `4b8e4de87` | docs(task-specs): record TASK_2026_461 batch 7 and plan batch 8 |
+| 8 | `087667a92` | feat(skill-synthesis,thoth-runtime,cli-engine,docs): batch 8 - non-MCP tool evidence, keep root-unknown backlog candidates |
+| docs | `ca857afaf` | docs(task-specs): record TASK_2026_461 batch 8 and plan batch 9 |
+| 9 | `b7da25171` | feat(agent-sdk,skill-synthesis,thoth-runtime,cli-engine): batch 9 - look up backlog transcripts by session id |
+| docs | (this record) | docs(task-specs): record TASK_2026_461 batch 9 and phase 3 completion |
+
+### Reviews per batch
+
+| Batch | Reviewer family | Verdict |
+| --- | --- | --- |
+| 1 | Ollama Cloud lane | CHANGES_REQUESTED 7/10 -> revise 1 accepted |
+| 2 | Ollama Cloud lane | APPROVED 8/10 (+ revise before freeze) |
+| 3 | Ollama Cloud lane | APPROVED 8/10 |
+| 4 | Ollama Cloud lane | CHANGES_REQUESTED 7/10 -> revise 1 accepted |
+| 5 | Ollama Cloud lane | APPROVED 9/10 (+ revise 1 on a Claude subagent) |
+| 6 | Claude subagent | APPROVED 8/10 |
+| 7 | none (test-support only; team-leader line-by-line read, orchestrator accepted) | accepted |
+| 8 | Claude subagent | APPROVED 9/10 |
+| 9 | Claude subagent | CHANGES_REQUESTED 6/10 -> revise 1 accepted (mutation-proven) |
+
+### Acceptance criteria (implementation-plan.md:563-577)
+
+| AC | Status | Evidence |
+| --- | --- | --- |
+| AC1 Manual Promote bypasses only the threshold | MET | `skill-promotion.service.spec.ts`; proof group 5; M1, M5 fail (batch-6-report.md) |
+| AC2 Manual path keeps dedup, judge, replay, cap, write gates | MET | `skill-promotion.service.spec.ts`; Batch 1 revise: residency demotion after write, manual cluster-dedup pinned |
+| AC3 Automatic `evaluate` keeps `below-threshold` | MET | proof group 4 (zero judge calls); spec |
+| AC4 No invocation row at candidate creation | MET | proof group 3 (`skill_invocations` = 0); M3 fails |
+| AC5 Conversation-only session produces nothing | MET | proof group 3 (`s-chat` skipped, no chained rows); M2 fails |
+| AC6 Edit-only, tool-only, test-only sessions stay eligible | MET (tool evidence narrowed to non-MCP by decision 1) | `session-work-evidence.spec.ts`; 8.1-mut fails |
+| AC7 Cleanup rejects no-evidence, no-verdict with visible reason; keeps the rest | MET (extended by decisions 2 and 3) | `skill-backlog-cleanup.integration.spec.ts` both bindings; 8.2-mut, 9.1-mutA/D fail |
+| AC8 Cleanup deletes only `context_id IS NOT NULL` invocations | MET | store + integration specs; byte copy 2,424 deleted, tracker rows survive (measurement "Tracker-row survival") |
+| AC9 Cleanup resumable, gated, bounded | MET | `skill-backlog-cleanup.service.spec.ts` (partial / abort / wall budget / 200 cap); 13 ticks on the byte copy |
+| AC10 Job registered in Electron and CLI hosts | MET | `start-thoth-cron.spec.ts`, cli-engine `thoth-runtime.spec.ts`; AC10-mut-E (batch-5-report.md) |
+| AC11 Gate stages skip rejected candidates | MET | `skill-synthesis.stage-handlers.spec.ts` (Task 4.4) |
+| AC12 Namer deleted, DI complete | MET | `di/register.spec.ts` (singleton case, mutation killed); grep `CandidateNamerService` over libs/apps = 0 |
+| AC13 Registration seam reaches the drain | MET | proof group 3; M4 fails |
+| AC14 `degradation-audit:lint` at baseline | MET | Batch 9.3 + revise: exit 0, skill-synthesis 6, cli-engine 12, agent-sdk 4, thoth-runtime 0, TOTAL 303; never `--update-baseline` |
+| AC15 Measurement report with Component 8 numbers | MET | `backlog-cleanup-measurement.md` (Batch 7, 8, 9 sections); `test-report.md` (corpus) |
+
+### Reachability proof (Batch 6, AC1/3/4/5/13)
+
+`skill-synthesis.reachability.integration.spec.ts` + `.test-support.ts`: production `registerSkillSynthesisServices`
+in a child container, real `SqliteConnectionService` + migrations through 0045, fake host tokens only (10), captured
+session-end callback -> frequent drain -> prefilter -> manual promote to `promoted` with SKILL.md on disk. 5/5 under
+node:sqlite AND better-sqlite3 at Batches 6, 7, 8 and 9 (0 skipped). Mutations, each failed then restored: M1 promote
+calls `evaluate`; M2 `depthOk` restored; M3 creation-time `recordInvocation` restored; M4 stage-handler registration
+removed; M5 manual path applies the threshold. Batch 7.4 made the node:sqlite adapter track `inTransaction`.
+
+Other mutation kills on the branch: Batch 1 revise (demotion before write), Batch 2 revise (`started_at` NOT NULL),
+Batch 4 revise (catch -> reject), Batch 5 revise (`registerSingleton` -> `register`, AC10-mut-E), 8.1-mut, 8.2-mut,
+9.1-mutA/B/C/D.
+
+### User decisions
+
+1. (Batch 7 finding, 2026-09-16) Tool evidence counts only non-MCP tools (`mcp__*` excluded), threshold 2 -> Batch 8.1.
+   Corpus: removes 11 of 1,622 eligible sessions.
+2. (Batch 7 finding, 2026-09-16) Unresolvable workspace root keeps the candidate (`kept-root-unknown`); reject as
+   unreadable only when a read was attempted -> Batch 8.2.
+3. (Batch 8 finding, 2026-09-17) Root-unknown candidates look up `<sessionId>.jsonl` by id; not found anywhere ->
+   reject `backlog-cleanup: no transcript found for any session` -> Batch 9. Result: 13 kept evidence, 1,540 rejected,
+   0 left unknown, 0 false rejections by independent check.
+
+Gate 2 decisions D1a-D6a and item 4d as recorded in `context.md`.
+
+### Risk resolution
+
+| Risk | Resolution |
+| --- | --- |
+| R1 wrong cleanup predicate loses candidates | Conservative predicate + decisions 2/3; byte copy x3; independent existence check 0 false rejections; searchable reasons |
+| R2 tool evidence broad | Narrowed to non-MCP (decision 1); Read/Grep still count (M1 follow-up below) |
+| R3 automatic promotion impossible | ACCEPTED, phase-5 note (test-report.md); proof group 4 pins it |
+| R4 generalization shortcut unreachable | ACCEPTED, phase-5 note |
+| R5 `SkillInvocationTracker` registered, unused | ACCEPTED, phase-5 note |
+| R6 finished job stays in cron list | ACCEPTED; `skipped: complete` is one state read (Task 5.2 spec) |
+| R7 transcript read cost | Per-tick caps; max tick 992 ms, largest read 226 ms (B7) / 31 ms (B9) |
+| R8 merge overlap with phase 4 | Open until merge; rebase whichever merges second |
+| R9 load flakes | `--parallel=1` used for the heavy verification runs; every final run green |
+| R-TL1/2 fixtures, ninth ratchet | Deviations 3-5; suites green |
+| R-TL3 proof token set | 10 host tokens recorded; production DI untouched |
+| R-TL4 binding divergence | XB1 every batch; identical counts |
+| R-TL5 shared worktree | Team-leader re-runs before each commit |
+| R-TL6 race between read and write | `AND status = 'candidate'` + spec |
+| R-TL7/8 promote return type, `write-failed` | Typecheck green; union extended |
+| R-TL9 live DB safety | Byte copy procedure x3, source size + mtime unchanged every run |
+| R-TL10-14 (Batch 8) | Fixtures updated; reachability 5/5; identity documented and held; per-run counters accepted |
+| R-TL15 lookup cost | Max lookup 7.14 ms; no escalation |
+| R-TL16 transient stat error -> rejection | `unavailable` -> kept; 9.1-mutC |
+| R-TL17/18 reader fakes | Seven-project typecheck; optional port member; reachability 5/5 |
+| R-TL19 constructor deps | Eight, at the guardrail; one named collaborator |
+| R-TL20 path traversal | Id token check before `path.join`; spec |
+| Batch 4 finding 2 (extractor EBUSY vs ENOENT) | ACCEPTED; measured 0 of 317 unreadable rejections have a file on disk |
+| Batch 9 serious (empty listing -> absent) | FIXED revise 1; 9.1-mutD |
+
+### Carried follow-ups (not in this task)
+
+- Phase 5: R3 automatic promotion still impossible (and UI text implies it), R4 generalization shortcut unreachable,
+  R5 `SkillInvocationTracker` registered but unused.
+- M1 (Batch 8 review): Read/Grep-only sessions still count as tool evidence; candidate to narrow to mutating / test
+  tools.
+- Batch 3 review: a stale `eligibilityMinTurns` / `prefilterMinChars` left in a user `settings.json` cannot be listed
+  or cleared through `ptah config`.
+- `keptRootUnknown`, `rejectedNoTranscript` and `deferredOnError` are per-run, not persisted (migration 0045 frozen);
+  no cross-run trend.
+- Batch 4 finding 2: extractor does not distinguish EBUSY from ENOENT on the root-resolved path.
+
+### Gate 3 requirement
+
+A whole-branch review (`git diff origin/main...HEAD`) by a model family that implemented and reviewed none of this
+task. Families used: codex (all implementation), Ollama Cloud (reviews 1-5), Claude subagents (reviews 6, 8, 9;
+senior-tester 7, 8.3, 9.3; Batch 5 revise). Unused: **antigravity** -> Gate 3 reviewer. Phase-2 lesson: the branch
+review found 3 defects nine batch reviews missed; focus on cross-batch interactions.

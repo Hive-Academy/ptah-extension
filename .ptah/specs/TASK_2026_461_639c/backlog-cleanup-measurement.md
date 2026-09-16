@@ -180,3 +180,87 @@ false-positive "unreadable but a file exists" candidates are now classified
 read attempted, extractor returned nothing) has zero candidates with a file present on disk
 in this run. Decision 2 fully closes the accepted-risk gap Batch 4 recorded and Batch 7
 measured.
+
+## Batch 9 re-measurement (decision 3: lookup by session id)
+
+Counts and timings only, per the same privacy rule (no session ids, paths or transcript
+content). Same source snapshot (unchanged, re-verified: `1,178,537,984` bytes,
+`2026-09-09T23:06:09.256Z`), same fail-if-exists-copy / six-pragma / temp-dir-proof procedure,
+run through the Batch 9 code (root-unknown candidates now look up `<sessionId>.jsonl` by id
+across the live `~/.claude/projects` child folders before falling back to
+`kept-root-unknown`). Verification-only note: the parallel code-logic review of Task 9.1
+returned CHANGES_REQUESTED (6/10) for an empty-transcript-root edge case that this
+41-real-folder machine does not exercise; the numbers below reflect the code as measured,
+not a revised version.
+
+Team-leader note (after revise round 1, commit `b7da25171`): the numbers stand. The revise changed
+the locator to return `unavailable` when the listing is `null` OR empty (`[]`), moved lookup stats
+to one info record, and split the readable flags; precedence is unchanged. This run listed a
+non-empty root (41 child folders, 12 listings, 42,750 path stats), so the new empty-listing guard
+could not trigger and every lookup took the same path under the revised code.
+
+### Byte copy (backlog cleanup outcome) — Batch 7 / 8 / 9 comparison
+
+Same 2,418 candidates at `status='candidate'` before the run (unchanged source snapshot) in
+all three batches.
+
+| Counter | Batch 7 | Batch 8 | Batch 9 |
+| --- | --- | --- | --- |
+| Examined | 2,418 | 2,418 | 2,418 |
+| Ticks to completion | 13 | 13 | 13 |
+| Kept — evidence | 120 | 109 | **122** |
+| Kept — verdict | 174 | 174 | 174 |
+| Kept — degraded verdict | 265 | 265 | 265 |
+| Kept — root unknown (per run, not persisted) | did not exist | 1,553 | **0** |
+| Rejected — no evidence | 0 | 0 | 0 |
+| Rejected — transcript unreadable (persisted, includes no-transcript from Batch 9 on) | 1,859 | 317 | **1,857** |
+| ...of which `rejectedNoTranscript` (per-run subset, new in Batch 9) | n/a | n/a | **1,540** |
+| Invocations deleted | 2,424 | 2,424 | 2,424 |
+| Deferred on error (summed across ticks) | 0 | 0 | 0 |
+| Wall time per tick (min / median / max) | 18 / 29 / 1,007 ms | 16 / 25 / 916 ms | 104.9 / 200.0 / 992.0 ms |
+| Largest single transcript read | 226 ms | 147 ms | 31.24 ms |
+| Migration wall time (schema 41 -> 45) | 1,221 ms / 7,612 ms (two runs) | 5,154 ms | 1,058.6 ms |
+
+Sum check: `122 + 174 + 265 + 0 + 1,857 + 0 + 0 = 2,418 = examined`. Holds exactly.
+(`rejectedNoTranscript` is a per-run subset already counted inside the 1,857 persisted total —
+it is reported separately, never added again.) Cross-checked against
+`SkillBacklogCleanupStore.readState()`: the persisted state row matches the `run()` cumulative
+report field-for-field.
+
+Kept-evidence rose by exactly 13 (109 -> 122): decision 3's by-id lookup found and read the
+same 13 candidates Batch 7/8 had confirmed present on disk but unresolved by workspace root,
+and their transcripts carried code-work evidence — the exact candidates the decision targeted.
+The remaining 1,540 of Batch 8's 1,553 `kept-root-unknown` candidates (1,553 - 13 = 1,540,
+exact match) had every named session id confirmed absent from all 41 live
+`~/.claude/projects` child folders, so they moved to the new terminal disposition
+`reject-no-transcript` instead of staying indefinitely unresolved. `keptRootUnknown` is 0 this
+run: on this snapshot and this live corpus, no candidate remained stuck.
+
+### Accepted-risk check (Batch 4 finding 2), Batch 7 / 8 / 9
+
+| Metric | Batch 7 | Batch 8 | Batch 9 |
+| --- | --- | --- | --- |
+| Unreadable-transcript candidates checked (unchanged root-resolved bucket) | 1,859 | 317 | 317 |
+| ...with >=1 transcript file present on disk | **13** | **0** | **0** |
+| `reject-no-transcript` candidates checked (new bucket) | n/a | n/a | 1,540 |
+| ...with >=1 transcript file present on disk | n/a | n/a | **0** |
+| Kept-root-unknown candidates (per run) | n/a | 1,553 | 0 |
+
+Required check for Task 9.3: every one of the 1,540 `reject-no-transcript` candidates was
+independently re-checked (read-only directory listing + `fs.statSync`, never through the
+locator or reader used by the service) against `~/.claude/projects/*/<sessionId>.jsonl` for
+every named session id — 0 have a file present, confirming no defect in the new disposition.
+The unchanged 317-candidate root-resolved-unreadable bucket also shows 0 with a file on disk,
+identical to Batch 8, confirming decision 3 left that path undisturbed.
+
+### Lookup cost (R-TL15), Batch 9 only (no Batch 7/8 equivalent — new in Batch 9)
+
+Measured via a proxy around `SessionTranscriptLocator.createRunLookup()` (one lookup object
+per tick): 12 directory listings total (one per tick that did lookup work, cached per tick),
+42,750 path `stat` calls total, 507 cache hits total, 1,553 total `locate()` calls (matches
+Batch 8's total `kept-root-unknown` count exactly). Per-tick median individual-lookup time
+ranged 0.001–1.82 ms; the single slowest lookup observed across the whole run was 7.14 ms —
+far under the 5,000 ms per-tick-median escalation threshold, so no readdir-index alternative is
+raised. Tick wall time (which now includes the lookup's directory listing and stat calls)
+rose to 104.9 / 200.0 / 992.0 ms (min/median/max) from Batch 8's 16 / 25 / 916 ms, still well
+inside the 60-second per-tick wall budget — no tick returned `time-budget`.
