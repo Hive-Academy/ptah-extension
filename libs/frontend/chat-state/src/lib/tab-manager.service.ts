@@ -1485,6 +1485,41 @@ export class TabManagerService {
     this.updateTabInternal(tabId, { messages });
   }
 
+  /** Record the opaque cursor for the page immediately before this tab. */
+  setOlderHistoryCursor(tabId: string, cursor: string | null): void {
+    this.updateTabInternal(tabId, { olderHistoryCursor: cursor });
+  }
+
+  /**
+   * Prepend an older history page against the messages that exist NOW.
+   *
+   * Live events may append while a page request is in flight, so the current
+   * array is read only when the page is ready to commit. Messages already in
+   * the tab (or repeated within the page) are discarded by id. The messages
+   * and next cursor land in one write so observers cannot see a mismatched
+   * window.
+   */
+  prependHistoryMessages(
+    tabId: string,
+    older: readonly ExecutionChatMessage[],
+    nextCursor: string | null,
+  ): void {
+    const current = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!current) return;
+
+    const seenIds = new Set(current.messages.map((message) => message.id));
+    const uniqueOlder = older.filter((message) => {
+      if (seenIds.has(message.id)) return false;
+      seenIds.add(message.id);
+      return true;
+    });
+
+    this.updateTabInternal(tabId, {
+      messages: [...uniqueOlder, ...current.messages],
+      olderHistoryCursor: nextCursor,
+    });
+  }
+
   /**
    * Append a single user message and reset currentMessageId for a new turn.
    * Used by conversation/message-sender flows on send.
@@ -2115,6 +2150,7 @@ export class TabManagerService {
   ): void {
     this.updateTabInternal(tabId, {
       messages: [],
+      olderHistoryCursor: undefined,
       streamingState: payload.streamingState,
       status: 'resuming',
       title: payload.title,

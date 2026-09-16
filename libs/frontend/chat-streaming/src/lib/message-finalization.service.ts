@@ -15,7 +15,6 @@ import {
   ExecutionNode,
   createExecutionChatMessage,
   MessageCompleteEvent,
-  MessageStartEvent,
   ExecutionChatMessage,
   SubagentRecord,
 } from '@ptah-extension/shared';
@@ -26,6 +25,10 @@ import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { capFinalizedTree } from './execution-tree-retention';
 import type { StreamingState } from '@ptah-extension/chat-types';
+import {
+  HistoryMessageBuilder,
+  extractHistoryTextForMessage,
+} from './history-message-builder.service';
 
 /**
  * Splice a turn's new messages into the transcript in ROOT order.
@@ -92,61 +95,13 @@ function placeFinalizedTrees(
   return placed;
 }
 
-/** The first `message_start` and `message_complete` recorded for one message. */
-interface MessageBoundaries {
-  start?: MessageStartEvent;
-  complete?: MessageCompleteEvent;
-}
-
-/**
- * Index every message's boundary events in ONE pass over `events`.
- *
- * First match wins, in map iteration order — the same event the per-message
- * `[...events.values()].find(...)` this replaces returned, so a message with
- * two `message_start` events still resolves to the earlier one.
- */
-function indexMessageBoundaries(
-  events: StreamingState['events'],
-): Map<string, MessageBoundaries> {
-  const byMessage = new Map<string, MessageBoundaries>();
-  for (const event of events.values()) {
-    if (
-      event.eventType !== 'message_start' &&
-      event.eventType !== 'message_complete'
-    ) {
-      continue;
-    }
-    let entry = byMessage.get(event.messageId);
-    if (!entry) {
-      entry = {};
-      byMessage.set(event.messageId, entry);
-    }
-    if (event.eventType === 'message_start') {
-      entry.start ??= event;
-    } else {
-      entry.complete ??= event;
-    }
-  }
-  return byMessage;
-}
-
-/** Root trees by id, keeping the first tree for a repeated id (`find` order). */
-function indexTreesById(
-  trees: readonly ExecutionNode[],
-): Map<string, ExecutionNode> {
-  const byId = new Map<string, ExecutionNode>();
-  for (const tree of trees) {
-    if (!byId.has(tree.id)) byId.set(tree.id, tree);
-  }
-  return byId;
-}
-
 @Injectable({ providedIn: 'root' })
 export class MessageFinalizationService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly batchedUpdate = inject(BatchedUpdateService);
+  private readonly historyBuilder = inject(HistoryMessageBuilder);
 
   /**
    * Finalize the current streaming message
@@ -336,110 +291,11 @@ export class MessageFinalizationService {
       return [];
     }
     const stateCopy = this.deepCopyStreamingState(streamingState);
-    const cacheKey = `tab-${tabId}`;
-    let allTrees = this.treeBuilder.buildTree(stateCopy, cacheKey);
-    if (resumableSubagents && resumableSubagents.length > 0) {
-      const resumableToolCallIds = new Set(
-        resumableSubagents.map((s) => s.toolCallId),
-      );
-      allTrees = allTrees.map((tree) =>
-        this.markResumableAgentsAsInterrupted(tree, resumableToolCallIds),
-      );
-    }
-
-    const messages: ExecutionChatMessage[] = [];
-    const usedTreeNodeIds = new Set<string>();
-    // One pass over the events and one over the trees, then the message loop
-    // is lookups. Scanning `events` twice per message made a long session's
-    // finalization O(M × E) on the renderer main thread (TASK_2026_437 C16).
-    const boundaries = indexMessageBoundaries(stateCopy.events);
-    const treeById = indexTreesById(allTrees);
-    for (const messageId of stateCopy.messageEventIds) {
-      const messageStartEvent = boundaries.get(messageId)?.start;
-
-      if (!messageStartEvent) {
-        continue;
-      }
-      if (messageStartEvent.parentToolUseId) {
-        continue;
-      }
-
-      const role = messageStartEvent.role;
-      const treeNode = treeById.get(messageStartEvent.id);
-      const completeEvent = boundaries.get(messageId)?.complete;
-      let tokens:
-        | { input: number; output: number; cacheHit?: number }
-        | undefined;
-      let cost: number | undefined;
-      let duration: number | undefined;
-
-      if (completeEvent?.tokenUsage) {
-        tokens = {
-          input: completeEvent.tokenUsage.input,
-          output: completeEvent.tokenUsage.output,
-        };
-        cost = completeEvent.cost;
-        duration = completeEvent.duration;
-      }
-
-      if (role === 'user') {
-        const textContent = this.extractTextForMessage(stateCopy, messageId);
-
-        messages.push(
-          createExecutionChatMessage({
-            id: messageId,
-            role: 'user',
-            rawContent: textContent,
-            sessionId: targetTab?.claudeSessionId ?? undefined,
-            timestamp: messageStartEvent.timestamp,
-            ...(messageStartEvent.imageCount
-              ? { imageCount: messageStartEvent.imageCount }
-              : {}),
-            // Set only when the turn came from another session; the key stays
-            // absent for an ordinary user turn, exactly as imageCount does.
-            ...(messageStartEvent.inboundPeer
-              ? { inboundPeer: messageStartEvent.inboundPeer }
-              : {}),
-          }),
-        );
-      } else {
-        if (!treeNode) {
-          continue;
-        }
-
-        if (usedTreeNodeIds.has(treeNode.id)) {
-          continue;
-        }
-
-        usedTreeNodeIds.add(treeNode.id);
-        messages.push(
-          createExecutionChatMessage({
-            id: treeNode.id,
-            role: 'assistant',
-            streamingState: treeNode,
-            sessionId: targetTab?.claudeSessionId ?? undefined,
-            tokens,
-            cost,
-            duration,
-            timestamp: messageStartEvent.timestamp,
-          }),
-        );
-      }
-    }
-    const finalMessages = messages.map((msg) => {
-      if (msg.role === 'assistant' && msg.streamingState) {
-        const cleaned = this.markStreamingAgentsAsInterrupted(
-          msg.streamingState,
-        );
-        // Same bound as the live path. A restored tab whose nodes already carry
-        // a `retention` notice accumulates counts here rather than truncating
-        // an already-truncated payload.
-        const capped = capFinalizedTree(cleaned);
-        if (capped !== msg.streamingState) {
-          return { ...msg, streamingState: capped };
-        }
-      }
-      return msg;
+    const finalMessages = this.historyBuilder.build(stateCopy, {
+      cacheKey: `tab-${tabId}`,
+      releaseCacheAfterBuild: false,
+      sessionId: targetTab?.claudeSessionId ?? undefined,
+      resumableSubagents,
     });
     this.tabManager.applyFinalizedHistory(tabId, finalMessages);
 
@@ -495,37 +351,6 @@ export class MessageFinalizationService {
         children: updatedChildren,
       };
     }
-    return node;
-  }
-
-  /**
-   * Safety net for historical session replay. Marks any agent nodes still in
-   * 'streaming' status as 'interrupted' on history finalization. Required for
-   * JSONL replay where no live Stop or SubagentStop event fires — orphaned
-   * streaming agent nodes from prior sessions would otherwise render stuck
-   * forever. Idempotent for live sessions where SubagentStop already marked
-   * nodes complete.
-   */
-  private markStreamingAgentsAsInterrupted(node: ExecutionNode): ExecutionNode {
-    const updatedChildren = node.children.map((child) =>
-      this.markStreamingAgentsAsInterrupted(child),
-    );
-
-    if (node.type === 'agent' && node.status === 'streaming') {
-      return {
-        ...node,
-        status: 'interrupted',
-        children: updatedChildren,
-      };
-    }
-
-    if (updatedChildren !== node.children) {
-      return {
-        ...node,
-        children: updatedChildren,
-      };
-    }
-
     return node;
   }
 
@@ -672,55 +497,9 @@ export class MessageFinalizationService {
   }
 
   /**
-   * Recursively mark agent nodes with matching toolCallIds as 'interrupted'.
-   *
-   * When loading a session from history, the tree is rebuilt but the 'interrupted' status
-   * is lost. This method uses the resumable subagent records from the backend registry
-   * to re-apply the 'interrupted' status to matching agent nodes so the Resume button appears.
-   *
-   * @param node - ExecutionNode tree to process
-   * @param resumableToolCallIds - Set of toolCallIds from resumable subagents
-   * @returns Updated node with 'interrupted' status on matching agents
-   */
-  private markResumableAgentsAsInterrupted(
-    node: ExecutionNode,
-    resumableToolCallIds: Set<string>,
-  ): ExecutionNode {
-    const updatedChildren = node.children.map((child) =>
-      this.markResumableAgentsAsInterrupted(child, resumableToolCallIds),
-    );
-    if (
-      node.type === 'agent' &&
-      node.toolCallId &&
-      resumableToolCallIds.has(node.toolCallId)
-    ) {
-      return {
-        ...node,
-        status: 'interrupted',
-        children: updatedChildren,
-      };
-    }
-    if (updatedChildren !== node.children) {
-      return {
-        ...node,
-        children: updatedChildren,
-      };
-    }
-    return node;
-  }
-
-  /**
    * Extract accumulated text content for a specific message
    */
   extractTextForMessage(state: StreamingState, messageId: string): string {
-    const textParts: { blockIndex: number; text: string }[] = [];
-    for (const [key, text] of state.textAccumulators.entries()) {
-      if (key.startsWith(`${messageId}-block-`)) {
-        const blockIndex = parseInt(key.split('-block-')[1], 10) || 0;
-        textParts.push({ blockIndex, text });
-      }
-    }
-    textParts.sort((a, b) => a.blockIndex - b.blockIndex);
-    return textParts.map((p) => p.text).join('\n');
+    return extractHistoryTextForMessage(state, messageId);
   }
 }

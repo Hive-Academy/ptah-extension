@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 32 | Batches: 18 (13 code, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 9/18
+Total tasks: 32 | Batches: 18 (13 code, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 10/18
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -1411,7 +1411,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
 - Team-leader reads: `resolveResumeWorkingDirectory` exists once; `registerFromHistoryEvents`
   receives the unsliced array; the three registration sites carry `chat:history-page`.
 
-## Batch 11: C11 tab history window + C10 history message builder (frontend foundations) — PENDING
+## Batch 11: C11 tab history window + C10 history message builder (frontend foundations) — COMPLETE (commit: `feat(chat-streaming): extract history message builder and tab cursor prepend`)
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `frontend-developer` sub-agent
@@ -1422,7 +1422,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
 - Review: logic (atomic prepend, no status/streamingState writes, O(E + M) unchanged, scratch
   cache cleared) + style (facade rule, exports). Revise cap 2.
 
-### Task 11.1: `olderHistoryCursor`, `setOlderHistoryCursor`, `prependHistoryMessages` — PENDING
+### Task 11.1: `olderHistoryCursor`, `setOlderHistoryCursor`, `prependHistoryMessages` — COMPLETE
 
 - Files: MODIFY `W\libs\frontend\chat-types\src\lib\chat-types.ts` (`TabState` `:490`); MODIFY
   `W\libs\frontend\chat-state\src\lib\tab-manager.service.ts`; CREATE
@@ -1438,7 +1438,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
   sits between reading `tab.messages` and writing. Any await is reported as blocking. Spec per
   the C11 seam.
 
-### Task 11.2: `HistoryMessageBuilder` with `finalizeSessionHistory` as its facade — PENDING
+### Task 11.2: `HistoryMessageBuilder` with `finalizeSessionHistory` as its facade — COMPLETE
 
 - Files: CREATE `W\libs\frontend\chat-streaming\src\lib\history-message-builder.service.ts` +
   `.spec.ts`; MODIFY `...\message-finalization.service.ts` (loop `:338-443` moves),

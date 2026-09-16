@@ -25,6 +25,10 @@
 export { StreamingHandlerService } from './lib/streaming-handler.service';
 export { TurnStateApplier } from './lib/turn-state-applier.service';
 export { MessageFinalizationService } from './lib/message-finalization.service';
+export {
+  HistoryMessageBuilder,
+  type HistoryMessageBuildOptions,
+} from './lib/history-message-builder.service';
 export { EventDeduplicationService } from './lib/event-deduplication.service';
 export { BatchedUpdateService } from './lib/batched-update.service';
 export { PermissionHandlerService } from './lib/permission-handler.service';
