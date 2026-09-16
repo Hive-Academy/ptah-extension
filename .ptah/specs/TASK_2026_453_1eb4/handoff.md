@@ -9,7 +9,7 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | Item          | Value                                                                                                                                      |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Worktree      | `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks` (inside the repo on purpose, so CLI lanes can run there)      |
-| Branch        | `perf/task-453-tile-open-long-tasks`, tracks origin, 3 commits pushed                                                                     |
+| Branch        | `perf/task-453-tile-open-long-tasks`, tracks origin, all commits pushed                                                                     |
 | PR            | none yet — open it when Stage 1 is committed                                                                                              |
 | Base          | `51d0d2e1f` (main with PR #518 and PR #519)                                                                                               |
 | node_modules  | a junction to `D:\projects\ptah-extension\node_modules`. Never delete it with a tool that follows junctions; use `cmd /c rmdir` first.     |
@@ -23,6 +23,8 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | `49b436256`  | Batch 1 — C4 perf harness, settle-inclusive window, 3 CodeRabbit fixes from PR #518   |
 | `93c41c41d`  | Batch 2 — M0 baseline, 9 runs, `test-report.md`                                       |
 | `b9cc2f193`  | Batch 3 — C3 canvas request queue + C2 replay admission                               |
+| `3f70c986e`  | Docs — Batch 3 commit hash recorded                                                   |
+| (this push)  | Batch 4 — C1 replay motion gate (hash in `batches.md` Batch 4 header)                 |
 
 ## 3. Batch state
 
@@ -31,8 +33,8 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | B1    | C4 perf harness                                 | COMPLETE, committed                           |
 | B2    | M0 baseline                                     | COMPLETE, committed                           |
 | B3    | C3 canvas request queue + C2 replay admission   | COMPLETE, committed `b9cc2f193`         |
-| B4    | C1 replay motion gate                           | PENDING                                       |
-| B5    | C5 replay render-window fence                   | PENDING — this one decides AC-11              |
+| B4    | C1 replay motion gate                           | COMPLETE, committed (see `batches.md`)        |
+| B5    | C5 replay render-window fence                   | IN_PROGRESS — next; this one decides AC-11    |
 | B6    | M1 measurement + decision point                 | PENDING — needs an idle machine               |
 
 ## 4. M0 result (committed evidence: `test-report.md`)

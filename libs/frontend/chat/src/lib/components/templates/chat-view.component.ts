@@ -40,6 +40,7 @@ import { ActionBannerService } from '../../services/action-banner.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
+import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
 import {
   AgentMonitorStore,
   agentVisibleInSession,
@@ -158,12 +159,17 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly suppressAnimateOnce =
     this._compactionLifecycle.suppressAnimateOnce;
   private readonly sessionLoader = inject(SessionLoaderService);
+  private readonly sessionHistoryReplayer = inject(SessionHistoryReplayer);
   private readonly _claudeRpc = inject(ClaudeRpcService);
   private readonly _confirmDialog = inject(ConfirmationDialogService);
   private readonly _authState = inject(AuthStateService);
 
   /** Inline re-auth banner state (set when a send fails needing auth). */
   protected readonly authRequiredBanner = this._authState.authRequiredBanner;
+
+  protected isHistoryReplaying(tabId: string): boolean {
+    return this.sessionHistoryReplayer.isReplaying(tabId);
+  }
 
   /**
    * Handle the banner's re-authenticate action. For Codex this opens a terminal

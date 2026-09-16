@@ -66,6 +66,7 @@
             [tabId]="tabId"
             [active]="tabId === resolvedTabId() && mainPanelShowing()"
             [isSessionActive]="resolvedSessionIsActive()"
+            [historyReplaying]="isHistoryReplaying(tabId)"
             (branchRequested)="onBranchRequested($event)"
             (rewindRequested)="onRewindRequested($event)"
             (promptSelected)="handlePromptSelected($event)"

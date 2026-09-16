@@ -12,6 +12,8 @@ import {
   NgModule,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 jest.mock('ngx-markdown', () => {
   @Component({
@@ -226,6 +228,76 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     button.nativeElement.click();
     expect(emitted).toEqual(['msg-user-active']);
   });
+
+  it.each([
+    [true, false],
+    [false, true],
+  ] as const)(
+    'applies the badge motion gate for isFinalizing=%s (enabled=%s)',
+    async (isFinalizing, expectsAnimation) => {
+      fixture = TestBed.createComponent(MessageBubbleComponent);
+      fixture.componentRef.setInput(
+        'message',
+        createExecutionChatMessage({
+          id: `msg-motion-${isFinalizing}`,
+          role: 'assistant',
+          rawContent: 'complete',
+        }),
+      );
+      fixture.componentRef.setInput('isFinalizing', isFinalizing);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.componentRef.setInput(
+        'message',
+        createExecutionChatMessage({
+          id: `msg-motion-${isFinalizing}`,
+          role: 'assistant',
+          rawContent: 'complete',
+          duration: 100,
+        }),
+      );
+      let rafSawEnterClass = false;
+      const rafSpy = jest
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation((callback: FrameRequestCallback) => {
+          rafSawEnterClass ||=
+            fixture.nativeElement.querySelector('.bubble-fade-enter') !== null;
+          callback(0);
+          return 1;
+        });
+      fixture.detectChanges();
+      await Promise.resolve();
+
+      if (expectsAnimation) {
+        // jsdom has no Web Animations API, so inspect the production template
+        // binding itself. This catches an inverted ternary or wrong class for
+        // both animation directions while AOT verifies the bound syntax.
+        const template = readFileSync(
+          join(__dirname, 'message-bubble.component.html'),
+          'utf8',
+        );
+        expect(template).toContain(
+          `[animate.enter]="isFinalizing() ? '' : 'bubble-fade-enter'"`,
+        );
+        expect(template).toContain(
+          `[animate.leave]="isFinalizing() ? '' : 'bubble-fade-leave'"`,
+        );
+        expect(
+          fixture.nativeElement.querySelector('.text-base-content-muted'),
+        ).not.toBeNull();
+        expect(fixture.componentInstance.isFinalizing()).toBe(false);
+      } else {
+        expect(
+          fixture.nativeElement.querySelector('.bubble-fade-enter'),
+        ).toBeNull();
+        // Input scheduling happened before the spy; the suppressed enter
+        // binding itself schedules no frame and never applies the class.
+        expect(rafSawEnterClass).toBe(false);
+        expect(rafSpy).not.toHaveBeenCalled();
+      }
+      rafSpy.mockRestore();
+    },
+  );
 
   describe('inbound peer bubble', () => {
     function peerMessage(label: string): ExecutionChatMessage {

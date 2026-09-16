@@ -182,6 +182,9 @@ export class ChatTranscriptComponent {
   /** Whether this tab's session has a live SDK `Query` (gates rewind action). */
   readonly isSessionActive = input<boolean>(false);
 
+  /** True only while this tab is replaying persisted history. */
+  readonly historyReplaying = input<boolean>(false);
+
   readonly branchRequested = output<string>();
   readonly rewindRequested = output<string>();
   /** Empty-state prompt selection → parent fills the chat input. */
@@ -228,6 +231,8 @@ export class ChatTranscriptComponent {
    * stick-to-bottom when the user is pinned.
    */
   private wasStreaming = false;
+  /** Previous replay input value, used only to detect its falling edge. */
+  private wasHistoryReplaying = false;
 
   /**
    * `scrollTop` seen by the previous scroll event. An upward move away from the
@@ -257,7 +262,16 @@ export class ChatTranscriptComponent {
    * suppress fade keyframes during the finalize burst.
    */
   protected readonly isFinalizingTransition = signal(false);
+  private readonly replayMotionHold = signal(false);
+  protected readonly motionSuppressed = computed(
+    () =>
+      this.historyReplaying() ||
+      this.replayMotionHold() ||
+      this.isFinalizingTransition(),
+  );
   private finalizingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private replayMotionHoldTimeoutId: ReturnType<typeof setTimeout> | null =
+    null;
 
   /**
    * Ptah icon URI for skeleton avatar placeholder
@@ -423,6 +437,30 @@ export class ChatTranscriptComponent {
   }
 
   constructor() {
+    // The replayer clears its flag before SessionLoaderService's await
+    // continuation marks the tab loaded. Hold the falling edge locally so a
+    // zoneless change-detection pass cannot expose motion in that gap; the
+    // normal streaming→idle transition then takes over.
+    effect(() => {
+      const historyReplaying = this.historyReplaying();
+      untracked(() => {
+        if (historyReplaying) {
+          this.wasHistoryReplaying = true;
+          this.clearReplayMotionHold();
+          return;
+        }
+        if (!this.wasHistoryReplaying) return;
+        this.wasHistoryReplaying = false;
+        if (this.replayMotionHoldTimeoutId) {
+          clearTimeout(this.replayMotionHoldTimeoutId);
+        }
+        this.replayMotionHold.set(true);
+        this.replayMotionHoldTimeoutId = setTimeout(() => {
+          this.replayMotionHold.set(false);
+          this.replayMotionHoldTimeoutId = null;
+        }, 300);
+      });
+    });
     // Activation edge (hidden→visible): restore the saved scroll offset, or
     // stick to bottom when pinned. `display:none` resets `scrollTop`, so the
     // restore runs on re-show via rAF (once the block layout is back).
@@ -612,5 +650,14 @@ export class ChatTranscriptComponent {
       clearTimeout(this.finalizingTimeoutId);
       this.finalizingTimeoutId = null;
     }
+    this.clearReplayMotionHold();
+  }
+
+  private clearReplayMotionHold(): void {
+    if (this.replayMotionHoldTimeoutId) {
+      clearTimeout(this.replayMotionHoldTimeoutId);
+      this.replayMotionHoldTimeoutId = null;
+    }
+    this.replayMotionHold.set(false);
   }
 }

@@ -19,7 +19,7 @@
             [messageIndex]="i"
             [totalMessages]="vm().totalCount"
             [isStreaming]="i >= vm().finalizedCount"
-            [isFinalizing]="isFinalizingTransition()"
+            [isFinalizing]="motionSuppressed()"
             [isSessionActive]="vm().isSessionActive"
             (branchRequested)="branchRequested.emit($event)"
             (rewindRequested)="rewindRequested.emit($event)"

@@ -208,6 +208,8 @@ describe('SessionHistoryReplayer replay admission', () => {
       SESSION_C,
       [],
     );
+    expect(replayer.replayingTabIds()).toEqual(new Set([TAB_A, TAB_B, TAB_C]));
+    expect(replayer.isReplaying(TAB_B)).toBe(true);
     const liveB = jest.fn(() => log.push('live:b'));
     expect(
       replayer.deferLiveEvent(
@@ -238,6 +240,7 @@ describe('SessionHistoryReplayer replay admission', () => {
     await expect(replayB).resolves.toBe('replayed');
     await finishChunkedReplay();
     await expect(replayC).resolves.toBe('replayed');
+    expect(replayer.replayingTabIds()).toEqual(new Set());
 
     expect(log.filter((entry) => entry.startsWith('finalize:'))).toEqual([
       `finalize:${TAB_A}`,
@@ -367,6 +370,7 @@ describe('SessionHistoryReplayer replay admission', () => {
 
       await finishHandoffWithFrame();
       await expect(replayB).resolves.toBe('superseded');
+      expect(replayer.isReplaying(TAB_B)).toBe(false);
       await expect(replayC).resolves.toBe('replayed');
       expect(log).toContain(`finalize:${TAB_C}`);
     },
@@ -405,7 +409,34 @@ describe('SessionHistoryReplayer replay admission', () => {
     ).toBe(true);
     await finishHandoffWithFrame();
     await expect(replayA).rejects.toThrow('replay failed');
+    expect(replayer.isReplaying(TAB_A)).toBe(false);
     await expect(replayB).resolves.toBe('replayed');
+  });
+
+  it("does not let an older replay's finally clear a newer replay flag for the same tab", async () => {
+    const olderClaim = replayer.claim(TAB_A, SESSION_A);
+    const olderReplay = replayer.replay(
+      events(251, SESSION_A, 'old'),
+      olderClaim,
+      SESSION_A,
+      [],
+    );
+    const newerClaim = replayer.claim(TAB_A, SESSION_A);
+    const newerReplay = replayer.replay(
+      events(1, SESSION_A, 'new'),
+      newerClaim,
+      SESSION_A,
+      [],
+    );
+
+    expect(replayer.isReplaying(TAB_A)).toBe(true);
+    await runNextMacrotask();
+    await expect(olderReplay).resolves.toBe('superseded');
+    expect(replayer.isReplaying(TAB_A)).toBe(true);
+
+    await finishHandoffWithFrame();
+    await expect(newerReplay).resolves.toBe('replayed');
+    expect(replayer.isReplaying(TAB_A)).toBe(false);
   });
 
   it('keeps the finished replay successful and reports a failed handoff on its waiter', async () => {
@@ -441,6 +472,7 @@ describe('SessionHistoryReplayer replay admission', () => {
 
     await expect(replayA).resolves.toBe('replayed');
     await replayBFailure;
+    expect(replayer.isReplaying(TAB_B)).toBe(false);
     expect(log).toContain(`finalize:${TAB_A}`);
     expect(log).not.toContain(`finalize:${TAB_B}`);
     expect(streamingHandler.clearPendingUpdates).not.toHaveBeenCalled();

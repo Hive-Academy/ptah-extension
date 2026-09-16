@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 3/6
+Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 4/6
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -597,7 +597,7 @@ readonly CanvasSessionRequest[]` returns the queue and sets `[]` (no write when 
 - **Follow-ups**: FU-20a (global status may read `loaded` while a later replay waits — noted in
   chat CLAUDE.md, no fix planned); C2 per-tile latency cost measured in Batch 6 (Task 6.1 AC 2).
 
-## Batch 4: C1 replay motion gate — PENDING
+## Batch 4: C1 replay motion gate — COMPLETE
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `frontend-developer` sub-agent
@@ -607,7 +607,7 @@ readonly CanvasSessionRequest[]` returns the queue and sets `[]` (no write when 
 - Tasks: 1 | Depends on: Batch 3 (replayer file shared with C2)
 - Review: `code-logic-reviewer` + `code-style-reviewer` → fixes → delta → commit.
 
-### Task 4.1: Replay-tab signal and `motionSuppressed` gate — PENDING
+### Task 4.1: Replay-tab signal and `motionSuppressed` gate — COMPLETE
 
 - Files:
   - MODIFY `W\libs\frontend\chat\src\lib\services\chat-store\session-history-replayer.service.ts`
@@ -669,7 +669,47 @@ ptah-extension-webview`; `npx nx run ptah-extension-webview:build:development` a
   `scheduleStickToBottom`, `restoreScrollOnActivation`, `chat-transcript.component.css`;
   `grep -n "isFinalizingTransition()" chat-transcript.component.html` returns nothing.
 
-## Batch 5: C5 replay render-window fence — PENDING
+### Batch 4 outcome
+
+- **Executor**: one CLI lane `codex` session — base implementation, then revise round 1 in the
+  same lane. Report: `b4-codex-report.md` (base + "Revise round 1").
+- **Review chain** (Claude reviewers, never the implementer):
+  - Base: `b4-code-logic-review.md` NEEDS_REVISION (Serious: zoneless gap between the replayer
+    clearing its flag and `SessionLoaderService` `setStatus('loaded')`; M3: no per-tab ChatView
+    propagation proof); `b4-code-style-review.md` APPROVED.
+  - Delta: `b4-code-logic-review-delta.md` APPROVED (1 Moderate carried, M1);
+    `b4-code-style-review-delta.md` APPROVED (2 Minors).
+- **Revise cap**: 1 of 2 used.
+- **Design addition beyond AC 4 (recorded)**: `motionSuppressed` also reads a transcript-local
+  falling-edge `replayMotionHold` (300 ms, started when `historyReplaying` goes true → false,
+  cancelled by a new replay and on destroy). Why: the replayer clears its flag in its `finally`
+  before the loader's await continuation marks the tab `loaded`; under zoneless change detection a
+  pass can run in that gap, when neither `historyReplaying` nor `isFinalizingTransition` is true,
+  and would re-expose bubble motion. The hold keeps suppression continuous until the normal
+  streaming → idle transition takes over. `isFinalizingTransition` itself is unchanged.
+- **Recorded deviation**: `chat-view.component.spec.ts` (not in the Files list) gained the
+  replayer stub and a per-tab id test, to close logic M3.
+- **Evidence (lane-reported, team-leader did not run tests)**: chat tests header 1 project — 77
+  suites, 1,255 passed + 2 skipped; typecheck `@ptah-extension/chat ptah-extension-webview` exit
+  0; lint same 2 projects 0 errors (17 pre-existing warnings); webview `build:development` and
+  `build:production` succeed (production has the existing initial-bundle budget warning);
+  degradation audit TOTAL 303 (= reference); prettier clean.
+- **Team-leader verification**: `git status --short` holds only Task 4.1 files, the chat-view
+  spec, `b4-*.md` and `batches.md`; `execution-node.component.ts`,
+  `execution-node.render-throttle.spec.ts`, `chat-transcript.component.css` have no diff;
+  `git diff` has no `content-visibility` and no hunk in `onScroll`, `scheduleStickToBottom` or
+  `restoreScrollOnActivation`; `grep -n "isFinalizingTransition()" chat-transcript.component.html`
+  returns nothing.
+- **Follow-ups**:
+  - M1 (Moderate): `message-bubble.component.spec.ts` proves the enabled `bubble-fade-enter`
+    binding by template string match, not a rendered class (jsdom limitation). Replace with a
+    rendered-class assertion when a harness allows it.
+  - Style Minor: timer-clear logic in `chat-transcript.component.ts` is partly duplicated between
+    the effect and `clearReplayMotionHold()`.
+  - Task 5.1: `streamingBoundary` must read raw `historyReplaying()`, never `replayMotionHold` or
+    `motionSuppressed` — the hold is motion-only and must not extend the render-window fence.
+
+## Batch 5: C5 replay render-window fence — IN_PROGRESS
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `frontend-developer` sub-agent
@@ -678,7 +718,7 @@ ptah-extension-webview`; `npx nx run ptah-extension-webview:build:development` a
 - Tasks: 1 | Depends on: Batch 4
 - Review: `code-logic-reviewer` + `code-style-reviewer` → fixes → delta → commit.
 
-### Task 5.1: Feed the render window a replay-aware streaming boundary — PENDING
+### Task 5.1: Feed the render window a replay-aware streaming boundary — IN_PROGRESS
 
 - Files:
   - MODIFY `W\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts`

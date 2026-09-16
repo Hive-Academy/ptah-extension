@@ -63,6 +63,7 @@ import { ChatViewComponent } from './chat-view.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
+import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
 import {
   VSCodeService,
   ClaudeRpcService,
@@ -167,6 +168,10 @@ function makeHarness(
   const sessionIsActiveSig = signal<boolean>(sessionIsActive);
   const showErrorMock = jest.fn();
   const suppressAnimateOnceSig = signal<boolean>(false);
+  const replayingTabIds = new Set<string>();
+  const isReplayingMock = jest.fn((tabId: string) =>
+    replayingTabIds.has(tabId),
+  );
 
   // Interrupted subagents the "N interrupted agents — Resume" banner reads.
   const resumableSubagentsSig = signal<SubagentRecord[]>([]);
@@ -345,6 +350,10 @@ function makeHarness(
         provide: CompactionLifecycleService,
         useValue: compactionLifecycleStub,
       },
+      {
+        provide: SessionHistoryReplayer,
+        useValue: { isReplaying: isReplayingMock },
+      },
       { provide: AgentMonitorStore, useValue: agentMonitorStoreStub },
       {
         provide: PanelResizeService,
@@ -404,8 +413,35 @@ function makeHarness(
     sessionVisibleSig,
     resumableSubagentsSig,
     isCompactingForTabMock,
+    replayingTabIds,
+    isReplayingMock,
   };
 }
+
+describe('ChatViewComponent — replay motion input', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('queries replay state with the rendered transcript tab id', () => {
+    const h = makeHarness();
+    const component = h.component as unknown as {
+      transcriptTabIds(): readonly string[];
+      isHistoryReplaying(tabId: string): boolean;
+    };
+    const renderedTabId = component.transcriptTabIds()[0];
+    expect(renderedTabId).toBe('tab-abc');
+
+    h.replayingTabIds.add(renderedTabId);
+    expect(component.isHistoryReplaying(renderedTabId)).toBe(true);
+    expect(h.isReplayingMock).toHaveBeenLastCalledWith('tab-abc');
+
+    h.replayingTabIds.delete(renderedTabId);
+    expect(component.isHistoryReplaying(renderedTabId)).toBe(false);
+    expect(h.isReplayingMock).toHaveBeenLastCalledWith('tab-abc');
+  });
+});
 
 describe('ChatViewComponent — compaction banner source', () => {
   afterEach(() => {

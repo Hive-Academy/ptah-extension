@@ -126,8 +126,8 @@
       ) {
         <div
           class="flex gap-1.5 items-center text-base-content-muted py-0.5"
-          animate.enter="bubble-fade-enter"
-          animate.leave="bubble-fade-leave"
+          [animate.enter]="isFinalizing() ? '' : 'bubble-fade-enter'"
+          [animate.leave]="isFinalizing() ? '' : 'bubble-fade-leave'"
         >
           @if (summary.cost !== undefined && summary.cost > 0) {
             <ptah-cost-badge [cost]="summary.cost" />
@@ -156,8 +156,8 @@
       ) {
         <div
           class="flex gap-1.5 items-center text-base-content-muted"
-          animate.enter="bubble-fade-enter"
-          animate.leave="bubble-fade-leave"
+          [animate.enter]="isFinalizing() ? '' : 'bubble-fade-enter'"
+          [animate.leave]="isFinalizing() ? '' : 'bubble-fade-leave'"
         >
           @if (message().tokens) {
             <ptah-token-badge

@@ -54,8 +54,18 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
+jest.mock('@formkit/auto-animate', () => ({
+  __esModule: true,
+  default: jest.fn(() => ({
+    enable: jest.fn(),
+    disable: jest.fn(),
+    destroy: jest.fn(),
+  })),
+}));
+
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import autoAnimate from '@formkit/auto-animate';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import {
   AgentMonitorStore,
@@ -123,6 +133,42 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
     (bgStoreMock.isBackgroundAgent as jest.Mock).mockReset();
     (bgStoreMock.isBackgroundAgent as jest.Mock).mockReturnValue(false);
     TestBed.resetTestingModule();
+    (autoAnimate as jest.Mock).mockClear();
+  });
+
+  it('does not create an auto-animate controller while finalizing', () => {
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: AgentMonitorStore, useValue: storeMock },
+        { provide: BackgroundAgentStore, useValue: bgStoreMock },
+      ],
+    });
+    const fixture = TestBed.createComponent(InlineAgentBubbleComponent);
+    fixture.componentRef.setInput('node', makeNode());
+    fixture.componentRef.setInput('isFinalizing', true);
+
+    fixture.detectChanges();
+
+    expect(autoAnimate).not.toHaveBeenCalled();
+  });
+
+  it('creates the auto-animate controller when finalizing clears after mount', () => {
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: AgentMonitorStore, useValue: storeMock },
+        { provide: BackgroundAgentStore, useValue: bgStoreMock },
+      ],
+    });
+    const fixture = TestBed.createComponent(InlineAgentBubbleComponent);
+    fixture.componentRef.setInput('node', makeNode());
+    fixture.componentRef.setInput('isFinalizing', true);
+    fixture.detectChanges();
+    expect(autoAnimate).not.toHaveBeenCalled();
+
+    fixture.componentRef.setInput('isFinalizing', false);
+    fixture.detectChanges();
+
+    expect(autoAnimate).toHaveBeenCalledTimes(1);
   });
 
   it('exposes the subagent record matching node().toolCallId', () => {
@@ -250,7 +296,6 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
       // Component preserves the draft on send failure (so the user can retry);
       // the success path requires the store to acknowledge with `true`.
       (storeMock.sendMessageToAgent as jest.Mock).mockResolvedValueOnce(true);
-      // eslint-disable-next-line @typescript-eslint/dot-notation
       await (cmp as unknown as { onSendSubmit(): Promise<void> })[
         'onSendSubmit'
       ]();

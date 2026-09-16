@@ -18,6 +18,9 @@
  *   enters synchronously; a contended replay re-checks its claim and tab
  *   binding when admitted. Every exit releases the slot, with one macrotask
  *   and one paint opportunity before the next waiter.
+ * - **Replay-tab signal.** {@link replay} publishes a tab from entry through
+ *   its claim-keyed `finally`. Consumers read {@link isReplaying}; an older
+ *   replay can never clear a newer replay's motion-suppression ownership.
  * - **Live-event fence.** From {@link claim} to {@link release} — the
  *   `chat:resume` round trip AND every event-loop turn between chunks — a live
  *   turn for the same session can deliver `chat:chunk` events (an
@@ -35,7 +38,7 @@
  *   event-loop turn between them — and so without live events to fence.
  */
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { yieldToMacrotask } from '@ptah-extension/core';
 import type {
   FlatStreamEventUnion,
@@ -111,6 +114,11 @@ export class SessionHistoryReplayer {
   private readonly claims = new Map<string, number>();
   private claimCounter = 0;
 
+  /** Claim currently publishing replay motion suppression for each tab. */
+  private readonly replayingClaims = new Map<string, number>();
+  private readonly _replayingTabIds = signal<ReadonlySet<string>>(new Set());
+  readonly replayingTabIds = this._replayingTabIds.asReadonly();
+
   /** Open fences by session id. Every claim opens or joins one. */
   private readonly fences = new Map<string, LiveEventFence>();
   /** Which fence each tab's current claim holds, by tab id. */
@@ -147,6 +155,10 @@ export class SessionHistoryReplayer {
     return claim !== null && this.claims.get(claim.tabId) === claim.claim;
   }
 
+  isReplaying(tabId: string): boolean {
+    return this.replayingTabIds().has(tabId);
+  }
+
   /**
    * End a resume's hold on its tab, whatever its outcome. Releases the claim
    * if it is still the current one, and leaves the fence its claim still holds
@@ -180,6 +192,7 @@ export class SessionHistoryReplayer {
     const { tabId } = claim;
     const chunkSize = SessionHistoryReplayer.REPLAY_CHUNK_SIZE;
     const chunked = events.length > chunkSize;
+    this.markReplayStarted(claim);
     const admission = this.acquireReplayAdmission(tabId);
 
     try {
@@ -209,8 +222,24 @@ export class SessionHistoryReplayer {
       this.closeFence(claim);
       return 'replayed';
     } finally {
+      this.markReplayFinished(claim);
       this.releaseReplayAdmission();
     }
+  }
+
+  private markReplayStarted(claim: ReplayClaim): void {
+    this.replayingClaims.set(claim.tabId, claim.claim);
+    const replaying = new Set(this._replayingTabIds());
+    replaying.add(claim.tabId);
+    this._replayingTabIds.set(replaying);
+  }
+
+  private markReplayFinished(claim: ReplayClaim): void {
+    if (this.replayingClaims.get(claim.tabId) !== claim.claim) return;
+    this.replayingClaims.delete(claim.tabId);
+    const replaying = new Set(this._replayingTabIds());
+    replaying.delete(claim.tabId);
+    this._replayingTabIds.set(replaying);
   }
 
   /**
