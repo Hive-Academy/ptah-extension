@@ -9,6 +9,7 @@ import { TestBed } from '@angular/core/testing';
 import { AppStateManager } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
+  HistoryMessageBuilder,
   SessionManager,
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
@@ -99,6 +100,7 @@ describe('SessionHistoryReplayer replay admission', () => {
       providers: [
         AppStateManager,
         SessionHistoryReplayer,
+        { provide: HistoryMessageBuilder, useValue: {} },
         {
           provide: TabManagerService,
           useValue: {

@@ -20,6 +20,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import {
+  HistoryMessageBuilder,
   SessionManager,
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
@@ -99,6 +100,7 @@ describe('SessionHistoryReplayer', () => {
     TestBed.configureTestingModule({
       providers: [
         SessionHistoryReplayer,
+        { provide: HistoryMessageBuilder, useValue: {} },
         {
           provide: TabManagerService,
           useValue: {

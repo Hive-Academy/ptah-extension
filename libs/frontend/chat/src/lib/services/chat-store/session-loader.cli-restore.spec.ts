@@ -13,8 +13,10 @@ import { TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { SessionLoaderService } from './session-loader.service';
+import { HistoryPagingService } from './history-paging.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
+  HistoryMessageBuilder,
   SessionManager,
   StreamingHandlerService,
   AgentMonitorStore,
@@ -108,6 +110,14 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
     TestBed.configureTestingModule({
       providers: [
         SessionLoaderService,
+        { provide: HistoryMessageBuilder, useValue: {} },
+        {
+          provide: HistoryPagingService,
+          useValue: {
+            tailRequest: () => ({ maxEvents: 250 }),
+            recordTail: jest.fn(),
+          },
+        },
         { provide: ClaudeRpcService, useValue: { call: rpcCall } },
         {
           provide: VSCodeService,

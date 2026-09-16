@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 32 | Batches: 18 (13 code, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 10/18
+Total tasks: 32 | Batches: 18 (13 code, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 11/18
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -1462,7 +1462,19 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
   `finalizeSessionHistory`). Typecheck the same plus `ptah-extension-webview`. Lint the first
   three. Webview `build:development`.
 
-## Batch 12: C12 paging orchestration (`chat`) — PENDING
+## Batch 12: C12 paging orchestration (`chat`) — COMPLETE (commit: `feat(chat): page older session history on demand after a tail resume`)
+
+- Outcome: logic + style APPROVED WITH MINOR; revise round 1 resolved all findings (field
+  `inject(HistoryMessageBuilder)`, pre-RPC `canReplayOlderPage` check + no-RPC-under-claim spec,
+  FU-20a/B5 re-read recorded in `b12-codex-report.md` and chat `CLAUDE.md` Tail paging bullet —
+  still accepted, `HistoryPagingService` in the chat-store list, `recordTail` on the success path).
+  B3/B4 not reproducible; pinned by specs, no production fix. Replayer 551 lines; loader +4.
+- Team-leader verification: chat tests 80 suites, 1,290 passed / 2 skipped; typecheck chat +
+  webview green; lint 0 errors (17 existing warnings). Harness spec edits are provider additions
+  only; the two removed loader-spec lines were replaced by stricter assertions.
+- Dependency: `HistoryPagingService` calls `chat:history-page`, whose `RpcMethodRegistry` entry is
+  in the uncommitted Batch 10 `rpc.types.ts` diff. This commit does not typecheck alone until
+  Batch 10 lands.
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `frontend-developer` sub-agent
@@ -1477,7 +1489,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
   ordering specs prove what they claim and any fix is minimal; FU-20a re-read with
   `replayOlderPage` admission, B5) + style. Revise cap 2.
 
-### Task 12.1: `HistoryPagingService`, `replayOlderPage`, loader tail request — PENDING
+### Task 12.1: `HistoryPagingService`, `replayOlderPage`, loader tail request — COMPLETE
 
 - Files: CREATE `W\libs\frontend\chat\src\lib\services\chat-store\history-paging.service.ts` +
   `.spec.ts`; CREATE `...\chat-store\session-history-replayer.older-page.spec.ts`; MODIFY
@@ -1503,7 +1515,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
      `accumulate()` happens before it. Also: never hold a `tab.messages` snapshot across an `await`
      before `prependHistoryMessages` — it reads current state at commit time and must stay so.
 
-### Task 12.2: Chat view anchor hint + older-history handler — PENDING
+### Task 12.2: Chat view anchor hint + older-history handler — COMPLETE
 
 - Depends on: Task 12.1
 - Files: MODIFY `W\libs\frontend\chat\src\lib\components\templates\chat-view.component.ts`,
@@ -1515,7 +1527,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
   `'failed'` a retry-able error. There is no automatic resume. The spec covers
   `occurrenceFromEnd`, stale text and failed. The component html is untouched in this batch.
 
-### Task 12.3: chat `CLAUDE.md` rule 7 Tail paging bullet (D12) — PENDING
+### Task 12.3: chat `CLAUDE.md` rule 7 Tail paging bullet (D12) — COMPLETE
 
 - Depends on: Task 12.1
 - File: MODIFY `W\libs\frontend\chat\CLAUDE.md` — ONE new rule 7 bullet **Tail paging**: tail
@@ -1524,7 +1536,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
   <= 250 events are synchronous (so the Replay boundary and retention do not engage for them,
   V5). No edit to the Batch 7 Replay boundary bullet.
 
-### Task 12.4: Resume ordering regression specs — compaction reload vs replay, throw mid-replay — PENDING
+### Task 12.4: Resume ordering regression specs — compaction reload vs replay, throw mid-replay — COMPLETE
 
 - Depends on: Task 12.1 (same files; runs after the tail request lands)
 - Source: `leftovers-inventory.md` B3 (`batches.md:775-777`, `b5-code-logic-review-delta.md:196-201`)

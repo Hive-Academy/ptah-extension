@@ -41,6 +41,7 @@ import { TranscriptRetentionService } from '../../services/transcript-retention.
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
+import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import {
   AgentMonitorStore,
   agentVisibleInSession,
@@ -160,6 +161,7 @@ export class ChatViewComponent implements OnDestroy {
     this._compactionLifecycle.suppressAnimateOnce;
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly sessionHistoryReplayer = inject(SessionHistoryReplayer);
+  private readonly historyPaging = inject(HistoryPagingService);
   private readonly _claudeRpc = inject(ClaudeRpcService);
   private readonly _confirmDialog = inject(ConfirmationDialogService);
   private readonly _authState = inject(AuthStateService);
@@ -169,6 +171,21 @@ export class ChatViewComponent implements OnDestroy {
 
   protected isHistoryReplaying(tabId: string): boolean {
     return this.sessionHistoryReplayer.isReplaying(tabId);
+  }
+
+  protected async onOlderHistoryRequested(tabId: string): Promise<void> {
+    const outcome = await this.historyPaging.loadOlder(tabId);
+    if (outcome === 'stale') {
+      this.showActionError(
+        'Earlier history changed. Reopen the session to load it again.',
+        tabId,
+      );
+    } else if (outcome === 'failed') {
+      this.showActionError(
+        'Could not load earlier messages. Please try again.',
+        tabId,
+      );
+    }
   }
 
   /**
@@ -954,7 +971,14 @@ export class ChatViewComponent implements OnDestroy {
         occurrence++;
       }
     }
-    return { text, occurrence };
+    let occurrenceFromEnd = 0;
+    for (let i = index + 1; i < messages.length; i++) {
+      const later = messages[i];
+      if (later.role === 'user' && (later.rawContent ?? '').trim() === text) {
+        occurrenceFromEnd++;
+      }
+    }
+    return { text, occurrence, occurrenceFromEnd };
   }
 
   /**

@@ -46,6 +46,7 @@ import type {
   SubagentRecord,
 } from '@ptah-extension/shared';
 import {
+  HistoryMessageBuilder,
   SessionManager,
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
@@ -59,6 +60,9 @@ export interface ReplayClaim {
 
 /** `superseded`: a newer resume claimed the tab, or the tab closed or rebound. */
 export type HistoryReplayOutcome = 'replayed' | 'superseded';
+
+/** Result of replaying a side-effect-free older-history page. */
+export type OlderHistoryReplayOutcome = 'prepended' | 'superseded';
 
 /**
  * One buffer per SESSION, not per tab: the tab path fans a session's event out
@@ -95,6 +99,7 @@ export class SessionHistoryReplayer {
   private readonly tabManager = inject(TabManagerService);
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly sessionManager = inject(SessionManager);
+  private readonly historyMessageBuilder = inject(HistoryMessageBuilder);
 
   /** History replay chunk size. */
   static readonly REPLAY_CHUNK_SIZE = 250;
@@ -227,6 +232,64 @@ export class SessionHistoryReplayer {
     }
   }
 
+  /**
+   * Build and atomically prepend one older-history page.
+   *
+   * Unlike {@link replay}, this path never publishes replay motion state and
+   * never opens or closes a live-event fence. A current resume claim always
+   * wins, and the tab binding and cursor are checked after admission and after
+   * every macrotask yield before any messages are committed.
+   */
+  async replayOlderPage(
+    events: readonly FlatStreamEventUnion[],
+    tabId: string,
+    sessionId: SessionId,
+    requestCursor: string,
+    nextCursor: string | null,
+    resumableSubagents: readonly SubagentRecord[] | undefined,
+  ): Promise<OlderHistoryReplayOutcome> {
+    if (!this.canReplayOlderPage(tabId, sessionId, requestCursor)) {
+      return 'superseded';
+    }
+
+    const cacheKey = `history-page-${tabId}`;
+    const admission = this.acquireReplayAdmission(tabId);
+    try {
+      if (admission) await admission;
+      if (!this.canReplayOlderPage(tabId, sessionId, requestCursor)) {
+        return 'superseded';
+      }
+
+      const chunkSize = SessionHistoryReplayer.REPLAY_CHUNK_SIZE;
+      const chunked = events.length > chunkSize;
+      let pageState = this.historyMessageBuilder.createPageState();
+      for (let start = 0; start < events.length; start += chunkSize) {
+        pageState = this.historyMessageBuilder.accumulate(
+          pageState,
+          events.slice(start, start + chunkSize),
+          sessionId,
+        );
+        if (!chunked) continue;
+        await yieldToMacrotask();
+        if (!this.canReplayOlderPage(tabId, sessionId, requestCursor)) {
+          return 'superseded';
+        }
+      }
+
+      const messages = this.historyMessageBuilder.build(pageState, {
+        cacheKey,
+        releaseCacheAfterBuild: false,
+        sessionId,
+        resumableSubagents,
+      });
+      this.tabManager.prependHistoryMessages(tabId, messages, nextCursor);
+      return 'prepended';
+    } finally {
+      this.historyMessageBuilder.clearCache(cacheKey);
+      this.releaseReplayAdmission();
+    }
+  }
+
   private markReplayStarted(claim: ReplayClaim): void {
     this.replayingClaims.set(claim.tabId, claim.claim);
     const replaying = new Set(this._replayingTabIds());
@@ -332,6 +395,20 @@ export class SessionHistoryReplayer {
       return false;
     }
     return true;
+  }
+
+  /** Older pages are valid only while no resume owns the tab and its cursor matches. */
+  canReplayOlderPage(
+    tabId: string,
+    sessionId: SessionId,
+    requestCursor: string,
+  ): boolean {
+    if (this.claims.has(tabId)) return false;
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    return (
+      tab?.claudeSessionId === sessionId &&
+      tab.olderHistoryCursor === requestCursor
+    );
   }
 
   /**

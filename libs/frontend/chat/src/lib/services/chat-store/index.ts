@@ -22,6 +22,10 @@
 export { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 export { CompletionHandlerService } from './completion-handler.service';
 export { SessionLoaderService } from './session-loader.service';
+export {
+  HistoryPagingService,
+  type OlderHistoryLoadOutcome,
+} from './history-paging.service';
 export { ConversationService } from './conversation.service';
 /** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
 export { PermissionHandlerService } from '@ptah-extension/chat-streaming';

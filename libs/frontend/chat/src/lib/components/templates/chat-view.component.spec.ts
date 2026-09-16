@@ -64,6 +64,7 @@ import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
+import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import {
   VSCodeService,
   ClaudeRpcService,
@@ -167,6 +168,7 @@ function makeHarness(
   const sessionIdSig = signal<string | null>(sessionId);
   const sessionIsActiveSig = signal<boolean>(sessionIsActive);
   const showErrorMock = jest.fn();
+  const loadOlderMock = jest.fn().mockResolvedValue('prepended');
   const suppressAnimateOnceSig = signal<boolean>(false);
   const replayingTabIds = new Set<string>();
   const isReplayingMock = jest.fn((tabId: string) =>
@@ -354,6 +356,7 @@ function makeHarness(
         provide: SessionHistoryReplayer,
         useValue: { isReplaying: isReplayingMock },
       },
+      { provide: HistoryPagingService, useValue: { loadOlder: loadOlderMock } },
       { provide: AgentMonitorStore, useValue: agentMonitorStoreStub },
       {
         provide: PanelResizeService,
@@ -415,8 +418,71 @@ function makeHarness(
     isCompactingForTabMock,
     replayingTabIds,
     isReplayingMock,
+    loadOlderMock,
   };
 }
+
+describe('ChatViewComponent — older history orchestration', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('counts identical loaded prompts after the anchor from the end', () => {
+    const h = makeHarness();
+    const messages = signal([
+      { id: 'first', role: 'user', rawContent: 'repeat' },
+      { id: 'answer', role: 'assistant', rawContent: 'answer' },
+      { id: 'anchor', role: 'user', rawContent: 'repeat' },
+      { id: 'later', role: 'user', rawContent: 'repeat' },
+      { id: 'last', role: 'user', rawContent: 'different' },
+    ]);
+    const component = h.component as unknown as {
+      resolvedMessages: typeof messages;
+      buildAnchorHint(messageId: string): unknown;
+    };
+    component.resolvedMessages = messages;
+
+    expect(component.buildAnchorHint('anchor')).toEqual({
+      text: 'repeat',
+      occurrence: 1,
+      occurrenceFromEnd: 1,
+    });
+  });
+
+  it('reports stale history with reopen guidance and does not resume automatically', async () => {
+    const h = makeHarness();
+    h.loadOlderMock.mockResolvedValue('stale');
+
+    await (
+      h.component as unknown as {
+        onOlderHistoryRequested(tabId: string): Promise<void>;
+      }
+    ).onOlderHistoryRequested('tab-abc');
+
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      expect.stringMatching(/reopen the session/i),
+      'tab-abc',
+    );
+    expect(h.switchSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a retryable error when loading older history fails', async () => {
+    const h = makeHarness();
+    h.loadOlderMock.mockResolvedValue('failed');
+
+    await (
+      h.component as unknown as {
+        onOlderHistoryRequested(tabId: string): Promise<void>;
+      }
+    ).onOlderHistoryRequested('tab-abc');
+
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      expect.stringMatching(/try again/i),
+      'tab-abc',
+    );
+  });
+});
 
 describe('ChatViewComponent — replay motion input', () => {
   afterEach(() => {
