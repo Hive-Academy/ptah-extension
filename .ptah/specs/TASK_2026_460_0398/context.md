@@ -36,15 +36,23 @@ in either order. The numeric fields are not.
 - `createChild` preserves an existing record's `createdAt`, `totalCost` and
   `totalTokens` (and any other accumulating field) instead of overwriting them,
   or reuses `create`'s existing-record branch and then sets the child marker.
+- **`lastActiveAt` is BUMPED to now, not preserved.** It means "when this
+  session was last seen", and both writers fire while the session is starting,
+  so a preserved timestamp would report the record as older than it is and
+  would change the sidebar's `getForWorkspace` ordering
+  (`session-metadata-store.ts:639-645` sorts on it). This is the one field the
+  preservation rule deliberately excludes, which is why it must be written
+  down: reusing `create`'s existing-record branch bumps it, while a plain
+  field-preserving merge would keep the old value.
 - Decide the rule once and state it beside the merge in `_saveInternal`, since
   that merge is the reason the asymmetry is invisible today.
 - Specs for both orders, asserting name, `isChildSession`, `createdAt`,
-  `totalCost` and `totalTokens`.
+  `totalCost`, `totalTokens` AND `lastActiveAt` (bumped in both orders).
 
 ## Acceptance
 
 - With `create` first and `createChild` second, the stored record keeps the
-  original `createdAt` and the accumulated cost and token totals, and is marked
-  as a child session.
+  original `createdAt` and the accumulated cost and token totals, is marked as
+  a child session, and carries a bumped `lastActiveAt`.
 - The reverse order behaves as it does today.
 - No change to the session-name resolution shipped by TASK_2026_452.

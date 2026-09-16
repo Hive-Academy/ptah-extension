@@ -9,9 +9,9 @@ there on purpose: the task forbade a new platform port.
 (`libs/backend/agent-sdk/src/lib/peer-sessions/peer-session-directory.service.ts`),
 and `getAll` reads the ambient `WORKSPACE_STATE_STORAGE`
 (`libs/backend/agent-sdk/src/lib/session-metadata-store.ts:655-666`), which in a
-multi-workspace host is the ACTIVE delegate only. So a peer row started by
-another workspace window has no `ptahTitle` and the picker falls back to the
-registry name.
+multi-workspace host is the ACTIVE delegate only. So a peer row whose session
+was started under a different registered workspace has no `ptahTitle`, and the
+picker falls back to the registry name.
 
 The peer list itself is deliberately cross-workspace
 (`peer-session-directory.service.ts:7-34`, policy `include-all-workspaces`),
@@ -39,20 +39,31 @@ common case.
 - `PeerSessionDirectory` uses it for the title join only.
 - `SessionMetadataStore`'s ambient WRITE behaviour stays unchanged.
 
-## Known limit (state it, do not try to solve it here)
+## The boundary, stated exactly
 
-A workspace known only to ANOTHER PROCESS or window is still invisible: the
-port documents open-workspace registrations only, and VS Code and the CLI each
-register one concrete current-workspace store
+The supported set is every workspace REGISTERED IN THIS HOST PROCESS through
+`IWorkspaceScopedStateStorage` — nothing wider. In practice that is Electron,
+which registers each open workspace on one storage; VS Code and the CLI each
+register a single concrete current-workspace store
 (`libs/backend/platform-vscode/src/registration.ts:66-70`,
-`libs/backend/platform-cli/src/registration.ts:71-73`). Reading closed or
-other-process stores would need global indexing or platform-specific storage
-discovery — a separate decision.
+`libs/backend/platform-cli/src/registration.ts:71-73`), so for those hosts the
+aggregate equals today's answer.
+
+Out of scope, and NOT a defect of this task:
+
+- a workspace that is open in a DIFFERENT host process (a second Electron
+  instance, another VS Code extension host, a CLI run);
+- a workspace that was closed, so nothing registered it.
+
+Reaching either would need global indexing or platform-specific storage
+discovery, which is a separate decision.
 
 ## Acceptance
 
-- A session started in workspace A shows its Ptah title in workspace B's peer
-  picker, in one Electron process with both workspaces open.
+- A session started under workspace A shows its Ptah title in workspace B's
+  peer picker, with both workspaces registered in ONE Electron process.
+- A row whose workspace is not registered in this process still lists, with the
+  registry name and no title.
 - A metadata read failure for one workspace still lists every row, without
   titles, and logs one warn.
 - No new `PLATFORM_TOKENS` entry, no write path change.
