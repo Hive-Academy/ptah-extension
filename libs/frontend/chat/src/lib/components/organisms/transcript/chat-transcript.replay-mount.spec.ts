@@ -279,13 +279,14 @@ describe('ChatTranscriptComponent replay render-window fence', () => {
     rafSpy.mockRestore();
     TestBed.resetTestingModule();
     jest.clearAllMocks();
+    jest.useRealTimers();
   });
 
   function entry(target: Element, isIntersecting: boolean): FakeEntry {
     return { target, isIntersecting, boundingClientRect: { height: 200 } };
   }
 
-  it('windows a replay to six bubbles and retains an intersecting slot after it leaves the tail', () => {
+  it('defers a never-mounted intersection until replay retention releases', () => {
     const h = makeHarness({
       historyReplaying: true,
       trees: treeIds(50),
@@ -298,14 +299,207 @@ describe('ChatTranscriptComponent replay render-window fence', () => {
     const leavingTailSlot = h.slots()[44];
     h.observer.emit([entry(firstSlot, true), entry(leavingTailSlot, true)]);
     h.fixture.detectChanges();
-    expect(firstSlot.querySelector('ptah-message-bubble')).toBeTruthy();
+    expect(firstSlot.querySelector('ptah-message-bubble')).toBeFalsy();
 
     h.setTrees(treeIds(56));
     h.fixture.detectChanges();
 
     expect(h.slots()).toHaveLength(56);
     expect(leavingTailSlot.querySelector('ptah-message-bubble')).toBeTruthy();
-    expect(h.bubbles()).toHaveLength(ALWAYS_MOUNTED_TAIL + 2);
+    expect(h.bubbles()).toHaveLength(ALWAYS_MOUNTED_TAIL * 2);
+
+    h.setStatus('loaded');
+    h.setMessages(treeIds(56).map((id, index) => makeMessage(id, index)));
+    h.setTrees([]);
+    h.setHistoryReplaying(false);
+    h.fixture.detectChanges();
+
+    expect(firstSlot.querySelector('ptah-message-bubble')).toBeTruthy();
+  });
+
+  it('only grows the mounted tail across replay chunks', () => {
+    const h = makeHarness({ historyReplaying: true, trees: treeIds(50) });
+    const initiallyMounted = h.slots().slice(44);
+    expect(h.bubbles()).toHaveLength(ALWAYS_MOUNTED_TAIL);
+
+    h.setTrees(treeIds(98));
+    h.fixture.detectChanges();
+    const middleSlot = h.slots()[60];
+    h.observer.emit([entry(middleSlot, true)]);
+    h.fixture.detectChanges();
+
+    expect(
+      initiallyMounted.every((slot) =>
+        slot.querySelector('ptah-message-bubble'),
+      ),
+    ).toBe(true);
+    expect(middleSlot.querySelector('ptah-message-bubble')).toBeFalsy();
+    expect(h.bubbles()).toHaveLength(ALWAYS_MOUNTED_TAIL * 2);
+
+    const mountedAt98 = h
+      .slots()
+      .filter((slot) => slot.querySelector('ptah-message-bubble'));
+    h.setTrees(treeIds(146));
+    h.fixture.detectChanges();
+
+    expect(
+      mountedAt98.every((slot) => slot.querySelector('ptah-message-bubble')),
+    ).toBe(true);
+    expect(middleSlot.querySelector('ptah-message-bubble')).toBeFalsy();
+    expect(h.bubbles()).toHaveLength(ALWAYS_MOUNTED_TAIL * 3);
+  });
+
+  it('enables retention before an admission-queued replay receives its first chunk', () => {
+    const h = makeHarness({ historyReplaying: true, trees: [] });
+    expect(h.slots()).toHaveLength(0);
+
+    h.setTrees(treeIds(50));
+    h.fixture.detectChanges();
+    const firstTail = h.slots().slice(44);
+    const neverMountedSlot = h.slots()[20];
+    expect(h.bubbles()).toHaveLength(ALWAYS_MOUNTED_TAIL);
+
+    h.observer.emit([entry(neverMountedSlot, true)]);
+    h.fixture.detectChanges();
+    expect(neverMountedSlot.querySelector('ptah-message-bubble')).toBeFalsy();
+
+    h.setTrees(treeIds(98));
+    h.fixture.detectChanges();
+
+    expect(
+      firstTail.every((slot) => slot.querySelector('ptah-message-bubble')),
+    ).toBe(true);
+    expect(neverMountedSlot.querySelector('ptah-message-bubble')).toBeFalsy();
+    expect(h.bubbles()).toHaveLength(ALWAYS_MOUNTED_TAIL * 2);
+  });
+
+  it('starts the replay motion hold before scheduling retention release', () => {
+    const h = makeHarness({ historyReplaying: true, trees: treeIds(50) });
+    // H2 relies on the motion-hold effect, declared first, starting before the
+    // render-window feed effect schedules its deferred release.
+    const component = h.fixture.componentInstance as unknown as {
+      replayMotionHold: () => boolean;
+      scheduleReplayRetentionRelease: () => void;
+    };
+    const scheduleRelease =
+      component.scheduleReplayRetentionRelease.bind(component);
+    const scheduleSpy = jest
+      .spyOn(component, 'scheduleReplayRetentionRelease')
+      .mockImplementation(() => {
+        expect(component.replayMotionHold()).toBe(true);
+        scheduleRelease();
+      });
+
+    h.setHistoryReplaying(false);
+    h.fixture.detectChanges();
+
+    expect(scheduleSpy).toHaveBeenCalledTimes(1);
+    scheduleSpy.mockRestore();
+  });
+
+  it('releases retained bubbles on the next frame at their measured height', () => {
+    const h = makeHarness({ historyReplaying: true, trees: treeIds(50) });
+    h.setTrees(treeIds(56));
+    h.fixture.detectChanges();
+    const leavingTailSlot = h.slots()[44];
+    h.observer.emit([entry(leavingTailSlot, false)]);
+
+    const queuedFrames: FrameRequestCallback[] = [];
+    rafSpy.mockImplementation((callback: FrameRequestCallback) => {
+      queuedFrames.push(callback);
+      return queuedFrames.length;
+    });
+    h.setStatus('loaded');
+    h.setMessages(treeIds(56).map((id, index) => makeMessage(id, index)));
+    h.setTrees([]);
+    h.setHistoryReplaying(false);
+    h.fixture.detectChanges();
+
+    expect(leavingTailSlot.querySelector('ptah-message-bubble')).toBeTruthy();
+    queuedFrames.splice(0).forEach((callback) => callback(0));
+    h.fixture.detectChanges();
+
+    expect(leavingTailSlot.querySelector('ptah-message-bubble')).toBeFalsy();
+    const placeholder = leavingTailSlot.querySelector('.chat-msg-placeholder');
+    expect((placeholder as HTMLElement).style.minHeight).toBe('200px');
+  });
+
+  it('uses the timer fallback when a hidden-window frame never fires', () => {
+    jest.useFakeTimers();
+    rafSpy.mockRestore();
+    rafSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 73);
+    const h = makeHarness({ historyReplaying: true, trees: treeIds(50) });
+    const cancelRafSpy = jest.spyOn(window, 'cancelAnimationFrame');
+    h.setStatus('loaded');
+    h.setMessages(treeIds(50).map((id, index) => makeMessage(id, index)));
+    h.setTrees([]);
+    h.setHistoryReplaying(false);
+    h.fixture.detectChanges();
+
+    const component = h.fixture.componentInstance as unknown as {
+      retentionReleaseRafId: number | null;
+      retentionReleaseTimeoutId: ReturnType<typeof setTimeout> | null;
+    };
+    expect(component.retentionReleaseRafId).toBe(73);
+    jest.advanceTimersByTime(50);
+    h.fixture.detectChanges();
+
+    expect(cancelRafSpy).toHaveBeenCalledWith(73);
+    expect(component.retentionReleaseRafId).toBeNull();
+    expect(component.retentionReleaseTimeoutId).toBeNull();
+    cancelRafSpy.mockRestore();
+  });
+
+  it('cancels pending retention release handles on destroy', () => {
+    jest.useFakeTimers();
+    rafSpy.mockRestore();
+    rafSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 91);
+    const h = makeHarness({ historyReplaying: true, trees: treeIds(50) });
+    const cancelRafSpy = jest.spyOn(window, 'cancelAnimationFrame');
+    h.setHistoryReplaying(false);
+    h.fixture.detectChanges();
+
+    const component = h.fixture.componentInstance as unknown as {
+      retentionReleaseRafId: number | null;
+      retentionReleaseTimeoutId: ReturnType<typeof setTimeout> | null;
+    };
+    expect(component.retentionReleaseRafId).toBe(91);
+    expect(component.retentionReleaseTimeoutId).not.toBeNull();
+
+    h.fixture.destroy();
+
+    expect(cancelRafSpy).toHaveBeenCalledWith(91);
+    expect(component.retentionReleaseRafId).toBeNull();
+    expect(component.retentionReleaseTimeoutId).toBeNull();
+    cancelRafSpy.mockRestore();
+  });
+
+  it('cancels a pending retention release when replay restarts', () => {
+    jest.useFakeTimers();
+    rafSpy.mockRestore();
+    rafSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 117);
+    const h = makeHarness({ historyReplaying: true, trees: treeIds(50) });
+    const cancelRafSpy = jest.spyOn(window, 'cancelAnimationFrame');
+    h.setHistoryReplaying(false);
+    h.fixture.detectChanges();
+
+    h.setHistoryReplaying(true);
+    h.fixture.detectChanges();
+
+    const component = h.fixture.componentInstance as unknown as {
+      retentionReleaseRafId: number | null;
+      retentionReleaseTimeoutId: ReturnType<typeof setTimeout> | null;
+    };
+    expect(cancelRafSpy).toHaveBeenCalledWith(117);
+    expect(component.retentionReleaseRafId).toBeNull();
+    expect(component.retentionReleaseTimeoutId).toBeNull();
+    cancelRafSpy.mockRestore();
   });
 
   it('marks every rendered replay bubble as settled', () => {

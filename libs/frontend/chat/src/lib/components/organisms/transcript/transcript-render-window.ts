@@ -24,8 +24,8 @@ export const ALWAYS_MOUNTED_TAIL = 6;
 export const PLACEHOLDER_FALLBACK_PX = 120;
 
 /**
- * TranscriptRenderWindow — decides which message ids are mounted, and remembers
- * each one's last measured height. Nothing else.
+ * TranscriptRenderWindow — decides which message ids are mounted, remembers
+ * each one's last measured height, and retains the monotonic replay mount set.
  *
  * Provided in `ChatTranscriptComponent.providers` (NOT `providedIn: 'root'`) so
  * each transcript owns its own window, mirroring the component-scoped
@@ -66,6 +66,10 @@ export class TranscriptRenderWindow {
 
   /** Trailing + streaming ids, never unmounted. */
   private readonly tail = signal<ReadonlySet<string>>(new Set<string>());
+
+  /** Mounted ids retained while persisted history is replaying. */
+  private readonly retained = signal<ReadonlySet<string>>(new Set<string>());
+  private replayRetentionActive = false;
 
   /**
    * Mirrors `ChatTranscriptComponent.active()`. Under `display:none` every
@@ -131,7 +135,30 @@ export class TranscriptRenderWindow {
     if (!sameSet(nextTail, this.tail())) {
       this.tail.set(nextTail);
     }
+    if (this.replayRetentionActive) {
+      const nextRetained = new Set(this.retained());
+      for (const id of nextTail) nextRetained.add(id);
+      if (!sameSet(nextRetained, this.retained())) {
+        this.retained.set(nextRetained);
+      }
+    }
     this.evictAbsent(new Set(messageIds));
+  }
+
+  /** Keep the replay mount set monotonic until deferred release. */
+  setReplayRetention(active: boolean): void {
+    if (active === this.replayRetentionActive) return;
+    this.replayRetentionActive = active;
+    if (!active) {
+      if (this.retained().size > 0) this.retained.set(new Set<string>());
+      return;
+    }
+
+    const nextRetained = new Set(this.tail());
+    for (const id of this.intersecting()) nextRetained.add(id);
+    if (!sameSet(nextRetained, this.retained())) {
+      this.retained.set(nextRetained);
+    }
   }
 
   /** Freeze (false) or resume (true) observer processing. */
@@ -143,6 +170,9 @@ export class TranscriptRenderWindow {
   isMounted(messageId: string): boolean {
     if (!this.supported) return true;
     if (this.tail().has(messageId)) return true;
+    if (this.replayRetentionActive) {
+      return this.retained().has(messageId);
+    }
     return this.intersecting().has(messageId);
   }
 
@@ -168,6 +198,7 @@ export class TranscriptRenderWindow {
 
     const current = this.intersecting();
     const tail = this.tail();
+    const retained = this.retained();
     let next: Set<string> | null = null;
     let heightsChanged = false;
 
@@ -176,7 +207,10 @@ export class TranscriptRenderWindow {
       const messageId = this.elements.get(element);
       if (messageId === undefined) continue;
 
-      const wasMounted = tail.has(messageId) || current.has(messageId);
+      const wasMounted =
+        tail.has(messageId) ||
+        retained.has(messageId) ||
+        current.has(messageId);
       const height = entry.boundingClientRect.height;
       if (wasMounted && height > 0 && this.heights.get(messageId) !== height) {
         this.heights.set(messageId, height);
@@ -217,6 +251,16 @@ export class TranscriptRenderWindow {
       }
     }
     if (next) this.intersecting.set(next);
+
+    const retained = this.retained();
+    let nextRetained: Set<string> | null = null;
+    for (const id of retained) {
+      if (!present.has(id)) {
+        nextRetained ??= new Set(retained);
+        nextRetained.delete(id);
+      }
+    }
+    if (nextRetained) this.retained.set(nextRetained);
   }
 }
 

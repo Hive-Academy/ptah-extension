@@ -206,6 +206,8 @@ export class ChatTranscriptComponent {
    */
   private resizeObserver: ResizeObserver | null = null;
   private scrollRafId: number | null = null;
+  private retentionReleaseRafId: number | null = null;
+  private retentionReleaseTimeoutId: number | null = null;
   private lastContentHeight = 0;
   /** Distance from bottom (px) within which the user is considered "pinned". */
   private readonly NEAR_BOTTOM_PX = 120;
@@ -240,6 +242,7 @@ export class ChatTranscriptComponent {
   private wasStreaming = false;
   /** Previous replay input value, used only to detect its falling edge. */
   private wasHistoryReplaying = false;
+  private wasRenderWindowReplaying = false;
 
   /**
    * `scrollTop` seen by the previous scroll event. An upward move away from the
@@ -524,13 +527,19 @@ export class ChatTranscriptComponent {
         this.wasStreaming = isStreaming;
       });
     });
-    // Feed the render window. Reads the GATED `vm` and `active` only, so a
-    // hidden transcript neither re-derives its tail nor processes callbacks —
-    // the same freeze the view model applies to the DOM.
+    // Read replay raw across hides; vm/active keep hidden content work gated.
     effect(() => {
+      const historyReplaying = this.historyReplaying();
       const view = this.vm();
       const isActive = this.active();
       untracked(() => {
+        if (historyReplaying && !this.wasRenderWindowReplaying) {
+          this.cancelReplayRetentionRelease();
+          this.renderWindow.setReplayRetention(true);
+        } else if (!historyReplaying && this.wasRenderWindowReplaying) {
+          this.scheduleReplayRetentionRelease();
+        }
+        this.wasRenderWindowReplaying = historyReplaying;
         this.renderWindow.setActive(isActive);
         this.renderWindow.syncMessages(
           view.messages.map((m) => m.id),
@@ -644,9 +653,7 @@ export class ChatTranscriptComponent {
     this.resizeObserver.observe(wrapper);
   }
 
-  /**
-   * Cleanup observer, animation frame, and timeout on component destruction.
-   */
+  /** Cleanup observer, animation frames, and timeouts on destroy. */
   private cleanup(): void {
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
@@ -656,11 +663,31 @@ export class ChatTranscriptComponent {
       cancelAnimationFrame(this.scrollRafId);
       this.scrollRafId = null;
     }
+    this.cancelReplayRetentionRelease();
     if (this.finalizingTimeoutId) {
       clearTimeout(this.finalizingTimeoutId);
       this.finalizingTimeoutId = null;
     }
     this.clearReplayMotionHold();
+  }
+
+  private scheduleReplayRetentionRelease(): void {
+    this.cancelReplayRetentionRelease();
+    const release = () => {
+      this.cancelReplayRetentionRelease();
+      this.renderWindow.setReplayRetention(false);
+    };
+    this.retentionReleaseTimeoutId = window.setTimeout(release, 50);
+    this.retentionReleaseRafId = requestAnimationFrame(release);
+  }
+
+  private cancelReplayRetentionRelease(): void {
+    if (this.retentionReleaseRafId !== null)
+      cancelAnimationFrame(this.retentionReleaseRafId);
+    this.retentionReleaseRafId = null;
+    if (this.retentionReleaseTimeoutId !== null)
+      clearTimeout(this.retentionReleaseTimeoutId);
+    this.retentionReleaseTimeoutId = null;
   }
 
   private clearReplayMotionHold(): void {

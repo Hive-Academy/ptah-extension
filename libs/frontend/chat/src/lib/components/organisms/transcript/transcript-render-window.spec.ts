@@ -199,6 +199,76 @@ describe('TranscriptRenderWindow', () => {
       for (const id of list) expect(win.isMounted(id)).toBe(true);
     });
 
+    it('retains ids that leave the tail without an observer callback', () => {
+      const list = ids(20);
+      const { win } = makeAttached(list, list.length);
+      win.setReplayRetention(true);
+
+      const extended = ids(26);
+      win.syncMessages(extended, extended.length);
+
+      for (let i = 14; i < 20; i++) {
+        expect(win.isMounted(`m${i}`)).toBe(true);
+      }
+    });
+
+    it('does not mount a never-mounted intersecting id during retention', () => {
+      const list = ids(20);
+      const { win, observer, elements } = makeAttached(list, list.length);
+      win.setReplayRetention(true);
+
+      observer.emit([entry(elements.get('m0') as Element, true, 120)]);
+
+      expect(win.isMounted('m0')).toBe(false);
+    });
+
+    it('records a retained height and releases to an equal-height placeholder', () => {
+      const list = ids(20);
+      const { win, observer, elements } = makeAttached(list, list.length);
+      win.setReplayRetention(true);
+      const extended = ids(26);
+      win.syncMessages(extended, extended.length);
+
+      observer.emit([entry(elements.get('m19') as Element, false, 200)]);
+      expect(win.isMounted('m19')).toBe(true);
+
+      win.setReplayRetention(false);
+
+      expect(win.isMounted('m19')).toBe(false);
+      expect(win.placeholderHeight('m19')).toBe(200);
+    });
+
+    it('seeds retention from the mounted set on the rising edge', () => {
+      const list = ids(20);
+      const { win, observer, elements } = makeAttached(list, list.length);
+      const first = elements.get('m0') as Element;
+      observer.emit([entry(first, true, 0)]);
+      expect(win.isMounted('m0')).toBe(true);
+
+      win.setReplayRetention(true);
+      observer.emit([entry(first, false, 300)]);
+
+      expect(win.isMounted('m0')).toBe(true);
+    });
+
+    it('prunes absent retained ids and restores tail plus intersections', () => {
+      const list = ids(20);
+      const { win, observer, elements } = makeAttached(list, list.length);
+      observer.emit([entry(elements.get('m0') as Element, true, 300)]);
+      win.setReplayRetention(true);
+
+      win.syncMessages(list.slice(1), list.length - 1);
+      observer.emit([entry(elements.get('m1') as Element, true, 120)]);
+      expect(win.isMounted('m0')).toBe(false);
+      expect(win.isMounted('m1')).toBe(false);
+
+      win.setReplayRetention(false);
+
+      expect(win.isMounted('m1')).toBe(true);
+      expect(win.isMounted('m19')).toBe(true);
+      expect(win.isMounted('m2')).toBe(false);
+    });
+
     it('keeps a streaming message mounted while it grows past the tail', () => {
       // 20 messages, the last 3 streaming — beyond ALWAYS_MOUNTED_TAIL they
       // are still exempt by id.
