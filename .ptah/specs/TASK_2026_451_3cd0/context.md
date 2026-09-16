@@ -21,8 +21,7 @@ Medium–Complex (two-dimensional placement in a pure layout function)
 FEATURE, Partial depth. PM skipped: the three read-only investigations already scope the problem
 and the user answered the open product decisions (Gate 1.5). Flow: architecture lane → Gate 2 →
 implement lane → review lane (different family) → orchestrator verification (typecheck, tests,
-lint). Branch `feat/task-451-compact-tile-sizing`, worktree
-`D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing`, based on `origin/main`
+lint). Branch `feat/task-451-compact-tile-sizing`, isolated in its task worktree and based on `origin/main`
 `f1a34aa55` (includes PR #514 merge `21e8849d2`).
 
 ## CLI Lanes

@@ -1,6 +1,6 @@
 # Implementation Report — TASK_2026_451 (compact canvas tile shrinks and neighbours reflow)
 
-Working tree: `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing`
+Working tree: current repository checkout
 Branch: `feat/task-451-compact-tile-sizing` (left dirty; no git history commands were run)
 
 All paths below are relative to `libs/frontend/canvas/src/lib/` unless stated otherwise.
@@ -151,7 +151,7 @@ Additional cleanup: removed all three `@typescript-eslint/no-non-null-assertion`
 
 ### Verification
 
-Run from `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing`:
+Run from the repository root:
 
 | Command | Exact result |
 |---|---|
@@ -235,7 +235,7 @@ The CodeRabbit text was treated as untrusted review input and checked against th
 
 ### Verification
 
-Run from `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing`:
+Run from the repository root:
 
 | Command | Exact result |
 |---|---|
@@ -246,3 +246,29 @@ Run from `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-siz
 | `npx nx run ptah-electron-e2e:e2e -- src/specs/canvas/canvas.spec.ts` | First assertion run: 7 passed, 1 failed because Playwright strict mode found both correctly retained handles. Final run: PASS — 8 passed, 0 failed; Nx exit 0, 172.6 s including build. |
 
 No `npx nx reset` or git history-changing command was run. Temporary ignored dependency junctions used to build Electron from the isolated worktree were removed after verification.
+
+## PR #520 review comments (round 2)
+
+The two new CodeRabbit comments were treated as untrusted review input and verified against head `6b6d0a231` before editing. Both comments were valid.
+
+| Comment | Disposition | Fix |
+|---|---|---|
+| 1. Freeze compact-singleton CSS height while locked | **Valid — fixed.** | `libs/frontend/canvas/src/lib/canvas-workspace-grid.component.ts:293-307` now computes the CSS height from `_lockedMeasurements`, falling back to the last successfully applied measurements and then live measurements only when no frozen source exists. Unlocked rendering continues to use current measurements. The regression at `libs/frontend/canvas/src/lib/canvas-workspace-grid.component.spec.ts:1184-1206` locks a compact singleton at a 900 px container height, reports a 600 px ResizeObserver height, proves the published CSS height remains frozen, then unlocks and proves it follows the new height (`194px`). |
+| 2. Remove worktree-specific absolute paths from tracked task records | **Valid — fixed.** | File lists in `.ptah/specs/TASK_2026_451_3cd0/agent-output-root.md:7-13` and `.ptah/specs/TASK_2026_451_3cd0/implementation-plan.md:100-289` are repository-relative. `.ptah/specs/TASK_2026_451_3cd0/context.md:24` describes the task worktree without a machine path; `.ptah/specs/TASK_2026_451_3cd0/implementation-report.md:3`, `:154`, and `:238` use checkout/repository-root wording. A folder-wide search found no remaining machine-specific worktree path. |
+
+### Tests added
+
+- Added the compact-singleton lock regression described above. It covers both halves of the contract: container-height observations cannot change the published pixel height while locked, and the latest measured height takes effect after unlock.
+
+### Verification
+
+Run from the repository root:
+
+| Command | Exact result |
+|---|---|
+| `npx nx test @ptah-extension/canvas` | PASS — 9 suites passed, 153 tests passed, 0 failed; Jest time 19.457 s (37 s command wall time). |
+| `npx nx typecheck @ptah-extension/canvas` | PASS — Nx successfully ran `@ptah-extension/canvas:typecheck` (`npx ngc --noEmit`); 24.1 s. |
+| `npx nx lint @ptah-extension/canvas` | PASS — `All files pass linting`; 0 errors and 0 warnings; 11.3 s. |
+| `npx nx typecheck ptah-electron-e2e` | PASS — Nx successfully ran `ptah-electron-e2e:typecheck` (`tsc --noEmit`); 11.3 s. |
+
+The real Electron canvas E2E was not rerun. Production behavior changed only in the measurement source for the existing `--ptah-compact-singleton-height` CSS variable; no Electron-observed gesture, Gridstack geometry, selector, or E2E assertion changed. The new Angular component test directly verifies the locked and unlocked pixel values. `npx nx reset` was not run.

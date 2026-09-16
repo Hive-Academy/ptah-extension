@@ -97,7 +97,7 @@ The computed reads `tabManager.tabs()` once, indexes tabs by id, and maps only t
 - Failure behaviour: invalid/missing view constraints default to full; invalid drag observations or geometry with no valid intent reconstruction return `null`; layout projection remains total.
 - Quality requirements: at most nine tiles and 12 columns bound skyline work; drag break reconstruction may enumerate at most `2^(9-1) = 256` masks.
 - Verification seam: direct unit tests over pure functions and exact geometry.
-- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-layout-intent.ts`; MODIFY its spec.
+- Files: MODIFY `libs/frontend/canvas/src/lib/canvas-layout-intent.ts`; MODIFY its spec.
 
 #### 2. Layout service height/cell projection
 
@@ -107,7 +107,7 @@ The computed reads `tabManager.tabs()` once, indexes tabs by id, and maps only t
 - Dependencies: pure layout functions point inward; ResizeObserver remains the only measurement boundary.
 - Failure behaviour: zero width/height or no tiles returns the existing empty fallback; non-finite values remain clamped/total.
 - Verification seam: service tests with controlled ResizeObserver measurements.
-- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-layout.service.ts`; MODIFY its spec.
+- Files: MODIFY `libs/frontend/canvas/src/lib/canvas-layout.service.ts`; MODIFY its spec.
 
 #### 3. Workspace Gridstack projection adapter
 
@@ -118,7 +118,7 @@ The computed reads `tabManager.tabs()` once, indexes tabs by id, and maps only t
 - Failure behaviour: a changed view fingerprint invalidates an active gesture and reconciles all nodes; missing tab state renders full; locked non-view invalidations stay frozen; unknown nodes remain skipped.
 - Quality requirements: constraint equality prevents streaming tab updates from producing layout churn; programmatic updates retain `_applyingLayout`/`finally` protection.
 - Verification seam: component tests with the existing Gridstack fake plus Electron E2E with real Gridstack.
-- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-workspace-grid.component.ts`; MODIFY its spec.
+- Files: MODIFY `libs/frontend/canvas/src/lib/canvas-workspace-grid.component.ts`; MODIFY its spec.
 
 #### 4. Tile toggle contract and documentation
 
@@ -128,7 +128,7 @@ The computed reads `tabManager.tabs()` once, indexes tabs by id, and maps only t
 - Dependencies: existing `TabManagerService` only; no new output or store mutation.
 - Failure behaviour: unknown tab id remains a no-op in `TabManagerService`; button stays enabled under lock.
 - Verification seam: tile component test for invocation, accessible label, pointer propagation, and lock exception; store lock test continues proving all actual intent mutations remain blocked.
-- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-tile.component.ts`; MODIFY its spec; MODIFY comments only in `canvas.store.ts`; MODIFY `libs/frontend/canvas/CLAUDE.md`.
+- Files: MODIFY `libs/frontend/canvas/src/lib/canvas-tile.component.ts`; MODIFY its spec; MODIFY comments only in `canvas.store.ts`; MODIFY `libs/frontend/canvas/CLAUDE.md`.
 
 ## Skyline placement algorithm
 
@@ -264,29 +264,29 @@ The 90% floor therefore protects full chat tiles only. Mixed layouts may scroll 
 
 ### MODIFY
 
-- `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-layout-intent.ts`
+- `libs/frontend/canvas/src/lib/canvas-layout-intent.ts`
   - Add internal view-tier/constraint types and `FULL_TILE_HEIGHT_UNITS = 6`, `COMPACT_TILE_HEIGHT_UNITS = 2`.
   - Extend width projection for compact and auto-hole candidates; add skyline positioning and total-extent helpers.
   - Replace equal-`y` drag row grouping with geometry validation plus bounded break-mask reconstruction.
-- `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-layout-intent.spec.ts`
+- `libs/frontend/canvas/src/lib/canvas-layout-intent.spec.ts`
   - Replace rigid-row-only expectations with width-resolution plus skyline geometry cases.
-- `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-layout.service.ts`
+- `libs/frontend/canvas/src/lib/canvas-layout.service.ts`
   - Accept derived constraints, consume pure positioned output, and compute cell height from extent/full-tier presence.
-- `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-layout.service.spec.ts`
+- `libs/frontend/canvas/src/lib/canvas-layout.service.spec.ts`
   - Add exact mixed/all-compact/focus/responsive/cell-height expectations.
-- `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-workspace-grid.component.ts`
+- `libs/frontend/canvas/src/lib/canvas-workspace-grid.component.ts`
   - Inject tab manager, derive structurally stable constraints/fingerprint, pass them to layout, cancel stale gestures, set per-node resize state, permit view-only locked application, and split singleton classes.
-- `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-workspace-grid.component.spec.ts`
+- `libs/frontend/canvas/src/lib/canvas-workspace-grid.component.spec.ts`
   - Extend the tab/grid fakes and cover real component integration rules.
-- `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-tile.component.ts`
+- `libs/frontend/canvas/src/lib/canvas-tile.component.ts`
   - Add toggle accessibility/test selector and header-drag pointer isolation; clarify the lock comment.
-- `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas-tile.component.spec.ts`
+- `libs/frontend/canvas/src/lib/canvas-tile.component.spec.ts`
   - Verify toggle authority, labels, pointer handling, and enabled-under-lock behavior.
-- `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\src\lib\canvas.store.ts`
+- `libs/frontend/canvas/src/lib/canvas.store.ts`
   - Documentation-only correction: lock freezes layout intent and gestures, with tab-owned view projection explicitly outside store authority.
-- `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\libs\frontend\canvas\CLAUDE.md`
+- `libs/frontend/canvas/CLAUDE.md`
   - Document transient view constraints, 6/2 height tiers, skyline/fence semantics, compact resize suppression, view-change gesture cancellation, full/focused singleton behavior, and the lock exception.
-- `D:\projects\ptah-extension\.claude-worktrees\task-451-compact-tile-sizing\apps\ptah-electron-e2e\src\specs\canvas\canvas.spec.ts`
+- `apps/ptah-electron-e2e/src/specs/canvas/canvas.spec.ts`
   - Add real Gridstack compact shrink/reflow/restore and locked-toggle coverage.
 
 ### CREATE / REWRITE
