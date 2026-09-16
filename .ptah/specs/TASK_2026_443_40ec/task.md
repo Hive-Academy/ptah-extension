@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_443_40ec
-status: in_progress
+status: in_review
 type: FEATURE
 title: >-
   Thoth phase 2: memory age lifecycle and ranking-only salience
