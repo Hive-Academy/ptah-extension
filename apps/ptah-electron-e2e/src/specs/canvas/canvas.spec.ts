@@ -552,9 +552,13 @@ test.describe('Canvas', () => {
     ]);
 
     // A compact tile carries no resize handle.
-    await expect(
-      items.nth(1).locator('.ui-resizable-e, .ui-resizable-se'),
-    ).toHaveCount(0);
+    const compactResizeHandles = items
+      .nth(1)
+      .locator('.ui-resizable-handle');
+    await expect(compactResizeHandles).toHaveCount(2);
+    for (let index = 0; index < 2; index += 1) {
+      await expect(compactResizeHandles.nth(index)).toBeHidden();
+    }
 
     // Back to full: the stored third span returns untouched and the fourth
     // tile leaves the hole.
@@ -656,6 +660,7 @@ test.describe('Canvas', () => {
     for (let index = 0; index < 3; index += 1) {
       await expect(presetButtons.nth(index)).toBeDisabled();
     }
+    await page.keyboard.press('Escape');
 
     // Every tile layout menu item is disabled while locked; the adjacent
     // view-mode toggle is the deliberate exception.
@@ -739,15 +744,19 @@ test.describe('Canvas', () => {
     // singleton that stretches to the whole grid.
     await expect(items.nth(0)).toHaveAttribute('gs-h', '2');
     await expect(items.nth(0)).toHaveAttribute('gs-w', '4');
-    await expect(items.nth(0)).not.toHaveClass(/singleton-expanded/);
 
-    const gridBox = await page
-      .locator('ptah-canvas-workspace-grid:visible gridstack')
-      .boundingBox();
-    const itemBox = await items.nth(0).boundingBox();
-    if (!gridBox || !itemBox) {
-      throw new Error('Compact singleton is not measurable');
-    }
-    expect(itemBox.height).toBeLessThan(gridBox.height);
+    const visibleGrid = page.locator(
+      'ptah-canvas-workspace-grid:visible gridstack',
+    );
+    await expect(visibleGrid).not.toHaveClass(/singleton-expanded/);
+    await expect
+      .poll(async () => {
+        const [gridBox, itemBox] = await Promise.all([
+          visibleGrid.boundingBox(),
+          items.nth(0).boundingBox(),
+        ]);
+        return Boolean(gridBox && itemBox && itemBox.height < gridBox.height);
+      })
+      .toBe(true);
   });
 });

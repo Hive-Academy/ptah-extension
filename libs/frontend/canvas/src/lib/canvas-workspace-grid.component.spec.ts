@@ -3,9 +3,9 @@
  *
  * Gridstack is replaced by a hand-rolled stub faithful on the three points this
  * component depends on: `dragstop`/`resizestop` fire BEFORE `change`
- * (gridstack.js:2635 vs :2639), `batchUpdate(false)` itself emits `change`
- * (gridstack.js:730-739), and `engine.nodes` carries the full post-gesture node
- * set rather than only the dirty ones (gridstack.js:1686).
+ * (gridstack.js:2635 vs :2639), `load()` closes its internal batch and emits
+ * `change` (gridstack.js:621-709), and `engine.nodes` carries the full
+ * post-gesture node set rather than only the dirty ones (gridstack.js:1686).
  */
 
 import {
@@ -110,6 +110,7 @@ interface FakeGrid {
   readonly setStatic: jest.Mock;
   readonly onResize: jest.Mock;
   readonly update: jest.Mock;
+  readonly load: jest.Mock;
   readonly batchUpdate: jest.Mock;
   readonly movable: jest.Mock;
   readonly resizable: jest.Mock;
@@ -142,6 +143,25 @@ function createFakeGrid(): FakeGrid {
       ) => {
         const node = engine.nodes.find((n) => n.el === el);
         if (node) Object.assign(node, opts);
+      },
+    ),
+    load: jest.fn(
+      (
+        items: Array<{
+          id: string;
+          x: number;
+          y: number;
+          w: number;
+          h: number;
+        }>,
+        _addRemove: boolean,
+      ) => {
+        grid.batchUpdate(true);
+        for (const item of items) {
+          const node = engine.nodes.find((candidate) => candidate.id === item.id);
+          if (node) Object.assign(node, item);
+        }
+        grid.batchUpdate(false);
       },
     ),
     batchUpdate: jest.fn((flag: boolean) => {
@@ -407,7 +427,7 @@ describe('CanvasWorkspaceGridComponent', () => {
 
     it('skips a node whose tabId has no derived entry instead of zeroing it', () => {
       mount(['t1']);
-      grid.update.mockClear();
+      grid.load.mockClear();
 
       grid.engine.nodes.push({
         id: 'ghost',
@@ -428,7 +448,7 @@ describe('CanvasWorkspaceGridComponent', () => {
   describe('view-mode tiers', () => {
     it('ignores unrelated tab-state writes that keep the constraints equal', () => {
       mount(['t1', 't2']);
-      grid.update.mockClear();
+      grid.load.mockClear();
       grid.batchUpdate.mockClear();
 
       // A streaming/title write re-evaluates the constraints computed but the
@@ -439,7 +459,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       flush();
       flush();
 
-      expect(grid.update).not.toHaveBeenCalled();
+      expect(grid.load).not.toHaveBeenCalled();
       expect(grid.batchUpdate).not.toHaveBeenCalled();
     });
 
@@ -454,12 +474,21 @@ describe('CanvasWorkspaceGridComponent', () => {
       ]);
       const intentBefore = store.tiles().map((tile) => ({ ...tile }));
       const revision = store.workspaceRevision(WORKSPACE);
-      grid.update.mockClear();
+      grid.load.mockClear();
       grid.cellHeight.mockClear();
 
       setViewMode('t2', 'compact');
 
-      expect(grid.update).toHaveBeenCalledTimes(2);
+      expect(grid.load).toHaveBeenCalledTimes(1);
+      expect(grid.load).toHaveBeenLastCalledWith(
+        [
+          { id: 't1', x: 0, y: 0, w: 4, h: 6 },
+          { id: 't2', x: 4, y: 0, w: 4, h: 2 },
+          { id: 't3', x: 8, y: 0, w: 4, h: 6 },
+          { id: 't4', x: 4, y: 2, w: 4, h: 6 },
+        ],
+        false,
+      );
       expect(grid.cellHeight).toHaveBeenCalled();
       expect(engineGeometry()).toEqual([
         ['t1', 0, 0, 4, 6],
@@ -905,13 +934,13 @@ describe('CanvasWorkspaceGridComponent', () => {
       mount(['t1', 't2', 't3'], { locked: true });
 
       expect(grid.setStatic).toHaveBeenCalledWith(true);
-      grid.update.mockClear();
+      grid.load.mockClear();
       reorderSpy.mockClear();
       resizeSpanSpy.mockClear();
 
       measure(TWO_COLUMN_WIDTH);
       flush();
-      expect(grid.update).not.toHaveBeenCalled();
+      expect(grid.load).not.toHaveBeenCalled();
 
       fireDragStop();
       grid.emitChange();
@@ -932,7 +961,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(grid.setStatic).toHaveBeenCalledWith(true);
       const intentBefore = store.tiles().map((tile) => ({ ...tile }));
       const revision = store.workspaceRevision(WORKSPACE);
-      grid.update.mockClear();
+      grid.load.mockClear();
       grid.setStatic.mockClear();
       reorderSpy.mockClear();
       resizeSpanSpy.mockClear();
@@ -940,13 +969,13 @@ describe('CanvasWorkspaceGridComponent', () => {
       setViewMode('t2', 'compact');
 
       // The one locked application: tab-owned view geometry reflows.
-      expect(grid.update).toHaveBeenCalledTimes(2);
+      expect(grid.load).toHaveBeenCalledTimes(1);
       expect(grid.setStatic.mock.calls).toEqual([[false], [true]]);
       const staticOffOrder = grid.setStatic.mock.invocationCallOrder[0];
-      const firstUpdateOrder = grid.update.mock.invocationCallOrder[0];
+      const loadOrder = grid.load.mock.invocationCallOrder[0];
       const staticOnOrder = grid.setStatic.mock.invocationCallOrder[1];
-      expect(staticOffOrder).toBeLessThan(firstUpdateOrder);
-      expect(firstUpdateOrder).toBeLessThan(staticOnOrder);
+      expect(staticOffOrder).toBeLessThan(loadOrder);
+      expect(loadOrder).toBeLessThan(staticOnOrder);
       expect(engineGeometry()).toEqual([
         ['t1', 0, 0, 4, 6],
         ['t2', 4, 0, 4, 2],
@@ -972,6 +1001,27 @@ describe('CanvasWorkspaceGridComponent', () => {
         ['t2', 4, 0, 4, 6],
         ['t3', 8, 0, 4, 6],
         ['t4', 0, 6, 4, 6],
+      ]);
+    });
+
+    it('keeps withheld responsive widths frozen during a locked view-mode reflow', () => {
+      mount(['t1', 't2', 't3'], { width: THREE_COLUMN_WIDTH });
+      fixture.componentRef.setInput('locked', true);
+      flush();
+      grid.load.mockClear();
+
+      measure(TWO_COLUMN_WIDTH);
+      flush();
+      expect(layoutService.columnsFor(layoutService.containerWidth())).toBe(2);
+      expect(grid.load).not.toHaveBeenCalled();
+
+      setViewMode('t2', 'compact');
+
+      expect(grid.load).toHaveBeenCalledTimes(1);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 2],
+        ['t3', 8, 0, 4, 6],
       ]);
     });
   });
@@ -1025,27 +1075,35 @@ describe('CanvasWorkspaceGridComponent', () => {
       );
     });
 
-    it('repeating identical geometry issues zero updates and no feedback', () => {
+    it('repeating identical geometry issues zero loads and no feedback', () => {
       mount(['t1', 't2', 't3']);
-      grid.update.mockClear();
+      grid.load.mockClear();
       grid.batchUpdate.mockClear();
       flush();
-      expect(grid.update).not.toHaveBeenCalled();
+      expect(grid.load).not.toHaveBeenCalled();
       expect(grid.batchUpdate).not.toHaveBeenCalled();
       expect(reorderSpy).not.toHaveBeenCalled();
       expect(resizeSpanSpy).not.toHaveBeenCalled();
     });
 
-    it('updates only changed nodes in one guarded batch', () => {
+    it('loads one complete authoritative snapshot in one guarded batch', () => {
       mount(['t1', 't2', 't3']);
-      grid.update.mockClear();
+      grid.load.mockClear();
       grid.batchUpdate.mockClear();
       Object.assign(grid.engine.nodes[0], { x: 0, y: 0, w: 6 });
       Object.assign(grid.engine.nodes[1], { x: 6, y: 0, w: 6 });
       Object.assign(grid.engine.nodes[2], { x: 1, y: 6, w: 12 });
       measure(TWO_COLUMN_WIDTH - 1);
       flush();
-      expect(grid.update).toHaveBeenCalledTimes(1);
+      expect(grid.load).toHaveBeenCalledTimes(1);
+      expect(grid.load).toHaveBeenLastCalledWith(
+        [
+          { id: 't1', x: 0, y: 0, w: 6, h: 6 },
+          { id: 't2', x: 6, y: 0, w: 6, h: 6 },
+          { id: 't3', x: 0, y: 6, w: 12, h: 6 },
+        ],
+        false,
+      );
       expect(grid.batchUpdate.mock.calls).toEqual([[true], [false]]);
       expect(reorderSpy).not.toHaveBeenCalled();
     });
@@ -1116,6 +1174,11 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(gridstackEl.nativeElement.classList).toContain('singleton');
       expect(gridstackEl.nativeElement.classList).not.toContain('singleton-expanded');
       expect(grid.engine.nodes[0]).toMatchObject({ x: 0, y: 0, w: 4, h: 2 });
+      expect(
+        gridstackEl.nativeElement.style.getPropertyValue(
+          '--ptah-compact-singleton-height',
+        ),
+      ).toMatch(/^\d+px$/);
     });
 
     it('suppresses gestures on a singleton session', () => {

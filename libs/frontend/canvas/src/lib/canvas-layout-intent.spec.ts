@@ -11,6 +11,7 @@ import {
   totalExtentOf,
   viewConstraintsFingerprint,
   type TileIntent,
+  type TilePositionObservation,
   type TileViewConstraints,
   type TileWidthIntent,
 } from './canvas-layout-intent';
@@ -283,6 +284,29 @@ describe('canvas layout intent', () => {
     ]);
   });
 
+  it('accepts a named tile dropped into an occupied explicit row after Gridstack pushes its sibling down', () => {
+    const source = tiles(
+      [
+        ['A', span('third')],
+        ['B', auto()],
+      ],
+      [['C', auto()]],
+    );
+    const projected = projectDragIntent(source, [
+      { tabId: 'B', x: 0, y: 0, w: 8, h: 6 },
+      // The dragged named tile keeps Gridstack's transient horizontal slot.
+      { tabId: 'A', x: 4, y: 6, w: 4, h: 6 },
+      // float:false pushes the full-width row occupant below the drop.
+      { tabId: 'C', x: 0, y: 12, w: 12, h: 6 },
+    ], 'A', 3);
+
+    expect(projected?.map((tile) => [tile.tabId, tile.rowBreakBefore])).toEqual([
+      ['B', false],
+      ['A', true],
+      ['C', true],
+    ]);
+  });
+
   it('keeps a full auto hole tile in its hole while another auto tile is dragged below', () => {
     // Steady skyline: A(0,0,8,6), C compact(8,0,4,2), and full-auto D
     // contracted into the hole at (8,2,4,6). B remains below the hard fence.
@@ -354,6 +378,30 @@ describe('canvas layout intent', () => {
       { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
       { tabId: 'B', x: 4, y: 0, w: 4, h: 6 },
     ], 'B', 3, compactConstraint('B'))).toBeNull();
+  });
+
+  it('rejects nonpositive, negative and horizontally out-of-bounds rectangles', () => {
+    const source = tiles([['A', auto()], ['B', auto()]]);
+    const observe = (a: TilePositionObservation): readonly TilePositionObservation[] => [
+      a,
+      { tabId: 'B', x: 6, y: 0, w: 6, h: 6 },
+    ];
+
+    expect(projectDragIntent(source, observe({
+      tabId: 'A', x: 0, y: 0, w: 0, h: 6,
+    }), 'A', 3)).toBeNull();
+    expect(projectDragIntent(source, observe({
+      tabId: 'A', x: 0, y: 0, w: 6, h: 0,
+    }), 'A', 3)).toBeNull();
+    expect(projectDragIntent(source, observe({
+      tabId: 'A', x: -1, y: 0, w: 6, h: 6,
+    }), 'A', 3)).toBeNull();
+    expect(projectDragIntent(source, observe({
+      tabId: 'A', x: 0, y: -1, w: 6, h: 6,
+    }), 'A', 3)).toBeNull();
+    expect(projectDragIntent(source, observe({
+      tabId: 'A', x: 10, y: 0, w: 3, h: 6,
+    }), 'A', 3)).toBeNull();
   });
 
   it('preserves logical rows on deletion and rejects invalid observations', () => {

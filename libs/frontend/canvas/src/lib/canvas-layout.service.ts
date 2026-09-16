@@ -90,16 +90,18 @@ export class CanvasLayoutService {
    * Derive concrete Gridstack geometry from tile intent plus the measured
    * container. The optional layout-focus tile renders alone at full width.
    * Transient view constraints select the compact height tier per tile;
-   * absent constraints keep the full-only behaviour. Total function: no
-   * throws, no side effects, safe to call from a `computed`.
+   * absent constraints keep the full-only behaviour. Callers may supply a
+   * frozen measurement pair when projecting a view-only change under lock.
+   * Total function: no throws, no side effects, safe to call from a `computed`.
    */
   computeLayout(
     tiles: readonly TileIntent[],
     layoutFocusTabId: string | null = null,
     viewConstraints: TileViewConstraints = [],
+    measurements?: Readonly<{ width: number; height: number }>,
   ): CanvasLayout {
-    const width = this._containerWidth();
-    const height = this._containerHeight();
+    const width = measurements?.width ?? this._containerWidth();
+    const height = measurements?.height ?? this._containerHeight();
 
     if (tiles.length === 0 || width === 0 || height === 0) {
       return { cellHeight: 120, columns: 1, tiles: [] };

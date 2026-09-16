@@ -594,11 +594,30 @@ export function projectDragIntent(
       !Number.isInteger(observation.y) ||
       !Number.isInteger(observation.w) ||
       !Number.isInteger(observation.h) ||
+      observation.x < 0 ||
+      observation.y < 0 ||
+      observation.w <= 0 ||
+      observation.h <= 0 ||
+      observation.x + observation.w > 12 ||
       observation.h !== expectedHeightOf(observation.tabId)
     ) {
       return null;
     }
     seen.add(observation.tabId);
+  }
+  for (let index = 0; index < observations.length; index++) {
+    const a = observations[index];
+    for (let otherIndex = index + 1; otherIndex < observations.length; otherIndex++) {
+      const b = observations[otherIndex];
+      if (
+        a.x < b.x + b.w &&
+        a.x + a.w > b.x &&
+        a.y < b.y + b.h &&
+        a.y + a.h > b.y
+      ) {
+        return null;
+      }
+    }
   }
 
   const observed = [...observations].sort(
@@ -671,13 +690,18 @@ export function projectDragIntent(
         break;
       }
       // Gridstack leaves untouched auto tiles at their pre-drag widths, so a
-      // full-tier auto tile matches on row placement only; committing the
-      // intent re-derives its x/w. Named spans and compact tiles must match
-      // exactly, and y/h are strict for every tile.
-      const autoFull =
-        intentOf(geometry.tabId).width.kind === 'auto' &&
-        tierById.get(geometry.tabId) !== 'compact';
-      if (!autoFull && (item.x !== geometry.x || item.w !== geometry.w)) {
+      // Full-tier auto tiles and the actively dragged tile match on row
+      // placement only; Gridstack may retain a transient x/w for either until
+      // committed intent is projected again. Unmoved named/compact tiles keep
+      // exact x/w, and y/h are strict for every tile.
+      const horizontalPositionIsTransient =
+        geometry.tabId === draggedId ||
+        (intentOf(geometry.tabId).width.kind === 'auto' &&
+          tierById.get(geometry.tabId) !== 'compact');
+      if (
+        !horizontalPositionIsTransient &&
+        (item.x !== geometry.x || item.w !== geometry.w)
+      ) {
         exact = false;
         break;
       }

@@ -50,6 +50,11 @@ interface GestureSnapshot {
   lastDraggedPosition: TilePositionObservation;
 }
 
+interface LayoutMeasurements {
+  readonly width: number;
+  readonly height: number;
+}
+
 /** Fallback item geometry for a grid that has not been measured yet. */
 const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
 
@@ -67,7 +72,7 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
  * the grid becomes visible again.
  *
  * This is the only place in the lib that talks to Gridstack. Geometry flows one
- * way — `CanvasStore` intent -> `CanvasLayoutService` -> `grid.update()` — and
+ * way — `CanvasStore` intent -> `CanvasLayoutService` -> `grid.load()` — and
  * finished gestures flow back as intent, never as coordinates.
  */
 @Component({
@@ -96,6 +101,7 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
       [options]="gsOptions"
       [class.singleton]="isSingleton()"
       [class.singleton-expanded]="isSingletonExpanded()"
+      [style.--ptah-compact-singleton-height]="compactSingletonHeight()"
       (changeCB)="onGridChange()"
       (dragStartCB)="onGestureStart('drag', $event)"
       (dragCB)="onGestureMove($event)"
@@ -149,7 +155,19 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
         height: 100% !important;
       }
 
-      gridstack.singleton .ui-resizable-handle {
+      /* Gridstack 12's calculated h=2 inline style is not resolved by the
+         Electron renderer, leaving the item at its content-driven full height.
+         Publish the already-computed pixel height as a calculation-free CSS
+         variable for the only non-expanded singleton tier. */
+      gridstack.singleton:not(.singleton-expanded) > gridstack-item {
+        height: var(--ptah-compact-singleton-height) !important;
+      }
+
+      :host ::ng-deep gridstack.singleton .ui-resizable-handle,
+      :host
+        ::ng-deep
+        gridstack-item.ui-resizable-disabled
+        > .ui-resizable-handle {
         display: none !important;
       }
 
@@ -272,6 +290,10 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     );
   });
 
+  protected readonly compactSingletonHeight = computed(
+    () => `${this.layout().cellHeight * 2}px`,
+  );
+
   private readonly creationOptions = new Map<string, GridStackWidget>();
 
   /** Template view-model: derived geometry keyed by tabId, never by index. */
@@ -340,6 +362,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
    * pending difference and apply it when they become visible again.
    */
   private _appliedViewFingerprint: string | null = null;
+  private _lastAppliedMeasurements: LayoutMeasurements | null = null;
+  private _lockedMeasurements: LayoutMeasurements | null = null;
 
   constructor() {
     // Responsive layout: project derived geometry into Gridstack. Skipped while
@@ -349,14 +373,17 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     effect(() => {
       if (!this.visible()) return;
       if (this.locked()) {
+        this._lockedMeasurements ??=
+          this._lastAppliedMeasurements ?? this.currentMeasurements();
         if (this.viewFingerprint() !== this._appliedViewFingerprint) {
           // The one application a locked grid may perform: tab-owned view-mode
-          // geometry. `force` opens the lock guard for this path only; every
-          // other mutation stays frozen.
-          this.applyAuthoritativeGeometry(true);
+          // geometry. Its non-view measurements are frozen at lock time, so a
+          // pending responsive reflow cannot hitchhike on this exception.
+          this.applyAuthoritativeGeometry(true, this._lockedMeasurements);
         }
         return;
       }
+      this._lockedMeasurements = null;
       this.applyAuthoritativeGeometry();
     });
 
@@ -643,7 +670,10 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     // A component input change invalidates the old grid/workspace association.
     // Never project a rejected old-workspace gesture through the new partition.
     if (gesture.workspacePath !== this.workspacePath()) return;
-    this.applyAuthoritativeGeometry(true);
+    this.applyAuthoritativeGeometry(
+      true,
+      this.locked() ? (this._lockedMeasurements ?? undefined) : undefined,
+    );
   }
 
   /**
@@ -654,13 +684,25 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
    * path-scoped tile membership read here is the membership captured at start,
    * because every intent mutation advances that partition's revision.
    */
-  private applyAuthoritativeGeometry(force = false): void {
+  private applyAuthoritativeGeometry(
+    force = false,
+    frozenMeasurements?: LayoutMeasurements,
+  ): void {
     if (!force && (!this.visible() || this.locked())) return;
-    const { cellHeight, tiles: positioned } = this.layout();
+    const measurements = frozenMeasurements ?? this.currentMeasurements();
+    const { cellHeight, tiles: positioned } = frozenMeasurements
+      ? this.layoutService.computeLayout(
+          this.tiles(),
+          this.layoutFocusTabId(),
+          this.viewConstraints(),
+          frozenMeasurements,
+        )
+      : this.layout();
     this.metrics.increment('applyChecks');
     const viewFingerprint = this.viewFingerprint();
     if (positioned.length === 0) {
       this._appliedViewFingerprint = viewFingerprint;
+      this._lastAppliedMeasurements = measurements;
       return;
     }
     const grid = this.gridComp()?.grid;
@@ -697,17 +739,27 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       if (restoreStatic) grid.setStatic(false);
       if (changed.length > 0) {
         this.metrics.increment('applyPasses');
-        grid.batchUpdate(true);
         grid.cellHeight(cellHeight);
-        for (const { node, target } of changed) {
-          grid.update(node.el, target);
-          this.metrics.increment('gridUpdates');
-        }
-        grid.batchUpdate(false);
+        // Gridstack's documented all-node path removes matching engine nodes
+        // before re-adding the collision-free authoritative snapshot. Unlike
+        // sequential update(), a growing tile cannot push or swap a neighbour
+        // whose target is being applied later in the same pass.
+        grid.load(
+          positioned.map(({ tabId, x, y, w, h }) => ({
+            id: tabId,
+            x,
+            y,
+            w,
+            h,
+          })),
+          false,
+        );
+        this.metrics.increment('gridUpdates', changed.length);
       } else if (grid.getCellHeight() !== cellHeight) {
         grid.cellHeight(cellHeight);
       }
       this._appliedViewFingerprint = viewFingerprint;
+      this._lastAppliedMeasurements = measurements;
       if (!restoreStatic) this.applyNodeInteractionState(grid);
     } finally {
       try {
@@ -723,6 +775,13 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         this.metrics.publish();
       }
     }
+  }
+
+  private currentMeasurements(): LayoutMeasurements {
+    return {
+      width: this.layoutService.containerWidth(),
+      height: this.layoutService.containerHeight(),
+    };
   }
 
   private applyNodeInteractionState(grid: {
