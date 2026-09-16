@@ -88,3 +88,7 @@ twice is dropped and its work moves to a subagent.
   any verdict protects, unreadable transcript without verdict is rejected; D5 (a) delete the namer;
   D6 (a) cleanup job deletes `context_id IS NOT NULL` invocation rows. Item 4d (gate stages skip
   rejected candidates) accepted with the plan.
+- 2026-09-16: Roster changes. Batch 5 revise ran on a backend-developer subagent (lane host at its
+  5-agent limit with other sessions' agents). The Batch 6 review lane (ollama cloud) exited 0 with no
+  deliverable: `429 session usage limit`. Batch 6 review moved to a code-logic-reviewer subagent
+  (Claude family, implemented nothing in Batch 6). antigravity stays reserved for Gate 3.

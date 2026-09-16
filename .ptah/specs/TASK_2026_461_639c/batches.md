@@ -1,6 +1,6 @@
 # Batches - TASK_2026_461_639c
 
-Total tasks: 17 | Batches: 7 | Complete: 5/7
+Total tasks: 18 | Batches: 7 | Complete: 6/7
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase3-skills-unblock` (branch
 `feat/task-439-phase3-skills-unblock`, base `97239e814`). Below, `W` means that absolute path and `T` means
@@ -47,7 +47,8 @@ Wave 5:  Batch 7 (full verification + prefilter corpus measurement + cleanup byt
   `batches.md` and never commit.
 - Batch 7 measurement (Task 7.3): senior-tester subagent, not a codex lane. It reads outside the worktree
   (`~/.claude/projects`, `~/.ptah/state`, OS temp) under hard safety rules (HANDOFF rule 5); phase 2 made the same
-  call (`../TASK_2026_443_40ec/batches.md:40-47`). Tasks 7.1-7.2 may run on a codex lane.
+  call (`../TASK_2026_443_40ec/batches.md:40-47`). Updated at the Batch 6 commit: the WHOLE of Batch 7 (Tasks 7.4,
+  7.1, 7.2, 7.3) runs on one senior-tester subagent (orchestrator decision; the Ollama lane is out of quota).
 - Mutations are NEVER committed: each is applied, run, reverted, and `git diff --stat` after restore is pasted.
 
 ## Deviations from the architect's 6-batch grouping (with evidence)
@@ -666,7 +667,32 @@ Edge cases:
 
 ---
 
-## Batch 6: REACHABILITY PROOF — production trigger -> drain -> prefilter -> manual promote — IN_PROGRESS
+## Batch 6: REACHABILITY PROOF — production trigger -> drain -> prefilter -> manual promote — COMPLETE (83002016f)
+
+- Commit: `83002016f` test(skill-synthesis): batch 6 - reachability proof for manual promote and evidence prefilter
+  (2 files: `skill-synthesis.reachability.integration.spec.ts` 336 lines, `skill-synthesis.reachability.test-support.ts`
+  176 lines). No production file changed.
+- Review: `code-logic-review-batch-6.md` APPROVED 8/10 (0 blocking, 0 serious, 1 moderate, 2 minor).
+- **Reviewer-family change:** the Ollama Cloud review lane exited 0 with no deliverable (`429 session usage limit`).
+  The review ran on a code-logic-reviewer SUBAGENT (Claude family). The implementer was a codex lane, so the review
+  stayed cross-family (HANDOFF rule 7). Recorded in `context.md` 2026-09-16.
+- Findings disposition (orchestrator):
+  1. MODERATE — `adaptNodeDatabase` (`skill-synthesis.reachability.test-support.ts:41-83`) fabricates `.transaction()`
+     and hardcodes `inTransaction` to `false`; unreached by the proof today -> **carried to Batch 7 as Task 7.4**.
+  2. MINOR — the report narrates M4 as "candidate length 0". Recorded here: group 3's `arrayContaining` row assertion
+     (spec `:288-304`) also catches M4, because the drain marks the unhandled `prefilter` row `skipped` with
+     `no handler for stage prefilter` (`queue/skill-drain.service.ts:996-1002`), not `done`. No spec change.
+  3. MINOR — `curatorEnabled: false` in the proof settings differs from the production default (`true`). Accepted and
+     disclosed: `SkillCuratorService.start` no-ops on `false` and only a 24 h timer is suppressed.
+- Executor evidence (`batch-6-report.md`): full skill-synthesis suite 75 passed / 6 skipped suites, 1512 passed / 37
+  skipped tests; reachability 5/5 under node:sqlite AND better-sqlite3 (0 skipped); M1-M5 fail + restore with empty
+  production `git diff --stat`; degradation-audit skill-synthesis 6 (baseline 6); lint 0 errors, 35 old warnings.
+  A1 result: node:sqlite needed the test-only adapter; better-sqlite3 passes through. Final host token set = 10 tokens
+  (report `## Final host token set`), including `USER_LAYER_MIRROR_SERVICE_TOKEN` (V5 addition).
+- Team-leader confirmation before commit: no jest/nx run process alive; `run-many -t test -p
+  @ptah-extension/skill-synthesis --testPathPatterns '"skill-synthesis.reachability"' --runInBand` -> 1 suite, 5/5
+  passed (node:sqlite); `run-many -t typecheck -p @ptah-extension/skill-synthesis` green. Lane scratch
+  `agent-output-root.md` (a pointer to the report only) deleted, untracked.
 
 - Recommended executor: codex CLI lane (`{ cli: 'codex', role: 'backend-developer' }`)
 - Fallback executor: backend-developer subagent (use it directly if the lane host is still at its agent limit, as in
@@ -727,7 +753,7 @@ Edge cases:
   `assistantText` `:259`), `queue/queue-db.test-support.ts` (`resolveOpener`, `makeTempDbPath`, `noopLogger`),
   `queue/skill-drain.test-support.ts` (`liveSignal`).
 
-### Task 6.1: Real-container harness — IN_PROGRESS
+### Task 6.1: Real-container harness — COMPLETE
 
 - Files: CREATE `W\libs\backend\skill-synthesis\src\lib\skill-synthesis.reachability.integration.spec.ts`; optional
   `skill-synthesis.reachability.test-support.ts` if the setup passes ~150 lines (already excluded from lib typecheck).
@@ -742,7 +768,7 @@ Edge cases:
 - Acceptance: report lists the final bound token set, each with one-line justification, and how the fake lane tells
   synthesis from judge requests. Spec `it.skip`s only when neither binding loads.
 
-### Task 6.2: Scenario groups 1-5 + mutations M1-M5 — IN_PROGRESS
+### Task 6.2: Scenario groups 1-5 + mutations M1-M5 — COMPLETE
 
 - Scenario (one `it` per group, shared `beforeAll`):
   1. `synthesis.start()`; fire the captured session-end callback for `s-alpha` (`<tmp>/ws-a`) and `s-beta`
@@ -780,56 +806,152 @@ Edge cases:
 
 ---
 
-## Batch 7: Final verification and measurement — PENDING
+## Batch 7: Final verification and measurement — IN_PROGRESS
 
-- Recommended executor: Tasks 7.1-7.2 codex CLI lane (`{ cli: 'codex', role: 'backend-developer' }`) or
-  senior-tester subagent; Task 7.3 senior-tester subagent ONLY (reads outside the worktree under HANDOFF rule 5).
-- Fallback executor: senior-tester subagent for 7.1-7.2; no lane fallback for 7.3 (return to orchestrator).
-- Execution mode: sequential (7.1 -> 7.2 -> 7.3)
-- Parallel with: none. Heavy runs: announce before 7.1 (HANDOFF "other sessions share this machine").
-- Reviewer: Ollama Cloud lane, code-logic-reviewer -> `T\code-logic-review-batch-7.md` (measurement method and
-  numbers; no production code)
-- Suggested commit: `docs(task-specs): batch 7 - phase 3 verification and backlog cleanup measurement`
-- Tasks: 3 | Depends on: Batches 1-6 (committed)
-- Report: `T\batch-7-report.md` | Marker: `T\batch-7.done`
+- Recommended executor: senior-tester SUBAGENT for all four tasks (orchestrator decision at the Batch 6 commit:
+  Task 7.3 must not run on a lane, and the Ollama lane is out of quota).
+- Fallback executor: none for 7.3 (return to orchestrator). 7.4 / 7.1 / 7.2 may move to a backend-developer subagent
+  if the senior-tester fails twice.
+- Execution mode: sequential, in this order: **7.4 -> 7.1 -> 7.2 -> 7.3** (7.4 changes a test-support file that 7.1's
+  suites and XB1 runs must include).
+- Parallel with: none. Heavy runs: check for live `jest` / `nx run` processes before every run and wait if one runs
+  (other sessions share the machine, HANDOFF "Other sessions share this machine").
+- Reviewer: must be a different model family from the implementer (senior-tester = Claude family), and never codex
+  reviewing codex-implemented work. Recommended: codex CLI lane, role code-logic-reviewer (codex implemented nothing
+  in Batch 7) -> `T\code-logic-review-batch-7.md`; alternative: the Ollama Cloud lane once its quota resets.
+  antigravity stays reserved for Gate 3.
+- Commits (team-leader, after the review): (1) `test(skill-synthesis): batch 7 - track transaction state in the
+  reachability node:sqlite adapter` (Task 7.4 file only); (2) `docs(task-specs): batch 7 - phase 3 verification and
+  backlog cleanup measurement` (task folder).
+- Tasks: 4 | Depends on: Batches 1-6 (committed)
+- Deliverables: `T\test-report.md` (Tasks 7.4, 7.1, 7.2 and the safety proofs of 7.3) and
+  `T\backlog-cleanup-measurement.md` (Task 7.3, AC15) | Marker: `T\batch-7.done`. The executor does not commit and does
+  not edit `batches.md`.
 
-### Task 7.1: Full suite + typecheck + greps — PENDING
+### Batch 7 re-read against Batches 1-6 as shipped (team-leader, HEAD after the Batch 6 commit)
 
-- Commands (from `W`):
-  - `npx nx run-many -t test -p @ptah-extension/skill-synthesis @ptah-extension/persistence-sqlite @ptah-extension/thoth-runtime @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/platform-core @ptah-extension/shared @ptah-extension/skill-synthesis-ui` — "for 8 projects" (R9 re-run `--parallel=1`, record both)
-  - `npx nx run-many -t typecheck -p` same 8 + `@ptah-extension/webview-e2e-harness ptah-electron-e2e ptah-electron ptah-cli` — "for 12 projects"
-  - `npx nx run-many -t lint -p` the same 8 — "for 8 projects"
-  - `npx nx run degradation-audit:lint` — exit 0, every lib at or under baseline
-  - XB1 better-sqlite3 across `'"skill-synthesis.reachability|skill-backlog-cleanup|skill-candidate.store"'` (skill-synthesis) and `'"0045_skill_backlog_cleanup|0044_memory_lifecycle"'` (persistence-sqlite)
-- Greps (paste): removed symbols (`CandidateNamer`, `setDisplayName`, `depthOk`, `eligibilityMinTurns`,
-  `prefilterMinChars`) -> only the opt-in corpus harness; no production `contextId` producer (A3);
-  `skill-synthesis` imports no `cron-scheduler`.
-- Record R3/R4/R5 notes for phase 5 in the report.
+- **Branch commits** (base `97239e814`): `d72d1493e` B2 migration 0045 · `fdff9b105` B1 manual promote / evidence
+  prefilter / no creation invocation · `53224575d` docs · `a20cfa1b1` B3 dead depth settings · `e420f1b5d` B4 cleanup
+  store/service + gate skip · `bb887ef40` docs · `625b3861c` B5 cleanup job both hosts + namer deleted · `55dba650c`
+  docs · `83002016f` B6 reachability proof · plus the Batch 6 docs commit.
+- **Projects the branch touched** (`git diff --name-only 97239e814..HEAD`, 66 files outside `.ptah`):
+  skill-synthesis (34), persistence-sqlite (12), thoth-runtime (6), skill-synthesis-ui (4), rpc-handlers (3),
+  cli-engine (2), platform-core (1), shared (1), webview-e2e-harness (1), ptah-electron-e2e (1), ptah-docs (1).
+  `webview-e2e-harness` and `ptah-electron-e2e` have only `lint` + `typecheck`; `ptah-docs` has no
+  test/lint/typecheck target (docs verified by grep). The old lint set (8) missed the two e2e projects; corrected to 10.
+- **Real-SQLite specs the branch added or edited** (grep for `resolveOpener` / `better-sqlite3` / `DatabaseSync` in the
+  touched specs). The old XB1 list named 3 skill-synthesis and 2 persistence-sqlite patterns; the set is larger:
+  - skill-synthesis: `skill-synthesis.reachability`, `skill-backlog-cleanup` (store, service, integration),
+    `skill-candidate.store`, `skill-synthesis.stage-handlers` (B4 edit, real SQLite at `:882`),
+    `judge-panel.service` and `cluster-holdout-end-to-end` (B1 fixture edits, real SQLite).
+  - persistence-sqlite: `0045_skill_backlog_cleanup` plus the nine ratchet specs `0028`, `0030`, `0038`-`0044`.
+  - Not real SQLite (mock `openAndMigrate`): `skill-synthesis.service.spec`, cli-engine `thoth-runtime.spec`.
+- **Degradation-audit baselines** (`tools/degradation-audit/baseline.json`, ceilings): skill-synthesis 6, cli-engine
+  12, persistence-sqlite 5, platform-core 7, rpc-handlers 1, `libs/shared/src` 3, skill-synthesis-ui 5,
+  apps/ptah-electron 4, apps/ptah-cli 29; thoth-runtime has no entry (= 0). Batch 6 measured skill-synthesis 6 ok.
+  Never `--update-baseline`.
+- **Task 7.3 source file, observed by directory listing only (never opened):** the newest
+  `ptah.pre-migration-*.sqlite` in `~/.ptah/state` is `ptah.pre-migration-20260909T230600Z.sqlite`, 1,178,537,984
+  bytes, mtime 2026-09-10 02:06:09 +0300. The `ptah-dev.*` files are the dev database and are out of scope. The live
+  `ptah.sqlite` (1.38 GB) has `-wal` and `-shm` beside it, so a host is or was running: never copy it. The copy needs
+  about 1.2 GB free in OS temp plus migration growth; check free space first. The snapshot predates every branch
+  commit, so it holds the pre-phase-3 backlog up to 2026-09-09.
+- **Cleanup service as shipped** (`cleanup/skill-backlog-cleanup.service.ts`): constructor `(logger, store,
+  verdicts, queue, extractor, foreground, workspace)` (`:68-77`); gates read section `ptah` keys
+  `skillSynthesis.enabled`, `skillSynthesis.drain.bootDeferralMs`, `skillSynthesis.drain.pauseOnBattery`,
+  `skillSynthesis.drain.foregroundBackoffMs` (`:424-450`) and `startedAt = Date.now()` at construction (`:66`), so
+  the harness sets `bootDeferralMs` 0 (or `foregroundBackoffMs` 0) and passes `isOnBattery: () => false`. One `run`
+  examines at most 200 candidates in 60 s and returns `partial` (`row-budget` / `time-budget`), so the loop runs
+  until `{status:'skipped', reason:'complete'}`. Reject reasons are the literal strings
+  `backlog-cleanup: no code evidence and no verdict` and `backlog-cleanup: transcript unreadable and no verdict`.
+  Run report fields (`skill-backlog-cleanup.types.ts:17-55`): `examined`, `keptEvidence`, `keptVerdict`,
+  `keptDegradedVerdict`, `rejectedNoEvidence`, `rejectedTranscriptUnreadable`, `invocationsDeleted`,
+  `deferredOnError`, `status`, `reason`, `durationMs`, `error`. `deferredOnError` is per-run and NOT persisted (state
+  row has the other seven), so the harness must sum it across ticks. A deferred candidate is not rejected and the
+  cursor passes it, so it is never re-examined in this pass: report its count as its own line.
+- **Accepted risk from Batch 4 finding 2** (extractor does not tell `EBUSY` from `ENOENT`): the measurement must count
+  `rejected_transcript_unreadable`, and for those candidates check READ-ONLY (`fs.statSync` / directory listing, no
+  content read) whether a transcript file exists for any source session: the `prefilter` queue row's
+  `transcript_path` on the copy, and `~/.claude/projects/*/<sessionId>.jsonl`. Report counts only.
+- **Stale text corrected here:** Task 7.1 lint set 8 -> 10; XB1 pattern lists widened; report file `batch-7-report.md`
+  -> `test-report.md`; reviewer no longer the Ollama lane by default; Task 7.4 added from the Batch 6 review.
 
-### Task 7.2: Prefilter narrowing measurement (opt-in corpus harness) — PENDING
+### Task 7.4: Reachability node:sqlite adapter tracks transaction state (carried Batch 6 moderate) — IN_PROGRESS
 
-- Run `prefilter-corpus-measurement.spec.ts` with `PTAH_PREFILTER_CORPUS=1` over `~/.claude/projects` JSONL (reads
-  transcripts, never the database; counts only). Record phase-2 vs phase-3 eligible counts, depth-only passes, and
-  tool-only passes (R2).
+- File: MODIFY `W\libs\backend\skill-synthesis\src\lib\skill-synthesis.reachability.test-support.ts` (`adaptNodeDatabase`
+  `:41-83`). No production file, no change to the five proof groups.
+- Change: `inTransaction` reports the real state instead of a hardcoded `false`. Prefer the native getter when the raw
+  `node:sqlite` `DatabaseSync` exposes one (Node here is v24.15.0, which has `isTransaction`); otherwise track it:
+  `exec` of `BEGIN` (any form) sets true, `COMMIT` / `END` / `ROLLBACK` (not `ROLLBACK TO`) sets false, and the
+  `.transaction()` wrapper keeps the flag correct on success and on a throw. Add a doc comment on `adaptNodeDatabase`
+  that the adapter covers only the members the reachability proof reaches, and `.transaction()` is not a verified
+  equivalent of better-sqlite3's (no nesting / savepoints).
+- Acceptance: (a) evidence pasted in `test-report.md` that, under node:sqlite, `inTransaction` reads false before
+  `BEGIN IMMEDIATE`, true after it, false after `COMMIT`, and false after a `ROLLBACK` (a scratch check that is deleted
+  after, or a short assertion inside the existing `beforeAll`; state which); (b) the reachability spec passes 5/5 with 0
+  skipped under BOTH bindings (XB1 commands); (c) `run-many -t typecheck` and `lint` for skill-synthesis green;
+  (d) `git status --short` shows only this file changed under `libs/`.
+
+### Task 7.1: Full suite + typecheck + lint + greps — IN_PROGRESS
+
+- Commands (from `W`, `NX_DAEMON=false`, `D:\projects\ptah-extension\node_modules\.bin\nx.cmd`):
+  - `run-many -t test -p @ptah-extension/skill-synthesis @ptah-extension/persistence-sqlite @ptah-extension/thoth-runtime @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/platform-core @ptah-extension/shared @ptah-extension/skill-synthesis-ui` — "for 8 projects" (R9 / HANDOFF rule 8 flakes: re-run `--parallel=1`, record both)
+  - `run-many -t typecheck -p` the same 8 + `@ptah-extension/webview-e2e-harness ptah-electron-e2e ptah-electron ptah-cli` — "for 12 projects"
+  - `run-many -t lint -p` the same 8 + `@ptah-extension/webview-e2e-harness ptah-electron-e2e` — "for 10 projects"
+  - `run degradation-audit:lint` — exit 0; paste the lines for every lib in the baseline list above
+  - XB1 better-sqlite3 (Electron-as-Node, from `W`):
+    `--config libs/backend/skill-synthesis/jest.config.ts --testPathPatterns '"skill-synthesis.reachability|skill-backlog-cleanup|skill-candidate.store|skill-synthesis.stage-handlers|judge-panel.service|cluster-holdout-end-to-end"' --runInBand`
+    and `--config libs/backend/persistence-sqlite/jest.config.ts --testPathPatterns '"0028_|0030_|0038_|0039_|0040_|0041_|0042_|0043_|0044_|0045_"' --runInBand`;
+    paste both `Tests:` lines and the node:sqlite counts for the same patterns from the full run.
+- Greps (paste, from `W`): `CandidateNamer|setDisplayName|nameCandidate|depthOk|eligibilityMinTurns|prefilterMinChars`
+  over `libs` and `apps` (`*.ts`, `*.md`) -> only the opt-in corpus harness inline old predicate (and task specs); A3:
+  no production `contextId` producer passed to `recordInvocation` in `libs/backend/skill-synthesis/src`;
+  `cron-scheduler` imported nowhere in `libs/backend/skill-synthesis/src`.
+- Record R3 (automatic promotion still impossible; UI text), R4 (generalization shortcut unreachable), R5
+  (`SkillInvocationTracker` registered, unused) as phase-5 notes in `test-report.md`.
+
+### Task 7.2: Prefilter narrowing measurement (opt-in corpus harness) — IN_PROGRESS
+
+- Run `libs/backend/skill-synthesis/src/lib/prefilter-corpus-measurement.spec.ts` with `PTAH_PREFILTER_CORPUS=1`
+  (command in its header `:17`) over `~/.claude/projects` JSONL. Reads transcripts, never the database; counts only.
+  Record phase-2 vs phase-3 eligible counts, depth-only passes, tool-only passes (R2), session total, wall time.
 - Plan reference: implementation-plan.md:500-505
 
-### Task 7.3: Cleanup outcome on a byte copy (senior-tester only) — PENDING
+### Task 7.3: Cleanup outcome on a byte copy (senior-tester only) — IN_PROGRESS
 
-- Procedure (HANDOFF rule 5, R-TL9): fail-if-exists temp dir whose name does not start with `ptah`; record size +
-  mtime of the newest `ptah.pre-migration-*.sqlite` (A5); byte-copy it with `COPYFILE_EXCL` (never open the source
-  with SQLite, never copy the live `ptah.sqlite`); open ONLY the copy; set and read back `journal_mode=WAL`,
-  `foreign_keys=ON`, `synchronous=NORMAL`, `temp_store=MEMORY`, `mmap_size=268435456`, `busy_timeout=5000`; apply
-  migrations through 0045; run `SkillBacklogCleanupService.run` in a loop until `skipped: complete` with gates
-  satisfied, against real transcripts read-only; delete the harness file after use and prove
-  `git status --short -- libs/backend/skill-synthesis` is empty.
-- Accepted risk from Batch 4 finding 2 (EBUSY vs ENOENT in the extractor): report `rejected_transcript_unreadable`
-  and, where observable read-only, how many of those transcripts exist on disk; report `deferredOnError` totals.
-- Record: examined, kept by evidence / verdict / degraded verdict, rejected per reason, fake invocations deleted,
-  ticks, wall time per tick, largest single transcript read time; source size + mtime unchanged; temp dir deleted and
-  confirmed gone.
-- Deliverable: `T\backlog-cleanup-measurement.md` (AC15). Plan reference: implementation-plan.md:506-518
+- Procedure (HANDOFF rule 5, R-TL9, implementation-plan.md:506-518):
+  1. Never open `~/.ptah/state/ptah.sqlite`, `ptah.sqlite-wal`, `ptah.sqlite-shm` or any `ptah.pre-migration-*.sqlite`
+     with SQLite, and never copy the live `ptah.sqlite`. Record size + mtime of the source
+     `ptah.pre-migration-20260909T230600Z.sqlite` (re-list; if a newer `ptah.pre-migration-*` exists, use the newest
+     and say so) with `fs.statSync` only.
+  2. Create the temp dir with `fs.mkdirSync` WITHOUT `recursive` under `os.tmpdir()`, name not starting with `ptah`
+     (e.g. `skill-cleanup-measure-<4 hex>`), so an existing dir throws `EEXIST`.
+  3. `fs.copyFileSync(source, <tmp>/backlog-copy.sqlite, fs.constants.COPYFILE_EXCL)`. Open ONLY the copy.
+  4. Set and read back the six production pragmas on the copy: `journal_mode=WAL`, `foreign_keys=ON`,
+     `synchronous=NORMAL`, `temp_store=MEMORY`, `mmap_size=268435456`, `busy_timeout=5000`; paste the read-back values.
+  5. Record the copy's schema version before, then apply migrations through 0045 with the real
+     `SqliteConnectionService` pointed at the copy (no backup service, vec resolvers null), and record the version
+     after and the migration wall time. Prefer the production binding (better-sqlite3 under Electron-as-Node); record
+     which binding ran.
+  6. Construct the real stores, real `TrajectoryExtractor` and real `JsonlReaderService` (as the corpus harness does,
+     `prefilter-corpus-measurement.spec.ts:113`) wrapped in a timing proxy; settings satisfy the gates. Loop
+     `SkillBacklogCleanupService.run` until `skipped: complete`; record every tick's report.
+  7. Read-only existence check for `rejected_transcript_unreadable` candidates (see re-read above).
+  8. Close the connection, `fs.rmSync(<tmp>, { recursive: true })`, prove `fs.existsSync(<tmp>) === false`; re-stat
+     the source and prove size + mtime unchanged.
+  9. The harness is a temporary spec file under `libs/backend/skill-synthesis`; delete it after use and prove
+     `git status --short -- libs/backend/skill-synthesis` shows only the Task 7.4 file.
+- Record in `backlog-cleanup-measurement.md` (counts and timings only; no session ids, paths or transcript content):
+  source size + mtime before/after; pragma read-back; schema version before/after + migration time; cutoff; candidates
+  at `status='candidate'` before; examined; kept by evidence / verdict / degraded verdict; rejected per reason
+  (`rejectedNoEvidence`, `rejectedTranscriptUnreadable`); `deferredOnError` summed across ticks; fake invocations deleted
+  and tracker rows (`context_id IS NULL`) remaining; ticks; wall time per tick (min / median / max); largest single
+  transcript read time; final state row vs summed run counters (must agree); `rejected_transcript_unreadable`
+  candidates with at least one transcript file present on disk (count) and the sessions checked; temp dir deleted.
 
 ### Batch 7 verification
 
-- Every command green with the stated headers; greps clean; `backlog-cleanup-measurement.md` exists with every
-  Component 8 number; safety proofs pasted; reviewer accepting verdict.
+- Task 7.4 file changed only as specified; reachability 5/5 under both bindings.
+- Every command green with the stated `for N projects` headers (8 / 12 / 10); greps clean; XB1 lists pasted.
+- `test-report.md` and `backlog-cleanup-measurement.md` exist with every number above; safety proofs pasted.
+- `batch-7.done` written last; reviewer (different family) accepting verdict.
