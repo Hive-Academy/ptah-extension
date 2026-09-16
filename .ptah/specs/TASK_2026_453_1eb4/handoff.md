@@ -26,7 +26,7 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | `3f70c986e`  | Docs — Batch 3 commit hash recorded                                                   |
 | `408ddffb2`  | Batch 4 — C1 replay motion gate                                                       |
 | `1b59aa816`  | Docs — Batch 4 commit hash recorded                                                   |
-| (Batch 5)    | Batch 5 — C5 replay render-window fence (hash in `batches.md` Batch 5 header)         |
+| `b19077d03`  | Batch 5 — C5 replay render-window fence                                               |
 
 ## 3. Batch state
 
@@ -36,7 +36,7 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | B2    | M0 baseline                                     | COMPLETE, committed                           |
 | B3    | C3 canvas request queue + C2 replay admission   | COMPLETE, committed `b9cc2f193`         |
 | B4    | C1 replay motion gate                           | COMPLETE, committed `408ddffb2`               |
-| B5    | C5 replay render-window fence                   | COMPLETE, committed (see `batches.md`)        |
+| B5    | C5 replay render-window fence                   | COMPLETE, committed `b19077d03`               |
 | B6    | M1 measurement + decision point                 | IN_PROGRESS — next; needs an idle machine     |
 
 **Before M1**: peer session `ptah-ptah-extension-continue-task-b3c889` (TASK_2026_461) agreed to

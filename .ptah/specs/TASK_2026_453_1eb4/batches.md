@@ -709,7 +709,7 @@ ptah-extension-webview`; `npx nx run ptah-extension-webview:build:development` a
   - Task 5.1: `streamingBoundary` must read raw `historyReplaying()`, never `replayMotionHold` or
     `motionSuppressed` — the hold is motion-only and must not extend the render-window fence.
 
-## Batch 5: C5 replay render-window fence — COMPLETE
+## Batch 5: C5 replay render-window fence — COMPLETE (commit `b19077d03`)
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `frontend-developer` sub-agent
