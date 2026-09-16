@@ -522,6 +522,7 @@ refusal OK`, `self-test junction cleanup OK`, `self-test OK`, exit 0; no TODO/st
 
 - Done by team-leader: Batches 1-3 COMPLETE with commits; `task.md` `status:` set to `in_review`;
   spec folder and b2 review files committed; branch pushed. PR not opened (orchestrator owns it).
+- CI fix (PR #525): SonarCloud S8541 at `publish-electron.yml:260` — setuptools install now `--only-binary :all:` (run value single-quoted; unquoted `: ` broke YAML).
 
 #### Manual post-merge actions (user-owned)
 
