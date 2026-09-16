@@ -45,9 +45,9 @@ the new code or the scheduled job is not registered. Unit specs alone do not clo
 
 | # | Phase | Task | Status |
 | --- | --- | --- | --- |
-| 1 | Stop disk growth: daily retention job (processed observations after 7 days, stuck-row quarantine), pre-migration rotation 3 to 1, idle incremental vacuum, storage numbers in diagnostics | TASK_2026_440_834c | in_review |
-| 2 | Memory age lifecycle (recall to archival after N days unused, delete after M more), salience for ranking only, per-workspace cap | TASK_2026_443_40ec | in_review |
-| 3 | Skills unblock: manual promote path, delete the fake creation invocation, stricter prefilter, backlog cleanup, namer wired or deleted | not filed | backlog |
+| 1 | Stop disk growth: daily retention job (processed observations after 7 days, stuck-row quarantine), pre-migration rotation 3 to 1, idle incremental vacuum, storage numbers in diagnostics | TASK_2026_440_834c | done (PR #513) |
+| 2 | Memory age lifecycle (recall to archival after N days unused, delete after M more), salience for ranking only, per-workspace cap | TASK_2026_443_40ec | done (PR #521) |
+| 3 | Skills unblock: manual promote path, delete the fake creation invocation, stricter prefilter, backlog cleanup, namer wired or deleted | [TASK_2026_461_639c](../TASK_2026_461_639c/task.md) | in_progress |
 | 4 | Activity feed correctness: newest-first, real event ids, grouping, remove the overlapping summary, tiles refresh | not filed | backlog |
 | 5 | Skills evidence-first pipeline: archaeology before authoring, cross-session clustering, promotion from real `skill_invocation_events` | not filed | backlog |
 | 6 | Thoth Overview (Health / Needs attention / Recent outcomes) and a durable, bounded activity ledger | not filed | backlog |
