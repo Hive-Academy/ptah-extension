@@ -501,6 +501,13 @@ three tests it appears in).
 mounting during replay). **2 of 11 attempts (18%) failed scroll sanity**, both on the
 last-clicked/still-replaying tile, with wildly different magnitudes (132 px vs 31,155 px — the
 second is not a rounding-level miss, it is the tile scrolled to nowhere near its own content).
+
+**Correction (Batch 8)**: "both on the last-clicked/still-replaying tile" above is wrong for the
+132 px case. `TILE_1` (cold dev run 3, row above) is the **middle** tile, not the last-clicked one
+— `TILE_2` is the last-clicked tile. Both `TILE_1` and `TILE_2` had a replay queued behind C2's
+admission, which is why both were susceptible; only the "last-clicked" label was misapplied. The
+original numbers (132 px, 31,155 px) are unchanged. See `scroll-regression-analysis.md` F5.
+
 This matches exactly the residual risk `batches.md` recorded for Task 5.1 ("the tail-shift case ...
 is timing dependent and jsdom has no layout, so it cannot be proven by a unit spec. It is covered
 by the C4 post-window scroll sanity check in M1. If that check fails, the fix stays inside C5").
@@ -872,3 +879,242 @@ Stage 2 planning conversation held outside this document.
     numbers are not perfectly apples-to-apples for that reason, though `max`/`total` (long-task
     observer based, not wall-clock polling) should be comparable regardless per the same reasoning
     M0's report gave.
+
+## Batch 8 — scroll re-check (post Batch 7)
+
+### Scope
+
+- User request: `scroll-regression-analysis.md` §2.5's 23-attempt Electron re-check of the Batch 7
+  scroll-retention fix (`906c30440 fix(chat): keep replayed transcript mounts monotonic so tiles
+  stay pinned`), plus the M1 `TILE_1`/`TILE_2` correction above. Measurement only — no product or
+  spec code was changed to produce this section.
+- Criteria tested: `batches.md` Batch 8 / Task 8.1 pass rule — 0 scroll-sanity failures across the
+  same 23-attempt run set (10 cold asserting, 10 cold diagnostic with `PTAH_PERF_TRACE=1
+  PTAH_PERF_EVENTS=2000`, 3 warm 3-tile) defined in `scroll-regression-analysis.md` §2.5.
+- Regressions covered: verifies the Batch 7 fix against the exact 132 px (H1-shaped) and 31,155 px
+  (H1-shaped) misses recorded at M1.
+- Deliberately not tested: A1/A2 slot-height readings (optional per Task 8.1 AC 6) were not taken —
+  not cheap to add without touching the forbidden-file list under this measurement-only task, and
+  the 0-failure result made the discriminating check unnecessary. AC-11 itself is not re-verdicted
+  here (per Task 8.1 AC 4, "not a new AC-11 verdict unless the orchestrator asks") — numbers are
+  reported beside M1 for comparison only.
+
+### Environment
+
+- Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`, branch
+  `perf/task-453-tile-open-long-tasks`.
+- `git log --oneline -1` before AND after all 23 runs: `906c30440 fix(chat): keep replayed
+  transcript mounts monotonic so tiles stay pinned` — the required Batch 7 commit, unchanged
+  throughout.
+- `git status --short` before the first run and after the last run: `M
+  .ptah/specs/TASK_2026_453_1eb4/batches.md` and `?? .ptah/specs/TASK_2026_453_1eb4/leftovers-inventory.md`.
+  Both are **pre-existing/concurrent changes from another session**, not written by this task: this
+  session never opened `batches.md` for writing and never created `leftovers-inventory.md`. Neither
+  is a product or spec file (both are task-folder docs), and `git diff --stat batches.md` shows only
+  Batch 18 planning prose being added — nothing in the scroll-retention or perf-harness files. No
+  product, spec or harness file was modified by this task.
+- Build: `ptah-electron` dev configuration for every run, via `nx run ptah-electron-e2e:e2e`, which
+  depends on `ptah-electron:build-dev` + `ptah-electron:copy-renderer-dev` (same dependency chain
+  M0/M1 used manually). The first run in the set built `ptah-extension-webview` and `build-main`
+  fresh (not cache-served); every later run served all upstream tasks from the Nx cache, confirming
+  no file changed mid-run-set.
+- Idle check command (identical to M0/M1):
+  `powershell -NoProfile -c "(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ? { $_.CommandLine -match 'jest-worker|run-executor' }).Count"`.
+  Checked immediately before and immediately after every run below, including the one discarded
+  attempt: **every check returned `0`, with no exceptions** (24 checks before + 24 checks after, for
+  23 counted attempts plus 1 discarded). This session did not itself run any other Nx target
+  concurrently with a perf run, so "excluding my own run" reduces to: the idle-check filter already
+  excludes Playwright's own worker processes (`Name='node.exe'` matched against
+  `jest-worker|run-executor` command lines — Playwright's `npx playwright test` process and the
+  Electron app it drives do not match either substring), and no other jest-worker/run-executor
+  process was ever observed running.
+- **Peer hold**: this report does not independently confirm the orchestrator requested or released a
+  peer hold with the `continue-task` session (that coordination happens outside this task-folder
+  edit). What this session can state directly: all 24 idle checks before every run and all 24 idle
+  checks after every run returned `0`, so no contention from any peer session was observed at any
+  point during this run set, whether or not a hold was explicitly requested.
+- `PTAH_PERF_OUT_DIR`: `D:\projects\ptah-453-perf\b8` (outside the repo). Console logs:
+  `D:\projects\ptah-453-perf\b8-cold1.log` .. `b8-cold10.log` (cold asserting, `b8-cold4.log` is the
+  discarded crash, `b8-cold4-retry.log` is its replacement counted as attempt 4),
+  `b8-diag1.log` .. `b8-diag10.log` (cold diagnostic, trace + 2,000 events), `b8-warm1.log` ..
+  `b8-warm3.log` (warm 3-tile).
+- Run command pattern (same as M0/M1): `npx nx run ptah-electron-e2e:e2e -- \
+  src/specs/chat/tile-open-longtask-budget.perf.spec.ts --reporter=list -g "<title>"`, with
+  `PTAH_PERF_SPECS=1` and `PTAH_PERF_OUT_DIR` set in the same shell invocation; diagnostic runs added
+  `PTAH_PERF_TRACE=1 PTAH_PERF_EVENTS=2000`. Titles used: `"cold: opening 3 tiles"` (spec `:191`),
+  `"diagnostic: cold 3 tiles"` (spec `:354`), `"diagnostic: warm 3 tiles"` (spec `:502`).
+
+### Discarded attempt
+
+One attempt (the first try at cold-asserting slot 4) was discarded and repeated, per the batch
+instruction's contamination-is-the-only-reason-to-repeat rule extended to this one case: the
+Playwright **worker process itself crashed at 0 ms**, before Electron ever launched
+(`Error: worker process exited unexpectedly (code=3221226505, signal=null)`, `b8-cold4.log:205`).
+The idle check was `0`/`0` around it (not machine contention), and no scroll check, perf measurement,
+or diagnostics JSON was produced — it is evidence of nothing, not a scroll-sanity result, so it is
+reported here as a discarded/repeated attempt rather than folded into either the pass or fail count.
+It was retried immediately (`b8-cold4-retry.log`) under the same idle-0 condition, and that retry is
+counted as attempt 4 of the 23 below. This is flagged explicitly for the orchestrator: it is not the
+"contaminated → discard → repeat" case the protocol names (that case is a busy machine), so if a
+stricter reading is wanted, this attempt should be treated as inconclusive infrastructure noise, not
+as satisfying any part of the 23-attempt count on its own — either way, the 23 counted attempts below
+are all attempts that ran the actual test to completion.
+
+### 23-attempt scroll-sanity result
+
+Per-tile distance is only captured by the harness on a **failure** (`checkTileScrollSanity`,
+`perf-page-capture.ts:373-380`, only pushes `distanceFromBottom` into the failure list it returns);
+a passing tile's exact distance is not logged anywhere, matching the convention M1's own table used
+(PASS rows show "—"). Idle was `0`/`0` for every attempt.
+
+| # | Run | Idle before/after | Scroll result | Wall (ms) | Max (ms) | Total (ms) | Long tasks | preWindowExcluded | Settled | DOM (replaying/settled) |
+| - | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Cold asserting 1 | 0/0 | PASS | 2,171.60 | 143 | 435 | 5 | 2 / 121 ms | true | 1,794 / 4,972 |
+| 2 | Cold asserting 2 | 0/0 | PASS | 3,145.00 | 223 | 1,432 | 14 | 2 / 195 ms | true | 1,790 / 5,908 |
+| 3 | Cold asserting 3 | 0/0 | PASS | 5,431.20 | 399 | 3,825 | 31 | 2 / 208 ms | true | 1,786 / 4,900 |
+| 4 | Cold asserting 4 (retry after discarded crash) | 0/0 | PASS | 3,395.60 | 267 | 1,862 | 17 | 2 / 154 ms | true | 1,802 / 6,208 |
+| 5 | Cold asserting 5 | 0/0 | PASS | 3,170.40 | 232 | 1,557 | 16 | 2 / 183 ms | true | 1,790 / 6,632 |
+| 6 | Cold asserting 6 | 0/0 | PASS | 2,445.20 | 184 | 1,075 | 12 | 2 / 152 ms | true | 1,798 / 4,924 |
+| 7 | Cold asserting 7 | 0/0 | PASS | 3,409.20 | 238 | 1,848 | 17 | 2 / 191 ms | true | 1,798 / 6,296 |
+| 8 | Cold asserting 8 | 0/0 | PASS | 2,857.00 | 217 | 1,251 | 13 | 2 / 186 ms | true | 1,798 / 4,912 |
+| 9 | Cold asserting 9 | 0/0 | PASS | 3,035.70 | 177 | 1,409 | 17 | 2 / 151 ms | true | 1,794 / 4,964 |
+| 10 | Cold asserting 10 | 0/0 | PASS | 3,235.90 | 175 | 1,524 | 18 | 2 / 161 ms | true | 1,782 / 4,876 |
+| 11 | Diagnostic cold 1 | 0/0 | PASS | 3,505.30 | 318 | 1,929 | 17 | 2 / 159 ms | true | 1,786 / 7,315 |
+| 12 | Diagnostic cold 2 | 0/0 | PASS | 3,571.90 | 233 | 2,159 | 20 | 2 / 291 ms | true | 1,782 / 6,352 |
+| 13 | Diagnostic cold 3 | 0/0 | PASS | 3,332.20 | 230 | 1,668 | 17 | 2 / 166 ms | true | 1,794 / 4,908 |
+| 14 | Diagnostic cold 4 | 0/0 | PASS | 4,261.60 | 293 | 2,720 | 26 | 2 / 186 ms | true | 1,786 / 5,931 |
+| 15 | Diagnostic cold 5 | 0/0 | PASS | 4,642.90 | 547 | 3,100 | 22 | 2 / 335 ms | true | 1,790 / 7,648 |
+| 16 | Diagnostic cold 6 | 0/0 | PASS | 3,768.60 | 470 | 2,266 | 18 | 2 / 217 ms | true | 1,786 / 7,464 |
+| 17 | Diagnostic cold 7 | 0/0 | PASS | 3,426.60 | 213 | 1,855 | 20 | 2 / 151 ms | true | 1,794 / 5,920 |
+| 18 | Diagnostic cold 8 | 0/0 | PASS | 2,370.80 | 146 | 622 | 7 | 2 / 126 ms | true | 1,794 / 4,916 |
+| 19 | Diagnostic cold 9 | 0/0 | PASS | 2,835.20 | 259 | 1,277 | 13 | 2 / 124 ms | true | 1,794 / 7,876 |
+| 20 | Diagnostic cold 10 | 0/0 | PASS | 2,049.80 | 125 | 452 | 6 | 2 / 128 ms | true | 1,790 / 4,904 |
+| 21 | Warm 3-tile 1 | 0/0 | PASS | 2,931.00 | 193 | 1,125 | 15 | 4 / 276 ms | true | 2,172 / 6,301 |
+| 22 | Warm 3-tile 2 | 0/0 | PASS | 2,165.90 | 131 | 368 | 5 | 4 / 278 ms | true | 2,176 / 5,290 |
+| 23 | Warm 3-tile 3 | 0/0 | PASS | 2,898.90 | 201 | 1,057 | 13 | 5 / 418 ms | true | 2,176 / 7,310 |
+
+**Result: 0 scroll-sanity failures in 23 counted attempts.** Every attempt's scroll check ran to
+completion and passed (either an explicit `1 passed`, or — for the budget-failing cold asserting
+runs below — a printed `[AC-11 perf] wall=...` line, which per the spec's own control flow
+(`tile-open-longtask-budget.perf.spec.ts:281-289`) only prints after `assertScrollSanity` at `:286`
+has already returned with no failures). **No H1 or H2 classification applies — there is nothing to
+classify.** Per Task 8.1 AC 5 / `batches.md` "Batch 8 verification": PASS. Scroll regression closed;
+Stage 2 may start.
+
+Budget outcome of each cold-asserting run (recorded for completeness, not part of the scroll
+verdict, per Task 8.1 AC 3 "a long-task budget failure in the asserting test is NOT a scroll
+failure"):
+
+| # | Max <= 200? | Total <= 1,500? | Which assertion failed (if any) |
+| - | --- | --- | --- |
+| 1 | yes (143) | yes (435) | none — AC-11 MET this run |
+| 2 | NO (223) | yes (1,432) | `expect(maxDuration)` |
+| 3 | NO (399) | NO (3,825) | `expect(maxDuration)` (then total would also fail) |
+| 4 | NO (267) | NO (1,862) | `expect(maxDuration)` |
+| 5 | NO (232) | NO (1,557) | `expect(maxDuration)` |
+| 6 | yes (184) | yes (1,075) | none — AC-11 MET this run |
+| 7 | NO (238) | NO (1,848) | `expect(maxDuration)` |
+| 8 | NO (217) | yes (1,251) | `expect(maxDuration)` |
+| 9 | yes (177) | yes (1,409) | none — AC-11 MET this run |
+| 10 | yes (175) | NO (1,524) | `expect(totalDuration)` (max assertion passed first) |
+
+Jest/Playwright evaluates `expect(maxDuration)...` before `expect(totalDuration)...`
+(`tile-open-longtask-budget.perf.spec.ts:350-351`), so a run failing only the max budget reports that
+assertion; run 10 is the only run whose max passed and total alone failed, confirmed directly against
+its own numbers (175 <= 200, 1,524 > 1,500).
+
+### Asserting-run max/total vs M1
+
+| Metric | M1 (3 runs) | Batch 8 (10 runs) |
+| --- | --- | --- |
+| Max values (ms) | 220, 337, 185 | 143, 223, 399, 267, 232, 184, 238, 217, 177, 175 |
+| Max mean (ms) | 247.3 | 225.5 |
+| Max min / max max (ms) | 185 / 337 | 143 / 399 |
+| Total values (ms) | 3,226, 4,927, 2,169 | 435, 1,432, 3,825, 1,862, 1,557, 1,075, 1,848, 1,251, 1,409, 1,524 |
+| Total mean (ms) | 3,440.7 | 1,621.8 |
+| Total min / max (ms) | 2,169 / 4,927 | 435 / 3,825 |
+| Runs meeting AC-11 (max<=200 AND total<=1,500) | 0 of 3 | **3 of 10** (attempts 1, 6, 9) |
+| Scroll-sanity failures | 2 of 11 (18%) | **0 of 23 (0%)** |
+
+Arithmetic check (Batch 8 max mean): 143+223+399+267+232+184+238+217+177+175 = 2,255; 2,255/10 =
+225.5. Arithmetic check (Batch 8 total mean): 435+1,432+3,825+1,862+1,557+1,075+1,848+1,251+1,409+
+1,524 = 16,218; 16,218/10 = 1,621.8.
+
+**Yes, 3 of the 10 Batch 8 asserting runs met AC-11 in full** (attempts 1, 6 and 9 — max and total
+both within budget, `settled: true`), a result M1's 3-run sample (0 of 3) did not show. This is
+consistent with M1's own disclosed caution that "a single run should not be read as 'the' number" —
+Batch 8's larger 10-run sample shows both a new best case (143 ms max / 435 ms total, run 1) and a
+new worst case (399 ms max / 3,825 ms total, run 3) that both sit outside M1's narrower 3-run range,
+so run-to-run variance is confirmed to be large, not resolved. **This is reported for comparison
+only and is not a new AC-11 verdict** — Task 8.1 AC 4 does not ask for one, and a 10-run sample
+still is not the "all 3 cold dev runs" gate Task 6.1 AC 3 defines; if the orchestrator wants a formal
+re-verdict it should be sized against a fresh 3-run set drawn the same way M0/M1 did, not against
+this diagnostic 10-run spread.
+
+### Diagnostic (trace, 2,000 events) vs M1
+
+| Metric | M1 trace-2000 (1 run, clean retry) | Batch 8 diagnostic (10 runs) |
+| --- | --- | --- |
+| Max (ms) | 193 | 125, 146, 213, 230, 233, 259, 293, 318, 470, 547 (mean 283.4) |
+| Total (ms) | 2,129 | 452, 622, 1,277, 1,668, 1,855, 1,929, 2,159, 2,266, 2,720, 3,100 (mean 1,804.8) |
+| Scroll sanity | FAIL first attempt (31,155 px), PASS retry | PASS, all 10 |
+
+Arithmetic check (max mean): 318+233+230+293+547+470+213+146+259+125 = 2,834; 2,834/10 = 283.4.
+Arithmetic check (total mean): 1,929+2,159+1,668+2,720+3,100+2,266+1,855+622+1,277+452 = 18,048;
+18,048/10 = 1,804.8. M1's single clean data point (193/2,129) sits inside the Batch 8 spread, not at
+either extreme — consistent with the same high variance seen in the asserting runs, not a new
+finding.
+
+### Warm 3-tile vs M1
+
+| Metric | M1 warm-3tile (1 run) | Batch 8 warm-3tile (3 runs) |
+| --- | --- | --- |
+| Max (ms) | 382 | 193, 131, 201 (mean 175.0) |
+| Total (ms) | 3,330 | 1,125, 368, 1,057 (mean 850.0) |
+| Scroll sanity | PASS | PASS, all 3 |
+
+All three Batch 8 warm runs are well below M1's single warm-3tile sample on both max and total; not
+gated either way (warm scenarios are diagnostic-only per the spec's own header comment), reported
+for completeness only.
+
+### Diagnostics JSON paths read
+
+`D:\projects\ptah-453-perf\b8\ac11-perf-cold-3tile-1789584213533.json` (attempt 1),
+`...-1789584301518.json` (attempt 2), `...-1789584373526.json` (attempt 3),
+`...-1789584524022.json` (attempt 4, retry), `...-1789584590298.json` (attempt 5),
+`...-1789584659150.json` (attempt 6), `...-1789584725837.json` (attempt 7),
+`...-1789584791203.json` (attempt 8), `...-1789584854061.json` (attempt 9),
+`...-1789584918230.json` (attempt 10),
+`D:\projects\ptah-453-perf\b8\ac11-perf-diagnostic-cold-3tile-2000-1789584985957.json` (attempt 11),
+`...-1789585066450.json` (attempt 12), `...-1789585136058.json` (attempt 13),
+`...-1789585204961.json` (attempt 14), `...-1789585281016.json` (attempt 15),
+`...-1789585364531.json` (attempt 16), `...-1789585469351.json` (attempt 17),
+`...-1789585539205.json` (attempt 18), `...-1789585601292.json` (attempt 19),
+`...-1789585661176.json` (attempt 20),
+`D:\projects\ptah-453-perf\b8\ac11-perf-warm-3tile-1789585728282.json` (attempt 21),
+`...-1789585789490.json` (attempt 22), `...-1789585851336.json` (attempt 23).
+The discarded crash attempt (`b8-cold4.log`) wrote no diagnostics JSON (crashed at 0 ms, before the
+app launched).
+
+### Batch 8 verdict
+
+- **PASS: 0 scroll-sanity failures in 23 counted attempts.** Idle was `0`/`0` before and after every
+  one of the 23 counted attempts and the 1 discarded attempt (24 checks each side). `git log
+  --oneline -1` was `906c30440` before and after every run; `git status --short` showed only an
+  unrelated, not-self-caused `batches.md`/`leftovers-inventory.md` change from another session, no
+  product/spec/harness diff.
+- H1/H2 classification: **not needed** — there were no failures to classify. The Batch 7 fix
+  (replay mount retention in `TranscriptRenderWindow`) holds against both the 132 px and 31,155 px
+  failure shapes recorded at M1, across 10 repetitions of the exact run shape that produced the
+  132 px miss and 10 repetitions of the exact run shape (trace + 2,000 events) that produced the
+  31,155 px miss, plus 3 warm-3-tile repetitions.
+- Per `batches.md` Batch 8 verification: **Stage 2 (Batches 9-17) may start.**
+- Risk carried forward, not closed by this result: `scroll-regression-analysis.md` F1 (a live event
+  growing content below during the single rAF/50 ms release window can still recreate the H1 shape
+  "at lower probability") is a probabilistic risk that 23 clean attempts make less likely, not
+  impossible — the analysis's own math (2/11 ≈ 18% observed rate → ~2% chance of 20 clean attempts by
+  luck) means this result is strong evidence, not proof. The `onScroll` anchoring-aware fix
+  (`scroll-regression-analysis.md` §2.3) remains available as U1 if a future run reproduces either
+  shape.
+- One process anomaly (the discarded worker crash, cold-asserting attempt 4's first try) is flagged
+  above for the orchestrator's attention as an infrastructure item, separate from the scroll verdict.

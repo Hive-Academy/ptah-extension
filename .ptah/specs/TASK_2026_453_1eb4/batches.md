@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 27 | Batches: 17 (12 code, 5 measurement; Batches 16-17 conditional) | Complete: 7/17
+Total tasks: 32 | Batches: 18 (13 code, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 8/18
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -1068,7 +1068,7 @@ A4 one frame is enough — verified or refuted by Batch 8.
 - **CLI scope: docs only** (decision 4 confirmed). Task 10.3 stays a JSON-RPC schema doc; paging
   goes through `rpc.call`.
 
-## Batch 8: Scroll sanity re-check (Electron) — IN_PROGRESS
+## Batch 8: Scroll sanity re-check (Electron) — COMPLETE (commit: `test(electron-e2e): record the TASK_2026_453 scroll re-check after the retention fix`)
 
 - Recommended executor: Claude `senior-tester` sub-agent
 - Fallback executor: none (idle machine required; wait instead)
@@ -1081,7 +1081,20 @@ A4 one frame is enough — verified or refuted by Batch 8.
   hold heavy passes, and releases the hold when the last run ends. The report records when the
   hold was requested and released.
 
-### Task 8.1: 23-attempt scroll re-check + M1 correction — IN_PROGRESS
+### Task 8.1: 23-attempt scroll re-check + M1 correction — COMPLETE
+
+- **Outcome: PASS — 0 scroll-sanity failures in 23 counted attempts** (evidence: `test-report.md`
+  "Batch 8 — scroll re-check (post Batch 7)"; review `b8-methodology-review.md` APPROVED).
+- 3 of 10 asserting runs met the AC-11 budget (runs 1, 6, 9). Comparison only, not an AC-11
+  verdict (AC 4); the verdict belongs to M2 (Batch 15).
+- One asserting attempt was discarded: a Playwright worker crash at 0 ms before Electron launched
+  (`b8-cold4.log`, code 3221226505, idle `0/0`). It carries no scroll evidence and was re-run as
+  cold asserting 4; the 23 count excludes it.
+- Review process notes (moderate, do not change the PASS):
+  1. Infra anomalies (such as the worker crash) are flagged to the orchestrator before a retry is
+     spent, because AC 5 says no retry substitutes for a failed attempt.
+  2. Idle-check counts were asserted, not retained as artifacts. **Batch 15 (M2) must persist the
+     idle-check stdout before and after every run to a log file** beside the run logs.
 
 - File: MODIFY `W\.ptah\specs\TASK_2026_453_1eb4\test-report.md` (new "Scroll re-check (post
   Batch 7)" section after M1; plus one correction in M1)
@@ -1124,7 +1137,7 @@ jest-worker|run-executor`) returns `0` **before and after every run**; contamina
 - On PASS: scroll regression closed, Stage 2 may start. On FAIL: return to the orchestrator with the
   H1/H2 classification before any Stage 2 batch
 
-## Stage 2 (ii) tail-paged history (Batches 9-17)
+## Stage 2 (ii) tail-paged history (Batches 9-17) + post-Stage-2 follow-ups (Batch 18)
 
 Source: `implementation-plan.md` "Stage 2 — (ii) tail-paged history" (C6-C14, (ii).7 ACs, (ii).8
 M2). Citations re-checked at `d8951fa03` (no product diff since `0149adef8`; Batch 7 not yet on
@@ -1148,18 +1161,18 @@ Status: **PASSED WITH RISKS — one blocking-class invalid assumption (V1)**. V1
 Batch 10 only until the orchestrator accepts the retarget; if it does not, send V1 to the architect.
 Batch 9 and Batch 11 do not touch it.
 
-| #   | Class                             | Finding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Evidence                                                                                                                                            | Action                                                                                                                                                                                 |
-| --- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| V1  | **BLOCKING (invalid assumption)** | The plan assumes the anchor hint is Zod-validated in `session-rpc.schema.ts`. It is not. `SessionRpcHandlers.sanitizeAnchorHint` rebuilds the hint as `{ text, occurrence }`, so a new `occurrenceFromEnd` is **silently dropped** before it reaches the reader. `grep anchorHint libs/backend/rpc-handlers/src/lib/handlers/*.schema.ts` is empty.                                                                                                                                                                                                                                                                                                                                                                                                      | `session-rpc.handlers.ts:247-260`, called `:1044`, `:1112`                                                                                          | Task 10.2 edits `sanitizeAnchorHint` (non-negative integer or absent) + a spec in `session-rpc.handlers.spec.ts`. No schema file is edited for the hint.                               |
-| V2  | ASSUMPTION (partly invalid)       | A-ii-5 site list is wrong. `message-sender.service.ts:400` is not a `setMessages` site. Actual `[...tab.messages, x]`-style writers: `message-dispatch.service.ts:256, :313`; `message-sender.service.ts:642, :733`; `message-finalization.service.ts:566, :635`; `streaming-handler.service.ts:645`.                                                                                                                                                                                                                                                                                                                                                                                                                                                    | grep                                                                                                                                                | Task 11.1 audits all seven for an `await` between read and write. Any await found is a blocking finding returned before commit.                                                        |
-| V3  | RISK MEDIUM                       | C8 replaces the `SDK_SESSION_HISTORY_READER` injection in `ChatSessionService` (`:136-137`) but its file list omits the four specs that construct it with that token.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `chat-continue-slash-before-resume.spec.ts`, `chat-session-auth.spec.ts`, `chat-session-mcp-status.spec.ts`, `chat-session-resume-activate.spec.ts` | Task 10.2 lists them; injection-only edits, no assertion weakened.                                                                                                                     |
-| V4  | RISK MEDIUM (commit hygiene)      | Adding `chat:history-page` to `RpcMethodRegistry` (`rpc.types.ts:645`) and `RPC_METHOD_ENTRIES` (`:3367`, `Record<RpcMethodName, true>`) without `ChatRpcHandlers.METHODS` breaks `rpc-allowlist.spec.ts` (manifest must partition `RPC_METHOD_NAMES` exactly) for the Batch 9 commit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `rpc-allowlist.spec.ts:1-40`; `manifest.ts:142`                                                                                                     | D10: Batch 9 adds the Params/Result types only; registry + entries + `METHODS` land together in Task 10.2.                                                                             |
-| V5  | RISK MEDIUM (scroll)              | A tail of <= 250 events replays AND finalizes in one synchronous task (P15, confirmed `session-history-replayer.service.ts:193-227`, fast path `:249-253`). No change-detection pass sees `historyReplaying` true, so C5's replay boundary and Batch 7's retention are **inert for tail pages**. After finalize, ~40 never-measured slots swap after replay. Safe when nothing grows below (analysis §2.1). H1-shaped only for `activate: true` resumes whose held live chunks are delivered in the same task and keep growing. The same holds for older pages (C12 does not mark the tab replaying), so analysis §3's "reuse retention around page-ins" is **not** in the plan. This behaviour already exists today for every session of <= 250 events. | replayer `:193-227`; C12 text                                                                                                                       | Accepted with checks: M2 scroll sanity on every run (non-live); Task 14.2 pinned-prepend case; U1 stays the escalation path (see U1 conclusion). Do not add a second window mechanism. |
-| V6  | RISK LOW                          | `chat-transcript.component.ts` is 673 lines before Batch 7. Batch 7 adds a field, edge handling and cleanup, so C13's inputs/output/vm field can cross the 700 warn ceiling.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | `wc -l`                                                                                                                                             | Task 13.1: UI logic lives in the directive; report the line count; a warn is recorded, not split in this batch.                                                                        |
-| V7  | RISK LOW                          | Transcript and chat-view citations (P19, C13 `:180-198`, chat-view html `:64-72`) shift after Batch 7. Current: transcript inputs `:190-198`; chat-view html transcript binding `:64-72`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | read                                                                                                                                                | Tasks 12.2 and 13.1 re-cite at batch start.                                                                                                                                            |
-| V8  | RISK MEDIUM                       | The perf mock resolver is a **stringified function evaluated in the renderer** (`perf-session-fixture.ts:200`), so it cannot call `selectHistoryPage`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | fixture `:163-201`                                                                                                                                  | Task 14.1 precomputes, in Node with the shared pager, the tail result and a `cursor → page` map per session, and serialises them into the resolver strings.                            |
-| V9  | RISK LOW                          | Fixture message ids are `u-${turn}` / `a-${turn}` (`perf-session-fixture.ts:70-71`). They match the cursor charset `[A-Za-z0-9_-]`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | read                                                                                                                                                | Task 9.1 spec includes a `u-12`-style id.                                                                                                                                              |
-| V10 | RISK LOW                          | Large files: `chat-view.component.ts` 1,302, `session-loader.service.ts` 1,350, `tab-manager.service.ts` 2,615, `session-history-reader.service.ts` 1,086, `chat-session.service.ts` 1,419. All are already past 1,000 lines.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `wc -l`                                                                                                                                             | Additions stay within the plan's line budgets (loader +~5, chat-view +~20); `chat-session.service.ts` must not grow; reviewers check.                                                  |
+| #   | Class                             | Finding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Evidence                                                                                                                                            | Action                                                                                                                                                                                                               |
+| --- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V1  | **BLOCKING (invalid assumption)** | The plan assumes the anchor hint is Zod-validated in `session-rpc.schema.ts`. It is not. `SessionRpcHandlers.sanitizeAnchorHint` rebuilds the hint as `{ text, occurrence }`, so a new `occurrenceFromEnd` is **silently dropped** before it reaches the reader. `grep anchorHint libs/backend/rpc-handlers/src/lib/handlers/*.schema.ts` is empty.                                                                                                                                                                                                                                                                                                                                                                                                      | `session-rpc.handlers.ts:247-260`, called `:1044`, `:1112`                                                                                          | Task 10.2 edits `sanitizeAnchorHint` (non-negative integer or absent) + a spec in `session-rpc.handlers.spec.ts`. No schema file is edited for the hint.                                                             |
+| V2  | ASSUMPTION (partly invalid)       | A-ii-5 site list is wrong. `message-sender.service.ts:400` is not a `setMessages` site. Actual `[...tab.messages, x]`-style writers: `message-dispatch.service.ts:256, :313`; `message-sender.service.ts:642, :733`; `message-finalization.service.ts:566, :635`; `streaming-handler.service.ts:645`.                                                                                                                                                                                                                                                                                                                                                                                                                                                    | grep                                                                                                                                                | Task 11.1 audits all seven for an `await` between read and write. Any await found is a blocking finding returned before commit.                                                                                      |
+| V3  | RISK MEDIUM                       | C8 replaces the `SDK_SESSION_HISTORY_READER` injection in `ChatSessionService` (`:136-137`) but its file list omits the four specs that construct it with that token.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `chat-continue-slash-before-resume.spec.ts`, `chat-session-auth.spec.ts`, `chat-session-mcp-status.spec.ts`, `chat-session-resume-activate.spec.ts` | Task 10.2 lists them; injection-only edits, no assertion weakened.                                                                                                                                                   |
+| V4  | RISK MEDIUM (commit hygiene)      | Adding `chat:history-page` to `RpcMethodRegistry` (`rpc.types.ts:645`) and `RPC_METHOD_ENTRIES` (`:3367`, `Record<RpcMethodName, true>`) without `ChatRpcHandlers.METHODS` breaks `rpc-allowlist.spec.ts` (manifest must partition `RPC_METHOD_NAMES` exactly) for the Batch 9 commit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `rpc-allowlist.spec.ts:1-40`; `manifest.ts:142`                                                                                                     | D10: Batch 9 adds the Params/Result types only; registry + entries + `METHODS` land together in Task 10.2.                                                                                                           |
+| V5  | RISK MEDIUM (scroll)              | A tail of <= 250 events replays AND finalizes in one synchronous task (P15, confirmed `session-history-replayer.service.ts:193-227`, fast path `:249-253`). No change-detection pass sees `historyReplaying` true, so C5's replay boundary and Batch 7's retention are **inert for tail pages**. After finalize, ~40 never-measured slots swap after replay. Safe when nothing grows below (analysis §2.1). H1-shaped only for `activate: true` resumes whose held live chunks are delivered in the same task and keep growing. The same holds for older pages (C12 does not mark the tab replaying), so analysis §3's "reuse retention around page-ins" is **not** in the plan. This behaviour already exists today for every session of <= 250 events. | replayer `:193-227`; C12 text                                                                                                                       | Accepted with checks: M2 scroll sanity on every run (non-live); Task 14.2 pinned-prepend case; U1 stays the escalation path (see U1 conclusion). Do not add a second window mechanism.                               |
+| V6  | RISK LOW                          | `chat-transcript.component.ts` is 673 lines before Batch 7. Batch 7 adds a field, edge handling and cleanup, so C13's inputs/output/vm field can cross the 700 warn ceiling.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | `wc -l`                                                                                                                                             | Superseded 2026-09-16 (user): Task 13.0 dedupes the timer-clear first; Task 13.1 keeps UI logic in the directive and reports the count; if the file is still > 700, Task 13.2 applies the facade rule in this batch. |
+| V7  | RISK LOW                          | Transcript and chat-view citations (P19, C13 `:180-198`, chat-view html `:64-72`) shift after Batch 7. Current: transcript inputs `:190-198`; chat-view html transcript binding `:64-72`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | read                                                                                                                                                | Tasks 12.2 and 13.1 re-cite at batch start.                                                                                                                                                                          |
+| V8  | RISK MEDIUM                       | The perf mock resolver is a **stringified function evaluated in the renderer** (`perf-session-fixture.ts:200`), so it cannot call `selectHistoryPage`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | fixture `:163-201`                                                                                                                                  | Task 14.1 precomputes, in Node with the shared pager, the tail result and a `cursor → page` map per session, and serialises them into the resolver strings.                                                          |
+| V9  | RISK LOW                          | Fixture message ids are `u-${turn}` / `a-${turn}` (`perf-session-fixture.ts:70-71`). They match the cursor charset `[A-Za-z0-9_-]`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | read                                                                                                                                                | Task 9.1 spec includes a `u-12`-style id.                                                                                                                                                                            |
+| V10 | RISK LOW                          | Large files: `chat-view.component.ts` 1,302, `session-loader.service.ts` 1,350, `tab-manager.service.ts` 2,615, `session-history-reader.service.ts` 1,086, `chat-session.service.ts` 1,419. All are already past 1,000 lines.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `wc -l`                                                                                                                                             | Additions stay within the plan's line budgets (loader +~5, chat-view +~20); `chat-session.service.ts` must not grow; reviewers check.                                                                                |
 
 Verified (OK): P1 `rpc-chat.types.ts:210, :233`; P2 `rpc.types.ts:645, :3373`; P3 `chat:` in
 `ALLOWED_METHOD_PREFIXES` (`rpc-handler.ts:44-46`), so no prefix edit; P4 `METHODS` `:86-94`,
@@ -1211,6 +1224,21 @@ compaction cut `session-replay.service.ts:91-104`; `RpcUserError` `vscode-core r
 - D14 Stale cursor UX (decision 3): `loadOlder` returns `'stale'` and sets the cursor to `null`, so
   the button hides. `ChatViewComponent` shows `showActionError` with text telling the user to
   reopen the session. No `chat:resume` is sent automatically.
+- D15 Follow-up folds (user instruction 2026-09-16, source `leftovers-inventory.md` Table B and
+  "Recommended grouping (1)"):
+  - B3 (compaction reload vs in-flight replay) and B4 (throw-mid-replay window) → Task 12.4.
+  - B11 (duplicated timer-clear) → Task 13.0; B12 (700-line file) → Task 13.1 AC 1 count +
+    conditional Task 13.2 facade split. This overrides the inventory's "split after M2" and the
+    V6 "no split" action.
+  - B6 (per-tile DOM sampling), B8 (`startTraceCapture` try/catch), B7 (conditional
+    `assertScrollSanity` split) → Task 14.1 ACs 4-6. M2 (Task 15.1) then requires the per-tile
+    DOM ratio, so M1 AC 2 PARTIAL closes at M2.
+  - B13 (shared transcript spec harness) and B10 (message-bubble rendered-class assertion, if
+    feasible) → Batch 18, after Batch 15/17 and before PR #524 leaves draft.
+  - B9 (Jest target for e2e perf helpers) needs a `project.json` edit + `nx reset` → NOT on this
+    branch; recorded under "Out-of-branch follow-ups" at the end of this file.
+  - No change: B1 (Batch 8), B2 (U1 escalation), B5 FU-20a (accepted; re-read in Batch 12
+    review), B14 (info; re-check only if M2 fails AC-11).
 
 ### Stage 2 common verification (add to the common rules for every Stage 2 code lane)
 
@@ -1230,7 +1258,7 @@ ptah-extension-vscode ptah-cli --parallel=1` (drop any app a batch cannot affect
    `chat-transcript.component.css`; `git diff | grep content-visibility` empty; no
    `ALLOWED_METHOD_PREFIXES` diff; no TODO/stub; no new `catch { return <literal> }`.
 
-## Batch 9: C6 paged history contract (`libs/shared`) — PENDING
+## Batch 9: C6 paged history contract (`libs/shared`) — IN_PROGRESS
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `backend-developer` sub-agent
@@ -1239,7 +1267,7 @@ ptah-extension-vscode ptah-cli --parallel=1` (drop any app a batch cannot affect
 - Tasks: 1 | Depends on: Batch 8 PASS
 - Review: logic + style in parallel → same lane → delta → commit. Revise cap 2.
 
-### Task 9.1: Page selection, cursor, wire types, error code, anchor hint field — PENDING
+### Task 9.1: Page selection, cursor, wire types, error code, anchor hint field — IN_PROGRESS
 
 - Files:
   - CREATE `W\libs\shared\src\lib\utils\history-page.utils.ts`
@@ -1438,14 +1466,16 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `frontend-developer` sub-agent
-- Execution mode: sequential (12.1 → 12.2 → 12.3)
+- Execution mode: sequential (12.1 → 12.2 → 12.3 → 12.4)
 - Rationale: async ordering in the replayer (claims, admission, cursor re-checks) plus its two
-  call sites. One mind.
-- Tasks: 3 | Depends on: Batch 8 PASS, Batches 9 and 11 committed (Batch 10 not required for unit
+  call sites. One mind. Task 12.4 edits the same loader, replayer and loader spec as Task 12.1,
+  so it cannot be a parallel lane (`leftovers-inventory.md` B3/B4).
+- Tasks: 4 | Depends on: Batch 8 PASS, Batches 9 and 11 committed (Batch 10 not required for unit
   specs; required before Batch 14)
 - Review: logic (claim/rebind/cursor refusal after admission and each yield, admission released
-  in `finally`, no `replayingTabIds` change, in-flight dedup, stale never loops) + style.
-  Revise cap 2.
+  in `finally`, no `replayingTabIds` change, in-flight dedup, stale never loops; Task 12.4
+  ordering specs prove what they claim and any fix is minimal; FU-20a re-read with
+  `replayOlderPage` admission, B5) + style. Revise cap 2.
 
 ### Task 12.1: `HistoryPagingService`, `replayOlderPage`, loader tail request — PENDING
 
@@ -1489,23 +1519,84 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
   <= 250 events are synchronous (so the Replay boundary and retention do not engage for them,
   V5). No edit to the Batch 7 Replay boundary bullet.
 
+### Task 12.4: Resume ordering regression specs — compaction reload vs replay, throw mid-replay — PENDING
+
+- Depends on: Task 12.1 (same files; runs after the tail request lands)
+- Source: `leftovers-inventory.md` B3 (`batches.md:775-777`, `b5-code-logic-review-delta.md:196-201`)
+  and B4 (`batches.md:778-779`).
+- Files: MODIFY `W\libs\frontend\chat\src\lib\services\chat-store\session-loader.service.spec.ts`;
+  MODIFY `...\chat-store\session-history-replayer.service.spec.ts` (or the Task 12.1
+  `session-history-replayer.older-page.spec.ts` if the throw case belongs with paging; the lane
+  says which); MODIFY `...\session-loader.service.ts` and/or `...\session-history-replayer.service.ts`
+  **only if** a spec below fails on current code.
+- Pattern to follow: loader compaction reload `session-loader.service.ts:677-691` (re-cite after
+  Task 12.1); replayer `finally` `session-history-replayer.service.ts:224`; loader `replay(` `:782`,
+  `applyResumeFailure` `:797`, `:807` (re-cite).
+- Acceptance criteria:
+  1. **B3 spec (compaction reload racing an in-flight replay)**: tab T has a replay claim held
+     and chunks still pending (install a real `MessageChannel` or a controllable yield so chunk
+     boundaries exist). A `switchSession(..., { reason: 'compaction' })` for T starts, which
+     skips `applyResumingSession` (`:684`). Assert: the older replay is superseded and writes no
+     message, status, stats or streamingState after the new claim; the final tab state equals the
+     compaction reload's result; `clearPendingUpdates` ran before any history finalization flush;
+     held `chat:chunk` events are delivered once, in order, by the winning claim only.
+  2. **B4 spec (throw mid-replay)**: a chunk throws during `replay()`. Record every tab state
+     transition (status, `isReplaying(tabId)`, messages length) through the throw. Assert: no
+     observable `loaded` status and no finalized/partial transcript between the replayer's
+     `finally` clearing the replay flag and the loader's `applyResumeFailure`; the fence releases
+     held events once; admission is released; the tab ends in the failure state.
+  3. Each spec is shown failing when its guarded behaviour is removed (describe the mutation in
+     the report: e.g. drop the supersede check, or apply `loaded` before failure), so it pins the
+     ordering rather than passing vacuously.
+  4. **Fix only if real**: if a spec fails on the unmodified code, the lane reports the failing
+     assertion and the observed stale write/flash, then applies the smallest fix in the loader or
+     replayer. Explicit exception to Task 12.1 AC 2's "loader grows by <= ~5 lines" for this fix
+     only; the report gives the line delta. The replayer stays < 700 lines. A fix that needs a
+     claim-semantics or admission redesign is returned as a blocking finding, not improvised.
+  5. If both specs pass on current code: no production diff; the report says "B3/B4 not
+     reproducible; pinned by specs" and names the spec titles.
+  6. Existing replayer, admission, loader and cli-restore specs green and unedited, except the
+     two spec files this task names.
+
 ### Batch 12 verification
 
 - Common Stage 2 steps. Tests `-p @ptah-extension/chat` (header 1; report counts vs Batch 7).
   Typecheck `@ptah-extension/chat ptah-extension-webview`. Lint `@ptah-extension/chat`. Webview
   `build:development` + `build:production`. Existing replayer, admission, loader and cli-restore
   specs green.
+- Team-leader reads the Task 12.4 specs and, if a production fix landed, confirms the loader line
+  delta is reported and the fix is limited to the ordering defect the spec shows.
 
 ## Batch 13: C13 "Load earlier" affordance (transcript) — PENDING
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `frontend-developer` sub-agent
-- Execution mode: sequential
+- Execution mode: sequential (13.0 → 13.1 → 13.2 if triggered)
 - Rationale: one directive plus the transcript and chat-view template bindings; it touches the
-  scroll-sensitive transcript Batch 7 changed.
-- Tasks: 1 | Depends on: **Batch 7 committed and Batch 8 PASS (explicit)**, Batch 12 committed
+  scroll-sensitive transcript Batch 7 changed. 13.0 and 13.2 edit the same component file as
+  13.1, so all three stay in one lane (`leftovers-inventory.md` B11/B12).
+- Tasks: 3 (13.2 conditional) | Depends on: **Batch 7 committed and Batch 8 PASS (explicit)**,
+  Batch 12 committed
 - Review: logic (arming only after an upward move, once per arm, never during replay or on open,
-  no scroll writes) + style (directive shape vs `transcript-slot.directive.ts`, a11y). Revise cap 2.
+  no scroll writes; 13.0 and 13.2 behaviour-preserving) + style (directive shape vs
+  `transcript-slot.directive.ts`, a11y; 13.2 facade rule and nameability). Revise cap 2.
+
+### Task 13.0: Remove the duplicated replay motion hold timer-clear — PENDING
+
+- Source: `leftovers-inventory.md` B11 (`batches.md:707-708`; `b4-code-style-review-delta.md:145`).
+- File: MODIFY `W\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts`
+- Acceptance criteria:
+  1. Report `wc -l` before (expected 700) and after.
+  2. The falling-edge branch of the `historyReplaying` effect (currently `:467-469`,
+     `if (this.replayMotionHoldTimeoutId) clearTimeout(...)`) calls `clearReplayMotionHold()`
+     (`:693-697`) instead of repeating the clear. Keep the order "clear, then set hold true, then
+     arm the 300 ms timer": if `clearReplayMotionHold()` also sets `replayMotionHold` false, that
+     is fine because the next line sets it true in the same untracked block (state the helper's
+     body in the report). No other effect or timer changes.
+  3. No hunk in `onScroll`, `scheduleStickToBottom`, `restoreScrollOnActivation`, `lastScrollTop`,
+     the render-window feed effect or `cleanup()` retention code.
+  4. `chat-transcript.component.replay-motion.spec.ts`, `.replay-mount.spec.ts` and
+     `chat-transcript.component.spec.ts` green and unedited.
 
 ### Task 13.1: `TranscriptOlderHistorySentinelDirective` + transcript IO + chat-view binding — PENDING
 
@@ -1517,9 +1608,10 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
 - Pattern to follow: `transcript-slot.directive.ts`; local fake `IntersectionObserver` in
   `transcript-render-window.spec.ts`.
 - Acceptance criteria: as C13, plus:
-  1. First step: re-cite transcript and chat-view lines against the Batch 7 commit (V7); report
-     `chat-transcript.component.ts` line count before and after (V6). All logic stays in the
-     directive; the component gains only the inputs/output and the vm field.
+  1. First step: re-cite transcript and chat-view lines against the Batch 7 commit and Task 13.0
+     (V7); report `chat-transcript.component.ts` line count before (after 13.0) and after (V6). All
+     logic stays in the directive; the component gains only the inputs/output and the vm field.
+     If the after count is > 700, Task 13.2 is triggered.
   2. Auto-load emits only when intersecting AND armed (a `scrollTop` decrease seen by the
      directive's own passive listener) AND scrollable AND not loading AND not
      `historyReplaying`. It disarms after each emit. Never on open. Never during the downward
@@ -1535,11 +1627,50 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
      no scroll writes; no `content-visibility`. `chat-transcript.component.spec.ts` (Gate A,
      scroll specs), `.replay-mount.spec.ts`, `.replay-motion.spec.ts` green and unedited.
 
+### Task 13.2: CONDITIONAL — facade split of the replay hold concern out of the transcript — PENDING
+
+- Runs only if Task 13.1 leaves `chat-transcript.component.ts` > 700 lines. Otherwise mark it
+  `CANCELLED (not needed)` with the reported count.
+- Depends on: Task 13.1
+- Source: `leftovers-inventory.md` B12 (`batches.md:1053`, V6); root `CLAUDE.md` File size /
+  facade rule. User instruction 2026-09-16 moves this split into Batch 13 (inventory had it
+  after M2).
+- Files: CREATE `W\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-replay-hold.service.ts`
+  (+ `.spec.ts` only for behaviour the component specs do not already cover); MODIFY
+  `...\transcript\chat-transcript.component.ts`
+- Collaborator: `TranscriptReplayHoldService` — owns the replay-edge concern: the
+  `historyReplaying` rising/falling edge tracking (`wasHistoryReplaying`), the 300 ms
+  `replayMotionHold` signal + timer, and the replay mount-retention release timing
+  (`retentionReleaseTimeoutId`, rAF raced with 50 ms) and their clears from `cleanup()`.
+  Provided in the component's own `providers` (component-scoped, destroyed with it), injected with
+  `inject()`. The lane may rename it if the moved code shows a better name; no
+  `helpers`/`utils`/`common`/`misc` names.
+- Acceptance criteria:
+  1. Facade rule: `ChatTranscriptComponent` keeps its selector, inputs, outputs and public members.
+     Templates and chat-view bindings are unchanged. The moved logic is a move, not a rewrite:
+     same timings (300 ms hold, rAF vs 50 ms release), same ordering, same cancel-on-new-replay
+     and cancel-on-destroy behaviour.
+  2. Guardrails: the new file is >= ~150 lines of real moved concern. If the extractable concern
+     is smaller, the lane does NOT create a fragment: it stops, reports the measured size, and the
+     batch records the > 700 warn (warn-level lint, V6). The component constructor/field inject
+     count does not pass ~8.
+  3. Component after the split is <= 700 lines; report before/after for both files.
+  4. Still no hunk in `onScroll`, `scheduleStickToBottom`, `restoreScrollOnActivation`,
+     `lastScrollTop`; the render-window feed effect keeps reading raw `historyReplaying()` (never
+     the hold), per chat `CLAUDE.md` rule 7 Replay boundary. No CSS diff, no scroll writes.
+  5. `chat-transcript.component.spec.ts`, `.replay-mount.spec.ts`, `.replay-motion.spec.ts` and the
+     new `chat-transcript.older-history.spec.ts` green and **unedited** (component-scoped provider
+     means no TestBed change is needed; if one is needed, that is a finding returned before
+     commit, not an edit).
+  6. chat `CLAUDE.md` rule 7 Replay-tab signal / Replay boundary bullets: update only the file
+     reference to name the collaborator; no rule text changes.
+
 ### Batch 13 verification
 
 - Common Stage 2 steps. Tests `-p @ptah-extension/chat` (header 1). Typecheck `@ptah-extension/chat
-ptah-extension-webview`. Lint `@ptah-extension/chat`. Webview `build:development` +
-  `build:production`. Team-leader re-runs the diff safeguards itself.
+ptah-extension-webview`. Lint `@ptah-extension/chat` (report the `max-lines` warn state). Webview
+  `build:development` + `build:production`. Team-leader re-runs the diff safeguards itself; for
+  Task 13.2 it reads the moved code side by side with the removed lines.
 
 ## Batch 14: C14 paging-faithful harness + functional e2e — PENDING
 
@@ -1556,7 +1687,12 @@ ptah-extension-webview`. Lint `@ptah-extension/chat`. Webview `build:development
 ### Task 14.1: Mock `chat:resume` paging + `chat:history-page`; per-tile paging diagnostics — PENDING
 
 - Files: MODIFY `W\apps\ptah-electron-e2e\src\support\perf-session-fixture.ts`,
-  `W\apps\ptah-electron-e2e\src\specs\chat\tile-open-longtask-budget.perf.spec.ts`
+  `W\apps\ptah-electron-e2e\src\specs\chat\tile-open-longtask-budget.perf.spec.ts`,
+  `W\apps\ptah-electron-e2e\src\support\perf-page-capture.ts` (B6, B8),
+  `W\apps\ptah-electron-e2e\src\support\perf-measurement-report.ts` (only if AC 6 applies);
+  CREATE `W\apps\ptah-electron-e2e\src\support\perf-scroll-sanity.ts` (only if AC 6 applies)
+- Source for ACs 4-6: `leftovers-inventory.md` B6 (`batches.md:822-823`, `:840-842`), B8
+  (`batches.md:342`), B7 (`batches.md:335-336`).
 - Acceptance criteria:
   1. V8: in Node, per session, precompute `selectHistoryPage` for `HISTORY_TAIL_PAGE_EVENTS` and
      the full older-page chain (`HISTORY_PAGE_DEFAULT_EVENTS`) keyed by cursor. Serialise them into
@@ -1568,6 +1704,22 @@ ptah-extension-webview`. Lint `@ptah-extension/chat`. Webview `build:development
      (`ui.getObservedCalls`, `ui-driver.ts:218`) and the replayed event count. The asserting
      tests throw "measurement unusable" if any tile resumed without `historyPage`.
   3. Skip proof: without `PTAH_PERF_SPECS` the perf tests stay skipped.
+  4. **B6 per-tile DOM sampling** (closes M1 AC 2 PARTIAL at M2): `openTilesWithinPage`
+     (`perf-page-capture.ts:185`) samples DOM node count per tile root (scoped to each tile's
+     transcript host, not `document`) at the replaying point and at settle, reusing
+     `DomNodeSample` (`:11`) or extending it with a tile id. `OpenTilesResult` carries the per-tile
+     samples; the diagnostics JSON records per tile `domReplaying`, `domSettled` and the ratio.
+     Whole-canvas samples stay as they are (M1 comparability). The sampler runs outside the
+     measured window, or its cost is shown to be excluded from the long-task sum (state which).
+     A missing tile root makes the measurement unusable (throw), never a silent 0.
+  5. **B8**: `startTraceCapture` (`:130-156`) wraps its CDP calls in `try/catch (error: unknown)`;
+     on failure it detaches the CDP session if created, logs one `console.warn` with the narrowed
+     message, and returns/throws in the same shape the diagnostic callers already handle (the lane
+     states which). `stopTraceCapture` behaviour unchanged. The gate test keeps trace hard-disabled.
+  6. **B7 conditional**: if ACs 2 or 4 add an export to `perf-measurement-report.ts` (currently 8
+     function exports, `assertScrollSanity` `:153`), first move `assertScrollSanity` to
+     `perf-scroll-sanity.ts` and update imports (move only, no behaviour change), then add the new
+     export. If no export is added there, no split; report the export count.
 
 ### Task 14.2: Functional load-older spec + e2e `CLAUDE.md` note — PENDING
 
@@ -1591,6 +1743,10 @@ ptah-extension-webview`. Lint `@ptah-extension/chat`. Webview `build:development
 - Common Stage 2 steps adapted. No jest projects change. Typecheck + lint `ptah-electron-e2e`.
   Degradation audit TOTAL 303 (e2e not scanned; proves nothing else moved). Prettier. Functional
   spec result quoted.
+- Per-tile DOM fields: this batch has no perf run, so they are proven by typecheck and a
+  team-leader code read of the sampler and the diagnostics writer. M2 (Task 15.1 AC 4) is the
+  first run that populates them; if M2 finds them missing, the M2 run is unusable and Batch 14
+  reopens. No `project.json` edit, no `nx reset` (B9 stays out of branch).
 
 ## Batch 15: M2 measurement (Electron, AC-11 verdict) — PENDING
 
@@ -1620,8 +1776,12 @@ ptah-extension-webview`. Lint `@ptah-extension/chat`. Webview `build:development
      `PTAH_PERF_EVENTS=500` and `=2000` ×1 each. Scroll sanity on every run that has it. Plus
      `tile-load-older-history.spec.ts` ×1 (functional).
   4. Per run: max, total, count, `preWindowExcluded`, `settled`, wall per tile, DOM
-     replaying/settled, per-tile `historyPage.maxEvents` and replayed-event count (the run is
-     unusable if any tile resumed without paging). Table beside M1.
+     replaying/settled (whole canvas AND per tile), per-tile `historyPage.maxEvents` and
+     replayed-event count (the run is unusable if any tile resumed without paging, or if any tile
+     lacks per-tile DOM samples). Table beside M1.
+     4a. **AC 2 (per-tile DOM <= 2×) is evaluated per tile from Task 14.1 AC 4 data and must be
+     MET or NOT MET — PARTIAL is no longer an allowed verdict** (`leftovers-inventory.md` B6).
+     Report each tile's replaying/settled ratio.
   5. Volume independence: the 500 and 2,000 trace totals agree within run noise, and the
      `FireAnimationFrame` count is flat. A materially higher 2,000 total is reported as "renderer
      still pays volume".
@@ -1668,12 +1828,77 @@ ptah-extension-webview`. Lint `@ptah-extension/chat`. Webview `build:development
 ### Task 17.1: M2b full run set at 150 — PENDING
 
 - File: MODIFY `W\.ptah\specs\TASK_2026_453_1eb4\test-report.md` ("M2b" section)
-- Acceptance criteria: Task 15.1 items 1-7 and 9 unchanged, with per-tile `historyPage.maxEvents`
+- Acceptance criteria: Task 15.1 items 1-7 (including 4a) and 9 unchanged, with per-tile `historyPage.maxEvents`
   = 150. AC-11 MET under the same rule. If still not met → report and return to the orchestrator
   for a user decision (next levers are Stage 2 (iii-b) or others). No further automatic
   reduction. The budget is never loosened.
 
-### Stage 2 edge cases
+## Batch 18: Post-Stage-2 follow-ups (branch-safe test quality) — PENDING
+
+- Runs after Batch 15 (and after Batch 17 if Batches 16-17 run; after Batch 15 if they are
+  `CANCELLED (not needed)`), and before PR #524 leaves draft.
+- Source: `leftovers-inventory.md` B13 (`batches.md:780-781`; `b5-code-style-review-delta.md:72`)
+  and B10 (`batches.md:704-706`; `b4-code-style-review-delta.md:166`). Only branch-safe items: no
+  `project.json` edit, no `nx reset`, no product code change.
+- Recommended executor: CLI lane `codex` x 1
+- Fallback executor: Claude `senior-tester` sub-agent
+- Execution mode: sequential (18.1 → 18.2). The two tasks are file-disjoint, but both run the
+  `@ptah-extension/chat` Jest project; one lane keeps it to one test runner (D13).
+- Tasks: 2 | Depends on: Batch 15 committed (and Batch 17 committed or Batches 16-17 cancelled);
+  Batch 13 committed (18.1 edits the specs Task 13.1 AC 5 froze)
+- Review: logic (no assertion weakened or dropped, test count per file unchanged or higher, each
+  spec still fails on the mutation it guarded) + style (harness naming, location). Revise cap 2.
+
+### Task 18.1: Shared transcript spec harness — PENDING
+
+- Files: CREATE `W\libs\frontend\chat\src\lib\components\organisms\transcript\testing\transcript-spec-harness.ts`
+  (name may follow an existing `testing/` convention in the lib; the lane cites it); MODIFY
+  `...\transcript\chat-transcript.component.spec.ts`, `...\chat-transcript.component.replay-motion.spec.ts`,
+  `...\chat-transcript.component.replay-mount.spec.ts`, `...\chat-transcript.older-history.spec.ts`
+  (and `transcript-render-window.spec.ts` only if it holds the same fake `IntersectionObserver`)
+- Acceptance criteria:
+  1. The copied stubs (service stubs, TestBed setup, tab/tree fixtures) and the fake
+     `IntersectionObserver` live once in the harness; the 3-4 specs import it. The lane first lists
+     every duplicated block with file:line and says which ones moved; blocks that differ in
+     behaviour stay local or become explicit harness options, never silently unified.
+  2. The harness is spec-only: not exported from `src/index.ts`, not imported by production code,
+     and matched by the lib's Jest/tsconfig spec globs (not compiled into the library build).
+  3. Per spec file, test count before and after is reported and not lower; no `it.skip`/`xit`;
+     no assertion text changed except imports and setup calls.
+  4. No product file changes. No `project.json`/jest config edit.
+
+### Task 18.2: message-bubble rendered-class assertion (if feasible) — PENDING
+
+- File: MODIFY `W\libs\frontend\chat\src\lib\components\organisms\message-bubble.component.spec.ts`
+  (`:280`, template string-match assertion)
+- Acceptance criteria:
+  1. Feasibility check first: can the current Jest/jsdom setup observe the rendered
+     `bubble-fade-enter` class from `animate.enter` (e.g. through Angular's animation test support
+     or by inspecting the element after `animate.enter` applies the class synchronously)? The lane
+     reports the attempt and the result.
+  2. If feasible: replace the template string match with a rendered-class assertion for both the
+     enabled and the suppressed (`motionSuppressed`) cases; the string-match assertion is deleted,
+     not kept beside it.
+  3. If not feasible without a new harness (Playwright `webview-e2e-harness`, a jest config or a
+     `project.json` change): no diff; the task is marked `CANCELLED (not feasible on branch)` and
+     B10 is added to "Out-of-branch follow-ups" below with the evidence.
+
+### Batch 18 verification
+
+- Common Stage 2 steps. Tests `-p @ptah-extension/chat` (header 1; total test count not lower
+  than Batch 15's baseline). Typecheck + lint `@ptah-extension/chat`. No builds (spec-only).
+  `git status --short` lists only spec/testing files.
+
+## Out-of-branch follow-ups (not batches; separate task off `main`)
+
+- **B9** Jest target for e2e perf helpers (`bucketByTime`, `findRendererMainThread`,
+  `summarizeTraceEvents`, `perf-diagnostics.ts:71`, `:146`, `:172`): needs an
+  `apps/ptah-electron-e2e/project.json` target + `nx reset`, which D13 forbids while lanes share
+  this worktree (`leftovers-inventory.md` B9). Orchestrator creates a separate task after PR #524
+  merges (alternative: move the pure helpers to a lib that already has a Jest target).
+- **B10** only if Task 18.2 is cancelled as not feasible.
+
+## Stage 2 edge cases
 
 - Resume without `historyPage` (CLI, harness-builder, loader refresh `:1286`) → full reply — Tasks 10.2, 12.1
 - Oversize single turn > 250 events → one chunked page — Tasks 9.1, 12.1 (R-ii-5; not in M2 fixture)
@@ -1684,6 +1909,11 @@ ptah-extension-webview`. Lint `@ptah-extension/chat`. Webview `build:development
 - Stale cursor → error + button hidden, no loop, no auto re-open — Tasks 12.1, 12.2, 14.2
 - `scrollTop === 0` prepend (A-ii-2) — Task 14.2
 - Pinned prepend (V5 / U1) — Task 14.2
+- Compaction-targeted reload during an in-flight replay (B3) — Task 12.4
+- Chunk throws mid-replay; gap between replayer `finally` and `applyResumeFailure` (B4) — Task 12.4
+- Transcript past 700 lines after C13 (B12) — Tasks 13.0, 13.1, 13.2
+- Missing tile root during per-tile DOM sampling → measurement unusable (B6) — Tasks 14.1, 15.1
+- CDP failure in `startTraceCapture` (B8) — Task 14.1
 - No `IntersectionObserver` → button only — Task 13.1
 - Persisted tab restored with a cursor → `applyResumingSession` resets it on resume — Task 11.1
 - Unloaded duplicate prompt for branch/rewind → `occurrenceFromEnd` end-to-end, sanitizer keeps it (V1) — Tasks 9.1, 10.1, 10.2, 12.2

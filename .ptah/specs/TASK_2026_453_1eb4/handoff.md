@@ -13,7 +13,7 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | PR           | #524, draft; CI all green at `d8951fa03`                                                                                               |
 | Base         | `51d0d2e1f` (main with PR #518 and PR #519)                                                                                            |
 | node_modules | a junction to `D:\projects\ptah-extension\node_modules`. Never delete it with a tool that follows junctions; use `cmd /c rmdir` first. |
-| Old worktree | `D:\projects\ptah-437` (TASK_2026_437) is merged and idle. Its removal is a user decision.                                             |
+| Old worktree | `D:\projects\ptah-437` (TASK_2026_437) was removed 2026-09-16. Its leftovers moved to TASK_2026_463_f13d (see §7).                     |
 
 ## 2. Commits on the branch
 
@@ -31,23 +31,32 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | `d8951fa03` | Batch 6 — M1 measurement in `test-report.md` + methodology review (docs only)                                                                                                                       |
 | (docs)      | `docs(task-specs): design the TASK_2026_453 scroll fix and tail-paged history` — `scroll-regression-analysis.md`, Stage 2 (ii) in `implementation-plan.md`, Batches 7-17 in `batches.md`, this file |
 | (fix)       | Batch 7 — `fix(chat): keep replayed transcript mounts monotonic so tiles stay pinned` (C5 replay mount retention + `b7-*` reports)                                                                  |
+| (test)      | Batch 8 — `test(electron-e2e): record the TASK_2026_453 scroll re-check after the retention fix` (docs only; `b8-methodology-review.md`, `leftovers-inventory.md`)                                  |
 
 **Stage 1 (C1, C2, C3, C4, C5) is fully committed. The Batch 7 scroll fix is committed; draft PR
 #524 CI was all green at `d8951fa03` (before the Batch 7 commits).**
 
 ## 3. Batch state
 
-| Batch  | Content                                                    | State                                                      |
-| ------ | ---------------------------------------------------------- | ---------------------------------------------------------- |
-| B1     | C4 perf harness                                            | COMPLETE, committed                                        |
-| B2     | M0 baseline                                                | COMPLETE, committed                                        |
-| B3     | C3 canvas request queue + C2 replay admission              | COMPLETE, committed `b9cc2f193`                            |
-| B4     | C1 replay motion gate                                      | COMPLETE, committed `408ddffb2`                            |
-| B5     | C5 replay render-window fence                              | COMPLETE, committed `b19077d03`                            |
-| B6     | M1 measurement + decision point                            | COMPLETE, committed `d8951fa03` (docs only)                |
-| B7     | C5 scroll retention fix                                    | COMPLETE, committed (revise 1 of 2; F1 carried to B8 / U1) |
-| B8     | Scroll sanity re-check (Electron, 23 attempts)             | IN_PROGRESS                                                |
-| B9-B17 | Stage 2 (ii) tail-paged history + M2 (B16-B17 conditional) | PENDING, all gated on B8 PASS                              |
+| Batch   | Content                                           | State                                                      |
+| ------- | ------------------------------------------------- | ---------------------------------------------------------- |
+| B1      | C4 perf harness                                   | COMPLETE, committed                                        |
+| B2      | M0 baseline                                       | COMPLETE, committed                                        |
+| B3      | C3 canvas request queue + C2 replay admission     | COMPLETE, committed `b9cc2f193`                            |
+| B4      | C1 replay motion gate                             | COMPLETE, committed `408ddffb2`                            |
+| B5      | C5 replay render-window fence                     | COMPLETE, committed `b19077d03`                            |
+| B6      | M1 measurement + decision point                   | COMPLETE, committed `d8951fa03` (docs only)                |
+| B7      | C5 scroll retention fix                           | COMPLETE, committed (revise 1 of 2; F1 carried to B8 / U1) |
+| B8      | Scroll sanity re-check (Electron, 23 attempts)    | COMPLETE, committed (docs only) — **PASS, 0/23 failures**  |
+| B9      | C6 paged history contract (`libs/shared`)         | IN_PROGRESS (codex lane) — Stage 2 started                 |
+| B10-B17 | Stage 2 (ii) remainder + M2 (B16-B17 conditional) | PENDING                                                    |
+| B18     | Post-Stage-2 follow-ups (test quality)            | PENDING                                                    |
+
+**Batch 8 result**: PASS — 0 scroll-sanity failures in 23 counted attempts (review APPROVED). 3 of
+10 asserting runs met the AC-11 budget (runs 1, 6, 9); comparison only, not a verdict. One Playwright
+worker crash at 0 ms was discarded and re-run. Review process notes: flag infra anomalies to the
+orchestrator before spending a retry; Batch 15 (M2) must persist idle-check counts to a log.
+Follow-ups from `leftovers-inventory.md` are folded into Stage 2 batches (batches.md D15).
 
 **M1 result** (committed evidence: `test-report.md` "M1" section, review
 `b6-m1-methodology-review.md` base NEEDS_REVISION → Delta APPROVED): **AC-11 NOT MET.**
@@ -151,15 +160,24 @@ questions", `batches.md` Stage 2):
 (logic + style APPROVED, revise 1 of 2). F1 (serious, open): the release window can still coincide
 with live growth below — Batch 8 re-check and U1 escalation cover it.
 
+Batch 8 PASS (0/23 scroll failures). Stage 2 started.
+
 **Next steps, in order**:
 
-1. Batch 8: 23-attempt Electron scroll re-check on an idle machine (peer hold first), plus the M1
-   TILE_1 correction. PASS = 0 failures.
-2. On PASS: Batches 9-17 (C6-C14, M2, conditional 150-event fallback). On FAIL: classify H1/H2 and
-   return to the orchestrator before any Stage 2 code.
+1. Batch 9 (in progress): C6 paged history contract in `libs/shared`, then logic + style reviews
+   and commit.
+2. Batches 10-17 (C7-C14, M2, conditional 150-event fallback), then Batch 18 follow-ups.
 
-**Still open**:
+**TASK_2026_437 leftovers** moved to **TASK_2026_463_f13d**, branch
+`chore/task-463-437-leftovers`, worktree `.claude-worktrees/task-463-437-leftovers`. The
+`D:\projects\ptah-437` worktree was removed 2026-09-16. User decisions for TASK_2026_463:
 
-1. TASK_2026_437 leftovers: D10 `publish-electron.yml` dispatch, FU-16b-c `internalQuery.maxConcurrent`,
-   the `chore/bump-*` CI skip guard, the property-hub load-test scripts, AC-10 manual boot evidence.
-2. Removal of the `D:\projects\ptah-437` worktree.
+- `publish-electron.yml`: add the dry-run input first.
+- FU-16b-c: raise the global `internalQuery.maxConcurrent` to 3, with a background cap.
+- Property-hub load-test scripts: yes.
+- PR #457: left open.
+
+**Remaining manual user actions**:
+
+1. AC-10 manual boot evidence.
+2. Dispatch the `publish-electron` dry-run after TASK_2026_463 merges.
