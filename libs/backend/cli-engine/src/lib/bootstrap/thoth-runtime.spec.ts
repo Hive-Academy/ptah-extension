@@ -158,6 +158,7 @@ function makeRuntimeDoubles(
         keptDegradedVerdict: 0,
         rejectedNoEvidence: 2,
         rejectedTranscriptUnreadable: 0,
+        rejectedNoTranscript: 0,
         invocationsDeleted: 4,
         deferredOnError: 0,
         keptRootUnknown: 0,

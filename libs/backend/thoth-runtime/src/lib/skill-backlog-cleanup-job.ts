@@ -84,5 +84,5 @@ function summarizeCleanup(
     report.rejectedNoEvidence + report.rejectedTranscriptUnreadable;
   const kept =
     report.keptEvidence + report.keptVerdict + report.keptDegradedVerdict;
-  return `examined ${report.examined}, rejected ${rejected}, kept ${kept}, invocations deleted ${report.invocationsDeleted}, deferred on error ${report.deferredOnError}, root unknown ${report.keptRootUnknown}`;
+  return `examined ${report.examined}, rejected ${rejected}, kept ${kept}, invocations deleted ${report.invocationsDeleted}, deferred on error ${report.deferredOnError}, root unknown ${report.keptRootUnknown}, no transcript ${report.rejectedNoTranscript}`;
 }

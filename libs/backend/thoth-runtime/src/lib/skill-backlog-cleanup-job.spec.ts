@@ -23,7 +23,8 @@ function makeContainer(entries: Entry[]): DependencyContainer {
   return {
     isRegistered: jest.fn((token: unknown) => values.has(token)),
     resolve: jest.fn((token: unknown) => {
-      if (!values.has(token)) throw new Error(`not registered: ${String(token)}`);
+      if (!values.has(token))
+        throw new Error(`not registered: ${String(token)}`);
       return values.get(token);
     }),
   } as unknown as DependencyContainer;
@@ -44,6 +45,7 @@ function runReport(
     invocationsDeleted: 9,
     deferredOnError: 5,
     keptRootUnknown: 7,
+    rejectedNoTranscript: 2,
     durationMs: 10,
     error: null,
     ...overrides,
@@ -106,7 +108,7 @@ describe('createSkillBacklogCleanupHandler', () => {
       createSkillBacklogCleanupHandler(container)(makeCtx()),
     ).resolves.toEqual({
       summary:
-        'examined 12, rejected 6, kept 6, invocations deleted 9, deferred on error 5, root unknown 7',
+        'examined 12, rejected 6, kept 6, invocations deleted 9, deferred on error 5, root unknown 7, no transcript 2',
     });
   });
 
@@ -131,7 +133,9 @@ describe('createSkillBacklogCleanupHandler', () => {
 
     const run = createSkillBacklogCleanupHandler(container)(makeCtx());
     await expect(run).rejects.toThrow(new Error('unexpected-error'));
-    await expect(run).rejects.not.toThrow(/SQLITE_IOERR|backlog cleanup failed/);
+    await expect(run).rejects.not.toThrow(
+      /SQLITE_IOERR|backlog cleanup failed/,
+    );
   });
 
   it('names the service when the cleanup service cannot be resolved', async () => {

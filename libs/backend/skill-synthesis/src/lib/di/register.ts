@@ -16,6 +16,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { SkillCandidateStore } from '../skill-candidate.store';
 import { SkillBacklogCleanupStore } from '../cleanup/skill-backlog-cleanup.store';
 import { SkillBacklogCleanupService } from '../cleanup/skill-backlog-cleanup.service';
+import { SessionTranscriptLocator } from '../cleanup/session-transcript-locator';
 import { SkillMdGenerator } from '../skill-md-generator';
 import { SkillPromotionService } from '../skill-promotion.service';
 import { SkillInvocationTracker } from '../skill-invocation-tracker';
@@ -65,6 +66,7 @@ export function registerSkillSynthesisServices(
   logger.info('[skill-synthesis] registering services');
   container.registerSingleton(SkillCandidateStore);
   container.registerSingleton(SkillBacklogCleanupStore);
+  container.registerSingleton(SessionTranscriptLocator);
   container.registerSingleton(SkillBacklogCleanupService);
   container.registerSingleton(SkillMdGenerator);
   container.registerSingleton(TrajectoryExtractor);

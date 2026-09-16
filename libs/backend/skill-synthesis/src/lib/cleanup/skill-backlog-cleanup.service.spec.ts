@@ -5,6 +5,8 @@ import type { SessionVerdictStore } from '../archaeology/session-verdict.store';
 import type { ForegroundActivityTracker } from '../queue/foreground-activity.tracker';
 import type { SkillQueueStore } from '../queue/skill-queue.store';
 import type { TrajectoryExtractor } from '../trajectory-extractor';
+import { SessionTranscriptLocator } from './session-transcript-locator';
+import type { SessionTranscriptRunLookup } from './session-transcript-locator';
 import { SkillBacklogCleanupService } from './skill-backlog-cleanup.service';
 import type { SkillBacklogCleanupStore } from './skill-backlog-cleanup.store';
 import type {
@@ -12,7 +14,9 @@ import type {
   BacklogCleanupState,
 } from './skill-backlog-cleanup.types';
 
-const baseState = (overrides: Partial<BacklogCleanupState> = {}): BacklogCleanupState => ({
+const baseState = (
+  overrides: Partial<BacklogCleanupState> = {},
+): BacklogCleanupState => ({
   version: 1,
   cutoffCreatedAt: 1_000,
   cursorCreatedAt: null,
@@ -51,7 +55,10 @@ function logger(): Logger {
   } as unknown as Logger;
 }
 
-function makeHarness(settings: Record<string, unknown> = {}) {
+function makeHarness(
+  settings: Record<string, unknown> = {},
+  locatorOverride?: SessionTranscriptLocator,
+) {
   let state = baseState();
   const pageCandidates = jest.fn() as jest.MockedFunction<
     SkillBacklogCleanupStore['pageCandidates']
@@ -95,6 +102,19 @@ function makeHarness(settings: Record<string, unknown> = {}) {
   const verdicts = { findBySession };
   const queue = { findBySessionStage };
   const extractor = { extract };
+  const locate = jest.fn() as jest.MockedFunction<
+    SessionTranscriptRunLookup['locate']
+  >;
+  locate.mockResolvedValue({ kind: 'unavailable' });
+  const lookupStats = jest.fn(() => ({
+    directoryListings: 0,
+    pathStats: 0,
+    cacheHits: 0,
+  }));
+  const defaultTranscriptLocator = {
+    createRunLookup: jest.fn(() => ({ locate, stats: lookupStats })),
+  };
+  const transcriptLocator = locatorOverride ?? defaultTranscriptLocator;
   const foreground = {
     start: jest.fn(),
     msSinceLastActivity: jest.fn(() => Number.POSITIVE_INFINITY),
@@ -112,10 +132,21 @@ function makeHarness(settings: Record<string, unknown> = {}) {
     verdicts as unknown as SessionVerdictStore,
     queue as unknown as SkillQueueStore,
     extractor as unknown as TrajectoryExtractor,
+    transcriptLocator as SessionTranscriptLocator,
     foreground as unknown as ForegroundActivityTracker,
     workspace as unknown as IWorkspaceProvider,
   );
-  return { service, store, verdicts, queue, extractor, foreground, log };
+  return {
+    service,
+    store,
+    verdicts,
+    queue,
+    extractor,
+    transcriptLocator,
+    locate,
+    foreground,
+    log,
+  };
 }
 
 const live = (): AbortSignal => new AbortController().signal;
@@ -194,9 +225,7 @@ describe('SkillBacklogCleanupService', () => {
     ],
   ])('%s', async (_label, verdict, counter) => {
     const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
-    h.store.pageCandidates
-      .mockReturnValueOnce([row()])
-      .mockReturnValueOnce([]);
+    h.store.pageCandidates.mockReturnValueOnce([row()]).mockReturnValueOnce([]);
     h.verdicts.findBySession.mockReturnValue(verdict as never);
     const report = await h.service.run({
       signal: live(),
@@ -204,6 +233,7 @@ describe('SkillBacklogCleanupService', () => {
     });
     expect(report).toMatchObject({ status: 'completed', [counter]: 1 });
     expect(h.store.rejectBatch).toHaveBeenCalledWith([], expect.any(Number));
+    expect(h.locate).not.toHaveBeenCalled();
   });
 
   it('keeps work evidence and rejects readable conversation-only evidence', async () => {
@@ -232,7 +262,10 @@ describe('SkillBacklogCleanupService', () => {
       charLength: 4,
       hasSuccessMarker: false,
     }));
-    const report = await h.service.run({ signal: live(), isOnBattery: () => false });
+    const report = await h.service.run({
+      signal: live(),
+      isOnBattery: () => false,
+    });
     expect(report).toMatchObject({
       status: 'completed',
       examined: 2,
@@ -269,15 +302,184 @@ describe('SkillBacklogCleanupService', () => {
     expect(h.store.rejectBatch).toHaveBeenCalledWith([], expect.any(Number));
   });
 
-  it('rejects an unreadable transcript after a read is attempted', async () => {
+  it('keeps root unknown when the transcript directory listing is empty', async () => {
+    const locator = new SessionTranscriptLocator({
+      listSessionsDirectories: async () => [],
+    });
+    const h = makeHarness(
+      { 'skillSynthesis.drain.bootDeferralMs': 0 },
+      locator,
+    );
+    h.store.pageCandidates
+      .mockReturnValueOnce([row({ workspaceRoot: null })])
+      .mockReturnValueOnce([]);
+
+    const report = await h.service.run({
+      signal: live(),
+      isOnBattery: () => false,
+    });
+
+    expect(report).toMatchObject({
+      keptRootUnknown: 1,
+      rejectedNoTranscript: 0,
+      rejectedTranscriptUnreadable: 0,
+    });
+    expect(h.store.rejectBatch).toHaveBeenCalledWith([], expect.any(Number));
+    expect(h.log.info).toHaveBeenCalledWith(
+      '[skill-synthesis] backlog transcript lookup',
+      { directoryListings: 1, pathStats: 0, cacheHits: 0 },
+    );
+  });
+
+  it('keeps evidence found through the by-id transcript lookup', async () => {
     const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
     h.store.pageCandidates
-      .mockReturnValueOnce([row()])
+      .mockReturnValueOnce([row({ workspaceRoot: null })])
       .mockReturnValueOnce([]);
-    const report = await h.service.run({ signal: live(), isOnBattery: () => false });
+    h.locate.mockResolvedValue({
+      kind: 'found',
+      path: '/transcripts/session-1.jsonl',
+    });
+    h.extractor.extract.mockResolvedValue({
+      ...conversationTrajectory('session-1'),
+      editCount: 1,
+    });
+
+    const report = await h.service.run({
+      signal: live(),
+      isOnBattery: () => false,
+    });
+
+    expect(report).toMatchObject({ keptEvidence: 1, keptRootUnknown: 0 });
+    expect(h.extractor.extract).toHaveBeenCalledWith(
+      'session-1',
+      '',
+      2,
+      '/transcripts/session-1.jsonl',
+    );
+  });
+
+  it.each([
+    [
+      'reject-no-evidence',
+      conversationTrajectory('session-1'),
+      'rejectedNoEvidence',
+    ],
+    ['reject-unreadable', null, 'rejectedTranscriptUnreadable'],
+  ])(
+    'applies %s to a transcript found by id',
+    async (_label, trajectory, counter) => {
+      const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
+      h.store.pageCandidates
+        .mockReturnValueOnce([row({ workspaceRoot: null })])
+        .mockReturnValueOnce([]);
+      h.locate.mockResolvedValue({
+        kind: 'found',
+        path: '/transcripts/session-1.jsonl',
+      });
+      h.extractor.extract.mockResolvedValue(trajectory);
+
+      const report = await h.service.run({
+        signal: live(),
+        isOnBattery: () => false,
+      });
+
+      expect(report).toMatchObject({ [counter]: 1, rejectedNoTranscript: 0 });
+    },
+  );
+
+  it('rejects with the distinct reason when every source transcript is absent', async () => {
+    const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
+    h.store.pageCandidates
+      .mockReturnValueOnce([
+        row({ workspaceRoot: null, sourceSessionIds: ['one', 'two'] }),
+      ])
+      .mockReturnValueOnce([]);
+    h.locate.mockResolvedValue({ kind: 'absent' });
+
+    const report = await h.service.run({
+      signal: live(),
+      isOnBattery: () => false,
+    });
+
+    expect(report).toMatchObject({
+      rejectedTranscriptUnreadable: 1,
+      rejectedNoTranscript: 1,
+      keptRootUnknown: 0,
+    });
+    expect(h.store.rejectBatch).toHaveBeenCalledWith(
+      [
+        {
+          id: 'candidate-1',
+          reason: 'backlog-cleanup: no transcript found for any session',
+        },
+      ],
+      expect.any(Number),
+    );
+  });
+
+  it('keeps root unknown when an absent session is followed by unavailable', async () => {
+    const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
+    h.store.pageCandidates
+      .mockReturnValueOnce([
+        row({ workspaceRoot: null, sourceSessionIds: ['absent', 'unsafe/'] }),
+      ])
+      .mockReturnValueOnce([]);
+    h.locate
+      .mockResolvedValueOnce({ kind: 'absent' })
+      .mockResolvedValueOnce({ kind: 'unavailable' });
+
+    await expect(
+      h.service.run({ signal: live(), isOnBattery: () => false }),
+    ).resolves.toMatchObject({ keptRootUnknown: 1, rejectedNoTranscript: 0 });
+    expect(h.extractor.extract).not.toHaveBeenCalled();
+  });
+
+  it('uses one run lookup and its cache for candidates sharing a session id', async () => {
+    const lister = {
+      listSessionsDirectories: jest.fn(async () => ['/missing']),
+    };
+    const locator = new SessionTranscriptLocator(lister);
+    const original = locator.createRunLookup.bind(locator);
+    const lookups: SessionTranscriptRunLookup[] = [];
+    jest.spyOn(locator, 'createRunLookup').mockImplementation(() => {
+      const lookup = original();
+      lookups.push(lookup);
+      return lookup;
+    });
+    const h = makeHarness(
+      { 'skillSynthesis.drain.bootDeferralMs': 0 },
+      locator,
+    );
+    h.store.pageCandidates
+      .mockReturnValueOnce([
+        row({ id: 'one', workspaceRoot: null, sourceSessionIds: ['shared'] }),
+        row({ id: 'two', workspaceRoot: null, sourceSessionIds: ['shared'] }),
+      ])
+      .mockReturnValueOnce([]);
+
+    await h.service.run({ signal: live(), isOnBattery: () => false });
+
+    expect(locator.createRunLookup).toHaveBeenCalledTimes(1);
+    expect(lister.listSessionsDirectories).toHaveBeenCalledTimes(1);
+    expect(lookups[0]?.stats().cacheHits).toBe(1);
+  });
+
+  it('rejects an unreadable transcript after a read is attempted', async () => {
+    const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
+    h.store.pageCandidates.mockReturnValueOnce([row()]).mockReturnValueOnce([]);
+    const report = await h.service.run({
+      signal: live(),
+      isOnBattery: () => false,
+    });
     expect(report).toMatchObject({ rejectedTranscriptUnreadable: 1 });
     expect(h.store.rejectBatch).toHaveBeenCalledWith(
-      [{ id: 'candidate-1', reason: 'backlog-cleanup: transcript unreadable and no verdict' }],
+      [
+        {
+          id: 'candidate-1',
+          reason: 'backlog-cleanup: transcript unreadable and no verdict',
+        },
+      ],
       expect.any(Number),
     );
   });
@@ -314,6 +516,7 @@ describe('SkillBacklogCleanupService', () => {
       2,
       undefined,
     );
+    expect(h.locate).not.toHaveBeenCalled();
   });
 
   it('defers a candidate whose verdict lookup throws and continues the page', async () => {
@@ -375,6 +578,7 @@ describe('SkillBacklogCleanupService', () => {
       rejectedTranscriptUnreadable: 0,
     });
     expect(h.extractor.extract).not.toHaveBeenCalled();
+    expect(h.locate).not.toHaveBeenCalled();
     expect(h.store.rejectBatch).toHaveBeenCalledWith([], expect.any(Number));
     expect(h.log.warn).toHaveBeenCalledTimes(1);
     expect(h.log.warn).toHaveBeenCalledWith(
@@ -461,7 +665,11 @@ describe('SkillBacklogCleanupService', () => {
     const first = row({ id: 'first', sourceSessionIds: ['first-session'] });
     const second = row({ id: 'second', sourceSessionIds: ['second-session'] });
     h.store.pageCandidates.mockImplementation(
-      (_cutoff: number, _cursorCreatedAt: number | null, cursorId: string | null) => {
+      (
+        _cutoff: number,
+        _cursorCreatedAt: number | null,
+        cursorId: string | null,
+      ) => {
         if (cursorId === null) return [first, second];
         if (cursorId === 'first') return [second];
         return [];
@@ -522,7 +730,8 @@ describe('SkillBacklogCleanupService', () => {
         const start =
           cursorId === null
             ? 0
-            : candidates.findIndex((candidate) => candidate.id === cursorId) + 1;
+            : candidates.findIndex((candidate) => candidate.id === cursorId) +
+              1;
         return candidates.slice(start, start + limit);
       },
     );

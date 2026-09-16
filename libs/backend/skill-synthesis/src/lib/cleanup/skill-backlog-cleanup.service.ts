@@ -19,6 +19,10 @@ import {
 } from '../trajectory-extractor';
 import { SkillBacklogCleanupStore } from './skill-backlog-cleanup.store';
 import {
+  SessionTranscriptLocator,
+  type SessionTranscriptRunLookup,
+} from './session-transcript-locator';
+import {
   SKILL_BACKLOG_CLEANUP_VERSION,
   type BacklogCleanupCandidate,
   type BacklogCleanupCounters,
@@ -34,10 +38,11 @@ const CANDIDATE_PAGE_SIZE = 100;
 const MAX_CANDIDATES_PER_RUN = 200;
 const WALL_BUDGET_MS = 60_000;
 const INVOCATION_DELETE_PAGE_SIZE = 500;
-const REJECT_NO_EVIDENCE =
-  'backlog-cleanup: no code evidence and no verdict';
+const REJECT_NO_EVIDENCE = 'backlog-cleanup: no code evidence and no verdict';
 const REJECT_UNREADABLE =
   'backlog-cleanup: transcript unreadable and no verdict';
+const REJECT_NO_TRANSCRIPT =
+  'backlog-cleanup: no transcript found for any session';
 
 interface CleanupConfig {
   enabled: boolean;
@@ -55,11 +60,13 @@ type CandidateDisposition =
   | 'kept-root-unknown'
   | 'deferred-error'
   | 'reject-no-evidence'
-  | 'reject-unreadable';
+  | 'reject-unreadable'
+  | 'reject-no-transcript';
 
 interface RunProgress {
   state: BacklogCleanupState | null;
   keptRootUnknown: number;
+  rejectedNoTranscript: number;
   deferredOnError: number;
 }
 
@@ -73,6 +80,7 @@ export class SkillBacklogCleanupService {
     private readonly verdicts: SessionVerdictStore,
     private readonly queue: SkillQueueStore,
     private readonly extractor: TrajectoryExtractor,
+    private readonly transcriptLocator: SessionTranscriptLocator,
     private readonly foreground: ForegroundActivityTracker,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
@@ -84,6 +92,7 @@ export class SkillBacklogCleanupService {
     const progress: RunProgress = {
       state: null,
       keptRootUnknown: 0,
+      rejectedNoTranscript: 0,
       deferredOnError: 0,
     };
     try {
@@ -161,116 +170,134 @@ export class SkillBacklogCleanupService {
   ): Promise<BacklogCleanupRunReport> {
     let state = initial;
     let examinedThisRun = 0;
+    const transcriptLookup = this.transcriptLocator.createRunLookup();
 
-    while (examinedThisRun < MAX_CANDIDATES_PER_RUN) {
-      const stop = this.stopReason(options.signal, now, runStartedAt);
-      if (stop) {
-        return this.finishPartial(state, stop, now, runStartedAt, progress);
-      }
+    try {
+      while (examinedThisRun < MAX_CANDIDATES_PER_RUN) {
+        const stop = this.stopReason(options.signal, now, runStartedAt);
+        if (stop) {
+          return this.finishPartial(state, stop, now, runStartedAt, progress);
+        }
 
-      const page = this.store.pageCandidates(
-        state.cutoffCreatedAt,
-        state.cursorCreatedAt,
-        state.cursorId,
-        Math.min(
-          CANDIDATE_PAGE_SIZE,
-          MAX_CANDIDATES_PER_RUN - examinedThisRun,
-        ),
-      );
-      if (page.length === 0) {
-        return this.deleteInvocationsAndComplete(
-          state,
-          options.signal,
-          now,
-          runStartedAt,
-          progress,
+        const page = this.store.pageCandidates(
+          state.cutoffCreatedAt,
+          state.cursorCreatedAt,
+          state.cursorId,
+          Math.min(
+            CANDIDATE_PAGE_SIZE,
+            MAX_CANDIDATES_PER_RUN - examinedThisRun,
+          ),
         );
-      }
-
-      const rejections: Array<{ id: string; reason: string }> = [];
-      const increments = this.emptyCounters();
-      let processed = 0;
-      for (const candidate of page) {
-        const betweenCandidates = this.stopReason(
-          options.signal,
-          now,
-          runStartedAt,
-        );
-        if (betweenCandidates) break;
-        let disposition: CandidateDisposition;
-        try {
-          disposition = await this.evaluateCandidate(candidate, config);
-        } catch (error: unknown) {
-          // degradation-audit: reported - the candidate is deferred, counted
-          // in the run report, and the failure is recorded in this warning.
-          disposition = 'deferred-error';
-          progress.deferredOnError++;
-          this.logger.warn(
-            '[skill-synthesis] backlog candidate evaluation failed',
-            { candidateId: candidate.id, error: this.errorText(error) },
+        if (page.length === 0) {
+          return this.deleteInvocationsAndComplete(
+            state,
+            options.signal,
+            now,
+            runStartedAt,
+            progress,
           );
         }
-        if (disposition === 'kept-root-unknown') {
-          progress.keptRootUnknown++;
+
+        const rejections: Array<{ id: string; reason: string }> = [];
+        const increments = this.emptyCounters();
+        let processed = 0;
+        for (const candidate of page) {
+          const betweenCandidates = this.stopReason(
+            options.signal,
+            now,
+            runStartedAt,
+          );
+          if (betweenCandidates) break;
+          let disposition: CandidateDisposition;
+          try {
+            disposition = await this.evaluateCandidate(
+              candidate,
+              config,
+              transcriptLookup,
+            );
+          } catch (error: unknown) {
+            // degradation-audit: reported - the candidate is deferred, counted
+            // in the run report, and the failure is recorded in this warning.
+            disposition = 'deferred-error';
+            progress.deferredOnError++;
+            this.logger.warn(
+              '[skill-synthesis] backlog candidate evaluation failed',
+              { candidateId: candidate.id, error: this.errorText(error) },
+            );
+          }
+          if (disposition === 'kept-root-unknown') {
+            progress.keptRootUnknown++;
+          }
+          if (disposition === 'reject-no-transcript') {
+            progress.rejectedNoTranscript++;
+          }
+          this.countDisposition(increments, disposition);
+          if (disposition === 'reject-no-evidence') {
+            rejections.push({ id: candidate.id, reason: REJECT_NO_EVIDENCE });
+          } else if (disposition === 'reject-unreadable') {
+            rejections.push({ id: candidate.id, reason: REJECT_UNREADABLE });
+          } else if (disposition === 'reject-no-transcript') {
+            rejections.push({ id: candidate.id, reason: REJECT_NO_TRANSCRIPT });
+          }
+          increments.examined++;
+          processed++;
         }
-        this.countDisposition(increments, disposition);
-        if (disposition === 'reject-no-evidence') {
-          rejections.push({ id: candidate.id, reason: REJECT_NO_EVIDENCE });
-        } else if (disposition === 'reject-unreadable') {
-          rejections.push({ id: candidate.id, reason: REJECT_UNREADABLE });
+
+        if (processed === 0) {
+          const reason = this.stopReason(options.signal, now, runStartedAt);
+          return this.finishPartial(
+            state,
+            reason ?? 'time-budget',
+            now,
+            runStartedAt,
+            progress,
+          );
         }
-        increments.examined++;
-        processed++;
-      }
 
-      if (processed === 0) {
-        const reason = this.stopReason(options.signal, now, runStartedAt);
-        return this.finishPartial(
-          state,
-          reason ?? 'time-budget',
-          now,
-          runStartedAt,
-          progress,
-        );
-      }
+        this.store.rejectBatch(rejections, now());
+        const last = page[processed - 1];
+        state = this.store.writeProgress({
+          cursorCreatedAt: last.createdAt,
+          cursorId: last.id,
+          finishedAt: null,
+          lastRunAt: now(),
+          lastOutcome: 'partial',
+          lastReason: null,
+          counters: this.addCounters(state, increments),
+        });
+        progress.state = state;
+        examinedThisRun += processed;
 
-      this.store.rejectBatch(rejections, now());
-      const last = page[processed - 1];
-      state = this.store.writeProgress({
-        cursorCreatedAt: last.createdAt,
-        cursorId: last.id,
-        finishedAt: null,
-        lastRunAt: now(),
-        lastOutcome: 'partial',
-        lastReason: null,
-        counters: this.addCounters(state, increments),
-      });
-      progress.state = state;
-      examinedThisRun += processed;
-
-      if (processed < page.length) {
-        const reason = this.stopReason(options.signal, now, runStartedAt);
-        return this.finishPartial(
-          state,
-          reason ?? 'time-budget',
-          now,
-          runStartedAt,
-          progress,
-        );
+        if (processed < page.length) {
+          const reason = this.stopReason(options.signal, now, runStartedAt);
+          return this.finishPartial(
+            state,
+            reason ?? 'time-budget',
+            now,
+            runStartedAt,
+            progress,
+          );
+        }
       }
+      return this.finishPartial(
+        state,
+        'row-budget',
+        now,
+        runStartedAt,
+        progress,
+      );
+    } finally {
+      this.logger.info(
+        '[skill-synthesis] backlog transcript lookup',
+        transcriptLookup.stats(),
+      );
     }
-    return this.finishPartial(
-      state,
-      'row-budget',
-      now,
-      runStartedAt,
-      progress,
-    );
   }
 
   private async evaluateCandidate(
     candidate: BacklogCleanupCandidate,
     config: CleanupConfig,
+    transcriptLookup: SessionTranscriptRunLookup,
   ): Promise<CandidateDisposition> {
     if (candidate.sourceSessionIds.length === 0) {
       this.logger.warn(
@@ -287,7 +314,7 @@ export class SkillBacklogCleanupService {
       }
     }
 
-    let readable = false;
+    let rootReadable = false;
     let attempted = false;
     for (const sessionId of candidate.sourceSessionIds) {
       const queued = this.queue.findBySessionStage(sessionId, 'prefilter');
@@ -303,7 +330,7 @@ export class SkillBacklogCleanupService {
         queued?.transcriptPath ?? undefined,
       );
       if (!trajectory) continue;
-      readable = true;
+      rootReadable = true;
       if (
         hasSessionWorkEvidence(trajectory, {
           prefilterMinEdits: config.prefilterMinEdits,
@@ -313,11 +340,44 @@ export class SkillBacklogCleanupService {
         return 'kept-evidence';
       }
     }
-    return readable
-      ? 'reject-no-evidence'
-      : attempted
-        ? 'reject-unreadable'
-        : 'kept-root-unknown';
+    if (attempted) {
+      return rootReadable ? 'reject-no-evidence' : 'reject-unreadable';
+    }
+    if (candidate.sourceSessionIds.length === 0) {
+      return 'kept-root-unknown';
+    }
+
+    let found = false;
+    let lookupReadable = false;
+    let unavailable = false;
+    for (const sessionId of candidate.sourceSessionIds) {
+      const location = await transcriptLookup.locate(sessionId);
+      if (location.kind === 'unavailable') {
+        unavailable = true;
+        continue;
+      }
+      if (location.kind === 'absent') continue;
+      found = true;
+      const trajectory = await this.extractor.extract(
+        sessionId,
+        '',
+        MIN_ROLE_TURNS_FLOOR,
+        location.path,
+      );
+      if (!trajectory) continue;
+      lookupReadable = true;
+      if (
+        hasSessionWorkEvidence(trajectory, {
+          prefilterMinEdits: config.prefilterMinEdits,
+          prefilterMinToolUses: config.prefilterMinToolUses,
+        })
+      ) {
+        return 'kept-evidence';
+      }
+    }
+    if (lookupReadable) return 'reject-no-evidence';
+    if (found) return 'reject-unreadable';
+    return unavailable ? 'kept-root-unknown' : 'reject-no-transcript';
   }
 
   private deleteInvocationsAndComplete(
@@ -421,7 +481,10 @@ export class SkillBacklogCleanupService {
       counters.keptDegradedVerdict++;
     }
     if (disposition === 'reject-no-evidence') counters.rejectedNoEvidence++;
-    if (disposition === 'reject-unreadable') {
+    if (
+      disposition === 'reject-unreadable' ||
+      disposition === 'reject-no-transcript'
+    ) {
       counters.rejectedTranscriptUnreadable++;
     }
   }
@@ -433,6 +496,7 @@ export class SkillBacklogCleanupService {
     return {
       ...(state ? this.countersFrom(state) : this.emptyCounters()),
       keptRootUnknown: progress.keptRootUnknown,
+      rejectedNoTranscript: progress.rejectedNoTranscript,
       deferredOnError: progress.deferredOnError,
     };
   }
@@ -473,15 +537,11 @@ export class SkillBacklogCleanupService {
       examined: base.examined + delta.examined,
       keptEvidence: base.keptEvidence + delta.keptEvidence,
       keptVerdict: base.keptVerdict + delta.keptVerdict,
-      keptDegradedVerdict:
-        base.keptDegradedVerdict + delta.keptDegradedVerdict,
-      rejectedNoEvidence:
-        base.rejectedNoEvidence + delta.rejectedNoEvidence,
+      keptDegradedVerdict: base.keptDegradedVerdict + delta.keptDegradedVerdict,
+      rejectedNoEvidence: base.rejectedNoEvidence + delta.rejectedNoEvidence,
       rejectedTranscriptUnreadable:
-        base.rejectedTranscriptUnreadable +
-        delta.rejectedTranscriptUnreadable,
-      invocationsDeleted:
-        base.invocationsDeleted + delta.invocationsDeleted,
+        base.rejectedTranscriptUnreadable + delta.rejectedTranscriptUnreadable,
+      invocationsDeleted: base.invocationsDeleted + delta.invocationsDeleted,
     };
   }
 

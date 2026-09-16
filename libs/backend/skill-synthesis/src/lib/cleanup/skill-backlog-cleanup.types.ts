@@ -27,15 +27,24 @@ export interface BacklogCleanupCounters {
 /** Per-run counters that are intentionally not persisted in migration 0045. */
 export interface BacklogCleanupRunCounters extends BacklogCleanupCounters {
   /**
-   * Per-run, not persisted. Candidates kept because no source session resolved
-   * a workspace root, so no transcript read was attempted. Persisted kept and
-   * rejected counters therefore sum to examined minus the run-summed
-   * keptRootUnknown and deferredOnError counters.
+   * Per-run, not persisted. Candidates kept because neither the normal root
+   * resolution nor the by-id fallback could safely inspect a transcript.
    */
   keptRootUnknown: number;
+  /**
+   * Per-run, not persisted. Subset of rejectedTranscriptUnreadable for
+   * candidates whose sessions were absent from every transcript directory.
+   * Do not add this subset to the counter identity.
+   */
+  rejectedNoTranscript: number;
   /** Candidates left untouched because inspecting them threw. */
   deferredOnError: number;
 }
+
+/**
+ * Counter identity: persisted kept + persisted rejected + run-summed
+ * keptRootUnknown + run-summed deferredOnError = examined.
+ */
 
 export interface BacklogCleanupState extends BacklogCleanupCounters {
   version: number;
