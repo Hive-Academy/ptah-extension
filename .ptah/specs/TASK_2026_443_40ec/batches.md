@@ -1,6 +1,6 @@
 # Batches - TASK_2026_443_40ec
 
-Total tasks: 30 | Batches: 11 | Complete: 10/11
+Total tasks: 31 | Batches: 11 | Complete: 10/11 (Batch 11 closes with Task 11.5)
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase2-memory-lifecycle` (branch
 `feat/task-439-phase2-memory-lifecycle`, base 5e34e39cc). Below, `W` means that absolute path; every lane prompt
@@ -1748,7 +1748,7 @@ review round is required).
 - Suggested commit: `fix(memory-curator,rpc-handlers,cli-engine,memory-contracts): batch 11 - reclaim after a memory-row stop, record committed lifecycle work, and keep a degraded boot resolvable`
 - Tasks: 4 | Depends on: Batch 10 (`a72961184`)
 
-### Task 11.1: S1 — a memory-row-budget stop must still prune the ledger and reclaim pages — IN_PROGRESS
+### Task 11.1: S1 — a memory-row-budget stop must still prune the ledger and reclaim pages — COMPLETE (commit 2a2c20ca2)
 
 - Evidence (team-leader confirmed): `memory-retention.service.ts:387` sets
   `continueAfterRows = stop === null || stop === 'row-budget'` and `:403` repeats that test for the reclaim, but the
@@ -1766,7 +1766,7 @@ review round is required).
   non-zero `pagesReclaimed`, and keeps `outcome: 'partial'` with reason `memory-row-budget`. **This spec must FAIL
   against today's committed code — run it before the fix and paste the failure.**
 
-### Task 11.2: S2 — committed lifecycle work must survive a mid-step throw — IN_PROGRESS
+### Task 11.2: S2 — committed lifecycle work must survive a mid-step throw — COMPLETE (commit 2a2c20ca2)
 
 - Evidence (team-leader confirmed): `memory-lifecycle.service.ts:195` calls `markWorkspacesChanged(roots)` on the happy
   path only, and `memory-retention.service.ts:378-382` assigns `lifecycleResult` only when `runStep` RETURNS. A
@@ -1790,7 +1790,7 @@ review round is required).
   `memory-retention.integration.spec.ts`'s existing mid-delete-failure case: after the failure the deleted rows are
   gone AND the run record's `memoriesDeleted` matches what committed. **Both must fail against today's code.**
 
-### Task 11.3: Moderate 3, RECLASSIFIED SERIOUS — a degraded CLI boot cannot resolve `MemRpcHandlers` — IN_PROGRESS
+### Task 11.3: Moderate 3, RECLASSIFIED SERIOUS — a degraded CLI boot cannot resolve `MemRpcHandlers` — COMPLETE (commit 2a2c20ca2)
 
 - Team-leader verification (the review is right, Batch 9's review was wrong): the CLI host profile sets
   `memory: true` unconditionally (`cli-engine/src/lib/rpc/cli-host-profile.ts:27`), so the `mem` manifest entry
@@ -1814,12 +1814,12 @@ review round is required).
   - MODIFY the specs of both files.
 - Do NOT make the `MemRpcHandlers` injection optional: a required token with a null fallback keeps the wiring honest,
   which is what Batch 9's review approved. Keep `MemoryRpcHandlers` as it is (it injects the store, not the port).
-- Acceptance specs: a container built the CLI degraded way (memory-curator registration skipped, `memory` capability on)
-  resolves `MemRpcHandlers` without throwing, and `mem:getObservations` still returns rows while recording nothing; the
+- Acceptance specs (wording corrected after review, to claim only what is proven): a container in which the FOUR
+  memory-contract tokens are stubbed and `MEMORY_SEARCH` is present resolves `MemRpcHandlers` without throwing, and `mem:getObservations` still returns rows while recording nothing; the
   fallback is idempotent (a host that registered the real recorder keeps it); the warning names
   `MEMORY_USAGE_RECORDER`. **The resolution spec must fail against today's code.**
 
-### Task 11.4: Minor 5 — `recordUse` must not truncate silently — IN_PROGRESS
+### Task 11.4: Minor 5 — `recordUse` must not truncate silently — COMPLETE (commit 2a2c20ca2)
 
 - Minor 5: `recordUse` caps a call at 200 ids and drops the rest with no signal (`memory.store.ts`).
 - File: MODIFY `W\libs\backend\memory-curator\src\lib\memory.store.ts` and `memory.store.spec.ts`.
@@ -1829,6 +1829,55 @@ review round is required).
 - Minor 4 (the preview blanks all three counts when one read fails) is NOT in this batch: making it per-field changes
   the `MemoryLifecyclePreviewDto` contract and the panel text, which is a design change rather than a Gate 3 fix. The
   orchestrator files it as a follow-up task.
+
+### Batch 11 result
+
+- Report (`batch-11-report.md`) and review (`code-logic-review-batch-11.md`): APPROVED 8/10, 0 blocking, 0 serious,
+  1 moderate, 3 minor. ALL FOUR Gate 3 findings CLOSED, each with a pre-fix failure and a post-fix pass. The
+  degradation audit caught an orphaned suppression marker, which the executor reported honestly and moved; the audit is
+  back at baseline.
+- Team-leader re-run: test 4 projects green (memory-curator 642 passed / 59 pre-existing skips; rpc-handlers 3009
+  passed / 33 pre-existing skips; thoth-runtime 91; cli-engine 188 — memory-contracts has no test target, so the header
+  reads 4); typecheck 5 projects green; lint 4 projects 0 errors; `degradation-audit:lint` exit 0 (memory-curator 20/20,
+  rpc-handlers 1/1, cli-engine 12/12); better-sqlite3 via Electron 42 suites / 701 passed. Committed with only the 14
+  Batch 11 files.
+- Review dispositions (orchestrator decisions, team-leader agrees):
+  - Moderate 1 (the degraded-boot spec hand-registers `MEMORY_SEARCH`, so a Track-1 failure before `register.ts:100`
+    still crashes on that sibling token): FOLLOW-UP TASK, not a revision. `mem-rpc.handlers.ts` injected `MEMORY_SEARCH`
+    on `origin/main` already, so the residual is pre-existing and outside the Gate 3 finding, which named only the token
+    Batch 9 made newly required. The current spec is NOT weakened; its acceptance wording above now claims only what it
+    proves. Listed in the residuals.
+  - Minor 2 (a dead `result.stop = 'database-busy'` assignment at `memory-lifecycle.service.ts:207`, unreachable because
+    the retention service owns stop mapping on the error path): fixed by Task 11.5 below. The team-leader does not edit
+    production code, so this goes to the lane rather than into this record as a hand edit.
+  - Minor 3 (a governor abort during the ledger prune can overwrite a `memory-row-budget` reason): ACCEPTED, no change.
+    The outcome is `partial` either way, only the reason string differs, and the line predates this branch. Listed in
+    the residuals.
+  - Minor 4 (report wording): corrected by Task 11.5. `MemoryLifecycleStepResult` is exported from the barrel and gained
+    an OPTIONAL `error` field (additive, no consumer breaks); `installNullImplementations` gained a module-level export
+    while staying out of the `host-profile` barrel.
+
+### Task 11.5: Minor 2 — delete the unreachable stop assignment, and correct the report wording — PENDING
+
+- Executor: resume the Batch 11 codex lane. Reviewer: none — a one-line deletion plus a report correction; the
+  team-leader verifies by diff and re-run (the Batch 11 reviewer already has full context and raised this itself).
+- Files:
+  - MODIFY `W\libs\backend\memory-curator\src\lib\retention\memory-lifecycle.service.ts` — delete
+    `if (error.reason === 'database-busy') result.stop = 'database-busy';` (`:207`) and put ONE comment line in its place:
+    the retention service maps the attached `RetentionStepError` to the run outcome (`database-busy` -> `partial`, other
+    -> `failed`), so the step result carries the error and the counters, never a stop token, on the error path.
+    Alternative accepted if preferred: keep the line and add a spec that reaches it — but an untested unreachable branch
+    is not acceptable.
+  - MODIFY `W\.ptah\specs\TASK_2026_443_40ec\batch-11-report.md` — make the public-surface wording exact per Minor 4
+    above (optional additive `error` field on the exported `MemoryLifecycleStepResult`; module-level export of
+    `installNullImplementations`, not a barrel export).
+- Acceptance: no behaviour change; the Batch 11 specs stay green with no assertion weakened; the existing
+  `database-busy` -> `partial` mapping spec in `memory-retention.service.spec.ts` still passes unchanged.
+- Commands (from `W`): `npx nx run-many -t test -p @ptah-extension/memory-curator` (1 project);
+  `npx nx run-many -t typecheck -p @ptah-extension/memory-curator` (1 project);
+  `npx nx run degradation-audit:lint` (exit 0).
+- Report: append `## Task 11.5` to `batch-11-report.md`; write `batch-11-5.done` LAST; create no other file in the task
+  folder. Do not commit. Never run `nx reset`.
 
 ### Batch 11 verification
 
