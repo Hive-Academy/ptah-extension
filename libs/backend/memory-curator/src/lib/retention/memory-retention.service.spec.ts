@@ -352,6 +352,7 @@ function harness(
     dbThrows?: boolean;
     governor?: BackgroundWorkAdmission;
     lifecycle?: MemoryLifecycleService;
+    workspace?: IWorkspaceProvider;
   } = {},
 ) {
   const clock: Clock = { t: 0 };
@@ -370,7 +371,7 @@ function harness(
   const lifecycle = opts.lifecycle ?? new FakeLifecycle(log);
   const service = new MemoryRetentionService(
     logger,
-    makeWorkspace(opts.settings),
+    opts.workspace ?? makeWorkspace(opts.settings),
     sqlite,
     reclaimer as unknown as SqlitePageReclaimer,
     store as unknown as ObservationRetentionStore,
@@ -1061,6 +1062,28 @@ describe('MemoryRetentionService — run', () => {
 });
 
 describe('MemoryRetentionService — storageHealth', () => {
+  it('returns lifecycle defaults and a read error when lifecycle settings cannot be read', () => {
+    const h = harness({
+      workspace: {
+        getConfiguration: jest.fn(() => {
+          throw new Error('settings provider unavailable');
+        }),
+      } as unknown as IWorkspaceProvider,
+    });
+
+    const health = h.service.storageHealth();
+
+    expect(health.memoryLifecycle).toMatchObject({
+      enabled: true,
+      archiveAfterDays: 30,
+      deleteAfterDays: 60,
+      maxPerWorkspace: 25_000,
+    });
+    expect(health.readErrors).toContain(
+      'lifecycleSettings: settings provider unavailable',
+    );
+  });
+
   it('maps live reads and the run record; nextDueAt is last_completed_at + 24 h', () => {
     const h = harness();
     h.reclaimer.freelist = 10;

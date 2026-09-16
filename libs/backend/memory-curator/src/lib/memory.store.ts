@@ -159,7 +159,14 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
 
   /** Invalidate search-cache generations after lifecycle writes committed. */
   markWorkspacesChanged(roots: Iterable<string | null>): void {
-    for (const root of roots) this.bumpWriteCounter(root);
+    let changed = false;
+    let unscopedChanged = false;
+    for (const root of roots) {
+      this.bumpWriteCounter(root);
+      changed = true;
+      if (root === null || root === '') unscopedChanged = true;
+    }
+    if (changed && !unscopedChanged) this.bumpWriteCounter('');
   }
 
   /** Increment the write counter for the given workspaceRoot (or '' if null). */

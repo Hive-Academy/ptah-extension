@@ -642,6 +642,24 @@ describe('memory lifecycle — integration (real SQLite + sqlite-vec, fake clock
     });
   });
 
+  it('advances the unscoped search generation after a lifecycle delete in a workspace', async () => {
+    const h = makeLifecycleHarness();
+    seedMemory(h.t.raw, {
+      id: 'unscoped-generation-delete',
+      workspaceRoot: '/workspace-a',
+      tier: 'archival',
+      archivedAt: NOW - 61 * DAY,
+      lastUsedAt: NOW - 100 * DAY,
+    });
+    const before = h.memoryStore.getWriteCounter('');
+
+    await expect(h.run(NOW)).resolves.toMatchObject({
+      status: 'completed',
+      memoriesDeleted: 1,
+    });
+    expect(h.memoryStore.getWriteCounter('')).toBe(before + 1);
+  });
+
   it('rolls back the second delete pair after a mid-delete failure and releases single-flight', async () => {
     let fail = true;
     let memoryDeleteCalls = 0;

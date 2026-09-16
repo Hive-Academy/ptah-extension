@@ -294,7 +294,7 @@ first exploratory run before the sweep was generalized, 1730 ms on one
 outlier batch) — consistent with Task 7.4's finding that WAL checkpoint
 timing produces occasional large spikes independent of batch size (the same
 phenomenon as that report's A2 487 ms outlier). p95 stays under 100 ms at 200
-in both attempts; only `max` fails, but the rule is `max ≤ 120 OR p95 ≤ 100`
+in both attempts; only `max` fails, but the rule is `max ≤ 120 AND p95 ≤ 100`
 — max alone failing the bound is enough to fail the size under the task's
 rule as written (`if M3 or M4 max exceeds 120 ms or p95 exceeds 100 ms`).
 

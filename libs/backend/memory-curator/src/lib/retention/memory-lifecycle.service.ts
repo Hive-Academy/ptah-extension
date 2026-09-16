@@ -157,7 +157,6 @@ export class MemoryLifecycleService {
         const overCap = this.store.overCapWorkspaces(settings.maxPerWorkspace);
         result.readErrors.push(...overCap.readErrors);
         for (const workspace of overCap.workspaces) {
-          const evictedBefore = result.evicted;
           const archivalExcess = Math.max(
             0,
             workspace.evictable - settings.maxPerWorkspace,
@@ -169,6 +168,7 @@ export class MemoryLifecycleService {
             archivalExcess,
             nowMs - this.limits.capEvictionGraceMs,
             result,
+            () => roots.add(workspace.workspaceRoot),
           );
           if (result.stop !== null) break;
           const recallExcess = Math.max(
@@ -183,10 +183,8 @@ export class MemoryLifecycleService {
               recallExcess,
               nowMs - this.limits.capEvictionGraceMs,
               result,
+              () => roots.add(workspace.workspaceRoot),
             );
-          }
-          if (result.evicted > evictedBefore) {
-            roots.add(workspace.workspaceRoot);
           }
           if (result.stop !== null) break;
         }
@@ -238,6 +236,7 @@ export class MemoryLifecycleService {
     target: number,
     graceCutoffMs: number,
     result: MutableResult,
+    markChanged: () => void,
   ): Promise<number> {
     let remaining = target;
     while (remaining > 0) {
@@ -253,6 +252,7 @@ export class MemoryLifecycleService {
       );
       budget.observe('delete', msBefore - budget.msLeft());
       result.evicted += batch.evicted;
+      if (batch.evicted > 0) markChanged();
       remaining -= batch.evicted;
       budget.consumeMemoryRows(batch.evicted);
       if (batch.evicted === 0) return remaining;

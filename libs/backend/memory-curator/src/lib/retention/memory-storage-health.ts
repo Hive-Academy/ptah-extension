@@ -73,8 +73,9 @@ export function readMemoryStorageHealth(input: {
   try {
     lifecycleSettings = readMemoryLifecycleSettings(input.workspace);
   } catch (error: unknown) {
-    // degradation-audit: optional-capability - diagnostics use safe lifecycle
-    // defaults when the settings provider is temporarily unavailable.
+    // degradation-audit: reported - diagnostics expose the settings failure
+    // while using safe lifecycle defaults.
+    readErrors.push(`lifecycleSettings: ${errorText(error)}`);
     input.logger.warn('[memory-curator] lifecycle settings unreadable', {
       error: errorText(error),
     });

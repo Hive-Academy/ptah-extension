@@ -268,6 +268,32 @@ describe('MemoryLifecycleService', () => {
     expect(result.evicted).toBe(700);
   });
 
+  it('invalidates a workspace when archival eviction commits before recall eviction fails', async () => {
+    const h = harness({
+      settings: { [MEMORY_LIFECYCLE_KEYS.maxPerWorkspace]: 1_000 },
+    });
+    h.store.caps = [
+      { workspaceRoot: '/a', evictable: 1_500, recallEvictable: 1_200 },
+    ];
+    h.store.evictions = [500];
+    h.store.onBatch = () => {
+      if (h.store.calls.at(-1)?.startsWith('evict:recall')) {
+        throw new RetentionStepError(
+          'sql-error',
+          'evict-recall',
+          new Error('injected recall eviction failure'),
+        );
+      }
+    };
+
+    await expect(h.service.runStep(h.budget, 8 * 86_400_000)).resolves.toMatchObject({
+      evicted: 500,
+      exhausted: false,
+      error: expect.objectContaining({ reason: 'sql-error' }),
+    });
+    expect(h.changed).toEqual([['/a']]);
+  });
+
   it('fails an over-cap read closed without throwing or evicting and reports it', async () => {
     const h = harness();
     h.store.capReadErrors = ['overCapWorkspaces: forced read failure'];
