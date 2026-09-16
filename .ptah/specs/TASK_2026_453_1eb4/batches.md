@@ -597,7 +597,7 @@ readonly CanvasSessionRequest[]` returns the queue and sets `[]` (no write when 
 - **Follow-ups**: FU-20a (global status may read `loaded` while a later replay waits — noted in
   chat CLAUDE.md, no fix planned); C2 per-tile latency cost measured in Batch 6 (Task 6.1 AC 2).
 
-## Batch 4: C1 replay motion gate — COMPLETE
+## Batch 4: C1 replay motion gate — COMPLETE (commit `408ddffb2`)
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `frontend-developer` sub-agent

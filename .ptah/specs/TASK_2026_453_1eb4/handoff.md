@@ -24,7 +24,7 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | `93c41c41d`  | Batch 2 — M0 baseline, 9 runs, `test-report.md`                                       |
 | `b9cc2f193`  | Batch 3 — C3 canvas request queue + C2 replay admission                               |
 | `3f70c986e`  | Docs — Batch 3 commit hash recorded                                                   |
-| (this push)  | Batch 4 — C1 replay motion gate (hash in `batches.md` Batch 4 header)                 |
+| `408ddffb2`  | Batch 4 — C1 replay motion gate                                                       |
 
 ## 3. Batch state
 
@@ -33,7 +33,7 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | B1    | C4 perf harness                                 | COMPLETE, committed                           |
 | B2    | M0 baseline                                     | COMPLETE, committed                           |
 | B3    | C3 canvas request queue + C2 replay admission   | COMPLETE, committed `b9cc2f193`         |
-| B4    | C1 replay motion gate                           | COMPLETE, committed (see `batches.md`)        |
+| B4    | C1 replay motion gate                           | COMPLETE, committed `408ddffb2`               |
 | B5    | C5 replay render-window fence                   | IN_PROGRESS — next; this one decides AC-11    |
 | B6    | M1 measurement + decision point                 | PENDING — needs an idle machine               |
 
