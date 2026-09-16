@@ -108,3 +108,75 @@ correspond to sessions with no transcript file present at all.
 - Source re-stat proved size and mtime unchanged (see "Source" above).
 - Temporary harness spec deleted; `git status --short -- libs/backend/skill-synthesis` shows
   only the Task 7.4 file.
+
+## Batch 8 re-measurement (after user decisions)
+
+Counts and timings only, per the same privacy rule (no session ids, paths or transcript
+content). Same source snapshot (unchanged, re-verified: `1,178,537,984` bytes,
+`2026-09-09T23:06:09.256Z`), same fail-if-exists-copy / six-pragma / temp-dir-proof procedure,
+run through the Batch 8 code (non-MCP-only tool evidence; a candidate whose workspace root
+never resolves is kept as `kept-root-unknown` instead of rejected as unreadable).
+
+### Corpus (prefilter narrowing)
+
+| Metric | Batch 7 | Batch 8 |
+| --- | --- | --- |
+| Sessions scanned | 1,710 | 1,691 |
+| Extracted | 1,695 | 1,676 |
+| Phase-2 (depth-inclusive) eligible | 1,641 | 1,622 |
+| Phase-3 untightened eligible (Batch 7's rule) | 1,639 | 1,620 |
+| Phase-3 eligible, real tightened predicate (non-MCP only) | not applicable (shipped untightened) | **1,609** |
+| `mcpOnlyRejected` | not measured | **11** |
+| Wall time | 22.245 s | 19.7 s |
+
+The corpus grew/shrank between runs (live `~/.claude/projects`, one day apart) so absolute
+counts are not directly comparable; the phase-2/untightened retained fraction stayed ~0.999
+both times, and the new tightened measurement shows 11 of 1,622 previously-eligible sessions
+(0.7%) losing eligibility because their only tool evidence was MCP calls.
+
+### Byte copy (backlog cleanup outcome)
+
+Same 2,418 candidates at `status='candidate'` before the run (unchanged source snapshot).
+
+| Counter | Batch 7 | Batch 8 |
+| --- | --- | --- |
+| Examined | 2,418 | 2,418 |
+| Kept — evidence | 120 | 109 |
+| Kept — verdict | 174 | 174 |
+| Kept — degraded verdict | 265 | 265 |
+| Kept — root unknown (new counter, per run, not persisted) | did not exist | **1,553** |
+| Rejected — no evidence | 0 | 0 |
+| Rejected — transcript unreadable | 1,859 | **317** |
+| Invocations deleted | 2,424 | 2,424 |
+| Deferred on error (summed across ticks) | 0 | 0 |
+| Ticks to completion | 13 | 13 |
+| Wall time per tick (min / median / max) | 18 / 29 / 1,007 ms | 16 / 25 / 916 ms |
+| Largest single transcript read | 226 ms | 147 ms |
+| Migration wall time (schema 41 -> 45) | 1,221 ms / 7,612 ms (two runs) | 5,154 ms |
+
+Sum check: `109 + 174 + 265 + 0 + 317 + 1,553 + 0 = 2,418 = examined`. Holds exactly.
+Cross-checked against an independent, read-only recomputation of the root-unknown and
+unreadable-rejected branches (mirroring `evaluateCandidate`'s own logic without touching
+production code): 1,553 / 317 respectively — exact matches to the persisted and summed
+counters.
+
+The 11-candidate drop in kept-evidence (120 -> 109) is consistent with the corpus
+measurement's `mcpOnlyRejected` narrowing: sessions whose only tool evidence was MCP calls no
+longer count as evidence.
+
+### Accepted-risk check (Batch 4 finding 2), before/after decision 2
+
+| Metric | Batch 7 | Batch 8 |
+| --- | --- | --- |
+| Unreadable-transcript candidates checked | 1,859 | 317 |
+| Distinct sessions checked | 1,093 | 317 |
+| Candidates with >=1 transcript file present on disk | **13** | **0** |
+| Kept-root-unknown candidates (new bucket) | n/a | 1,553 |
+| ...of which have >=1 transcript file present on disk | n/a | **13** |
+
+By candidate-id match inside the harness (ids not printed): all 13 of Batch 7's
+false-positive "unreadable but a file exists" candidates are now classified
+`kept-root-unknown`, and the true rejected-unreadable bucket (317 candidates: root resolved,
+read attempted, extractor returned nothing) has zero candidates with a file present on disk
+in this run. Decision 2 fully closes the accepted-risk gap Batch 4 recorded and Batch 7
+measured.

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_461_639c
 
-Total tasks: 21 | Batches: 8 | Complete: 7/8
+Total tasks: 24 | Batches: 9 | Complete: 8/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-439-phase3-skills-unblock` (branch
 `feat/task-439-phase3-skills-unblock`, base `97239e814`). Below, `W` means that absolute path and `T` means
@@ -23,6 +23,8 @@ Wave 4:  Batch 6 (REACHABILITY PROOF: real container, real SQLite, fake lane, mu
 Wave 5:  Batch 7 (full verification + prefilter corpus measurement + cleanup byte-copy measurement)            needs all
 Wave 6:  Batch 8 (user decisions on the Batch 7 findings: non-MCP tool evidence, keep root-unknown candidates,
          re-verify + re-measure)                                                                               needs 7
+Wave 7:  Batch 9 (user decision 3: root-unknown candidates look up <sessionId>.jsonl by id across the
+         transcript folders; re-verify + re-measure)                                                           needs 8
 ```
 
 - Max lanes in flight: 2 (waves 1 and 2), under the cap of 3.
@@ -992,7 +994,42 @@ Edge cases:
 
 ---
 
-## Batch 8: User decisions on the Batch 7 findings — non-MCP tool evidence, keep root-unknown candidates, re-measure — IN_PROGRESS
+## Batch 8: User decisions on the Batch 7 findings — non-MCP tool evidence, keep root-unknown candidates, re-measure — COMPLETE (087667a92)
+
+- Commits: `087667a92` feat(skill-synthesis,thoth-runtime,cli-engine,docs): batch 8 - non-MCP tool evidence, keep
+  root-unknown backlog candidates (23 files, Tasks 8.1 + 8.2 COMBINED); task-folder docs commit `docs(task-specs):
+  record TASK_2026_461 batch 8 and plan batch 9` follows it.
+- Why one code commit, not two: 8.1 and 8.2 both edit `cleanup/skill-backlog-cleanup.service.spec.ts` (8.1 fixture
+  field, 8.2 cases) and `skill-synthesis/CLAUDE.md` (two different bullets). Splitting needs hunk-level staging, and
+  lint-staged runs `nx format:write` on staged files with unstaged hunks stashed — a mixed or reformatted commit risk
+  for no rollback benefit (8.2's specs need 8.1's field to typecheck).
+- Executors: 8.1 and 8.2 codex lanes (backend-developer); 8.3 senior-tester subagent.
+- Review: `code-logic-review-batch-8.md` APPROVED 9/10 (code-logic-reviewer subagent, Claude family, implemented
+  nothing). No blocking / serious. Minor, recorded not fixed: **M1** Read/Grep-only sessions still count as tool
+  evidence — pre-existing, consistent with decision 1 (non-MCP, not "mutating"); candidate for a later task (narrow
+  to mutating / test tools). **M2** `keptRootUnknown` has no cross-run trend — accepted, migration 0045 frozen.
+- Team-leader confirmation before commit: no live jest / nx run-many process; `run-many -t test -p
+  @ptah-extension/skill-synthesis --testPathPatterns='"session-work-evidence|skill-backlog-cleanup"' --runInBand` ->
+  4 suites, 33/33 passed (node:sqlite); `run-many -t typecheck -p` skill-synthesis thoth-runtime cli-engine ->
+  "for 3 projects" green. Untracked lane-host scratch `agent-output-root.md` (a 3-line pointer to the report) deleted.
+- Executor notes: 8.2 did not run the post-restore `git diff --stat` (its contract forbids git); team-leader's
+  `git status` at commit held only the 23 listed files, so the mutation is not present. 8.3 once launched a bare
+  `electron.cmd` (full GUI, no args) by mistake while starting the corpus run; killed with `taskkill /F /T` before any
+  test ran, process list re-verified clean. No measurement affected.
+- Measured (`batch-8-report.md` Task 8.3, `backlog-cleanup-measurement.md` "Batch 8 re-measurement"):
+  - Verification: test "for 8 projects" green (skill-synthesis 1519 / 37 skipped, persistence-sqlite 438 / 80,
+    rpc-handlers 3016 / 33, platform-core 781 + 4 todo, shared 1521, thoth-runtime 100, cli-engine 190); typecheck
+    "for 12 projects"; lint "for 10 projects" 0 errors; degradation-audit exit 0 (skill-synthesis 6, cli-engine 12,
+    TOTAL 303); XB1 skill-synthesis 184/184 both bindings, persistence-sqlite 83 (9 native-probe skips on node:sqlite).
+  - Corpus (live, moved since Batch 7): scanned 1,691; phase-2 eligible 1,622; untightened 1,620; tightened
+    **1,609**; `mcpOnlyRejected` **11**; 19.7 s.
+  - Byte copy (2,418 examined, 13 ticks): kept evidence 109 (Batch 7: 120), verdict 174, degraded 265, rejected no
+    evidence 0, rejected unreadable **317** (1,859), `keptRootUnknown` **1,553**, deferred 0, invocations deleted
+    2,424; identity 2,418 - (109+174+265+0+317+1,553+0) = 0. The 13 file-on-disk candidates are all now
+    kept-root-unknown; 0 of the 317 have a file on disk; so 1,540 root-unknown candidates have no transcript.
+    Tick median 25 ms, max 916 ms; largest read 147 ms.
+  - Kept evidence fell 120 -> 109 (-11): consistent with decision 1's MCP tightening; not separately attributed.
+- Note: `test-report.md` carries no Batch 8 section; the 8.3 evidence lives in `batch-8-report.md`.
 
 Source: `context.md` "Conversation Summary" 2026-09-16 (binding user decisions 1 and 2). No architect revision: both
 decisions are narrow predicate changes inside components the plan already owns (Component 3 prefilter, Component 4
@@ -1055,7 +1092,7 @@ Edge cases:
 - Root resolved + `extract` null -> `reject-unreadable` unchanged; A7(a), A7(b) — Task 8.2
 - A verdict still keeps the candidate before any root logic runs — Task 8.2 (existing cases stay green)
 
-### Task 8.1: Tool evidence counts only non-MCP tools (decision 1) — IN_PROGRESS
+### Task 8.1: Tool evidence counts only non-MCP tools (decision 1) — COMPLETE
 
 - Files (under `W\libs\backend\skill-synthesis\`):
   - MODIFY `src\lib\trajectory-extractor.ts` — add `nonMcpToolUseCount: number` to `ExtractedTrajectory` right after
@@ -1090,7 +1127,7 @@ Edge cases:
 - Mutation (paste fail + restore + `git diff --stat`): **8.1-mut** predicate reads `toolUseCount` again -> the
   MCP-only and mixed cases fail.
 
-### Task 8.2: Keep candidates whose workspace root never resolves (decision 2) — PENDING
+### Task 8.2: Keep candidates whose workspace root never resolves (decision 2) — COMPLETE
 
 - Depends on: Task 8.1 (shared spec file and CLAUDE.md)
 - Files:
@@ -1125,7 +1162,7 @@ Edge cases:
 - Mutation (paste fail + restore + `git diff --stat`): **8.2-mut** restore `readable ? 'reject-no-evidence' :
   'reject-unreadable'` -> the no-root service case and the integration case fail.
 
-### Task 8.3: Re-verification and re-measurement (senior-tester only) — PENDING
+### Task 8.3: Re-verification and re-measurement (senior-tester only) — COMPLETE
 
 - Depends on: Tasks 8.1 and 8.2 returned and reviewed. Changes no code.
 - Before every heavy run: no live `jest` / `nx run-many` process (wait if one runs). `NX_DAEMON=false`, binaries
@@ -1159,3 +1196,215 @@ Edge cases:
   reviewer of a different family accepting verdict.
 - 8.3 headers 3 / 6 / 3; degradation audit at baselines; both re-measurements recorded with safety proofs.
 - `batch-8.done` written last.
+
+---
+
+## Batch 9: User decision 3 — root-unknown candidates look up `<sessionId>.jsonl` by id; re-verify + re-measure — IN_PROGRESS
+
+Source: `context.md` "Conversation Summary" 2026-09-17 (binding user decision 3). No architect revision: a narrow
+extension of Component 4 (cleanup) plus ONE additive read method on the agent-sdk reader the lib already injects. The
+extractor is not touched (phase 5 territory); the lookup reads through `extract`'s existing `transcriptPath` parameter.
+
+- Recommended executor: 9.1 — codex CLI lane (`{ cli: 'codex', role: 'backend-developer' }`); 9.2 — reviewer of a
+  different family from 9.1's implementer; 9.3 — senior-tester SUBAGENT, never a lane (HANDOFF rule 5).
+- Fallback executor: backend-developer subagent for 9.1 (a lane that fails twice is dropped); none for 9.3.
+- Execution mode: **sequential, 9.1 -> 9.2 -> 9.3.** One implementation task: agent-sdk method, locator, service,
+  types, job summary and their specs are one dependency chain (the service spec needs the locator; the locator needs
+  the reader method; the job spec needs the report field).
+- Reviewer (9.2): 9.1 on codex -> code-logic-reviewer SUBAGENT (Claude family, implemented nothing). 9.1 fell back to
+  a Claude subagent -> codex lane `role: 'code-logic-reviewer'`. Deliverable `T\code-logic-review-batch-9.md`, marker
+  `T\review-9.done`. Scope includes the seam (hexagonal) check below, not only logic.
+- Commits (team-leader, after the review): (1) `feat(agent-sdk,skill-synthesis,thoth-runtime,cli-engine): batch 9 -
+  look up backlog transcripts by session id` (9.1 files); (2) `docs(task-specs): record TASK_2026_461 batch 9` after
+  9.3.
+- Tasks: 3 | Depends on: Batch 8 (committed `087667a92`)
+- Report: `T\batch-9-report.md`, sections `## Task 9.1`, `## Task 9.3` (each executor appends only its own). Markers:
+  `T\batch-9.1.done`, `T\batch-9.done` (one line: ISO timestamp + `DONE` or `BLOCKED: <reason>`), each LAST.
+  Executors never edit `batches.md` and never commit.
+
+### Batch 9 plan validation
+
+Status: PASSED WITH RISKS
+
+Seam decision (hexagonal constraint), verified against the code at `087667a92`:
+
+- In skill-synthesis's dependency graph the transcript root is known ONLY to agent-sdk's `JsonlReaderService`:
+  `findSessionsDirectory` joins `os.homedir()/.claude/projects`
+  (`agent-sdk/src/lib/helpers/history/jsonl-reader.service.ts:214-216`). It reaches skill-synthesis through
+  `SDK_TOKENS.SDK_JSONL_READER` (`agent-sdk/src/lib/di/tokens.ts:63`, registered `agent-sdk/src/lib/di/register.ts:136`),
+  injected into `TrajectoryExtractor` (`skill-synthesis/src/lib/trajectory-extractor.ts:4,109-113`).
+- No existing by-id or projects-root API: the reader's public surface is `findSessionsDirectory` (`:214`),
+  `readJsonlMessages` (`:386`), `readJsonlTail` (`:526`), `projectJsonlLines` (`:605`), `loadAgentSessions` (`:769`).
+- By-id lookups exist in OTHER libs, each with its own path literal and not injectable: messaging-gateway
+  `session-resumability.ts:35-57`, rpc-handlers `session-rpc.handlers.ts:1280,1322`. Copying one would add another
+  literal. skill-synthesis production has NO `.claude/projects` literal today (grep); keep it at zero.
+- The file-name convention `<dir>/<sessionId>.jsonl` already lives in skill-synthesis (`trajectory-extractor.ts:166`),
+  and `extract` already reads an exact path when `transcriptPath` is given (`:154-155`). `extract(sessionId, '', floor,
+  path)` is safe: `compileWorkspacePattern('')` returns `null` (`:392-393`), so no normalization regex is built.
+- skill-synthesis already mirrors this reader structurally (`archaeology/transcript-window.reader.ts:98-105`,
+  `TranscriptJsonlReader`).
+- **Chosen seam:** ONE additive public method on `JsonlReaderService`: `listSessionsDirectories(): Promise<string[] |
+  null>` — absolute paths of the IMMEDIATE child directories of the projects root (one `readdir` with file types,
+  directories only, no recursion); `null` when the root is absent or cannot be listed. The root join becomes one
+  private helper shared with `findSessionsDirectory` (no behaviour change there). No cache in agent-sdk (its CLAUDE.md
+  rule: a cache needs a token AND a bound); the per-run cache lives in skill-synthesis. skill-synthesis consumes it
+  through a LOCAL structural port with the method OPTIONAL, so a reader without it is detected, not a crash.
+- Verdict: not a BLOCKER. The skill-synthesis -> agent-sdk edge already exists; no adapter import, no path literal in
+  skill-synthesis, extractor unchanged (not phase 5).
+
+Counter decision (migration 0045 frozen) — **recommended and planned: count in the persisted
+`rejected_transcript_unreadable` column, plus a report-only subset counter `rejectedNoTranscript`.** The distinct
+reason `backlog-cleanup: no transcript found for any session` is written to `skill_candidates.rejected_reason`
+(`skill-backlog-cleanup.store.ts:141-150`), so rows stay separable by query. Why not report-only alone: the ~1,540
+rejections would be missing from the durable state row after completion, and the persisted identity would need a
+third run-summed term. With this choice the identity is unchanged: persisted kept (3) + persisted rejected (2) +
+run-summed `keptRootUnknown` + run-summed `deferredOnError` = `examined`; `rejectedNoTranscript` is a per-run SUBSET of
+`rejectedTranscriptUnreadable` and is NOT added in the identity. The job summary's `rejected` already sums the
+persisted column (`thoth-runtime/src/lib/skill-backlog-cleanup-job.ts:80-88`); it appends `, no transcript N`.
+
+Assumptions:
+
+- A9 — the lookup runs ONLY when, after the Batch 8 root loop, `attempted === false` (no session resolved a root) and
+  no verdict exists. Any resolved root keeps the Batch 8 rule unchanged.
+- A10 — empty `sourceSessionIds` stays `kept-root-unknown` (no id to look up = the search could not run; "not found for
+  any session" is not taken as vacuously true). Pinned by the existing Batch 8 spec, which must stay green.
+- A11 — "lookup cannot run" is detected three ways, each yielding `unavailable`, never `absent`: (a) the injected reader
+  has no `listSessionsDirectories` function; (b) it returns `null`; (c) for a session, a `stat` fails with a code other
+  than `ENOENT` / `ENOTDIR` in some folder and no folder had the file. A session id that is not a plain file-name
+  token (contains `/`, `\`, `..`, or is empty) is also `unavailable` (no stat, never a traversal).
+- A12 — candidate outcome on the lookup path: any found transcript read with evidence -> `kept-evidence`; else any read
+  returned a trajectory -> `reject-no-evidence`; else any found transcript was read and returned `null` ->
+  `reject-unreadable`; else any session `unavailable` -> `kept-root-unknown`; else (every session `absent`) ->
+  `reject-no-transcript`.
+- A13 — the byte copy's candidates are measured against the LIVE `~/.claude/projects` (41 child folders on
+  2026-09-17), as in Batches 7 and 8; the corpus moves daily, so "13" and "~1,540" are expectations, not assertions.
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| R-TL15 Lookup cost: worst case distinct session ids x folders stats (~1,540 x 41, about 63k) over 13 ticks on the main thread | MEDIUM | Listing once per run, stop at first hit, per-run session cache, `stopReason` still checked between candidates; 9.3 records listings, stats, cache hits, lookup ms per tick. If median lookup ms per tick > 5,000, team-leader raises a readdir-index alternative to the orchestrator (not in scope now) |
+| R-TL16 A transient stat error turns into a rejection | HIGH | A11(c): non-ENOENT/ENOTDIR -> `unavailable` -> kept; spec with a stubbed `EBUSY` |
+| R-TL17 A new public method on `JsonlReaderService` breaks a typed fake that is not cast | LOW | 9.1 greps `JsonlReaderService` over `libs` + `apps` and typechecks every project with an uncast typed object |
+| R-TL18 Reachability proof's fake reader lacks the method | LOW | A11(a) -> `unavailable` -> no behaviour change; reachability 5/5 both bindings |
+| R-TL19 `SkillBacklogCleanupService` constructor reaches 8 injected deps | LOW | At, not past, the ~8 guardrail; the locator is one named collaborator (`SessionTranscriptLocator`), not a fragment |
+| R-TL20 Path traversal through a session id | MEDIUM | A11 token check before any `path.join`; spec |
+
+Edge cases:
+
+- Root unknown, file found in a later folder, evidence -> kept-evidence; stats stop at the hit — Task 9.1
+- Root unknown, found, no evidence -> reject-no-evidence; found, `extract` null -> reject-unreadable — Task 9.1
+- Root unknown, every session absent in every folder -> reject-no-transcript with the exact reason — Task 9.1
+- Projects root missing / reader without the method / stat EBUSY -> kept-root-unknown, no rejection — Task 9.1
+- `<sessionId>.jsonl` exists as a DIRECTORY -> not a hit (`isFile()` false) — Task 9.1
+- Two candidates sharing a session id in one run -> one listing, second locate is a cache hit — Task 9.1
+- Any session with a resolved root -> lookup never called; verdict -> lookup never called — Task 9.1
+- Empty `sourceSessionIds` -> kept-root-unknown, lookup never called — Task 9.1
+
+### Task 9.1: Look up root-unknown transcripts by session id (decision 3) — IN_PROGRESS
+
+- Files:
+  - MODIFY `W\libs\backend\agent-sdk\src\lib\helpers\history\jsonl-reader.service.ts` — private projects-root helper
+    used by `findSessionsDirectory` (`:214-216`) and new public `listSessionsDirectories(): Promise<string[] | null>`
+    (readdir with file types, directories only, absolute paths, no recursion, no cache; `null` on absent root or any
+    listing error, with a `// degradation-audit: optional-capability - ...` marker on the catch).
+  - MODIFY `W\libs\backend\agent-sdk\src\lib\helpers\history\jsonl-reader.service.spec.ts` — absent root -> `null`;
+    files filtered out, directories returned as absolute paths; readdir throws -> `null`. Follow the file's
+    `jest.mock('fs/promises')` / `os` pattern (`:36-52`).
+  - MODIFY `W\libs\backend\agent-sdk\CLAUDE.md` (reader cache bullet near `:86`) — the method, uncached by design.
+  - CREATE `W\libs\backend\skill-synthesis\src\lib\cleanup\session-transcript-locator.ts` — local structural port
+    `SessionsDirectoryLister { listSessionsDirectories?(): Promise<readonly string[] | null> }`; `@injectable()` class
+    `SessionTranscriptLocator` with `@inject(SDK_TOKENS.SDK_JSONL_READER)`; `createRunLookup()` returns a per-run
+    object: `locate(sessionId): Promise<{ kind: 'found'; path: string } | { kind: 'absent' } | { kind: 'unavailable' }>`
+    and `stats(): { directoryListings; pathStats; cacheHits }`. Listing taken lazily once per lookup object (`null`
+    memoised too); per folder in listing order `fs.promises.stat(path.join(dir, sessionId + '.jsonl'))`: `isFile()`
+    -> found (stop); `ENOENT` / `ENOTDIR` -> next folder; other error -> remember, next folder (marker comment); end ->
+    remembered error ? unavailable : absent. Every result (all three kinds) cached by session id; a repeat increments
+    `cacheHits`. A11 token check first. No file content is opened.
+  - CREATE `...\cleanup\session-transcript-locator.spec.ts` — REAL temp dirs (fail-if-exists `fs.mkdtempSync` under
+    `os.tmpdir()`, prefix not starting with `ptah`, removed in `afterEach`) and a fake lister: found in folder 2 of 3
+    (pathStats 2); absent everywhere (pathStats 3); lister returns `null` -> unavailable, 0 stats; lister without the
+    method -> unavailable; `<id>.jsonl` directory -> absent; stubbed `stat` rejecting `EBUSY` -> unavailable; `../x`,
+    `a/b`, `''` -> unavailable, 0 stats; same id twice -> cacheHits 1, directoryListings 1, pathStats unchanged.
+  - MODIFY `...\cleanup\skill-backlog-cleanup.service.ts` — inject `SessionTranscriptLocator`; `execute` creates ONE
+    lookup per run and passes it to `evaluateCandidate`; after the Batch 8 root loop, when `!attempted` and
+    `sourceSessionIds.length > 0`, run the A12 lookup path, reading found files with `extractor.extract(sessionId, '',
+    MIN_ROLE_TURNS_FLOOR, found.path)`; new disposition `'reject-no-transcript'`, constant `REJECT_NO_TRANSCRIPT =
+    'backlog-cleanup: no transcript found for any session'`, pushed as a rejection; `countDisposition` adds it to
+    `rejectedTranscriptUnreadable`; `RunProgress.rejectedNoTranscript` incremented; `runCounters` returns it; log the
+    run's lookup `stats()` once at debug when the run ends. Verdict early-return and the Batch 8 rule unchanged.
+  - MODIFY `...\cleanup\skill-backlog-cleanup.types.ts` — `BacklogCleanupRunCounters.rejectedNoTranscript: number`
+    with doc: per run, not persisted, a subset of `rejectedTranscriptUnreadable`, not added in the identity; restate
+    the identity.
+  - MODIFY `...\cleanup\skill-backlog-cleanup.service.spec.ts` — found-by-lookup with evidence -> kept-evidence (assert
+    `extract` args); found without evidence -> reject-no-evidence; found + `extract` null -> reject-unreadable; all
+    absent -> reject-no-transcript (reason exact, `rejectedTranscriptUnreadable` +1, `rejectedNoTranscript` 1,
+    `keptRootUnknown` 0); absent + unavailable -> kept-root-unknown; lookup unavailable -> kept-root-unknown, `extract`
+    not called; resolved root -> locator not called; verdict -> not called; empty ids -> not called; two candidates
+    sharing a session id in one run -> one listing and one cache hit. Existing Batch 8 root-unknown cases: give them
+    an unavailable lookup so their assertions hold, and say so in the report.
+  - MODIFY `...\cleanup\skill-backlog-cleanup.integration.spec.ts` — real SQLite, locator over a fake lister pointing
+    at temp dirs: NULL root + transcript with edit evidence -> stays `candidate`; NULL root + no file anywhere ->
+    `status='rejected'`, `rejected_reason` = the new reason, persisted counter +1, report `rejectedNoTranscript` 1;
+    NULL root + lister `null` -> stays `candidate`, `keptRootUnknown` 1. Explain every changed expectation.
+  - MODIFY `W\libs\backend\skill-synthesis\src\lib\di\register.ts` (`:66-68`) —
+    `registerSingleton(SessionTranscriptLocator)`; `di\register.spec.ts` still resolves the cleanup service (`:58-63`).
+  - MODIFY `W\libs\backend\thoth-runtime\src\lib\skill-backlog-cleanup-job.ts` (`summarizeCleanup` `:80-88`) — append
+    `, no transcript ${report.rejectedNoTranscript}`; `rejected` unchanged. MODIFY `skill-backlog-cleanup-job.spec.ts`
+    fixture + expected summary. MODIFY `W\libs\backend\cli-engine\src\lib\bootstrap\thoth-runtime.spec.ts` fixture
+    (`rejectedNoTranscript: 0`).
+  - MODIFY `W\libs\backend\skill-synthesis\CLAUDE.md` (backlog cleanup bullet) and `W\libs\backend\thoth-runtime\CLAUDE.md`
+    (job bullet). Grep `backlog` in `W\apps\ptah-docs\src\content\docs\skill-synthesis`; update only if it describes
+    cleanup dispositions (no trademarked product names).
+- Constraints: no `.claude` / `projects` path literal in skill-synthesis production; no change to
+  `trajectory-extractor.ts`, migration 0045, `SkillBacklogCleanupStore`, settings keys or UI. Every new catch carries a
+  `// degradation-audit:` marker; `catch (error: unknown)`.
+- Acceptance: AC-9.1a locator, service and agent-sdk cases above pass; AC-9.1b integration spec AND reachability 5/5,
+  0 skipped, under BOTH bindings (node:sqlite via `run-many`; better-sqlite3 via Electron-as-Node jest); AC-9.1c
+  `run-many -t test` and `-t lint` for agent-sdk, skill-synthesis, thoth-runtime, cli-engine ("for 4 projects");
+  `run-many -t typecheck` for those 4 + rpc-handlers, ptah-electron, ptah-cli + every project the R-TL17 grep adds
+  (paste grep + header count); degradation-audit exit 0 at baselines (skill-synthesis <= 6, cli-engine <= 12,
+  thoth-runtime 0, agent-sdk unchanged), never `--update-baseline`.
+- Mutations (paste fail output + restore output + `git diff --stat`, or the file list if git is forbidden):
+  **9.1-mutA** the all-absent branch returns `'kept-root-unknown'` -> service all-absent case and integration no-file
+  case fail. **9.1-mutB** the per-run cache never hits -> cache-hit cases fail. **9.1-mutC** a non-ENOENT stat error
+  treated as absent -> EBUSY case fails.
+
+### Task 9.2: Review of 9.1 (different family) — PENDING
+
+- Depends on: Task 9.1 returned, `batch-9.1.done` DONE, team-leader verified files on disk.
+- Scope: logic (A9-A12, R-TL15 to R-TL20, counters on every report path, cursor still advances past every
+  disposition) AND the seam: no path literal in skill-synthesis, agent-sdk method uncached and one level only,
+  extractor untouched, optional-member detection in the local port. Deliverable `T\code-logic-review-batch-9.md`
+  (verdict, score, file:line), marker `T\review-9.done`. Revise cap 2 rounds.
+
+### Task 9.3: Re-verification and byte-copy re-measurement (senior-tester only) — PENDING
+
+- Depends on: 9.2 APPROVED. Changes no code.
+- Before every heavy run: no live `jest` / `nx run-many` process (wait). `NX_DAEMON=false`, binaries from
+  `D:\projects\ptah-extension\node_modules`. Never `nx reset`, never `--update-baseline`. Never launch `electron.cmd`
+  without the jest script argument (Batch 8 slip).
+- Verification: the Task 8.3 sets PLUS `@ptah-extension/agent-sdk`: test "for 9 projects", typecheck "for 13
+  projects", lint "for 11 projects"; degradation-audit lines; XB1 both bindings with the 8.3 skill-synthesis pattern
+  plus `session-transcript-locator`, and the 8.3 persistence-sqlite pattern. Greps: `.claude` over skill-synthesis
+  production (0 new), `listSessionsDirectories` over `libs` (reader, its spec, locator and its specs only),
+  `rejectedNoTranscript` over `libs`. Corpus re-measurement NOT required (prefilter predicate unchanged since Batch 8).
+- Byte-copy re-measurement: HANDOFF rule 5 / Task 8.3 procedure verbatim (fresh fail-if-exists temp dir not starting
+  with `ptah`, `COPYFILE_EXCL`, six pragmas read back, only the copy opened, real service stack built by hand now
+  including a real `SessionTranscriptLocator` over the real `JsonlReaderService`, temp harness spec deleted after one
+  run, temp dir removed and proven gone, source size + mtime unchanged). Report:
+  - Batch 7 / 8 / 9 table: examined, ticks, kept evidence / verdict / degraded, rejected no evidence, rejected
+    unreadable (persisted), `rejectedNoTranscript` (run-summed AND the count of rows with the new reason in the copy),
+    `keptRootUnknown` (run-summed), deferred, invocations deleted; identity check.
+  - Where the Batch 8 "13 with a file on disk" land (count per disposition) and where the ~1,540 land (expected
+    `reject-no-transcript`); any `keptRootUnknown` left, with its A11 cause counted (no ids).
+  - Lookup cost per tick via a proxy around `createRunLookup`: directory listings, path stats, cache hits, lookup ms
+    (min / median / max) and tick wall time; flag R-TL15 if median lookup ms per tick > 5,000.
+- Report `T\batch-9-report.md` `## Task 9.3` (counts and timings only; no session ids, paths or transcript content);
+  `git status --short` proving no harness remains; marker `T\batch-9.done` LAST.
+
+### Batch 9 verification
+
+- 9.1 files exist with real code; mutA/B/C pasted fail + restore; integration + reachability both bindings; header
+  counts 4 / 4 / N.
+- 9.2 accepting verdict from a different family.
+- 9.3 headers 9 / 13 / 11; degradation audit at baselines; Batch 7 / 8 / 9 comparison with safety proofs.
+- `batch-9.done` written last.

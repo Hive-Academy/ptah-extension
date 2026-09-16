@@ -102,3 +102,9 @@ twice is dropped and its work moves to a subagent.
      the read (`skill-backlog-cleanup.service.ts:287`). User chose **keep, never reject**: reject as
      unreadable only when a read was attempted and failed; an unresolvable root keeps the candidate and
      is counted separately.
+- 2026-09-17: Batch 8 re-measurement on the byte copy: rejected unreadable 1,859 → 317, kept root
+  unknown 1,553 (1,540 of them have no transcript on disk; the 13 good ones are now kept); corpus
+  tightening removes 11 of 1,622 eligible sessions. User decision 3 (AskUserQuestion): **look up by
+  session id**. When no workspace root resolves, locate `<sessionId>.jsonl` across the transcript
+  folders with an existence check; found → read and apply the normal evidence rule; not found anywhere
+  → reject with a distinct reason ("no transcript found for any session"). Re-measure after.
