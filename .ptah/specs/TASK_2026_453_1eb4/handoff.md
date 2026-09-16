@@ -10,7 +10,7 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Worktree      | `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks` (inside the repo on purpose, so CLI lanes can run there)      |
 | Branch        | `perf/task-453-tile-open-long-tasks`, tracks origin, all commits pushed                                                                     |
-| PR            | none yet — open it when Stage 1 is committed                                                                                              |
+| PR            | none yet — Stage 1 is committed; to be opened as a draft                                                                                  |
 | Base          | `51d0d2e1f` (main with PR #518 and PR #519)                                                                                               |
 | node_modules  | a junction to `D:\projects\ptah-extension\node_modules`. Never delete it with a tool that follows junctions; use `cmd /c rmdir` first.     |
 | Old worktree  | `D:\projects\ptah-437` (TASK_2026_437) is merged and idle. Its removal is a user decision.                                                 |
@@ -27,6 +27,10 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | `408ddffb2`  | Batch 4 — C1 replay motion gate                                                       |
 | `1b59aa816`  | Docs — Batch 4 commit hash recorded                                                   |
 | `b19077d03`  | Batch 5 — C5 replay render-window fence                                               |
+| `0149adef8`  | Docs — Batch 5 commit hash recorded                                                   |
+| (this one)   | Batch 6 — M1 measurement in `test-report.md` + methodology review (docs only)          |
+
+**Stage 1 (C1, C2, C3, C4, C5) is fully committed.**
 
 ## 3. Batch state
 
@@ -37,12 +41,25 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | B3    | C3 canvas request queue + C2 replay admission   | COMPLETE, committed `b9cc2f193`         |
 | B4    | C1 replay motion gate                           | COMPLETE, committed `408ddffb2`               |
 | B5    | C5 replay render-window fence                   | COMPLETE, committed `b19077d03`               |
-| B6    | M1 measurement + decision point                 | IN_PROGRESS — next; needs an idle machine     |
+| B6    | M1 measurement + decision point                 | COMPLETE, committed (docs only)               |
 
-**Before M1**: peer session `ptah-ptah-extension-continue-task-b3c889` (TASK_2026_461) agreed to
-hold its heavy passes. Send it a "starting now" message before the first M1 run, and a release
-message after the last run. Confirm 0 `jest-worker` / `run-executor` processes before and after
-each run (§6 rule 4).
+**M1 result** (committed evidence: `test-report.md` "M1" section, review
+`b6-m1-methodology-review.md` base NEEDS_REVISION → Delta APPROVED): **AC-11 NOT MET.**
+
+| Run            | Max (ms) | Total (ms) |
+| -------------- | -------- | ---------- |
+| Dev cold 1     | 220      | 3,226      |
+| Dev cold 2     | 337      | 4,927      |
+| Dev cold 3 (retry) | 185  | 2,169      |
+| Production cold | 166 (pass) | 985 (pass) |
+
+Stage 1 cut max 5.4-8.8x and total 2.1-2.6x in dev; production now passes. TILE_2 (last admitted)
+still carries ~90 % of blocked time. AC 2 is PARTIAL (DOM ratio measured whole-canvas only, 0.21-0.39x
+on 3-tile runs). **New blocking regression**: scroll sanity failed in 2 of 11 attempts (132 px and
+31,155 px from bottom, budget 120 px) on the still-replaying tile — the C5 tail-shift risk, present
+on committed Batch 5 code.
+
+**Peer hold released**: M1 is done; the TASK_2026_461 session no longer needs to hold heavy passes.
 
 ## 4. M0 result (committed evidence: `test-report.md`)
 
@@ -103,10 +120,25 @@ assertion weakened (evidence in `b3-revise-codex-report.md` section 5).
 10. Codex lanes need `workingDirectory` inside `D:\projects\ptah-extension`; that is why this
     worktree lives under `.claude-worktrees`.
 
-## 7. Open user decisions
+## 7. User decisions and next steps
 
-1. Stage 2 option, only if M1 still misses AC-11 (per-frame mount budget, or tail-paged history).
-2. When to open the PR for this branch, and whether as a draft.
-3. TASK_2026_437 leftovers: D10 `publish-electron.yml` dispatch, FU-16b-c `internalQuery.maxConcurrent`,
+**Decided 2026-09-16**:
+
+- Stage 2 option: **(ii) tail-paged history**.
+- Scroll regression: the architect finds the cause, then a codex lane fixes it inside C5 with logic
+  and style reviews, then the scroll check is repeated — all before any Stage 2 code.
+- PR: open this branch as a **draft** PR.
+
+**Next steps, in order**:
+
+1. Architect: scroll-regression cause analysis (`scroll-regression-analysis.md`) and Stage 2 (ii)
+   design in `implementation-plan.md` (both in progress).
+2. Team-leader adds the scroll-fix batch and the Stage 2 batches to `batches.md`.
+3. Scroll fix inside C5 (codex lane, logic + style review), then repeat the scroll sanity check.
+4. Stage 2 implementation, then a new measurement.
+
+**Still open**:
+
+1. TASK_2026_437 leftovers: D10 `publish-electron.yml` dispatch, FU-16b-c `internalQuery.maxConcurrent`,
    the `chore/bump-*` CI skip guard, the property-hub load-test scripts, AC-10 manual boot evidence.
-4. Removal of the `D:\projects\ptah-437` worktree.
+2. Removal of the `D:\projects\ptah-437` worktree.

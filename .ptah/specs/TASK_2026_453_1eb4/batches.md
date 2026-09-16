@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 5/6
+Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 6/6
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -781,7 +781,7 @@ ptah-extension-webview`; `npx nx run ptah-extension-webview:build:development` a
     (`chat-transcript.component.spec.ts`, `.replay-motion.spec.ts`, `.replay-mount.spec.ts`).
   - A8 residual: check it in the M1 rAF histogram (Task 6.1).
 
-## Batch 6: M1 measurement and decision point — IN_PROGRESS
+## Batch 6: M1 measurement and decision point — COMPLETE
 
 - Recommended executor: Claude `senior-tester` sub-agent
 - Fallback executor: none (idle machine required)
@@ -789,7 +789,7 @@ ptah-extension-webview`; `npx nx run ptah-extension-webview:build:development` a
 - Tasks: 1 | Depends on: Batches 3, 4, 5 committed (C1, C2, C3, C5 all in the build)
 - Review: `code-logic-reviewer` on the report methodology; team-leader commits the report.
 
-### Task 6.1: M1 run set, AC-11 verdict — IN_PROGRESS
+### Task 6.1: M1 run set, AC-11 verdict — COMPLETE
 
 - File: MODIFY `W\.ptah\specs\TASK_2026_453_1eb4\test-report.md` (M1 section beside M0)
 - Plan reference: implementation-plan.md:523-529, S1-AC4 :490-493
@@ -800,5 +800,40 @@ ptah-extension-webview`; `npx nx run ptah-extension-webview:build:development` a
      `total <= 1500` with `settled: true`. Otherwise report the remaining gap (max, total), rAF
      histogram, DOM counts, and main-thread trace shares, and return to the orchestrator for the
      Stage 2 user decision ((iii-b) / (ii) / (i), plan :531-555). No Stage 2 code without it.
-     </content>
-     </invoke>
+
+### Batch 6 outcome
+
+- **Verdict: AC-11 NOT MET.** Every dev cold run fails total blocked time; 2 of 3 also fail max.
+  Production cold passes both budgets for the first time in this task.
+- **Executor**: Claude `senior-tester` sub-agent on HEAD `0149adef8`, idle machine (0
+  `jest-worker` / `run-executor` before and after all 13 attempts). No product or spec code diff.
+
+| Metric | Budget | M0 dev cold (I/J/K) | M1 dev cold (1/2/3-retry) | M0 production | M1 production |
+| ------ | ------ | ------------------- | ------------------------- | ------------- | ------------- |
+| Max long task (ms) | <= 200 | 1,926 / 1,326 / 1,062 | 220 / 337 / 185 | 1,201 | 166 |
+| Total blocked (ms) | <= 1,500 | 6,941 / 5,463 / 4,077 | 3,226 / 4,927 / 2,169 | 4,767 | 985 |
+| DOM replaying/settled (whole-canvas) | <= 2× | ~3.5-4.3× | 0.365× / 0.246× / 0.303× | ~3.5-3.7× | 0.366× |
+| `scheduleFrame` share of rAF (2,000 events) | — | 88.3 % (1,339) | 5.0 % (7) | — | — |
+
+- **Discarded / retried attempts**: none discarded for idle contamination. Two attempts failed
+  scroll sanity before any perf data was written (cold dev run 3, trace 2,000 events). Each was
+  retried once, cleanly; the retry supplies that slot. The report discloses that the substitution
+  may bias the 3-run sample low (read it as a lower bound on the gap).
+- **AC status**: AC 1 COMPLETE; **AC 2 PARTIAL** (per-tile wall time delivered; DOM <= 2× measured
+  whole-canvas only, the harness has no per-tile DOM field); AC 3 COMPLETE (verdict logic applied).
+- **Scroll-sanity regression (new, blocking, functional)**: 2 of 11 scroll-sanity attempts failed on
+  the last-clicked, still-replaying tile — `TILE_1` 132 px and `TILE_2` 31,155 px from bottom
+  (budget 120 px). This is the Task 5.1 tail-shift residual risk; it is on committed Batch 5 code.
+- **Review chain**: `code-logic-reviewer` on methodology — base `b6-m1-methodology-review.md`
+  NEEDS_REVISION (5 findings: warm 1-tile `preWindowExcluded`, idle-attempt count, trace
+  `preWindowExcluded` column, AC 2 reported as a per-tile pass, undisclosed retry bias); Delta
+  (same file) APPROVED, all 5 closed against raw JSON and logs. Revise cap: 1 of 2 used.
+- **USER DECISIONS 2026-09-16**:
+  1. Stage 2: option **(ii) tail-paged history** is chosen for the remaining AC-11 gap.
+  2. Scroll regression: the architect finds the cause, then a codex lane fixes it inside C5 with
+     logic + style reviews, then the scroll check is repeated — all before any Stage 2 code.
+- **Next**: Stage 2 batches (and the scroll-fix batch) are added to this file after the architect
+  design lands in `implementation-plan.md`. No Stage 2 batch exists yet.
+- **Follow-ups**: per-tile DOM sampling in `perf-page-capture.ts` (carried from Batch 2 item 5)
+  is needed before AC 2 can close; two unattributed minified rAF sites (14.4 %); no `GPUTask` in
+  trace.

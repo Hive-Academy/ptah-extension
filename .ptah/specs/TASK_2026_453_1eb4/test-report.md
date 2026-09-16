@@ -386,3 +386,489 @@ dominance, warm-3-tile not smaller than cold-3-tile, and production smaller-but-
     it before Stage 2 sizing.
   - DOM node ratios (replaying vs settled) are whole-canvas totals across all 3 tiles, not
     per-tile; Batch 5/M1 needs its own per-tile measurement to check against the <= 2× target.
+
+---
+
+# M1 — post-Stage-1 measurement (Batch 6 / Task 6.1)
+
+## Scope
+
+- User request: re-measure AC-11 after C1 (replay motion gate), C2 (one replay-and-finalize at a
+  time), C3 (canvas request queue) and C5 (render-window fence) all landed, and return an AC-11
+  verdict. Measurement only — no product or spec code was changed to produce this section.
+- Criteria tested: AC-11 exactly as written, using the Batch 1 harness, unmodified since M0.
+- Regressions covered: none fixed here (this is a measurement batch); a NEW functional regression
+  was found and is reported below (scroll sanity), not fixed.
+- Review findings covered: Batch 5's A8 residual (scheduleFrame share on the new, smaller rAF
+  total) and its scroll tail-shift residual risk are both addressed by direct measurement below.
+- Deliberately not tested: per-tile DOM breakdown could not be produced — see "Known measurement
+  gap" below; Stage 2 code (none written, per the task's own gate).
+
+## Environment
+
+- Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`, branch
+  `perf/task-453-tile-open-long-tasks`.
+- `git log --oneline -1` before AND after every run in this section: `0149adef8 docs(task-specs):
+  record the TASK_2026_453 batch 5 commit hash` — the required Batch 5 commit, unchanged throughout.
+- `git status --short`: clean (no output) before the first run and after the last run of this
+  section. No product, spec or harness file was modified to produce M1.
+- Build: `ptah-electron` dev configuration for every run except the one production-configured run
+  (`build-main --configuration=production` + `copy-renderer`), which was restored to dev afterward
+  (`build-main --configuration=development` + `copy-renderer-dev`, both exit 0) and re-confirmed
+  clean via `git status --short` and via the subsequent dev-mode runs (rAF attribution, both trace
+  runs) succeeding against the restored dev build.
+- Idle check command (identical to M0):
+  `powershell -NoProfile -c "(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ? { $_.CommandLine -match 'jest-worker|run-executor' }).Count"`.
+  Checked immediately before and immediately after every run below (13 attempts total, including
+  the 2 retries described under "Scroll sanity" — reconciled with the idle-check table below and
+  the M1 Verdict section, both of which list 13; an earlier draft of this sentence said 11, which
+  undercounted the 2 retries themselves as attempts); every check returned `0`. The machine was
+  otherwise idle for this entire session — unlike M0, there was no contended-machine period to
+  report. No run was discarded for idle contamination (the only two runs not used as clean
+  perf data points failed a functional assertion inside the test itself, not the idle gate — see
+  "Scroll sanity" below, which is a distinct failure mode from contamination and is not silently
+  re-run-and-hidden).
+- Diagnostics directory: `D:\projects\ptah-453-perf\m1` (outside the repo). Console logs:
+  `D:\projects\ptah-453-perf\m1-run1.log`, `m1-run2.log`, `m1-run3.log` (scroll-sanity failure),
+  `m1-run3b.log` (clean retry used as the 3rd cold data point), `m1-warm1.log`, `m1-warm3.log`,
+  `m1-prod-build-main.log`, `m1-prod-copy-renderer.log`, `m1-prod-cold.log`,
+  `m1-raf-attribution.log`, `m1-trace-500.log`, `m1-trace-2000.log` (scroll-sanity failure),
+  `m1-trace-2000b.log` (clean retry used as the trace-2000 data point).
+
+## Idle checks
+
+| # | Run | Before | After |
+| - | --- | ------ | ----- |
+| 1 | Cold 3-tile dev, run 1 | 0 | 0 |
+| 2 | Cold 3-tile dev, run 2 | 0 | 0 |
+| 3 | Cold 3-tile dev, run 3 (scroll sanity FAILED — no measurement written) | 0 | 0 |
+| 3b | Cold 3-tile dev, run 3 retry (clean; used as the 3rd cold data point) | 0 | 0 |
+| 4 | Warm 1-tile | 0 | 0 |
+| 5 | Warm 3-tile | 0 | 0 |
+| 6 | Production build (build-main + copy-renderer) | 0 | 0 |
+| 7 | Production cold 3-tile | 0 | 0 |
+| 8 | Dev build restore | 0 | 0 |
+| 9 | rAF-attribution cold diagnostic | 0 | 0 |
+| 10 | Trace cold diagnostic, 500 events | 0 | 0 |
+| 11 | Trace cold diagnostic, 2,000 events (scroll sanity FAILED — no measurement written) | 0 | 0 |
+| 11b | Trace cold diagnostic, 2,000 events retry (clean) | 0 | 0 |
+
+No run was discarded for idle contamination. Two runs (#3, #11) hit a genuine functional assertion
+inside the test (scroll sanity) before the perf measurement was computed or written, so they carry
+no `max`/`total`/DOM numbers of their own; each was retried once, cleanly, immediately after (same
+idle-0 condition), and the retry supplies that slot's perf data point. The scroll-sanity failures
+themselves are reported in full below — they are a finding, not noise to discard.
+
+**Disclosed bias risk on the AC-11 sample (added on methodology review)**: the retry substitution
+could not recover what the failed attempt's own long-task numbers would have been — `m1-run3.log`
+and `m1-trace-2000.log` (the two failed attempts) contain no `[AC-11 perf] wall=...` or `[AC-11
+perf]   long task at ...` lines at all (checked directly: `grep -in "long task"` on both files
+matches only the Playwright test-title string, not a measurement line), because `assertScrollSanity`
+throws before `summarizeMeasurement`/`writeDiagnostics` runs. Scroll-sanity failure is **not proven
+independent of long-task severity**: `scheduleStickToBottom` is the single largest rAF call site in
+this M1 run set (38.1% of all captured rAF calls, see "rAF-attribution cold diagnostic" below), and
+a scroll-sanity failure is by definition a run where that same scroll-correction machinery
+misbehaved. It is plausible, not certain, that a run where scroll-stick logic is visibly
+malfunctioning also does more corrective layout/rAF work than the clean retries that replaced it in
+the cold-dev table below. **The reported 3-run cold-dev sample should therefore be read as a lower
+bound on the true AC-11 gap, not a symmetric, unbiased sample** — this matters directly for sizing
+the Stage 2 decision below.
+
+## Scroll sanity (every run)
+
+`assertScrollSanity` runs before the perf measurement is computed, so a failure here pre-empts
+that run's diagnostics write entirely (confirmed by reading
+`apps/ptah-electron-e2e/src/specs/chat/tile-open-longtask-budget.perf.spec.ts:281-289`, `:354-381`,
+`:502-541`: `assertScrollSanity` is called before `summarizeMeasurement`/`writeDiagnostics` in all
+three tests it appears in).
+
+| Run | Result | Detail |
+| --- | ------ | ------ |
+| Cold dev run 1 | PASS | — |
+| Cold dev run 2 | PASS | — |
+| Cold dev run 3 | **FAIL** | `TILE_1` 132 px from bottom (budget 120 px) |
+| Cold dev run 3 retry | PASS | — |
+| Warm 1-tile | PASS | — |
+| Warm 3-tile | PASS | — |
+| Production cold | PASS | — |
+| rAF-attribution cold | PASS | — |
+| Trace cold, 500 events | PASS | — |
+| Trace cold, 2,000 events | **FAIL** | `TILE_2` 31,155 px from bottom (budget 120 px) |
+| Trace cold, 2,000 events retry | PASS | — |
+
+**This is a new functional finding, not present at M0** (M0 had no scroll-sanity failures in its
+9 runs, though M0 predates C5, which is the component that introduced tail-shift placeholder
+mounting during replay). **2 of 11 attempts (18%) failed scroll sanity**, both on the
+last-clicked/still-replaying tile, with wildly different magnitudes (132 px vs 31,155 px — the
+second is not a rounding-level miss, it is the tile scrolled to nowhere near its own content).
+This matches exactly the residual risk `batches.md` recorded for Task 5.1 ("the tail-shift case ...
+is timing dependent and jsdom has no layout, so it cannot be proven by a unit spec. It is covered
+by the C4 post-window scroll sanity check in M1. If that check fails, the fix stays inside C5").
+**Per this task's own instruction, no fix is made here** — this is reported as a blocking
+functional regression for the orchestrator/architect to route, not sized into a Stage 2 perf
+option. It is orthogonal to the AC-11 perf verdict below but must not be read as "AC-11 nearly
+passed" without also reading this.
+
+## Cold 3-tile dev runs (asserting test) — the AC-11 gate
+
+| Run | Wall (ms) | Long tasks | Max (ms) | Total (ms) | preWindowExcluded | DOM (replaying / settled) | Ratio | Settled |
+| --- | --------- | ---------- | -------- | ---------- | ------------------ | -------------------------- | ----- | ------- |
+| 1  | 4,868.10 | 33 | 220 | 3,226 | 2 tasks / 219 ms | 1,790 / 4,900 | 0.365× | true |
+| 2  | 6,965.40 | 40 | 337 | 4,927 | 2 tasks / 280 ms | 1,798 / 7,308 | 0.246× | true |
+| 3 retry | 3,876.00 | 25 | 185 | 2,169 | 2 tasks / 167 ms | 1,794 / 5,912 | 0.303× | true |
+
+All three FAIL the total budget (>1,500 ms); run 3-retry alone passes the max budget (185 <= 200);
+runs 1 and 2 fail both. No run threw "measurement unusable" — all three are usable data points.
+Run 3's original attempt (scroll-sanity failure, no perf data) is reported separately above and
+not counted toward this table or the verdict.
+
+Per-tile buckets (click order; count/max ms/total ms):
+
+- Run 1: TILE_0 1/162/162; TILE_1 2/117/168; TILE_2 30/220/2,896.
+- Run 2: TILE_0 1/240/240; TILE_1 2/124/188; TILE_2 37/337/4,499.
+- Run 3-retry: TILE_0 1/114/114; TILE_1 1/70/70; TILE_2 23/185/1,985.
+
+Per-marker buckets (count/max ms/total ms):
+
+- Run 1: before-first-marker 5/220/671; TILE_0 3/107/294; TILE_1 17/142/1,696; TILE_2 8/117/565.
+- Run 2: before-first-marker 5/332/896; TILE_0 15/257/1,767; TILE_1 15/337/1,636; TILE_2 5/243/628.
+- Run 3-retry: before-first-marker 4/165/406; TILE_0 4/81/262; TILE_1 12/185/1,127; TILE_2 5/126/374.
+
+**TILE_2 (last-clicked) still carries the large majority of blocked time** (e.g. run 1: 2,896 of
+3,226 ms = 89.8%), so the shape of the M0 finding is unchanged even though the magnitude has
+dropped sharply — Stage 1 reduced the per-node rAF cost underneath that shape, it did not change
+which tile pays for admission-queue ordering (expected: C2 serializes replay-and-finalize FIFO, so
+the last-admitted tile's own marker always arrives after the other two have fully replayed).
+
+Per-tile wall time (C2 admission latency cost — click timestamp to that tile's own marker):
+
+| Run | TILE_0 (ms) | TILE_1 (ms) | TILE_2 (ms) |
+| --- | ----------- | ----------- | ----------- |
+| 1 | 808.1 | 1,070.6 | 2,735.5 |
+| 2 | 1,074.9 | 2,778.4 | 4,587.7 |
+| 3 retry | 534.2 | 760.4 | 1,985.4 |
+| Production | 582.3 | 776.8 | 783.4 |
+| rAF-attribution | 646.5 | 918.6 | 2,626.8 |
+
+This is the visible cost of C2's FIFO admission: TILE_2 (admitted last) waits for TILE_0 and
+TILE_1's replay-and-finalize to fully vacate the admission slot before its own chunks can run, so
+its own click-to-marker latency is consistently 2-5× TILE_0's. The production run is the outlier
+with a nearly flat TILE_1/TILE_2 latency (776.8 vs 783.4 ms) — consistent with production's overall
+much lower per-chunk cost leaving less queue time to accumulate.
+
+Diagnostics JSON: `D:\projects\ptah-453-perf\m1\ac11-perf-cold-3tile-1789576078004.json` (run 1),
+`...-1789576178284.json` (run 2), `...-1789576362929.json` (run 3 retry). Run 3's original,
+scroll-sanity-failing attempt wrote no diagnostics JSON (the throw happens before the write).
+
+## Warm-up diagnostics (not gated)
+
+| Scenario | Wall (ms) | Long tasks | Max (ms) | Total (ms) | preWindowExcluded | DOM (replaying / settled) | Ratio |
+| -------- | --------- | ---------- | -------- | ---------- | ------------------ | -------------------------- | ----- |
+| Warm 1-tile | 1,760.60 | 4 | 85 | 279 | 5 tasks / 458 ms | 2,772 / 2,018 | 1.374× |
+| Warm 3-tile | 5,400.20 | 36 | 382 | 3,330 | 4 tasks / 357 ms | 1,830 / 8,680 | 0.211× |
+
+**Correction (methodology review)**: warm 1-tile's `preWindowExcluded` is not "n/a" — the raw JSON
+(`ac11-perf-warm-1tile-1789576438127.json`) records `{"count": 5, "totalMs": 458}`, i.e. **5 long
+tasks totalling 458 ms were excluded before the measured window opened, which is larger than the
+run's own in-window total of 279 ms**. This does not change the verdict (warm scenarios are not
+gated), but it means most of this scenario's long-task activity happened before the window this
+report measures, which a reader comparing it to the gated cold runs (2 tasks / ~150-280 ms
+pre-window each) should know.
+
+Warm 1-tile passes both in-window budgets comfortably (as at M0), though see the pre-window
+correction above. Warm 3-tile is not gated but its shape is unchanged: WARM_TILE_2 (click order)
+carries 33 of 36 long tasks and 3,121 of 3,330 ms total (93.7%) — the same TILE_2-dominant pattern
+as the cold runs, at much lower absolute magnitude than M0's warm-3-tile (max 1,400 / total 6,486
+ms there vs 382 / 3,330 ms here).
+
+Diagnostics JSON: `...\ac11-perf-warm-1tile-1789576438127.json`,
+`...\ac11-perf-warm-3tile-1789576512443.json`.
+
+## Production-configured cold run (×1)
+
+| Wall (ms) | Long tasks | Max (ms) | Total (ms) | preWindowExcluded | DOM (replaying / settled) | Ratio | Settled |
+| --------- | ---------- | -------- | ---------- | ------------------ | -------------------------- | ----- | ------- |
+| 2,465.90 | 11 | **166** | **985** | 2 tasks / 202 ms | 1,786 / 4,884 | 0.366× | true |
+
+**PASSES both budgets** (max 166 <= 200; total 985 <= 1,500) — the first clean production pass in
+this task's history (M0 production: max 1,201 / total 4,767, both failing). Per-tile: TILE_0
+1/108/108; TILE_1 1/90/90; TILE_2 9/166/787 (79.9% of the run's total). Per-marker:
+before-first-marker 4/166/434; TILE_0 1/96/96; TILE_1 1/66/66; TILE_2 5/104/389.
+
+Diagnostics JSON: `...\ac11-perf-cold-3tile-1789576579026.json`.
+
+## rAF-attribution cold diagnostic (×1, `PTAH_PERF_RAF_ATTRIBUTION=1`)
+
+Wall 4,625.60 ms (informational), max 307, total 2,866, settled true. DOM 1,798 / 7,608 (0.236×).
+
+**rAF call-site histogram** (139 total captured calls — down from M0's 1,517, a **10.9× reduction
+in the number of rAF calls made at all** during the same scenario):
+
+| Rank | Call site | Count | Share (M1) | M0 count | M0 share | Plan ref |
+| ---- | --------- | ----- | ---------- | -------- | -------- | -------- |
+| 1 | `_ChatTranscriptComponent.scheduleStickToBottom` | 53 | **38.1%** | 53 | 3.5% | E27 |
+| 2 | `scheduleCallbackWithRafRace` (`@angular/core`) | 40 | 28.8% | 30 | 2.0% | E26 |
+| 3 | unattributed minified frame (`chunk-5TA74SBW.js:17766:7`) | 14 | 10.1% | 76 | 5.0% | unresolved |
+| 4 | `_BatchedUpdateService.scheduleUpdate` | 10 | 7.2% | 6 | 0.4% | E11 |
+| 5 | `scheduleFrame` (`execution-node.component.ts`) | **7** | **5.0%** | **1,339** | **88.3%** | **E17** |
+| 6 | unattributed minified frame (`chunk-5TA74SBW.js:17885:5`) | 6 | 4.3% | 6 | 0.4% | unresolved |
+| 7 | Playwright's own injected evaluate context | 3 | 2.2% | 3 | 0.2% | harness |
+| 8 | `_ChatTranscriptComponent.restoreScrollOnActivation` | 3 | 2.2% | 3 | 0.2% | E27 |
+| 9 | unattributed minified frame (`chunk-TWWQF5SG.js:14413:19`) | 2 | 1.4% | — | — | unresolved (new site, not in M0's list) |
+| 10 | `ResizeObserver.<anonymous>` | 1 | 0.7% | 1 | 0.1% | unresolved |
+
+**A8 verdict: CONFIRMED — `scheduleFrame` (E17) drops from 88.3% of 1,517 calls to 5.0% of 139
+calls, i.e. an absolute count drop from 1,339 to 7 (a 191× reduction), and its new share (5.0%) is
+below the ~10% threshold the residual check asked for, on a total that is itself 10.9× smaller.**
+This is direct confirmation that C1 (motion gate) + C5 (render-window fence) together removed the
+per-node/per-chunk rAF cost that M0 identified as the dominant contributor: with C5, a replayed
+node's text renders via the synchronous `publishNow` path (not streaming) because it is outside the
+render window's streaming boundary, so `scheduleFrame`'s rAF-gated branch is very rarely taken
+during replay now. The remaining rAF traffic is dominated by `scheduleStickToBottom` (E27, scroll
+work — unrelated to this task and untouched by it) and Angular's own `scheduleCallbackWithRafRace`
+(E26) — both were minor absolute contributors at M0 too (53 and 30 calls) and are now a larger
+*share* only because the total pie shrank around them, not because either grew. `E23`
+(`animate.enter`/`animateLeaveClassRunner`) still does not appear as a distinct site, same as M0.
+
+Diagnostics JSON: `...\ac11-perf-diagnostic-cold-3tile-2000-1789576658910.json`.
+
+## Trace captures (`PTAH_PERF_TRACE=1`), 500 and 2,000 events
+
+| Events | Wall (ms) | Max (ms) | Total (ms) | preWindowExcluded | Settled | DOM (replaying / settled) | Ratio |
+| ------ | --------- | -------- | ---------- | ------------------ | ------- | -------------------------- | ----- |
+| 500 | 2,156.80 | 130 | 537 | 2 tasks / 159 ms | true | 1,122 / 2,900 | 0.387× |
+| 2,000 | 3,806.80 | 193 | 2,129 | 2 tasks / 152 ms | true | 1,790 / 6,644 | 0.269× |
+
+(`preWindowExcluded` added on methodology review — this closes the gap `batches.md`'s Batch 2
+outcome item 5 flagged, which M0 had also omitted from its trace table; the field is present in
+both raw JSON files and was simply not carried into this table in the first draft.)
+
+(The 2,000-event data point above is from the clean retry; the first 2,000-event attempt failed
+scroll sanity before writing diagnostics — see "Scroll sanity".)
+
+**`FireAnimationFrame` count, M1 vs M0:**
+
+| Events | M1 count | M1 ms | M0 count | M0 ms | M1/M0 count ratio |
+| ------ | -------- | ----- | -------- | ----- | ------------------ |
+| 500 | 49 | 144.18 | 448 | 229.30 | **0.109× (9.1× fewer)** |
+| 2,000 | 86 | 402.44 | 1,386 | 1,257.53 | **0.062× (16.1× fewer)** |
+
+**FireAnimationFrame scaling verdict**: M1's own count goes 49 → 86 for a 4× increase in events —
+a **1.76× scaling factor**, well below M0's 3.09×. Combined with the rAF histogram (`scheduleFrame`
+now 5.0% of a much smaller total), this is consistent, source-cited confirmation that C1+C5 cut the
+per-node/per-chunk `FireAnimationFrame` cost that M0's `SessionHistoryReplayer`-chunked-replay
+finding identified, at both event sizes, not just in aggregate.
+
+**Main-thread trace shares** (each row's own duration as % of that run's wall-clock window, same
+convention as M0 and `fu22d-attribution-spike-report.md`):
+
+| Category | 500 events (count / ms / % of wall) | 2,000 events (count / ms / % of wall) | M0 2,000-events % | Δ vs M0 |
+| -------- | ------------------------------------ | --------------------------------------- | ------------------- | ------- |
+| **FireAnimationFrame** | 49 / 144.18 / 6.69% | 86 / 402.44 / **10.57%** | 18.9% | down 8.3 pts |
+| UpdateLayoutTree | 100 / 277.86 / 12.88% | 163 / 696.55 / 18.30% | 15.1% | up 3.2 pts |
+| Layout | 39 / 145.61 / 6.75% | 68 / 265.02 / 6.96% | 8.1% | down 1.1 pts |
+| Layerize | 29 / 38.93 / 1.81% | 45 / 174.00 / 4.57% | 1.6% | up 3.0 pts |
+| Paint | 249 / 87.30 / 4.05% | 561 / 189.26 / 4.97% | 3.7% | up 1.3 pts |
+| PrePaint | 155 / 55.86 / 2.59% | 389 / 140.49 / 3.69% | 3.8% | down 0.1 pts |
+| HitTest | 15 / 9.32 / 0.43% | 30 / 49.20 / 1.29% | 0.9% | up 0.4 pts |
+| Commit | 29 / 17.58 / 0.82% | 45 / 68.79 / 1.81% | 0.8% | up 1.0 pts |
+| **Layout/Paint/GPU family total** | — / 354.60 / 16.44% | — / **886.76 / 23.29%** | 33.2% | down 9.9 pts |
+| RunMicrotasks | 142 / 179.33 / 8.31% | 298 / 345.00 / 9.06% | 31.4% | **down 22.3 pts** |
+| FunctionCall | 451 / 600.71 / 27.85% | 984 / 1,525.53 / 40.08% | 27.0% | up 13.1 pts |
+| TimerFire | 180 / 418.56 / 19.41% | 426 / 1,015.51 / 26.67% | 6.4% | up 20.3 pts |
+| MajorGC + MinorGC | 2 / 23.22 / 1.08% | 6 / 62.86 / 1.65% | 1.6% | ~flat |
+
+Row sums checked by hand: 145.61+87.30+38.93+55.86+9.32+17.58 = 354.60 (500-events family total,
+matches); 265.02+189.26+174.00+140.49+49.20+68.79 = 886.76 (2,000-events family total, matches).
+No `GPUTask` row again, same as M0, same non-investigated gap.
+
+**Reading the shift**: the Layout/Paint/GPU family and `FireAnimationFrame` shares both fell
+(consistent with less DOM churn and fewer rAF-scheduled paints during replay), while
+`FunctionCall` and `TimerFire` shares rose. This is expected and not a new cost: the wall-clock
+window itself shrank far more than these categories' absolute durations did (2,000-event wall went
+from ~6,667 ms at M0 to 3,807 ms at M1, roughly half), so categories whose absolute cost did not
+shrink as much as the window (generic V8/native call overhead, `yieldToMacrotask`/paint-yield
+timers introduced by C2's admission hand-off) now make up a larger fraction of a smaller total.
+`RunMicrotasks`' large drop (31.4% -> 9.06%) is consistent with C5 removing most of the
+`yieldToMacrotask` chunk-by-chunk drain that dominated it at M0 (fewer streamed chunks now that
+most content renders via the synchronous path).
+
+Diagnostics JSON: `...\ac11-perf-diagnostic-cold-3tile-500-1789576738580.json`,
+`...\ac11-perf-diagnostic-cold-3tile-2000-1789576876945.json` (clean retry; the failing first
+attempt at `1789576??????` wrote no file).
+
+## DOM node counts (all runs, replaying vs settled, whole-canvas — see AC 2 status below)
+
+**AC 2 status: PARTIAL.** Task 6.1 AC 2 asks for DOM count during replay `<= 2×` the settled count
+**per tile**. The raw diagnostics JSON was checked directly for a per-tile field
+(`node -e "console.log(Object.keys(require(...).domNodes))"` against every M1 JSON) and carries
+only `domNodes.replaying.count` (a single scalar) and `domNodes.settled` (a single scalar) — there
+is no per-tile breakdown anywhere in the harness's output to compute from. The table below is
+therefore a **whole-canvas** measurement, not the per-tile one AC 2 asks for, and every "yes" in it
+answers the whole-canvas question only. This is marked PARTIAL rather than a trailing caveat under
+a table of nine "yes" rows, per methodology review, so a reader does not come away thinking AC 2 is
+cleanly met.
+
+| Run | Replaying (whole-canvas) | Settled (whole-canvas) | Ratio | <= 2× (whole-canvas)? |
+| --- | --------- | ------- | ----- | ------ |
+| Cold dev 1 | 1,790 | 4,900 | 0.365× | yes |
+| Cold dev 2 | 1,798 | 7,308 | 0.246× | yes |
+| Cold dev 3 retry | 1,794 | 5,912 | 0.303× | yes |
+| Warm 1-tile | 2,772 | 2,018 | 1.374× | yes |
+| Warm 3-tile | 1,830 | 8,680 | 0.211× | yes |
+| Production cold | 1,786 | 4,884 | 0.366× | yes |
+| rAF-attribution | 1,798 | 7,608 | 0.236× | yes |
+| Trace 500 | 1,122 | 2,900 | 0.387× | yes |
+| Trace 2,000 retry | 1,790 | 6,644 | 0.269× | yes |
+
+**Every run is well inside the <= 2× budget at whole-canvas granularity** (worst case is warm
+1-tile at 1.374×; every 3-tile case is under 0.4×) — a dramatic reversal from M0's whole-canvas
+~3.5-4.3×, and evidence (not proof) that C5's render-window fence is doing what it was built to do
+(only the tail of 6 plus observer-reported ids mount during replay, instead of every streamed
+node).
+
+**Known measurement gap (carried from Batch 2's item 5, still not closed at M1)**: producing a
+genuine per-tile ratio would require changing `perf-page-capture.ts`
+(`document.querySelectorAll('[data-testid="canvas-tile"] *').length` at :207/:241/:355 samples
+across the whole canvas, with no per-tile-scoped `querySelectorAll`) to sample per-tile counts,
+which this task's own instruction forbids ("Measurement only — no product or spec code change").
+Given the whole-canvas ratio sits at 0.21-0.39× for every 3-tile case (5-9× under the 2× ceiling),
+it is very unlikely any single tile individually exceeds 2×, but **this is an inference from the
+aggregate, not a measurement of the thing AC 2 asks for** — a future measurement batch (or a small,
+separate harness-improvement task) must add the per-tile breakdown before AC 2's DOM clause can be
+marked COMPLETE rather than PARTIAL.
+
+## M0 vs M1 comparison
+
+| Metric | Budget | M0 dev cold (I/J/K) | M1 dev cold (1/2/3-retry) | M0 production | M1 production |
+| ------ | ------ | -------------------- | -------------------------- | -------------- | -------------- |
+| Max single long task (ms) | <= 200 | 1,926 / 1,326 / 1,062 | 220 / 337 / **185** | 1,201 | **166** |
+| Total blocked time (ms) | <= 1,500 | 6,941 / 5,463 / 4,077 | 3,226 / 4,927 / 2,169 | 4,767 | **985** |
+| Settled | — | true / true / true | true / true / true | true | true |
+| DOM ratio (replaying/settled, whole-canvas) | <= 2× (per-tile target) | ~3.5-4.3× | 0.365× / 0.246× / 0.303× | ~3.48-3.7× | 0.366× |
+| Scroll sanity | — | not checked at M0 (harness gained it in Batch 1, no failures observed at M0) | 2 of 11 attempts FAILED (132 px, 31,155 px) | n/a | PASS |
+
+| Metric | M0 (2,000 events) | M1 (2,000 events) | Change |
+| ------ | ------------------- | -------------------- | ------ |
+| rAF calls captured (attribution) | 1,517 | 139 | 10.9× fewer |
+| `scheduleFrame` (E17) share of rAF calls | 88.3% (1,339) | 5.0% (7) | 191× fewer absolute calls |
+| `FireAnimationFrame` count | 1,386 | 86 | 16.1× fewer |
+| `FireAnimationFrame` scaling, 500->2,000 events | 3.09× | 1.76× | more sub-linear |
+| Layout/Paint/GPU family share of wall | 33.2% | 23.29% | down 9.9 pts |
+| Wall-clock window (2,000-event trace run) | ~6,667 ms | ~3,807 ms | ~43% shorter |
+
+**Max improved 5.4-8.8× and total improved ~2.1-2.6× across the three dev cold runs; production's
+max improved 7.2× and total improved 4.8×, moving production from clearly failing to cleanly
+passing both budgets.** This is a large, real improvement, source-attributable to C1+C5 removing
+the dominant per-node rAF cost that M0 identified. It is not enough to meet AC-11's "all three cold
+dev runs" clause, and it surfaced a new functional regression (scroll sanity) that M0 could not
+have shown because C5 did not exist yet.
+
+## M1 verdict
+
+**AC-11 is NOT MET.** Per Task 6.1 AC 3, MET requires all 3 cold dev runs AND the production cold
+run to have `max <= 200` and `total <= 1,500` with `settled: true`.
+
+| Run | Max (ms) | Max <= 200? | Total (ms) | Total <= 1,500? | Settled |
+| --- | -------- | ----------- | ---------- | ----------------- | ------- |
+| Cold dev 1 | 220 | NO (1.1× over) | 3,226 | NO (2.15× over) | true |
+| Cold dev 2 | 337 | NO (1.69× over) | 4,927 | NO (3.28× over) | true |
+| Cold dev 3 (retry) | 185 | yes | 2,169 | NO (1.45× over) | true |
+| Production cold | 166 | yes | 985 | yes | true |
+
+The remaining gap: **every dev cold run still exceeds the total-blocked-time budget** (best case
+run 3-retry, 2,169 ms vs a 1,500 ms budget — a **1.45× / 669 ms** overage; worst case run 2, 4,927
+ms — a **3.28× / 3,427 ms** overage). Two of three dev runs also exceed the per-task max (run 2's
+337 ms is the worst single long task, 1.69× / 137 ms over budget). Production alone clears both
+budgets cleanly with margin (166 ms of 200; 985 ms of 1,500).
+
+**Task 6.1 AC status**:
+
+| AC | Status | Reason |
+| --- | --- | --- |
+| AC 1: same run set + protocol as Task 2.1, plus scroll sanity on every run | COMPLETE | All runs executed, idle-checked, and scroll-sanity-checked; the 2 scroll-sanity failures are disclosed above, not hidden |
+| AC 2: per-tile wall time + DOM <= 2× settled | **PARTIAL** | Per-tile wall time delivered (see "Per-tile wall time" table). DOM <= 2× is measured whole-canvas only — the harness has no per-tile DOM field — so the per-tile half of AC 2 is not proven, only argued as unlikely to fail from the aggregate |
+| AC 3: AC-11 MET only if all cold + production clear both budgets | COMPLETE | Verdict logic applied exactly as specified; NOT MET is the correct conclusion from the numbers above |
+
+**User decision recorded (2026-09-16)**: the user chose **Stage 2 option (ii), tail-paged
+history**, for the remaining AC-11 gap sized above, and separately decided the scroll-sanity
+regression goes to **"architect then C5 fix"** — i.e. the architect scopes the fix first, and the
+implementation lands inside C5 (consistent with `batches.md`'s own residual-risk note that
+anticipated this exact failure mode and pre-assigned it there). Neither decision is implemented in
+this task; both are recorded here so the next batch does not have to re-derive them from a
+Stage 2 planning conversation held outside this document.
+
+**Data for the Stage 2 decision** (`implementation-plan.md` Stage 2 options (iii-b) / (ii) / (i)
+— no option is chosen here and no Stage 2 code was written):
+
+- The remaining blocked time is concentrated exactly where M0 found it: TILE_2 (last-clicked, last
+  admitted by C2) — 89.8%/91.3%/91.5% of each dev run's total in the three cold runs above (run 1
+  2,896/3,226; run 2 4,499/4,927; run 3-retry 1,985/2,169). C1+C5 cut the *per-node* rAF cost
+  inside each tile's replay; they did not change that TILE_2's replay-and-finalize is still
+  serialized behind TILE_0 and TILE_1's by C2's admission queue, so TILE_2 still pays for three
+  tiles' worth of sequential work inside one long-task-observed window.
+- The rAF histogram and trace shares (above) show the remaining cost is no longer dominated by one
+  named call site the way `scheduleFrame` was at M0 — the largest single rAF site now
+  (`scheduleStickToBottom`, 38.1%) is scroll-work code this task must not touch, and the trace's
+  largest generic categories (`FunctionCall` 40.08%, `TimerFire` 26.67% at 2,000 events) are not
+  attributable to one component by name alone. A further per-node budget (Stage 2 option (iii-b))
+  would need to target whatever is still running per-node/per-chunk inside the replay loop itself,
+  since the rAF-specific culprit is gone; a tail-paged-history approach (option (ii) or (i)) would
+  instead reduce the number of chunks TILE_2 has to wait through by changing how much of a session
+  replays before the tile is considered "open," which is a different lever than anything Stage 1
+  touched.
+- Per-tile wall time (this report, "Per-tile wall time") quantifies C2's admission-queue cost
+  directly: TILE_2's click-to-marker latency is 2-5× TILE_0's across the cold/rAF runs. Any Stage 2
+  option that changes admission ordering or overlap should be sized against these numbers.
+- **The scroll-sanity regression (2 of 11 attempts, "Scroll sanity" above) is a separate, blocking
+  finding that is not a Stage 2 sizing input** — it is a functional correctness defect (a tile can
+  render up to 31,155 px from its own content) that `batches.md`'s own residual-risk note already
+  anticipated and assigned to "the fix stays inside C5." This needs the architect's attention before
+  or independently of any Stage 2 perf decision, since a user could hit it today (i.e., on the
+  currently-committed Batch 5 code) at either 500-mid-flight event volumes or under the same timing
+  window that CDP tracing perturbed here.
+
+## Verdict
+
+- Criteria proven: the Batch 1 harness runs unmodified on `0149adef8`; every one of the 13 attempted
+  runs had a clean idle check (0 before, 0 after); no run threw "measurement unusable"; the required
+  clean run set (cold ×3, warm ×2, production ×1, rAF-attribution ×1, trace ×2) is complete via 2
+  retries after 2 scroll-sanity failures; diagnostics JSON exists for every clean run at
+  `D:\projects\ptah-453-perf\m1`; the dev build was restored and the restore verified (`git status
+  --short` clean, HEAD unchanged at `0149adef8` throughout); A8 (scheduleFrame share on a smaller
+  total) is confirmed; the FireAnimationFrame scaling verdict and the DOM-ratio <= 2× check (at
+  whole-canvas granularity) are both confirmed with source-cited numbers.
+- Criteria not proven: AC-11 itself — confirmed NOT MET (dev cold runs fail total blocked time in
+  all 3 cases and max in 2 of 3; production passes cleanly). AC 2's DOM <= 2× clause is **PARTIAL**,
+  not proven per-tile — per-tile DOM breakdown could not be produced with the existing harness — see
+  "Known measurement gap" and the "Task 6.1 AC status" table above.
+- Risks a reader should know about:
+  - **Scroll-sanity regression** (above) — the most important new finding in this section. Treat as
+    a defect to route, not a perf number to size against. User decision recorded: architect scopes
+    the fix, implementation lands in C5.
+  - **The 3-run cold-dev sample may understate the true AC-11 gap.** Two attempts (run 3, trace-2000)
+    failed scroll sanity and were replaced by clean retries; those failed attempts produced zero
+    long-task data (confirmed: neither `m1-run3.log` nor `m1-trace-2000.log` contains an `[AC-11
+    perf] wall=...` or long-task line), so the retry substitution could not recover what those
+    runs' own numbers would have been. Because `scheduleStickToBottom` is the largest single rAF
+    call site in this run set (38.1%) and scroll-sanity failure is by definition a case where that
+    same scroll-correction logic misbehaved, it is plausible that the excluded runs would have shown
+    worse long-task numbers than the clean retries that replaced them. Read the reported 3-run
+    spread as a lower bound on the true AC-11 gap, not a symmetric sample.
+  - Dev cold run 2 (max 337, total 4,927) is meaningfully worse than runs 1 and 3-retry (220/3,226
+    and 185/2,169) on the same commit and same idle-0 machine — this task's own run-to-run variance
+    is still large enough that a single run should not be read as "the" number; the 3-run spread is
+    the honest picture, same caution as M0's report gave.
+  - The two unattributed minified rAF call sites (14.4% combined at M1, versus 5.4% at M0 — a
+    larger *share* though a smaller absolute count, 20 calls vs 82) remain unresolved; same
+    de-minification gap as M0.
+  - `GPUTask` still does not appear in this build/Electron version's trace capture, same known gap
+    as M0.
+  - DOM node ratios are still whole-canvas, not per-tile (Known measurement gap above) — this is
+    the second time this gap has been carried forward (Batch 2's item 5, now this report); closing
+    it needs a small harness change that is out of this task's scope.
+  - This M1 measurement was taken on an idle, uncontended machine for its entire duration, unlike
+    M0's ~50-minute contended period before its first run — the two measurement sessions' wall-clock
+    numbers are not perfectly apples-to-apples for that reason, though `max`/`total` (long-task
+    observer based, not wall-clock polling) should be comparable regardless per the same reasoning
+    M0's report gave.
