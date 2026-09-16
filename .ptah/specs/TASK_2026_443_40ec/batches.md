@@ -1584,7 +1584,7 @@ review round is required).
   `degradation-audit:lint`, memory-curator test). Any `.ts` change voids this and sends the revision back to the
   Ollama Cloud reviewer.
 
-### Task 10.2: Full affected-set run + invariant greps — IN_PROGRESS
+### Task 10.2: Full affected-set run + invariant greps — COMPLETE
 
 - Depends on: Task 10.1 committed
 - Commands (from `W`; record every header; `--parallel=1` re-run rule for R-TL8):
@@ -1608,7 +1608,7 @@ review round is required).
   `memory-lifecycle.store.spec.ts`, `salience-ranking.spec.ts`, `0044_memory_lifecycle.spec.ts`.
 - Output: section "## Task 10.2" in `W\.ptah\specs\TASK_2026_443_40ec\test-report.md`
 
-### Task 10.3: AC9 timing on a TEMP COPY of the snapshot (plan Component 12) — IN_PROGRESS
+### Task 10.3: AC9 timing on a TEMP COPY of the snapshot (plan Component 12) — COMPLETE
 
 - Depends on: Task 10.2
 - Plan reference: implementation-plan.md:872-894; procedure `../TASK_2026_440_834c/test-report.md` Task 7.4 (:252-292)
@@ -1644,6 +1644,72 @@ review round is required).
 - Output: section "## Task 10.3" in `test-report.md` with environment (Node, SQLite, vec versions, disk), pragmas
   read back, counts, every metric, PASS/FAIL, and the safety proofs (snapshot size/mtime before/after, temp dir
   gone, harness gone).
+
+### Task 10.2 result — PASS (COMPLETE)
+
+- `test-report.md` `## Task 10.2`: every command green with the expected headers; all 8 reachability specs 0-skipped;
+  R-TL8 resolved on the prescribed re-run; R-TL11 and R-TL12 did not reproduce.
+- 4 of the 5 invariant greps are clean. The fifth is genuinely non-clean and is NOT a phase 2 regression:
+  `libs/backend/memory-curator/src` imports `agent-sdk` at `curator-pass-admission.ts:55`,
+  `knowledge-agent.service.ts:26` and `memory-trigger.service.ts:36`. The same three imports exist on `origin/main`,
+  and `nx lint memory-curator` reports 0 errors, so the project tags permit them. They contradict the
+  `memory-curator/CLAUDE.md` Cross-Lib Rules sentence ("should not import ... agent-sdk (only via ICuratorLLM port)").
+  FOLLOW-UP TASK filed by the orchestrator; no batch is reopened for it. Named in the Gate 3 residuals.
+
+### Task 10.3 result — MOSTLY PASS (COMPLETE, with M1 accepted and M4 acted on in Task 10.4)
+
+- Safety proofs all confirmed: the snapshot's size and mtime are unchanged, the temp dir is gone, the harness is
+  deleted, and `git status --short -- libs/backend/memory-curator` is clean.
+- PASS: M2 (archive), M3 (age delete at 200), M5 (preview reads and ranked lists), M6 (`recordUse`).
+- **M1 — ACCEPTED DEVIATION, not fixed.** Migration 0044 measured 1066 ms and 1011 ms on two independent copies of the
+  1.18 GB snapshot, against the plan's `<= 1 s` target (about 6% over). Accepted because: the target was an estimate
+  summed from piece measurements (plan `:849`), not a product requirement; this is a ONE-TIME boot migration inside the
+  runner's transaction, which already follows a full pre-migration backup of the same file (seconds, not milliseconds);
+  the 1.18 GB snapshot is the largest database available, so this is the worst case, not the typical one; and n=2, both
+  samples consistent. Not fixed because migration 0044 is COMMITTED and shipped migrations are append-only: editing its
+  SQL would change a version the runner may already have applied. If the cost ever needs cutting, the correct route is a
+  LATER migration that rebuilds an index, never an edit to 0044. Recorded in `test-report.md` and in the Gate 3
+  residuals.
+- **M4 — ACT.** Cap eviction at the production default `memoryDeleteBatchSize = 200` measured max 133-1730 ms. A
+  1730 ms synchronous batch on the Electron main thread is exactly the stall class this umbrella exists to remove, and
+  the plan's fixed rule (`:889-891`) names the remedy. At 100 the sweep PASSES. Task 10.4 applies it.
+
+### Task 10.4: Set `memoryDeleteBatchSize` to 100 from the Task 10.3 sweep — PENDING
+
+- Recommended executor: codex CLI lane (`cli: 'codex'`, role backend-developer). Fallback: backend-developer subagent.
+- Reviewer: Ollama Cloud lane, code-logic-reviewer -> `code-logic-review-task-10-4.md`. REQUIRED before commit: this
+  changes a production constant on the delete path (precedent: phase 1 Task 7.5 was committed separately after review).
+- Suggested commit: `fix(memory-curator): set the lifecycle delete batch to 100 from the measured cap-eviction sweep`
+- Files (exact):
+  - MODIFY `W\libs\backend\memory-curator\src\lib\retention\memory-retention-config.ts` — `:59`
+    `RETENTION_MEMORY_DELETE_BATCH_SIZE = 200` becomes `100`; extend its doc comment with the measurement
+    ("100 from the TASK_2026_443 cap-eviction sweep: 200 reached max 133-1730 ms on a 1.18 GB file, 100 passed the
+    120 ms bound"). Do NOT change the clamp range, `RETENTION_MIN_BATCH_SIZE`, `RETENTION_MAX_MEMORY_ROWS_PER_RUN`,
+    `RETENTION_CAP_EVICTION_GRACE_MS` or any other constant.
+  - MODIFY any spec that asserts 200 for this constant, if one exists (grep
+    `RETENTION_MEMORY_DELETE_BATCH_SIZE|memoryDeleteBatchSize` across `libs/**/*.spec.ts` first and paste the result;
+    the team-leader's grep found none, so an empty result is expected — then say so).
+  - MODIFY `W\libs\backend\memory-curator\CLAUDE.md` `:80` — "delete batches initially capped at 200" becomes 100.
+  - `apps/ptah-docs` needs NO change: its settings tables document only the `memory.*` settings, and this limit is a
+    code constant with no setting key (verified: no `200` in the ptah-docs memory pages refers to it).
+- Quality requirements: the halving floor stays `RETENTION_MIN_BATCH_SIZE` (50), so a slow batch still halves to 50;
+  per-run row cap unchanged at 25,000; no statement, predicate or transaction shape changes.
+- Acceptance: the constant is 100 with the measurement in its comment; `grep -rn "batch.*200\|200.*batch"` over
+  `libs/backend/memory-curator` finds no stale claim; the Task 10.3 recommendation and this value agree.
+- Commands (from `W`):
+  - `npx nx run-many -t test -p @ptah-extension/memory-curator` (1 project)
+  - `npx nx run-many -t typecheck -p @ptah-extension/memory-curator` (1 project)
+  - `npx nx run-many -t lint -p @ptah-extension/memory-curator` (1 project)
+  - `npx nx run-many -t test -p @ptah-extension/thoth-runtime @ptah-extension/cli-engine` (2 projects; the hosts read
+    the limits object)
+  - `npx nx run degradation-audit:lint` (exit 0)
+  - XB1 better-sqlite3 run from `W` in PowerShell (a `|` pattern MUST be quoted `'"a|b"'`, or PowerShell splits the
+    command and strands an `nx run-executor` with no workers):
+    `$env:ELECTRON_RUN_AS_NODE='1'; & 'D:\projects\ptah-extension\node_modules\.bin\electron.cmd' 'D:\projects\ptah-extension\node_modules\jest\bin\jest.js' --config libs/backend/memory-curator/jest.config.ts --testPathPatterns '"memory-retention|memory-lifecycle|retention-run-budget"' --runInBand`
+- NO re-measurement on the snapshot: Task 10.3 already measured 100 as passing on a temp copy. Do not open any database
+  under `C:\Users\abdal\.ptah\state`.
+- Report: `W\.ptah\specs\TASK_2026_443_40ec\task-10-4-report.md`; write `task-10-4.done` LAST; create no other file in
+  the task folder. Do not commit.
 
 ### Batch 10 verification
 
