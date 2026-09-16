@@ -4,6 +4,12 @@ export const GRID_COLUMNS = 12;
 /** Hard tile cap shared by the store and the persistence boundary. */
 export const MAX_CANVAS_TILES = 9;
 
+/** Gridstack row units a full tile occupies. */
+export const FULL_TILE_HEIGHT_UNITS = 6;
+
+/** Gridstack row units a compact tile occupies. */
+export const COMPACT_TILE_HEIGHT_UNITS = 2;
+
 export const TILE_SPANS = ['third', 'half', 'two-thirds', 'full'] as const;
 export type TileSpan = (typeof TILE_SPANS)[number];
 
@@ -43,6 +49,34 @@ export interface TileIntent {
 
 export type CanvasLayoutPreset = 'even-grid' | 'one-plus-two' | 'focus-plus-stack';
 
+/**
+ * Transient height tier for one tile, derived from the owning tab's view mode
+ * in `TabManagerService`. Never stored in `TileIntent` or persistence.
+ */
+export type TileHeightTier = 'full' | 'compact';
+
+/** One tile's transient view constraint: id and height tier only. */
+export interface TileViewConstraint {
+  readonly tabId: string;
+  readonly heightTier: TileHeightTier;
+}
+
+/** Ordered transient view constraints; absent ids project as full. */
+export type TileViewConstraints = readonly TileViewConstraint[];
+
+/**
+ * Stable fingerprint for an ordered constraint list: length-prefixed id and
+ * tier. Gestures compare this string to detect a mid-gesture compact/full
+ * change without depending on object identity.
+ */
+export function viewConstraintsFingerprint(
+  constraints: TileViewConstraints,
+): string {
+  return constraints
+    .map((c) => `${c.tabId.length}:${c.tabId}=${c.heightTier}`)
+    .join('|');
+}
+
 export interface PackedTile {
   readonly tabId: string;
   readonly units: number;
@@ -52,6 +86,17 @@ export interface TilePositionObservation {
   readonly tabId: string;
   readonly x: number;
   readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+/** Complete projected geometry for one tile; concrete values are never stored. */
+export interface ProjectedTileGeometry {
+  readonly tabId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
 }
 
 export function sameWidth(a: TileWidthIntent, b: TileWidthIntent): boolean {
@@ -291,6 +336,181 @@ function apportion(
 }
 
 /**
+ * Preferred width of every tile under the existing row packing, with compact
+ * tiles as fixed participants at the responsive minimum and excluded from
+ * auto-weight remainder sharing. Row membership follows `rowBreakBefore`,
+ * span overflow and the layout-focus flush, exactly as `packRows`.
+ */
+function resolvePreferredWidths(
+  tiles: readonly TileIntent[],
+  capacity: number,
+  layoutFocusTabId: string | null,
+  tierById: ReadonlyMap<string, TileHeightTier>,
+): ReadonlyMap<string, number> {
+  const minimum = minimumUnitsFor(capacity);
+  const widths = new Map<string, number>();
+  let current: TileIntent[] = [];
+  let used = 0;
+  const flush = (): void => {
+    if (current.length > 0) {
+      finishPreferredRow(current, capacity, minimum, tierById, widths);
+    }
+    current = [];
+    used = 0;
+  };
+
+  for (const tile of logicalRows(tiles).flat()) {
+    if (tile.tabId === layoutFocusTabId) {
+      flush();
+      widths.set(tile.tabId, GRID_COLUMNS);
+      continue;
+    }
+    const units =
+      tierById.get(tile.tabId) === 'compact'
+        ? minimum
+        : effectiveUnits(tile.width, capacity);
+    if (current.length > 0 && (tile.rowBreakBefore || used + units > GRID_COLUMNS)) {
+      flush();
+    }
+    current.push(tile);
+    used += units;
+    if (used >= GRID_COLUMNS) flush();
+  }
+  flush();
+  return widths;
+}
+
+function finishPreferredRow(
+  row: readonly TileIntent[],
+  capacity: number,
+  minimum: number,
+  tierById: ReadonlyMap<string, TileHeightTier>,
+  widths: Map<string, number>,
+): void {
+  const autoWeights: number[] = [];
+  let explicitUnits = 0;
+  for (const tile of row) {
+    if (tierById.get(tile.tabId) === 'compact') {
+      explicitUnits += minimum;
+    } else if (tile.width.kind === 'auto') {
+      autoWeights.push(normalizeWeight(tile.width.weight));
+    } else {
+      explicitUnits += effectiveUnits(tile.width, capacity);
+    }
+  }
+  const autoUnits = apportion(autoWeights, GRID_COLUMNS - explicitUnits, minimum);
+  let autoIndex = 0;
+  for (const tile of row) {
+    if (tierById.get(tile.tabId) === 'compact') {
+      widths.set(tile.tabId, minimum);
+    } else if (tile.width.kind === 'auto') {
+      widths.set(tile.tabId, autoUnits[autoIndex++]);
+    } else {
+      widths.set(tile.tabId, effectiveUnits(tile.width, capacity));
+    }
+  }
+}
+
+/**
+ * Deterministic 12-column skyline placement. Reading order is `(order, tabId)`.
+ * A nondecreasing `readingFloorY` lets a later tile fill a hole under an
+ * earlier compact tile but never jump visually above it. `rowBreakBefore` is a
+ * hard fence: it raises the floor to the current maximum skyline. A full auto
+ * tile may contract from its preferred width down to the responsive minimum to
+ * occupy an earlier hole; candidates tie-break by earliest `y`, then widest
+ * width, then lowest `x`, so the same inputs always produce the same output.
+ */
+export function projectTileGeometry(
+  tiles: readonly TileIntent[],
+  capacity: number,
+  layoutFocusTabId: string | null = null,
+  viewConstraints: TileViewConstraints = [],
+): readonly ProjectedTileGeometry[] {
+  const ordered = [...tiles].sort(
+    (a, b) => a.order - b.order || a.tabId.localeCompare(b.tabId),
+  );
+  const tierById = new Map(viewConstraints.map((c) => [c.tabId, c.heightTier]));
+  const preferred = resolvePreferredWidths(
+    ordered,
+    capacity,
+    layoutFocusTabId,
+    tierById,
+  );
+  const minimum = minimumUnitsFor(capacity);
+
+  const skyline: number[] = new Array<number>(GRID_COLUMNS).fill(0);
+  let readingFloorY = 0;
+  const positioned: ProjectedTileGeometry[] = [];
+
+  for (const tile of ordered) {
+    if (tile.tabId === layoutFocusTabId) {
+      readingFloorY = Math.max(readingFloorY, ...skyline);
+      positioned.push({
+        tabId: tile.tabId,
+        x: 0,
+        y: readingFloorY,
+        w: GRID_COLUMNS,
+        h: FULL_TILE_HEIGHT_UNITS,
+      });
+      skyline.fill(readingFloorY + FULL_TILE_HEIGHT_UNITS);
+      readingFloorY += FULL_TILE_HEIGHT_UNITS;
+      continue;
+    }
+    if (tile.rowBreakBefore) {
+      readingFloorY = Math.max(readingFloorY, ...skyline);
+    }
+    const compact = tierById.get(tile.tabId) === 'compact';
+    const h = compact ? COMPACT_TILE_HEIGHT_UNITS : FULL_TILE_HEIGHT_UNITS;
+    let candidates: readonly number[];
+    if (compact) {
+      candidates = [minimum];
+    } else if (tile.width.kind === 'span') {
+      candidates = [effectiveUnits(tile.width, capacity)];
+    } else {
+      const preferredWidth = preferred.get(tile.tabId) ?? minimum;
+      const contraction: number[] = [];
+      for (let w = preferredWidth; w >= minimum; w--) contraction.push(w);
+      candidates = contraction;
+    }
+
+    let bestX = 0;
+    let bestY = 0;
+    let bestW = 0;
+    let found = false;
+    for (const w of candidates) {
+      for (let x = 0; x + w <= GRID_COLUMNS; x++) {
+        let y = readingFloorY;
+        for (let c = x; c < x + w; c++) {
+          if (skyline[c] > y) y = skyline[c];
+        }
+        // Lexicographic (y, -w, x): lower y, then wider, then lower x.
+        if (
+          !found ||
+          y < bestY ||
+          (y === bestY && (w > bestW || (w === bestW && x < bestX)))
+        ) {
+          found = true;
+          bestX = x;
+          bestY = y;
+          bestW = w;
+        }
+      }
+    }
+    positioned.push({ tabId: tile.tabId, x: bestX, y: bestY, w: bestW, h });
+    for (let c = bestX; c < bestX + bestW; c++) skyline[c] = bestY + h;
+    readingFloorY = bestY;
+  }
+  return positioned;
+}
+
+/** Vertical extent of a projection: `max(y + h)`, `0` when empty. */
+export function totalExtentOf(
+  positioned: readonly ProjectedTileGeometry[],
+): number {
+  return positioned.reduce((max, tile) => Math.max(max, tile.y + tile.h), 0);
+}
+
+/**
  * Rewrite width, order and row breaks for a durable preset. `focusedTabId`
  * selects the lead tile of `focus-plus-stack`; the first tile leads otherwise.
  */
@@ -329,16 +549,28 @@ export function projectPreset(
 
 /**
  * Translate a complete post-drag Gridstack observation back to logical intent.
- * Geometry supplies row intent only where it is unambiguous. An observed row
- * boundary with room left for the next tile is a deliberate break; a boundary
- * forced by span overflow keeps the prior logical-row membership. At capacity
- * one, it may reorder within existing row blocks but cannot split or merge them.
+ * Observations carry full `(x, y, w, h)`; each `h` must match the tile's
+ * projected height tier. Equal `y` no longer identifies a logical row, so at
+ * capacity 2/3 the break mask is reconstructed by bounded enumeration: every
+ * candidate `rowBreakBefore` mask over the observed `(y, x, tabId)` order is
+ * run through the same pure skyline projector. Gridstack does not
+ * re-apportion untouched tiles mid-gesture, so a full-tier auto tile matches
+ * the candidate projection on `y` and `h` only — its `x`/`w` are re-derived
+ * when the committed intent is projected again. Named spans and compact
+ * tiles keep the exact `(x, y, w, h)` match, and every tile's `y` is always
+ * strict, so a mask that would move a tile to another row can never match.
+ * The mask with the minimum
+ * Hamming distance from existing break ownership wins; ties choose the
+ * lexicographically smallest mask (false before true). No match rejects the
+ * gesture. At capacity one, every width is 12 and row-break geometry is
+ * ambiguous, so the existing logical-row-block contiguity rule is preserved.
  */
 export function projectDragIntent(
   tiles: readonly TileIntent[],
   observations: readonly TilePositionObservation[],
   draggedId: string,
   capacity: number,
+  viewConstraints: TileViewConstraints = [],
 ): readonly TileIntent[] | null {
   if (!Number.isInteger(capacity) || capacity < 1) return null;
   const orderedTiles = logicalRows(tiles).flat();
@@ -347,17 +579,45 @@ export function projectDragIntent(
     return null;
   }
 
+  const tierById = new Map(viewConstraints.map((c) => [c.tabId, c.heightTier]));
+  const expectedHeightOf = (tabId: string): number =>
+    tierById.get(tabId) === 'compact'
+      ? COMPACT_TILE_HEIGHT_UNITS
+      : FULL_TILE_HEIGHT_UNITS;
+
   const seen = new Set<string>();
   for (const observation of observations) {
     if (
       !expected.has(observation.tabId) ||
       seen.has(observation.tabId) ||
-      !Number.isFinite(observation.x) ||
-      !Number.isInteger(observation.y)
+      !Number.isInteger(observation.x) ||
+      !Number.isInteger(observation.y) ||
+      !Number.isInteger(observation.w) ||
+      !Number.isInteger(observation.h) ||
+      observation.x < 0 ||
+      observation.y < 0 ||
+      observation.w <= 0 ||
+      observation.h <= 0 ||
+      observation.x + observation.w > 12 ||
+      observation.h !== expectedHeightOf(observation.tabId)
     ) {
       return null;
     }
     seen.add(observation.tabId);
+  }
+  for (let index = 0; index < observations.length; index++) {
+    const a = observations[index];
+    for (let otherIndex = index + 1; otherIndex < observations.length; otherIndex++) {
+      const b = observations[otherIndex];
+      if (
+        a.x < b.x + b.w &&
+        a.x + a.w > b.x &&
+        a.y < b.y + b.h &&
+        a.y + a.h > b.y
+      ) {
+        return null;
+      }
+    }
   }
 
   const observed = [...observations].sort(
@@ -403,46 +663,77 @@ export function projectDragIntent(
     }));
   }
 
-  const groups: TilePositionObservation[][] = [];
-  for (const item of observed) {
-    const last = groups[groups.length - 1];
-    if (!last || last[0].y !== item.y) groups.push([item]);
-    else last.push(item);
-  }
+  const count = observed.length;
+  const priorBreaks = observed.map((item) => intentOf(item.tabId).rowBreakBefore);
+  const observedByTabId = new Map(observed.map((item) => [item.tabId, item]));
+  let bestBreaks: boolean[] | null = null;
+  let bestHamming = 0;
 
-  const unitsOf = (tabId: string): number =>
-    effectiveUnits(intentOf(tabId).width, capacity);
-  const result: TileIntent[] = [];
-  groups.forEach((group, groupIndex) => {
-    let breakBefore = false;
-    const previous = groups[groupIndex - 1];
-    if (previous) {
-      const used = previous.reduce((sum, item) => sum + unitsOf(item.tabId), 0);
-      // Mirror packRows' minimum-unit accounting so a dropped row stays put.
-      if (used + unitsOf(group[0].tabId) <= GRID_COLUMNS) {
-        breakBefore = true;
-      } else {
-        const previousId = [...previous]
-          .reverse()
-          .find((item) => item.tabId !== draggedId)?.tabId;
-        const currentId = group.find((item) => item.tabId !== draggedId)?.tabId;
-        const previousRow = previousId
-          ? priorRowById.get(previousId)
-          : undefined;
-        const currentRow = priorRowById.get(currentId ?? draggedId);
-        breakBefore =
-          previousRow !== undefined &&
-          currentRow !== undefined &&
-          previousRow !== currentRow;
+  for (let mask = 0; mask < 1 << (count - 1); mask++) {
+    const candidate: TileIntent[] = observed.map((item, order) => ({
+      ...intentOf(item.tabId),
+      order,
+      rowBreakBefore: order > 0 && ((mask >> (order - 1)) & 1) === 1,
+    }));
+    const projected = projectTileGeometry(
+      candidate,
+      capacity,
+      null,
+      viewConstraints,
+    );
+    if (projected.length !== observed.length) continue;
+    let exact = true;
+    for (const geometry of projected) {
+      const item = observedByTabId.get(geometry.tabId);
+      if (!item || item.y !== geometry.y || item.h !== geometry.h) {
+        exact = false;
+        break;
+      }
+      // Gridstack leaves untouched auto tiles at their pre-drag widths, so a
+      // Full-tier auto tiles and the actively dragged tile match on row
+      // placement only; Gridstack may retain a transient x/w for either until
+      // committed intent is projected again. Unmoved named/compact tiles keep
+      // exact x/w, and y/h are strict for every tile.
+      const horizontalPositionIsTransient =
+        geometry.tabId === draggedId ||
+        (intentOf(geometry.tabId).width.kind === 'auto' &&
+          tierById.get(geometry.tabId) !== 'compact');
+      if (
+        !horizontalPositionIsTransient &&
+        (item.x !== geometry.x || item.w !== geometry.w)
+      ) {
+        exact = false;
+        break;
       }
     }
-    group.forEach((item, index) => {
-      result.push({
-        ...intentOf(item.tabId),
-        order: result.length,
-        rowBreakBefore: index === 0 && breakBefore,
-      });
-    });
-  });
-  return densify(result);
+    if (!exact) continue;
+
+    let hamming = 0;
+    for (let i = 1; i < count; i++) {
+      if (candidate[i].rowBreakBefore !== priorBreaks[i]) hamming++;
+    }
+    if (bestBreaks === null || hamming < bestHamming) {
+      bestBreaks = candidate.map((tile) => tile.rowBreakBefore);
+      bestHamming = hamming;
+      continue;
+    }
+    if (hamming === bestHamming) {
+      // Same cost: keep the lexicographically smaller break array.
+      for (let i = 1; i < count; i++) {
+        const candidateBreak = candidate[i].rowBreakBefore;
+        if (candidateBreak !== bestBreaks[i]) {
+          if (!candidateBreak) {
+            bestBreaks = candidate.map((tile) => tile.rowBreakBefore);
+          }
+          break;
+        }
+      }
+    }
+  }
+  if (bestBreaks === null) return null;
+  return observed.map((item, order) => ({
+    ...intentOf(item.tabId),
+    order,
+    rowBreakBefore: bestBreaks[order],
+  }));
 }

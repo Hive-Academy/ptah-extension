@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { CanvasLayoutService, MAX_COLUMNS, MIN_TILE_WIDTH } from './canvas-layout.service';
-import type { TileIntent, TileWidthIntent } from './canvas-layout-intent';
+import type { TileIntent, TileViewConstraints, TileWidthIntent } from './canvas-layout-intent';
 
 type ObserverCallback = (entries: ResizeObserverEntry[]) => void;
 let callback: ObserverCallback | null;
@@ -13,6 +13,11 @@ const width = (span: 'third' | 'half' | 'two-thirds' | 'full'): TileWidthIntent 
 const tile = (tabId: string, order: number, value: TileWidthIntent = { kind: 'auto', weight: 1 }, rowBreakBefore = false): TileIntent => ({
   tabId, order, width: value, rowBreakBefore,
 });
+const compactOnly = (tabIds: readonly string[]): TileViewConstraints =>
+  tabIds.map((tabId) => ({ tabId, heightTier: 'compact' as const }));
+const compact = (tabId: string): TileViewConstraints => compactOnly([tabId]);
+const geometry = (layout: ReturnType<CanvasLayoutService['computeLayout']>) =>
+  layout.tiles.map(({ tabId, x, y, w, h }) => ({ tabId, x, y, w, h }));
 
 describe('CanvasLayoutService', () => {
   let service: CanvasLayoutService;
@@ -93,6 +98,58 @@ describe('CanvasLayoutService', () => {
     expect(service.computeLayout(intent)).toEqual(before);
   });
 
+  it('renders a compact layout-focus target at twelve by six and restores it after exit', () => {
+    measure(1464);
+    const intent = [tile('A', 0, width('third')), tile('B', 1, width('half')), tile('C', 2, width('third'))];
+    const before = service.computeLayout(intent, null, compact('B'));
+    expect(geometry(service.computeLayout(intent, 'B', compact('B')))).toEqual([
+      { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
+      { tabId: 'B', x: 0, y: 6, w: 12, h: 6 },
+      { tabId: 'C', x: 0, y: 12, w: 4, h: 6 },
+    ]);
+    expect(service.computeLayout(intent, null, compact('B'))).toEqual(before);
+  });
+
+  it('projects the compact height tier and the skyline reflow around it', () => {
+    measure(1464);
+    const intent = [
+      tile('A', 0, width('third')),
+      tile('B', 1, width('third')),
+      tile('C', 2, width('third')),
+      tile('D', 3, width('third')),
+    ];
+    expect(geometry(service.computeLayout(intent, null, compact('B')))).toEqual([
+      { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
+      { tabId: 'B', x: 4, y: 0, w: 4, h: 2 },
+      { tabId: 'C', x: 8, y: 0, w: 4, h: 6 },
+      { tabId: 'D', x: 4, y: 2, w: 4, h: 6 },
+    ]);
+  });
+
+  it('projects an all-compact row at two units without stretching any tile', () => {
+    measure(1464);
+    const intent = [tile('A', 0), tile('B', 1), tile('C', 2)];
+    expect(geometry(service.computeLayout(intent, null, compactOnly(['A', 'B', 'C'])))).toEqual([
+      { tabId: 'A', x: 0, y: 0, w: 4, h: 2 },
+      { tabId: 'B', x: 4, y: 0, w: 4, h: 2 },
+      { tabId: 'C', x: 8, y: 0, w: 4, h: 2 },
+    ]);
+  });
+
+  it('projects compact widths responsively without mutating the stored span', () => {
+    const intent = [tile('A', 0, width('full'))];
+    const before = JSON.stringify(intent);
+    measure(1464);
+    expect(service.computeLayout(intent, null, compact('A')).tiles[0].w).toBe(4);
+    measure(1180);
+    expect(service.computeLayout(intent, null, compact('A')).tiles[0].w).toBe(6);
+    measure(480);
+    expect(service.computeLayout(intent, null, compact('A')).tiles[0].w).toBe(12);
+    measure(1464);
+    expect(service.computeLayout(intent).tiles[0].w).toBe(12);
+    expect(JSON.stringify(intent)).toBe(before);
+  });
+
   it('remains total for zero measurement, height and invalid auto weight', () => {
     expect(service.computeLayout([tile('A', 0)]).tiles).toEqual([]);
     measure(1464, 0);
@@ -101,11 +158,49 @@ describe('CanvasLayoutService', () => {
     expect(service.computeLayout([tile('A', 0, { kind: 'auto', weight: Number.NaN })]).tiles[0].w).toBe(12);
   });
 
-  it('keeps wrapped tiles at least ninety percent of the viewport height', () => {
+  it('keeps wrapped full-height tiles at least ninety percent of the viewport height', () => {
     measure(MIN_TILE_WIDTH, 600);
     const layout = service.computeLayout([tile('A', 0), tile('B', 1), tile('C', 2)]);
     expect(layout.cellHeight).toBe(90);
     expect(layout.cellHeight * 6).toBeGreaterThanOrEqual(0.9 * 600);
+  });
+
+  it('fits an all-compact stack to its true extent without the viewport floor', () => {
+    measure(MIN_TILE_WIDTH, 600);
+    const sixCompact = service.computeLayout(
+      [tile('A', 0), tile('B', 1), tile('C', 2), tile('D', 3), tile('E', 4), tile('F', 5)],
+      null,
+      compactOnly(['A', 'B', 'C', 'D', 'E', 'F']),
+    );
+    expect(sixCompact.tiles.map((t) => [t.tabId, t.y, t.w, t.h])).toEqual([
+      ['A', 0, 12, 2], ['B', 2, 12, 2], ['C', 4, 12, 2],
+      ['D', 6, 12, 2], ['E', 8, 12, 2], ['F', 10, 12, 2],
+    ]);
+    expect(sixCompact.cellHeight).toBe(48);
+    expect(sixCompact.cellHeight).toBeLessThan(90);
+  });
+
+  it('scales the fitted cell height with the skyline extent max(y plus h)', () => {
+    measure(MIN_TILE_WIDTH, 600);
+    const threeCompact = service.computeLayout(
+      [tile('A', 0), tile('B', 1), tile('C', 2)],
+      null,
+      compactOnly(['A', 'B', 'C']),
+    );
+    expect(threeCompact.cellHeight).toBe(97);
+    const sixCompact = service.computeLayout(
+      [tile('A', 0), tile('B', 1), tile('C', 2), tile('D', 3), tile('E', 4), tile('F', 5)],
+      null,
+      compactOnly(['A', 'B', 'C', 'D', 'E', 'F']),
+    );
+    expect(sixCompact.cellHeight).toBe(48);
+  });
+
+  it('keeps a compact singleton at two units instead of stretching it to the viewport', () => {
+    measure(1464, 600);
+    const layout = service.computeLayout([tile('A', 0)], null, compact('A'));
+    expect(layout.tiles[0]).toMatchObject({ w: 4, h: 2 });
+    expect(layout.cellHeight * layout.tiles[0].h).toBeLessThan(600);
   });
 
   it('debounces observed measurements through animation frames and disconnects on destroy', () => {

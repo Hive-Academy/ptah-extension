@@ -119,7 +119,12 @@ export class CanvasStore {
 
   readonly activeWorkspacePath = this._activeWorkspacePath.asReadonly();
   readonly workspacePaths = this._workspacePaths.asReadonly();
-  /** Panel-wide lock: no layout intent or projection changes while true. */
+  /**
+   * Panel-wide lock: no layout intent or projection changes while true. The
+   * one exception is tab-owned view mode: a compact/full toggle is owned by
+   * `TabManagerService`, not by this store, so the workspace grid may still
+   * apply the authoritative geometry reflow a view change implies.
+   */
   readonly layoutLocked = this._layoutLocked.asReadonly();
 
   readonly tiles = computed<readonly CanvasTile[]>(() => {

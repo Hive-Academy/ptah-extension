@@ -1,11 +1,18 @@
 import {
+  COMPACT_TILE_HEIGHT_UNITS,
+  FULL_TILE_HEIGHT_UNITS,
   logicalRows,
   packRows,
   projectDragIntent,
   projectPreset,
+  projectTileGeometry,
   retainTilesInLogicalRows,
   snapSpan,
+  totalExtentOf,
+  viewConstraintsFingerprint,
   type TileIntent,
+  type TilePositionObservation,
+  type TileViewConstraints,
   type TileWidthIntent,
 } from './canvas-layout-intent';
 
@@ -23,6 +30,24 @@ const tiles = (...rows: readonly (readonly [string, TileWidthIntent][])[]): Tile
   }))).map((tile, order) => ({ ...tile, order }));
 const rowIds = (intent: readonly TileIntent[]): readonly string[][] =>
   logicalRows(intent).map((row) => row.map((tile) => tile.tabId));
+const compactConstraint = (tabId: string): TileViewConstraints => [
+  { tabId, heightTier: 'compact' },
+];
+/** Projected boxes as `[tabId, x, y, w, h]` rows for exact assertions. */
+const boxes = (
+  intent: readonly TileIntent[],
+  capacity: number,
+  layoutFocusTabId: string | null = null,
+  viewConstraints: TileViewConstraints = [],
+) =>
+  projectTileGeometry(intent, capacity, layoutFocusTabId, viewConstraints).map(
+    ({ tabId, x, y, w, h }) => [tabId, x, y, w, h],
+  );
+const extentOf = (
+  intent: readonly TileIntent[],
+  capacity: number,
+  viewConstraints: TileViewConstraints = [],
+) => totalExtentOf(projectTileGeometry(intent, capacity, null, viewConstraints));
 
 describe('canvas layout intent', () => {
   it('packs mixed named spans and leaves deliberate gaps', () => {
@@ -84,24 +109,159 @@ describe('canvas layout intent', () => {
     expect(snapSpan(10)).toBe('full');
   });
 
+  it('exposes the six and two unit height tiers', () => {
+    expect(FULL_TILE_HEIGHT_UNITS).toBe(6);
+    expect(COMPACT_TILE_HEIGHT_UNITS).toBe(2);
+  });
+
+  it('fingerprints view constraints structurally', () => {
+    const constraints: TileViewConstraints = [
+      { tabId: 'A', heightTier: 'full' },
+      { tabId: 'B', heightTier: 'compact' },
+    ];
+    const equal: TileViewConstraints = [
+      { tabId: 'A', heightTier: 'full' },
+      { tabId: 'B', heightTier: 'compact' },
+    ];
+    const different: TileViewConstraints = [
+      { tabId: 'A', heightTier: 'compact' },
+      { tabId: 'B', heightTier: 'compact' },
+    ];
+    expect(viewConstraintsFingerprint(constraints)).toBe(viewConstraintsFingerprint(equal));
+    expect(viewConstraintsFingerprint(constraints)).not.toBe(viewConstraintsFingerprint(different));
+  });
+
+  it('projects a compact tile to the responsive minimum width and two-unit height', () => {
+    const intent = tiles([['A', span('full')]]);
+    const before = JSON.stringify(intent);
+    expect(boxes(intent, 3, null, compactConstraint('A'))).toEqual([['A', 0, 0, 4, 2]]);
+    expect(boxes(intent, 2, null, compactConstraint('A'))).toEqual([['A', 0, 0, 6, 2]]);
+    expect(boxes(intent, 1, null, compactConstraint('A'))).toEqual([['A', 0, 0, 12, 2]]);
+    expect(JSON.stringify(intent)).toBe(before);
+  });
+
+  it('fills the hole under a compact tile with the next full tile', () => {
+    const intent = tiles([
+      ['A', span('third')], ['B', span('third')], ['C', span('third')], ['D', span('third')],
+    ]);
+    const constraints = compactConstraint('B');
+    expect(boxes(intent, 3, null, constraints)).toEqual([
+      ['A', 0, 0, 4, 6],
+      ['B', 4, 0, 4, 2],
+      ['C', 8, 0, 4, 6],
+      ['D', 4, 2, 4, 6],
+    ]);
+    expect(extentOf(intent, 3, constraints)).toBe(8);
+  });
+
+  it('ignores a compact tile stored span and keeps the skyline to eight units', () => {
+    const intent = tiles([
+      ['A', span('half')], ['B', span('half')], ['C', span('third')],
+    ]);
+    const constraints = compactConstraint('B');
+    expect(boxes(intent, 3, null, constraints)).toEqual([
+      ['A', 0, 0, 6, 6],
+      ['B', 6, 0, 4, 2],
+      ['C', 6, 2, 4, 6],
+    ]);
+    expect(extentOf(intent, 3, constraints)).toBe(8);
+  });
+
+  it('bands nine compact auto tiles into three two-unit rows', () => {
+    const intent = tiles([
+      ['A', auto()], ['B', auto()], ['C', auto()],
+      ['D', auto()], ['E', auto()], ['F', auto()],
+      ['G', auto()], ['H', auto()], ['I', auto()],
+    ]);
+    const constraints: TileViewConstraints = intent.map((tile) => ({
+      tabId: tile.tabId,
+      heightTier: 'compact',
+    }));
+    expect(boxes(intent, 3, null, constraints)).toEqual([
+      ['A', 0, 0, 4, 2], ['B', 4, 0, 4, 2], ['C', 8, 0, 4, 2],
+      ['D', 0, 2, 4, 2], ['E', 4, 2, 4, 2], ['F', 8, 2, 4, 2],
+      ['G', 0, 4, 4, 2], ['H', 4, 4, 4, 2], ['I', 8, 4, 4, 2],
+    ]);
+    expect(extentOf(intent, 3, constraints)).toBe(6);
+  });
+
+  it('treats an explicit row break as a hard skyline fence', () => {
+    const intent = tiles([
+      ['A', span('third')], ['B', span('third')], ['C', span('third')],
+    ], [['D', span('third')]]);
+    const constraints = compactConstraint('B');
+    expect(boxes(intent, 3, null, constraints)).toEqual([
+      ['A', 0, 0, 4, 6],
+      ['B', 4, 0, 4, 2],
+      ['C', 8, 0, 4, 6],
+      ['D', 0, 6, 4, 6],
+    ]);
+  });
+
+  it('lets a full auto tile contract only to fill an earlier compact hole', () => {
+    const intent = tiles([
+      ['A', auto()], ['B', auto()], ['C', auto()], ['D', auto()],
+    ]);
+    const constraints = compactConstraint('C');
+    expect(boxes(intent, 3, null, constraints)).toEqual([
+      ['A', 0, 0, 4, 6],
+      ['B', 4, 0, 4, 6],
+      ['C', 8, 0, 4, 2],
+      ['D', 8, 2, 4, 6],
+    ]);
+    expect(extentOf(intent, 3, constraints)).toBe(8);
+    // Exiting compact mode removes the hole and restores the preferred width.
+    expect(boxes(intent, 3)[3]).toEqual(['D', 0, 6, 12, 6]);
+    expect(extentOf(intent, 3)).toBe(12);
+  });
+
+  it('renders the layout-focus tile 12x6 even when its view tier is compact', () => {
+    const intent = tiles([['A', span('third')], ['B', span('third')], ['C', span('third')]]);
+    const before = JSON.stringify(intent);
+    expect(boxes(intent, 3, 'B', compactConstraint('B'))).toEqual([
+      ['A', 0, 0, 4, 6],
+      ['B', 0, 6, 12, 6],
+      ['C', 0, 12, 4, 6],
+    ]);
+    expect(JSON.stringify(intent)).toBe(before);
+  });
+
+  it('produces identical geometry for repeated and shuffled input', () => {
+    const intent = tiles([
+      ['A', span('third')], ['B', span('third')], ['C', span('third')], ['D', span('third')],
+    ]);
+    const constraints = compactConstraint('B');
+    const first = boxes(intent, 3, null, constraints);
+    expect(boxes(intent, 3, null, constraints)).toEqual(first);
+    const shuffled = [intent[2], intent[0], intent[3], intent[1]];
+    expect(boxes(shuffled, 3, null, constraints)).toEqual(first);
+  });
+
   it('creates a drag break only when the boundary was not forced by overflow', () => {
     const source = tiles([['A', span('third')], ['B', span('third')], ['C', span('third')]]);
     const deliberate = projectDragIntent(source, [
-      { tabId: 'A', x: 0, y: 0 }, { tabId: 'B', x: 4, y: 0 }, { tabId: 'C', x: 0, y: 6 },
+      { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
+      { tabId: 'B', x: 4, y: 0, w: 4, h: 6 },
+      { tabId: 'C', x: 0, y: 6, w: 4, h: 6 },
     ], 'C', 3);
     expect(deliberate && rowIds(deliberate)).toEqual([['A', 'B'], ['C']]);
 
     const overflowSource = tiles([['A', span('two-thirds')], ['B', span('half')]]);
     const overflow = projectDragIntent(overflowSource, [
-      { tabId: 'A', x: 0, y: 0 }, { tabId: 'B', x: 0, y: 6 },
+      { tabId: 'A', x: 0, y: 0, w: 8, h: 6 },
+      { tabId: 'B', x: 0, y: 6, w: 6, h: 6 },
     ], 'B', 3);
     expect(overflow?.[1].rowBreakBefore).toBe(false);
   });
 
   it('keeps a dropped third auto tile below two auto tiles at capacity three', () => {
     const source = tiles([['A', auto()], ['B', auto()], ['C', auto()]]);
+    // Realistic mid-gesture observation: Gridstack leaves the untouched tiles
+    // at their pre-drag 4-unit widths, so only the relaxed y/h match accepts.
     const projected = projectDragIntent(source, [
-      { tabId: 'A', x: 0, y: 0 }, { tabId: 'B', x: 4, y: 0 }, { tabId: 'C', x: 0, y: 6 },
+      { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
+      { tabId: 'B', x: 4, y: 0, w: 4, h: 6 },
+      { tabId: 'C', x: 0, y: 6, w: 4, h: 6 },
     ], 'C', 3);
     expect(projected?.[2].rowBreakBefore).toBe(true);
     expect(packRows(projected ?? [], 3)).toEqual([
@@ -113,7 +273,9 @@ describe('canvas layout intent', () => {
   it('keeps a dropped third auto tile below two auto tiles at capacity two', () => {
     const source = tiles([['A', auto()], ['B', auto()]], [['C', auto()]]);
     const projected = projectDragIntent(source, [
-      { tabId: 'A', x: 0, y: 0 }, { tabId: 'B', x: 6, y: 0 }, { tabId: 'C', x: 0, y: 6 },
+      { tabId: 'A', x: 0, y: 0, w: 6, h: 6 },
+      { tabId: 'B', x: 6, y: 0, w: 6, h: 6 },
+      { tabId: 'C', x: 0, y: 6, w: 12, h: 6 },
     ], 'C', 2);
     expect(projected?.[2].rowBreakBefore).toBe(true);
     expect(packRows(projected ?? [], 2)).toEqual([
@@ -122,16 +284,157 @@ describe('canvas layout intent', () => {
     ]);
   });
 
+  it('accepts a named tile dropped into an occupied explicit row after Gridstack pushes its sibling down', () => {
+    const source = tiles(
+      [
+        ['A', span('third')],
+        ['B', auto()],
+      ],
+      [['C', auto()]],
+    );
+    const projected = projectDragIntent(source, [
+      { tabId: 'B', x: 0, y: 0, w: 8, h: 6 },
+      // The dragged named tile keeps Gridstack's transient horizontal slot.
+      { tabId: 'A', x: 4, y: 6, w: 4, h: 6 },
+      // float:false pushes the full-width row occupant below the drop.
+      { tabId: 'C', x: 0, y: 12, w: 12, h: 6 },
+    ], 'A', 3);
+
+    expect(projected?.map((tile) => [tile.tabId, tile.rowBreakBefore])).toEqual([
+      ['B', false],
+      ['A', true],
+      ['C', true],
+    ]);
+  });
+
+  it('keeps a full auto hole tile in its hole while another auto tile is dragged below', () => {
+    // Steady skyline: A(0,0,8,6), C compact(8,0,4,2), and full-auto D
+    // contracted into the hole at (8,2,4,6). B remains below the hard fence.
+    // A wrong mask lifts D out of the hole, so its strict projected y rejects
+    // that candidate even though full-auto x/w are deliberately relaxed.
+    const source = tiles(
+      [
+        ['A', span('two-thirds')],
+        ['C', auto()],
+        ['D', auto()],
+      ],
+      [['B', auto()]],
+    );
+    const constraints = compactConstraint('C');
+    const projected = projectDragIntent(source, [
+      { tabId: 'A', x: 0, y: 0, w: 8, h: 6 },
+      { tabId: 'B', x: 0, y: 8, w: 4, h: 6 },
+      { tabId: 'C', x: 8, y: 0, w: 4, h: 2 },
+      { tabId: 'D', x: 8, y: 2, w: 4, h: 6 },
+    ], 'B', 3, constraints);
+    expect(projected?.map((tile) => [tile.tabId, tile.rowBreakBefore])).toEqual([
+      ['A', false], ['C', false], ['D', false], ['B', true],
+    ]);
+    // Re-projecting the committed intent keeps D contracted into the hole.
+    expect(boxes(projected ?? [], 3, null, constraints)).toEqual([
+      ['A', 0, 0, 8, 6],
+      ['C', 8, 0, 4, 2],
+      ['D', 8, 2, 4, 6],
+      ['B', 0, 8, 12, 6],
+    ]);
+  });
+
+  it('accepts a mixed-height reorder across a compact hole', () => {
+    const source = tiles([['A', span('third')], ['B', span('third')], ['C', span('third')]]);
+    const projected = projectDragIntent(source, [
+      { tabId: 'B', x: 0, y: 0, w: 4, h: 2 },
+      { tabId: 'C', x: 4, y: 0, w: 4, h: 6 },
+      { tabId: 'A', x: 8, y: 0, w: 4, h: 6 },
+    ], 'A', 3, compactConstraint('B'));
+    expect(projected?.map((tile) => [tile.tabId, tile.rowBreakBefore])).toEqual([
+      ['B', false], ['C', false], ['A', false],
+    ]);
+  });
+
+  it('recovers the minimum-change break mask when a break is geometrically redundant', () => {
+    const source = tiles(
+      [['A', span('full')]],
+      [['B', span('third')], ['C', span('third')]],
+    );
+    const projected = projectDragIntent(source, [
+      { tabId: 'A', x: 0, y: 0, w: 12, h: 6 },
+      { tabId: 'B', x: 0, y: 6, w: 4, h: 6 },
+      { tabId: 'C', x: 4, y: 6, w: 4, h: 6 },
+    ], 'C', 3);
+    expect(projected && rowIds(projected)).toEqual([['A'], ['B', 'C']]);
+  });
+
+  it('rejects observations with overlaps, bad integers or a wrong height tier', () => {
+    const source = tiles([['A', span('third')], ['B', span('third')]]);
+    expect(projectDragIntent(source, [
+      { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
+      { tabId: 'B', x: 2, y: 0, w: 4, h: 6 },
+    ], 'B', 3)).toBeNull();
+    expect(projectDragIntent(source, [
+      { tabId: 'A', x: 0.5, y: 0, w: 4, h: 6 },
+      { tabId: 'B', x: 4, y: 0, w: 4, h: 6 },
+    ], 'B', 3)).toBeNull();
+    expect(projectDragIntent(source, [
+      { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
+      { tabId: 'B', x: 4, y: 0, w: 4, h: 6 },
+    ], 'B', 3, compactConstraint('B'))).toBeNull();
+  });
+
+  it('rejects nonpositive, negative and horizontally out-of-bounds rectangles', () => {
+    const source = tiles([['A', auto()], ['B', auto()]]);
+    const observe = (a: TilePositionObservation): readonly TilePositionObservation[] => [
+      a,
+      { tabId: 'B', x: 6, y: 0, w: 6, h: 6 },
+    ];
+
+    expect(projectDragIntent(source, observe({
+      tabId: 'A', x: 0, y: 0, w: 0, h: 6,
+    }), 'A', 3)).toBeNull();
+    expect(projectDragIntent(source, observe({
+      tabId: 'A', x: 0, y: 0, w: 6, h: 0,
+    }), 'A', 3)).toBeNull();
+    expect(projectDragIntent(source, observe({
+      tabId: 'A', x: -1, y: 0, w: 6, h: 6,
+    }), 'A', 3)).toBeNull();
+    expect(projectDragIntent(source, observe({
+      tabId: 'A', x: 0, y: -1, w: 6, h: 6,
+    }), 'A', 3)).toBeNull();
+    expect(projectDragIntent(source, observe({
+      tabId: 'A', x: 10, y: 0, w: 3, h: 6,
+    }), 'A', 3)).toBeNull();
+  });
+
   it('preserves logical rows on deletion and rejects invalid observations', () => {
     const source = tiles([['A', auto()]], [['B', auto()], ['C', auto()]]);
     expect(rowIds(retainTilesInLogicalRows(source, new Set(['A', 'C'])))).toEqual([['A'], ['C']]);
-    expect(projectDragIntent(source, [{ tabId: 'A', x: 0, y: 0 }], 'A', 3)).toBeNull();
+    expect(projectDragIntent(source, [
+      { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
+    ], 'A', 3)).toBeNull();
+    expect(projectDragIntent(source, [
+      { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
+      { tabId: 'A', x: 4, y: 0, w: 4, h: 6 },
+      { tabId: 'C', x: 8, y: 0, w: 4, h: 6 },
+    ], 'A', 3)).toBeNull();
   });
 
   it('rejects capacity-one interleaving of old logical rows', () => {
     const source = tiles([['A', auto()], ['B', auto()]], [['C', auto()]]);
     expect(projectDragIntent(source, [
-      { tabId: 'A', x: 0, y: 0 }, { tabId: 'C', x: 0, y: 6 }, { tabId: 'B', x: 0, y: 12 },
+      { tabId: 'A', x: 0, y: 0, w: 12, h: 6 },
+      { tabId: 'C', x: 0, y: 6, w: 12, h: 6 },
+      { tabId: 'B', x: 0, y: 12, w: 12, h: 6 },
     ], 'C', 1)).toBeNull();
+  });
+
+  it('accepts capacity-one reordering inside an existing row block', () => {
+    const source = tiles([['A', auto()], ['B', auto()]], [['C', auto()]]);
+    const projected = projectDragIntent(source, [
+      { tabId: 'B', x: 0, y: 0, w: 12, h: 6 },
+      { tabId: 'A', x: 0, y: 6, w: 12, h: 6 },
+      { tabId: 'C', x: 0, y: 12, w: 12, h: 6 },
+    ], 'B', 1);
+    expect(projected?.map((tile) => [tile.tabId, tile.rowBreakBefore])).toEqual([
+      ['B', false], ['A', false], ['C', true],
+    ]);
   });
 });

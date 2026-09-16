@@ -470,4 +470,293 @@ test.describe('Canvas', () => {
       })}`,
     );
   });
+
+  test('compact tile shrinks to two units and neighbours reflow into the freed space', async ({
+    ui,
+  }) => {
+    const page = ui.page;
+    await page.setViewportSize({ width: 2600, height: 1200 });
+    await ui.goto('canvas');
+
+    const createTile = async (): Promise<void> => {
+      const priorCount = await page
+        .locator('[data-testid="canvas-tile"]')
+        .count();
+      if (priorCount === 0) {
+        await page.getByRole('button', { name: 'Create new session' }).click();
+      } else {
+        await page
+          .getByRole('button', { name: 'Add new session tile' })
+          .click();
+      }
+      await page.getByRole('button', { name: 'Create', exact: true }).click();
+      await expect(page.locator('[data-testid="canvas-tile"]')).toHaveCount(
+        priorCount + 1,
+      );
+    };
+    for (let index = 0; index < 4; index += 1) {
+      await createTile();
+    }
+
+    const items = page.locator('gridstack-item');
+    await expect(items).toHaveCount(4);
+
+    // Deterministic third spans for every tile: the projector reproduces their
+    // fixed four-unit widths exactly, so the reflow below depends only on the
+    // compact view tier.
+    const setSpanToThird = async (index: number): Promise<void> => {
+      await items
+        .nth(index)
+        .locator('[data-testid="tile-layout-trigger"]')
+        .click();
+      await items.nth(index).locator('button[data-span="third"]').click();
+    };
+    for (let index = 0; index < 4; index += 1) {
+      await setSpanToThird(index);
+    }
+
+    type Geometry = Array<{
+      x: string | null;
+      y: string | null;
+      w: string | null;
+      h: string | null;
+    }>;
+    const readGeometry = (): Promise<Geometry> =>
+      items.evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          x: node.getAttribute('gs-x'),
+          y: node.getAttribute('gs-y'),
+          w: node.getAttribute('gs-w'),
+          h: node.getAttribute('gs-h'),
+        })),
+      );
+    const fullThirds: Geometry = [
+      { x: '0', y: '0', w: '4', h: '6' },
+      { x: '4', y: '0', w: '4', h: '6' },
+      { x: '8', y: '0', w: '4', h: '6' },
+      { x: '0', y: '6', w: '4', h: '6' },
+    ];
+    await expect.poll(readGeometry).toEqual(fullThirds);
+
+    // Compact the second tile: two height units, responsive minimum width, and
+    // the fourth tile rises into the hole under it.
+    await items
+      .nth(1)
+      .locator('[data-testid="tile-view-mode-toggle"]')
+      .click();
+    await expect.poll(readGeometry).toEqual([
+      { x: '0', y: '0', w: '4', h: '6' },
+      { x: '4', y: '0', w: '4', h: '2' },
+      { x: '8', y: '0', w: '4', h: '6' },
+      { x: '4', y: '2', w: '4', h: '6' },
+    ]);
+
+    // A compact tile carries no resize handle.
+    const compactResizeHandles = items
+      .nth(1)
+      .locator('.ui-resizable-handle');
+    await expect(compactResizeHandles).toHaveCount(2);
+    for (let index = 0; index < 2; index += 1) {
+      await expect(compactResizeHandles.nth(index)).toBeHidden();
+    }
+
+    // Back to full: the stored third span returns untouched and the fourth
+    // tile leaves the hole.
+    await items
+      .nth(1)
+      .locator('[data-testid="tile-view-mode-toggle"]')
+      .click();
+    await expect.poll(readGeometry).toEqual(fullThirds);
+  });
+
+  test('locked canvas reflows for a view-mode change but commits no gesture', async ({
+    ui,
+  }) => {
+    const page = ui.page;
+    await page.setViewportSize({ width: 2600, height: 1200 });
+    await ui.goto('canvas');
+
+    const createTile = async (): Promise<void> => {
+      const priorCount = await page
+        .locator('[data-testid="canvas-tile"]')
+        .count();
+      if (priorCount === 0) {
+        await page.getByRole('button', { name: 'Create new session' }).click();
+      } else {
+        await page
+          .getByRole('button', { name: 'Add new session tile' })
+          .click();
+      }
+      await page.getByRole('button', { name: 'Create', exact: true }).click();
+      await expect(page.locator('[data-testid="canvas-tile"]')).toHaveCount(
+        priorCount + 1,
+      );
+    };
+    for (let index = 0; index < 4; index += 1) {
+      await createTile();
+    }
+
+    const items = page.locator('gridstack-item');
+    const grid = page.locator('ptah-canvas-workspace-grid:visible');
+    const dock = page.locator('[data-testid="canvas-dock"]');
+    await expect(items).toHaveCount(4);
+
+    // Named third spans must be committed before locking — the store refuses
+    // span writes while locked.
+    const setSpanToThird = async (index: number): Promise<void> => {
+      await items
+        .nth(index)
+        .locator('[data-testid="tile-layout-trigger"]')
+        .click();
+      await items.nth(index).locator('button[data-span="third"]').click();
+    };
+    for (let index = 0; index < 4; index += 1) {
+      await setSpanToThird(index);
+    }
+
+    type Geometry = Array<{
+      x: string | null;
+      y: string | null;
+      w: string | null;
+      h: string | null;
+    }>;
+    const readGeometry = (): Promise<Geometry> =>
+      items.evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          x: node.getAttribute('gs-x'),
+          y: node.getAttribute('gs-y'),
+          w: node.getAttribute('gs-w'),
+          h: node.getAttribute('gs-h'),
+        })),
+      );
+    const fullThirds: Geometry = [
+      { x: '0', y: '0', w: '4', h: '6' },
+      { x: '4', y: '0', w: '4', h: '6' },
+      { x: '8', y: '0', w: '4', h: '6' },
+      { x: '0', y: '6', w: '4', h: '6' },
+    ];
+    await expect.poll(readGeometry).toEqual(fullThirds);
+
+    // Lock the layout.
+    const layoutTrigger = dock.getByRole('button', {
+      name: 'Layout options',
+      exact: true,
+    });
+    await expect(layoutTrigger).toBeEnabled();
+    await layoutTrigger.evaluate((button) => {
+      (button as HTMLButtonElement).click();
+    });
+    const lockBtn = page.getByRole('button', { name: /Lock (tiles|layout)/i });
+    await lockBtn.evaluate((button) => {
+      (button as HTMLButtonElement).click();
+    });
+    await expect(grid.locator('gridstack')).toHaveClass(/grid-stack-static/);
+
+    // Every dock preset is disabled while locked.
+    const presetButtons = dock.locator(
+      '[role="group"][aria-label="Layout presets"] button[data-preset]',
+    );
+    await expect(presetButtons).toHaveCount(3);
+    for (let index = 0; index < 3; index += 1) {
+      await expect(presetButtons.nth(index)).toBeDisabled();
+    }
+    await page.keyboard.press('Escape');
+
+    // Every tile layout menu item is disabled while locked; the adjacent
+    // view-mode toggle is the deliberate exception.
+    await items
+      .nth(0)
+      .locator('[data-testid="tile-layout-trigger"]')
+      .click();
+    const menuButtons = items.nth(0).locator('[data-layout-item]');
+    await expect(menuButtons).toHaveCount(6);
+    for (let index = 0; index < 6; index += 1) {
+      await expect(menuButtons.nth(index)).toBeDisabled();
+    }
+    const viewToggle = items
+      .nth(0)
+      .locator('[data-testid="tile-view-mode-toggle"]');
+    await expect(viewToggle).toBeEnabled();
+    await page.keyboard.press('Escape');
+
+    const commitsBefore = Number(
+      (await grid.getAttribute('data-canvas-gesture-commits')) ?? '-1',
+    );
+
+    // A view-mode change on a locked grid still reflows the geometry — the
+    // narrow lock exception — and never commits a store gesture.
+    await items
+      .nth(1)
+      .locator('[data-testid="tile-view-mode-toggle"]')
+      .click();
+    await expect.poll(readGeometry).toEqual([
+      { x: '0', y: '0', w: '4', h: '6' },
+      { x: '4', y: '0', w: '4', h: '2' },
+      { x: '8', y: '0', w: '4', h: '6' },
+      { x: '4', y: '2', w: '4', h: '6' },
+    ]);
+    expect(await grid.getAttribute('data-canvas-gesture-commits')).toBe(
+      String(commitsBefore),
+    );
+
+    // Exiting compact restores the frozen arrangement exactly.
+    await items
+      .nth(1)
+      .locator('[data-testid="tile-view-mode-toggle"]')
+      .click();
+    await expect.poll(readGeometry).toEqual(fullThirds);
+    expect(await grid.getAttribute('data-canvas-gesture-commits')).toBe(
+      String(commitsBefore),
+    );
+
+    // Unlock returns the grid to an interactive state.
+    await layoutTrigger.click();
+    const unlockBtn = dock.getByRole('button', {
+      name: 'Unlock tiles',
+      exact: true,
+    });
+    await expect(unlockBtn).toBeEnabled();
+    await unlockBtn.click();
+    await expect(grid.locator('gridstack')).not.toHaveClass(
+      /grid-stack-static/,
+    );
+  });
+
+  test('a compact singleton keeps two height units instead of filling the grid', async ({
+    ui,
+  }) => {
+    const page = ui.page;
+    await page.setViewportSize({ width: 2600, height: 1200 });
+    await ui.goto('canvas');
+
+    await page.getByRole('button', { name: 'Create new session' }).click();
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+
+    const items = page.locator('gridstack-item');
+    await expect(items).toHaveCount(1);
+
+    await items
+      .nth(0)
+      .locator('[data-testid="tile-view-mode-toggle"]')
+      .click();
+
+    // Two height units at the responsive minimum width — not the expanded
+    // singleton that stretches to the whole grid.
+    await expect(items.nth(0)).toHaveAttribute('gs-h', '2');
+    await expect(items.nth(0)).toHaveAttribute('gs-w', '4');
+
+    const visibleGrid = page.locator(
+      'ptah-canvas-workspace-grid:visible gridstack',
+    );
+    await expect(visibleGrid).not.toHaveClass(/singleton-expanded/);
+    await expect
+      .poll(async () => {
+        const [gridBox, itemBox] = await Promise.all([
+          visibleGrid.boundingBox(),
+          items.nth(0).boundingBox(),
+        ]);
+        return Boolean(gridBox && itemBox && itemBox.height < gridBox.height);
+      })
+      .toBe(true);
+  });
 });
