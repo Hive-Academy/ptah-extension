@@ -26,6 +26,13 @@ export interface BacklogCleanupCounters {
 
 /** Per-run counters that are intentionally not persisted in migration 0045. */
 export interface BacklogCleanupRunCounters extends BacklogCleanupCounters {
+  /**
+   * Per-run, not persisted. Candidates kept because no source session resolved
+   * a workspace root, so no transcript read was attempted. Persisted kept and
+   * rejected counters therefore sum to examined minus the run-summed
+   * keptRootUnknown and deferredOnError counters.
+   */
+  keptRootUnknown: number;
   /** Candidates left untouched because inspecting them threw. */
   deferredOnError: number;
 }

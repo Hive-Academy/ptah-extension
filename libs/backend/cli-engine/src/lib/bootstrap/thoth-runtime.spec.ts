@@ -160,6 +160,7 @@ function makeRuntimeDoubles(
         rejectedTranscriptUnreadable: 0,
         invocationsDeleted: 4,
         deferredOnError: 0,
+        keptRootUnknown: 0,
         durationMs: 2,
         error: null,
       })),

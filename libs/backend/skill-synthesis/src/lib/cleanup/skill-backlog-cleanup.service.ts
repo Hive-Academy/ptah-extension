@@ -52,12 +52,14 @@ type CandidateDisposition =
   | 'kept-evidence'
   | 'kept-verdict'
   | 'kept-degraded-verdict'
+  | 'kept-root-unknown'
   | 'deferred-error'
   | 'reject-no-evidence'
   | 'reject-unreadable';
 
 interface RunProgress {
   state: BacklogCleanupState | null;
+  keptRootUnknown: number;
   deferredOnError: number;
 }
 
@@ -79,7 +81,11 @@ export class SkillBacklogCleanupService {
   async run(options: BacklogCleanupRunOptions): Promise<BacklogCleanupReport> {
     const now = options.now ?? Date.now;
     const runStartedAt = now();
-    const progress: RunProgress = { state: null, deferredOnError: 0 };
+    const progress: RunProgress = {
+      state: null,
+      keptRootUnknown: 0,
+      deferredOnError: 0,
+    };
     try {
       const config = this.readConfig();
       if (!config.enabled) return { status: 'skipped', reason: 'disabled' };
@@ -204,6 +210,9 @@ export class SkillBacklogCleanupService {
             { candidateId: candidate.id, error: this.errorText(error) },
           );
         }
+        if (disposition === 'kept-root-unknown') {
+          progress.keptRootUnknown++;
+        }
         this.countDisposition(increments, disposition);
         if (disposition === 'reject-no-evidence') {
           rejections.push({ id: candidate.id, reason: REJECT_NO_EVIDENCE });
@@ -279,12 +288,14 @@ export class SkillBacklogCleanupService {
     }
 
     let readable = false;
+    let attempted = false;
     for (const sessionId of candidate.sourceSessionIds) {
       const queued = this.queue.findBySessionStage(sessionId, 'prefilter');
       const workspaceRoot = candidate.workspaceRoot
         ? candidate.workspaceRoot
         : queued?.workspaceRoot;
       if (!workspaceRoot) continue;
+      attempted = true;
       const trajectory = await this.extractor.extract(
         sessionId,
         workspaceRoot,
@@ -302,7 +313,11 @@ export class SkillBacklogCleanupService {
         return 'kept-evidence';
       }
     }
-    return readable ? 'reject-no-evidence' : 'reject-unreadable';
+    return readable
+      ? 'reject-no-evidence'
+      : attempted
+        ? 'reject-unreadable'
+        : 'kept-root-unknown';
   }
 
   private deleteInvocationsAndComplete(
@@ -417,6 +432,7 @@ export class SkillBacklogCleanupService {
   ): BacklogCleanupRunCounters {
     return {
       ...(state ? this.countersFrom(state) : this.emptyCounters()),
+      keptRootUnknown: progress.keptRootUnknown,
       deferredOnError: progress.deferredOnError,
     };
   }

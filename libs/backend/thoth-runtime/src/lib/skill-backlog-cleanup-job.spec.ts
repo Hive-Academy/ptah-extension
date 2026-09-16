@@ -43,6 +43,7 @@ function runReport(
     rejectedTranscriptUnreadable: 2,
     invocationsDeleted: 9,
     deferredOnError: 5,
+    keptRootUnknown: 7,
     durationMs: 10,
     error: null,
     ...overrides,
@@ -98,14 +99,14 @@ describe('createSkillBacklogCleanupHandler', () => {
     expect(options.isOnBattery()).toBe(true);
   });
 
-  it('summarizes every outcome counter including deferredOnError', async () => {
+  it('summarizes every outcome counter including per-run counters', async () => {
     const { container } = makeDoubles();
 
     await expect(
       createSkillBacklogCleanupHandler(container)(makeCtx()),
     ).resolves.toEqual({
       summary:
-        'examined 12, rejected 6, kept 6, invocations deleted 9, deferred on error 5',
+        'examined 12, rejected 6, kept 6, invocations deleted 9, deferred on error 5, root unknown 7',
     });
   });
 

@@ -89,6 +89,12 @@ describe('skill backlog cleanup integration', () => {
     const degraded = register('degraded', 'degraded-session', 13);
     const missing = register('missing', 'missing-session', 14);
     const fallback = register('fallback', 'fallback-session', 15, null);
+    const rootUnknown = register(
+      'root-unknown',
+      'root-unknown-session',
+      16,
+      null,
+    );
     const after = register('after', 'after-session', 1_001);
 
     verdicts.save({
@@ -161,17 +167,27 @@ describe('skill backlog cleanup integration', () => {
     });
     expect(report).toMatchObject({
       status: 'completed',
-      examined: 6,
+      examined: 7,
       keptEvidence: 2,
       keptVerdict: 1,
       keptDegradedVerdict: 1,
       rejectedNoEvidence: 1,
       rejectedTranscriptUnreadable: 1,
+      keptRootUnknown: 1,
       invocationsDeleted: 2,
     });
 
     const byId = new Map(
-      [edit, chat, verdict, degraded, missing, fallback, after].map((item) => {
+      [
+        edit,
+        chat,
+        verdict,
+        degraded,
+        missing,
+        fallback,
+        rootUnknown,
+        after,
+      ].map((item) => {
         const current = candidates.findById(item.id);
         if (!current) throw new Error(`candidate ${item.id} disappeared`);
         return [item.name, current] as const;
@@ -179,6 +195,7 @@ describe('skill backlog cleanup integration', () => {
     );
     expect(byId.get('edit')?.status).toBe('candidate');
     expect(byId.get('fallback')?.status).toBe('candidate');
+    expect(byId.get('root-unknown')?.status).toBe('candidate');
     expect(byId.get('verdict')?.status).toBe('candidate');
     expect(byId.get('degraded')?.status).toBe('candidate');
     expect(byId.get('chat')).toMatchObject({
@@ -195,7 +212,7 @@ describe('skill backlog cleanup integration', () => {
     ).toEqual([{ id: 'tracker' }]);
     expect(cleanupStore.readState()).toMatchObject({
       finishedAt: 1_000,
-      examined: 6,
+      examined: 7,
       invocationsDeleted: 2,
     });
 

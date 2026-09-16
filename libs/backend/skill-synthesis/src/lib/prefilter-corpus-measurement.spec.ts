@@ -79,6 +79,15 @@ function passesPrefilterOld(t: ExtractedTrajectory): boolean {
   return editOk || toolOk || testOk || depthOk;
 }
 
+/** The phase-3 predicate before MCP-only tool evidence was tightened. */
+function passesPrefilterPhase3Untightened(t: ExtractedTrajectory): boolean {
+  return (
+    t.editCount >= OLD_SETTINGS.prefilterMinEdits ||
+    t.toolUseCount >= OLD_SETTINGS.prefilterMinToolUses ||
+    t.bashTestPassed === true
+  );
+}
+
 function listJsonl(dir: string): string[] {
   const out: string[] = [];
   const walk = (d: string): void => {
@@ -147,7 +156,9 @@ suite('prefilter evidence narrowing — corpus measurement (opt-in)', () => {
     let scanned = 0;
     let nullTrajectory = 0;
     let oldEligible = 0;
+    let phase3UntightenedEligible = 0;
     let newEligible = 0;
+    let mcpOnlyRejected = 0;
     let phase2DepthOnly = 0;
     const perWorkspace: Record<
       string,
@@ -189,17 +200,20 @@ suite('prefilter evidence narrowing — corpus measurement (opt-in)', () => {
         perDay[day] = (perDay[day] ?? 0) + 1;
 
         const o = passesPrefilterOld(t);
+        const u = passesPrefilterPhase3Untightened(t);
         const n = passesNew(t);
         if (o) {
           oldEligible++;
           perWorkspace[ws].old++;
         }
+        if (u) phase3UntightenedEligible++;
         if (n) {
           newEligible++;
           perWorkspace[ws].new++;
           perDayEligibleNew[day] = (perDayEligibleNew[day] ?? 0) + 1;
         }
-        if (o && !n) {
+        if (u && !n) mcpOnlyRejected++;
+        if (o && !u) {
           phase2DepthOnly++;
         }
       }
@@ -218,7 +232,9 @@ suite('prefilter evidence narrowing — corpus measurement (opt-in)', () => {
       nullTrajectory,
       extracted: scanned - nullTrajectory,
       phase2Eligible: oldEligible,
+      phase3UntightenedEligible,
       phase3Eligible: newEligible,
+      mcpOnlyRejected,
       retainedFraction:
         oldEligible === 0 ? null : +(newEligible / oldEligible).toFixed(3),
       removedFromEligibility: oldEligible - newEligible,

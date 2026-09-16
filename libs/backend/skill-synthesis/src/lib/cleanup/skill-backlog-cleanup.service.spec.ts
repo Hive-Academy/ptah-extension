@@ -129,6 +129,7 @@ const conversationTrajectory = (sessionId: string) => ({
   slug: 'desc',
   editCount: 0,
   toolUseCount: 0,
+  nonMcpToolUseCount: 0,
   bashTestPassed: false,
   charLength: 4,
   hasSuccessMarker: false,
@@ -226,6 +227,7 @@ describe('SkillBacklogCleanupService', () => {
       slug: 'desc',
       editCount: sessionId === 'edit-session' ? 1 : 0,
       toolUseCount: 0,
+      nonMcpToolUseCount: 0,
       bashTestPassed: false,
       charLength: 4,
       hasSuccessMarker: false,
@@ -248,7 +250,26 @@ describe('SkillBacklogCleanupService', () => {
     );
   });
 
-  it('rejects an unreadable transcript with its distinct reason', async () => {
+  it('keeps a candidate when no source session resolves a workspace root', async () => {
+    const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
+    h.store.pageCandidates
+      .mockReturnValueOnce([row({ workspaceRoot: null })])
+      .mockReturnValueOnce([]);
+
+    const report = await h.service.run({
+      signal: live(),
+      isOnBattery: () => false,
+    });
+
+    expect(report).toMatchObject({
+      keptRootUnknown: 1,
+      rejectedTranscriptUnreadable: 0,
+    });
+    expect(h.extractor.extract).not.toHaveBeenCalled();
+    expect(h.store.rejectBatch).toHaveBeenCalledWith([], expect.any(Number));
+  });
+
+  it('rejects an unreadable transcript after a read is attempted', async () => {
     const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
     h.store.pageCandidates
       .mockReturnValueOnce([row()])
@@ -258,6 +279,40 @@ describe('SkillBacklogCleanupService', () => {
     expect(h.store.rejectBatch).toHaveBeenCalledWith(
       [{ id: 'candidate-1', reason: 'backlog-cleanup: transcript unreadable and no verdict' }],
       expect.any(Number),
+    );
+  });
+
+  it('rejects as unreadable when a later source session resolves a root and its read fails', async () => {
+    const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
+    h.store.pageCandidates
+      .mockReturnValueOnce([
+        row({
+          workspaceRoot: null,
+          sourceSessionIds: ['root-unknown', 'root-known'],
+        }),
+      ])
+      .mockReturnValueOnce([]);
+    h.queue.findBySessionStage.mockImplementation((sessionId: string) =>
+      sessionId === 'root-known'
+        ? ({ workspaceRoot: '/resolved-root', transcriptPath: null } as never)
+        : null,
+    );
+
+    const report = await h.service.run({
+      signal: live(),
+      isOnBattery: () => false,
+    });
+
+    expect(report).toMatchObject({
+      keptRootUnknown: 0,
+      rejectedTranscriptUnreadable: 1,
+    });
+    expect(h.extractor.extract).toHaveBeenCalledTimes(1);
+    expect(h.extractor.extract).toHaveBeenCalledWith(
+      'root-known',
+      '/resolved-root',
+      2,
+      undefined,
     );
   });
 
@@ -310,8 +365,17 @@ describe('SkillBacklogCleanupService', () => {
       .mockReturnValueOnce([row({ id: 'corrupt', sourceSessionIds: [] })])
       .mockReturnValueOnce([]);
 
-    await h.service.run({ signal: live(), isOnBattery: () => false });
+    const report = await h.service.run({
+      signal: live(),
+      isOnBattery: () => false,
+    });
 
+    expect(report).toMatchObject({
+      keptRootUnknown: 1,
+      rejectedTranscriptUnreadable: 0,
+    });
+    expect(h.extractor.extract).not.toHaveBeenCalled();
+    expect(h.store.rejectBatch).toHaveBeenCalledWith([], expect.any(Number));
     expect(h.log.warn).toHaveBeenCalledTimes(1);
     expect(h.log.warn).toHaveBeenCalledWith(
       '[skill-synthesis] backlog candidate has no usable source sessions',

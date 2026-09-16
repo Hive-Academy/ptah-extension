@@ -155,6 +155,7 @@ describe('SkillSynthesisService', () => {
         slug: 'do-thing',
         editCount: 2,
         toolUseCount: 4,
+        nonMcpToolUseCount: 4,
         bashTestPassed: false,
         charLength: 5,
         hasSuccessMarker: true,
@@ -424,6 +425,7 @@ describe('SkillSynthesisService', () => {
       slug: 'do-thing',
       editCount: 0,
       toolUseCount: 0,
+      nonMcpToolUseCount: 0,
       bashTestPassed: false,
       charLength: 5,
       hasSuccessMarker: false,
@@ -451,6 +453,7 @@ describe('SkillSynthesisService', () => {
       slug: 'do-thing',
       editCount: 1,
       toolUseCount: 1,
+      nonMcpToolUseCount: 1,
       bashTestPassed: false,
       charLength: 10,
       hasSuccessMarker: false,
@@ -473,6 +476,7 @@ describe('SkillSynthesisService', () => {
       slug: 'do-thing',
       editCount: 0,
       toolUseCount: 3,
+      nonMcpToolUseCount: 3,
       bashTestPassed: false,
       charLength: 900,
       hasSuccessMarker: false,
@@ -506,6 +510,7 @@ describe('SkillSynthesisService', () => {
         slug: 'do-thing',
         editCount: 0,
         toolUseCount: 0,
+        nonMcpToolUseCount: 0,
         bashTestPassed: false,
         charLength: 100,
         hasSuccessMarker: false,
@@ -519,7 +524,11 @@ describe('SkillSynthesisService', () => {
       const { svc, store, extractor } = setup();
       await svc.start();
       (extractor.extract as jest.Mock).mockResolvedValue(
-        shape({ toolUseCount: 3, charLength: 120 }),
+        shape({
+          toolUseCount: 3,
+          nonMcpToolUseCount: 3,
+          charLength: 120,
+        }),
       );
 
       const result = await svc.analyzeSession('s-short-tools', '/repo');
@@ -650,6 +659,7 @@ describe('SkillSynthesisService', () => {
       slug: 'do-thing',
       editCount: 0,
       toolUseCount: 1,
+      nonMcpToolUseCount: 1,
       bashTestPassed: false,
       charLength: 100,
       hasSuccessMarker: false,
@@ -728,6 +738,7 @@ describe('SkillSynthesisService', () => {
         slug: 'do-thing',
         editCount: 2,
         toolUseCount: 4,
+        nonMcpToolUseCount: 4,
         bashTestPassed: false,
         charLength: 5,
         hasSuccessMarker: true,
@@ -751,6 +762,7 @@ describe('SkillSynthesisService', () => {
       slug: 'do-thing',
       editCount: 2,
       toolUseCount: 4,
+      nonMcpToolUseCount: 4,
       bashTestPassed: false,
       charLength: 5,
       hasSuccessMarker: true,
@@ -876,6 +888,7 @@ describe('SkillSynthesisService', () => {
       slug: 'edit',
       editCount: 1,
       toolUseCount: 0,
+      nonMcpToolUseCount: 0,
       bashTestPassed: false,
       charLength: 13,
       hasSuccessMarker: false,

@@ -88,6 +88,7 @@ function trajectory(turnCount: number) {
     slug: 'do-thing',
     editCount: 2,
     toolUseCount: 4,
+    nonMcpToolUseCount: 4,
     bashTestPassed: false,
     charLength: 900,
     hasSuccessMarker: true,

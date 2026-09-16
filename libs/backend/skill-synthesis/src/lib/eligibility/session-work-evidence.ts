@@ -8,8 +8,9 @@ export type SessionWorkEvidenceThresholds = Pick<
 
 /**
  * Whether a session contains observable workspace work: enough edit operations,
- * enough tool uses, or a shell test command. `bashTestPassed` records that a
- * test command ran; it does not establish that the test succeeded.
+ * enough non-MCP tool uses, or a shell test command. MCP tools (`mcp__*`) do
+ * not count. `bashTestPassed` records that a test command ran; it does not
+ * establish that the test succeeded.
  */
 export function hasSessionWorkEvidence(
   trajectory: ExtractedTrajectory,
@@ -17,7 +18,7 @@ export function hasSessionWorkEvidence(
 ): boolean {
   return (
     trajectory.editCount >= thresholds.prefilterMinEdits ||
-    trajectory.toolUseCount >= thresholds.prefilterMinToolUses ||
+    trajectory.nonMcpToolUseCount >= thresholds.prefilterMinToolUses ||
     trajectory.bashTestPassed === true
   );
 }

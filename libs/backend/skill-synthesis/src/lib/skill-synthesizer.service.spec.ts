@@ -45,6 +45,7 @@ function trajectory(
     slug: 'do-thing',
     editCount: 1,
     toolUseCount: 1,
+    nonMcpToolUseCount: 1,
     bashTestPassed: false,
     charLength: 40,
     hasSuccessMarker: false,
