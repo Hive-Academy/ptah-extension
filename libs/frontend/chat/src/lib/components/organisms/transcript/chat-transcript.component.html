@@ -18,7 +18,7 @@
             [message]="msg"
             [messageIndex]="i"
             [totalMessages]="vm().totalCount"
-            [isStreaming]="i >= vm().finalizedCount"
+            [isStreaming]="i >= vm().streamingBoundary"
             [isFinalizing]="motionSuppressed()"
             [isSessionActive]="vm().isSessionActive"
             (branchRequested)="branchRequested.emit($event)"

@@ -25,6 +25,8 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | `b9cc2f193`  | Batch 3 — C3 canvas request queue + C2 replay admission                               |
 | `3f70c986e`  | Docs — Batch 3 commit hash recorded                                                   |
 | `408ddffb2`  | Batch 4 — C1 replay motion gate                                                       |
+| `1b59aa816`  | Docs — Batch 4 commit hash recorded                                                   |
+| (Batch 5)    | Batch 5 — C5 replay render-window fence (hash in `batches.md` Batch 5 header)         |
 
 ## 3. Batch state
 
@@ -34,8 +36,13 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | B2    | M0 baseline                                     | COMPLETE, committed                           |
 | B3    | C3 canvas request queue + C2 replay admission   | COMPLETE, committed `b9cc2f193`         |
 | B4    | C1 replay motion gate                           | COMPLETE, committed `408ddffb2`               |
-| B5    | C5 replay render-window fence                   | IN_PROGRESS — next; this one decides AC-11    |
-| B6    | M1 measurement + decision point                 | PENDING — needs an idle machine               |
+| B5    | C5 replay render-window fence                   | COMPLETE, committed (see `batches.md`)        |
+| B6    | M1 measurement + decision point                 | IN_PROGRESS — next; needs an idle machine     |
+
+**Before M1**: peer session `ptah-ptah-extension-continue-task-b3c889` (TASK_2026_461) agreed to
+hold its heavy passes. Send it a "starting now" message before the first M1 run, and a release
+message after the last run. Confirm 0 `jest-worker` / `run-executor` processes before and after
+each run (§6 rule 4).
 
 ## 4. M0 result (committed evidence: `test-report.md`)
 

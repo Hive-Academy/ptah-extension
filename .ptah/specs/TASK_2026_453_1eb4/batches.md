@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 4/6
+Total tasks: 10 | Batches: 6 (4 code, 2 measurement) | Complete: 5/6
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -709,7 +709,7 @@ ptah-extension-webview`; `npx nx run ptah-extension-webview:build:development` a
   - Task 5.1: `streamingBoundary` must read raw `historyReplaying()`, never `replayMotionHold` or
     `motionSuppressed` — the hold is motion-only and must not extend the render-window fence.
 
-## Batch 5: C5 replay render-window fence — IN_PROGRESS
+## Batch 5: C5 replay render-window fence — COMPLETE
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `frontend-developer` sub-agent
@@ -718,7 +718,7 @@ ptah-extension-webview`; `npx nx run ptah-extension-webview:build:development` a
 - Tasks: 1 | Depends on: Batch 4
 - Review: `code-logic-reviewer` + `code-style-reviewer` → fixes → delta → commit.
 
-### Task 5.1: Feed the render window a replay-aware streaming boundary — IN_PROGRESS
+### Task 5.1: Feed the render window a replay-aware streaming boundary — COMPLETE
 
 - Files:
   - MODIFY `W\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts`
@@ -746,7 +746,42 @@ ptah-extension-webview`; `npx nx run ptah-extension-webview:build:development` a
   typecheck and lint `@ptah-extension/chat`; audit TOTAL = reference; same `content-visibility` /
   scroll-method diff check as Batch 4.
 
-## Batch 6: M1 measurement and decision point — PENDING
+### Batch 5 outcome
+
+- **Executor**: one CLI lane `codex` session — base implementation, then revise round 1 in the
+  same lane. Report: `b5-codex-report.md` (base + "Revise round 1").
+- **Review chain** (Claude reviewers, never the implementer):
+  - Base: `b5-code-logic-review.md` APPROVED; `b5-code-style-review.md` NEEDS_REVISION (Serious 1:
+    dead `TranscriptViewModel.finalizedCount`; Serious 2: `syncMessages` parameter still named
+    `finalizedCount`; 2 Minors: boundary rationale doc, chat CLAUDE.md contract bullet).
+  - Delta: `b5-code-logic-review-delta.md` APPROVED (1 Moderate carried);
+    `b5-code-style-review-delta.md` APPROVED.
+- **Revise cap**: 1 of 2 used.
+- **Recorded scope extension**: `transcript-render-window.ts` and `transcript-render-window.spec.ts`
+  (not in the Files list) — parameter rename `finalizedCount` → `streamingBoundary` plus its doc,
+  no policy change, to close style Serious 2. `libs/frontend/chat/CLAUDE.md` rule 7 gained one
+  **Replay boundary** bullet (style Minor).
+- **Evidence (lane-reported, team-leader did not run tests)**: chat tests header 1 project — 78
+  suites, 1,259 passed + 2 skipped; typecheck `@ptah-extension/chat ptah-extension-webview` exit
+  0; lint chat 0 errors (17 pre-existing warnings); webview `build:production` succeeds (existing
+  initial-bundle budget warning); degradation audit TOTAL 303 (= reference); prettier clean.
+- **Team-leader verification**: `git status --short` holds only the Task 5.1 files, the two
+  render-window files, chat `CLAUDE.md` and `b5-*.md`; no `agent-output-root.md` remains;
+  `execution-node.component.ts`, `execution-node.render-throttle.spec.ts`,
+  `chat-transcript.component.css` have no diff; `git diff` has no `content-visibility` and no hunk
+  in a scroll method; template binds `i >= vm().streamingBoundary`; `streamingBoundary` reads raw
+  `historyReplaying()`; new spec has no TODO/PLACEHOLDER/STUB and no `isAdjusting`.
+- **Follow-ups**:
+  - Moderate (logic, carried): a compaction-targeted reload can race an in-flight replay because
+    it skips the up-front `applyResumingSession` reset (`session-loader.service.ts:677-691`). No
+    regression test pins the ordering.
+  - Logic: a throw mid-replay leaves a short window between the replayer's `finally` clearing the
+    flag and the loader applying `applyResumeFailure`. No throw-path state-transition test.
+  - Style (accepted): the transcript spec harness is copied three times
+    (`chat-transcript.component.spec.ts`, `.replay-motion.spec.ts`, `.replay-mount.spec.ts`).
+  - A8 residual: check it in the M1 rAF histogram (Task 6.1).
+
+## Batch 6: M1 measurement and decision point — IN_PROGRESS
 
 - Recommended executor: Claude `senior-tester` sub-agent
 - Fallback executor: none (idle machine required)
@@ -754,7 +789,7 @@ ptah-extension-webview`; `npx nx run ptah-extension-webview:build:development` a
 - Tasks: 1 | Depends on: Batches 3, 4, 5 committed (C1, C2, C3, C5 all in the build)
 - Review: `code-logic-reviewer` on the report methodology; team-leader commits the report.
 
-### Task 6.1: M1 run set, AC-11 verdict — PENDING
+### Task 6.1: M1 run set, AC-11 verdict — IN_PROGRESS
 
 - File: MODIFY `W\.ptah\specs\TASK_2026_453_1eb4\test-report.md` (M1 section beside M0)
 - Plan reference: implementation-plan.md:523-529, S1-AC4 :490-493

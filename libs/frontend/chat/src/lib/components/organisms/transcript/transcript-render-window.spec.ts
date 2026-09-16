@@ -79,7 +79,10 @@ function ids(count: number, prefix = 'm'): string[] {
 }
 
 /** Attached window + one registered element per id. */
-function makeAttached(messageIds: readonly string[], finalizedCount: number) {
+function makeAttached(
+  messageIds: readonly string[],
+  streamingBoundary: number,
+) {
   const win = new TranscriptRenderWindow();
   const root = document.createElement('div');
   win.attach(root);
@@ -92,7 +95,7 @@ function makeAttached(messageIds: readonly string[], finalizedCount: number) {
     win.register(id, el);
   }
   win.setActive(true);
-  win.syncMessages(messageIds, finalizedCount);
+  win.syncMessages(messageIds, streamingBoundary);
   return { win, root, observer, elements };
 }
 
@@ -185,7 +188,7 @@ describe('TranscriptRenderWindow', () => {
     });
 
     it('never unmounts a streaming message, whatever the observer says', () => {
-      // finalizedCount 0 → every id is streaming, none may unmount.
+      // streamingBoundary 0 → every id is streaming, none may unmount.
       const list = ids(20);
       const { win, observer, elements } = makeAttached(list, 0);
 

@@ -95,7 +95,14 @@ function mergeByTime(
  */
 interface TranscriptViewModel {
   readonly messages: readonly ExecutionChatMessage[];
-  readonly finalizedCount: number;
+  /**
+   * Render-window and per-bubble streaming boundary. During history replay it
+   * equals `totalCount`, so replayed trees are windowed and publish settled
+   * execution nodes synchronously without a per-node rAF. Otherwise it equals
+   * the finalized message count, preserving the live typing throttle. This
+   * reads raw `historyReplaying()`, never the replay motion hold.
+   */
+  readonly streamingBoundary: number;
   readonly streamingCount: number;
   readonly totalCount: number;
   readonly isStreaming: boolean;
@@ -105,7 +112,7 @@ interface TranscriptViewModel {
 
 const EMPTY_VIEW_MODEL: TranscriptViewModel = {
   messages: EMPTY_MESSAGES,
-  finalizedCount: 0,
+  streamingBoundary: 0,
   streamingCount: 0,
   totalCount: 0,
   isStreaming: false,
@@ -416,11 +423,14 @@ export class ChatTranscriptComponent {
     }
     const finalized = this.finalizedFiltered();
     const streaming = this.streamingMessages();
+    const totalCount = finalized.length + streaming.length;
     const next: TranscriptViewModel = {
       messages: this.allMessages(),
-      finalizedCount: finalized.length,
+      streamingBoundary: this.historyReplaying()
+        ? totalCount
+        : finalized.length,
       streamingCount: streaming.length,
-      totalCount: finalized.length + streaming.length,
+      totalCount,
       isStreaming: this.isStreaming(),
       hasMessages: this.messages().length > 0,
       isSessionActive: this.isSessionActive(),
@@ -524,7 +534,7 @@ export class ChatTranscriptComponent {
         this.renderWindow.setActive(isActive);
         this.renderWindow.syncMessages(
           view.messages.map((m) => m.id),
-          view.finalizedCount,
+          view.streamingBoundary,
         );
       });
     });

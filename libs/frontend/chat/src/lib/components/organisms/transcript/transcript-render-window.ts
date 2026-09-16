@@ -110,12 +110,13 @@ export class TranscriptRenderWindow {
   }
 
   /**
-   * Feed the window the current message ids and the finalized boundary. Ids at
-   * or past `finalizedCount` are the tab's streaming messages and join the
-   * always-mounted tail. Height records for ids no longer in the list are
-   * evicted so the map cannot outlive the transcript's content.
+   * Feed the window the current message ids and streaming boundary. Ids at or
+   * past `streamingBoundary` are live-streaming and join the always-mounted
+   * tail. During history replay the boundary equals the message count, so
+   * replayed trees remain windowed. Height records for ids no longer in the
+   * list are evicted so the map cannot outlive the transcript's content.
    */
-  syncMessages(messageIds: readonly string[], finalizedCount: number): void {
+  syncMessages(messageIds: readonly string[], streamingBoundary: number): void {
     const nextTail = new Set<string>();
     for (
       let i = Math.max(0, messageIds.length - ALWAYS_MOUNTED_TAIL);
@@ -124,7 +125,7 @@ export class TranscriptRenderWindow {
     ) {
       nextTail.add(messageIds[i]);
     }
-    for (let i = Math.max(0, finalizedCount); i < messageIds.length; i++) {
+    for (let i = Math.max(0, streamingBoundary); i < messageIds.length; i++) {
       nextTail.add(messageIds[i]);
     }
     if (!sameSet(nextTail, this.tail())) {
