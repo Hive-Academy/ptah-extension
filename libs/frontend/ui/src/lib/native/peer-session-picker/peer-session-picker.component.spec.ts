@@ -176,6 +176,222 @@ describe('PeerSessionPickerComponent', () => {
       ).toContain('alpha');
     });
 
+    it('shows the Ptah title as primary label and the registry name as secondary text', async () => {
+      const fixture = await create({
+        sessions: [
+          row({
+            sessionId: 'a',
+            name: 'ptah-ptah-extension-branch-view-0b8a10',
+            ptahTitle: 'branch view',
+          }),
+        ],
+      });
+      await openDropdown(fixture);
+      expect(
+        el(fixture, 'peer-session-picker-name')?.textContent?.trim(),
+      ).toBe('branch view');
+      const secondary = el(fixture, 'peer-session-picker-registry-name');
+      expect(secondary?.textContent?.trim()).toBe(
+        'ptah-ptah-extension-branch-view-0b8a10',
+      );
+      expect(secondary?.classList.contains('font-mono')).toBe(true);
+    });
+
+    it('shows only the registry name when the row has no Ptah title', async () => {
+      const fixture = await create({
+        sessions: [
+          row({ sessionId: 'a', name: 'ptah-other-role-123abc' }),
+          row({ sessionId: 'b', name: 'ptah-blank-title', ptahTitle: '   ' }),
+        ],
+      });
+      await openDropdown(fixture);
+      const names = all(fixture, 'peer-session-picker-name').map((n) =>
+        n.textContent?.trim(),
+      );
+      expect(names).toEqual(['ptah-other-role-123abc', 'ptah-blank-title']);
+      expect(all(fixture, 'peer-session-picker-registry-name').length).toBe(0);
+    });
+
+    it('keeps the reason and cross-workspace badge on a titled row', async () => {
+      const fixture = await create({
+        sessions: [
+          row({
+            sessionId: 'bad',
+            name: 'ptah-website-manager-abc123',
+            ptahTitle: 'website manager',
+            inCurrentWorkspace: false,
+            reachability: 'unreachable',
+            unreachableReason: 'process-identity-mismatch',
+          }),
+        ],
+      });
+      await openDropdown(fixture);
+      expect(el(fixture, 'peer-session-picker-registry-name')).not.toBeNull();
+      expect(
+        el(fixture, 'peer-session-picker-cross-workspace')?.textContent,
+      ).toContain('other workspace');
+      expect(
+        el(fixture, 'peer-session-picker-reason')?.textContent,
+      ).toContain('process identity mismatch');
+    });
+
+    describe('rename hint', () => {
+      const HINT = 'peer-session-picker-rename-hint';
+      const ws = { workspace: '/src/ptah-extension', workspaceLabel: 'ptah-extension' };
+
+      it('shows no hint when the registry name still carries the title slug', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              ...ws,
+              name: 'ptah-ptah-extension-branch-view-0b8a10',
+              ptahTitle: 'Branch View',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, HINT)).toBeNull();
+      });
+
+      it('shows the hint when the title was renamed after spawn', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              ...ws,
+              name: 'ptah-ptah-extension-we-have-an-issue-0b8a10',
+              ptahTitle: 'layout enhancements',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, HINT)?.textContent?.trim()).toBe(
+          'renamed · address updates on next resume',
+        );
+      });
+
+      it('shows the hint when a longer new title only extends a short old role', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              ...ws,
+              name: 'ptah-ptah-extension-branch-view-0b8a10',
+              ptahTitle: 'branch view extended',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, HINT)).not.toBeNull();
+      });
+
+      it('shows the hint when the title only matches the workspace segment', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              ...ws,
+              name: 'ptah-ptah-extension-chat-0b8a10',
+              ptahTitle: 'Ptah Extension',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, HINT)).not.toBeNull();
+      });
+
+      it('shows the hint when the title only matches the prefix or suffix', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              ...ws,
+              sessionId: 'prefix',
+              name: 'ptah-ptah-extension-chat-0b8a10',
+              ptahTitle: 'ptah',
+            }),
+            row({
+              ...ws,
+              sessionId: 'suffix',
+              name: 'ptah-ptah-extension-chat-0b8a10',
+              ptahTitle: '0b8a10',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(
+          (fixture.nativeElement as HTMLElement).querySelectorAll(
+            `[data-testid="${HINT}"]`,
+          ),
+        ).toHaveLength(2);
+      });
+
+      it('shows no hint for the date fallback name of a nameless session', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              ...ws,
+              name: 'ptah-ptah-extension-session-9-15-2026-0b8a10',
+              ptahTitle: 'Session 9/15/2026',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, HINT)).toBeNull();
+      });
+
+      it('falls back to a contains match when the name has no parseable role', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              workspace: '/src/other',
+              workspaceLabel: 'other',
+              name: 'branch-view-derived-by-cli',
+              ptahTitle: 'Branch View',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, HINT)).toBeNull();
+      });
+
+      it('shows no hint when the 64-character cap cut a long title short', async () => {
+        // buildSessionName: head budget 64 - 6 - 1 = 57, trailing dash trimmed.
+        const name = 'ptah-ptah-extension-we-have-an-issue-in-the-team-builder-dc3acf';
+        expect(name.length).toBe(63);
+        const fixture = await create({
+          sessions: [
+            row({
+              ...ws,
+              name,
+              ptahTitle: 'We have an issue in the team builder when applying settings',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, HINT)).toBeNull();
+      });
+
+      it('shows no hint when the row has no Ptah title', async () => {
+        const fixture = await create({
+          sessions: [row({ ...ws, name: 'ptah-ptah-extension-chat-0b8a10' })],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, HINT)).toBeNull();
+      });
+
+      it('shows no hint for an emoji-only title whose slug is empty', async () => {
+        const fixture = await create({
+          sessions: [
+            row({
+              ...ws,
+              name: 'ptah-ptah-extension-chat-0b8a10',
+              ptahTitle: '🚀🔥',
+            }),
+          ],
+        });
+        await openDropdown(fixture);
+        expect(el(fixture, 'peer-session-picker-registry-name')).not.toBeNull();
+        expect(el(fixture, HINT)).toBeNull();
+      });
+    });
+
     it('marks cross-workspace rows with a badge', async () => {
       const fixture = await create({
         sessions: [
@@ -252,6 +468,23 @@ describe('PeerSessionPickerComponent', () => {
         selectedSessionId: 'b',
       });
       expect(triggerButton(fixture).textContent).toContain('Beta');
+    });
+
+    it('shows the Ptah title in the trigger for a selected titled row', async () => {
+      const fixture = await create({
+        sessions: [
+          row({ sessionId: 'a', name: 'Alpha' }),
+          row({
+            sessionId: 'b',
+            name: 'ptah-ptah-extension-branch-view-0b8a10',
+            ptahTitle: 'branch view',
+          }),
+        ],
+        selectedSessionId: 'b',
+      });
+      const text = triggerButton(fixture).textContent ?? '';
+      expect(text.trim()).toBe('branch view');
+      expect(text).not.toContain('ptah-ptah-extension-branch-view-0b8a10');
     });
 
     it('shows the placeholder when no session is selected', async () => {

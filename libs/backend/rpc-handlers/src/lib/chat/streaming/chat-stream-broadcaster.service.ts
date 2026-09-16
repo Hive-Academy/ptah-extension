@@ -205,15 +205,20 @@ export class ChatStreamBroadcaster {
           childMetadataSaved = true;
           const workspacePath = this.workspaceProvider.getWorkspaceRoot() ?? '';
           const ptahCliAgentId = this.ptahCli.getAgentId(tabId);
-          const sessionName = ptahCliAgentId
-            ? `CLI Agent: ${ptahCliAgentId}`
-            : 'CLI Agent Session';
+          const sessionName = this.ptahCli.getSessionName(tabId);
           try {
-            await this.sessionMetadataStore.createChild(
-              event.sessionId,
-              workspacePath,
-              sessionName,
-            );
+            if (sessionName?.trim()) {
+              await this.sessionMetadataStore.createChild(
+                event.sessionId,
+                workspacePath,
+                sessionName,
+              );
+            } else {
+              this.logger.warn(
+                '[RPC] Ptah CLI session name unavailable — child metadata was not replaced',
+                { tabId, sessionId: event.sessionId },
+              );
+            }
             this.ptahCli.setSdkSessionId(tabId, event.sessionId);
             if (ptahCliAgentId) {
               this.ptahCli.setSdkSessionId(ptahCliAgentId, event.sessionId);

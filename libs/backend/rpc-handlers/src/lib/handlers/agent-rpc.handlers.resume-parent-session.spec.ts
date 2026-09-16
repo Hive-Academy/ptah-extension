@@ -86,6 +86,7 @@ interface Harness {
     spawn: jest.Mock;
     reserveAgentId: jest.Mock;
   };
+  metadataStore: { createChild: jest.Mock };
 }
 
 function makeHarness(): Harness {
@@ -123,6 +124,7 @@ function makeHarness(): Harness {
   };
 
   const cliDetection = { getAdapter: jest.fn().mockReturnValue(undefined) };
+  const metadataStore = { createChild: jest.fn().mockResolvedValue(undefined) };
 
   const handlers = new AgentRpcHandlers(
     createMockLogger() as unknown as Logger,
@@ -130,7 +132,7 @@ function makeHarness(): Harness {
     cliDetection as unknown as CliDetectionService,
     registry as unknown as PtahCliRegistry,
     processManager as unknown as AgentProcessManager,
-    { createChild: jest.fn() } as unknown as SessionMetadataStore,
+    metadataStore as unknown as SessionMetadataStore,
     workspace as unknown as IWorkspaceProvider,
     stateStorage as unknown as IStateStorage,
     {} as unknown as IModelDiscovery,
@@ -142,7 +144,7 @@ function makeHarness(): Harness {
   );
   handlers.register();
 
-  return { handlers, rpcHandler, registry, processManager };
+  return { handlers, rpcHandler, registry, processManager, metadataStore };
 }
 
 type ResumeResult = { success: boolean; error?: string };
@@ -227,6 +229,31 @@ describe('AgentRpcHandlers — agent:resumeCliSession parent session', () => {
     ).toBe(CLI_SESSION_ID);
     expect(mockReaddir).not.toHaveBeenCalled();
     expect(mockAccess).not.toHaveBeenCalled();
+  });
+
+  it('stores the configured agent name as child metadata when the SDK session resolves', async () => {
+    const h = makeHarness();
+    let onSessionResolved: ((sessionId: string) => void) | undefined;
+    h.registry.spawnAgent.mockResolvedValueOnce({
+      handle: {
+        onSessionResolved: jest.fn((callback: (sessionId: string) => void) => {
+          onSessionResolved = callback;
+        }),
+      },
+      agentName: 'Test CLI Agent',
+      setAgentId: jest.fn(),
+    });
+
+    await resume(h, 'chat-session-uuid');
+    expect(onSessionResolved).toBeDefined();
+    onSessionResolved?.('resolved-cli-session');
+    await Promise.resolve();
+
+    expect(h.metadataStore.createChild).toHaveBeenCalledWith(
+      'resolved-cli-session',
+      WORKSPACE,
+      'Test CLI Agent',
+    );
   });
 
   // TASK_2026_296 inverted this case. It used to assert that an empty

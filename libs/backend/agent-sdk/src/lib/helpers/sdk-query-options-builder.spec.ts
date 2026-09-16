@@ -277,6 +277,8 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     forwardSubagentText?: boolean;
     /** The name the user gave the session (TASK_2026_402 Req 9). */
     sessionName?: string;
+    /** Raw SDK title; absent for an adapter-generated fallback name. */
+    sessionTitle?: string;
     resumeSessionId?: string;
   }
 
@@ -285,7 +287,8 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
    * that a naming fallback emits.
    */
   async function buildWithLogger(overrides: BuildOverrides = {}) {
-    const { sessionName, resumeSessionId, ...inputOverrides } = overrides;
+    const { sessionName, sessionTitle, resumeSessionId, ...inputOverrides } =
+      overrides;
     const logger = makeSpecLogger();
     const builder = makeFullBuilder(logger);
     const sessionConfig: AISessionConfig = {
@@ -295,6 +298,7 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
       // the MCP `/session/{id}` segment is built from (TASK_2026_295).
       tabId: 'tab-fixture',
       ...(sessionName === undefined ? {} : { sessionName }),
+      ...(sessionTitle === undefined ? {} : { sessionTitle }),
     } as AISessionConfig;
     // Empty async iterable — `build()` does not iterate it, just attaches.
     const userMessageStream = (async function* () {
@@ -374,8 +378,19 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
   });
 
   it('carries the RAW name as the session title for a new session', async () => {
-    const opts = await buildWith({ sessionName: 'Fix the Billing Bug!' });
+    const opts = await buildWith({
+      sessionName: 'Fix the Billing Bug!',
+      sessionTitle: 'Fix the Billing Bug!',
+    });
     expect(opts.title).toBe('Fix the Billing Bug!');
+  });
+
+  it('builds --name from a fallback without suppressing SDK auto-title generation', async () => {
+    const fallbackName = 'Session 9/15/2026';
+    const opts = await buildWith({ sessionName: fallbackName });
+
+    expect(opts.title).toBeUndefined();
+    expect(opts.extraArgs?.['name']).toBe('ptah-ws-session-9-15-2026-tab-fi');
   });
 
   it('sets no title when the user has not named the session', async () => {

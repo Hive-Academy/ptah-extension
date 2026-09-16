@@ -20,6 +20,10 @@ import {
   type PeerSessionRecord,
 } from './peer-session-registry.reader';
 import { ProcessStartTimeProbe } from './process-start-time.probe';
+import type {
+  SessionMetadata,
+  SessionMetadataStore,
+} from '../session-metadata-store';
 
 const scanMock = scanPeerSessionRegistry as jest.MockedFunction<
   typeof scanPeerSessionRegistry
@@ -35,6 +39,25 @@ function logger(): Logger {
     warn: jest.fn(),
     error: jest.fn(),
   } as unknown as Logger;
+}
+
+type MetadataSource = Pick<SessionMetadataStore, 'getAll'>;
+
+/** A metadata store holding the given `sessionId -> name` entries. */
+function metadataWith(names: Record<string, string>): MetadataSource {
+  return {
+    getAll: jest
+      .fn()
+      .mockResolvedValue(
+        Object.entries(names).map(
+          ([sessionId, name]) => ({ sessionId, name }) as SessionMetadata,
+        ),
+      ),
+  };
+}
+
+function noMetadata(): MetadataSource {
+  return metadataWith({});
 }
 
 /**
@@ -85,6 +108,7 @@ describe('PeerSessionDirectory.list', () => {
     });
     const directory = new PeerSessionDirectory(
       logger(),
+      noMetadata(),
       probeReporting(
         new Map([
           [11, aliveAt],
@@ -121,6 +145,7 @@ describe('PeerSessionDirectory.list', () => {
     });
     const directory = new PeerSessionDirectory(
       logger(),
+      noMetadata(),
       probeReporting(new Map([[33, aliveAt]])),
     );
 
@@ -139,6 +164,7 @@ describe('PeerSessionDirectory.list', () => {
     });
     const directory = new PeerSessionDirectory(
       logger(),
+      noMetadata(),
       probeReporting(
         new Map([
           [11, aliveAt],
@@ -166,6 +192,7 @@ describe('PeerSessionDirectory.list', () => {
     });
     const directory = new PeerSessionDirectory(
       logger(),
+      noMetadata(),
       probeReporting(
         new Map([
           [11, aliveAt],
@@ -188,6 +215,7 @@ describe('PeerSessionDirectory.list', () => {
 
     const result = await new PeerSessionDirectory(
       log,
+      noMetadata(),
       probeReporting(new Map()),
     ).list({});
 
@@ -203,7 +231,11 @@ describe('PeerSessionDirectory.list', () => {
     });
     const probe = new ProcessStartTimeProbe({ platform: 'aix' });
 
-    const result = await new PeerSessionDirectory(logger(), probe).list({});
+    const result = await new PeerSessionDirectory(
+      logger(),
+      noMetadata(),
+      probe,
+    ).list({});
 
     expect(result.livenessVerifiable).toBe(false);
     // And every row degrades to unreachable rather than being offered.
@@ -213,12 +245,84 @@ describe('PeerSessionDirectory.list', () => {
     });
   });
 
+  describe('Ptah title join (TASK_2026_449)', () => {
+    const records = () => [
+      record({ pid: 11, startMs: aliveAt }),
+      record({ pid: 22, startMs: aliveAt }),
+    ];
+    const alive = () =>
+      probeReporting(
+        new Map([
+          [11, aliveAt],
+          [22, aliveAt],
+        ]),
+      );
+
+    it('sets ptahTitle from stored metadata and keeps the registry name', async () => {
+      scanMock.mockResolvedValue({ records: records(), unreadable: [] });
+      const directory = new PeerSessionDirectory(
+        logger(),
+        metadataWith({ 'session-11': '  branch view  ' }),
+        alive(),
+      );
+
+      const result = await directory.list({});
+
+      expect(result.sessions[0]).toMatchObject({
+        sessionId: 'session-11',
+        name: 'peer-11',
+        ptahTitle: 'branch view',
+      });
+    });
+
+    it('omits ptahTitle when Ptah holds no name for the session', async () => {
+      scanMock.mockResolvedValue({ records: records(), unreadable: [] });
+      const directory = new PeerSessionDirectory(
+        logger(),
+        metadataWith({ 'session-11': 'branch view', 'session-22': '   ' }),
+        alive(),
+      );
+
+      const result = await directory.list({});
+
+      expect(result.sessions[1].sessionId).toBe('session-22');
+      expect('ptahTitle' in result.sessions[1]).toBe(false);
+    });
+
+    it('lists every row without titles and warns when the metadata read fails', async () => {
+      scanMock.mockResolvedValue({ records: records(), unreadable: [] });
+      const log = logger();
+      const failing: MetadataSource = {
+        getAll: jest.fn().mockRejectedValue(new Error('storage closed')),
+      };
+
+      const result = await new PeerSessionDirectory(log, failing, alive()).list(
+        {},
+      );
+
+      expect(result.sessions.map((row) => row.sessionId)).toEqual([
+        'session-11',
+        'session-22',
+      ]);
+      expect(result.sessions.every((row) => !('ptahTitle' in row))).toBe(true);
+      expect(result.sessions[0].reachability).toBe('reachable');
+      expect(log.warn).toHaveBeenCalledWith(
+        expect.stringContaining('session metadata read failed'),
+        { reason: 'storage closed' },
+      );
+    });
+  });
+
   it('raises a registry read failure instead of returning an empty list', async () => {
     // An empty list reads as "nothing is running", which is a different claim.
     scanMock.mockRejectedValue(new Error('EACCES'));
 
     await expect(
-      new PeerSessionDirectory(logger(), probeReporting(new Map())).list({}),
+      new PeerSessionDirectory(
+        logger(),
+        noMetadata(),
+        probeReporting(new Map()),
+      ).list({}),
     ).rejects.toThrow('EACCES');
   });
 });
