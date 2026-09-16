@@ -16,6 +16,11 @@ import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
 import { MemoryStore } from './memory.store';
 import type { MemoryInsert } from './memory.types';
 import { memoryId } from './memory.types';
+import { MemoryLifecycleStore } from './retention/memory-lifecycle.store';
+import {
+  DAY_MS,
+  MEMORY_RETENTION_DEFAULTS,
+} from './retention/memory-retention-config';
 import {
   adaptSqliteDatabase,
   requireSqliteOpener,
@@ -1273,6 +1278,8 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
       id TEXT PRIMARY KEY, memory_id TEXT NOT NULL, ord INTEGER NOT NULL,
       text TEXT NOT NULL, token_count INTEGER NOT NULL, created_at INTEGER NOT NULL
     );
+    CREATE TABLE corpus_memories (corpus_id TEXT NOT NULL, memory_id TEXT NOT NULL);
+    CREATE INDEX idx_memories_tier_last_used ON memories(tier, last_used_at);
     CREATE VIRTUAL TABLE memory_concepts_fts USING fts5(memory_id UNINDEXED, concept);`);
     const db = adaptSqliteDatabase(raw);
     connection = {
@@ -1408,6 +1415,42 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
     ).toBe(true);
     expect(store.getWriteCounter('/core')).toBe(0);
     expect(store.getWriteCounter('/pinned')).toBe(0);
+  });
+
+  it('restores a pinned archival row and keeps it exempt from later archival', () => {
+    seed('pinned-archival', 'archival', '/pinned', { pinned: 1 });
+
+    store.recordUse(['pinned-archival']);
+
+    const restored = raw
+      .prepare(
+        'SELECT tier, archived_at, pinned FROM memories WHERE id = ?',
+      )
+      .get('pinned-archival') as {
+      tier: string;
+      archived_at: number | null;
+      pinned: number;
+    };
+    expect(restored).toEqual({
+      tier: 'recall',
+      archived_at: null,
+      pinned: 1,
+    });
+
+    const lifecycle = new MemoryLifecycleStore(
+      log,
+      connection,
+      makeVecStatus(false),
+    );
+    const afterUse = Date.now() + DAY_MS;
+    expect(
+      lifecycle.archiveBatch(
+        afterUse,
+        afterUse,
+        MEMORY_RETENTION_DEFAULTS.batchSize,
+      ).archived,
+    ).toBe(0);
+    expect(store.getById(memoryId('pinned-archival'))?.tier).toBe('recall');
   });
 
   it('caps a call at 200 ids and treats empty and unknown ids as no-ops', () => {
