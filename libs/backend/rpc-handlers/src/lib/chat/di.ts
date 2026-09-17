@@ -16,6 +16,7 @@
  *   SUBAGENT_CONTEXT_INJECTOR ← PTAH_CLI
  *   SLASH_COMMAND_ROUTER      ← SDK_CONTEXT, STREAM_BROADCASTER
  *   MCP_STATUS                ← (no chat deps)
+ *   HISTORY_READ              ← (no chat deps)
  *   SESSION                   ← all of the above
  *
  * `SESSION` also resolves `OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION`, which is
@@ -41,6 +42,7 @@ import { ChatStreamBroadcaster } from './streaming/chat-stream-broadcaster.servi
 import { ChatSubagentContextInjectorService } from './session/chat-subagent-context-injector.service';
 import { ChatSlashCommandRouterService } from './session/chat-slash-command-router.service';
 import { ChatSessionService } from './session/chat-session.service';
+import { ChatHistoryReadService } from './session/chat-history-read.service';
 import { SessionMcpStatusRegistry } from './session/session-mcp-status.registry';
 
 export { CHAT_TOKENS } from './tokens';
@@ -65,6 +67,7 @@ export function registerChatServices(container: DependencyContainer): void {
   // constructor subscribes to the `agent-sdk` fan-out and writes here, so the
   // registry must exist by the time that resolution happens.
   container.registerSingleton(CHAT_TOKENS.MCP_STATUS, SessionMcpStatusRegistry);
+  container.registerSingleton(CHAT_TOKENS.HISTORY_READ, ChatHistoryReadService);
   // No output-style registration here. `OutputStyleSessionActivationService`
   // moved to `output-styles` when the CLI-agent spawn path started needing the
   // same composition, and `registerOutputStyleServices` — which every host

@@ -99,7 +99,6 @@ function makeService(
     } as never,
     stub as never,
     workspaceProvider,
-    { exists: jest.fn().mockResolvedValue(true) } as never,
     {
       type: 'cli',
       extensionPath: '/tmp/ptah-app',

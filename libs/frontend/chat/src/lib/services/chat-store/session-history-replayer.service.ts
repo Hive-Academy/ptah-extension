@@ -13,6 +13,14 @@
  *   in one synchronous pass. A longer one yields a macrotask after EVERY
  *   chunk — the last included, so finalization runs in its own turn. 2,000
  *   events yield 8 times. The tab stays `resuming` until finalization.
+ * - **Admission.** Replay chunks and finalization use one global FIFO slot.
+ *   Its fast path intentionally returns no Promise so an uncontended replay
+ *   enters synchronously; a contended replay re-checks its claim and tab
+ *   binding when admitted. Every exit releases the slot, with one macrotask
+ *   and one paint opportunity before the next waiter.
+ * - **Replay-tab signal.** {@link replay} publishes a tab from entry through
+ *   its claim-keyed `finally`. Consumers read {@link isReplaying}; an older
+ *   replay can never clear a newer replay's motion-suppression ownership.
  * - **Live-event fence.** From {@link claim} to {@link release} — the
  *   `chat:resume` round trip AND every event-loop turn between chunks — a live
  *   turn for the same session can deliver `chat:chunk` events (an
@@ -30,7 +38,7 @@
  *   event-loop turn between them — and so without live events to fence.
  */
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { yieldToMacrotask } from '@ptah-extension/core';
 import type {
   FlatStreamEventUnion,
@@ -38,6 +46,7 @@ import type {
   SubagentRecord,
 } from '@ptah-extension/shared';
 import {
+  HistoryMessageBuilder,
   SessionManager,
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
@@ -51,6 +60,9 @@ export interface ReplayClaim {
 
 /** `superseded`: a newer resume claimed the tab, or the tab closed or rebound. */
 export type HistoryReplayOutcome = 'replayed' | 'superseded';
+
+/** Result of replaying a side-effect-free older-history page. */
+export type OlderHistoryReplayOutcome = 'prepended' | 'superseded';
 
 /**
  * One buffer per SESSION, not per tab: the tab path fans a session's event out
@@ -74,11 +86,20 @@ interface HeldFence {
   readonly sessionId: string;
 }
 
+/** One replay waiting for the global replay-and-finalize slot. */
+interface ReplayAdmissionWaiter {
+  readonly tabId: string;
+  readonly resolve: () => void;
+  readonly reject: (reason: Error) => void;
+  readonly warningTimer: ReturnType<typeof setTimeout>;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SessionHistoryReplayer {
   private readonly tabManager = inject(TabManagerService);
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly sessionManager = inject(SessionManager);
+  private readonly historyMessageBuilder = inject(HistoryMessageBuilder);
 
   /** History replay chunk size. */
   static readonly REPLAY_CHUNK_SIZE = 250;
@@ -91,14 +112,26 @@ export class SessionHistoryReplayer {
    */
   static readonly LIVE_EVENT_FENCE_LIMIT = 2000;
 
+  /** A wait beyond this threshold indicates a stuck or unusually slow replay. */
+  private static readonly ADMISSION_WAIT_WARNING_MS = 10_000;
+
   /** Latest claim per tab id. A plain map: nothing renders from it. */
   private readonly claims = new Map<string, number>();
   private claimCounter = 0;
+
+  /** Claim currently publishing replay motion suppression for each tab. */
+  private readonly replayingClaims = new Map<string, number>();
+  private readonly _replayingTabIds = signal<ReadonlySet<string>>(new Set());
+  readonly replayingTabIds = this._replayingTabIds.asReadonly();
 
   /** Open fences by session id. Every claim opens or joins one. */
   private readonly fences = new Map<string, LiveEventFence>();
   /** Which fence each tab's current claim holds, by tab id. */
   private readonly heldFences = new Map<string, HeldFence>();
+
+  /** Global FIFO admission for the replay-and-finalize phase only. */
+  private replayAdmissionActive = false;
+  private readonly replayAdmissionQueue: ReplayAdmissionWaiter[] = [];
 
   /**
    * Claim `tabId` for one resume of `sessionId` and open (or join) that
@@ -125,6 +158,10 @@ export class SessionHistoryReplayer {
 
   isCurrent(claim: ReplayClaim | null): boolean {
     return claim !== null && this.claims.get(claim.tabId) === claim.claim;
+  }
+
+  isReplaying(tabId: string): boolean {
+    return this.replayingTabIds().has(tabId);
   }
 
   /**
@@ -160,35 +197,218 @@ export class SessionHistoryReplayer {
     const { tabId } = claim;
     const chunkSize = SessionHistoryReplayer.REPLAY_CHUNK_SIZE;
     const chunked = events.length > chunkSize;
+    this.markReplayStarted(claim);
+    const admission = this.acquireReplayAdmission(tabId);
 
-    for (let start = 0; start < events.length; start += chunkSize) {
-      const end = Math.min(start + chunkSize, events.length);
-      for (let index = start; index < end; index++) {
-        this.streamingHandler.processStreamEvent(
-          events[index],
-          tabId,
-          sessionId,
-          { isReplay: true, fanOut: false },
-        );
-      }
-      if (!chunked) continue;
-      await yieldToMacrotask();
-      if (!this.isCurrent(claim)) return 'superseded';
-      const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-      if (!tab) {
-        this.streamingHandler.clearPendingUpdates(tabId);
-        this.sessionManager.setStatus('loaded');
+    try {
+      if (admission) await admission;
+      if (admission && !this.canContinueReplay(tabId, claim, sessionId)) {
         return 'superseded';
       }
-      if (tab.claudeSessionId !== sessionId) {
-        this.sessionManager.setStatus('loaded');
-        return 'superseded';
+
+      for (let start = 0; start < events.length; start += chunkSize) {
+        const end = Math.min(start + chunkSize, events.length);
+        for (let index = start; index < end; index++) {
+          this.streamingHandler.processStreamEvent(
+            events[index],
+            tabId,
+            sessionId,
+            { isReplay: true, fanOut: false },
+          );
+        }
+        if (!chunked) continue;
+        await yieldToMacrotask();
+        if (!this.canContinueReplay(tabId, claim, sessionId)) {
+          return 'superseded';
+        }
       }
+
+      this.streamingHandler.finalizeSessionHistory(tabId, resumableSubagents);
+      this.closeFence(claim);
+      return 'replayed';
+    } finally {
+      this.markReplayFinished(claim);
+      this.releaseReplayAdmission();
+    }
+  }
+
+  /**
+   * Build and atomically prepend one older-history page.
+   *
+   * Unlike {@link replay}, this path never publishes replay motion state and
+   * never opens or closes a live-event fence. A current resume claim always
+   * wins, and the tab binding and cursor are checked after admission and after
+   * every macrotask yield before any messages are committed.
+   */
+  async replayOlderPage(
+    events: readonly FlatStreamEventUnion[],
+    tabId: string,
+    sessionId: SessionId,
+    requestCursor: string,
+    nextCursor: string | null,
+    resumableSubagents: readonly SubagentRecord[] | undefined,
+  ): Promise<OlderHistoryReplayOutcome> {
+    if (!this.canReplayOlderPage(tabId, sessionId, requestCursor)) {
+      return 'superseded';
     }
 
-    this.streamingHandler.finalizeSessionHistory(tabId, resumableSubagents);
-    this.closeFence(claim);
-    return 'replayed';
+    const cacheKey = `history-page-${tabId}`;
+    const admission = this.acquireReplayAdmission(tabId);
+    try {
+      if (admission) await admission;
+      if (!this.canReplayOlderPage(tabId, sessionId, requestCursor)) {
+        return 'superseded';
+      }
+
+      const chunkSize = SessionHistoryReplayer.REPLAY_CHUNK_SIZE;
+      const chunked = events.length > chunkSize;
+      let pageState = this.historyMessageBuilder.createPageState();
+      for (let start = 0; start < events.length; start += chunkSize) {
+        pageState = this.historyMessageBuilder.accumulate(
+          pageState,
+          events.slice(start, start + chunkSize),
+          sessionId,
+        );
+        if (!chunked) continue;
+        await yieldToMacrotask();
+        if (!this.canReplayOlderPage(tabId, sessionId, requestCursor)) {
+          return 'superseded';
+        }
+      }
+
+      const messages = this.historyMessageBuilder.build(pageState, {
+        cacheKey,
+        releaseCacheAfterBuild: false,
+        sessionId,
+        resumableSubagents,
+      });
+      this.tabManager.prependHistoryMessages(tabId, messages, nextCursor);
+      return 'prepended';
+    } finally {
+      this.historyMessageBuilder.clearCache(cacheKey);
+      this.releaseReplayAdmission();
+    }
+  }
+
+  private markReplayStarted(claim: ReplayClaim): void {
+    this.replayingClaims.set(claim.tabId, claim.claim);
+    const replaying = new Set(this._replayingTabIds());
+    replaying.add(claim.tabId);
+    this._replayingTabIds.set(replaying);
+  }
+
+  private markReplayFinished(claim: ReplayClaim): void {
+    if (this.replayingClaims.get(claim.tabId) !== claim.claim) return;
+    this.replayingClaims.delete(claim.tabId);
+    const replaying = new Set(this._replayingTabIds());
+    replaying.delete(claim.tabId);
+    this._replayingTabIds.set(replaying);
+  }
+
+  /**
+   * Enter the global replay slot. `null` is the synchronous fast path: callers
+   * must not await it, so an uncontended one-chunk replay keeps its old timing.
+   */
+  private acquireReplayAdmission(tabId: string): Promise<void> | null {
+    if (!this.replayAdmissionActive && this.replayAdmissionQueue.length === 0) {
+      this.replayAdmissionActive = true;
+      return null;
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const warningTimer = setTimeout(() => {
+        console.warn(
+          '[SessionHistoryReplayer] replay admission wait exceeded 10 seconds',
+          { tabId, queueLength: this.replayAdmissionQueue.length },
+        );
+      }, SessionHistoryReplayer.ADMISSION_WAIT_WARNING_MS);
+      this.replayAdmissionQueue.push({ tabId, resolve, reject, warningTimer });
+    });
+  }
+
+  /** Release the slot on every replay exit and start any required handoff. */
+  private releaseReplayAdmission(): void {
+    if (this.replayAdmissionQueue.length === 0) {
+      this.replayAdmissionActive = false;
+      return;
+    }
+
+    const next = this.replayAdmissionQueue[0];
+    this.replayAdmissionQueue.splice(0, 1);
+    void this.handoffReplayAdmission(next);
+  }
+
+  /** Resolve or reject the waiter whose admission this handoff owns. */
+  private async handoffReplayAdmission(
+    next: ReplayAdmissionWaiter,
+  ): Promise<void> {
+    try {
+      await yieldToMacrotask();
+      await this.yieldToPaint();
+      next.resolve();
+    } catch (error: unknown) {
+      next.reject(
+        new Error(`Replay admission handoff failed for tab ${next.tabId}`, {
+          cause: error,
+        }),
+      );
+    } finally {
+      clearTimeout(next.warningTimer);
+    }
+  }
+
+  /** Yield until the next frame, with a timer fallback for hidden windows. */
+  private yieldToPaint(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      let frameId: number | undefined;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        if (frameId !== undefined) cancelAnimationFrame(frameId);
+        clearTimeout(timerId);
+        resolve();
+      };
+
+      const timerId = setTimeout(finish, 50);
+      if (typeof requestAnimationFrame === 'function') {
+        frameId = requestAnimationFrame(finish);
+      }
+    });
+  }
+
+  /** Preserve the existing post-yield claim, caller-tab and binding checks. */
+  private canContinueReplay(
+    tabId: string,
+    claim: ReplayClaim,
+    sessionId: SessionId,
+  ): boolean {
+    if (!this.isCurrent(claim)) return false;
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab) {
+      this.streamingHandler.clearPendingUpdates(tabId);
+      this.sessionManager.setStatus('loaded');
+      return false;
+    }
+    if (tab.claudeSessionId !== sessionId) {
+      this.sessionManager.setStatus('loaded');
+      return false;
+    }
+    return true;
+  }
+
+  /** Older pages are valid only while no resume owns the tab and its cursor matches. */
+  canReplayOlderPage(
+    tabId: string,
+    sessionId: SessionId,
+    requestCursor: string,
+  ): boolean {
+    if (this.claims.has(tabId)) return false;
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    return (
+      tab?.claudeSessionId === sessionId &&
+      tab.olderHistoryCursor === requestCursor
+    );
   }
 
   /**

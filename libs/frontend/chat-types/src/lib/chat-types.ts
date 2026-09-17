@@ -538,6 +538,15 @@ export interface TabState {
   /** Messages for this session */
   messages: ExecutionChatMessage[];
 
+  /**
+   * Opaque cursor for the history page immediately before `messages`.
+   *
+   * `undefined` means this tab was not opened through paged history, `null`
+   * means the replayable start has been reached, and a string means an older
+   * page remains available.
+   */
+  olderHistoryCursor?: string | null;
+
   /** Current streaming state (flat events model, replaces executionTree) */
   streamingState: StreamingState | null;
 

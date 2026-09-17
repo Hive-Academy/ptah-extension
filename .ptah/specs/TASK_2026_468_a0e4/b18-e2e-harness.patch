@@ -1,0 +1,525 @@
+diff --git a/apps/ptah-electron-e2e/CLAUDE.md b/apps/ptah-electron-e2e/CLAUDE.md
+index 9bbaa64fc..b73dc4ac5 100644
+--- a/apps/ptah-electron-e2e/CLAUDE.md
++++ b/apps/ptah-electron-e2e/CLAUDE.md
+@@ -17,7 +17,7 @@ Playwright end-to-end tests for the built Electron app. Launches the actual `dis
+ 
+ ### Perf specs
+ 
+-The tile-open perf mock precomputes the tail and full older-page chain with the shared `selectHistoryPage` contract before serializing resolver data, so measurements follow the backend's whole-turn paging rules.
++The tile-open perf mock precomputes the tail and full older-page chain with the shared `selectHistoryPage` contract before serializing resolver data, so measurements follow the backend's whole-turn paging rules. Per-tile DOM diagnostics include each sample and marker timestamp plus `sampleState`; a post-marker sample or any harness macrotask reaching 50 ms makes the measurement unusable.
+ 
+ A budget-gated Playwright perf spec is named `*.perf.spec.ts` and gated behind `PTAH_PERF_SPECS=1` (mirrors the Jest-side convention used in `agent-sdk`, `platform-electron`, and `skill-synthesis-ui`) — e.g. `src/specs/chat/tile-open-longtask-budget.perf.spec.ts`, added for `TASK_2026_437`'s AC-11. Only run these on an idle machine (check that no `jest-worker`/`run-executor` node processes are running first), since the budgets are absolute wall-clock numbers. The AC-11 window starts immediately before the first click, excludes buffered long tasks that began before it, and remains open until canvas-tile mutations have been quiet for 1,000 ms; failure to settle within 10 seconds makes the measurement unusable. After the window closes, the harness verifies that each tile contains its own marker and is within 120 px of the bottom. `PTAH_PERF_PROFILE=1` captures a CDP CPU profile. `PTAH_PERF_TRACE=1` captures and summarizes a renderer-main-thread trace. `PTAH_PERF_RAF_ATTRIBUTION=1` records the top rAF call sites. Trace and rAF attribution are diagnostic-only, and the asserting cold test ignores both. `PTAH_PERF_EVENTS=500|1000|2000` is diagnostic-only; the asserting cold test always uses 2,000 events. `PTAH_PERF_OUT_DIR` selects the diagnostics directory and defaults to `os.tmpdir()/ptah-perf`. All optional flags are used with `PTAH_PERF_SPECS=1`; profiling aids attribution but does not change the pass/fail budgets. Two older Playwright perf specs, `src/specs/perf/startup-tti.spec.ts` and `src/specs/git/perf-m1-diff-redisplay.spec.ts`, predate this convention and use neither the `.perf.` suffix nor an env gate; they are not being retrofitted.
+ 
+diff --git a/apps/ptah-electron-e2e/src/specs/chat/tile-open-longtask-budget.perf.spec.ts b/apps/ptah-electron-e2e/src/specs/chat/tile-open-longtask-budget.perf.spec.ts
+index 21299d23a..75ae983c8 100644
+--- a/apps/ptah-electron-e2e/src/specs/chat/tile-open-longtask-budget.perf.spec.ts
++++ b/apps/ptah-electron-e2e/src/specs/chat/tile-open-longtask-budget.perf.spec.ts
+@@ -17,6 +17,7 @@ import {
+   assertScrollSanity,
+   assertUsableMeasurement,
+   captureOptionalDiagnostics,
++  failUnusableMeasurement,
+   logMeasurementBuckets,
+   resolvePerfOutputDirectory,
+   summarizeMeasurement,
+@@ -194,18 +195,23 @@ interface PagingDiagnostic {
+ interface DomDiagnostics {
+   readonly replaying: OpenTilesResult['replayingDom'];
+   readonly settled: number;
+-  readonly perTileHarnessTaskMaxDurationMs: number;
++  readonly perTileHarnessMacrotaskMaxDurationMs: number;
+   readonly perTile: readonly {
+     readonly marker: string;
+     readonly domReplaying: number;
+     readonly domSettled: number;
+     readonly ratio: number | null;
++    readonly sampleTimestampMs: number;
++    readonly markerTimestampMs: number;
++    readonly sampleState: 'mid-replay' | 'post-marker';
+   }[];
+ }
+ 
+ async function collectPagingDiagnostics(
+   ui: UiDriver,
+   sessions: readonly SessionFixture[],
++  openResult: OpenTilesResult,
++  scenario: string,
+ ): Promise<PagingDiagnostic[]> {
+   const calls = await ui.getObservedCalls('chat:resume');
+   return sessions.map((session) => {
+@@ -214,15 +220,18 @@ async function collectPagingDiagnostics(
+       return params.sessionId === session.id;
+     });
+     if (matchingCalls.length !== 1) {
+-      throw new Error(
+-        `[AC-11 perf] measurement unusable: tile ${session.id} observed ` +
+-          `${matchingCalls.length} chat:resume calls; expected exactly one`,
++      failUnusableMeasurement(
++        { outputDirectory: PERF_OUT_DIR, scenario },
++        `tile ${session.id} observed ${matchingCalls.length} chat:resume calls; expected exactly one`,
++        { openResult },
+       );
+     }
+     const call = matchingCalls[0];
+     if (!call) {
+-      throw new Error(
+-        `[AC-11 perf] measurement unusable: tile ${session.id} resume call disappeared`,
++      failUnusableMeasurement(
++        { outputDirectory: PERF_OUT_DIR, scenario },
++        `tile ${session.id} resume call disappeared`,
++        { openResult },
+       );
+     }
+     const params = call.params as
+@@ -230,8 +239,10 @@ async function collectPagingDiagnostics(
+       | undefined;
+     const maxEvents = params?.historyPage?.maxEvents;
+     if (typeof maxEvents !== 'number') {
+-      throw new Error(
+-        `[AC-11 perf] measurement unusable: tile ${session.id} resumed without historyPage`,
++      failUnusableMeasurement(
++        { outputDirectory: PERF_OUT_DIR, scenario },
++        `tile ${session.id} resumed without historyPage`,
++        { openResult },
+       );
+     }
+     return {
+@@ -249,8 +260,8 @@ function domDiagnostics(
+   return {
+     replaying: openResult.replayingDom,
+     settled: openResult.settledDomCount,
+-    perTileHarnessTaskMaxDurationMs:
+-      openResult.perTileDomHarnessTaskMaxDurationMs,
++    perTileHarnessMacrotaskMaxDurationMs:
++      openResult.perTileHarnessMacrotaskMaxDurationMs,
+     perTile: openResult.perTileDom.map((sample) => ({
+       marker: sample.marker,
+       domReplaying: sample.replaying.count,
+@@ -259,6 +270,9 @@ function domDiagnostics(
+         sample.settled.count === 0
+           ? null
+           : sample.replaying.count / sample.settled.count,
++      sampleTimestampMs: sample.sampleTimestampMs,
++      markerTimestampMs: sample.markerTimestampMs,
++      sampleState: sample.sampleState,
+     })),
+   };
+ }
+@@ -360,7 +374,12 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
+       outputDirectory: PERF_OUT_DIR,
+       scenario: 'cold-3tile',
+     });
+-    const paging = await collectPagingDiagnostics(ui, sessions);
++    const paging = await collectPagingDiagnostics(
++      ui,
++      sessions,
++      openResult,
++      'cold-3tile',
++    );
+ 
+     // Sanity check AFTER the window closed and the observer was already read —
+     // Playwright locator work here cannot pollute the measurement.
+@@ -464,7 +483,12 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
+       outputDirectory: PERF_OUT_DIR,
+       scenario: `diagnostic-cold-3tile-${eventCount}`,
+     });
+-    const paging = await collectPagingDiagnostics(ui, sessions);
++    const paging = await collectPagingDiagnostics(
++      ui,
++      sessions,
++      openResult,
++      `diagnostic-cold-3tile-${eventCount}`,
++    );
+     await assertScrollSanity(page, sessions);
+     const measurement = summarizeMeasurement(
+       observedEntries,
+@@ -542,8 +566,14 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
+       outputDirectory: PERF_OUT_DIR,
+       scenario: 'warm-1tile',
+     });
+-    const paging = await collectPagingDiagnostics(ui, [real]);
++    const paging = await collectPagingDiagnostics(
++      ui,
++      [real],
++      openResult,
++      'warm-1tile',
++    );
+     await waitForTileMarker(page, real.marker);
++    await assertScrollSanity(page, [real]);
+ 
+     const measurement = summarizeMeasurement(observedEntries, openResult, [
+       real,
+@@ -625,7 +655,12 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
+       outputDirectory: PERF_OUT_DIR,
+       scenario: 'warm-3tile',
+     });
+-    const paging = await collectPagingDiagnostics(ui, sessions);
++    const paging = await collectPagingDiagnostics(
++      ui,
++      sessions,
++      openResult,
++      'warm-3tile',
++    );
+     for (const s of sessions) {
+       await waitForTileMarker(page, s.marker);
+     }
+diff --git a/apps/ptah-electron-e2e/src/support/perf-measurement-report.ts b/apps/ptah-electron-e2e/src/support/perf-measurement-report.ts
+index fa92e5964..c4997d6a0 100644
+--- a/apps/ptah-electron-e2e/src/support/perf-measurement-report.ts
++++ b/apps/ptah-electron-e2e/src/support/perf-measurement-report.ts
+@@ -34,6 +34,24 @@ interface MeasurementUsabilityDiagnostics {
+   readonly scenario: string;
+ }
+ 
++export function failUnusableMeasurement(
++  diagnostics: MeasurementUsabilityDiagnostics,
++  measurementError: string,
++  evidence: Readonly<Record<string, unknown>>,
++): never {
++  writeDiagnostics(
++    diagnostics.outputDirectory,
++    `${diagnostics.scenario}-measurement-unusable`,
++    {
++      scenario: diagnostics.scenario,
++      measurementUsable: false,
++      measurementError,
++      ...evidence,
++    },
++  );
++  throw new Error(`[AC-11 perf] measurement unusable: ${measurementError}`);
++}
++
+ export interface OptionalDiagnostics {
+   readonly rafAttribution: RafAttributionRow[];
+   readonly traceSummary: ReturnType<typeof summarizeTraceEvents> | null;
+@@ -146,30 +164,22 @@ export function assertUsableMeasurement(
+   diagnostics: MeasurementUsabilityDiagnostics,
+ ): void {
+   if (openResult.measurementError) {
+-    writeDiagnostics(
+-      diagnostics.outputDirectory,
+-      `${diagnostics.scenario}-measurement-unusable`,
+-      {
+-        scenario: diagnostics.scenario,
+-        measurementUsable: false,
+-        measurementError: openResult.measurementError,
+-        openResult,
+-      },
+-    );
+-    throw new Error(
+-      `[AC-11 perf] measurement unusable: ${openResult.measurementError}`,
+-    );
++    failUnusableMeasurement(diagnostics, openResult.measurementError, {
++      openResult,
++    });
+   }
+   if (!openResult.ok) {
+-    throw new Error(
+-      `[AC-11 perf] tiles did not all render their markers within the window ` +
+-        `(timedOut=${openResult.timedOut}); measurement is unusable for this run`,
++    failUnusableMeasurement(
++      diagnostics,
++      `tiles did not all render their markers within the window ` +
++        `(timedOut=${openResult.timedOut})`,
++      { openResult },
+     );
+   }
+   if (!openResult.settled) {
+-    throw new Error(
+-      '[AC-11 perf] measurement unusable: tiles did not settle within 10 s',
+-    );
++    failUnusableMeasurement(diagnostics, 'tiles did not settle within 10 s', {
++      openResult,
++    });
+   }
+ }
+ 
+diff --git a/apps/ptah-electron-e2e/src/support/perf-page-capture.ts b/apps/ptah-electron-e2e/src/support/perf-page-capture.ts
+index e2a5f5f28..d6b0ae550 100644
+--- a/apps/ptah-electron-e2e/src/support/perf-page-capture.ts
++++ b/apps/ptah-electron-e2e/src/support/perf-page-capture.ts
+@@ -17,6 +17,9 @@ export interface PerTileDomSample {
+   readonly marker: string;
+   readonly replaying: DomNodeSample;
+   readonly settled: DomNodeSample;
++  readonly sampleTimestampMs: number;
++  readonly markerTimestampMs: number;
++  readonly sampleState: 'mid-replay' | 'post-marker';
+ }
+ 
+ export interface OpenTilesResult {
+@@ -31,7 +34,7 @@ export interface OpenTilesResult {
+   readonly replayingDom: DomNodeSample | null;
+   readonly settledDomCount: number;
+   readonly perTileDom: readonly PerTileDomSample[];
+-  readonly perTileDomHarnessTaskMaxDurationMs: number;
++  readonly perTileHarnessMacrotaskMaxDurationMs: number;
+   readonly measurementError: string | null;
+ }
+ 
+@@ -212,9 +215,16 @@ export async function openTilesWithinPage(
+       const remaining = new Set(markers);
+       const markerTimeByValue = new Map<string, number>();
+       const clickTimes: number[] = [];
++      const initialTileCount = document.querySelectorAll(
++        '[data-testid="canvas-tile"]',
++      ).length;
+       let replayingDom: DomNodeSample | null = null;
+-      let replayingPerTile: DomNodeSample[] | null = null;
+-      let perTileDomHarnessTaskMaxDurationMs = 0;
++      const replayingPerTile = new Map<
++        string,
++        { sample: DomNodeSample; sampleTimestampMs: number }
++      >();
++      const replaySampleScheduledFor = new Set<string>();
++      let perTileHarnessMacrotaskMaxDurationMs = 0;
+       let measurementError: string | null = null;
+       let replaySampleScheduled = false;
+       let finished = false;
+@@ -229,13 +239,13 @@ export async function openTilesWithinPage(
+       const domCount = (): number =>
+         document.querySelectorAll('[data-testid="canvas-tile"] *').length;
+ 
+-      const recordPerTileDomHarnessTask = (
++      const recordPerTileHarnessMacrotask = (
+         label: string,
+         startedAt: number,
+       ): void => {
+         const durationMs = performance.now() - startedAt;
+-        perTileDomHarnessTaskMaxDurationMs = Math.max(
+-          perTileDomHarnessTaskMaxDurationMs,
++        perTileHarnessMacrotaskMaxDurationMs = Math.max(
++          perTileHarnessMacrotaskMaxDurationMs,
+           durationMs,
+         );
+         if (durationMs >= 50) {
+@@ -245,7 +255,29 @@ export async function openTilesWithinPage(
+         }
+       };
+ 
+-      const samplePerTileDom = (): DomNodeSample[] => {
++      const sampleTileDom = (tile: Element, marker: string): DomNodeSample => {
++        const transcript = tile.querySelector('ptah-chat-transcript');
++        if (!transcript) {
++          throw new Error(
++            `per-tile DOM sample could not find the transcript root for ${marker}`,
++          );
++        }
++        const tiles = Array.from(
++          document.querySelectorAll('[data-testid="canvas-tile"]'),
++        );
++        return {
++          count: transcript.querySelectorAll('*').length,
++          // DomNodeSample predates per-tile rows. This flag intentionally
++          // repeats the same whole-canvas marker fact on every tile sample.
++          allMarkersPresent: markers.every((expected) =>
++            tiles.some((candidate) =>
++              (candidate.textContent ?? '').includes(expected),
++            ),
++          ),
++        };
++      };
++
++      const sampleSettledPerTileDom = (): DomNodeSample[] => {
+         const tiles = Array.from(
+           document.querySelectorAll('[data-testid="canvas-tile"]'),
+         );
+@@ -253,22 +285,12 @@ export async function openTilesWithinPage(
+           const tile = tiles.find((candidate) =>
+             (candidate.textContent ?? '').includes(marker),
+           );
+-          const transcript = tile?.querySelector('ptah-chat-transcript');
+-          if (!tile || !transcript) {
++          if (!tile) {
+             throw new Error(
+-              `per-tile DOM sample could not find the transcript root for ${marker}`,
++              `settled per-tile DOM sample could not find the tile for ${marker}`,
+             );
+           }
+-          return {
+-            count: transcript.querySelectorAll('*').length,
+-            // DomNodeSample predates per-tile rows. This flag intentionally
+-            // repeats the same whole-canvas marker fact on every tile sample.
+-            allMarkersPresent: markers.every((expected) =>
+-              tiles.some((candidate) =>
+-                (candidate.textContent ?? '').includes(expected),
+-              ),
+-            ),
+-          };
++          return sampleTileDom(tile, marker);
+         });
+         return samples;
+       };
+@@ -282,9 +304,9 @@ export async function openTilesWithinPage(
+         if (quietId !== undefined) clearTimeout(quietId);
+         if (settleCapId !== undefined) clearTimeout(settleCapId);
+         let settledPerTile: DomNodeSample[] = [];
+-        if (replayingPerTile !== null) {
++        if (replayingPerTile.size === markers.length) {
+           try {
+-            settledPerTile = samplePerTileDom();
++            settledPerTile = sampleSettledPerTileDom();
+           } catch (error: unknown) {
+             measurementError =
+               error instanceof Error ? error.message : String(error);
+@@ -292,31 +314,58 @@ export async function openTilesWithinPage(
+         }
+ 
+         const perTileDom: PerTileDomSample[] = [];
+-        if (replayingPerTile !== null) {
+-          if (settledPerTile.length !== replayingPerTile.length) {
++        if (replayingPerTile.size !== markers.length) {
++          const missing = markers.filter(
++            (marker) => !replayingPerTile.has(marker),
++          );
++          measurementError ??= `missing per-tile replay DOM samples for ${missing.join(', ')}`;
++        } else {
++          if (settledPerTile.length !== replayingPerTile.size) {
+             measurementError ??=
+               'per-tile DOM replay/settled sample length mismatch ' +
+-              `(${replayingPerTile.length} !== ${settledPerTile.length})`;
++              `(${replayingPerTile.size} !== ${settledPerTile.length})`;
+           } else {
+-            for (let index = 0; index < replayingPerTile.length; index++) {
+-              const replayingSample = replayingPerTile[index];
++            for (let index = 0; index < markers.length; index++) {
+               const settledSample = settledPerTile[index];
+               const marker = markers[index];
+-              if (!replayingSample || !settledSample || marker === undefined) {
++              const replayingSample = marker
++                ? replayingPerTile.get(marker)
++                : undefined;
++              const markerTimestampMs = marker
++                ? markerTimeByValue.get(marker)
++                : undefined;
++              if (
++                !replayingSample ||
++                !settledSample ||
++                marker === undefined ||
++                markerTimestampMs === undefined
++              ) {
+                 measurementError ??= `per-tile DOM sample ${index} could not be paired`;
+                 break;
+               }
++              const sampleState =
++                replayingSample.sampleTimestampMs <= markerTimestampMs
++                  ? 'mid-replay'
++                  : 'post-marker';
++              if (sampleState === 'post-marker') {
++                measurementError ??=
++                  `per-tile replay DOM sample for ${marker} was post-marker ` +
++                  `(${replayingSample.sampleTimestampMs.toFixed(2)} > ${markerTimestampMs.toFixed(2)})`;
++              }
+               perTileDom.push({
+                 marker,
+-                replaying: replayingSample,
++                replaying: replayingSample.sample,
+                 settled: settledSample,
++                sampleTimestampMs: replayingSample.sampleTimestampMs,
++                markerTimestampMs,
++                sampleState,
+               });
+             }
+           }
+         }
+ 
+         const settledDomCount = domCount();
+-        recordPerTileDomHarnessTask(
++        recordPerTileHarnessMacrotask(
+           'settled per-tile DOM sampling',
+           harnessTaskStartedAt,
+         );
+@@ -335,7 +384,7 @@ export async function openTilesWithinPage(
+           replayingDom,
+           settledDomCount,
+           perTileDom,
+-          perTileDomHarnessTaskMaxDurationMs,
++          perTileHarnessMacrotaskMaxDurationMs,
+           measurementError,
+         });
+       }
+@@ -372,6 +421,43 @@ export async function openTilesWithinPage(
+         return found;
+       }
+ 
++      function scheduleReplaySampleFromNode(node: Node): void {
++        if (!(node instanceof Element)) return;
++        const messageSlot = node.matches('[data-ptah-transcript-message-id]')
++          ? node
++          : node.querySelector('[data-ptah-transcript-message-id]');
++        const tile = messageSlot?.closest('[data-testid="canvas-tile"]');
++        if (!tile) return;
++        const tileIndex = Array.from(
++          document.querySelectorAll('[data-testid="canvas-tile"]'),
++        ).indexOf(tile);
++        const marker = markers[tileIndex - initialTileCount];
++        if (marker === undefined || replaySampleScheduledFor.has(marker))
++          return;
++        replaySampleScheduledFor.add(marker);
++
++        // The message slot proves this tile's persisted history has begun to
++        // render. Keep the DOM query out of that product MutationObserver task
++        // by sampling in a dedicated, fully timed harness macrotask.
++        setTimeout(() => {
++          const harnessTaskStartedAt = performance.now();
++          try {
++            const sampleTimestampMs = performance.now();
++            replayingPerTile.set(marker, {
++              sample: sampleTileDom(tile, marker),
++              sampleTimestampMs,
++            });
++          } catch (error: unknown) {
++            measurementError ??=
++              error instanceof Error ? error.message : String(error);
++          }
++          recordPerTileHarnessMacrotask(
++            `replaying per-tile DOM sampling for ${marker}`,
++            harnessTaskStartedAt,
++          );
++        }, 0);
++      }
++
+       function afterMarkerScan(found: boolean): void {
+         if (found && replayingDom === null) {
+           replayingDom = {
+@@ -392,14 +478,13 @@ export async function openTilesWithinPage(
+           setTimeout(() => {
+             const harnessTaskStartedAt = performance.now();
+             try {
+-              replayingPerTile = samplePerTileDom();
+               beginSettleWindow();
+             } catch (error: unknown) {
+               measurementError =
+                 error instanceof Error ? error.message : String(error);
+             }
+-            recordPerTileDomHarnessTask(
+-              'replaying per-tile DOM sampling and settle setup',
++            recordPerTileHarnessMacrotask(
++              'settle-window setup',
+               harnessTaskStartedAt,
+             );
+             if (measurementError !== null) {
+@@ -433,6 +518,7 @@ export async function openTilesWithinPage(
+             continue;
+           }
+           for (let i = 0; i < record.addedNodes.length; i++) {
++            scheduleReplaySampleFromNode(record.addedNodes[i]);
+             found =
+               recordMarkers(record.addedNodes[i].textContent ?? '') || found;
+           }
+@@ -459,7 +545,13 @@ export async function openTilesWithinPage(
+       });
+ 
+       windowStartMs = performance.now();
+-      for (const btn of buttons) {
++      for (let index = 0; index < buttons.length; index++) {
++        const btn = buttons[index];
++        const marker = markers[index];
++        if (!btn || marker === undefined) {
++          measurementError ??= `missing button or marker at tile index ${index}`;
++          break;
++        }
+         clickTimes.push(performance.now());
+         btn.click();
+         // Disclosed FU-22a stress cadence; retained until the product queue lands.

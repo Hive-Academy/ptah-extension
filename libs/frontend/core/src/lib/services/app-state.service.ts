@@ -6,6 +6,7 @@
 
 import { Injectable, signal, computed } from '@angular/core';
 import {
+  SessionId,
   WorkspaceInfo,
   MESSAGE_TYPES,
   type NewProjectIntake,
@@ -105,7 +106,13 @@ export interface ChatPromptRequest {
   resolve?: (result: { success: boolean; error?: string }) => void;
 }
 
-/** Request to open/focus a session in a canvas tile */
+/**
+ * Queued request to open/focus a session in a canvas tile.
+ *
+ * Requests are consumed in FIFO order by `OrchestraCanvasComponent`. The
+ * resolver settles after the session switch completes, or with `false` when
+ * the tile cap is hit or the request times out before consumption.
+ */
 export interface CanvasSessionRequest {
   sessionId: string;
   name?: string;
@@ -114,7 +121,7 @@ export interface CanvasSessionRequest {
    * so the caller can `await` the canvas adoption outcome. The canvas effect
    * in `OrchestraCanvasComponent` resolves this with `true` when a tile is
    * (re-)bound to the requested session, or `false` when the tile cap is hit
-   * / the canvas is not mounted. Kept optional so legacy callers / tests that
+   * / the canvas is not mounted. Kept optional so callers / tests that
    * fabricate the request shape still type-check.
    */
   resolve?: (success: boolean) => void;
@@ -251,10 +258,10 @@ export class AppStateManager implements MessageHandler {
    * here would be state that never varies.
    */
   private readonly _layoutMode = signal<LayoutMode>('grid');
-  /** Signal bridge: request to open/focus a session in a canvas tile (from sidebar click in grid mode) */
-  private readonly _canvasSessionRequest = signal<CanvasSessionRequest | null>(
-    null,
-  );
+  /** FIFO signal bridge for requests to open/focus sessions in canvas tiles. */
+  private readonly _canvasSessionRequests = signal<
+    readonly CanvasSessionRequest[]
+  >([]);
   /** Signal bridge: request to create a new session as a canvas tile (from "New Session" in grid mode) */
   private readonly _newCanvasSessionRequest = signal<string | null>(null);
   /**
@@ -325,8 +332,8 @@ export class AppStateManager implements MessageHandler {
   );
   /** Current layout mode: 'single' (tab view) or 'grid' (canvas view) */
   readonly layoutMode = this._layoutMode.asReadonly();
-  /** Pending request to open a session in a canvas tile (consumed by OrchestraCanvasComponent) */
-  readonly canvasSessionRequest = this._canvasSessionRequest.asReadonly();
+  /** Pending requests to open sessions in canvas tiles, in arrival order. */
+  readonly canvasSessionRequests = this._canvasSessionRequests.asReadonly();
   /** Pending request to create a new canvas tile (consumed by OrchestraCanvasComponent) */
   readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
   /** Pending request to adopt an existing tab as a canvas tile (consumed by OrchestraCanvasComponent) */
@@ -689,37 +696,50 @@ export class AppStateManager implements MessageHandler {
    * original session after switching to the new one") should `await` this.
    * Legacy fire-and-forget callers can ignore the returned promise.
    *
-   * If the canvas never resolves (it was unmounted before the effect ran),
-   * the promise still settles via a 5s safety timeout to `false` so awaiters
-   * are never wedged.
+   * Requests are appended to a FIFO queue so a burst cannot overwrite an
+   * earlier request before the canvas effect runs. If the canvas never
+   * consumes a request, its 5s safety timeout removes that exact request and
+   * settles `false` so it cannot execute later.
    */
   requestCanvasSession(sessionId: string, name?: string): Promise<boolean> {
+    const validatedSessionId = SessionId.safeParse(sessionId);
+    if (!validatedSessionId) return Promise.resolve(false);
+
     return new Promise<boolean>((resolve) => {
       let settled = false;
       const settle = (success: boolean): void => {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         resolve(success);
       };
-      const timer = setTimeout(() => settle(false), 5000);
-      this._canvasSessionRequest.set({
-        sessionId,
+      const request: CanvasSessionRequest = {
+        sessionId: validatedSessionId,
         name,
-        resolve: (success: boolean) => {
-          clearTimeout(timer);
-          settle(success);
-        },
-      });
+        resolve: settle,
+      };
+      const timer = setTimeout(() => {
+        let removedWhileWaiting = false;
+        this._canvasSessionRequests.update((requests) => {
+          const remaining = requests.filter(
+            (candidate) => candidate !== request,
+          );
+          removedWhileWaiting = remaining.length !== requests.length;
+          return removedWhileWaiting ? remaining : requests;
+        });
+        if (removedWhileWaiting) settle(false);
+      }, 5000);
+      this._canvasSessionRequests.update((requests) => [...requests, request]);
     });
   }
 
-  /**
-   * Clear the canvas session request after the canvas has processed it.
-   * Callers should invoke `request.resolve(success)` BEFORE calling this so
-   * any awaiter unblocks; clearing alone does not settle the promise.
-   */
-  clearCanvasSessionRequest(): void {
-    this._canvasSessionRequest.set(null);
+  /** Return all pending canvas-session requests in FIFO order and empty the queue. */
+  takeCanvasSessionRequests(): readonly CanvasSessionRequest[] {
+    const requests = this._canvasSessionRequests();
+    if (requests.length > 0) {
+      this._canvasSessionRequests.set([]);
+    }
+    return requests;
   }
 
   /** Request that the canvas creates a new tile with the given name */

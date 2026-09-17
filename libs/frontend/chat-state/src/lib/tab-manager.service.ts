@@ -989,6 +989,7 @@ export class TabManagerService {
       status: 'fresh',
       isDirty: false,
       messages: [],
+      olderHistoryCursor: undefined,
       streamingState: null,
       currentMessageId: null,
       queuedContent: null,
@@ -1393,6 +1394,7 @@ export class TabManagerService {
       status: 'draft',
       isDirty: false,
       claudeSessionId: null,
+      olderHistoryCursor: undefined,
       // No session is bound yet, so there is nothing to compare a revision
       // against; a tab with no recorded revision accepts anything, which is
       // exactly right for a conversation whose id does not exist yet.
@@ -1483,6 +1485,41 @@ export class TabManagerService {
   /** Replace the tab's full messages array. */
   setMessages(tabId: string, messages: ExecutionChatMessage[]): void {
     this.updateTabInternal(tabId, { messages });
+  }
+
+  /** Record the opaque cursor for the page immediately before this tab. */
+  setOlderHistoryCursor(tabId: string, cursor: string | null): void {
+    this.updateTabInternal(tabId, { olderHistoryCursor: cursor });
+  }
+
+  /**
+   * Prepend an older history page against the messages that exist NOW.
+   *
+   * Live events may append while a page request is in flight, so the current
+   * array is read only when the page is ready to commit. Messages already in
+   * the tab (or repeated within the page) are discarded by id. The messages
+   * and next cursor land in one write so observers cannot see a mismatched
+   * window.
+   */
+  prependHistoryMessages(
+    tabId: string,
+    older: readonly ExecutionChatMessage[],
+    nextCursor: string | null,
+  ): void {
+    const current = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!current) return;
+
+    const seenIds = new Set(current.messages.map((message) => message.id));
+    const uniqueOlder = older.filter((message) => {
+      if (seenIds.has(message.id)) return false;
+      seenIds.add(message.id);
+      return true;
+    });
+
+    this.updateTabInternal(tabId, {
+      messages: [...uniqueOlder, ...current.messages],
+      olderHistoryCursor: nextCursor,
+    });
   }
 
   /**
@@ -1712,6 +1749,7 @@ export class TabManagerService {
   detachSessionAndMarkLoaded(tabId: string): void {
     this.updateTabInternal(tabId, {
       claudeSessionId: null,
+      olderHistoryCursor: undefined,
       status: 'loaded',
     });
   }
@@ -1814,6 +1852,7 @@ export class TabManagerService {
 
     this.updateTabInternal(tabId, {
       messages: [],
+      olderHistoryCursor: undefined,
       preloadedStats: payload.preloadedStats,
       compactionCount: payload.compactionCount,
       // Stamp completion time so late SESSION_STATS events produced for the
@@ -2021,6 +2060,7 @@ export class TabManagerService {
       isDirty: false,
       hasLiveSession: false,
       messages: [],
+      olderHistoryCursor: undefined,
       streamingState: null,
       currentMessageId: null,
       queuedContent: null,
@@ -2115,6 +2155,7 @@ export class TabManagerService {
   ): void {
     this.updateTabInternal(tabId, {
       messages: [],
+      olderHistoryCursor: undefined,
       streamingState: payload.streamingState,
       status: 'resuming',
       title: payload.title,

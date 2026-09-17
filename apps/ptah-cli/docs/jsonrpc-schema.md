@@ -470,6 +470,39 @@ Wired by `apps/ptah-cli/src/cli/commands/interact.ts` after `session.ready` is e
 | `session.describe`    | Introspect the live wire surface. Returns `serverName`, `version`, `schemaVersion`, `mode` (`'interact'` \| `'mcp-serve'`), the registered method list, the MCP tool catalog (empty in `interact`, 7 entries in `mcp-serve`), `errorCodes` (every `PtahErrorCode` value), and the capabilities advertised at `session.ready`. Available in BOTH `interact` and `mcp-serve` modes. | `{}`                                                                                             | `SessionDescribeResult` (see `libs/shared/src/lib/types/rpc/rpc-session.types.ts`)           |
 | `session.methods`     | Lightweight introspection — returns just `{ methods: string[] }` matching `JsonRpcServer.getRegisteredMethods()`. Available in BOTH `interact` and `mcp-serve` modes.                                                                                                                                                                                                             | `{}`                                                                                             | `{ methods: string[] }`                                                                      |
 
+### 3.1 Tail-paged chat history through `rpc.call`
+
+`chat:resume` remains backward compatible. With no `historyPage` field it returns
+the full replayable `events` array, and the `session resume` CLI verb continues to
+use that default. A client that wants a bounded initial tail can call it through
+`rpc.call` with:
+
+```json
+{ "method": "chat:resume", "params": { "sessionId": "<uuid>", "tabId": "<uuid>", "workspacePath": "<open-folder>", "historyPage": { "maxEvents": 250 } } }
+```
+
+On success, `data.events` is the newest whole-turn page and
+`data.historyPage.olderCursor` is either an opaque cursor or `null`. Usage stats,
+resumable agents, and other resume facts still describe the full replayable
+history. Omit `historyPage` to retain the full-history response.
+
+Fetch an older page by passing the returned cursor to the pure read method:
+
+```json
+{ "method": "chat:history-page", "params": { "sessionId": "<uuid>", "cursor": "<opaque-cursor>", "maxEvents": 250, "workspacePath": "<open-folder>" } }
+```
+
+The result is `{ events, olderCursor, resumableSubagents }`. Cursors are opaque:
+clients must return them unchanged and stop when `olderCursor` is `null`. Pages
+keep complete user turns together, so the event budget may be exceeded when one
+turn alone is larger. Paging stops at the current replayable compaction boundary;
+history before that boundary is not available. If the transcript changes and the
+cursor becomes stale, the call fails with `HISTORY_CURSOR_STALE`; reopen the
+session with `chat:resume` to obtain a fresh tail and cursor.
+
+This adds no CLI verb. The `session.history` inbound request still proxies
+metadata-only `session:load`, and the `session resume` verb is unchanged.
+
 Example — submit a turn:
 
 ```json

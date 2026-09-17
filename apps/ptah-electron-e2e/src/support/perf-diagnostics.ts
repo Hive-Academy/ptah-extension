@@ -1,5 +1,5 @@
 /**
- * Long-task bucketing and CDP CPU-profile summarization for Playwright perf
+ * Long-task bucketing plus CDP trace and CPU-profile summarization for Playwright perf
  * specs (TASK_2026_437 Batch 22). Pure, `Page`-independent transforms —
  * nothing here touches Playwright's `Page`/`ElementHandle`/`test` types, so
  * this module is safe to import from a Jest/Node context too if a future
@@ -12,14 +12,13 @@
  * `git-diff-mock.ts` — keeps them in `src/support/`, not inside the spec
  * that consumes them). No behavior change from the extraction.
  *
- * Two independent concerns live here:
- *   1. `bucketByClick` — assigns `PerformanceObserver('longtask')` entries to
- *      the click that most recently preceded them, so a multi-tile-open perf
- *      run can report per-tile blocked time instead of one flat aggregate.
- *   2. `classifyFrame`/`summarizeCpuProfile` — classifies a raw CDP
- *      `Profiler.Profile` (`PTAH_PERF_PROFILE=1`) into named source-area
- *      buckets (app mechanisms, Playwright's own injected script, ambiguous
- *      native APIs, V8-native buckets) and a top-functions-by-self-time list.
+ * Three independent concerns live here:
+ *   1. `bucketByClick` / `bucketByMarker` assign long tasks to the most recent
+ *      click or marker timestamp through the shared `bucketByTime` loop.
+ *   2. `findRendererMainThread` / `summarizeTraceEvents` reduce a CDP trace to
+ *      renderer-main-thread event counts and durations.
+ *   3. `classifyFrame`/`summarizeCpuProfile` classifies a raw CDP profile into
+ *      named source-area buckets and a top-functions-by-self-time list.
  */
 
 /**
@@ -69,16 +68,17 @@ function summarizeBucket(
  * `max`/`total` can be broken down into per-tile — and, since click order is
  * open order, tile 0 doubles as "cold start" and the rest as "steady state".
  */
-export function bucketByClick(
+export function bucketByTime(
   entries: readonly LongTaskEntry[],
-  clicks: readonly { label: string; atMs: number }[],
+  points: readonly { label: string; atMs: number }[],
+  beforeLabel: string,
 ): TileBucket[] {
-  const sortedClicks = [...clicks].sort((a, b) => a.atMs - b.atMs);
+  const sortedPoints = [...points].sort((a, b) => a.atMs - b.atMs);
   const buckets = new Map<string, LongTaskEntry[]>();
   const before: LongTaskEntry[] = [];
   for (const e of entries) {
     let owner: string | null = null;
-    for (const c of sortedClicks) {
+    for (const c of sortedPoints) {
       if (c.atMs <= e.startTime) owner = c.label;
       else break;
     }
@@ -95,12 +95,105 @@ export function bucketByClick(
   }
   const rows: TileBucket[] = [];
   if (before.length > 0) {
-    rows.push(summarizeBucket('before-first-click', before));
+    rows.push(summarizeBucket(beforeLabel, before));
   }
-  for (const c of sortedClicks) {
+  for (const c of sortedPoints) {
     rows.push(summarizeBucket(c.label, buckets.get(c.label) ?? []));
   }
   return rows;
+}
+
+export function bucketByClick(
+  entries: readonly LongTaskEntry[],
+  clicks: readonly { label: string; atMs: number }[],
+): TileBucket[] {
+  return bucketByTime(entries, clicks, 'before-first-click');
+}
+
+/** Assigns each long task to the last marker visible at or before its start. */
+export function bucketByMarker(
+  entries: readonly LongTaskEntry[],
+  markers: readonly { label: string; atMs: number }[],
+): TileBucket[] {
+  return bucketByTime(entries, markers, 'before-first-marker');
+}
+
+export interface TraceEvent {
+  readonly name: string;
+  readonly cat?: string;
+  readonly ph?: string;
+  readonly pid: number;
+  readonly tid: number;
+  readonly ts?: number;
+  readonly dur?: number;
+  readonly args?: Record<string, unknown>;
+}
+
+export interface TraceEventSummary {
+  readonly totalMs: number;
+  readonly byName: {
+    readonly name: string;
+    readonly count: number;
+    readonly totalMs: number;
+  }[];
+}
+
+/**
+ * Finds Chromium's renderer main thread from trace metadata. The
+ * `TracingStartedInBrowser` frame process ids constrain the search when that
+ * metadata is present; `thread_name=CrRendererMain` supplies the thread id.
+ */
+export function findRendererMainThread(
+  events: readonly TraceEvent[],
+): { pid: number; tid: number } | null {
+  const rendererPids = new Set<number>();
+  for (const event of events) {
+    if (event.name !== 'TracingStartedInBrowser') continue;
+    const data = event.args?.['data'];
+    if (!data || typeof data !== 'object') continue;
+    const frames = (data as { frames?: unknown }).frames;
+    if (!Array.isArray(frames)) continue;
+    for (const frame of frames) {
+      if (!frame || typeof frame !== 'object') continue;
+      const processId = (frame as { processId?: unknown }).processId;
+      if (typeof processId === 'number') rendererPids.add(processId);
+    }
+  }
+
+  const match = events.find((event) => {
+    if (event.name !== 'thread_name') return false;
+    if (rendererPids.size > 0 && !rendererPids.has(event.pid)) return false;
+    return event.args?.['name'] === 'CrRendererMain';
+  });
+  return match ? { pid: match.pid, tid: match.tid } : null;
+}
+
+/** Summarizes trace events on the selected renderer main thread. */
+export function summarizeTraceEvents(
+  events: readonly TraceEvent[],
+  mainThread: { pid: number; tid: number },
+): TraceEventSummary {
+  const rows = new Map<string, { count: number; totalUs: number }>();
+  for (const event of events) {
+    if (event.pid !== mainThread.pid || event.tid !== mainThread.tid) continue;
+    const current = rows.get(event.name) ?? { count: 0, totalUs: 0 };
+    current.count++;
+    current.totalUs += Math.max(0, event.dur ?? 0);
+    rows.set(event.name, current);
+  }
+  const byName = [...rows.entries()]
+    .map(([name, row]) => ({
+      name,
+      count: row.count,
+      totalMs: Number((row.totalUs / 1_000).toFixed(2)),
+    }))
+    .sort((a, b) => b.totalMs - a.totalMs || b.count - a.count);
+  return {
+    totalMs: Number(
+      byName.reduce((sum, row) => sum + row.totalMs, 0).toFixed(2),
+    ),
+    byName,
+  };
 }
 
 // ── CDP CPU profile summarization (PTAH_PERF_PROFILE=1 only) ────────────────

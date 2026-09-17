@@ -381,6 +381,48 @@ async function callRaw(
 // ---------------------------------------------------------------------------
 
 describe('SessionRpcHandlers', () => {
+  describe('anchor hint sanitization', () => {
+    const sanitize = (value: unknown) => {
+      const harness = makeHarness();
+      return (
+        harness.handlers as unknown as {
+          sanitizeAnchorHint(hint: unknown):
+            | {
+                text: string;
+                occurrence: number;
+                occurrenceFromEnd?: number;
+              }
+            | undefined;
+        }
+      ).sanitizeAnchorHint(value);
+    };
+
+    it.each([0, 1])('keeps occurrenceFromEnd %s', (occurrenceFromEnd) => {
+      expect(sanitize({ text: 'repeat', occurrenceFromEnd })).toEqual({
+        text: 'repeat',
+        occurrence: 0,
+        occurrenceFromEnd,
+      });
+    });
+
+    it.each([-1, 1.5, '2'])(
+      'drops invalid occurrenceFromEnd %s',
+      (occurrenceFromEnd) => {
+        expect(sanitize({ text: 'repeat', occurrenceFromEnd })).toEqual({
+          text: 'repeat',
+          occurrence: 0,
+        });
+      },
+    );
+
+    it('preserves the legacy occurrence field', () => {
+      expect(sanitize({ text: 'repeat', occurrence: 2 })).toEqual({
+        text: 'repeat',
+        occurrence: 2,
+      });
+    });
+  });
+
   describe('register()', () => {
     it('registers all session RPC methods (incl. fork + rewind)', () => {
       const h = makeHarness();

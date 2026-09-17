@@ -26,6 +26,8 @@ import {
 } from '@ptah-extension/shared';
 import type { ExecutionNode } from '@ptah-extension/shared';
 import { filterCompactionNoise } from './transcript-filter.utils';
+import { TranscriptOlderHistorySentinelDirective } from './transcript-older-history-sentinel.directive';
+import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
 import { TranscriptRenderWindow } from './transcript-render-window';
 import { TranscriptSlotDirective } from './transcript-slot.directive';
 
@@ -95,21 +97,30 @@ function mergeByTime(
  */
 interface TranscriptViewModel {
   readonly messages: readonly ExecutionChatMessage[];
-  readonly finalizedCount: number;
+  /**
+   * Render-window and per-bubble streaming boundary. During history replay it
+   * equals `totalCount`, so replayed trees are windowed and publish settled
+   * execution nodes synchronously without a per-node rAF. Otherwise it equals
+   * the finalized message count, preserving the live typing throttle. This
+   * reads raw `historyReplaying()`, never the replay motion hold.
+   */
+  readonly streamingBoundary: number;
   readonly streamingCount: number;
   readonly totalCount: number;
   readonly isStreaming: boolean;
   readonly hasMessages: boolean;
+  readonly hasOlderHistory: boolean;
   readonly isSessionActive: boolean;
 }
 
 const EMPTY_VIEW_MODEL: TranscriptViewModel = {
   messages: EMPTY_MESSAGES,
-  finalizedCount: 0,
+  streamingBoundary: 0,
   streamingCount: 0,
   totalCount: 0,
   isStreaming: false,
   hasMessages: false,
+  hasOlderHistory: false,
   isSessionActive: false,
 };
 
@@ -134,6 +145,8 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
     MessageBubbleComponent,
     ChatEmptyStateComponent,
     TranscriptSlotDirective,
+    TranscriptOlderHistorySentinelDirective,
+    TranscriptPrependAnchorDirective,
   ],
   providers: [TranscriptRenderWindow],
   templateUrl: './chat-transcript.component.html',
@@ -182,6 +195,16 @@ export class ChatTranscriptComponent {
   /** Whether this tab's session has a live SDK `Query` (gates rewind action). */
   readonly isSessionActive = input<boolean>(false);
 
+  /** True only while this tab is replaying persisted history. */
+  readonly historyReplaying = input<boolean>(false);
+
+  /** Whether this tab has another persisted-history page available. */
+  readonly hasOlderHistory = input<boolean>(false);
+  /** Whether this tab is currently requesting an older-history page. */
+  readonly olderHistoryLoading = input<boolean>(false);
+  /** Requests the next older-history page for this tab. */
+  readonly olderHistoryRequested = output<void>();
+
   readonly branchRequested = output<string>();
   readonly rewindRequested = output<string>();
   /** Empty-state prompt selection → parent fills the chat input. */
@@ -196,6 +219,8 @@ export class ChatTranscriptComponent {
    */
   private resizeObserver: ResizeObserver | null = null;
   private scrollRafId: number | null = null;
+  private retentionReleaseRafId: number | null = null;
+  private retentionReleaseTimeoutId: number | null = null;
   private lastContentHeight = 0;
   /** Distance from bottom (px) within which the user is considered "pinned". */
   private readonly NEAR_BOTTOM_PX = 120;
@@ -228,6 +253,9 @@ export class ChatTranscriptComponent {
    * stick-to-bottom when the user is pinned.
    */
   private wasStreaming = false;
+  /** Previous replay input value, used only to detect its falling edge. */
+  private wasHistoryReplaying = false;
+  private wasRenderWindowReplaying = false;
 
   /**
    * `scrollTop` seen by the previous scroll event. An upward move away from the
@@ -245,7 +273,6 @@ export class ChatTranscriptComponent {
    * on the activation edge.
    */
   private savedScrollTop: number | null = null;
-
   /** Previous `active()` value — detects the hidden→visible activation edge. */
   private wasActive = false;
 
@@ -257,7 +284,16 @@ export class ChatTranscriptComponent {
    * suppress fade keyframes during the finalize burst.
    */
   protected readonly isFinalizingTransition = signal(false);
+  private readonly replayMotionHold = signal(false);
+  protected readonly motionSuppressed = computed(
+    () =>
+      this.historyReplaying() ||
+      this.replayMotionHold() ||
+      this.isFinalizingTransition(),
+  );
   private finalizingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private replayMotionHoldTimeoutId: ReturnType<typeof setTimeout> | null =
+    null;
 
   /**
    * Ptah icon URI for skeleton avatar placeholder
@@ -280,7 +316,7 @@ export class ChatTranscriptComponent {
     return status === 'streaming' || status === 'resuming';
   });
 
-  private readonly _sessionId = computed(
+  protected readonly sessionId = computed(
     () => this._tab()?.claudeSessionId ?? null,
   );
 
@@ -331,7 +367,7 @@ export class ChatTranscriptComponent {
         id: tree.id,
         role: 'assistant',
         streamingState: tree,
-        sessionId: this._sessionId() ?? undefined,
+        sessionId: this.sessionId() ?? undefined,
         ...(pendingStats && {
           tokens: pendingStats.tokens,
           cost: pendingStats.cost,
@@ -402,13 +438,17 @@ export class ChatTranscriptComponent {
     }
     const finalized = this.finalizedFiltered();
     const streaming = this.streamingMessages();
+    const totalCount = finalized.length + streaming.length;
     const next: TranscriptViewModel = {
       messages: this.allMessages(),
-      finalizedCount: finalized.length,
+      streamingBoundary: this.historyReplaying()
+        ? totalCount
+        : finalized.length,
       streamingCount: streaming.length,
-      totalCount: finalized.length + streaming.length,
+      totalCount,
       isStreaming: this.isStreaming(),
       hasMessages: this.messages().length > 0,
+      hasOlderHistory: this.hasOlderHistory(),
       isSessionActive: this.isSessionActive(),
     };
     this._frozenView = next;
@@ -423,6 +463,28 @@ export class ChatTranscriptComponent {
   }
 
   constructor() {
+    // The replayer clears its flag before SessionLoaderService's await
+    // continuation marks the tab loaded. Hold the falling edge locally so a
+    // zoneless change-detection pass cannot expose motion in that gap; the
+    // normal streaming→idle transition then takes over.
+    effect(() => {
+      const historyReplaying = this.historyReplaying();
+      untracked(() => {
+        if (historyReplaying) {
+          this.wasHistoryReplaying = true;
+          this.clearReplayMotionHold();
+          return;
+        }
+        if (!this.wasHistoryReplaying) return;
+        this.wasHistoryReplaying = false;
+        this.clearReplayMotionHold();
+        this.replayMotionHold.set(true);
+        this.replayMotionHoldTimeoutId = setTimeout(() => {
+          this.replayMotionHold.set(false);
+          this.replayMotionHoldTimeoutId = null;
+        }, 300);
+      });
+    });
     // Activation edge (hidden→visible): restore the saved scroll offset, or
     // stick to bottom when pinned. `display:none` resets `scrollTop`, so the
     // restore runs on re-show via rAF (once the block layout is back).
@@ -476,17 +538,23 @@ export class ChatTranscriptComponent {
         this.wasStreaming = isStreaming;
       });
     });
-    // Feed the render window. Reads the GATED `vm` and `active` only, so a
-    // hidden transcript neither re-derives its tail nor processes callbacks —
-    // the same freeze the view model applies to the DOM.
+    // Read replay raw across hides; vm/active keep hidden content work gated.
     effect(() => {
+      const historyReplaying = this.historyReplaying();
       const view = this.vm();
       const isActive = this.active();
       untracked(() => {
+        if (historyReplaying && !this.wasRenderWindowReplaying) {
+          this.cancelReplayRetentionRelease();
+          this.renderWindow.setReplayRetention(true);
+        } else if (!historyReplaying && this.wasRenderWindowReplaying) {
+          this.scheduleReplayRetentionRelease();
+        }
+        this.wasRenderWindowReplaying = historyReplaying;
         this.renderWindow.setActive(isActive);
         this.renderWindow.syncMessages(
           view.messages.map((m) => m.id),
-          view.finalizedCount,
+          view.streamingBoundary,
         );
       });
     });
@@ -533,7 +601,10 @@ export class ChatTranscriptComponent {
       this.pinnedToBottom = true;
     }
   }
-
+  /** Current pin state; read-only directive wiring. */
+  protected isPinnedToBottom(): boolean {
+    return this.pinnedToBottom;
+  }
   /**
    * Stick the container to the bottom on the next frame. rAF-coalesced so a
    * burst of streaming chunks collapses to a single adjustment per frame.
@@ -596,9 +667,7 @@ export class ChatTranscriptComponent {
     this.resizeObserver.observe(wrapper);
   }
 
-  /**
-   * Cleanup observer, animation frame, and timeout on component destruction.
-   */
+  /** Cleanup observer, animation frames, and timeouts on destroy. */
   private cleanup(): void {
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
@@ -608,9 +677,38 @@ export class ChatTranscriptComponent {
       cancelAnimationFrame(this.scrollRafId);
       this.scrollRafId = null;
     }
+    this.cancelReplayRetentionRelease();
     if (this.finalizingTimeoutId) {
       clearTimeout(this.finalizingTimeoutId);
       this.finalizingTimeoutId = null;
     }
+    this.clearReplayMotionHold();
+  }
+
+  private scheduleReplayRetentionRelease(): void {
+    this.cancelReplayRetentionRelease();
+    const release = () => {
+      this.cancelReplayRetentionRelease();
+      this.renderWindow.setReplayRetention(false);
+    };
+    this.retentionReleaseTimeoutId = window.setTimeout(release, 50);
+    this.retentionReleaseRafId = requestAnimationFrame(release);
+  }
+
+  private cancelReplayRetentionRelease(): void {
+    if (this.retentionReleaseRafId !== null)
+      cancelAnimationFrame(this.retentionReleaseRafId);
+    this.retentionReleaseRafId = null;
+    if (this.retentionReleaseTimeoutId !== null)
+      clearTimeout(this.retentionReleaseTimeoutId);
+    this.retentionReleaseTimeoutId = null;
+  }
+
+  private clearReplayMotionHold(): void {
+    if (this.replayMotionHoldTimeoutId) {
+      clearTimeout(this.replayMotionHoldTimeoutId);
+      this.replayMotionHoldTimeoutId = null;
+    }
+    this.replayMotionHold.set(false);
   }
 }

@@ -25,12 +25,14 @@ import { signal, computed } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { SessionLoaderService } from './session-loader.service';
 import { SessionHistoryReplayer } from './session-history-replayer.service';
+import { HistoryPagingService } from './history-paging.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   BatchedUpdateService,
   BackgroundAgentStore,
   EventDeduplicationService,
   ExecutionTreeBuilderService,
+  HistoryMessageBuilder,
   MessageFinalizationService,
   SessionManager,
   StreamingAccumulatorCore,
@@ -58,6 +60,11 @@ import {
   type FlatStreamEventUnion,
   type SubagentRecord,
 } from '@ptah-extension/shared';
+
+const historyPagingMock = {
+  tailRequest: jest.fn(() => ({ maxEvents: 250 })),
+  recordTail: jest.fn(),
+};
 
 function makeSummary(
   overrides: Partial<ChatSessionSummary> = {},
@@ -115,6 +122,8 @@ describe('SessionLoaderService', () => {
     setPreloadedStats = jest.fn();
     setLiveModelStats = jest.fn();
     setModelUsageList = jest.fn();
+    historyPagingMock.tailRequest.mockClear();
+    historyPagingMock.recordTail.mockClear();
 
     const tabManagerMock = {
       pendingSessionLoad: computed(() => pendingSessionLoadSignal()),
@@ -176,6 +185,8 @@ describe('SessionLoaderService', () => {
     TestBed.configureTestingModule({
       providers: [
         SessionLoaderService,
+        { provide: HistoryMessageBuilder, useValue: {} },
+        { provide: HistoryPagingService, useValue: historyPagingMock },
         { provide: ClaudeRpcService, useValue: { call: rpcCall } },
         { provide: VSCodeService, useValue: vscodeMock },
         { provide: TabManagerService, useValue: tabManagerMock },
@@ -979,10 +990,17 @@ describe('SessionLoaderService', () => {
       activeTabSessionIdSignal.set('sess-1');
       activeTabStatusSignal.set('loaded');
       activeTabIdSignal.set(TabId.from('61a250e8-805c-4f1c-823a-791e06784980'));
+      TestBed.tick();
       // Flush the async refresh.
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'chat:resume',
+        expect.objectContaining({ historyPage: { maxEvents: 250 } }),
+        expect.anything(),
+      );
 
       service.removeResumableSubagent('tc-1');
       expect(
@@ -1140,6 +1158,8 @@ describe('SessionLoaderService', () => {
       TestBed.configureTestingModule({
         providers: [
           SessionLoaderService,
+          { provide: HistoryMessageBuilder, useValue: {} },
+          { provide: HistoryPagingService, useValue: historyPagingMock },
           { provide: ClaudeRpcService, useValue: { call: rpcCall } },
           { provide: VSCodeService, useValue: vscodeMock },
           { provide: TabManagerService, useValue: tabManagerMock },
@@ -1198,6 +1218,7 @@ describe('SessionLoaderService', () => {
       await expect(
         localService.switchSession('sess-empty' as SessionId),
       ).rejects.toThrow(/chat:resume failed/i);
+      expect(historyPagingMock.recordTail).not.toHaveBeenCalled();
     });
   });
 
@@ -1267,6 +1288,8 @@ describe('SessionLoaderService', () => {
       TestBed.configureTestingModule({
         providers: [
           SessionLoaderService,
+          { provide: HistoryMessageBuilder, useValue: {} },
+          { provide: HistoryPagingService, useValue: historyPagingMock },
           { provide: ClaudeRpcService, useValue: { call: rpcCall } },
           { provide: VSCodeService, useValue: vscodeMock },
           { provide: TabManagerService, useValue: tabManagerMock },
@@ -1346,6 +1369,8 @@ describe('SessionLoaderService', () => {
       TestBed.configureTestingModule({
         providers: [
           SessionLoaderService,
+          { provide: HistoryMessageBuilder, useValue: {} },
+          { provide: HistoryPagingService, useValue: historyPagingMock },
           { provide: ClaudeRpcService, useValue: { call: rpcCall } },
           { provide: VSCodeService, useValue: vscodeMock },
           { provide: TabManagerService, useValue: tabManagerMock },
@@ -1542,9 +1567,13 @@ describe('SessionLoaderService', () => {
       } as unknown as StreamingHandlerService;
 
       TestBed.resetTestingModule();
+      historyPagingMock.tailRequest.mockClear();
+      historyPagingMock.recordTail.mockClear();
       TestBed.configureTestingModule({
         providers: [
           SessionLoaderService,
+          { provide: HistoryMessageBuilder, useValue: {} },
+          { provide: HistoryPagingService, useValue: historyPagingMock },
           { provide: ClaudeRpcService, useValue: { call: rpcCall } },
           {
             provide: VSCodeService,
@@ -1592,7 +1621,14 @@ describe('SessionLoaderService', () => {
       };
       rpcCall.mockImplementation(async (method: string) =>
         method === 'chat:resume'
-          ? { success: true, data: { events: [{ type: 'noop' }], stats } }
+          ? {
+              success: true,
+              data: {
+                events: [{ type: 'noop' }],
+                stats,
+                historyPage: { olderCursor: 'older-cursor' },
+              },
+            }
           : { success: true, data: {} },
       );
 
@@ -1611,8 +1647,15 @@ describe('SessionLoaderService', () => {
       );
       const resumePayload = rpcCall.mock.calls.find(
         ([method]) => method === 'chat:resume',
-      )?.[1] as { activate?: boolean };
+      )?.[1] as { activate?: boolean; historyPage?: { maxEvents: number } };
       expect(resumePayload.activate).toBeUndefined();
+      expect(resumePayload.historyPage).toEqual({ maxEvents: 250 });
+      expect(historyPagingMock.recordTail).toHaveBeenCalledWith(
+        TAB_B,
+        expect.objectContaining({
+          historyPage: { olderCursor: 'older-cursor' },
+        }),
+      );
       expect(harness.applyResumingSession).toHaveBeenCalledWith(
         TAB_B,
         expect.anything(),
@@ -2188,6 +2231,8 @@ describe('SessionLoaderService', () => {
       TestBed.configureTestingModule({
         providers: [
           SessionLoaderService,
+          { provide: HistoryMessageBuilder, useValue: {} },
+          { provide: HistoryPagingService, useValue: historyPagingMock },
           { provide: ClaudeRpcService, useValue: { call: rpcCall } },
           {
             provide: VSCodeService,
@@ -2285,6 +2330,44 @@ describe('SessionLoaderService', () => {
       expect(harness.service.resumableSubagents()).toEqual([]);
     });
 
+    it('keeps a completed replay successful when the handoff failure is reported on the next tab', async () => {
+      const tabB = 'tab-handoff-waiter' as TabId;
+      const sessionB = 'session-handoff-waiter' as SessionId;
+      const harness = makeChunkedService();
+      harness.setTabs([
+        { id: TAB, claudeSessionId: SESSION },
+        { id: tabB, claudeSessionId: sessionB },
+      ]);
+      resumeWith(historyEvents(251, 'a-'), historyEvents(1, 'b-'));
+      holdYields = true;
+
+      const replayA = harness.service.switchSession(SESSION, {
+        targetTabId: TAB,
+      });
+      await until(() => yields === 1);
+      const replayB = harness.service.switchSession(sessionB, {
+        targetTabId: tabB,
+      });
+      const replayBFailure = expect(replayB).rejects.toThrow(
+        `Replay admission handoff failed for tab ${tabB}`,
+      );
+
+      failPostAt = 3;
+      holdYields = false;
+      heldDeliveries.forEach((deliver) => deliver());
+
+      await expect(replayA).resolves.toEqual({ staleSnapshot: false });
+      await replayBFailure;
+      expect(harness.finalizeSessionHistory).toHaveBeenCalledTimes(1);
+      expect(harness.finalizeSessionHistory).toHaveBeenCalledWith(
+        TAB,
+        undefined,
+      );
+      expect(harness.applyResumeFailure).not.toHaveBeenCalledWith(TAB);
+      expect(harness.applyResumeFailure).toHaveBeenCalledWith(tabB);
+      expect(harness.clearPendingUpdates).toHaveBeenCalledWith(tabB);
+    });
+
     it('cancels a stale replay when a newer resume claims the same tab', async () => {
       const harness = makeChunkedService();
       resumeWith(historyEvents(1000, 'old-'), historyEvents(10, 'new-'));
@@ -2296,12 +2379,13 @@ describe('SessionLoaderService', () => {
       // A targeted load has a different in-flight key, so it is not
       // deduplicated against the older one — but it claims the same tab.
       holdYields = false;
-      await expect(
-        harness.service.switchSession(SESSION, { targetTabId: TAB }),
-      ).resolves.toEqual({ staleSnapshot: false });
+      const newer = harness.service.switchSession(SESSION, {
+        targetTabId: TAB,
+      });
 
       heldDeliveries.forEach((deliver) => deliver());
       await expect(older).resolves.toEqual({ staleSnapshot: false });
+      await expect(newer).resolves.toEqual({ staleSnapshot: false });
 
       const replayedIds = harness.processStreamEvent.mock.calls.map(
         ([event]) => (event as { id: string }).id,
@@ -2315,6 +2399,164 @@ describe('SessionLoaderService', () => {
       expect(harness.finalizeSessionHistory).toHaveBeenCalledTimes(1);
       expect(harness.applyResumeFailure).not.toHaveBeenCalled();
       expect(yields).toBe(1);
+    });
+
+    it('B3 — compaction reload supersedes an in-flight replay without stale writes and wins the fence', async () => {
+      const harness = makeChunkedService();
+      resumeWith(historyEvents(600, 'old-'), historyEvents(10, 'compact-'));
+      holdYields = true;
+      const order: string[] = [];
+      harness.clearPendingUpdates.mockImplementation(() => order.push('clear'));
+      harness.processStreamEvent.mockImplementation((event: { id: string }) =>
+        order.push(`event:${event.id}`),
+      );
+      harness.finalizeSessionHistory.mockImplementation(() =>
+        order.push('finalize'),
+      );
+      const replayer = TestBed.inject(SessionHistoryReplayer);
+
+      const older = harness.service.switchSession(SESSION);
+      await until(() => yields === 1);
+      expect(
+        replayer.deferLiveEvent(
+          { id: 'live-1', sessionId: SESSION } as FlatStreamEventUnion,
+          TAB,
+          SESSION,
+          () => order.push('live-1'),
+        ),
+      ).toBe(true);
+      expect(
+        replayer.deferLiveEvent(
+          { id: 'live-2', sessionId: SESSION } as FlatStreamEventUnion,
+          TAB,
+          SESSION,
+          () => order.push('live-2'),
+        ),
+      ).toBe(true);
+
+      holdYields = false;
+      const compaction = harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB,
+      });
+      heldDeliveries.splice(0).forEach((deliver) => deliver());
+
+      await expect(older).resolves.toEqual({ staleSnapshot: false });
+      await expect(compaction).resolves.toEqual({ staleSnapshot: false });
+
+      const oldEvents = order.filter((entry) => entry.startsWith('event:old-'));
+      const compactEvents = order.filter((entry) =>
+        entry.startsWith('event:compact-'),
+      );
+      expect(oldEvents).toHaveLength(250);
+      expect(compactEvents).toHaveLength(10);
+      expect(new Set(compactEvents).size).toBe(10);
+      expect(order.indexOf('clear')).toBeLessThan(order.indexOf('finalize'));
+      expect(order.slice(order.indexOf('finalize'))).toEqual([
+        'finalize',
+        'live-1',
+        'live-2',
+      ]);
+      expect(harness.finalizeSessionHistory).toHaveBeenCalledTimes(1);
+      expect(harness.applyResumeFailure).not.toHaveBeenCalled();
+      expect(harness.setStatus).toHaveBeenLastCalledWith('loaded');
+    });
+
+    it('B4 — throw mid-replay exposes no loaded partial transcript before failure settles and releases once', async () => {
+      const harness = makeChunkedService();
+      resumeWith(historyEvents(600), historyEvents(1, 'after-'));
+      const replayer = TestBed.inject(SessionHistoryReplayer);
+      const transitions: Array<{
+        point: string;
+        status: string;
+        replaying: boolean;
+        messages: number;
+      }> = [];
+      let status = 'resuming';
+      let messages = 0;
+      const snapshot = (point: string): void => {
+        transitions.push({
+          point,
+          status,
+          replaying: replayer.isReplaying(TAB),
+          messages,
+        });
+      };
+      harness.processStreamEvent.mockImplementation((event: { id: string }) => {
+        if (event.id === 'e300') {
+          snapshot('throw');
+          throw new Error('mid-replay failure');
+        }
+      });
+      harness.finalizeSessionHistory.mockImplementation(() => {
+        messages = 1;
+        snapshot('finalize');
+      });
+      harness.applyResumeFailure.mockImplementation(() => {
+        snapshot('before-failure');
+        status = 'loaded';
+        messages = 0;
+        snapshot('failure');
+      });
+      harness.setStatus.mockImplementation((next: string) => {
+        status = next;
+        snapshot(`status:${next}`);
+      });
+      let liveDeliveries = 0;
+      onYield = () => {
+        if (yields === 1) {
+          replayer.deferLiveEvent(
+            { id: 'live', sessionId: SESSION } as FlatStreamEventUnion,
+            TAB,
+            SESSION,
+            () => liveDeliveries++,
+          );
+        }
+      };
+
+      await expect(harness.service.switchSession(SESSION)).rejects.toThrow(
+        'mid-replay failure',
+      );
+
+      expect(transitions).toContainEqual({
+        point: 'throw',
+        status: 'resuming',
+        replaying: true,
+        messages: 0,
+      });
+      expect(transitions).toContainEqual({
+        point: 'before-failure',
+        status: 'resuming',
+        replaying: false,
+        messages: 0,
+      });
+      expect(transitions).not.toContainEqual(
+        expect.objectContaining({
+          point: expect.not.stringContaining('failure'),
+          status: 'loaded',
+          replaying: false,
+          messages: 1,
+        }),
+      );
+      expect(
+        transitions.findIndex((entry) => entry.point === 'failure'),
+      ).toBeLessThan(
+        transitions.findIndex((entry) => entry.point === 'status:loaded'),
+      );
+      expect(harness.finalizeSessionHistory).not.toHaveBeenCalled();
+      expect(harness.clearPendingUpdates).toHaveBeenCalledWith(TAB);
+      expect(liveDeliveries).toBe(1);
+      expect(replayer.isReplaying(TAB)).toBe(false);
+
+      await expect(harness.service.switchSession(SESSION)).resolves.toEqual({
+        staleSnapshot: false,
+      });
+      expect(harness.processStreamEvent).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: 'after-0' }),
+        TAB,
+        SESSION,
+        { isReplay: true, fanOut: false },
+      );
     });
 
     it('applies a live event that arrives between two chunks after the history and before loaded', async () => {
@@ -2670,6 +2912,8 @@ describe('SessionLoaderService targeted replay with the real streaming state pip
   }
 
   function configureRealPipeline(rpcCall: jest.Mock) {
+    historyPagingMock.tailRequest.mockClear();
+    historyPagingMock.recordTail.mockClear();
     const modelRefreshMock: jest.Mocked<ModelRefreshControl> = {
       refreshModels: jest.fn().mockResolvedValue(undefined),
     } as jest.Mocked<ModelRefreshControl>;
@@ -2705,6 +2949,7 @@ describe('SessionLoaderService targeted replay with the real streaming state pip
     TestBed.configureTestingModule({
       providers: [
         SessionLoaderService,
+        { provide: HistoryPagingService, useValue: historyPagingMock },
         TabManagerService,
         TabWorkspacePartitionService,
         ConversationRegistry,

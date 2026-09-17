@@ -25,7 +25,13 @@
  */
 
 import { z } from 'zod';
-import { UUID_REGEX } from '@ptah-extension/shared';
+import { HISTORY_PAGE_MAX_EVENTS, UUID_REGEX } from '@ptah-extension/shared';
+
+const HistoryPageSizeSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(HISTORY_PAGE_MAX_EVENTS);
 
 /**
  * UUID v4 string accepted by `SessionId.validate` / `TabId.validate`.
@@ -71,8 +77,22 @@ export const ChatResumeParamsSchema = z
   .object({
     tabId: uuidString('tabId'),
     sessionId: uuidString('sessionId'),
+    historyPage: z
+      .object({ maxEvents: HistoryPageSizeSchema })
+      .strict()
+      .optional(),
   })
   .passthrough();
+
+/** Side-effect-free older-history page request. */
+export const ChatHistoryPageParamsSchema = z
+  .object({
+    sessionId: uuidString('sessionId'),
+    cursor: z.string().min(1).max(4096),
+    maxEvents: HistoryPageSizeSchema.optional(),
+    workspacePath: z.string().min(1).optional(),
+  })
+  .strict();
 
 /**
  * `chat:abort` params — `sessionId` is required. The current

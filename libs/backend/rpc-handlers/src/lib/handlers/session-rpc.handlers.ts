@@ -250,13 +250,25 @@ export class SessionRpcHandlers {
     if (typeof text !== 'string' || text.trim().length === 0) return undefined;
     const cappedText = text.length > 200_000 ? text.slice(0, 200_000) : text;
     const rawOccurrence = (hint as { occurrence?: unknown }).occurrence;
+    const rawOccurrenceFromEnd = (hint as { occurrenceFromEnd?: unknown })
+      .occurrenceFromEnd;
     const occurrence =
       typeof rawOccurrence === 'number' &&
       Number.isInteger(rawOccurrence) &&
       rawOccurrence >= 0
         ? rawOccurrence
         : 0;
-    return { text: cappedText, occurrence };
+    const occurrenceFromEnd =
+      typeof rawOccurrenceFromEnd === 'number' &&
+      Number.isInteger(rawOccurrenceFromEnd) &&
+      rawOccurrenceFromEnd >= 0
+        ? rawOccurrenceFromEnd
+        : undefined;
+    return {
+      text: cappedText,
+      occurrence,
+      ...(occurrenceFromEnd === undefined ? {} : { occurrenceFromEnd }),
+    };
   }
 
   /**

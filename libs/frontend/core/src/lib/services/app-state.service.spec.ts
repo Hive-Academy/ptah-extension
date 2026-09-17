@@ -30,7 +30,11 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { MESSAGE_TYPES, type WorkspaceInfo } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  SessionId,
+  type WorkspaceInfo,
+} from '@ptah-extension/shared';
 import {
   AppStateManager,
   THOTH_FIRST_RUN_DISMISSED_KEY,
@@ -49,7 +53,7 @@ interface AppStoreState {
   isConnected: boolean;
   openViews: readonly ViewType[];
   layoutMode: LayoutMode;
-  canvasSessionRequest: CanvasSessionRequest | null;
+  canvasSessionRequests: readonly CanvasSessionRequest[];
   newCanvasSessionRequest: string | null;
   canSwitchViews: boolean;
   appTitle: string;
@@ -615,30 +619,117 @@ describe('AppStateManager', () => {
   });
 
   describe('canvas session request signal bridge', () => {
-    it('requestCanvasSession / clearCanvasSessionRequest flip the signal', () => {
+    it('queues two requests in order and takeCanvasSessionRequests empties the queue', async () => {
       const service = createService();
-      const pending = service.requestCanvasSession('sess-1', 'Session One');
-      expect(pending).toBeInstanceOf(Promise);
-      expect(service.canvasSessionRequest()).toEqual(
+      const firstSessionId = SessionId.create();
+      const secondSessionId = SessionId.create();
+      const firstPending = service.requestCanvasSession(
+        firstSessionId,
+        'Session One',
+      );
+      const secondPending = service.requestCanvasSession(
+        secondSessionId,
+        'Session Two',
+      );
+
+      expect(service.canvasSessionRequests()).toEqual([
         expect.objectContaining({
-          sessionId: 'sess-1',
+          sessionId: firstSessionId,
           name: 'Session One',
           resolve: expect.any(Function),
         }),
-      );
-      service.canvasSessionRequest()?.resolve?.(true);
-      service.clearCanvasSessionRequest();
-      expect(service.canvasSessionRequest()).toBeNull();
-      return expect(pending).resolves.toBe(true);
+        expect.objectContaining({
+          sessionId: secondSessionId,
+          name: 'Session Two',
+          resolve: expect.any(Function),
+        }),
+      ]);
+
+      const requests = service.takeCanvasSessionRequests();
+      expect(requests.map(({ sessionId }) => sessionId)).toEqual([
+        firstSessionId,
+        secondSessionId,
+      ]);
+      expect(service.canvasSessionRequests()).toEqual([]);
+      expect(service.takeCanvasSessionRequests()).toEqual([]);
+
+      requests[0]?.resolve?.(true);
+      requests[1]?.resolve?.(true);
+      await expect(firstPending).resolves.toBe(true);
+      await expect(secondPending).resolves.toBe(true);
     });
 
-    it('requestCanvasSession promise resolves to false when the safety timeout fires (no canvas mounted)', async () => {
+    it('removes a timed-out request and resolves false when no canvas consumes it', async () => {
       jest.useFakeTimers();
       const service = createService();
-      const pending = service.requestCanvasSession('sess-orphan', 'Orphan');
+      const pending = service.requestCanvasSession(
+        SessionId.create(),
+        'Orphan',
+      );
+
+      expect(service.canvasSessionRequests()).toHaveLength(1);
       jest.advanceTimersByTime(5000);
-      jest.useRealTimers();
+      expect(service.canvasSessionRequests()).toEqual([]);
       await expect(pending).resolves.toBe(false);
+      jest.useRealTimers();
+    });
+
+    it('resolves true and clears the safety timer when the canvas accepts the request', async () => {
+      jest.useFakeTimers();
+      const service = createService();
+      const pending = service.requestCanvasSession(SessionId.create());
+      const [request] = service.takeCanvasSessionRequests();
+
+      request?.resolve?.(true);
+
+      await expect(pending).resolves.toBe(true);
+      expect(jest.getTimerCount()).toBe(0);
+      jest.useRealTimers();
+    });
+
+    it('keeps three consumed requests in flight past the orphan timeout and settles their real outcomes FIFO', async () => {
+      jest.useFakeTimers();
+      const service = createService();
+      const settlementOrder: string[] = [];
+      const sessionIds = [
+        SessionId.create(),
+        SessionId.create(),
+        SessionId.create(),
+      ];
+      const pending = sessionIds.map((sessionId) =>
+        service.requestCanvasSession(sessionId).then((result) => {
+          settlementOrder.push(sessionId);
+          return result;
+        }),
+      );
+
+      const requests = service.takeCanvasSessionRequests();
+      expect(requests.map(({ sessionId }) => sessionId)).toEqual([
+        ...sessionIds,
+      ]);
+
+      jest.advanceTimersByTime(15_000);
+      await Promise.resolve();
+      expect(settlementOrder).toEqual([]);
+
+      for (const request of requests) {
+        request.resolve?.(true);
+        await Promise.resolve();
+      }
+
+      await expect(Promise.all(pending)).resolves.toEqual([true, true, true]);
+      expect(settlementOrder).toEqual(sessionIds);
+      expect(jest.getTimerCount()).toBe(0);
+      jest.useRealTimers();
+    });
+
+    it('rejects an invalid session id without enqueueing it', async () => {
+      const service = createService();
+
+      await expect(
+        service.requestCanvasSession('not-a-session-id'),
+      ).resolves.toBe(false);
+      expect(service.canvasSessionRequests()).toEqual([]);
     });
 
     it('requestNewCanvasSession / clearNewCanvasSessionRequest flip the signal', () => {

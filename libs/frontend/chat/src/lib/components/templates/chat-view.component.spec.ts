@@ -63,6 +63,8 @@ import { ChatViewComponent } from './chat-view.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
+import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
+import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import {
   VSCodeService,
   ClaudeRpcService,
@@ -166,7 +168,13 @@ function makeHarness(
   const sessionIdSig = signal<string | null>(sessionId);
   const sessionIsActiveSig = signal<boolean>(sessionIsActive);
   const showErrorMock = jest.fn();
+  const loadOlderMock = jest.fn().mockResolvedValue('prepended');
+  const olderHistoryLoadingTabIds = signal<ReadonlySet<string>>(new Set());
   const suppressAnimateOnceSig = signal<boolean>(false);
+  const replayingTabIds = new Set<string>();
+  const isReplayingMock = jest.fn((tabId: string) =>
+    replayingTabIds.has(tabId),
+  );
 
   // Interrupted subagents the "N interrupted agents — Resume" banner reads.
   const resumableSubagentsSig = signal<SubagentRecord[]>([]);
@@ -201,16 +209,19 @@ function makeHarness(
       id: string;
       claudeSessionId: string | null;
       hasLiveSession: boolean;
+      olderHistoryCursor?: string | null;
     }>
   >([
     {
       id: 'tab-abc',
       claudeSessionId: sessionId,
       hasLiveSession: sessionIsActive,
+      olderHistoryCursor: 'older-cursor',
     },
   ]);
   const openSessionTabMock = jest.fn();
   const findTabsBySessionIdMock = jest.fn().mockReturnValue([]);
+  const findTabByIdAcrossWorkspacesMock = jest.fn();
   const closeTabMock = jest.fn().mockResolvedValue(undefined);
   const rebindTabSessionMock = jest.fn();
   const originTab = {
@@ -237,7 +248,7 @@ function makeHarness(
     // Consumed by the component-scoped TranscriptRetentionService effects.
     closedTab: signal(null).asReadonly(),
     removedWorkspace$: signal(null).asReadonly(),
-    findTabByIdAcrossWorkspaces: jest.fn(() => null),
+    findTabByIdAcrossWorkspaces: findTabByIdAcrossWorkspacesMock,
     clearRemovedWorkspace: jest.fn(),
   } as unknown as TabManagerService;
 
@@ -345,6 +356,17 @@ function makeHarness(
         provide: CompactionLifecycleService,
         useValue: compactionLifecycleStub,
       },
+      {
+        provide: SessionHistoryReplayer,
+        useValue: { isReplaying: isReplayingMock },
+      },
+      {
+        provide: HistoryPagingService,
+        useValue: {
+          loadOlder: loadOlderMock,
+          loadingTabIds: olderHistoryLoadingTabIds.asReadonly(),
+        },
+      },
       { provide: AgentMonitorStore, useValue: agentMonitorStoreStub },
       {
         provide: PanelResizeService,
@@ -388,6 +410,7 @@ function makeHarness(
     openSessionTabMock,
     findTabBySessionIdMock,
     findTabsBySessionIdMock,
+    findTabByIdAcrossWorkspacesMock,
     rebindTabSessionMock,
     closeTabMock,
     upsertSessionSummaryMock,
@@ -404,8 +427,130 @@ function makeHarness(
     sessionVisibleSig,
     resumableSubagentsSig,
     isCompactingForTabMock,
+    replayingTabIds,
+    isReplayingMock,
+    loadOlderMock,
+    olderHistoryLoadingTabIds,
   };
 }
+
+describe('ChatViewComponent — older history orchestration', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('counts identical loaded prompts after the anchor from the end', () => {
+    const h = makeHarness();
+    const messages = signal([
+      { id: 'first', role: 'user', rawContent: 'repeat' },
+      { id: 'answer', role: 'assistant', rawContent: 'answer' },
+      { id: 'anchor', role: 'user', rawContent: 'repeat' },
+      { id: 'later', role: 'user', rawContent: 'repeat' },
+      { id: 'last', role: 'user', rawContent: 'different' },
+    ]);
+    const component = h.component as unknown as {
+      resolvedMessages: typeof messages;
+      buildAnchorHint(messageId: string): unknown;
+    };
+    component.resolvedMessages = messages;
+
+    expect(component.buildAnchorHint('anchor')).toEqual({
+      text: 'repeat',
+      occurrence: 1,
+      occurrenceFromEnd: 1,
+    });
+  });
+
+  it('reports stale history with reopen guidance and does not resume automatically', async () => {
+    const h = makeHarness();
+    h.loadOlderMock.mockResolvedValue('stale');
+
+    await (
+      h.component as unknown as {
+        onOlderHistoryRequested(tabId: string): Promise<void>;
+      }
+    ).onOlderHistoryRequested('tab-abc');
+
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      expect.stringMatching(/reopen the session/i),
+      'tab-abc',
+    );
+    expect(h.switchSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a retryable error when loading older history fails', async () => {
+    const h = makeHarness();
+    h.loadOlderMock.mockResolvedValue('failed');
+
+    await (
+      h.component as unknown as {
+        onOlderHistoryRequested(tabId: string): Promise<void>;
+      }
+    ).onOlderHistoryRequested('tab-abc');
+
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      expect.stringMatching(/try again/i),
+      'tab-abc',
+    );
+  });
+
+  it('reports older-history availability from the requested tab cursor', () => {
+    const h = makeHarness();
+    const component = h.component as unknown as {
+      hasOlderHistory(tabId: string): boolean;
+    };
+
+    h.findTabByIdAcrossWorkspacesMock.mockImplementation((tabId: string) =>
+      tabId === 'background-tab'
+        ? {
+            tab: { id: 'background-tab', olderHistoryCursor: 'older-cursor' },
+            workspacePath: 'D:/background-repo',
+          }
+        : null,
+    );
+
+    expect(component.hasOlderHistory('background-tab')).toBe(true);
+    expect(component.hasOlderHistory('missing-tab')).toBe(false);
+  });
+
+  it('reports older-history loading state per tab', () => {
+    const h = makeHarness();
+    const component = h.component as unknown as {
+      isOlderHistoryLoading(tabId: string): boolean;
+    };
+
+    expect(component.isOlderHistoryLoading('tab-abc')).toBe(false);
+    h.olderHistoryLoadingTabIds.set(new Set(['tab-abc']));
+    expect(component.isOlderHistoryLoading('tab-abc')).toBe(true);
+    expect(component.isOlderHistoryLoading('other-tab')).toBe(false);
+  });
+});
+
+describe('ChatViewComponent — replay motion input', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('queries replay state with the rendered transcript tab id', () => {
+    const h = makeHarness();
+    const component = h.component as unknown as {
+      transcriptTabIds(): readonly string[];
+      isHistoryReplaying(tabId: string): boolean;
+    };
+    const renderedTabId = component.transcriptTabIds()[0];
+    expect(renderedTabId).toBe('tab-abc');
+
+    h.replayingTabIds.add(renderedTabId);
+    expect(component.isHistoryReplaying(renderedTabId)).toBe(true);
+    expect(h.isReplayingMock).toHaveBeenLastCalledWith('tab-abc');
+
+    h.replayingTabIds.delete(renderedTabId);
+    expect(component.isHistoryReplaying(renderedTabId)).toBe(false);
+    expect(h.isReplayingMock).toHaveBeenLastCalledWith('tab-abc');
+  });
+});
 
 describe('ChatViewComponent — compaction banner source', () => {
   afterEach(() => {

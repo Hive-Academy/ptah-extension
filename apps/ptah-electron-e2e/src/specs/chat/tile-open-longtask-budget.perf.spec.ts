@@ -1,21 +1,38 @@
-import { randomUUID } from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
-import type { ElementHandle, Page } from '@playwright/test';
 import { test, expect } from '../../support/fixtures';
-import type { UiDriver } from '../../support/ui-driver';
 import {
-  bucketByClick,
   summarizeCpuProfile,
   type CpuProfile,
   type CpuProfileSummary,
-  type LongTaskAttribution,
-  type LongTaskEntry,
 } from '../../support/perf-diagnostics';
-
-type PageContext = ReturnType<Page['context']>;
-/** The CDP session type Playwright doesn't export a top-level name for. */
-type CDPSession = Awaited<ReturnType<PageContext['newCDPSession']>>;
+import {
+  collectLongTasks,
+  installLongTaskObserver,
+  installRafAttribution,
+  openTilesWithinPage,
+  startTraceCapture,
+  type CDPSession,
+  type OpenTilesResult,
+} from '../../support/perf-page-capture';
+import {
+  assertScrollSanity,
+  assertUsableMeasurement,
+  captureOptionalDiagnostics,
+  logMeasurementBuckets,
+  resolvePerfOutputDirectory,
+  summarizeMeasurement,
+  writeCpuProfile,
+  writeDiagnostics,
+} from '../../support/perf-measurement-report';
+import {
+  diagnosticEventCount,
+  makeSessionFixture,
+  prepareCanvasWithSessions,
+  resolveButtonHandles,
+  sessionRowButton,
+  waitForTileMarker,
+  type SessionFixture,
+} from '../../support/perf-session-fixture';
+import type { UiDriver } from '../../support/ui-driver';
 
 /**
  * AC-11 perf spec (TASK_2026_437 P4, Batch 22) — opening 3 tiles of a
@@ -98,7 +115,8 @@ type CDPSession = Awaited<ReturnType<PageContext['newCDPSession']>>;
  *
  * `PTAH_PERF_PROFILE=1` (in addition to `PTAH_PERF_SPECS=1`) turns on a CDP
  * `Profiler` capture around the cold 3-tile open, written as a raw
- * `.cpuprofile` under `D:\projects\ptah-437-backup\` (never into the repo)
+ * `.cpuprofile` under `PTAH_PERF_OUT_DIR` (default `os.tmpdir()/ptah-perf`,
+ * never into the repo)
  * plus a self-time-by-category console summary — see `summarizeCpuProfile`
  * below and the "Attribution" section of test-report-b22.md.
  *
@@ -135,28 +153,21 @@ type CDPSession = Awaited<ReturnType<PageContext['newCDPSession']>>;
  * sessions moderately quickly" — a reader should not assume the ~16 ms gap
  * models normal pacing.
  *
- * ── A real product bug this harness surfaced (not fixed here) ──────────────
- * Firing the 3 clicks with no yield between them (tried first) silently
- * dropped 2 of 3 tiles: `AppStateManager.requestCanvasSession`
- * (`libs/frontend/core/src/lib/services/app-state.service.ts:255,696-714`)
- * writes to a single-slot signal (`_canvasSessionRequest`) consumed by
- * exactly one `effect()` in `OrchestraCanvasComponent`
- * (`libs/frontend/canvas/src/lib/orchestra-canvas.component.ts:293-308`).
- * Two `.set()` calls before that effect's next flush leave only the second
- * request standing — the first is gone with no visible error (its promise
- * resolves `false` only after a 5 s safety timeout, per
- * `app-state.service.ts`'s own doc comment, and the sidebar's click handler
- * does not appear to surface even that). This is a real, if narrow, PRODUCT
- * bug a rapid multi-click in the sidebar can hit — not fixed in this batch
- * (test-only); the `requestAnimationFrame` yield here is a test-harness
- * accommodation, not a substitute for a product fix. Recommended follow-up:
- * queue `canvasSessionRequest`s (or serialize/debounce the click handler) so
- * a second click can't overwrite a first one still waiting to be consumed.
- * See test-report-b22.md's "Product bug found" section.
+ * ── Product bug this harness surfaced, fixed by TASK_2026_453 C3 ─────────
+ * The first no-yield version of this harness silently dropped 2 of 3 tiles
+ * because rapid requests overwrote one single pending value. TASK_2026_453 C3
+ * replaced that bridge with the FIFO `canvasSessionRequests` queue, drained
+ * in order by `OrchestraCanvasComponent`, so every rapid click is now handled.
+ * The one-rAF gap remains intentionally: it is the disclosed stress cadence
+ * used by the M0 baseline and later comparisons, not a product workaround.
+ * See test-report-b22.md's historical "Product bug found" section.
  */
 
 const PERF_ENABLED = process.env['PTAH_PERF_SPECS'] === '1';
 const PROFILE_ENABLED = process.env['PTAH_PERF_PROFILE'] === '1';
+const RAF_ATTRIBUTION_ENABLED =
+  process.env['PTAH_PERF_RAF_ATTRIBUTION'] === '1';
+const TRACE_ENABLED = process.env['PTAH_PERF_TRACE'] === '1';
 
 /** AC-11: no single renderer long task may exceed this. */
 const MAX_SINGLE_LONG_TASK_MS = 200;
@@ -168,474 +179,88 @@ const TARGET_EVENTS_PER_SESSION = 2_000;
 /** Warm-up tile fixture: small on purpose — only its first-render/JIT cost matters. */
 const WARMUP_EVENTS = 20;
 
-/**
- * Diagnostics land here, never in the repo — mirrors the existing
- * `D:\projects\ptah-437-backup\` convention this task already uses for batch
- * logs and patches (see `handoff.md` "Batch N — COMMITTED" evidence lines).
- */
-const BACKUP_DIR = 'D:\\projects\\ptah-437-backup';
+/** Diagnostics land outside the repository. */
+const PERF_OUT_DIR = resolvePerfOutputDirectory(
+  process.env['PTAH_PERF_OUT_DIR'],
+);
 
-interface GeneratedEvent {
-  readonly id: string;
-  readonly eventType: string;
-  readonly timestamp: number;
+interface PagingDiagnostic {
   readonly sessionId: string;
-  readonly source: 'history';
-  readonly messageId: string;
-  readonly role?: 'user' | 'assistant';
-  readonly blockIndex?: number;
-  readonly delta?: string;
-  readonly toolCallId?: string;
-  readonly toolName?: string;
-  readonly isTaskTool?: boolean;
-  readonly output?: string;
-  readonly isError?: boolean;
-  readonly stopReason?: string;
-  readonly tokenUsage?: { input: number; output: number };
-}
-
-/**
- * Deterministic LCG seeded from the session id — same reproducibility
- * property as `largeFixture`'s fixed seed, but keyed per session so fixtures
- * built for different sessions are distinct without depending on wall-clock
- * randomness.
- */
-function makeRand(seedStr: string): () => number {
-  let seed = 0;
-  for (let i = 0; i < seedStr.length; i++) {
-    seed = (seed * 31 + seedStr.charCodeAt(i)) % 2_147_483_647;
-  }
-  if (seed <= 0) seed += 2_147_483_646;
-  return () => {
-    seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
-    return seed % 1000;
-  };
-}
-
-/**
- * Builds a flat, chronologically-ordered `FlatStreamEventUnion`-shaped event
- * array for one session: user turn, assistant turn with several text deltas,
- * 1-2 tool calls, then message_complete — repeated until at least
- * `targetEvents` events exist. The very last assistant turn's final delta
- * carries `marker` so the rendered transcript is independently verifiable per
- * tile.
- */
-function buildLargeSessionEvents(
-  sessionId: string,
-  marker: string,
-  targetEvents = TARGET_EVENTS_PER_SESSION,
-): { events: GeneratedEvent[]; actualCount: number } {
-  const rand = makeRand(sessionId);
-  const events: GeneratedEvent[] = [];
-  let ts = Date.now();
-  let turn = 0;
-  // A turn adds a variable number of events (8-12, see below), so checking
-  // "close to target" at the top of every remaining turn could stay true for
-  // more than one turn and place the marker twice. Latch it instead: exactly
-  // one turn ever qualifies as final.
-  let markerPlaced = false;
-
-  const push = (
-    partial: Omit<GeneratedEvent, 'id' | 'timestamp' | 'sessionId' | 'source'>,
-  ): void => {
-    events.push({
-      id: randomUUID(),
-      timestamp: ts++,
-      sessionId,
-      source: 'history',
-      ...partial,
-    });
-  };
-
-  while (events.length < targetEvents) {
-    const userId = `u-${turn}`;
-    const assistantId = `a-${turn}`;
-    // Per turn: 2 (user start+delta) + 1 (assistant start) + deltaCount (2-4)
-    // + 2*toolCount (2-4) + 1 (complete) = 8-12 events.
-    const isFinalTurn = !markerPlaced && events.length + 12 >= targetEvents;
-    if (isFinalTurn) {
-      markerPlaced = true;
-    }
-
-    push({ eventType: 'message_start', messageId: userId, role: 'user' });
-    push({
-      eventType: 'text_delta',
-      messageId: userId,
-      blockIndex: 0,
-      delta: `Turn ${turn}: please continue and re-check the build output.`,
-    });
-
-    push({
-      eventType: 'message_start',
-      messageId: assistantId,
-      role: 'assistant',
-    });
-    const deltaCount = 2 + (rand() % 3);
-    for (let i = 0; i < deltaCount; i++) {
-      const isLastDelta = isFinalTurn && i === deltaCount - 1;
-      push({
-        eventType: 'text_delta',
-        messageId: assistantId,
-        blockIndex: 0,
-        delta: isLastDelta
-          ? marker
-          : `partial response chunk ${turn}.${i} covering the requested change `,
-      });
-    }
-
-    const toolCount = 1 + (rand() % 2);
-    for (let i = 0; i < toolCount; i++) {
-      const toolCallId = `tc-${turn}-${i}`;
-      push({
-        eventType: 'tool_start',
-        messageId: assistantId,
-        toolCallId,
-        toolName: 'Read',
-        isTaskTool: false,
-      });
-      push({
-        eventType: 'tool_result',
-        messageId: assistantId,
-        toolCallId,
-        output: 'ok',
-        isError: false,
-      });
-    }
-
-    push({
-      eventType: 'message_complete',
-      messageId: assistantId,
-      stopReason: 'end_turn',
-      tokenUsage: { input: 100 + turn, output: 50 + turn },
-    });
-
-    turn++;
-  }
-
-  return { events, actualCount: events.length };
-}
-
-interface SessionFixture {
-  readonly id: string;
-  readonly name: string;
   readonly marker: string;
-  readonly events: GeneratedEvent[];
-  readonly actualCount: number;
+  readonly requestedMaxEvents: number;
+  readonly replayedEventCount: number;
 }
 
-function makeSessionFixture(
-  label: string,
-  targetEvents: number,
-): SessionFixture {
-  const id = randomUUID();
-  const marker = `PTAH_E2E_AC11_${label}_MARKER`;
-  const { events, actualCount } = buildLargeSessionEvents(
-    id,
-    marker,
-    targetEvents,
-  );
-  return {
-    id,
-    name: `AC-11 perf session ${label}`,
-    marker,
-    events,
-    actualCount,
-  };
+interface DomDiagnostics {
+  readonly replaying: OpenTilesResult['replayingDom'];
+  readonly settled: number;
+  readonly perTileHarnessTaskMaxDurationMs: number;
+  readonly perTile: readonly {
+    readonly marker: string;
+    readonly domReplaying: number;
+    readonly domSettled: number;
+    readonly ratio: number | null;
+  }[];
 }
 
-/** Registers `session:list` + `chat:resume` mocks for every given fixture. */
-async function mockSessions(
+async function collectPagingDiagnostics(
   ui: UiDriver,
   sessions: readonly SessionFixture[],
-): Promise<void> {
-  const resumePayloadBySession: Record<string, unknown> = {};
-  for (const s of sessions) {
-    resumePayloadBySession[s.id] = {
-      events: s.events,
-      stats: {
-        totalCost: 12.5,
-        tokens: {
-          input: 400_000,
-          output: 60_000,
-          cacheRead: 0,
-          cacheCreation: 0,
-        },
-        messageCount: s.actualCount,
-      },
-    };
-  }
-
-  await ui.mockRpc({
-    'session:list': {
-      sessions: sessions.map((s, i) => ({
-        id: s.id,
-        name: s.name,
-        messageCount: s.actualCount,
-        createdAt: Date.now() - (sessions.length - i) * 1000,
-        lastActivityAt: Date.now() - (sessions.length - i) * 1000,
-        isActive: false,
-      })),
-      total: sessions.length,
-      hasMore: false,
-    },
-    'session:validate': { exists: true },
-    // Keyed by the resolved session id so each concurrent resume gets its own
-    // fixture and its own marker. `ui-driver.ts` now memoizes the compiled
-    // resolver by source text, so registering this once per test recompiles
-    // exactly once regardless of how many resumes land on it.
-    'chat:resume': `(params) => (${JSON.stringify(resumePayloadBySession)})[params.sessionId] ?? { events: [] }`,
-  });
-}
-
-/**
- * The sidebar row is a `<button>` wrapping the session name AND its metadata
- * line; each `<li>` also carries "Rename session: <name>" / "Delete session:
- * <name>" buttons whose accessible names contain the session name too, so a
- * bare `getByRole('button', { name })` is ambiguous. Scoping to the `<li>` and
- * taking the first button (the row button is the first one rendered —
- * `app-shell.component.html`) resolves to exactly one element.
- */
-function sessionRowButton(page: Page, name: string) {
-  return page
-    .locator('li[role="listitem"]')
-    .filter({ hasText: name })
-    .getByRole('button')
-    .first();
-}
-
-/** Opens the canvas, mocks the given sessions, and waits for their sidebar rows. */
-async function prepareCanvasWithSessions(
-  ui: UiDriver,
-  sessions: readonly SessionFixture[],
-): Promise<void> {
-  await mockSessions(ui, sessions);
-
-  // 'canvas', not 'chat' — ui.goto('chat') additionally creates a blank draft
-  // tile via ensureCanvasChatTile, which would leave an unrelated extra tile.
-  await ui.goto('canvas');
-
-  // The sidebar's initial `session:list` fetch already ran during fixture
-  // setup (`ui.prepare()`), before the mock above was registered, so it saw
-  // no sessions. `session:metadataChanged` is the same debounced
-  // (`ChatMessageHandler.handleSessionMetadataChanged`, 250 ms) reload the
-  // app uses after a real session is created or renamed elsewhere — pushing
-  // it here re-fetches `session:list` against the now-registered mock
-  // instead of reaching into the sidebar's internals directly.
-  await ui.pushEvent({ type: 'session:metadataChanged', payload: {} });
-
-  for (const s of sessions) {
-    await expect(sessionRowButton(ui.page, s.name)).toBeVisible();
-  }
-}
-
-/** Waits for a tile carrying `marker`'s own bubble to render. */
-async function waitForTileMarker(page: Page, marker: string): Promise<void> {
-  const tiles = page.locator('[data-testid="canvas-tile"]');
-  // A tile renders one `chat-tool-output` bubble per finalized message, so the
-  // marker's own bubble is picked out with `hasText`, not just the tile.
-  await expect(
-    tiles
-      .filter({ hasText: marker })
-      .locator('[data-testid="chat-tool-output"]', { hasText: marker }),
-  ).toBeVisible({ timeout: 20_000 });
-}
-
-async function installLongTaskObserver(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const w = window as unknown as { __ptahLongTasks?: LongTaskEntry[] };
-    w.__ptahLongTasks = [];
-    const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        const withAttribution = entry as unknown as {
-          attribution?: LongTaskAttribution[];
-        };
-        (w.__ptahLongTasks ?? []).push({
-          startTime: entry.startTime,
-          duration: entry.duration,
-          name: entry.name,
-          attribution: (withAttribution.attribution ?? []).map((a) => ({
-            containerType: a.containerType ?? '',
-            containerSrc: a.containerSrc ?? '',
-            containerId: a.containerId ?? '',
-            containerName: a.containerName ?? '',
-          })),
-        });
-      }
+): Promise<PagingDiagnostic[]> {
+  const calls = await ui.getObservedCalls('chat:resume');
+  return sessions.map((session) => {
+    const matchingCalls = calls.filter((candidate) => {
+      const params = candidate.params as { sessionId?: unknown };
+      return params.sessionId === session.id;
     });
-    observer.observe({ type: 'longtask', buffered: true });
-    (
-      w as unknown as { __ptahLongTaskObserver?: PerformanceObserver }
-    ).__ptahLongTaskObserver = observer;
-  });
-}
-
-async function collectLongTasks(page: Page): Promise<LongTaskEntry[]> {
-  return page.evaluate(() => {
-    const w = window as unknown as {
-      __ptahLongTasks?: LongTaskEntry[];
-      __ptahLongTaskObserver?: PerformanceObserver;
-    };
-    w.__ptahLongTaskObserver?.disconnect();
-    return w.__ptahLongTasks ?? [];
-  });
-}
-
-/**
- * Resolves the 3 sidebar row `<button>` element handles with ordinary
- * Playwright locators. Must be called BEFORE `installLongTaskObserver` — this
- * is the one place in the measured flow where Playwright's accessible-name/
- * actionability engine is allowed to run, and it runs here, outside the
- * window, on purpose.
- */
-async function resolveButtonHandles(
-  page: Page,
-  sessions: readonly SessionFixture[],
-): Promise<ElementHandle<HTMLElement>[]> {
-  const handles: ElementHandle<HTMLElement>[] = [];
-  for (const s of sessions) {
-    const handle = await sessionRowButton(page, s.name).elementHandle();
-    if (!handle) {
+    if (matchingCalls.length !== 1) {
       throw new Error(
-        `[AC-11 perf] sessionRowButton element handle not found for "${s.name}"`,
+        `[AC-11 perf] measurement unusable: tile ${session.id} observed ` +
+          `${matchingCalls.length} chat:resume calls; expected exactly one`,
       );
     }
-    handles.push(handle as ElementHandle<HTMLElement>);
-  }
-  return handles;
+    const call = matchingCalls[0];
+    if (!call) {
+      throw new Error(
+        `[AC-11 perf] measurement unusable: tile ${session.id} resume call disappeared`,
+      );
+    }
+    const params = call.params as
+      | { historyPage?: { maxEvents?: unknown } }
+      | undefined;
+    const maxEvents = params?.historyPage?.maxEvents;
+    if (typeof maxEvents !== 'number') {
+      throw new Error(
+        `[AC-11 perf] measurement unusable: tile ${session.id} resumed without historyPage`,
+      );
+    }
+    return {
+      sessionId: session.id,
+      marker: session.marker,
+      requestedMaxEvents: maxEvents,
+      replayedEventCount: session.paging.tail.events.length,
+    };
+  });
 }
 
-interface OpenTilesResult {
-  readonly ok: boolean;
-  readonly timedOut: boolean;
-  /** `performance.now()` at each click, same order as `buttons`/`markers`. */
-  readonly clickTimes: number[];
-}
-
-/**
- * Clicks every button and waits for every marker to appear, ENTIRELY inside
- * one `page.evaluate` call: a native `HTMLElement.click()` per button (the
- * same click event Angular's zone-patched listener reacts to — not
- * Playwright's `.click()`, which runs hit-testing/visibility/animation
- * actionability checks first) and a single `MutationObserver` resolving a
- * Promise once every marker string is found in `document.body.textContent`.
- * No Playwright-side polling, no locator resolution, runs during this call —
- * that is the entire point: the long-task window this wraps measures the
- * app, not the test harness.
- *
- * Clicks are separated by one `requestAnimationFrame` yield each — NOT for
- * Playwright actionability, but because "open a tile for this session" is a
- * single-slot request (`AppStateManager`'s `_canvasSessionRequest` signal,
- * consumed by one `effect()` in `OrchestraCanvasComponent`). Firing all 3
- * native clicks in the same synchronous turn (tried first, see
- * `b22-code-logic-review.md` revision 3 discussion) overwrites the signal
- * before Angular's effect ever runs, so only the LAST click's tile actually
- * opens — confirmed by a run where 2 of 3 tiles silently never appeared. One
- * rAF per click is enough for the effect to consume each request before the
- * next click, and costs ~16 ms/click — negligible next to the hundreds of ms
- * this spec measures, and it is a fixed scheduling primitive, not a
- * Playwright-side poll.
- */
-async function openTilesWithinPage(
-  page: Page,
-  buttons: ElementHandle<HTMLElement>[],
-  markers: string[],
-  timeoutMs = 30_000,
-): Promise<OpenTilesResult> {
-  return page.evaluate(
-    async ({ buttons, markers, timeoutMs }) => {
-      const remaining = new Set(markers);
-      const clickTimes: number[] = [];
-      let settled = false;
-      let resolveDone!: (result: OpenTilesResult) => void;
-      const donePromise = new Promise<OpenTilesResult>((resolve) => {
-        resolveDone = resolve;
-      });
-
-      function finish(ok: boolean, timedOut: boolean): void {
-        if (settled) return;
-        settled = true;
-        observer.disconnect();
-        clearTimeout(timeoutId);
-        resolveDone({ ok, timedOut, clickTimes });
-      }
-
-      // A first version scanned `document.body.textContent` (the WHOLE
-      // accumulated DOM) on every MutationObserver callback. That cost grows
-      // with the DOM already inserted, so by the time the 3rd tile is
-      // streaming in past ~190 turns from the first two, each callback was
-      // re-serializing megabytes of text — a re-profile found this single
-      // harness-introduced function costing ~2 s (~20% of sampled CPU) on its
-      // own, once Playwright's own locator engine had already been removed
-      // from the window. Fixed: only inspect the mutation records
-      // themselves (`addedNodes` / the mutated `characterData` node's own
-      // text), which costs O(what changed), not O(everything so far).
-      function scanMutations(records: MutationRecord[]): void {
-        for (const record of records) {
-          if (record.type === 'characterData') {
-            const t = record.target.textContent ?? '';
-            for (const m of [...remaining]) {
-              if (t.includes(m)) remaining.delete(m);
-            }
-            continue;
-          }
-          for (let i = 0; i < record.addedNodes.length; i++) {
-            const t = record.addedNodes[i].textContent ?? '';
-            if (!t) continue;
-            for (const m of [...remaining]) {
-              if (t.includes(m)) remaining.delete(m);
-            }
-          }
-        }
-        if (remaining.size === 0) finish(true, false);
-      }
-
-      // Only used for the 3 manual post-click checks below (see call site) —
-      // whole-body is fine here since it runs at most 3 times per test, not
-      // once per mutation.
-      function scanWholeBody(): void {
-        const text = document.body.textContent ?? '';
-        for (const m of [...remaining]) {
-          if (text.includes(m)) remaining.delete(m);
-        }
-        if (remaining.size === 0) finish(true, false);
-      }
-
-      const observer = new MutationObserver(scanMutations);
-      const timeoutId = setTimeout(() => finish(false, true), timeoutMs);
-
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        characterData: true,
-      });
-
-      for (const btn of buttons) {
-        btn.click();
-        clickTimes.push(performance.now());
-        // See the function doc comment: yields one frame so the single-slot
-        // canvas-session-request signal is consumed before the next click.
-        await new Promise<void>((r) => requestAnimationFrame(() => r()));
-        scanWholeBody();
-      }
-
-      return donePromise;
-    },
-    { buttons, markers, timeoutMs },
-  );
-}
-
-function writeDiagnostics(name: string, data: unknown): void {
-  try {
-    fs.mkdirSync(BACKUP_DIR, { recursive: true });
-    const file = path.join(BACKUP_DIR, `ac11-perf-${name}-${Date.now()}.json`);
-    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
-    console.log(`[AC-11 perf] wrote diagnostics: ${file}`);
-  } catch (error: unknown) {
-    console.warn(
-      `[AC-11 perf] failed to write diagnostics for "${name}":`,
-      error instanceof Error ? error.message : String(error),
-    );
-  }
+function domDiagnostics(
+  openResult: Awaited<ReturnType<typeof openTilesWithinPage>>,
+): DomDiagnostics {
+  return {
+    replaying: openResult.replayingDom,
+    settled: openResult.settledDomCount,
+    perTileHarnessTaskMaxDurationMs:
+      openResult.perTileDomHarnessTaskMaxDurationMs,
+    perTile: openResult.perTileDom.map((sample) => ({
+      marker: sample.marker,
+      domReplaying: sample.replaying.count,
+      domSettled: sample.settled.count,
+      ratio:
+        sample.settled.count === 0
+          ? null
+          : sample.replaying.count / sample.settled.count,
+    })),
+  };
 }
 
 test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK_2026_437 AC-11)', () => {
@@ -670,9 +295,12 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
     // Install the long-task observer (and, if enabled, the CDP CPU profiler)
     // AFTER the canvas/sidebar are settled and BEFORE any tile opens, so
     // nothing but the 3 resumes (and, per the header comment, no Playwright
-    // locator work) is measured. buffered: true also picks up anything
-    // already queued at install time.
+    // locator work) is measured. buffered: true can also report already
+    // queued entries; summarizeMeasurement excludes them by windowStartMs.
     await installLongTaskObserver(page);
+    // Diagnostic tracing is hard-disabled in the budget-gating test so CDP
+    // collection work cannot contaminate the asserted window.
+    const traceCapture = null;
 
     let cdpSession: CDPSession | null = null;
     if (PROFILE_ENABLED) {
@@ -684,8 +312,6 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       await cdpSession.send('Profiler.start');
     }
 
-    const wallStart = Date.now();
-
     // Click all 3 sidebar rows AND wait for all 3 markers to render, entirely
     // inside one page.evaluate — no Playwright polling during this window.
     const openResult = await openTilesWithinPage(
@@ -694,7 +320,12 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       sessions.map((s) => s.marker),
     );
 
-    const wallMs = Date.now() - wallStart;
+    const observedEntries = await collectLongTasks(page);
+    const optionalDiagnostics = await captureOptionalDiagnostics(
+      page,
+      traceCapture,
+      false,
+    );
 
     let cpuSummary: CpuProfileSummary | null = null;
     if (cdpSession) {
@@ -703,13 +334,7 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       };
       await cdpSession.send('Profiler.disable');
       await cdpSession.detach();
-      fs.mkdirSync(BACKUP_DIR, { recursive: true });
-      const profilePath = path.join(
-        BACKUP_DIR,
-        `ac11-perf-cold-3tile-${Date.now()}.cpuprofile`,
-      );
-      fs.writeFileSync(profilePath, JSON.stringify(profile), 'utf8');
-      console.log(`[AC-11 perf] wrote raw CPU profile: ${profilePath}`);
+      writeCpuProfile(PERF_OUT_DIR, profile);
       cpuSummary = summarizeCpuProfile(profile);
       console.log(
         `[AC-11 perf] CPU profile self-time by category (grand total ${cpuSummary.grandTotalMs}ms sampled):`,
@@ -727,18 +352,15 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       }
     }
 
-    const entries = await collectLongTasks(page);
-
     for (const handle of buttonHandles) {
       await handle.dispose();
     }
 
-    if (!openResult.ok) {
-      throw new Error(
-        `[AC-11 perf] tiles did not all render their markers within the window ` +
-          `(timedOut=${openResult.timedOut}); measurement is unusable for this run`,
-      );
-    }
+    assertUsableMeasurement(openResult, {
+      outputDirectory: PERF_OUT_DIR,
+      scenario: 'cold-3tile',
+    });
+    const paging = await collectPagingDiagnostics(ui, sessions);
 
     // Sanity check AFTER the window closed and the observer was already read —
     // Playwright locator work here cannot pollute the measurement.
@@ -747,17 +369,18 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
     for (const s of sessions) {
       await waitForTileMarker(page, s.marker);
     }
+    await assertScrollSanity(page, sessions);
 
-    const maxDuration = entries.reduce((m, e) => Math.max(m, e.duration), 0);
-    const totalDuration = entries.reduce((sum, e) => sum + e.duration, 0);
-    const clicks = sessions.map((s, i) => ({
-      label: s.marker,
-      atMs: openResult.clickTimes[i],
-    }));
-    const perTile = bucketByClick(entries, clicks);
+    const measurement = summarizeMeasurement(
+      observedEntries,
+      openResult,
+      sessions,
+    );
+    const { entries, maxDuration, totalDuration } = measurement;
+    logMeasurementBuckets('cold-3tile', measurement);
 
     console.log(
-      `[AC-11 perf] wall=${wallMs}ms longTasks=${entries.length} max=${maxDuration.toFixed(
+      `[AC-11 perf] wall=${openResult.wallMs.toFixed(2)}ms longTasks=${entries.length} max=${maxDuration.toFixed(
         2,
       )}ms total=${totalDuration.toFixed(2)}ms (budgets: max<=${MAX_SINGLE_LONG_TASK_MS}ms, total<=${MAX_TOTAL_BLOCKED_MS}ms)`,
     );
@@ -769,16 +392,30 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
     console.log(
       '[AC-11 perf] per-tile bucket (click order — first = cold start, rest = steady state):',
     );
-    for (const b of perTile) {
+    for (const b of measurement.perClick) {
       console.log(
         `[AC-11 perf]   ${b.label}: count=${b.count} max=${b.maxMs.toFixed(2)}ms total=${b.totalMs.toFixed(2)}ms`,
       );
     }
 
-    writeDiagnostics('cold-3tile', {
+    writeDiagnostics(PERF_OUT_DIR, 'cold-3tile', {
       scenario: 'cold-3tile',
-      harness: 'no-polling-v2',
-      wallMs,
+      harness: 'settle-inclusive-v3',
+      diagnosticFlags: {
+        trace: false,
+        rafAttribution: false,
+        profile: PROFILE_ENABLED,
+        eventCountOverride: null,
+      },
+      settled: openResult.settled,
+      wallMs: openResult.wallMs,
+      windowStartMs: openResult.windowStartMs,
+      windowEndMs: openResult.windowEndMs,
+      clickTimes: openResult.clickTimes,
+      markerTimes: openResult.markerTimes,
+      preWindowExcluded: measurement.preWindowExcluded,
+      domNodes: domDiagnostics(openResult),
+      paging,
       longTaskCount: entries.length,
       maxDurationMs: maxDuration,
       totalDurationMs: totalDuration,
@@ -787,7 +424,10 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
         totalMs: MAX_TOTAL_BLOCKED_MS,
       },
       entries,
-      perTile,
+      perClick: measurement.perClick,
+      perMarker: measurement.perMarker,
+      rafAttribution: optionalDiagnostics.rafAttribution,
+      traceSummary: optionalDiagnostics.traceSummary,
       cpuSummary,
     });
 
@@ -795,12 +435,81 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
     expect(totalDuration).toBeLessThanOrEqual(MAX_TOTAL_BLOCKED_MS);
   });
 
+  test('diagnostic: cold 3 tiles with optional attribution flags (no AC-11 gate)', async ({
+    ui,
+  }) => {
+    const page = ui.page;
+    const eventCount = diagnosticEventCount(process.env['PTAH_PERF_EVENTS']);
+    const sessions = ['0', '1', '2'].map((label) =>
+      makeSessionFixture(`DIAG_COLD_TILE_${label}`, eventCount),
+    );
+    await prepareCanvasWithSessions(ui, sessions);
+    const buttonHandles = await resolveButtonHandles(page, sessions);
+    if (RAF_ATTRIBUTION_ENABLED) await installRafAttribution(page);
+    await installLongTaskObserver(page);
+    const traceCapture = TRACE_ENABLED ? await startTraceCapture(page) : null;
+    const openResult = await openTilesWithinPage(
+      page,
+      buttonHandles,
+      sessions.map((session) => session.marker),
+    );
+    const observedEntries = await collectLongTasks(page);
+    const optionalDiagnostics = await captureOptionalDiagnostics(
+      page,
+      traceCapture,
+      RAF_ATTRIBUTION_ENABLED,
+    );
+    for (const handle of buttonHandles) await handle.dispose();
+    assertUsableMeasurement(openResult, {
+      outputDirectory: PERF_OUT_DIR,
+      scenario: `diagnostic-cold-3tile-${eventCount}`,
+    });
+    const paging = await collectPagingDiagnostics(ui, sessions);
+    await assertScrollSanity(page, sessions);
+    const measurement = summarizeMeasurement(
+      observedEntries,
+      openResult,
+      sessions,
+    );
+    logMeasurementBuckets('diagnostic-cold-3tile', measurement);
+    writeDiagnostics(PERF_OUT_DIR, `diagnostic-cold-3tile-${eventCount}`, {
+      scenario: 'diagnostic-cold-3tile',
+      harness: 'settle-inclusive-v3',
+      diagnosticFlags: {
+        trace: TRACE_ENABLED,
+        rafAttribution: RAF_ATTRIBUTION_ENABLED,
+        profile: false,
+        eventCountOverride:
+          process.env['PTAH_PERF_EVENTS'] === undefined ? null : eventCount,
+      },
+      eventCount,
+      settled: openResult.settled,
+      wallMs: openResult.wallMs,
+      windowStartMs: openResult.windowStartMs,
+      windowEndMs: openResult.windowEndMs,
+      clickTimes: openResult.clickTimes,
+      markerTimes: openResult.markerTimes,
+      preWindowExcluded: measurement.preWindowExcluded,
+      domNodes: domDiagnostics(openResult),
+      paging,
+      longTaskCount: measurement.entries.length,
+      maxDurationMs: measurement.maxDuration,
+      totalDurationMs: measurement.totalDuration,
+      entries: measurement.entries,
+      perClick: measurement.perClick,
+      perMarker: measurement.perMarker,
+      rafAttribution: optionalDiagnostics.rafAttribution,
+      traceSummary: optionalDiagnostics.traceSummary,
+    });
+  });
+
   test('diagnostic: warm 1 tile of a ~2,000-event session (no AC-11 gate — for Q6 evidence only)', async ({
     ui,
   }) => {
     const page = ui.page;
     const warmup = makeSessionFixture('WARMUP_SOLO', WARMUP_EVENTS);
-    const real = makeSessionFixture('SOLO', TARGET_EVENTS_PER_SESSION);
+    const eventCount = diagnosticEventCount(process.env['PTAH_PERF_EVENTS']);
+    const real = makeSessionFixture('SOLO', eventCount);
 
     await prepareCanvasWithSessions(ui, [warmup, real]);
 
@@ -813,42 +522,68 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
     await waitForTileMarker(page, warmup.marker);
 
     const buttonHandles = await resolveButtonHandles(page, [real]);
+    if (RAF_ATTRIBUTION_ENABLED) await installRafAttribution(page);
     await installLongTaskObserver(page);
-    const wallStart = Date.now();
+    const traceCapture = TRACE_ENABLED ? await startTraceCapture(page) : null;
     const openResult = await openTilesWithinPage(page, buttonHandles, [
       real.marker,
     ]);
-    const wallMs = Date.now() - wallStart;
-
-    const entries = await collectLongTasks(page);
+    const observedEntries = await collectLongTasks(page);
+    const optionalDiagnostics = await captureOptionalDiagnostics(
+      page,
+      traceCapture,
+      RAF_ATTRIBUTION_ENABLED,
+    );
     for (const handle of buttonHandles) {
       await handle.dispose();
     }
 
-    if (!openResult.ok) {
-      throw new Error(
-        `[AC-11 perf][warm-1tile] tile did not render its marker within the window ` +
-          `(timedOut=${openResult.timedOut}); measurement is unusable for this run`,
-      );
-    }
+    assertUsableMeasurement(openResult, {
+      outputDirectory: PERF_OUT_DIR,
+      scenario: 'warm-1tile',
+    });
+    const paging = await collectPagingDiagnostics(ui, [real]);
     await waitForTileMarker(page, real.marker);
 
-    const maxDuration = entries.reduce((m, e) => Math.max(m, e.duration), 0);
-    const totalDuration = entries.reduce((sum, e) => sum + e.duration, 0);
+    const measurement = summarizeMeasurement(observedEntries, openResult, [
+      real,
+    ]);
+    const { entries, maxDuration, totalDuration } = measurement;
+    logMeasurementBuckets('warm-1tile', measurement);
 
     console.log(
-      `[AC-11 perf][warm-1tile] wall=${wallMs}ms longTasks=${entries.length} max=${maxDuration.toFixed(2)}ms total=${totalDuration.toFixed(2)}ms ` +
+      `[AC-11 perf][warm-1tile] wall=${openResult.wallMs.toFixed(2)}ms longTasks=${entries.length} max=${maxDuration.toFixed(2)}ms total=${totalDuration.toFixed(2)}ms ` +
         `(informational only — budgets max<=${MAX_SINGLE_LONG_TASK_MS}ms/total<=${MAX_TOTAL_BLOCKED_MS}ms shown for comparison, not asserted here)`,
     );
 
-    writeDiagnostics('warm-1tile', {
+    writeDiagnostics(PERF_OUT_DIR, 'warm-1tile', {
       scenario: 'warm-1tile',
-      harness: 'no-polling-v2',
-      wallMs,
+      harness: 'settle-inclusive-v3',
+      diagnosticFlags: {
+        trace: TRACE_ENABLED,
+        rafAttribution: RAF_ATTRIBUTION_ENABLED,
+        profile: false,
+        eventCountOverride:
+          process.env['PTAH_PERF_EVENTS'] === undefined ? null : eventCount,
+      },
+      eventCount,
+      settled: openResult.settled,
+      wallMs: openResult.wallMs,
+      windowStartMs: openResult.windowStartMs,
+      windowEndMs: openResult.windowEndMs,
+      clickTimes: openResult.clickTimes,
+      markerTimes: openResult.markerTimes,
+      preWindowExcluded: measurement.preWindowExcluded,
+      domNodes: domDiagnostics(openResult),
+      paging,
       longTaskCount: entries.length,
       maxDurationMs: maxDuration,
       totalDurationMs: totalDuration,
       entries,
+      perClick: measurement.perClick,
+      perMarker: measurement.perMarker,
+      rafAttribution: optionalDiagnostics.rafAttribution,
+      traceSummary: optionalDiagnostics.traceSummary,
     });
   });
 
@@ -857,8 +592,9 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
   }) => {
     const page = ui.page;
     const warmup = makeSessionFixture('WARMUP_TRIO', WARMUP_EVENTS);
+    const eventCount = diagnosticEventCount(process.env['PTAH_PERF_EVENTS']);
     const sessions = ['0', '1', '2'].map((label) =>
-      makeSessionFixture(`WARM_TILE_${label}`, TARGET_EVENTS_PER_SESSION),
+      makeSessionFixture(`WARM_TILE_${label}`, eventCount),
     );
 
     await prepareCanvasWithSessions(ui, [warmup, ...sessions]);
@@ -867,56 +603,79 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
     await waitForTileMarker(page, warmup.marker);
 
     const buttonHandles = await resolveButtonHandles(page, sessions);
+    if (RAF_ATTRIBUTION_ENABLED) await installRafAttribution(page);
     await installLongTaskObserver(page);
-    const wallStart = Date.now();
+    const traceCapture = TRACE_ENABLED ? await startTraceCapture(page) : null;
     const openResult = await openTilesWithinPage(
       page,
       buttonHandles,
       sessions.map((s) => s.marker),
     );
-    const wallMs = Date.now() - wallStart;
-
-    const entries = await collectLongTasks(page);
+    const observedEntries = await collectLongTasks(page);
+    const optionalDiagnostics = await captureOptionalDiagnostics(
+      page,
+      traceCapture,
+      RAF_ATTRIBUTION_ENABLED,
+    );
     for (const handle of buttonHandles) {
       await handle.dispose();
     }
 
-    if (!openResult.ok) {
-      throw new Error(
-        `[AC-11 perf][warm-3tile] tiles did not all render their markers within the window ` +
-          `(timedOut=${openResult.timedOut}); measurement is unusable for this run`,
-      );
-    }
+    assertUsableMeasurement(openResult, {
+      outputDirectory: PERF_OUT_DIR,
+      scenario: 'warm-3tile',
+    });
+    const paging = await collectPagingDiagnostics(ui, sessions);
     for (const s of sessions) {
       await waitForTileMarker(page, s.marker);
     }
+    await assertScrollSanity(page, sessions);
 
-    const maxDuration = entries.reduce((m, e) => Math.max(m, e.duration), 0);
-    const totalDuration = entries.reduce((sum, e) => sum + e.duration, 0);
-    const clicks = sessions.map((s, i) => ({
-      label: s.marker,
-      atMs: openResult.clickTimes[i],
-    }));
-    const perTile = bucketByClick(entries, clicks);
+    const measurement = summarizeMeasurement(
+      observedEntries,
+      openResult,
+      sessions,
+    );
+    const { entries, maxDuration, totalDuration } = measurement;
+    logMeasurementBuckets('warm-3tile', measurement);
 
     console.log(
-      `[AC-11 perf][warm-3tile] wall=${wallMs}ms longTasks=${entries.length} max=${maxDuration.toFixed(2)}ms total=${totalDuration.toFixed(2)}ms ` +
+      `[AC-11 perf][warm-3tile] wall=${openResult.wallMs.toFixed(2)}ms longTasks=${entries.length} max=${maxDuration.toFixed(2)}ms total=${totalDuration.toFixed(2)}ms ` +
         `(informational only — budgets max<=${MAX_SINGLE_LONG_TASK_MS}ms/total<=${MAX_TOTAL_BLOCKED_MS}ms shown for comparison, not asserted here)`,
     );
-    for (const b of perTile) {
+    for (const b of measurement.perClick) {
       console.log(
         `[AC-11 perf][warm-3tile]   ${b.label}: count=${b.count} max=${b.maxMs.toFixed(2)}ms total=${b.totalMs.toFixed(2)}ms`,
       );
     }
 
-    writeDiagnostics('warm-3tile', {
+    writeDiagnostics(PERF_OUT_DIR, 'warm-3tile', {
       scenario: 'warm-3tile',
-      harness: 'no-polling-v2',
-      wallMs,
+      harness: 'settle-inclusive-v3',
+      diagnosticFlags: {
+        trace: TRACE_ENABLED,
+        rafAttribution: RAF_ATTRIBUTION_ENABLED,
+        profile: false,
+        eventCountOverride:
+          process.env['PTAH_PERF_EVENTS'] === undefined ? null : eventCount,
+      },
+      eventCount,
+      settled: openResult.settled,
+      wallMs: openResult.wallMs,
+      windowStartMs: openResult.windowStartMs,
+      windowEndMs: openResult.windowEndMs,
+      clickTimes: openResult.clickTimes,
+      markerTimes: openResult.markerTimes,
+      preWindowExcluded: measurement.preWindowExcluded,
+      domNodes: domDiagnostics(openResult),
+      paging,
       longTaskCount: entries.length,
       maxDurationMs: maxDuration,
       totalDurationMs: totalDuration,
-      perTile,
+      perClick: measurement.perClick,
+      perMarker: measurement.perMarker,
+      rafAttribution: optionalDiagnostics.rafAttribution,
+      traceSummary: optionalDiagnostics.traceSummary,
       entries,
     });
   });

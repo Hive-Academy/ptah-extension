@@ -116,7 +116,6 @@ function makeHarness(opts: { broadcastRejects?: boolean } = {}): Harness {
     createMockWorkspaceProvider({
       folders: ['/c/projects/my-repo'],
     }) as unknown as IWorkspaceProvider,
-    { exists: jest.fn().mockResolvedValue(true) } as never,
     {
       type: 'cli',
       extensionPath: '/tmp/ptah-app',

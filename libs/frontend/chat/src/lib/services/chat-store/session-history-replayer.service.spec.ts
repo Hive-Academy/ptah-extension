@@ -20,6 +20,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import {
+  HistoryMessageBuilder,
   SessionManager,
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
@@ -99,6 +100,7 @@ describe('SessionHistoryReplayer', () => {
     TestBed.configureTestingModule({
       providers: [
         SessionHistoryReplayer,
+        { provide: HistoryMessageBuilder, useValue: {} },
         {
           provide: TabManagerService,
           useValue: {
@@ -475,11 +477,10 @@ describe('SessionHistoryReplayer', () => {
         SESSION,
         [],
       );
-      await until(() => yields === 2);
       replayer.deferLiveEvent(liveEvent, TAB, SESSION, live('1'));
       replayer.deferLiveEvent(liveEvent, SIBLING, SESSION, live('2'));
 
-      // The first tab finishes; the sibling is still held between chunks.
+      // Admission keeps the sibling waiting until the first tab finalizes.
       holdYields = false;
       heldDeliveries.shift()?.();
       await expect(firstReplay).resolves.toBe('replayed');
@@ -548,7 +549,7 @@ describe('SessionHistoryReplayer', () => {
             SESSION,
             [],
           );
-          await until(() => yields === (failure === 'a chunk throws' ? 2 : 1));
+          await until(() => yields === 1);
           replayer.deferLiveEvent(liveEvent, TAB, SESSION, live('before'));
 
           await failTabA();
@@ -569,25 +570,30 @@ describe('SessionHistoryReplayer', () => {
           expect(liveEntries()).toEqual(['live:before', 'live:after']);
         });
 
-        it('delivers once, when tab A fails, if tab B already finished', async () => {
+        it('delivers once after tab A fails and the surviving tab finishes', async () => {
           const failTabA = await startTabA();
           const claimB = replayer.claim(SIBLING, SESSION);
           replayer.deferLiveEvent(liveEvent, SIBLING, SESSION, live('1'));
-          await expect(
-            replayer.replay(historyEvents(250, 'b'), claimB, SESSION, []),
-          ).resolves.toBe('replayed');
-          replayer.release(claimB);
-          expect(liveEntries()).toEqual([]);
-          expect(
-            replayer.deferLiveEvent(liveEvent, TAB, SESSION, live('2')),
-          ).toBe(true);
+          const replayB = replayer.replay(
+            historyEvents(250, 'b'),
+            claimB,
+            SESSION,
+            [],
+          );
 
           await failTabA();
-          expect(liveEntries()).toEqual(['live:1', 'live:2']);
+          expect(liveEntries()).toEqual(
+            failure === 'a chunk throws' ? [] : ['live:1'],
+          );
+          holdYields = false;
+          releaseHeld();
+          await expect(replayB).resolves.toBe('replayed');
+          replayer.release(claimB);
+          expect(liveEntries()).toEqual(['live:1']);
           expect(
-            replayer.deferLiveEvent(liveEvent, TAB, SESSION, live('3')),
+            replayer.deferLiveEvent(liveEvent, TAB, SESSION, live('2')),
           ).toBe(false);
-          expect(liveEntries()).toEqual(['live:1', 'live:2']);
+          expect(liveEntries()).toEqual(['live:1']);
         });
       },
     );
@@ -711,7 +717,6 @@ describe('SessionHistoryReplayer', () => {
         SESSION,
         [],
       );
-      await until(() => yields === 2);
       replayer.deferLiveEvent(liveEvent, TAB, SESSION, live('late'));
 
       holdYields = false;

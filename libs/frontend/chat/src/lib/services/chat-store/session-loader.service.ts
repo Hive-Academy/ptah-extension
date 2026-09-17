@@ -37,6 +37,7 @@ import {
   SessionHistoryReplayer,
   type ReplayClaim,
 } from './session-history-replayer.service';
+import { HistoryPagingService } from './history-paging.service';
 import {
   createEmptyStreamingState,
   type TabState,
@@ -81,6 +82,7 @@ export class SessionLoaderService {
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly historyReplayer = inject(SessionHistoryReplayer);
+  private readonly historyPaging = inject(HistoryPagingService);
 
   private readonly _sessions = signal<readonly ChatSessionSummary[]>([]);
   private readonly _hasMoreSessions = signal(false);
@@ -705,6 +707,7 @@ export class SessionLoaderService {
           sessionId,
           tabId: resolvedTabId,
           workspacePath,
+          historyPage: this.historyPaging.tailRequest(),
           ...(opts?.activate === true && !targetTabId
             ? { activate: true }
             : {}),
@@ -800,6 +803,7 @@ export class SessionLoaderService {
           throw error;
         }
 
+        this.historyPaging.recordTail(resolvedTabId, resumeResult.data);
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set(resumableSubagents ?? []);
         this._resumableSubagentsSessionId = sessionId;
@@ -1288,6 +1292,7 @@ export class SessionLoaderService {
           sessionId,
           tabId,
           workspacePath,
+          historyPage: this.historyPaging.tailRequest(),
         },
         { timeout: SessionLoaderService.RESUME_TIMEOUT_MS },
       );

@@ -51,6 +51,7 @@ describe('registerChatServices — output-style precondition', () => {
 
     expect(() => registerChatServices(c)).not.toThrow();
     expect(c.isRegistered(CHAT_TOKENS.SESSION)).toBe(true);
+    expect(c.isRegistered(CHAT_TOKENS.HISTORY_READ)).toBe(true);
   });
 
   it('accepts a registration inherited from a parent container', () => {

@@ -13,64 +13,18 @@ import {
   RENDER_WINDOW_MARGIN_PX,
   TranscriptRenderWindow,
 } from './transcript-render-window';
-
-interface FakeEntry {
-  readonly target: Element;
-  readonly isIntersecting: boolean;
-  readonly boundingClientRect: { readonly height: number };
-}
-
-class FakeIntersectionObserver {
-  static instances: FakeIntersectionObserver[] = [];
-
-  readonly observed = new Set<Element>();
-
-  constructor(
-    private readonly callback: IntersectionObserverCallback,
-    readonly options?: IntersectionObserverInit,
-  ) {
-    FakeIntersectionObserver.instances.push(this);
-  }
-
-  observe(element: Element): void {
-    this.observed.add(element);
-  }
-  unobserve(element: Element): void {
-    this.observed.delete(element);
-  }
-  disconnect(): void {
-    this.observed.clear();
-  }
-  takeRecords(): IntersectionObserverEntry[] {
-    return [];
-  }
-
-  emit(entries: readonly FakeEntry[]): void {
-    this.callback(
-      entries as unknown as IntersectionObserverEntry[],
-      this as unknown as IntersectionObserver,
-    );
-  }
-}
-
-const globalWithIo = globalThis as unknown as {
-  IntersectionObserver?: unknown;
-};
-
-function installFakeObserver(): void {
-  FakeIntersectionObserver.instances = [];
-  globalWithIo.IntersectionObserver = FakeIntersectionObserver;
-}
-
-function removeObserver(): void {
-  delete globalWithIo.IntersectionObserver;
-}
+import {
+  FakeIntersectionObserver,
+  installFakeIntersectionObserver,
+  removeFakeIntersectionObserver,
+  type TranscriptIntersectionEntry,
+} from './testing/transcript-spec-harness';
 
 function entry(
   target: Element,
   isIntersecting: boolean,
   height: number,
-): FakeEntry {
+): TranscriptIntersectionEntry {
   return { target, isIntersecting, boundingClientRect: { height } };
 }
 
@@ -79,7 +33,10 @@ function ids(count: number, prefix = 'm'): string[] {
 }
 
 /** Attached window + one registered element per id. */
-function makeAttached(messageIds: readonly string[], finalizedCount: number) {
+function makeAttached(
+  messageIds: readonly string[],
+  streamingBoundary: number,
+) {
   const win = new TranscriptRenderWindow();
   const root = document.createElement('div');
   win.attach(root);
@@ -92,19 +49,18 @@ function makeAttached(messageIds: readonly string[], finalizedCount: number) {
     win.register(id, el);
   }
   win.setActive(true);
-  win.syncMessages(messageIds, finalizedCount);
+  win.syncMessages(messageIds, streamingBoundary);
   return { win, root, observer, elements };
 }
 
 describe('TranscriptRenderWindow', () => {
   afterEach(() => {
-    removeObserver();
-    FakeIntersectionObserver.instances = [];
+    removeFakeIntersectionObserver();
   });
 
   describe('without IntersectionObserver', () => {
     it('degrades to everything mounted', () => {
-      removeObserver();
+      removeFakeIntersectionObserver();
       const win = new TranscriptRenderWindow();
       win.setActive(true);
       win.syncMessages(ids(40), 40);
@@ -117,7 +73,7 @@ describe('TranscriptRenderWindow', () => {
     });
 
     it('creates no observer on attach', () => {
-      removeObserver();
+      removeFakeIntersectionObserver();
       const win = new TranscriptRenderWindow();
       win.attach(document.createElement('div'));
       expect(FakeIntersectionObserver.instances).toHaveLength(0);
@@ -125,7 +81,7 @@ describe('TranscriptRenderWindow', () => {
   });
 
   describe('with a fake IntersectionObserver', () => {
-    beforeEach(installFakeObserver);
+    beforeEach(installFakeIntersectionObserver);
 
     it('roots the observer on the scroll container with the vertical margin', () => {
       const win = new TranscriptRenderWindow();
@@ -185,7 +141,7 @@ describe('TranscriptRenderWindow', () => {
     });
 
     it('never unmounts a streaming message, whatever the observer says', () => {
-      // finalizedCount 0 → every id is streaming, none may unmount.
+      // streamingBoundary 0 → every id is streaming, none may unmount.
       const list = ids(20);
       const { win, observer, elements } = makeAttached(list, 0);
 
@@ -194,6 +150,76 @@ describe('TranscriptRenderWindow', () => {
       );
 
       for (const id of list) expect(win.isMounted(id)).toBe(true);
+    });
+
+    it('retains ids that leave the tail without an observer callback', () => {
+      const list = ids(20);
+      const { win } = makeAttached(list, list.length);
+      win.setReplayRetention(true);
+
+      const extended = ids(26);
+      win.syncMessages(extended, extended.length);
+
+      for (let i = 14; i < 20; i++) {
+        expect(win.isMounted(`m${i}`)).toBe(true);
+      }
+    });
+
+    it('does not mount a never-mounted intersecting id during retention', () => {
+      const list = ids(20);
+      const { win, observer, elements } = makeAttached(list, list.length);
+      win.setReplayRetention(true);
+
+      observer.emit([entry(elements.get('m0') as Element, true, 120)]);
+
+      expect(win.isMounted('m0')).toBe(false);
+    });
+
+    it('records a retained height and releases to an equal-height placeholder', () => {
+      const list = ids(20);
+      const { win, observer, elements } = makeAttached(list, list.length);
+      win.setReplayRetention(true);
+      const extended = ids(26);
+      win.syncMessages(extended, extended.length);
+
+      observer.emit([entry(elements.get('m19') as Element, false, 200)]);
+      expect(win.isMounted('m19')).toBe(true);
+
+      win.setReplayRetention(false);
+
+      expect(win.isMounted('m19')).toBe(false);
+      expect(win.placeholderHeight('m19')).toBe(200);
+    });
+
+    it('seeds retention from the mounted set on the rising edge', () => {
+      const list = ids(20);
+      const { win, observer, elements } = makeAttached(list, list.length);
+      const first = elements.get('m0') as Element;
+      observer.emit([entry(first, true, 0)]);
+      expect(win.isMounted('m0')).toBe(true);
+
+      win.setReplayRetention(true);
+      observer.emit([entry(first, false, 300)]);
+
+      expect(win.isMounted('m0')).toBe(true);
+    });
+
+    it('prunes absent retained ids and restores tail plus intersections', () => {
+      const list = ids(20);
+      const { win, observer, elements } = makeAttached(list, list.length);
+      observer.emit([entry(elements.get('m0') as Element, true, 300)]);
+      win.setReplayRetention(true);
+
+      win.syncMessages(list.slice(1), list.length - 1);
+      observer.emit([entry(elements.get('m1') as Element, true, 120)]);
+      expect(win.isMounted('m0')).toBe(false);
+      expect(win.isMounted('m1')).toBe(false);
+
+      win.setReplayRetention(false);
+
+      expect(win.isMounted('m1')).toBe(true);
+      expect(win.isMounted('m19')).toBe(true);
+      expect(win.isMounted('m2')).toBe(false);
     });
 
     it('keeps a streaming message mounted while it grows past the tail', () => {

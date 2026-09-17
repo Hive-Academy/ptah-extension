@@ -40,6 +40,8 @@ import { ActionBannerService } from '../../services/action-banner.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
+import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
+import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import {
   AgentMonitorStore,
   agentVisibleInSession,
@@ -158,12 +160,42 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly suppressAnimateOnce =
     this._compactionLifecycle.suppressAnimateOnce;
   private readonly sessionLoader = inject(SessionLoaderService);
+  private readonly sessionHistoryReplayer = inject(SessionHistoryReplayer);
+  private readonly historyPaging = inject(HistoryPagingService);
   private readonly _claudeRpc = inject(ClaudeRpcService);
   private readonly _confirmDialog = inject(ConfirmationDialogService);
   private readonly _authState = inject(AuthStateService);
 
   /** Inline re-auth banner state (set when a send fails needing auth). */
   protected readonly authRequiredBanner = this._authState.authRequiredBanner;
+
+  protected isHistoryReplaying(tabId: string): boolean {
+    return this.sessionHistoryReplayer.isReplaying(tabId);
+  }
+
+  protected hasOlderHistory(tabId: string): boolean {
+    const tab = this._tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    return typeof tab?.olderHistoryCursor === 'string';
+  }
+
+  protected isOlderHistoryLoading(tabId: string): boolean {
+    return this.historyPaging.loadingTabIds().has(tabId);
+  }
+
+  protected async onOlderHistoryRequested(tabId: string): Promise<void> {
+    const outcome = await this.historyPaging.loadOlder(tabId);
+    if (outcome === 'stale') {
+      this.showActionError(
+        'Earlier history changed. Reopen the session to load it again.',
+        tabId,
+      );
+    } else if (outcome === 'failed') {
+      this.showActionError(
+        'Could not load earlier messages. Please try again.',
+        tabId,
+      );
+    }
+  }
 
   /**
    * Handle the banner's re-authenticate action. For Codex this opens a terminal
@@ -948,7 +980,14 @@ export class ChatViewComponent implements OnDestroy {
         occurrence++;
       }
     }
-    return { text, occurrence };
+    let occurrenceFromEnd = 0;
+    for (let i = index + 1; i < messages.length; i++) {
+      const later = messages[i];
+      if (later.role === 'user' && (later.rawContent ?? '').trim() === text) {
+        occurrenceFromEnd++;
+      }
+    }
+    return { text, occurrence, occurrenceFromEnd };
   }
 
   /**

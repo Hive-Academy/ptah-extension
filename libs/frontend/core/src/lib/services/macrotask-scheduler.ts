@@ -8,6 +8,8 @@
  * - `requestAnimationFrame` never fires for a hidden window at all.
  * A `MessageChannel` message is an ordinary task in both cases, so a yield or a
  * drain wake-up costs one event-loop turn wherever the renderer is.
+ * The chat history replayer separately races rAF with a 50 ms timer when it
+ * specifically needs a paint opportunity between admitted replays.
  *
  * Every shipping host (Electron renderer, VS Code webview) provides
  * `MessageChannel`. jsdom does not: there `scheduleMacrotask` invokes the

@@ -163,7 +163,10 @@ function makeHarness(opts: SessionState, autopilot = false): Harness {
         .mockResolvedValue({ registered: true }),
     } as never,
     {
-      readSessionHistory: jest.fn().mockResolvedValue({ events: [] }),
+      readForResume: jest.fn().mockResolvedValue({
+        events: [],
+        resolvedWorkspacePath: OPEN_FOLDER,
+      }),
     } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),
@@ -179,7 +182,6 @@ function makeHarness(opts: SessionState, autopilot = false): Harness {
       saveResumeState: jest.fn().mockResolvedValue(undefined),
     } as never,
     provider as unknown as IWorkspaceProvider,
-    { exists: jest.fn().mockResolvedValue(true) } as never,
     {
       type: 'cli',
       extensionPath: '/tmp/ptah-app',

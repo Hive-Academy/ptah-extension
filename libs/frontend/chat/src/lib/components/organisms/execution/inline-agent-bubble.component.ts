@@ -447,6 +447,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
             #contentContainer
             class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
             [auto-animate]
+            [autoAnimateDisabled]="isFinalizing()"
             (scroll)="onAgentScroll()"
           >
             <!-- summaryContent is rendered as a text child node instead of a
@@ -503,19 +504,14 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
 
       <!-- Agent Stats Footer (shown when stats available and not streaming) -->
       @if (hasStats() && !isStreaming()) {
-        <!-- animate.enter/leave gated by !isFinalizing() — applied as a
-             conditional class so the cross-fade doesn't run during the
-             finalize burst (which already includes a layout settle).
-             animate.enter is a static directive, so we ALSO keep the directive
-             but add a class-based suppression via prefers-reduced-motion-style
-             override below: when [data-finalizing] is set on the host, the
-             keyframes are no-ops. -->
+        <!-- The bound enter/leave values are empty during finalization, so
+             Angular never schedules the footer cross-fade for that burst. -->
         <div
           class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content-muted rounded-b-lg"
           [style.background-color]="footerBgColor()"
           [attr.data-finalizing]="isFinalizing() ? '' : null"
-          animate.enter="agent-fade-in"
-          animate.leave="agent-fade-out"
+          [animate.enter]="isFinalizing() ? '' : 'agent-fade-in'"
+          [animate.leave]="isFinalizing() ? '' : 'agent-fade-out'"
         >
           @if (modelDisplayName()) {
             <span

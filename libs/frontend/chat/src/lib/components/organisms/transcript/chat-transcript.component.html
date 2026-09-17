@@ -1,9 +1,36 @@
 <div
   class="flex-1 chat-scroll-container"
   #messageContainer
+  #prependAnchor="ptahTranscriptPrependAnchor"
+  [ptahTranscriptPrependAnchor]="vm().messages"
+  [tabId]="tabId()"
+  [sessionId]="sessionId()"
+  [active]="active()"
+  [historyReplaying]="historyReplaying()"
+  [pinnedToBottom]="isPinnedToBottom()"
   (scroll)="onScroll($event)"
 >
   <div #messageContent class="chat-scroll-content">
+    @if (vm().hasOlderHistory && !historyReplaying()) {
+      <!-- Auto-load path: the armed sentinel re-emits through the component output. -->
+      <div
+        class="flex justify-center px-2 py-3"
+        [ptahTranscriptOlderHistorySentinel]="messageContainer"
+        [disabled]="olderHistoryLoading()"
+        (olderHistoryRequested)="olderHistoryRequested.emit()"
+      >
+        <!-- Manual path: the button emits through the same component output. -->
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          [attr.aria-busy]="olderHistoryLoading()"
+          [disabled]="olderHistoryLoading()"
+          (click)="olderHistoryRequested.emit()"
+        >
+          Load earlier messages
+        </button>
+      </div>
+    }
     @for (
       msg of vm().messages;
       track trackByMessageId($index, msg);
@@ -11,15 +38,22 @@
     ) {
       <!-- Persistent slot: stays observed while its bubble is unmounted, so a
            scrolled-away message can be observed back into the render window. -->
-      <div class="chat-msg-slot" [ptahTranscriptSlot]="msg.id">
-        @if (renderWindow.isMounted(msg.id)) {
+      <div
+        class="chat-msg-slot"
+        [ptahTranscriptSlot]="msg.id"
+        [attr.data-ptah-transcript-message-id]="msg.id"
+      >
+        @if (
+          renderWindow.isMounted(msg.id) ||
+          prependAnchor.isForcedMounted(msg.id)
+        ) {
           <ptah-message-bubble
             class="block px-2 pb-3"
             [message]="msg"
             [messageIndex]="i"
             [totalMessages]="vm().totalCount"
-            [isStreaming]="i >= vm().finalizedCount"
-            [isFinalizing]="isFinalizingTransition()"
+            [isStreaming]="i >= vm().streamingBoundary"
+            [isFinalizing]="motionSuppressed()"
             [isSessionActive]="vm().isSessionActive"
             (branchRequested)="branchRequested.emit($event)"
             (rewindRequested)="rewindRequested.emit($event)"

@@ -69,6 +69,8 @@ import type {
   ChatContinueResult,
   ChatResumeParams,
   ChatResumeResult,
+  ChatHistoryPageParams,
+  ChatHistoryPageResult,
   ChatAbortParams,
   ChatAbortResult,
   ChatPendingQuestionsParams,
@@ -643,6 +645,10 @@ export interface RpcMethodRegistry {
   'chat:start': { params: ChatStartParams; result: ChatStartResult };
   'chat:continue': { params: ChatContinueParams; result: ChatContinueResult };
   'chat:resume': { params: ChatResumeParams; result: ChatResumeResult };
+  'chat:history-page': {
+    params: ChatHistoryPageParams;
+    result: ChatHistoryPageResult;
+  };
   'chat:abort': { params: ChatAbortParams; result: ChatAbortResult };
   'chat:pending-questions': {
     params: ChatPendingQuestionsParams;
@@ -3369,6 +3375,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'chat:pending-questions': true,
   'chat:running-agents': true,
   'chat:resume': true,
+  'chat:history-page': true,
   'session:list': true,
   'session:load': true,
   'session:delete': true,

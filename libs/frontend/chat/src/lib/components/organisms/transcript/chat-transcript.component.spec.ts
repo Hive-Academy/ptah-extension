@@ -13,8 +13,6 @@
 import {
   Component,
   Input,
-  Output,
-  EventEmitter,
   NgModule,
   ChangeDetectionStrategy,
   signal,
@@ -52,12 +50,7 @@ jest.mock('ngx-markdown', () => {
 
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ChatTranscriptComponent } from './chat-transcript.component';
-import { MessageBubbleComponent } from '../message-bubble.component';
-import { ChatEmptyStateComponent } from '../../molecules/setup-plugins/chat-empty-state.component';
-import { VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
-import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 import {
   ALWAYS_MOUNTED_TAIL,
   TranscriptRenderWindow,
@@ -66,56 +59,15 @@ import type {
   ExecutionChatMessage,
   ExecutionNode,
 } from '@ptah-extension/shared';
-
-@Component({
-  selector: 'ptah-message-bubble',
-  standalone: true,
-  template: '',
-})
-class MessageBubbleStub {
-  @Input() message: unknown;
-  @Input() messageIndex = 0;
-  @Input() totalMessages = 0;
-  @Input() isStreaming = false;
-  @Input() isFinalizing = false;
-  @Input() isSessionActive = false;
-  @Output() branchRequested = new EventEmitter<string>();
-  @Output() rewindRequested = new EventEmitter<string>();
-}
-
-@Component({
-  selector: 'ptah-chat-empty-state',
-  standalone: true,
-  template: '',
-})
-class EmptyStateStub {
-  @Output() promptSelected = new EventEmitter<string>();
-}
-
-function makeMessage(
-  id: string,
-  role: 'user' | 'assistant' = 'assistant',
-  timestamp = 0,
-  streamingState: ExecutionNode | null = null,
-): ExecutionChatMessage {
-  return {
-    id,
-    role,
-    rawContent: 'content',
-    timestamp,
-    streamingState,
-  } as unknown as ExecutionChatMessage;
-}
-
-function makeTree(id: string, startTime?: number): ExecutionNode {
-  return {
-    id,
-    type: 'text',
-    status: 'completed',
-    content: 'tree content',
-    ...(startTime === undefined ? {} : { startTime }),
-  } as unknown as ExecutionNode;
-}
+import {
+  configureTranscriptTestBed,
+  FakeIntersectionObserver,
+  installFakeIntersectionObserver,
+  makeTranscriptMessage as makeMessage,
+  makeTranscriptTree as makeTree,
+  removeFakeIntersectionObserver,
+  type TranscriptIntersectionEntry,
+} from './testing/transcript-spec-harness';
 
 interface Harness {
   fixture: ComponentFixture<ChatTranscriptComponent>;
@@ -148,26 +100,10 @@ function makeHarness(): Harness {
     activeTabId: signal<string | null>('tab-1').asReadonly(),
   } as unknown as TabManagerService;
 
-  TestBed.configureTestingModule({
-    imports: [ChatTranscriptComponent],
-    providers: [
-      {
-        provide: VSCodeService,
-        useValue: {
-          getPtahIconUri: () => 'data:image/svg+xml;base64,PHN2Zy8+',
-        } as unknown as VSCodeService,
-      },
-      { provide: TabManagerService, useValue: tabManagerStub },
-      {
-        provide: ExecutionTreeBuilderService,
-        useValue: { buildTree: buildTreeMock },
-      },
-      { provide: SESSION_CONTEXT, useValue: null },
-    ],
-  });
-  TestBed.overrideComponent(ChatTranscriptComponent, {
-    remove: { imports: [MessageBubbleComponent, ChatEmptyStateComponent] },
-    add: { imports: [MessageBubbleStub, EmptyStateStub] },
+  configureTranscriptTestBed({
+    tabs: tabManagerStub.tabs,
+    buildTree: buildTreeMock,
+    iconUri: 'data:image/svg+xml;base64,PHN2Zy8+',
   });
 
   const fixture = TestBed.createComponent(ChatTranscriptComponent);
@@ -317,53 +253,12 @@ describe('ChatTranscriptComponent — hidden-transcript reactivity pause', () =>
  *   failure. `attach()` is idempotent, and the harness calls it again with the
  *   same element to stay correct if that ordering is ever revisited.
  */
-interface FakeEntry {
-  readonly target: Element;
-  readonly isIntersecting: boolean;
-  readonly boundingClientRect: { readonly height: number };
-}
-
-class FakeIntersectionObserver {
-  static instances: FakeIntersectionObserver[] = [];
-  readonly observed = new Set<Element>();
-
-  constructor(
-    private readonly callback: IntersectionObserverCallback,
-    readonly options?: IntersectionObserverInit,
-  ) {
-    FakeIntersectionObserver.instances.push(this);
-  }
-
-  observe(element: Element): void {
-    this.observed.add(element);
-  }
-  unobserve(element: Element): void {
-    this.observed.delete(element);
-  }
-  disconnect(): void {
-    this.observed.clear();
-  }
-  takeRecords(): IntersectionObserverEntry[] {
-    return [];
-  }
-  emit(entries: readonly FakeEntry[]): void {
-    this.callback(
-      entries as unknown as IntersectionObserverEntry[],
-      this as unknown as IntersectionObserver,
-    );
-  }
-}
-
 describe('ChatTranscriptComponent — render window', () => {
   const MESSAGE_COUNT = 20;
   let rafSpy: jest.SpyInstance;
-  const globalWithIo = globalThis as unknown as {
-    IntersectionObserver?: unknown;
-  };
 
   beforeEach(() => {
-    FakeIntersectionObserver.instances = [];
-    globalWithIo.IntersectionObserver = FakeIntersectionObserver;
+    installFakeIntersectionObserver();
     rafSpy = jest
       .spyOn(window, 'requestAnimationFrame')
       .mockImplementation((cb: FrameRequestCallback) => {
@@ -373,8 +268,7 @@ describe('ChatTranscriptComponent — render window', () => {
   });
 
   afterEach(() => {
-    delete globalWithIo.IntersectionObserver;
-    FakeIntersectionObserver.instances = [];
+    removeFakeIntersectionObserver();
     rafSpy.mockRestore();
     TestBed.resetTestingModule();
     jest.clearAllMocks();
@@ -384,7 +278,7 @@ describe('ChatTranscriptComponent — render window', () => {
     target: Element,
     isIntersecting: boolean,
     height: number,
-  ): FakeEntry {
+  ): TranscriptIntersectionEntry {
     return { target, isIntersecting, boundingClientRect: { height } };
   }
 
@@ -560,13 +454,9 @@ describe('ChatTranscriptComponent — Gate A: mounted bubbles are bounded', () =
   const MOUNTED_CEILING = ALWAYS_MOUNTED_TAIL + VIEWPORT_SLOTS;
 
   let rafSpy: jest.SpyInstance;
-  const globalWithIo = globalThis as unknown as {
-    IntersectionObserver?: unknown;
-  };
 
   beforeEach(() => {
-    FakeIntersectionObserver.instances = [];
-    globalWithIo.IntersectionObserver = FakeIntersectionObserver;
+    installFakeIntersectionObserver();
     rafSpy = jest
       .spyOn(window, 'requestAnimationFrame')
       .mockImplementation((cb: FrameRequestCallback) => {
@@ -576,8 +466,7 @@ describe('ChatTranscriptComponent — Gate A: mounted bubbles are bounded', () =
   });
 
   afterEach(() => {
-    delete globalWithIo.IntersectionObserver;
-    FakeIntersectionObserver.instances = [];
+    removeFakeIntersectionObserver();
     rafSpy.mockRestore();
     TestBed.resetTestingModule();
     jest.clearAllMocks();
@@ -597,7 +486,7 @@ describe('ChatTranscriptComponent — Gate A: mounted bubbles are bounded', () =
     // Callable twice inside one test (the "does not grow with N" case), so the
     // module has to be torn down before each harness.
     TestBed.resetTestingModule();
-    FakeIntersectionObserver.instances = [];
+    FakeIntersectionObserver.reset();
 
     const h = makeHarness();
     h.messagesSig.set(
@@ -654,7 +543,7 @@ describe('ChatTranscriptComponent — Gate A: mounted bubbles are bounded', () =
 
   it('mounts everything when the platform has no IntersectionObserver', () => {
     // The documented failure mode is today's behaviour, not a missing message.
-    delete globalWithIo.IntersectionObserver;
+    removeFakeIntersectionObserver();
 
     const h = makeHarness();
     h.messagesSig.set(
