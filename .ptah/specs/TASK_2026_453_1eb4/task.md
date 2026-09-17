@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_453_1eb4
-status: in_progress
+status: in_review
 type: BUGFIX
 title: Keep opening three canvas tiles on long sessions under the long-task budget
 description: >-

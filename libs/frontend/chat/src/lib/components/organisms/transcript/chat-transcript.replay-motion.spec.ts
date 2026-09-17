@@ -1,10 +1,8 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  EventEmitter,
   Input,
   NgModule,
-  Output,
   signal,
 } from '@angular/core';
 
@@ -40,38 +38,12 @@ jest.mock('ngx-markdown', () => {
 
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
-import { TabManagerService } from '@ptah-extension/chat-state';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
-import { VSCodeService } from '@ptah-extension/core';
-import { ChatEmptyStateComponent } from '../../molecules/setup-plugins/chat-empty-state.component';
-import { MessageBubbleComponent } from '../message-bubble.component';
 import { ChatTranscriptComponent } from './chat-transcript.component';
-
-@Component({
-  selector: 'ptah-message-bubble',
-  standalone: true,
-  template: '',
-})
-class MessageBubbleStub {
-  @Input() message: unknown;
-  @Input() messageIndex = 0;
-  @Input() totalMessages = 0;
-  @Input() isStreaming = false;
-  @Input() isFinalizing = false;
-  @Input() isSessionActive = false;
-  @Output() branchRequested = new EventEmitter<string>();
-  @Output() rewindRequested = new EventEmitter<string>();
-}
-
-@Component({
-  selector: 'ptah-chat-empty-state',
-  standalone: true,
-  template: '',
-})
-class EmptyStateStub {
-  @Output() promptSelected = new EventEmitter<string>();
-}
+import {
+  configureTranscriptTestBed,
+  TranscriptMessageBubbleStub as MessageBubbleStub,
+} from './testing/transcript-spec-harness';
 
 interface ReplayTab {
   readonly id: string;
@@ -112,23 +84,9 @@ describe('ChatTranscriptComponent replay motion suppression', () => {
         streamingState: null,
       },
     ]);
-    TestBed.configureTestingModule({
-      imports: [ChatTranscriptComponent],
-      providers: [
-        {
-          provide: VSCodeService,
-          useValue: { getPtahIconUri: () => 'ptah.svg' },
-        },
-        { provide: TabManagerService, useValue: { tabs } },
-        {
-          provide: ExecutionTreeBuilderService,
-          useValue: { buildTree: jest.fn(() => []) },
-        },
-      ],
-    });
-    TestBed.overrideComponent(ChatTranscriptComponent, {
-      remove: { imports: [MessageBubbleComponent, ChatEmptyStateComponent] },
-      add: { imports: [MessageBubbleStub, EmptyStateStub] },
+    configureTranscriptTestBed({
+      tabs,
+      buildTree: jest.fn(() => []),
     });
     const fixture = TestBed.createComponent(ChatTranscriptComponent);
     fixture.componentRef.setInput('tabId', 'tab-replay');

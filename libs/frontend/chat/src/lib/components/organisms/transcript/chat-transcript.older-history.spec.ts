@@ -1,20 +1,20 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  EventEmitter,
   Input,
   NgModule,
-  Output,
   signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
-import { TabManagerService } from '@ptah-extension/chat-state';
-import { VSCodeService } from '@ptah-extension/core';
 import { ChatTranscriptComponent } from './chat-transcript.component';
-import { MessageBubbleComponent } from '../message-bubble.component';
-import { ChatEmptyStateComponent } from '../../molecules/setup-plugins/chat-empty-state.component';
-import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
+import {
+  configureTranscriptTestBed,
+  FakeIntersectionObserver,
+  installFakeIntersectionObserver,
+  installFakeResizeObserver,
+  removeFakeIntersectionObserver,
+  removeFakeResizeObserver,
+} from './testing/transcript-spec-harness';
 
 jest.mock('ngx-markdown', () => {
   @Component({
@@ -44,87 +44,13 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
-@Component({ selector: 'ptah-message-bubble', standalone: true, template: '' })
-class MessageBubbleStub {
-  @Input() message: unknown;
-  @Input() messageIndex = 0;
-  @Input() totalMessages = 0;
-  @Input() isStreaming = false;
-  @Input() isFinalizing = false;
-  @Input() isSessionActive = false;
-  @Output() branchRequested = new EventEmitter<string>();
-  @Output() rewindRequested = new EventEmitter<string>();
-}
-
-@Component({
-  selector: 'ptah-chat-empty-state',
-  standalone: true,
-  template: '',
-})
-class EmptyStateStub {
-  @Output() promptSelected = new EventEmitter<string>();
-}
-
-class FakeIntersectionObserver {
-  static instances: FakeIntersectionObserver[] = [];
-  readonly observed = new Set<Element>();
-
-  constructor(
-    private readonly callback: IntersectionObserverCallback,
-    readonly options?: IntersectionObserverInit,
-  ) {
-    FakeIntersectionObserver.instances.push(this);
-  }
-
-  observe(element: Element): void {
-    this.observed.add(element);
-  }
-  unobserve(element: Element): void {
-    this.observed.delete(element);
-  }
-  disconnect(): void {
-    this.observed.clear();
-  }
-  takeRecords(): IntersectionObserverEntry[] {
-    return [];
-  }
-  emit(target: Element, isIntersecting: boolean): void {
-    this.callback(
-      [{ target, isIntersecting }] as IntersectionObserverEntry[],
-      this as unknown as IntersectionObserver,
-    );
-  }
-}
-
-class FakeResizeObserver {
-  private readonly observed = new Set<Element>();
-
-  observe(element: Element): void {
-    this.observed.add(element);
-  }
-  unobserve(element: Element): void {
-    this.observed.delete(element);
-  }
-  disconnect(): void {
-    this.observed.clear();
-  }
-}
-
-const globalWithIo = globalThis as unknown as {
-  IntersectionObserver?: typeof IntersectionObserver;
-  ResizeObserver?: typeof ResizeObserver;
-};
-
 function makeHarness(withObserver = true) {
   if (withObserver) {
-    FakeIntersectionObserver.instances = [];
-    globalWithIo.IntersectionObserver =
-      FakeIntersectionObserver as unknown as typeof IntersectionObserver;
+    installFakeIntersectionObserver();
   } else {
-    delete globalWithIo.IntersectionObserver;
+    removeFakeIntersectionObserver();
   }
-  globalWithIo.ResizeObserver =
-    FakeResizeObserver as unknown as typeof ResizeObserver;
+  installFakeResizeObserver();
 
   const tabs = signal([
     {
@@ -134,26 +60,10 @@ function makeHarness(withObserver = true) {
       streamingState: null,
     },
   ]);
-  TestBed.configureTestingModule({
-    imports: [ChatTranscriptComponent],
-    providers: [
-      {
-        provide: VSCodeService,
-        useValue: {
-          getPtahIconUri: () => 'data:image/svg+xml;base64,PHN2Zy8+',
-        },
-      },
-      { provide: TabManagerService, useValue: { tabs } },
-      {
-        provide: ExecutionTreeBuilderService,
-        useValue: { buildTree: () => [] },
-      },
-      { provide: SESSION_CONTEXT, useValue: null },
-    ],
-  });
-  TestBed.overrideComponent(ChatTranscriptComponent, {
-    remove: { imports: [MessageBubbleComponent, ChatEmptyStateComponent] },
-    add: { imports: [MessageBubbleStub, EmptyStateStub] },
+  configureTranscriptTestBed({
+    tabs,
+    buildTree: () => [],
+    iconUri: 'data:image/svg+xml;base64,PHN2Zy8+',
   });
 
   const fixture = TestBed.createComponent(ChatTranscriptComponent);
@@ -178,9 +88,8 @@ function makeHarness(withObserver = true) {
 
 describe('ChatTranscriptComponent older-history affordance', () => {
   afterEach(() => {
-    delete globalWithIo.IntersectionObserver;
-    delete globalWithIo.ResizeObserver;
-    FakeIntersectionObserver.instances = [];
+    removeFakeIntersectionObserver();
+    removeFakeResizeObserver();
     TestBed.resetTestingModule();
   });
 

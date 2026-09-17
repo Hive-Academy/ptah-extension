@@ -1221,6 +1221,8 @@ harness measurement at each tile's own marker instant. This evidence limitation 
 AC-11, whose gate is max/total/settled/scroll. Whole-canvas values remain in the run table above;
 per-tile samples are scoped differently and are not expected to sum to the whole-canvas sample.
 
+AC 2 per-tile re-measure moved to TASK_2026_468_a0e4 (user decision 2026-09-17).
+
 | Run | Tile | Replaying | Settled | Ratio | Sample state | AC 2 |
 | --- | --- | ---: | ---: | ---: | --- | --- |
 | Cold dev 1 | 0 | 776 | 758 | 1.024× | post-marker | NOT PROVEN (not contradicted) |

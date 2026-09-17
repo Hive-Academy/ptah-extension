@@ -13,64 +13,18 @@ import {
   RENDER_WINDOW_MARGIN_PX,
   TranscriptRenderWindow,
 } from './transcript-render-window';
-
-interface FakeEntry {
-  readonly target: Element;
-  readonly isIntersecting: boolean;
-  readonly boundingClientRect: { readonly height: number };
-}
-
-class FakeIntersectionObserver {
-  static instances: FakeIntersectionObserver[] = [];
-
-  readonly observed = new Set<Element>();
-
-  constructor(
-    private readonly callback: IntersectionObserverCallback,
-    readonly options?: IntersectionObserverInit,
-  ) {
-    FakeIntersectionObserver.instances.push(this);
-  }
-
-  observe(element: Element): void {
-    this.observed.add(element);
-  }
-  unobserve(element: Element): void {
-    this.observed.delete(element);
-  }
-  disconnect(): void {
-    this.observed.clear();
-  }
-  takeRecords(): IntersectionObserverEntry[] {
-    return [];
-  }
-
-  emit(entries: readonly FakeEntry[]): void {
-    this.callback(
-      entries as unknown as IntersectionObserverEntry[],
-      this as unknown as IntersectionObserver,
-    );
-  }
-}
-
-const globalWithIo = globalThis as unknown as {
-  IntersectionObserver?: unknown;
-};
-
-function installFakeObserver(): void {
-  FakeIntersectionObserver.instances = [];
-  globalWithIo.IntersectionObserver = FakeIntersectionObserver;
-}
-
-function removeObserver(): void {
-  delete globalWithIo.IntersectionObserver;
-}
+import {
+  FakeIntersectionObserver,
+  installFakeIntersectionObserver,
+  removeFakeIntersectionObserver,
+  type TranscriptIntersectionEntry,
+} from './testing/transcript-spec-harness';
 
 function entry(
   target: Element,
   isIntersecting: boolean,
   height: number,
-): FakeEntry {
+): TranscriptIntersectionEntry {
   return { target, isIntersecting, boundingClientRect: { height } };
 }
 
@@ -101,13 +55,12 @@ function makeAttached(
 
 describe('TranscriptRenderWindow', () => {
   afterEach(() => {
-    removeObserver();
-    FakeIntersectionObserver.instances = [];
+    removeFakeIntersectionObserver();
   });
 
   describe('without IntersectionObserver', () => {
     it('degrades to everything mounted', () => {
-      removeObserver();
+      removeFakeIntersectionObserver();
       const win = new TranscriptRenderWindow();
       win.setActive(true);
       win.syncMessages(ids(40), 40);
@@ -120,7 +73,7 @@ describe('TranscriptRenderWindow', () => {
     });
 
     it('creates no observer on attach', () => {
-      removeObserver();
+      removeFakeIntersectionObserver();
       const win = new TranscriptRenderWindow();
       win.attach(document.createElement('div'));
       expect(FakeIntersectionObserver.instances).toHaveLength(0);
@@ -128,7 +81,7 @@ describe('TranscriptRenderWindow', () => {
   });
 
   describe('with a fake IntersectionObserver', () => {
-    beforeEach(installFakeObserver);
+    beforeEach(installFakeIntersectionObserver);
 
     it('roots the observer on the scroll container with the vertical margin', () => {
       const win = new TranscriptRenderWindow();

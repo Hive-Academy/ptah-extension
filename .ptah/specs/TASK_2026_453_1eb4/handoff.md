@@ -1,4 +1,17 @@
-# Handoff — TASK_2026_453_1eb4 (updated 2026-09-17, after Batch 15)
+# Handoff — TASK_2026_453_1eb4 (updated 2026-09-17, after Batch 18 — all batches done)
+
+**Close-out 2026-09-17**: all batches done. B16/B17 CANCELLED (not needed). B18 COMPLETE with scope
+reduction (user decision): Task 18.1 shared transcript spec harness committed; Task 18.2 CANCELLED
+(not feasible on branch). The e2e harness follow-ups (B14, M2-a..d) and the AC 2 per-tile
+re-measure are NOT in PR #524; they moved to **TASK_2026_468_a0e4** with the parked patch. AC 2 is
+recorded as verified mid-replay for the last-marked tile per run; not proven for post-marker tiles.
+Task status: `in_review`.
+
+**Remaining**:
+
+1. Push + PR #524 description update (orchestrator).
+2. Take PR #524 out of draft (user).
+3. AC-10 manual boot evidence (user).
 
 AC-11: open 3 canvas tiles on 2,000-event sessions; no renderer long task > 200 ms; total
 long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this file first, then
@@ -68,7 +81,7 @@ local, not pushed. Draft PR #524 CI was last all green at `d8951fa03`.**
 | B14A    | Top-boundary prepend anchor (user decision)       | COMPLETE, committed (revise 2 of 2; offsetDelta 0.38 px)   |
 | B15     | M2 measurement (AC-11 verdict)                    | COMPLETE, committed (docs only; revise 1 of 2) — **AC-11 MET** |
 | B16-B17 | Tail page 150 + M2b (conditional)                 | CANCELLED (not needed: AC-11 MET at 250 events)            |
-| B18     | Post-Stage-2 follow-ups (test quality)            | PENDING                                                    |
+| B18     | Post-Stage-2 follow-ups (test quality)            | COMPLETE, committed (18.1 done; 18.2 CANCELLED; rest → TASK_2026_468_a0e4) |
 
 **Batch 8 result**: PASS — 0 scroll-sanity failures in 23 counted attempts (review APPROVED). 3 of
 10 asserting runs met the AC-11 budget (runs 1, 6, 9); comparison only, not a verdict. One Playwright
@@ -213,10 +226,8 @@ claim, cold dev 1 wall-time outlier).
 
 **Next steps, in order**:
 
-1. Batch 18 follow-ups (Tasks 18.1, 18.2, B14/B14A residuals, M2-a..d; M2-a re-measure needs a
-   peer hold).
-2. PR #524 ready-for-review decision (orchestrator/user), then push and re-check CI. Push state
-   after the Batch 15 commit: local, not pushed.
+Superseded by the close-out at the top of this file (Batch 18 done; follow-ups in
+TASK_2026_468_a0e4).
 
 **TASK_2026_437 leftovers** moved to **TASK_2026_463_f13d**, branch
 `chore/task-463-437-leftovers`, worktree `.claude-worktrees/task-463-437-leftovers`. The

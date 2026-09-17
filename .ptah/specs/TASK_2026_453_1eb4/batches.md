@@ -1,6 +1,10 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 33 | Batches: 19 (14 code incl. Batch 14A added 2026-09-17, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 15/19 | Cancelled: 2/19 (Batches 16-17, not needed) | Remaining: Batch 18
+Total tasks: 33 | Batches: 19 (14 code incl. Batch 14A added 2026-09-17, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 17/19 | Cancelled: 2/19 (Batches 16-17, not needed) | Remaining: none
+
+Overall status: ALL BATCHES DONE (2026-09-17). Batch 18 COMPLETE with scope reduction (user decision
+2026-09-17): harness follow-ups and the AC 2 per-tile re-measure moved to TASK_2026_468_a0e4. AC 2 is
+recorded as verified mid-replay for the last-marked tile per run; not proven for post-marker tiles.
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -2004,7 +2008,17 @@ the restore is skipped.
   for a user decision (next levers are Stage 2 (iii-b) or others). No further automatic
   reduction. The budget is never loosened.
 
-## Batch 18: Post-Stage-2 follow-ups (branch-safe test quality) — PENDING
+## Batch 18: Post-Stage-2 follow-ups (branch-safe test quality) — COMPLETE (commit: `test(chat): share one transcript spec harness and close out TASK_2026_453`)
+
+- Result: Task 18.1 COMPLETE (codex lane, `b18-chat-codex-report.md`); Task 18.2 CANCELLED (not
+  feasible on branch). Combined review `b18-code-review.md` NEEDS_REVISION (dead `FakeEntry` type in
+  `chat-transcript.replay-mount.spec.ts`; harness not excluded from `tsconfig.lib.json`); both fixed
+  by the orchestrator (spec uses `TranscriptIntersectionEntry` from the harness; `src/**/testing/**/*`
+  added to the lib exclude). Gates: chat 82 suites, 1312 passed / 2 skipped; typecheck chat + webview
+  pass; lint 0 errors; degradation audit TOTAL 303; prettier clean.
+- Scope reduction (user decision 2026-09-17): the e2e harness items (B14, M2-a, M2-b, M2-c, M2-d)
+  and the AC 2 per-tile re-measure are NOT in PR #524. The unreviewed, unrun patch and its lane
+  report moved to TASK_2026_468_a0e4.
 
 - Runs after Batch 15 (and after Batch 17 if Batches 16-17 run; after Batch 15 if they are
   `CANCELLED (not needed)`), and before PR #524 leaves draft. **Unblocked 2026-09-17**: Batch 15
@@ -2021,7 +2035,11 @@ the restore is skipped.
 - Review: logic (no assertion weakened or dropped, test count per file unchanged or higher, each
   spec still fails on the mutation it guarded) + style (harness naming, location). Revise cap 2.
 
-### Task 18.1: Shared transcript spec harness — PENDING
+### Task 18.1: Shared transcript spec harness — COMPLETE
+
+- Evidence: harness `testing/transcript-spec-harness.ts`; 5 specs refactored; per-file test counts
+  unchanged (18/4/11/6/21; prepend-anchor 13, message-bubble 13); mutation checks red on the 3
+  original transcript specs.
 
 - Files: CREATE `W\libs\frontend\chat\src\lib\components\organisms\transcript\testing\transcript-spec-harness.ts`
   (name may follow an existing `testing/` convention in the lib; the lane cites it); MODIFY
@@ -2039,7 +2057,11 @@ the restore is skipped.
      no assertion text changed except imports and setup calls.
   4. No product file changes. No `project.json`/jest config edit.
 
-### Task 18.2: message-bubble rendered-class assertion (if feasible) — PENDING
+### Task 18.2: message-bubble rendered-class assertion (if feasible) — CANCELLED (not feasible on branch)
+
+- Evidence: jsdom never exposes the transient `animate.enter` class (`b18-chat-codex-report.md`).
+  Review note: Angular animation test helpers were not tried. B10 moved to "Out-of-branch
+  follow-ups" and to TASK_2026_468_a0e4.
 
 - File: MODIFY `W\libs\frontend\chat\src\lib\components\organisms\message-bubble.component.spec.ts`
   (`:280`, template string-match assertion)
@@ -2055,7 +2077,7 @@ the restore is skipped.
      `project.json` change): no diff; the task is marked `CANCELLED (not feasible on branch)` and
      B10 is added to "Out-of-branch follow-ups" below with the evidence.
 
-### Batch 18 follow-up items from Batches 14 / 14A (delta logic review residuals)
+### Batch 18 follow-up items from Batches 14 / 14A (delta logic review residuals) — moved to TASK_2026_468_a0e4 (user decision 2026-09-17; B14A optional log not carried)
 
 - **B14 (moderate)**: in the perf harness (`perf-measurement-report.ts:160-171`,
   `tile-open-longtask-budget.perf.spec.ts:206-234`), only the sampler-driven
@@ -2065,7 +2087,7 @@ the restore is skipped.
 - **B14A (minor, accepted)**: `transcript-prepend-anchor.directive.ts` has no debug log when the
   anchor slot is not found and the restore is skipped. Optional; add only if a logger fits the lib.
 
-### Batch 18 follow-up items from Batch 15 (M2 methodology review residuals)
+### Batch 18 follow-up items from Batch 15 (M2 methodology review residuals) — moved to TASK_2026_468_a0e4 (user decision 2026-09-17)
 
 - **M2-a (AC 2 evidence gap)**: the harness takes one per-tile DOM sample after the last marker,
   so AC 2 is proven only for the last-marked tile per run; post-marker tiles are NOT PROVEN (not
@@ -2093,7 +2115,11 @@ the restore is skipped.
   `apps/ptah-electron-e2e/project.json` target + `nx reset`, which D13 forbids while lanes share
   this worktree (`leftovers-inventory.md` B9). Orchestrator creates a separate task after PR #524
   merges (alternative: move the pure helpers to a lib that already has a Jest target).
-- **B10** only if Task 18.2 is cancelled as not feasible.
+- **B10** message-bubble rendered-class check: Task 18.2 cancelled (not feasible on branch; jsdom
+  never exposes the transient `animate.enter` class). Try Angular animation test helpers first.
+- **Spec type errors**: 248 pre-existing errors in `@ptah-extension/chat` spec files; no gate
+  type-checks spec files.
+- All items above (B9, B10, spec type errors) moved to TASK_2026_468_a0e4.
 
 ## Stage 2 edge cases
 
