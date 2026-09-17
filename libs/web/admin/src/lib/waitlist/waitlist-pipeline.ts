@@ -1,19 +1,33 @@
-import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   effect,
   inject,
+  OnDestroy,
   signal,
   untracked,
 } from '@angular/core';
-import { toObservable, toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { catchError, combineLatest, map, of, switchMap } from 'rxjs';
 import {
-  ArrowRight,
+  takeUntilDestroyed,
+  toObservable,
+  toSignal,
+} from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
+import {
+  catchError,
+  combineLatest,
+  debounceTime,
+  map,
+  of,
+  Subject,
+  Subscription,
+  switchMap,
+} from 'rxjs';
+import {
   BadgeCheck,
+  Download,
   Inbox,
   KeyRound,
   LucideAngularModule,
@@ -25,91 +39,264 @@ import {
 import {
   AdminApiService,
   AdminApproveWaitlistResponse,
-  AdminListQuery,
-  AdminListResponse,
   AdminStatsResponse,
 } from '../services/admin-api.service';
 import { ApproveWaitlistModal } from '../components/approve-waitlist-modal/approve-waitlist-modal';
-import type { BadgeVariant } from '@ptah-web/panel-ui';
-import { EmptyState } from '@ptah-web/panel-ui';
-import { SelectionToolbar } from '@ptah-web/panel-ui';
-import { StatusBadge } from '@ptah-web/panel-ui';
+import { EmptyState, SelectionToolbar } from '@ptah-web/panel-ui';
 
-/** The five pipeline stages, synced to the `?tab=` query param. */
-export type WaitlistTab = 'new' | 'invited' | 'approved' | 'converted' | 'all';
+import { WaitlistDetailsDrawer } from './waitlist-details-drawer';
+import { WaitlistFilterBar } from './waitlist-filter-bar';
+import {
+  defaultSortOrder,
+  needsWaitlistQueryCanonicalization,
+  parseWaitlistQuery,
+  serializeWaitlistQuery,
+  SortOrder,
+  WaitlistFilterQuery,
+  WaitlistListQuery,
+  WaitlistListResponse,
+  WaitlistListRow,
+  WaitlistPageSize,
+  WaitlistSortField,
+  WaitlistSource,
+  WaitlistStage,
+  WaitlistStageCounts,
+} from './waitlist-query-state';
+import { WaitlistRowComponent } from './waitlist-row';
+import { WaitlistSelectionState } from './waitlist-selection.state';
 
-/** Minimal row shape read from `GET /admin/waitlist` — a subset of the model. */
-export interface WaitlistRow {
-  id: string;
-  email: string;
-  source: string | null;
-  createdAt: string | null;
-  notifiedAt: string | null;
-  approvedAt: string | null;
-  convertedAt: string | null;
+type ListStreamResult =
+  | { status: 'success'; data: WaitlistListResponse }
+  | { status: 'invalid_date'; message: string }
+  | { status: 'error' };
+
+const EXPORT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  WAITLIST_EXPORT_LIMIT_EXCEEDED:
+    'This export is too large. Narrow the filters and try again.',
+  WAITLIST_EXPORT_UNAVAILABLE:
+    'Waitlist export is temporarily unavailable. Please try again.',
+  WAITLIST_EXPORT_AUDIT_FAILED:
+    'Waitlist export is temporarily unavailable. Please try again.',
+};
+
+function extractApiErrorCode(err: unknown): string | null {
+  if (!err || typeof err !== 'object') return null;
+  const shaped = err as {
+    code?: unknown;
+    error?: { code?: unknown };
+  };
+  if (typeof shaped.error?.code === 'string') return shaped.error.code;
+  return typeof shaped.code === 'string' ? shaped.code : null;
 }
 
-/**
- * WaitlistPipeline — the Approve queue for the Builders waitlist. Route
- * `/admin/waitlist`.
- *
- * ⚠️ THERE IS NO INVITE PATH HERE ANY MORE. The founding cohort is free, so the
- * paid-discount invite flow and its modal were deleted in TASK_2026_201 rather
- * than repointed. The one action this page offers is "Approve to Founding
- * Cohort": a free 1-year Builders licence, placement in the `Founding Members`
- * cohort and one welcome email per person.
- *
- * A segmented-tab queue (New | Invited | Approved | Converted | All) rather
- * than a kanban: stage transitions are system-driven (an approval stamps
- * `approvedAt`, a Paddle checkout stamps `convertedAt`), so a draggable board
- * would imply an affordance that doesn't exist. The active tab is URL-driven
- * via `?tab=` so `/admin/waitlist?tab=approved` deep-links correctly.
- *
- * Stage → backend filter mapping (allowlisted server-side):
- *   New = `notified:false` · Invited = `notified:true` · Approved =
- *   `approved:true` · Converted = `converted:true` · All = no filter.
- *
- * ⚠️ ACCEPTED TAB OVERLAP. `ListQueryDto.filter` carries exactly ONE
- * `field:value` pair, so `new` cannot express "not notified AND not approved".
- * A row approved without ever being invited therefore shows under both **New**
- * and **Approved**. That is why the stage chip renders on EVERY tab, not only
- * on `all`: the chip states the row's true stage wherever it appears, which
- * makes the overlap self-explaining instead of misleading. A `stage:` preset
- * filter is the clean fix and is a recorded follow-up.
- *
- * Approve is offered on **New** and **Invited** alike — a row does not have to
- * be mailed anything before it can be approved.
- */
+function mapExportError(err: unknown): string {
+  const fallback = 'Failed to export waitlist CSV. Please try again.';
+  const code = extractApiErrorCode(err);
+  return code ? (EXPORT_ERROR_MESSAGES[code] ?? fallback) : fallback;
+}
+
+function isInvalidDateRangeError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as {
+    status?: number;
+    error?: { code?: string; message?: string };
+    message?: string;
+  };
+  if (e.status === 400) {
+    if (e.error?.code === 'INVALID_DATE_RANGE') return true;
+    if (
+      typeof e.error?.message === 'string' &&
+      e.error.message.includes('INVALID_DATE_RANGE')
+    ) {
+      return true;
+    }
+    if (
+      typeof e.message === 'string' &&
+      e.message.includes('INVALID_DATE_RANGE')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function extractDateErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object') {
+    const e = err as { error?: { message?: string }; message?: string };
+    if (
+      typeof e.error?.message === 'string' &&
+      e.error.message !== 'INVALID_DATE_RANGE'
+    ) {
+      return e.error.message;
+    }
+  }
+  return 'createdFrom must be before or equal to createdTo';
+}
+
 @Component({
   selector: 'ptah-admin-waitlist-pipeline',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [WaitlistSelectionState],
   imports: [
-    DatePipe,
-    RouterLink,
     LucideAngularModule,
-    StatusBadge,
     EmptyState,
     SelectionToolbar,
     ApproveWaitlistModal,
+    WaitlistFilterBar,
+    WaitlistRowComponent,
+    WaitlistDetailsDrawer,
   ],
   templateUrl: './waitlist-pipeline.html',
 })
-export class WaitlistPipeline {
+export class WaitlistPipeline implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly api = inject(AdminApiService);
+  private readonly destroyRef = inject(DestroyRef);
+  public readonly selection = inject(WaitlistSelectionState);
 
-  // --- Icons (design spec §7.6) -------------------------------------------
+  // --- Icons ---
   protected readonly KeyRoundIcon = KeyRound;
-  protected readonly ArrowRightIcon = ArrowRight;
   protected readonly PartyPopperIcon = PartyPopper;
   protected readonly MailCheckIcon = MailCheck;
   protected readonly BadgeCheckIcon = BadgeCheck;
   protected readonly SparklesIcon = Sparkles;
   protected readonly InboxIcon = Inbox;
+  protected readonly DownloadIcon = Download;
 
-  protected readonly tabs: readonly { key: WaitlistTab; label: string }[] = [
+  // --- Search debouncer ---
+  private readonly searchInput$ = new Subject<string>();
+  private matchingSelectionSubscription: Subscription | null = null;
+
+  // --- State signals derived from URL ---
+  private readonly rawQueryParams = toSignal(this.route.queryParams, {
+    initialValue: this.route.snapshot.queryParams,
+  });
+
+  protected readonly currentQuery = toSignal(
+    this.route.queryParamMap.pipe(map((params) => parseWaitlistQuery(params))),
+    { initialValue: parseWaitlistQuery({}) },
+  );
+
+  protected readonly stage = computed<WaitlistStage>(
+    () => this.currentQuery().stage ?? 'new',
+  );
+  protected readonly search = computed<string>(
+    () => this.currentQuery().search ?? '',
+  );
+  protected readonly source = computed<WaitlistSource | undefined>(
+    () => this.currentQuery().source,
+  );
+  protected readonly createdFrom = computed<string | undefined>(
+    () => this.currentQuery().createdFrom,
+  );
+  protected readonly createdTo = computed<string | undefined>(
+    () => this.currentQuery().createdTo,
+  );
+  protected readonly sortBy = computed<WaitlistSortField>(
+    () => this.currentQuery().sortBy ?? 'createdAt',
+  );
+  protected readonly sortOrder = computed<SortOrder>(
+    () => this.currentQuery().sortOrder ?? defaultSortOrder(this.stage()),
+  );
+  protected readonly page = computed<number>(
+    () => this.currentQuery().page ?? 1,
+  );
+  protected readonly pageSize = computed<WaitlistPageSize>(
+    () => this.currentQuery().pageSize ?? 25,
+  );
+
+  /** Refresh tick after mutations or manual retry */
+  private readonly refreshTick = signal<number>(0);
+
+  /** Overview stats */
+  protected readonly stats = signal<AdminStatsResponse | null>(null);
+
+  /** Export in-progress flag */
+  protected readonly exporting = signal<boolean>(false);
+  protected readonly exportError = signal<string | null>(null);
+
+  // --- Approve flow ---
+  protected readonly approveIds = signal<readonly string[]>([]);
+  protected readonly approveOpen = signal<boolean>(false);
+  protected readonly approveToast = signal<AdminApproveWaitlistResponse | null>(
+    null,
+  );
+
+  // --- Details drawer flow ---
+  public readonly drawerOpen = signal<boolean>(false);
+  public readonly activeEntryId = signal<string | null>(null);
+  private drawerOpenerEl: HTMLElement | null = null;
+
+  // --- Server request stream ---
+  private readonly response$ = combineLatest([
+    toObservable(this.currentQuery),
+    toObservable(this.refreshTick),
+  ]).pipe(
+    switchMap(([q]) =>
+      this.api.listWaitlist(q).pipe(
+        map((res): ListStreamResult => ({ status: 'success', data: res })),
+        catchError((err: unknown) => {
+          if (isInvalidDateRangeError(err)) {
+            return of<ListStreamResult>({
+              status: 'invalid_date',
+              message: extractDateErrorMessage(err),
+            });
+          }
+          return of<ListStreamResult>({ status: 'error' });
+        }),
+      ),
+    ),
+  );
+
+  private readonly responseRaw = toSignal<ListStreamResult | null>(
+    this.response$,
+    { initialValue: null },
+  );
+
+  protected readonly loading = computed<boolean>(
+    () => this.responseRaw() === null,
+  );
+  protected readonly loadError = computed<boolean>(
+    () => this.responseRaw()?.status === 'error',
+  );
+  protected readonly dateRangeError = computed<string | null>(() => {
+    const r = this.responseRaw();
+    return r?.status === 'invalid_date' ? r.message : null;
+  });
+
+  protected readonly rows = computed<readonly WaitlistListRow[]>(() => {
+    const r = this.responseRaw();
+    return r?.status === 'success' ? r.data.data : [];
+  });
+
+  protected readonly total = computed<number>(() => {
+    const r = this.responseRaw();
+    return r?.status === 'success' ? r.data.total : 0;
+  });
+
+  protected readonly totalPages = computed<number>(() => {
+    const r = this.responseRaw();
+    return r?.status === 'success' ? r.data.totalPages : 0;
+  });
+
+  protected readonly counts = computed<WaitlistStageCounts>(() => {
+    const r = this.responseRaw();
+    if (r?.status === 'success') {
+      return r.data.counts;
+    }
+    return {
+      all: 0,
+      pending: 0,
+      new: 0,
+      invited: 0,
+      approved: 0,
+      converted: 0,
+    };
+  });
+
+  protected readonly tabs: readonly { key: WaitlistStage; label: string }[] = [
     { key: 'new', label: 'New' },
     { key: 'invited', label: 'Invited' },
     { key: 'approved', label: 'Approved' },
@@ -117,152 +304,71 @@ export class WaitlistPipeline {
     { key: 'all', label: 'All' },
   ];
 
-  /** Active tab — URL-driven, so deep links and back/forward stay in sync. */
-  protected readonly tab = toSignal(
-    this.route.queryParamMap.pipe(map((p) => this.normalizeTab(p.get('tab')))),
-    { initialValue: this.normalizeTab(null) },
-  );
-
-  /**
-   * Tabs where rows can be approved — drives both the row checkbox and the
-   * per-row Approve button. **New is included**: a row does not have to be
-   * mailed the (deleted) paid invite before it can be granted free access.
-   */
-  protected readonly approvableTab = computed<boolean>(
-    () => this.tab() === 'new' || this.tab() === 'invited',
-  );
-
-  protected readonly page = signal<number>(1);
-  protected readonly pageSize = signal<number>(25);
-
-  /** Row selection (New + Invited) — feeds the SelectionToolbar bulk approve. */
-  protected readonly selectedIds = signal<readonly string[]>([]);
-
-  // --- Approve flow --------------------------------------------------------
-  /** Ids handed to the approve modal at open time (one row, or the selection). */
-  protected readonly approveIds = signal<readonly string[]>([]);
-  protected readonly approveOpen = signal<boolean>(false);
-  protected readonly approveToast = signal<AdminApproveWaitlistResponse | null>(
-    null,
-  );
-
-  /** Bumped after a mutation to force a re-fetch of the current tab/page. */
-  private readonly refreshTick = signal<number>(0);
-
-  /** Overview funnel stats — drives the header summary strip. */
-  protected readonly stats = signal<AdminStatsResponse | null>(null);
-
-  /** Server-side filter for the active tab (undefined = no filter = All). */
-  protected readonly filter = computed<string | undefined>(() => {
-    switch (this.tab()) {
-      case 'new':
-        return 'notified:false';
-      case 'invited':
-        return 'notified:true';
-      case 'approved':
-        return 'approved:true';
-      case 'converted':
-        return 'converted:true';
-      default:
-        return undefined;
-    }
-  });
-
-  /**
-   * Default sort per tab. Kept to `createdAt` (always sortable) to avoid a 400
-   * from a non-allowlisted sort field: New surfaces oldest-waiting first so the
-   * longest-waiting people are approved first; other tabs show newest first.
-   */
-  private readonly sort = computed<{
-    sortBy: string;
-    sortOrder: 'asc' | 'desc';
-  }>(() => ({
-    sortBy: 'createdAt',
-    sortOrder: this.tab() === 'new' ? 'asc' : 'desc',
-  }));
-
-  private readonly response$ = combineLatest([
-    toObservable(this.filter),
-    toObservable(this.sort),
-    toObservable(this.page),
-    toObservable(this.pageSize),
-    toObservable(this.refreshTick),
-  ]).pipe(
-    switchMap(([filter, sort, page, pageSize]) => {
-      const q: AdminListQuery = {
-        page,
-        pageSize,
-        sortBy: sort.sortBy,
-        sortOrder: sort.sortOrder,
-        filter,
-      };
-      return this.api.list<WaitlistRow>('waitlist', q).pipe(
-        map((r): AdminListResponse<WaitlistRow> | 'error' => r),
-        catchError(() => of<'error'>('error')),
-      );
-    }),
-  );
-
-  private readonly responseRaw = toSignal<
-    AdminListResponse<WaitlistRow> | 'error' | null
-  >(this.response$, { initialValue: null });
-
-  protected readonly loading = computed<boolean>(
-    () => this.responseRaw() === null,
-  );
-  protected readonly loadError = computed<boolean>(
-    () => this.responseRaw() === 'error',
-  );
-
-  protected readonly rows = computed<readonly WaitlistRow[]>(() => {
-    const r = this.responseRaw();
-    return r && r !== 'error' ? r.data : [];
-  });
-
-  protected readonly total = computed<number>(() => {
-    const r = this.responseRaw();
-    return r && r !== 'error' ? r.total : 0;
-  });
-
-  protected readonly totalPages = computed<number>(() => {
-    const r = this.responseRaw();
-    return r && r !== 'error' ? r.totalPages : 0;
-  });
-
-  // --- Header summary (funnel math, reused from Overview stats) ------------
-  protected readonly summaryNew = computed<number>(() => {
-    const s = this.stats();
-    return s ? Math.max(0, s.waitlist.total - s.waitlist.notified) : 0;
-  });
-  protected readonly summaryInvited = computed<number>(
-    () => this.stats()?.waitlist.notified ?? 0,
-  );
-  /**
-   * `approved` is `.optional()` on the stats schema so a server predating the
-   * approve endpoint still validates — it reads as 0 until that build ships.
-   */
-  protected readonly summaryApproved = computed<number>(
-    () => this.stats()?.waitlist.approved ?? 0,
-  );
-  protected readonly summaryConverted = computed<number>(
-    () => this.stats()?.waitlist.converted ?? 0,
-  );
-  protected readonly summaryTotal = computed<number>(
-    () => this.stats()?.waitlist.total ?? 0,
+  /** Page-level selection state helper: none | all | mixed */
+  protected readonly pageSelectStatus = computed<'none' | 'all' | 'mixed'>(() =>
+    this.selection.pageStatus(this.rows()),
   );
 
   public constructor() {
-    // Reset selection + paging whenever the active tab changes. Untracked so
-    // the reset doesn't itself re-trigger on unrelated view refreshes.
+    this.fetchStats();
+
+    // Canonicalize invalid or legacy query params in URL
     effect(() => {
-      this.tab();
+      const q = this.currentQuery();
+      const rawParams =
+        this.rawQueryParams() ?? this.route.snapshot.queryParams;
+      if (needsWaitlistQueryCanonicalization(rawParams, q)) {
+        untracked(() => {
+          this.router.navigate([], {
+            relativeTo: this.route,
+            queryParams: serializeWaitlistQuery(q),
+            replaceUrl: true,
+          });
+        });
+      }
+    });
+
+    // A non-empty result set can become shorter while an old deep link still
+    // points beyond its last page. Canonicalize once to the last valid page.
+    effect(() => {
+      const response = this.responseRaw();
+      const requestedPage = this.page();
+      if (
+        response?.status !== 'success' ||
+        response.data.data.length > 0 ||
+        response.data.total <= 0 ||
+        response.data.totalPages < 1 ||
+        requestedPage <= response.data.totalPages
+      ) {
+        return;
+      }
+
+      const lastPage = response.data.totalPages;
       untracked(() => {
-        this.page.set(1);
-        this.selectedIds.set([]);
+        this.navigateWithFilters({ page: lastPage }, { replaceUrl: true });
       });
     });
 
-    this.fetchStats();
+    // Handle debounced search changes (uses replaceUrl to prevent flooding history)
+    this.searchInput$
+      .pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef))
+      .subscribe((searchVal) => {
+        const next = searchVal.trim().length > 0 ? searchVal.trim() : undefined;
+        if (next === this.currentQuery().search) return;
+
+        this.navigateWithFilters(
+          {
+            search: next,
+            page: 1,
+          },
+          { replaceUrl: true },
+        );
+        this.clearSelection();
+      });
+  }
+
+  public ngOnDestroy(): void {
+    this.cancelMatchingSelection();
   }
 
   private fetchStats(): void {
@@ -272,53 +378,218 @@ export class WaitlistPipeline {
     });
   }
 
-  /** Unknown/absent `?tab=` falls back to New. */
-  protected normalizeTab(raw: string | null): WaitlistTab {
-    return raw === 'invited' ||
-      raw === 'approved' ||
-      raw === 'converted' ||
-      raw === 'all'
-      ? raw
-      : 'new';
-  }
+  // --- Navigation & Query updates ---
 
-  protected setTab(t: WaitlistTab): void {
-    if (t === this.tab()) return;
-    this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { tab: t },
-      queryParamsHandling: 'merge',
+  public setStage(s: WaitlistStage): void {
+    if (s === this.stage()) return;
+    this.clearSelection();
+    this.navigateWithFilters({
+      stage: s,
+      page: 1,
+      sortOrder: defaultSortOrder(s),
     });
   }
 
-  // --- Selection (New + Invited) -------------------------------------------
-  protected isSelected(id: string): boolean {
-    return this.selectedIds().includes(id);
+  protected onSearchChange(search: string): void {
+    this.searchInput$.next(search);
   }
 
-  protected toggleSelected(id: string): void {
-    this.selectedIds.update((ids) =>
-      ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id],
+  protected onSourceChange(source: WaitlistSource | undefined): void {
+    this.clearSelection();
+    this.navigateWithFilters({ source, page: 1 });
+  }
+
+  protected onCreatedFromChange(createdFrom: string | undefined): void {
+    this.clearSelection();
+    this.navigateWithFilters({ createdFrom, page: 1 });
+  }
+
+  protected onCreatedToChange(createdTo: string | undefined): void {
+    this.clearSelection();
+    this.navigateWithFilters({ createdTo, page: 1 });
+  }
+
+  protected onSortByChange(sortBy: WaitlistSortField): void {
+    this.clearSelection();
+    this.navigateWithFilters({ sortBy, page: 1 });
+  }
+
+  protected onSortOrderChange(sortOrder: SortOrder): void {
+    this.clearSelection();
+    this.navigateWithFilters({ sortOrder, page: 1 });
+  }
+
+  protected onPageSizeChange(pageSize: WaitlistPageSize): void {
+    this.navigateWithFilters({ pageSize, page: 1 });
+  }
+
+  public onPageChange(page: number): void {
+    if (page >= 1 && page <= this.totalPages()) {
+      // Retain selection across page changes!
+      this.navigateWithFilters({ page });
+    }
+  }
+
+  /**
+   * Clears all optional filters (search, source, date range, sort, page, pageSize)
+   * while STRICTLY RETAINING the active stage.
+   */
+  public onClearFilters(): Promise<boolean> {
+    this.clearSelection();
+    const currentStage = this.stage();
+    return this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: serializeWaitlistQuery({
+        stage: currentStage,
+        sortBy: 'createdAt',
+        sortOrder: defaultSortOrder(currentStage),
+        page: 1,
+        pageSize: 25,
+      }),
+    });
+  }
+
+  private navigateWithFilters(
+    patch: Partial<WaitlistListQuery>,
+    extras?: { replaceUrl?: boolean },
+  ): Promise<boolean> {
+    const updated: WaitlistListQuery = {
+      ...this.currentQuery(),
+      ...patch,
+    };
+
+    return this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: serializeWaitlistQuery(updated),
+      replaceUrl: extras?.replaceUrl ?? false,
+    });
+  }
+
+  // --- Selection & Matching ---
+
+  protected onToggleRow(row: WaitlistListRow): void {
+    this.cancelMatchingSelection();
+    this.selection.toggleRow(row);
+  }
+
+  protected onTogglePageSelection(): void {
+    this.cancelMatchingSelection();
+    this.selection.selectPage(this.rows());
+  }
+
+  protected onClearSelection(): void {
+    this.clearSelection();
+  }
+
+  /**
+   * "Select all matching" action: fetches up to 50 server-resolved eligible ids.
+   */
+  public onSelectMatching(): void {
+    this.cancelMatchingSelection();
+    const filterQuery = this.getCurrentFilterQuery();
+
+    this.matchingSelectionSubscription = this.api
+      .resolveEligibleWaitlistIds(filterQuery)
+      .subscribe({
+        next: (res) => {
+          if (this.isCurrentFilterQuery(filterQuery)) {
+            this.selection.selectMatching(res);
+          }
+        },
+        error: () => this.selection.handleTransportFailure(),
+      });
+  }
+
+  private getCurrentFilterQuery(): WaitlistFilterQuery {
+    return {
+      stage: this.stage(),
+      search: this.search() || undefined,
+      source: this.source(),
+      createdFrom: this.createdFrom(),
+      createdTo: this.createdTo(),
+      sortBy: this.sortBy(),
+      sortOrder: this.sortOrder(),
+    };
+  }
+
+  private isCurrentFilterQuery(captured: WaitlistFilterQuery): boolean {
+    const current = this.getCurrentFilterQuery();
+    return (
+      captured.stage === current.stage &&
+      captured.search === current.search &&
+      captured.source === current.source &&
+      captured.createdFrom === current.createdFrom &&
+      captured.createdTo === current.createdTo &&
+      captured.sortBy === current.sortBy &&
+      captured.sortOrder === current.sortOrder
     );
   }
 
-  protected clearSelection(): void {
-    this.selectedIds.set([]);
+  private clearSelection(): void {
+    this.cancelMatchingSelection();
+    this.selection.clear();
   }
 
-  // --- Approve → Founding Cohort -------------------------------------------
-  /** From the SelectionToolbar — approve every explicitly selected row. */
+  private cancelMatchingSelection(): void {
+    this.matchingSelectionSubscription?.unsubscribe();
+    this.matchingSelectionSubscription = null;
+  }
+
+  // --- CSV Export ---
+
+  public onExportCsv(): void {
+    if (this.exporting()) return;
+    this.exporting.set(true);
+    this.exportError.set(null);
+
+    const filterQuery: WaitlistFilterQuery = {
+      stage: this.stage(),
+      search: this.search() || undefined,
+      source: this.source(),
+      createdFrom: this.createdFrom(),
+      createdTo: this.createdTo(),
+      sortBy: this.sortBy(),
+      sortOrder: this.sortOrder(),
+    };
+
+    this.api.exportWaitlistCsv(filterQuery).subscribe({
+      next: ({ blob, filename }) => {
+        this.exporting.set(false);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      },
+      error: (err: unknown) => {
+        this.exporting.set(false);
+        this.exportError.set(mapExportError(err));
+        setTimeout(() => this.exportError.set(null), 6000);
+      },
+    });
+  }
+
+  // --- Approve flow ---
+
   protected onApproveSelected(): void {
-    if (this.selectedIds().length === 0) return;
+    if (this.selection.count() === 0) return;
     this.approveToast.set(null);
-    this.approveIds.set(this.selectedIds());
+    this.approveIds.set(this.selection.selectedIds());
     this.approveOpen.set(true);
   }
 
-  /** Per-row Approve — the same confirmation modal, opened with one id. */
-  protected onApproveRow(row: WaitlistRow): void {
+  protected onApproveRow(row: WaitlistListRow): void {
     this.approveToast.set(null);
     this.approveIds.set([row.id]);
+    this.approveOpen.set(true);
+  }
+
+  protected onApproveId(id: string): void {
+    this.approveToast.set(null);
+    this.approveIds.set([id]);
     this.approveOpen.set(true);
   }
 
@@ -326,60 +597,42 @@ export class WaitlistPipeline {
     this.approveOpen.set(false);
   }
 
-  /**
-   * The call returned 200. Individual rows may still have been skipped or have
-   * failed — the tally is shown in the modal and echoed in the toast.
-   *
-   * The selection is cleared only on a returned response. A transport failure
-   * never reaches here, so a failed request LEAVES THE SELECTION INTACT and the
-   * admin can retry the same rows (R9.6).
-   */
-  protected onApproveDone(result: AdminApproveWaitlistResponse): void {
+  public onApproveDone(result: AdminApproveWaitlistResponse): void {
     this.approveToast.set(result);
-    this.clearSelection();
+    this.selection.handleApprovalResult(result);
     this.refreshTick.update((v) => v + 1);
     this.fetchStats();
+
     setTimeout(() => {
-      if (this.approveToast() === result) this.approveToast.set(null);
+      if (this.approveToast() === result) {
+        this.approveToast.set(null);
+      }
     }, 8000);
   }
 
-  // --- Pagination ----------------------------------------------------------
-  protected prevPage(): void {
-    if (this.page() > 1) this.page.update((p) => p - 1);
+  // --- Details drawer flow ---
+
+  public onOpenDetails(event: {
+    row: WaitlistListRow;
+    triggerEl: HTMLElement;
+  }): void {
+    this.drawerOpenerEl = event.triggerEl;
+    this.activeEntryId.set(event.row.id);
+    this.drawerOpen.set(true);
   }
 
-  protected nextPage(): void {
-    if (this.page() < this.totalPages()) this.page.update((p) => p + 1);
+  public onDrawerClosed(): void {
+    this.drawerOpen.set(false);
+    this.activeEntryId.set(null);
+
+    // Restore focus to opener button
+    if (this.drawerOpenerEl) {
+      this.drawerOpenerEl.focus();
+      this.drawerOpenerEl = null;
+    }
   }
 
-  protected retry(): void {
+  public retry(): void {
     this.refreshTick.update((v) => v + 1);
-  }
-
-  // --- Derived stage chip (rendered on every tab) --------------------------
-  /**
-   * Ranked Converted → Approved → Invited → New. Converted outranks Approved
-   * because a paid conversion is the terminal state; Approved outranks Invited
-   * because the grant supersedes the (withdrawn) invite, which is reported but
-   * never acted on.
-   */
-  protected stageLabel(row: WaitlistRow): string {
-    if (row.convertedAt) return 'Converted';
-    if (row.approvedAt) return 'Approved';
-    if (row.notifiedAt) return 'Invited';
-    return 'New';
-  }
-
-  /**
-   * Same ranking as {@link stageLabel}, mapped onto the shared six-name
-   * `BadgeVariant` vocabulary so all four stages stay visually distinct
-   * without widening a presentation contract the member panel also uses.
-   */
-  protected stageVariant(row: WaitlistRow): BadgeVariant {
-    if (row.convertedAt) return 'success';
-    if (row.approvedAt) return 'info';
-    if (row.notifiedAt) return 'neutral';
-    return 'ghost';
   }
 }

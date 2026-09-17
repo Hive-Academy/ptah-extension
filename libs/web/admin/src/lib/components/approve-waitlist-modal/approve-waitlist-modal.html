@@ -44,6 +44,34 @@
             }
           </ul>
 
+          <div>
+            <div class="mb-2 text-sm font-semibold">Per-entry outcomes</div>
+            <ul
+              class="flex max-h-64 flex-col gap-2 overflow-y-auto"
+              aria-label="Per-entry approval outcomes"
+            >
+              @for (entry of entryOutcomeLines(); track entry.id) {
+                <li
+                  class="rounded-md border px-3 py-2 text-sm"
+                  [class]="entry.tone"
+                  [attr.data-outcome]="entry.outcome"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <span class="min-w-0 break-all font-medium">
+                      {{ entry.identifier }}
+                    </span>
+                    <span class="shrink-0">{{ entry.label }}</span>
+                  </div>
+                  @if (entry.code; as code) {
+                    <div class="mt-1 font-mono text-xs text-base-content-muted">
+                      {{ code }}
+                    </div>
+                  }
+                </li>
+              }
+            </ul>
+          </div>
+
           @if (emailWarningCount(); as warned) {
             <div class="alert alert-warning text-sm">
               <span>

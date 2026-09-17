@@ -1,68 +1,145 @@
 <section class="flex flex-col gap-4">
-  <!-- Header: title + total + inline funnel summary -->
+  <!-- Header: title + total + inline funnel summary + Export button -->
   <header class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex items-center gap-2">
       <h2 class="text-xl font-semibold">Waitlist Pipeline</h2>
-      <span class="text-sm text-base-content-muted">({{ summaryTotal() }} total)</span>
+      <span class="text-sm text-base-content-muted">({{ total() }} total)</span>
     </div>
 
-    <div class="flex items-center gap-4 text-sm">
-      <span class="flex items-center gap-1.5">
-        <span class="text-base-content-muted">New</span>
-        <span class="font-semibold tabular-nums">{{ summaryNew() }}</span>
-      </span>
-      <span class="flex items-center gap-1.5">
-        <span class="text-base-content-muted">Invited</span>
-        <span class="font-semibold tabular-nums">{{ summaryInvited() }}</span>
-      </span>
-      <span class="flex items-center gap-1.5">
-        <span class="text-base-content-muted">Approved</span>
-        <span class="font-semibold tabular-nums text-info">{{ summaryApproved() }}</span>
-      </span>
-      <span class="flex items-center gap-1.5">
-        <span class="text-base-content-muted">Converted</span>
-        <span class="font-semibold tabular-nums text-success">{{ summaryConverted() }}</span>
-      </span>
+    <div class="flex flex-wrap items-center gap-4 text-sm">
+      <div class="flex items-center gap-4">
+        <span class="flex items-center gap-1.5">
+          <span class="text-base-content-muted">New</span>
+          <span class="font-semibold tabular-nums">{{ counts().new }}</span>
+        </span>
+        <span class="flex items-center gap-1.5">
+          <span class="text-base-content-muted">Invited</span>
+          <span class="font-semibold tabular-nums">{{ counts().invited }}</span>
+        </span>
+        <span class="flex items-center gap-1.5">
+          <span class="text-base-content-muted">Approved</span>
+          <span class="font-semibold tabular-nums text-info">{{
+            counts().approved
+          }}</span>
+        </span>
+        <span class="flex items-center gap-1.5">
+          <span class="text-base-content-muted">Converted</span>
+          <span class="font-semibold tabular-nums text-success">{{
+            counts().converted
+          }}</span>
+        </span>
+      </div>
+
+      <!-- Server CSV Export -->
+      <button
+        type="button"
+        class="btn btn-outline btn-sm gap-1.5"
+        [disabled]="exporting()"
+        (click)="onExportCsv()"
+      >
+        <lucide-angular
+          [img]="DownloadIcon"
+          class="h-4 w-4"
+          aria-hidden="true"
+        />
+        {{ exporting() ? 'Exporting…' : 'Export CSV' }}
+      </button>
     </div>
   </header>
 
-  <!-- Segmented tabs (URL-driven via ?tab=) -->
+  <!-- Segmented stage tabs (URL-driven via ?stage=) -->
   <div role="tablist" class="tabs tabs-boxed w-fit">
     @for (t of tabs; track t.key) {
       <button
         type="button"
         role="tab"
-        class="tab"
-        [class.tab-active]="tab() === t.key"
-        [attr.aria-selected]="tab() === t.key"
-        (click)="setTab(t.key)"
+        class="tab gap-1.5"
+        [class.tab-active]="stage() === t.key"
+        [attr.aria-selected]="stage() === t.key"
+        (click)="setStage(t.key)"
       >
-        {{ t.label }}
+        <span>{{ t.label }}</span>
+        @if (counts()[t.key] !== undefined) {
+          <span class="badge badge-sm font-mono opacity-80">{{
+            counts()[t.key]
+          }}</span>
+        }
       </button>
     }
   </div>
 
-  <!-- Bulk approve — offered on New AND Invited -->
-  @if (approvableTab()) {
-    <ptah-selection-toolbar
-      [count]="selectedIds().length"
-      itemNoun="row"
-      (cleared)="clearSelection()"
-    >
-      <button
-        type="button"
-        class="btn btn-primary btn-sm"
-        (click)="onApproveSelected()"
+  <!-- Advanced filter bar -->
+  <ptah-admin-waitlist-filter-bar
+    [search]="search()"
+    [source]="source()"
+    [createdFrom]="createdFrom()"
+    [createdTo]="createdTo()"
+    [sortBy]="sortBy()"
+    [sortOrder]="sortOrder()"
+    [pageSize]="pageSize()"
+    [invalidDateError]="dateRangeError()"
+    (searchChange)="onSearchChange($event)"
+    (sourceChange)="onSourceChange($event)"
+    (createdFromChange)="onCreatedFromChange($event)"
+    (createdToChange)="onCreatedToChange($event)"
+    (sortByChange)="onSortByChange($event)"
+    (sortOrderChange)="onSortOrderChange($event)"
+    (pageSizeChange)="onPageSizeChange($event)"
+    (cleared)="onClearFilters()"
+  />
+
+  <!-- Bulk action toolbar -->
+  @if (selection.count() > 0) {
+    <output aria-live="polite" class="block">
+      <ptah-selection-toolbar
+        [count]="selection.count()"
+        itemNoun="row"
+        (cleared)="onClearSelection()"
       >
-        <lucide-angular [img]="BadgeCheckIcon" class="h-4 w-4" aria-hidden="true" />
-        Approve to Founding Cohort
-      </button>
-    </ptah-selection-toolbar>
+        @if (selection.limitReached()) {
+          <span class="text-xs font-medium text-warning">
+            Selection limit of 50 reached
+          </span>
+        }
+        @if (selection.isTruncatedMatching()) {
+          <span class="text-xs font-medium text-accent">
+            {{ selection.disclosureLabel() }}
+          </span>
+        } @else if (
+          selection.scope() !== 'matching' && total() > selection.count()
+        ) {
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs text-xs"
+            (click)="onSelectMatching()"
+          >
+            Select up to 50 matching
+          </button>
+        }
+
+        <button
+          type="button"
+          class="btn btn-primary btn-sm gap-1.5"
+          (click)="onApproveSelected()"
+        >
+          <lucide-angular
+            [img]="BadgeCheckIcon"
+            class="h-4 w-4"
+            aria-hidden="true"
+          />
+          Approve to Founding Cohort
+        </button>
+      </ptah-selection-toolbar>
+    </output>
   }
 
   <!-- Body -->
   @if (loading()) {
-    <div class="flex flex-col gap-2" aria-busy="true" aria-label="Loading waitlist">
+    <div
+      class="flex flex-col gap-2"
+      aria-busy="true"
+      aria-label="Loading waitlist"
+    >
       @for (i of [1, 2, 3, 4, 5]; track i) {
         <div class="h-14 animate-pulse rounded-md bg-base-200"></div>
       }
@@ -73,7 +150,7 @@
       <button type="button" class="btn btn-sm" (click)="retry()">Retry</button>
     </div>
   } @else if (rows().length === 0) {
-    @switch (tab()) {
+    @switch (stage()) {
       @case ('new') {
         <ptah-empty-state
           [icon]="PartyPopperIcon"
@@ -99,102 +176,34 @@
       }
     }
   } @else {
+    <!-- Select Page row control -->
+    <div
+      class="flex items-center justify-between border-b border-hairline px-3 py-1.5 text-xs text-base-content-muted"
+    >
+      <label class="flex cursor-pointer items-center gap-2">
+        <input
+          type="checkbox"
+          class="checkbox checkbox-xs checkbox-primary"
+          [checked]="pageSelectStatus() === 'all'"
+          [indeterminate]="pageSelectStatus() === 'mixed'"
+          (change)="onTogglePageSelection()"
+          aria-label="Select all eligible rows on this page"
+        />
+        <span>Select page</span>
+      </label>
+      <span>{{ rows().length }} entries on this page</span>
+    </div>
+
     <ul class="flex flex-col gap-2">
       @for (row of rows(); track row.id) {
-        <li
-          class="flex items-center gap-3 rounded-md border border-hairline bg-base-200 px-3 py-2.5"
-        >
-          @if (approvableTab()) {
-            <input
-              type="checkbox"
-              class="checkbox checkbox-sm checkbox-primary shrink-0"
-              [checked]="isSelected(row.id)"
-              (change)="toggleSelected(row.id)"
-              [attr.aria-label]="'Select ' + row.email"
-            />
-          }
-
-          <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="truncate font-medium">{{ row.email }}</span>
-              @if (row.source) {
-                <ptah-status-badge
-                  [value]="row.source"
-                  [showIcon]="false"
-                  size="xs"
-                />
-              }
-              <!--
-                Stage chip on EVERY tab, not only "All". A single `field:value`
-                filter cannot express "not notified AND not approved", so a row
-                approved without ever being invited shows under both New and
-                Approved — the chip is what makes that overlap self-explaining.
-              -->
-              <ptah-status-badge
-                [variant]="stageVariant(row)"
-                [label]="stageLabel(row)"
-                size="xs"
-              />
-            </div>
-            <div class="text-xs text-base-content-muted">
-              Joined {{ row.createdAt ? (row.createdAt | date: 'medium') : '—' }}
-            </div>
-          </div>
-
-          <!-- Per-tab right-side action -->
-          <div class="flex shrink-0 items-center gap-3">
-            @switch (tab()) {
-              @case ('new') {
-                <button
-                  type="button"
-                  class="btn btn-outline btn-primary btn-xs"
-                  (click)="onApproveRow(row)"
-                >
-                  <lucide-angular [img]="KeyRoundIcon" class="h-3.5 w-3.5" aria-hidden="true" />
-                  Approve
-                </button>
-              }
-              @case ('invited') {
-                <span class="hidden text-xs text-base-content-muted sm:inline">
-                  Invited {{ row.notifiedAt ? (row.notifiedAt | date: 'mediumDate') : '—' }}
-                </span>
-                <button
-                  type="button"
-                  class="btn btn-outline btn-primary btn-xs"
-                  (click)="onApproveRow(row)"
-                >
-                  <lucide-angular [img]="KeyRoundIcon" class="h-3.5 w-3.5" aria-hidden="true" />
-                  Approve
-                </button>
-              }
-              @case ('approved') {
-                <span class="hidden text-xs text-base-content-muted sm:inline">
-                  Approved {{ row.approvedAt ? (row.approvedAt | date: 'mediumDate') : '—' }}
-                </span>
-                <a
-                  class="link link-hover flex items-center gap-1 text-xs text-info"
-                  [routerLink]="['/admin', 'users']"
-                  [queryParams]="{ search: row.email }"
-                >
-                  View license
-                  <lucide-angular [img]="ArrowRightIcon" class="h-3.5 w-3.5" aria-hidden="true" />
-                </a>
-              }
-              @case ('converted') {
-                <span class="hidden text-xs text-base-content-muted sm:inline">
-                  Converted {{ row.convertedAt ? (row.convertedAt | date: 'mediumDate') : '—' }}
-                </span>
-                <a
-                  class="link link-hover flex items-center gap-1 text-xs text-info"
-                  [routerLink]="['/admin', 'users']"
-                  [queryParams]="{ search: row.email }"
-                >
-                  View license
-                  <lucide-angular [img]="ArrowRightIcon" class="h-3.5 w-3.5" aria-hidden="true" />
-                </a>
-              }
-            }
-          </div>
+        <li>
+          <ptah-admin-waitlist-row
+            [row]="row"
+            [selected]="selection.isSelected(row.id)"
+            (toggleSelect)="onToggleRow($event)"
+            (approve)="onApproveRow($event)"
+            (viewDetails)="onOpenDetails($event)"
+          />
         </li>
       }
     </ul>
@@ -202,13 +211,15 @@
     <!-- Pagination -->
     @if (totalPages() > 1) {
       <div class="flex items-center justify-end gap-3 text-sm">
-        <span class="text-base-content-muted">Page {{ page() }} of {{ totalPages() }}</span>
+        <span class="text-base-content-muted"
+          >Page {{ page() }} of {{ totalPages() }}</span
+        >
         <div class="join">
           <button
             type="button"
             class="btn btn-sm join-item"
             [disabled]="page() <= 1"
-            (click)="prevPage()"
+            (click)="onPageChange(page() - 1)"
           >
             Prev
           </button>
@@ -216,7 +227,7 @@
             type="button"
             class="btn btn-sm join-item"
             [disabled]="page() >= totalPages()"
-            (click)="nextPage()"
+            (click)="onPageChange(page() + 1)"
           >
             Next
           </button>
@@ -225,7 +236,15 @@
     }
   }
 
-  <!-- The single confirmation path for both per-row and bulk approve -->
+  <!-- Details Drawer -->
+  <ptah-admin-waitlist-details-drawer
+    [open]="drawerOpen()"
+    [entryId]="activeEntryId()"
+    (closed)="onDrawerClosed()"
+    (approve)="onApproveId($event)"
+  />
+
+  <!-- Bulk / Per-Row Approve Modal -->
   <ptah-admin-approve-waitlist-modal
     [open]="approveOpen()"
     [ids]="approveIds()"
@@ -233,6 +252,7 @@
     (submitted)="onApproveDone($event)"
   />
 
+  <!-- Approval result toast -->
   @if (approveToast(); as t) {
     <div class="toast toast-end z-50">
       <div
@@ -241,10 +261,20 @@
         [class.alert-warning]="t.tally.failed > 0"
       >
         <span>
-          Approved {{ t.tally.approved }} of {{ t.requested }} · already approved
-          {{ t.tally.already_approved }} · already paid {{ t.tally.already_paid }} ·
-          not found {{ t.tally.not_found }} · failed {{ t.tally.failed }}.
+          Approved {{ t.tally.approved }} of {{ t.requested }} · already
+          approved {{ t.tally.already_approved }} · already paid
+          {{ t.tally.already_paid }} · not found {{ t.tally.not_found }} ·
+          failed {{ t.tally.failed }}.
         </span>
+      </div>
+    </div>
+  }
+
+  <!-- Export error toast -->
+  @if (exportError(); as err) {
+    <div class="toast toast-end z-50">
+      <div class="alert alert-error">
+        <span>{{ err }}</span>
       </div>
     </div>
   }

@@ -31,6 +31,36 @@ interface OutcomeLine {
   tone: string;
 }
 
+interface EntryOutcomeLine {
+  id: string;
+  identifier: string;
+  outcome: AdminApproveWaitlistResponse['results'][number]['outcome'];
+  label: string;
+  code: string | null;
+  tone: string;
+}
+
+const APPROVAL_OUTCOME_LABELS: Record<EntryOutcomeLine['outcome'], string> = {
+  approved: 'Approved',
+  already_approved: 'Already approved',
+  already_paid: 'Already paid',
+  not_found: 'Not found',
+  failed: 'Failed',
+};
+
+const ENTRY_OUTCOME_TONES: Record<EntryOutcomeLine['outcome'], string> = {
+  approved: 'border-hairline bg-base-200',
+  already_approved: 'border-hairline bg-base-200',
+  already_paid: 'border-hairline bg-base-200',
+  not_found: 'border-warning/40 bg-warning/10',
+  failed: 'border-error/40 bg-error/10',
+};
+
+const APPROVAL_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  COHORT_NOT_CONFIGURED:
+    'The founding cohort is not configured. Please contact support.',
+};
+
 /**
  * ApproveWaitlistModal — the single confirmation path for approving waitlist
  * rows into the founding cohort (`POST /api/v1/admin/waitlist/approve`).
@@ -48,9 +78,9 @@ interface OutcomeLine {
  *   showed only successes would hide `already_paid`, the one outcome an admin
  *   most needs to see (R9.3).
  *
- * On failure the modal surfaces the server's sanitized message and leaves the
- * request un-submitted; the parent keeps its selection so the admin can retry
- * without re-picking rows (R9.6).
+ * On failure the modal surfaces fixed copy selected from an allowlisted code
+ * and leaves the request un-submitted; the parent keeps its selection so the
+ * admin can retry without re-picking rows (R9.6).
  */
 @Component({
   selector: 'ptah-admin-approve-waitlist-modal',
@@ -141,6 +171,18 @@ export class ApproveWaitlistModal {
     ];
   });
 
+  protected readonly entryOutcomeLines = computed<readonly EntryOutcomeLine[]>(
+    () =>
+      (this.result()?.results ?? []).map((entry) => ({
+        id: entry.id,
+        identifier: entry.email ?? entry.id,
+        outcome: entry.outcome,
+        label: APPROVAL_OUTCOME_LABELS[entry.outcome],
+        code: entry.warning?.code ?? entry.error?.code ?? null,
+        tone: ENTRY_OUTCOME_TONES[entry.outcome],
+      })),
+  );
+
   /** Rows whose grant committed but whose welcome email did not go out. */
   protected readonly emailWarningCount = computed<number>(
     () =>
@@ -186,13 +228,28 @@ export class ApproveWaitlistModal {
     });
   }
 
-  /** Surfaces the server's sanitized message, never a raw transport string. */
+  /** Maps only known response codes/statuses to fixed copy. */
   private extractErrorMessage(err: unknown): string {
     const fallback = 'Failed to approve these rows. Please try again.';
-    if (typeof err === 'string') return err;
-    if (err && typeof err === 'object') {
-      const shaped = err as { error?: { message?: string }; message?: string };
-      return shaped.error?.message ?? shaped.message ?? fallback;
+    if (!err || typeof err !== 'object') return fallback;
+
+    const shaped = err as {
+      status?: unknown;
+      code?: unknown;
+      error?: { code?: unknown };
+    };
+    let code: string | null = null;
+    if (typeof shaped.error?.code === 'string') {
+      code = shaped.error.code;
+    } else if (typeof shaped.code === 'string') {
+      code = shaped.code;
+    }
+
+    if (code && APPROVAL_ERROR_MESSAGES[code]) {
+      return APPROVAL_ERROR_MESSAGES[code];
+    }
+    if (shaped.status === 400) {
+      return 'The approval request was invalid. Refresh the page and try again.';
     }
     return fallback;
   }

@@ -13,14 +13,17 @@ export interface WaitlistJoinResult {
  *
  * Deliberately narrow: the approve transaction needs the address to grant to,
  * the row id to audit against, `notifiedAt` for R6's `wasNotified` metadata,
- * and `approvedAt` only to distinguish an already-stamped row from a fresh one.
- * Nothing else on the row is any of that path's business.
+ * `approvedAt` only to distinguish an already-stamped row from a fresh one,
+ * and `convertedAt` to tell a PAID row from an approved one when the claim
+ * loses (TASK_2026_462 Component 4). Nothing else on the row is any of that
+ * path's business.
  */
 export interface WaitlistApprovalRow {
   id: string;
   email: string;
   notifiedAt: Date | null;
   approvedAt: Date | null;
+  convertedAt: Date | null;
 }
 
 /**
@@ -31,11 +34,14 @@ export interface WaitlistApprovalRow {
  * where there is no row:
  *   - `claimed`          — this call won the claim; the caller owns the grant.
  *   - `already_approved` — someone else got there first; skip the row.
+ *   - `already_paid`     — the row paid; the claim refuses to gift over a
+ *                          conversion (TASK_2026_462 Component 4).
  *   - `not_found`        — no such waitlist row.
  */
 export type WaitlistClaimResult =
   | { outcome: 'claimed'; row: WaitlistApprovalRow }
   | { outcome: 'already_approved'; row: WaitlistApprovalRow }
+  | { outcome: 'already_paid'; row: WaitlistApprovalRow }
   | { outcome: 'not_found' };
 
 /**
@@ -190,21 +196,29 @@ export class WaitlistService {
 
   /**
    * Conditionally claim a waitlist row for approve-to-cohort, ON THE CALLER'S
-   * TRANSACTION (TASK_2026_201 R5, R5.5).
+   * TRANSACTION (TASK_2026_201 R5, R5.5; converted guard TASK_2026_462 C4).
    *
    * The claim is a single conditional UPDATE:
    *
    * ```sql
    * UPDATE "waitlist" SET "approved_at" = $now
-   *  WHERE "id" = $id AND "approved_at" IS NULL
+   *  WHERE "id" = $id AND "approved_at" IS NULL AND "converted_at" IS NULL
    * ```
    *
-   * `count = 0` means the row was already approved — by an earlier request or
-   * by a concurrent one — and is the ONLY idempotency signal this path has.
-   * Prisma runs PostgreSQL transactions at Read Committed, so a concurrent
-   * claimer blocks on the row lock and, on release, re-evaluates
-   * `approved_at IS NULL` against the committed row and reports `count = 0`.
-   * Exactly one winner, and neither side raises (R5.2).
+   * `count = 0` means the row was already approved or already converted — by
+   * an earlier request or by a concurrent one — and is the ONLY idempotency
+   * signal this path has. Prisma runs PostgreSQL transactions at Read
+   * Committed, so a concurrent claimer blocks on the row lock and, on release,
+   * re-evaluates both null guards against the committed row and reports
+   * `count = 0`. Exactly one winner, and neither side raises (R5.2).
+   *
+   * ⚠️ THE `converted_at` GUARD IS THE 462 RULE, NOT REDUNDANCY. `approvedAt`
+   * and `convertedAt` are disjoint facts (see `markApproved`), so an
+   * admin-clicked Approve on a row that PAID in the gap must refuse the gift:
+   * stamping `approvedAt` over a live `convertedAt` would corrupt the funnel
+   * and hand a free year to someone who just bought one. The loser maps to
+   * the pre-existing `already_paid` outcome — the public five-outcome
+   * contract does not grow.
    *
    * ⚠️ WHY THIS TAKES `tx` RATHER THAN RUNNING ON THE BASE CLIENT. The claim
    * must be the FIRST WRITE inside the caller's per-row transaction so that a
@@ -214,11 +228,15 @@ export class WaitlistService {
    * failed. Same `tx`-injection shape as `AuditLogService.write({ tx })`.
    *
    * ⚠️ THE `findUnique` IS ADVISORY ONLY. It exists to tell `not_found` from
-   * `already_approved`, nothing more; a racer that claims between the read and
-   * the update is still caught by `count === 0`, so the read introduces no
-   * race. For the same reason `row.approvedAt` on the `already_approved` branch
-   * is the value as of the read and may be `null` when the racer's stamp landed
-   * after it — callers must treat the `outcome` as the truth, never `row.approvedAt`.
+   * the claim-losing outcomes, nothing more; a racer that claims between the
+   * read and the update is still caught by `count === 0`, so the read
+   * introduces no race. For the same reason `row.approvedAt` on the
+   * `already_approved` branch is the value as of the read and may be `null`
+   * when the racer's stamp landed after it — callers must treat the `outcome`
+   * as the truth, never `row.approvedAt`. The one value the read IS trusted
+   * for is the paid/approved split: the production select always carries
+   * `convertedAt`, so `row.convertedAt !== null` (a STRICT check — see
+   * below) means the row had paid as of the read, and the outcome follows it.
    *
    * All `Waitlist` writes stay owned by this service; the caller never touches
    * `tx.waitlist` directly.
@@ -232,7 +250,13 @@ export class WaitlistService {
   ): Promise<WaitlistClaimResult> {
     const row = await tx.waitlist.findUnique({
       where: { id },
-      select: { id: true, email: true, notifiedAt: true, approvedAt: true },
+      select: {
+        id: true,
+        email: true,
+        notifiedAt: true,
+        approvedAt: true,
+        convertedAt: true,
+      },
     });
 
     if (!row) {
@@ -240,12 +264,29 @@ export class WaitlistService {
     }
 
     const { count } = await tx.waitlist.updateMany({
-      where: { id, approvedAt: null },
+      where: { id, approvedAt: null, convertedAt: null },
       data: { approvedAt: new Date() },
     });
 
     if (count === 0) {
-      return { outcome: 'already_approved', row };
+      const current = await tx.waitlist.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          email: true,
+          notifiedAt: true,
+          approvedAt: true,
+          convertedAt: true,
+        },
+      });
+
+      if (!current) {
+        return { outcome: 'not_found' };
+      }
+
+      return current.convertedAt !== null
+        ? { outcome: 'already_paid', row: current }
+        : { outcome: 'already_approved', row: current };
     }
 
     return { outcome: 'claimed', row };

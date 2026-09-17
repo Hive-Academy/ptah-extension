@@ -1,51 +1,55 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   Inject,
   Logger,
+  Param,
   Post,
+  Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '@ptah-api/identity';
 import { AdminGuard } from '@ptah-api/identity';
 import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { dtoPipe } from '@ptah-api/core';
 import { ApproveWaitlistDto } from './admin.dto';
+import {
+  WaitlistFilterQueryDto,
+  WaitlistIdParamsDto,
+  WaitlistListQueryDto,
+} from './admin-waitlist.dto';
+import { AdminWaitlistService } from './admin-waitlist.service';
+import type {
+  WaitlistDetailsResponse,
+  WaitlistEligibleIdsResponse,
+  WaitlistListResponse,
+} from './admin-waitlist.types';
 import { WaitlistApprovalService } from './waitlist-approval/waitlist-approval.service';
 import type { WaitlistApprovalResponse } from './waitlist-approval/waitlist-approval.types';
 
 /**
- * AdminWaitlistController — approve waitlist rows to the founding cohort
- * (TASK_2026_201 R1, R8).
+ * AdminWaitlistController — admin waitlist pipeline read surface and founding cohort approval
+ * (TASK_2026_201 R1, R8; TASK_2026_462 Batch A).
  *
  * Mounted at `/api/v1/admin/waitlist/*`. Guard chain: `JwtAuthGuard` →
  * `AdminGuard` at CLASS level, i.e. a DASHBOARD route authenticated by an
  * admin's session cookie.
  *
- * ⚠️ THIS CLASS REPLACES A DELETED ONE OF THE SAME NAME, AND THE PATH IS THE
- * ONLY THING THEY SHARE. The previous `AdminWaitlistController` owned
- * `POST /waitlist/invite`, the PAID founding-discount invite wave. TASK_2026_201
- * deletes that flow outright rather than repointing it (context.md C2) — the
- * route, its DTO, its service method and its mail template are all gone — and
- * `POST /waitlist/approve` grants FREE access instead. Nothing here is a
- * rename of anything there.
- *
- * ⚠️ EVERY `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
- * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
+ * ⚠️ EVERY `@Body()` / `@Query()` / `@Param()` MUST BIND `dtoPipe(TheDto)`.
+ * A bare `@Query() query: X` is SILENTLY UNVALIDATED in this server: esbuild does
  * not emit `emitDecoratorMetadata`, so Nest cannot infer the DTO type and the
- * global ValidationPipe short-circuits — every `class-validator` decorator
- * becomes inert. See `libs/api/core/src/lib/common/dto-validation.pipe.ts`.
+ * global ValidationPipe short-circuits. See `libs/api/core/src/lib/common/dto-validation.pipe.ts`.
  * `apps/ptah-license-server/src/common/controller-validation.spec.ts` fails the
  * build if a binding is dropped.
  *
- * The stakes here are GRANTS as well as outbound mail, and `@ArrayMaxSize(50)`
- * on `ApproveWaitlistDto.ids` is the only bound on both: each id in the array
- * becomes a free 1-year Builders licence, a founding-cohort placement and one
- * welcome email. Unbind the pipe and that cap stops existing.
+ * ⚠️ STATIC ROUTES PRECEDE DYNAMIC `:id/details`. `eligible-ids` and `export.csv`
+ * are declared before `:id/details` so their path segments are never matched as `:id`.
  */
 @Controller('v1/admin/waitlist')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -55,7 +59,69 @@ export class AdminWaitlistController {
   constructor(
     @Inject(WaitlistApprovalService)
     private readonly approval: WaitlistApprovalService,
+    @Inject(AdminWaitlistService)
+    private readonly waitlist: AdminWaitlistService,
   ) {}
+
+  /**
+   * GET /v1/admin/waitlist — paginated list plus filtered stage counts.
+   */
+  @Get()
+  async listWaitlist(
+    @Query(dtoPipe(WaitlistListQueryDto)) query: WaitlistListQueryDto,
+  ): Promise<WaitlistListResponse> {
+    return this.waitlist.list(query);
+  }
+
+  /**
+   * GET /v1/admin/waitlist/eligible-ids — resolve select-matching to explicit ids,
+   * capped at 50. Declared BEFORE `:id/details`.
+   */
+  @Get('eligible-ids')
+  async getEligibleIds(
+    @Query(dtoPipe(WaitlistFilterQueryDto)) query: WaitlistFilterQueryDto,
+  ): Promise<WaitlistEligibleIdsResponse> {
+    return this.waitlist.resolveEligibleIds(query);
+  }
+
+  /**
+   * GET /v1/admin/waitlist/export.csv — server-generated formula-safe CSV export,
+   * audited before download. Declared BEFORE `:id/details`.
+   */
+  @Get('export.csv')
+  @UseGuards(AdminThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  async exportCsv(
+    @Req() req: Request,
+    @Query(dtoPipe(WaitlistFilterQueryDto)) query: WaitlistFilterQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<string> {
+    const actorEmail = req.user?.email ?? 'unknown';
+    const userAgent = req.headers['user-agent'];
+    const actor = {
+      email: actorEmail,
+      ip: req.ip,
+      userAgent: typeof userAgent === 'string' ? userAgent : undefined,
+    };
+
+    const result = await this.waitlist.exportCsv(query, actor);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${result.filename}"`,
+    );
+    return result.csv;
+  }
+
+  /**
+   * GET /v1/admin/waitlist/:id/details — single waitlist entry plus linked user and audit.
+   */
+  @Get(':id/details')
+  async getDetails(
+    @Param(dtoPipe(WaitlistIdParamsDto)) params: WaitlistIdParamsDto,
+  ): Promise<WaitlistDetailsResponse> {
+    return this.waitlist.getDetails(params.id);
+  }
 
   /**
    * POST /waitlist/approve — approve N waitlist rows to the founding cohort.

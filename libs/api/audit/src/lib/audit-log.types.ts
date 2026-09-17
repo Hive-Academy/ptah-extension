@@ -54,6 +54,28 @@ export type AdminAuditAction =
   // ⚠️ THE LICENCE KEY NEVER APPEARS IN THIS METADATA (R7.4). `licenseId` does;
   // the key travels only in the member's email.
   | 'waitlist.approve'
+  // TASK_2026_462 Batch A — the admin waitlist CSV export
+  // (`GET v1/admin/waitlist/export.csv`). A bulk READ, audited because the
+  // download carries every lead address in the funnel — the one admin surface
+  // that hands the whole list out of the building in one response.
+  //
+  // ⚠️ AUDIT-BEFORE-DOWNLOAD, AND THE ORDER IS THE WHOLE POINT. The audit row
+  // is written (and awaited) BEFORE the CSV is built or sent; if the audit
+  // write fails the request fails with 503 `WAITLIST_EXPORT_AUDIT_FAILED` and
+  // NO csv leaves the server. An export that trades its audit row for a
+  // successful download is unauditable by construction. No `tx` — the read
+  // side has no transaction to enlist in; this is the one waitlist writer that
+  // stands alone, and it must.
+  //
+  // ⚠️ THE METADATA RECORDS THE FILTERS, NEVER THE LEADS. It carries exactly
+  // `{ stage, source, createdFrom, createdTo, sortBy, sortOrder, searchApplied,
+  // exportedCount }` — the shape of the export, not its content. The search
+  // string is deliberately reduced to the boolean `searchApplied`: a search
+  // term can hold an arbitrary fragment of a person's address, and copying it
+  // onto an audit row would write PII the admin never meant to persist.
+  // `targetId` is `undefined` for the same reason `learning.module.schedule`
+  // omits it — a bulk export targets no single row.
+  | 'waitlist.export'
   | 'group.create'
   | 'group.update'
   | 'group.assign'

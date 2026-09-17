@@ -4,6 +4,32 @@ import { Observable, map } from 'rxjs';
 import { z } from 'zod';
 
 import { validate } from '@ptah-web/core';
+import type {
+  WaitlistDetailsResponse,
+  WaitlistEligibleIdsResponse,
+  WaitlistFilterQuery,
+  WaitlistListQuery,
+  WaitlistListResponse,
+} from '../waitlist/waitlist-query-state';
+import {
+  waitlistDetailsResponseSchema,
+  waitlistEligibleIdsResponseSchema,
+  waitlistListResponseSchema,
+} from '../waitlist/waitlist-query-state';
+
+export type {
+  WaitlistDetailsResponse,
+  WaitlistEligibleIdsResponse,
+  WaitlistFilterQuery,
+  WaitlistListQuery,
+  WaitlistListResponse,
+  WaitlistListRow,
+  WaitlistSortField,
+  WaitlistSource,
+  WaitlistStage,
+  WaitlistStageCounts,
+  SortOrder,
+} from '../waitlist/waitlist-query-state';
 
 /**
  * URL slug for every admin-addressable Prisma model.
@@ -350,12 +376,10 @@ const adminStatsWaitlistSchema = z.object({
   notified: z.number(),
   converted: z.number(),
   last7Days: z.number(),
-  /**
-   * Rows with `approvedAt` set. OPTIONAL following the `attention` precedent
-   * below: a brief server/client deploy skew must not break the whole stats
-   * call and blank the Overview.
-   */
-  approved: z.number().optional(),
+  approved: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+  new: z.number().int().nonnegative(),
+  invited: z.number().int().nonnegative(),
 });
 
 const adminStatsMembersSchema = z.object({
@@ -704,6 +728,118 @@ export class AdminApiService {
             `DELETE /groups/${id}/members/${userId}`,
           ),
         ),
+      );
+  }
+
+  /**
+   * Fetches paginated waitlist entries with disjoint stage counts and compound filters.
+   */
+  public listWaitlist(
+    q: WaitlistListQuery = {},
+  ): Observable<WaitlistListResponse> {
+    let params = new HttpParams();
+    if (q.stage != null) params = params.set('stage', q.stage);
+    if (q.search) params = params.set('search', q.search);
+    if (q.source != null) params = params.set('source', q.source);
+    if (q.createdFrom != null)
+      params = params.set('createdFrom', q.createdFrom);
+    if (q.createdTo != null) params = params.set('createdTo', q.createdTo);
+    if (q.sortBy != null) params = params.set('sortBy', q.sortBy);
+    if (q.sortOrder != null) params = params.set('sortOrder', q.sortOrder);
+    if (q.page != null) params = params.set('page', String(q.page));
+    if (q.pageSize != null) params = params.set('pageSize', String(q.pageSize));
+
+    return this.http
+      .get<unknown>(`${this.base}/waitlist`, { params })
+      .pipe(map(validate(waitlistListResponseSchema, 'GET /waitlist')));
+  }
+
+  /**
+   * Resolves up to 50 explicit eligible IDs matching the active filter query.
+   */
+  public resolveEligibleWaitlistIds(
+    q: WaitlistFilterQuery = {},
+  ): Observable<WaitlistEligibleIdsResponse> {
+    let params = new HttpParams();
+    if (q.stage != null) params = params.set('stage', q.stage);
+    if (q.search) params = params.set('search', q.search);
+    if (q.source != null) params = params.set('source', q.source);
+    if (q.createdFrom != null)
+      params = params.set('createdFrom', q.createdFrom);
+    if (q.createdTo != null) params = params.set('createdTo', q.createdTo);
+    if (q.sortBy != null) params = params.set('sortBy', q.sortBy);
+    if (q.sortOrder != null) params = params.set('sortOrder', q.sortOrder);
+
+    return this.http
+      .get<unknown>(`${this.base}/waitlist/eligible-ids`, { params })
+      .pipe(
+        map(
+          validate(
+            waitlistEligibleIdsResponseSchema,
+            'GET /waitlist/eligible-ids',
+          ),
+        ),
+      );
+  }
+
+  /**
+   * Fetches rich context for a single waitlist entry, including linked user,
+   * licenses, subscriptions, groups, and audit history.
+   */
+  public getWaitlistDetails(id: string): Observable<WaitlistDetailsResponse> {
+    return this.http
+      .get<unknown>(`${this.base}/waitlist/${id}/details`)
+      .pipe(
+        map(
+          validate(
+            waitlistDetailsResponseSchema,
+            `GET /waitlist/${id}/details`,
+          ),
+        ),
+      );
+  }
+
+  /**
+   * Exports waitlist entries matching the active filters as a CSV blob.
+   */
+  public exportWaitlistCsv(
+    q: WaitlistFilterQuery = {},
+  ): Observable<{ blob: Blob; filename: string }> {
+    let params = new HttpParams();
+    if (q.stage != null) params = params.set('stage', q.stage);
+    if (q.search) params = params.set('search', q.search);
+    if (q.source != null) params = params.set('source', q.source);
+    if (q.createdFrom != null)
+      params = params.set('createdFrom', q.createdFrom);
+    if (q.createdTo != null) params = params.set('createdTo', q.createdTo);
+    if (q.sortBy != null) params = params.set('sortBy', q.sortBy);
+    if (q.sortOrder != null) params = params.set('sortOrder', q.sortOrder);
+
+    return this.http
+      .get(`${this.base}/waitlist/export.csv`, {
+        params,
+        observe: 'response',
+        responseType: 'blob',
+      })
+      .pipe(
+        map((res) => {
+          const contentType = res.headers.get('content-type') || '';
+          if (!contentType.includes('text/csv')) {
+            throw new Error(
+              `Expected text/csv response, got ${contentType || 'unknown'}`,
+            );
+          }
+          if (!res.body) {
+            throw new Error('CSV export returned an empty body');
+          }
+          const disposition = res.headers.get('content-disposition') || '';
+          const match =
+            /filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?/i.exec(
+              disposition,
+            );
+          const filename = match?.[1] || 'waitlist.csv';
+          return { blob: res.body, filename };
+        }),
       );
   }
 }
