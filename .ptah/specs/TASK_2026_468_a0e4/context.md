@@ -31,3 +31,17 @@ run; not proven for post-marker tiles".
 - B10: rendered-class assertion for `bubble-fade-enter` in `message-bubble.component.spec.ts`.
   TASK_2026_453 Task 18.2 found jsdom never exposes the transient `animate.enter` class; Angular
   animation test helpers were not tried — try them first.
+
+## Declined CodeRabbit comments from PR #524 (need an Electron e2e/perf run)
+
+Triage and links: `TASK_2026_453_1eb4/pr-524-coderabbit-report.md`. Keep the 200 ms / 1,500 ms
+budgets and the 2 px anchor limit unchanged.
+
+- Add absolute deadlines to both mutation-settlement waits in
+  `apps/ptah-electron-e2e/src/specs/chat/tile-load-older-history.spec.ts` (~:201, ~:451-470).
+- Stop trace capture at the measurement boundary before diagnostic page work
+  (`perf-measurement-report.ts` ~:198).
+- Drain queued long-task records with `PerformanceObserver.takeRecords()` before disconnecting
+  (`perf-page-capture.ts` ~:86).
+- Match the tile that contains the generated marker, not a descendant that cannot contain it
+  (`perf-session-fixture.ts` ~:467); prove it against the real rendered tile DOM.
