@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 33 | Batches: 19 (14 code incl. Batch 14A added 2026-09-17, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 14/19
+Total tasks: 33 | Batches: 19 (14 code incl. Batch 14A added 2026-09-17, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 15/19 | Cancelled: 2/19 (Batches 16-17, not needed) | Remaining: Batch 18
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -1890,7 +1890,31 @@ projects, lint 0 errors, audit TOTAL 303, webview builds success); e2e scrollTop
 Residual (accepted, listed in Batch 18): minor — no debug log when the anchor slot is not found and
 the restore is skipped.
 
-## Batch 15: M2 measurement (Electron, AC-11 verdict) — PENDING
+## Batch 15: M2 measurement (Electron, AC-11 verdict) — COMPLETE (commit: `test(electron-e2e): record the TASK_2026_453 M2 measurement`)
+
+**Outcome (2026-09-17)**: **AC-11 MET** (`test-report.md` "M2" section).
+
+- Gating runs: cold dev 1/2/3 max 144/136/129 ms, total 550/677/643 ms; production cold max 95 ms,
+  total 477 ms. All `settled: true`, scroll sanity PASS. Orchestrator spot-checked the four gating
+  JSONs (settled, longTaskCount, maxDurationMs, totalDurationMs, paging 250 per tile): match.
+- AC 5 volume independence: trace 500 vs 2,000 total 498 vs 448 ms; `FireAnimationFrame` 46 vs 48.
+- AC 2: MET (verified mid-replay) only for the last-marked tile per run; NOT PROVEN (not
+  contradicted) for post-marker tiles — follow-up in Batch 18.
+- Scroll sanity: 0 failures in 8 checked runs (warm 1-tile has no check, same gap as M1).
+- Runs 16:12:33-16:24:29 +03:00; idle counts 0/0 for every run
+  (`D:\projects\ptah-453-perf\m2\idle-checks.log`); no discarded runs. Cold dev 1 wall 5,070 ms
+  outlier recorded (3,813 ms between final marker and window close; cause not captured).
+- **Executor deviation**: a codex CLI lane (senior-tester role) ran M2 at the user's request, not
+  the recommended Claude `senior-tester` sub-agent.
+- **Peer hold**: sent by the orchestrator to 7 peer sessions ~13:10 UTC, released ~13:45 UTC (one
+  peer, ollama-cloud, had already closed at release). A second session (continue-task-453-547c10)
+  briefly claimed the worktree from a stale view and withdrew; worktree verified clean at
+  `5b8e664b8` with 0 runners before M2 continued.
+- **Review**: `b15-m2-methodology-review.md` NEEDS_REVISION (report text only; AC-11 MET stood).
+  Revise round 1 of 2 (text only) fixed per-tile DOM sample state, scroll coverage count, the cold
+  dev 1 outlier note and the sampler guard values (6.9/2.9/2.9/2.2 ms). Orchestrator verified the
+  corrected text against the review items; no delta review.
+- Decision rule (Task 15.1 AC 8): verdict MET → Batches 16-17 CANCELLED (not needed).
 
 - Recommended executor: Claude `senior-tester` sub-agent
 - Fallback executor: none (idle machine required; wait instead)
@@ -1903,7 +1927,7 @@ the restore is skipped.
   peer sessions on this machine (the `continue-task` session and any other active one) to hold
   heavy passes, and releases the hold after the last run. The report records both times.
 
-### Task 15.1: M2 run set, scroll sanity, load-older e2e, AC-11 verdict — PENDING
+### Task 15.1: M2 run set, scroll sanity, load-older e2e, AC-11 verdict — COMPLETE (AC-11 MET; AC 2 NOT PROVEN for post-marker tiles, follow-up in Batch 18)
 
 - File: MODIFY `W\.ptah\specs\TASK_2026_453_1eb4\test-report.md` (new "M2" section after the
   Batch 8 scroll re-check)
@@ -1939,7 +1963,9 @@ the restore is skipped.
      decision. Batch 16 does not start in that case.
   9. List every diagnostics JSON and console log path used.
 
-## Batch 16: CONDITIONAL — tail page 250 → 150 (decision 5) — PENDING
+## Batch 16: CONDITIONAL — tail page 250 → 150 (decision 5) — CANCELLED (not needed)
+
+- Reason: Batch 15 verdict is AC-11 MET at 250 events, not "MAX ONLY".
 
 - Runs only if Batch 15 verdict is "MAX ONLY". Otherwise mark it `CANCELLED (not needed)` in
   this file.
@@ -1949,7 +1975,7 @@ the restore is skipped.
 - Tasks: 1 | Depends on: Batch 15 verdict "MAX ONLY"
 - Review: logic + style (small; revise cap 2).
 
-### Task 16.1: `HISTORY_TAIL_PAGE_EVENTS = 150` — PENDING
+### Task 16.1: `HISTORY_TAIL_PAGE_EVENTS = 150` — CANCELLED (not needed)
 
 - Files: MODIFY `W\libs\shared\src\lib\utils\history-page.utils.ts` (one constant) and every spec
   whose expected tail size reads the literal (the lane lists them, e.g.
@@ -1960,7 +1986,9 @@ the restore is skipped.
 @ptah-extension/shared @ptah-extension/chat` (header 2); typecheck/lint those plus
   `ptah-extension-webview ptah-electron-e2e`; webview `build:production`; audit TOTAL 303.
 
-## Batch 17: CONDITIONAL — M2b re-measure at 150 events — PENDING
+## Batch 17: CONDITIONAL — M2b re-measure at 150 events — CANCELLED (not needed)
+
+- Reason: Batch 16 cancelled; AC-11 MET at 250 events in Batch 15.
 
 - Runs only after Batch 16 commits.
 - Recommended executor: Claude `senior-tester` sub-agent; fallback none (idle machine)
@@ -1968,7 +1996,7 @@ the restore is skipped.
 - Review: `code-logic-reviewer` on methodology; team-leader commits the report.
 - Peer hold protocol as Batch 15.
 
-### Task 17.1: M2b full run set at 150 — PENDING
+### Task 17.1: M2b full run set at 150 — CANCELLED (not needed)
 
 - File: MODIFY `W\.ptah\specs\TASK_2026_453_1eb4\test-report.md` ("M2b" section)
 - Acceptance criteria: Task 15.1 items 1-7 (including 4a) and 9 unchanged, with per-tile `historyPage.maxEvents`
@@ -1979,7 +2007,8 @@ the restore is skipped.
 ## Batch 18: Post-Stage-2 follow-ups (branch-safe test quality) — PENDING
 
 - Runs after Batch 15 (and after Batch 17 if Batches 16-17 run; after Batch 15 if they are
-  `CANCELLED (not needed)`), and before PR #524 leaves draft.
+  `CANCELLED (not needed)`), and before PR #524 leaves draft. **Unblocked 2026-09-17**: Batch 15
+  committed, Batches 16-17 cancelled.
 - Source: `leftovers-inventory.md` B13 (`batches.md:780-781`; `b5-code-style-review-delta.md:72`)
   and B10 (`batches.md:704-706`; `b4-code-style-review-delta.md:166`). Only branch-safe items: no
   `project.json` edit, no `nx reset`, no product code change.
@@ -2035,6 +2064,21 @@ the restore is skipped.
   exit (e2e-only; no `project.json` edit).
 - **B14A (minor, accepted)**: `transcript-prepend-anchor.directive.ts` has no debug log when the
   anchor slot is not found and the restore is skipped. Optional; add only if a logger fits the lib.
+
+### Batch 18 follow-up items from Batch 15 (M2 methodology review residuals)
+
+- **M2-a (AC 2 evidence gap)**: the harness takes one per-tile DOM sample after the last marker,
+  so AC 2 is proven only for the last-marked tile per run; post-marker tiles are NOT PROVEN (not
+  contradicted). Change the harness to sample each tile's DOM at its own marker instant, then run
+  a targeted re-measure (needs a peer hold and an idle machine).
+- **M2-b (scroll coverage)**: the warm 1-tile perf test has no `assertScrollSanity` call (gap in
+  M1 and M2). Add the call.
+- **M2-c (sampler timing claim)**: the per-tile sampler JSON has no whole-macrotask duration field
+  (only `perTileHarnessTaskMaxDurationMs`), although the Batch 14 revise report claims
+  whole-macrotask timing. Verify `perf-page-capture.ts`, then either record the field or correct
+  the claim.
+- **M2-d (wall-time outlier)**: cold dev 1 had 3,813 ms between the final marker and window close
+  (wall 5,070 ms). Diagnose if it recurs in a later run.
 
 ### Batch 18 verification
 

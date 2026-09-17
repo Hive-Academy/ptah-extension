@@ -1118,3 +1118,286 @@ app launched).
   shape.
 - One process anomaly (the discarded worker crash, cold-asserting attempt 4's first try) is flagged
   above for the orchestrator's attention as an infrastructure item, separate from the scroll verdict.
+
+# M2 — post-Stage-2 measurement (Batch 15 / Task 15.1)
+
+## Scope and environment
+
+- Measurement and report only. No product, spec, or harness code was changed.
+- Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`;
+  branch `perf/task-453-tile-open-long-tasks`.
+- Build/commit identity before the first run and after the last run:
+  `5b8e664b8 test(electron-e2e): page the perf mock like the backend and cover loading older history`.
+- `git status --short` was empty before the first run and after the last measurement run. After this
+  section was written, the report itself is the only worktree modification.
+- Dev runs used `npx nx run ptah-electron-e2e:e2e --
+  src/specs/chat/tile-open-longtask-budget.perf.spec.ts --reporter=list -g "<title>"` with
+  `PTAH_PERF_SPECS=1` and `PTAH_PERF_OUT_DIR=D:\projects\ptah-453-perf\m2`. The production app was
+  built with `npx nx run ptah-electron:build-main --configuration=production` followed by
+  `npx nx run ptah-electron:copy-renderer`; its cold gate ran directly from
+  `apps/ptah-electron-e2e` with `npx playwright test --config=playwright.config.ts ...`, bypassing
+  the dev-build dependency chain. The dev build was then restored with
+  `build-main --configuration=development` plus `copy-renderer-dev` before the diagnostic runs.
+- The orchestrator-provided peer hold was in effect for the run set. First run started
+  **2026-09-17 16:12:33.6879762 +03:00**; last run ended
+  **2026-09-17 16:24:29.7034338 +03:00**.
+- Idle command: `powershell -NoProfile -c "(Get-CimInstance Win32_Process -Filter
+  \"Name='node.exe'\" | ? { $_.CommandLine -match 'jest-worker|run-executor' }).Count"`.
+  Every before/after count was persisted to
+  `D:\projects\ptah-453-perf\m2\idle-checks.log`.
+
+## Idle checks and discarded runs
+
+| Run | Before | After |
+| --- | ---: | ---: |
+| Cold dev 1 | 0 | 0 |
+| Cold dev 2 | 0 | 0 |
+| Cold dev 3 | 0 | 0 |
+| Warm 1-tile | 0 | 0 |
+| Warm 3-tile | 0 | 0 |
+| Production build | 0 | 0 |
+| Production cold | 0 | 0 |
+| Dev build restore | 0 | 0 |
+| rAF-attribution cold | 0 | 0 |
+| Trace 500 | 0 | 0 |
+| Trace 2,000 | 0 | 0 |
+| Load-older functional suite | 0 | 0 |
+
+**Discarded runs: none.** No after-count was non-zero, no Playwright worker crashed, no run reported
+`measurement unusable`, and every perf run produced a diagnostics JSON. The repeated Nx warning
+that the AI-agent configuration is outdated and Node's `MaxListenersExceededWarning` are existing
+infrastructure warnings; neither interrupted a run or affected the zero idle counts.
+
+## M2 run results beside M1
+
+The whole-canvas DOM columns are the harness's replaying sample and settled sample. M1 comparison
+columns reproduce the corresponding M1 values above; warm and diagnostic runs remain
+informational. All M2 runs were `settled: true`; all eight runs whose spec includes scroll sanity
+passed it (the warm 1-tile spec does not perform that check).
+
+| Run | M2 wall (ms) | M2 tasks | M2 max (ms) | M2 total (ms) | M2 pre-window excluded | M2 whole DOM replaying / settled (ratio) | Settled | M1 max / total (ms) |
+| --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |
+| Cold dev 1 | 5,070.0 | 6 | **144** | **550** | 2 / 149 ms | 740 / 2,734 (0.271×) | true | 220 / 3,226 |
+| Cold dev 2 | 2,092.8 | 9 | **136** | **677** | 2 / 170 ms | 988 / 2,622 (0.377×) | true | 337 / 4,927 |
+| Cold dev 3 | 2,157.9 | 8 | **129** | **643** | 2 / 151 ms | 988 / 2,618 (0.377×) | true | 185 / 2,169 |
+| Warm 1-tile | 1,661.9 | 1 | 65 | 65 | 4 / 367 ms | 908 / 1,162 (0.781×) | true | 85 / 279 |
+| Warm 3-tile | 1,932.8 | 7 | 109 | 515 | 4 / 356 ms | 1,370 / 2,944 (0.465×) | true | 382 / 3,330 |
+| Production cold | 2,043.1 | 7 | **95** | **477** | 2 / 125 ms | 988 / 2,622 (0.377×) | true | 166 / 985 |
+| rAF-attribution cold | 2,060.4 | 7 | 131 | 568 | 2 / 162 ms | 992 / 2,626 (0.378×) | true | 307 / 2,866 |
+| Trace 500 | 1,968.9 | 6 | 110 | 498 | 2 / 146 ms | 988 / 2,622 (0.377×) | true | 130 / 537 |
+| Trace 2,000 | 1,995.6 | 6 | 106 | 448 | 2 / 148 ms | 992 / 2,622 (0.378×) | true | 193 / 2,129 |
+
+Cold dev 1's 5,070.0 ms wall time is an outlier against the other eight M2 runs' 1,661.9-2,157.9
+ms range: its JSON records `windowStartMs = 774.2` and `windowEndMs = 5844.2`, including 3,813 ms
+between the final marker and window close. The cause was not captured; its 144 ms max and 550 ms
+total remain within budget, so the outlier does not affect the AC-11 verdict.
+
+### Per-tile wall time
+
+Wall time is each tile's own click timestamp to its own marker timestamp. `Solo` applies only to
+the warm 1-tile run.
+
+| Run | Tile 0 / Solo (ms) | Tile 1 (ms) | Tile 2 (ms) |
+| --- | ---: | ---: | ---: |
+| Cold dev 1 | 375.3 | 322.7 | 238.5 |
+| Cold dev 2 | 401.0 | 381.6 | 433.5 |
+| Cold dev 3 | 447.0 | 504.8 | 489.0 |
+| Warm 1-tile | 139.8 | — | — |
+| Warm 3-tile | 265.0 | 310.8 | 303.9 |
+| Production cold | 333.3 | 322.1 | 341.0 |
+| rAF-attribution cold | 398.3 | 438.7 | 424.5 |
+| Trace 500 | 362.4 | 372.7 | 371.9 |
+| Trace 2,000 | 336.7 | 370.3 | 383.3 |
+
+## Per-tile DOM — AC 2 verdict
+
+The harness takes one per-tile "replaying" sample only after the last marker has been found. The
+JSON `markerTimes` show Tile 2 is last-marked in every three-tile run; the single-tile run's Solo
+tile is necessarily last-marked. Those last-marked tiles were sampled mid-replay, so their ratios
+verify AC 2 and are **MET**. Tiles 0 and 1 had already reached their markers when the shared sample
+ran: their ratios do not contradict the 2× limit, but AC 2 is **NOT PROVEN** for them because an
+earlier transient replay peak would be invisible. Closing AC 2 for every tile requires a follow-up
+harness measurement at each tile's own marker instant. This evidence limitation does not affect
+AC-11, whose gate is max/total/settled/scroll. Whole-canvas values remain in the run table above;
+per-tile samples are scoped differently and are not expected to sum to the whole-canvas sample.
+
+| Run | Tile | Replaying | Settled | Ratio | Sample state | AC 2 |
+| --- | --- | ---: | ---: | ---: | --- | --- |
+| Cold dev 1 | 0 | 776 | 758 | 1.024× | post-marker | NOT PROVEN (not contradicted) |
+| Cold dev 1 | 1 | 758 | 758 | 1.000× | post-marker | NOT PROVEN (not contradicted) |
+| Cold dev 1 | 2 | 452 | 762 | 0.593× | mid-replay | MET (verified mid-replay) |
+| Cold dev 2 | 0 | 758 | 758 | 1.000× | post-marker | NOT PROVEN (not contradicted) |
+| Cold dev 2 | 1 | 818 | 702 | 1.165× | post-marker | NOT PROVEN (not contradicted) |
+| Cold dev 2 | 2 | 452 | 706 | 0.640× | mid-replay | MET (verified mid-replay) |
+| Cold dev 3 | 0 | 758 | 758 | 1.000× | post-marker | NOT PROVEN (not contradicted) |
+| Cold dev 3 | 1 | 710 | 702 | 1.011× | post-marker | NOT PROVEN (not contradicted) |
+| Cold dev 3 | 2 | 448 | 702 | 0.638× | mid-replay | MET (verified mid-replay) |
+| Warm 1-tile | Solo | 448 | 702 | 0.638× | mid-replay | MET (verified mid-replay) |
+| Warm 3-tile | 0 | 754 | 698 | 1.080× | post-marker | NOT PROVEN (not contradicted) |
+| Warm 3-tile | 1 | 822 | 706 | 1.164× | post-marker | NOT PROVEN (not contradicted) |
+| Warm 3-tile | 2 | 444 | 698 | 0.636× | mid-replay | MET (verified mid-replay) |
+| Production cold | 0 | 758 | 758 | 1.000× | post-marker | NOT PROVEN (not contradicted) |
+| Production cold | 1 | 822 | 706 | 1.164× | post-marker | NOT PROVEN (not contradicted) |
+| Production cold | 2 | 818 | 702 | 1.165× | mid-replay | MET (verified mid-replay) |
+| rAF-attribution cold | 0 | 762 | 762 | 1.000× | post-marker | NOT PROVEN (not contradicted) |
+| rAF-attribution cold | 1 | 818 | 702 | 1.165× | post-marker | NOT PROVEN (not contradicted) |
+| rAF-attribution cold | 2 | 452 | 706 | 0.640× | mid-replay | MET (verified mid-replay) |
+| Trace 500 | 0 | 758 | 758 | 1.000× | post-marker | NOT PROVEN (not contradicted) |
+| Trace 500 | 1 | 448 | 702 | 0.638× | post-marker | NOT PROVEN (not contradicted) |
+| Trace 500 | 2 | 452 | 706 | 0.640× | mid-replay | MET (verified mid-replay) |
+| Trace 2,000 | 0 | 762 | 762 | 1.000× | post-marker | NOT PROVEN (not contradicted) |
+| Trace 2,000 | 1 | 448 | 702 | 0.638× | post-marker | NOT PROVEN (not contradicted) |
+| Trace 2,000 | 2 | 448 | 702 | 0.638× | mid-replay | MET (verified mid-replay) |
+
+The Batch 14 per-tile sampler guard was re-checked in the four gating JSON files:
+`perTileHarnessTaskMaxDurationMs` was 6.9 ms, 2.9 ms, 2.9 ms, and 2.2 ms for Cold dev 1, Cold dev
+2, Cold dev 3, and Production cold respectively, all below the 50 ms rejection threshold. No
+equivalent whole-macrotask field is present in these JSON files.
+
+## Paging diagnostics
+
+Every tile resumed through paging with `historyPage.maxEvents = 250`; every run therefore remained
+usable. Cells are `requested maxEvents / replayed-event count`.
+
+| Run | Tile 0 / Solo | Tile 1 | Tile 2 |
+| --- | --- | --- | --- |
+| Cold dev 1 | 250 / 248 | 250 / 247 | 250 / 247 |
+| Cold dev 2 | 250 / 242 | 250 / 248 | 250 / 247 |
+| Cold dev 3 | 250 / 246 | 250 / 245 | 250 / 247 |
+| Warm 1-tile | 250 / 243 | — | — |
+| Warm 3-tile | 250 / 242 | 250 / 249 | 250 / 242 |
+| Production cold | 250 / 245 | 250 / 247 | 250 / 241 |
+| rAF-attribution cold | 250 / 250 | 250 / 247 | 250 / 249 |
+| Trace 500 | 250 / 245 | 250 / 247 | 250 / 245 |
+| Trace 2,000 | 250 / 250 | 250 / 246 | 250 / 245 |
+
+## Volume independence and attribution
+
+| Metric | Trace 500 | Trace 2,000 | 2,000 / 500 | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| Long-task total (ms) | 498 | 448 | 0.900× | Flat within run noise; 2,000 is lower |
+| Max long task (ms) | 110 | 106 | 0.964× | Flat |
+| Long-task count | 6 | 6 | 1.000× | Flat |
+| Trace-summary total (ms) | 2,988.04 | 2,924.66 | 0.979× | Flat |
+| `FireAnimationFrame` count | 46 | 48 | 1.043× | Flat despite 4× event volume |
+| `FireAnimationFrame` duration (ms) | 120.13 | 127.22 | 1.059× | Flat |
+
+**AC 5 verdict: volume independent.** The 2,000-event trace does not have a materially higher
+blocked total, trace-summary total, or `FireAnimationFrame` count. The renderer does not still pay
+event volume in this measured tail-paged path.
+
+Top trace shares use the same duration / measurement-wall convention as M1:
+
+| Category | 500 count / ms / wall share | 2,000 count / ms / wall share |
+| --- | --- | --- |
+| RunTask | 814 / 1,047.11 / 53.18% | 856 / 1,027.68 / 51.50% |
+| FunctionCall | 448 / 724.82 / 36.81% | 424 / 670.63 / 33.61% |
+| TimerFire | 183 / 315.10 / 16.00% | 179 / 325.39 / 16.31% |
+| UpdateLayoutTree | 86 / 265.73 / 13.50% | 96 / 259.51 / 13.00% |
+| FireAnimationFrame | 46 / 120.13 / 6.10% | 48 / 127.22 / 6.38% |
+| Layout | 34 / 126.12 / 6.41% | 38 / 122.56 / 6.14% |
+| Paint | 263 / 72.03 / 3.66% | 283 / 69.22 / 3.47% |
+| PrePaint | 158 / 48.95 / 2.49% | 167 / 45.09 / 2.26% |
+| Layerize | 23 / 28.37 / 1.44% | 27 / 35.63 / 1.79% |
+
+The rAF-attribution run captured 65 calls: `scheduleStickToBottom` 24 (36.9%), unattributed
+`chunk-VXIB2F7N.js:17766:7` 13 (20.0%), Angular `scheduleCallbackWithRafRace` 12 (18.5%),
+unattributed `chunk-VXIB2F7N.js:17885:5` 6 (9.2%), Playwright evaluate 3 (4.6%),
+`restoreScrollOnActivation` 3 (4.6%), `BatchedUpdateService.scheduleUpdate` 3 (4.6%), and
+`ResizeObserver` 1 (1.5%). `scheduleFrame` did not appear.
+
+## Scroll sanity and load-older functional result
+
+| Perf run | Scroll result | Failure detail / classification |
+| --- | --- | --- |
+| Cold dev 1 | PASS | — |
+| Cold dev 2 | PASS | — |
+| Cold dev 3 | PASS | — |
+| Warm 1-tile | n/a (not checked by the spec) | — |
+| Warm 3-tile | PASS | — |
+| Production cold | PASS | — |
+| rAF-attribution cold | PASS | — |
+| Trace 500 | PASS | — |
+| Trace 2,000 | PASS | — |
+
+Result: **0 scroll failures in 8 checked perf runs**. No H1/H2 classification applies. For those
+eight runs, a diagnostics write occurs only after `assertScrollSanity` returns; Warm 1-tile wrote
+diagnostics without that call. M1 carried the same warm-1 coverage gap by labeling it PASS even
+though its spec did not perform the check.
+
+The functional `tile-load-older-history.spec.ts` suite also passed all five cases. Its measured
+anchor deltas were 0.50 px at `scrollTop === 0` and 0.38 px at non-zero `scrollTop`, both within
+the 2 px limit; the pinned prepend finished 0.00 px from the bottom. Stale-cursor handling and the
+legacy no-`historyPage` response case also passed.
+
+Literal Playwright summaries (ANSI colour removed, wording otherwise unchanged):
+
+| Log | Summary |
+| --- | --- |
+| `m2-cold-dev-1.log` | `1 passed (23.9s)` |
+| `m2-cold-dev-2.log` | `1 passed (19.8s)` |
+| `m2-cold-dev-3.log` | `1 passed (18.1s)` |
+| `m2-warm-1tile.log` | `1 passed (17.6s)` |
+| `m2-warm-3tile.log` | `1 passed (18.4s)` |
+| `m2-production-cold.log` | `1 passed (17.5s)` |
+| `m2-raf-attribution.log` | `1 passed (18.7s)` |
+| `m2-trace-500.log` | `1 passed (19.7s)` |
+| `m2-trace-2000.log` | `1 passed (21.9s)` |
+| `m2-load-older-history.log` | `5 passed (1.4m)` |
+
+## Evidence paths (AC 9)
+
+Diagnostics JSON:
+
+- `D:\projects\ptah-453-perf\m2\ac11-perf-cold-3tile-1789650808699.json`
+- `D:\projects\ptah-453-perf\m2\ac11-perf-cold-3tile-1789650878615.json`
+- `D:\projects\ptah-453-perf\m2\ac11-perf-cold-3tile-1789650931012.json`
+- `D:\projects\ptah-453-perf\m2\ac11-perf-warm-1tile-1789651008845.json`
+- `D:\projects\ptah-453-perf\m2\ac11-perf-warm-3tile-1789651061535.json`
+- `D:\projects\ptah-453-perf\m2\ac11-perf-cold-3tile-1789651126109.json` (production)
+- `D:\projects\ptah-453-perf\m2\ac11-perf-diagnostic-cold-3tile-2000-1789651213423.json`
+  (rAF attribution)
+- `D:\projects\ptah-453-perf\m2\ac11-perf-diagnostic-cold-3tile-500-1789651278549.json`
+- `D:\projects\ptah-453-perf\m2\ac11-perf-diagnostic-cold-3tile-2000-1789651336217.json`
+
+Console and protocol logs:
+
+- `D:\projects\ptah-453-perf\m2\m2-cold-dev-1.log`
+- `D:\projects\ptah-453-perf\m2\m2-cold-dev-2.log`
+- `D:\projects\ptah-453-perf\m2\m2-cold-dev-3.log`
+- `D:\projects\ptah-453-perf\m2\m2-warm-1tile.log`
+- `D:\projects\ptah-453-perf\m2\m2-warm-3tile.log`
+- `D:\projects\ptah-453-perf\m2\m2-production-build.log`
+- `D:\projects\ptah-453-perf\m2\m2-production-cold.log`
+- `D:\projects\ptah-453-perf\m2\m2-dev-build-restore.log`
+- `D:\projects\ptah-453-perf\m2\m2-raf-attribution.log`
+- `D:\projects\ptah-453-perf\m2\m2-trace-500.log`
+- `D:\projects\ptah-453-perf\m2\m2-trace-2000.log`
+- `D:\projects\ptah-453-perf\m2\m2-load-older-history.log`
+- `D:\projects\ptah-453-perf\m2\idle-checks.log`
+
+## AC-11 verdict
+
+| Gating run | Max <= 200 ms | Total <= 1,500 ms | Settled | Scroll |
+| --- | --- | --- | --- | --- |
+| Cold dev 1 | MET (144 ms) | MET (550 ms) | true | PASS |
+| Cold dev 2 | MET (136 ms) | MET (677 ms) | true | PASS |
+| Cold dev 3 | MET (129 ms) | MET (643 ms) | true | PASS |
+| Production cold | MET (95 ms) | MET (477 ms) | true | PASS |
+
+**AC-11: MET.** All three dev cold runs and the production cold run meet the unchanged 200 ms max
+and 1,500 ms total budgets, settled successfully, and passed scroll sanity. The fallback verdict
+`MAX ONLY` does not apply, so conditional Batches 16-17 are not needed. There is no max, total,
+settling, paging, or scroll gap in the AC-11 gate to return for a user decision; the separate
+per-tile DOM evidence limitation is documented above and requires a follow-up harness measurement.
+
+### M2 revise round 1
+
+- Corrected per-tile DOM interpretation: last-marked tiles are verified mid-replay; earlier tiles
+  are post-marker and not contradicted, but AC 2 is not proven for them by this harness.
+- Corrected scroll coverage: Warm 1-tile is not checked by the spec; 0 failures occurred in 8
+  checked perf runs, not 9.
+- Flagged Cold dev 1's 5,070 ms wall-time outlier with its measurement-window timestamps; AC-11's
+  max/total verdict is unaffected.
+- Re-checked the Batch 14 sampler guard across all four gating JSON files; every recorded sampler
+  span was below 50 ms.
