@@ -27,6 +27,7 @@ import {
 import type { ExecutionNode } from '@ptah-extension/shared';
 import { filterCompactionNoise } from './transcript-filter.utils';
 import { TranscriptOlderHistorySentinelDirective } from './transcript-older-history-sentinel.directive';
+import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
 import { TranscriptRenderWindow } from './transcript-render-window';
 import { TranscriptSlotDirective } from './transcript-slot.directive';
 
@@ -145,6 +146,7 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
     ChatEmptyStateComponent,
     TranscriptSlotDirective,
     TranscriptOlderHistorySentinelDirective,
+    TranscriptPrependAnchorDirective,
   ],
   providers: [TranscriptRenderWindow],
   templateUrl: './chat-transcript.component.html',
@@ -271,7 +273,6 @@ export class ChatTranscriptComponent {
    * on the activation edge.
    */
   private savedScrollTop: number | null = null;
-
   /** Previous `active()` value — detects the hidden→visible activation edge. */
   private wasActive = false;
 
@@ -315,7 +316,7 @@ export class ChatTranscriptComponent {
     return status === 'streaming' || status === 'resuming';
   });
 
-  private readonly _sessionId = computed(
+  protected readonly sessionId = computed(
     () => this._tab()?.claudeSessionId ?? null,
   );
 
@@ -366,7 +367,7 @@ export class ChatTranscriptComponent {
         id: tree.id,
         role: 'assistant',
         streamingState: tree,
-        sessionId: this._sessionId() ?? undefined,
+        sessionId: this.sessionId() ?? undefined,
         ...(pendingStats && {
           tokens: pendingStats.tokens,
           cost: pendingStats.cost,
@@ -600,7 +601,10 @@ export class ChatTranscriptComponent {
       this.pinnedToBottom = true;
     }
   }
-
+  /** Current pin state; read-only directive wiring. */
+  protected isPinnedToBottom(): boolean {
+    return this.pinnedToBottom;
+  }
   /**
    * Stick the container to the bottom on the next frame. rAF-coalesced so a
    * burst of streaming chunks collapses to a single adjustment per frame.
