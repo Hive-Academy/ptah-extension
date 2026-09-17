@@ -1,4 +1,4 @@
-## Frontend implementation — `TASK_2026_461_639c`, batch 3
+# Frontend implementation — `TASK_2026_461_639c`, batch 3
 
 **Tasks completed**: Task 3.1 — deleted `skillSynthesis.eligibilityMinTurns` and `skillSynthesis.prefilterMinChars` end to end, including file settings, RPC validation and DTOs, Angular controls/labels, and all named fixtures. Added A4 coverage proving stale update-payload keys parse successfully and are stripped from the output.
 
@@ -133,4 +133,3 @@ No SQLite spec is touched; XB1 is not applicable.
 **Plan deviations**: None. The only operational deviation was the required HANDOFF rule 8 serialized rerun after the first test process outlived the tool capture window.
 
 **Out-of-scope observations**: Existing lint warnings and Jest worker teardown warnings remain. Batch 4's transient degradation-audit failure was fixed by its owning lane and was not modified in Batch 3.
-

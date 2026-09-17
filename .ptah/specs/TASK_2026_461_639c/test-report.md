@@ -37,7 +37,8 @@
   (`scratch-intransaction-check.mjs`, written at the worktree root, run with plain `node`, then
   deleted — chosen over an assertion inside the existing `beforeAll` so the adapter's
   detection logic could be iterated on before touching the reachability spec) produced:
-  ```
+
+  ```text
   has native isTransaction getter: false   (own-property getter, not on the prototype — the
                                              adapter's detection was widened to check both)
   before BEGIN: false
@@ -46,18 +47,20 @@
   after 2nd BEGIN IMMEDIATE: true
   after ROLLBACK: false
   ```
+
   A follow-up inline check confirmed `Object.getOwnPropertyDescriptor(db, 'isTransaction')`
   finds the getter as an **own** property of the `DatabaseSync` instance (not its prototype),
   which is why `adaptNodeDatabase`'s detection checks the instance first and the prototype
   second.
+
 - XB1 both bindings, reachability spec:
   - node:sqlite (`npx nx.cmd run-many -t test -p @ptah-extension/skill-synthesis
-    --testPathPatterns=skill-synthesis.reachability --runInBand`): `Test Suites: 1 passed, 1
-    total`, `Tests: 5 passed, 5 total`, 0 skipped.
+--testPathPatterns=skill-synthesis.reachability --runInBand`): `Test Suites: 1 passed, 1
+total`, `Tests: 5 passed, 5 total`, 0 skipped.
   - better-sqlite3 via Electron-as-Node (`ELECTRON_RUN_AS_NODE=1`, `electron.cmd` +
     `jest.js --config libs/backend/skill-synthesis/jest.config.ts
-    --testPathPatterns=skill-synthesis.reachability --runInBand`): `Test Suites: 1 passed, 1
-    total`, `Tests: 5 passed, 5 total`, 0 skipped.
+--testPathPatterns=skill-synthesis.reachability --runInBand`): `Test Suites: 1 passed, 1
+total`, `Tests: 5 passed, 5 total`, 0 skipped.
 - `run-many -t typecheck -p @ptah-extension/skill-synthesis`: green (`tsc --noEmit` clean;
   `test-support.ts` is excluded from `tsconfig.lib.json` per the plan's note, so this typecheck
   target does not itself compile the edited file — it was compiled cleanly by ts-jest in both
@@ -82,15 +85,15 @@ concluding `Successfully ran target test for 8 projects` — confirmed N = 8.
 
 Per-project totals from that run:
 
-| Project | Suites | Tests |
-| --- | --- | --- |
-| platform-core | 27 passed | 431 passed |
-| skill-synthesis | 75 passed, 6 skipped (81 total) | 1512 passed, 37 skipped (1549 total) |
-| persistence-sqlite | 32 passed, 9 skipped (41 total) | 438 passed, 80 skipped (518 total) — local `node:sqlite` fallback; the skipped suites are the ones that require a real `better-sqlite3` binary (native probe fails locally with a `NODE_MODULE_VERSION` mismatch; see XB1 below, where the same specs run and pass under Electron-as-Node) |
-| rpc-handlers | 101 passed | 3016 passed, 33 skipped |
-| thoth-runtime | 6 passed | 100 passed |
-| cli-engine | 19 passed | 190 passed |
-| shared, skill-synthesis-ui | cached from an earlier identical run in this session; included in the "8 out of 8" cache line on the re-run below | — |
+| Project                    | Suites                                                                                                            | Tests                                                                                                                                                                                                                                                                                      |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| platform-core              | 27 passed                                                                                                         | 431 passed                                                                                                                                                                                                                                                                                 |
+| skill-synthesis            | 75 passed, 6 skipped (81 total)                                                                                   | 1512 passed, 37 skipped (1549 total)                                                                                                                                                                                                                                                       |
+| persistence-sqlite         | 32 passed, 9 skipped (41 total)                                                                                   | 438 passed, 80 skipped (518 total) — local `node:sqlite` fallback; the skipped suites are the ones that require a real `better-sqlite3` binary (native probe fails locally with a `NODE_MODULE_VERSION` mismatch; see XB1 below, where the same specs run and pass under Electron-as-Node) |
+| rpc-handlers               | 101 passed                                                                                                        | 3016 passed, 33 skipped                                                                                                                                                                                                                                                                    |
+| thoth-runtime              | 6 passed                                                                                                          | 100 passed                                                                                                                                                                                                                                                                                 |
+| cli-engine                 | 19 passed                                                                                                         | 190 passed                                                                                                                                                                                                                                                                                 |
+| shared, skill-synthesis-ui | cached from an earlier identical run in this session; included in the "8 out of 8" cache line on the re-run below | —                                                                                                                                                                                                                                                                                          |
 
 All failures: none.
 
@@ -123,7 +126,7 @@ warnings in `ptah-electron-e2e` fixtures — none in files this phase touched).
 
 Exit 0. Requested per-directory lines (baseline in parentheses), all "ok":
 
-```
+```text
 libs/backend/skill-synthesis: 6 ok (baseline 6)
 libs/backend/cli-engine: 12 ok (baseline 12)
 libs/backend/persistence-sqlite: 5 ok (baseline 5)
@@ -141,11 +144,13 @@ printed list) — it stays at 0, as required. `--update-baseline` was never run.
 ### XB1 — better-sqlite3 via Electron-as-Node (widened patterns)
 
 skill-synthesis:
-```
+
+```text
 --config libs/backend/skill-synthesis/jest.config.ts
 --testPathPatterns "skill-synthesis.reachability|skill-backlog-cleanup|skill-candidate.store|skill-synthesis.stage-handlers|judge-panel.service|cluster-holdout-end-to-end"
 --runInBand
 ```
+
 Result: `Test Suites: 8 passed, 8 total`, `Tests: 182 passed, 182 total`, 0 skipped.
 
 node:sqlite counts for the identical pattern (`npx nx.cmd run-many -t test -p
@@ -153,11 +158,13 @@ node:sqlite counts for the identical pattern (`npx nx.cmd run-many -t test -p
 passed, 8 total`, `Tests: 182 passed, 182 total` — identical to the better-sqlite3 run.
 
 persistence-sqlite:
-```
+
+```text
 --config libs/backend/persistence-sqlite/jest.config.ts
 --testPathPatterns "0028_|0030_|0038_|0039_|0040_|0041_|0042_|0043_|0044_|0045_"
 --runInBand
 ```
+
 Result (better-sqlite3 / Electron-as-Node): `Test Suites: 10 passed, 10 total`, `Tests: 83
 passed, 83 total`, 0 skipped.
 
@@ -178,7 +185,8 @@ above was executed via the PowerShell tool for this reason.
 
 (a) `CandidateNamer|setDisplayName|nameCandidate|depthOk|eligibilityMinTurns|prefilterMinChars`
 over `libs` and `apps` (`*.ts`, `*.md`):
-```
+
+```text
 libs/backend/skill-synthesis/src/lib/prefilter-corpus-measurement.spec.ts:57:  eligibilityMinTurns: 5,
 libs/backend/skill-synthesis/src/lib/prefilter-corpus-measurement.spec.ts:59:  prefilterMinChars: 800,
 libs/backend/skill-synthesis/src/lib/prefilter-corpus-measurement.spec.ts:76:  const depthOk =
@@ -186,12 +194,13 @@ libs/backend/skill-synthesis/src/lib/prefilter-corpus-measurement.spec.ts:77:   
 libs/backend/skill-synthesis/src/lib/prefilter-corpus-measurement.spec.ts:78:    t.charLength >= OLD_SETTINGS.prefilterMinChars;
 libs/backend/skill-synthesis/src/lib/prefilter-corpus-measurement.spec.ts:79:  return editOk || toolOk || testOk || depthOk;
 ```
+
 Only the opt-in corpus harness's inline "old" predicate — matches the expected result exactly.
 
 (b) A3 — no production `contextId` producer passed to `recordInvocation`:
 `grep -rn "recordInvocation" libs/backend/skill-synthesis/src` shows the SQLite-store method
 (`skill-candidate.store.ts:908`), the deleted-and-never-restored spec-only callers, and
-`SkillInvocationTracker.recordInvocation` (`skill-invocation-tracker.ts:48`, a *different*
+`SkillInvocationTracker.recordInvocation` (`skill-invocation-tracker.ts:48`, a _different_
 method on a different class that calls `store.recordSkillEvent`, never `store.recordInvocation`).
 Traced `SkillTriggerService.recordInvocation` (`triggers/skill-trigger.service.ts:625-690`, the
 only production code with `contextId` in scope near a call named `recordInvocation`) end to end:
@@ -202,7 +211,7 @@ into `skill_invocations`, the table the backlog cleanup purges) has zero product
 every call site in `libs/backend/skill-synthesis/src` is a test file. A3 confirmed clean.
 
 (c) `cron-scheduler` import: `grep -rn "cron-scheduler" libs/backend/skill-synthesis/src` finds
-one hit — a comment in `queue/skill-drain.service.ts:6` explaining *why* `IPowerMonitor` is
+one hit — a comment in `queue/skill-drain.service.ts:6` explaining _why_ `IPowerMonitor` is
 NOT injected ("that port lives in `cron-scheduler`"). No actual import. Confirmed clean.
 
 ### Phase-5 notes (not fixed in this phase, recorded per batches.md)
@@ -224,28 +233,30 @@ NOT injected ("that port lives in `cron-scheduler`"). No actual import. Confirme
 ## Task 7.2 — prefilter narrowing measurement (opt-in corpus harness)
 
 Command (from the spec's own header, `PTAH_PREFILTER_CORPUS=1`):
-```
+
+```text
 PTAH_PREFILTER_CORPUS=1 npx jest --config libs/backend/skill-synthesis/jest.config.ts \
   -t 'prefilter evidence narrowing' --runTestsByPath \
   libs/backend/skill-synthesis/src/lib/prefilter-corpus-measurement.spec.ts
 ```
+
 Result: `Test Suites: 1 passed, 1 total`, `Tests: 1 passed, 1 total`. Wall time: 22.245 s.
 
 Counts (`PREFILTER_CORPUS_REPORT`, printed by the harness; content never logged, only
 aggregate numbers per its own privacy header):
 
-| Metric | Value |
-| --- | --- |
-| Sessions scanned | 1710 |
-| Null trajectory (extractor floor not met) | 15 |
-| Extracted (readable trajectories) | 1695 |
-| Phase-2 (old, depth-inclusive) eligible | 1641 |
-| Phase-3 (new, evidence-only) eligible | 1639 |
-| Retained fraction (phase-3 / phase-2) | 0.999 |
-| Removed from eligibility by the narrowing | 2 |
-| Phase-2 depth-only passes (sessions that were eligible ONLY via the removed turn-count/char-length branch, i.e. become ineligible under phase 3) | 2 |
-| Phase-2 rate | 96.8% |
-| Phase-3 rate | 96.7% |
+| Metric                                                                                                                                           | Value |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | ----- |
+| Sessions scanned                                                                                                                                 | 1710  |
+| Null trajectory (extractor floor not met)                                                                                                        | 15    |
+| Extracted (readable trajectories)                                                                                                                | 1695  |
+| Phase-2 (old, depth-inclusive) eligible                                                                                                          | 1641  |
+| Phase-3 (new, evidence-only) eligible                                                                                                            | 1639  |
+| Retained fraction (phase-3 / phase-2)                                                                                                            | 0.999 |
+| Removed from eligibility by the narrowing                                                                                                        | 2     |
+| Phase-2 depth-only passes (sessions that were eligible ONLY via the removed turn-count/char-length branch, i.e. become ineligible under phase 3) | 2     |
+| Phase-2 rate                                                                                                                                     | 96.8% |
+| Phase-3 rate                                                                                                                                     | 96.7% |
 
 Not reported by this harness: a separate "tool-only" breakdown. The spec instruments only
 `phase2DepthOnly` (sessions the old predicate passed on depth alone); it does not further split
@@ -268,12 +279,12 @@ section carries only the safety evidence.)
    and mtime `batches.md` recorded at the Batch 7 re-read. No newer snapshot exists. Never
    opened directly; only `fs.statSync` (via `Get-ChildItem`, and inside the harness).
 2. **Fail-if-exists temp dir.** `fs.mkdirSync(path.join(os.tmpdir(), 'skill-cleanup-measure-<4
-   hex>'))` with no `{recursive:true}` — the harness used a random 4-hex-char suffix
+hex>'))` with no `{recursive:true}` — the harness used a random 4-hex-char suffix
    (`crypto.randomBytes(2).toString('hex')`), name does not start with `ptah`. A second
    `mkdirSync` at the same literal path would throw `EEXIST`; the random suffix means no
    collision occurred in practice, which is the correct outcome for a fresh run.
 3. **Byte copy, exclusive.** `fs.copyFileSync(sourcePath, <tmp>/backlog-copy.sqlite,
-   fs.constants.COPYFILE_EXCL)`. Only the copy was ever opened with SQLite (a short-lived
+fs.constants.COPYFILE_EXCL)`. Only the copy was ever opened with SQLite (a short-lived
    read-only `better-sqlite3` handle for the "before" schema version, then the real
    `SqliteConnectionService` for everything else).
 4. **Pragma read-back** (after `openAndMigrate()`, production binding):
@@ -281,19 +292,21 @@ section carries only the safety evidence.)
    `busy_timeout=5000` — all six match the six production pragma statements in
    `sqlite-connection.service.ts`.
 5. **Temp dir removed and proven gone.** `connection.close()` then `fs.rmSync(tmpDir,
-   {recursive:true})`, then `fs.existsSync(tmpDir) === false` — asserted in the harness and
+{recursive:true})`, then `fs.existsSync(tmpDir) === false` — asserted in the harness and
    printed `"tmpDirGone": true`.
 6. **Source unchanged.** Re-`statSync`-ed after the whole run: size `1,178,537,984` bytes
    (unchanged), mtime `2026-09-09T23:06:09.256Z` (unchanged) both before and after — asserted
    in the harness (`statAfter.size === statBefore.size`, `statAfter.mtimeMs ===
-   statBefore.mtimeMs`) and independently re-verified afterward via `Get-ChildItem`.
+statBefore.mtimeMs`) and independently re-verified afterward via `Get-ChildItem`.
 7. **Harness deleted.** The harness was a temporary spec,
    `libs/backend/skill-synthesis/src/lib/cleanup/skill-backlog-cleanup.byte-copy-measurement.spec.ts`,
    deleted with `rm` immediately after its measurement run.
 8. **Git status scoped to skill-synthesis, after deletion:**
-   ```
+
+   ```text
    M libs/backend/skill-synthesis/src/lib/skill-synthesis.reachability.test-support.ts
    ```
+
    Only the Task 7.4 file — confirmed by `git status --short -- libs/backend/skill-synthesis`.
 
 ## Execution

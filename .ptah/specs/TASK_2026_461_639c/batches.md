@@ -1600,3 +1600,14 @@ A whole-branch review (`git diff origin/main...HEAD`) by a model family that imp
 task. Families used: codex (all implementation), Ollama Cloud (reviews 1-5), Claude subagents (reviews 6, 8, 9;
 senior-tester 7, 8.3, 9.3; Batch 5 revise). Unused: **antigravity** -> Gate 3 reviewer. Phase-2 lesson: the branch
 review found 3 defects nine batch reviews missed; focus on cross-batch interactions.
+
+## PR 526 review fixes — COMPLETE (fix commit ac8e07377)
+
+- Source: CodeRabbit C1-C7 on PR #526; executor codex lane (pr-526-fixes-report.md); code-logic review
+  NEEDS_REVISION 7/10 (S1 uncaught `removeActive`, F3 no UI min(1), F2 undisclosed restart semantics);
+  revise round 1 fixed all three, S1-mut killed; orchestrator accepted without second review.
+- C1 atomic promotion (`promoteAtomically`, BEGIN IMMEDIATE) + compensating SKILL.md removal; C2 bounded
+  process-local cleanup retry (stop twice, count on third); C3 prefilter thresholds >= 1 (reader, RPC schema,
+  settings form); C4 closed stop-reason union; C5-C7 task-doc fixes.
+- Team-leader verification: full skill-synthesis suite 1545 passed / 37 skipped; typecheck 3 projects green;
+  degradation audit skill-synthesis 6, skill-synthesis-ui 5, rpc-handlers 1, cli-engine 12 (baselines unchanged).

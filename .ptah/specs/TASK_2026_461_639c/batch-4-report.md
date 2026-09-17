@@ -1,4 +1,4 @@
-## Backend implementation — `TASK_2026_461_639c`, batch 4
+# Backend implementation — `TASK_2026_461_639c`, batch 4
 
 **Tasks completed**: 4.1 `SkillBacklogCleanupStore`; 4.2 `SkillBacklogCleanupService` and report/state types; 4.3 real-SQLite integration coverage through migration 0045; 4.4 rejected-candidate gate skips.
 

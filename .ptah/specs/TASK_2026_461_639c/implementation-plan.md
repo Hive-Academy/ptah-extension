@@ -24,55 +24,55 @@ and the plan is read-only analysis.
 
 ### Live-DB facts this plan relies on (from `brief.md`, not re-measured)
 
-| Fact | Value |
-| --- | --- |
-| `skill_candidates` | 2,426 `candidate`, 6 `rejected`, 0 `promoted` |
-| `skill_invocations` | 2,432 rows, all `succeeded=1` (one per candidate ever created) |
-| `skill_session_verdicts` | 136 rows, 56 degraded |
-| Queued backlog | prefilter 423, judge-panel 133, trigger-eval 135, archaeology 102 |
+| Fact                     | Value                                                             |
+| ------------------------ | ----------------------------------------------------------------- |
+| `skill_candidates`       | 2,426 `candidate`, 6 `rejected`, 0 `promoted`                     |
+| `skill_invocations`      | 2,432 rows, all `succeeded=1` (one per candidate ever created)    |
+| `skill_session_verdicts` | 136 rows, 56 degraded                                             |
+| Queued backlog           | prefilter 423, judge-panel 133, trigger-eval 135, archaeology 102 |
 
 ## Codebase evidence
 
-| Evidence | Location | Architectural implication |
-| --- | --- | --- |
-| Manual promote calls the automatic `evaluate` | `skill-synthesis.service.ts:1213-1223` (`promote`), `:1268` (`promoteBulk`) | Both manual entry points hit the frequency threshold |
-| The only RPC callers of those two methods | `rpc-handlers/.../skills-synthesis-rpc.handlers.ts:453` (`skillSynthesis:promote`), `:1688` (`promoteBulk`) | The method names can stay. The RPC layer needs no change for item A |
-| No other backend caller of `SkillSynthesisService.promote` | grep of `libs`, `apps` for `.promote(` / `.promoteBulk(` (CLI `apps/ptah-cli/src/cli/commands/skill-synthesis.ts:185` and TUI `SkillsPanel.tsx:125` go through the RPC) | Changing `promote` changes exactly the user-initiated path |
-| Gate order in `evaluate` | `skill-promotion.service.ts:185-194` status guards, `:196-210` active-embedding dedup, `:211-218` frequency threshold (`below-threshold`), `:219-227` cluster dedup, `:229-233` judge, `:236-237` replay, `:239-280` residency cap, `:281-301` SKILL.md write, `:303-306` status write, `:313` repropagation | The threshold is one isolated step. Everything else is shared |
-| A failed SKILL.md write still promotes | `skill-promotion.service.ts:293-301` (warn, keep `candidate.bodyPath`), then `:303` | Today there is NO write check. See D3 |
-| Judge verdict is schema-enforced by the store | `skill-promotion.service.ts:495-500` → `SkillCandidateStore.recordJudgeVerdict`; `skill-synthesis/CLAUDE.md:69` | "Schema check" = this store gate (Assumption on wording, see Component 1) |
-| `evaluate`'s only other caller is the tracker | `skill-invocation-tracker.ts:80`; tracker registered `di/register.ts:72,107`, no production caller (grep) | Automatic promotion has NO production path today, before or after this phase |
-| Fake creation invocation | `skill-synthesis.service.ts:917-925` (`recordInvocation`, `succeeded: true`, `contextId`) | Writes a row. It does NOT touch `success_count` |
-| `registerCandidate` inserts `success_count = 0` | `skill-candidate.store.ts:201-205` | Every live candidate has `success_count = 0` |
-| Only `incrementSuccess` raises `success_count` | `skill-candidate.store.ts:861-870`, called only at `skill-invocation-tracker.ts:67` | The fake row never counted toward the threshold |
-| The tracker writes invocations WITHOUT `contextId` | `skill-invocation-tracker.ts:59-65` | `context_id IS NOT NULL` identifies exactly the fake rows |
-| `store.recordInvocation` writers | `skill-candidate.store.ts:929-960`; callers `skill-synthesis.service.ts:918`, `skill-invocation-tracker.ts:59` only | No third writer exists |
-| Readers of `skill_invocations` | `countDistinctContexts` `skill-candidate.store.ts:918-927`; `listActiveOrderedByDecayScore` `:421-441` (promoted only); `listActiveOrderedByActivity` `:481-500` (promoted only); `listInvocations` `:1406-1415` → RPC `skillSynthesis:invocations` `skills-synthesis-rpc.handlers.ts:494`; `getStats` `:1449-1480` → RPC stats `:509`, `:699`, `diagnostics.service.ts:49` | The 2,432 fake rows show as "invocations" in stats and per-candidate lists |
-| Generalization shortcut reads contexts | `skill-promotion.service.ts:211-215` (`countDistinctContexts >= generalizationContextThreshold` halves the threshold) | With the fake row gone, no writer sets `context_id`. The shortcut becomes unreachable (Risk R4) |
-| Prefilter predicate | `skill-synthesis.service.ts:1182-1199`; depth-only branch `:1192-1194`; `MIN_ROLE_TURNS_FLOOR` guard `:1186-1188` | One boolean to delete |
-| Prefilter caller | `skill-synthesis.service.ts:720-741` inside `analyzeSession`; only background caller is `stage-handlers.service.ts:266-292` | Rejection already maps to queue `skipped` "no candidate from this session" (`:279-284`) |
-| Evidence fields on the trajectory | `trajectory-extractor.ts:76-104`; `EDIT_TOOL_NAMES` `:40`; `BASH_TEST_PATTERN` `:46-47`; counting `collectToolSignals` `:331-361` | Evidence is defined from `tool_use` blocks only (Component 3) |
-| Trajectory hash normalizes the workspace root | `trajectory-extractor.ts:214-228`, `normalize` `:390-401` | Two identical transcripts in two workspaces hash the same (used by the proof) |
-| Reuse on identical trajectory writes nothing | `skill-synthesis.service.ts:750-753` | Second identical session → `reused: true`, prefilter row `done` "reused existing candidate" (`stage-handlers.service.ts:286-291`) |
-| Settings used only by the depth branch | `eligibilityMinTurns`, `prefilterMinChars`: `skill-synthesis.service.ts:134,139,1193-1194,1352-1355,1372-1375`; `types.ts:419,429`; `platform-core/src/file-settings-keys.ts:230,235,509,514`; `rpc-handlers/.../skills-synthesis-rpc.schema.ts:36,41`; `shared/src/lib/types/rpc.types.ts:2662,2667`; `skill-settings-panel.component.ts:161,202`; `skill-synthesis-tab.component.ts:794,799` | Dead after item C. See D2 |
-| Specs that pin the depth branch | `skill-synthesis.service.spec.ts:535-577`; `prefilter-corpus-measurement.spec.ts:67,135-140,203` (opt-in) | Must be rewritten, not deleted silently |
-| Namer never called | `naming/candidate-namer.service.ts:117-128`; registered `di/register.ts:99,206-208`; token `di/tokens.ts:133-134`; exported `src/index.ts:142-148`; grep finds no caller | Wire or delete (item E) |
-| `display_name` never reaches the wire | grep of `rpc-handlers/src`, `shared/src`, `skill-synthesis-ui/src` finds no candidate `displayName` mapping; summary mapper `skills-synthesis-rpc.handlers.ts:2396-2401` | Wiring the namer writes a column the Skills tab never shows |
-| `displayName` IS read internally | `digest/skill-gap-curator.service.ts:726,1039`; `gates/trigger-eval.service.ts:236,791`; row mapping `skill-candidate.store.ts:1590` | Keep the column and the row field. Only `setDisplayName` (`skill-candidate.store.ts:710-722`) loses its caller |
-| The synthesizer already names non-boot candidates | `skill-synthesis.service.ts:782-794` (`synthesized.name`, `.description`) | The namer duplicates this for every LLM-drafted candidate |
-| Queue `stage` has a CHECK list | `persistence-sqlite/.../0032_skill_synthesis_queue.ts:48-51` | A new queue stage needs a table rebuild. Cleanup must not be a queue stage |
-| Gate stages do not check candidate status | `stage-handlers.service.ts:478-483` (`gateTarget`), used by judge-panel `:513-...` | 268 queued gate rows would spend tokens on rejected candidates |
-| One-row state-table migration shape | `0043_memory_retention.ts:58-78` (`id INTEGER PRIMARY KEY CHECK (id = 1)`) | Reuse for the cleanup record |
-| Migration "highest version" ratchet | `toBe(44)` in `0028`, `0030`, `0038`, `0039`, `0040`, `0041`, `0042`, `0043` migration specs (grep) | A new migration bumps each of them |
-| Cron job seam for a skill-synthesis job | `thoth-runtime/src/lib/skill-drain-jobs.ts:39-64` (data table); `start-thoth-cron.ts:52-127`; `memory-retention-job.ts:37-80` (one job spec + handler factory); `start-thoth-cron.ts:266-300` registered at `:473`; CLI twin `cli-engine/src/lib/bootstrap/thoth-runtime.ts:528`, called `:330` | `skill-synthesis` must never import `cron-scheduler` (`skill-drain-jobs.ts:26-30`). The job lives in `thoth-runtime` + `cli-engine` |
-| Boot catch-up can fire a cron slot at launch | `cron-scheduler/src/lib/catchup-coordinator.ts:1-20` | The service needs its own boot-deferral gate, like `memory-retention.service.ts:235-236` |
-| Drain gate keys to reuse | `queue/skill-drain.service.ts:302-314` (`enabled`, `foregroundBackoffMs`, `bootDeferralMs`, `pauseOnBattery`) | The cleanup honours the same user switches |
-| Verdict lookup | `archaeology/session-verdict.store.ts:195-200` (`findBySession`), `:208-211` (`hasUsableVerdict`) | Direct predicate for "has a verdict" |
-| Queue row lookup by session | `queue/skill-queue.store.ts:671-681` (`findBySessionStage`) | Recovers `workspace_root` / `transcript_path` for a candidate whose `workspace_root` is NULL |
-| Real SQLite opener with binding fallback | `queue/queue-db.test-support.ts:101-124` (`resolveOpener`) | Reuse. Both bindings per HANDOFF rule 3 |
-| Real-lane test support | `lanes/lane-runner.test-support.ts:93,134,150,253,259` (`makeResolverStub`, `resolvedLane`, `makeQueryStub`, `resultMessage`, `assistantText`) | The fake LLM lane for the proof |
-| Registration-order pin already exists | `skill-synthesis.stage-handlers.spec.ts:1-28` header; `skill-synthesis.service.ts:313` | The proof reuses this mutation |
-| DI completeness spec | `di/register.spec.ts:26-35` | Token deletion (item E) keeps it green only if the token is also removed |
+| Evidence                                                   | Location                                                                                                                                                                                                                                                                                                                                                                                       | Architectural implication                                                                                                           |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Manual promote calls the automatic `evaluate`              | `skill-synthesis.service.ts:1213-1223` (`promote`), `:1268` (`promoteBulk`)                                                                                                                                                                                                                                                                                                                    | Both manual entry points hit the frequency threshold                                                                                |
+| The only RPC callers of those two methods                  | `rpc-handlers/.../skills-synthesis-rpc.handlers.ts:453` (`skillSynthesis:promote`), `:1688` (`promoteBulk`)                                                                                                                                                                                                                                                                                    | The method names can stay. The RPC layer needs no change for item A                                                                 |
+| No other backend caller of `SkillSynthesisService.promote` | grep of `libs`, `apps` for `.promote(` / `.promoteBulk(` (CLI `apps/ptah-cli/src/cli/commands/skill-synthesis.ts:185` and TUI `SkillsPanel.tsx:125` go through the RPC)                                                                                                                                                                                                                        | Changing `promote` changes exactly the user-initiated path                                                                          |
+| Gate order in `evaluate`                                   | `skill-promotion.service.ts:185-194` status guards, `:196-210` active-embedding dedup, `:211-218` frequency threshold (`below-threshold`), `:219-227` cluster dedup, `:229-233` judge, `:236-237` replay, `:239-280` residency cap, `:281-301` SKILL.md write, `:303-306` status write, `:313` repropagation                                                                                   | The threshold is one isolated step. Everything else is shared                                                                       |
+| A failed SKILL.md write still promotes                     | `skill-promotion.service.ts:293-301` (warn, keep `candidate.bodyPath`), then `:303`                                                                                                                                                                                                                                                                                                            | Today there is NO write check. See D3                                                                                               |
+| Judge verdict is schema-enforced by the store              | `skill-promotion.service.ts:495-500` → `SkillCandidateStore.recordJudgeVerdict`; `skill-synthesis/CLAUDE.md:69`                                                                                                                                                                                                                                                                                | "Schema check" = this store gate (Assumption on wording, see Component 1)                                                           |
+| `evaluate`'s only other caller is the tracker              | `skill-invocation-tracker.ts:80`; tracker registered `di/register.ts:72,107`, no production caller (grep)                                                                                                                                                                                                                                                                                      | Automatic promotion has NO production path today, before or after this phase                                                        |
+| Fake creation invocation                                   | `skill-synthesis.service.ts:917-925` (`recordInvocation`, `succeeded: true`, `contextId`)                                                                                                                                                                                                                                                                                                      | Writes a row. It does NOT touch `success_count`                                                                                     |
+| `registerCandidate` inserts `success_count = 0`            | `skill-candidate.store.ts:201-205`                                                                                                                                                                                                                                                                                                                                                             | Every live candidate has `success_count = 0`                                                                                        |
+| Only `incrementSuccess` raises `success_count`             | `skill-candidate.store.ts:861-870`, called only at `skill-invocation-tracker.ts:67`                                                                                                                                                                                                                                                                                                            | The fake row never counted toward the threshold                                                                                     |
+| The tracker writes invocations WITHOUT `contextId`         | `skill-invocation-tracker.ts:59-65`                                                                                                                                                                                                                                                                                                                                                            | `context_id IS NOT NULL` identifies exactly the fake rows                                                                           |
+| `store.recordInvocation` writers                           | `skill-candidate.store.ts:929-960`; callers `skill-synthesis.service.ts:918`, `skill-invocation-tracker.ts:59` only                                                                                                                                                                                                                                                                            | No third writer exists                                                                                                              |
+| Readers of `skill_invocations`                             | `countDistinctContexts` `skill-candidate.store.ts:918-927`; `listActiveOrderedByDecayScore` `:421-441` (promoted only); `listActiveOrderedByActivity` `:481-500` (promoted only); `listInvocations` `:1406-1415` → RPC `skillSynthesis:invocations` `skills-synthesis-rpc.handlers.ts:494`; `getStats` `:1449-1480` → RPC stats `:509`, `:699`, `diagnostics.service.ts:49`                    | The 2,432 fake rows show as "invocations" in stats and per-candidate lists                                                          |
+| Generalization shortcut reads contexts                     | `skill-promotion.service.ts:211-215` (`countDistinctContexts >= generalizationContextThreshold` halves the threshold)                                                                                                                                                                                                                                                                          | With the fake row gone, no writer sets `context_id`. The shortcut becomes unreachable (Risk R4)                                     |
+| Prefilter predicate                                        | `skill-synthesis.service.ts:1182-1199`; depth-only branch `:1192-1194`; `MIN_ROLE_TURNS_FLOOR` guard `:1186-1188`                                                                                                                                                                                                                                                                              | One boolean to delete                                                                                                               |
+| Prefilter caller                                           | `skill-synthesis.service.ts:720-741` inside `analyzeSession`; only background caller is `stage-handlers.service.ts:266-292`                                                                                                                                                                                                                                                                    | Rejection already maps to queue `skipped` "no candidate from this session" (`:279-284`)                                             |
+| Evidence fields on the trajectory                          | `trajectory-extractor.ts:76-104`; `EDIT_TOOL_NAMES` `:40`; `BASH_TEST_PATTERN` `:46-47`; counting `collectToolSignals` `:331-361`                                                                                                                                                                                                                                                              | Evidence is defined from `tool_use` blocks only (Component 3)                                                                       |
+| Trajectory hash normalizes the workspace root              | `trajectory-extractor.ts:214-228`, `normalize` `:390-401`                                                                                                                                                                                                                                                                                                                                      | Two identical transcripts in two workspaces hash the same (used by the proof)                                                       |
+| Reuse on identical trajectory writes nothing               | `skill-synthesis.service.ts:750-753`                                                                                                                                                                                                                                                                                                                                                           | Second identical session → `reused: true`, prefilter row `done` "reused existing candidate" (`stage-handlers.service.ts:286-291`)   |
+| Settings used only by the depth branch                     | `eligibilityMinTurns`, `prefilterMinChars`: `skill-synthesis.service.ts:134,139,1193-1194,1352-1355,1372-1375`; `types.ts:419,429`; `platform-core/src/file-settings-keys.ts:230,235,509,514`; `rpc-handlers/.../skills-synthesis-rpc.schema.ts:36,41`; `shared/src/lib/types/rpc.types.ts:2662,2667`; `skill-settings-panel.component.ts:161,202`; `skill-synthesis-tab.component.ts:794,799` | Dead after item C. See D2                                                                                                           |
+| Specs that pin the depth branch                            | `skill-synthesis.service.spec.ts:535-577`; `prefilter-corpus-measurement.spec.ts:67,135-140,203` (opt-in)                                                                                                                                                                                                                                                                                      | Must be rewritten, not deleted silently                                                                                             |
+| Namer never called                                         | `naming/candidate-namer.service.ts:117-128`; registered `di/register.ts:99,206-208`; token `di/tokens.ts:133-134`; exported `src/index.ts:142-148`; grep finds no caller                                                                                                                                                                                                                       | Wire or delete (item E)                                                                                                             |
+| `display_name` never reaches the wire                      | grep of `rpc-handlers/src`, `shared/src`, `skill-synthesis-ui/src` finds no candidate `displayName` mapping; summary mapper `skills-synthesis-rpc.handlers.ts:2396-2401`                                                                                                                                                                                                                       | Wiring the namer writes a column the Skills tab never shows                                                                         |
+| `displayName` IS read internally                           | `digest/skill-gap-curator.service.ts:726,1039`; `gates/trigger-eval.service.ts:236,791`; row mapping `skill-candidate.store.ts:1590`                                                                                                                                                                                                                                                           | Keep the column and the row field. Only `setDisplayName` (`skill-candidate.store.ts:710-722`) loses its caller                      |
+| The synthesizer already names non-boot candidates          | `skill-synthesis.service.ts:782-794` (`synthesized.name`, `.description`)                                                                                                                                                                                                                                                                                                                      | The namer duplicates this for every LLM-drafted candidate                                                                           |
+| Queue `stage` has a CHECK list                             | `persistence-sqlite/.../0032_skill_synthesis_queue.ts:48-51`                                                                                                                                                                                                                                                                                                                                   | A new queue stage needs a table rebuild. Cleanup must not be a queue stage                                                          |
+| Gate stages do not check candidate status                  | `stage-handlers.service.ts:478-483` (`gateTarget`), used by judge-panel `:513-...`                                                                                                                                                                                                                                                                                                             | 268 queued gate rows would spend tokens on rejected candidates                                                                      |
+| One-row state-table migration shape                        | `0043_memory_retention.ts:58-78` (`id INTEGER PRIMARY KEY CHECK (id = 1)`)                                                                                                                                                                                                                                                                                                                     | Reuse for the cleanup record                                                                                                        |
+| Migration "highest version" ratchet                        | `toBe(44)` in `0028`, `0030`, `0038`, `0039`, `0040`, `0041`, `0042`, `0043` migration specs (grep)                                                                                                                                                                                                                                                                                            | A new migration bumps each of them                                                                                                  |
+| Cron job seam for a skill-synthesis job                    | `thoth-runtime/src/lib/skill-drain-jobs.ts:39-64` (data table); `start-thoth-cron.ts:52-127`; `memory-retention-job.ts:37-80` (one job spec + handler factory); `start-thoth-cron.ts:266-300` registered at `:473`; CLI twin `cli-engine/src/lib/bootstrap/thoth-runtime.ts:528`, called `:330`                                                                                                | `skill-synthesis` must never import `cron-scheduler` (`skill-drain-jobs.ts:26-30`). The job lives in `thoth-runtime` + `cli-engine` |
+| Boot catch-up can fire a cron slot at launch               | `cron-scheduler/src/lib/catchup-coordinator.ts:1-20`                                                                                                                                                                                                                                                                                                                                           | The service needs its own boot-deferral gate, like `memory-retention.service.ts:235-236`                                            |
+| Drain gate keys to reuse                                   | `queue/skill-drain.service.ts:302-314` (`enabled`, `foregroundBackoffMs`, `bootDeferralMs`, `pauseOnBattery`)                                                                                                                                                                                                                                                                                  | The cleanup honours the same user switches                                                                                          |
+| Verdict lookup                                             | `archaeology/session-verdict.store.ts:195-200` (`findBySession`), `:208-211` (`hasUsableVerdict`)                                                                                                                                                                                                                                                                                              | Direct predicate for "has a verdict"                                                                                                |
+| Queue row lookup by session                                | `queue/skill-queue.store.ts:671-681` (`findBySessionStage`)                                                                                                                                                                                                                                                                                                                                    | Recovers `workspace_root` / `transcript_path` for a candidate whose `workspace_root` is NULL                                        |
+| Real SQLite opener with binding fallback                   | `queue/queue-db.test-support.ts:101-124` (`resolveOpener`)                                                                                                                                                                                                                                                                                                                                     | Reuse. Both bindings per HANDOFF rule 3                                                                                             |
+| Real-lane test support                                     | `lanes/lane-runner.test-support.ts:93,134,150,253,259` (`makeResolverStub`, `resolvedLane`, `makeQueryStub`, `resultMessage`, `assistantText`)                                                                                                                                                                                                                                                 | The fake LLM lane for the proof                                                                                                     |
+| Registration-order pin already exists                      | `skill-synthesis.stage-handlers.spec.ts:1-28` header; `skill-synthesis.service.ts:313`                                                                                                                                                                                                                                                                                                         | The proof reuses this mutation                                                                                                      |
+| DI completeness spec                                       | `di/register.spec.ts:26-35`                                                                                                                                                                                                                                                                                                                                                                    | Token deletion (item E) keeps it green only if the token is also removed                                                            |
 
 ## Architecture decision
 
@@ -200,15 +200,15 @@ and the plan is read-only analysis.
   work evidence when at least one of these is true:
   - **edit evidence**: `editCount >= settings.prefilterMinEdits` (default 1). `editCount` counts `tool_use`
     blocks named `Edit`, `Write` or `MultiEdit` (`:40`, `:353-354`).
-  - **tool evidence**: `toolUseCount >= settings.prefilterMinToolUses` (default 2). `toolUseCount` counts every
-    `tool_use` block in a user or assistant message (`:350-351`).
+  - **tool evidence**: `nonMcpToolUseCount >= settings.prefilterMinToolUses` (default 2).
+    `nonMcpToolUseCount` counts `tool_use` blocks whose names do not start with `mcp__`.
   - **test evidence**: `bashTestPassed === true`. Despite the name, this means a `Bash` `tool_use` whose
     command matched `BASH_TEST_PATTERN` (`:46-47`, `:355-357`). It says a test command RAN, not that it passed.
     Do not rename it in this phase (the extractor is phase 5 territory); document the meaning at the
     predicate.
   - The existing floor stays: `turnCount < MIN_ROLE_TURNS_FLOOR` → `tooThin` (`skill-synthesis.service.ts:1186-1188`).
 - **Conversation-only session**: a transcript whose messages contain only `text` blocks has
-  `editCount = 0`, `toolUseCount = 0`, `bashTestPassed = false` (all three counters start at 0,
+  `editCount = 0`, `nonMcpToolUseCount = 0`, `bashTestPassed = false` (all three counters start at 0,
   `:182-184`, and change only inside `collectToolSignals` on `tool_use`). Turn count and character length no
   longer matter. It fails with `reason: 'noWork'`, bucket `prefilterRejected`, queue row `skipped`
   "no candidate from this session", and no candidate, archaeology, judge-panel or trigger-eval row.
@@ -277,9 +277,9 @@ and the plan is read-only analysis.
 
 - Owns every SQL statement of the cleanup: read/upsert the state row; page candidates
   `WHERE status = 'candidate' AND created_at < :cutoff AND (created_at, id) > (:cursorCreatedAt, :cursorId)
-  ORDER BY created_at, id LIMIT :n`; reject a batch; delete fake invocations in pages
+ORDER BY created_at, id LIMIT :n`; reject a batch; delete fake invocations in pages
   (`DELETE FROM skill_invocations WHERE rowid IN (SELECT rowid FROM skill_invocations WHERE context_id IS NOT
-  NULL LIMIT :n)` — `DELETE … LIMIT` is not compiled into SQLite by default).
+NULL LIMIT :n)` — `DELETE … LIMIT` is not compiled into SQLite by default).
 - Batch reject = one `BEGIN IMMEDIATE` … `COMMIT` per batch (≤ 100 rows), `ROLLBACK` on throw, using explicit
   `exec` statements as `skill-queue.store.ts` does (`:684-...`, `inImmediateTransaction`). Do NOT use
   `db.transaction(...)`: the `node:sqlite` test binding does not provide it (`queue-db.test-support.ts:33-41`).
@@ -359,13 +359,13 @@ and the plan is read-only analysis.
 
 #### 4f. Where the report lives and what it contains
 
-| Report surface | Content | Who reads it |
-| --- | --- | --- |
-| `skill_backlog_cleanup_state` row | version, cutoff, cursor, started/finished, last outcome/reason, the seven counters | diagnostics, phase 6 "Needs attention", the measurement batch |
-| `skill_candidates.rejected_reason` per row | one of the two `backlog-cleanup: …` strings | Skills tab rejected filter today (`rejectedReason` is on the wire, `skills-synthesis-rpc.handlers.ts:2401`, `rpc.types.ts:2227`) |
-| cron run history | handler summary: `examined N, rejected N, kept N, invocations deleted N` | `cron:runs` |
-| log | one `[skill-synthesis] backlog cleanup complete` info line with all counters | support logs |
-| `.ptah/specs/TASK_2026_461_639c/backlog-cleanup-measurement.md` | the byte-copy measurement (Component 8) | the user, before merge |
+| Report surface                                                  | Content                                                                            | Who reads it                                                                                                                     |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `skill_backlog_cleanup_state` row                               | version, cutoff, cursor, started/finished, last outcome/reason, the seven counters | diagnostics, phase 6 "Needs attention", the measurement batch                                                                    |
+| `skill_candidates.rejected_reason` per row                      | one of the two `backlog-cleanup: …` strings                                        | Skills tab rejected filter today (`rejectedReason` is on the wire, `skills-synthesis-rpc.handlers.ts:2401`, `rpc.types.ts:2227`) |
+| cron run history                                                | handler summary: `examined N, rejected N, kept N, invocations deleted N`           | `cron:runs`                                                                                                                      |
+| log                                                             | one `[skill-synthesis] backlog cleanup complete` info line with all counters       | support logs                                                                                                                     |
+| `.ptah/specs/TASK_2026_461_639c/backlog-cleanup-measurement.md` | the byte-copy measurement (Component 8)                                            | the user, before merge                                                                                                           |
 
 No UI change in this phase. A UI surface for the report is phase 6.
 
@@ -558,23 +558,23 @@ registration (`stage-handlers.service.ts:285-291`, `result.reused === false`), w
 
 ## Test plan — acceptance criteria to specs
 
-| # | Acceptance criterion | Spec | SQLite | Mutation |
-| --- | --- | --- | --- | --- |
-| AC1 | Manual Promote bypasses only the threshold | `skill-promotion.service.spec.ts`; proof group 5 | proof: yes | M1, M5 |
-| AC2 | Manual path keeps dedup, judge, replay, cap, write gates | `skill-promotion.service.spec.ts` | no | force each gate to pass → its case fails |
-| AC3 | Automatic `evaluate` keeps `below-threshold` | `skill-promotion.service.spec.ts`; proof group 4 | proof: yes | delete the threshold step → fails |
-| AC4 | No invocation row at candidate creation | `skill-synthesis.service.spec.ts`; proof group 3 | proof: yes | M3 |
-| AC5 | Conversation-only session produces nothing | `skill-synthesis.service.spec.ts`; `session-work-evidence.spec.ts`; proof group 3 | proof: yes | M2 |
-| AC6 | Edit-only, tool-only, test-only sessions stay eligible | `session-work-evidence.spec.ts`; `skill-synthesis.service.spec.ts` | no | invert one signal → fails |
-| AC7 | Cleanup rejects no-evidence, no-verdict candidates with the visible reason; keeps the rest | `skill-backlog-cleanup.integration.spec.ts` | yes | delete batch reject → fails |
-| AC8 | Cleanup deletes only `context_id IS NOT NULL` invocation rows | `skill-backlog-cleanup.store.spec.ts`, integration spec | yes | drop the predicate → tracker row deleted → fails |
-| AC9 | Cleanup is resumable, gated and bounded | `skill-backlog-cleanup.service.spec.ts` | no | remove the wall-budget check → `partial` case fails |
-| AC10 | Cleanup job registered in Electron and CLI hosts | `start-thoth-cron.spec.ts`; `cli-engine` `thoth-runtime.spec.ts` | no | remove each registration call |
-| AC11 | Gate stages skip rejected candidates | `skill-synthesis.stage-handlers.spec.ts` | no | remove the status check |
-| AC12 | Namer deleted, DI complete | `di/register.spec.ts`; typecheck | no | not applicable |
-| AC13 | Registration seam still reaches the drain | proof group 3 | yes | M4 |
-| AC14 | `degradation-audit:lint` at baseline (or the documented new baseline) | `npx nx run degradation-audit:lint` | no | not applicable |
-| AC15 | Measurement report exists with the Component 8 numbers | `backlog-cleanup-measurement.md` | copy only | not applicable |
+| #    | Acceptance criterion                                                                       | Spec                                                                              | SQLite     | Mutation                                            |
+| ---- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | ---------- | --------------------------------------------------- |
+| AC1  | Manual Promote bypasses only the threshold                                                 | `skill-promotion.service.spec.ts`; proof group 5                                  | proof: yes | M1, M5                                              |
+| AC2  | Manual path keeps dedup, judge, replay, cap, write gates                                   | `skill-promotion.service.spec.ts`                                                 | no         | force each gate to pass → its case fails            |
+| AC3  | Automatic `evaluate` keeps `below-threshold`                                               | `skill-promotion.service.spec.ts`; proof group 4                                  | proof: yes | delete the threshold step → fails                   |
+| AC4  | No invocation row at candidate creation                                                    | `skill-synthesis.service.spec.ts`; proof group 3                                  | proof: yes | M3                                                  |
+| AC5  | Conversation-only session produces nothing                                                 | `skill-synthesis.service.spec.ts`; `session-work-evidence.spec.ts`; proof group 3 | proof: yes | M2                                                  |
+| AC6  | Edit-only, tool-only, test-only sessions stay eligible                                     | `session-work-evidence.spec.ts`; `skill-synthesis.service.spec.ts`                | no         | invert one signal → fails                           |
+| AC7  | Cleanup rejects no-evidence, no-verdict candidates with the visible reason; keeps the rest | `skill-backlog-cleanup.integration.spec.ts`                                       | yes        | delete batch reject → fails                         |
+| AC8  | Cleanup deletes only `context_id IS NOT NULL` invocation rows                              | `skill-backlog-cleanup.store.spec.ts`, integration spec                           | yes        | drop the predicate → tracker row deleted → fails    |
+| AC9  | Cleanup is resumable, gated and bounded                                                    | `skill-backlog-cleanup.service.spec.ts`                                           | no         | remove the wall-budget check → `partial` case fails |
+| AC10 | Cleanup job registered in Electron and CLI hosts                                           | `start-thoth-cron.spec.ts`; `cli-engine` `thoth-runtime.spec.ts`                  | no         | remove each registration call                       |
+| AC11 | Gate stages skip rejected candidates                                                       | `skill-synthesis.stage-handlers.spec.ts`                                          | no         | remove the status check                             |
+| AC12 | Namer deleted, DI complete                                                                 | `di/register.spec.ts`; typecheck                                                  | no         | not applicable                                      |
+| AC13 | Registration seam still reaches the drain                                                  | proof group 3                                                                     | yes        | M4                                                  |
+| AC14 | `degradation-audit:lint` at baseline (or the documented new baseline)                      | `npx nx run degradation-audit:lint`                                               | no         | not applicable                                      |
+| AC15 | Measurement report exists with the Component 8 numbers                                     | `backlog-cleanup-measurement.md`                                                  | copy only  | not applicable                                      |
 
 SQLite specs (run both bindings; HANDOFF rule 3 command, `$root` = the main checkout because this worktree has
 no `node_modules`): `skill-synthesis.reachability.integration.spec.ts`,
@@ -591,10 +591,9 @@ then `npx nx run-many -t typecheck -p` over the same set plus the D2 libs, then
 - **R1 — Rejection is terminal.** `rejected` cannot go back (`skill-promotion.service.ts:192-194`). A wrong
   cleanup predicate loses candidates for good. Mitigation: D4 (a) is conservative on verdicts; the byte-copy
   measurement runs before merge; every rejected row carries a searchable reason.
-- **R2 — "Tool evidence" is broad.** `toolUseCount` counts every `tool_use`, including MCP lookups (a HubSpot
-  question that calls two MCP tools still passes). The verdict names tool evidence, so this plan keeps it.
-  Narrowing to workspace tools is a phase 5 archaeology concern. The measurement shows how many sessions pass on
-  tools alone.
+- **R2 — Non-MCP tool evidence remains broad.** `nonMcpToolUseCount` excludes MCP lookups, while general
+  workspace tools such as Read and Grep still count. This changed after the Batch 7 measurement and user decision 1;
+  the measurement reports sessions that pass on non-MCP tools alone.
 - **R3 — Automatic promotion stays impossible.** Deleting the fake invocation does not change that (the fake row
   never raised `success_count`), but users may read the Skills tab text "needs N successful runs"
   (`skill-synthesis-tab.component.ts:1145`) as a path that exists. Phase 5 owns the producer; phase 4 may
@@ -621,6 +620,7 @@ then `npx nx run-many -t typecheck -p` over the same set plus the D2 libs, then
 **D1 — How the proof "ends `promoted`" after the fake invocation is gone.**
 Automatic promotion has no production producer today: `evaluate` is reached only through the dead tracker
 (`skill-invocation-tracker.ts:80`) and the manual RPC. The fake row never raised `success_count`.
+
 - (a) **Recommended**: the proof drives two identical code sessions in two workspaces through the production
   drain to ONE candidate, pins that automatic `evaluate` still says `below-threshold`, then ends `promoted`
   through the manual RPC method. Automatic promotion stays phase 5.
@@ -632,17 +632,20 @@ Automatic promotion has no production producer today: `evaluate` is reached only
 - (c) Pull phase 5's promotion from `skill_invocation_events` forward. Against: the user said do not start phase 5.
 
 **D2 — The two settings that only the depth branch read (`eligibilityMinTurns`, `prefilterMinChars`).**
+
 - (a) **Recommended**: delete them end to end (Component 7). A visible setting that changes nothing misleads.
 - (b) Keep them inert and leave the removal to a later phase. Smaller diff, no UI touch, but dead configuration
   in the settings panel.
 
 **D3 — A SKILL.md write failure during promotion.** Today it warns and still promotes
 (`skill-promotion.service.ts:293-303`), so the verdict's "keeps write checks" has nothing to keep.
+
 - (a) **Recommended**: fail closed on both paths: new reason `write-failed`, row stays `candidate`, no
   repropagation. A promoted row with no active SKILL.md is not a skill.
 - (b) Keep today's behaviour on both paths.
 
 **D4 — The cleanup predicate.**
+
 - (a) **Recommended**: any verdict row protects a candidate, including degraded ones (counted separately); an
   unreadable transcript with no verdict is rejected with its own reason (nothing can ever produce evidence for
   it: archaeology needs the transcript too).
@@ -650,11 +653,13 @@ Automatic promotion has no production producer today: `evaluate` is reached only
 - (c) As (a), but an unreadable transcript keeps the candidate.
 
 **D5 — `CandidateNamerService`.**
+
 - (a) **Recommended**: delete (Component 5 evidence: no wire/UI reader, per-candidate lane cost, duplicates the
   synthesizer's naming, phase 5 owns authoring).
 - (b) Wire it after a new registration in the prefilter handler, plus a wire field and a UI render.
 
 **D6 — The 2,432 historical fake invocation rows.**
+
 - (a) **Recommended**: the cleanup job deletes every `context_id IS NOT NULL` row (exactly the fakes).
 - (b) Keep them as history. Stats keep showing 2,432 uses that never happened.
 
