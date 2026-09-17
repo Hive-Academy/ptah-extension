@@ -325,6 +325,28 @@ describe('terminal launch', () => {
       expect(spawnProcess).toHaveBeenCalledTimes(2);
     });
 
+    it('answers as soon as the last candidate starts, without waiting out the probe', async () => {
+      jest.useFakeTimers();
+      try {
+        // macOS has exactly one candidate, so nothing can rescue a bad
+        // launch and the wait would buy nothing. Timers never advance here:
+        // the call has to settle on its own.
+        const { spawnProcess } = fakeSpawner([{ pid: 77 }]);
+
+        await expect(
+          spawnTerminalProcess(
+            { spawnProcess } as never,
+            terminalTarget('/usr/bin/open'),
+            root,
+            'darwin',
+          ),
+        ).resolves.toBeUndefined();
+        expect(spawnProcess).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('reports success when the candidate stays alive through the probe window', async () => {
       jest.useFakeTimers();
       try {
