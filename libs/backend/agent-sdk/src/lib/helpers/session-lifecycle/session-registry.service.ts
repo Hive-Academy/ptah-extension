@@ -346,6 +346,7 @@ export class SessionRegistry {
    */
   markTurnStarted(rec: SessionRecord): void {
     if (!rec.turnInFlight) {
+      rec.activityHold?.beginTurn?.();
       rec.activityHold?.release();
     }
     rec.turnInFlight = true;
@@ -372,6 +373,7 @@ export class SessionRegistry {
   markTurnEnded(idOrTabId: string): boolean {
     const rec = this.find(idOrTabId);
     if (!rec) return false;
+    rec.activityHold?.endTurn?.();
     if (rec.turnInFlight) {
       rec.activityHold?.hold();
     }

@@ -15,23 +15,34 @@
  *     service's event stream alongside aggregated stats.
  *   - Aggregation honours the `compact_boundary` — usage in pre-compact
  *     messages is NOT counted in `tokens.input/output`.
- *   - `readHistoryAsMessages` returns only user/assistant messages, skips
+ *   - `readHistoryForCuration` returns only user/assistant messages, skips
  *     task-notification content, and starts after the last compact_boundary.
  *
  * Every collaborator is a typed stub — no real fs access, no live replay.
  */
 
 import 'reflect-metadata';
+import { Readable } from 'node:stream';
+
+jest.mock('fs/promises', () => ({ stat: jest.fn() }));
+jest.mock('node:fs', () => ({ createReadStream: jest.fn() }));
+
+import * as fs from 'fs/promises';
+import { createReadStream } from 'node:fs';
 import { SessionHistoryReaderService } from './session-history-reader.service';
-import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
+import { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import { HistoryEventFactory } from './helpers/history/history-event-factory';
 import type { SessionHistoryMessage } from './helpers/history/history.types';
 import { LiveUsageTracker } from './helpers/live-usage-tracker';
+import { CompactionBoundaryGenerationRegistry } from './helpers/compaction-boundary-generation-registry';
 import type { IModelResolver } from './auth-env.port';
 import type { IPricingProvider } from './pricing.port';
 import type { AuthEnv, ModelPricing } from '@ptah-extension/shared';
-import { findModelPricing } from '@ptah-extension/shared';
+import {
+  findModelPricing,
+  registerModelContextWindows,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -40,6 +51,26 @@ import type { Logger } from '@ptah-extension/vscode-core';
 
 function asLogger(mock: MockLogger): Logger {
   return mock as unknown as Logger;
+}
+
+const mockedStat = fs.stat as jest.MockedFunction<typeof fs.stat>;
+const mockedCreateReadStream = createReadStream as jest.MockedFunction<
+  typeof createReadStream
+>;
+
+function transcriptStats(
+  size: number,
+  mtimeMs: number,
+): Awaited<ReturnType<typeof fs.stat>> {
+  return { size, mtimeMs } as Awaited<ReturnType<typeof fs.stat>>;
+}
+
+function transcriptStream(
+  content: string,
+): ReturnType<typeof createReadStream> {
+  return Readable.from([Buffer.from(content, 'utf8')]) as ReturnType<
+    typeof createReadStream
+  >;
 }
 
 /**
@@ -67,6 +98,8 @@ interface Stubs {
   logger: MockLogger;
   /** Real, not stubbed — the seed and the read are the behaviour under test. */
   usageTracker: LiveUsageTracker;
+  /** Real singleton; compaction-read behaviour is tested through it. */
+  compactionBoundaryRegistry: CompactionBoundaryGenerationRegistry;
 }
 
 function makeStubs(): Stubs {
@@ -95,6 +128,7 @@ function makeStubs(): Stubs {
     authEnv: {} as AuthEnv,
     logger: createMockLogger(),
     usageTracker: new LiveUsageTracker(),
+    compactionBoundaryRegistry: new CompactionBoundaryGenerationRegistry(),
   };
 }
 
@@ -109,6 +143,7 @@ function makeService(stubs: Stubs): SessionHistoryReaderService {
     stubs.authEnv,
     stubs.pricingProvider,
     stubs.usageTracker,
+    stubs.compactionBoundaryRegistry,
   );
 }
 
@@ -159,6 +194,62 @@ describe('SessionHistoryReaderService', () => {
       expect(stubs.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Sessions directory not found'),
       );
+    });
+
+    // A VERIFIED expectation survives a stale read for a bounded recovery
+    // budget — the next reload of the same transcript must still be checked
+    // against it (PR #493 review C). An UNVERIFIED one can never be satisfied,
+    // so a stale read gives up on it immediately.
+    it.each([
+      ['verified', true, { kind: 'verified', expectedCount: 2 }],
+      ['unverified', false, undefined],
+    ])(
+      'consumes a %s pending compaction expectation and returns stale when sessions directory is missing',
+      async (_kind, hasBaseline, expectedAfterRead) => {
+        const stubs = makeStubs();
+        if (hasBaseline) {
+          stubs.compactionBoundaryRegistry.observeBoundaryCount(
+            'valid-session-id',
+            1,
+          );
+        }
+        stubs.compactionBoundaryRegistry.recordExpectedBoundary(
+          'valid-session-id',
+        );
+        stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(null);
+
+        const service = makeService(stubs);
+        const result = await service.readSessionHistory(
+          'valid-session-id',
+          '/workspace',
+          { checkCompactionBoundary: true },
+        );
+
+        expect(result).toEqual({
+          events: [],
+          stats: null,
+          staleSnapshot: true,
+        });
+        expect(
+          stubs.compactionBoundaryRegistry.capturePendingExpectation(
+            'valid-session-id',
+          ),
+        ).toEqual(expectedAfterRead);
+      },
+    );
+
+    it('leaves staleSnapshot absent when a compaction check has no expectation and sessions directory is missing', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(null);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory(
+        'valid-session-id',
+        '/workspace',
+        { checkCompactionBoundary: true },
+      );
+
+      expect(result).toEqual({ events: [], stats: null });
     });
 
     // -----------------------------------------------------------------------
@@ -329,6 +420,317 @@ describe('SessionHistoryReaderService', () => {
       expect(stats?.model).toBe('claude-sonnet-4-20250514');
     });
 
+    it('contextSnapshot and modelUsageList carry contextWindow for a registered unpriced model', async () => {
+      const model = 'gpt-ctx-reader-registered-414';
+      registerModelContextWindows([{ id: model, contextLength: 400_000 }]);
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        { type: 'system', subtype: 'init', model, uuid: 'init' },
+        {
+          type: 'assistant',
+          uuid: 'a1',
+          message: {
+            role: 'assistant',
+            model,
+            content: [{ type: 'text', text: 'reply' }],
+          },
+          usage: {
+            input_tokens: 30_000,
+            output_tokens: 500,
+            cache_read_input_tokens: 10_000,
+            cache_creation_input_tokens: 0,
+          },
+        },
+      ] as SessionHistoryMessage[]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stats?.contextSnapshot).toEqual({
+        model,
+        contextTokens: 40_000,
+        contextWindow: 400_000,
+      });
+      expect(stats?.modelUsageList?.[0]).toMatchObject({
+        model,
+        contextWindow: 400_000,
+      });
+    });
+
+    it('omits contextWindow when the window is unknown', async () => {
+      const model = 'mystery-ctx-reader-unknown-414';
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        { type: 'system', subtype: 'init', model, uuid: 'init' },
+        {
+          type: 'assistant',
+          uuid: 'a1',
+          message: {
+            role: 'assistant',
+            model,
+            content: [{ type: 'text', text: 'reply' }],
+          },
+          usage: {
+            input_tokens: 100,
+            output_tokens: 10,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+        },
+      ] as SessionHistoryMessage[]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stats?.contextSnapshot).toEqual({ model, contextTokens: 100 });
+      expect(stats?.modelUsageList?.[0]).not.toHaveProperty('contextWindow');
+    });
+
+    it('uses the globally latest main-session model for the context snapshot regardless of aggregate cost', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'init',
+          model: 'gpt-4o',
+          uuid: 'init',
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'a1',
+          message: {
+            role: 'assistant',
+            model: 'gpt-4o',
+            content: [{ type: 'text', text: 'first' }],
+          },
+          usage: {
+            input_tokens: 100_000,
+            output_tokens: 50_000,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'a2',
+          message: {
+            role: 'assistant',
+            model: 'gpt-4o-mini',
+            content: [{ type: 'text', text: 'second' }],
+          },
+          usage: {
+            input_tokens: 200,
+            output_tokens: 400,
+            cache_read_input_tokens: 10_000,
+            cache_creation_input_tokens: 800,
+          },
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stats?.tokens).toEqual({
+        input: 100_200,
+        output: 50_400,
+        cacheRead: 10_000,
+        cacheCreation: 800,
+      });
+      expect(stats?.modelUsageList?.[0]).toMatchObject({
+        model: 'gpt-4o',
+        inputTokens: 100_000,
+        outputTokens: 50_000,
+      });
+      expect(stats).toMatchObject({
+        contextSnapshot: {
+          model: 'gpt-4o-mini',
+          contextTokens: 11_000,
+        },
+      });
+    });
+
+    it('never lets agent usage select or overwrite the main-session context snapshot', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'init',
+          model: 'gpt-4o-mini',
+          uuid: 'init',
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'root-turn',
+          message: {
+            role: 'assistant',
+            model: 'gpt-4o-mini',
+            content: [{ type: 'text', text: 'root reply' }],
+          },
+          usage: {
+            input_tokens: 250,
+            output_tokens: 100,
+            cache_read_input_tokens: 500,
+            cache_creation_input_tokens: 50,
+          },
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([
+        {
+          agentId: 'agent-a',
+          filePath: '/sessions/dir/agent-a.jsonl',
+          messages: [
+            {
+              type: 'assistant',
+              uuid: 'agent-turn',
+              message: {
+                role: 'assistant',
+                model: 'gpt-4o',
+                content: [{ type: 'text', text: 'expensive agent reply' }],
+              },
+              usage: {
+                input_tokens: 200_000,
+                output_tokens: 100_000,
+                cache_read_input_tokens: 0,
+                cache_creation_input_tokens: 0,
+              },
+            } as SessionHistoryMessage,
+          ],
+        },
+      ]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stats?.modelUsageList?.[0]).toMatchObject({
+        model: 'gpt-4o',
+        inputTokens: 200_000,
+        outputTokens: 100_000,
+      });
+      expect(stats).toMatchObject({
+        contextSnapshot: {
+          model: 'gpt-4o-mini',
+          contextTokens: 800,
+        },
+      });
+    });
+
+    it('uses the live input plus cache formula for the latest post-compaction context snapshot', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'init',
+          model: 'claude-sonnet-4-20250514',
+          uuid: 'init',
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'pre-compact',
+          message: {
+            role: 'assistant',
+            model: 'claude-sonnet-4-20250514',
+            content: [{ type: 'text', text: 'old context' }],
+          },
+          usage: {
+            input_tokens: 1_000,
+            output_tokens: 500,
+            cache_read_input_tokens: 800_000,
+            cache_creation_input_tokens: 0,
+          },
+        } as SessionHistoryMessage,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'boundary',
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'post-compact-1',
+          message: {
+            role: 'assistant',
+            model: 'claude-sonnet-4-20250514',
+            content: [{ type: 'text', text: 'new context' }],
+          },
+          usage: {
+            input_tokens: 60,
+            output_tokens: 400,
+            cache_read_input_tokens: 120_000,
+            cache_creation_input_tokens: 2_000,
+          },
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'post-compact-2',
+          message: {
+            role: 'assistant',
+            model: 'claude-sonnet-4-20250514',
+            content: [{ type: 'text', text: 'latest context' }],
+          },
+          usage: {
+            input_tokens: 16,
+            output_tokens: 200,
+            cache_read_input_tokens: 10_000,
+            cache_creation_input_tokens: 800,
+          },
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stats?.tokens).toEqual({
+        input: 76,
+        output: 600,
+        cacheRead: 130_000,
+        cacheCreation: 2_800,
+      });
+      expect(stats?.modelUsageList?.[0]).toMatchObject({
+        model: 'claude-sonnet-4-20250514',
+        inputTokens: 76,
+        outputTokens: 600,
+      });
+      expect(stats).toMatchObject({
+        contextSnapshot: {
+          model: 'claude-sonnet-4-20250514',
+          contextTokens: 10_816,
+        },
+      });
+    });
+
     it('returns null stats when no message carries usage data', async () => {
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
@@ -347,13 +749,690 @@ describe('SessionHistoryReaderService', () => {
       const { stats } = await service.readSessionHistory('valid', '/workspace');
       expect(stats).toBeNull();
     });
+
+    it('ordinary read records observed boundary count and has no staleSnapshot', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b2',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace');
+
+      expect(result.staleSnapshot).toBeUndefined();
+      expect(stubs.compactionBoundaryRegistry.inspect('valid')).toEqual({
+        baselineObserved: true,
+        observedCount: 2,
+        pendingExpectation: null,
+      });
+    });
+
+    it('compaction-read without a pending expectation leaves staleSnapshot absent', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBeUndefined();
+      expect(stubs.jsonlReader.readJsonlMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it('compaction-read meets the expected count and clears staleSnapshot', async () => {
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b2',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBeUndefined();
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toBeUndefined();
+    });
+
+    it('two distinct recorded boundaries: a transcript with only one new boundary stays stale', async () => {
+      // PR #493 review B: both boundaries used to write expectedCount =
+      // observedCount + 1, so a transcript holding just the first new
+      // boundary wrongly verified the second expectation.
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary(
+        'valid',
+        'b-new-1',
+      );
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary(
+        'valid',
+        'b-new-2',
+      );
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b2',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      // Expected 3, observed 2 — the transcript holds only one of the two
+      // promised new boundaries, so the snapshot must read as stale.
+      expect(result.staleSnapshot).toBe(true);
+      // The expectation is RETAINED across the stale read (PR #493 review C):
+      // clearing it here made the next read of the same incomplete transcript
+      // return an incomplete snapshot with no `staleSnapshot` flag.
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toEqual({ kind: 'verified', expectedCount: 3 });
+    });
+
+    it('a second read of the still-incomplete transcript is still reported stale', async () => {
+      // PR #493 review C: the reload that follows a stale snapshot must not
+      // silently become a clean read just because the first one consumed the
+      // expectation.
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid', 'b-new');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const first = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+      const second = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(first.staleSnapshot).toBe(true);
+      expect(second.staleSnapshot).toBe(true);
+    });
+
+    it('Post-only reload: PreCompact expectation with the boundary not yet on disk returns staleSnapshot true and keeps it for the retry', async () => {
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordPreCompact('valid');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBe(true);
+      // Still verified for the renderer's single retry.
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toEqual({ kind: 'verified', expectedCount: 2 });
+    });
+
+    it('Post-only reload: the boundary persisted on a yield returns a verified snapshot, and the late live boundary adds nothing', async () => {
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordPreCompact('valid');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      const before = [
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+      ];
+      const after = [
+        before[0],
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b2',
+        } as SessionHistoryMessage,
+      ];
+      stubs.jsonlReader.readJsonlMessages
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(after);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBeUndefined();
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toBeUndefined();
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid', 'b2');
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toBeUndefined();
+    });
+
+    it('consumes with outcome satisfied / stale / none per path', async () => {
+      const boundaryOnly = [
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+      ];
+
+      // stale: sessions directory missing with an expectation pending
+      const staleStubs = makeStubs();
+      staleStubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 0);
+      staleStubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
+      const staleSpy = jest.spyOn(
+        staleStubs.compactionBoundaryRegistry,
+        'consumeExpectation',
+      );
+      staleStubs.jsonlReader.findSessionsDirectory.mockResolvedValue(null);
+      await makeService(staleStubs).readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+      expect(staleSpy).toHaveBeenCalledWith('valid', 'stale');
+
+      // satisfied: the transcript holds the expected boundary
+      const okStubs = makeStubs();
+      okStubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 0);
+      okStubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
+      const okSpy = jest.spyOn(
+        okStubs.compactionBoundaryRegistry,
+        'consumeExpectation',
+      );
+      okStubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      okStubs.jsonlReader.readJsonlMessages.mockResolvedValue(boundaryOnly);
+      okStubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      okStubs.replayService.replayToStreamEvents.mockReturnValue([]);
+      await makeService(okStubs).readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+      expect(okSpy).toHaveBeenCalledWith('valid', 'satisfied');
+
+      // none: nothing was expected
+      const noneStubs = makeStubs();
+      const noneSpy = jest.spyOn(
+        noneStubs.compactionBoundaryRegistry,
+        'consumeExpectation',
+      );
+      noneStubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      noneStubs.jsonlReader.readJsonlMessages.mockResolvedValue(boundaryOnly);
+      noneStubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      noneStubs.replayService.replayToStreamEvents.mockReturnValue([]);
+      await makeService(noneStubs).readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+      expect(noneSpy).toHaveBeenCalledWith('valid', 'none');
+    });
+
+    it('two distinct recorded boundaries: a transcript with both new boundaries verifies', async () => {
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary(
+        'valid',
+        'b-new-1',
+      );
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary(
+        'valid',
+        'b-new-2',
+      );
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b2',
+        } as SessionHistoryMessage,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b3',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBeUndefined();
+      expect(stubs.jsonlReader.readJsonlMessages).toHaveBeenCalledTimes(1);
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toBeUndefined();
+    });
+
+    it('compaction-read exhausts retries and returns staleSnapshot: true when expectation is unmet', async () => {
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBe(true);
+      // Retained for the next read, not cleared (PR #493 review C).
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toEqual({ kind: 'verified', expectedCount: 2 });
+      expect(stubs.jsonlReader.readJsonlMessages).toHaveBeenCalledTimes(6);
+    });
+
+    it('treats a baseline-absent expectation as stale even when the transcript already has boundaries', async () => {
+      const stubs = makeStubs();
+      // Baseline is never observed before the expectation is recorded.
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b2',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBe(true);
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toBeUndefined();
+      expect(stubs.jsonlReader.readJsonlMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries through unchanged short parses until a later changed transcript contains the expected boundary', async () => {
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const unchanged = [
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+      ];
+      const changed = [
+        unchanged[0],
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b2',
+        } as SessionHistoryMessage,
+      ];
+      stubs.jsonlReader.readJsonlMessages
+        .mockResolvedValueOnce(unchanged)
+        .mockResolvedValueOnce(unchanged)
+        .mockResolvedValueOnce(changed);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBeUndefined();
+      expect(stubs.jsonlReader.readJsonlMessages).toHaveBeenCalledTimes(3);
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toBeUndefined();
+    });
+
+    it('retries through the real JSONL cache until a changed size/mtime exposes the expected boundary', async () => {
+      const stubs = makeStubs();
+      const registry = stubs.compactionBoundaryRegistry;
+      registry.observeBoundaryCount('valid', 1);
+      registry.recordExpectedBoundary('valid');
+
+      const jsonlReader = new JsonlReaderService(asLogger(stubs.logger));
+      jest
+        .spyOn(jsonlReader, 'findSessionsDirectory')
+        .mockResolvedValue('/sessions/dir');
+      jest.spyOn(jsonlReader, 'loadAgentSessions').mockResolvedValue([]);
+      const oldTranscript =
+        '{"type":"system","subtype":"compact_boundary","uuid":"b1"}\n';
+      const changedTranscript =
+        oldTranscript +
+        '{"type":"system","subtype":"compact_boundary","uuid":"b2"}\n';
+      mockedStat
+        .mockResolvedValueOnce(transcriptStats(oldTranscript.length, 1))
+        .mockResolvedValueOnce(transcriptStats(oldTranscript.length, 1))
+        .mockResolvedValueOnce(transcriptStats(changedTranscript.length, 2));
+      mockedCreateReadStream
+        .mockReturnValueOnce(transcriptStream(oldTranscript))
+        .mockReturnValueOnce(transcriptStream(changedTranscript));
+
+      const factory = new HistoryEventFactory();
+      const service = new SessionHistoryReaderService(
+        asLogger(stubs.logger),
+        jsonlReader,
+        stubs.replayService as unknown as SessionReplayService,
+        factory,
+        stubs.modelResolver as unknown as IModelResolver,
+        stubs.authEnv,
+        stubs.pricingProvider,
+        stubs.usageTracker,
+        registry,
+      );
+
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBeUndefined();
+      expect(mockedStat).toHaveBeenCalledTimes(3);
+      // The second observation reused the cached old parse; only the changed
+      // validity token streamed and parsed again.
+      expect(mockedCreateReadStream).toHaveBeenCalledTimes(2);
+      expect(registry.capturePendingExpectation('valid')).toBeUndefined();
+    });
+
+    // TASK_2026_437 C15 / INV-9: the snapshot carries the replayed events and
+    // no second `{ id, role, content }` transcript beside them.
+    it('single parse supplies events and no messages projection', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+
+      const mainMessages: SessionHistoryMessage[] = [
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'boundary',
+        } as SessionHistoryMessage,
+        {
+          type: 'user',
+          uuid: 'u1',
+          timestamp: '2026-01-01T00:00:00.000Z',
+          message: { role: 'user', content: 'hello' },
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'a1',
+          timestamp: '2026-01-01T00:00:01.000Z',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'hi' }],
+          },
+        } as SessionHistoryMessage,
+      ];
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue(mainMessages);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockImplementation(
+        (_sessionId, messages) =>
+          messages.map((m) => ({
+            id: m.uuid,
+            eventType: 'message_start',
+            role: m.message?.role,
+          })) as never,
+      );
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace');
+
+      expect(result).not.toHaveProperty('messages');
+      expect(result.events.map((event) => event.id)).toEqual([
+        'boundary',
+        'u1',
+        'a1',
+      ]);
+      expect(stubs.jsonlReader.readJsonlMessages).toHaveBeenCalledTimes(1);
+      expect(stubs.replayService.replayToStreamEvents).toHaveBeenCalledWith(
+        'valid',
+        mainMessages,
+        [],
+      );
+    });
   });
 
   // -------------------------------------------------------------------------
-  // readHistoryAsMessages
+  // Slow-read attribution (TASK_2026_437 C13)
   // -------------------------------------------------------------------------
 
-  describe('readHistoryAsMessages', () => {
+  describe('slow history read log', () => {
+    let clock: number;
+
+    const userMessage = {
+      type: 'user',
+      uuid: 'u1',
+      message: { role: 'user', content: 'hello' },
+    } as SessionHistoryMessage;
+
+    /** Stubs whose read costs `readMs` and whose replay costs `replayMs`. */
+    const slowStubs = (readMs: number, replayMs: number): Stubs => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockImplementation(async () => {
+        clock += readMs;
+        return [userMessage];
+      });
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockImplementation(() => {
+        clock += replayMs;
+        return [{}, {}, {}] as unknown as ReturnType<
+          SessionReplayService['replayToStreamEvents']
+        >;
+      });
+      return stubs;
+    };
+
+    const slowLines = (stubs: Stubs) =>
+      stubs.logger.warn.mock.calls.filter(
+        ([message]) => message === '[SessionHistoryReader] slow history read',
+      );
+
+    beforeEach(() => {
+      clock = 10_000;
+      jest.spyOn(performance, 'now').mockImplementation(() => clock);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('warns with the read/projection split and counts when a read crosses the threshold', async () => {
+      const stubs = slowStubs(40, 300);
+      const service = makeService(stubs);
+
+      const result = await service.readSessionHistory(
+        'slow-session',
+        '/workspace',
+      );
+
+      expect(result.events).toHaveLength(3);
+      expect(slowLines(stubs)).toEqual([
+        [
+          '[SessionHistoryReader] slow history read',
+          {
+            sessionId: 'slow-session',
+            durationMs: 340,
+            readMs: 40,
+            projectMs: 300,
+            pricingMs: 0,
+            mainMessageCount: 1,
+            agentSessionCount: 0,
+            eventCount: 3,
+            failed: false,
+          },
+        ],
+      ]);
+    });
+
+    it('logs nothing extra for a read under the threshold', async () => {
+      const stubs = slowStubs(10, 20);
+      const service = makeService(stubs);
+
+      await service.readSessionHistory('fast-session', '/workspace');
+
+      expect(slowLines(stubs)).toHaveLength(0);
+    });
+
+    it('still reports a slow read whose projection throws, without changing the failure', async () => {
+      const stubs = slowStubs(40, 0);
+      stubs.replayService.replayToStreamEvents.mockImplementation(() => {
+        clock += 300;
+        throw new Error('replay blew up');
+      });
+      const service = makeService(stubs);
+
+      const result = await service.readSessionHistory(
+        'broken-session',
+        '/workspace',
+      );
+
+      // Same empty payload and error log as before the timing existed.
+      expect(result).toEqual({ events: [], stats: null });
+      expect(stubs.logger.error).toHaveBeenCalledWith(
+        '[SessionHistoryReader] Failed to read session history',
+        expect.objectContaining({ message: 'replay blew up' }),
+      );
+      expect(slowLines(stubs)).toEqual([
+        [
+          '[SessionHistoryReader] slow history read',
+          expect.objectContaining({
+            sessionId: 'broken-session',
+            readMs: 40,
+            projectMs: 300,
+            eventCount: undefined,
+            failed: true,
+          }),
+        ],
+      ]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // readHistoryForCuration — text projection
+  // -------------------------------------------------------------------------
+
+  describe('readHistoryForCuration projection', () => {
     it('returns simple user/assistant messages and skips task-notification payloads', async () => {
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
@@ -390,7 +1469,7 @@ describe('SessionHistoryReaderService', () => {
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue(messages);
 
       const service = makeService(stubs);
-      const out = await service.readHistoryAsMessages('valid', '/workspace');
+      const out = await service.readHistoryForCuration('valid', '/workspace');
 
       expect(out.map((m) => m.id).sort()).toEqual(['a1', 'u1']);
       expect(out.find((m) => m.id === 'u1')?.role).toBe('user');
@@ -425,7 +1504,7 @@ describe('SessionHistoryReaderService', () => {
       ]);
 
       const service = makeService(stubs);
-      const out = await service.readHistoryAsMessages('valid', '/workspace');
+      const out = await service.readHistoryForCuration('valid', '/workspace');
 
       expect(out.map((m) => m.id)).toEqual(['new']);
       expect(out[0].content).toBe('NEW post-compact');
@@ -435,7 +1514,7 @@ describe('SessionHistoryReaderService', () => {
       const stubs = makeStubs();
       const service = makeService(stubs);
       await expect(
-        service.readHistoryAsMessages('../bad', '/workspace'),
+        service.readHistoryForCuration('../bad', '/workspace'),
       ).resolves.toEqual([]);
       expect(stubs.jsonlReader.findSessionsDirectory).not.toHaveBeenCalled();
     });
@@ -445,7 +1524,7 @@ describe('SessionHistoryReaderService', () => {
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(null);
       const service = makeService(stubs);
       await expect(
-        service.readHistoryAsMessages('valid', '/workspace'),
+        service.readHistoryForCuration('valid', '/workspace'),
       ).resolves.toEqual([]);
     });
 

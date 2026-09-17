@@ -123,21 +123,28 @@ function buildHarness(opts: {
   sqlite: SqliteConnectionService;
   rateLimiter: CuratorRateLimitService;
   maxCuratesPerHour: number;
+  /** The curator's open network back-off window (C14 f); default none. */
+  networkDeferralMs?: number;
+  /** What `curate` resolves; default a clean `ran`. */
+  curateResult?: Record<string, unknown>;
 }): Harness {
   const events: CuratorEventLike[] = [];
   let settle: (() => void) | null = null;
   const bootScanDone = new Promise<void>((resolve) => {
     settle = resolve;
   });
-  const curate = jest.fn().mockResolvedValue({
-    outcome: 'ran',
-    extracted: 0,
-    merged: 0,
-    created: 0,
-    skipped: 0,
-  });
+  const curate = jest.fn().mockResolvedValue(
+    opts.curateResult ?? {
+      outcome: 'ran',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    },
+  );
   const curator = {
     curate,
+    networkDeferralMs: jest.fn(() => opts.networkDeferralMs ?? 0),
     pushEvent: jest.fn((event: CuratorEventLike) => {
       events.push(event);
       if (event.kind === 'boot-scan' || event.kind === 'error') settle?.();
@@ -169,7 +176,6 @@ function buildHarness(opts: {
       flush: jest.fn(),
       drainForSession: jest.fn(() => []),
       markProcessed: jest.fn(),
-      purgeOlderThan: jest.fn(() => 0),
       countUnprocessed: jest.fn(() => 0),
       backfillSessionId: jest.fn(() => 0),
     } as unknown as ObservationQueueStore,
@@ -318,6 +324,68 @@ describe('MemoryTriggerService boot scan — the hourly curate budget (TASK_2026
     expect(h.curate).toHaveBeenCalledTimes(1);
     expect(h.curate.mock.calls[0][0].sessionId).toBe('recent');
 
+    h.service.stop();
+  });
+
+  /**
+   * TASK_2026_437 C14 (f). A boot-scan pass the network back-off would defer
+   * spends no hourly slot: the scan stops before `tryAcquire`, and a pass
+   * deferred at dispatch gives its slot back.
+   */
+  it('stops at an open network back-off window without spending a slot or moving the watermark', async () => {
+    const dir = await makeSessionsDir([
+      { name: 'a.jsonl', mtime: now - 2 * DAY_MS },
+    ]);
+    const state: WatermarkState = { value: null };
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const acquire = jest.spyOn(rateLimiter, 'tryAcquire');
+    const h = buildHarness({
+      sessionsDir: dir,
+      sqlite: makeSqlite(state),
+      rateLimiter,
+      maxCuratesPerHour: 5,
+      networkDeferralMs: 30_000,
+    });
+
+    h.service.start();
+    await h.bootScanDone;
+
+    expect(acquire).not.toHaveBeenCalled();
+    expect(h.curate).not.toHaveBeenCalled();
+    expect(h.events.find((e) => e.kind === 'boot-scan')?.stats?.stalled).toBe(
+      1,
+    );
+    expect(state.value).toBeNull();
+    h.service.stop();
+  });
+
+  it('refunds the slot of a boot-scan pass deferred at dispatch by the network back-off', async () => {
+    const dir = await makeSessionsDir([
+      { name: 'a.jsonl', mtime: now - 2 * DAY_MS },
+    ]);
+    const state: WatermarkState = { value: null };
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const h = buildHarness({
+      sessionsDir: dir,
+      sqlite: makeSqlite(state),
+      rateLimiter,
+      maxCuratesPerHour: 5,
+      curateResult: {
+        outcome: 'stalled',
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+        deferral: 'network-backoff',
+      },
+    });
+
+    h.service.start();
+    await h.bootScanDone;
+
+    expect(h.curate).toHaveBeenCalledTimes(1);
+    expect(rateLimiter.snapshot('memory.curate')?.count).toBe(0);
+    expect(state.value).toBeNull();
     h.service.stop();
   });
 });

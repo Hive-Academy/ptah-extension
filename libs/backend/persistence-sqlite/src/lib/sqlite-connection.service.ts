@@ -14,11 +14,21 @@
 import { inject, injectable } from 'tsyringe';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { TOKENS, type Logger, RpcUserError } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type Logger,
+  RpcUserError,
+  readMsEnv,
+} from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from './di/tokens';
 import { SqliteMigrationRunner } from './migration-runner';
 import { MIGRATIONS } from './migrations';
 import type { IBackupService } from './backup.service';
+import {
+  DEFAULT_SQLITE_SLOW_WARN_MS,
+  SQLITE_SLOW_WARN_MS_ENV,
+  withSlowStatementTiming,
+} from './slow-statement-timing';
 import {
   buildBaseDiagnostic,
   resolveVecBinaryName,
@@ -196,7 +206,13 @@ export class SqliteConnectionService {
 
     let db: SqliteDatabase;
     try {
-      db = this.factory(this._dbPath);
+      // Every consumer, the migration runner included, sees the timed view:
+      // slow synchronous statements are named in the log (TASK_2026_437 C13).
+      db = withSlowStatementTiming(this.factory(this._dbPath), {
+        logger: this.logger,
+        thresholdMs:
+          readMsEnv(SQLITE_SLOW_WARN_MS_ENV) ?? DEFAULT_SQLITE_SLOW_WARN_MS,
+      });
       this.logger.debug('[persistence-sqlite] Database factory created');
     } catch (err: unknown) {
       this.classifyOpenFailure(err);

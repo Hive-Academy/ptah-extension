@@ -55,6 +55,8 @@ export interface CodexAuthFile {
  * There is no login() method -- users must run `codex login` to authenticate.
  */
 export interface ICodexAuthService {
+  /** Local-only eligibility check; never contacts an upstream provider. */
+  getAccountUsageEligibility(): Promise<'supported' | 'unsupported-auth' | 'unsupported-config'>;
   /** Check whether valid Codex credentials are available */
   isAuthenticated(): Promise<boolean>;
   /** Get HTTP headers required for Codex API requests */
@@ -80,4 +82,31 @@ export interface ICodexAuthService {
   startWatchingAuthFile(): void;
   /** Stop watching the auth file and release the watcher handle. */
   stopWatchingAuthFile(): void;
+}
+
+export type CodexAccountUsageStatus =
+  | 'available' | 'unsupported-auth' | 'unsupported-config'
+  | 'provider-unsupported' | 'cli-unavailable' | 'cli-version-unsupported'
+  | 'service-unavailable' | 'stale';
+
+export interface CodexAccountUsageResult {
+  readonly status: CodexAccountUsageStatus;
+  readonly providerId: string;
+  readonly fetchedAt?: number;
+  readonly staleSince?: number;
+  readonly account?: { readonly planType: string };
+  readonly quota?: {
+    readonly primary?: { readonly usedPercent: number; readonly windowDurationMins?: number | null; readonly resetsAt?: number | null };
+    readonly secondary?: { readonly usedPercent: number; readonly windowDurationMins?: number | null; readonly resetsAt?: number | null };
+  };
+  readonly activity?: {
+    readonly lifetimeTokens?: string | null;
+    readonly dailyUsage: ReadonlyArray<{ readonly startDate: string; readonly tokens: string }>;
+  };
+}
+
+export interface ICodexAccountUsageService {
+  getAccountUsage(options?: { refresh?: boolean; signal?: AbortSignal }): Promise<CodexAccountUsageResult>;
+  clearCache(): void;
+  close(): Promise<void>;
 }

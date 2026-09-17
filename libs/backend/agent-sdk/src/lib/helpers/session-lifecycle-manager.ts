@@ -34,6 +34,7 @@ import {
   SDKUserMessage,
   SDKMessage,
   ContentBlock,
+  type SDKMessageOrigin,
 } from '../types/sdk-types/claude-sdk.types';
 import type { SdkModuleLoader } from './sdk-module-loader';
 import type { SdkQueryOptionsBuilder } from './sdk-query-options-builder';
@@ -498,14 +499,23 @@ export class SessionLifecycleManager {
    * @param content - Message content
    * @param files - Optional file attachments
    * @param images - Optional inline images (pasted/dropped)
+   * @param options - Provenance of the turn; absent means an interactive human
+   *   turn. See `SessionStreamPump.sendMessage`.
    */
   async sendMessage(
     sessionId: SessionId,
     content: string,
     files?: string[],
     images?: InlineImageAttachment[],
+    options?: { origin?: SDKMessageOrigin },
   ): Promise<void> {
-    return this._streamPump.sendMessage(sessionId, content, files, images);
+    return this._streamPump.sendMessage(
+      sessionId,
+      content,
+      files,
+      images,
+      options,
+    );
   }
 
   /**

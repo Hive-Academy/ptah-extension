@@ -1,16 +1,16 @@
 import { TestBed } from '@angular/core/testing';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { FILE_LINK_OPENER } from '@ptah-extension/core';
 import { FilePathLinkComponent } from './file-path-link.component';
 
 describe('FilePathLinkComponent', () => {
-  let openFile: jest.Mock;
+  let open: jest.Mock;
 
   async function setup() {
-    openFile = jest.fn().mockResolvedValue(undefined);
+    open = jest.fn().mockResolvedValue(undefined);
 
     await TestBed.configureTestingModule({
       imports: [FilePathLinkComponent],
-      providers: [{ provide: ClaudeRpcService, useValue: { openFile } }],
+      providers: [{ provide: FILE_LINK_OPENER, useValue: { open } }],
     }).compileComponents();
   }
 
@@ -33,7 +33,7 @@ describe('FilePathLinkComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('foo/bar');
   });
 
-  it('opens via the file:open RPC on click, on every host', async () => {
+  it('opens through FILE_LINK_OPENER on a rendered click, passing the host as origin', async () => {
     await setup();
     const fixture = TestBed.createComponent(FilePathLinkComponent);
     fixture.componentRef.setInput('fullPath', '/a/b/c.ts');
@@ -43,7 +43,10 @@ describe('FilePathLinkComponent', () => {
     fixture.componentInstance.clicked.subscribe((e) => (evt = e));
     fixture.nativeElement.querySelector('span[title]').click();
 
-    expect(openFile).toHaveBeenCalledWith('/a/b/c.ts');
+    expect(open).toHaveBeenCalledWith({
+      path: '/a/b/c.ts',
+      origin: fixture.nativeElement,
+    });
     expect(evt).not.toBeNull();
   });
 
@@ -53,6 +56,29 @@ describe('FilePathLinkComponent', () => {
     fixture.componentRef.setInput('fullPath', '');
     fixture.detectChanges();
     fixture.nativeElement.querySelector('span[title]').click();
-    expect(openFile).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('logs a rejected open instead of throwing at the click', async () => {
+    await setup();
+    const errorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    const failure = new Error('refused');
+    open.mockRejectedValue(failure);
+
+    const fixture = TestBed.createComponent(FilePathLinkComponent);
+    fixture.componentRef.setInput('fullPath', '/a/b/c.ts');
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('span[title]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[FilePathLink] Failed to open',
+      '/a/b/c.ts',
+      failure,
+    );
+    errorSpy.mockRestore();
   });
 });

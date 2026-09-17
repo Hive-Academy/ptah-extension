@@ -1,6 +1,6 @@
 ---
 name: saas-workspace-initializer
-description: Two-stage SaaS bootstrap workflow. Stage A (this skill, single chat session) runs mandatory two-round AskUserQuestion discovery (business, then stack), names bounded contexts and lib layout via the ddd-architecture and nx-workspace-architect skills, writes a phased roadmap to `.ptah/roadmap.md`, and scaffolds only the foundation (Nx workspace, base apps, lint/test/CI, plus tenant/auth/DB primitives if discovery makes them load-bearing). Stage B is each unchecked roadmap item run later as its own task via the orchestration skill or project-manager agent. Use when starting a new SaaS project, initializing an Nx + NestJS + Angular/React workspace, or setting up multi-tenant foundations. Do not use to implement features end-to-end in one session.
+description: Bootstraps a new SaaS workspace on Nx, NestJS and Angular or React — discovery, a phased roadmap and a foundation-only scaffold. Use when starting a new SaaS or multi-tenant project. Not for .NET stacks — use dotnet-solution-initializer.
 ---
 
 # SaaS Workspace Initializer

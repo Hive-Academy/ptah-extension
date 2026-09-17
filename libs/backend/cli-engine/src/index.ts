@@ -53,6 +53,7 @@ export type {
   AuthCommandPushSink,
   CliPlatformCommandsOptions,
 } from './lib/platform/cli-platform-commands.js';
+export { createCliWorkspaceWatcherOptions } from './lib/platform/cli-workspace-watcher-factory.js';
 
 export {
   CliOutputManagerAdapter,

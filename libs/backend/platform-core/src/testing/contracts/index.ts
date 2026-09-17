@@ -43,3 +43,7 @@ export {
   runHttpServerProviderContract,
   type HttpServerProviderSetup,
 } from './run-http-server-provider-contract';
+export {
+  runWorkspaceWatcherContract,
+  type WorkspaceWatcherContractSetup,
+} from './run-workspace-watcher-contract';

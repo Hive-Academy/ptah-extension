@@ -29,6 +29,7 @@ export type { IBackupService, BackupKind } from './lib/backup.service';
 export {
   SqliteBackupService,
   BACKUP_WORKER_BUDGET_MS,
+  KEEP_BY_KIND,
 } from './lib/backup.service';
 
 export {
@@ -60,6 +61,8 @@ export type {
   IntegrityWorkerOutbound,
 } from './lib/integrity/integrity-worker-protocol';
 export {
+  BACKUP_DESTINATION_EXISTS,
+  BACKUP_STAGING_EXISTS,
   classifyQuickCheck,
   isIntegrityCheckRequest,
   isBackupRequest,
@@ -81,6 +84,12 @@ export { MIGRATIONS } from './lib/migrations';
 export type { Migration } from './lib/migrations';
 
 export { isUniqueConstraintError } from './lib/sqlite-errors';
+
+export { SqlitePageReclaimer } from './lib/sqlite-page-reclaimer';
+export type {
+  SqlitePageStats,
+  SqliteReclaimStepResult,
+} from './lib/sqlite-page-reclaimer';
 
 export type { IEmbedder } from './lib/embedder/embedder.interface';
 

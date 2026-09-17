@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_390
-status: in_review
+status: done
 type: bugfix
 title: >-
   Codex/Cursor SDK failures: bound the forwarded error text and name the usage

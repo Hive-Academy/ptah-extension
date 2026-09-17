@@ -17,6 +17,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
 import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
+import { buildSessionName, deriveWorkspaceLabel } from './session-name.builder';
 import type { ActivityHold } from './no-activity-watchdog';
 import {
   AISessionConfig,
@@ -69,9 +70,12 @@ import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
   getAllAnthropicProviders,
-  getModelContextWindow,
   includesUserSettingSource,
 } from '@ptah-extension/shared';
+import {
+  resolveAutoCompactControl,
+  type AutoCompactSettings,
+} from './auto-compact-control';
 import {
   SdkModelService,
   TIER_ENV_VAR_MAP,
@@ -354,15 +358,101 @@ export function assertSingleOutputStylePath(
  * OUTRANKS user/project/local settings, so emitting the key when Ptah has no
  * opinion would silently clobber a style the user picked for their own Claude
  * Code CLI usage. Absence is the only correct "no opinion" value (G4b).
+ *
+ * The same rule governs auto compaction: `autoCompact` comes from
+ * `resolveAutoCompactControl`, which yields `{}` when Ptah has no opinion, and
+ * only its present keys are merged. With neither a style nor an auto-compact
+ * key, the shared constant is still returned untouched.
  */
 export function buildFlagSettings(
   sessionConfig?: OutputStyleActivationFields,
+  autoCompact?: AutoCompactSettings,
 ): Settings {
   assertSingleOutputStylePath(sessionConfig);
   const styleName = sessionConfig?.outputStyleName?.trim();
-  return styleName
-    ? { ...PTAH_DISABLE_SDK_AUTO_MEMORY, outputStyle: styleName }
-    : PTAH_DISABLE_SDK_AUTO_MEMORY;
+  const autoCompactKeys: AutoCompactSettings = {
+    ...(autoCompact?.autoCompactEnabled === false
+      ? { autoCompactEnabled: false }
+      : {}),
+    ...(autoCompact?.autoCompactWindow !== undefined
+      ? { autoCompactWindow: autoCompact.autoCompactWindow }
+      : {}),
+  };
+  if (!styleName && Object.keys(autoCompactKeys).length === 0) {
+    return PTAH_DISABLE_SDK_AUTO_MEMORY;
+  }
+  return {
+    ...PTAH_DISABLE_SDK_AUTO_MEMORY,
+    ...(styleName ? { outputStyle: styleName } : {}),
+    ...autoCompactKeys,
+  };
+}
+
+/**
+ * The closed set of values the CLI accepts for `crossSessionInbound`.
+ *
+ * `accept` is what Ptah asks for: an inbound turn from a peer session is
+ * delivered instead of being held until it expires. `hold` and `refuse` are the
+ * CLI's other two settings and are listed so a value read from a settings file
+ * can be validated against the real set rather than against a guess.
+ */
+export const CROSS_SESSION_INBOUND_VALUES = [
+  'accept',
+  'hold',
+  'refuse',
+] as const;
+
+export type CrossSessionInbound = (typeof CROSS_SESSION_INBOUND_VALUES)[number];
+
+/**
+ * Serialize the flag tier for `Options.settings`.
+ *
+ * This is the ONE place the flag-tier object becomes a string, and it builds no
+ * settings object of its own — `buildFlagSettings` stays the single object
+ * builder (and keeps returning the frozen shared constant by identity when no
+ * style is active).
+ *
+ * **Why a string and not an object.** The installed `Settings` interface models
+ * no `crossSessionInbound` key and carries no index signature, so an object
+ * literal with that key does not typecheck and the only object-shaped fixes are
+ * a cast, a `@ts-ignore`, or a temp settings file with a lifecycle to own.
+ * `Options.settings?: string | Settings` makes the string form type-legal, and
+ * the SDK passes a non-object settings value straight through to `--settings`.
+ *
+ * **Why the parameter is `string` and not `CrossSessionInbound`.** The value is
+ * validated against the closed set and OMITTED when it does not match, with a
+ * warn. An unrecognised value is worse than no value: the CLI would then hold
+ * every inbound message even when a higher-precedence source says `accept`. A
+ * TS union alone would not protect a value that arrives from a settings file at
+ * runtime.
+ *
+ * With no style and no inbound value the result is
+ * `JSON.stringify(PTAH_DISABLE_SDK_AUTO_MEMORY)` byte for byte — today's
+ * behaviour, unchanged.
+ */
+export function buildFlagSettingsArg(
+  sessionConfig?: OutputStyleActivationFields,
+  crossSessionInbound?: string,
+  logger?: Pick<Logger, 'warn'>,
+  autoCompact?: AutoCompactSettings,
+): string {
+  const settings = buildFlagSettings(sessionConfig, autoCompact);
+  if (crossSessionInbound === undefined) {
+    return JSON.stringify(settings);
+  }
+  const isKnown = (CROSS_SESSION_INBOUND_VALUES as readonly string[]).includes(
+    crossSessionInbound,
+  );
+  if (!isKnown) {
+    logger?.warn(
+      '[SdkQueryOptionsBuilder] Ignoring unrecognised crossSessionInbound value — ' +
+        'the session starts with the default inbound behaviour rather than an ' +
+        'unknown one',
+      { crossSessionInbound, allowed: CROSS_SESSION_INBOUND_VALUES },
+    );
+    return JSON.stringify(settings);
+  }
+  return JSON.stringify({ ...settings, crossSessionInbound });
 }
 
 /**
@@ -760,6 +850,16 @@ export class SdkQueryOptionsBuilder {
       activityHold,
     );
     const compactionConfig = this.compactionConfigProvider.getConfig();
+    const autoCompact = resolveAutoCompactControl({
+      enabled: compactionConfig.enabled,
+      windowTokens: compactionConfig.contextTokenThreshold,
+    });
+    const extraArgs = this.buildExtraArgs(
+      enableFileCheckpointing ?? true,
+      cwd,
+      routingId,
+      sessionConfig.sessionName,
+    );
     this.logger.info('[SdkQueryOptionsBuilder] Building SDK query options', {
       cwd,
       model,
@@ -771,6 +871,7 @@ export class SdkQueryOptionsBuilder {
       hasCanUseToolCallback: !!canUseToolCallback,
       compactionEnabled: compactionConfig.enabled,
       compactionThreshold: compactionConfig.contextTokenThreshold,
+      autoCompact,
       mcpEnabled: mcpServerRunning,
       hasEnhancedPrompts: !!enhancedPromptsContent,
       mcpOverrideKeys: mcpServersOverride
@@ -791,8 +892,19 @@ export class SdkQueryOptionsBuilder {
         // Flag tier. Fresh per session when a style is active; the shared
         // PTAH_DISABLE_SDK_AUTO_MEMORY constant itself is never mutated (G4),
         // and the `outputStyle` key is absent entirely when no style is
-        // chosen so a CLI-chosen style is not clobbered (G4b).
-        settings: buildFlagSettings(sessionConfig),
+        // chosen so a CLI-chosen style is not clobbered (G4b). Auto-compaction
+        // keys ride the same tier under the same absence rule.
+        //
+        // Serialized because `crossSessionInbound: 'accept'` rides along and
+        // the installed `Settings` interface does not model that key — see
+        // `buildFlagSettingsArg`. `accept` is what makes a turn injected by a
+        // peer session arrive instead of being held until it expires.
+        settings: buildFlagSettingsArg(
+          sessionConfig,
+          'accept',
+          this.logger,
+          autoCompact,
+        ),
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
@@ -834,10 +946,8 @@ export class SdkQueryOptionsBuilder {
           ...effectiveAuthEnv,
           NO_PROXY: '127.0.0.1,localhost',
           ...experimentalBetaEnv(effectiveAuthEnv.ANTHROPIC_BASE_URL),
-          ...this.resolveContextWindowOverride(
-            model,
-            effectiveAuthEnv.ANTHROPIC_BASE_URL,
-          ),
+          // No CLAUDE_CODE_MAX_CONTEXT_TOKENS: the pinned CLI reads it only
+          // when DISABLE_COMPACT is also set (see auto-compact-control.ts).
           // Kill switch: disable the SDK's built-in workflows (ultracode/workflow
           // keyword) only when the persisted `workflows.disabled` config resolved
           // to true at the session origination point (chat-session.service). When
@@ -887,8 +997,18 @@ export class SdkQueryOptionsBuilder {
         pathToClaudeCodeExecutable,
         betas: this.buildBetas(effectiveAuthEnv),
         enableFileCheckpointing: enableFileCheckpointing ?? true,
-        ...((enableFileCheckpointing ?? true)
-          ? { extraArgs: { 'replay-user-messages': null } }
+        // ONE merged extraArgs object. `--name` cannot be appended beside the
+        // checkpointing spread this replaced: a user who disables file
+        // checkpointing would lose their session name with it.
+        ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
+        // The session TITLE — a DIFFERENT surface from the registry `--name`
+        // above. It is the user's name RAW, because a human reads it, and it
+        // is set for a NEW session only: on a resume the SDK gives the
+        // PERSISTED title precedence (`sdk.d.ts` `Options.title`), so setting
+        // it there is a silent no-op. `SessionTitleService.retitle` is the
+        // path that changes an existing session's title.
+        ...(!resumeSessionId && sessionConfig.sessionTitle
+          ? { title: sessionConfig.sessionTitle }
           : {}),
         forkSession: resumeSessionId ? forkSession : undefined,
       },
@@ -896,31 +1016,72 @@ export class SdkQueryOptionsBuilder {
   }
 
   /**
-   * Resolve a `CLAUDE_CODE_MAX_CONTEXT_TOKENS` override for proxied providers.
+   * Build the ONE `extraArgs` object for a session.
    *
-   * The SDK only auto-detects a model's context window for first-party
-   * Anthropic base URLs; behind a translation proxy it falls back to a
-   * hardcoded 200k window, so auto-compaction triggers at the wrong point
-   * (too late for smaller models, which then overflow). When the selected
-   * model's real window is known, pin it explicitly so the SDK's
-   * auto-compaction threshold tracks the actual model.
+   * Two independent flags live here and neither may switch the other off:
+   * `--replay-user-messages` is tied to file checkpointing, while `--name` is
+   * tied to nothing. Before this method they shared a single conditional
+   * spread, so disabling checkpointing would silently have taken the session
+   * name with it.
    *
-   * Skipped for first-party Anthropic (native detection is correct), when the
-   * window is unknown (window === 0 → leave the SDK default), and when the
-   * value is already set upstream (respect an explicit override).
+   * A name that cannot be composed is logged at `warn` and the key is omitted —
+   * a naming problem never costs a session.
+   *
+   * `sessionName` is the name the USER gave the session, and it takes the
+   * `role` slot so a peer browsing the session list reads something a human
+   * chose instead of `chat`. It is handed to `buildSessionName` UNSANITISED:
+   * that builder already slugifies every part and already caps the head, and
+   * a second sanitiser here could only disagree with it.
    */
-  private resolveContextWindowOverride(
-    model: string,
-    baseUrl: string | undefined,
-  ): Record<string, string> {
-    if (process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']) return {};
-    const trimmed = baseUrl?.trim();
-    const isFirstPartyAnthropic =
-      !trimmed || /^https?:\/\/api\.anthropic\.com\/?$/i.test(trimmed);
-    if (isFirstPartyAnthropic) return {};
-    const window = getModelContextWindow(model);
-    if (window <= 0) return {};
-    return { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(window) };
+  private buildExtraArgs(
+    fileCheckpointingEnabled: boolean,
+    cwd: string,
+    routingId?: string,
+    sessionName?: string,
+  ): Record<string, string | null> {
+    const extraArgs: Record<string, string | null> = {};
+    if (fileCheckpointingEnabled) {
+      extraArgs['replay-user-messages'] = null;
+    }
+
+    // The main interactive session. A spawned agent names its own role.
+    const workspaceLabel = deriveWorkspaceLabel(cwd);
+    // The routing id is unique per session, so the name is too. Six
+    // characters is enough to separate the sessions one workspace holds.
+    const uniqueSuffix = (routingId ?? '').slice(0, 6);
+
+    let composedName = sessionName
+      ? buildSessionName({ role: sessionName, workspaceLabel, uniqueSuffix })
+      : undefined;
+    if (sessionName && !composedName) {
+      // The user's name held nothing `[a-z0-9-]` survives — an emoji-only or
+      // punctuation-only name. Falling through to the `chat` role keeps the
+      // deliberate name this session would have had anyway; dropping `--name`
+      // here would hand the session back to the CLI's derived naming, which
+      // is the exact defect Requirement 2 fixed.
+      this.logger.warn(
+        '[SdkQueryOptionsBuilder] The session name did not survive ' +
+          'slugification — falling back to the default role for --name',
+        { cwd, sessionNameLength: sessionName.length },
+      );
+    }
+    composedName ??= buildSessionName({
+      role: 'chat',
+      workspaceLabel,
+      uniqueSuffix,
+    });
+
+    if (composedName) {
+      extraArgs['name'] = composedName;
+    } else {
+      this.logger.warn(
+        '[SdkQueryOptionsBuilder] Could not compose a session name — starting ' +
+          'the session without --name, so the CLI derives one',
+        { cwd, hasRoutingId: !!routingId },
+      );
+    }
+
+    return extraArgs;
   }
 
   /**
@@ -1370,13 +1531,8 @@ export class SdkQueryOptionsBuilder {
     onWorktreeRemoved?: WorktreeRemovedCallback,
     activityHold?: ActivityHold,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    // The subagent hooks hold the watchdog for every registered subagent
-    // (TASK_2026_363) — see `SubagentHookHandler.createHooks`.
-    const subagentHooks = this.subagentHookHandler.createHooks(
-      cwd,
-      sessionId,
-      activityHold,
-    );
+    // Root tool lifetime, not child registration, owns watchdog protection.
+    const subagentHooks = this.subagentHookHandler.createHooks(cwd, sessionId);
     const compactionHooks = this.compactionHookHandler.createHooks(
       sessionId,
       cwd,
@@ -1422,6 +1578,7 @@ export class SdkQueryOptionsBuilder {
       this.teammateLifecycleHookHandler.createHooks(sessionId, cwd);
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
     for (const hooks of [
+      activityHold?.lifecycleHooks?.() ?? {},
       subagentHooks,
       compactionHooks,
       worktreeHooks,

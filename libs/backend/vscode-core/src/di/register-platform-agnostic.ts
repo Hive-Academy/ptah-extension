@@ -24,7 +24,10 @@ import { NullSessionAttachmentGuard } from '../services/null-session-attachment-
 import { NullBootReadinessProvider } from '../services/null-boot-readiness';
 import { EventLoopMonitor } from '../diagnostics/event-loop-monitor';
 import { CpuProfileCapture } from '../diagnostics/cpu-profile-capture';
+import { MainLoopWatchdog } from '../diagnostics/main-loop-watchdog';
+import { BackgroundWorkGovernor } from '../diagnostics/background-work-governor';
 import { DegradationReporter } from '../logging/degradation-reporter';
+import { configureGitProcessGate } from '../utils/exec-git';
 
 export interface PlatformAgnosticRegistrationOptions {
   /**
@@ -58,6 +61,13 @@ export function registerVsCodeCorePlatformAgnostic(
   options: PlatformAgnosticRegistrationOptions = {},
 ): void {
   const { includeLicensingAndAuth = true } = options;
+
+  // The process-wide git gate (TASK_2026_437 C11) is a module instance, not a
+  // binding — `execGit` is called as a plain function. Configured here because
+  // every host runs this before any git caller, so the gate's warnings reach
+  // the host logger whoever spawns git. First configuration wins.
+  configureGitProcessGate({ logger });
+
   container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
   container.registerSingleton(
     TOKENS.MESSAGE_VALIDATOR,
@@ -97,6 +107,23 @@ export function registerVsCodeCorePlatformAgnostic(
   // suspect). `armDiagnostics` is the call that turns them on.
   container.registerSingleton(TOKENS.EVENT_LOOP_MONITOR, EventLoopMonitor);
   container.registerSingleton(TOKENS.CPU_PROFILE_CAPTURE, CpuProfileCapture);
+  // Same rule: constructing the watchdog spawns nothing. Its worker and
+  // heartbeat start only inside `armDiagnostics` (TASK_2026_437).
+  container.registerSingleton(TOKENS.MAIN_LOOP_WATCHDOG, MainLoopWatchdog);
+  // The governor (TASK_2026_437 C14) is registered in EVERY host, armed or
+  // not: without a lag source it still gates on the foreground signal, which
+  // is all the CLI has when it runs without `--verbose`. A factory rather than
+  // `registerSingleton` because its optional timer seam is an interface, which
+  // tsyringe's constructor auto-wiring cannot resolve (it sees `Object`).
+  // `instanceCachingFactory` (one instance for this registration) rather than
+  // `instancePerContainerCachingFactory` is deliberate, as for
+  // DEGRADATION_REPORTER below: a child container must share the host's one
+  // governor, or two gates would read two different states.
+  container.register(TOKENS.BACKGROUND_WORK_GOVERNOR, {
+    useFactory: instanceCachingFactory(
+      (c) => new BackgroundWorkGovernor(c.resolve<Logger>(TOKENS.LOGGER)),
+    ),
+  });
 
   // Degradation counting (TASK_2026_383). Registered here rather than in the
   // VS Code-only `register.ts` because the reporter has zero vscode surface and
@@ -133,6 +160,8 @@ export function registerVsCodeCorePlatformAgnostic(
       'SUBAGENT_REGISTRY_SERVICE',
       'EVENT_LOOP_MONITOR',
       'CPU_PROFILE_CAPTURE',
+      'MAIN_LOOP_WATCHDOG',
+      'BACKGROUND_WORK_GOVERNOR',
       'DEGRADATION_REPORTER',
       ...(includeLicensingAndAuth
         ? [

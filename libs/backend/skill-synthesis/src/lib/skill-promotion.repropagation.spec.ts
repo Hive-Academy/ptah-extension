@@ -21,6 +21,7 @@ import type {
   SkillRepropagationKind,
   SkillRepropagationPort,
 } from './skill-repropagation.port';
+import type { QueryOrigin } from './internal-query.interface';
 import type {
   CandidateId,
   SkillCandidateRow,
@@ -41,12 +42,10 @@ const SETTINGS: SkillSynthesisSettings = {
   dedupCosineThreshold: 0.85,
   maxActiveSkills: 50,
   candidatesDir: '',
-  eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
   generalizationContextThreshold: 3,
   dedupClusterThreshold: 0.78,
   prefilterMinEdits: 1,
-  prefilterMinChars: 800,
   prefilterMinToolUses: 2,
   judgeEnabled: false,
   minJudgeScore: 6.0,
@@ -88,30 +87,38 @@ function makeStore(
   residents: SkillCandidateRow[] = [],
 ): jest.Mocked<SkillCandidateStore> {
   let current = initial;
+  const updateStatus = jest.fn((id, next, opts) => {
+    current = {
+      ...current,
+      status: next,
+      promotedAt: opts?.promotedAt ?? current.promotedAt,
+      bodyPath: opts?.bodyPath ?? current.bodyPath,
+    };
+    return current;
+  });
+  const setResidency = jest.fn((id: CandidateId, residency) => ({
+    ...current,
+    id,
+    residency,
+  }));
   return {
     findById: jest.fn((id: CandidateId) =>
       id === current.id ? current : null,
     ),
     listActiveOrderedByDecayScore: jest.fn(() => residents),
     getWinRates: jest.fn(() => []),
-    updateStatus: jest.fn((id, next, opts) => {
-      current = {
-        ...current,
-        status: next,
-        promotedAt: opts?.promotedAt ?? current.promotedAt,
-        bodyPath: opts?.bodyPath ?? current.bodyPath,
-      };
-      return current;
+    updateStatus,
+    promoteAtomically: jest.fn((id, opts) => {
+      if (opts.demotedResidentId) {
+        setResidency(opts.demotedResidentId, 'dormant');
+      }
+      return updateStatus(id, 'promoted', opts);
     }),
     getEmbedding: jest.fn(() => null),
     searchActiveByEmbedding: jest.fn(() => []),
     listByStatus: jest.fn(() => []),
     countDistinctContexts: jest.fn(() => 0),
-    setResidency: jest.fn((id: CandidateId, residency) => ({
-      ...current,
-      id,
-      residency,
-    })),
+    setResidency,
   } as unknown as jest.Mocked<SkillCandidateStore>;
 }
 
@@ -122,6 +129,7 @@ function makeMdGenerator(): jest.Mocked<SkillMdGenerator> {
       dir: '/tmp/active/do-thing',
       filePath: '/tmp/active/do-thing/SKILL.md',
     })),
+    removeActive: jest.fn(),
     candidatesRoot: jest.fn(() => '/tmp/cands'),
     activeRoot: jest.fn(() => '/tmp/active'),
     writeCandidate: jest.fn(),
@@ -139,7 +147,7 @@ function makeRepropagation(): jest.Mocked<SkillRepropagationPort> {
   return {
     repropagate: jest.fn<
       Promise<void>,
-      [SkillRepropagationKind, string, string]
+      [SkillRepropagationKind, string, string, QueryOrigin?]
     >(async () => undefined),
   };
 }
@@ -163,10 +171,12 @@ describe('SkillPromotionService — repropagation emit', () => {
 
     expect(decision.promoted).toBe(true);
     expect(repropagation.repropagate).toHaveBeenCalledTimes(1);
+    // `evaluate` given no origin (auto-promotion): background.
     expect(repropagation.repropagate).toHaveBeenCalledWith(
       'skill',
       'do-thing',
       'D:/ws',
+      {},
     );
   });
 
@@ -197,6 +207,37 @@ describe('SkillPromotionService — repropagation emit', () => {
     expect(store.setResidency).toHaveBeenCalledWith('cand_weak', 'dormant');
     const slugs = repropagation.repropagate.mock.calls.map((c) => c[1]);
     expect(slugs.sort()).toEqual(['do-thing', 'weak-skill']);
+  });
+
+  // TASK_2026_437 FU-17b: a promote click must not wait for the governor, so
+  // the origin `evaluate` was given reaches every emitted slug.
+  it('hands the evaluate origin to every emitted slug', async () => {
+    const weakest = row({
+      id: 'cand_weak' as CandidateId,
+      name: 'weak-skill',
+    });
+    const store = makeStore(row(), [weakest]);
+    const repropagation = makeRepropagation();
+    const svc = new SkillPromotionService(
+      noopLogger,
+      store,
+      makeMdGenerator(),
+      null,
+      null,
+      null,
+      makeWorkspace('D:/ws'),
+      repropagation,
+    );
+
+    await svc.evaluate(
+      'cand_test' as CandidateId,
+      { ...SETTINGS, maxActiveSkills: 1 },
+      undefined,
+      { userInitiated: true },
+    );
+
+    const origins = repropagation.repropagate.mock.calls.map((c) => c[3]);
+    expect(origins).toEqual([{ userInitiated: true }, { userInitiated: true }]);
   });
 
   it('emits ONCE when the demoted resident is the candidate itself', async () => {
@@ -262,6 +303,7 @@ describe('SkillPromotionService — repropagation emit', () => {
       'skill',
       'do-thing',
       '',
+      {},
     );
   });
 

@@ -12,7 +12,7 @@
  *   6. `skipped: n` reaches the surface
  */
 import { TestBed } from '@angular/core/testing';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, FILE_LINK_OPENER } from '@ptah-extension/core';
 import {
   DEFAULT_TASK_SORT,
   EMPTY_TASK_FILTER,
@@ -34,6 +34,13 @@ import {
   taskFilterEquals,
   taskSortEquals,
 } from './task-views.service';
+
+/**
+ * `TasksStore` opens artifacts through the `FILE_LINK_OPENER` port. It is a
+ * required dependency with no default provider — the composition root binds it
+ * — so every TestBed that builds the store supplies this fake.
+ */
+const fileLinkOpener = { open: jest.fn(async () => undefined) };
 
 const ok = <T>(data: T) => ({ success: true, isSuccess: () => true, data });
 const fail = (error: string) => ({
@@ -136,6 +143,7 @@ function setup(
         provide: ClaudeRpcService,
         useValue: { call: rpc as unknown as ClaudeRpcService['call'] },
       },
+      { provide: FILE_LINK_OPENER, useValue: fileLinkOpener },
     ],
   });
 

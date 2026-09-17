@@ -171,5 +171,5 @@ See [Ptah CLI commands](/cli/commands/).
 ## Next steps
 
 - [Agent orchestration](/agents/agent-orchestration/) — the workflow that consumes these specs
-- [Tribunal Relay](/tribunal/relay/) — run one task through a multi-vendor pipeline, persisted here
+- [Relay orchestration](/tribunal/relay/) — run one task through a multi-vendor pipeline, persisted here
 - [Worktrees](/git/worktrees/) — isolate a task's edits

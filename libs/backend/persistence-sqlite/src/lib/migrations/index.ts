@@ -68,6 +68,9 @@ import { sql as sql0039ReapOrphanedQueueRows } from './0039_reap_orphaned_queue_
 import { sql as sql0040SkillCandidateWorkspaceRoot } from './0040_skill_candidate_workspace_root';
 import { sql as sql0041SkillMdMigrationState } from './0041_skill_md_migration_state';
 import { sql as sql0042DbIntegrityCheckState } from './0042_db_integrity_check_state';
+import { sql as sql0043MemoryRetention } from './0043_memory_retention';
+import { sql as sql0044MemoryLifecycle } from './0044_memory_lifecycle';
+import { sql as sql0045SkillBacklogCleanup } from './0045_skill_backlog_cleanup';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -322,5 +325,20 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 42,
     name: '0042_db_integrity_check_state',
     sql: sql0042DbIntegrityCheckState,
+  },
+  {
+    version: 43,
+    name: '0043_memory_retention',
+    sql: sql0043MemoryRetention,
+  },
+  {
+    version: 44,
+    name: '0044_memory_lifecycle',
+    sql: sql0044MemoryLifecycle,
+  },
+  {
+    version: 45,
+    name: '0045_skill_backlog_cleanup',
+    sql: sql0045SkillBacklogCleanup,
   },
 ];

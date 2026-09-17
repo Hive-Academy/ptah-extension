@@ -27,6 +27,8 @@ export { JsonlReaderService } from './jsonl-reader.service';
 export type {
   JsonlReadOptions,
   JsonlTailOptions,
+  JsonlProjectionOptions,
+  JsonlProjectionResult,
 } from './jsonl-reader.service';
 export { AgentCorrelationService } from './agent-correlation.service';
 export { SessionReplayService } from './session-replay.service';

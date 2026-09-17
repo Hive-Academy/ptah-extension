@@ -43,6 +43,7 @@
  * proves the demotion with a SUBSTRING SCAN over production file text, and a
  * substring scan cannot tell code from a comment about code.
  */
+import type { QueryOrigin } from './internal-query.interface';
 import { inject, injectable } from 'tsyringe';
 import { z } from 'zod';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -143,12 +144,14 @@ export class SkillSynthesizerService {
   async synthesizeFromCluster(
     members: ClusterMemberInput[],
     settings: SkillSynthesisSettings,
+    origin: QueryOrigin = {},
   ): Promise<SynthesizedSkill | null> {
     void settings;
     if (members.length === 0) return null;
     const parsed = await this.runSynthesis(
       this.buildSystemPrompt(),
       this.buildClusterPrompt(members),
+      origin,
     );
     if (!parsed) {
       this.logger.info(
@@ -169,6 +172,7 @@ export class SkillSynthesizerService {
   private async runSynthesis(
     systemPromptAppend: string,
     prompt: string,
+    origin: QueryOrigin = {},
   ): Promise<SynthesizedSkill | null> {
     let result;
     try {
@@ -177,6 +181,7 @@ export class SkillSynthesizerService {
         systemPromptAppend,
         prompt,
         outputSchema: SYNTHESIZED_SKILL_JSON_SCHEMA,
+        userInitiated: origin.userInitiated,
       });
     } catch (error: unknown) {
       // degradation-audit: optional-capability - LLM synthesis is optional;

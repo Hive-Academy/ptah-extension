@@ -9,6 +9,22 @@
  * junction layer) rather than deleted.
  */
 export { SkillCandidateStore } from './lib/skill-candidate.store';
+export { SkillBacklogCleanupStore } from './lib/cleanup/skill-backlog-cleanup.store';
+export { SkillBacklogCleanupService } from './lib/cleanup/skill-backlog-cleanup.service';
+export {
+  SKILL_BACKLOG_CLEANUP_VERSION,
+  type BacklogCleanupCandidate,
+  type BacklogCleanupCounters,
+  type BacklogCleanupRejection,
+  type BacklogCleanupReport,
+  type BacklogCleanupRunCounters,
+  type BacklogCleanupRunOptions,
+  type BacklogCleanupRunReport,
+  type BacklogCleanupSkippedReport,
+  type BacklogCleanupSkipReason,
+  type BacklogCleanupState,
+  type BacklogCleanupStopReason,
+} from './lib/cleanup/skill-backlog-cleanup.types';
 export { SkillMdGenerator } from './lib/skill-md-generator';
 export {
   resolveSkillsRoot,
@@ -95,11 +111,17 @@ export {
   LANE_MAX_EXECUTIONS_PER_RUN,
   LANE_TOOL_USE_DEFAULT_MAX_TURNS,
   timeoutBackoffMs,
+  SKILL_SYNTHESIS_QUERY_LANE,
+  skillQueryLane,
   type LaneRunRequest,
   type LaneRun,
   type LaneRunResult,
   type LaneDegradedReason,
 } from './lib/lanes/lane-runner.service';
+export {
+  USER_ACTION_QUERY_LANE,
+  type QueryOrigin,
+} from './lib/internal-query.interface';
 export { registerSkillSynthesisServices } from './lib/di/register';
 export {
   migrateSkillMdFiles,
@@ -133,13 +155,6 @@ export {
   type JudgeDecision,
   type JudgeCriteria,
 } from './lib/skill-judge.service';
-export {
-  CandidateNamerService,
-  CANDIDATE_DISPLAY_NAME_MAX_CHARS,
-  CANDIDATE_NAMING_JSON_SCHEMA,
-  type CandidateNaming,
-  type CandidateNamingSource,
-} from './lib/naming/candidate-namer.service';
 export {
   SkillCuratorService,
   type CuratorReport,

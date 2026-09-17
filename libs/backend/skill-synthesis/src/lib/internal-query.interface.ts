@@ -21,6 +21,30 @@
  */
 import type { LaneAuthOverride } from './lanes/lane.types';
 
+/**
+ * The lane for work a user asked for from an RPC: its own per-lane slot, never
+ * governed. Mirrors agent-sdk's `USER_ACTION_QUERY_LANE`, which this library
+ * cannot import (see the header). A call made because a user clicked something
+ * passes this; a call this library makes on its own schedule passes
+ * `SKILL_SYNTHESIS_QUERY_LANE` (`lanes/lane-runner.service.ts`), which
+ * agent-sdk's `GOVERNED_BACKGROUND_LANES` lists.
+ */
+export const USER_ACTION_QUERY_LANE = 'user-action';
+
+/**
+ * Who asked for a unit of LLM work (TASK_2026_437 C14, Batch 16b).
+ *
+ * `userInitiated: true` means a person clicked something and is waiting: the
+ * call runs on {@link USER_ACTION_QUERY_LANE}, which the background-work
+ * governor never holds. ONLY an RPC handler sets it. Absent or `false` — every
+ * daemon, drain, trigger and schedule — keeps the governed background lane.
+ * The field name is identical in every library on these paths
+ * (`ICuratorLLM` in memory-contracts carries the same one).
+ */
+export interface QueryOrigin {
+  readonly userInitiated?: boolean;
+}
+
 export interface IInternalQuery {
   /**
    * Whether the host initialized its SDK at all. Optional, and absent means
@@ -71,11 +95,14 @@ export interface IInternalQuery {
      * calls from serialising into the memory curator's and back — nine such
      * waits on one boot (`tmp/logs/log.log:938 … 1424`), TASK_2026_352.
      *
-     * Optional in this mirror because it is optional on the concrete
-     * `InternalQueryConfig`; omitting it charges the call to the shared
-     * `'default'` bucket, which is the pre-existing behaviour.
+     * REQUIRED here although optional on the concrete `InternalQueryConfig`
+     * (TASK_2026_437 C14). An omitted lane lands on the ungoverned `'default'`
+     * bucket, so a background call that forgot it would not yield to a
+     * generating turn — and would take the wizard's and harness's one slot.
+     * Pass `SKILL_SYNTHESIS_QUERY_LANE` for background work and
+     * {@link USER_ACTION_QUERY_LANE} for a user action.
      */
-    lane?: string;
+    lane: string;
     abortController?: AbortController;
     /**
      * Per-call provider snapshot. MUST NOT be applied globally — the consumer
@@ -110,6 +137,16 @@ export interface IInternalQuery {
        */
       structured_output?: unknown;
       result?: string;
+      /**
+       * Network evidence, read by `QueryNetworkObserver` (TASK_2026_437 C14 f):
+       * `error` on an assistant or `system/api_retry` message, `error_status`
+       * on `api_retry` (`null` = no HTTP response), `is_error` and
+       * `api_error_status` on the result.
+       */
+      error?: unknown;
+      error_status?: number | null;
+      is_error?: boolean;
+      api_error_status?: number | null;
       /** Fed to `SkillBudgetStore`; absent on providers that report no usage. */
       usage?: { input_tokens?: number; output_tokens?: number };
       total_cost_usd?: number;

@@ -7,7 +7,7 @@ description: A cheap, fast lane writes the code; a stronger lane from a differen
 
 Crucible puts one task through a **deliberately unequal loop**. A cheap, fast lane — the **executor** — writes the code. A stronger lane from a **different vendor family** — the **judge** — reads it, scores it against a rubric you wrote before the run started, and hands back numbered defects. The executor revises. Repeat until the judge returns `PASS`, the executor stops improving, or the round cap runs out.
 
-Every other Tribunal move treats its lanes as peers answering the same prompt. Crucible does the opposite on purpose: the asymmetry is what makes the economics work. A cheap model gets a well-specified task roughly 80% right, and a strong reviewer can close the rest in two rounds — for a fraction of what running the strong model end to end would cost.
+Council, Forge, and Race compare peers. Crucible assigns different responsibilities to the executor and judge, with a fixed rubric and a bounded revision loop.
 
 :::caution[Crucible changes files]
 The executor writes code in place on your active branch. The judge never writes product code — it may write its report and nothing else. Nothing is committed without you seeing the diff.
@@ -25,14 +25,14 @@ The executor writes code in place on your active branch. The judge never writes 
 - **You want competing designs.** Crucible converges on one implementation. For several independent attempts, use [Forge](/tribunal/forge/) or [Race](/tribunal/race/).
 - **The task is small enough for one good lane.** A single-call change does not repay the cost of a judge, and the loop's overhead is real.
 
-## Crucible vs. the other moves
+## Crucible vs. other workflows
 
-|                | Council / Forge / Race      | [Relay](/tribunal/relay/)      | Crucible                                 |
+|                | Council / Forge / Race      | [Relay orchestration](/tribunal/relay/) | Crucible                                 |
 | -------------- | --------------------------- | ------------------------------ | ---------------------------------------- |
 | **Lane roles** | Peers, same prompt          | One phase each, sequential     | Executor vs. judge — unequal on purpose  |
 | **Shape**      | Parallel panel              | Linear pipeline, one pass      | A loop, until PASS or the cap            |
 | **Signal**     | Disagreement between equals | Specialization plus one review | Convergence under an independent bar     |
-| **Ends when**  | The verdict is synthesized  | The review phase is written    | PASS, the cap, a REJECT, or a regression |
+| **Ends when**  | The verdict is synthesized  | Review and project checks pass    | PASS, the cap, a REJECT, or a regression |
 
 ## How it runs
 
@@ -62,7 +62,7 @@ Two rules make the judge's output worth paying for:
 
 ### Step 4 — Revise, up to the cap
 
-On `REVISE` the executor is resumed with the defect list and the mentor note verbatim, plus an instruction to fix those defects and refactor nothing else.
+On `REVISE`, the executor receives the defect list and mentor note verbatim, with instructions to fix only those defects. It resumes only if `ptah_agent_status` reported a **CLI Session ID**; otherwise, it is spawned fresh with the prior work and context restated.
 
 The loop is bounded three ways, and all three matter:
 
@@ -94,7 +94,7 @@ Crucible cannot run with fewer than two independent vendor families — there is
 :::
 
 :::tip[The tribunal skill]
-Crucible and [Relay](/tribunal/relay/) are the two **role** moves, and their protocol lives in the `tribunal` skill that ships with the `ptah-core` plugin. If that skill is not installed, the wizard flags it — both moves still launch, and the conductor will ask for the protocol it needs, but they run best with the skill present.
+Crucible's protocol lives in `tribunal`, which requires `agent-lanes` for lane mechanics and `orchestration` for task-folder rules. Enable all three skills from `ptah-core`. If a dependency is unavailable, the conductor asks you to enable the named skill before running Crucible. [Relay](/tribunal/relay/) uses orchestration's lane-assignment pipeline and is still launched from this panel.
 :::
 
 ## Invoking from chat

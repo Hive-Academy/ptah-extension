@@ -17,7 +17,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import type { AuthEnv } from '@ptah-extension/shared';
+import type { AgentRoleDefinition, AuthEnv } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
@@ -30,6 +30,8 @@ import {
   CompactionConfigProvider,
   assembleSystemPrompt,
   getActiveProviderId,
+  resolveAutoCompactControl,
+  type AutoCompactSettings,
   type HookEvent,
   type HookCallbackMatcher,
   type McpHttpServerConfig,
@@ -42,6 +44,7 @@ import {
 } from '@ptah-extension/output-styles';
 import { blankToUndefined } from './ptah-cli-registry.utils';
 import { ptahMcpServerUrl } from '../../cli-agents/cli-adapters/ptah-mcp-url';
+import { renderRoleBlock } from '../../cli-agents/cli-adapters/cli-adapter.utils';
 
 /**
  * Assembled spawn options returned by assembleSpawnOptions()
@@ -52,9 +55,11 @@ export interface PtahSpawnAssembly {
   readonly systemPromptContent: string | undefined;
   readonly mcpServers: Record<string, McpHttpServerConfig>;
   readonly hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined;
-  readonly compactionControl:
-    | { enabled: boolean; contextTokenThreshold: number }
-    | undefined;
+  /**
+   * Flag-tier auto-compaction keys from `resolveAutoCompactControl`, merged by
+   * the caller through `buildFlagSettings`. `{}` when Ptah has no opinion.
+   */
+  readonly autoCompact: AutoCompactSettings;
   /**
    * Output-style name for the FLAG tier (TASK_2026_197), or `undefined` when
    * no style is active.
@@ -134,6 +139,11 @@ export class PtahCliSpawnOptions {
    * @param sessionContext - The parent session id (for subagent registration)
    *   and this agent's own session id (for compaction). See
    *   {@link PtahSpawnSessionContext} — they are not interchangeable.
+   * @param agentId - The Ptah agent id this spawn was reserved under
+   *   (TASK_2026_402). NOT a session id: it names the tracked agent record and
+   *   rides the MCP URL as `/agent/{id}`, which is how the MCP server learns
+   *   which spawned agent is calling `ptah_agent_report`. Absent yields the
+   *   pre-existing workspace-only URL and an unattributed caller.
    * @returns Assembled spawn options
    */
   async assembleSpawnOptions(
@@ -142,6 +152,8 @@ export class PtahCliSpawnOptions {
     projectGuidance?: string,
     resolvedModel?: string,
     sessionContext?: PtahSpawnSessionContext,
+    agentId?: string,
+    role?: AgentRoleDefinition,
   ): Promise<PtahSpawnAssembly> {
     const mcpPort = this.resolveMcpPort();
     const mcpServerRunning = mcpPort !== undefined;
@@ -165,6 +177,7 @@ export class PtahCliSpawnOptions {
         projectGuidance
           ? `\n\n## Project Guidance\n${projectGuidance}`
           : undefined,
+        role ? renderRoleBlock(role, 'ptah-cli') : undefined,
       ]
         .filter(Boolean)
         .join('\n\n') || undefined;
@@ -173,8 +186,9 @@ export class PtahCliSpawnOptions {
           ptah: {
             type: 'http' as const,
             // Scoped to the spawn's cwd so the server attributes this agent's
-            // calls to the right workspace (TASK_2026_364).
-            url: ptahMcpServerUrl(mcpPort, cwd),
+            // calls to the right workspace (TASK_2026_364), and to the agent
+            // id so it attributes them to the right agent (TASK_2026_402).
+            url: ptahMcpServerUrl(mcpPort, cwd, agentId),
           },
         }
       : {};
@@ -219,12 +233,12 @@ export class PtahCliSpawnOptions {
       }
     }
     const compactionConfig = this.compactionConfigProvider?.getConfig();
-    const compactionControl = compactionConfig?.enabled
-      ? {
-          enabled: true,
-          contextTokenThreshold: compactionConfig.contextTokenThreshold,
-        }
-      : undefined;
+    const autoCompact: AutoCompactSettings = compactionConfig
+      ? resolveAutoCompactControl({
+          enabled: compactionConfig.enabled,
+          windowTokens: compactionConfig.contextTokenThreshold ?? null,
+        })
+      : {};
 
     this.logger.info('[PtahCliSpawnOptions] Assembled spawn options', {
       cwd,
@@ -232,11 +246,13 @@ export class PtahCliSpawnOptions {
       mcpEnabled: Object.keys(mcpServers).length > 0,
       hasEnhancedPrompts: !!enhancedPromptsContent,
       hasHooks: !!hooks,
-      compactionEnabled: compactionConfig?.enabled ?? false,
+      compactionEnabled: compactionConfig?.enabled ?? true,
+      autoCompact,
       hasIdentityPrompt: !!activeProviderId,
       outputStyleName: outputStyle.outputStyleName ?? null,
       parentSessionId: parentSessionId ?? null,
       ownSessionId: ownSessionId ?? null,
+      role: role?.name ?? null,
     });
 
     return {
@@ -244,7 +260,7 @@ export class PtahCliSpawnOptions {
       systemPromptContent: fullSystemPromptContent,
       mcpServers,
       hooks,
-      compactionControl,
+      autoCompact,
       outputStyleName: outputStyle.outputStyleName,
     };
   }

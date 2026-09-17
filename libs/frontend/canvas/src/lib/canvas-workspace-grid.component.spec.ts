@@ -3,9 +3,9 @@
  *
  * Gridstack is replaced by a hand-rolled stub faithful on the three points this
  * component depends on: `dragstop`/`resizestop` fire BEFORE `change`
- * (gridstack.js:2635 vs :2639), `batchUpdate(false)` itself emits `change`
- * (gridstack.js:730-739), and `engine.nodes` carries the full post-gesture node
- * set rather than only the dirty ones (gridstack.js:1686).
+ * (gridstack.js:2635 vs :2639), `load()` closes its internal batch and emits
+ * `change` (gridstack.js:621-709), and `engine.nodes` carries the full
+ * post-gesture node set rather than only the dirty ones (gridstack.js:1686).
  */
 
 import {
@@ -52,7 +52,10 @@ jest.mock('gridstack/dist/angular', () => {
   class GridstackStub {
     @Input() options: unknown = null;
     @Output() changeCB = new EventEmitter<unknown>();
+    @Output() dragStartCB = new EventEmitter<unknown>();
+    @Output() dragCB = new EventEmitter<unknown>();
     @Output() dragStopCB = new EventEmitter<unknown>();
+    @Output() resizeStartCB = new EventEmitter<unknown>();
     @Output() resizeStopCB = new EventEmitter<unknown>();
     grid: unknown = null;
   }
@@ -80,8 +83,10 @@ import { By } from '@angular/platform-browser';
 import { CanvasWorkspaceGridComponent } from './canvas-workspace-grid.component';
 import { CanvasTileComponent } from './canvas-tile.component';
 import { CanvasStore } from './canvas.store';
-import { CanvasLayoutService } from './canvas-layout.service';
+import { CanvasLayoutService, MIN_TILE_WIDTH } from './canvas-layout.service';
 import { TabManagerService } from '@ptah-extension/chat';
+import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
+import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 
 const WORKSPACE = '/ws/a';
 /** Container width that derives 3 columns (3 * (480 + 8) - 8). */
@@ -101,10 +106,14 @@ interface FakeNode {
 interface FakeGrid {
   readonly engine: { nodes: FakeNode[] };
   readonly cellHeight: jest.Mock;
+  readonly getCellHeight: jest.Mock;
   readonly setStatic: jest.Mock;
   readonly onResize: jest.Mock;
   readonly update: jest.Mock;
+  readonly load: jest.Mock;
   readonly batchUpdate: jest.Mock;
+  readonly movable: jest.Mock;
+  readonly resizable: jest.Mock;
   /** Wired by the test to fire the component's `(changeCB)` binding. */
   emitChange: () => void;
   seed(nodes: Array<Omit<FakeNode, 'el'>>): void;
@@ -124,6 +133,7 @@ function createFakeGrid(): FakeGrid {
   const grid: FakeGrid = {
     engine,
     cellHeight: jest.fn(),
+    getCellHeight: jest.fn(() => 120),
     setStatic: jest.fn(),
     onResize: jest.fn(),
     update: jest.fn(
@@ -135,16 +145,41 @@ function createFakeGrid(): FakeGrid {
         if (node) Object.assign(node, opts);
       },
     ),
+    load: jest.fn(
+      (
+        items: Array<{
+          id: string;
+          x: number;
+          y: number;
+          w: number;
+          h: number;
+        }>,
+        _addRemove: boolean,
+      ) => {
+        grid.batchUpdate(true);
+        for (const item of items) {
+          const node = engine.nodes.find((candidate) => candidate.id === item.id);
+          if (node) Object.assign(node, item);
+        }
+        grid.batchUpdate(false);
+      },
+    ),
     batchUpdate: jest.fn((flag: boolean) => {
       if (flag === false) grid.emitChange();
     }),
+    movable: jest.fn(),
+    resizable: jest.fn(),
     emitChange: () => {
       /* no-op until wired */
     },
     seed(nodes) {
       engine.nodes.length = 0;
       for (const node of nodes) {
-        engine.nodes.push({ ...node, el: document.createElement('div') });
+        const complete = { ...node, el: document.createElement('div') };
+        (
+          complete.el as HTMLElement & { gridstackNode?: FakeNode }
+        ).gridstackNode = complete;
+        engine.nodes.push(complete);
       }
     },
   };
@@ -162,11 +197,15 @@ describe('CanvasWorkspaceGridComponent', () => {
   let store: CanvasStore;
   let layoutService: CanvasLayoutService;
   let reorderSpy: jest.SpyInstance;
-  let weightsSpy: jest.SpyInstance;
+  let resizeSpanSpy: jest.SpyInstance;
   let fixture: ReturnType<
     typeof TestBed.createComponent<CanvasWorkspaceGridComponent>
   >;
   let grid: FakeGrid;
+  /** Writable `tabs` signal behind the tab-manager fake, seeded by `mount`. */
+  let tabsSignal: ReturnType<
+    typeof signal<Array<{ id: string; viewMode?: 'compact' | 'full'; title?: string }>>
+  >;
 
   const flush = (): void => {
     TestBed.inject(ApplicationRef).tick();
@@ -186,7 +225,10 @@ describe('CanvasWorkspaceGridComponent', () => {
     options: unknown;
     changeCB: EventEmitter<unknown>;
     dragStopCB: EventEmitter<unknown>;
+    dragStartCB: EventEmitter<unknown>;
+    dragCB: EventEmitter<unknown>;
     resizeStopCB: EventEmitter<unknown>;
+    resizeStartCB: EventEmitter<unknown>;
   } => fixture.debugElement.query(By.css('gridstack')).componentInstance;
 
   beforeEach(() => {
@@ -194,6 +236,8 @@ describe('CanvasWorkspaceGridComponent', () => {
     originalResizeObserver = globalThis.ResizeObserver;
     originalRaf = globalThis.requestAnimationFrame;
     originalCancelRaf = globalThis.cancelAnimationFrame;
+
+    tabsSignal = signal<Array<{ id: string; viewMode?: 'compact' | 'full'; title?: string }>>([]);
 
     globalThis.ResizeObserver = class {
       constructor(cb: ObserverCallback) {
@@ -218,7 +262,7 @@ describe('CanvasWorkspaceGridComponent', () => {
     }) as typeof cancelAnimationFrame;
 
     const tabManagerMock = {
-      tabs: signal([]),
+      tabs: tabsSignal,
       activeTabId: signal<string | null>(null),
       activeWorkspacePath$: signal<string | null>(WORKSPACE),
       switchTab: jest.fn(),
@@ -233,6 +277,20 @@ describe('CanvasWorkspaceGridComponent', () => {
       providers: [
         CanvasStore,
         CanvasLayoutService,
+        CanvasRenderMetricsService,
+        {
+          provide: CanvasLayoutPersistenceService,
+          useValue: {
+            load: jest.fn(() => ({
+              tiles: null,
+              writable: true,
+              needsWrite: false,
+            })),
+            markHydrated: jest.fn(),
+            schedule: jest.fn(),
+            remove: jest.fn(),
+          },
+        },
         { provide: TabManagerService, useValue: tabManagerMock },
       ],
     });
@@ -244,8 +302,8 @@ describe('CanvasWorkspaceGridComponent', () => {
     store = TestBed.inject(CanvasStore);
     layoutService = TestBed.inject(CanvasLayoutService);
     layoutService.observe(document.createElement('div'));
-    reorderSpy = jest.spyOn(store, 'reorderTiles');
-    weightsSpy = jest.spyOn(store, 'setTileWeights');
+    reorderSpy = jest.spyOn(store, 'commitDragIntent');
+    resizeSpanSpy = jest.spyOn(store, 'commitResizeSpan');
   });
 
   afterEach(() => {
@@ -260,6 +318,7 @@ describe('CanvasWorkspaceGridComponent', () => {
     tabIds: readonly string[],
     options: { locked?: boolean; width?: number } = {},
   ): void {
+    tabsSignal.set(tabIds.map((id) => ({ id })));
     store.switchWorkspaceTiles(
       WORKSPACE,
       tabIds.map((id) => ({ id, claudeSessionId: null, name: id })),
@@ -289,11 +348,55 @@ describe('CanvasWorkspaceGridComponent', () => {
     }
   }
 
-  const fireDragStop = (): void =>
-    gridStub().dragStopCB.emit({ event: new Event('dragstop') });
+  const fireDragStop = (nodeIndex = 0): void => {
+    gridStub().dragStartCB.emit({
+      event: new Event('dragstart'),
+      el: grid.engine.nodes[nodeIndex].el,
+    });
+    gridStub().dragStopCB.emit({
+      event: new Event('dragstop'),
+      el: grid.engine.nodes[nodeIndex].el,
+    });
+  };
 
-  const fireResizeStop = (): void =>
-    gridStub().resizeStopCB.emit({ event: new Event('resizestop') });
+  const fireResizeStop = (): void => {
+    gridStub().resizeStartCB.emit({
+      event: new Event('resizestart'),
+      el: grid.engine.nodes[0].el,
+    });
+    gridStub().resizeStopCB.emit({
+      event: new Event('resizestop'),
+      el: grid.engine.nodes[0].el,
+    });
+  };
+
+  const engineGeometry = (): Array<
+    [
+      unknown,
+      number | undefined,
+      number | undefined,
+      number | undefined,
+      number | undefined,
+    ]
+  > =>
+    grid.engine.nodes.map((node) => [node.id, node.x, node.y, node.w, node.h]);
+
+  /** Flip one mounted tab's view mode and settle the reactive graph. */
+  const setViewMode = (
+    tabId: string,
+    viewMode: 'compact' | 'full' | undefined,
+  ): void => {
+    tabsSignal.set(
+      tabsSignal().map((tab) => (tab.id === tabId ? { ...tab, viewMode } : tab)),
+    );
+    flush();
+  };
+
+  /** Store every tile's span as a named third — engine geometry stays 4 wide. */
+  const setAllSpansToThirds = (tabIds: readonly string[]): void => {
+    for (const id of tabIds) store.setTileSpan(WORKSPACE, id, 'third');
+    flush();
+  };
 
   describe('grid options', () => {
     it('runs with gravity on, horizontal-only resize and a header drag handle', () => {
@@ -324,7 +427,7 @@ describe('CanvasWorkspaceGridComponent', () => {
 
     it('skips a node whose tabId has no derived entry instead of zeroing it', () => {
       mount(['t1']);
-      grid.update.mockClear();
+      grid.load.mockClear();
 
       grid.engine.nodes.push({
         id: 'ghost',
@@ -342,22 +445,331 @@ describe('CanvasWorkspaceGridComponent', () => {
     });
   });
 
+  describe('view-mode tiers', () => {
+    it('ignores unrelated tab-state writes that keep the constraints equal', () => {
+      mount(['t1', 't2']);
+      grid.load.mockClear();
+      grid.batchUpdate.mockClear();
+
+      // A streaming/title write re-evaluates the constraints computed but the
+      // structural equal() keeps the value — no layout work may follow.
+      tabsSignal.set(
+        tabsSignal().map((tab) => ({ ...tab, title: 'unrelated update' })),
+      );
+      flush();
+      flush();
+
+      expect(grid.load).not.toHaveBeenCalled();
+      expect(grid.batchUpdate).not.toHaveBeenCalled();
+    });
+
+    it('reflows only the compact tile and its dependent neighbour on toggle', () => {
+      mount(['t1', 't2', 't3', 't4']);
+      setAllSpansToThirds(['t1', 't2', 't3', 't4']);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 6],
+        ['t3', 8, 0, 4, 6],
+        ['t4', 0, 6, 4, 6],
+      ]);
+      const intentBefore = store.tiles().map((tile) => ({ ...tile }));
+      const revision = store.workspaceRevision(WORKSPACE);
+      grid.load.mockClear();
+      grid.cellHeight.mockClear();
+
+      setViewMode('t2', 'compact');
+
+      expect(grid.load).toHaveBeenCalledTimes(1);
+      expect(grid.load).toHaveBeenLastCalledWith(
+        [
+          { id: 't1', x: 0, y: 0, w: 4, h: 6 },
+          { id: 't2', x: 4, y: 0, w: 4, h: 2 },
+          { id: 't3', x: 8, y: 0, w: 4, h: 6 },
+          { id: 't4', x: 4, y: 2, w: 4, h: 6 },
+        ],
+        false,
+      );
+      expect(grid.cellHeight).toHaveBeenCalled();
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 2],
+        ['t3', 8, 0, 4, 6],
+        ['t4', 4, 2, 4, 6],
+      ]);
+      expect(store.tiles().map((tile) => ({ ...tile }))).toEqual(intentBefore);
+      expect(store.workspaceRevision(WORKSPACE)).toBe(revision);
+
+      setViewMode('t2', undefined);
+
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 6],
+        ['t3', 8, 0, 4, 6],
+        ['t4', 0, 6, 4, 6],
+      ]);
+      expect(store.tiles().map((tile) => ({ ...tile }))).toEqual(intentBefore);
+      expect(store.workspaceRevision(WORKSPACE)).toBe(revision);
+    });
+
+    it('keeps a compact node movable but not resizable, in options and on the engine', () => {
+      mount(['t1', 't2', 't3']);
+      grid.movable.mockClear();
+      grid.resizable.mockClear();
+      setViewMode('t2', 'compact');
+
+      const nodeOf = (id: string) => {
+        const node = grid.engine.nodes.find((candidate) => candidate.id === id);
+        if (!node) throw new Error(`Missing fake Gridstack node: ${id}`);
+        return node;
+      };
+      expect(grid.movable).toHaveBeenCalledWith(nodeOf('t2').el, true);
+      expect(grid.resizable).toHaveBeenCalledWith(nodeOf('t2').el, false);
+      expect(grid.resizable).toHaveBeenCalledWith(nodeOf('t1').el, true);
+
+      const items = (
+        fixture.componentInstance as unknown as {
+          items: () => Array<{
+            tabId: string;
+            options: { noMove?: boolean; noResize?: boolean };
+          }>;
+        }
+      ).items();
+      expect(items.find((item) => item.tabId === 't2')?.options.noResize)
+        .toBe(true);
+      expect(items.find((item) => item.tabId === 't1')?.options.noResize)
+        .toBe(false);
+
+      // A stale compact resize handle event is refused before it can latch.
+      gridStub().resizeStartCB.emit({
+        event: new Event('resizestart'),
+        el: nodeOf('t2').el,
+      });
+      expect(
+        (fixture.componentInstance as unknown as { _gesture: unknown })
+          ._gesture,
+      ).toBeNull();
+      const metrics = TestBed.inject(CanvasRenderMetricsService);
+      expect(metrics.snapshot().rejectedGestures).toBeGreaterThan(0);
+    });
+
+    it('cancels an in-flight gesture when a participating tab changes tier', () => {
+      mount(['t1', 't2', 't3']);
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      Object.assign(grid.engine.nodes[0], { x: 6, y: 6, w: 4 });
+      expect(
+        (fixture.componentInstance as unknown as { _gesture: unknown })
+          ._gesture,
+      ).not.toBeNull();
+
+      setViewMode('t2', 'compact');
+
+      expect(
+        (fixture.componentInstance as unknown as { _gesture: unknown })
+          ._gesture,
+      ).toBeNull();
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: grid.engine.nodes[0].el,
+      });
+      grid.emitChange();
+
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 2],
+        ['t3', 8, 0, 4, 6],
+      ]);
+    });
+  });
+
   describe('gesture translation', () => {
+    it('commits an explicit 2+1 break and restores it after narrow reflow', () => {
+      mount(['t1', 't2', 't3']);
+      grid.engine.nodes[0].x = 0;
+      grid.engine.nodes[1].x = 6;
+      grid.engine.nodes[2].x = 0;
+      grid.engine.nodes[2].y = 6;
+      fireDragStop(2);
+      grid.emitChange();
+      flush();
+
+      expect(store.tiles().map((tile) => tile.rowBreakBefore)).toEqual([
+        false,
+        false,
+        true,
+      ]);
+      measure(MIN_TILE_WIDTH);
+      flush();
+      expect(grid.engine.nodes.map((node) => node.y)).toEqual([0, 6, 12]);
+      measure(THREE_COLUMN_WIDTH);
+      flush();
+      expect(grid.engine.nodes.map((node) => node.y)).toEqual([0, 0, 6]);
+    });
+
+    it('rejects a gesture whose workspace revision changes before commit', () => {
+      mount(['t1', 't2']);
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      Object.assign(grid.engine.nodes[0], { x: 7, y: 6, w: 5 });
+      store.adoptTab('t3');
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: grid.engine.nodes[0].el,
+      });
+      grid.emitChange();
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(store.tiles().map((tile) => tile.tabId)).toEqual([
+        't1',
+        't2',
+        't3',
+      ]);
+      // Reconcile only nodes that still exist in the engine. The newly adopted
+      // t3 is not resurrected through Gridstack from an incomplete observation.
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 6],
+      ]);
+    });
+
+    it('cancels a gesture when the grid hides before its change event', () => {
+      mount(['t1', 't2']);
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      Object.assign(grid.engine.nodes[0], { x: 6, y: 6, w: 6 });
+      fixture.componentRef.setInput('visible', false);
+      flush();
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+      ]);
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: grid.engine.nodes[0].el,
+      });
+      grid.emitChange();
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(store.tiles().map((tile) => tile.rowBreakBefore)).toEqual([
+        false,
+        false,
+      ]);
+    });
+
+    it('cancels a gesture when responsive capacity changes', () => {
+      mount(['t1', 't2', 't3']);
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      Object.assign(grid.engine.nodes[0], { x: 9, y: 12, w: 3 });
+      measure(TWO_COLUMN_WIDTH);
+      flush();
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+        ['t3', 0, 6, 12, 6],
+      ]);
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: grid.engine.nodes[0].el,
+      });
+      grid.emitChange();
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(store.tiles().map((tile) => tile.rowBreakBefore)).toEqual([
+        false,
+        false,
+        false,
+      ]);
+    });
+
+    it('cancels and settles a gesture when the canvas locks', () => {
+      mount(['t1', 't2']);
+      const intent = store.tiles().map((tile) => ({ ...tile }));
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      Object.assign(grid.engine.nodes[0], { x: 6, y: 6, w: 6 });
+
+      fixture.componentRef.setInput('locked', true);
+      flush();
+
+      expect(store.tiles().map((tile) => ({ ...tile }))).toEqual(intent);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+      ]);
+      expect(reorderSpy).not.toHaveBeenCalled();
+    });
+
+    it('an accepted no-op restores complete engine geometry without changing intent', () => {
+      mount(['t1', 't2']);
+      const revision = store.workspaceRevision(WORKSPACE);
+      const intent = store.tiles().map((tile) => ({ ...tile }));
+      Object.assign(grid.engine.nodes[0], { x: 1, y: 0, w: 5 });
+      Object.assign(grid.engine.nodes[1], { x: 7, y: 0, w: 5 });
+      fireDragStop();
+      grid.emitChange();
+      expect(store.workspaceRevision(WORKSPACE)).toBe(revision);
+      expect(store.tiles().map((tile) => ({ ...tile }))).toEqual(intent);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+      ]);
+    });
+
+    it('cancels a stopped gesture with no change and restores engine geometry', async () => {
+      mount(['t1', 't2']);
+      const intent = store.tiles().map((tile) => ({ ...tile }));
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      Object.assign(grid.engine.nodes[0], { x: 6, y: 6, w: 6 });
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: grid.engine.nodes[0].el,
+      });
+
+      await Promise.resolve();
+
+      expect(store.tiles().map((tile) => ({ ...tile }))).toEqual(intent);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+      ]);
+    });
+
     it('a finished drag reorders by (y, x) and never touches weights', () => {
       mount(['t1', 't2', 't3']);
       reorderSpy.mockClear();
-      weightsSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       // Post-push engine state: t3 dragged to the front, the rest shifted right.
       grid.engine.nodes[0].x = 4;
       grid.engine.nodes[1].x = 8;
       grid.engine.nodes[2].x = 0;
 
-      fireDragStop();
+      fireDragStop(2);
       grid.emitChange();
 
-      expect(reorderSpy).toHaveBeenCalledWith(['t3', 't1', 't2']);
-      expect(weightsSpy).not.toHaveBeenCalled();
+      expect(reorderSpy).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Number),
+        expect.arrayContaining([
+          expect.objectContaining({ tabId: 't3', order: 0 }),
+          expect.objectContaining({ tabId: 't1', order: 1 }),
+          expect.objectContaining({ tabId: 't2', order: 2 }),
+        ]),
+      );
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
       expect(store.tiles().map((t) => t.tabId)).toEqual(['t3', 't1', 't2']);
     });
 
@@ -368,20 +780,28 @@ describe('CanvasWorkspaceGridComponent', () => {
       grid.engine.nodes[0].y = 6;
       grid.engine.nodes[0].x = 0;
       grid.engine.nodes[1].y = 0;
-      grid.engine.nodes[1].x = 6;
+      grid.engine.nodes[1].x = 0;
       grid.engine.nodes[2].y = 0;
-      grid.engine.nodes[2].x = 0;
+      grid.engine.nodes[2].x = 6;
 
       fireDragStop();
       grid.emitChange();
 
-      expect(reorderSpy).toHaveBeenCalledWith(['t3', 't2', 't1']);
+      expect(reorderSpy).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Number),
+        expect.arrayContaining([
+          expect.objectContaining({ tabId: 't2', order: 0 }),
+          expect.objectContaining({ tabId: 't3', order: 1 }),
+          expect.objectContaining({ tabId: 't1', order: 2 }),
+        ]),
+      );
     });
 
-    it('a finished resize writes widths as weights and never touches order', () => {
+    it('a finished resize snaps only the dragged tile and never touches order', () => {
       mount(['t1', 't2', 't3']);
       reorderSpy.mockClear();
-      weightsSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       grid.engine.nodes[0].w = 5;
       grid.engine.nodes[1].w = 4;
@@ -390,15 +810,32 @@ describe('CanvasWorkspaceGridComponent', () => {
       fireResizeStop();
       grid.emitChange();
 
-      expect(weightsSpy).toHaveBeenCalledWith(
-        new Map([
-          ['t1', 5],
-          ['t2', 4],
-          ['t3', 3],
-        ]),
+      expect(resizeSpanSpy).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Number),
+        't1',
+        'half',
       );
       expect(reorderSpy).not.toHaveBeenCalled();
-      expect(store.tiles().map((t) => t.weight)).toEqual([5, 4, 3]);
+      expect(store.tiles().map((t) => t.width)).toEqual([
+        { kind: 'span', span: 'half' },
+        { kind: 'auto', weight: 1 },
+        { kind: 'auto', weight: 1 },
+      ]);
+    });
+
+    it('preserves a stored third when its capacity-two width ends at six units', () => {
+      mount(['t1', 't2'], { width: TWO_COLUMN_WIDTH });
+      store.setTileSpan(WORKSPACE, 't1', 'third');
+      flush();
+      resizeSpanSpy.mockClear();
+
+      grid.engine.nodes[0].w = 6;
+      fireResizeStop();
+      grid.emitChange();
+
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+      expect(store.tiles()[0].width).toEqual({ kind: 'span', span: 'third' });
     });
 
     it('re-derives the resized widths unchanged — no snap-back', () => {
@@ -412,21 +849,21 @@ describe('CanvasWorkspaceGridComponent', () => {
       flush();
 
       expect(grid.engine.nodes.map((n) => [n.id, n.x, n.w])).toEqual([
-        ['t1', 0, 5],
-        ['t2', 5, 4],
-        ['t3', 9, 3],
+        ['t1', 0, 6],
+        ['t2', 6, 6],
+        ['t3', 0, 12],
       ]);
     });
 
     it('ignores a change with no latched gesture', () => {
       mount(['t1', 't2']);
       reorderSpy.mockClear();
-      weightsSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       grid.emitChange();
 
       expect(reorderSpy).not.toHaveBeenCalled();
-      expect(weightsSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
     });
 
     it('does not reuse a latch across two changes', () => {
@@ -440,9 +877,10 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(reorderSpy).not.toHaveBeenCalled();
     });
 
-    it('skips nodes with a non-string id', () => {
+    it('rejects the complete gesture when a node has a non-string id', () => {
       mount(['t1', 't2']);
       reorderSpy.mockClear();
+      Object.assign(grid.engine.nodes[0], { x: 4, y: 6, w: 5 });
       grid.engine.nodes.push({
         id: 42,
         x: 8,
@@ -455,38 +893,38 @@ describe('CanvasWorkspaceGridComponent', () => {
       fireDragStop();
       grid.emitChange();
 
-      expect(reorderSpy).toHaveBeenCalledWith(['t1', 't2']);
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+        [42, 8, 0, 4, 6],
+      ]);
     });
   });
 
   describe('manual intent survives a container resize', () => {
-    it('keeps order and weight byte-identical while columns change', () => {
+    it('keeps intent byte-identical and performs zero store writes while columns change', () => {
       mount(['t1', 't2', 't3'], { width: THREE_COLUMN_WIDTH });
-
-      grid.engine.nodes[0].w = 6;
-      grid.engine.nodes[1].w = 4;
-      grid.engine.nodes[2].w = 2;
-      fireResizeStop();
-      grid.emitChange();
-      fireDragStop();
-      grid.engine.nodes[2].x = 0;
-      grid.engine.nodes[0].x = 2;
-      grid.engine.nodes[1].x = 8;
-      grid.emitChange();
-      flush();
-
       const before = store.tiles().map((t) => ({ ...t }));
-      expect(before.map((t) => t.tabId)).toEqual(['t3', 't1', 't2']);
+      reorderSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       measure(TWO_COLUMN_WIDTH);
       flush();
 
       expect(store.tiles().map((t) => ({ ...t }))).toEqual(before);
-      // Two columns now: the first row holds t3 and t1, t2 wraps below.
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
       expect(grid.engine.nodes.map((n) => [n.id, n.y])).toEqual([
         ['t1', 0],
-        ['t2', 6],
-        ['t3', 0],
+        ['t2', 0],
+        ['t3', 6],
+      ]);
+
+      measure(THREE_COLUMN_WIDTH);
+      flush();
+      expect(grid.engine.nodes.map((n) => [n.id, n.y, n.w])).toEqual([
+        ['t1', 0, 4], ['t2', 0, 4], ['t3', 0, 4],
       ]);
     });
   });
@@ -496,13 +934,13 @@ describe('CanvasWorkspaceGridComponent', () => {
       mount(['t1', 't2', 't3'], { locked: true });
 
       expect(grid.setStatic).toHaveBeenCalledWith(true);
-      grid.update.mockClear();
+      grid.load.mockClear();
       reorderSpy.mockClear();
-      weightsSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       measure(TWO_COLUMN_WIDTH);
       flush();
-      expect(grid.update).not.toHaveBeenCalled();
+      expect(grid.load).not.toHaveBeenCalled();
 
       fireDragStop();
       grid.emitChange();
@@ -510,17 +948,164 @@ describe('CanvasWorkspaceGridComponent', () => {
       grid.emitChange();
 
       expect(reorderSpy).not.toHaveBeenCalled();
-      expect(weightsSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+    });
+
+    it('applies view-driven geometry while locked but commits no store intent', () => {
+      // Spans must be stored before the lock: the store refuses span writes
+      // while locked, which is exactly the freeze under test.
+      mount(['t1', 't2', 't3', 't4']);
+      setAllSpansToThirds(['t1', 't2', 't3', 't4']);
+      fixture.componentRef.setInput('locked', true);
+      flush();
+      expect(grid.setStatic).toHaveBeenCalledWith(true);
+      const intentBefore = store.tiles().map((tile) => ({ ...tile }));
+      const revision = store.workspaceRevision(WORKSPACE);
+      grid.load.mockClear();
+      grid.setStatic.mockClear();
+      reorderSpy.mockClear();
+      resizeSpanSpy.mockClear();
+
+      setViewMode('t2', 'compact');
+
+      // The one locked application: tab-owned view geometry reflows.
+      expect(grid.load).toHaveBeenCalledTimes(1);
+      expect(grid.setStatic.mock.calls).toEqual([[false], [true]]);
+      const staticOffOrder = grid.setStatic.mock.invocationCallOrder[0];
+      const loadOrder = grid.load.mock.invocationCallOrder[0];
+      const staticOnOrder = grid.setStatic.mock.invocationCallOrder[1];
+      expect(staticOffOrder).toBeLessThan(loadOrder);
+      expect(loadOrder).toBeLessThan(staticOnOrder);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 2],
+        ['t3', 8, 0, 4, 6],
+        ['t4', 4, 2, 4, 6],
+      ]);
+      // The grid is restored to static and the store stays untouched.
+      expect(grid.setStatic).toHaveBeenLastCalledWith(true);
+      expect(store.tiles().map((tile) => ({ ...tile }))).toEqual(intentBefore);
+      expect(store.workspaceRevision(WORKSPACE)).toBe(revision);
+
+      fireDragStop();
+      grid.emitChange();
+      fireResizeStop();
+      grid.emitChange();
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+
+      // Returning to full restores the frozen arrangement.
+      setViewMode('t2', undefined);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 6],
+        ['t3', 8, 0, 4, 6],
+        ['t4', 0, 6, 4, 6],
+      ]);
+    });
+
+    it('keeps withheld responsive widths frozen during a locked view-mode reflow', () => {
+      mount(['t1', 't2', 't3'], { width: THREE_COLUMN_WIDTH });
+      fixture.componentRef.setInput('locked', true);
+      flush();
+      grid.load.mockClear();
+
+      measure(TWO_COLUMN_WIDTH);
+      flush();
+      expect(layoutService.columnsFor(layoutService.containerWidth())).toBe(2);
+      expect(grid.load).not.toHaveBeenCalled();
+
+      setViewMode('t2', 'compact');
+
+      expect(grid.load).toHaveBeenCalledTimes(1);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 2],
+        ['t3', 8, 0, 4, 6],
+      ]);
+    });
+  });
+
+  describe('layout focus', () => {
+    it('disables move and resize while focused and reapplies intent on exit', () => {
+      mount(['t1', 't2']);
+      store.toggleLayoutFocus(WORKSPACE, 't1');
+      flush();
+      const readItems = () => (
+        fixture.componentInstance as unknown as {
+          items: () => Array<{ options: { noMove?: boolean; noResize?: boolean } }>;
+        }
+      ).items();
+      expect(readItems().every((item) => item.options.noMove && item.options.noResize)).toBe(true);
+      reorderSpy.mockClear();
+      resizeSpanSpy.mockClear();
+      fireDragStop();
+      grid.emitChange();
+      fireResizeStop();
+      grid.emitChange();
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+
+      store.toggleLayoutFocus(WORKSPACE, 't1');
+      flush();
+      expect(readItems().every((item) => !item.options.noMove && !item.options.noResize)).toBe(true);
+      expect(grid.engine.nodes.map((node) => node.w)).toEqual([6, 6]);
     });
   });
 
   describe('feedback loop', () => {
-    it('drops the change its own apply pass provokes', () => {
+    it('counts actual layout recomputation separately from apply checks', () => {
       mount(['t1', 't2', 't3']);
-      // batchUpdate(false) fired changeCB during the apply above.
-      expect(grid.batchUpdate).toHaveBeenCalledWith(false);
+      const metrics = TestBed.inject(CanvasRenderMetricsService);
+      const before = metrics.snapshot();
+
+      flush();
+      flush();
+      expect(metrics.snapshot().layoutComputations).toBe(
+        before.layoutComputations,
+      );
+
+      measure(TWO_COLUMN_WIDTH);
+      flush();
+      expect(metrics.snapshot().layoutComputations).toBeGreaterThan(
+        before.layoutComputations,
+      );
+      expect(metrics.snapshot().applyChecks).toBeGreaterThan(
+        before.applyChecks,
+      );
+    });
+
+    it('repeating identical geometry issues zero loads and no feedback', () => {
+      mount(['t1', 't2', 't3']);
+      grid.load.mockClear();
+      grid.batchUpdate.mockClear();
+      flush();
+      expect(grid.load).not.toHaveBeenCalled();
+      expect(grid.batchUpdate).not.toHaveBeenCalled();
       expect(reorderSpy).not.toHaveBeenCalled();
-      expect(weightsSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+    });
+
+    it('loads one complete authoritative snapshot in one guarded batch', () => {
+      mount(['t1', 't2', 't3']);
+      grid.load.mockClear();
+      grid.batchUpdate.mockClear();
+      Object.assign(grid.engine.nodes[0], { x: 0, y: 0, w: 6 });
+      Object.assign(grid.engine.nodes[1], { x: 6, y: 0, w: 6 });
+      Object.assign(grid.engine.nodes[2], { x: 1, y: 6, w: 12 });
+      measure(TWO_COLUMN_WIDTH - 1);
+      flush();
+      expect(grid.load).toHaveBeenCalledTimes(1);
+      expect(grid.load).toHaveBeenLastCalledWith(
+        [
+          { id: 't1', x: 0, y: 0, w: 6, h: 6 },
+          { id: 't2', x: 6, y: 0, w: 6, h: 6 },
+          { id: 't3', x: 0, y: 6, w: 12, h: 6 },
+        ],
+        false,
+      );
+      expect(grid.batchUpdate.mock.calls).toEqual([[true], [false]]);
+      expect(reorderSpy).not.toHaveBeenCalled();
     });
 
     it('settles a single gesture after exactly one apply pass', () => {
@@ -546,7 +1131,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       fixture.componentRef.setInput('visible', false);
       flush();
       reorderSpy.mockClear();
-      weightsSpy.mockClear();
+      resizeSpanSpy.mockClear();
 
       grid.onResize.mockImplementation(() => grid.emitChange());
       fixture.componentRef.setInput('visible', true);
@@ -554,7 +1139,124 @@ describe('CanvasWorkspaceGridComponent', () => {
 
       expect(grid.onResize).toHaveBeenCalled();
       expect(reorderSpy).not.toHaveBeenCalled();
-      expect(weightsSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('singleton session and 1->2->1 keep-alive', () => {
+    it('sets noMove and noResize on singleton items and applies singleton class', () => {
+      mount(['tab-1']);
+      const items = (
+        fixture.componentInstance as unknown as {
+          items: () => Array<{
+            tabId: string;
+            options: { noMove?: boolean; noResize?: boolean };
+          }>;
+        }
+      ).items();
+      expect(items).toHaveLength(1);
+      expect(items[0].options.noMove).toBe(true);
+      expect(items[0].options.noResize).toBe(true);
+
+      const gridstackEl = fixture.debugElement.query(By.css('gridstack'));
+      expect(gridstackEl.nativeElement.classList).toContain('singleton');
+    });
+
+    it('expands a full singleton but keeps a compact singleton at two units', () => {
+      mount(['tab-1']);
+      const gridstackEl = fixture.debugElement.query(By.css('gridstack'));
+      expect(gridstackEl.nativeElement.classList).toContain('singleton');
+      expect(gridstackEl.nativeElement.classList).toContain('singleton-expanded');
+      expect(grid.engine.nodes[0]).toMatchObject({ w: 12, h: 6 });
+
+      setViewMode('tab-1', 'compact');
+
+      expect(gridstackEl.nativeElement.classList).toContain('singleton');
+      expect(gridstackEl.nativeElement.classList).not.toContain('singleton-expanded');
+      expect(grid.engine.nodes[0]).toMatchObject({ x: 0, y: 0, w: 4, h: 2 });
+      expect(
+        gridstackEl.nativeElement.style.getPropertyValue(
+          '--ptah-compact-singleton-height',
+        ),
+      ).toMatch(/^\d+px$/);
+    });
+
+    it('freezes compact singleton height while locked and follows height when unlocked', () => {
+      mount(['tab-1']);
+      setViewMode('tab-1', 'compact');
+      const gridstackEl = fixture.debugElement.query(By.css('gridstack'));
+      const compactHeight = (): string =>
+        gridstackEl.nativeElement.style.getPropertyValue(
+          '--ptah-compact-singleton-height',
+        );
+      const lockedHeight = compactHeight();
+
+      fixture.componentRef.setInput('locked', true);
+      flush();
+      measure(THREE_COLUMN_WIDTH, 600);
+      flush();
+
+      expect(compactHeight()).toBe(lockedHeight);
+
+      fixture.componentRef.setInput('locked', false);
+      flush();
+
+      expect(compactHeight()).toBe('194px');
+      expect(compactHeight()).not.toBe(lockedHeight);
+    });
+
+    it('suppresses gestures on a singleton session', () => {
+      mount(['tab-1']);
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      // onGestureStart aborts early when isSingleton is true
+      expect(
+        (fixture.componentInstance as unknown as { _gesture: unknown })
+          ._gesture,
+      ).toBeNull();
+    });
+
+    it('preserves tile identity and creation options across 1 -> 2 -> 1 tile transitions', () => {
+      mount(['tab-1']);
+      const itemsFn = (
+        fixture.componentInstance as unknown as {
+          items: () => Array<{
+            tabId: string;
+            options: { noMove?: boolean; noResize?: boolean };
+          }>;
+        }
+      ).items;
+      const initialOptions = itemsFn()[0].options;
+      expect(initialOptions.noMove).toBe(true);
+      expect(initialOptions.noResize).toBe(true);
+
+      // 1 -> 2: Add second tile
+      store.adoptTab('tab-2');
+      flush();
+
+      const items2 = itemsFn();
+      expect(items2).toHaveLength(2);
+      expect(items2[0].options).toBe(initialOptions); // Same object reference preserved (keep-alive)
+      expect(items2[0].options.noMove).toBe(false);
+      expect(items2[0].options.noResize).toBe(false);
+      expect(items2[1].options.noMove).toBe(false);
+      expect(items2[1].options.noResize).toBe(false);
+
+      const gridstackEl = fixture.debugElement.query(By.css('gridstack'));
+      expect(gridstackEl.nativeElement.classList).not.toContain('singleton');
+
+      // 2 -> 1: Remove second tile
+      store.removeTileOnly('tab-2');
+      flush();
+
+      const items1Again = itemsFn();
+      expect(items1Again).toHaveLength(1);
+      expect(items1Again[0].options).toBe(initialOptions); // Still same reference
+      expect(items1Again[0].options.noMove).toBe(true);
+      expect(items1Again[0].options.noResize).toBe(true);
+      expect(gridstackEl.nativeElement.classList).toContain('singleton');
     });
   });
 });
@@ -575,6 +1277,14 @@ class CanvasTileStub {
   @Input() tabId = '';
   @Input() focused = false;
   @Input() visible = true;
+  @Input() widthIntent: unknown;
+  @Input() rowBreakBefore = false;
+  @Input() firstInOrder = false;
+  @Input() layoutFocused = false;
+  @Input() layoutLocked = false;
   @Output() focusRequested = new EventEmitter<string>();
   @Output() closeRequested = new EventEmitter<string>();
+  @Output() spanRequested = new EventEmitter<string>();
+  @Output() layoutFocusToggled = new EventEmitter<void>();
+  @Output() rowBreakToggled = new EventEmitter<void>();
 }

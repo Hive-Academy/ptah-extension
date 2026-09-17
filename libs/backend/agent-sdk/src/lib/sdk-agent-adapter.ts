@@ -672,9 +672,30 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const currentCliJsPath = this.runtimeState.getCliJsPath();
     const effectiveCliJsPath = providerProfile?.cliJsPath ?? currentCliJsPath;
     const effectiveAuthEnv = providerProfile?.authEnv;
-    const sessionConfigWithProfileModel: typeof config = providerProfile
-      ? { ...config, model: providerProfile.model }
-      : config;
+    // Metadata/registry naming and the SDK title are deliberately separate:
+    // providing Options.title disables the SDK's automatic title generation.
+    const callerSuppliedSessionName = config.sessionName?.trim()
+      ? config.sessionName
+      : config.name?.trim()
+        ? config.name
+        : undefined;
+    const callerSuppliedSessionTitle = config.sessionTitle?.trim()
+      ? config.sessionTitle
+      : config.name?.trim()
+        ? config.name
+        : undefined;
+    const resolvedSessionName =
+      callerSuppliedSessionName ?? `Session ${new Date().toLocaleDateString()}`;
+    const { sessionTitle: _ignoredSessionTitle, ...configWithoutSessionTitle } =
+      config;
+    const sessionConfigWithProfileModel: typeof config = {
+      ...configWithoutSessionTitle,
+      ...(providerProfile ? { model: providerProfile.model } : {}),
+      sessionName: resolvedSessionName,
+      ...(callerSuppliedSessionTitle
+        ? { sessionTitle: callerSuppliedSessionTitle }
+        : {}),
+    };
 
     this.logger.info(
       `[SdkAgentAdapter] Starting NEW chat session for tab: ${tabId}`,
@@ -709,7 +730,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const resolvedProjectPath = config?.projectPath || os.homedir();
     const sessionIdCallback = this.createSessionIdCallback(
       resolvedProjectPath,
-      config?.name || `Session ${new Date().toLocaleDateString()}`,
+      resolvedSessionName,
       config?.tabId,
     );
 
@@ -784,13 +805,42 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const effectiveCliJsPath =
       providerProfile?.cliJsPath ?? this.runtimeState.getCliJsPath();
     const effectiveAuthEnv = providerProfile?.authEnv;
-    const sessionConfigWithProfileModel = providerProfile
-      ? { ...config, model: providerProfile.model }
-      : config;
+    // The resume caller does not carry the session's name — `resumeSession`'s
+    // config has no name field and no call site sets one — so without this read
+    // every RESUMED session would register as `ptah-<ws>-chat-<suffix>` and a
+    // peer browsing the registry would see `chat` for all of them. That is the
+    // common case, not the edge one: most sessions a user returns to are
+    // resumed. The stored metadata already holds the name, so this is a read,
+    // not a new source of truth.
+    //
+    // It reaches the TITLE surface only. The registry `--name` is fixed when
+    // the process spawns, and a resume spawns a new process, so the name does
+    // travel — but `Options.title` is a no-op on resume by SDK contract
+    // (`sdk.d.ts:1871-1877`: the persisted title wins), which is correct here
+    // because the persisted title is the same name.
+    let resumedName: string | undefined;
+    try {
+      resumedName = (await this.metadataStore.get(sessionId))?.name;
+    } catch (error: unknown) {
+      // A naming problem must never cost a session (Requirement 2, criterion
+      // 3). Fall through to the `chat` role.
+      this.logger.warn(
+        '[SdkAgentAdapter] Could not read the stored session name for resume — ' +
+          'the session resumes with the default role in its registry name',
+        { sessionId, error: error instanceof Error ? error.message : error },
+      );
+    }
+    const resolvedSessionName = config?.sessionName ?? resumedName;
+    const sessionConfigWithProfileModel = {
+      ...config,
+      ...(providerProfile ? { model: providerProfile.model } : {}),
+      ...(resolvedSessionName ? { sessionName: resolvedSessionName } : {}),
+    } as typeof config;
 
     this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
       mcpServerRunning,
       providerId: providerProfile?.providerId,
+      hasSessionName: !!resolvedSessionName,
     });
 
     const { sdkQuery, initialModel, activityWatchdog } =
@@ -960,6 +1010,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
       content,
       options?.files,
       options?.images as { data: string; mediaType: string }[] | undefined,
+      // Forwarded verbatim. The factory defaults an absent origin to
+      // `{ kind: 'human' }`, so an interactive turn is unaffected.
+      { origin: options?.origin },
     );
   }
 

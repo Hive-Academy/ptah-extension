@@ -180,6 +180,27 @@ describe('SessionReplayService', () => {
     ]);
   });
 
+  it('suppresses user messages flagged as isSynthetic', () => {
+    // Regression (PR #493 review A): JsonlReaderService used to drop the
+    // isSynthetic flag during conversion, so these records reached replay.
+    const messages: SessionHistoryMessage[] = [
+      {
+        type: 'user',
+        isSynthetic: true,
+        timestamp: '2026-01-01T00:00:00.000Z',
+        uuid: 'u-synthetic',
+        message: { role: 'user', content: 'synthetic cue' },
+      } as SessionHistoryMessage,
+      u({ role: 'user', content: 'real user message' }),
+    ];
+    const out = service.replayToStreamEvents('s', messages, []);
+    expect(eventTypes(out)).toEqual([
+      'message_start',
+      'text_delta',
+      'message_complete',
+    ]);
+  });
+
   it('suppresses user messages starting with <task-notification>', () => {
     const messages: SessionHistoryMessage[] = [
       u({

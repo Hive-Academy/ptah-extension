@@ -99,6 +99,17 @@ export interface MessageStartEvent extends FlatStreamEvent {
   readonly parentToolUseId?: string; // For sub-agent messages
   /** Number of inline images in this user message (set during history replay) */
   readonly imageCount?: number;
+  /**
+   * Set when this user turn was injected from OUTSIDE the session — another
+   * agent session sending a message in, rather than the person at the tab
+   * typing. Absent for every ordinary turn, so no existing producer or
+   * consumer changes.
+   *
+   * `label` is display text and nothing else. It comes from the sender's
+   * self-reported NAME, which any same-user process can choose, so it must
+   * never be treated as an identity or used to authorize anything.
+   */
+  readonly inboundPeer?: { readonly label: string };
 }
 
 /**

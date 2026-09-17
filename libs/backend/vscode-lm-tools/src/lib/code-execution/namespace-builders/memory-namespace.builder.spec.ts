@@ -16,6 +16,7 @@
 import type {
   IMemoryReader,
   IMemoryLister,
+  IMemoryUsageRecorder,
   MemoryHit,
   MemoryRecord,
 } from '@ptah-extension/memory-contracts';
@@ -59,6 +60,9 @@ function makeDeps(
 ): MemoryNamespaceDependencies {
   return {
     getMemorySearch: overrides.getMemorySearch ?? (() => undefined),
+    getMemoryUsageRecorder:
+      overrides.getMemoryUsageRecorder ?? (() => undefined),
+    logger: overrides.logger,
     getMemoryStore: overrides.getMemoryStore ?? (() => undefined),
     getMemoryWriter: overrides.getMemoryWriter ?? (() => undefined),
     getWorkspaceRoot: overrides.getWorkspaceRoot ?? (() => 'D:/ws'),
@@ -103,6 +107,52 @@ describe('buildMemoryNamespace — shape', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildMemoryNamespace — search (global default)', () => {
+  it('records exactly the memory ids returned by search', async () => {
+    const usage: IMemoryUsageRecorder = { recordUse: jest.fn() };
+    const reader = makeReader([
+      makeHit({ memoryId: 'mem-a' }),
+      makeHit({ memoryId: 'mem-b' }),
+    ]);
+    const ns = buildMemoryNamespace(
+      makeDeps({
+        getMemorySearch: () => reader,
+        getMemoryUsageRecorder: () => usage,
+      }),
+    );
+
+    await ns.search('TypeScript');
+
+    expect(usage.recordUse).toHaveBeenCalledTimes(1);
+    expect(usage.recordUse).toHaveBeenCalledWith(['mem-a', 'mem-b']);
+  });
+
+  it('returns the search result unchanged when the usage recorder throws', async () => {
+    const hits = [makeHit({ memoryId: 'mem-a' })];
+    const logger = { warn: jest.fn() };
+    const usage: IMemoryUsageRecorder = {
+      recordUse: jest.fn(() => {
+        throw new Error('recorder unavailable');
+      }),
+    };
+    const ns = buildMemoryNamespace(
+      makeDeps({
+        getMemorySearch: () => makeReader(hits),
+        getMemoryUsageRecorder: () => usage,
+        logger,
+      }),
+    );
+
+    const result = await ns.search('TypeScript');
+
+    expect(result.hits).toEqual(hits);
+    expect('error' in result).toBe(false);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'ptah.memory.search use recording failed',
+      { error: 'recorder unavailable' },
+    );
+  });
+
   it('plain search(query) → reader called with workspaceRoot=undefined, scope=global', async () => {
     const reader = makeReader([makeHit()]);
     const ns = buildMemoryNamespace(
@@ -139,17 +189,22 @@ describe('buildMemoryNamespace — search (global default)', () => {
   });
 
   it('returns error envelope when reader throws', async () => {
+    const usage: IMemoryUsageRecorder = { recordUse: jest.fn() };
     const reader: IMemoryReader = {
       search: jest.fn().mockRejectedValue(new Error('DB locked')),
     };
     const ns = buildMemoryNamespace(
-      makeDeps({ getMemorySearch: () => reader }),
+      makeDeps({
+        getMemorySearch: () => reader,
+        getMemoryUsageRecorder: () => usage,
+      }),
     );
 
     const result = await ns.search('TypeScript');
 
     expect(result.hits).toEqual([]);
     expect('error' in result && result.error).toBe('DB locked');
+    expect(usage.recordUse).not.toHaveBeenCalled();
   });
 
   it('returns hits array from reader on success', async () => {
@@ -275,6 +330,20 @@ describe('buildMemoryNamespace — search (workspace scope options)', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildMemoryNamespace — list', () => {
+  it('does not record listed memories as used', async () => {
+    const usage: IMemoryUsageRecorder = { recordUse: jest.fn() };
+    const ns = buildMemoryNamespace(
+      makeDeps({
+        getMemoryStore: () => makeLister([makeRecord()]),
+        getMemoryUsageRecorder: () => usage,
+      }),
+    );
+
+    await ns.list();
+
+    expect(usage.recordUse).not.toHaveBeenCalled();
+  });
+
   it('delegates to lister with correct args', async () => {
     const lister = makeLister([makeRecord()]);
     const ns = buildMemoryNamespace(makeDeps({ getMemoryStore: () => lister }));

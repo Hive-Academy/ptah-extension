@@ -79,6 +79,10 @@ export class SystemMessageTransformer {
 
     helpers.subagentRegistry.pruneSession(resolvedSessionId);
     helpers.usageTracker.clearSessionTokenSnapshot(resolvedSessionId);
+    helpers.compactionBoundaryRegistry.recordExpectedBoundary(
+      resolvedSessionId,
+      (sdkMessage as SDKMessage & { uuid?: string }).uuid,
+    );
 
     const compactionCompleteEvent: CompactionCompleteEvent = {
       id: generateEventId(),

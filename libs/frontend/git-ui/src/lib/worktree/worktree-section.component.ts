@@ -153,6 +153,7 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
                      hover:bg-base-content/10 transition-colors border-b border-base-content/5"
               [class.bg-primary/10]="isActiveWorktree(wt)"
               [title]="'Switch to ' + wt.path"
+              [attr.aria-label]="'Switch to ' + wt.path"
               (click)="onWorktreeSelect(wt)"
             >
               <lucide-angular

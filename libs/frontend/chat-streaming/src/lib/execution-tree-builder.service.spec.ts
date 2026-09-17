@@ -248,6 +248,8 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
   });
 
   it('rebuilds ONLY the message that received deltas — 1 000 of them', () => {
+    feed(messageStart('msg-first', 'assistant'));
+    feed(textDelta('msg-first', 0, 'earlier answer'));
     feed(messageStart('msg-user', 'user'));
     feed(textDelta('msg-user', 0, 'question'));
     feed(messageStart('msg-assistant', 'assistant'));
@@ -263,10 +265,97 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     const after = builder.buildTree(state, 'k');
 
     expect(spy.mock.calls.map((call) => call[0])).toEqual(['msg-assistant']);
-    // The untouched user message keeps its exact node object, so OnPush skips it.
+    // The untouched earlier answer keeps its exact node object, so OnPush skips it.
     expect(after[0]).toBe(before[0]);
     expect(after[1]).not.toBe(before[1]);
     expect(after[1].children[0].content).toHaveLength(1001);
+  });
+
+  it('splits the merged assistant root at a mid-turn prompt boundary', () => {
+    feed(messageStart('msg-a1', 'assistant'));
+    feed(textDelta('msg-a1', 0, 'before'));
+    feed(messageStart('msg-a2', 'assistant'));
+    feed(textDelta('msg-a2', 0, 'still before'));
+    expect(builder.buildTree(state, 'k')).toHaveLength(1);
+
+    accumulator.recordUserPromptBoundary(state, {
+      ...messageStart('user-bubble', 'user'),
+      id: 'user-bubble',
+    });
+    expect(state.currentMessageId).toBe('msg-a2');
+
+    feed(messageStart('msg-a3', 'assistant'));
+    feed(textDelta('msg-a3', 0, 'after'));
+    const tree = builder.buildTree(state, 'k');
+
+    // The boundary ends the merge but is not itself a root: the prompt renders
+    // from `messages`, never as a (mislabelled) assistant bubble.
+    expect(tree.map((node) => node.id)).toEqual([
+      'evt-start-msg-a1',
+      'evt-start-msg-a3',
+    ]);
+    expect(tree[0].children.map((c) => c.content)).toEqual([
+      'before',
+      'still before',
+    ]);
+    expect(tree[1].children.map((c) => c.content)).toEqual(['after']);
+  });
+
+  it('splits once when the SDK echo of the prompt joins the boundary', () => {
+    feed(messageStart('msg-a1', 'assistant'));
+    feed(textDelta('msg-a1', 0, 'before'));
+    accumulator.recordUserPromptBoundary(state, {
+      ...messageStart('user-bubble', 'user'),
+      id: 'user-bubble',
+    });
+    // The SDK replays the prompt under its OWN uuid, with its text.
+    feed(messageStart('sdk-user-uuid', 'user'));
+    feed(textDelta('sdk-user-uuid', 0, 'follow-up'));
+    feed(messageStart('msg-a2', 'assistant'));
+    feed(textDelta('msg-a2', 0, 'after'));
+
+    const tree = builder.buildTree(state, 'k');
+
+    expect(tree.map((node) => node.id)).toEqual([
+      'evt-start-msg-a1',
+      'evt-start-msg-a2',
+    ]);
+    expect(tree[0].children.map((c) => c.content)).toEqual(['before']);
+    expect(tree[1].children.map((c) => c.content)).toEqual(['after']);
+  });
+
+  it('merges the turn back together once the boundary is removed', () => {
+    feed(messageStart('msg-a1', 'assistant'));
+    feed(textDelta('msg-a1', 0, 'before'));
+    accumulator.recordUserPromptBoundary(state, {
+      ...messageStart('user-bubble', 'user'),
+      id: 'user-bubble',
+    });
+    feed(messageStart('msg-a2', 'assistant'));
+    feed(textDelta('msg-a2', 0, 'after'));
+    expect(builder.buildTree(state, 'k')).toHaveLength(2);
+    const revision = state.structuralRevision;
+
+    expect(accumulator.removeUserPromptBoundary(state, 'user-bubble')).toBe(
+      true,
+    );
+
+    expect(state.structuralRevision).toBe((revision ?? 0) + 1);
+    expect(state.messageEventIds).not.toContain('user-bubble');
+    expect(state.events.has('user-bubble')).toBe(false);
+    expect(state.eventsByMessage.has('user-bubble')).toBe(false);
+    const tree = builder.buildTree(state, 'k');
+    expect(tree).toHaveLength(1);
+    expect(tree[0].children.map((c) => c.content)).toEqual(['before', 'after']);
+  });
+
+  it('never removes an SDK message through removeUserPromptBoundary', () => {
+    feed(messageStart('sdk-user-uuid', 'user'));
+
+    expect(accumulator.removeUserPromptBoundary(state, 'sdk-user-uuid')).toBe(
+      false,
+    );
+    expect(state.messageEventIds).toContain('sdk-user-uuid');
   });
 
   it('keeps completed tool nodes identical while sibling text streams', () => {
@@ -415,11 +504,13 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
       .spyOn(console, 'warn')
       .mockImplementation(() => undefined);
     try {
-      // Enough messages to push the maps past the prune floor.
+      // Enough messages to push the maps past the prune floor. Each answer is
+      // followed by a user turn so it stays its own root instead of merging.
       for (let i = 0; i < 400; i++) {
         const messageId = `msg-${i}`;
-        feed(messageStart(messageId, 'user'));
-        feed(textDelta(messageId, 0, `q${i}`));
+        feed(messageStart(messageId, 'assistant'));
+        feed(textDelta(messageId, 0, `a${i}`));
+        feed(messageStart(`user-${i}`, 'user'));
       }
       builder.buildTree(state, 'k');
       const pruned = builder.buildTree(state, 'k');
@@ -451,6 +542,10 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
       feed(toolResult('msg-a', toolCallId));
     }
 
+    // Seed the cache outside the measurement. The first build constructs the
+    // whole tree from cold code; it is not one of the incremental rebuilds this
+    // benchmark compares with a full events sweep.
+    builder.buildTree(state, 'k');
     const startedAt = performance.now();
     let lastTree: ExecutionNode[] = [];
     let rebuilds = 0;
@@ -492,15 +587,11 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     // rebuild for this input, before the JSON.stringify fingerprint pass on
     // top. Measured here: ~1 sweep per rebuild.
     //
-    // The ceiling is 8 rather than the measured ~1 because the two sides are
-    // not measured under the same conditions and cannot be. `rebuildMs` sums
-    // the rebuilds from the FIRST one — cold code, small events map, JIT still
-    // collecting types — while `medianSweepMs` samples a sweep that the same
-    // loop has already run a hundred times, so the denominator is always the
-    // warmest number in the test. On a loaded CI runner that gap widens: this
-    // assertion failed at a ratio of 4.5 on a 3-way-parallel Jest run that
-    // measured 1.1 locally. Nothing between 4 and 8 is a regression anyone
-    // could act on, and the shape the assertion exists to exclude is 50×.
+    // The initial full build is deliberately untimed above, so `rebuildMs`
+    // contains only incremental rebuilds from an already populated cache. The
+    // sweep still runs after the loop and is therefore somewhat warmer; the
+    // ceiling remains 8 rather than the measured ~1–2 to absorb that residual
+    // JIT/load gap. The old regression is ~50×, so it remains well separated.
     const sweepMs = medianSweepMs(state);
     expect(rebuildMs).toBeLessThan(sweepMs * rebuilds * 8);
   });
@@ -831,12 +922,130 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
       feed(textDelta('msg-live', 0, 'and now'));
       const resumed = expectEquivalent();
 
-      // Two roots, not three: the live assistant message merges into the
-      // replayed assistant turn, which is the same merge the live path does.
-      expect(resumed).toHaveLength(2);
+      // One root: the replayed user prompt is not tree output, and the live
+      // assistant message merges into the replayed assistant turn, which is
+      // the same merge the live path does.
+      expect(resumed).toHaveLength(1);
       expect(countByType(resumed, 'tool')).toBe(1);
       expect(findByType(resumed, 'tool')?.status).toBe('complete');
-      expect(resumed[1].children.map((c) => c.content)).toContain('and now');
+      expect(resumed[0].children.map((c) => c.content)).toContain('and now');
+    });
+
+    it('agrees with a full rebuild when a resumed tab swaps in a fresh StreamingState under the same cache key', () => {
+      feed(messageStart('msg-a', 'assistant'));
+      feed(textDelta('msg-a', 0, 'hello'));
+
+      const before = expectEquivalent();
+      expect(findByType(before, 'text')?.content).toBe('hello');
+
+      // `applyResumingSession` installs a brand-new `createEmptyStreamingState()`
+      // onto a tab that KEEPS its id, and the cache key is `tab-${tabId}` — so
+      // the entry built from the previous object is still there, while every
+      // counter feeding the reuse decision has restarted at 1.
+      //
+      // This replay lands on exactly the numbers the cached entry recorded: the
+      // same single root in the same order, the same per-message revision and
+      // bucket length (two events), and an unchanged epoch (`textAccumulators`
+      // folds its SIZE, and there is still one key). Only the CONTENT differs —
+      // which nothing in the fold can see — so a content-only reuse key hands
+      // back the previous object's tree and the card renders the session the
+      // user just navigated away from (TASK_2026_336).
+      state = createEmptyStreamingState();
+      feed(messageStart('msg-a', 'assistant'));
+      feed(textDelta('msg-a', 0, 'world'));
+
+      const after = expectEquivalent();
+      expect(findByType(after, 'text')?.content).toBe('world');
+    });
+  });
+
+  /**
+   * THE PER-NODE REUSE KEY (TASK_2026_337).
+   *
+   * `fingerprintNode` decides whether a rebuilt node may be swapped for the
+   * previous build's object. A field it does not fold is a field that can move
+   * while the node keeps rendering the old value — so what it folds, and what
+   * it deliberately does not, is a contract rather than an implementation
+   * detail. Exercised directly because no builder in this repo populates
+   * `summaryContent` / `toolCount` on a node today: they arrive on persisted
+   * and restored trees, which is precisely why "today's producers move them
+   * alongside cost" is not an invariant worth relying on.
+   */
+  describe('fingerprintNode — what the per-node reuse key folds', () => {
+    /** The private production reuse key, reached the way the oracle reaches it. */
+    const fingerprintOf = (node: ExecutionNode): number => {
+      const service = builder as unknown as {
+        fingerprintNode?: (
+          node: ExecutionNode,
+          fingerprintsById: ReadonlyMap<string, number>,
+        ) => number;
+      };
+      if (typeof service.fingerprintNode !== 'function') {
+        throw new Error(
+          'ExecutionTreeBuilderService.fingerprintNode is gone — this spec has ' +
+            'lost its coupling to the production reuse key and must be rewired.',
+        );
+      }
+      return service.fingerprintNode.call(builder, node, new Map());
+    };
+
+    const agentCard = (overrides: Partial<ExecutionNode> = {}): ExecutionNode =>
+      ({
+        id: 'agent:toolu_1',
+        type: 'agent',
+        status: 'streaming',
+        content: 'dig around',
+        agentType: 'general-purpose',
+        agentDescription: 'dig around',
+        toolCallId: 'toolu_1',
+        agentId: 'agent-1',
+        children: [],
+        isCollapsed: false,
+        ...overrides,
+      }) as ExecutionNode;
+
+    it('separates two cards that differ only in summaryContent', () => {
+      // The agent file watcher appends to `agentSummaryAccumulators`, keyed by
+      // agentId — it moves no cost, no duration and no token total.
+      expect(fingerprintOf(agentCard({ summaryContent: undefined }))).not.toBe(
+        fingerprintOf(agentCard({ summaryContent: 'reading the router' })),
+      );
+      expect(
+        fingerprintOf(agentCard({ summaryContent: 'reading the router' })),
+      ).not.toBe(
+        fingerprintOf(agentCard({ summaryContent: 'reading the builder' })),
+      );
+    });
+
+    it('separates two cards that differ only in toolCount', () => {
+      expect(fingerprintOf(agentCard({ toolCount: undefined }))).not.toBe(
+        fingerprintOf(agentCard({ toolCount: 0 })),
+      );
+      expect(fingerprintOf(agentCard({ toolCount: 3 }))).not.toBe(
+        fingerprintOf(agentCard({ toolCount: 4 })),
+      );
+    });
+
+    it('keeps startTime / endTime OUT of the key, so a replay under the same id reuses its node', () => {
+      // Deliberate exclusion, not an oversight: a `complete` or `history` event
+      // supersedes a `stream` event under the same node id with a fresh
+      // timestamp on every replay. Folding either would invalidate node
+      // identity for the whole transcript and force the re-render the
+      // incremental rebuild exists to avoid.
+      expect(
+        fingerprintOf(agentCard({ startTime: 1_000, endTime: 2_000 })),
+      ).toBe(fingerprintOf(agentCard({ startTime: 9_000, endTime: 9_500 })));
+    });
+
+    it('keeps isCollapsed / isHighlighted OUT of the key — the renderers own them', () => {
+      // Every collapse control is a local signal on the component
+      // (`tool-call-item`, `message-bubble`, `inline-agent-bubble`,
+      // `thinking-block`); nothing reads either field off the node.
+      expect(
+        fingerprintOf(agentCard({ isCollapsed: false, isHighlighted: false })),
+      ).toBe(
+        fingerprintOf(agentCard({ isCollapsed: true, isHighlighted: true })),
+      );
     });
   });
 });

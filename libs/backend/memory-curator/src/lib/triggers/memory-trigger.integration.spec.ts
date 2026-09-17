@@ -41,6 +41,7 @@ function makeCurator(): MemoryCuratorService {
       created: 0,
       skipped: 0,
     }),
+    networkDeferralMs: jest.fn(() => 0),
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
@@ -138,7 +139,6 @@ function buildHarness(opts?: {
     flush: jest.fn(),
     drainForSession: jest.fn(() => []),
     markProcessed: jest.fn(),
-    purgeOlderThan: jest.fn(() => 0),
     countUnprocessed: jest.fn(() => 0),
   } as unknown as ObservationQueueStore;
   const transcriptReader = {

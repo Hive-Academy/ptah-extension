@@ -72,7 +72,7 @@ Imported sessions behave exactly like native Ptah sessions. Open one and click *
 
 ## Two-way sync?
 
-Auto-import is **one-way** (CLI → Ptah). Changes you make in Ptah are not written back to the CLI transcript file. If you need both tools to see the same ongoing session, use [CLI agent session resume](/agents/cli-agents/#session-resume) instead — that preserves a shared session ID both tools can rehydrate.
+Auto-import is **one-way** (CLI → Ptah). Changes you make in Ptah are not written back to the CLI transcript file. For a lane launched by Ptah, [CLI agent session resume](/agents/cli-agents/#session-resume) is available only when `ptah_agent_status` reports a **CLI Session ID**. Without one, spawn fresh with the context restated; an imported transcript alone does not establish resume support.
 
 ## Privacy
 

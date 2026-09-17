@@ -23,6 +23,8 @@ import {
   type EventLoopMonitorOptions,
 } from './event-loop-monitor';
 import { CpuProfileCapture } from './cpu-profile-capture';
+import type { MainLoopWatchdog } from './main-loop-watchdog';
+import type { BackgroundWorkGovernor } from './background-work-governor';
 
 export interface ArmDiagnosticsOptions extends EventLoopMonitorOptions {
   /** Container holding the vscode-core platform-agnostic registrations. */
@@ -82,12 +84,33 @@ export function armDiagnostics(
     ];
     if (onLag !== undefined) unsubscribers.push(monitor.onLag(onLag));
 
+    const disposeGovernor = attachGovernor(container, monitor, logger);
+    if (disposeGovernor !== null) unsubscribers.push(disposeGovernor);
+
     monitor.start(monitorOptions);
+
+    const watchdog =
+      logsPath !== undefined ? armWatchdog(container, logsPath, logger) : null;
+    if (watchdog !== null) {
+      // The last lag sample rides every heartbeat, so a hang line names the
+      // most recent measured stall that preceded it.
+      unsubscribers.push(
+        monitor.onLag((sample) => {
+          watchdog.setBreadcrumb(
+            'lastLag',
+            `max=${sample.maxMs}ms p99=${sample.p99Ms}ms at ${new Date().toISOString()}`,
+          );
+        }),
+      );
+    }
 
     return {
       dispose: () => {
         for (const unsubscribe of unsubscribers) unsubscribe();
         monitor.dispose();
+        // `dispose` never rejects; the worker's terminate is fire-and-forget
+        // inside a synchronous LIFO teardown chain.
+        if (watchdog !== null) void watchdog.dispose();
       },
       captureCpuProfile: (durationMs?: number) =>
         capture.captureFor(durationMs),
@@ -105,4 +128,65 @@ export function armDiagnostics(
         Promise.reject(new Error(`Diagnostics unavailable: ${reason}`)),
     };
   }
+}
+
+/**
+ * Feed the monitor's samples to the background-work governor, on its own
+ * failure boundary: a governor that cannot be resolved must not cost the host
+ * its lag monitor. Adopters then see an always-clear gate, which is the
+ * pre-governor behaviour.
+ *
+ * The handle's `dispose` is the host's shutdown path in all three hosts
+ * (Electron `shutdown.ts`, VS Code `deactivate`, CLI `disposeDiagnostics`), so
+ * disposing the governor here is what stops background work being admitted
+ * during quit. Governor `dispose` also detaches the lag source.
+ *
+ * @returns The governor's disposer, or `null` when it is unavailable.
+ */
+function attachGovernor(
+  container: DependencyContainer,
+  monitor: EventLoopMonitor,
+  logger: Logger,
+): (() => void) | null {
+  // Same shape as `armWatchdog`: the failure is logged, and the null result is
+  // the documented "no governor" answer rather than a swallowed error.
+  let dispose: (() => void) | null = null;
+  try {
+    const governor = container.resolve<BackgroundWorkGovernor>(
+      TOKENS.BACKGROUND_WORK_GOVERNOR,
+    );
+    governor.attachLagSource(monitor);
+    dispose = () => governor.dispose();
+  } catch (error: unknown) {
+    logger.warn('[diagnostics] background-work governor not attached', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return dispose;
+}
+
+/**
+ * Start the main-loop watchdog on its own failure boundary.
+ *
+ * The watchdog spawns a worker thread, which can fail where the lag monitor
+ * cannot (a host that forbids workers, resource exhaustion). That failure must
+ * not cost the host its lag monitor too, so it is caught here and logged
+ * rather than propagating into `armDiagnostics`' whole-handle fallback.
+ */
+function armWatchdog(
+  container: DependencyContainer,
+  logsPath: string,
+  logger: Logger,
+): MainLoopWatchdog | null {
+  let watchdog: MainLoopWatchdog | null = null;
+  try {
+    watchdog = container.resolve<MainLoopWatchdog>(TOKENS.MAIN_LOOP_WATCHDOG);
+    watchdog.start({ logsPath });
+  } catch (error: unknown) {
+    logger.warn('[diagnostics] main-loop watchdog not armed', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    watchdog = null;
+  }
+  return watchdog;
 }

@@ -15,9 +15,6 @@
  */
 
 import { injectable, inject, type DependencyContainer } from 'tsyringe';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
 import { TOKENS, RpcUserError } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -33,6 +30,7 @@ import {
   AgentContinueError,
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
+  PTAH_CLI_ROLE_DELIVERY,
   MIN_CONCURRENT_AGENTS,
   MAX_CONCURRENT_AGENTS,
 } from '@ptah-extension/cli-agent-runtime';
@@ -801,19 +799,10 @@ export class AgentRpcHandlers {
             'No Ptah CLI agents configured. Add one in Agent Orchestration settings.',
           );
         } else {
-          const cliSessionExists = await this.sessionFileExists(
-            params.cliSessionId,
-            workspaceRoot,
-          );
-          if (!cliSessionExists) {
-            this.logger.warn(
-              `[AgentRpc] CLI session file not found for ${params.cliSessionId} — starting fresh`,
-            );
-          }
           result = await this.agentProcessManager.spawn({
             cli: params.cli,
             task: params.task,
-            resumeSessionId: cliSessionExists ? params.cliSessionId : undefined,
+            resumeSessionId: params.cliSessionId,
             parentSessionId: params.parentSessionId,
             ptahCliId: params.ptahCliId,
             resumedFromAgentId: params.previousAgentId,
@@ -849,11 +838,12 @@ export class AgentRpcHandlers {
         .map((a) => ({
           cli: 'ptah-cli' as const,
           installed: true,
-          supportsSteer: false,
+          messagingMode: 'queue',
           ptahCliId: a.id,
           ptahCliName: a.name,
           providerName: a.providerName,
           providerId: a.providerId,
+          ...PTAH_CLI_ROLE_DELIVERY,
         }));
       return [...cliResults, ...ptahClis];
     } catch {
@@ -872,11 +862,6 @@ export class AgentRpcHandlers {
     },
     workspaceRoot: string,
   ): Promise<SpawnAgentResult> {
-    const sessionFileExists = await this.sessionFileExists(
-      params.cliSessionId,
-      workspaceRoot,
-    );
-
     // The parent session must reach BOTH halves of the resume. spawnAgent used
     // to be called without it while spawnFromSdkHandle below received it, so
     // the SDK-side agent ran with no parent: its nested subagents registered
@@ -887,21 +872,25 @@ export class AgentRpcHandlers {
       ? params.parentSessionId
       : undefined;
 
+    // ONE id, minted before the handle exists (TASK_2026_402). The handle
+    // carries the MCP URL the resumed agent calls back on, and
+    // `spawnFromSdkHandle` would otherwise mint the record's id AFTER that URL
+    // was baked in — so the URL would name no agent, and every
+    // `ptah_agent_report` from a RESUMED agent would be refused as an
+    // `unattributed-caller`. Same reservation `agent-namespace.builder.ts`
+    // makes on the fresh-spawn path.
+    const agentId = this.agentProcessManager.reserveAgentId();
+
     const spawnResult = await this.ptahCliRegistry.spawnAgent(
       params.ptahCliId,
       params.task,
       {
         workingDirectory: workspaceRoot,
-        resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
+        resumeSessionId: params.cliSessionId,
         parentSessionId,
+        agentId,
       },
     );
-
-    if (!sessionFileExists) {
-      this.logger.warn(
-        `[AgentRpc] Session file not found for ${params.cliSessionId} — starting fresh instead of resuming`,
-      );
-    }
 
     if ('status' in spawnResult) {
       throw new Error(`Ptah CLI agent resume failed: ${spawnResult.message}`);
@@ -909,12 +898,12 @@ export class AgentRpcHandlers {
 
     if (spawnResult.handle.onSessionResolved) {
       spawnResult.handle.onSessionResolved((sessionId: string) => {
-        const sessionName = `CLI Agent: ${spawnResult.agentName}`;
         this.sessionMetadataStore
-          .createChild(sessionId, workspaceRoot, sessionName)
-          .catch((err) =>
+          .createChild(sessionId, workspaceRoot, spawnResult.agentName)
+          .catch((err: unknown) =>
             this.logger.warn(
-              `[AgentRpc] Failed to save child session metadata: ${err}`,
+              '[AgentRpc] Failed to save child session metadata',
+              { error: err instanceof Error ? err.message : String(err) },
             ),
           );
       });
@@ -930,7 +919,8 @@ export class AgentRpcHandlers {
         ptahCliName: spawnResult.agentName,
         ptahCliId: params.ptahCliId,
         resumedFromAgentId: params.previousAgentId,
-        resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
+        resumeSessionId: params.cliSessionId,
+        agentId,
       },
     );
     spawnResult.setAgentId(result.agentId);
@@ -1065,40 +1055,5 @@ export class AgentRpcHandlers {
         }`,
       );
     }
-  }
-
-  /**
-   * Check if a Claude SDK JSONL session file exists on disk.
-   * Returns true if the file is found, false otherwise.
-   */
-  private async sessionFileExists(
-    sessionId: string,
-    workspacePath: string,
-  ): Promise<boolean> {
-    const projectsDir = path.join(os.homedir(), '.claude', 'projects');
-    const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
-    const dirs = await fs.readdir(projectsDir);
-
-    const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
-    const normalizedEscaped = normalize(escapedPath);
-    const matchedDir = dirs.find(
-      (d) =>
-        d === escapedPath ||
-        d.toLowerCase() === escapedPath.toLowerCase() ||
-        normalize(d) === normalizedEscaped,
-    );
-
-    if (matchedDir) {
-      const sessionFile = path.join(
-        projectsDir,
-        matchedDir,
-        `${sessionId}.jsonl`,
-      );
-
-      await fs.access(sessionFile);
-      return true;
-    }
-
-    return false;
   }
 }

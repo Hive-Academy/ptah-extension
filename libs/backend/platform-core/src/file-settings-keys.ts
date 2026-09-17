@@ -206,11 +206,8 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'browser.recordingDir',
   'workflows.disabled',
   'diff.renderSideBySide',
+  'editorLauncher.lastTarget',
   'memory.curatorEnabled',
-  'memory.tierLimits.core',
-  'memory.tierLimits.recall',
-  'memory.tierLimits.archival',
-  'memory.decayHalflifeDays',
   'memory.embeddingModel',
   'memory.curatorModel',
   'memory.curatorProvider',
@@ -230,12 +227,10 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // user-layer mirror was told a third root by its caller.
   'skillSynthesis.skillsRoot',
   'skillSynthesis.candidatesDir',
-  'skillSynthesis.eligibilityMinTurns',
   'skillSynthesis.evictionDecayRate',
   'skillSynthesis.generalizationContextThreshold',
   'skillSynthesis.dedupClusterThreshold',
   'skillSynthesis.prefilterMinEdits',
-  'skillSynthesis.prefilterMinChars',
   'skillSynthesis.prefilterMinToolUses',
   'skillSynthesis.judgeEnabled',
   'skillSynthesis.minJudgeScore',
@@ -330,6 +325,16 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // user turning memory off would see it redraw as off and the next trigger
   // would capture anyway.
   'memory.enabled',
+  // MemoryRetentionService (memory-curator). Defaults below must equal the
+  // `memory-retention-config.ts` fallbacks; pinned by memory-retention.service.spec.ts.
+  'memory.retention.enabled',
+  'memory.retention.processedDays',
+  'memory.retention.stuckDays',
+  'memory.retention.batchSize',
+  'memory.lifecycle.enabled',
+  'memory.lifecycle.archiveAfterDays',
+  'memory.lifecycle.deleteAfterDays',
+  'memory.lifecycle.maxPerWorkspace',
   'memory.triggers.preCompact',
   'memory.triggers.idleMs',
   'memory.triggers.turnThreshold',
@@ -357,12 +362,14 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // The one-shot concurrency gate that every internal caller shares —
   // memory-curator, skill-synthesis, cron, the harness LLM runner and the setup
   // wizard all queue on the same process-wide singleton (TASK_2026_323 B6).
-  // Both keys were read through `getConfiguration` from the day the gate
+  // The global and timeout keys were read through `getConfiguration` from the day the gate
   // shipped and registered NOWHERE — not here, not in the VS Code
   // `contributes.configuration` — so they hit this file's documented silent-drop
   // failure mode in the write direction on every host, and the gate stayed
   // pinned at its defaults with no way for a user to move it (TASK_2026_328).
+  // The per-lane key was also unregistered until TASK_2026_463.
   'internalQuery.maxConcurrent',
+  'internalQuery.maxConcurrentPerLane',
   'internalQuery.queueTimeoutMs',
   'cron.enabled',
   'cron.maxConcurrentJobs',
@@ -487,10 +494,6 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'workflows.disabled': false,
   'diff.renderSideBySide': true,
   'memory.curatorEnabled': true,
-  'memory.tierLimits.core': 256,
-  'memory.tierLimits.recall': 4096,
-  'memory.tierLimits.archival': 100000,
-  'memory.decayHalflifeDays': 30,
   'memory.embeddingModel': 'Xenova/bge-small-en-v1.5',
   'memory.curatorModel': '',
   'memory.curatorProvider': '',
@@ -503,12 +506,10 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.maxActiveSkills': 200,
   'skillSynthesis.skillsRoot': '',
   'skillSynthesis.candidatesDir': '',
-  'skillSynthesis.eligibilityMinTurns': 5,
   'skillSynthesis.evictionDecayRate': 0.95,
   'skillSynthesis.generalizationContextThreshold': 3,
   'skillSynthesis.dedupClusterThreshold': 0.78,
   'skillSynthesis.prefilterMinEdits': 1,
-  'skillSynthesis.prefilterMinChars': 800,
   'skillSynthesis.prefilterMinToolUses': 2,
   'skillSynthesis.judgeEnabled': true,
   'skillSynthesis.minJudgeScore': 6.0,
@@ -583,6 +584,16 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // Matches `MEMORY_TRIGGER_DEFAULTS.enabled` — memory capture is on unless the
   // user turns it off.
   'memory.enabled': true,
+  // Must equal the `memory-retention-config.ts` fallbacks (MemoryRetentionService);
+  // pinned by memory-retention.service.spec.ts.
+  'memory.retention.enabled': true,
+  'memory.retention.processedDays': 7,
+  'memory.retention.stuckDays': 14,
+  'memory.retention.batchSize': 500,
+  'memory.lifecycle.enabled': true,
+  'memory.lifecycle.archiveAfterDays': 30,
+  'memory.lifecycle.deleteAfterDays': 60,
+  'memory.lifecycle.maxPerWorkspace': 25000,
   'memory.triggers.preCompact': true,
   'memory.triggers.idleMs': 600000,
   'memory.triggers.turnThreshold': 20,
@@ -611,11 +622,13 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.triggers.postToolUse.enabled': true,
   'skillSynthesis.triggers.postToolUse.minEditCount': 3,
   'skillSynthesis.triggers.maxAnalyzesPerHour': 6,
-  // Match `DEFAULT_MAX_CONCURRENT` and `DEFAULT_QUEUE_TIMEOUT_MS` in
-  // `agent-sdk/src/lib/internal-query/internal-query.service.ts`. A drift here
-  // is invisible: the service falls back to its own constant, so the two would
-  // disagree only for a user who never wrote the setting.
-  'internalQuery.maxConcurrent': 1,
+  // Match `DEFAULT_MAX_CONCURRENT`, `DEFAULT_MAX_CONCURRENT_PER_LANE`, and
+  // `DEFAULT_QUEUE_TIMEOUT_MS` in
+  // `agent-sdk/src/lib/internal-query/internal-query-concurrency-gate.ts`. A
+  // drift here is invisible: the service falls back to its own constant, so
+  // the two would disagree only for a user who never wrote the setting.
+  'internalQuery.maxConcurrent': 3,
+  'internalQuery.maxConcurrentPerLane': 1,
   'internalQuery.queueTimeoutMs': 60000,
   'cron.enabled': true,
   'cron.maxConcurrentJobs': 3,

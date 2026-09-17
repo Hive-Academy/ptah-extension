@@ -3,6 +3,7 @@ import * as path from 'path';
 import type { ElectronApplication } from '@playwright/test';
 import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
+import { sourceControlFileButton } from '../../support/source-control';
 
 /**
  * The in-editor hunk action widget, driven by the mouse — TASK_2026_221.
@@ -37,30 +38,13 @@ const SCREENSHOT_DIR = path.resolve(
   'hunk-widget',
 );
 
-const FILE_NAME = THREE_HUNK_FILE.split('/').pop() as string;
-
-/**
- * Widen the OS window so the git dock's diff pane clears its own vertical
- * scrollbar.
- *
- * At the launcher's default 1200x800, `ElectronLayoutService`'s 700px dock
- * width minus the 256px source-control sidebar leaves the diff pane too
- * narrow for the hunk-action cluster's three buttons: `nowrap` pushes
- * "Discard" past the visible width and Monaco's own vertical scrollbar —
- * which paints on top — swallows the click (measured: `locator.click`
- * timing out with "<div class="slider"> ... intercepts pointer events",
- * unchanged by dragging `ptah-electron-resize-handle` wider, because
- * `MAX_EDITOR_WIDTH_RATIO` clamps the dock to half of `window.innerWidth`
- * and 1200 * 0.5 = 600 is still short of what the cluster needs). Growing
- * the window instead of the dock's own width gives the flex layout enough
- * total room that the default dock width no longer collides with anything
- * (TASK_2026_385 Batch 3.3).
- */
-async function widenWindow(electronApp: ElectronApplication): Promise<void> {
-  await electronApp.evaluate(({ BrowserWindow }) => {
-    const win = BrowserWindow.getAllWindows()[0];
-    win?.setSize(2200, 1000);
-  });
+async function assertDefaultWindow(
+  electronApp: ElectronApplication,
+): Promise<void> {
+  const size = await electronApp.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0]?.getSize(),
+  );
+  expect(size).toEqual([1200, 800]);
 }
 
 /**
@@ -107,11 +91,9 @@ test.describe('in-editor hunk action widget (TASK_2026_221)', () => {
     // directly on the source-control panel, so the old "click the Git tab"
     // step that followed goto('editor') is gone.
     await ui.goto('git');
-    await widenWindow(electronApp);
+    await assertDefaultWindow(electronApp);
 
-    const changedRow = page.locator('[role="listitem"]', {
-      hasText: FILE_NAME,
-    });
+    const changedRow = await sourceControlFileButton(page, THREE_HUNK_FILE);
     await expect(changedRow).toBeVisible({ timeout: 20_000 });
     await changedRow.click();
 
@@ -145,7 +127,6 @@ test.describe('in-editor hunk action widget (TASK_2026_221)', () => {
       'Hunk 1 of 3',
     );
     await expect(widget).toBeVisible();
-
     // The cluster is anchored AT the hunk, not parked at an editor corner —
     // that is the whole difference between a content widget and the overlay
     // widget the original task text asked for.
@@ -221,10 +202,8 @@ test.describe('in-editor hunk action widget (TASK_2026_221)', () => {
     // directly on the source-control panel, so the old "click the Git tab"
     // step that followed goto('editor') is gone.
     await ui.goto('git');
-    await widenWindow(electronApp);
-    const changedRow = page.locator('[role="listitem"]', {
-      hasText: FILE_NAME,
-    });
+    await assertDefaultWindow(electronApp);
+    const changedRow = await sourceControlFileButton(page, THREE_HUNK_FILE);
     await expect(changedRow).toBeVisible({ timeout: 20_000 });
     await changedRow.click();
     await expect(page.locator('ptah-diff-view .view-lines').last()).toBeVisible(

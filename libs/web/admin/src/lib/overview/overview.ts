@@ -64,13 +64,14 @@ export class AdminOverview {
   });
 
   /**
-   * Waitlist-not-yet-invited — always client-computable, feeds the queue's
-   * first row (`total - notified`, floored at 0 for safety).
+   * Waitlist-not-yet-invited — driven by the server's authoritative
+   * `attention.waitlistUninvited` (or `waitlist.new`) from the stats response,
+   * avoiding client-side overcounting of approved rows.
    */
   protected readonly waitlistUninvited = computed<number>(() => {
     const s = this.stats();
     if (!s) return 0;
-    return Math.max(s.waitlist.total - s.waitlist.notified, 0);
+    return s.attention?.waitlistUninvited ?? s.waitlist.new ?? 0;
   });
 
   /** Builders' share of total members as a delta-chip string — `null` when no members. */

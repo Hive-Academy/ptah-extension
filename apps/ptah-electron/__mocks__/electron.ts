@@ -33,6 +33,7 @@ export const ipcMain = {
   on: () => undefined,
   removeHandler: () => undefined,
   removeListener: () => undefined,
+  removeAllListeners: () => undefined,
 };
 
 export const ipcRenderer = {

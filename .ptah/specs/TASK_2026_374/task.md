@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_374
-status: backlog
+status: in_review
 type: bugfix
 title: >-
   SessionTurnStateRegistry.records is unbounded and leaks one entry per user abort

@@ -330,4 +330,179 @@ describe('TabManagerService — persistence payload + write cadence', () => {
       expect(setItem).toHaveBeenCalledTimes(1);
     });
   });
+
+  // ==========================================================================
+  // Quota back-off (TASK_2026_437 C17, AC-12, INV-10)
+  //
+  // A quota failure repeats on every save, and every attempt first
+  // serializes every tab's transcript on the main thread. After a failure the
+  // next saves skip that work until `failedAt + min(5 s × 2^attempt, 5 min)`,
+  // unless a tab closed or teardown flushes. `jest.useFakeTimers()` fakes
+  // `Date.now()` too, so advancing timers is the clock.
+  // ==========================================================================
+
+  describe('quota back-off', () => {
+    let warn: jest.SpyInstance;
+    let stringify: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      stringify = jest.spyOn(JSON, 'stringify');
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+      stringify.mockRestore();
+    });
+
+    function failWrites(): void {
+      setItem.mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+    }
+
+    /** `JSON.stringify` calls that serialized the tab-state envelope. */
+    function envelopeSerializations(): number {
+      return stringify.mock.calls.filter(([value]) => {
+        const v = value as { version?: unknown; tabs?: unknown } | null;
+        return v !== null && typeof v === 'object' && 'tabs' in v;
+      }).length;
+    }
+
+    function saveWarnings(): string[] {
+      return warn.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes('Failed to save tab state'));
+    }
+
+    /** Create a tab, fail its first write, and reset the counters. */
+    function failFirstWrite(tabName = 'quota'): string {
+      failWrites();
+      const tabId = service.createTab(tabName);
+      jest.advanceTimersByTime(600);
+      expect(setItem).toHaveBeenCalledTimes(1);
+      expect(saveWarnings()).toHaveLength(1);
+      setItem.mockClear();
+      stringify.mockClear();
+      return tabId;
+    }
+
+    it('does not serialize again inside the window, and warns once for the step', () => {
+      const tabId = failFirstWrite();
+
+      // 5 s window from the failure at ~600 ms; saves land at ~1.2 s … ~4.2 s.
+      for (let i = 0; i < 5; i++) {
+        service.setMessages(tabId, [makeMessage(`in-window-${i}`)]);
+        jest.advanceTimersByTime(600);
+      }
+
+      expect(envelopeSerializations()).toBe(0);
+      expect(setItem).not.toHaveBeenCalled();
+      expect(saveWarnings()).toHaveLength(1);
+    });
+
+    it('retries after the window and doubles the next one', () => {
+      const tabId = failFirstWrite();
+
+      jest.advanceTimersByTime(5_000);
+      service.setMessages(tabId, [makeMessage('after-5s')]);
+      jest.advanceTimersByTime(600);
+      expect(setItem).toHaveBeenCalledTimes(1);
+      expect(saveWarnings()).toHaveLength(2);
+      expect(saveWarnings()[1]).toContain('retrying in 10 s');
+
+      // 7 s later is inside the 10 s window of attempt 1.
+      setItem.mockClear();
+      stringify.mockClear();
+      jest.advanceTimersByTime(6_400);
+      service.setMessages(tabId, [makeMessage('inside-10s')]);
+      jest.advanceTimersByTime(600);
+      expect(envelopeSerializations()).toBe(0);
+      expect(setItem).not.toHaveBeenCalled();
+
+      // Past it, the save is attempted again.
+      jest.advanceTimersByTime(3_000);
+      service.setMessages(tabId, [makeMessage('after-10s')]);
+      jest.advanceTimersByTime(600);
+      expect(setItem).toHaveBeenCalledTimes(1);
+      expect(saveWarnings()).toHaveLength(3);
+      expect(saveWarnings()[2]).toContain('retrying in 20 s');
+    });
+
+    it('retries at once when the tab set shrank', () => {
+      failWrites();
+      service.createTab('keep');
+      const doomed = service.createTab('close-me');
+      jest.advanceTimersByTime(600);
+      setItem.mockClear();
+      stringify.mockClear();
+
+      service.forceCloseTab(doomed);
+      jest.advanceTimersByTime(600);
+
+      expect(envelopeSerializations()).toBe(1);
+      expect(setItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('teardown flush still attempts inside the window, once per unload', () => {
+      const tabId = failFirstWrite();
+
+      // The debounce fires inside the window and is skipped — nothing is
+      // pending by timer any more, but storage is still behind memory.
+      service.setMessages(tabId, [makeMessage('skipped-by-backoff')]);
+      jest.advanceTimersByTime(600);
+      expect(setItem).not.toHaveBeenCalled();
+
+      // Storage has room again by the time the panel closes.
+      setItem.mockRestore();
+      setItem = jest.spyOn(Storage.prototype, 'setItem');
+
+      window.dispatchEvent(new Event('pagehide'));
+      window.dispatchEvent(new Event('beforeunload'));
+      service.flushPendingSave();
+
+      expect(setItem).toHaveBeenCalledTimes(1);
+      expect(
+        (readStored().tabs[0]['messages'] as ExecutionChatMessage[]).map(
+          (m) => m.id,
+        ),
+      ).toEqual(['skipped-by-backoff']);
+    });
+
+    it('teardown flush that fails again does not retry on the next signal', () => {
+      const tabId = failFirstWrite();
+      service.setMessages(tabId, [makeMessage('still-failing')]);
+
+      window.dispatchEvent(new Event('pagehide'));
+      window.dispatchEvent(new Event('beforeunload'));
+
+      expect(setItem).toHaveBeenCalledTimes(1);
+      expect(saveWarnings()).toHaveLength(2);
+    });
+
+    it('a successful write resets the back-off to the first step', () => {
+      const tabId = failFirstWrite();
+
+      // Storage recovers; past the window the write lands.
+      setItem.mockRestore();
+      setItem = jest.spyOn(Storage.prototype, 'setItem');
+      jest.advanceTimersByTime(5_000);
+      service.setMessages(tabId, [makeMessage('recovered')]);
+      jest.advanceTimersByTime(600);
+      expect(setItem).toHaveBeenCalledTimes(1);
+
+      // It fails again: attempt 0, a 5 s window, not 10 s.
+      failWrites();
+      service.setMessages(tabId, [makeMessage('fails-again')]);
+      jest.advanceTimersByTime(600);
+      expect(saveWarnings()).toHaveLength(2);
+      expect(saveWarnings()[1]).toContain('retrying in 5 s');
+
+      setItem.mockClear();
+      jest.advanceTimersByTime(5_000);
+      service.setMessages(tabId, [makeMessage('after-5s-again')]);
+      jest.advanceTimersByTime(600);
+      expect(setItem).toHaveBeenCalledTimes(1);
+    });
+  });
 });

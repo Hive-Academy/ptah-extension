@@ -174,18 +174,18 @@ Step ids are `license`, `provider.default`, `provider.credential`, and `verify`.
 
 ### `session *` — chat sessions
 
-| Sub-subcommand          | Args / flags                                                 | Description                                                |
-| ----------------------- | ------------------------------------------------------------ | ---------------------------------------------------------- |
-| `session start`         | `[--profile <id>] [--task <text>] [--once] [--scope <name>]` | Start a new chat session; with `--task`, streams the turn. |
-| `session resume <id>`   | `[--task <text>]`                                            | Resume an existing session by tabId or SDK session id.     |
-| `session send <id>`     | `--task <text>` (required)                                   | Send a follow-up turn and stream it.                       |
-| `session list`          | —                                                            | List sessions for the active workspace.                    |
-| `session stop <id>`     | —                                                            | Abort an in-flight session via `chat:abort`.               |
-| `session delete <id>`   | —                                                            | Delete a session and its persisted entry.                  |
-| `session rename <id>`   | `--to <name>` (required)                                     | Rename a session.                                          |
-| `session load <id>`     | `[--out <path>]`                                             | Emit full session history; optionally write JSON to disk.  |
-| `session stats`         | `[--ids <csv>]`                                              | Emit per-session stats (empty `--ids` = all).              |
-| `session validate <id>` | —                                                            | Check whether a session id has an on-disk record.          |
+| Sub-subcommand          | Args / flags                                                 | Description                                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session start`         | `[--profile <id>] [--task <text>] [--once] [--scope <name>]` | Start a new chat session; with `--task`, streams the turn.                                                                                                        |
+| `session resume <id>`   | `[--task <text>]`                                            | Resume an existing session by tabId or SDK session id.                                                                                                            |
+| `session send <id>`     | `--task <text>` (required)                                   | Send a follow-up turn and stream it.                                                                                                                              |
+| `session list`          | —                                                            | List sessions for the active workspace.                                                                                                                           |
+| `session stop <id>`     | —                                                            | Abort an in-flight session via `chat:abort`.                                                                                                                      |
+| `session delete <id>`   | —                                                            | Delete a session and its persisted entry.                                                                                                                         |
+| `session rename <id>`   | `--to <name>` (required)                                     | Rename a session.                                                                                                                                                 |
+| `session load <id>`     | `[--out <path>]`                                             | Validate a session's metadata via `session:load` and emit `session.history`; optionally write the JSON to disk. Carries no transcript: `messages` is always `[]`. |
+| `session stats`         | `[--ids <csv>]`                                              | Emit per-session stats (empty `--ids` = all).                                                                                                                     |
+| `session validate <id>` | —                                                            | Check whether a session id has an on-disk record.                                                                                                                 |
 
 ### `harness *` — Harness Setup Builder
 

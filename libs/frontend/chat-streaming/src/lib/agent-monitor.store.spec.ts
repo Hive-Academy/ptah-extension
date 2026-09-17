@@ -20,6 +20,8 @@ import type {
   AgentStatusEvent,
   AgentCompletedEvent,
   AgentStartEvent,
+  CliSessionReference,
+  FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 
 // Mock TabManagerService with signal-based activeTab
@@ -83,6 +85,187 @@ describe('AgentMonitorStore', () => {
       } as any);
     }
   }
+
+  describe('appendCliOutputPage (persisted output paging)', () => {
+    const SESSION = 'sess-paged';
+    const segment = (content: string) => ({
+      tag: 'segment' as const,
+      value: { type: 'text' as const, content },
+    });
+    const event = (id: string) => ({
+      tag: 'streamEvent' as const,
+      value: {
+        id,
+        eventType: 'text_delta',
+        sessionId: SESSION,
+        messageId: 'm1',
+        delta: id,
+        timestamp: 1,
+      } as unknown as FlatStreamEventUnion,
+    });
+    const page1 = [segment('one'), event('e1')];
+    const page2 = [segment('two'), event('e2')];
+
+    function restoreLeanCard(): void {
+      store.loadCliSessions(
+        [
+          {
+            agentId: 'a1',
+            cli: 'codex',
+            task: 'paged',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            status: 'completed',
+          } as unknown as CliSessionReference,
+        ],
+        SESSION,
+      );
+    }
+
+    const card = () => store.agents().find((a) => a.agentId === 'a1');
+
+    it('ignores pages replayed by a restarted load, so output is never duplicated', () => {
+      restoreLeanCard();
+      const first = { requestCursor: undefined, nextCursor: '2', done: false };
+      const last = { requestCursor: '2', nextCursor: undefined, done: true };
+
+      store.appendCliOutputPage(SESSION, 'a1', page1, first);
+      expect(store.cliOutputProgress(SESSION, 'a1')).toEqual({
+        cursor: '2',
+        done: false,
+      });
+      // A binding change restarted the load from the beginning mid-flight.
+      store.appendCliOutputPage(SESSION, 'a1', page1, first);
+      store.appendCliOutputPage(SESSION, 'a1', page2, last);
+      store.appendCliOutputPage(SESSION, 'a1', page1, first);
+      store.appendCliOutputPage(SESSION, 'a1', page2, last);
+
+      expect(card()?.segments.map((s) => s.content)).toEqual(['one', 'two']);
+      expect(card()?.streamEvents.map((e) => e.id)).toEqual(['e1', 'e2']);
+      expect(store.cliOutputProgress(SESSION, 'a1')).toEqual({
+        cursor: undefined,
+        done: true,
+      });
+    });
+
+    it('starts a card rebuilt by loadCliSessions over from the first page', () => {
+      restoreLeanCard();
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: '2',
+        done: false,
+      });
+
+      restoreLeanCard();
+
+      expect(store.cliOutputProgress(SESSION, 'a1')).toEqual({
+        cursor: undefined,
+        done: false,
+      });
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: '2',
+        done: false,
+      });
+      expect(card()?.segments.map((s) => s.content)).toEqual(['one']);
+    });
+
+    it('reports no progress for an absent card', () => {
+      expect(store.cliOutputProgress(SESSION, 'missing')).toBeNull();
+    });
+
+    it('demands output only for an expanded restored card whose history is not done', () => {
+      restoreLeanCard();
+      expect(store.cliOutputDemand()).toEqual([]);
+
+      store.toggleAgentExpanded('a1');
+      expect(store.cliOutputDemand()).toEqual([
+        { sessionId: SESSION, agentId: 'a1' },
+      ]);
+
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: undefined,
+        done: true,
+      });
+      expect(store.cliOutputDemand()).toEqual([]);
+    });
+
+    it('never demands output for a live card or a card restored with inline output', () => {
+      spawnAgent('live', SESSION);
+      store.loadCliSessions(
+        [
+          {
+            agentId: 'inline',
+            cli: 'codex',
+            task: 'hydrated',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            status: 'completed',
+            segments: [{ type: 'text', content: 'kept' }],
+          } as unknown as CliSessionReference,
+        ],
+        SESSION,
+      );
+      store.toggleAgentExpanded('inline');
+
+      expect(store.agents().find((a) => a.agentId === 'live')?.expanded).toBe(
+        true,
+      );
+      expect(store.cliOutputDemand()).toEqual([]);
+    });
+
+    it('keeps the demand identity across output that does not change membership', () => {
+      restoreLeanCard();
+      store.toggleAgentExpanded('a1');
+      const before = store.cliOutputDemand();
+
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: '2',
+        done: false,
+      });
+
+      expect(store.cliOutputDemand()).toBe(before);
+    });
+
+    it('resets a card history to the first page and demands it again', () => {
+      restoreLeanCard();
+      store.toggleAgentExpanded('a1');
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: undefined,
+        done: true,
+      });
+      const revision = card()?.streamRevision ?? 0;
+      expect(store.cliOutputDemand()).toEqual([]);
+
+      store.resetCliOutputHistory(SESSION, 'a1');
+
+      expect(card()?.segments).toEqual([]);
+      expect(card()?.streamEvents).toEqual([]);
+      expect(card()?.streamRevision).toBe(revision + 1);
+      expect(store.cliOutputProgress(SESSION, 'a1')).toEqual({
+        cursor: undefined,
+        done: false,
+      });
+      expect(store.cliOutputDemand()).toEqual([
+        { sessionId: SESSION, agentId: 'a1' },
+      ]);
+    });
+
+    it('leaves other sessions untouched on reset', () => {
+      restoreLeanCard();
+      store.appendCliOutputPage(SESSION, 'a1', page1, {
+        requestCursor: undefined,
+        nextCursor: '2',
+        done: false,
+      });
+      const before = card();
+
+      store.resetCliOutputHistory('sess-other', 'a1');
+
+      expect(card()).toBe(before);
+    });
+  });
 
   describe('resolveParentSessionId', () => {
     it('should update agents with matching tab ID to real session UUID', () => {

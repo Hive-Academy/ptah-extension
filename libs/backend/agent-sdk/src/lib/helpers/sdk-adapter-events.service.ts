@@ -129,6 +129,10 @@ export class SdkAdapterEvents {
   }
 
   emitCompactionComplete(event: SdkAdapterCompactionCompleteEvent): void {
+    this.logger.info('[SdkAdapterEvents] Publishing PostCompact advisory', {
+      sessionId: event.sessionId,
+      trigger: event.trigger,
+    });
     this.safeEmit('compactionComplete', event);
   }
 

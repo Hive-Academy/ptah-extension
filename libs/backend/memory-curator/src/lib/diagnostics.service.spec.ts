@@ -6,9 +6,52 @@ import type {
   SqliteDatabase,
   VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
+import type { MemoryStorageHealthDto } from '@ptah-extension/shared';
 import { MemoryDiagnosticsService } from './diagnostics.service';
 import type { MemoryCuratorService } from './memory-curator.service';
-import type { MemoryDecayJob } from './memory-decay.job';
+import type { MemoryRetentionService } from './retention/memory-retention.service';
+
+const STORAGE_HEALTH: MemoryStorageHealthDto = {
+  dbBytes: 4096,
+  reclaimableBytes: 1024,
+  autoVacuumIncremental: true,
+  observations: {
+    pendingRows: 2,
+    pendingBytes: 256,
+    oldestPendingAt: 1700000000000,
+    stuckEligibleRows: 1,
+    processedRows: 10,
+    processedBytesEstimate: 1280,
+    measuredAt: 1700000001000,
+    quarantineLedgerRows: 3,
+  },
+  retention: {
+    enabled: true,
+    processedDays: 30,
+    stuckDays: 7,
+    lastRun: null,
+    lastCompletedAt: null,
+    nextDueAt: null,
+    lastSkippedAt: null,
+    lastSkipReason: null,
+  },
+  memoryLifecycle: {
+    enabled: true,
+    archiveAfterDays: 30,
+    deleteAfterDays: 60,
+    maxPerWorkspace: 25_000,
+    lastNote: null,
+    preview: null,
+  },
+};
+
+function makeRetention(
+  storage: MemoryStorageHealthDto = STORAGE_HEALTH,
+): MemoryRetentionService {
+  return {
+    storageHealth: jest.fn(() => storage),
+  } as unknown as MemoryRetentionService;
+}
 
 function makeVecStatus(available: boolean): VecStatusService {
   const diagnostic = {
@@ -136,27 +179,16 @@ function makeCurator(
   } as unknown as MemoryCuratorService;
 }
 
-function makeDecay(lastAt: number | null = null): MemoryDecayJob {
-  return {
-    lastDecayInfo: jest.fn(() => ({
-      at: lastAt,
-      stats: lastAt
-        ? { scanned: 10, demoted: 1, archived: 1, expired: 0 }
-        : null,
-    })),
-  } as unknown as MemoryDecayJob;
-}
-
 describe('MemoryDiagnosticsService', () => {
-  it('returns last-run/last-decay from underlying services', async () => {
+  it('returns last-run details from the curator', async () => {
     const t = 1700000000000;
     const service = new MemoryDiagnosticsService(
       makeLogger(),
       makeSqlite({}),
       makeCurator(t, [{ kind: 'curator-run', timestamp: t }]),
-      makeDecay(t),
       makeWorkspace(),
       makeVecStatus(true),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.lastRunAt).toBe(t);
@@ -166,15 +198,24 @@ describe('MemoryDiagnosticsService', () => {
       created: 2,
       skipped: 0,
     });
-    expect(snap.lastDecayAt).toBe(t);
-    expect(snap.lastDecayStats).toEqual({
-      scanned: 10,
-      demoted: 1,
-      archived: 1,
-      expired: 0,
-    });
     expect(snap.recentEvents).toHaveLength(1);
     expect(snap.triggers.idleMs).toBe(600000);
+  });
+
+  it('returns the storage health object from the retention service unchanged', async () => {
+    const storage = { ...STORAGE_HEALTH, dbBytes: 8192 };
+    const service = new MemoryDiagnosticsService(
+      makeLogger(),
+      makeSqlite({}),
+      makeCurator(),
+      makeWorkspace(),
+      makeVecStatus(true),
+      makeRetention(storage),
+    );
+
+    const snap = await service.getSnapshot('/ws');
+
+    expect(snap.storage).toBe(storage);
   });
 
   it('reports coherent when all paired counts match', async () => {
@@ -189,9 +230,9 @@ describe('MemoryDiagnosticsService', () => {
         code_symbols_vec: 50,
       }),
       makeCurator(),
-      makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.dbHealth.coherent).toBe(true);
@@ -210,9 +251,9 @@ describe('MemoryDiagnosticsService', () => {
         code_symbols_vec: 49,
       }),
       makeCurator(),
-      makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.dbHealth.coherent).toBe(false);
@@ -235,9 +276,9 @@ describe('MemoryDiagnosticsService', () => {
         ['memory_chunks_fts_docsize'],
       ),
       makeCurator(),
-      makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
 
@@ -273,9 +314,9 @@ describe('MemoryDiagnosticsService', () => {
         ['memory_chunks_vec', 'code_symbols_vec'],
       ),
       makeCurator(),
-      makeDecay(),
       makeWorkspace(),
       makeVecStatus(true),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
 
@@ -298,9 +339,9 @@ describe('MemoryDiagnosticsService', () => {
         false,
       ),
       makeCurator(),
-      makeDecay(),
       makeWorkspace(),
       makeVecStatus(false),
+      makeRetention(),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.dbHealth.coherent).toBe(true);

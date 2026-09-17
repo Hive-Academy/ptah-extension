@@ -1,10 +1,10 @@
 import type { EmbedderDownloadPhase } from '@ptah-extension/memory-contracts';
+import type { MemoryStorageHealthDto } from '@ptah-extension/shared';
 import type { CuratorRunStats } from './memory-curator.service';
 
 export type MemoryCuratorEventKind =
   | 'curator-run'
   | 'curator-skipped-no-data'
-  | 'decay-run'
   | 'idle-trigger'
   | 'turn-trigger'
   | 'boot-scan'
@@ -24,18 +24,11 @@ export interface MemoryCuratorEvent {
   readonly kind: MemoryCuratorEventKind;
   readonly timestamp: number;
   readonly sessionId?: string;
+  readonly workspaceRoot?: string | null;
   readonly stats?: Readonly<Record<string, number | string | boolean | null>>;
   readonly error?: string;
   readonly phase?: EmbedderDownloadPhase;
   readonly progress?: number;
-}
-
-export interface MemoryDecayStats {
-  readonly scanned: number;
-  readonly promoted: number;
-  readonly demoted: number;
-  readonly archived: number;
-  readonly expired: number;
 }
 
 export interface MemoryDbHealth {
@@ -53,10 +46,9 @@ export interface MemoryDbHealth {
 export interface MemoryDiagnosticsSnapshot {
   readonly lastRunAt: number | null;
   readonly lastRunStats: CuratorRunStats | null;
-  readonly lastDecayAt: number | null;
-  readonly lastDecayStats: MemoryDecayStats | null;
   readonly recentEvents: readonly MemoryCuratorEvent[];
   readonly dbHealth: MemoryDbHealth;
+  readonly storage: MemoryStorageHealthDto;
   readonly triggers: {
     readonly preCompact: boolean;
     readonly idleMs: number;

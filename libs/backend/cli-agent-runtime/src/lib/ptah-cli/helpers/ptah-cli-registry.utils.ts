@@ -7,6 +7,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import type {
+  AgentRoleChannel,
+  AgentRoleDelivery,
+} from '@ptah-extension/shared';
 
 /**
  * Secret key prefix for Ptah CLI API keys.
@@ -18,6 +22,11 @@ export const PTAH_CLI_KEY_PREFIX = 'ptahCli';
  * Config key for Ptah CLI configurations in ConfigManager
  */
 export const PTAH_CLI_AGENTS_CONFIG_KEY = 'ptahCliAgents';
+
+export const PTAH_CLI_ROLE_DELIVERY: {
+  readonly roleDelivery: AgentRoleDelivery;
+  readonly roleChannel: AgentRoleChannel;
+} = { roleDelivery: 'preamble', roleChannel: 'system-prompt' };
 
 /**
  * Generate a cryptographically random ID for new Ptah CLI instances.

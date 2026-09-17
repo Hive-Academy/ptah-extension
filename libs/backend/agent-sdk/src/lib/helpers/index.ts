@@ -42,12 +42,21 @@ export {
   type CompactionConfig,
 } from './compaction-config-provider';
 export {
+  resolveAutoCompactControl,
+  isValidAutoCompactWindow,
+  SDK_AUTO_COMPACT_WINDOW_MIN,
+  SDK_AUTO_COMPACT_WINDOW_MAX,
+  type AutoCompactSettings,
+  type AutoCompactControlInput,
+} from './auto-compact-control';
+export {
   CompactionHookHandler,
   type CompactionStartCallback,
   isPreCompactHook,
   isPostCompactHook,
 } from './compaction-hook-handler';
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
+export { CompactionBoundaryGenerationRegistry } from './compaction-boundary-generation-registry';
 export {
   SessionTurnStateRegistry,
   toTurnStateEvent,
@@ -155,6 +164,9 @@ export {
   assembleSystemPrompt,
   buildModelIdentityPrompt,
   buildFlagSettings,
+  buildFlagSettingsArg,
+  CROSS_SESSION_INBOUND_VALUES,
+  type CrossSessionInbound,
   getActiveProviderId,
   type AssembleSystemPromptInput,
   type SystemPromptAssemblyResult,
@@ -162,6 +174,11 @@ export {
   type SdkQueryOptions,
   type QueryConfig,
 } from './sdk-query-options-builder';
+export {
+  buildSessionName,
+  deriveWorkspaceLabel,
+  type SessionNameInput,
+} from './session-name.builder';
 export { SdkModuleLoader } from './sdk-module-loader';
 export {
   SdkQueryRunner,
@@ -206,6 +223,7 @@ export {
   type ForkSessionParams,
   type RewindFilesParams,
 } from './session-fork.service';
+export { SessionTitleService } from './session-title.service';
 export { SdkAdapterCallbackRegistry } from './sdk-adapter-callback-registry';
 export {
   CallbackRegistryBase,

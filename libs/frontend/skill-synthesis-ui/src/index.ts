@@ -10,13 +10,17 @@ export { SkillClonesViewComponent } from './lib/components/clones/skill-clones-v
 export { CloneCardComponent } from './lib/components/clones/clone-card.component';
 export { CloneDetailDrawerComponent } from './lib/components/clones/clone-detail-drawer.component';
 export type {
+  CloneBodySaveRequest,
   CloneHistoryDiff,
   CloneHistoryRequest,
 } from './lib/components/clones/clone-detail-drawer.component';
 export { EnhancePreviewDrawerComponent } from './lib/components/clones/enhance-preview-drawer.component';
 export {
+  BULK_REBASE_EXPLANATION,
+  canEditCloneBody,
   cloneActionModel,
   cloneStatusLabel,
+  eligibleForBulkRebase,
   hasUpstreamSource,
   KEEP_MINE_EXPLANATION,
   REBASE_EXPLANATION,

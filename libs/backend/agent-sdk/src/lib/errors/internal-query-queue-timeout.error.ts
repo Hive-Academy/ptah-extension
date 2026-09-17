@@ -2,9 +2,9 @@
  * InternalQueryQueueTimeoutError — thrown when a one-shot internal query
  * waits longer than the configured ceiling for a concurrency slot.
  *
- * The internal-query gate serializes one-shot `claude` subprocesses host-wide
- * (default limit 1, `ptah.internalQuery.maxConcurrent`). Without a wait
- * ceiling, a caller queued behind a long query would block indefinitely.
+ * The internal-query gate bounds concurrent one-shot subprocesses host-wide
+ * (`ptah.internalQuery.maxConcurrent`; see `DEFAULT_MAX_CONCURRENT`). Without
+ * a wait ceiling, a caller queued behind a long query would block indefinitely.
  * `InternalQueryService.execute` rejects with this error once
  * `ptah.internalQuery.queueTimeoutMs` (default 60 000) elapses without a slot.
  *

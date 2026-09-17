@@ -17,6 +17,7 @@ import { isTurnStateEvent } from '@ptah-extension/shared';
 import {
   REVISION_FLOOR_MAP_LIMIT,
   SessionTurnStateRegistry,
+  TURN_RECORD_MAP_LIMIT,
   toTurnStateEvent,
 } from './session-turn-state.registry';
 
@@ -599,6 +600,270 @@ describe('SessionTurnStateRegistry', () => {
         expect(registry.markGenerating(`session-${i}`)?.revision).toBe(2);
         registry.clear(`session-${i}`);
       }
+    });
+  });
+
+  // TASK_2026_374. `clear` has ONE caller (`ChatStreamBroadcaster`'s loop exit)
+  // and it did not cover the record's other creators — the Stop / StopFailure /
+  // SubagentStop hooks, the harness stream, the Ptah-CLI stream loop, and every
+  // `result` the transformer settles — nor the user-abort path, where the
+  // broadcaster's own guard skipped both clears. The map grew for the life of
+  // the process and `session:status` answered with a `turnState` for sessions
+  // that had ended long ago.
+  describe('record map bound', () => {
+    it('bounds the record map, evicting the least recently used record', () => {
+      // One turn each for LIMIT + 1 distinct sessions and NO clear — the leak
+      // shape exactly: records created down a path that has no teardown.
+      const total = TURN_RECORD_MAP_LIMIT + 1;
+      for (let i = 0; i < total; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      expect(registry.get('session-0')).toBeUndefined();
+      expect(registry.get(`session-${total - 1}`)?.phase).toBe('generating');
+    });
+
+    // The coupling this bound must not break (TASK_2026_371 review F1). An
+    // evicted record re-seeds from the floor, so the floor is the ONLY thing
+    // keeping the counter ahead of a tab that is still open and still holds the
+    // revision it last accepted. `evictOldestRecord` writes the victim's
+    // revision to the floor before dropping it, which both guarantees the floor
+    // exists and moves it to the recent end of the floor map.
+    it('folds the evicted record revision into the floor, so the counter does not restart', () => {
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT + 1; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      // session-0's record is gone. Its next turn must still issue 2, not 1 —
+      // a tab holding `lastTurnStateRevision: 1` drops everything at or below.
+      expect(registry.markGenerating('session-0')?.revision).toBe(2);
+    });
+
+    it('evicts the least recently USED record, not the first inserted', () => {
+      // Stop one short of the limit so the touch below lands on a map that is
+      // NOT full: on a full map a first-inserted-first-out eviction would drop
+      // the key it is about to re-insert and append it again, which imitates
+      // use-recency ordering for that one key and hides the difference.
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT - 1; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      // A second event on session-0: the most recently USED record, still the
+      // FIRST inserted one.
+      registry.settleTurn('session-0');
+
+      // Fill the last slot, then overflow by one.
+      registry.markGenerating(`session-${TURN_RECORD_MAP_LIMIT - 1}`);
+      registry.markGenerating(`session-${TURN_RECORD_MAP_LIMIT}`);
+
+      // session-1 is the least recently used, so it is the victim.
+      expect(registry.get('session-1')).toBeUndefined();
+      // First-inserted-first-out would have evicted session-0 instead. It is
+      // the long-lived chat tab: in streaming-input mode its broadcast loop —
+      // and therefore its single record — is created once and never re-created.
+      expect(registry.get('session-0')?.phase).toBe('idle');
+    });
+
+    it('keeps a session touched only by snapshots recently used', () => {
+      registry.forceIdle(SESSION);
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT - 1; i++) {
+        registry.markGenerating(`other-${i}`);
+      }
+
+      const snapshot = registry.applySnapshot(SESSION, [task('t1')]);
+      expect(snapshot).toMatchObject({
+        phase: 'awaiting-background',
+        revision: 2,
+        backgroundTasks: [task('t1')],
+      });
+
+      // This is the LIMIT-th other session touched since SESSION was created.
+      // The snapshot update must make other-0, not SESSION, the LRU victim.
+      registry.markGenerating(`other-${TURN_RECORD_MAP_LIMIT - 1}`);
+
+      expect(registry.get(SESSION)).toBe(snapshot);
+    });
+
+    // The accepted residue of a phase-BLIND eviction, pinned rather than
+    // guarded (TASK_2026_374). The floor carries `state.revision` and nothing
+    // else, so a record evicted mid-turn also loses `stopSnapshot`, `failure`
+    // and `generatingEmitted`. Making the victim choice skip `generating`
+    // records was rejected: the only non-generating entry in a busy map is
+    // typically the long-lived chat tab, and a record whose teardown never ran
+    // — the leak this bound collects — is exactly one stuck in `generating`.
+    // This spec is the thing that fails if that policy is changed quietly.
+    it("drops a mid-turn record's snapshots on eviction, keeping only its revision", () => {
+      registry.markGenerating(SESSION);
+      registry.recordStop(SESSION, {
+        backgroundTasks: [task('t1')],
+        sessionCrons: [],
+        terminalReason: 'completed',
+      });
+
+      // LIMIT other ids touched before this session's `result` arrives.
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT; i++) {
+        registry.markGenerating(`other-${i}`);
+      }
+      expect(registry.get(SESSION)).toBeUndefined();
+
+      // The floor survived, so the counter is still ahead of anything the tab
+      // accepted — that half is the invariant and is NOT residue.
+      const settled = registry.settleTurn(SESSION);
+      expect(settled.revision).toBe(2);
+
+      // The snapshot did not. `awaiting-background` is the answer the dropped
+      // `stopSnapshot` would have produced.
+      expect(settled.phase).toBe('idle');
+      expect(settled.backgroundTasks).toEqual([]);
+    });
+
+    it('a touch on an EXISTING record in a full map evicts nothing', () => {
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      // An update, not an insertion. `storeRecord` shrinks the map before it
+      // tests the limit, so this path can never evict.
+      registry.settleTurn(`session-${TURN_RECORD_MAP_LIMIT - 1}`);
+
+      expect(registry.get('session-0')?.phase).toBe('generating');
+    });
+  });
+
+  describe('foreground signal (TASK_2026_437 C14)', () => {
+    const isGenerating = (): boolean =>
+      registry.generatingSessions().length > 0;
+
+    it('generatingSessions follows generating records across sessions', () => {
+      expect(isGenerating()).toBe(false);
+      registry.markGenerating(SESSION);
+      registry.markGenerating(TAB);
+      expect(isGenerating()).toBe(true);
+      registry.settleTurn(SESSION);
+      expect(isGenerating()).toBe(true);
+      registry.forceIdle(TAB);
+      expect(isGenerating()).toBe(false);
+    });
+
+    it('reports each generating session with the time its turn started', () => {
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+      try {
+        registry.markGenerating(SESSION);
+        nowSpy.mockReturnValue(2_000);
+        registry.markGenerating(TAB);
+        // A dedupe call in the same turn does not move the start.
+        nowSpy.mockReturnValue(3_000);
+        registry.markGenerating(SESSION);
+        // Map order is use recency (the dedupe call touched SESSION last).
+        expect(registry.generatingSessions()).toEqual(
+          expect.arrayContaining([
+            { sessionId: SESSION, since: 1_000 },
+            { sessionId: TAB, since: 2_000 },
+          ]),
+        );
+        expect(registry.generatingSessions()).toHaveLength(2);
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+
+    it('does not count a hook-created record or a background phase as generating', () => {
+      registry.recordStop(SESSION, {
+        backgroundTasks: [task('t1')],
+        sessionCrons: [],
+        terminalReason: null,
+      });
+      expect(isGenerating()).toBe(false);
+      registry.markGenerating(SESSION);
+      registry.settleTurn(SESSION);
+      expect(registry.get(SESSION)?.phase).toBe('awaiting-background');
+      expect(isGenerating()).toBe(false);
+    });
+
+    it('notifies from markGenerating, settleTurn and forceIdle', () => {
+      const listener = jest.fn();
+      registry.onGeneratingChange(listener);
+
+      registry.markGenerating(SESSION);
+      expect(listener).toHaveBeenCalledTimes(1);
+      // The per-turn dedupe commits nothing, so it notifies nothing.
+      registry.markGenerating(SESSION);
+      expect(listener).toHaveBeenCalledTimes(1);
+      registry.settleTurn(SESSION);
+      expect(listener).toHaveBeenCalledTimes(2);
+      registry.forceIdle(SESSION);
+      expect(listener).toHaveBeenCalledTimes(3);
+    });
+
+    it('reads the new answer from inside the listener', () => {
+      const seen: boolean[] = [];
+      registry.onGeneratingChange(() => seen.push(isGenerating()));
+
+      registry.markGenerating(SESSION);
+      registry.settleTurn(SESSION);
+
+      expect(seen).toEqual([true, false]);
+    });
+
+    it('notifies when clear drops a generating record, and only then', () => {
+      const listener = jest.fn();
+      registry.markGenerating(SESSION);
+      registry.forceIdle(TAB);
+      registry.onGeneratingChange(listener);
+
+      registry.clear(TAB);
+      expect(listener).not.toHaveBeenCalled();
+      registry.clear(SESSION);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(isGenerating()).toBe(false);
+    });
+
+    it('notifies when eviction drops a generating record', () => {
+      registry.markGenerating('victim');
+      const listener = jest.fn();
+      registry.onGeneratingChange(listener);
+
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT; i++) {
+        registry.recordStop(`filler-${i}`, {
+          backgroundTasks: [],
+          sessionCrons: [],
+          terminalReason: null,
+        });
+      }
+
+      expect(registry.get('victim')).toBeUndefined();
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(isGenerating()).toBe(false);
+    });
+
+    it('isolates a throwing listener: the transition completes and later listeners run', () => {
+      const later = jest.fn();
+      registry.onGeneratingChange(() => {
+        throw new Error('subscriber bug');
+      });
+      registry.onGeneratingChange(later);
+
+      let generating: ReturnType<typeof registry.markGenerating> = null;
+      expect(() => {
+        generating = registry.markGenerating(SESSION);
+      }).not.toThrow();
+      expect(generating).toMatchObject({ phase: 'generating' });
+      expect(() => registry.settleTurn(SESSION)).not.toThrow();
+      expect(registry.get(SESSION)?.phase).toBe('idle');
+      registry.markGenerating(SESSION);
+      expect(() => registry.forceIdle(SESSION)).not.toThrow();
+      registry.markGenerating(TAB);
+      expect(() => registry.clear(TAB)).not.toThrow();
+      // markGenerating, settleTurn, markGenerating, forceIdle, markGenerating, clear.
+      expect(later).toHaveBeenCalledTimes(6);
+    });
+
+    it('honours unsubscribe', () => {
+      const listener = jest.fn();
+      const unsubscribe = registry.onGeneratingChange(listener);
+      unsubscribe();
+      registry.markGenerating(SESSION);
+      expect(listener).not.toHaveBeenCalled();
     });
   });
 

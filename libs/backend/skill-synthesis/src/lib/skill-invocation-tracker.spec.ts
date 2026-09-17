@@ -27,12 +27,10 @@ const SETTINGS: SkillSynthesisSettings = {
   dedupCosineThreshold: 0.85,
   maxActiveSkills: 50,
   candidatesDir: '',
-  eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
   generalizationContextThreshold: 3,
   dedupClusterThreshold: 0.78,
   prefilterMinEdits: 1,
-  prefilterMinChars: 800,
   prefilterMinToolUses: 2,
   judgeEnabled: false,
   minJudgeScore: 6.0,
@@ -120,6 +118,19 @@ describe('SkillInvocationTracker', () => {
     expect(promotion.evaluate).toHaveBeenCalledTimes(1);
     expect(result.promotion?.promoted).toBe(true);
     expect(result.successCount).toBe(3);
+  });
+
+  // TASK_2026_437 FU-17b: auto-promotion is background work — no origin, so
+  // its re-propagation may wait for the governor.
+  it('auto-promotes with no userInitiated origin', async () => {
+    const { store, promotion, tracker } = setup(row({ successCount: 2 }));
+    (store.incrementSuccess as jest.Mock).mockReturnValue(3);
+    await tracker.recordInvocation(
+      { skillId: 'cand_x' as CandidateId, sessionId: 's1', succeeded: true },
+      SETTINGS,
+    );
+    const call = (promotion.evaluate as jest.Mock).mock.calls[0] as unknown[];
+    expect(call[3]).toBeUndefined();
   });
 
   it('does not trigger promotion on a failed invocation', async () => {

@@ -20,6 +20,7 @@ import {
   ChevronRight,
   GitBranch,
   Undo2,
+  Users,
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution/execution-node.component';
 import {
@@ -128,6 +129,7 @@ export class MessageBubbleComponent {
   readonly ChevronRightIcon = ChevronRight;
   readonly GitBranchIcon = GitBranch;
   readonly Undo2Icon = Undo2;
+  readonly UsersIcon = Users;
 
   /**
    * Emits the user message UUID when the user clicks "Branch from here".
@@ -231,6 +233,25 @@ export class MessageBubbleComponent {
     return raw
       .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
       .trim();
+  });
+
+  /**
+   * The sender label for a turn injected by another session, or `null` when
+   * this is an ordinary turn the person watching typed.
+   *
+   * `null` is returned ONLY when the field is absent. An empty or
+   * whitespace-only label still renders the peer bubble, under the neutral
+   * wording — an unnamed sender must never suppress the message or disguise it
+   * as the user's own words. The neutral text matches the backend's
+   * `NEUTRAL_PEER_LABEL` (`agent-sdk/src/lib/sdk-message-transformer.ts`),
+   * restated here because a frontend lib may not import a backend one and the
+   * constant does not live in `libs/shared`.
+   */
+  readonly inboundPeerLabel = computed((): string | null => {
+    const peer = this.message().inboundPeer;
+    if (!peer) return null;
+    const trimmed = peer.label.trim();
+    return trimmed.length > 0 ? trimmed : 'peer session';
   });
 
   /** Pre-computed image count label to avoid triple signal reads in template */

@@ -49,7 +49,8 @@ export type DegradationSource =
   | 'skills'
   | 'cron'
   | 'agent'
-  | 'workspace';
+  | 'workspace'
+  | 'workspace-watcher';
 
 /** Every legal {@link DegradationSource} value, for runtime narrowing. */
 export const DEGRADATION_SOURCE_VALUES = [
@@ -65,6 +66,7 @@ export const DEGRADATION_SOURCE_VALUES = [
   'cron',
   'agent',
   'workspace',
+  'workspace-watcher',
 ] as const satisfies readonly DegradationSource[];
 
 /**

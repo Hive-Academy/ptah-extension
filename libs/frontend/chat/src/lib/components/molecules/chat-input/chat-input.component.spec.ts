@@ -66,6 +66,18 @@ import {
 } from '@ptah-extension/core';
 import { VoiceInputService } from '../../../services/voice-input.service';
 import type { AtTriggerEvent } from '../../../directives/at-trigger.directive';
+import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
+import { CompactionLifecycleService } from '../../../services/chat-store/compaction-lifecycle.service';
+import { SessionLoaderService } from '../../../services/chat-store/session-loader.service';
+import {
+  ConversationRegistry,
+  TabSessionBinding,
+} from '@ptah-extension/chat-state';
+import {
+  ExecutionTreeBuilderService,
+  SessionManager,
+} from '@ptah-extension/chat-streaming';
+import { SessionId, TabId as SharedTabId } from '@ptah-extension/shared';
 
 describe('ChatInputComponent', () => {
   let component: ChatInputComponent;
@@ -79,15 +91,31 @@ describe('ChatInputComponent', () => {
     sendOrQueueMessage: jest.fn().mockResolvedValue(undefined),
     abortCurrentMessage: jest.fn().mockResolvedValue(undefined),
     abortWithConfirmation: jest.fn().mockResolvedValue(true),
+    isCompactingForTab: jest.fn(
+      (_tabId: string | null | undefined): boolean => false,
+    ),
   };
 
-  const tabsSignal = signal<Array<{ id: string; status: string }>>([]);
+  const tabsSignal = signal<
+    Array<{
+      id: string;
+      status: string;
+      streamingState?: { currentMessageId: string | null } | null;
+    }>
+  >([]);
   const activeTabIdSignal = signal<string | null>(null);
   const mockTabManager = {
     isTabStreaming: jest.fn().mockReturnValue(false),
     tabs: tabsSignal,
     activeTabId: activeTabIdSignal,
     activeTabQueuedContent: signal<string | null>(null),
+    // Production resolves the Stop-button tab across workspaces, so a canvas
+    // tile or a background-workspace tab is found. The fake mirrors the shape
+    // (`{ tab, workspacePath }`), reading from the same tabs signal.
+    findTabByIdAcrossWorkspaces: jest.fn((id: string) => {
+      const tab = tabsSignal().find((t) => t.id === id);
+      return tab ? { tab, workspacePath: '/ws' } : null;
+    }),
   };
 
   const mockAutopilotState = {
@@ -140,7 +168,13 @@ describe('ChatInputComponent', () => {
     cancelRecording: jest.fn(),
   };
 
-  function createComponent(opts: { isElectron?: boolean } = {}): void {
+  function createComponent(
+    opts: {
+      isElectron?: boolean;
+      /** Tile tab id for SESSION_CONTEXT; `undefined` = token not provided. */
+      sessionContextTabId?: string | null;
+    } = {},
+  ): void {
     mockIsElectron = opts.isElectron ?? false;
     tabsSignal.set([]);
     activeTabIdSignal.set(null);
@@ -155,6 +189,16 @@ describe('ChatInputComponent', () => {
         { provide: ClaudeRpcService, useValue: mockRpcService },
         { provide: VSCodeService, useValue: mockVSCodeService },
         { provide: VoiceInputService, useValue: mockVoiceInput },
+        ...(opts.sessionContextTabId === undefined
+          ? []
+          : [
+              {
+                provide: SESSION_CONTEXT,
+                useValue: signal<string | null>(
+                  opts.sessionContextTabId,
+                ).asReadonly(),
+              },
+            ]),
       ],
     });
 
@@ -175,6 +219,249 @@ describe('ChatInputComponent', () => {
 
   it('should be created', () => {
     expect(component).toBeTruthy();
+  });
+
+  // ============================================================================
+  // COMPOSER CARD — 1px mode tint replaces the old border-2 textarea ring
+  // ============================================================================
+
+  describe('composer card mode tint', () => {
+    afterEach(() => {
+      mockAutopilotState.enabled.set(false);
+      mockAutopilotState.agentPlanMode.set(false);
+      mockAutopilotState.permissionLevel.set('default');
+    });
+
+    it('uses a neutral border when no mode is active', () => {
+      const classes = component.cardClasses();
+      expect(classes).toContain('border-base-content/10');
+      expect(classes).not.toContain('border-2');
+    });
+
+    it('tints primary while autopilot is enabled', () => {
+      mockAutopilotState.enabled.set(true);
+      expect(component.cardClasses()).toContain('border-primary/40');
+    });
+
+    it('tints info in plan mode, taking precedence over autopilot', () => {
+      mockAutopilotState.enabled.set(true);
+      mockAutopilotState.permissionLevel.set('plan');
+      const classes = component.cardClasses();
+      expect(classes).toContain('border-info/50');
+      expect(classes).not.toContain('border-primary');
+    });
+
+    it('tints info when agent plan mode is on', () => {
+      mockAutopilotState.agentPlanMode.set(true);
+      expect(component.cardClasses()).toContain('border-info/50');
+    });
+  });
+
+  describe('attach menu', () => {
+    it('toggles open and closed', () => {
+      expect(component.attachMenuOpen()).toBe(false);
+      component.toggleAttachMenu();
+      expect(component.attachMenuOpen()).toBe(true);
+      component.toggleAttachMenu();
+      expect(component.attachMenuOpen()).toBe(false);
+    });
+
+    it('closes and opens the file picker on "Attach files"', () => {
+      const spy = jest
+        .spyOn(component, 'handleAttachFiles')
+        .mockResolvedValue(undefined);
+      component.toggleAttachMenu();
+      component.selectAttachFiles();
+      expect(component.attachMenuOpen()).toBe(false);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes and opens the image picker on "Attach images"', () => {
+      const spy = jest
+        .spyOn(component, 'handleAttachImages')
+        .mockResolvedValue(undefined);
+      component.toggleAttachMenu();
+      component.selectAttachImages();
+      expect(component.attachMenuOpen()).toBe(false);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ============================================================================
+  // COMPACTION OVERLAY — one registry derivation shared with the chat-view banner
+  // ============================================================================
+
+  describe('compaction overlay (registry-derived)', () => {
+    afterEach(() => {
+      mockChatStore.isCompactingForTab.mockImplementation(() => false);
+    });
+
+    it('uses chatStore.isCompactingForTab with the SESSION_CONTEXT tab id', () => {
+      createComponent({ sessionContextTabId: 'tile-A' });
+      activeTabIdSignal.set('tab-global');
+      mockChatStore.isCompactingForTab.mockImplementation(
+        (id) => id === 'tile-A',
+      );
+      expect(component.resolvedIsCompacting()).toBe(true);
+      expect(mockChatStore.isCompactingForTab).toHaveBeenCalledWith('tile-A');
+    });
+
+    it('uses the active tab id without SESSION_CONTEXT', () => {
+      createComponent();
+      activeTabIdSignal.set('tab-global');
+      mockChatStore.isCompactingForTab.mockImplementation(
+        (id) => id === 'tab-global',
+      );
+      expect(component.resolvedIsCompacting()).toBe(true);
+      expect(mockChatStore.isCompactingForTab).toHaveBeenCalledWith(
+        'tab-global',
+      );
+    });
+
+    it('returns false when SESSION_CONTEXT resolves null', () => {
+      createComponent({ sessionContextTabId: null });
+      activeTabIdSignal.set('tab-global');
+      mockChatStore.isCompactingForTab.mockImplementation((id) => id != null);
+      expect(component.resolvedIsCompacting()).toBe(false);
+      expect(mockChatStore.isCompactingForTab).toHaveBeenCalledWith(null);
+    });
+
+    it('ignores a stale tab.isCompacting=true when the registry says not in flight', () => {
+      createComponent();
+      tabsSignal.set([
+        { id: 'tab-global', status: 'loaded', isCompacting: true } as {
+          id: string;
+          status: string;
+        },
+      ]);
+      activeTabIdSignal.set('tab-global');
+      mockChatStore.isCompactingForTab.mockReturnValue(false);
+      expect(component.resolvedIsCompacting()).toBe(false);
+    });
+  });
+
+  describe('compaction overlay and banner agree (real registries)', () => {
+    const TAB = SharedTabId.create();
+    const SESS = SessionId.create();
+    let lifecycle: CompactionLifecycleService;
+    let switchSession: jest.Mock;
+    const activeTab = signal<string | null>(TAB);
+
+    /** chat-view's banner reads exactly this (see chat-view spec delegation). */
+    const banner = (): boolean =>
+      TestBed.inject(ChatStore).isCompactingForTab(activeTab());
+
+    async function flushMicrotasks(): Promise<void> {
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    }
+
+    let consoleSpies: jest.SpyInstance[] = [];
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      consoleSpies = [
+        jest.spyOn(console, 'info').mockImplementation(),
+        jest.spyOn(console, 'warn').mockImplementation(),
+      ];
+      const tabs = [
+        { id: TAB, status: 'loaded', claudeSessionId: SESS, messages: [] },
+      ];
+      switchSession = jest.fn().mockResolvedValue(undefined);
+      const tabManager = {
+        ...mockTabManager,
+        activeTabId: activeTab,
+        tabs: () => tabs,
+        findTabsBySessionId: (sessionId: string) =>
+          tabs.filter((t) => t.claudeSessionId === sessionId),
+        applyCompactionComplete: jest.fn(),
+        applyCompactionTimeoutReset: jest.fn(),
+        seedPostCompactionContext: jest.fn(),
+        markTabIdle: jest.fn(),
+      };
+      const chatStore = {
+        ...mockChatStore,
+        isCompactingForTab: (id: string | null | undefined) =>
+          TestBed.inject(CompactionLifecycleService).isCompactingForTab(id),
+      };
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          { provide: ChatStore, useValue: chatStore },
+          { provide: TabManagerService, useValue: tabManager },
+          { provide: AutopilotStateService, useValue: mockAutopilotState },
+          { provide: FilePickerService, useValue: mockFilePicker },
+          { provide: CommandDiscoveryFacade, useValue: mockCommandDiscovery },
+          { provide: ClaudeRpcService, useValue: mockRpcService },
+          { provide: VSCodeService, useValue: mockVSCodeService },
+          { provide: VoiceInputService, useValue: mockVoiceInput },
+          CompactionLifecycleService,
+          ConversationRegistry,
+          TabSessionBinding,
+          {
+            provide: SessionManager,
+            useValue: { setStatus: jest.fn(), getCurrentSessionId: () => null },
+          },
+          {
+            provide: ExecutionTreeBuilderService,
+            useValue: { clearCache: jest.fn() },
+          },
+          { provide: SessionLoaderService, useValue: { switchSession } },
+        ],
+      });
+      lifecycle = TestBed.inject(CompactionLifecycleService);
+      component = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    });
+
+    afterEach(() => {
+      lifecycle.clearCompactionState();
+      jest.useRealTimers();
+      for (const spy of consoleSpies) spy.mockRestore();
+    });
+
+    it('agree through start and authoritative completion', async () => {
+      expect(component.resolvedIsCompacting()).toBe(false);
+      expect(banner()).toBe(false);
+
+      lifecycle.handleCompactionStart(SESS);
+      expect(component.resolvedIsCompacting()).toBe(true);
+      expect(banner()).toBe(true);
+
+      lifecycle.handleCompactionComplete({
+        tabId: TAB,
+        compactionSessionId: SESS,
+        postTokens: 500,
+      });
+      await flushMicrotasks();
+      expect(component.resolvedIsCompacting()).toBe(false);
+      expect(banner()).toBe(false);
+    });
+
+    it('agree through the PostCompact advisory fallback', async () => {
+      lifecycle.handleCompactionStart(SESS);
+      expect(component.resolvedIsCompacting()).toBe(banner());
+      lifecycle.handleCompactionCompleteNotification({
+        sessionId: SESS,
+        cwd: '/workspace',
+        trigger: 'auto',
+        compactSummary: 'recap',
+        timestamp: 1_700_000_000_000,
+      });
+      expect(component.resolvedIsCompacting()).toBe(banner());
+      jest.advanceTimersByTime(250);
+      await flushMicrotasks();
+      expect(switchSession).toHaveBeenCalledTimes(1);
+      expect(component.resolvedIsCompacting()).toBe(false);
+      expect(banner()).toBe(false);
+    });
+
+    it('agree through the safety timeout', () => {
+      lifecycle.handleCompactionStart(SESS);
+      expect(component.resolvedIsCompacting()).toBe(true);
+      expect(banner()).toBe(true);
+      jest.advanceTimersByTime(600000);
+      expect(component.resolvedIsCompacting()).toBe(false);
+      expect(banner()).toBe(false);
+    });
   });
 
   // ============================================================================
@@ -740,6 +1027,68 @@ describe('ChatInputComponent', () => {
       tabsSignal.set([]);
       activeTabIdSignal.set('missing');
       expect(component.inputEnabled()).toBe(true);
+    });
+  });
+
+  // ============================================================================
+  // STOP BUTTON — reads the same busy predicate the dispatcher queues on
+  // ============================================================================
+
+  describe('isActiveTabStreaming (Stop affordance, TASK_2026_382 review B5)', () => {
+    it('shows Stop while a live tree is unsettled even though the spinner set is clear', () => {
+      // Exactly the window `MessageDispatchService` queues in: `status` reads
+      // `loaded` and `_streamingTabIds` is empty, but the transcript is still
+      // rendering a bubble from `streamingState`. Gated on `isTabStreaming`
+      // alone the button was hidden here — so every send queued and the only
+      // drain outside a root turn-end (Stop) was unreachable.
+      mockTabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        {
+          id: 'tab-x',
+          status: 'loaded',
+          streamingState: { currentMessageId: 'msg-live' },
+        },
+      ]);
+      activeTabIdSignal.set('tab-x');
+
+      expect(component.isActiveTabStreaming()).toBe(true);
+    });
+
+    it('hides Stop once the tree is debris with no currentMessageId', () => {
+      // The bounded exit: the dispatcher sends in this state, so offering Stop
+      // would be an abort for a turn that is not running.
+      mockTabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        {
+          id: 'tab-x',
+          status: 'loaded',
+          streamingState: { currentMessageId: null },
+        },
+      ]);
+      activeTabIdSignal.set('tab-x');
+
+      expect(component.isActiveTabStreaming()).toBe(false);
+    });
+
+    it('still shows Stop on the spinner set alone', () => {
+      mockTabManager.isTabStreaming.mockReturnValue(true);
+      tabsSignal.set([{ id: 'tab-x', status: 'loaded', streamingState: null }]);
+      activeTabIdSignal.set('tab-x');
+
+      expect(component.isActiveTabStreaming()).toBe(true);
+    });
+
+    it('hides Stop for a settled tab', () => {
+      mockTabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([{ id: 'tab-x', status: 'loaded', streamingState: null }]);
+      activeTabIdSignal.set('tab-x');
+
+      expect(component.isActiveTabStreaming()).toBe(false);
+    });
+
+    it('hides Stop when there is no active tab at all', () => {
+      activeTabIdSignal.set(null);
+      expect(component.isActiveTabStreaming()).toBe(false);
     });
   });
 });

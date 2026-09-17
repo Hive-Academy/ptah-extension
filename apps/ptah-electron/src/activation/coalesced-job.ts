@@ -31,6 +31,9 @@
  * - **A request that arrives WHILE a run is in flight joins the batch already
  *   queued behind it**, rather than starting a third. At most one run is queued
  *   per key at any moment.
+ * - **An optional `admit` gate can hold a batch after its window closes**
+ *   (TASK_2026_437 C14 c). The batch stays pending while held, so requests that
+ *   arrive during the hold join it; see {@link CoalescedJobOptions.admit}.
  *
  * ## Why trailing and not leading
  *
@@ -87,6 +90,30 @@ export interface CoalescedJobOptions<TPayload> {
   run: (batch: CoalescedJobBatch<TPayload>) => Promise<void>;
   /** Reporting hook for a rejected run. Defaults to a `console.warn`. */
   onError?: (error: unknown, batch: CoalescedJobBatch<TPayload>) => void;
+  /**
+   * Optional gate between "the window closed and the previous run settled" and
+   * "the run starts" (TASK_2026_437 C14 c).
+   *
+   * Awaited while the batch is STILL pending, so every request that arrives
+   * during the wait joins this batch — N requests during a long hold still
+   * produce ONE run. When a request adds a NEW reason, `signal` aborts and
+   * `admit` is asked again with the grown reason list, so a reason that must
+   * not wait can release a batch that was held for the others.
+   *
+   * Resolve `'run'` to run the batch, `'skip'` to settle its requesters without
+   * running it. A rejection is reported through `onError` and the batch runs
+   * (fail open: a broken gate must not stop the work).
+   */
+  admit?: (request: CoalescedJobAdmission) => Promise<'run' | 'skip'>;
+}
+
+/** What {@link CoalescedJobOptions.admit} is asked about. */
+export interface CoalescedJobAdmission {
+  key: string;
+  /** The batch's distinct reasons at the moment of asking, in arrival order. */
+  reasons: readonly string[];
+  /** Aborts when a new reason joins the batch; `admit` is then asked again. */
+  signal: AbortSignal;
 }
 
 export interface CoalescedJob<TPayload> {
@@ -111,6 +138,8 @@ interface PendingBatch<TPayload> {
   payload: TPayload;
   promise: Promise<void>;
   settle: () => void;
+  /** Set while `admit` is being awaited for this batch. */
+  admission: AbortController | undefined;
 }
 
 function defaultOnError(error: unknown, key: string, reasons: string[]): void {
@@ -137,6 +166,53 @@ export function createCoalescedJob<TPayload>(
   /** The tail of the per-key run chain; absent when nothing is queued. */
   const chains = new Map<string, Promise<void>>();
 
+  const reportError = (
+    error: unknown,
+    key: string,
+    batch: PendingBatch<TPayload>,
+  ): void => {
+    if (options.onError !== undefined) {
+      options.onError(error, {
+        key,
+        reasons: [...batch.reasons],
+        payload: batch.payload,
+      });
+    } else {
+      defaultOnError(error, key, batch.reasons);
+    }
+  };
+
+  /**
+   * Ask `options.admit` until it answers for the batch's CURRENT reasons: a
+   * verdict given while a new reason joined is stale and asked again.
+   */
+  const admitBatch = async (
+    key: string,
+    batch: PendingBatch<TPayload>,
+  ): Promise<'run' | 'skip'> => {
+    const admit = options.admit;
+    if (admit === undefined) return 'run';
+    for (;;) {
+      const admission = new AbortController();
+      batch.admission = admission;
+      let verdict: 'run' | 'skip';
+      try {
+        verdict = await admit({
+          key,
+          reasons: [...batch.reasons],
+          signal: admission.signal,
+        });
+      } catch (error: unknown) {
+        // A gate that throws must not stop the work: report it and run.
+        reportError(error, key, batch);
+        verdict = 'run';
+      } finally {
+        batch.admission = undefined;
+      }
+      if (!admission.signal.aborted) return verdict;
+    }
+  };
+
   const drain = (key: string): void => {
     const previous = chains.get(key) ?? Promise.resolve();
     const link = previous.then(async () => {
@@ -144,6 +220,9 @@ export function createCoalescedJob<TPayload>(
       // joined while the previous run was in flight belongs to this pass.
       const batch = pending.get(key);
       if (batch === undefined) return;
+
+      // Still pending while admission is awaited, so late requests join it.
+      const verdict = await admitBatch(key, batch);
       pending.delete(key);
 
       const described: CoalescedJobBatch<TPayload> = {
@@ -151,14 +230,14 @@ export function createCoalescedJob<TPayload>(
         reasons: [...batch.reasons],
         payload: batch.payload,
       };
+      if (verdict === 'skip') {
+        batch.settle();
+        return;
+      }
       try {
         await run(described);
       } catch (error: unknown) {
-        if (options.onError !== undefined) {
-          options.onError(error, described);
-        } else {
-          defaultOnError(error, key, batch.reasons);
-        }
+        reportError(error, key, batch);
       } finally {
         batch.settle();
       }
@@ -179,6 +258,8 @@ export function createCoalescedJob<TPayload>(
         if (!existing.seen.has(reason)) {
           existing.seen.add(reason);
           existing.reasons.push(reason);
+          // A held batch re-asks its gate with the new reason.
+          existing.admission?.abort();
         }
         existing.payload = payload;
         return existing.promise;
@@ -194,6 +275,7 @@ export function createCoalescedJob<TPayload>(
         payload,
         promise,
         settle,
+        admission: undefined,
       });
 
       const timer = setTimeout(() => drain(key), windowMs);

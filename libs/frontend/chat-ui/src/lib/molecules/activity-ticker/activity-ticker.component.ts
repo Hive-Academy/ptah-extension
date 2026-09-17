@@ -13,8 +13,14 @@ import {
 import type { ActivityItem } from '@ptah-extension/core';
 
 /**
- * ActivityTickerComponent — the Electron header's back-office news line
- * (TASK_2026_380, component 14e).
+ * ActivityTickerComponent — the back-office news line (TASK_2026_380,
+ * component 14e).
+ *
+ * Purely presentational and unpositioned: it renders wherever its host puts
+ * it. Since TASK_2026_405 that host is the floating toast in
+ * `ElectronShellComponent`, not the navbar action cluster — the toast owns
+ * `position`, `z-index` and pointer-event handling, this component owns none
+ * of it.
  *
  * Shows one {@link ActivityItem} at a time and rotates through the list on a
  * timer, so a burst of background work reads as a sentence rather than a
@@ -27,8 +33,9 @@ import type { ActivityItem } from '@ptah-extension/core';
  * stylesheet rather than in TypeScript.
  *
  * When `idle()` is true the component collapses to a muted dot that is STILL a
- * click target and still in the DOM, so the fixed-height header never reflows
- * between busy and quiet.
+ * click target and still in the DOM. The toast host additionally drops the
+ * whole element while idle; this collapse is what a host that wants to keep
+ * the ticker mounted gets instead.
  */
 
 /** Human labels for the fallback when an emitter sent an empty summary. */

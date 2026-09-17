@@ -24,6 +24,8 @@ import type { ChatSdkContextService } from '../session/chat-sdk-context.service'
 interface PtahCliSessionEntry {
   readonly agentId: string;
   readonly agentName: string;
+  /** Conversation name passed to SdkAgentAdapter for metadata and --name. */
+  readonly sessionName?: string;
   /**
    * Key of this session's proxy lease in `PtahCliRegistry`. The entry object
    * is shared between the `tabId` and `realSessionId` map keys, so whichever
@@ -117,7 +119,16 @@ export class ChatPtahCliService {
     // and leaving it outside left the identical leak for that one caller.
     let stream: AsyncIterable<unknown>;
     let agentName = agentId;
+    // Resolved INSIDE the guard: `ChatStartParamsSchema` is a `.passthrough()`
+    // object that does not validate `name`, so a non-string value reaches
+    // `name?.trim()` and throws. Outside the `try` that throw would skip
+    // `releaseLeaseAfterFailedStart` and strand the proxy lease taken by
+    // `getProfile` above — the exact leak TASK_2026_326 closed.
+    let sessionName: string;
     try {
+      sessionName = name?.trim()
+        ? name
+        : `Session ${new Date().toLocaleDateString()}`;
       const summaries = await this.ptahCliRegistry.listAgents();
       const summary = summaries.find((s) => s.id === agentId);
       agentName = summary?.name ?? agentId;
@@ -156,6 +167,7 @@ export class ChatPtahCliService {
         systemPrompt: options?.systemPrompt,
         projectPath: workspacePath,
         name,
+        sessionName,
         prompt,
         files: options?.files,
         mcpServerRunning,
@@ -167,7 +179,12 @@ export class ChatPtahCliService {
       throw error;
     }
 
-    this.ptahCliSessions.set(tabId, { agentId, agentName, leaseKey });
+    this.ptahCliSessions.set(tabId, {
+      agentId,
+      agentName,
+      sessionName,
+      leaseKey,
+    });
 
     this.logger.info('[RPC] chat:start - Ptah CLI session started', {
       tabId,
@@ -302,6 +319,10 @@ export class ChatPtahCliService {
 
   getAgentId(key: string): string | undefined {
     return this.ptahCliSessions.get(key)?.agentId;
+  }
+
+  getSessionName(key: string): string | undefined {
+    return this.ptahCliSessions.get(key)?.sessionName;
   }
 
   setSdkSessionId(key: string, sdkSessionId: string): void {

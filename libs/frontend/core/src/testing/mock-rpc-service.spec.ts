@@ -31,12 +31,11 @@ describe('createMockRpcService', () => {
     expect(result.isSuccess()).toBe(true);
   });
 
-  it('exposes typed wrappers (listSessions, openFile, deleteSession, renameSession, querySubagents, subagent commands)', () => {
+  it('exposes typed wrappers (listSessions, deleteSession, renameSession, querySubagents, subagent commands)', () => {
     const rpc = createMockRpcService();
     const instance: Partial<ClaudeRpcService> = rpc;
 
     expect(typeof instance.listSessions).toBe('function');
-    expect(typeof instance.openFile).toBe('function');
     expect(typeof instance.deleteSession).toBe('function');
     expect(typeof instance.renameSession).toBe('function');
     expect(typeof instance.querySubagents).toBe('function');

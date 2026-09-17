@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: bugfix
 title: Electron main process never exits after a deferred will-quit on Windows
 description: >-

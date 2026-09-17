@@ -21,10 +21,10 @@
  * session. Two rules keep that affordable, and both were bought the hard way
  * (TASK_2026_323 blocker B5):
  *
- *  1. Nothing unbounded goes in the blob. A `CliSessionReference` carries ids,
- *     status and a short segment tail; the bulk output lives under
+ *  1. Nothing unbounded goes in the blob. A `CliSessionReference` carries ids
+ *     and status only; the bulk output lives under
  *     `ptah.agentOutput:<agentId>`, written once when the agent exits and read
- *     back only when a session is restored.
+ *     back in bounded pages.
  *  2. A burst of writes serializes once. Mutations are staged in memory and
  *     flushed when the write queue drains, so ten CLI agents exiting together
  *     cost one `IStateStorage.update`, not ten.
@@ -33,8 +33,20 @@
 import { injectable, inject } from 'tsyringe';
 import EventEmitter from 'eventemitter3';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IStateStorage } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  StateStorageCursorStaleError,
+  StateStorageValueTooLargeError,
+  isAsyncStateStorage,
+  omitJsonPaths,
+  packJsonSequencePage,
+  type IAsyncStateStorage,
+  type IStateStorage,
+  type StateStorageArraySplitPlan,
+  type StateStorageGetOptions,
+  type StateStorageTruncatedItem,
+  type StateStorageValueProjection,
+} from '@ptah-extension/platform-core';
 import { SdkError } from './errors';
 import type {
   CliOutputSegment,
@@ -42,6 +54,7 @@ import type {
   FlatStreamEventUnion,
   SessionMetadataChangedNotification,
   SessionMetadataChangeKind,
+  SubagentRecord,
 } from '@ptah-extension/shared';
 import { blankToUndefined } from '@ptah-extension/shared';
 
@@ -91,6 +104,18 @@ export interface SessionMetadata {
   /** CLI agent sessions linked to this parent session. Enables resume. */
   readonly cliSessions?: readonly CliSessionReference[];
 
+  /**
+   * Exact process working directory used by the SDK session. This can differ
+   * from workspaceId when the session runs in a git worktree.
+   */
+  readonly workingDirectory?: string;
+
+  /**
+   * Interrupted SDK subagents that can be resumed after host restart.
+   * Rival CLI/background/running/completed records never belong here.
+   */
+  readonly resumableSdkSubagents?: readonly SubagentRecord[];
+
   /** When true, this session is a child/subagent session (e.g., Ptah CLI agent spawned
    *  by a parent orchestrator). Child sessions are hidden from the sidebar session list. */
   readonly isChildSession?: boolean;
@@ -122,50 +147,162 @@ export interface PersistedAgentOutput {
  * Storage key for session metadata
  */
 const STORAGE_KEY = 'ptah.sessionMetadata';
+const SESSION_DETAIL_KEY_PREFIX = 'ptah.session:';
 
 /** Key prefix for per-agent bulk output. One key per agent, written once. */
 const AGENT_OUTPUT_KEY_PREFIX = 'ptah.agentOutput:';
 
-/**
- * Segments retained INLINE on a `CliSessionReference`.
- *
- * The Codex / Copilot agent cards render `segments` directly, so a small tail
- * keeps a restored card useful even before {@link
- * SessionMetadataStore.getCliSessionsForRestore} rehydrates the full set from
- * the per-agent key.
- */
-const MAX_PERSISTED_REF_SEGMENTS = 200;
+const SESSION_INDEX_SCHEMA_VERSION = 1;
+
+interface SessionMetadataIndex {
+  readonly schemaVersion: typeof SESSION_INDEX_SCHEMA_VERSION;
+  readonly items: readonly SessionMetadata[];
+}
+
+export type TaggedAgentOutputItem =
+  | { readonly tag: 'segment'; readonly value: CliOutputSegment }
+  | { readonly tag: 'streamEvent'; readonly value: FlatStreamEventUnion };
+
+/** Declarative recipe executed by Electron's generic storage worker. */
+export const SESSION_METADATA_MIGRATION: StateStorageArraySplitPlan = {
+  kind: 'split-array-value',
+  planVersion: 1,
+  sourceKey: STORAGE_KEY,
+  itemIdPath: ['sessionId'],
+  detailKeyPrefix: SESSION_DETAIL_KEY_PREFIX,
+  indexKey: STORAGE_KEY,
+  indexSchemaVersion: SESSION_INDEX_SCHEMA_VERSION,
+  summaryFields: [
+    { sourcePath: ['sessionId'] },
+    { sourcePath: ['name'] },
+    { sourcePath: ['workspaceId'] },
+    { sourcePath: ['createdAt'] },
+    { sourcePath: ['lastActiveAt'] },
+    { sourcePath: ['totalCost'] },
+    { sourcePath: ['totalTokens'] },
+    { sourcePath: ['isChildSession'] },
+  ],
+  nestedExtractions: [
+    {
+      sourceArrayPath: ['cliSessions'],
+      itemIdPath: ['agentId'],
+      destinationKeyPrefix: AGENT_OUTPUT_KEY_PREFIX,
+      fields: [{ sourcePath: ['segments'] }, { sourcePath: ['streamEvents'] }],
+      destinationFormat: {
+        kind: 'tagged-sequence',
+        fields: [
+          { sourcePath: ['segments'], tag: 'segment' },
+          { sourcePath: ['streamEvents'], tag: 'streamEvent' },
+        ],
+      },
+      onMissingId: 'drop-bulk',
+      dropFields: [['stdout']],
+      textFallback: {
+        sourcePath: ['stdout'],
+        itemTemplate: { tag: 'segment', value: { type: 'text', content: '' } },
+        contentPath: ['value', 'content'],
+      },
+      conflictPolicy: {
+        kind: 'prefer-longer-arrays',
+        fields: ['segments', 'streamEvents'],
+      },
+    },
+  ],
+};
+
+export const SESSION_METADATA_WORKER_CACHE_EXCLUSIONS = [
+  SESSION_DETAIL_KEY_PREFIX,
+  AGENT_OUTPUT_KEY_PREFIX,
+] as const;
+
+function sessionDetailKey(sessionId: string): string {
+  return `${SESSION_DETAIL_KEY_PREFIX}${sessionId}`;
+}
+
+const DETAIL_PROJECTION: StateStorageValueProjection = {
+  omit: [
+    ['cliSessions', '*', 'stdout'],
+    ['cliSessions', '*', 'segments'],
+    ['cliSessions', '*', 'streamEvents'],
+  ],
+};
+const DETAIL_READ_OPTIONS: StateStorageGetOptions = {
+  projection: DETAIL_PROJECTION,
+};
+const REFERENCE_BULK_FIELDS = ['stdout', 'segments', 'streamEvents'] as const;
+const MAX_RPC_RESPONSE_BYTES = 256 * 1024;
+const RPC_CORRELATION_ID_BUDGET = '0'.repeat(64);
+const RPC_CURSOR_RESERVATION = '0'.repeat(32);
+const RECORD_OUTPUT_CURSOR_PATTERN = /^s(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+
+export class AgentOutputCursorStaleError extends SdkError {
+  constructor(readonly agentId: string) {
+    super('Agent output cursor is stale');
+    this.name = 'AgentOutputCursorStaleError';
+  }
+}
 
 function agentOutputKey(agentId: string): string {
   return `${AGENT_OUTPUT_KEY_PREFIX}${agentId}`;
 }
 
-/**
- * Strip the bulk fields from a CLI session reference before it enters the
- * all-sessions blob. `streamEvents` never belongs there; `segments` is trimmed
- * to a tail. Returns the SAME object when nothing needed removing so callers
- * can cheaply detect a no-op.
- *
- * Leaning is DESTRUCTIVE — the removed events exist nowhere else once the blob
- * is rewritten — so nothing calls this directly on a reference that may still
- * be the only copy. {@link SessionMetadataStore.leanCliSessions} migrates the
- * bulk to `ptah.agentOutput:<agentId>` first and only leans what it has
- * safely written.
- */
-function leanCliSessionRef(ref: CliSessionReference): CliSessionReference {
-  const segmentCount = ref.segments?.length ?? 0;
-  if (
-    ref.streamEvents === undefined &&
-    segmentCount <= MAX_PERSISTED_REF_SEGMENTS
-  ) {
-    return ref;
+function parseRecordOutputCursor(
+  agentId: string,
+  cursor: string | undefined,
+  savedAt: number | null,
+  itemCount: number,
+): number {
+  if (cursor === undefined) return 0;
+  const match = RECORD_OUTPUT_CURSOR_PATTERN.exec(cursor);
+  const cursorSavedAt = match ? Number(match[1]) : Number.NaN;
+  const index = match ? Number(match[2]) : Number.NaN;
+  if (!Number.isSafeInteger(cursorSavedAt) || !Number.isSafeInteger(index)) {
+    throw new SdkError('Invalid agent output cursor');
   }
-  const lean: Record<string, unknown> = { ...ref };
-  delete lean['streamEvents'];
-  if (ref.segments && segmentCount > MAX_PERSISTED_REF_SEGMENTS) {
-    lean['segments'] = ref.segments.slice(-MAX_PERSISTED_REF_SEGMENTS);
+  if (savedAt !== cursorSavedAt || index > itemCount) {
+    throw new AgentOutputCursorStaleError(agentId);
   }
-  return lean as unknown as CliSessionReference;
+  return index;
+}
+
+interface AgentOutputPage {
+  items: readonly TaggedAgentOutputItem[];
+  nextCursor: string | null;
+  done: boolean;
+}
+
+interface AgentOutputPageBudget {
+  readonly rpcBytes: number;
+  readonly jsonEnvelopeBytes: number;
+  readonly itemBytes: number;
+}
+
+function rpcOutputPageBytes(
+  items: readonly TaggedAgentOutputItem[],
+  nextCursor: string | null,
+  done: boolean,
+): number {
+  return new TextEncoder().encode(
+    JSON.stringify({
+      success: true,
+      data: { items, nextCursor, done },
+      correlationId: RPC_CORRELATION_ID_BUDGET,
+    }),
+  ).byteLength;
+}
+
+function isNonEmptyBulk(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string' || Array.isArray(value)) {
+    return value.length > 0;
+  }
+  return true;
+}
+
+function countReferencesWithBulk(metadata: SessionMetadata): number {
+  return (metadata.cliSessions ?? []).filter((ref) =>
+    REFERENCE_BULK_FIELDS.some((field) => isNonEmptyBulk(ref[field])),
+  ).length;
 }
 
 /**
@@ -236,6 +373,18 @@ export class SessionMetadataStore {
    */
   private pendingAll: SessionMetadata[] | null = null;
 
+  private async readStorage<T>(key: string): Promise<T | undefined> {
+    return isAsyncStateStorage(this.storage)
+      ? await this.storage.getAsync<T>(key)
+      : this.storage.get<T>(key);
+  }
+
+  private indexEntry(metadata: SessionMetadata): SessionMetadata {
+    const entry: Record<string, unknown> = { ...metadata };
+    delete entry['cliSessions'];
+    return entry as unknown as SessionMetadata;
+  }
+
   /**
    * Emits `session:metadataChanged` events after each successful mutation
    * (create / save / rename / delete). The wiring layer
@@ -303,132 +452,55 @@ export class SessionMetadataStore {
    * Public callers must use save() which wraps this in enqueueWrite().
    */
   private async _saveInternal(metadata: SessionMetadata): Promise<void> {
-    const all = await this.getAll();
-    const index = all.findIndex((m) => m.sessionId === metadata.sessionId);
-
-    if (index >= 0) {
-      const existing = all[index];
-      all[index] = await this.leanCliSessions({
-        ...metadata,
-        ...(existing.isChildSession && !metadata.isChildSession
-          ? { isChildSession: true }
-          : {}),
-        ...(existing.cliSessions && !metadata.cliSessions
-          ? { cliSessions: existing.cliSessions }
-          : {}),
-      });
-    } else {
-      all.push(await this.leanCliSessions(metadata));
+    const existing = await this.get(metadata.sessionId);
+    const merged: SessionMetadata = {
+      ...metadata,
+      ...(existing?.isChildSession && !metadata.isChildSession
+        ? { isChildSession: true }
+        : {}),
+      ...(existing?.cliSessions && !metadata.cliSessions
+        ? { cliSessions: existing.cliSessions }
+        : {}),
+      ...(existing?.workingDirectory && !metadata.workingDirectory
+        ? { workingDirectory: existing.workingDirectory }
+        : {}),
+      ...(existing?.resumableSdkSubagents &&
+      metadata.resumableSdkSubagents === undefined
+        ? { resumableSdkSubagents: existing.resumableSdkSubagents }
+        : {}),
+    };
+    const strippedBulkRefCount = countReferencesWithBulk(merged);
+    const detail =
+      strippedBulkRefCount > 0
+        ? omitJsonPaths(merged, DETAIL_PROJECTION.omit)
+        : merged;
+    if (strippedBulkRefCount > 0) {
+      this.logger.info(
+        '[SessionMetadataStore] Stripped bulk output from CLI session references',
+        { sessionId: metadata.sessionId, strippedBulkRefCount },
+      );
     }
 
-    this.stage(all);
+    if (isAsyncStateStorage(this.storage)) {
+      // Detail first, lean index second. Readers never observe an index entry
+      // whose authoritative detail has not reached durable storage.
+      await this.storage.update(sessionDetailKey(metadata.sessionId), detail);
+      const all = await this.getAll();
+      const index = all.findIndex((m) => m.sessionId === metadata.sessionId);
+      const summary = this.indexEntry(detail);
+      if (index >= 0) all[index] = summary;
+      else all.push(summary);
+      this.stage(all);
+    } else {
+      const all = await this.getAll();
+      const index = all.findIndex((m) => m.sessionId === metadata.sessionId);
+      if (index >= 0) all[index] = detail;
+      else all.push(detail);
+      this.stage(all);
+    }
     this.logger.debug(
       `[SessionMetadataStore] Staged metadata for session ${metadata.sessionId}`,
     );
-  }
-
-  /**
-   * Lean a record's `cliSessions` for the blob, MIGRATING whatever leaning
-   * removes to `ptah.agentOutput:<agentId>` first.
-   *
-   * This is the one place a fat reference can be made lean, and the order is
-   * the whole point. `addCliSession` is not the only way a reference gets into
-   * a record: a blob written before the per-agent split still carries inline
-   * `streamEvents`, and `save` / `addStats` / `rename` /
-   * `propagateStatsToParent` all round-trip that record. Leaning first and
-   * writing the bulk never (the shape this replaces) meant the first
-   * incidental write — a cost update on an unrelated turn — silently deleted
-   * an agent's entire execution tree (TASK_2026_324 finding 1).
-   *
-   * Two refs are left fat on purpose:
-   *  - one with no `agentId`, because `ptah.agentOutput:<agentId>` IS the
-   *    destination and there is no id to key it by;
-   *  - one whose migration failed, so the only copy stays where readers can
-   *    still see it and the next write retries.
-   */
-  private async leanCliSessions(
-    metadata: SessionMetadata,
-  ): Promise<SessionMetadata> {
-    const refs = metadata.cliSessions;
-    if (!refs || refs.length === 0) return metadata;
-
-    const lean: CliSessionReference[] = [];
-    let changed = false;
-    for (const ref of refs) {
-      const leanRef = leanCliSessionRef(ref);
-      if (leanRef === ref) {
-        lean.push(ref);
-        continue;
-      }
-      if (blankToUndefined(ref.agentId) === undefined) {
-        this.logger.warn(
-          '[SessionMetadataStore] CLI session reference carries bulk output but no agentId — left inline',
-          { cliSessionId: ref.cliSessionId, cli: ref.cli },
-        );
-        lean.push(ref);
-        continue;
-      }
-      if (!(await this.migrateRefOutput(ref))) {
-        lean.push(ref);
-        continue;
-      }
-      lean.push(leanRef);
-      changed = true;
-    }
-    return changed ? { ...metadata, cliSessions: lean } : metadata;
-  }
-
-  /**
-   * Move one fat reference's bulk output onto its per-agent key.
-   *
-   * Returns true only when the bulk is durable there — either because this
-   * call wrote it, or because the stored snapshot already holds at least as
-   * much. Agent output is append-only, so "longer wins" per field can only
-   * ever ADD: a re-persist that arrives with a truncated tail cannot overwrite
-   * the complete snapshot an earlier `saveAgentOutput` stored.
-   *
-   * False means the caller must keep the reference fat. A failed migration is
-   * a warning, not a throw — the write it is part of carries other mutations
-   * (stats, a rename) that are still worth persisting.
-   */
-  private async migrateRefOutput(ref: CliSessionReference): Promise<boolean> {
-    const agentId = ref.agentId;
-    try {
-      const stored = await this.getAgentOutput(agentId);
-      const refSegments = ref.segments ?? [];
-      const refStreamEvents = ref.streamEvents ?? [];
-      const storedSegments = stored?.segments ?? [];
-      const storedStreamEvents = stored?.streamEvents ?? [];
-
-      const segmentsWin = refSegments.length > storedSegments.length;
-      const streamEventsWin =
-        refStreamEvents.length > storedStreamEvents.length;
-      if (!segmentsWin && !streamEventsWin) return true;
-
-      await this.saveAgentOutput(agentId, {
-        segments: segmentsWin ? refSegments : storedSegments,
-        streamEvents: streamEventsWin ? refStreamEvents : storedStreamEvents,
-      });
-      this.logger.info(
-        `[SessionMetadataStore] Migrated inline CLI output for agent ${agentId} to its own key`,
-        {
-          segments: segmentsWin ? refSegments.length : storedSegments.length,
-          streamEvents: streamEventsWin
-            ? refStreamEvents.length
-            : storedStreamEvents.length,
-        },
-      );
-      return true;
-    } catch (error: unknown) {
-      // degradation-audit: optional-capability - moving inline CLI output to
-      // its own key is a size optimisation; false leaves the fat reference in
-      // place, which still holds the output, and a later pass retries.
-      this.logger.warn(
-        `[SessionMetadataStore] Could not migrate inline CLI output for agent ${agentId} — reference kept fat`,
-        error instanceof Error ? error : new Error(String(error)),
-      );
-      return false;
-    }
   }
 
   /**
@@ -458,7 +530,15 @@ export class SessionMetadataStore {
   async flush(): Promise<void> {
     const snapshot = this.pendingAll;
     if (!snapshot) return;
-    await this.storage.update(STORAGE_KEY, snapshot);
+    await this.storage.update(
+      STORAGE_KEY,
+      isAsyncStateStorage(this.storage)
+        ? {
+            schemaVersion: SESSION_INDEX_SCHEMA_VERSION,
+            items: snapshot.map((item) => this.indexEntry(item)),
+          }
+        : snapshot,
+    );
     if (this.pendingAll === snapshot) {
       this.pendingAll = null;
     }
@@ -487,8 +567,62 @@ export class SessionMetadataStore {
    * Get metadata by session ID
    */
   async get(sessionId: string): Promise<SessionMetadata | null> {
+    if (isAsyncStateStorage(this.storage)) {
+      const detail = await this.storage.getAsync<SessionMetadata>(
+        sessionDetailKey(sessionId),
+        undefined,
+        DETAIL_READ_OPTIONS,
+      );
+      if (detail) return detail;
+    }
     const all = await this.getAll();
-    return all.find((m) => m.sessionId === sessionId) || null;
+    const summary = all.find((m) => m.sessionId === sessionId);
+    return summary ? omitJsonPaths(summary, DETAIL_PROJECTION.omit) : null;
+  }
+
+  /**
+   * Persist the process-resume state owned by chat orchestration.
+   *
+   * The filter is deliberately repeated at the storage boundary: callers may
+   * pass a registry snapshot, but only interrupted foreground SDK subagents
+   * belonging to this canonical session are durable.
+   */
+  async saveResumeState(
+    sessionId: string,
+    state: {
+      workingDirectory?: string;
+      resumableSdkSubagents: readonly SubagentRecord[];
+    },
+  ): Promise<void> {
+    await this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (!metadata) {
+        this.logger.warn(
+          `[SessionMetadataStore] Cannot save resume state for missing session ${sessionId}`,
+        );
+        return;
+      }
+
+      const resumableSdkSubagents = state.resumableSdkSubagents
+        .filter(
+          (record) =>
+            record.status === 'interrupted' &&
+            record.parentSessionId === sessionId &&
+            !record.isBackground &&
+            !record.isCliAgent &&
+            blankToUndefined(record.toolCallId) !== undefined &&
+            blankToUndefined(record.agentId) !== undefined,
+        )
+        .map((record) => ({ ...record }));
+
+      await this._saveInternal({
+        ...metadata,
+        ...(blankToUndefined(state.workingDirectory)
+          ? { workingDirectory: state.workingDirectory }
+          : {}),
+        resumableSdkSubagents,
+      });
+    });
   }
 
   /**
@@ -525,53 +659,204 @@ export class SessionMetadataStore {
     // array (`vscode.Memento` included) — so returning it directly let a
     // staged-but-unflushed mutation appear as if it had been stored, and a
     // failed flush left the "unwritten" value already in place.
-    return [
-      ...((await this.storage.get<SessionMetadata[]>(STORAGE_KEY)) ?? []),
-    ];
+    const stored = await this.readStorage<
+      SessionMetadata[] | SessionMetadataIndex
+    >(STORAGE_KEY);
+    const items = Array.isArray(stored) ? stored : stored?.items;
+    return [...(items ?? [])];
   }
 
-  /**
-   * Persist one agent's bulk output under its OWN storage key.
-   *
-   * Called once, when the agent exits. Nothing here ever reaches the
-   * all-sessions blob — that is the entire point of the split. A snapshot with
-   * neither segments nor stream events writes nothing.
-   */
   async saveAgentOutput(
     agentId: string,
     output: {
+      stdout?: string;
       segments?: readonly CliOutputSegment[];
       streamEvents?: readonly FlatStreamEventUnion[];
     },
   ): Promise<void> {
     if (blankToUndefined(agentId) === undefined) return;
-    const hasSegments = (output.segments?.length ?? 0) > 0;
-    const hasStreamEvents = (output.streamEvents?.length ?? 0) > 0;
-    if (!hasSegments && !hasStreamEvents) return;
+    const stdout = output.stdout ?? '';
+    const streamEvents = output.streamEvents ?? [];
+    const hasOtherOutput =
+      (output.segments?.length ?? 0) > 0 || streamEvents.length > 0;
+    const stdoutFallback = stdout.length > 0 && !hasOtherOutput;
+    const stdoutDropped = stdout.length > 0 && hasOtherOutput;
+    const segments: readonly CliOutputSegment[] = stdoutFallback
+      ? [{ type: 'text', content: stdout }]
+      : (output.segments ?? []);
+    if (segments.length === 0 && streamEvents.length === 0) return;
 
-    const record: PersistedAgentOutput = {
-      agentId,
-      savedAt: Date.now(),
-      ...(hasSegments ? { segments: output.segments } : {}),
-      ...(hasStreamEvents ? { streamEvents: output.streamEvents } : {}),
+    if (isAsyncStateStorage(this.storage)) {
+      await this.storage.replaceJsonSequence(
+        agentOutputKey(agentId),
+        (async function* (): AsyncGenerator<{
+          items: readonly TaggedAgentOutputItem[];
+        }> {
+          for (const value of segments) {
+            yield { items: [{ tag: 'segment', value }] };
+          }
+          for (const value of streamEvents) {
+            yield { items: [{ tag: 'streamEvent', value }] };
+          }
+        })(),
+      );
+    } else {
+      const record: PersistedAgentOutput = {
+        agentId,
+        savedAt: Date.now(),
+        ...(segments.length > 0 ? { segments } : {}),
+        ...(streamEvents.length > 0 ? { streamEvents } : {}),
+      };
+      await this.storage.update(agentOutputKey(agentId), record);
+    }
+    const summary = {
+      segments: segments.length,
+      streamEvents: streamEvents.length,
+      stdoutDropped,
+      stdoutFallback,
     };
-    await this.storage.update(agentOutputKey(agentId), record);
-    this.logger.debug(
-      `[SessionMetadataStore] Stored agent output for ${agentId}`,
+    if (stdoutDropped || stdoutFallback) {
+      this.logger.info(
+        `[SessionMetadataStore] Stored agent output for ${agentId}`,
+        summary,
+      );
+    } else {
+      this.logger.debug(
+        `[SessionMetadataStore] Stored agent output for ${agentId}`,
+        summary,
+      );
+    }
+  }
+
+  async getAgentOutputPage(
+    agentId: string,
+    cursor?: string,
+    maxBytes = 128 * 1024,
+  ): Promise<{
+    items: readonly TaggedAgentOutputItem[];
+    nextCursor: string | null;
+    done: boolean;
+  }> {
+    if (blankToUndefined(agentId) === undefined) {
+      return { items: [], nextCursor: null, done: true };
+    }
+    const rpcBytes = Math.min(maxBytes, MAX_RPC_RESPONSE_BYTES);
+    const jsonEnvelopeBytes = rpcOutputPageBytes(
+      [],
+      RPC_CURSOR_RESERVATION,
+      false,
+    );
+    const budget: AgentOutputPageBudget = {
+      rpcBytes,
+      jsonEnvelopeBytes,
+      itemBytes: rpcBytes - jsonEnvelopeBytes,
+    };
+    if (budget.itemBytes <= 0) {
+      throw new SdkError(
+        'Agent output page budget cannot fit the RPC envelope',
+      );
+    }
+    const page = isAsyncStateStorage(this.storage)
+      ? await this.readSequenceOutputPage(this.storage, agentId, cursor, budget)
+      : await this.readRecordOutputPage(agentId, cursor, budget);
+    if (rpcOutputPageBytes(page.items, page.nextCursor, page.done) > rpcBytes) {
+      throw new SdkError('Agent output page exceeds RPC budget');
+    }
+    return page;
+  }
+
+  private async readSequenceOutputPage(
+    storage: IAsyncStateStorage,
+    agentId: string,
+    cursor: string | undefined,
+    budget: AgentOutputPageBudget,
+  ): Promise<AgentOutputPage> {
+    const sequence = storage.readJsonSequence<TaggedAgentOutputItem>(
+      agentOutputKey(agentId),
       {
-        segments: output.segments?.length ?? 0,
-        streamEvents: output.streamEvents?.length ?? 0,
+        cursor,
+        maxBytes: budget.rpcBytes,
+        maxJsonBytes: budget.rpcBytes,
+        jsonEnvelopeBytes: budget.jsonEnvelopeBytes,
+        maxItemBytes: budget.itemBytes,
+      },
+    );
+    const pages = sequence[Symbol.asyncIterator]();
+    try {
+      const first = await pages.next();
+      if (first.done) return { items: [], nextCursor: null, done: true };
+      const { items, nextCursor, done, truncatedItems } = first.value;
+      if (truncatedItems && truncatedItems.length > 0) {
+        this.logTruncatedItems(agentId, truncatedItems);
+      }
+      return { items, nextCursor, done };
+    } catch (error: unknown) {
+      if (error instanceof StateStorageCursorStaleError) {
+        throw new AgentOutputCursorStaleError(agentId);
+      }
+      throw error;
+    } finally {
+      await pages.return?.(undefined);
+    }
+  }
+
+  private logTruncatedItems(
+    agentId: string,
+    truncatedItems: readonly StateStorageTruncatedItem[],
+  ): void {
+    this.logger.info(
+      `[SessionMetadataStore] Truncated oversized agent output items for ${agentId}`,
+      {
+        truncatedItems: truncatedItems.map((item) => ({
+          pageIndex: item.index,
+          originalJsonBytes: item.originalJsonBytes,
+        })),
       },
     );
   }
 
-  /** Read one agent's bulk output, or null when nothing was stored. */
-  async getAgentOutput(agentId: string): Promise<PersistedAgentOutput | null> {
-    if (blankToUndefined(agentId) === undefined) return null;
-    return (
-      (await this.storage.get<PersistedAgentOutput>(agentOutputKey(agentId))) ??
-      null
+  private async readRecordOutputPage(
+    agentId: string,
+    cursor: string | undefined,
+    budget: AgentOutputPageBudget,
+  ): Promise<AgentOutputPage> {
+    const key = agentOutputKey(agentId);
+    const output = await this.readStorage<PersistedAgentOutput>(key);
+    const outputSegments = output?.segments ?? [];
+    const outputEvents = output?.streamEvents ?? [];
+    const itemCount = outputSegments.length + outputEvents.length;
+    const savedAt = output ? (output.savedAt ?? 0) : null;
+    const start = parseRecordOutputCursor(agentId, cursor, savedAt, itemCount);
+    const page = packJsonSequencePage<TaggedAgentOutputItem>(
+      {
+        length: itemCount,
+        itemAt: (index) =>
+          index < outputSegments.length
+            ? { tag: 'segment', value: outputSegments[index] }
+            : {
+                tag: 'streamEvent',
+                value: outputEvents[index - outputSegments.length],
+              },
+      },
+      start,
+      {
+        maxJsonBytes: budget.itemBytes,
+        jsonEnvelopeBytes: 0,
+        maxItemBytes: Number.POSITIVE_INFINITY,
+      },
     );
+    if (page.status === 'item-too-large') {
+      throw new StateStorageValueTooLargeError(key, page.originalJsonBytes);
+    }
+    if (page.truncatedItems.length > 0) {
+      this.logTruncatedItems(agentId, page.truncatedItems);
+    }
+    const done = page.nextIndex >= itemCount;
+    return {
+      items: page.items,
+      nextCursor: done ? null : `s${savedAt ?? 0}.${page.nextIndex}`,
+      done,
+    };
   }
 
   /** Drop one agent's bulk output. Silent when there is nothing stored. */
@@ -581,39 +866,14 @@ export class SessionMetadataStore {
   }
 
   /**
-   * CLI session references for a session, rehydrated with the bulk output the
-   * blob no longer carries.
-   *
-   * This is the LAZY read half of the split: the restore path (RPC
-   * `session:cli-sessions`, and the `cliSessions` payload of `chat:resume`)
-   * calls this instead of spreading `metadata.cliSessions`, so the agent cards
-   * still get their `streamEvents` execution tree and full `segments` — but
-   * only when someone actually asks to restore a session, rather than on every
-   * agent spawn and exit.
+   * Lean CLI references for startup and resume. Historical output remains in
+   * per-agent sequences and is requested through bounded pages.
    */
   async getCliSessionsForRestore(
     sessionId: string,
   ): Promise<CliSessionReference[]> {
     const metadata = await this.get(sessionId);
-    const refs = metadata?.cliSessions;
-    if (!refs || refs.length === 0) return [];
-
-    const hydrated: CliSessionReference[] = [];
-    for (const ref of refs) {
-      const output = await this.getAgentOutput(ref.agentId);
-      if (!output) {
-        hydrated.push(ref);
-        continue;
-      }
-      hydrated.push({
-        ...ref,
-        ...(output.segments?.length ? { segments: output.segments } : {}),
-        ...(output.streamEvents?.length
-          ? { streamEvents: output.streamEvents }
-          : {}),
-      });
-    }
-    return hydrated;
+    return [...(metadata?.cliSessions ?? [])];
   }
 
   /**
@@ -669,9 +929,12 @@ export class SessionMetadataStore {
     stats: { cost: number; tokens: { input: number; output: number } },
   ): Promise<void> {
     const all = await this.getAll();
-    for (const session of all) {
+    for (const summary of all) {
+      const session = isAsyncStateStorage(this.storage)
+        ? await this.get(summary.sessionId)
+        : summary;
       if (
-        session.cliSessions?.some((ref) => ref.sdkSessionId === childSessionId)
+        session?.cliSessions?.some((ref) => ref.sdkSessionId === childSessionId)
       ) {
         await this._saveInternal({
           ...session,
@@ -714,10 +977,6 @@ export class SessionMetadataStore {
         (s) => s.cliSessionId === cliSession.cliSessionId,
       );
 
-      // The reference goes in as handed to us. Bulk output belongs on its own
-      // key, and `_saveInternal` is the single place that moves it there and
-      // leans what it has written — trimming here as well would delete the
-      // only copy before anything had a chance to migrate it.
       let updated: readonly CliSessionReference[];
       // Re-association: the same `cliSessionId` resumed under a NEW agent. The
       // slot is the only route to `ptah.agentOutput:<agentId>`, so the
@@ -795,7 +1054,11 @@ export class SessionMetadataStore {
    */
   private async _deleteInternal(sessionId: string): Promise<void> {
     const all = await this.getAll();
-    const removed = all.filter((m) => m.sessionId === sessionId);
+    const removedSummary = all.find((m) => m.sessionId === sessionId);
+    const removedDetail = isAsyncStateStorage(this.storage)
+      ? await this.get(sessionId)
+      : removedSummary;
+    const removed = removedDetail ? [removedDetail] : [];
     const filtered = all.filter((m) => m.sessionId !== sessionId);
 
     if (filtered.length !== all.length) {
@@ -812,6 +1075,13 @@ export class SessionMetadataStore {
       // for a rare, destructive operation. If the flush rejects, the rejection
       // propagates to the caller and no output keys are destroyed.
       await this.flush();
+
+      // The index must be absent before its detail is deleted, and the detail
+      // must be absent before output keys are collected. A failure can leak
+      // data for a later retry but cannot leave a live reference dangling.
+      if (isAsyncStateStorage(this.storage)) {
+        await this.storage.update(sessionDetailKey(sessionId), undefined);
+      }
 
       // The per-agent output keys are only reachable through this session's
       // references, so dropping the session without them would leak a key per
@@ -871,6 +1141,7 @@ export class SessionMetadataStore {
       sessionId,
       name,
       workspaceId,
+      workingDirectory: workspaceId,
       createdAt: now,
       lastActiveAt: now,
       totalCost: 0,
@@ -902,6 +1173,7 @@ export class SessionMetadataStore {
       sessionId,
       name,
       workspaceId,
+      workingDirectory: workspaceId,
       createdAt: now,
       lastActiveAt: now,
       totalCost: 0,

@@ -27,6 +27,125 @@ export const MESSAGE_LITERAL_SELECTORS = [
 ];
 
 /**
+ * No recursive file-system watching in a host's main process (TASK_2026_437
+ * INV-1). On 2026-09-14 a recursive `fs.watch` over the workspace delivered
+ * one JavaScript callback per event to the Electron main thread while ten agent
+ * worktrees were deleted, and the app froze. Recursive workspace watching goes
+ * through `IWorkspaceWatcher` (`PLATFORM_TOKENS.WORKSPACE_WATCHER`), which runs
+ * the native watcher in a supervised host process and hands main coalesced
+ * batches.
+ *
+ * Two halves, so an exemption can lift one without the other:
+ * - {@link RECURSIVE_FS_WATCH_SELECTORS} — `fs.watch(…, { recursive })`,
+ *   `watch(…, { recursive })` (from `fs`, `node:fs` or `fs/promises`), and
+ *   `require('fs').watch(…, { recursive })`, unless the option is the literal
+ *   `false`. Renaming `watch` on import or destructure is flagged too, because
+ *   a renamed call is invisible to the call selectors.
+ * - {@link CHOKIDAR_LOAD_SELECTORS} — every way of loading `chokidar`: a static
+ *   import, `import()` and `require()`.
+ *
+ * LIMIT, stated once: this is a syntax rule. An options object passed through a
+ * variable (`const o = { recursive: true }; fs.watch(dir, o)`) or a `watch`
+ * reached through an alias of the module (`const w = fs.watch`) cannot be seen
+ * without type information. It is a strong tripwire, not a proof of INV-1; the
+ * stress specs and code review carry the rest.
+ *
+ * EXPORTED for the same reason as {@link MESSAGE_LITERAL_SELECTORS}: a lib
+ * config that re-states `no-restricted-syntax` for its own files replaces these
+ * selectors unless it spreads them too.
+ */
+const RECURSIVE_FS_WATCH_MESSAGE =
+  'No recursive fs.watch in a host process (TASK_2026_437 INV-1). Subscribe through IWorkspaceWatcher (PLATFORM_TOKENS.WORKSPACE_WATCHER), which watches in a supervised host and delivers batches.';
+const RENAMED_FS_WATCH_MESSAGE =
+  "Import fs watch under its own name (TASK_2026_437 INV-1): the lint rule against recursive watching in a host process only sees calls named 'watch'.";
+const CHOKIDAR_MESSAGE =
+  'chokidar is confined to the platform file-system providers (TASK_2026_437 INV-1). Recursive watching goes through IWorkspaceWatcher; a scoped watch through IFileSystemProvider.createFileWatcher.';
+const FS_MODULE = '/^(node:)?fs(\\u002Fpromises)?$/';
+
+export const RECURSIVE_FS_WATCH_SELECTORS = [
+  {
+    // `fs.watch(…)`, `fsp.watch(…)`, `require('fs').watch(…)`.
+    selector:
+      "CallExpression[callee.property.name='watch'] > ObjectExpression > Property[key.name='recursive']:not([value.value=false])",
+    message: RECURSIVE_FS_WATCH_MESSAGE,
+  },
+  {
+    // `import { watch } from 'fs'|'node:fs'|'fs/promises'` then `watch(…)`.
+    selector:
+      "CallExpression[callee.name='watch'] > ObjectExpression > Property[key.name='recursive']:not([value.value=false])",
+    message: RECURSIVE_FS_WATCH_MESSAGE,
+  },
+  {
+    // `import { watch as w } from 'node:fs'`.
+    selector: `ImportDeclaration[source.value=${FS_MODULE}] > ImportSpecifier[imported.name='watch'][local.name!='watch']`,
+    message: RENAMED_FS_WATCH_MESSAGE,
+  },
+  {
+    // `const { watch: w } = require('fs')`.
+    selector: `VariableDeclarator[init.callee.name='require'][init.arguments.0.value=${FS_MODULE}] > ObjectPattern > Property[key.name='watch'][value.name!='watch']`,
+    message: RENAMED_FS_WATCH_MESSAGE,
+  },
+];
+
+export const CHOKIDAR_LOAD_SELECTORS = [
+  {
+    selector: "ImportDeclaration[source.value='chokidar']",
+    message: CHOKIDAR_MESSAGE,
+  },
+  {
+    selector: "ImportExpression[source.value='chokidar']",
+    message: CHOKIDAR_MESSAGE,
+  },
+  {
+    selector:
+      "CallExpression[callee.name='require'][arguments.0.value='chokidar']",
+    message: CHOKIDAR_MESSAGE,
+  },
+];
+
+export const IN_MAIN_RECURSIVE_WATCH_SELECTORS = [
+  ...RECURSIVE_FS_WATCH_SELECTORS,
+  ...CHOKIDAR_LOAD_SELECTORS,
+];
+
+/**
+ * Where a half of {@link IN_MAIN_RECURSIVE_WATCH_SELECTORS} does not apply.
+ * Each file keeps every other selector its blocks set; only the named half is
+ * lifted.
+ */
+const CHOKIDAR_ALLOWED = [
+  // By design: the Electron and CLI file-system providers own chokidar for the
+  // scoped `IFileSystemProvider.createFileWatcher`.
+  'libs/backend/platform-electron/src/implementations/*file-system-provider.ts',
+  'libs/backend/platform-cli/src/implementations/*file-system-provider.ts',
+];
+const FS_WATCH_AND_CHOKIDAR_ALLOWED = [
+  // By design: the watch-host entries run in their own process.
+  'libs/backend/platform-electron/src/workspace-watch/*.entry.ts',
+  'libs/backend/platform-cli/src/workspace-watch/*.entry.ts',
+];
+const RECURSIVE_FS_WATCH_ALLOWED_APP_TS = [
+  // FU-11 e2e git-watcher spec. A Playwright spec evaluating a raw recursive
+  // `fs.watch` inside the test app's main process to probe OS delivery. It
+  // mirrors the in-process workspace watcher TASK_2026_437 Batch 11 removed
+  // from `GitWatcherService`; it runs only under e2e and is to be rewritten
+  // against the watch host or deleted (orchestrator follow-up FU-11).
+  'apps/ptah-electron-e2e/src/specs/git-watcher.spec.ts',
+];
+const RECURSIVE_FS_WATCH_ALLOWED_JS = [
+  // Dev build tooling: `electron:serve` mirrors the renderer build output with
+  // a recursive watch in its own Node process, never inside the app.
+  'apps/ptah-electron/scripts/watch-renderer.js',
+];
+
+/** Apps ship no RPC handler classes; see {@link APP_LOCAL_RPC_HANDLERS_PENDING_MIGRATION}. */
+const APP_RPC_HANDLER_CLASS_SELECTOR = {
+  selector: 'ClassDeclaration[id.name=/RpcHandlers$/]',
+  message:
+    'RPC handler classes belong in libs/backend/rpc-handlers with a RPC_HANDLER_MANIFEST entry, not in an app. Apps ship only their rpc-host-profile.ts.',
+};
+
+/**
  * RPC handler classes are library code. An app that declares one re-opens the
  * per-host duplication TASK_2026_171 removed: the class is invisible to the
  * manifest, so no other host can serve it and no capability gates it.
@@ -298,7 +417,25 @@ export default [
   {
     files: ['**/*.ts'],
     rules: {
-      'no-restricted-syntax': ['error', ...MESSAGE_LITERAL_SELECTORS],
+      'no-restricted-syntax': [
+        'error',
+        ...MESSAGE_LITERAL_SELECTORS,
+        ...IN_MAIN_RECURSIVE_WATCH_SELECTORS,
+      ],
+    },
+  },
+  {
+    files: [
+      '**/*.tsx',
+      '**/*.cts',
+      '**/*.mts',
+      '**/*.js',
+      '**/*.jsx',
+      '**/*.cjs',
+      '**/*.mjs',
+    ],
+    rules: {
+      'no-restricted-syntax': ['error', ...IN_MAIN_RECURSIVE_WATCH_SELECTORS],
     },
   },
   // `@typescript-eslint/no-floating-promises` was evaluated here and
@@ -367,12 +504,44 @@ export default [
       'no-restricted-syntax': [
         'error',
         ...MESSAGE_LITERAL_SELECTORS,
-        {
-          selector: 'ClassDeclaration[id.name=/RpcHandlers$/]',
-          message:
-            'RPC handler classes belong in libs/backend/rpc-handlers with a RPC_HANDLER_MANIFEST entry, not in an app. Apps ship only their rpc-host-profile.ts.',
-        },
+        ...IN_MAIN_RECURSIVE_WATCH_SELECTORS,
+        APP_RPC_HANDLER_CLASS_SELECTOR,
       ],
+    },
+  },
+  // Last, so they replace the `no-restricted-syntax` options the blocks above
+  // set for these files: only the named half of the watch rule is lifted.
+  {
+    files: CHOKIDAR_ALLOWED,
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...MESSAGE_LITERAL_SELECTORS,
+        ...RECURSIVE_FS_WATCH_SELECTORS,
+      ],
+    },
+  },
+  {
+    files: FS_WATCH_AND_CHOKIDAR_ALLOWED,
+    rules: {
+      'no-restricted-syntax': ['error', ...MESSAGE_LITERAL_SELECTORS],
+    },
+  },
+  {
+    files: RECURSIVE_FS_WATCH_ALLOWED_APP_TS,
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...MESSAGE_LITERAL_SELECTORS,
+        ...CHOKIDAR_LOAD_SELECTORS,
+        APP_RPC_HANDLER_CLASS_SELECTOR,
+      ],
+    },
+  },
+  {
+    files: RECURSIVE_FS_WATCH_ALLOWED_JS,
+    rules: {
+      'no-restricted-syntax': ['error', ...CHOKIDAR_LOAD_SELECTORS],
     },
   },
 ];

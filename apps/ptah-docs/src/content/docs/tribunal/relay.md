@@ -1,79 +1,53 @@
 ---
 title: Relay
-description: Run one task through a plan → architect → implement → review pipeline, with each phase executed by a different CLI vendor instead of a sub-agent — and the whole run persisted to .ptah/specs.
+description: Run orchestration's plan → architect → implement → review pipeline on CLI lanes, with phase artifacts saved to .ptah/specs.
 ---
 
 # Relay
 
-Relay takes a **single, well-specified task** and runs it through the same phased pipeline as everyday [Orchestration](/agents/agent-orchestration/) — plan → architect → implement → review — but with one change: every phase is executed by a **CLI vendor lane** instead of a sub-agent. The Conductor stays in charge, hands the task from one vendor to the next, and writes each phase's output to a `.ptah/specs/TASK_*` folder so the whole run is auditable and resumable.
+Relay is **the orchestration pipeline run on CLI lanes, launched from the Tribunal panel for now**. Each phase — plan → architect → implement → review — runs on a CLI lane instead of a sub-agent. The conductor assigns the lanes, runs the approval checkpoints, and verifies their output.
 
-Where [Forge](/tribunal/forge/) and [Race](/tribunal/race/) give every vendor the _same_ prompt and pick a winner, Relay gives each vendor a _different_ prompt — one per phase — and runs them as a sequential pipeline. The diversity shows up in one place: the **review phase is always handled by a different vendor family than the one that wrote the code**, so you get genuine cross-vendor review baked into delivery.
+The workflow lives in the `orchestration` skill's lane-assignment reference. The `tribunal` skill routes the current panel launch there. Enable `orchestration`, `tribunal`, and `agent-lanes` from `ptah-core` for that launch. If a required skill is unavailable, the dependent skill names the skill to enable before proceeding. See [skill dependencies](/mcp-and-skills/skills/#skill-dependencies).
 
 ## When to use Relay
 
-- **You want orchestration's structured delivery** — a real plan, an architecture doc, an implementation, and a review — but you want the work done by external CLI vendors rather than in-process sub-agents.
-- **Cross-vendor review on your own changes** — the implementer and the reviewer are deliberately different vendor families.
-- **An auditable, resumable run** — every phase is persisted to `.ptah/specs`, so you can review each artifact or resume a run that timed out.
+- You want a plan, architecture, implementation, and review produced by CLI lanes.
+- You want to choose a vendor and model for each phase.
+- You want each phase's artifacts saved in a `.ptah/specs/TASK_*` folder for review and continuation.
 
-:::tip
-Relay is the bridge between Tribunal and Orchestration: orchestration's pipeline, run entirely on the vendor panel with no sub-agents. If you just want competing answers to the _same_ prompt, use Council, Forge, or Race instead.
-:::
+For competing answers to the same prompt, use [Council](/tribunal/council/), [Forge](/tribunal/forge/), or [Race](/tribunal/race/).
 
 ## How it runs
 
-### Phase 1 — Plan & architect
+1. **Plan** — a lane writes `task-description.md`. You review and approve it.
+2. **Architecture** — a lane reads the requirements and writes `implementation-plan.md`. You approve it before implementation.
+3. **Implement** — a lane writes code in place on the active branch and reports completion with evidence. The conductor verifies the report and records `batches.md`; the lane does not edit task state.
+4. **Review** — a separate lane writes `code-logic-review.md` against the acceptance criteria. The conductor returns evidenced defects for revision and runs the project's typecheck, tests, and lint before presenting the diff.
 
-The Conductor creates a `.ptah/specs/TASK_*` folder, restates the task with explicit acceptance criteria, and hands the planning and architecture phases to a reasoning-strong vendor lane. Each phase writes its deliverable (`task-description.md`, then `implementation-plan.md`) to disk. You review and approve these documents before any code is written — the same checkpoints as a normal Orchestration run.
+Each phase receives the previous artifact as an input. The conductor uses the task folder named by the launch, or creates one if none exists. For a risky implementation phase, it can use [Crucible](/tribunal/crucible/)'s executor/judge loop.
 
-### Phase 2 — Implement
+## Choosing lanes
 
-The approved plan is handed to a coding-strong vendor lane, which implements the change in place on your working branch and logs its work to `tasks.md`. The artifact from each phase becomes an input to the next — that hand-off is the "relay baton".
+Lanes come from `ptah_agent_list`, which reports installed system CLIs and configured Ptah CLI providers. When you pin a vendor and model to a phase, the conductor uses that assignment. If a named lane is missing, it says so rather than substituting silently.
 
-### Phase 3 — Cross-vendor review
-
-A **different vendor family** reviews the implementation against the acceptance criteria and writes `code-logic-review.md`. Because the reviewer never wrote the code, this is a true peer review, not a self-check. If the review surfaces a real issue, the Conductor relays a fix phase before declaring the task done.
-
-### Phase 4 — Verify & synthesize
-
-The Conductor runs the project's tests/build/lint on the change, then produces a summary that cites which vendor produced each artifact. You see the diff and approve before anything is committed.
-
-## Safety
-
-- **Runs in place on your active branch** — no worktrees by default, since it's one task rather than N competing attempts.
-- **Never commits without your sight** and never auto-merges to `main`.
-- **Vendors never commit** — each lane does its phase and hands back; the Conductor owns verification and the final commit.
-- **Resumable** — the `.ptah/specs/TASK_*` folder lets a timed-out run pick up where it left off instead of starting over.
+Without a pinned roster, planning and architecture use strong reasoning lanes, implementation uses a coding lane, and review uses a different vendor family. A review lane must never be the implement lane. You may request the same family on another model; the conductor flags that review as a weaker signal. Crucible is stricter and always requires a judge from another family.
 
 ## Invoking Relay
 
-**Natural language triggers:**
+From the dashboard, choose **Convene a Tribunal**, then **Relay**. The current wizard shows four role slots — Plan, Architect, Implement, Review — with a vendor and model for each. An identical implement/review lane is blocked; a same-family review is flagged. Launch, then describe your task and acceptance criteria in the conductor chat.
 
-- "Relay this task across the panel"
-- "Run this as a vendor pipeline — plan, build, then a different vendor reviews"
-- "Orchestrate this with CLI vendors instead of sub-agents"
+The live panel shows a four-step phase rail with each phase's status, lane assignment, and a link to its deliverable. If no spec folder could be allocated, the progress readout is marked unavailable.
 
-**From the Tribunal panel**: choose **Convene a Tribunal** on the dashboard and pick **Relay**. Relay is a **role** move, so instead of a flat lane picker you get one slot per phase — Plan, Architect, Implement, Review — each with a vendor and a model chosen from whatever discovery found on your machine. The same vendor may fill two slots on different models, but the roster is validated before launch: a review lane identical to the implement lane is blocked outright, and a same-family review is flagged as a weaker signal than a cross-vendor one. Launch, then describe the task and its acceptance criteria in the conductor chat.
+You can also ask in chat:
 
-While the run is live, the panel shows a **four-step phase rail** above the lane tiles: each phase's status, which lane is handling it (and whether it was reassigned mid-run), and a link to its deliverable in the spec folder. If no spec folder could be allocated, the rail says the progress readout is unavailable rather than showing four phases that look like they haven't started.
+- "Relay this task across the panel."
+- "Orchestrate this with CLI vendors instead of sub-agents."
+- "Use this lane to plan, that lane to implement, and a different family to review."
 
-:::note[Relay needs the tribunal skill]
-Relay and [Crucible](/tribunal/crucible/) are the two role moves, and their protocol ships in the `tribunal` skill that comes with the `ptah-core` plugin. If the skill is missing, the wizard flags it — Relay still launches, and the conductor will ask for the protocol it needs, but it runs best with the skill present.
-:::
+## Verification and recovery
 
-**Explicit harness**: select **Tribunal Conductor** from the harness picker, then describe the task and its acceptance criteria.
-
-## Relay vs. the other moves
-
-| Move                                | Prompt per vendor           | Shape                       | Produces                                    |
-| ----------------------------------- | --------------------------- | --------------------------- | ------------------------------------------- |
-| **Council**                         | Same question               | Parallel panel              | A cited verdict (no code)                   |
-| **Forge**                           | Same coding task            | Parallel + review           | Best of N implementations, merged           |
-| **Race**                            | Same coding task            | Parallel + verify           | One verified winner                         |
-| **Relay**                           | Different prompt per phase  | Sequential pipeline         | Delivered change + spec artifacts           |
-| [**Crucible**](/tribunal/crucible/) | One task, two unequal roles | A loop, until PASS or a cap | Delivered change + the judge's round record |
-
-## Limitations
-
-- **Needs a clear task and acceptance criteria** — a vague brief produces a vague plan, and the whole pipeline inherits the fuzz.
-- **Cost** — roughly one vendor call per phase (more if a high-stakes phase is fanned out to multiple vendors). Ptah announces the lanes and cost before spending.
-- **Heterogeneous, not a panel** — Relay deliberately bends Tribunal's "diversity is the signal" thesis; the diversity here is the cross-vendor review phase, not N answers to one question.
+- **Work stays on the active branch** by default. Parallel attempts that could edit the same files need separate worktrees.
+- **Lanes do not commit.** The conductor verifies their work and presents the diff before a commit.
+- **Conversation resume is conditional.** Only a **CLI Session ID** reported by `ptah_agent_status` can be passed as `resume_session_id` to a new spawn on the same lane. Without one, the conductor spawns fresh with the prior artifacts and context restated.
+- **Revision is bounded.** The lane contract allows two revise rounds, then the conductor finishes the work itself or reports the remaining defects.
+- **Calls have a cost.** The conductor announces the roster, phase count, and call count before the run. Revisions add calls.

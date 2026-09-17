@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_356
-status: backlog
+status: in_review
 type: BUGFIX
 title: prefilter stage spends tokens but is missing from TOKEN_SPENDING_STAGES and STAGE_COST_RANK
 depends_on: []

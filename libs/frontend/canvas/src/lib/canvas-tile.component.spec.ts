@@ -41,8 +41,48 @@ jest.mock('ngx-markdown', () => {
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { CanvasTileComponent } from './canvas-tile.component';
-import { TabManagerService } from '@ptah-extension/chat';
+import { SendToMessagingComponent, TabManagerService } from '@ptah-extension/chat';
 import { EffortStateService, ModelStateService } from '@ptah-extension/core';
+import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
+import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
+
+@Component({
+  selector: 'ptah-test-chat-view',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class ChatViewStub {}
+
+@Component({
+  selector: 'ptah-tile-agent-indicator',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class TileAgentIndicatorStub {
+  @Input() tabId = '';
+}
+
+@Component({
+  selector: 'ptah-tile-agent-mini-panel',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class TileAgentMiniPanelStub {
+  @Input() agents: readonly unknown[] = [];
+}
+
+@Component({
+  selector: 'ptah-send-to-messaging',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class SendToMessagingStub {
+  @Input() tabId = '';
+}
 
 describe('CanvasTileComponent freeze-at-creation effort', () => {
   const mockEffortState = {
@@ -388,5 +428,179 @@ describe('CanvasTileComponent visibility-driven streaming registration', () => {
     fixture.destroy();
 
     expect(mockTabManager.unregisterVisibleTab).toHaveBeenCalledWith('tab-1');
+  });
+});
+
+describe('CanvasTileComponent layout menu contract', () => {
+  const tabManager = {
+    tabs: signal([{ id: 'tile-1', title: 'Alpha', name: 'Alpha' }]),
+    setOverrideEffort: jest.fn(),
+    setOverrideModel: jest.fn(),
+    getTabViewMode: jest.fn(() => 'full'),
+    toggleTabViewMode: jest.fn(),
+    registerVisibleTab: jest.fn(),
+    unregisterVisibleTab: jest.fn(),
+  };
+  const effort = { currentEffort: signal<string | null>(null), isLoaded: signal(false) };
+  const model = { currentModel: signal(''), isLoaded: signal(false) };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function setup(locked = false) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [CanvasTileComponent],
+      providers: [
+        { provide: TabManagerService, useValue: tabManager },
+        { provide: EffortStateService, useValue: effort },
+        { provide: ModelStateService, useValue: model },
+      ],
+    });
+    TestBed.overrideComponent(CanvasTileComponent, {
+      remove: {
+        imports: [
+          TileAgentIndicatorComponent,
+          TileAgentMiniPanelComponent,
+          SendToMessagingComponent,
+        ],
+      },
+      add: {
+        imports: [
+          TileAgentIndicatorStub,
+          TileAgentMiniPanelStub,
+          SendToMessagingStub,
+        ],
+      },
+    });
+    const fixture = TestBed.createComponent(CanvasTileComponent);
+    (
+      fixture.componentInstance as unknown as {
+        chatViewComponent: typeof ChatViewStub;
+      }
+    ).chatViewComponent = ChatViewStub;
+    fixture.componentRef.setInput('tabId', 'tile-1');
+    fixture.componentRef.setInput('widthIntent', { kind: 'span', span: 'half' });
+    fixture.componentRef.setInput('layoutLocked', locked);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('exposes trigger/menu ARIA and four stored-span radio choices', () => {
+    const fixture = setup();
+    const trigger = fixture.nativeElement.querySelector(
+      '[data-testid="tile-layout-trigger"]',
+    );
+    expect(trigger.getAttribute('aria-label')).toBe('Layout options for Alpha');
+    expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
+    trigger.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="menu"]')).not.toBeNull();
+    const radios = [...fixture.nativeElement.querySelectorAll('[role="menuitemradio"]')] as HTMLButtonElement[];
+    expect(radios.map((button) => button.dataset.span)).toEqual([
+      'third', 'half', 'two-thirds', 'full',
+    ]);
+    expect(radios.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Set tile width to one third', 'Set tile width to one half',
+      'Set tile width to two thirds', 'Set tile width to full',
+    ]);
+    expect(radios.map((button) => button.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false', 'false']);
+    expect(fixture.nativeElement.querySelector('[data-layout-action="focus"]').getAttribute('aria-label')).toBe('Focus tile at full width');
+    expect(fixture.nativeElement.querySelector('[data-layout-action="row"]').getAttribute('aria-label')).toBe('Start a new row before this tile');
+  });
+
+  it('emits span, focus and row actions and closes after selection', () => {
+    const fixture = setup();
+    const span = jest.fn();
+    const focus = jest.fn();
+    const row = jest.fn();
+    fixture.componentInstance.spanRequested.subscribe(span);
+    fixture.componentInstance.layoutFocusToggled.subscribe(focus);
+    fixture.componentInstance.rowBreakToggled.subscribe(row);
+    const open = (): void => {
+      fixture.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
+      fixture.detectChanges();
+    };
+    open();
+    (fixture.nativeElement.querySelectorAll('[role="menuitemradio"]')[2] as HTMLButtonElement).click();
+    expect(span).toHaveBeenCalledWith('two-thirds');
+    open();
+    (fixture.nativeElement.querySelector('[aria-label="Focus tile at full width"]') as HTMLButtonElement).click();
+    expect(focus).toHaveBeenCalledTimes(1);
+    open();
+    (fixture.nativeElement.querySelector('[aria-label="Start a new row before this tile"]') as HTMLButtonElement).click();
+    expect(row).toHaveBeenCalledTimes(1);
+  });
+
+  it('cycles enabled items with arrows/Home/End and disables all actions when locked', () => {
+    const fixture = setup();
+    fixture.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
+    fixture.detectChanges();
+    const items = [...fixture.nativeElement.querySelectorAll('[data-layout-item]')] as HTMLButtonElement[];
+    items[1].focus();
+    items[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(document.activeElement).toBe(items.at(-1));
+    items.at(-1)?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(items[0]);
+
+    const locked = setup(true);
+    locked.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
+    locked.detectChanges();
+    expect([...locked.nativeElement.querySelectorAll('[data-layout-item]')].every((item) => (item as HTMLButtonElement).disabled)).toBe(true);
+  });
+
+  it('keeps every layout menu item disabled under lock while the adjacent view-mode toggle stays enabled', () => {
+    const locked = setup(true);
+    const toggle = locked.nativeElement.querySelector(
+      '[data-testid="tile-view-mode-toggle"]',
+    ) as HTMLButtonElement;
+    expect(toggle).not.toBeNull();
+    expect(toggle.disabled).toBe(false);
+    toggle.click();
+    expect(tabManager.toggleTabViewMode).toHaveBeenCalledWith('tile-1');
+  });
+
+  it('labels the view-mode toggle from the current view mode', () => {
+    const full = setup();
+    expect(
+      full.nativeElement
+        .querySelector('[data-testid="tile-view-mode-toggle"]')
+        .getAttribute('aria-label'),
+    ).toBe('Switch to compact view');
+
+    tabManager.getTabViewMode.mockReturnValue('compact');
+    try {
+      const compact = setup();
+      expect(
+        compact.nativeElement
+          .querySelector('[data-testid="tile-view-mode-toggle"]')
+          .getAttribute('aria-label'),
+      ).toBe('Switch to full view');
+    } finally {
+      tabManager.getTabViewMode.mockReturnValue('full');
+    }
+  });
+
+  it('toggles the view mode once per click and swallows every pointer start', () => {
+    const fixture = setup();
+    const toggle = fixture.nativeElement.querySelector(
+      '[data-testid="tile-view-mode-toggle"]',
+    ) as HTMLButtonElement;
+    const focus = jest.fn();
+    fixture.componentInstance.focusRequested.subscribe(focus);
+    const arrivals: string[] = [];
+    for (const type of ['mousedown', 'pointerdown', 'touchstart']) {
+      fixture.nativeElement.addEventListener(type, () => arrivals.push(type));
+    }
+    toggle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    toggle.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    toggle.dispatchEvent(new Event('touchstart', { bubbles: true }));
+    expect(arrivals).toEqual([]);
+
+    toggle.click();
+    expect(tabManager.toggleTabViewMode).toHaveBeenCalledTimes(1);
+    expect(tabManager.toggleTabViewMode).toHaveBeenCalledWith('tile-1');
+    expect(focus).not.toHaveBeenCalled();
   });
 });

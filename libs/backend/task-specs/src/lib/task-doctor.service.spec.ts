@@ -15,6 +15,7 @@ import { createMockFileSystemProvider } from '@ptah-extension/platform-core/test
 import type { Logger } from '@ptah-extension/vscode-core';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { NoOpTaskIndexNotifier } from './task-index.port';
+import { NoOpTaskFolderVisibility } from './task-folder-visibility.port';
 import { parseTaskFile } from './task-frontmatter';
 import { TaskWriterService } from './task-writer.service';
 import { TaskDoctorService } from './task-doctor.service';
@@ -37,6 +38,7 @@ function makeDoctor() {
     fs,
     makeLogger(),
     new NoOpTaskIndexNotifier(),
+    new NoOpTaskFolderVisibility(),
   );
   const doctor = new TaskDoctorService(fs, makeLogger(), writer);
   return { fs, writer, doctor };

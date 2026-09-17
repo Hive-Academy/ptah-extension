@@ -98,3 +98,10 @@ export {
   type MockHttpServerProvider,
   type MockHttpServerState,
 } from './http-server-provider.mock';
+
+export {
+  createMockWorkspaceWatcher,
+  type MockWorkspaceWatcher,
+  type MockWorkspaceWatcherState,
+  type MockWorkspaceSubscription,
+} from './workspace-watcher.mock';

@@ -189,6 +189,11 @@ interface Harness {
   ollamaDiscovery: MockOllamaDiscovery;
   copilotAuthService: MockCopilotAuthService;
   codexAuthService: MockCodexAuthService;
+  codexAccountUsage: {
+    getAccountUsage: jest.Mock;
+    clearCache: jest.Mock;
+    close: jest.Mock;
+  };
   sentry: MockSentryService;
 }
 
@@ -213,6 +218,13 @@ function makeHarness(
   const ollamaDiscovery = createMockOllamaDiscovery();
   const copilotAuthService = createMockCopilotAuthService();
   const codexAuthService = createMockCodexAuthService();
+  const codexAccountUsage = {
+    getAccountUsage: jest.fn().mockResolvedValue({
+      status: 'available', providerId: 'openai-codex', fetchedAt: 1,
+    }),
+    clearCache: jest.fn(),
+    close: jest.fn(),
+  };
   const sentry = createMockSentryService();
 
   const handlers = new ProviderRpcHandlers(
@@ -228,6 +240,7 @@ function makeHarness(
     ollamaDiscovery as unknown as OllamaModelDiscoveryService,
     copilotAuthService as unknown as CopilotAuthService,
     codexAuthService as unknown as CodexAuthService,
+    codexAccountUsage,
     sentry as unknown as SentryService,
     // User-defined provider entries (TASK_2026_236). Not exercised by this
     // suite — see provider-rpc.custom-entries.spec.ts for its coverage.
@@ -259,6 +272,7 @@ function makeHarness(
     ollamaDiscovery,
     copilotAuthService,
     codexAuthService,
+    codexAccountUsage,
     sentry,
   };
 }
@@ -284,6 +298,20 @@ async function call<TResult>(
 // ---------------------------------------------------------------------------
 
 describe('ProviderRpcHandlers', () => {
+  describe('provider:getAccountUsage', () => {
+    it('routes Codex and returns unsupported for other providers without service work', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      await expect(call(h, 'provider:getAccountUsage', {
+        providerId: 'openai-codex', refresh: true,
+      })).resolves.toMatchObject({ status: 'available' });
+      expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledWith({ refresh: true });
+      await expect(call(h, 'provider:getAccountUsage', {
+        providerId: 'github-copilot',
+      })).resolves.toEqual({ status: 'provider-unsupported', providerId: 'github-copilot' });
+      expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledTimes(1);
+    });
+  });
   describe('register()', () => {
     it('registers exactly the methods it declares on METHODS', () => {
       const h = makeHarness();

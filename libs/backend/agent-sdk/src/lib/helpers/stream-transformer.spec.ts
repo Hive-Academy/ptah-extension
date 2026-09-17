@@ -26,7 +26,10 @@ import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AuthEnv, ModelPricing, SessionId } from '@ptah-extension/shared';
-import { findModelPricing } from '@ptah-extension/shared';
+import {
+  findModelPricing,
+  registerModelContextWindows,
+} from '@ptah-extension/shared';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { IModelResolver } from '../auth-env.port';
 import type {
@@ -41,12 +44,12 @@ import type { NoActivityWatchdog } from './no-activity-watchdog';
 
 interface FakeWatchdog {
   start: jest.Mock;
-  kick: jest.Mock;
+  observe: jest.Mock;
   stop: jest.Mock;
 }
 
 function makeFakeWatchdog(): FakeWatchdog {
-  return { start: jest.fn(), kick: jest.fn(), stop: jest.fn() };
+  return { start: jest.fn(), observe: jest.fn(), stop: jest.fn() };
 }
 
 // ---------------------------------------------------------------------------
@@ -62,12 +65,23 @@ function makeLogger(): jest.Mocked<Logger> {
   } as unknown as jest.Mocked<Logger>;
 }
 
+/**
+ * The DI singleton's stand-in. `createIsolated` returns the same object here so
+ * the assertions in this file can keep reading one `transform` mock; the
+ * isolation contract itself is pinned separately, with distinct isolates, in
+ * the "per-stream isolation" block at the bottom.
+ */
 function makeMessageTransformer(): jest.Mocked<
-  Pick<SdkMessageTransformer, 'transform'>
+  Pick<SdkMessageTransformer, 'transform' | 'createIsolated'>
 > {
-  return {
+  const mock = {
     transform: jest.fn().mockReturnValue([]),
-  };
+    createIsolated: jest.fn(),
+  } as unknown as jest.Mocked<
+    Pick<SdkMessageTransformer, 'transform' | 'createIsolated'>
+  >;
+  mock.createIsolated.mockReturnValue(mock as unknown as SdkMessageTransformer);
+  return mock;
 }
 
 function makeModelResolver(): jest.Mocked<
@@ -182,6 +196,36 @@ function messageStart(
   } as unknown as SDKMessage;
 }
 
+// Final message_delta of an API turn. Fields left undefined here are ABSENT
+// from the emitted usage object (not zero) — absence is the case the
+// retain-last-known rule must distinguish from an explicit 0.
+function messageDelta(usage: {
+  input_tokens?: number;
+  output_tokens: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}): SDKMessage {
+  return {
+    type: 'stream_event',
+    event: {
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn', stop_sequence: null },
+      usage: {
+        ...(usage.input_tokens !== undefined
+          ? { input_tokens: usage.input_tokens }
+          : {}),
+        output_tokens: usage.output_tokens,
+        ...(usage.cache_read_input_tokens !== undefined
+          ? { cache_read_input_tokens: usage.cache_read_input_tokens }
+          : {}),
+        ...(usage.cache_creation_input_tokens !== undefined
+          ? { cache_creation_input_tokens: usage.cache_creation_input_tokens }
+          : {}),
+      },
+    },
+  } as unknown as SDKMessage;
+}
+
 function systemInit(mcpServers: unknown, sessionId = 'sess-1'): SDKMessage {
   return {
     type: 'system',
@@ -202,7 +246,12 @@ function compactBoundary(): SDKMessage {
 
 function resultMessage(
   model: string,
-  usage: { inputTokens: number; outputTokens: number },
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+  },
 ): SDKMessage {
   return {
     type: 'result',
@@ -216,15 +265,15 @@ function resultMessage(
     usage: {
       input_tokens: usage.inputTokens,
       output_tokens: usage.outputTokens,
-      cache_read_input_tokens: 0,
-      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: usage.cacheReadInputTokens ?? 0,
+      cache_creation_input_tokens: usage.cacheCreationInputTokens ?? 0,
     },
     modelUsage: {
       [model]: {
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
-        cacheReadInputTokens: 0,
-        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
+        cacheCreationInputTokens: usage.cacheCreationInputTokens ?? 0,
         contextWindow: 200000,
         costUSD: 0,
       },
@@ -293,6 +342,76 @@ async function drain(iter: AsyncIterable<unknown>): Promise<void> {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe('StreamTransformer — discovered context windows on proxies (TASK_2026_414)', () => {
+  async function runResult(
+    authEnv: AuthEnv,
+    model: string,
+  ): Promise<ResultModelUsage[] | undefined> {
+    const { transformer } = makeHarness(authEnv);
+    let modelUsage: ResultModelUsage[] | undefined;
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          resultMessage(model, { inputTokens: 1000, outputTokens: 100 }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: model,
+        onResultStats: (stats) => {
+          modelUsage = stats.modelUsage;
+        },
+      }),
+    );
+    return modelUsage;
+  }
+
+  it('proxied result modelUsage contextWindow 200000 is replaced by the registered 400000', async () => {
+    const model = 'gpt-ctx-stream-proxy-414';
+    registerModelContextWindows([{ id: model, contextLength: 400_000 }]);
+
+    const usage = await runResult(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123' }),
+      model,
+    );
+
+    expect(usage?.[0]).toMatchObject({ model, contextWindow: 400_000 });
+  });
+
+  it('direct Anthropic keeps the SDK-reported window', async () => {
+    const model = 'claude-ctx-stream-direct-414';
+    registerModelContextWindows([{ id: model, contextLength: 1_000_000 }]);
+
+    const usage = await runResult(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'https://api.anthropic.com' }),
+      model,
+    );
+
+    expect(usage?.[0]).toMatchObject({ model, contextWindow: 200_000 });
+  });
+
+  it('proxied model with no known window keeps the SDK-reported window', async () => {
+    const usage = await runResult(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123' }),
+      'mystery-ctx-stream-414',
+    );
+
+    expect(usage?.[0]?.contextWindow).toBe(200_000);
+  });
+
+  it('a proxied model that only FUZZY-matches the bundled table keeps the SDK window', async () => {
+    // PR #493 review C: the override used getModelContextWindow(), whose
+    // pricing-table fallback matches partially — `gpt-4o-ultra-414` resolved
+    // to the bundled `gpt-4o` entry's 128000 and replaced the SDK value for a
+    // model provider discovery never registered. Only an EXACT discovered
+    // window may override the SDK.
+    const usage = await runResult(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123' }),
+      'gpt-4o-ultra-414',
+    );
+
+    expect(usage?.[0]?.contextWindow).toBe(200_000);
+  });
+});
 
 describe('StreamTransformer — lastTurnContextTokens (TASK_2026_109_FOLLOWUP)', () => {
   it('clears lastTurnContextByModel on compact_boundary — next result without message_start emits lastTurnContextTokens=undefined', async () => {
@@ -392,6 +511,358 @@ describe('StreamTransformer — lastTurnContextTokens (TASK_2026_109_FOLLOWUP)',
     // Only the second message_start's tokens count: 100 + 50 = 150.
     // If the map leaked / accumulated, we'd see 1500 (1000+500) or 1650.
     expect(captured[0][0].lastTurnContextTokens).toBe(150);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_408 phase 2 — usage-to-stats integration regressions.
+//
+// These pin the producer side of the context gauge: whatever usage a
+// provider's message_start carries must reach `onResultStats` untouched,
+// and the turn's context fill (lastTurnContextTokens) must stay distinct
+// from the turn's cumulative token total. The frontend's
+// `deriveLiveModelStats` (pinned in its own spec) renders exactly this
+// payload; the gauge cannot be more honest than what leaves this seam.
+// ---------------------------------------------------------------------------
+
+describe('StreamTransformer — usage-to-stats flow (TASK_2026_408)', () => {
+  interface StatsCapture {
+    cost: number | null;
+    // Matches the payload's `MessageTokenUsage`: cache fields are optional
+    // upstream, so the capture type must accept their absence too.
+    tokens: {
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheCreation?: number;
+    };
+    modelUsage?: ResultModelUsage[];
+  }
+
+  function captureStats(): {
+    captured: StatsCapture[];
+    onResultStats: (stats: StatsCapture) => void;
+  } {
+    const captured: StatsCapture[] = [];
+    return {
+      captured,
+      onResultStats: (stats) => {
+        captured.push({
+          cost: stats.cost,
+          tokens: stats.tokens,
+          modelUsage: stats.modelUsage,
+        });
+      },
+    };
+  }
+
+  it('carries input 30 / cacheRead 12 / output 9 through to the stats payload', async () => {
+    const { transformer } = makeHarness();
+    const { captured, onResultStats } = captureStats();
+
+    const messages: SDKMessage[] = [
+      // Direct-Anthropic shape: message_start already carries the real
+      // prompt size. (Proxied providers send synthetic zeros here and the
+      // real numbers in the final message_delta — covered by the Gap 1
+      // describe below.)
+      messageStart(MODEL, {
+        input_tokens: 30,
+        cache_read_input_tokens: 12,
+      }),
+      resultMessage(MODEL, {
+        inputTokens: 30,
+        outputTokens: 9,
+        cacheReadInputTokens: 12,
+      }),
+    ];
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable(messages),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats,
+      }),
+    );
+
+    expect(captured).toHaveLength(1);
+    // Cumulative turn totals: 30 + 9 + 12 = 51.
+    expect(captured[0].tokens).toEqual({
+      input: 30,
+      output: 9,
+      cacheRead: 12,
+      cacheCreation: 0,
+    });
+    const row = captured[0].modelUsage?.[0];
+    expect(row).toBeDefined();
+    expect(row?.cacheReadInputTokens).toBe(12);
+    // Context fill of THIS turn (30 uncached + 12 cached) must stay distinct
+    // from the cumulative total (51): mixing them up is what produces
+    // ">100% full" headers after a few turns.
+    expect(row?.lastTurnContextTokens).toBe(42);
+  });
+
+  it('treats an explicit-zero message_start as a real reading (0, not undefined)', async () => {
+    const { transformer } = makeHarness();
+    const { captured, onResultStats } = captureStats();
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          // input_tokens: 0 is an answer ("this prompt was fully billed as
+          // cache"), not an absence. `deriveLiveModelStats` renders 0 as a
+          // valid gauge reading; only undefined falls back to cumulative.
+          messageStart(MODEL, { input_tokens: 0, cache_read_input_tokens: 0 }),
+          resultMessage(MODEL, { inputTokens: 0, outputTokens: 5 }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats,
+      }),
+    );
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].modelUsage?.[0].lastTurnContextTokens).toBe(0);
+  });
+
+  it('emits lastTurnContextTokens undefined when no message_start reported usage for the model', async () => {
+    const { transformer } = makeHarness();
+    const { captured, onResultStats } = captureStats();
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          // No message_start at all — the frontend must fall back to the
+          // cumulative tokens (and suppress the fill post-compaction).
+          resultMessage(MODEL, { inputTokens: 100, outputTokens: 20 }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats,
+      }),
+    );
+
+    expect(captured).toHaveLength(1);
+    expect(
+      captured[0].modelUsage?.[0].lastTurnContextTokens,
+    ).toBeUndefined();
+  });
+
+  it('derives identical token stats for direct Anthropic and proxied providers (usage is provider-neutral)', async () => {
+    // Same stream shape under two auth environments. Only cost sourcing is
+    // allowed to differ; token and context accounting must not.
+    const run = async (authEnv: AuthEnv): Promise<StatsCapture> => {
+      const { transformer } = makeHarness(authEnv);
+      const { captured, onResultStats } = captureStats();
+      await drain(
+        transformer.transform({
+          sdkQuery: asAsyncIterable([
+            messageStart(MODEL, {
+              input_tokens: 30,
+              cache_read_input_tokens: 12,
+            }),
+            resultMessage(MODEL, {
+              inputTokens: 30,
+              outputTokens: 9,
+              cacheReadInputTokens: 12,
+            }),
+          ]),
+          sessionId: 'sess-1' as SessionId,
+          initialModel: MODEL,
+          onResultStats,
+        }),
+      );
+      expect(captured).toHaveLength(1);
+      return captured[0];
+    };
+
+    const direct = await run(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'https://api.anthropic.com' }),
+    );
+    const proxied = await run(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1' }),
+    );
+
+    expect(proxied.tokens).toEqual(direct.tokens);
+    expect(proxied.modelUsage?.[0].inputTokens).toBe(
+      direct.modelUsage?.[0].inputTokens,
+    );
+    expect(proxied.modelUsage?.[0].cacheReadInputTokens).toBe(
+      direct.modelUsage?.[0].cacheReadInputTokens,
+    );
+    expect(proxied.modelUsage?.[0].lastTurnContextTokens).toBe(
+      direct.modelUsage?.[0].lastTurnContextTokens,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_408 Gap 1 — message_delta usage in the context tracker.
+//
+// Proxied providers (Codex/OpenRouter via the responses translation proxy)
+// emit message_start with SYNTHETIC ZERO usage and the real input/cache
+// numbers only in the FINAL message_delta. Before the fix the tracker read
+// message_start alone, so the gauge stayed pinned at 0% for every proxied
+// session. Direct Anthropic semantics must survive the fix: its deltas are
+// output-only, and such a delta must NOT reset input/cache.
+// ---------------------------------------------------------------------------
+
+describe('StreamTransformer — message_delta context tracking (TASK_2026_408 Gap 1)', () => {
+  function capture(): {
+    captured: ResultModelUsage[][];
+    onResultStats: (stats: { modelUsage?: ResultModelUsage[] }) => void;
+  } {
+    const captured: ResultModelUsage[][] = [];
+    return {
+      captured,
+      onResultStats: (stats) => {
+        if (stats.modelUsage) captured.push(stats.modelUsage);
+      },
+    };
+  }
+
+  async function run(messages: SDKMessage[]): Promise<ResultModelUsage[][]> {
+    const cap = capture();
+    const { transformer } = makeHarness();
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable(messages),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: cap.onResultStats,
+      }),
+    );
+    return cap.captured;
+  }
+
+  it('ACTUAL proxy sequence: synthetic-zero message_start, real usage in the final message_delta → 42', async () => {
+    const captured = await run([
+      // What the responses translation proxy actually emits: message_start
+      // usage is {input_tokens: 0, output_tokens: 0} (synthetic), and the
+      // real numbers arrive only in the delta. Injecting correct usage
+      // directly into message_start (the phase-2 tests above) does NOT
+      // reproduce this bug.
+      messageStart(MODEL, { input_tokens: 0 }),
+      messageDelta({
+        input_tokens: 30,
+        output_tokens: 9,
+        cache_read_input_tokens: 12,
+      }),
+      resultMessage(MODEL, { inputTokens: 30, outputTokens: 9, cacheReadInputTokens: 12 }),
+    ]);
+
+    expect(captured).toHaveLength(1);
+    // 30 input + 12 cache_read — the turn's real context fill. Cumulative
+    // output (9) is NOT part of the context, per the tracker's contract.
+    expect(captured[0][0].lastTurnContextTokens).toBe(42);
+  });
+
+  it('true translateResponsesUsage split: delta input 18 + cache_read 12 → 30 (inclusive input, cache separated)', async () => {
+    const captured = await run([
+      // translateResponsesUsage maps OpenAI's INCLUSIVE input 30 with 12
+      // cached to Anthropic shape: input_tokens 18 + cache_read 12. The
+      // context fill is the sum, 30 — the same total the inclusive input
+      // described.
+      messageStart(MODEL, { input_tokens: 0 }),
+      messageDelta({
+        input_tokens: 18,
+        output_tokens: 9,
+        cache_read_input_tokens: 12,
+      }),
+      resultMessage(MODEL, { inputTokens: 18, outputTokens: 9, cacheReadInputTokens: 12 }),
+    ]);
+
+    expect(captured[0][0].lastTurnContextTokens).toBe(30);
+  });
+
+  it('direct Anthropic output-only delta does NOT reset the message_start context', async () => {
+    const captured = await run([
+      messageStart(MODEL, {
+        input_tokens: 5000,
+        cache_read_input_tokens: 1000,
+      }),
+      // Direct Anthropic message_delta usage carries only the running
+      // output count. Absent input/cache fields must retain the start's
+      // 5000 + 1000 — zeroing them here is the regression this guards.
+      messageDelta({ output_tokens: 9 }),
+      resultMessage(MODEL, { inputTokens: 5000, outputTokens: 9, cacheReadInputTokens: 1000 }),
+    ]);
+
+    expect(captured[0][0].lastTurnContextTokens).toBe(6000);
+  });
+
+  it('an explicit zero in the delta REPLACES the start context (a real reading, not absence)', async () => {
+    const captured = await run([
+      messageStart(MODEL, {
+        input_tokens: 5000,
+        cache_read_input_tokens: 1000,
+      }),
+      // Explicit 0 fields are readings ("the prompt was fully cache-billed
+      // / shrunk"), not absences — `??` semantics: only null/undefined skip.
+      messageDelta({
+        input_tokens: 0,
+        output_tokens: 9,
+        cache_read_input_tokens: 0,
+      }),
+      resultMessage(MODEL, { inputTokens: 0, outputTokens: 9 }),
+    ]);
+
+    expect(captured[0][0].lastTurnContextTokens).toBe(0);
+  });
+
+  it('repeated cumulative deltas REPLACE, they do not add', async () => {
+    const captured = await run([
+      messageStart(MODEL, { input_tokens: 0 }),
+      messageDelta({
+        input_tokens: 30,
+        output_tokens: 5,
+        cache_read_input_tokens: 12,
+      }),
+      // Same turn, a later cumulative frame. If the tracker ADDED, this
+      // would read 42 + 44 = 86; replacing reads 44.
+      messageDelta({
+        input_tokens: 31,
+        output_tokens: 9,
+        cache_read_input_tokens: 13,
+      }),
+      resultMessage(MODEL, { inputTokens: 31, outputTokens: 9, cacheReadInputTokens: 13 }),
+    ]);
+
+    expect(captured[0][0].lastTurnContextTokens).toBe(44);
+  });
+
+  it('multi-turn: a later message_start REPLACES delta-carried values (no leak across turns)', async () => {
+    const captured = await run([
+      messageStart(MODEL, { input_tokens: 0 }),
+      messageDelta({
+        input_tokens: 30,
+        output_tokens: 9,
+        cache_read_input_tokens: 12,
+      }),
+      // Turn 2: a fresh API request. Its message_start carries turn 2's
+      // real prompt and must fully replace turn 1's delta numbers.
+      messageStart(MODEL, {
+        input_tokens: 200,
+        cache_read_input_tokens: 50,
+      }),
+      resultMessage(MODEL, { inputTokens: 200, outputTokens: 5, cacheReadInputTokens: 50 }),
+    ]);
+
+    expect(captured[0][0].lastTurnContextTokens).toBe(250);
+  });
+
+  it('a message_delta with no preceding message_start is ignored (no model to attribute it to)', async () => {
+    const captured = await run([
+      messageDelta({
+        input_tokens: 30,
+        output_tokens: 9,
+        cache_read_input_tokens: 12,
+      }),
+      resultMessage(MODEL, { inputTokens: 30, outputTokens: 9 }),
+    ]);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0][0].lastTurnContextTokens).toBeUndefined();
   });
 });
 
@@ -620,11 +1091,11 @@ describe('StreamTransformer — no-activity watchdog wiring (TASK_2026_190)', ()
     await drain(iter);
 
     expect(watchdog.start).toHaveBeenCalledTimes(1);
-    expect(watchdog.kick).toHaveBeenCalledTimes(messages.length);
+    expect(watchdog.observe).toHaveBeenCalledTimes(messages.length);
     expect(watchdog.stop).toHaveBeenCalledTimes(1);
     // start() must precede the first kick (armed before the first event).
     expect(watchdog.start.mock.invocationCallOrder[0]).toBeLessThan(
-      watchdog.kick.mock.invocationCallOrder[0],
+      watchdog.observe.mock.invocationCallOrder[0],
     );
   });
 
@@ -651,7 +1122,7 @@ describe('StreamTransformer — no-activity watchdog wiring (TASK_2026_190)', ()
     await expect(drain(iter)).rejects.toBe(boom);
 
     expect(watchdog.start).toHaveBeenCalledTimes(1);
-    expect(watchdog.kick).toHaveBeenCalledTimes(1); // the one yielded message
+    expect(watchdog.observe).toHaveBeenCalledTimes(1); // the one yielded message
     expect(watchdog.stop).toHaveBeenCalledTimes(1); // finally cleanup on throw
   });
 
@@ -930,5 +1401,87 @@ describe('StreamTransformer — session MCP status (TASK_2026_375)', () => {
     );
 
     expect(mcpEvents).toHaveLength(1);
+  });
+});
+
+/**
+ * TASK_2026_370 — per-stream isolation of the message transformer.
+ *
+ * `SdkMessageTransformer` is a DI singleton whose streaming bookkeeping is keyed
+ * by `parent_tool_use_id || ''` with NO session dimension, so every root
+ * assistant turn of every session wrote the same slot. `StreamTransformer` was
+ * the one caller that used the injected instance directly instead of taking a
+ * `createIsolated()` copy per stream, and it is the caller that serves every
+ * interactive chat session — the only place where two streams are live at once.
+ */
+describe('StreamTransformer — per-stream isolation (TASK_2026_370)', () => {
+  async function drainAll(iterable: AsyncIterable<unknown>): Promise<void> {
+    for await (const _ of iterable) {
+      // Consuming the stream is the point.
+    }
+  }
+
+  it('takes a fresh isolated transformer per stream and never uses the shared instance', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+    const isolates: Array<jest.Mock> = [];
+    messageTransformer.createIsolated.mockImplementation(() => {
+      const isolate = { transform: jest.fn().mockReturnValue([]) };
+      isolates.push(isolate.transform);
+      return isolate as unknown as SdkMessageTransformer;
+    });
+
+    await drainAll(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([messageStart(MODEL, { input_tokens: 1 })]),
+        sessionId: 'sess-a' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+    await drainAll(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([messageStart(MODEL, { input_tokens: 2 })]),
+        sessionId: 'sess-b' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    expect(messageTransformer.createIsolated).toHaveBeenCalledTimes(2);
+    // Two streams, two instances — not one shared root-message slot.
+    expect(isolates).toHaveLength(2);
+    expect(isolates[0]).not.toBe(isolates[1]);
+    // Each stream's messages went to ITS OWN isolate...
+    expect(isolates[0]).toHaveBeenCalledTimes(1);
+    expect(isolates[0]).toHaveBeenCalledWith(expect.anything(), 'sess-a');
+    expect(isolates[1]).toHaveBeenCalledTimes(1);
+    expect(isolates[1]).toHaveBeenCalledWith(expect.anything(), 'sess-b');
+    // ...and the DI singleton transformed nothing at all.
+    expect(messageTransformer.transform).not.toHaveBeenCalled();
+  });
+
+  it('isolates the stream before the first message, so two concurrent streams never share one', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+
+    // Both iterables are created before either is consumed, which is the real
+    // shape: `ChatSessionService` starts a stream per session and the broadcast
+    // loops interleave.
+    const first = transformer.transform({
+      sdkQuery: asAsyncIterable([messageStart(MODEL, { input_tokens: 1 })]),
+      sessionId: 'sess-a' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+    });
+    const second = transformer.transform({
+      sdkQuery: asAsyncIterable([messageStart(MODEL, { input_tokens: 2 })]),
+      sessionId: 'sess-b' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+    });
+
+    expect(messageTransformer.createIsolated).toHaveBeenCalledTimes(2);
+
+    await drainAll(first);
+    await drainAll(second);
   });
 });

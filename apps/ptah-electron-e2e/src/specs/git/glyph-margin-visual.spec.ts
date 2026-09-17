@@ -3,6 +3,7 @@ import * as path from 'path';
 import type { Page, TestInfo } from '@playwright/test';
 import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
+import { sourceControlFileButton } from '../../support/source-control';
 import {
   contrastRatio,
   decodePng,
@@ -62,8 +63,6 @@ const SCREENSHOT_DIR = path.resolve(
   'ptah-electron-e2e',
   'glyph-margin',
 );
-
-const FILE_NAME = THREE_HUNK_FILE.split('/').pop() as string;
 
 /**
  * WCAG 2.2 SC 1.4.11 — a graphical object needed to understand the content
@@ -432,9 +431,7 @@ test.describe('glyph-margin hunk markers, seen in three themes (TASK_2026_222)',
     // step that followed goto('editor') is gone.
     await ui.goto('git');
 
-    const changedRow = page.locator('[role="listitem"]', {
-      hasText: FILE_NAME,
-    });
+    const changedRow = await sourceControlFileButton(page, THREE_HUNK_FILE);
     await expect(changedRow).toBeVisible({ timeout: 20_000 });
     await changedRow.click();
 

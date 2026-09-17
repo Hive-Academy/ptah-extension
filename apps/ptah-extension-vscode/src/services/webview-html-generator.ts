@@ -402,6 +402,7 @@ export class WebviewHtmlGenerator {
       window.vscode = vscode;
       window.ptahConfig = {
         isVSCode: true,
+        platform: '${this.escapeJsString(process.platform)}',
         theme: '${this.getThemeString(theme)}',
         workspaceRoot: '${this.escapeJsString(
           String(workspaceInfo?.['path'] || ''),

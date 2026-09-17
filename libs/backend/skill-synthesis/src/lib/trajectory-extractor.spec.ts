@@ -90,11 +90,50 @@ describe('TrajectoryExtractor', () => {
     expect(out.turnCount).toBeGreaterThanOrEqual(2);
     expect(out.editCount).toBe(1);
     expect(out.toolUseCount).toBe(2);
+    expect(out.nonMcpToolUseCount).toBe(2);
     expect(out.bashTestPassed).toBe(true);
     expect(out.canonicalText).toContain('[tool:Edit]');
     expect(out.canonicalText).toContain('[tool:Bash npm test]');
     expect(out.canonicalText.length).toBeGreaterThan(0);
     expect(out.charLength).toBe(out.canonicalText.length);
+  });
+
+  it('counts only tool_use names without the MCP prefix as non-MCP', async () => {
+    reader.readJsonlMessages.mockResolvedValue([
+      userTurn('inspect and compare the workspace'),
+      assistantToolUse('mcp__ptah__ptah_search_files', {}),
+      assistantToolUse('mcp__firecrawl__firecrawl_scrape', {}),
+      assistantToolUse('Read', {}),
+      assistantToolUse('Grep', {}),
+      assistantTurn('inspection complete'),
+    ]);
+
+    const out = await extractor.extract('s1', '/ws');
+
+    expect(out).not.toBeNull();
+    expect(out?.toolUseCount).toBe(4);
+    expect(out?.nonMcpToolUseCount).toBe(2);
+  });
+
+  it('counts missing and non-string tool_use names as non-MCP', async () => {
+    reader.readJsonlMessages.mockResolvedValue([
+      userTurn('inspect malformed tool metadata'),
+      {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', input: {} },
+            { type: 'tool_use', name: 42, input: {} },
+          ],
+        },
+      },
+    ]);
+
+    const out = await extractor.extract('s1', '/ws');
+
+    expect(out?.toolUseCount).toBe(2);
+    expect(out?.nonMcpToolUseCount).toBe(2);
   });
 
   it('extracts and hashes a 5+ turn session ending with a success marker', async () => {

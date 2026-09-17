@@ -65,6 +65,16 @@ export interface HarnessPropagateOptions {
    * narrow the pass, because it cannot know which targets the change affects.
    */
   targets?: HarnessTargetId[];
+  /**
+   * The label handed to {@link IUserLayerRefresher.refresh}. Absent — every
+   * caller but one — leaves the host's default propagation label, which a host
+   * never holds.
+   *
+   * Only a background skill re-propagation sets it (TASK_2026_437 FU-17b), so
+   * the host can hold that refresh while a turn is generating. Distinct from
+   * `reason`, which labels the reconcile and is free text per emit site.
+   */
+  userLayerRefreshReason?: string;
 }
 
 export class HarnessPropagationService {
@@ -94,7 +104,9 @@ export class HarnessPropagationService {
 
     if (options.skipUserLayerRefresh !== true) {
       try {
-        await this.refresher.refresh(cwd);
+        // An absent label is `undefined`, which every refresher treats as "no
+        // label" (the port contract): the host applies its own default.
+        await this.refresher.refresh(cwd, options.userLayerRefreshReason);
       } catch (error: unknown) {
         // Deliberately non-fatal and deliberately NOT a return: reconciling a
         // stale user layer still heals every target that drifted for an

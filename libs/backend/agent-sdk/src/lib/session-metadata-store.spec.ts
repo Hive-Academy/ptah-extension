@@ -25,10 +25,24 @@
  */
 
 import 'reflect-metadata';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
+  AgentOutputCursorStaleError,
   SessionMetadataStore,
   flushSessionMetadataStores,
+  type PersistedAgentOutput,
+  type TaggedAgentOutputItem,
 } from './session-metadata-store';
+import {
+  StateStorageCursorStaleError,
+  StateStorageValueTooLargeError,
+  jsonUtf8Bytes,
+  omitJsonPaths,
+  type IAsyncStateStorage,
+  type StateStorageGetOptions,
+  type StateStorageSequenceReadOptions,
+} from '@ptah-extension/platform-core';
 import { createMockStateStorage } from '@ptah-extension/platform-core/testing';
 import {
   createMockLogger,
@@ -39,6 +53,7 @@ import type {
   CliOutputSegment,
   CliSessionReference,
   FlatStreamEventUnion,
+  SubagentRecord,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SdkError } from './errors';
@@ -275,6 +290,67 @@ describe('SessionMetadataStore', () => {
         'keep-me',
       ]);
     });
+
+    it('preserves resume state when a later save omits it', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      const interrupted: SubagentRecord = {
+        toolCallId: 'tool-1',
+        agentType: 'backend',
+        status: 'interrupted',
+        startedAt: Date.now(),
+        interruptedAt: Date.now(),
+        parentSessionId: 'sess-1',
+        agentId: 'agent-1',
+      };
+      await store.saveResumeState('sess-1', {
+        workingDirectory: `${WORKSPACE}/.claude/worktrees/fix`,
+        resumableSdkSubagents: [interrupted],
+      });
+
+      const current = (await store.get('sess-1')) as NonNullable<
+        Awaited<ReturnType<typeof store.get>>
+      >;
+      await store.save({
+        ...current,
+        workingDirectory: undefined,
+        resumableSdkSubagents: undefined,
+        name: 'renamed',
+      });
+
+      const after = await store.get('sess-1');
+      expect(after?.workingDirectory).toBe(
+        `${WORKSPACE}/.claude/worktrees/fix`,
+      );
+      expect(after?.resumableSdkSubagents).toEqual([interrupted]);
+    });
+  });
+
+  describe('saveResumeState', () => {
+    it('stores only interrupted foreground SDK records for the canonical session', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      const base: SubagentRecord = {
+        toolCallId: 'kept',
+        agentType: 'backend',
+        status: 'interrupted',
+        startedAt: Date.now(),
+        interruptedAt: Date.now(),
+        parentSessionId: 'sess-1',
+        agentId: 'agent-kept',
+      };
+
+      await store.saveResumeState('sess-1', {
+        resumableSdkSubagents: [
+          base,
+          { ...base, toolCallId: 'running', status: 'running' },
+          { ...base, toolCallId: 'background', isBackground: true },
+          { ...base, toolCallId: 'cli', isCliAgent: true },
+          { ...base, toolCallId: 'other', parentSessionId: 'sess-2' },
+        ],
+      });
+
+      const after = await store.get('sess-1');
+      expect(after?.resumableSdkSubagents).toEqual([base]);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -459,6 +535,126 @@ describe('SessionMetadataStore', () => {
 
   describe('bulk agent output', () => {
     const FAT_AGENT = 'agent-fat' as AgentId;
+    const ENVELOPE_BYTES = Buffer.byteLength(
+      JSON.stringify({
+        success: true,
+        data: { items: [], nextCursor: '0'.repeat(32), done: false },
+        correlationId: '0'.repeat(64),
+      }),
+      'utf8',
+    );
+
+    function rpcBytes(page: unknown): number {
+      return Buffer.byteLength(
+        JSON.stringify({
+          success: true,
+          data: page,
+          correlationId: '0'.repeat(64),
+        }),
+        'utf8',
+      );
+    }
+
+    function createAsyncFake() {
+      const getAsync = jest.fn(
+        async (
+          key: string,
+          defaultValue?: unknown,
+          options?: StateStorageGetOptions,
+        ) => {
+          const value = storage.get(key, defaultValue);
+          return options?.projection && value !== undefined
+            ? omitJsonPaths(value, options.projection.omit)
+            : value;
+        },
+      );
+      const readJsonSequence = jest.fn(async function* (
+        key: string,
+        options?: StateStorageSequenceReadOptions,
+      ) {
+        const items = storage.get<unknown[]>(key) ?? [];
+        const maxJsonBytes = options?.maxJsonBytes ?? Number.POSITIVE_INFINITY;
+        let used = options?.jsonEnvelopeBytes ?? 2;
+        let index = options?.cursor ? Number(options.cursor) : 0;
+        const page: unknown[] = [];
+        while (index < items.length) {
+          const cost = jsonUtf8Bytes(items[index]) + (page.length > 0 ? 1 : 0);
+          if (used + cost > maxJsonBytes) break;
+          page.push(items[index]);
+          used += cost;
+          index++;
+        }
+        if (page.length === 0 && index < items.length) {
+          throw new Error('fake item exceeds budget');
+        }
+        const done = index >= items.length;
+        yield {
+          items: page,
+          nextCursor: done ? null : String(index),
+          done,
+          approximateBytes: used,
+        };
+      });
+      const replaceJsonSequence = jest.fn(
+        async (
+          key: string,
+          chunks: AsyncIterable<{ items: readonly unknown[] }>,
+        ) => {
+          const items: unknown[] = [];
+          for await (const chunk of chunks) items.push(...chunk.items);
+          await storage.update(key, items);
+        },
+      );
+      const asyncStorage = {
+        ...storage,
+        getAsync,
+        readJsonSequence,
+        replaceJsonSequence,
+      } as unknown as IAsyncStateStorage;
+      return {
+        asyncStore: new SessionMetadataStore(asyncStorage, asLogger(logger)),
+        getAsync,
+        readJsonSequence,
+        replaceJsonSequence,
+      };
+    }
+
+    function storeOverSequence(
+      readJsonSequence: (...args: never[]) => unknown,
+    ): SessionMetadataStore {
+      const asyncStorage = {
+        ...storage,
+        getAsync: jest.fn(async (key: string, defaultValue?: unknown) =>
+          storage.get(key, defaultValue),
+        ),
+        readJsonSequence,
+        replaceJsonSequence: jest.fn(async () => undefined),
+      } as unknown as IAsyncStateStorage;
+      return new SessionMetadataStore(asyncStorage, asLogger(logger));
+    }
+
+    function fatDetail(refs: readonly CliSessionReference[]) {
+      return {
+        sessionId: 'sess-1',
+        name: 'parent',
+        workspaceId: WORKSPACE,
+        createdAt: 1,
+        lastActiveAt: 1,
+        totalCost: 0,
+        totalTokens: { input: 0, output: 0 },
+        cliSessions: refs,
+      };
+    }
+
+    function fatRef(agentId: string, cliSessionId: string) {
+      return cliRef({
+        cliSessionId,
+        agentId: agentId as AgentId,
+        stdout: 'raw tail',
+        segments: segments(500),
+        streamEvents: streamEvents(400),
+      });
+    }
 
     async function seedFatReference(): Promise<void> {
       await store.create('sess-1', WORKSPACE, 'parent');
@@ -467,29 +663,171 @@ describe('SessionMetadataStore', () => {
         cliRef({
           cliSessionId: 'cli-fat',
           agentId: FAT_AGENT,
+          stdout: 'raw tail',
           segments: segments(500),
           streamEvents: streamEvents(5000),
         }),
       );
     }
 
-    it('keeps streamEvents out of the all-sessions blob', async () => {
+    function strippedLogCalls(): unknown[][] {
+      return logger.info.mock.calls.filter(
+        ([message]) =>
+          typeof message === 'string' &&
+          message.includes('Stripped bulk output'),
+      );
+    }
+
+    it('strips stdout, segments and streamEvents from the stored reference on write', async () => {
       await seedFatReference();
 
-      const blob = storage.__state.entries.get(METADATA_KEY);
-      expect(JSON.stringify(blob)).not.toContain('streamEvents');
-
-      const md = await store.get('sess-1');
-      expect(md?.cliSessions?.[0].streamEvents).toBeUndefined();
+      const blob = JSON.stringify(storage.__state.entries.get(METADATA_KEY));
+      expect(blob).not.toContain('streamEvents');
+      expect(blob).not.toContain('"segments"');
+      expect(blob).not.toContain('raw tail');
+      expect(strippedLogCalls()).toEqual([
+        [expect.any(String), { sessionId: 'sess-1', strippedBulkRefCount: 1 }],
+      ]);
     });
 
-    it('trims inline segments to a bounded tail', async () => {
-      await seedFatReference();
+    it('counts stripped bulk once per reference handed to a save', async () => {
+      await store.save(
+        fatDetail([
+          fatRef('agent-a', 'cli-a'),
+          fatRef('agent-b', 'cli-b'),
+          cliRef({ cliSessionId: 'cli-lean', agentId: 'agent-c' as AgentId }),
+        ]),
+      );
 
-      const md = await store.get('sess-1');
-      expect(md?.cliSessions?.[0].segments).toHaveLength(200);
-      // The TAIL is what is kept — the newest output is the useful part.
-      expect(md?.cliSessions?.[0].segments?.[199].content).toBe('segment-499');
+      expect(strippedLogCalls()).toEqual([
+        [expect.any(String), { sessionId: 'sess-1', strippedBulkRefCount: 2 }],
+      ]);
+      const blob = JSON.stringify(storage.__state.entries.get(METADATA_KEY));
+      expect(blob).not.toContain('streamEvents');
+      expect(blob).not.toContain('raw tail');
+      expect(
+        [...storage.__state.entries.keys()].filter((key) =>
+          key.startsWith('ptah.agentOutput:'),
+        ),
+      ).toEqual([]);
+    });
+
+    it('leaves no stored bulk after an unrelated write to an unmigrated fat record', async () => {
+      storage.__state.seed(METADATA_KEY, [
+        fatDetail([fatRef('agent-a', 'cli-a'), fatRef('agent-b', 'cli-b')]),
+      ]);
+
+      await store.addStats('sess-1', {
+        cost: 0.01,
+        tokens: { input: 1, output: 1 },
+      });
+
+      const blob = JSON.stringify(storage.__state.entries.get(METADATA_KEY));
+      expect(blob).not.toContain('streamEvents');
+      expect(blob).not.toContain('raw tail');
+      expect((await store.get('sess-1'))?.cliSessions).toHaveLength(2);
+    });
+
+    it('strips bulk from a reference with no agentId as well', async () => {
+      storage.__state.seed(METADATA_KEY, [
+        fatDetail([fatRef('', 'cli-no-id')]),
+      ]);
+
+      await store.rename('sess-1', 'Renamed');
+
+      const blob = JSON.stringify(storage.__state.entries.get(METADATA_KEY));
+      expect(blob).not.toContain('streamEvents');
+      expect(blob).not.toContain('raw tail');
+      expect((await store.get('sess-1'))?.name).toBe('Renamed');
+    });
+
+    it('does not log a strip when every reference is already lean', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.addCliSession('sess-1', cliRef());
+      await store.rename('sess-1', 'Renamed');
+
+      expect(strippedLogCalls()).toEqual([]);
+    });
+
+    it('counts only non-empty bulk and skips references carrying empty fields', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.addCliSession(
+        'sess-1',
+        cliRef({ cliSessionId: 'cli-empty', stdout: '', segments: [] }),
+      );
+      expect(strippedLogCalls()).toEqual([]);
+
+      await store.save(
+        fatDetail([
+          cliRef({ cliSessionId: 'cli-empty', stdout: '', streamEvents: [] }),
+          cliRef({
+            cliSessionId: 'cli-full',
+            agentId: 'agent-full' as AgentId,
+            segments: segments(1),
+          }),
+        ]),
+      );
+      expect(strippedLogCalls()).toEqual([
+        [expect.any(String), { sessionId: 'sess-1', strippedBulkRefCount: 1 }],
+      ]);
+    });
+
+    it('returns projected details from sync and async storage alike', async () => {
+      const refs = [fatRef('agent-a', 'cli-a'), fatRef('agent-b', 'cli-b')];
+      storage.__state.seed(METADATA_KEY, [fatDetail(refs)]);
+      const syncDetail = await store.get('sess-1');
+
+      storage.__state.entries.delete(METADATA_KEY);
+      storage.__state.seed('ptah.session:sess-1', fatDetail(refs));
+      const { asyncStore, getAsync } = createAsyncFake();
+      const asyncDetail = await asyncStore.get('sess-1');
+
+      expect(getAsync).toHaveBeenCalledWith('ptah.session:sess-1', undefined, {
+        projection: {
+          omit: [
+            ['cliSessions', '*', 'stdout'],
+            ['cliSessions', '*', 'segments'],
+            ['cliSessions', '*', 'streamEvents'],
+          ],
+        },
+      });
+      expect(asyncDetail).toEqual(syncDetail);
+      expect(syncDetail?.cliSessions).toHaveLength(2);
+      for (const ref of syncDetail?.cliSessions ?? []) {
+        expect(ref).not.toHaveProperty('stdout');
+        expect(ref).not.toHaveProperty('segments');
+        expect(ref).not.toHaveProperty('streamEvents');
+      }
+    });
+
+    it('never reads a session detail without the projection', () => {
+      const source = readFileSync(
+        join(__dirname, 'session-metadata-store.ts'),
+        'utf8',
+      );
+      const detailReads = [...source.matchAll(/sessionDetailKey\(/g)]
+        .map((match) => match.index ?? 0)
+        .filter(
+          (index) =>
+            !source.slice(index - 9, index).startsWith('function') &&
+            !/update\(\s*$/.test(source.slice(index - 40, index)),
+        );
+      expect(detailReads.length).toBeGreaterThan(0);
+      for (const index of detailReads) {
+        expect(source.slice(index - 60, index)).toMatch(
+          /getAsync<[^>]+>\(\s*$/,
+        );
+        expect(source.slice(index, index + 120)).toContain(
+          'DETAIL_READ_OPTIONS',
+        );
+      }
+      const getBody = source.slice(
+        source.indexOf('async get(sessionId: string)'),
+        source.indexOf('async saveResumeState('),
+      );
+      expect(getBody).toContain(
+        'omitJsonPaths(summary, DETAIL_PROJECTION.omit)',
+      );
     });
 
     it('stores bulk output under a per-agent key, not the blob', async () => {
@@ -498,17 +836,97 @@ describe('SessionMetadataStore', () => {
         streamEvents: streamEvents(5000),
       });
 
-      expect(storage.update).toHaveBeenCalledWith(
+      const stored = storage.__state.entries.get(
         `ptah.agentOutput:${FAT_AGENT}`,
-        expect.objectContaining({ agentId: FAT_AGENT }),
+      ) as PersistedAgentOutput;
+      expect(stored.agentId).toBe(FAT_AGENT);
+      expect(stored.segments).toHaveLength(500);
+      expect(stored.streamEvents).toHaveLength(5000);
+      expect(storage.__state.entries.has(METADATA_KEY)).toBe(false);
+    });
+
+    it('writes stdout as the single text segment only when there is no other output', async () => {
+      await store.saveAgentOutput(FAT_AGENT, { stdout: 'only raw text' });
+
+      const stored = storage.__state.entries.get(
+        `ptah.agentOutput:${FAT_AGENT}`,
+      ) as PersistedAgentOutput;
+      expect(stored.segments).toEqual([
+        { type: 'text', content: 'only raw text' },
+      ]);
+      expect(stored.streamEvents).toBeUndefined();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Stored agent output'),
+        {
+          segments: 1,
+          streamEvents: 0,
+          stdoutDropped: false,
+          stdoutFallback: true,
+        },
       );
-      const stored = await store.getAgentOutput(FAT_AGENT);
-      expect(stored?.streamEvents).toHaveLength(5000);
-      expect(stored?.segments).toHaveLength(500);
+    });
+
+    it('drops stdout when segments or stream events exist, and logs the drop', async () => {
+      await store.saveAgentOutput(FAT_AGENT, {
+        stdout: 'duplicate tail',
+        streamEvents: streamEvents(3),
+      });
+
+      const stored = storage.__state.entries.get(
+        `ptah.agentOutput:${FAT_AGENT}`,
+      ) as PersistedAgentOutput;
+      expect(stored.segments).toBeUndefined();
+      expect(stored.streamEvents).toHaveLength(3);
+      expect(JSON.stringify(stored)).not.toContain('duplicate tail');
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Stored agent output'),
+        {
+          segments: 0,
+          streamEvents: 3,
+          stdoutDropped: true,
+          stdoutFallback: false,
+        },
+      );
+    });
+
+    it('logs a stdout-free save at debug only', async () => {
+      await store.saveAgentOutput(FAT_AGENT, { segments: segments(2) });
+
+      expect(logger.info).not.toHaveBeenCalledWith(
+        expect.stringContaining('Stored agent output'),
+        expect.anything(),
+      );
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('Stored agent output'),
+        {
+          segments: 2,
+          streamEvents: 0,
+          stdoutDropped: false,
+          stdoutFallback: false,
+        },
+      );
+    });
+
+    it('writes the stdout fallback as one tagged item on async storage', async () => {
+      const { asyncStore, replaceJsonSequence } = createAsyncFake();
+
+      await asyncStore.saveAgentOutput(FAT_AGENT, {
+        stdout: 'raw only',
+        segments: [],
+        streamEvents: [],
+      });
+
+      expect(replaceJsonSequence).toHaveBeenCalledTimes(1);
+      expect(
+        storage.__state.entries.get(`ptah.agentOutput:${FAT_AGENT}`),
+      ).toEqual([
+        { tag: 'segment', value: { type: 'text', content: 'raw only' } },
+      ]);
     });
 
     it('writes nothing when there is no output to store', async () => {
       await store.saveAgentOutput(FAT_AGENT, {
+        stdout: '',
         segments: [],
         streamEvents: [],
       });
@@ -516,10 +934,384 @@ describe('SessionMetadataStore', () => {
         `ptah.agentOutput:${FAT_AGENT}`,
         expect.anything(),
       );
-      await expect(store.getAgentOutput(FAT_AGENT)).resolves.toBeNull();
+      expect(storage.__state.entries.has(`ptah.agentOutput:${FAT_AGENT}`)).toBe(
+        false,
+      );
     });
 
-    it('rehydrates the restore payload from the per-agent key', async () => {
+    it('pages synchronous output in segment-then-event order without duplication', async () => {
+      await store.saveAgentOutput(FAT_AGENT, {
+        segments: segments(40),
+        streamEvents: streamEvents(40),
+      });
+      const { savedAt } = storage.__state.entries.get(
+        `ptah.agentOutput:${FAT_AGENT}`,
+      ) as PersistedAgentOutput;
+
+      const received: string[] = [];
+      let cursor: string | undefined;
+      let pageCount = 0;
+      do {
+        const page = await store.getAgentOutputPage(FAT_AGENT, cursor, 1024);
+        expect(rpcBytes(page)).toBeLessThanOrEqual(1024);
+        received.push(
+          ...page.items.map((item) =>
+            item.tag === 'segment' ? item.value.content : item.value.id,
+          ),
+        );
+        if (page.nextCursor !== null) {
+          expect(page.nextCursor).toMatch(new RegExp(`^s${savedAt}\\.\\d+$`));
+        }
+        cursor = page.nextCursor ?? undefined;
+        pageCount++;
+      } while (cursor);
+
+      expect(pageCount).toBeGreaterThan(1);
+      expect(received).toEqual([
+        ...segments(40).map((item) => item.content),
+        ...streamEvents(40).map((item) => item.id),
+      ]);
+      expect(new Set(received).size).toBe(received.length);
+    });
+
+    it('bounds the complete UTF-8 RPC envelope and honors continuation cursors', async () => {
+      const multibyteSegments = Array.from({ length: 40 }, (_, index) => ({
+        type: 'text' as const,
+        content: `${index}:${'界'.repeat(3_000)}`,
+      }));
+      await store.saveAgentOutput(FAT_AGENT, {
+        segments: multibyteSegments,
+        streamEvents: [],
+      });
+
+      const first = await store.getAgentOutputPage(
+        FAT_AGENT,
+        undefined,
+        256 * 1024,
+      );
+      expect(first.done).toBe(false);
+      expect(first.nextCursor).not.toBeNull();
+      expect(rpcBytes(first)).toBeLessThanOrEqual(256 * 1024);
+
+      const second = await store.getAgentOutputPage(
+        FAT_AGENT,
+        first.nextCursor ?? undefined,
+        256 * 1024,
+      );
+      expect(second.items[0]).toEqual({
+        tag: 'segment',
+        value: multibyteSegments[first.items.length],
+      });
+    });
+
+    it('rejects a malformed synchronous cursor', async () => {
+      await store.saveAgentOutput(FAT_AGENT, { segments: segments(2) });
+
+      await expect(
+        store.getAgentOutputPage(FAT_AGENT, 'not-a-cursor', 1024),
+      ).rejects.toThrow('Invalid agent output cursor');
+      await expect(
+        store.getAgentOutputPage(FAT_AGENT, '5', 1024),
+      ).rejects.toThrow('Invalid agent output cursor');
+    });
+
+    it('reports a synchronous cursor from an older save as stale', async () => {
+      const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+      try {
+        await store.saveAgentOutput(FAT_AGENT, { segments: segments(80) });
+        const first = await store.getAgentOutputPage(
+          FAT_AGENT,
+          undefined,
+          1024,
+        );
+        expect(first.nextCursor).toMatch(/^s1000\.\d+$/);
+
+        now.mockReturnValue(2_000);
+        await store.saveAgentOutput(FAT_AGENT, { segments: segments(80) });
+
+        await expect(
+          store.getAgentOutputPage(
+            FAT_AGENT,
+            first.nextCursor ?? undefined,
+            1024,
+          ),
+        ).rejects.toBeInstanceOf(AgentOutputCursorStaleError);
+        await store.deleteAgentOutput(FAT_AGENT);
+        await expect(
+          store.getAgentOutputPage(FAT_AGENT, 's2000.1', 1024),
+        ).rejects.toBeInstanceOf(AgentOutputCursorStaleError);
+      } finally {
+        now.mockRestore();
+      }
+    });
+
+    it('shrinks a synchronous item that exceeds the page budget instead of failing the page', async () => {
+      const heavy = `${String.fromCharCode(1)}界${String.fromCodePoint(0x1f600)}`;
+      await store.saveAgentOutput(FAT_AGENT, {
+        segments: [
+          { type: 'text', content: heavy.repeat(1_000) },
+          { type: 'text', content: 'next' },
+        ],
+      });
+
+      const first = await store.getAgentOutputPage(FAT_AGENT, undefined, 1024);
+      expect(first.items).toHaveLength(1);
+      expect(rpcBytes(first)).toBeLessThanOrEqual(1024);
+      const content =
+        first.items[0].tag === 'segment' ? first.items[0].value.content : '';
+      expect(content).toMatch(/\[truncated \d+ bytes\]$/);
+      expect(content).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+      const truncationLogs = logger.info.mock.calls.filter(
+        ([message]) =>
+          typeof message === 'string' &&
+          message.includes('Truncated oversized agent output items'),
+      );
+      expect(truncationLogs).toEqual([
+        [
+          expect.stringContaining(FAT_AGENT),
+          {
+            truncatedItems: [
+              {
+                pageIndex: 0,
+                originalJsonBytes: Buffer.byteLength(
+                  JSON.stringify({
+                    tag: 'segment',
+                    value: { type: 'text', content: heavy.repeat(1_000) },
+                  }),
+                  'utf8',
+                ),
+              },
+            ],
+          },
+        ],
+      ]);
+      expect(JSON.stringify(truncationLogs)).not.toContain(heavy);
+
+      const second = await store.getAgentOutputPage(
+        FAT_AGENT,
+        first.nextCursor ?? undefined,
+        1024,
+      );
+      expect(second).toEqual({
+        items: [{ tag: 'segment', value: { type: 'text', content: 'next' } }],
+        nextCursor: null,
+        done: true,
+      });
+    });
+
+    it('fails a synchronous item that cannot be shrunk with StateStorageValueTooLargeError', async () => {
+      await store.saveAgentOutput(FAT_AGENT, {
+        segments: [
+          {
+            type: 'tool-call',
+            content: '',
+            toolInput: { values: Array.from({ length: 400 }, (_, i) => i) },
+          },
+        ],
+      });
+
+      await expect(
+        store.getAgentOutputPage(FAT_AGENT, undefined, 1024),
+      ).rejects.toBeInstanceOf(StateStorageValueTooLargeError);
+    });
+
+    it('reads one async page with exactly one dual-budget readJsonSequence call', async () => {
+      const page = {
+        items: [
+          {
+            tag: 'segment' as const,
+            value: { type: 'text' as const, content: '界'.repeat(40_000) },
+          },
+        ],
+        nextCursor: 'g3.1',
+        done: false,
+        approximateBytes: 1,
+      };
+      const readJsonSequence = jest.fn(async function* (): AsyncIterable<
+        typeof page
+      > {
+        yield page;
+      });
+      const asyncStore = storeOverSequence(readJsonSequence);
+
+      const result = await asyncStore.getAgentOutputPage(
+        FAT_AGENT,
+        'g3.0',
+        512 * 1024,
+      );
+
+      expect(readJsonSequence).toHaveBeenCalledTimes(1);
+      expect(readJsonSequence).toHaveBeenCalledWith(
+        `ptah.agentOutput:${FAT_AGENT}`,
+        {
+          cursor: 'g3.0',
+          maxBytes: 256 * 1024,
+          maxJsonBytes: 256 * 1024,
+          jsonEnvelopeBytes: ENVELOPE_BYTES,
+          maxItemBytes: 256 * 1024 - ENVELOPE_BYTES,
+        },
+      );
+      expect(result).toEqual({
+        items: page.items,
+        nextCursor: 'g3.1',
+        done: false,
+      });
+      expect(rpcBytes(result)).toBeLessThanOrEqual(256 * 1024);
+    });
+
+    it('drains async output with one readJsonSequence call per page', async () => {
+      const { asyncStore, readJsonSequence } = createAsyncFake();
+      await asyncStore.saveAgentOutput(FAT_AGENT, {
+        segments: Array.from({ length: 12 }, (_, i) => ({
+          type: 'text' as const,
+          content: `${i}${'界'.repeat(150)}`,
+        })),
+      });
+
+      let cursor: string | undefined;
+      let pages = 0;
+      let items = 0;
+      do {
+        const page = await asyncStore.getAgentOutputPage(
+          FAT_AGENT,
+          cursor,
+          1024,
+        );
+        expect(rpcBytes(page)).toBeLessThanOrEqual(1024);
+        items += page.items.length;
+        cursor = page.nextCursor ?? undefined;
+        pages++;
+      } while (cursor);
+
+      expect(items).toBe(12);
+      expect(pages).toBeGreaterThan(1);
+      expect(readJsonSequence).toHaveBeenCalledTimes(pages);
+    });
+
+    it('maps a stale storage cursor to AgentOutputCursorStaleError without retrying', async () => {
+      const readJsonSequence = jest.fn(async function* () {
+        yield* [];
+        throw new StateStorageCursorStaleError(`ptah.agentOutput:${FAT_AGENT}`);
+      });
+      const asyncStore = storeOverSequence(readJsonSequence);
+
+      const error = await asyncStore
+        .getAgentOutputPage(FAT_AGENT, 'g1.4', 256 * 1024)
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(AgentOutputCursorStaleError);
+      expect(error).toBeInstanceOf(SdkError);
+      expect((error as AgentOutputCursorStaleError).agentId).toBe(FAT_AGENT);
+      expect(readJsonSequence).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes value-too-large through unchanged', async () => {
+      const tooLarge = new StateStorageValueTooLargeError('k', 9_999_999);
+      const readJsonSequence = jest.fn(async function* () {
+        yield* [];
+        throw tooLarge;
+      });
+
+      await expect(
+        storeOverSequence(readJsonSequence).getAgentOutputPage(
+          FAT_AGENT,
+          undefined,
+          256 * 1024,
+        ),
+      ).rejects.toBe(tooLarge);
+    });
+
+    it('logs worker-truncated items with page-relative indexes', async () => {
+      const readJsonSequence = jest.fn(async function* () {
+        yield {
+          items: [{ tag: 'segment', value: { type: 'text', content: 'x' } }],
+          nextCursor: 'g2.9',
+          done: false,
+          approximateBytes: 1,
+          truncatedItems: [{ index: 0, originalJsonBytes: 1_112_231 }],
+        };
+      });
+
+      await storeOverSequence(readJsonSequence).getAgentOutputPage(
+        FAT_AGENT,
+        'g2.8',
+        256 * 1024,
+      );
+
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Truncated oversized agent output items'),
+        { truncatedItems: [{ pageIndex: 0, originalJsonBytes: 1_112_231 }] },
+      );
+    });
+
+    it('closes the page iterator rather than abandoning it', async () => {
+      let closed = false;
+      const readJsonSequence = jest.fn(async function* () {
+        try {
+          yield {
+            items: [],
+            nextCursor: null,
+            done: true,
+            approximateBytes: 1,
+          };
+          yield {
+            items: [],
+            nextCursor: null,
+            done: true,
+            approximateBytes: 1,
+          };
+        } finally {
+          closed = true;
+        }
+      });
+
+      await expect(
+        storeOverSequence(readJsonSequence).getAgentOutputPage(
+          FAT_AGENT,
+          undefined,
+          256 * 1024,
+        ),
+      ).resolves.toEqual({ items: [], nextCursor: null, done: true });
+      expect(closed).toBe(true);
+    });
+
+    it('answers an absent async sequence with an empty final page', async () => {
+      const { asyncStore } = createAsyncFake();
+
+      await expect(
+        asyncStore.getAgentOutputPage(FAT_AGENT, undefined, 256 * 1024),
+      ).resolves.toEqual({ items: [], nextCursor: null, done: true });
+    });
+
+    it('rejects a worker page that violates the final RPC budget', async () => {
+      const page = {
+        items: [
+          {
+            tag: 'segment' as const,
+            value: { type: 'text' as const, content: '界'.repeat(90_000) },
+          },
+        ],
+        nextCursor: '1',
+        done: false,
+        approximateBytes: 1,
+      };
+      const readJsonSequence = jest.fn(async function* (): AsyncIterable<
+        typeof page
+      > {
+        yield page;
+      });
+
+      await expect(
+        storeOverSequence(readJsonSequence).getAgentOutputPage(
+          FAT_AGENT,
+          undefined,
+          256 * 1024,
+        ),
+      ).rejects.toThrow('Agent output page exceeds RPC budget');
+      expect(readJsonSequence).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps restore lean and exposes complete history only through pages', async () => {
       await seedFatReference();
       await store.saveAgentOutput(FAT_AGENT, {
         segments: segments(500),
@@ -528,23 +1320,41 @@ describe('SessionMetadataStore', () => {
 
       const refs = await store.getCliSessionsForRestore('sess-1');
       expect(refs).toHaveLength(1);
-      expect(refs[0].streamEvents).toHaveLength(5000);
-      expect(refs[0].segments).toHaveLength(500);
-      // The reference's own identity fields survive the merge.
+      expect(refs[0]).not.toHaveProperty('stdout');
+      expect(refs[0]).not.toHaveProperty('segments');
+      expect(refs[0]).not.toHaveProperty('streamEvents');
       expect(refs[0].cliSessionId).toBe('cli-fat');
+
+      const received: TaggedAgentOutputItem[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await store.getAgentOutputPage(
+          FAT_AGENT,
+          cursor,
+          32 * 1024,
+        );
+        received.push(...page.items);
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+
+      expect(received.filter((item) => item.tag === 'segment')).toHaveLength(
+        500,
+      );
+      expect(
+        received.filter((item) => item.tag === 'streamEvent'),
+      ).toHaveLength(5000);
     });
 
-    it('returns the lean reference when no bulk output was stored', async () => {
-      await seedFatReference();
-      // The store now migrates what it leans (TASK_2026_324 finding 1), so the
-      // "nothing stored" case has to be made by DROPPING the key — which is
-      // also the real one: an agent whose output was deleted, or a reference
-      // written by a build that predates the per-agent split.
-      await store.deleteAgentOutput(FAT_AGENT);
+    it('returns projected references for restore from an unmigrated fat record', async () => {
+      storage.__state.seed(METADATA_KEY, [
+        fatDetail([fatRef('agent-a', 'cli-a')]),
+      ]);
 
       const refs = await store.getCliSessionsForRestore('sess-1');
-      expect(refs[0].streamEvents).toBeUndefined();
-      expect(refs[0].segments).toHaveLength(200);
+
+      expect(refs).toEqual([
+        cliRef({ cliSessionId: 'cli-a', agentId: 'agent-a' as AgentId }),
+      ]);
     });
 
     it('returns an empty list for a session with no CLI agents', async () => {
@@ -555,112 +1365,6 @@ describe('SessionMetadataStore', () => {
       await expect(store.getCliSessionsForRestore('missing')).resolves.toEqual(
         [],
       );
-    });
-
-    // -----------------------------------------------------------------------
-    // TASK_2026_324 finding 1 — a fat reference is MIGRATED, never dropped.
-    //
-    // `addCliSession` is not the only way a reference gets into a record. A
-    // blob written before the per-agent split still carries inline
-    // `streamEvents`, and `save` / `addStats` / `rename` /
-    // `propagateStatsToParent` all round-trip that record through
-    // `_saveInternal`. Leaning without migrating meant the first incidental
-    // write — a cost update on an unrelated turn — silently deleted an
-    // agent's whole execution tree.
-    // -----------------------------------------------------------------------
-
-    const OLD_FORMAT_AGENT = 'agent-old-format' as AgentId;
-
-    /**
-     * Seed the blob directly, so the fat reference reaches the store the one
-     * way the bug needs: NOT through `addCliSession`.
-     */
-    function seedOldFormatBlob(ref: Partial<CliSessionReference> = {}): void {
-      storage.__state.seed(METADATA_KEY, [
-        {
-          sessionId: 'sess-1',
-          name: 'parent',
-          workspaceId: WORKSPACE,
-          createdAt: 1,
-          lastActiveAt: 1,
-          totalCost: 0,
-          totalTokens: { input: 0, output: 0 },
-          cliSessions: [
-            cliRef({
-              cliSessionId: 'cli-old',
-              agentId: OLD_FORMAT_AGENT,
-              segments: segments(500),
-              streamEvents: streamEvents(400),
-              ...ref,
-            }),
-          ],
-        },
-      ]);
-    }
-
-    it('migrates an old-format inline reference on an unrelated stats write', async () => {
-      seedOldFormatBlob();
-
-      await store.addStats('sess-1', {
-        cost: 0.01,
-        tokens: { input: 1, output: 1 },
-      });
-
-      // The blob is lean — that half already worked.
-      const blob = storage.__state.entries.get(METADATA_KEY);
-      expect(JSON.stringify(blob)).not.toContain('streamEvents');
-
-      // ...and the bulk is still readable, which is the half that did not.
-      const refs = await store.getCliSessionsForRestore('sess-1');
-      expect(refs[0].streamEvents).toHaveLength(400);
-      expect(refs[0].segments).toHaveLength(500);
-    });
-
-    it('leaves a reference with no agentId untouched — there is no key to migrate to', async () => {
-      seedOldFormatBlob({ agentId: '' as AgentId });
-
-      await store.addStats('sess-1', {
-        cost: 0.01,
-        tokens: { input: 1, output: 1 },
-      });
-
-      // Fat in the blob is the lesser evil: `ptah.agentOutput:<agentId>` IS
-      // the destination, and there is no id to name it by.
-      const md = await store.get('sess-1');
-      expect(md?.cliSessions?.[0].streamEvents).toHaveLength(400);
-      expect(md?.cliSessions?.[0].segments).toHaveLength(500);
-    });
-
-    it('never lets a migration shrink an already-stored snapshot', async () => {
-      await store.saveAgentOutput(OLD_FORMAT_AGENT, {
-        segments: segments(500),
-        streamEvents: streamEvents(5000),
-      });
-      // A re-persist arriving with only the tail the agent still held.
-      seedOldFormatBlob({ streamEvents: streamEvents(12) });
-
-      await store.rename('sess-1', 'Renamed');
-
-      const stored = await store.getAgentOutput(OLD_FORMAT_AGENT);
-      expect(stored?.streamEvents).toHaveLength(5000);
-    });
-
-    it('keeps the reference fat when the migration write fails', async () => {
-      seedOldFormatBlob();
-      storage.update.mockImplementation(async (key: string, value: unknown) => {
-        if (key.startsWith('ptah.agentOutput:')) {
-          throw new Error('storage busy');
-        }
-        if (value === undefined) storage.__state.entries.delete(key);
-        else storage.__state.entries.set(key, value);
-      });
-
-      await store.rename('sess-1', 'Renamed');
-
-      const md = await store.get('sess-1');
-      expect(md?.name).toBe('Renamed');
-      expect(md?.cliSessions?.[0].streamEvents).toHaveLength(400);
-      expect(logger.warn).toHaveBeenCalled();
     });
 
     // -----------------------------------------------------------------------

@@ -23,6 +23,7 @@ import {
   type TriggerToggleChange,
 } from './memory-trigger-toggle.component';
 import { DbHealthPanelComponent } from './db-health-panel.component';
+import { StorageHealthPanelComponent } from './storage-health-panel.component';
 import { EventFeedComponent } from './event-feed.component';
 
 @Component({
@@ -32,6 +33,7 @@ import { EventFeedComponent } from './event-feed.component';
   imports: [
     MemoryTriggerToggleComponent,
     DbHealthPanelComponent,
+    StorageHealthPanelComponent,
     EventFeedComponent,
     ProviderModelPickerComponent,
   ],
@@ -54,12 +56,6 @@ import { EventFeedComponent } from './event-feed.component';
           <div class="text-xs text-base-content-muted">Last curator run</div>
           <div class="mt-1 text-sm" data-testid="last-curator-run">
             {{ lastRunLabel() }}
-          </div>
-        </div>
-        <div class="rounded-xl border border-base-300 bg-base-200/40 px-4 py-3">
-          <div class="text-xs text-base-content-muted">Last decay sweep</div>
-          <div class="mt-1 text-sm" data-testid="last-decay-run">
-            {{ lastDecayLabel() }}
           </div>
         </div>
       </section>
@@ -171,6 +167,8 @@ import { EventFeedComponent } from './event-feed.component';
 
       <ptah-db-health-panel [health]="dbHealth()" />
 
+      <ptah-storage-health-panel [storage]="storage()" [now]="now()" />
+
       @if (error(); as err) {
         <div class="alert alert-error py-2 text-xs" role="alert">
           {{ err }}
@@ -219,9 +217,9 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
 
   protected readonly triggers = this.state.triggers;
   protected readonly lastRun = this.state.lastRun;
-  protected readonly lastDecay = this.state.lastDecay;
   protected readonly recentEvents = this.state.recentEvents;
   protected readonly dbHealth = this.state.dbHealth;
+  protected readonly storage = this.state.storage;
   protected readonly loading = this.state.loading;
   protected readonly error = this.state.error;
   protected readonly hasActiveSession = this.state.hasActiveSession;
@@ -234,10 +232,6 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
   protected readonly lastRunLabel = computed(() =>
     formatSnapshot(this.lastRun()),
   );
-  protected readonly lastDecayLabel = computed(() =>
-    formatSnapshot(this.lastDecay()),
-  );
-
   protected readonly cueListText = computed<string>(() => {
     const cues = this.triggers()?.userPromptSubmit?.cueList ?? [];
     return cues.join('\n');

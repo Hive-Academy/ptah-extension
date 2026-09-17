@@ -500,8 +500,10 @@ export class HistoryEventFactory {
    * Like {@link extractTextContent} but ALSO includes `tool_use` and
    * `tool_result` blocks, formatted as labelled lines. Used by the memory
    * curator's transcript reader so curation sees tool inputs/outputs — the
-   * text-only {@link extractTextContent} (consumed by the UI history view)
-   * strips them, which leaves historical/boot-scan curation blind to tools.
+   * text-only {@link extractTextContent} (used by `SessionReplayService` to
+   * classify and render replayed message text, and by the reader's user-message
+   * anchor lookup) strips them, which leaves historical/boot-scan curation
+   * blind to tools.
    * Each tool block is bounded so a single huge result can't dominate the
    * transcript.
    */

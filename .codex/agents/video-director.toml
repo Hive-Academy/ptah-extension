@@ -27,7 +27,7 @@ empty when you do.
 
 ## Task specs (`.ptah/specs/`)
 
-- One folder per task, `TASK_YYYY_NNN`. **The folder name is the canonical id.**
+- One folder per task, `TASK_YYYY_NNN_xxxx`. **The folder name is the canonical id.**
   A frontmatter `id:` that disagrees is a warning — never rename the folder to
   match it.
 - `task.md` is the machine-owned carrier: frontmatter (`status`,
@@ -43,9 +43,13 @@ empty when you do.
 - `description` (and any `title` containing a colon) MUST be a `>-` block
   scalar. A plain YAML scalar ends at the first colon-space, so one quoted code
   snippet makes the carrier unparseable and the task vanishes from the board.
-- Allocate a new id by scanning `.ptah/specs/TASK_*` on disk: highest `NNN`
-  for the current year, plus one, zero-padded to three digits. Never read the id
-  from `registry.md` — it is generated and can be stale.
+- Allocate a new id by scanning `.ptah/specs` on `origin/main` (run `git fetch`,
+  then `git ls-tree`), every path from `git worktree list`, and the local folder.
+  Take the highest `NNN` for the current year, add one, zero-pad to at least
+  three digits, and append an underscore plus four random lowercase hex
+  characters (`TASK_YYYY_NNN_xxxx`). Claim the folder with an exclusive,
+  fail-if-exists `mkdir`; it is the lock. Never read the id from `registry.md`
+  — it is generated and can be stale. Never rename an existing folder.
 - Only these documents are read from a task folder: `context.md`, `task-description.md`, `implementation-plan.md`, `batches.md`, `test-report.md`, `testing-infrastructure-escalation.md`, `code-style-review.md`, `code-logic-review.md`, `visual-review.md`, `visual-design-specification.md`, `design-handoff.md`, `design-assets-inventory.md`, `content-specification.md`, `research-report.md`, `future-enhancements.md`, plus `tasks.md`. Any other name is not picked up.
 
 ## Clarifications: return them, do not ask

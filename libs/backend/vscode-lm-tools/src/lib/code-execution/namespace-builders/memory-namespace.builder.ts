@@ -16,6 +16,7 @@ import { z } from 'zod';
 import type {
   IMemoryReader,
   IMemoryLister,
+  IMemoryUsageRecorder,
   MemoryHit,
   MemoryRecord,
 } from '@ptah-extension/memory-contracts';
@@ -23,6 +24,10 @@ import type { IMemoryWriter } from '@ptah-extension/platform-core';
 
 export interface MemoryNamespaceDependencies {
   getMemorySearch: () => IMemoryReader | undefined;
+  getMemoryUsageRecorder?: () => IMemoryUsageRecorder | undefined;
+  logger?: {
+    warn(message: string, metadata?: Record<string, unknown>): void;
+  };
   getMemoryStore: () => IMemoryLister | undefined;
   getMemoryWriter: () => IMemoryWriter | undefined;
   getWorkspaceRoot: () => string;
@@ -192,8 +197,14 @@ function resolveSearchScope(
 export function buildMemoryNamespace(
   deps: MemoryNamespaceDependencies,
 ): MemoryNamespace {
-  const { getMemorySearch, getMemoryStore, getMemoryWriter, getWorkspaceRoot } =
-    deps;
+  const {
+    getMemorySearch,
+    getMemoryUsageRecorder,
+    logger,
+    getMemoryStore,
+    getMemoryWriter,
+    getWorkspaceRoot,
+  } = deps;
 
   return {
     search: async (
@@ -219,6 +230,15 @@ export function buildMemoryNamespace(
 
       try {
         const result = await reader.search(query, maxResults, workspaceRoot);
+        try {
+          getMemoryUsageRecorder?.()?.recordUse(
+            result.hits.map((hit) => hit.memoryId),
+          );
+        } catch (error: unknown) {
+          logger?.warn('ptah.memory.search use recording failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
         if (noWorkspaceFallback) {
           return { ...result, scope, reason: 'no_workspace' as const };
         }

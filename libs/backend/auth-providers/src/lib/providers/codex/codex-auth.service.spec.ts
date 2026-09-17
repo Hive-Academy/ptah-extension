@@ -18,6 +18,8 @@ import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testi
 import type { MockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { CodexAuthService } from './codex-auth.service';
+import { CodexHomeResolver } from './codex-home-resolver';
+import { resolve } from 'node:path';
 import type { CodexAuthFile } from './codex-provider.types';
 import { SdkError, type SdkAdapterEvents } from '@ptah-extension/agent-sdk';
 
@@ -136,6 +138,7 @@ describe('CodexAuthService', () => {
       logger as unknown as Logger,
       workspaceProvider,
       mockEvents as unknown as SdkAdapterEvents,
+      new CodexHomeResolver(resolve('synthetic-auth-home')),
     );
   });
 
@@ -146,6 +149,16 @@ describe('CodexAuthService', () => {
   // ---------------------------------------------------------------------------
   // isAuthenticated
   // ---------------------------------------------------------------------------
+  it('uses the injected Codex home for reads, writes, and watching', async () => {
+    seedAuthFile({ openai_api_key: 'fake' });
+    await service.isAuthenticated();
+    expect(mockedReadFile).toHaveBeenCalledWith(
+      resolve('synthetic-auth-home', 'auth.json'), 'utf-8',
+    );
+    service.startWatchingAuthFile();
+    expect(mockedWatch).toHaveBeenCalledWith(resolve('synthetic-auth-home'), expect.any(Function));
+  });
+
   describe('isAuthenticated', () => {
     it('returns true when openai_api_key (snake_case) is present', async () => {
       seedAuthFile({ openai_api_key: 'sk-live-abcd' });
@@ -613,7 +626,7 @@ describe('CodexAuthService', () => {
       service.startWatchingAuthFile();
       expect(mockedWatch).toHaveBeenCalledTimes(1);
       const watchedDir = mockedWatch.mock.calls[0][0] as string;
-      expect(watchedDir.endsWith('.codex')).toBe(true);
+      expect(watchedDir).toBe(resolve('synthetic-auth-home'));
     });
 
     it('skips watching when ~/.codex does not exist', () => {

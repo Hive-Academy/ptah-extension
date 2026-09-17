@@ -64,6 +64,7 @@ function makeMemoryStore() {
     list: jest.fn(),
     getById: jest.fn(),
     getChunks: jest.fn(),
+    recordUse: jest.fn(),
     setPinned: jest.fn(),
     forget: jest.fn(),
     rebuildIndex: jest
@@ -76,6 +77,27 @@ function makeMemoryStore() {
       lastCuratedAt: null,
     }),
     purgeBySubjectPattern: jest.fn().mockReturnValue(0),
+  };
+}
+
+function makeMemory(id = 'mem-1') {
+  return {
+    id,
+    sessionId: 'session-1',
+    workspaceRoot: '/workspace/project',
+    tier: 'recall',
+    kind: 'fact',
+    subject: 'subject',
+    content: 'content',
+    sourceMessageIds: [],
+    salience: 0.5,
+    decayRate: 0,
+    hits: 1,
+    pinned: false,
+    createdAt: 1,
+    updatedAt: 1,
+    lastUsedAt: 1,
+    expiresAt: null,
   };
 }
 
@@ -114,8 +136,6 @@ function makeMemoryDiagnostics() {
     getSnapshot: jest.fn().mockResolvedValue({
       lastRunAt: null,
       lastRunStats: null,
-      lastDecayAt: null,
-      lastDecayStats: null,
       recentEvents: [],
       dbHealth: {
         memories: 0,
@@ -126,6 +146,31 @@ function makeMemoryDiagnostics() {
         code_symbols_vec: 0,
         coherent: true,
         mismatches: [],
+      },
+      storage: {
+        dbBytes: null,
+        reclaimableBytes: null,
+        autoVacuumIncremental: null,
+        observations: {
+          pendingRows: null,
+          pendingBytes: null,
+          oldestPendingAt: null,
+          stuckEligibleRows: null,
+          processedRows: null,
+          processedBytesEstimate: null,
+          measuredAt: null,
+          quarantineLedgerRows: null,
+        },
+        retention: {
+          enabled: true,
+          processedDays: 30,
+          stuckDays: 7,
+          lastRun: null,
+          lastCompletedAt: null,
+          nextDueAt: null,
+          lastSkippedAt: null,
+          lastSkipReason: null,
+        },
       },
       triggers: {
         preCompact: true,
@@ -331,6 +376,57 @@ describe('MemoryRpcHandlers — memory:search workspaceRoot forwarding', () => {
     });
 
     expect(search.searchRich).toHaveBeenCalledWith('x', 51, '/ws');
+  });
+});
+
+describe('MemoryRpcHandlers — explicit use recording', () => {
+  it('records a found memory:get result', async () => {
+    const { rpcHandler, store } = buildHandlers();
+    store.getById.mockReturnValue(makeMemory());
+    store.getChunks.mockReturnValue([]);
+
+    const result = await rpcHandler.call('memory:get', { id: 'mem-1' });
+
+    expect(store.recordUse).toHaveBeenCalledWith(['mem-1']);
+    expect(result).toMatchObject({ memory: { id: 'mem-1' }, chunks: [] });
+  });
+
+  it('does not record memory:get when the memory is not found', async () => {
+    const { rpcHandler, store } = buildHandlers();
+    store.getById.mockReturnValue(undefined);
+
+    const result = await rpcHandler.call('memory:get', { id: 'missing' });
+
+    expect(store.recordUse).not.toHaveBeenCalled();
+    expect(result).toEqual({ memory: null, chunks: [] });
+  });
+
+  it('does not record memory:list or memory:search results', async () => {
+    const { rpcHandler, store, search } = buildHandlers();
+    store.list.mockReturnValue({ memories: [makeMemory()], total: 1 });
+    search.searchRich.mockResolvedValue({ hits: [], bm25Only: false });
+
+    await rpcHandler.call('memory:list', {});
+    await rpcHandler.call('memory:search', { query: 'content' });
+
+    expect(store.recordUse).not.toHaveBeenCalled();
+  });
+
+  it('returns a found memory unchanged when recording fails', async () => {
+    const { rpcHandler, store, logger } = buildHandlers();
+    store.getById.mockReturnValue(makeMemory());
+    store.getChunks.mockReturnValue([]);
+    store.recordUse.mockImplementation(() => {
+      throw new Error('usage ledger unavailable');
+    });
+
+    const result = await rpcHandler.call('memory:get', { id: 'mem-1' });
+
+    expect(result).toMatchObject({ memory: { id: 'mem-1' }, chunks: [] });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[memory] failed to record memory use',
+      { error: 'usage ledger unavailable' },
+    );
   });
 });
 
@@ -577,11 +673,34 @@ describe('MemoryRpcHandlers — memory:purgeBySubjectPattern', () => {
 describe('MemoryRpcHandlers — memory:diagnostics', () => {
   it('returns wire-shaped snapshot from diagnostics service', async () => {
     const { rpcHandler, diagnostics } = buildHandlers(['/workspace/project']);
+    const storage = {
+      dbBytes: 8192,
+      reclaimableBytes: 2048,
+      autoVacuumIncremental: true,
+      observations: {
+        pendingRows: 4,
+        pendingBytes: 512,
+        oldestPendingAt: 1699000000000,
+        stuckEligibleRows: 1,
+        processedRows: 20,
+        processedBytesEstimate: 2560,
+        measuredAt: 1700000000000,
+        quarantineLedgerRows: 2,
+      },
+      retention: {
+        enabled: true,
+        processedDays: 30,
+        stuckDays: 7,
+        lastRun: null,
+        lastCompletedAt: 1700000000000,
+        nextDueAt: 1700086400000,
+        lastSkippedAt: null,
+        lastSkipReason: null,
+      },
+    };
     diagnostics.getSnapshot.mockResolvedValue({
       lastRunAt: 1700000000000,
       lastRunStats: { extracted: 5, merged: 2, created: 3, skipped: 0 },
-      lastDecayAt: 1699000000000,
-      lastDecayStats: { scanned: 100, demoted: 4, archived: 1, expired: 0 },
       recentEvents: [
         {
           kind: 'curator-run',
@@ -600,6 +719,7 @@ describe('MemoryRpcHandlers — memory:diagnostics', () => {
         coherent: true,
         mismatches: [],
       },
+      storage,
       triggers: {
         preCompact: true,
         idleMs: 600000,
@@ -629,8 +749,8 @@ describe('MemoryRpcHandlers — memory:diagnostics', () => {
     expect(result).toMatchObject({
       lastRunAt: 1700000000000,
       lastRunStats: { extracted: 5, merged: 2, created: 3, skipped: 0 },
-      lastDecayAt: 1699000000000,
       dbHealth: { coherent: true },
+      storage,
       triggers: { preCompact: true, idleMs: 600000 },
     });
     expect((result as { recentEvents: unknown[] }).recentEvents).toHaveLength(
@@ -683,9 +803,12 @@ describe('MemoryRpcHandlers — memory:runNow', () => {
       workspaceRoot: '/workspace/project',
     });
 
+    // `userInitiated`: a user is waiting, so the pass skips the background-work
+    // governor (TASK_2026_437 C14, Batch 16b). Only this RPC sets it.
     expect(curator.curate).toHaveBeenCalledWith({
       sessionId: 'sess-1',
       workspaceRoot: '/workspace/project',
+      userInitiated: true,
     });
     expect(result).toMatchObject({
       success: true,

@@ -12,11 +12,17 @@ import * as path from 'path';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
-import type {
-  CliType,
-  McpInstallTarget,
-  McpServerConfig,
-} from '@ptah-extension/shared';
+import type { McpInstallTarget, McpServerConfig } from '@ptah-extension/shared';
+// Value import: `AgentMessageError` is narrowed with `instanceof` below so the
+// three unroutable agent states stay distinguishable to the calling model.
+// `vscode-lm-tools` already depends on this barrel (`ptah-api-builder`).
+import {
+  AgentMessageError,
+  AgentRoleError,
+  CliCommandLineTooLongError,
+  MAX_AGENT_REPORT_LENGTH,
+} from '@ptah-extension/cli-agent-runtime';
+import { AgentSpawnArgsSchema } from './agent-spawn-args.schema';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
 import type {
   PtahAPI,
@@ -39,7 +45,9 @@ import {
   buildAgentSpawnTool,
   buildAgentStatusTool,
   buildAgentReadTool,
-  buildAgentSteerTool,
+  buildAgentMessageTool,
+  buildAgentReportTool,
+  MAX_AGENT_MESSAGE_LENGTH,
   buildAgentListTool,
   buildAgentStopTool,
   buildWebSearchTool,
@@ -93,7 +101,8 @@ import {
   formatAgentSpawn,
   formatAgentStatus,
   formatAgentRead,
-  formatAgentSteer,
+  formatAgentMessage,
+  formatAgentReport,
   formatAgentStop,
   formatAgentList,
   formatWebSearch,
@@ -244,7 +253,7 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
  * Namespace-toggleable tool groups (disabled via disabledMcpNamespaces):
  * - 'ide': ptah_lsp_references, ptah_lsp_definitions, ptah_get_dirty_files
  *          (also requires hasIDECapabilities === true)
- * - 'agent': ptah_agent_spawn/status/read/steer/stop/list
+ * - 'agent': ptah_agent_spawn/status/read/message/report/stop/list
  * - 'git': ptah_git_worktree_list/add/remove
  * - 'json': ptah_json_validate
  * - 'browser': all ptah_browser_* tools (12 tools)
@@ -290,7 +299,8 @@ function handleToolsList(
           buildAgentSpawnTool(),
           buildAgentStatusTool(),
           buildAgentReadTool(),
-          buildAgentSteerTool(),
+          buildAgentMessageTool(),
+          buildAgentReportTool(),
           buildAgentStopTool(),
           buildAgentListTool(),
         ]
@@ -398,6 +408,38 @@ const WebSearchArgsSchema = z
       .optional(),
     maxResults: z.number().int().positive().optional(),
     timeout: z.number().int().positive().optional(),
+  })
+  .strict();
+
+/**
+ * `ptah_agent_message` arguments (TASK_2026_402).
+ *
+ * `strict()` for the same reason `WebSearchArgsSchema` is: the retired
+ * `ptah_agent_steer` took an `instruction` key, so a model working from stale
+ * guidance will send one. Reported as an error, that is a one-line correction;
+ * dropped silently, it is a tool call that reports a mode for a message with
+ * no body.
+ */
+const AgentMessageArgsSchema = z
+  .object({
+    agentId: z.string().min(1),
+    message: z.string().min(1).max(MAX_AGENT_MESSAGE_LENGTH),
+  })
+  .strict();
+
+/**
+ * `ptah_agent_report` arguments (TASK_2026_402).
+ *
+ * There is deliberately NO `agentId`: the reporting agent is taken from the
+ * `/agent/{id}` segment of the URL it connected on. `strict()` is what makes
+ * that refusal visible — an `agentId` key is REJECTED rather than ignored, so
+ * a model that tries to report as another agent is told so instead of quietly
+ * reporting as itself.
+ */
+const AgentReportArgsSchema = z
+  .object({
+    message: z.string().min(1).max(MAX_AGENT_REPORT_LENGTH),
+    summary: z.string().min(1).max(200).optional(),
   })
   .strict();
 
@@ -685,93 +727,71 @@ async function handleIndividualTool(
         );
       }
       case 'ptah_agent_spawn': {
-        const MAX_TASK_LENGTH = 100 * 1024; // 100KB
-
-        const {
-          cli,
-          ptahCliId,
-          workingDirectory,
-          timeout,
-          files,
-          taskFolder,
-          model,
-          modelTier,
-          resume_session_id,
-        } = args as {
-          task: string;
-          cli?: string;
-          ptahCliId?: string;
-          workingDirectory?: string;
-          timeout?: number;
-          files?: string[];
-          taskFolder?: string;
-          model?: string;
-          modelTier?: 'opus' | 'sonnet' | 'haiku';
-          resume_session_id?: string;
-        };
-        const task = (args as Record<string, unknown>)?.['task'];
-        if (!task || typeof task !== 'string') {
-          return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: 'Error: "task" parameter is required and must be a string.',
-                },
-              ],
-              isError: true,
-            },
-          };
+        const parsed = AgentSpawnArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
+        );
+        if (!parsed.success) {
+          return toolErrorResponse(
+            request,
+            `Error: invalid ptah_agent_spawn arguments — ${describeZodIssues(
+              parsed.error,
+            )}. Required: "task".`,
+          );
         }
-        if (task.length > MAX_TASK_LENGTH) {
-          return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: `Error: "task" exceeds maximum length of ${MAX_TASK_LENGTH} bytes.`,
-                },
-              ],
-              isError: true,
-            },
-          };
-        }
+        const spawnArgs = parsed.data;
+        const { task, ptahCliId, modelTier } = spawnArgs;
 
         logger.info('[MCP] ptah_agent_spawn invoked', 'CodeExecutionMCP', {
-          cli: cli ?? (ptahCliId ? 'ptah-cli' : 'auto-detect'),
+          cli: spawnArgs.cli ?? (ptahCliId ? 'ptah-cli' : 'auto-detect'),
           ptahCliId,
-          model: model ?? 'default',
+          model: spawnArgs.model ?? 'default',
           modelTier: modelTier ?? 'sonnet',
           task: task.substring(0, 100) + (task.length > 100 ? '...' : ''),
-          timeout,
-          files: files?.length ?? 0,
-          taskFolder,
-          resumeSessionId: resume_session_id,
+          timeout: spawnArgs.timeout,
+          files: spawnArgs.files?.length ?? 0,
+          taskFolder: spawnArgs.taskFolder,
+          resumeSessionId: spawnArgs.resume_session_id,
+          role: spawnArgs.role,
         });
 
-        const result = await ptahAPI.agent.spawn({
-          task,
-          cli: cli as CliType | undefined,
-          ptahCliId,
-          workingDirectory,
-          timeout,
-          files,
-          taskFolder,
-          model,
-          modelTier,
-          resumeSessionId: resume_session_id,
-          parentSessionId: request._callerSessionId,
-        });
+        let result: Awaited<ReturnType<PtahAPI['agent']['spawn']>>;
+        try {
+          result = await ptahAPI.agent.spawn({
+            task,
+            cli: spawnArgs.cli,
+            ptahCliId,
+            workingDirectory: spawnArgs.workingDirectory,
+            timeout: spawnArgs.timeout,
+            files: spawnArgs.files,
+            taskFolder: spawnArgs.taskFolder,
+            model: spawnArgs.model,
+            modelTier,
+            resumeSessionId: spawnArgs.resume_session_id,
+            parentSessionId: request._callerSessionId,
+            role: spawnArgs.role,
+          });
+        } catch (error: unknown) {
+          if (error instanceof AgentRoleError) {
+            return toolErrorResponse(
+              request,
+              `Error: ptah_agent_spawn role ${error.code}: ${error.message}`,
+            );
+          }
+          if (error instanceof CliCommandLineTooLongError) {
+            return toolErrorResponse(
+              request,
+              `Error: ptah_agent_spawn command line too long (${error.measured} against a limit of ${error.limit}): ${error.message}`,
+            );
+          }
+          throw error;
+        }
 
         logger.info('[MCP] ptah_agent_spawn result', 'CodeExecutionMCP', {
           agentId: result.agentId,
           cli: result.cli,
           status: result.status,
           cliSessionId: result.cliSessionId,
+          role: result.role,
         });
 
         return createToolSuccessResponse(
@@ -806,15 +826,78 @@ async function handleIndividualTool(
         );
       }
 
-      case 'ptah_agent_steer': {
-        const { agentId, instruction } = args as {
-          agentId: string;
-          instruction: string;
-        };
-        await ptahAPI.agent.steer(agentId, instruction);
+      case 'ptah_agent_message': {
+        const parsed = AgentMessageArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
+        );
+        if (!parsed.success) {
+          return toolErrorResponse(
+            request,
+            `Error: invalid ptah_agent_message arguments — ${describeZodIssues(
+              parsed.error,
+            )}. Required: "agentId" and "message".`,
+          );
+        }
+        try {
+          const outcome = await ptahAPI.agent.message(
+            parsed.data.agentId,
+            parsed.data.message,
+          );
+          return createToolSuccessResponse(
+            request,
+            formatAgentMessage({ agentId: parsed.data.agentId, ...outcome }),
+            deps,
+          );
+        } catch (error: unknown) {
+          // The three unroutable record states carry a machine-readable code
+          // and must stay distinguishable — `not_found`, `restored` (resume it
+          // with its resume_session_id) and `not_running` are three different
+          // things for the calling model to do next.
+          if (error instanceof AgentMessageError) {
+            return toolErrorResponse(
+              request,
+              `Error: ptah_agent_message could not reach agent ${parsed.data.agentId} — ${error.code}: ${error.message}`,
+            );
+          }
+          throw error;
+        }
+      }
+
+      case 'ptah_agent_report': {
+        const parsed = AgentReportArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
+        );
+        if (!parsed.success) {
+          return toolErrorResponse(
+            request,
+            `Error: invalid ptah_agent_report arguments — ${describeZodIssues(
+              parsed.error,
+            )}. Required: "message". There is no "agentId" argument — the ` +
+              'reporting agent is identified by the connection it calls on.',
+          );
+        }
+        // Identity comes from the transport, NEVER from the arguments. An
+        // absent id is reported as an honest refusal rather than guessed at:
+        // guessing would deliver one agent's report into another's session.
+        const callerAgentId = request._callerAgentId;
+        if (callerAgentId === undefined || callerAgentId.length === 0) {
+          return createToolSuccessResponse(
+            request,
+            formatAgentReport({
+              delivered: false,
+              reason: 'unattributed-caller',
+            }),
+            deps,
+          );
+        }
+        const delivery = await ptahAPI.agent.report({
+          agentId: callerAgentId,
+          message: parsed.data.message,
+          summary: parsed.data.summary,
+        });
         return createToolSuccessResponse(
           request,
-          formatAgentSteer({ agentId, steered: true }),
+          formatAgentReport(delivery),
           deps,
         );
       }
@@ -832,9 +915,21 @@ async function handleIndividualTool(
       case 'ptah_agent_list': {
         logger.info('[MCP] ptah_agent_list called', 'CodeExecutionMCP');
         const agents = await ptahAPI.agent.list();
+        let roles: string[] = [];
+        try {
+          roles = await ptahAPI.agent.listRoles();
+        } catch (error: unknown) {
+          logger.warn(
+            '[MCP] ptah_agent_list could not list roles',
+            'CodeExecutionMCP',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
         return createToolSuccessResponse(
           request,
-          formatAgentList(agents),
+          formatAgentList(agents, roles),
           deps,
         );
       }

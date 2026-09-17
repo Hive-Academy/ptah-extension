@@ -221,36 +221,10 @@ describe('ClaudeRpcService — typed method wrappers', () => {
     expect(result.isSuccess()).toBe(true);
   });
 
-  it('openFile posts file:open with path and optional line', async () => {
-    const pending = service.openFile('/path/to/file.ts', 42);
-    const sent = lastPostedRpc(postMessage);
-
-    expect(sent.payload.method).toBe('file:open');
-    expect(sent.payload.params).toEqual({ path: '/path/to/file.ts', line: 42 });
-
-    service.handleResponse({
-      success: true,
-      data: { opened: true },
-      correlationId: sent.payload.correlationId,
-    });
-    await pending;
-  });
-
-  it('openFile without line posts file:open with line=undefined', async () => {
-    const pending = service.openFile('/path/to/file.ts');
-    const sent = lastPostedRpc(postMessage);
-
-    expect(sent.payload.method).toBe('file:open');
+  it('no longer exposes openFile — `file:open` goes through FILE_LINK_OPENER', () => {
     expect(
-      (sent.payload.params as Record<string, unknown>)['line'],
+      (service as unknown as Record<string, unknown>)['openFile'],
     ).toBeUndefined();
-
-    service.handleResponse({
-      success: true,
-      data: { opened: true },
-      correlationId: sent.payload.correlationId,
-    });
-    await pending;
   });
 
   it('deleteSession posts session:delete with sessionId', async () => {

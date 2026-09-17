@@ -3,6 +3,7 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   type ICuratorLLM,
+  type CuratorCallOptions,
   type CuratorExtraction,
   type ExtractedMemoryDraft,
   type ResolvedMemoryDraft,
@@ -15,6 +16,10 @@ import {
 } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '../di/tokens';
 import type { InternalQueryService } from '../internal-query';
+import {
+  MEMORY_CURATOR_QUERY_LANE,
+  USER_ACTION_QUERY_LANE,
+} from '../internal-query/internal-query-concurrency-gate';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
 import {
@@ -39,6 +44,11 @@ import {
 } from './extract.schema';
 import { ResolvedDraftSchema, ResolvedResponseSchema } from './resolve.schema';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
+import {
+  classifyThrownNetworkFailure,
+  QueryNetworkObserver,
+  type NetworkFailureSignal,
+} from '../internal-query/network-failure';
 
 const CURATOR_MODEL_SECTION = 'ptah';
 const CURATOR_MODEL_KEY = 'memory.curatorModel';
@@ -120,7 +130,15 @@ type CuratorQueryOutcome =
       readonly toolNames: readonly string[];
     }
   | { readonly kind: 'silent' }
-  | { readonly kind: 'cooling-down'; readonly providerId: string };
+  | { readonly kind: 'cooling-down'; readonly providerId: string }
+  /**
+   * The provider never answered: a network-class failure, read off the stream
+   * or a thrown socket error (TASK_2026_437 C14 f). The `claude` subprocess
+   * ends a request it gave up retrying with an error assistant message, whose
+   * text is NOT the model's answer — reading it as `text` parsed zero drafts
+   * and reported a clean empty extraction.
+   */
+  | { readonly kind: 'unreachable'; readonly signal: NetworkFailureSignal };
 
 /**
  * What the curator asks for when the user has pinned no explicit model.
@@ -271,17 +289,28 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
   async extract(
     transcript: string,
     signal?: AbortSignal,
+    options: CuratorCallOptions = {},
   ): Promise<CuratorExtraction> {
     const outcome = await this.runQuery(
       EXTRACT_SYSTEM_PROMPT,
       buildExtractUserPrompt(transcript),
       signal,
+      options,
     );
     if (outcome.kind === 'cooling-down') {
       return {
         status: 'stalled',
         reason: 'provider-cooling-down',
         providerId: outcome.providerId,
+      };
+    }
+    // Dispatched, never answered. The model read nothing, so the input is kept
+    // exactly as for a quota stall; the caller backs its background passes off.
+    if (outcome.kind === 'unreachable') {
+      return {
+        status: 'stalled',
+        reason: 'provider-unreachable',
+        providerId: this.resolveCuratorProviderId(),
       };
     }
     // `tools-only` and `silent` both produced no JSON, and neither is an empty
@@ -325,6 +354,7 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     drafts: readonly ExtractedMemoryDraft[],
     related: readonly { id: string; subject: string | null; content: string }[],
     signal?: AbortSignal,
+    options: CuratorCallOptions = {},
   ): Promise<readonly ResolvedMemoryDraft[]> {
     if (drafts.length === 0) return [];
     if (related.length === 0) {
@@ -334,8 +364,9 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       RESOLVE_SYSTEM_PROMPT,
       buildResolveUserPrompt(drafts, related),
       signal,
+      options,
     );
-    if (outcome.kind === 'cooling-down') {
+    if (outcome.kind === 'cooling-down' || outcome.kind === 'unreachable') {
       return drafts.map((d) => ({ ...d, mergeTargetId: null }));
     }
     if (outcome.kind === 'tools-only') {
@@ -357,7 +388,8 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
   private async runQuery(
     systemPromptAppend: string,
     prompt: string,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    options: CuratorCallOptions,
   ): Promise<CuratorQueryOutcome> {
     const abortController = new AbortController();
     if (signal) {
@@ -399,7 +431,13 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         // internal one-shot shared a single host-wide slot, so a curation pass
         // queued behind an unrelated skill-synthesis lane call and back again
         // — nine times on one boot (`tmp/logs/log.log:938 … 1424`).
-        lane: 'memory-curator',
+        // A user-initiated pass (`memory:runNow`) takes the ungoverned
+        // `user-action` lane instead, so a click never waits behind the
+        // governor or a wizard call (C14, Batch 16b).
+        lane:
+          options.userInitiated === true
+            ? USER_ACTION_QUERY_LANE
+            : MEMORY_CURATOR_QUERY_LANE,
         abortController,
         auth,
       });
@@ -426,7 +464,9 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       let toolUses = 0;
       const toolNames: string[] = [];
       let hitTurnCeiling = false;
+      const network = new QueryNetworkObserver();
       for await (const msg of handle.stream as AsyncIterable<SDKMessage>) {
+        network.observe(msg);
         if (isAssistantMessage(msg)) {
           let messageText = '';
           for (const block of msg.message.content) {
@@ -452,6 +492,14 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
           break;
         }
       }
+      const verdict = network.verdict();
+      if (verdict.kind === 'network-failure') {
+        this.logger.debug(
+          '[memory-curator] curator provider unreachable; its error reply is not an answer',
+          { signal: verdict.signal },
+        );
+        return { kind: 'unreachable', signal: verdict.signal };
+      }
       if (hitTurnCeiling) {
         this.logger.warn(
           '[memory-curator] curator run stopped at its turn ceiling; the model had more tool work queued than the budget allows',
@@ -464,6 +512,14 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       return { kind: 'silent' };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      const signal = classifyThrownNetworkFailure(error);
+      if (signal) {
+        this.logger.debug(
+          '[memory-curator] curator provider unreachable; query threw a network error',
+          { signal, error: message },
+        );
+        return { kind: 'unreachable', signal };
+      }
       this.logger.warn('[memory-curator] curator LLM query failed', {
         error: message,
       });

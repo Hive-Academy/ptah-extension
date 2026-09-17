@@ -19,6 +19,8 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   'fileOpen',
   'filePickerImages',
   'fileSystemAccess',
+  // No renderer, so nothing can host an in-app file viewer.
+  'fileViewer',
   'commandExecution',
   'appUpdater',
 ] as const;

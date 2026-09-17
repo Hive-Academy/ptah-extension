@@ -4,6 +4,7 @@
       class="modal-box max-w-2xl border border-base-content/10"
       role="dialog"
       [attr.aria-label]="'Session details: ' + s.name"
+      [attr.aria-busy]="s.status === 'pending'"
     >
       <!-- Header -->
       <div class="flex items-start justify-between gap-3">
@@ -25,7 +26,11 @@
                 {{ s.modelDisplayName }}
               </span>
             }
-            @if (s.status === 'error') {
+            @if (s.status === 'pending') {
+              <span class="text-[11px] text-base-content-muted flex items-center gap-1">
+                <span class="loading loading-dots loading-xs" aria-hidden="true"></span> Loading stats
+              </span>
+            } @else if (s.status === 'error') {
               <span class="text-[11px] text-warning flex items-center gap-1">
                 <span aria-hidden="true">&#9888;</span> Stats unavailable
               </span>
@@ -70,12 +75,12 @@
 
       <!-- Primary metrics -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
-        <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20">
+        <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20" [title]="estimateLabel">
           <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">
-            Total Cost
+            Est. Total Cost
           </div>
           <div class="text-lg font-semibold text-success tabular-nums">
-            {{ formatCost(s.totalCost) }}
+            {{ costText() }}
           </div>
         </div>
         <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-cyan-600/20">
@@ -103,6 +108,17 @@
           </div>
         </div>
       </div>
+
+      <p class="mt-2 text-[10px] text-base-content-muted">{{ estimateLabel }}.</p>
+
+      <!-- Coverage notes -->
+      @if (coverageNotes().length > 0) {
+        <ul class="mt-2 space-y-0.5 text-[11px] text-warning" data-testid="session-detail-coverage">
+          @for (note of coverageNotes(); track note) {
+            <li>{{ note }}</li>
+          }
+        </ul>
+      }
 
       <!-- Token composition -->
       @if (totalTokens() > 0) {
@@ -154,7 +170,7 @@
                 <span title="Input / Output tokens">
                   {{ formatTokenCount(m.inputTokens) }} / {{ formatTokenCount(m.outputTokens) }}
                 </span>
-                <span class="text-success font-medium">{{ formatCost(m.costUSD) }}</span>
+                <span class="text-success font-medium">{{ formatEstimatedCost(m.costUSD) }}</span>
               </span>
             </div>
           }

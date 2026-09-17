@@ -26,6 +26,7 @@ import { Writable } from 'node:stream';
 import { CliFileSystemProvider } from '@ptah-extension/platform-cli';
 import { EMPTY_TASK_FILTER } from '@ptah-extension/shared';
 import {
+  NoOpTaskFolderVisibility,
   NoOpTaskIndexNotifier,
   TaskDoctorService,
   TaskWriterService,
@@ -656,7 +657,14 @@ describe('ptah spec doctor --plan — lists without mutating', () => {
     const realDoctor = new TaskDoctorService(
       fsProvider,
       logger,
-      new TaskWriterService(fsProvider, logger, new NoOpTaskIndexNotifier()),
+      new TaskWriterService(
+        fsProvider,
+        logger,
+        new NoOpTaskIndexNotifier(),
+        // The doctor never allocates an id, so the null object is the honest
+        // fixture: this spec must not reach for git.
+        new NoOpTaskFolderVisibility(),
+      ),
     );
 
     const engine = makeEngine(

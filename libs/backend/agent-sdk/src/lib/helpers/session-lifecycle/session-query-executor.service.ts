@@ -164,7 +164,7 @@ export class SessionQueryExecutor {
         const seconds = Math.round(NO_ACTIVITY_TIMEOUT_MS / 1000);
         this.logger.error(
           `[SessionLifecycle] Session ${sessionId} produced no stream activity for ${seconds}s — ` +
-            `stopping the stuck session (baseUrl=${providerBaseUrl}, model=${providerModel})`,
+            `recovering unaccounted silence; liveness unknown (requestedModel=${providerModel}, resolvedModel=${rec.currentModel})`,
         );
         // Invariant (session-lifecycle-abort / stream-closed-abort): resolve
         // pending permissions BEFORE the abort tears down the CLI stream, so
@@ -190,7 +190,7 @@ export class SessionQueryExecutor {
             new Error(
               `No stream activity for ${seconds}s — no response from provider ` +
                 `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
-                `The session appears stuck; stopping it. The provider may be ` +
+                `Unaccounted root inactivity; liveness is unknown. Stopping for recovery. The provider may be ` +
                 `unreachable or overloaded — check configuration or retry.`,
             ),
           );
@@ -201,6 +201,21 @@ export class SessionQueryExecutor {
           );
         }
       },
+      (operations) =>
+        this.logger.warn(
+          '[SessionLifecycle] Operation overdue; liveness unknown, continuing',
+          {
+            sessionId,
+            operations,
+            requestedModel: providerModel,
+            resolvedModel: rec.currentModel,
+          },
+        ),
+    );
+    abortController.signal.addEventListener(
+      'abort',
+      () => activityWatchdog.stop(),
+      { once: true },
     );
     // The turn state owns one hold on this watchdog: taken while no turn is in
     // flight, released by `markTurnStarted`, re-taken by `markTurnEnded`. A
@@ -212,7 +227,10 @@ export class SessionQueryExecutor {
     // prompt never goes through the pump, so no idle hold is taken and the
     // watchdog arms on `start()` as before.
     rec.activityHold = activityWatchdog;
-    if (!isSlashCommand) {
+    // A queued initial prompt is startup work, NOT between-turn idle. Bound
+    // even a CLI that never pulls its input iterator. Empty resumes may idle.
+    if (!isSlashCommand && !initialContent) {
+      activityWatchdog.endTurn();
       activityWatchdog.hold();
     }
     try {
@@ -317,6 +335,7 @@ export class SessionQueryExecutor {
       );
       const sdkQuery: Query = runResult.sdkQuery;
       const initialModel = queryOptions.options.model ?? '';
+      rec.currentModel = initialModel;
       if (isResume && !isSlashCommand) {
         sdkQuery.streamInput(userMessageStream).catch((err) => {
           this.logger.warn('[SessionLifecycle] streamInput error', {

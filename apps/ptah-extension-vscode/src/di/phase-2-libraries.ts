@@ -41,6 +41,7 @@ import {
   SDK_TOKENS,
   HARNESS_PREFLIGHT_TOKEN,
 } from '@ptah-extension/agent-sdk';
+import { VscodeEditorLauncher } from '@ptah-extension/platform-vscode';
 import {
   registerAuthProvidersServices,
   AUTH_PROVIDERS_TOKENS,
@@ -60,6 +61,7 @@ import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-generation
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   ContentDownloadService,
+  IProcessSpawner,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import {
@@ -145,6 +147,11 @@ export function registerPhase2Libraries(
   }
   registerAuthProvidersServices(container, logger);
   registerSdkServices(container, logger);
+  container.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
+    useValue: new VscodeEditorLauncher(
+      container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER),
+    ),
+  });
   // harness-sync AFTER registerSdkServices so the plugin loader token exists.
   // The resolver lambda is lazy anyway — the loader is only usable after
   // `initialize()` runs in plugin activation, long after this phase.

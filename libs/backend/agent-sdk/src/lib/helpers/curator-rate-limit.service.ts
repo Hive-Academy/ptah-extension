@@ -57,6 +57,21 @@ export class CuratorRateLimitService {
     return { allowed: true };
   }
 
+  /**
+   * Give back one slot acquired in the CURRENT window, for a caller whose work
+   * was deferred without dispatching (TASK_2026_437 C14 f: a curation pass held
+   * by the network back-off). A slot from a window that has already rolled over
+   * is not returned — that window's budget no longer exists — and a bucket is
+   * never taken below zero.
+   */
+  refund(key: string): void {
+    const bucket = this.buckets.get(key);
+    if (!bucket || bucket.count <= 0) return;
+    const currentWindow = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+    if (bucket.windowStartMs !== currentWindow) return;
+    bucket.count--;
+  }
+
   snapshot(key: string): RateLimitSnapshot | null {
     const bucket = this.buckets.get(key);
     if (!bucket) {

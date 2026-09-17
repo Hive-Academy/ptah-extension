@@ -37,6 +37,9 @@ const DEFAULT_EDITOR_WIDTH = 700;
 const MIN_SIDEBAR_WIDTH = 160;
 const MAX_SIDEBAR_WIDTH = 400;
 const MIN_EDITOR_WIDTH = 300;
+const DEFAULT_GIT_RAIL_WIDTH = 256;
+const MIN_GIT_RAIL_WIDTH = 160;
+const MAX_GIT_RAIL_WIDTH = 480;
 /** Dynamic max: capped at 50% of viewport to prevent chat panel collapse below its 400px CSS min-width */
 const MAX_EDITOR_WIDTH_RATIO = 0.5;
 
@@ -59,6 +62,8 @@ export class ElectronLayoutService implements MessageHandler {
   private readonly _workspaceSidebarVisible = signal(true);
   private readonly _editorPanelWidth = signal(DEFAULT_EDITOR_WIDTH);
   private readonly _editorPanelVisible = signal(false);
+  private readonly _gitRailWidth = signal(DEFAULT_GIT_RAIL_WIDTH);
+  private readonly _gitRailCollapsed = signal(false);
   private readonly _sidebarDragging = signal(false);
   private readonly _editorDragging = signal(false);
   private readonly _workspaceFolders = signal<WorkspaceFolder[]>([]);
@@ -70,6 +75,8 @@ export class ElectronLayoutService implements MessageHandler {
   readonly workspaceSidebarVisible = this._workspaceSidebarVisible.asReadonly();
   readonly editorPanelWidth = this._editorPanelWidth.asReadonly();
   readonly editorPanelVisible = this._editorPanelVisible.asReadonly();
+  readonly gitRailWidth = this._gitRailWidth.asReadonly();
+  readonly gitRailCollapsed = this._gitRailCollapsed.asReadonly();
   readonly sidebarDragging = this._sidebarDragging.asReadonly();
   readonly editorDragging = this._editorDragging.asReadonly();
   readonly workspaceFolders = this._workspaceFolders.asReadonly();
@@ -178,6 +185,22 @@ export class ElectronLayoutService implements MessageHandler {
     this.persistLayout();
   }
 
+  setGitRailWidth(width: number): void {
+    if (!Number.isFinite(width)) return;
+    this._gitRailWidth.set(
+      Math.min(Math.max(width, MIN_GIT_RAIL_WIDTH), MAX_GIT_RAIL_WIDTH),
+    );
+  }
+
+  commitGitRailWidth(): void {
+    this.persistLayout();
+  }
+
+  toggleGitRail(): void {
+    this._gitRailCollapsed.update((collapsed) => !collapsed);
+    this.persistLayout();
+  }
+
   /**
    * Programmatically add a workspace folder by its absolute path.
    * Used by WorktreeService to auto-register newly created worktrees.
@@ -277,10 +300,11 @@ export class ElectronLayoutService implements MessageHandler {
    * WORKSPACE_COORDINATOR.
    *
    * Handles edge case: removing the only workspace resets to "no workspace" state.
+   * Returns false when index is invalid, user cancels, or backend rejects removal.
    */
-  async removeFolder(index: number): Promise<void> {
+  async removeFolder(index: number): Promise<boolean> {
     const folders = this._workspaceFolders();
-    if (index < 0 || index >= folders.length) return;
+    if (index < 0 || index >= folders.length) return false;
 
     const removedFolder = folders[index];
     if (this.coordinator) {
@@ -304,7 +328,7 @@ export class ElectronLayoutService implements MessageHandler {
         });
 
         if (!confirmed) {
-          return;
+          return false;
         }
         await Promise.allSettled(
           streamingSessionIds.map((sessionId) =>
@@ -327,14 +351,14 @@ export class ElectronLayoutService implements MessageHandler {
           '[ElectronLayout] Backend rejected folder removal:',
           result,
         );
-        return;
+        return false;
       }
     } catch (error) {
       console.error(
         '[ElectronLayout] Failed to remove folder from backend:',
         error,
       );
-      return;
+      return false;
     }
     this._workspaceFolders.update((f) => f.filter((_, i) => i !== index));
 
@@ -356,6 +380,7 @@ export class ElectronLayoutService implements MessageHandler {
     }
 
     this.persistLayout();
+    return true;
   }
 
   /**
@@ -564,6 +589,8 @@ export class ElectronLayoutService implements MessageHandler {
       sidebarVisible: this._workspaceSidebarVisible(),
       editorWidth: this._editorPanelWidth(),
       editorVisible: this._editorPanelVisible(),
+      gitRailWidth: this._gitRailWidth(),
+      gitRailCollapsed: this._gitRailCollapsed(),
     };
     this.vscodeService.setState(LAYOUT_STATE_KEY, state);
   }
@@ -583,6 +610,8 @@ export class ElectronLayoutService implements MessageHandler {
       sidebarVisible?: boolean;
       editorWidth?: number;
       editorVisible?: boolean;
+      gitRailWidth?: number;
+      gitRailCollapsed?: boolean;
       workspaceFolders?: unknown[];
       activeWorkspaceIndex?: number;
     }>(LAYOUT_STATE_KEY);
@@ -595,6 +624,12 @@ export class ElectronLayoutService implements MessageHandler {
       }
       if (typeof state.editorWidth === 'number') {
         this.setEditorPanelWidth(state.editorWidth);
+      }
+      if (typeof state.gitRailWidth === 'number') {
+        this.setGitRailWidth(state.gitRailWidth);
+      }
+      if (typeof state.gitRailCollapsed === 'boolean') {
+        this._gitRailCollapsed.set(state.gitRailCollapsed);
       }
     }
     void this.syncFromBackend(state ?? null);

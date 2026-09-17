@@ -61,6 +61,25 @@ export interface ProviderHealth {
 }
 
 /**
+ * Provenance of a user-role turn.
+ *
+ * Absent or `human` means keyboard input from the person at the tab. Anything
+ * else means the turn was injected on someone's behalf, which is what lets a
+ * consumer render it as a message FROM a named sender rather than as the
+ * user's own words.
+ *
+ * Structurally identical to the provider SDK's own origin union, restated here
+ * because `libs/shared` is the foundation layer and imports no provider
+ * package. Widen the two together.
+ */
+export type AIMessageOrigin =
+  | { readonly kind: 'human' }
+  | { readonly kind: 'channel'; readonly server: string }
+  | { readonly kind: 'peer'; readonly from: string; readonly name?: string }
+  | { readonly kind: 'task-notification' }
+  | { readonly kind: 'coordinator' };
+
+/**
  * AI Message Options
  */
 export interface AIMessageOptions {
@@ -73,6 +92,12 @@ export interface AIMessageOptions {
   readonly timeout?: number;
   readonly streaming?: boolean;
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /**
+   * Who this turn is from. Omitted for an interactive human turn; the provider
+   * defaults it. A caller injecting a turn on another sender's behalf must set
+   * it, or the message renders as the user's own.
+   */
+  readonly origin?: AIMessageOrigin;
 }
 
 /**
@@ -125,6 +150,30 @@ export interface AISessionConfig {
    * without needing temp session ID lookup.
    */
   readonly tabId?: string;
+  /**
+   * Source for metadata and the registry `--name` a peer session reads.
+   * For a new session, `SdkAgentAdapter` uses the first nonblank value of this
+   * field or `name`, then supplies a human-readable fallback when both are
+   * absent so metadata and the registry remain consistent. This field never
+   * becomes the SDK `Options.title` unless the caller also supplies it through
+   * `sessionTitle` or `name`.
+   *
+   * The registry name is slugified through `buildSessionName` and is FIXED AT
+   * SPAWN: no documented API changes it afterwards, so a rename reaches it only
+   * when the session next resumes. Renames change the title through
+   * `renameSession()` instead.
+   *
+   * Do NOT substitute `tabId` here; it is a UUID v4 and means nothing to a
+   * human reading a session list.
+   */
+  readonly sessionName?: string;
+  /**
+   * Raw caller-supplied title for a NEW SDK session. Kept separate from
+   * `sessionName`: providing `Options.title` disables the SDK's automatic title
+   * generation. The adapter uses the first nonblank value of this field or
+   * `name`; it never copies `sessionName` or an adapter fallback here.
+   */
+  readonly sessionTitle?: string;
   /**
    * System prompt preset selection.
    * - 'claude_code': Use default preset with minimal customization

@@ -36,7 +36,7 @@ interface WorkspaceAwareService {
  * AppStateManager (which view/layout surface is on screen) and
  * ConfirmationDialogService.
  *
- * Git services (GitStatusService, GitBranchesService) are resolved
+ * Git services (GitStatusService, GitBranchesService, GitReviewService) are resolved
  * dynamically via Injector to avoid a static import of
  * `@ptah-extension/git-ui` at this layer. Everything else —
  * TabManagerService, SessionLoaderService, FilePickerService and the two
@@ -123,6 +123,7 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     this.gitServices = [
       this.injector.get(gitModule.GitStatusService),
       this.injector.get(gitModule.GitBranchesService),
+      this.injector.get(gitModule.GitReviewService),
     ];
     return this.gitServices;
   }

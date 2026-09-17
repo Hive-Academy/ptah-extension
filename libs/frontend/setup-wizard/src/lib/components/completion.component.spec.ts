@@ -401,6 +401,30 @@ describe('CompletionComponent', () => {
       expect(tiles.length).toBe(1);
       expect(tiles[0].getAttribute('data-status')).toBe('written');
     });
+
+    it('shows the rejected-section count when validation rejected sections', () => {
+      completionData.set(
+        completion({ rejectedSections: 11, tailoredSections: 4 }),
+      );
+      fixture.detectChanges();
+
+      const badge = fixture.nativeElement.querySelector(
+        '[data-testid="rejected-sections-count"]',
+      );
+      expect(badge).toBeTruthy();
+      expect(badge.textContent).toContain('11 sections rejected');
+    });
+
+    it('renders no rejected-sections badge when nothing was rejected', () => {
+      completionData.set(completion({ rejectedSections: 0 }));
+      fixture.detectChanges();
+
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="rejected-sections-count"]',
+        ),
+      ).toBeFalsy();
+    });
   });
 
   describe('Accessibility', () => {

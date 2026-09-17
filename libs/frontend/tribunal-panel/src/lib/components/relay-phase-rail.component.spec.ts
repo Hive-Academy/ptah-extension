@@ -8,7 +8,7 @@
  */
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { FILE_LINK_OPENER, VSCodeService } from '@ptah-extension/core';
 import { RelayPhaseRailComponent } from './relay-phase-rail.component';
 import type {
   RelayPhase,
@@ -65,7 +65,7 @@ function lane(laneId: string, displayName: string): VendorLane {
 
 describe('RelayPhaseRailComponent', () => {
   let fixture: ComponentFixture<RelayPhaseRailComponent>;
-  let openFile: jest.Mock;
+  let openFileLink: jest.Mock;
 
   function render(
     progress: TribunalProgress,
@@ -89,11 +89,11 @@ describe('RelayPhaseRailComponent', () => {
   }
 
   beforeEach(() => {
-    openFile = jest.fn().mockResolvedValue({ isSuccess: () => true });
+    openFileLink = jest.fn().mockResolvedValue(undefined);
     TestBed.configureTestingModule({
       imports: [RelayPhaseRailComponent],
       providers: [
-        { provide: ClaudeRpcService, useValue: { openFile } },
+        { provide: FILE_LINK_OPENER, useValue: { open: openFileLink } },
         { provide: VSCodeService, useValue: { isElectron: false } },
       ],
     });
@@ -209,8 +209,10 @@ describe('RelayPhaseRailComponent', () => {
     );
     (link.nativeElement as HTMLElement).click();
 
-    expect(openFile).toHaveBeenCalledWith(
-      '.ptah/specs/TASK_2026_237/task-description.md',
+    expect(openFileLink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '.ptah/specs/TASK_2026_237/task-description.md',
+      }),
     );
   });
 

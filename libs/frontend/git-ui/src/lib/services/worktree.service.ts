@@ -120,7 +120,6 @@ export class WorktreeService implements MessageHandler {
     if (!ack.data.pending) {
       this.cancelPendingOperation(operationId);
       if (ack.data.success && ack.data.worktreePath) {
-        await this.layoutService.addFolderByPath(ack.data.worktreePath);
         await this.loadWorktrees();
         this._isLoading.set(false);
         return { success: true };
@@ -134,7 +133,6 @@ export class WorktreeService implements MessageHandler {
 
     const outcome = await pendingPromise;
     if (outcome.success && outcome.path) {
-      await this.layoutService.addFolderByPath(outcome.path);
       await this.loadWorktrees();
       this._isLoading.set(false);
       return { success: true };
@@ -147,7 +145,9 @@ export class WorktreeService implements MessageHandler {
   }
 
   /**
-   * Remove a worktree. Async-pending semantics mirror addWorktree above.
+   * Remove a worktree. An explicitly opened workspace must close first; a
+   * cancelled or failed close prevents destructive Git removal. Async-pending
+   * semantics otherwise mirror addWorktree above.
    */
   async removeWorktree(
     path: string,
@@ -155,6 +155,15 @@ export class WorktreeService implements MessageHandler {
   ): Promise<{ success: boolean; error?: string }> {
     this._isLoading.set(true);
 
+    try {
+      await this.unregisterOpenWorktree(path);
+    } catch (error: unknown) {
+      this._isLoading.set(false);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
     const operationId = this.generateOperationId();
     const pendingPromise = this.registerPendingOperation(operationId);
 
@@ -202,8 +211,48 @@ export class WorktreeService implements MessageHandler {
 
   private removeWorktreeLocally(path: string): void {
     this._worktrees.update((worktrees) =>
-      worktrees.filter((w) => w.path !== path),
+      worktrees.filter((w) => !this.pathsEqual(w.path, path)),
     );
+  }
+
+  /**
+   * Close a worktree workspace only when the user had explicitly opened it.
+   * Creation notifications never register folders; selecting a row is the sole
+   * opt-in path into ElectronLayoutService.addFolderByPath().
+   */
+  private async unregisterOpenWorktree(path: string): Promise<void> {
+    const index = this.layoutService
+      .workspaceFolders()
+      .findIndex((folder) => this.pathsEqual(folder.path, path));
+    if (index < 0) return;
+
+    const removed = await this.layoutService.removeFolder(index);
+    if (!removed) {
+      throw new Error(
+        'Open worktree workspace could not be closed; Git removal was cancelled.',
+      );
+    }
+  }
+
+  private pathsEqual(left: string, right: string): boolean {
+    const normalize = (value: string): string =>
+      value.replace(/\\/g, '/').replace(/\/+$/, '');
+    const platform = this.vscodeService.config().platform;
+    return platform === 'win32'
+      ? normalize(left).toLowerCase() === normalize(right).toLowerCase()
+      : normalize(left) === normalize(right);
+  }
+  private async reconcileRemovedWorktree(path?: string): Promise<void> {
+    let closeError: unknown;
+    if (path) {
+      try {
+        await this.unregisterOpenWorktree(path);
+      } catch (error: unknown) {
+        closeError = error;
+      }
+    }
+    await this.loadWorktrees();
+    if (closeError !== undefined) throw closeError;
   }
 
   private generateOperationId(): string {
@@ -242,8 +291,8 @@ export class WorktreeService implements MessageHandler {
    *
    * A push carrying an `operationId` settles the matching pending operation
    * and stops there — {@link addWorktree} / {@link removeWorktree} own the
-   * follow-up. An uncorrelated push (another surface created or removed a
-   * worktree) reconciles the local list instead.
+   * follow-up. An uncorrelated push reconciles the local list; a removed path
+   * is also unregistered if the user had explicitly opened that worktree.
    */
   handleMessage(message: { type: string; payload?: unknown }): void {
     if (message.type !== WORKTREE_CHANGED_MESSAGE_TYPE) return;
@@ -263,17 +312,25 @@ export class WorktreeService implements MessageHandler {
           error: payload.error,
           path: payload.path,
         });
+        return;
       }
-      return;
     }
 
+    if (payload.success === false) return;
+
     if (payload.action === 'created') {
-      if (payload.path) {
-        void this.layoutService.addFolderByPath(payload.path);
-      }
       void this.loadWorktrees();
     } else if (payload.action === 'removed') {
-      void this.loadWorktrees();
+      void this.reconcileRemovedWorktree(payload.path).catch(
+        (error: unknown) => {
+          // Git already removed this worktree. Keep the still-open workspace and
+          // let the user close it after active sessions or transient RPC failure.
+          console.error(
+            '[WorktreeService] Failed to close removed worktree workspace',
+            error,
+          );
+        },
+      );
     }
   }
 }

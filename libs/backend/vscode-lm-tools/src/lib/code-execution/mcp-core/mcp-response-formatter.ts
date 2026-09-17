@@ -14,6 +14,8 @@ import type {
   SpawnAgentResult,
   AgentProcessInfo,
   AgentOutput,
+  AgentMessageOutcome,
+  AgentMessagingMode,
   CliDetectionResult,
   GitWorktreeInfo,
 } from '@ptah-extension/shared';
@@ -456,17 +458,50 @@ function formatCliLabel(cli: string, ptahCliName?: string): string {
   return cli === 'ptah-cli' && ptahCliName ? `ptah-cli (${ptahCliName})` : cli;
 }
 
+function formatRoleLine(role: {
+  role?: string;
+  roleDelivery?: string;
+  roleChannel?: string;
+}): string | undefined {
+  if (!role.role) {
+    return undefined;
+  }
+  const how =
+    role.roleDelivery && role.roleChannel
+      ? ` (${role.roleDelivery} via ${role.roleChannel})`
+      : '';
+  return `**Role:** ${role.role}${how}`;
+}
+
+function formatRoleDeliveryCapability(agent: CliDetectionResult): string {
+  return agent.roleDelivery && agent.roleChannel
+    ? `, role delivery: ${agent.roleDelivery}/${agent.roleChannel}`
+    : '';
+}
+
+function formatWorkspaceRoles(roles: readonly string[]): string {
+  return roles.length > 0
+    ? `Roles in this workspace: ${roles.join(', ')}`
+    : 'No agent roles generated for this workspace';
+}
+
 /**
  * Format ptah_agent_list result as a markdown table
  */
-export function formatAgentList(agents: CliDetectionResult[]): string {
+export function formatAgentList(
+  agents: CliDetectionResult[],
+  roles?: readonly string[],
+): string {
   try {
+    const rolesBlock =
+      roles !== undefined ? [{ p: formatWorkspaceRoles(roles) }] : [];
     if (agents.length === 0) {
       return json2md([
         { h2: 'Available Agents' },
         {
           p: 'No agents found. Install one of the supported CLI agents, or configure a Ptah CLI agent (an Anthropic-compatible provider) in Ptah settings.',
         },
+        ...rolesBlock,
       ]);
     }
 
@@ -476,9 +511,14 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
           Agent: agent.ptahCliName ?? 'Unknown',
           Type: 'ptah-cli',
           Status: 'available',
+          // `messagingMode` is read from the SAME declaration the message
+          // router reads (Req 5.2) — never hardcoded here, or the cell would
+          // promise a mechanism the router does not use.
           Capabilities: `provider: ${
             agent.providerName ?? 'Unknown'
-          }, ptahCliId: ${agent.ptahCliId ?? 'N/A'}`,
+          }, ptahCliId: ${agent.ptahCliId ?? 'N/A'}, messaging: ${
+            agent.messagingMode
+          }${formatRoleDeliveryCapability(agent)}`,
         };
       }
 
@@ -496,7 +536,7 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
         Agent: agent.cli,
         Type: 'cli',
         Status: status,
-        Capabilities: agent.supportsSteer ? 'steer: yes' : 'steer: no',
+        Capabilities: `messaging: ${agent.messagingMode}${formatRoleDeliveryCapability(agent)}`,
       };
     });
 
@@ -504,6 +544,7 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
       { h2: 'Available Agents' },
       { p: `**Total:** ${agents.length}` },
       { table: { headers: ['Agent', 'Type', 'Status', 'Capabilities'], rows } },
+      ...rolesBlock,
     ]);
   } catch {
     return fallbackJson(agents);
@@ -519,6 +560,7 @@ export function formatAgentSpawn(
 ): string {
   try {
     const cliLabel = formatCliLabel(result.cli, result.ptahCliName);
+    const roleLine = formatRoleLine(result);
 
     return json2md([
       { h2: 'Agent Spawned' },
@@ -529,6 +571,7 @@ export function formatAgentSpawn(
           ...(options?.modelTier
             ? [`**Model Tier:** ${options.modelTier}`]
             : []),
+          ...(roleLine ? [roleLine] : []),
           `**Status:** ${result.status}`,
           `**Started:** ${result.startedAt}`,
           ...(result.cliSessionId
@@ -567,6 +610,10 @@ export function formatAgentStatus(
         `**Task:** ${task}`,
         `**Started:** ${a.startedAt}`,
       ];
+      const roleLine = formatRoleLine(a);
+      if (roleLine) {
+        lines.push(roleLine);
+      }
       if (a.cliSessionId) {
         lines.push(`**CLI Session ID:** ${a.cliSessionId}`);
       }
@@ -644,19 +691,72 @@ export function formatAgentStop(result: AgentProcessInfo): string {
 }
 
 /**
- * Format ptah_agent_steer result
+ * What each delivery mode means to the agent that asked for it.
+ *
+ * `interrupt-resume` carries a warning rather than a description: the
+ * interrupted turn's partial work is gone, and a caller that reads the call as
+ * a plain success will assume work that no longer exists (TASK_2026_402 R-11).
  */
-export function formatAgentSteer(result: {
-  agentId: string;
-  steered: boolean;
-}): string {
+const AGENT_MESSAGE_MODE_NOTES: Readonly<Record<AgentMessagingMode, string>> = {
+  steer: 'Injected into the turn already in flight; that turn continues.',
+  'interrupt-resume':
+    'The turn in flight was ABORTED and its partial work DISCARDED, then the ' +
+    'message was re-submitted on the same session. Anything that turn had ' +
+    'produced but not written is gone.',
+  'queue-next-turn':
+    'Held and delivered as the next full turn, not mid-turn. The agent acts ' +
+    'on it once its current turn settles.',
+  unsupported:
+    'NOTHING was delivered. The agent did not receive this message — see the ' +
+    'reason below and use ptah_agent_list to check what this agent supports.',
+};
+
+/**
+ * Format ptah_agent_message result
+ */
+export function formatAgentMessage(
+  result: AgentMessageOutcome & {
+    agentId: string;
+  },
+): string {
   try {
     return json2md([
-      { h2: 'Agent Steered' },
+      { h2: 'Agent Message' },
       {
         p: [
           `**Agent ID:** ${result.agentId}`,
-          `**Steered:** ${result.steered ? 'Yes' : 'No'}`,
+          `**Mode:** ${result.mode}`,
+          AGENT_MESSAGE_MODE_NOTES[result.mode],
+          ...(result.detail ? [`**Detail:** ${result.detail}`] : []),
+        ].join('  \n'),
+      },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_agent_report result
+ *
+ * A refusal is rendered as plainly as a delivery: the calling agent has to be
+ * able to tell that its report reached nobody.
+ */
+export function formatAgentReport(result: {
+  delivered: boolean;
+  reason?: string;
+  parentSessionId?: string;
+}): string {
+  try {
+    return json2md([
+      { h2: result.delivered ? 'Report Delivered' : 'Report NOT Delivered' },
+      {
+        p: [
+          `**Delivered:** ${result.delivered ? 'Yes' : 'No'}`,
+          ...(result.reason ? [`**Reason:** ${result.reason}`] : []),
+          ...(result.parentSessionId
+            ? [`**Parent Session:** ${result.parentSessionId}`]
+            : []),
         ].join('  \n'),
       },
     ]);

@@ -302,4 +302,69 @@ describe('JsonlReaderService — streaming and tail reads', () => {
       expect(out[out.length - 1].uuid).toBe('u1999');
     });
   });
+
+  // -------------------------------------------------------------------------
+  // projectJsonlLines — stats projection path (TASK_2026_411 B4)
+  // -------------------------------------------------------------------------
+
+  describe('projectJsonlLines', () => {
+    it('visits every non-blank line once, CRLF-stripped, and caches nothing', async () => {
+      const lines = [line('a', 'one'), '', line('b', 'two'), line('c', 'three')];
+      const filePath = await write('project.jsonl', `${lines.join('\r\n')}\r\n`);
+      const seen: string[] = [];
+
+      const result = await service.projectJsonlLines(filePath, (l) => seen.push(l));
+
+      expect(seen).toEqual([lines[0], lines[2], lines[3]]);
+      expect(result.lines).toBe(3);
+      // A later whole-file read still parses from disk, not from a projection.
+      await expect(service.readJsonlMessages(filePath)).resolves.toHaveLength(3);
+    });
+
+    it('yields on the 200-line budget', async () => {
+      const lines: string[] = [];
+      for (let i = 0; i < 5000; i++) lines.push(line(`u${i}`, `b${i}`));
+      const filePath = await write('yield-project.jsonl', `${lines.join('\n')}\n`);
+
+      const result = await service.projectJsonlLines(filePath, () => undefined);
+
+      expect(result.lines).toBe(5000);
+      expect(result.yields).toBeGreaterThanOrEqual(Math.floor(5000 / 200));
+    });
+
+    it('reads only the first byteLength bytes', async () => {
+      const lines = [line('a', 'one'), line('b', 'two')];
+      const filePath = await write('bounded.jsonl', `${lines.join('\n')}\n`);
+      const seen: string[] = [];
+
+      await service.projectJsonlLines(filePath, (l) => seen.push(l), {
+        byteLength: Buffer.byteLength(lines[0]) + 1,
+      });
+
+      expect(seen).toEqual([lines[0]]);
+      await expect(
+        service.projectJsonlLines(filePath, () => undefined, { byteLength: 0 }),
+      ).resolves.toEqual({ lines: 0, yields: 0 });
+    });
+
+    it('aborts between yields', async () => {
+      const lines: string[] = [];
+      for (let i = 0; i < 2000; i++) lines.push(line(`u${i}`, `b${i}`));
+      const filePath = await write('abort-project.jsonl', `${lines.join('\n')}\n`);
+      const controller = new AbortController();
+      let visited = 0;
+
+      await expect(
+        service.projectJsonlLines(
+          filePath,
+          () => {
+            visited++;
+            if (visited === 10) controller.abort();
+          },
+          { signal: controller.signal },
+        ),
+      ).rejects.toThrow();
+      expect(visited).toBeLessThan(2000);
+    });
+  });
 });

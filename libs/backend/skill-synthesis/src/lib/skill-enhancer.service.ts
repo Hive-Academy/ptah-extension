@@ -14,7 +14,20 @@ import type {
   UserLayerMirrorService,
   WriteEnhancedResult,
 } from '@ptah-extension/agent-generation';
-import type { IInternalQuery } from './internal-query.interface';
+import {
+  classifyThrownNetworkFailure,
+  QueryNetworkObserver,
+} from '@ptah-extension/agent-sdk';
+import {
+  USER_ACTION_QUERY_LANE,
+  type IInternalQuery,
+  type QueryOrigin,
+} from './internal-query.interface';
+import { skillQueryLane } from './lanes/lane-runner.service';
+import {
+  ACTIVE_PROVIDER_KEY,
+  type ProviderNetworkBackoffs,
+} from './lanes/provider-network-backoffs';
 import type {
   SkillCandidateRow,
   SkillSynthesisSettings,
@@ -46,6 +59,13 @@ import type { SkillScorecardService } from './skill-scorecard.service';
 import type { AgentScorecard } from '@ptah-extension/shared';
 
 const ENHANCE_TIMEOUT_MS = 30_000;
+/**
+ * `generateCandidate`'s answer when the provider never answered, or a
+ * background call was held by its open network back-off (TASK_2026_437 C14 f).
+ * Distinct from `null` ("the model wrote nothing") so the caller reports
+ * `provider-unreachable`: retryable, no cooldown, nothing written.
+ */
+const PROVIDER_UNREACHABLE = Symbol('provider-unreachable');
 /**
  * Hard cap on the measured-scorecard block appended to the agent enhancement
  * prompt (R8.3). Well inside the 4,000-char findings discipline so prompt bloat
@@ -88,7 +108,13 @@ export const PROPOSAL_TTL_MS = 15 * 60 * 1000;
 /** Hard cap on cached proposals; oldest is evicted first (insertion order). */
 export const MAX_CACHED_PROPOSALS = 20;
 
-export interface EnhanceOptions {
+/**
+ * `userInitiated` (from `QueryOrigin`): a user is waiting, so the candidate and
+ * judge calls skip the background-work governor. Independent of `manual` — a
+ * manual CURATOR run sets it without `manual`, so it keeps the cooldowns.
+ */
+export interface EnhanceOptions extends QueryOrigin {
+  /** Bypass the auto-enhance cooldown, invocation floor and win-rate skip. */
   readonly manual?: boolean;
   readonly kind?: SkillRegistryKind;
 }
@@ -110,6 +136,12 @@ export type EnhanceSkipReason =
    * clone and unreachable from a manual run.
    */
   | 'win-rate-sufficient'
+  /**
+   * The provider was unreachable (network-class failure), or its network
+   * back-off held this background call (TASK_2026_437 C14 f). No candidate,
+   * no write, no cooldown — the next pass retries.
+   */
+  | 'provider-unreachable'
   | 'error';
 
 export interface EnhanceResult {
@@ -235,6 +267,13 @@ export class SkillEnhancerService {
      */
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpServerStatus: IMcpServerStatus | null = null,
+    /**
+     * The library's per-provider network back-offs. Optional and LAST, like
+     * the parameter above. The enhancer is not a lane: it always rides the
+     * active provider, so it reads and feeds `ACTIVE_PROVIDER_KEY`.
+     */
+    @inject(SKILL_SYNTHESIS_TOKENS.NETWORK_BACKOFF, { isOptional: true })
+    private readonly networkBackoffs: ProviderNetworkBackoffs | null = null,
   ) {}
 
   /**
@@ -362,7 +401,13 @@ export class SkillEnhancerService {
         cwd,
         kind,
         scorecardBlock,
+        // A user action (an RPC) skips the governor; the curator daemon's
+        // automatic pass must yield to it (C14).
+        skillQueryLane(options),
       );
+      if (candidateBody === PROVIDER_UNREACHABLE) {
+        return { ...base, currentBody, skipReason: 'provider-unreachable' };
+      }
       if (!candidateBody) {
         return { ...base, currentBody, skipReason: 'empty-candidate' };
       }
@@ -383,6 +428,8 @@ export class SkillEnhancerService {
         candidateBody,
         settings,
         scorecardBlock ?? undefined,
+        undefined,
+        { userInitiated: options.userInitiated },
       );
 
       const judged: GenerateProposalResult = {
@@ -480,11 +527,16 @@ export class SkillEnhancerService {
    * Consumes the cache entry, so a `proposalId` applies at most once. Throws
    * {@link ProposalNotFoundError} on an unknown / expired id or when
    * `(kind, slug)` do not match the cached proposal — never regenerates.
+   *
+   * `origin` reaches the re-propagation: the `skillSynthesis:applyProposal`
+   * click passes `userInitiated: true` so the harness refresh never waits for
+   * the background-work governor; an auto-enhance passes nothing (FU-17b).
    */
   async applyProposal(
     kind: SkillRegistryKind,
     slug: string,
     proposalId: string,
+    origin: QueryOrigin = {},
   ): Promise<ApplyProposalResult> {
     const proposal = this.takeProposal(kind, slug, proposalId);
 
@@ -508,7 +560,7 @@ export class SkillEnhancerService {
       written.currentContentHash,
     );
 
-    await this.repropagate(proposal.slug, proposal.kind);
+    await this.repropagate(proposal.slug, proposal.kind, origin);
 
     this.logger.info('[skill-enhancer] clone enhanced', {
       slug: proposal.slug,
@@ -561,7 +613,14 @@ export class SkillEnhancerService {
         };
       }
 
-      const applied = await this.applyProposal(kind, slug, proposal.proposalId);
+      const applied = await this.applyProposal(
+        kind,
+        slug,
+        proposal.proposalId,
+        {
+          userInitiated: options.userInitiated,
+        },
+      );
 
       return {
         changed: true,
@@ -625,10 +684,16 @@ export class SkillEnhancerService {
     return proposal;
   }
 
+  /**
+   * Restore a `.history/<ts>/` snapshot. `origin` reaches the re-propagation,
+   * as in {@link applyProposal}; the `skillSynthesis:revertEnhancement` click
+   * passes `userInitiated: true`.
+   */
   async revert(
     slug: string,
     historyTs: string,
     kind: SkillRegistryKind = 'skill',
+    origin: QueryOrigin = {},
   ): Promise<RevertEnhancementResult> {
     try {
       const result = await this.mirror.revert({
@@ -639,7 +704,7 @@ export class SkillEnhancerService {
       });
       if (result.restored) {
         this.registry.markEnhanced(kind, slug, Date.now());
-        await this.repropagate(slug, kind);
+        await this.repropagate(slug, kind, origin);
       }
       return {
         reverted: result.restored,
@@ -665,11 +730,17 @@ export class SkillEnhancerService {
 
   private async repropagate(
     slug: string,
-    kind: SkillRegistryKind = 'skill',
+    kind: SkillRegistryKind,
+    origin: QueryOrigin,
   ): Promise<void> {
     if (!this.repropagation) return;
     try {
-      await this.repropagation.repropagate(kind, slug, this.resolveCwd());
+      await this.repropagation.repropagate(
+        kind,
+        slug,
+        this.resolveCwd(),
+        origin,
+      );
     } catch (error: unknown) {
       this.logger.warn('[skill-enhancer] re-propagation failed', {
         slug,
@@ -695,10 +766,16 @@ export class SkillEnhancerService {
     currentBody: string,
     settings: SkillSynthesisSettings,
     cwd: string,
-    kind: SkillRegistryKind = 'skill',
-    scorecardBlock: string | null = null,
-  ): Promise<string | null> {
+    kind: SkillRegistryKind,
+    scorecardBlock: string | null,
+    lane: string,
+  ): Promise<string | null | typeof PROVIDER_UNREACHABLE> {
     if (!this.internalQuery) return null;
+    const backoff = this.networkBackoffs?.for(ACTIVE_PROVIDER_KEY) ?? null;
+    // A background call waits out an open window; a user's call is never held.
+    if (lane !== USER_ACTION_QUERY_LANE && (backoff?.remainingMs() ?? 0) > 0) {
+      return PROVIDER_UNREACHABLE;
+    }
     const stats = this.candidates.getInvocationStats(slug);
     const trajectorySignal = await this.collectTrajectorySignal(slug, cwd);
     const specFindings = await this.collectSpecFindings(slug);
@@ -758,10 +835,13 @@ export class SkillEnhancerService {
         prompt,
         ...resolveMcpSessionWiring(this.mcpServerStatus),
         maxTurns: 1,
+        lane,
         abortController,
       });
       let collected = '';
+      const network = new QueryNetworkObserver();
       for await (const msg of handle.stream) {
+        network.observe(msg);
         if (msg.type === 'assistant') {
           for (const block of msg.message?.content ?? []) {
             if (block.type === 'text' && typeof block.text === 'string') {
@@ -771,11 +851,25 @@ export class SkillEnhancerService {
         }
         if (msg.type === 'result') break;
       }
+      // The subprocess closes a request it gave up retrying with an error
+      // message; its text is not an enhanced body and must never be written.
+      const verdict = network.verdict();
+      if (verdict.kind === 'network-failure') {
+        backoff?.recordFailure(verdict.signal);
+        return PROVIDER_UNREACHABLE;
+      }
+      if (verdict.kind === 'answered') backoff?.recordSuccess();
       const cleaned = this.stripCodeFence(collected.trim());
       return cleaned.length > 0 ? cleaned : null;
     } catch (error: unknown) {
       // degradation-audit: optional-capability - Generated enhancement text is
-      // optional; null preserves the existing artifact unchanged.
+      // optional; null or provider-unreachable preserves the existing artifact
+      // unchanged, and a network failure raises the provider's back-off.
+      const signal = classifyThrownNetworkFailure(error);
+      if (signal) {
+        backoff?.recordFailure(signal);
+        return PROVIDER_UNREACHABLE;
+      }
       this.logger.warn('[skill-enhancer] candidate generation failed', {
         slug,
         error: error instanceof Error ? error.message : String(error),

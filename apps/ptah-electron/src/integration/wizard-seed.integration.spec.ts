@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS memories (
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL,
   last_used_at    INTEGER NOT NULL,
+  archived_at     INTEGER,
   expires_at      INTEGER,
   request         TEXT,
   investigated    TEXT,

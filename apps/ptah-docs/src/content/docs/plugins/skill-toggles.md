@@ -45,6 +45,12 @@ The effect is that the skill stops being visible to agents in that workspace. Th
 
 Skill IDs are a **flat, global namespace**. `disabledSkillIds` holds a bare directory name with no plugin prefix, so disabling a name disables it wherever it comes from. In practice this doesn't bite, because two plugins can't both contribute the same skill name anyway — [the first one wins](/plugins/installing/#when-two-plugins-define-the-same-skill).
 
+## Required skills
+
+Keep `agent-lanes` enabled when using `orchestration` or `tribunal` on CLI lanes. If you disable it, orchestration asks you to enable it and uses sub-agents only; Tribunal asks for it before running a move. Relay and Crucible also need `orchestration`.
+
+The dependent skills name the missing requirement in their instructions. The picker does not automatically re-enable dependencies or disable dependent skills. See [skill dependencies](/mcp-and-skills/skills/#skill-dependencies).
+
 ## How it interacts with the other two gates
 
 Plugin enablement and this per-skill toggle aren't the whole picture. A third, outer gate decides — per project — whether a skill can reach this workspace at all: see [Per-project skill selection](/plugins/skill-selection/). All three compose as a conjunction, evaluated outermost first, and every level has to say yes:

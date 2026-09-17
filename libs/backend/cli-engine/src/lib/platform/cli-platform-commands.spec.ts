@@ -60,10 +60,20 @@ describe('CliPlatformCommands', () => {
   // crosses first is a property of the host, not of the spec, so the ceiling is
   // raised for the file rather than for that one test.
   //
+  // Raised again 2026-09-08. The 30 s ceiling was calibrated against a 55.3 s
+  // file at `--parallel=4`; the GitHub runner ran the same file in 140.33 s at
+  // `--parallel=3` with coverage, and `extracts a device code and verification
+  // URL from the output` crossed first — a different one of the six, which is
+  // the property this comment already names. Every cli-engine suite on that run
+  // took 114-250 s, so the host, not the spec, moved. 120 s is deliberately far
+  // above the observed per-spec cost: a fourth calibration round is worth more
+  // than the seconds a tighter bound would save, and no spec here asserts a
+  // duration, so a generous ceiling forfeits no signal.
+  //
   // `jest.setTimeout` is file-scoped from the point it runs, and every describe
   // body runs during collection — placing it here rather than in the inner
   // describe is what the scope actually is.
-  jest.setTimeout(30_000);
+  jest.setTimeout(120_000);
 
   let stdoutSpy: jest.SpyInstance;
   let stderrSpy: jest.SpyInstance;

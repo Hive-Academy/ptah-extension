@@ -51,6 +51,7 @@ import {
   TaskDoctorService,
   TaskWriterService as TaskWriterServiceClass,
   NoOpTaskIndexNotifier,
+  NoOpTaskFolderVisibility,
   parseTaskFile,
   updateFrontmatter,
   type ITaskIndexStore,
@@ -892,6 +893,7 @@ describe('tasks:create', () => {
       fsMock,
       logger as unknown as Logger,
       new NoOpTaskIndexNotifier(),
+      new NoOpTaskFolderVisibility(),
     );
 
     const rpc = createMockRpcHandler();
@@ -1428,6 +1430,7 @@ describe('tasks:doctorPlan', () => {
       fsMock,
       logger as unknown as Logger,
       new NoOpTaskIndexNotifier(),
+      new NoOpTaskFolderVisibility(),
     );
     const realDoctor = new TaskDoctorService(
       fsMock,
@@ -2554,6 +2557,7 @@ async function buildBulkSuite(
     fs,
     logger as unknown as Logger,
     index,
+    new NoOpTaskFolderVisibility(),
   );
 
   if (throwOnTaskId !== undefined) {
@@ -3110,6 +3114,7 @@ async function buildLabelSuite(
     fs,
     logger as unknown as Logger,
     index,
+    new NoOpTaskFolderVisibility(),
   );
 
   const handlers = new TasksRpcHandlers(

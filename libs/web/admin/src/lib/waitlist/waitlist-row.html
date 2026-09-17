@@ -1,0 +1,70 @@
+<div
+  class="flex items-center gap-3 rounded-md border border-hairline bg-base-200 px-3 py-2.5 transition-colors hover:bg-base-200/80"
+>
+  @if (row().approvalEligible) {
+    <input
+      type="checkbox"
+      class="checkbox checkbox-sm checkbox-primary shrink-0"
+      [checked]="selected()"
+      (change)="onToggleSelect()"
+      [attr.aria-label]="'Select ' + row().email + ' for approval'"
+    />
+  }
+
+  <div class="min-w-0 flex-1">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="truncate font-medium">{{ row().email }}</span>
+      <ptah-status-badge [value]="sourceLabel()" [showIcon]="false" size="xs" />
+      <ptah-status-badge
+        [variant]="stageVariant()"
+        [label]="stageLabel()"
+        size="xs"
+      />
+    </div>
+    <div class="text-xs text-base-content-muted">
+      {{ timestampPrefix() }} {{ row().stageAt | date: 'medium' }}
+    </div>
+  </div>
+
+  <div class="flex shrink-0 items-center gap-2">
+    <button
+      #detailsBtn
+      type="button"
+      class="btn btn-ghost btn-xs"
+      (click)="onViewDetails(detailsBtn)"
+      [attr.aria-label]="'View details for ' + row().email"
+    >
+      Details
+    </button>
+
+    @if (row().approvalEligible) {
+      <button
+        type="button"
+        class="btn btn-outline btn-primary btn-xs"
+        (click)="onApprove()"
+        [attr.aria-label]="'Approve ' + row().email"
+      >
+        <lucide-angular
+          [img]="KeyRoundIcon"
+          class="h-3.5 w-3.5"
+          aria-hidden="true"
+        />
+        Approve
+      </button>
+    }
+    @if (row().stage === 'approved' || row().stage === 'converted') {
+      <a
+        class="link link-hover flex items-center gap-1 text-xs text-info"
+        [routerLink]="['/admin', 'users']"
+        [queryParams]="{ search: row().email }"
+      >
+        View license
+        <lucide-angular
+          [img]="ArrowRightIcon"
+          class="h-3.5 w-3.5"
+          aria-hidden="true"
+        />
+      </a>
+    }
+  </div>
+</div>

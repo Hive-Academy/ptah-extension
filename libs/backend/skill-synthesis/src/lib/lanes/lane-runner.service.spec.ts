@@ -21,7 +21,10 @@ import {
   LANE_QUOTA_RETRY_MS,
   SKILL_LANE_IDS,
 } from './lane.types';
-import type { IInternalQuery } from '../internal-query.interface';
+import {
+  USER_ACTION_QUERY_LANE,
+  type IInternalQuery,
+} from '../internal-query.interface';
 import {
   assistantText,
   makeBudgetStub,
@@ -693,6 +696,55 @@ describe('LaneRunnerService — the concurrency lane', () => {
     ).run({ laneId: 'archaeologist', prompt: 'x' });
 
     expect(query.calls[0].lane).toBe(SKILL_SYNTHESIS_QUERY_LANE);
+  });
+
+  /**
+   * TASK_2026_437 C14, Batch 16b. A run a user is waiting on goes to the
+   * ungoverned default lane; every other run keeps the governed lane.
+   */
+  it.each([
+    [true, USER_ACTION_QUERY_LANE],
+    [false, SKILL_SYNTHESIS_QUERY_LANE],
+    [undefined, SKILL_SYNTHESIS_QUERY_LANE],
+  ] as const)(
+    'userInitiated=%s charges the call to the %s lane',
+    async (userInitiated, lane) => {
+      const query = makeQueryStub([[resultMessage({ result: 'ok' })]]);
+      await new LaneRunnerService(
+        makeLogger(),
+        makeResolverStub(resolvedLane('judge')).service,
+        makeBudgetStub().store,
+        query.query,
+      ).run({ laneId: 'judge', prompt: 'x', userInitiated });
+
+      expect(query.calls[0].lane).toBe(lane);
+    },
+  );
+
+  it('treats an AbortError from the query gate (host shutdown) as a cancellation, not a thrown defect', async () => {
+    const shutdown = new Error(
+      'Background internal query cancelled: the host is shutting down.',
+    );
+    shutdown.name = 'AbortError';
+    const query = {
+      execute: jest.fn(async () => {
+        throw shutdown;
+      }),
+    } as unknown as IInternalQuery;
+
+    const out = await new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(resolvedLane('judge')).service,
+      makeBudgetStub().store,
+      query,
+    ).run({ laneId: 'judge', prompt: 'x' });
+
+    expect(out.status).toBe('failed');
+    if (out.status !== 'failed') return;
+    expect(out.failure.reason).toBe(
+      'Lane judge: run cancelled before completion',
+    );
+    expect(out.failure.retryAfterMs).toBe(0);
   });
 });
 

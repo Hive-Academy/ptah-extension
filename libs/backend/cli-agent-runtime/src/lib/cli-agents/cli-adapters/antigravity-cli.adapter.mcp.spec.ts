@@ -165,6 +165,24 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
     await handle.done;
   });
 
+  it('leads the written URL with /agent/{id} when one was reserved', async () => {
+    const handle = await adapter.runSdk({
+      task: 'do a thing',
+      workingDirectory: ws,
+      mcpPort: 51234,
+      agentId: 'agent-7',
+    });
+
+    // The agent segment is how the server learns WHICH spawn is calling
+    // (TASK_2026_402) — the child never names itself.
+    expect(servers()['ptah']).toEqual({
+      serverUrl: `http://localhost:51234/agent/agent-7/workspace/${encodeURIComponent(ws)}`,
+    });
+
+    child.emit('close', 0, null);
+    await handle.done;
+  });
+
   it('removes only `ptah` after `done`, leaving a marketplace-installed server in place', async () => {
     seedUserConfig({
       github: { command: 'github-mcp', args: ['--stdio'] },

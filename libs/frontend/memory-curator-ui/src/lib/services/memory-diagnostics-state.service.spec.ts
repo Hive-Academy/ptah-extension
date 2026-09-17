@@ -37,17 +37,41 @@ describe('MemoryDiagnosticsStateService', () => {
     coherent: true,
     mismatches: [],
   };
+  const baseStorage = {
+    dbBytes: 2_097_152,
+    reclaimableBytes: 4_096,
+    autoVacuumIncremental: true,
+    observations: {
+      pendingRows: 12,
+      pendingBytes: 2_048,
+      oldestPendingAt: 1_000,
+      stuckEligibleRows: 3,
+      processedRows: 4_500,
+      processedBytesEstimate: 1_500_000,
+      measuredAt: 900,
+      quarantineLedgerRows: 7,
+    },
+    retention: {
+      enabled: true,
+      processedDays: 14,
+      stuckDays: 30,
+      lastRun: null,
+      lastCompletedAt: null,
+      nextDueAt: null,
+      lastSkippedAt: null,
+      lastSkipReason: null,
+    },
+  };
 
   const snapshot = {
     lastRunAt: 1000,
     lastRunStats: { promoted: 3 },
-    lastDecayAt: 500,
-    lastDecayStats: { decayed: 1 },
     recentEvents: [
       { kind: 'curator-run' as const, timestamp: 100 },
-      { kind: 'decay-run' as const, timestamp: 200 },
+      { kind: 'manual-run' as const, timestamp: 200 },
     ],
     dbHealth: baseDbHealth,
+    storage: baseStorage,
     triggers: baseTriggers,
   };
 
@@ -103,9 +127,9 @@ describe('MemoryDiagnosticsStateService', () => {
     expect(diagnosticsMock).toHaveBeenCalledWith('/ws');
     expect(service.triggers()).toEqual(baseTriggers);
     expect(service.lastRun()).toEqual({ at: 1000, stats: { promoted: 3 } });
-    expect(service.lastDecay()).toEqual({ at: 500, stats: { decayed: 1 } });
     expect(service.recentEvents().length).toBe(2);
     expect(service.dbHealth()).toEqual(baseDbHealth);
+    expect(service.storage()).toEqual(baseStorage);
     expect(service.loading()).toBe(false);
     expect(service.error()).toBeNull();
   });

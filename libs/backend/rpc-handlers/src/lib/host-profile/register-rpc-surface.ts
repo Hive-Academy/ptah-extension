@@ -28,6 +28,7 @@ import {
   MEMORY_CONTRACT_TOKENS,
   NullMemoryLister,
   NullMemoryReader,
+  NullMemoryUsageRecorder,
   NullSymbolSink,
 } from '@ptah-extension/memory-contracts';
 
@@ -201,7 +202,7 @@ function registerHandlers(
  * still resolve. Idempotent — a host that registered real implementations
  * earlier keeps them.
  */
-function installNullImplementations(
+export function installNullImplementations(
   container: DependencyContainer,
   profile: HostProfile,
 ): void {
@@ -215,6 +216,11 @@ function installNullImplementations(
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER)) {
     container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
       useValue: NullMemoryLister,
+    });
+  }
+  if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER)) {
+    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER, {
+      useValue: NullMemoryUsageRecorder,
     });
   }
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)) {

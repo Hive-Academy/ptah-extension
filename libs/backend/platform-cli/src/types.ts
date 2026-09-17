@@ -6,6 +6,8 @@
  * defaults for optional paths.
  */
 
+import type { CliWorkspaceWatcherOptions } from './implementations/cli-workspace-watcher';
+
 export interface CliPlatformOptions {
   /** Resolved application binary/entry path */
   appPath: string;
@@ -21,4 +23,11 @@ export interface CliPlatformOptions {
 
   /** Mirror log output to stderr for debugging */
   verbose?: boolean;
+
+  /**
+   * Watch host wiring for `PLATFORM_TOKENS.WORKSPACE_WATCHER` (TASK_2026_437
+   * C9): the host bundle path plus the log and degradation sinks. The token is
+   * left unregistered when omitted — a host that never watches forks nothing.
+   */
+  workspaceWatchHost?: CliWorkspaceWatcherOptions;
 }

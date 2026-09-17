@@ -19,6 +19,8 @@ export {
 } from './lib/services/worktree.service';
 export { SourceControlService } from './lib/services/source-control.service';
 export { DiffTabsService } from './lib/services/diff-tabs.service';
+export { EditorLauncherService } from './lib/services/editor-launcher.service';
+export { GitReviewService } from './lib/services/git-review.service';
 
 // Components
 export { DiffViewComponent } from './lib/diff-view/diff-view.component';
@@ -27,14 +29,21 @@ export { SourceControlFileComponent } from './lib/source-control/source-control-
 export { WorktreeSectionComponent } from './lib/worktree/worktree-section.component';
 export { GitDockComponent } from './lib/git-dock/git-dock.component';
 export { GitDockHeaderComponent } from './lib/git-dock/git-dock-header.component';
+export { OpenInButtonComponent } from './lib/open-in/open-in-button.component';
+export type {
+  OpenInButtonMode,
+  OpenInRequest,
+} from './lib/open-in/open-in-button.component';
 
 // Diff tab types + helpers
 export type {
   DiffComparison,
+  DiffProvenance,
   DiffSideRef,
   DiffTabState,
   DiffTabStatus,
   EditorTab,
+  FileViewOpenRequest,
   GitApplyHunksOperation,
   GitApplyHunksResult,
   GitDiffFileResult,

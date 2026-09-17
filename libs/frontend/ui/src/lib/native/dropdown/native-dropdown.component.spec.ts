@@ -102,6 +102,16 @@ describe('NativeDropdownComponent', () => {
     expect(compiled.querySelector('.menu-panel')).toBeTruthy();
   });
 
+  it('should give the panel role="listbox" by default', () => {
+    host.isOpen.set(true);
+    fixture.detectChanges();
+
+    const panel = (fixture.nativeElement as HTMLElement).querySelector(
+      '.dropdown-panel',
+    );
+    expect(panel?.getAttribute('role')).toBe('listbox');
+  });
+
   it('should NOT render backdrop when hasBackdrop is false', () => {
     host.hasBackdrop.set(false);
     host.isOpen.set(true);

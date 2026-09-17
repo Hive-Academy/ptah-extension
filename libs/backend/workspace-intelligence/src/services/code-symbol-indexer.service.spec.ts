@@ -7,6 +7,7 @@ import type { IFileSystemProvider } from '@ptah-extension/platform-core';
 import type { ISymbolSink } from '@ptah-extension/memory-contracts';
 import type { AstAnalysisService } from '../ast/ast-analysis.service';
 import type { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
+import type { BackgroundWorkAdmission } from '@ptah-extension/vscode-core';
 import { CodeSymbolIndexer } from './code-symbol-indexer.service';
 
 // ---------------------------------------------------------------------------
@@ -202,6 +203,206 @@ describe('CodeSymbolIndexer', () => {
 
       expect(stats.filesScanned).toBe(6);
       expect(stats.errors).toBe(0);
+    });
+  });
+
+  /**
+   * TASK_2026_437 C14 (b): background indexing yields to the foreground before
+   * each batch; a user/agent-initiated run never waits.
+   */
+  describe('indexWorkspace — background-work governor', () => {
+    interface FakeGovernor extends BackgroundWorkAdmission {
+      clear: boolean;
+      whenClear: jest.Mock;
+      isClear: jest.Mock;
+      release(outcome?: 'clear' | 'timeout'): void;
+      reject(error: Error): void;
+    }
+
+    function makeGovernor(): FakeGovernor {
+      let settle: {
+        resolve: (outcome: 'clear' | 'timeout') => void;
+        reject: (error: Error) => void;
+      } | null = null;
+      const state = { clear: false };
+      const governor = {
+        get clear(): boolean {
+          return state.clear;
+        },
+        set clear(value: boolean) {
+          state.clear = value;
+        },
+        isClear: jest.fn((): boolean => state.clear),
+        whenClear: jest.fn(
+          () =>
+            new Promise<'clear' | 'timeout'>((resolve, reject) => {
+              settle = { resolve, reject };
+            }),
+        ),
+        release(outcome: 'clear' | 'timeout' = 'clear') {
+          settle?.resolve(outcome);
+          settle = null;
+        },
+        reject(error: Error) {
+          settle?.reject(error);
+          settle = null;
+        },
+      };
+      return governor as unknown as FakeGovernor;
+    }
+
+    const flush = async (): Promise<void> => {
+      for (let i = 0; i < 5; i++) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    };
+
+    function abortError(): Error {
+      const error = new Error('Background-work governor disposed');
+      error.name = 'AbortError';
+      return error;
+    }
+
+    function build(governor: BackgroundWorkAdmission | null, files: string[]) {
+      const logger = makeLogger();
+      const fs = makeFs();
+      fs.readFile.mockResolvedValue('');
+      const sink = makeSymbolSink();
+      const service = new CodeSymbolIndexer(
+        logger,
+        makeAst(),
+        makeIndexer(files),
+        fs,
+        sink,
+        governor,
+      );
+      return { service, logger, fs, sink };
+    }
+
+    it('waits for the governor before the first batch and again before each later one', async () => {
+      const governor = makeGovernor();
+      const { service, fs } = build(governor, fakeTsFiles(6));
+
+      const run = service.indexWorkspace('/workspace', { batchSize: 3 });
+      await flush();
+      expect(governor.whenClear).toHaveBeenCalledTimes(1);
+      expect(governor.whenClear).toHaveBeenCalledWith({
+        lane: 'code-symbol-indexer',
+      });
+      expect(fs.readFile).not.toHaveBeenCalled();
+
+      governor.release();
+      await flush();
+      expect(fs.readFile).toHaveBeenCalledTimes(3);
+      expect(governor.whenClear).toHaveBeenCalledTimes(2);
+
+      governor.release();
+      const stats = await run;
+      expect(fs.readFile).toHaveBeenCalledTimes(6);
+      expect(stats.filesScanned).toBe(6);
+    });
+
+    it('asks nothing of whenClear while the governor is already clear', async () => {
+      const governor = makeGovernor();
+      governor.clear = true;
+      const { service } = build(governor, fakeTsFiles(6));
+
+      const stats = await service.indexWorkspace('/workspace', {
+        batchSize: 3,
+      });
+
+      expect(stats.filesScanned).toBe(6);
+      expect(governor.isClear).toHaveBeenCalledTimes(2);
+      expect(governor.whenClear).not.toHaveBeenCalled();
+    });
+
+    it('a userInitiated run never consults the governor', async () => {
+      const governor = makeGovernor();
+      const { service } = build(governor, fakeTsFiles(6));
+
+      const stats = await service.indexWorkspace('/workspace', {
+        batchSize: 3,
+        userInitiated: true,
+      });
+
+      expect(stats.filesScanned).toBe(6);
+      expect(governor.isClear).not.toHaveBeenCalled();
+      expect(governor.whenClear).not.toHaveBeenCalled();
+    });
+
+    it('proceeds when the governor resolves at its starvation ceiling', async () => {
+      const governor = makeGovernor();
+      const { service } = build(governor, fakeTsFiles(3));
+
+      const run = service.indexWorkspace('/workspace', { batchSize: 3 });
+      await flush();
+      governor.release('timeout');
+
+      await expect(run).resolves.toMatchObject({ filesScanned: 3 });
+    });
+
+    it('stops cleanly with an AbortError when the governor is disposed mid-run — no partial batch, no warn/error', async () => {
+      const governor = makeGovernor();
+      const { service, fs, sink, logger } = build(governor, fakeTsFiles(9));
+
+      const run = service.indexWorkspace('/workspace', { batchSize: 3 });
+      await flush();
+      governor.release();
+      await flush();
+      expect(fs.readFile).toHaveBeenCalledTimes(3);
+
+      // Host shutdown while held before batch 2.
+      governor.reject(abortError());
+      const thrown = await run.catch((error: unknown) => error);
+
+      expect(thrown).toBeInstanceOf(DOMException);
+      expect((thrown as DOMException).name).toBe('AbortError');
+      // Batch 1 completed whole; batch 2 never started.
+      expect(fs.readFile).toHaveBeenCalledTimes(3);
+      expect(sink.deleteSymbolsForFile).toHaveBeenCalledTimes(3);
+      expect(logger.warn).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalled();
+    });
+
+    it('hands the caller signal to whenClear, so aborting releases a held run', async () => {
+      const governor = makeGovernor();
+      const { service, fs } = build(governor, fakeTsFiles(3));
+      const controller = new AbortController();
+
+      const run = service.indexWorkspace('/workspace', {
+        batchSize: 3,
+        signal: controller.signal,
+      });
+      await flush();
+      expect(governor.whenClear).toHaveBeenCalledWith({
+        signal: controller.signal,
+        lane: 'code-symbol-indexer',
+      });
+
+      controller.abort();
+      governor.reject(abortError());
+      await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+      expect(fs.readFile).not.toHaveBeenCalled();
+    });
+
+    it('fails open on a governor failure that is not an abort — warns once and indexes anyway', async () => {
+      const governor = makeGovernor();
+      const { service, fs, logger } = build(governor, fakeTsFiles(6));
+
+      const run = service.indexWorkspace('/workspace', { batchSize: 3 });
+      await flush();
+      governor.reject(new Error('unexpected'));
+      await flush();
+      expect(fs.readFile).toHaveBeenCalledTimes(3);
+      governor.reject(new Error('unexpected again'));
+
+      await expect(run).resolves.toMatchObject({ filesScanned: 6 });
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[CodeSymbolIndexer] background-work wait failed — indexing anyway',
+        { reason: 'unexpected' },
+      );
     });
   });
 

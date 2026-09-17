@@ -63,12 +63,15 @@ import type {
   McpServerConfig,
 } from '@ptah-extension/shared';
 import type {
+  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
 } from './cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapter.interface';
 import {
+  assertCommandLineWithinLimit,
   stripAnsiCodes,
   buildTaskPrompt,
   probeCliVersion,
@@ -148,6 +151,7 @@ interface AgyEvent {
 export class AntigravityCliAdapter implements CliAdapter {
   readonly name = 'antigravity' as const;
   readonly displayName = 'Antigravity';
+  readonly roleChannel = 'task-prompt' as const;
   /** MCP is configured via ~/.gemini/config/mcp_config.json before each spawn */
   readonly supportsMcp = true;
 
@@ -164,7 +168,11 @@ export class AntigravityCliAdapter implements CliAdapter {
     try {
       const binaryPath = await resolveCliPath('agy');
       if (!binaryPath) {
-        return { cli: 'antigravity', installed: false, supportsSteer: false };
+        return {
+          cli: 'antigravity',
+          installed: false,
+          messagingMode: bestMessagingCapability(this.capabilities()),
+        };
       }
       const version = await probeCliVersion(
         binaryPath,
@@ -178,19 +186,24 @@ export class AntigravityCliAdapter implements CliAdapter {
         installed: true,
         path: binaryPath,
         version,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     } catch {
       return {
         cli: 'antigravity',
         installed: false,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     }
   }
 
-  supportsSteer(): boolean {
-    return false;
+  /**
+   * One-shot `--print` per turn with stdin closed immediately: no live channel,
+   * no run-scoped abort, and the handle carries no `continue`, so there is no
+   * session to address between turns. Nothing can be delivered.
+   */
+  capabilities(): AgentMessagingCapabilities {
+    return { steer: false, interrupt: false, continuation: false };
   }
 
   parseOutput(raw: string): string {
@@ -343,6 +356,7 @@ export class AntigravityCliAdapter implements CliAdapter {
   private async configureMcpServer(
     port: number,
     workingDirectory: string,
+    agentId?: string,
   ): Promise<McpServerConfig | undefined> {
     try {
       const facet = AntigravityCliAdapter.mcpFacet();
@@ -364,7 +378,7 @@ export class AntigravityCliAdapter implements CliAdapter {
         // scoped to this run's working directory (TASK_2026_364); it differs
         // from the persistent bare home entry only while this run is in
         // flight, and cleanup restores whatever this run found.
-        { type: 'sse', url: ptahMcpServerUrl(port, workingDirectory) },
+        { type: 'sse', url: ptahMcpServerUrl(port, workingDirectory, agentId) },
       );
       return prior;
     } catch {
@@ -421,17 +435,6 @@ export class AntigravityCliAdapter implements CliAdapter {
     if (options.workingDirectory) {
       await this.ensureFolderTrusted(options.workingDirectory);
     }
-    // The `ptah` entry as this run found it. Held in a LOCAL, not a field:
-    // two `agy` agents can be in flight at once and a shared slot would let
-    // one run's cleanup restore the other run's snapshot.
-    let priorMcpEntry: McpServerConfig | undefined;
-    if (options.mcpPort) {
-      priorMcpEntry = await this.configureMcpServer(
-        options.mcpPort,
-        options.workingDirectory,
-      );
-    }
-
     const spawnEnv: Record<string, string> = {};
     if (process.platform === 'win32') {
       spawnEnv['NODE_PTY_USE_CONPTY'] = '0';
@@ -439,7 +442,7 @@ export class AntigravityCliAdapter implements CliAdapter {
 
     // No GEMINI_SYSTEM_MD support in `agy`: fold systemPrompt/projectGuidance
     // into the task prompt via the shared builder.
-    const taskPrompt = buildTaskPrompt(options);
+    const taskPrompt = buildTaskPrompt(options, this.name);
     const abortController = new AbortController();
     let capturedSessionId: string | undefined;
 
@@ -467,9 +470,6 @@ export class AntigravityCliAdapter implements CliAdapter {
     // Go flag parser consumes the prompt (and nothing else) as its value.
     args.push('--print', taskPrompt);
 
-    const output = createBufferedEmitter<string>();
-    const segment = createBufferedEmitter<CliOutputSegment>();
-
     const binary = options.binaryPath ?? 'agy';
     // `agy` ships as a real `.exe` under %LOCALAPPDATA%\agy\bin, which
     // resolveDirectSpawn returns unchanged; when it is instead an npm `.cmd`
@@ -477,6 +477,26 @@ export class AntigravityCliAdapter implements CliAdapter {
     // so child.pid is the process taskkill /T should walk from (not the cmd.exe
     // shim). No-op off-Windows.
     const spawnDescriptor = await resolveDirectSpawn(binary);
+    assertCommandLineWithinLimit(spawnDescriptor.command, [
+      ...spawnDescriptor.prefixArgs,
+      ...args,
+    ]);
+
+    // The `ptah` entry as this run found it. Held in a LOCAL, not a field:
+    // two `agy` agents can be in flight at once and a shared slot would let
+    // one run's cleanup restore the other run's snapshot.
+    let priorMcpEntry: McpServerConfig | undefined;
+    if (options.mcpPort) {
+      priorMcpEntry = await this.configureMcpServer(
+        options.mcpPort,
+        options.workingDirectory,
+        options.agentId,
+      );
+    }
+
+    const output = createBufferedEmitter<string>();
+    const segment = createBufferedEmitter<CliOutputSegment>();
+
     const child = spawnCli(
       spawnDescriptor.command,
       [...spawnDescriptor.prefixArgs, ...args],

@@ -17,7 +17,7 @@ import {
   inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { LucideAngularModule, ChevronDown, Check, Brain } from 'lucide-angular';
+import { LucideAngularModule, ChevronDown, Check } from 'lucide-angular';
 import { type EffortLevel, type SessionId } from '@ptah-extension/shared';
 import { EffortStateService } from '@ptah-extension/core';
 import {
@@ -35,7 +35,7 @@ interface EffortOption {
   description: string;
   /** Tailwind color class for the level indicator dot */
   dotColor: string;
-  /** Tailwind text color for the label in the trigger button */
+  /** Tailwind text color for the selected option's label in the dropdown */
   textColor: string;
   /** Number of filled bars (0-4) for the level meter */
   bars: number;
@@ -108,40 +108,40 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
       (closed)="closeDropdown()"
       (backdropClicked)="closeDropdown()"
     >
+      <!-- Composer toolbar pill (h-7). The level bars are the icon and the
+           only place the effort colour appears; the label stays neutral. -->
       <button
         trigger
-        class="btn btn-ghost btn-xs gap-1 font-normal h-6 min-h-0 px-1.5"
-        [class.ring-1]="isOpen()"
-        [class.ring-primary]="isOpen()"
+        class="inline-flex items-center gap-1.5 h-7 px-2 rounded-full text-xs font-normal min-w-0 text-base-content-muted hover:text-base-content hover:bg-base-content/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30"
+        [class.bg-base-300]="isOpen()"
+        [class.text-base-content]="isOpen()"
         type="button"
         (click)="toggleDropdown()"
         aria-label="Select reasoning effort level"
-        title="Reasoning effort level"
+        [attr.aria-expanded]="isOpen()"
+        [title]="'Reasoning effort: ' + selectedLabel()"
       >
-        <lucide-angular
-          [img]="BrainIcon"
-          [class]="'w-3 h-3 ' + selectedOption().textColor"
-        />
-        <!-- Level bars indicator -->
-        <div class="flex items-end gap-px h-3">
+        <!-- Level bars indicator (w-3.5 h-3.5 icon box) -->
+        <div
+          class="flex items-end justify-center gap-px w-3.5 h-3.5 flex-shrink-0"
+          aria-hidden="true"
+        >
           @for (bar of barSlots; track bar) {
             <div
               [class]="
-                'w-[3px] rounded-[1px] transition-all ' +
+                'w-[2px] rounded-[1px] transition-all ' +
                 (bar < selectedOption().bars
-                  ? selectedOption().dotColor + ' opacity-100'
-                  : 'bg-base-content/20 opacity-60')
+                  ? selectedOption().dotColor
+                  : 'bg-base-content/20')
               "
               [style.height.px]="4 + bar * 2.5"
             ></div>
           }
         </div>
-        <span [class]="'text-[10px] font-mono ' + selectedOption().textColor">{{
-          selectedLabel()
-        }}</span>
+        <span class="ptah-composer-label truncate">{{ selectedLabel() }}</span>
         <lucide-angular
           [img]="ChevronDownIcon"
-          class="w-2.5 h-2.5 flex-shrink-0 opacity-60"
+          class="w-3 h-3 flex-shrink-0 opacity-60"
         />
       </button>
 
@@ -233,7 +233,6 @@ export class EffortSelectorComponent {
     optional: true,
   });
 
-  readonly BrainIcon = Brain;
   readonly ChevronDownIcon = ChevronDown;
   readonly CheckIcon = Check;
 

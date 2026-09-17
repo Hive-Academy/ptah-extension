@@ -21,6 +21,8 @@ import * as path from 'path';
 
 import {
   buildFlagSettings,
+  buildFlagSettingsArg,
+  CROSS_SESSION_INBOUND_VALUES,
   assertSingleOutputStylePath,
 } from './sdk-query-options-builder';
 import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
@@ -83,6 +85,46 @@ describe('buildFlagSettings — a style is active', () => {
   });
 });
 
+describe('buildFlagSettings — auto-compact keys (TASK_2026_414)', () => {
+  it('returns the shared constant when the auto-compact control has no opinion', () => {
+    expect(buildFlagSettings(undefined, {})).toBe(PTAH_DISABLE_SDK_AUTO_MEMORY);
+  });
+
+  it('merges autoCompactEnabled false into a fresh object', () => {
+    const settings = buildFlagSettings(undefined, {
+      autoCompactEnabled: false,
+    });
+    expect(settings).toEqual({
+      autoMemoryEnabled: false,
+      autoDreamEnabled: false,
+      autoCompactEnabled: false,
+    });
+    expect(settings).not.toBe(PTAH_DISABLE_SDK_AUTO_MEMORY);
+  });
+
+  it('merges autoCompactWindow alongside an output style without mutating the constant', () => {
+    const snapshot = { ...PTAH_DISABLE_SDK_AUTO_MEMORY };
+    const settings = buildFlagSettings(
+      { outputStyleName: 'Explanatory' },
+      { autoCompactWindow: 400_000 },
+    );
+    expect(settings).toEqual({
+      autoMemoryEnabled: false,
+      autoDreamEnabled: false,
+      outputStyle: 'Explanatory',
+      autoCompactWindow: 400_000,
+    });
+    expect(PTAH_DISABLE_SDK_AUTO_MEMORY).toEqual(snapshot);
+  });
+
+  it('never emits an autoCompactEnabled key for the enabled default', () => {
+    const settings = buildFlagSettings(undefined, {
+      autoCompactWindow: 200_000,
+    }) as Record<string, unknown>;
+    expect('autoCompactEnabled' in settings).toBe(false);
+  });
+});
+
 describe('buildFlagSettings — no style is active (G4b)', () => {
   it.each([
     ['undefined sessionConfig', undefined],
@@ -112,6 +154,89 @@ describe('buildFlagSettings — no style is active (G4b)', () => {
 
   it('the shared constant is frozen, so an accidental mutation cannot silently succeed', () => {
     expect(Object.isFrozen(PTAH_DISABLE_SDK_AUTO_MEMORY)).toBe(true);
+  });
+});
+
+/**
+ * `buildFlagSettingsArg` is the ONE serializer of the flag tier. It exists
+ * because the installed `Settings` interface models no `crossSessionInbound`
+ * key, and `Options.settings?: string | Settings` makes the string form legal
+ * without a cast. It must not become a second object builder.
+ */
+describe('buildFlagSettingsArg', () => {
+  it('emits exactly the constant when there is no style and no inbound value', () => {
+    // Byte for byte. This is the no-regression contract for the flag tier.
+    expect(buildFlagSettingsArg()).toBe(
+      JSON.stringify(PTAH_DISABLE_SDK_AUTO_MEMORY),
+    );
+    expect(buildFlagSettingsArg({})).toBe(
+      JSON.stringify(PTAH_DISABLE_SDK_AUTO_MEMORY),
+    );
+  });
+
+  it('parses back to the object buildFlagSettings produced', () => {
+    const parsed: unknown = JSON.parse(
+      buildFlagSettingsArg({ outputStyleName: 'Explanatory' }),
+    );
+
+    expect(parsed).toEqual(
+      buildFlagSettings({ outputStyleName: 'Explanatory' }),
+    );
+  });
+
+  it('omits outputStyle when no style is active (G4b survives serialization)', () => {
+    const parsed = JSON.parse(
+      buildFlagSettingsArg(undefined, 'accept'),
+    ) as Record<string, unknown>;
+
+    expect('outputStyle' in parsed).toBe(false);
+  });
+
+  it.each(CROSS_SESSION_INBOUND_VALUES)('carries the %s value', (value) => {
+    const parsed = JSON.parse(buildFlagSettingsArg(undefined, value)) as Record<
+      string,
+      unknown
+    >;
+
+    expect(parsed['crossSessionInbound']).toBe(value);
+    expect(parsed['autoMemoryEnabled']).toBe(false);
+  });
+
+  it('omits an unrecognised inbound value and warns', () => {
+    // An unrecognised value is worse than none: the CLI would hold every
+    // inbound message even when a higher-precedence source says accept.
+    const warn = jest.fn();
+
+    const arg = buildFlagSettingsArg(undefined, 'Accept', { warn });
+
+    expect(arg).toBe(JSON.stringify(PTAH_DISABLE_SDK_AUTO_MEMORY));
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not warn when no inbound value was asked for', () => {
+    const warn = jest.fn();
+
+    buildFlagSettingsArg({ outputStyleName: 'Learning' }, undefined, { warn });
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('never mutates the shared constant while merging the inbound key', () => {
+    const snapshot = { ...PTAH_DISABLE_SDK_AUTO_MEMORY };
+
+    buildFlagSettingsArg(undefined, 'accept');
+
+    expect(PTAH_DISABLE_SDK_AUTO_MEMORY).toEqual(snapshot);
+    expect('crossSessionInbound' in PTAH_DISABLE_SDK_AUTO_MEMORY).toBe(false);
+  });
+
+  it('propagates the ambiguous-activation failure rather than swallowing it', () => {
+    expect(() =>
+      buildFlagSettingsArg({
+        outputStyleName: 'Explanatory',
+        outputStyleBody: 'Answer tersely.',
+      }),
+    ).toThrow(/ambiguous/i);
   });
 });
 
@@ -152,11 +277,22 @@ describe('assertSingleOutputStylePath', () => {
  * drift guard uses.
  */
 describe('build() wiring', () => {
-  it('passes options.settings through buildFlagSettings', () => {
+  it('passes options.settings through buildFlagSettingsArg', () => {
     expect(existsSync(BUILDER_PATH)).toBe(true);
     const source = readFileSync(BUILDER_PATH, 'utf8');
 
-    expect(source).toContain('settings: buildFlagSettings(sessionConfig)');
+    // `buildFlagSettingsArg` is the serializer, and it delegates the object
+    // build to `buildFlagSettings` — so the style still reaches the flag tier
+    // through exactly one builder. Auto-compaction keys ride the same call
+    // (TASK_2026_414), which is why `autoCompact` is an argument here and not
+    // a second settings object.
+    //
+    // Whitespace-collapsed because the call is formatted across lines; the
+    // argument ORDER is what this guard is pinning.
+    const normalized = source.replace(/\s+/g, ' ');
+    expect(normalized).toContain(
+      "settings: buildFlagSettingsArg( sessionConfig, 'accept', this.logger, autoCompact, ),",
+    );
     // The bare reference is what this task replaced. If it reappears on the
     // options object, the flag tier stops carrying the style.
     expect(source).not.toContain('settings: PTAH_DISABLE_SDK_AUTO_MEMORY');

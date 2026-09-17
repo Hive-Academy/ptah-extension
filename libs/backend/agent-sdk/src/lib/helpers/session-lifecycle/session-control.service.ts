@@ -89,7 +89,13 @@ export class SessionControl {
       // An interrupted turn may never emit the `result` that normally releases
       // the pump's turn claim. Release it here or the session's next follow-up
       // is held forever (TASK_2026_294).
-      this.registry.markTurnEnded(sessionId as string);
+      if (timedOut) {
+        // No turn identifier exists on SDK hooks. Retire this query rather than
+        // allowing late A hooks to acquire operation ownership during turn B.
+        this.retireInterruptedRecord(rec);
+      } else if (this.registry.find(sessionId as string) === rec) {
+        this.registry.markTurnEnded(sessionId as string);
+      }
       if (timedOut) {
         this.logger.warn(
           `[SessionLifecycle] Turn interrupt timed out (3s) for session: ${sessionId}`,
@@ -104,12 +110,35 @@ export class SessionControl {
       // degradation-audit: optional-capability - false is this method's
       // reported "interrupt did not take", the same value the 3s timeout
       // returns, and the turn claim is released above so the session lives on.
-      this.registry.markTurnEnded(sessionId as string);
+      this.retireInterruptedRecord(rec);
       this.logger.warn(
         `[SessionLifecycle] Turn interrupt failed for session ${sessionId}`,
         err instanceof Error ? err : new Error(String(err)),
       );
       return false;
+    }
+  }
+
+  /** Retire captured ownership without paying a second interrupt wait. */
+  private retireInterruptedRecord(rec: SessionRecord): void {
+    const current = this.registry.find(rec.tabId) === rec;
+    const id = rec.realSessionId ?? rec.tabId;
+    const attempt = (operation: () => void): void => {
+      try { operation(); } catch (error: unknown) {
+        this.logger.warn('[SessionLifecycle] Interrupted-query cleanup failed',
+          error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+    // Shared registries are session-keyed: never clean up a replacement's
+    // permissions or children. Its predecessor's controller is still ours.
+    if (current) {
+      attempt(() => this.permissionHandler.cleanupPendingPermissions(rec.tabId));
+      attempt(() => this.subagentRegistry.beginSessionTeardown(id));
+      attempt(() => this.subagentRegistry.markAllInterrupted(id));
+    }
+    try { rec.abortController.abort(); } finally {
+      if (this.registry.find(rec.tabId) === rec) this.registry.remove(rec);
+      if (current) attempt(() => this.subagentRegistry.endSessionTeardown(id));
     }
   }
 

@@ -36,6 +36,11 @@ export type StreamMessage = {
   result?: string;
   usage?: { input_tokens?: number; output_tokens?: number };
   total_cost_usd?: number;
+  /** Network evidence the runner's `QueryNetworkObserver` reads (C14 f). */
+  error?: unknown;
+  error_status?: number | null;
+  is_error?: boolean;
+  api_error_status?: number | null;
 };
 
 export function makeLogger(): Logger & {

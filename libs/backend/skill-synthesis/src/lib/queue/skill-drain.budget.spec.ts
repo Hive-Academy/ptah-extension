@@ -7,9 +7,9 @@
  *    starts over budget.
  *  - The PER-ITEM check, pinned here, handles a budget exhausted *during* the
  *    tick. Token-spending stages are left untouched — still `queued`, eligible
- *    next tick — while prefilter / embedding / clustering keep draining, because
- *    they cost nothing but local CPU. "Cheap stages continue after an expensive
- *    one exhausts the budget" is the requirement, and a single drain-level check
+ *    next tick — while embedding / clustering keep draining, because they cost
+ *    nothing but local CPU. "Cheap stages continue after an expensive one
+ *    exhausts the budget" is the requirement, and a single drain-level check
  *    cannot express it.
  *
  * Plus the ordering rule: from 80 % of the budget onward the eligible window is
@@ -17,15 +17,28 @@
  *
  * ## `trigger-eval` is on the SPENDING side of both rules (TASK_2026_253)
  *
- * This file's own header used to name it a fourth free stage. It is not: the
- * gate generates its probe set with one lane call per evaluation, and while it
- * sat outside `TOKEN_SPENDING_STAGES` the drain kept dispatching those rows past
+ * This file's own header used to name it a free stage. It is not: the gate
+ * generates its probe set with one lane call per evaluation, and while it sat
+ * outside `TOKEN_SPENDING_STAGES` the drain kept dispatching those rows past
  * `maxTokensPerDay` and, above 80 %, actively PREFERRED them over `judge`. Both
  * halves are pinned below, because a set-membership regression is otherwise
  * invisible — the tokens still reach the ledger, just too late to gate anything.
+ *
+ * ## So is `prefilter`, and the free list is now TWO stages (TASK_2026_356)
+ *
+ * The identical defect, found in the identical place, one task later — which is
+ * why the last describe block in this file stops pinning stages one at a time
+ * and pins the WHOLE classification instead. `prefilter` reaches a model
+ * (`runPrefilterStage` → `analyzeSession` → `SkillSynthesizerService.synthesize`
+ * → `LaneRunnerService.run`) and was measured at $0.077 on one boot, the single
+ * largest line of that boot's ~$0.19, while ranking `0` — cheapest of eleven —
+ * in `STAGE_COST_RANK`. Three tests in this file used it as their FREE stage on
+ * the strength of the old comment; they now use `embedding`, which is genuinely
+ * local, and their intent is unchanged.
  */
 import 'reflect-metadata';
 import { SkillDrainService, SKILL_DRAIN_KEYS } from './skill-drain.service';
+import { SKILL_QUEUE_STAGES } from './skill-queue.types';
 import type { SkillQueueRow, SkillQueueStage } from './skill-queue.types';
 import type { SkillBudgetStore } from './skill-budget.store';
 import type { SkillQueueStore } from './skill-queue.store';
@@ -134,7 +147,7 @@ describe('SkillDrainService — budget (R3)', () => {
     const queue = makeQueueOver({
       'D:/repo': [
         makeRow('expensive', 'archaeology', 'D:/repo'),
-        makeRow('cheap', 'prefilter', 'D:/repo'),
+        makeRow('cheap', 'embedding', 'D:/repo'),
       ],
     });
     // ONE item this tick, so `ran` observes the ORDER of the eligible window
@@ -145,7 +158,7 @@ describe('SkillDrainService — budget (R3)', () => {
       [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 1,
     });
     const ran: string[] = [];
-    for (const stage of ['archaeology', 'prefilter'] as const) {
+    for (const stage of ['archaeology', 'embedding'] as const) {
       drain.registerStageHandler(stage, async (ctx) => {
         ran.push(ctx.row.id);
         return { outcome: 'done' };
@@ -165,7 +178,7 @@ describe('SkillDrainService — budget (R3)', () => {
     const queue = makeQueueOver({
       'D:/repo': [
         makeRow('expensive', 'archaeology', 'D:/repo'),
-        makeRow('cheap', 'prefilter', 'D:/repo'),
+        makeRow('cheap', 'embedding', 'D:/repo'),
       ],
     });
     // Same single-item window as above, and for the same reason.
@@ -173,7 +186,7 @@ describe('SkillDrainService — budget (R3)', () => {
       [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 1,
     });
     const ran: string[] = [];
-    for (const stage of ['archaeology', 'prefilter'] as const) {
+    for (const stage of ['archaeology', 'embedding'] as const) {
       drain.registerStageHandler(stage, async (ctx) => {
         ran.push(ctx.row.id);
         return { outcome: 'done' };
@@ -192,7 +205,7 @@ describe('SkillDrainService — budget (R3)', () => {
   it('defers token-spending stages but keeps draining cheap ones once the budget runs out mid-tick', async () => {
     const queue = makeQueueOver({
       'D:/a': [makeRow('judge-1', 'judge', 'D:/a')],
-      'D:/b': [makeRow('prefilter-1', 'prefilter', 'D:/b')],
+      'D:/b': [makeRow('embedding-1', 'embedding', 'D:/b')],
       'D:/c': [makeRow('synthesis-1', 'synthesis', 'D:/c')],
     });
     const budget = makeBudget(0);
@@ -204,7 +217,7 @@ describe('SkillDrainService — budget (R3)', () => {
       budget.set(MAX_TOKENS); // the lane consumed the rest of the cap
       return { outcome: 'done' };
     });
-    for (const stage of ['prefilter', 'synthesis'] as const) {
+    for (const stage of ['embedding', 'synthesis'] as const) {
       drain.registerStageHandler(stage, async (ctx) => {
         ran.push(ctx.row.id);
         return { outcome: 'done' };
@@ -217,7 +230,7 @@ describe('SkillDrainService — budget (R3)', () => {
       onBattery: false,
     });
 
-    expect(ran).toEqual(['judge-1', 'prefilter-1']);
+    expect(ran).toEqual(['judge-1', 'embedding-1']);
     expect(summary).toMatchObject({
       claimed: 2,
       done: 2,
@@ -307,6 +320,95 @@ describe('SkillDrainService — budget (R3)', () => {
     });
 
     expect(ran).toEqual(['judge-1', 'trigger-eval-1', 'digest-1']);
+  });
+
+  /**
+   * TASK_2026_356's regression guard — the same shape, one stage over.
+   *
+   * `prefilter` drafts the candidate with a model, so it spends on every
+   * eligible session. While it sat outside `TOKEN_SPENDING_STAGES` this drain
+   * ran the row anyway: on the pre-fix table `TOKEN_SPENDING_STAGES.has(
+   * 'prefilter')` is `false`, the per-item check short-circuits, and the row is
+   * claimed and dispatched with the budget already at `MAX_TOKENS` — so `ran`
+   * comes back `['judge-1', 'prefilter-1']` and `budgetDeferred` is `0`. Both
+   * assertions below fail on that table and pass on this one.
+   */
+  it('defers a prefilter row once the budget is exhausted mid-tick', async () => {
+    const queue = makeQueueOver({
+      'D:/a': [makeRow('judge-1', 'judge', 'D:/a')],
+      'D:/b': [makeRow('prefilter-1', 'prefilter', 'D:/b')],
+    });
+    const budget = makeBudget(0);
+    const drain = makeDrainOver(queue.store, budget.store);
+    const ran: string[] = [];
+
+    drain.registerStageHandler('judge', async (ctx) => {
+      ran.push(ctx.row.id);
+      budget.set(MAX_TOKENS); // the lane consumed the rest of the cap
+      return { outcome: 'done' };
+    });
+    drain.registerStageHandler('prefilter', async (ctx) => {
+      ran.push(ctx.row.id);
+      return { outcome: 'done' };
+    });
+
+    const summary = await drain.drain({
+      tier: 'weekly',
+      signal: liveSignal(),
+      onBattery: false,
+    });
+
+    expect(ran).toEqual(['judge-1']);
+    expect(summary).toMatchObject({ budgetDeferred: 1, budgetExhausted: true });
+    // Deferred, not skipped: it stays queued and eligible next tick. The chain
+    // it produces — archaeology, judge-panel, trigger-eval — is therefore not
+    // minted either, which is the larger half of the saving.
+    expect(queue.tryClaim).not.toHaveBeenCalledWith(
+      'prefilter-1',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(queue.markSkipped).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The ordering half. `prefilter` ranked `0` — cheapest of all eleven stages —
+   * so the tail of the budget preferred the drafting call over everything it
+   * dwarfs. It now sits between `digest` and `synthesis`.
+   */
+  it('ranks prefilter after digest and before synthesis under cheap-first', async () => {
+    const queue = makeQueueOver({
+      'D:/repo': [
+        makeRow('synthesis-1', 'synthesis', 'D:/repo'),
+        makeRow('prefilter-1', 'prefilter', 'D:/repo'),
+        makeRow('judge-1', 'judge', 'D:/repo'),
+        makeRow('digest-1', 'digest', 'D:/repo'),
+      ],
+    });
+    const drain = makeDrainOver(queue.store, makeBudget(800_000).store, {
+      [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 4,
+      [SKILL_DRAIN_KEYS.perWorkspaceBatch]: 4,
+    });
+    const ran: string[] = [];
+    for (const stage of [
+      'synthesis',
+      'prefilter',
+      'judge',
+      'digest',
+    ] as const) {
+      drain.registerStageHandler(stage, async (ctx) => {
+        ran.push(ctx.row.id);
+        return { outcome: 'done' };
+      });
+    }
+
+    await drain.drain({
+      tier: 'weekly',
+      signal: liveSignal(),
+      onBattery: false,
+    });
+
+    expect(ran).toEqual(['judge-1', 'digest-1', 'prefilter-1', 'synthesis-1']);
   });
 
   it('treats maxTokensPerDay = 0 as unlimited for the per-item check too', async () => {
@@ -460,4 +562,159 @@ describe('SkillDrainService — stage outcomes', () => {
     expect(heartbeat).toBe(true);
     expect(queue.touchClaim).toHaveBeenCalledWith('item-1');
   });
+});
+
+/**
+ * The classification itself, pinned for EVERY stage rather than one at a time.
+ *
+ * TASK_2026_253 added `trigger-eval` to `TOKEN_SPENDING_STAGES` and TASK_2026_356
+ * added `prefilter`. Two tasks, one defect, and both were found by reading a
+ * cost log rather than by a failing test — because the omission is invisible
+ * from inside the subsystem. `LaneRunnerService` books the spend into
+ * `SkillBudgetStore` whichever side of the set the stage sits on, so the tokens
+ * always land in the ledger; the set decides only whether they were gated
+ * BEFORE they were spent. A stage left out therefore looks completely normal
+ * everywhere except the bill.
+ *
+ * These cases exist so a third omission fails here instead. They assert
+ * BEHAVIOUR, never set membership: `TOKEN_SPENDING_STAGES` is module-private
+ * and exporting it to test it would only prove the table equals itself.
+ *
+ * ## The two tables below are the classification, and they must stay total
+ *
+ * `LLM_REACHING_STAGES` — every stage whose work reaches a model. Call sites,
+ * read from source:
+ *
+ *  - `prefilter` — `stage-handlers.service.ts` `runPrefilterStage` →
+ *    `SkillSynthesisService.analyzeSession` →
+ *    `SkillSynthesizerService.synthesize` → `LaneRunnerService.run`.
+ *  - `archaeology` — `runArchaeologyStage` → `SessionArchaeologistService.analyze`,
+ *    one lane call per retrieval pass.
+ *  - `judge-panel` — `runJudgePanelStage` → `JudgePanelService.evaluate`, two
+ *    lane calls plus a possible escalation.
+ *  - `replay` — `runReplayStage` → `ReplayValidatorService`, which replays the
+ *    hold-out on a lane.
+ *  - `trigger-eval` — `runTriggerEvalStage` → `TriggerEvalService.evaluate` →
+ *    `generatePrompts`, one lane call for the probe set (TASK_2026_253).
+ *  - `synthesis`, `cluster-synthesis`, `judge`, `digest` — DECLARED in
+ *    `SKILL_QUEUE_STAGES` with no handler registered in
+ *    `registerStageHandlers` and no producer, so there is no call site to cite
+ *    and this file does not invent one. They are classified as spending because
+ *    that is the safe direction and because each names LLM work by definition:
+ *    a mis-classified spending stage costs real money, a mis-classified local
+ *    one costs a deferral until the next tick.
+ *
+ * `LOCAL_ONLY_STAGES` — `embedding` runs the local `IEmbedder`
+ * (`runEmbeddingStage` → `backfillEmbeddings`) and `clustering` is cosine
+ * arithmetic over the vectors it produced. Neither can reach an endpoint.
+ *
+ * The coverage case is the part that catches the NEXT stage rather than the
+ * last one: a twelfth member of `SKILL_QUEUE_STAGES` belongs to neither table,
+ * so it fails here until somebody classifies it deliberately.
+ */
+const LLM_REACHING_STAGES: readonly SkillQueueStage[] = [
+  'prefilter',
+  'archaeology',
+  'synthesis',
+  'cluster-synthesis',
+  'judge',
+  'judge-panel',
+  'replay',
+  'trigger-eval',
+  'digest',
+];
+
+const LOCAL_ONLY_STAGES: readonly SkillQueueStage[] = [
+  'embedding',
+  'clustering',
+];
+
+describe('SkillDrainService — every LLM-reaching stage is budget-gated', () => {
+  it('classifies every declared stage exactly once', () => {
+    expect([...LLM_REACHING_STAGES, ...LOCAL_ONLY_STAGES].sort()).toEqual(
+      [...SKILL_QUEUE_STAGES].sort(),
+    );
+    for (const stage of LOCAL_ONLY_STAGES) {
+      expect(LLM_REACHING_STAGES).not.toContain(stage);
+    }
+  });
+
+  /**
+   * The budget is exhausted by the `judge` row the drain runs FIRST, so this
+   * exercises the per-item check mid-tick — the same path the two regression
+   * cases above pin, applied to the whole table.
+   */
+  it.each(LLM_REACHING_STAGES.filter((stage) => stage !== 'judge'))(
+    'defers a %s row once the budget is exhausted mid-tick',
+    async (stage) => {
+      const queue = makeQueueOver({
+        'D:/a': [makeRow('judge-1', 'judge', 'D:/a')],
+        'D:/b': [makeRow('subject', stage, 'D:/b')],
+      });
+      const budget = makeBudget(0);
+      const drain = makeDrainOver(queue.store, budget.store);
+      const ran: string[] = [];
+
+      drain.registerStageHandler('judge', async (ctx) => {
+        ran.push(ctx.row.id);
+        budget.set(MAX_TOKENS);
+        return { outcome: 'done' };
+      });
+      drain.registerStageHandler(stage, async (ctx) => {
+        ran.push(ctx.row.id);
+        return { outcome: 'done' };
+      });
+
+      // `weekly` is the superset tier, so no case is decided by
+      // `DRAIN_TIER_STAGES` instead of by the budget.
+      const summary = await drain.drain({
+        tier: 'weekly',
+        signal: liveSignal(),
+        onBattery: false,
+      });
+
+      expect(ran).toEqual(['judge-1']);
+      expect(summary).toMatchObject({
+        budgetDeferred: 1,
+        budgetExhausted: true,
+      });
+      expect(queue.tryClaim).not.toHaveBeenCalledWith(
+        'subject',
+        expect.anything(),
+        expect.anything(),
+      );
+    },
+  );
+
+  it.each(LOCAL_ONLY_STAGES)(
+    'keeps draining a %s row after the budget is exhausted',
+    async (stage) => {
+      const queue = makeQueueOver({
+        'D:/a': [makeRow('judge-1', 'judge', 'D:/a')],
+        'D:/b': [makeRow('subject', stage, 'D:/b')],
+      });
+      const budget = makeBudget(0);
+      const drain = makeDrainOver(queue.store, budget.store);
+      const ran: string[] = [];
+
+      drain.registerStageHandler('judge', async (ctx) => {
+        ran.push(ctx.row.id);
+        budget.set(MAX_TOKENS);
+        return { outcome: 'done' };
+      });
+      drain.registerStageHandler(stage, async (ctx) => {
+        ran.push(ctx.row.id);
+        return { outcome: 'done' };
+      });
+
+      const summary = await drain.drain({
+        tier: 'weekly',
+        signal: liveSignal(),
+        onBattery: false,
+      });
+
+      expect(ran).toEqual(['judge-1', 'subject']);
+      expect(summary).toMatchObject({ budgetDeferred: 0, done: 2 });
+    },
+  );
 });

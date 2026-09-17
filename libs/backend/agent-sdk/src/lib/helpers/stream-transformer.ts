@@ -17,6 +17,7 @@ import {
   FlatStreamEventUnion,
   MessageTokenUsage,
   calculateMessageCost,
+  getDiscoveredContextWindow,
   getModelContextWindow,
   AuthEnv,
   isDirectAnthropic,
@@ -31,6 +32,7 @@ import {
   isSystemInit,
   isStreamEvent,
   isMessageStart,
+  isMessageDelta,
   isCompactBoundary,
   isLocalCommandOutput,
   isTaskStarted,
@@ -54,6 +56,32 @@ export type SessionIdResolvedCallback = (
 ) => void;
 
 /**
+ * The context window to publish for one model of a `result` message.
+ *
+ * Precedence, and the reason for each step:
+ * 1. On a PROXY, a window provider discovery reported for this EXACT id. The
+ *    CLI cannot know a non-Claude model's window and reports its generic
+ *    200000 fallback, so the provider's own answer outranks it. Exact only —
+ *    a fuzzy table match is not the provider answering (PR #493 review C).
+ * 2. The SDK's own value, authoritative on direct Anthropic (`[1m]` and
+ *    similar) and the best available on a proxy with nothing discovered.
+ * 3. The general lookup (discovered → bundled table → Claude family regex),
+ *    for the case where the SDK reported nothing at all.
+ */
+function resolveResultContextWindow(params: {
+  readonly isDirect: boolean;
+  readonly discoveredContextWindow: number;
+  readonly sdkContextWindow: number;
+  readonly knownContextWindow: number;
+}): number {
+  if (!params.isDirect && params.discoveredContextWindow > 0) {
+    return params.discoveredContextWindow;
+  }
+  if (params.sdkContextWindow > 0) return params.sdkContextWindow;
+  return params.knownContextWindow;
+}
+
+/**
  * Model usage data from SDK result message
  * Contains context window size for percentage calculation
  */
@@ -71,10 +99,15 @@ export interface ResultModelUsage {
   /** Cache read input tokens for this model (cumulative across all turns) */
   cacheReadInputTokens: number;
   /**
-   * Current context fill from the last API turn (input + cache_read tokens).
-   * Unlike the cumulative inputTokens/cacheReadInputTokens, this represents
-   * the actual prompt size sent on the most recent turn — i.e., the real
-   * context window fill level. Undefined if no message_start was captured.
+   * Current context fill from the last API turn (input + cache_read +
+   * cache_creation tokens). Unlike the cumulative
+   * inputTokens/cacheReadInputTokens, this represents the actual prompt size
+   * sent on the most recent turn — i.e., the real context window fill level.
+   * Written from `message_start` usage and replaced by the final
+   * `message_delta` usage when the delta carries input/cache numbers (proxied
+   * providers send only synthetic zeros in `message_start` and the real
+   * numbers in the delta). Excludes cumulative output. Undefined if no usage
+   * was captured for the model.
    */
   lastTurnContextTokens?: number;
 }
@@ -255,7 +288,25 @@ export class StreamTransformer {
       activityWatchdog,
     } = config;
     const logger = this.logger;
-    const messageTransformer = this.messageTransformer;
+    // ONE transformer per stream, never the DI singleton (TASK_2026_370).
+    //
+    // `SdkMessageTransformer` keys its streaming bookkeeping on
+    // `parent_tool_use_id || ''` — a context, with no session dimension — and is
+    // registered `Lifecycle.Singleton`. Every root assistant turn of every
+    // session therefore wrote the same `''` slot: with two chat sessions live,
+    // session A's `content_block_start` resolved to session B's message id (so
+    // A's text landed on B's bubble), `onMessageDelta` attributed A's token
+    // usage to B's message, and a compact boundary in either session called
+    // `clearStreamingState()` on the maps of BOTH.
+    //
+    // `createIsolated()` is the mechanism that already existed for exactly this;
+    // `HarnessStreamBroadcaster` and the Ptah-CLI stream loop each take one per
+    // stream, and the interactive chat path was the one caller that did not.
+    // `transform()` is called once per session stream, so this is the per-stream
+    // seam. The shared collaborators (`usageTracker`, `turnState`,
+    // `sessionLifecycle`) are passed through by `createIsolated` and stay
+    // shared — they are keyed by session id already.
+    const messageTransformer = this.messageTransformer.createIsolated();
     const authEnv = this.authEnv;
     const modelResolver = this.modelResolver;
     const pricingProvider = this.pricingProvider;
@@ -266,7 +317,19 @@ export class StreamTransformer {
         let sdkMessageCount = 0;
         let yieldedEventCount = 0;
         let effectiveSessionId = sessionId;
-        const lastTurnContextByModel = new Map<string, number>();
+        // Per-component last-turn context, keyed by model. message_start
+        // REPLACES all three components; the final message_delta REPLACES only
+        // the components it carries (`??` skips null/undefined only, so an
+        // explicit 0 is a real reading and an absent field keeps the last
+        // known value). Components are stored separately so an output-only
+        // delta — the direct Anthropic shape — cannot zero input/cache.
+        const lastTurnContextByModel = new Map<
+          string,
+          { input: number; cacheRead: number; cacheCreation: number }
+        >();
+        // message_delta carries no model, so the tracker remembers the model
+        // of the message_start it belongs to.
+        let currentStreamModel: string | null = null;
         let loggedEagerMcpTools = false;
 
         // Arm the no-activity watchdog before consuming the stream. It fires
@@ -278,7 +341,7 @@ export class StreamTransformer {
           for await (const sdkMessage of sdkQuery) {
             // Any stream activity — message, partial/streaming delta, tool_use,
             // tool_result, thinking — resets the inactivity window.
-            activityWatchdog?.kick();
+            activityWatchdog?.observe(sdkMessage);
             sdkMessageCount++;
 
             if (isStreamEvent(sdkMessage)) {
@@ -286,13 +349,45 @@ export class StreamTransformer {
               if (isMessageStart(event)) {
                 const model = event.message.model;
                 const turnUsage = event.message.usage;
+                currentStreamModel = model ?? null;
                 if (model && turnUsage) {
-                  lastTurnContextByModel.set(
-                    model,
-                    (turnUsage.input_tokens ?? 0) +
-                      (turnUsage.cache_read_input_tokens ?? 0) +
-                      (turnUsage.cache_creation_input_tokens ?? 0),
-                  );
+                  lastTurnContextByModel.set(model, {
+                    input: turnUsage.input_tokens ?? 0,
+                    cacheRead: turnUsage.cache_read_input_tokens ?? 0,
+                    cacheCreation: turnUsage.cache_creation_input_tokens ?? 0,
+                  });
+                }
+              } else if (isMessageDelta(event)) {
+                // Proxied providers (Codex/OpenRouter via the responses
+                // translation proxy) emit message_start with synthetic zero
+                // usage and the real input/cache numbers ONLY in the final
+                // message_delta. Read them here so the context gauge tracks
+                // the real prompt size. `MessageDeltaEvent.usage` is typed
+                // output-only because direct Anthropic deltas normally are,
+                // so read the optional input/cache fields through the same
+                // widened structural cast as
+                // stream-event.transformer's onMessageDelta.
+                const model = currentStreamModel;
+                const previous = model
+                  ? lastTurnContextByModel.get(model)
+                  : undefined;
+                const usage = (
+                  event as {
+                    usage?: {
+                      input_tokens?: number;
+                      cache_read_input_tokens?: number;
+                      cache_creation_input_tokens?: number;
+                    };
+                  }
+                ).usage;
+                if (model && previous && usage) {
+                  lastTurnContextByModel.set(model, {
+                    input: usage.input_tokens ?? previous.input,
+                    cacheRead: usage.cache_read_input_tokens ?? previous.cacheRead,
+                    cacheCreation:
+                      usage.cache_creation_input_tokens ??
+                      previous.cacheCreation,
+                  });
                 }
               }
             }
@@ -383,18 +478,37 @@ export class StreamTransformer {
                     }
                     const knownContextWindow =
                       getModelContextWindow(resolvedModel);
+                    const trackedContext = lastTurnContextByModel.get(model);
+                    // On a proxy the CLI cannot know a non-Claude model's
+                    // window and reports its generic 200000 fallback, so a
+                    // window the PROVIDER ITSELF reported for this exact id
+                    // wins there. It must be the EXACT discovered value, never
+                    // `getModelContextWindow`: that falls through to the
+                    // bundled pricing table's partial matching, so an
+                    // undiscovered `gpt-4o-ultra` resolved to `gpt-4o`'s
+                    // 128000 and overrode the SDK for a model nobody
+                    // registered (PR #493 review C). Direct Anthropic keeps
+                    // the SDK value, authoritative for `[1m]` and similar.
+                    const discoveredContextWindow =
+                      getDiscoveredContextWindow(resolvedModel);
+                    const contextWindow = resolveResultContextWindow({
+                      isDirect,
+                      discoveredContextWindow,
+                      sdkContextWindow: usage.contextWindow,
+                      knownContextWindow,
+                    });
                     modelUsageList.push({
                       model: resolvedModel,
                       inputTokens: usage.inputTokens,
                       outputTokens: usage.outputTokens,
-                      contextWindow:
-                        usage.contextWindow > 0
-                          ? usage.contextWindow
-                          : knownContextWindow,
+                      contextWindow,
                       costUSD,
                       cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
-                      lastTurnContextTokens:
-                        lastTurnContextByModel.get(model) ?? undefined,
+                      lastTurnContextTokens: trackedContext
+                        ? trackedContext.input +
+                          trackedContext.cacheRead +
+                          trackedContext.cacheCreation
+                        : undefined,
                     });
                   }
                   if (modelUsageList.length > 1) {

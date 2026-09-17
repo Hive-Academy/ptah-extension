@@ -42,12 +42,14 @@ import type {
   CliOutputSegment,
 } from '@ptah-extension/shared';
 import type {
+  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapter.interface';
 import {
   stripAnsiCodes,
   buildTaskPrompt,
@@ -142,6 +144,7 @@ const COPILOT_NOT_INSTALLED_MESSAGE =
 export class CopilotSdkAdapter implements CliAdapter {
   readonly name = 'copilot' as const;
   readonly displayName = 'Copilot CLI';
+  readonly roleChannel = 'task-prompt' as const;
   /**
    * The Copilot CLI supports MCP via `--additional-mcp-config` JSON. This
    * adapter wires the Ptah MCP server when `mcpPort` is provided in options.
@@ -178,7 +181,11 @@ export class CopilotSdkAdapter implements CliAdapter {
     try {
       const binaryPath = await resolveCliPath('copilot');
       if (!binaryPath) {
-        return { cli: 'copilot', installed: false, supportsSteer: false };
+        return {
+          cli: 'copilot',
+          installed: false,
+          messagingMode: bestMessagingCapability(this.capabilities()),
+        };
       }
       const version = await probeCliVersion(
         binaryPath,
@@ -192,19 +199,24 @@ export class CopilotSdkAdapter implements CliAdapter {
         installed: true,
         path: binaryPath,
         version,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     } catch {
       return {
         cli: 'copilot',
         installed: false,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     }
   }
 
-  supportsSteer(): boolean {
-    return false;
+  /**
+   * A fresh process per turn: there is no live run to steer and no run-scoped
+   * abort that keeps the agent addressable. `continue` resumes the captured
+   * session, so a message is delivered as the next full turn.
+   */
+  capabilities(): AgentMessagingCapabilities {
+    return { steer: false, interrupt: false, continuation: true };
   }
 
   parseOutput(raw: string): string {
@@ -326,7 +338,11 @@ export class CopilotSdkAdapter implements CliAdapter {
               // Scoped to the spawn's working directory so the server
               // attributes this agent's calls to the right workspace
               // (TASK_2026_364).
-              url: ptahMcpServerUrl(options.mcpPort, options.workingDirectory),
+              url: ptahMcpServerUrl(
+                options.mcpPort,
+                options.workingDirectory,
+                options.agentId,
+              ),
             },
           },
         });
@@ -441,7 +457,10 @@ export class CopilotSdkAdapter implements CliAdapter {
       });
     };
 
-    const done = runTurn(buildTaskPrompt(options), options.resumeSessionId);
+    const done = runTurn(
+      buildTaskPrompt(options, this.name),
+      options.resumeSessionId,
+    );
 
     return {
       abort: abortController,

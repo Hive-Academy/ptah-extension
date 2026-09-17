@@ -40,6 +40,66 @@ function createFakeEventGenerator(
   return gen;
 }
 
+/**
+ * Fake event source that yields its events and then NEVER ends — the shape
+ * `codex exec` has on Windows when a long-lived child keeps its stdout open
+ * after the final event. Records whether the consumer closed it early, which
+ * is what runs the real SDK's `finally` (readline close + child kill).
+ */
+function createNeverEndingEventSource(events: FakeCodexEvent[]): {
+  events: AsyncGenerator<FakeCodexEvent>;
+  wasReturned: () => boolean;
+} {
+  let index = 0;
+  let returned = false;
+  const gen: AsyncGenerator<FakeCodexEvent> = {
+    [Symbol.asyncIterator]() {
+      return gen;
+    },
+    next(): Promise<IteratorResult<FakeCodexEvent>> {
+      if (!returned && index < events.length) {
+        return Promise.resolve({ done: false, value: events[index++] });
+      }
+      return new Promise<never>(() => {
+        /* stdout never closes */
+      });
+    },
+    async return(): Promise<IteratorResult<FakeCodexEvent>> {
+      returned = true;
+      return { done: true, value: undefined as never };
+    },
+    async throw(err: Error): Promise<IteratorResult<FakeCodexEvent>> {
+      throw err;
+    },
+    [Symbol.asyncDispose](): PromiseLike<void> {
+      return Promise.resolve();
+    },
+  };
+  return { events: gen, wasReturned: () => returned };
+}
+
+/**
+ * Resolve with the promise's value, or with `'still-running'` if it has not
+ * settled within `ms`. Keeps a regression a clear assertion failure instead of
+ * a Jest timeout, and clears its timer so no handle outlives the test.
+ */
+async function settleWithin<T>(
+  promise: Promise<T>,
+  ms = 1000,
+): Promise<T | 'still-running'> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<'still-running'>((resolve) => {
+        timer = setTimeout(() => resolve('still-running'), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Minimal event types matching CodexThreadEvent from the adapter */
 type FakeCodexEvent =
   | { type: 'thread.started'; thread_id: string }
@@ -134,6 +194,12 @@ jest.mock('fs', () => {
 import path from 'path';
 import { CodexCliAdapter, commandToolLabel } from './codex-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
+import type { AgentRoleDefinition } from '@ptah-extension/shared';
+import {
+  buildTaskPrompt,
+  CliCommandLineTooLongError,
+  renderRoleBlock,
+} from './cli-adapter.utils';
 
 describe('CodexCliAdapter', () => {
   let adapter: CodexCliAdapter;
@@ -176,7 +242,7 @@ describe('CodexCliAdapter', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/codex');
       expect(result.version).toBe('1.2.3');
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('queue');
     });
 
     it('should return installed: false when codex binary is not found', async () => {
@@ -186,14 +252,18 @@ describe('CodexCliAdapter', () => {
 
       expect(result.cli).toBe('codex');
       expect(result.installed).toBe(false);
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('queue');
       expect(mockProbeCliVersion).not.toHaveBeenCalled();
     });
   });
 
-  describe('supportsSteer()', () => {
-    it('should return false', () => {
-      expect(adapter.supportsSteer()).toBe(false);
+  describe('capabilities()', () => {
+    it('reports continuation only', () => {
+      expect(adapter.capabilities()).toEqual({
+        steer: false,
+        interrupt: false,
+        continuation: true,
+      });
     });
   });
 
@@ -782,6 +852,106 @@ describe('CodexCliAdapter', () => {
     });
   });
 
+  // `codex exec` on Windows can keep stdout open long after its final event
+  // (a lingering powershell.exe child), so the SDK iterator never ends. A turn
+  // must finish on its terminal EVENT, and close the stream so the SDK kills
+  // the child — not wait for an end that may take an hour.
+  describe('terminal turn events on a stream that never ends', () => {
+    const defaultOptions = {
+      task: 'Implement feature X',
+      workingDirectory: '/project/root',
+    };
+    const usage = {
+      input_tokens: 10,
+      cached_input_tokens: 0,
+      output_tokens: 5,
+    };
+
+    it('resolves done with 0 after turn.completed and closes the stream', async () => {
+      const source = createNeverEndingEventSource([
+        { type: 'thread.started', thread_id: 'thread-1' },
+        {
+          type: 'item.completed',
+          item: { type: 'agent_message', id: 'm1', text: 'Final report' },
+        },
+        { type: 'turn.completed', usage },
+      ]);
+      mockRunStreamed.mockResolvedValue({ events: source.events });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      const output: string[] = [];
+      handle.onOutput((data: string) => output.push(data));
+
+      expect(await settleWithin(handle.done)).toBe(0);
+      expect(source.wasReturned()).toBe(true);
+      expect(output.join('')).toContain('[Usage: 10 input, 5 output tokens]');
+      expect(handle.getSessionId?.()).toBe('thread-1');
+    });
+
+    it('resolves done with 1 after turn.failed and closes the stream', async () => {
+      const source = createNeverEndingEventSource([
+        { type: 'turn.failed', error: { message: 'rate limited' } },
+      ]);
+      mockRunStreamed.mockResolvedValue({ events: source.events });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      const output: string[] = [];
+      handle.onOutput((data: string) => output.push(data));
+
+      expect(await settleWithin(handle.done)).toBe(1);
+      expect(source.wasReturned()).toBe(true);
+      expect(output).toContain('[Turn Failed] rate limited\n');
+    });
+
+    it('does not treat a stream error event as the end of the turn', async () => {
+      const source = createNeverEndingEventSource([
+        { type: 'error', message: 'Reconnecting... 1/5' },
+      ]);
+      mockRunStreamed.mockResolvedValue({ events: source.events });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+
+      expect(await settleWithin(handle.done, 50)).toBe('still-running');
+      expect(source.wasReturned()).toBe(false);
+    });
+
+    it('runs a continuation after an early return, on the same thread', async () => {
+      const first = createNeverEndingEventSource([
+        { type: 'turn.completed', usage },
+      ]);
+      const second = createNeverEndingEventSource([
+        {
+          type: 'item.completed',
+          item: { type: 'agent_message', id: 'm2', text: 'Second turn' },
+        },
+        { type: 'turn.completed', usage },
+      ]);
+      mockRunStreamed
+        .mockResolvedValueOnce({ events: first.events })
+        .mockResolvedValueOnce({ events: second.events });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      const output: string[] = [];
+      handle.onOutput((data: string) => output.push(data));
+
+      expect(await settleWithin(handle.done)).toBe(0);
+      expect(first.wasReturned()).toBe(true);
+
+      const outcome = await handle.continue?.('Follow-up message');
+      expect(outcome).toBeDefined();
+      expect(await settleWithin(outcome?.done ?? Promise.resolve(-1))).toBe(0);
+
+      expect(second.wasReturned()).toBe(true);
+      expect(mockStartThread).toHaveBeenCalledTimes(1);
+      expect(mockRunStreamed).toHaveBeenCalledTimes(2);
+      expect(mockRunStreamed.mock.calls[1][0]).toBe('Follow-up message');
+      expect(output).toContain('Second turn\n');
+    });
+  });
+
   // `@openai/codex-<platform>` >= 0.147 ships its native binary at
   // `vendor/<triple>/bin/`; earlier releases used `vendor/<triple>/codex/`.
   // The resolver must probe both, newest layout first, at every candidate root
@@ -956,6 +1126,116 @@ describe('CodexCliAdapter', () => {
     });
   });
 
+  describe('role delivery (developer-instructions)', () => {
+    const role: AgentRoleDefinition = {
+      name: 'reviewer',
+      body: 'Review the diff before approving.',
+      sourcePath: '/project/.claude/agents/reviewer.md',
+      bytes: 33,
+    };
+    const baseOptions = {
+      task: 'Review the change',
+      workingDirectory: '/project',
+      model: 'gpt-5.4',
+      reasoningEffort: 'high',
+      mcpPort: 51820,
+    };
+
+    function setupMockEvents(): void {
+      mockRunStreamed.mockResolvedValue({
+        events: createFakeEventGenerator([]),
+      });
+    }
+
+    function constructorConfig(call = 0): Record<string, unknown> {
+      return (
+        mockCodexConstructor.mock.calls[call][0] as {
+          config: Record<string, unknown>;
+        }
+      ).config;
+    }
+
+    it('declares the developer-instructions channel', () => {
+      expect(adapter.roleChannel).toBe('developer-instructions');
+    });
+
+    it('puts the role block in developer_instructions and keeps it out of the thread input', async () => {
+      setupMockEvents();
+
+      const handle = await adapter.runSdk({ ...baseOptions, role });
+      await handle.done;
+
+      expect(constructorConfig()['developer_instructions']).toBe(
+        renderRoleBlock(role, 'codex'),
+      );
+      const input = mockRunStreamed.mock.calls[0][0] as string;
+      expect(input).not.toContain('## Role: reviewer');
+      expect(input).toBe(buildTaskPrompt({ ...baseOptions, role: undefined }));
+    });
+
+    it('keeps a leading --- block of the role body in developer_instructions', async () => {
+      setupMockEvents();
+      const blockRole = {
+        ...role,
+        body: '---\nkeep: this block\n---\nThe real instructions.',
+      };
+
+      await adapter.runSdk({ ...baseOptions, role: blockRole });
+
+      expect(constructorConfig()['developer_instructions']).toContain(
+        '---\nkeep: this block\n---\nThe real instructions.',
+      );
+    });
+
+    it('does not re-send the role on a continuation turn', async () => {
+      setupMockEvents();
+      const handle = await adapter.runSdk({ ...baseOptions, role });
+      await handle.done;
+
+      const outcome = await handle.continue?.('Follow-up');
+      await outcome?.done;
+
+      expect(mockCodexConstructor).toHaveBeenCalledTimes(1);
+      expect(mockRunStreamed.mock.calls[1][0]).toBe('Follow-up');
+    });
+
+    it('leaves the role-less config without developer_instructions', async () => {
+      setupMockEvents();
+
+      await adapter.runSdk(baseOptions);
+
+      expect(constructorConfig()).not.toHaveProperty('developer_instructions');
+    });
+
+    it('rejects an oversized role before the Codex client is constructed', async () => {
+      setupMockEvents();
+      const hugeBody = 'x'.repeat(1_100_000);
+
+      await expect(
+        adapter.runSdk({
+          ...baseOptions,
+          role: { ...role, body: hugeBody, bytes: hugeBody.length },
+        }),
+      ).rejects.toBeInstanceOf(CliCommandLineTooLongError);
+      expect(mockCodexConstructor).not.toHaveBeenCalled();
+      expect(mockStartThread).not.toHaveBeenCalled();
+    });
+
+    it('does not change sandbox, approval, model or effort when a role is set', async () => {
+      setupMockEvents();
+
+      await adapter.runSdk(baseOptions);
+      await adapter.runSdk({ ...baseOptions, role });
+
+      expect(mockStartThread.mock.calls[1][0]).toEqual(
+        mockStartThread.mock.calls[0][0],
+      );
+      const withRole = { ...constructorConfig(1) };
+      delete withRole['developer_instructions'];
+      expect(withRole).toEqual(constructorConfig(0));
+    });
+  });
+
   describe('Ptah MCP server wiring', () => {
     function setupMockEvents(events: FakeCodexEvent[]): void {
       mockRunStreamed.mockResolvedValue({
@@ -983,6 +1263,26 @@ describe('CodexCliAdapter', () => {
       // search — which the model has no reason to do, so it uses the shell.
       expect(config.features).toEqual({
         tool_search_always_defer_mcp_tools: false,
+      });
+    });
+
+    it('leads the MCP URL with /agent/{id} when one was reserved', async () => {
+      setupMockEvents([]);
+
+      await adapter.runSdk({
+        task: 'Task',
+        workingDirectory: '/project',
+        mcpPort: 51820,
+        agentId: 'agent-7',
+      });
+
+      // The agent segment is how the server learns WHICH spawn is calling
+      // (TASK_2026_402) — the child never names itself.
+      const config = mockCodexConstructor.mock.calls[0][0].config;
+      expect(config.mcp_servers).toEqual({
+        ptah: {
+          url: 'http://localhost:51820/agent/agent-7/workspace/%2Fproject',
+        },
       });
     });
 

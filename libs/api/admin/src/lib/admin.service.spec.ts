@@ -13,6 +13,7 @@ import { AdminService, DeleteUserActor } from './admin.service';
 import { DeleteUserDto } from './dto/delete-user.dto';
 import { ListQueryDto } from './admin.dto';
 import { ADMIN_MODELS } from './admin-models.config';
+import { WAITLIST_STAGE_PREDICATES } from './waitlist-query';
 
 /**
  * Unit tests for `AdminService.deleteUserCascade` (TASK_2025_292 T-B2-05).
@@ -395,10 +396,11 @@ describe('AdminService.getStats', () => {
 
   function build(counts: {
     total: number;
-    notified: number;
-    /** TASK_2026_201 R4.5 — free founding grants (`approvedAt` non-null). */
+    newCount?: number;
+    invited?: number;
     approved: number;
     converted: number;
+    notified: number;
     last7Days: number;
     builders: number;
     community: number;
@@ -417,17 +419,25 @@ describe('AdminService.getStats', () => {
         .fn()
         .mockImplementation((arg: Promise<unknown>[]) => Promise.all(arg)),
     };
-    // Call order matches getStats(): total, notified, approved, converted,
-    // last7Days. ⚠️ `approved` sits BETWEEN notified and converted, mirroring
-    // the funnel order in the service. These are positional `Once` mocks, so a
-    // stage inserted in the service without a matching insert here silently
-    // shifts every later count — which is why the assertions below check the
-    // `where` clauses too, not just the numbers.
+    // Call order matches getStats(): total, new, invited, approved, converted,
+    // notified, last7Days.
+    const newCount =
+      counts.newCount ??
+      Math.max(
+        0,
+        counts.total -
+          (counts.invited ?? 10) -
+          counts.approved -
+          counts.converted,
+      );
+    const invited = counts.invited ?? 10;
     prisma.waitlist.count
       .mockResolvedValueOnce(counts.total)
-      .mockResolvedValueOnce(counts.notified)
+      .mockResolvedValueOnce(newCount)
+      .mockResolvedValueOnce(invited)
       .mockResolvedValueOnce(counts.approved)
       .mockResolvedValueOnce(counts.converted)
+      .mockResolvedValueOnce(counts.notified)
       .mockResolvedValueOnce(counts.last7Days);
     // Then builders, community.
     prisma.license.count
@@ -454,11 +464,13 @@ describe('AdminService.getStats', () => {
   }
 
   it('returns the waitlist funnel + member counts with an ISO updatedAt', async () => {
-    const { service } = build({
+    const { service, prisma } = build({
       total: 42,
-      notified: 10,
+      newCount: 21,
+      invited: 10,
       approved: 8,
       converted: 3,
+      notified: 10,
       last7Days: 7,
       builders: 5,
       community: 100,
@@ -468,26 +480,30 @@ describe('AdminService.getStats', () => {
 
     expect(stats.waitlist).toEqual({
       total: 42,
-      notified: 10,
+      pending: 31,
+      new: 21,
+      invited: 10,
       approved: 8,
       converted: 3,
+      notified: 10,
       last7Days: 7,
     });
     expect(stats.members).toEqual({ builders: 5, community: 100 });
     expect(typeof stats.updatedAt).toBe('string');
     expect(new Date(stats.updatedAt).toISOString()).toBe(stats.updatedAt);
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Array), {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
   });
 
   it('counts the free-grant stage as ONE aggregate, disjoint from converted', async () => {
-    // TASK_2026_201 R4.5. Two properties, and the second is the reason the
-    // column exists: `approved` is its own `count` (not a scan, not derived
-    // from `converted`), and the two predicates address DIFFERENT columns —
-    // a free grant must never register as a paid conversion.
     const { service, prisma } = build({
       total: 100,
-      notified: 40,
+      newCount: 30,
+      invited: 33,
       approved: 30,
       converted: 7,
+      notified: 40,
       last7Days: 5,
       builders: 9,
       community: 60,
@@ -498,21 +514,32 @@ describe('AdminService.getStats', () => {
     expect(stats.waitlist.approved).toBe(30);
     expect(stats.waitlist.converted).toBe(7);
     expect(prisma.waitlist.count).toHaveBeenCalledWith({
-      where: { approvedAt: { not: null } },
+      where: WAITLIST_STAGE_PREDICATES.approved,
     });
     expect(prisma.waitlist.count).toHaveBeenCalledWith({
-      where: { convertedAt: { not: null } },
+      where: WAITLIST_STAGE_PREDICATES.converted,
     });
-    // One aggregate per stage — five waitlist counts, never one per row.
-    expect(prisma.waitlist.count).toHaveBeenCalledTimes(5);
+    expect(prisma.waitlist.count).toHaveBeenCalledWith({
+      where: WAITLIST_STAGE_PREDICATES.new,
+    });
+    expect(prisma.waitlist.count).toHaveBeenCalledWith({
+      where: WAITLIST_STAGE_PREDICATES.invited,
+    });
+    expect(prisma.waitlist.count).toHaveBeenCalledWith({
+      where: { notifiedAt: { not: null } },
+    });
+    // One aggregate per stage — seven waitlist counts, never one per row.
+    expect(prisma.waitlist.count).toHaveBeenCalledTimes(7);
   });
 
   it('surfaces the attention block from cheap count queries', async () => {
     const { service, prisma } = build({
       total: 40,
-      notified: 25,
+      newCount: 15,
+      invited: 8,
       approved: 12,
       converted: 5,
+      notified: 25,
       last7Days: 3,
       builders: 5,
       community: 100,
@@ -524,7 +551,7 @@ describe('AdminService.getStats', () => {
     const stats = await service.getStats();
 
     expect(stats.attention).toEqual({
-      waitlistUninvited: 15, // total 40 − notified 25
+      waitlistUninvited: 15, // newCount
       failedWebhooksUnresolved: 2,
       subscriptionsPastDue: 4,
       sessionRequestsPending: 6,
@@ -538,6 +565,94 @@ describe('AdminService.getStats', () => {
     expect(prisma.sessionRequest.count).toHaveBeenCalledWith({
       where: { status: 'pending' },
     });
+  });
+
+  it('satisfies stage invariants: pending === new + invited, stages sum to total, attention equals new', async () => {
+    const { service } = build({
+      total: 100,
+      newCount: 40,
+      invited: 20,
+      approved: 25,
+      converted: 15,
+      notified: 35,
+      last7Days: 10,
+      builders: 10,
+      community: 50,
+    });
+
+    const stats = await service.getStats();
+
+    expect(stats.waitlist.pending).toBe(
+      stats.waitlist.new + stats.waitlist.invited,
+    );
+    expect(
+      stats.waitlist.new +
+        stats.waitlist.invited +
+        stats.waitlist.approved +
+        stats.waitlist.converted,
+    ).toBe(stats.waitlist.total);
+    expect(stats.waitlist.notified).toBe(35);
+    expect(stats.attention.waitlistUninvited).toBe(stats.waitlist.new);
+  });
+
+  it.each([
+    {
+      name: 'approved rows that were never notified',
+      counts: {
+        total: 10,
+        newCount: 2,
+        invited: 1,
+        approved: 7,
+        converted: 0,
+        notified: 1,
+        last7Days: 0,
+        builders: 0,
+        community: 0,
+      },
+      expected: {
+        new: 2,
+        invited: 1,
+        approved: 7,
+        converted: 0,
+        pending: 3,
+        attention: 2,
+      },
+    },
+    {
+      name: 'converted rows excluded from the approved stage',
+      counts: {
+        total: 10,
+        newCount: 1,
+        invited: 2,
+        approved: 3,
+        converted: 4,
+        notified: 6,
+        last7Days: 0,
+        builders: 0,
+        community: 0,
+      },
+      expected: {
+        new: 1,
+        invited: 2,
+        approved: 3,
+        converted: 4,
+        pending: 3,
+        attention: 1,
+      },
+    },
+  ])('returns disjoint stats for $name', async ({ counts, expected }) => {
+    const { service } = build(counts);
+
+    const stats = await service.getStats();
+
+    expect(stats.waitlist).toMatchObject({
+      new: expected.new,
+      invited: expected.invited,
+      approved: expected.approved,
+      converted: expected.converted,
+      pending: expected.pending,
+    });
+    expect(stats.attention.waitlistUninvited).toBe(expected.attention);
   });
 
   it('includes per-group member counts from MemberGroupsService', async () => {

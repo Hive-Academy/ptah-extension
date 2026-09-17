@@ -110,7 +110,15 @@ jest.mock('fs/promises', () => ({
 
 import { AntigravityCliAdapter } from './antigravity-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
-import type { CliOutputSegment } from '@ptah-extension/shared';
+import type {
+  AgentRoleDefinition,
+  CliOutputSegment,
+} from '@ptah-extension/shared';
+import {
+  buildTaskPrompt,
+  CliCommandLineTooLongError,
+  renderRoleBlock,
+} from './cli-adapter.utils';
 
 /** Drain a handle's raw output + structured segments into arrays. */
 function collect(handle: SdkHandle): {
@@ -147,7 +155,7 @@ describe('AntigravityCliAdapter', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/agy');
       expect(result.version).toBe('agy 1.1.3');
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('none');
     });
 
     it('reports NOT installed when resolveCliPath returns null', async () => {
@@ -292,6 +300,101 @@ describe('AntigravityCliAdapter', () => {
 
       const [binaryArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
       expect(binaryArg).toBe('C:/agy/bin/agy.exe');
+    });
+  });
+
+  describe('runSdk() — role delivery (task-prompt)', () => {
+    const role: AgentRoleDefinition = {
+      name: 'reviewer',
+      body: 'Review the diff before approving.',
+      sourcePath: '/proj/.claude/agents/reviewer.md',
+      bytes: 33,
+    };
+    const baseOptions = {
+      task: 'Do the thing',
+      workingDirectory: '/proj',
+      projectGuidance: 'HARNESS CONTEXT',
+      model: 'Gemini 3.1 Pro (High)',
+      reasoningEffort: 'high',
+    };
+
+    function spyOnMcpWrite(): jest.SpyInstance {
+      return jest
+        .spyOn(
+          adapter as unknown as {
+            configureMcpServer: () => Promise<undefined>;
+          },
+          'configureMcpServer',
+        )
+        .mockResolvedValue(undefined);
+    }
+
+    it('declares the task-prompt channel', () => {
+      expect(adapter.roleChannel).toBe('task-prompt');
+    });
+
+    it('puts the role block in the --print value', async () => {
+      const handle = await adapter.runSdk({ ...baseOptions, role });
+      collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      expect(argsArg[argsArg.length - 2]).toBe('--print');
+      const prompt = argsArg[argsArg.length - 1];
+      expect(prompt).toBe(
+        buildTaskPrompt({ ...baseOptions, role }, 'antigravity'),
+      );
+      expect(prompt).toContain(renderRoleBlock(role, 'antigravity'));
+    });
+
+    it('rejects an oversized role before writing the MCP entry or spawning', async () => {
+      const mcpWrite = spyOnMcpWrite();
+      const hugeBody = 'x'.repeat(1_100_000);
+
+      await expect(
+        adapter.runSdk({
+          ...baseOptions,
+          mcpPort: 51820,
+          role: { ...role, body: hugeBody, bytes: hugeBody.length },
+        }),
+      ).rejects.toBeInstanceOf(CliCommandLineTooLongError);
+      expect(mcpWrite).not.toHaveBeenCalled();
+      expect(mockSpawnCli).not.toHaveBeenCalled();
+    });
+
+    it('still writes the MCP entry before spawning a role-carrying run', async () => {
+      const mcpWrite = spyOnMcpWrite();
+
+      const handle = await adapter.runSdk({
+        ...baseOptions,
+        mcpPort: 51820,
+        role,
+      });
+      collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(mcpWrite).toHaveBeenCalledTimes(1);
+      expect(mcpWrite.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSpawnCli.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('keeps every argument except the prompt identical when a role is set', async () => {
+      const first = await adapter.runSdk(baseOptions);
+      collect(first);
+      currentChild?.emitClose(0);
+      await first.done;
+
+      const second = await adapter.runSdk({ ...baseOptions, role });
+      collect(second);
+      currentChild?.emitClose(0);
+      await second.done;
+
+      const [, roleless] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      const [, withRole] = mockSpawnCli.mock.calls[1] as [string, string[]];
+      expect(withRole.slice(0, -1)).toEqual(roleless.slice(0, -1));
     });
   });
 
@@ -667,9 +770,13 @@ describe('AntigravityCliAdapter', () => {
     });
   });
 
-  describe('supportsSteer() / parseOutput()', () => {
-    it('reports supportsSteer() false', () => {
-      expect(adapter.supportsSteer()).toBe(false);
+  describe('capabilities() / parseOutput()', () => {
+    it('reports no messaging capability at all', () => {
+      expect(adapter.capabilities()).toEqual({
+        steer: false,
+        interrupt: false,
+        continuation: false,
+      });
     });
 
     it('strips ANSI escape codes', () => {

@@ -388,6 +388,7 @@ function trajectoryFixture(
     slug: 'do-thing',
     editCount: 2,
     toolUseCount: 4,
+    nonMcpToolUseCount: 4,
     bashTestPassed: false,
     charLength: 900,
     hasSuccessMarker: false,
@@ -453,6 +454,7 @@ describe('P2-2 — no eligibility decision reads hasSuccessMarker', () => {
       trajectoryFixture({
         editCount: 0,
         toolUseCount: 0,
+        nonMcpToolUseCount: 0,
         turnCount: 2,
         charLength: 10,
         bashTestPassed: false,

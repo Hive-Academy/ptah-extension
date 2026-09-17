@@ -15,16 +15,76 @@ import { z } from 'zod';
 import type {
   GitApplyHunksParams,
   GitDiffFileParams,
+  GitReviewChangesParams,
+  GitReviewFileParams,
 } from '@ptah-extension/shared';
+
+const WorkspaceRootSchema = z.string().min(1).max(4096);
+const hasNoControlCharacters = (value: string): boolean =>
+  [...value].every((character) => {
+    const code = character.charCodeAt(0);
+    return code > 0x1f && code !== 0x7f;
+  });
+const ReviewRefSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255)
+  .refine((value) => !value.startsWith('-') && hasNoControlCharacters(value));
+const ReviewShaSchema = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i);
+const RelativeGitPathSchema = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine(
+    (value) =>
+      !value.startsWith('/') &&
+      !/^[a-z]:[\\/]/i.test(value) &&
+      !value.split(/[\\/]/).some((part) => part === '..' || part === ''),
+  );
+
+export const GitReviewChangesParamsSchema = z
+  .object({
+    workspaceRoot: WorkspaceRootSchema.optional(),
+    base: ReviewRefSchema,
+    head: ReviewRefSchema,
+  })
+  .strict();
+
+export const GitReviewFileParamsSchema = z
+  .object({
+    workspaceRoot: WorkspaceRootSchema.optional(),
+    baseSha: ReviewShaSchema,
+    headSha: ReviewShaSchema,
+    path: RelativeGitPathSchema,
+    originalPath: RelativeGitPathSchema.optional(),
+  })
+  .strict();
+
+export function parseGitReviewChangesParams(
+  raw: unknown,
+): GitReviewChangesParams | null {
+  const result = GitReviewChangesParamsSchema.safeParse(raw);
+  return result.success ? result.data : null;
+}
+
+export function parseGitReviewFileParams(
+  raw: unknown,
+): GitReviewFileParams | null {
+  const result = GitReviewFileParamsSchema.safeParse(raw);
+  return result.success ? result.data : null;
+}
 
 export const GitDiffComparisonSchema = z.enum(['staged', 'worktree'] as const);
 
-export const GitDiffFileParamsSchema = z.object({
-  workspaceRoot: z.string().min(1).optional(),
-  path: z.string().min(1),
-  comparison: GitDiffComparisonSchema,
-  originalPath: z.string().min(1).optional(),
-});
+export const GitDiffFileParamsSchema = z
+  .object({
+    workspaceRoot: z.string().min(1).optional(),
+    path: z.string().min(1),
+    comparison: GitDiffComparisonSchema,
+    originalPath: z.string().min(1).optional(),
+  })
+  .strict();
 
 /**
  * Parse `git:diffFile` params.
@@ -56,15 +116,17 @@ export const GitApplyHunksOperationSchema = z.enum([
  * `git:diffFile` returns; accepting it would let a caller ask to write against
  * a snapshot that was never taken.
  */
-export const GitApplyHunksParamsSchema = z.object({
-  workspaceRoot: z.string().min(1).optional(),
-  path: z.string().min(1),
-  originalPath: z.string().min(1).optional(),
-  comparison: GitDiffComparisonSchema,
-  operation: GitApplyHunksOperationSchema,
-  hunkIndices: z.array(z.number().int().nonnegative()).min(1),
-  snapshotToken: z.string().min(1),
-});
+export const GitApplyHunksParamsSchema = z
+  .object({
+    workspaceRoot: z.string().min(1).optional(),
+    path: z.string().min(1),
+    originalPath: z.string().min(1).optional(),
+    comparison: GitDiffComparisonSchema,
+    operation: GitApplyHunksOperationSchema,
+    hunkIndices: z.array(z.number().int().nonnegative()).min(1),
+    snapshotToken: z.string().min(1),
+  })
+  .strict();
 
 /**
  * Parse `git:applyHunks` params.

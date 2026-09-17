@@ -552,6 +552,29 @@ function captureShutdownHandles(
     );
     coordinator.refs.agentProcessManager = null;
   }
+
+  // The watch host is a child process: `will-quit` must kill it through the
+  // instance consumers hold, never through a first resolve mid-teardown.
+  // Resolving forks nothing — the host starts on the first `watch`.
+  // Guarded unlike the two above: platform-electron registers WORKSPACE_WATCHER
+  // only when phase 0 passes `workspaceWatchHost`; the others always exist.
+  try {
+    coordinator.refs.workspaceWatcher = container.isRegistered(
+      PLATFORM_TOKENS.WORKSPACE_WATCHER,
+    )
+      ? container.resolve<{ dispose: () => void }>(
+          PLATFORM_TOKENS.WORKSPACE_WATCHER,
+        )
+      : null;
+  } catch (workspaceWatcherError: unknown) {
+    console.warn(
+      '[Ptah Electron] Workspace watcher eager resolve failed (non-fatal):',
+      workspaceWatcherError instanceof Error
+        ? workspaceWatcherError.message
+        : String(workspaceWatcherError),
+    );
+    coordinator.refs.workspaceWatcher = null;
+  }
 }
 
 /**

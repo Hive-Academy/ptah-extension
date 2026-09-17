@@ -31,7 +31,24 @@ import {
   ProviderSetModelTierSchema,
   ProviderGetModelTiersSchema,
   ProviderClearModelTierSchema,
+  ProviderGetAccountUsageSchema,
 } from './provider-rpc.schema';
+
+describe('ProviderGetAccountUsageSchema', () => {
+  it('accepts a Codex provider request with an optional refresh flag', () => {
+    expect(ProviderGetAccountUsageSchema.parse({
+      providerId: 'openai-codex', refresh: true,
+    })).toEqual({ providerId: 'openai-codex', refresh: true });
+  });
+
+  it.each([
+    [{ providerId: '' }],
+    [{ providerId: 'openai-codex', refresh: 'yes' }],
+    [{ providerId: 'openai-codex', extra: true }],
+  ])('rejects invalid or unknown fields in %p', (input) => {
+    expect(ProviderGetAccountUsageSchema.safeParse(input).success).toBe(false);
+  });
+});
 
 describe('ProviderListModelsSchema', () => {
   it('accepts an empty object (both fields optional)', () => {

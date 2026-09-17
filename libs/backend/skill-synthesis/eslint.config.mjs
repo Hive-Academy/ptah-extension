@@ -1,4 +1,5 @@
 import baseConfig, {
+  IN_MAIN_RECURSIVE_WATCH_SELECTORS,
   MESSAGE_LITERAL_SELECTORS,
 } from '../../../eslint.config.mjs';
 
@@ -76,7 +77,8 @@ export default [
     files: ['**/*.ts'],
     rules: {
       /**
-       * MESSAGE_LITERAL_SELECTORS is re-stated because flat config REPLACES a
+       * MESSAGE_LITERAL_SELECTORS and IN_MAIN_RECURSIVE_WATCH_SELECTORS
+       * (TASK_2026_437 INV-1) are re-stated because flat config REPLACES a
        * rule's options rather than merging them — omitting it here would
        * silently switch the workspace-wide message-constant restrictions off
        * for this whole library.
@@ -84,6 +86,7 @@ export default [
       'no-restricted-syntax': [
         'error',
         ...MESSAGE_LITERAL_SELECTORS,
+        ...IN_MAIN_RECURSIVE_WATCH_SELECTORS,
         ...globalMutationSelectors,
       ],
 

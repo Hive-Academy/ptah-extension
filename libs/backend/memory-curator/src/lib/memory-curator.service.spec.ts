@@ -10,7 +10,6 @@ import type {
 } from '@ptah-extension/memory-contracts';
 import { MemoryCuratorService } from './memory-curator.service';
 import type { MemoryStore } from './memory.store';
-import type { SalienceScorer } from './salience-scorer';
 import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
 import { CURATOR_TRANSCRIPT_MAX_CHARS } from './curator-llm/clamp-transcript';
 import { CURATOR_MAX_WINDOWS } from './curator-llm/transcript-windows';
@@ -60,11 +59,7 @@ function buildService(opts?: {
     insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
     appendChunks: jest.fn().mockResolvedValue(undefined),
     getById: jest.fn(),
-    updateSalience: jest.fn(),
   } as unknown as MemoryStore;
-  const scorer = {
-    score: jest.fn(() => 0.5),
-  } as unknown as SalienceScorer;
   const transcriptReader = {
     read: jest.fn().mockResolvedValue(''),
   } as unknown as ITranscriptReader;
@@ -78,7 +73,6 @@ function buildService(opts?: {
     opts?.logger ?? makeLogger(),
     registry,
     store,
-    scorer,
     transcriptReader,
     llm,
   );
@@ -119,6 +113,7 @@ describe('MemoryCuratorService — event ring buffer', () => {
     const svc = buildService();
     const stats = await svc.curate({
       sessionId: 'abc',
+      workspaceRoot: '/ws/a',
       transcript: 'real transcript content',
     });
     expect(stats.extracted).toBe(0);
@@ -132,7 +127,9 @@ describe('MemoryCuratorService — event ring buffer', () => {
       skipped: 0,
     });
     const events = svc.recentEvents(5);
-    expect(events.find((e) => e.kind === 'curator-run')).toBeDefined();
+    expect(events.find((e) => e.kind === 'curator-run')).toMatchObject({
+      workspaceRoot: '/ws/a',
+    });
   });
 
   it('recentEvents defaults to 10', () => {
@@ -144,25 +141,6 @@ describe('MemoryCuratorService — event ring buffer', () => {
       });
     }
     expect(svc.recentEvents().length).toBe(10);
-  });
-
-  it('recordDecayEvent pushes a decay-run event into the ring buffer', () => {
-    const svc = buildService();
-    svc.recordDecayEvent(
-      { scanned: 5, promoted: 3, demoted: 1, archived: 2, expired: 0 },
-      9999,
-    );
-    const events = svc.recentEvents(5);
-    const decay = events.find((e) => e.kind === 'decay-run');
-    expect(decay).toBeDefined();
-    expect(decay?.timestamp).toBe(9999);
-    expect(decay?.stats).toMatchObject({
-      scanned: 5,
-      promoted: 3,
-      demoted: 1,
-      archived: 2,
-      expired: 0,
-    });
   });
 
   it('onEvent fans out every pushEvent to subscribers and dispose detaches', () => {
@@ -177,7 +155,7 @@ describe('MemoryCuratorService — event ring buffer', () => {
     expect(received[0].kind).toBe('idle-trigger');
     expect(received[1].kind).toBe('curator-run');
     sub.dispose();
-    svc.pushEvent({ kind: 'decay-run', timestamp: 3 });
+    svc.pushEvent({ kind: 'manual-run', timestamp: 3 });
     expect(received.length).toBe(2);
   });
 
@@ -278,9 +256,7 @@ describe('MemoryCuratorService — placeholder skip event', () => {
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue(''),
     } as unknown as ITranscriptReader;
@@ -288,7 +264,6 @@ describe('MemoryCuratorService — placeholder skip event', () => {
       makeLogger(),
       registry,
       store,
-      scorer,
       transcriptReader,
       llm,
     );
@@ -373,9 +348,7 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
       insertMemoryWithChunks,
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.75) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue(recordedTranscript),
     } as unknown as ITranscriptReader;
@@ -384,7 +357,6 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
       makeLogger(),
       registry,
       store,
-      scorer,
       transcriptReader,
       llm,
     );
@@ -400,11 +372,14 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
     expect(stats.merged).toBe(0);
     expect(stats.skipped).toBe(0);
 
-    expect(extract).toHaveBeenCalledWith(recordedTranscript, undefined);
+    expect(extract).toHaveBeenCalledWith(recordedTranscript, undefined, {
+      userInitiated: undefined,
+    });
     expect(insertMemoryWithChunks).toHaveBeenCalledTimes(1);
 
     const insertedMemory = (insertMemoryWithChunks as jest.Mock).mock
       .calls[0][0];
+    expect(insertedMemory.salience).toBe(0.6);
     expect(insertedMemory.request).toBe(populatedDraft.request);
     expect(insertedMemory.investigated).toBe(populatedDraft.investigated);
     expect(insertedMemory.learned).toBe(populatedDraft.learned);
@@ -447,9 +422,7 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue(''),
     } as unknown as ITranscriptReader;
@@ -475,7 +448,6 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
       makeLogger(),
       registry,
       store,
-      scorer,
       transcriptReader,
       llm,
       corpusStore,
@@ -690,9 +662,7 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue(''),
     } as unknown as ITranscriptReader;
@@ -704,7 +674,6 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
       makeLogger(),
       registry,
       store,
-      scorer,
       transcriptReader,
       llm,
       null,
@@ -1316,9 +1285,7 @@ describe('MemoryCuratorService — manual PreCompact window budget', () => {
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue(transcript),
     } as unknown as ITranscriptReader;
@@ -1335,7 +1302,6 @@ describe('MemoryCuratorService — manual PreCompact window budget', () => {
       logger,
       registry,
       store,
-      scorer,
       transcriptReader,
       { extract, resolve } as unknown as ICuratorLLM,
     );
@@ -1649,9 +1615,7 @@ describe('MemoryCuratorService — a pass that never read its input reports STAL
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
-      updateSalience: jest.fn(),
     } as unknown as MemoryStore;
-    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
     const transcriptReader = {
       read: jest.fn().mockResolvedValue('a real transcript'),
     } as unknown as ITranscriptReader;
@@ -1660,7 +1624,6 @@ describe('MemoryCuratorService — a pass that never read its input reports STAL
       logger,
       registry,
       store,
-      scorer,
       transcriptReader,
       llm,
     );
@@ -1816,5 +1779,116 @@ describe('MemoryCuratorService — a pass that never read its input reports STAL
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+/**
+ * TASK_2026_437 C14, Batch 16b. `memory:runNow` is the one curate a user waits
+ * on: it passes `userInitiated`, and every LLM call of that pass — each extract
+ * window and the resolve — must carry it so the adapter skips the governor. A
+ * trigger-driven pass carries nothing.
+ */
+describe('MemoryCuratorService — userInitiated reaches every curator LLM call', () => {
+  function harness() {
+    const draft = {
+      kind: 'fact' as const,
+      subject: 'ptah',
+      content: 'lanes exist',
+      salienceHint: 0.5,
+    };
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [draft] });
+    const resolve = jest
+      .fn()
+      .mockResolvedValue([{ ...draft, mergeTargetId: null }]);
+    const svc = new MemoryCuratorService(
+      makeLogger(),
+      {
+        register: jest.fn(() => () => undefined),
+      } as unknown as ICompactionCallbackRegistry,
+      {
+        list: jest.fn(() => ({ memories: [], total: 0 })),
+        insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
+        appendChunks: jest.fn().mockResolvedValue(undefined),
+        getById: jest.fn(),
+      } as unknown as MemoryStore,
+      { read: jest.fn() } as unknown as ITranscriptReader,
+      { extract, resolve } as unknown as ICuratorLLM,
+    );
+    return { svc, extract, resolve };
+  }
+
+  it('passes { userInitiated: true } to extract and resolve for the runNow pass', async () => {
+    const { svc, extract, resolve } = harness();
+
+    await svc.curate({
+      sessionId: 'manual-1',
+      workspaceRoot: '/ws',
+      transcript: '{"type":"user","content":"remember the lanes"}',
+      userInitiated: true,
+    });
+
+    expect(extract).toHaveBeenCalled();
+    for (const call of extract.mock.calls) {
+      expect(call[2]).toEqual({ userInitiated: true });
+    }
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(resolve.mock.calls[0][3]).toEqual({ userInitiated: true });
+  });
+
+  it('logs once when a user-initiated curate joins an in-flight pass, and changes nothing else', async () => {
+    const { svc, extract } = harness();
+    const logger = (svc as unknown as { logger: { info: jest.Mock } }).logger;
+    let releaseExtract: () => void = () => undefined;
+    extract.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseExtract = () => resolve({ status: 'extracted', drafts: [] });
+        }),
+    );
+    const input = {
+      sessionId: 'shared-1',
+      workspaceRoot: '/ws',
+      transcript: '{"type":"user","content":"remember the lanes"}',
+    };
+
+    const background = svc.curate(input);
+    const manual = svc.curate({ ...input, userInitiated: true });
+
+    const joined = logger.info.mock.calls.filter((call) =>
+      String(call[0]).includes('joined an in-flight pass'),
+    );
+    expect(joined).toEqual([
+      [
+        "[memory-curator] user-initiated curate joined an in-flight pass; it keeps that pass's lane",
+        { sessionId: 'shared-1' },
+      ],
+    ]);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    releaseExtract();
+    const [backgroundStats, manualStats] = await Promise.all([
+      background,
+      manual,
+    ]);
+    // One pass, shared: the manual call got the background pass's result, and
+    // that pass ran on its own (background) options.
+    expect(manualStats).toEqual(backgroundStats);
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(extract.mock.calls[0][2]).toEqual({ userInitiated: undefined });
+  });
+
+  it('leaves userInitiated unset for a pass nobody is waiting on', async () => {
+    const { svc, extract, resolve } = harness();
+
+    await svc.curate({
+      sessionId: 'trigger-1',
+      workspaceRoot: '/ws',
+      transcript: '{"type":"user","content":"remember the lanes"}',
+    });
+
+    expect(extract.mock.calls[0][2]).toEqual({ userInitiated: undefined });
+    expect(resolve.mock.calls[0][3]).toEqual({ userInitiated: undefined });
   });
 });

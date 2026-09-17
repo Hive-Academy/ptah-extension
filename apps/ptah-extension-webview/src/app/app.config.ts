@@ -25,6 +25,7 @@ import {
   MARKETPLACE_COMPONENT,
   TRIBUNAL_COMPONENT,
   TASKS_VIEW_COMPONENT,
+  FILE_LINK_OPENER,
 } from '@ptah-extension/core';
 import {
   ChatMessageHandler,
@@ -32,6 +33,7 @@ import {
   ChatStore,
   UpdateDialogService,
   WorkspaceCoordinatorService,
+  FileLinkRouterService,
   VoiceDownloadProgressService,
   VoiceProviderErrorService,
   provideModelRefreshControl,
@@ -76,7 +78,11 @@ import { HarnessWorkflowMessageHandler } from '@ptah-extension/harness-builder/s
 import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
 import { TasksStore } from '@ptah-extension/tasks-ui/services';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui/services';
-import { provideMarkdownRendering } from '@ptah-extension/markdown';
+import {
+  MARKDOWN_FILE_LINK_HANDLER,
+  provideMarkdownFileLinks,
+  provideMarkdownRendering,
+} from '@ptah-extension/markdown';
 class WebviewErrorHandler implements ErrorHandler {
   public handleError(error: unknown): void {
     const isError = (e: unknown): e is { name: string; message?: string } => {
@@ -131,6 +137,12 @@ export const appConfig: ApplicationConfig = {
       provide: WORKSPACE_COORDINATOR,
       useExisting: WorkspaceCoordinatorService,
     },
+    // One router behind both ports. `useExisting` (NOT `useClass`) is
+    // load-bearing: two instances would mean a tool-call chip and an agent
+    // markdown link could resolve context differently, and the second would
+    // hold its own git-ui module cache.
+    { provide: FILE_LINK_OPENER, useExisting: FileLinkRouterService },
+    { provide: MARKDOWN_FILE_LINK_HANDLER, useExisting: FileLinkRouterService },
     // EAGER on purpose (TASK_2026_187 Batch 4, R15). `ptah.setupAgents` is a VS
     // Code activation event that opens a new panel hardcoded to
     // `initialView: 'setup-wizard'`, so this component IS the launch surface for
@@ -264,5 +276,9 @@ export const appConfig: ApplicationConfig = {
       baseUrl: './assets/monaco/vs',
     }),
     provideMarkdownRendering({ extensions: 'full' }),
+    // Installs the document-level file-link listener. It acts only inside a
+    // container carrying `data-ptah-file-links`, so non-agent markdown (task
+    // detail, settings, release notes) keeps plain browser link behaviour.
+    provideMarkdownFileLinks(),
   ],
 };

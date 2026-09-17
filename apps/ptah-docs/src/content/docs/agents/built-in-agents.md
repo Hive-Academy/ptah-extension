@@ -15,7 +15,7 @@ Ptah ships with 14 built-in agents covering planning, implementation, review, re
 | ---------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------- |
 | **project-manager**          | Breaks work into tasks, tracks status, coordinates handoffs  | You have a vague goal and need it turned into actionable tickets |
 | **software-architect**       | Designs systems, picks patterns, authors ADRs                | You're starting a new module or making a cross-cutting change    |
-| **team-leader**              | Delegates to specialists, enforces standards, reviews output | You want a single point of contact for a multi-agent task        |
+| **team-leader**              | Recommends batch executors, verifies work, records batch state | A plan needs batches, executor recommendations, and review gates        |
 | **backend-developer**        | Server code, APIs, databases, services                       | Implementing endpoints, migrations, business logic, workers      |
 | **frontend-developer**       | UI components, state, routing, accessibility                 | Building pages, components, or fixing frontend bugs              |
 | **devops-engineer**          | CI/CD, containers, infra-as-code, release automation         | Wiring GitHub Actions, Docker, deploy pipelines, monitoring      |
@@ -63,8 +63,16 @@ When you start a chat, Ptah shows all 14 built-in agents in the picker (plus any
 3. **@-mention** — type `@agent-name` anywhere in your message to route that turn.
 
 :::tip
-If you're unsure who to pick, start with `team-leader`. It reads your request, picks the right specialist, and hands off — so you don't have to know the roster by heart.
+For a coordinated task, use [orchestration](/agents/agent-orchestration/). The team-leader recommends executors and next actions; the orchestrator spawns the agents.
 :::
+
+## Delegation and task state
+
+The orchestrator spawns sub-agents, batch executors, and phase lanes. Other eligible specialists may delegate focused sub-tasks to CLI lanes when lane mode is enabled or auto and the tools are available. **`team-leader`, `visual-reviewer`, and `ui-ux-designer` do not delegate to CLI lanes.** The team-leader spawns no agents at all.
+
+Specialist templates receive a task-spec block for their assigned role: no task-ID allocation and no edits to `task.md` or `batches.md`. They report completion with evidence. The team-leader alone records batch states; task status belongs to the orchestrator, project-manager, and team-leader.
+
+When `ptah_*` tools are listed in the session, templates use them first. If absent, they use native tools without probing for Ptah tools. CLI work follows the [agent-lanes skill](/mcp-and-skills/skills/#skill-dependencies).
 
 ## Opt-in specialists
 

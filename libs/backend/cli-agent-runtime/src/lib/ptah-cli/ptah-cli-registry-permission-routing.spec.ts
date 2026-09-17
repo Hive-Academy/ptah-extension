@@ -120,7 +120,7 @@ function buildHarness(): {
       assembleSpawnOptions: jest.fn().mockResolvedValue({
         mcpServers: {},
         hooks: undefined,
-        compactionControl: undefined,
+        autoCompact: {},
         systemPromptMode: 'append',
         systemPromptContent: undefined,
         outputStyleName: undefined,

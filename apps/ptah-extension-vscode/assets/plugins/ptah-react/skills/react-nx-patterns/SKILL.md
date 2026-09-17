@@ -1,6 +1,6 @@
 ---
 name: react-nx-patterns
-description: Modern React development in Nx monorepos. Use when (1) Setting up React/Next.js in Nx workspace, (2) Creating or organizing React libraries, (3) Building React component architecture, (4) Module boundaries and dependency constraints, (5) Smart/container vs presentational components, (6) React Server Components in Nx, (7) Data fetching patterns, (8) Next.js app router integration with Nx.
+description: React and Next.js in Nx monorepos. Use when setting up React or Next.js in Nx, organizing React libraries and module boundaries, container vs presentational components, Server Components or the app router. Not for Angular or NestJS workspaces — use nx-workspace-architect.
 ---
 
 # React NX Patterns

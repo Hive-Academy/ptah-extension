@@ -4,8 +4,10 @@ import {
   computed,
   input,
 } from '@angular/core';
-import { assertNever } from '@ptah-extension/shared';
-import type { MemoryCuratorEventWire } from '@ptah-extension/shared';
+import {
+  assertNever,
+  type MemoryCuratorEventWire,
+} from '@ptah-extension/shared';
 
 interface FeedRow {
   readonly key: string;
@@ -156,7 +158,6 @@ function toneFor(ev: MemoryCuratorEventWire): FeedRow['tone'] {
     case 'commit-detect':
       return 'info';
     case 'curator-skipped-no-data':
-    case 'decay-run':
     case 'boot-scan':
     case 'embedder-download':
       return 'info';

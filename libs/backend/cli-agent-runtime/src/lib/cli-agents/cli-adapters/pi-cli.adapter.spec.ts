@@ -7,7 +7,7 @@
  * turn on the RPC-only `agent_settled` event, then kills the child so no
  * persistent process leaks. Tests mock cli-adapter.utils (spawnCli /
  * resolveCliPath / probeCliVersion) and fs/promises (auth.json) so no real
- * process or disk access happens. Covers: detect() (installed/not, supportsSteer
+ * process or disk access happens. Covers: detect() (installed/not, capabilities
  * true), listModels() parsing, runSdk() arg construction (--mode rpc / -a /
  * --model / --thinking, NO positional prompt), initial prompt + get_state written
  * to stdin, session id capture (session header + get_state response),
@@ -131,7 +131,11 @@ jest.mock('fs/promises', () => ({
 
 import { PiCliAdapter } from './pi-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
-import type { CliOutputSegment } from '@ptah-extension/shared';
+import type {
+  AgentRoleDefinition,
+  CliOutputSegment,
+} from '@ptah-extension/shared';
+import { buildTaskPrompt, renderRoleBlock } from './cli-adapter.utils';
 
 /** Drain a handle's raw output + structured segments into arrays. */
 function collect(handle: SdkHandle): {
@@ -174,7 +178,7 @@ describe('PiCliAdapter (RPC mode)', () => {
   });
 
   describe('detect()', () => {
-    it('reports installed and supportsSteer true when the binary is found', async () => {
+    it('reports installed and a steer messagingMode when the binary is found', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/pi');
       mockProbeCliVersion.mockResolvedValue('pi 0.80.10');
 
@@ -183,14 +187,14 @@ describe('PiCliAdapter (RPC mode)', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/pi');
       expect(result.version).toBe('pi 0.80.10');
-      expect(result.supportsSteer).toBe(true);
+      expect(result.messagingMode).toBe('steer');
     });
 
     it('reports NOT installed when resolveCliPath returns null', async () => {
       mockResolveCliPath.mockResolvedValue(null);
       const result = await adapter.detect();
       expect(result.installed).toBe(false);
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('steer');
     });
   });
 
@@ -339,6 +343,77 @@ describe('PiCliAdapter (RPC mode)', () => {
         JSON.stringify({ type: 'agent_settled' }) + '\n',
       );
       await handle.done;
+    });
+  });
+
+  describe('runSdk() — role delivery (task-prompt)', () => {
+    const role: AgentRoleDefinition = {
+      name: 'reviewer',
+      body: 'Review the diff before approving.',
+      sourcePath: '/proj/.claude/agents/reviewer.md',
+      bytes: 33,
+    };
+    const baseOptions = {
+      task: 'Do the thing',
+      workingDirectory: '/proj',
+      systemPrompt: 'HARNESS CONTEXT',
+      model: 'openai/gpt-4o',
+      reasoningEffort: 'high',
+    };
+
+    it('declares the task-prompt channel', () => {
+      expect(adapter.roleChannel).toBe('task-prompt');
+    });
+
+    it('sends the role block in the first stdin prompt and not on continuation', async () => {
+      const handle = await adapter.runSdk({ ...baseOptions, role });
+      collect(handle);
+
+      const [firstPrompt] = writtenRequests(spawnedChildren[0]);
+      expect(firstPrompt).toEqual({
+        type: 'prompt',
+        message: buildTaskPrompt({ ...baseOptions, role }, 'pi'),
+        id: 'p1',
+      });
+      expect(String(firstPrompt['message'])).toContain(
+        renderRoleBlock(role, 'pi'),
+      );
+
+      spawnedChildren[0].stdout.write(
+        JSON.stringify({ type: 'session', version: 3, id: 'sess-role' }) + '\n',
+      );
+      spawnedChildren[0].stdout.write(
+        JSON.stringify({ type: 'agent_settled' }) + '\n',
+      );
+      await handle.done;
+
+      const outcome = await handle.continue?.('now add tests');
+      const [continuedPrompt] = writtenRequests(spawnedChildren[1]);
+      expect(continuedPrompt).toEqual({
+        type: 'prompt',
+        message: 'now add tests',
+        id: 'p1',
+      });
+
+      spawnedChildren[1].stdout.write(
+        JSON.stringify({ type: 'agent_settled' }) + '\n',
+      );
+      await outcome?.done;
+    });
+
+    it('spawns with identical arguments whether or not a role is set', async () => {
+      for (const options of [baseOptions, { ...baseOptions, role }]) {
+        const handle = await adapter.runSdk(options);
+        collect(handle);
+        currentChild?.stdout.write(
+          JSON.stringify({ type: 'agent_settled' }) + '\n',
+        );
+        await handle.done;
+      }
+
+      const [, roleless] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      const [, withRole] = mockSpawnCli.mock.calls[1] as [string, string[]];
+      expect(withRole).toEqual(roleless);
     });
   });
 
@@ -710,9 +785,13 @@ describe('PiCliAdapter (RPC mode)', () => {
     });
   });
 
-  describe('supportsSteer() / parseOutput() / supportsMcp', () => {
-    it('reports supportsSteer() true and supportsMcp false', () => {
-      expect(adapter.supportsSteer()).toBe(true);
+  describe('capabilities() / parseOutput() / supportsMcp', () => {
+    it('reports a steering capability and supportsMcp false', () => {
+      expect(adapter.capabilities()).toEqual({
+        steer: true,
+        interrupt: false,
+        continuation: true,
+      });
       expect(adapter.supportsMcp).toBe(false);
     });
 

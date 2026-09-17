@@ -149,22 +149,38 @@ function discoverEsmTargets(
   return discovered;
 }
 
-/** The four ESM targets `apps/ptah-electron` is known to declare. */
+/** The ESM targets `apps/ptah-electron` is known to declare. */
 const EXPECTED_ESM_TARGETS = [
   'build-main',
   'build-embedder-worker',
   'build-integrity-worker',
+  'build-state-storage-worker',
   'build-voice-worker',
+  'build-workspace-watch-host',
 ] as const;
 
 const projectConfig = loadProjectConfig();
 const discoveredTargets = discoverEsmTargets(projectConfig);
 
 describe('ptah-electron ESM bundle discovery (anti-vacuity)', () => {
-  it('discovers at least the four known ESM esbuild targets', () => {
+  it('discovers every known ESM esbuild target', () => {
     for (const expected of EXPECTED_ESM_TARGETS) {
       expect(discoveredTargets.has(expected)).toBe(true);
     }
+  });
+
+  // Set-equality, not just "contains" (code-logic-review.md Batch 10
+  // review-fix, Logic #1): the check above only catches a SHRINK of
+  // `EXPECTED_ESM_TARGETS`' coverage. A new `@nx/esbuild:esbuild` ESM target
+  // added to `project.json` that does NOT end in `-worker`/`-host` would
+  // bypass both this file's "contains" check above AND the worker-shaped
+  // tie-in check below (which only covers the `-worker`/`-host` suffix
+  // subset) with no test ever failing. This assertion closes that gap for
+  // every discovered ESM target, not just the worker-shaped ones.
+  it('discovers exactly EXPECTED_ESM_TARGETS -- no undeclared ESM esbuild target exists', () => {
+    expect([...discoveredTargets.keys()].sort()).toEqual(
+      [...EXPECTED_ESM_TARGETS].sort(),
+    );
   });
 });
 
@@ -231,9 +247,11 @@ describe('worker wiring (three-place rule)', () => {
     'build-embedder-worker',
     'build-voice-worker',
     'build-integrity-worker',
+    'build-state-storage-worker',
+    'build-workspace-watch-host',
   ];
 
-  it('build.dependsOn is EXACTLY the five own-project entries plus the webview cross-project entry', () => {
+  it('build.dependsOn is exactly the own-project entries plus the webview cross-project entry', () => {
     const dependsOn = (projectConfig.targets?.['build']?.dependsOn ??
       []) as string[];
     // Revision 1 (code-logic-review.md Serious): set-equality, not
@@ -272,22 +290,29 @@ describe('worker wiring (three-place rule)', () => {
 // Executable self-test — worker-shaped bundles only (R-8).
 //
 // A discovered target counts as "worker-shaped" when its NAME ends in
-// `-worker` -- a structural rule, not a hardcoded id list, so a future
-// worker target is automatically subject to the tie-in anti-vacuity check
-// below instead of silently bypassing it (code-style-review.md minor).
+// `-worker` or `-host` -- a structural rule, not a hardcoded id list, so a
+// future worker or host target is automatically subject to the tie-in
+// anti-vacuity check below instead of silently bypassing it
+// (code-style-review.md minor). `-host` was added in Batch 10 for
+// `build-workspace-watch-host`: like the workers, it is spawned bare, fails
+// fast on a transport guard, and has no "run standalone" contract of its own.
 //
 // integrity-worker.ts and embedder-worker.ts already fail deterministically
 // when run bare: both probe for `process.parentPort` (Electron
 // utilityProcess) and `node:worker_threads`' `parentPort`, and throw
 // synchronously at module-evaluation time when neither is present -- no
 // `--self-test` entry argument was needed for either (R-8). voice-worker.ts
-// likewise throws synchronously when `process.parentPort` is absent. All
-// three entry guards run before any heavy import (the ONNX/ffmpeg work is
-// behind lazily-invoked functions), so the bounded timeout below is a safety
-// net, not the expected path.
+// likewise throws synchronously when `process.parentPort` is absent.
+// workspace-watch-host.entry.ts follows the same shape with two transports:
+// it probes an Electron `process.parentPort` or a `child_process.fork` IPC
+// channel before loading `@parcel/watcher`, and throws synchronously when
+// neither is present. All
+// entry guards run before any heavy import (the ONNX/ffmpeg/native-watcher
+// work is behind lazily-invoked functions), so the bounded timeout below is a
+// safety net, not the expected path.
 // ---------------------------------------------------------------------------
 
-const WORKER_TARGET_SUFFIX = /-worker$/;
+const WORKER_TARGET_SUFFIX = /-(worker|host)$/;
 
 /**
  * Hand-maintained entry-guard strings, one per worker-shaped target. Tied to
@@ -303,6 +328,10 @@ const WORKER_ENTRY_GUARDS: Record<string, string> = {
     'embedder-worker.ts must be run as a worker (no Electron parentPort and no worker_threads parentPort)',
   'build-voice-worker':
     'voice-worker.ts must be run as an Electron utilityProcess (no parentPort)',
+  'build-state-storage-worker':
+    'Electron state storage worker requires a worker_threads parent port',
+  'build-workspace-watch-host':
+    'workspace-watch-host.entry.ts must be run as a worker (no Electron parentPort and no IPC channel)',
 };
 
 const discoveredWorkerTargetNames = [...discoveredTargets.keys()]

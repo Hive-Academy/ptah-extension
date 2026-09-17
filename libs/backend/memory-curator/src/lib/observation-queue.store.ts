@@ -23,10 +23,14 @@
  * commit instead of N of each.
  *
  * **Every read flushes first.** `drainForSession`, `peekForSession`,
- * `countUnprocessed`, `purgeOlderThan` and `backfillSessionId` all call
- * {@link flush} before they touch SQL, so no caller can observe a state where a
- * row it just enqueued is missing. That is what keeps the batching invisible to
- * everything except the event loop.
+ * `countUnprocessed` and `backfillSessionId` all call {@link flush} before they
+ * touch SQL, so no caller can observe a state where a row it just enqueued is
+ * missing. That is what keeps the batching invisible to everything except the
+ * event loop.
+ *
+ * Deleting old rows is NOT this store's job: `ObservationRetentionStore`
+ * (`retention/observation-retention.store.ts`) purges processed rows and
+ * quarantines stuck ones in bounded, yielding batches (TASK_2026_440).
  */
 import { inject, injectable } from 'tsyringe';
 import { blankToUndefined } from '@ptah-extension/shared';
@@ -152,21 +156,17 @@ const MARK_PROCESSED_SQL = `UPDATE observation_queue SET processed_at = ? WHERE 
 
 const BACKFILL_SQL = `UPDATE observation_queue SET session_id = ? WHERE session_id = ?`;
 
-const PURGE_SQL = `DELETE FROM observation_queue WHERE captured_at < ? AND processed_at IS NOT NULL`;
-
 const COUNT_UNPROCESSED_SQL = `SELECT COUNT(*) AS n FROM observation_queue WHERE session_id = ? AND processed_at IS NULL`;
 
 /**
- * Capture event published when a new row reaches the table. Designed to be
- * broadcast as `MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED` without any further
- * mapping — matches `MemoryObservationCapturedPayload` from
- * `@ptah-extension/shared`.
+ * Internal capture event published when a new row reaches the table. Routine
+ * capture is deliberately not bridged to a renderer: it is persistence
+ * telemetry, not a curated-memory outcome.
  *
  * Published from {@link ObservationQueueStore.flush}, after the batch commits,
  * NOT from `enqueue`. Two reasons, both deliberate: the event's contract is
  * "this row is in the table", which is only true after the commit; and the one
- * consumer forwards it to every webview, so batching the write batches the
- * fan-out with it.
+ * listener can only observe committed rows.
  */
 export interface ObservationCaptureEvent {
   readonly sessionId: string;
@@ -321,9 +321,9 @@ export class ObservationQueueStore {
    * A row whose `sessionId` is empty is refused rather than queued, because
    * such a row is UN-DRAINABLE and UN-REAPABLE by construction: every read path
    * here filters `WHERE session_id = ?` and nothing ever queries `''`, so it is
-   * never drained, never marked processed, and `purgeOlderThan` only deletes
-   * rows that WERE processed. It would sit in the table forever, counted by
-   * `countUnprocessed` for a session that cannot be curated.
+   * never drained and never marked processed, and it would wait out the whole
+   * stuck-row grace window before `ObservationRetentionStore` quarantined it —
+   * counted meanwhile by `countUnprocessed` for a session that cannot be curated.
    */
   enqueue(row: ObservationQueueInsert): void {
     // `blankToUndefined` is the refusal predicate AND the normaliser, and the
@@ -586,8 +586,8 @@ export class ObservationQueueStore {
    * resolves a session's canonical UUID, so rows a residual tabId-bearing hook
    * path captured before the resolve become drainable by the UUID-keyed drain
    * (`drainForSession` filters `WHERE session_id = ?`, so an un-migrated row is
-   * un-drainable AND un-reapable — `purgeOlderThan` only deletes rows that were
-   * processed). TASK_2026_296 item 6, Part B.
+   * un-drainable — it would only ever leave the table as a stuck row quarantined
+   * by `ObservationRetentionStore`, uncurated). TASK_2026_296 item 6, Part B.
    *
    * The leading {@link flush} is load-bearing, not hygiene: an observation
    * still sitting in the pending batch carries `fromId` in its bind params, and
@@ -645,14 +645,6 @@ export class ObservationQueueStore {
       });
     }
     return changes;
-  }
-
-  purgeOlderThan(thresholdMs: number): number {
-    this.flush();
-    const result = this.statement(this.connection.db, PURGE_SQL).run(
-      thresholdMs,
-    );
-    return result.changes;
   }
 
   countUnprocessed(sessionId: string): number {

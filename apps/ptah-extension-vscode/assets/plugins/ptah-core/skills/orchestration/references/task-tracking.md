@@ -1,396 +1,154 @@
-# Task Tracking Reference
+# Task Tracking
 
-This reference documents the task management system used by the orchestration workflow, including ID formats, the `task.md` frontmatter contract, folder structures, the generated registry, and continuation mode detection.
-
----
-
-## Task ID Format
-
-```
-TASK_YYYY_NNN
-```
-
-| Component | Description                     | Example       |
-| --------- | ------------------------------- | ------------- |
-| `TASK_`   | Fixed prefix                    | TASK\_        |
-| `YYYY`    | Year                            | 2026          |
-| `_`       | Separator                       | \_            |
-| `NNN`     | Sequential number (zero-padded) | 001, 042, 110 |
-
-**Examples**: `TASK_2026_001`, `TASK_2026_042`, `TASK_2026_110`
-
-The **folder name is the canonical id**. When the `id` field inside `task.md`
-frontmatter disagrees with the folder name, the folder name wins (the mismatch
-is surfaced as a non-fatal validation warning).
+Task IDs, the `task.md` carrier, the task folder, the generated registry, and continuation. This
+file is the one home for task-ID allocation; other skills link here.
 
 ---
 
-## `task.md` — the First Artifact (REQUIRED)
+## Task ID
 
-**Every task folder MUST contain a `task.md` as its FIRST artifact**, created
-before any other document in the run. `task.md` is the system-owned carrier: a
-small YAML frontmatter block plus a free markdown body. It is the single source
-of truth for a task's status and metadata; the board, the registry, and spec
-harvesting all read it.
+`TASK_YYYY_NNN_xxxx` — year, a sequence number zero-padded to at least three digits, and four random
+lowercase hex characters (`TASK_2026_110_a1b2`). Older folders without the suffix stay valid.
 
-A folder **without a valid `task.md` is EXCLUDED** from the index, the registry,
-and the board — it is counted and logged, never inferred. There is **no legacy
-backfill and no emoji-status parsing**.
+The **folder name is the canonical ID**. An `id:` field in `task.md` that disagrees is a warning;
+never rename a folder to "fix" it.
 
-### Frontmatter Contract
+## New task
+
+1. **Prefer the `tasks:create` RPC** where it is available — it reserves atomically and never
+   overwrites.
+2. **Allocating by hand**: scan `.ptah/specs` on `origin/main` (`git fetch`, then `git ls-tree`),
+   every path from `git worktree list`, and the local folder. Take the highest `NNN` for the current
+   year, add 1, zero-pad, append `_` + four random lowercase hex characters.
+3. **Reserve** with an exclusive, fail-if-exists `mkdir` (`fs.mkdirSync(dir)` without `recursive`,
+   not `mkdir -p`). The folder creation is the lock. On `EEXIST`, re-scan and retry with a fresh
+   suffix; give up with an error rather than overwrite.
+4. **Write `task.md` first**, as an exclusive create that fails if the file exists.
+5. **Write `context.md`** from the template below.
+
+Never derive the ID from `registry.md` — it is generated and can be stale.
+
+A task folder the Tribunal UI already created (`Spec folder: … already created`) is used as given;
+skip allocation.
+
+---
+
+## `task.md` — the carrier
+
+A folder without a valid `task.md` is excluded from the board, the registry and spec harvesting.
+Only the frontmatter is machine-read; the body is free markdown.
 
 ```markdown
 ---
-id: TASK_2026_158
-status: backlog # backlog | in_progress | in_review | blocked | done | cancelled
-type: FEATURE # FEATURE | BUGFIX | REFACTORING | DOCUMENTATION | RESEARCH | DEVOPS | SAAS_INIT | CREATIVE
+id: TASK_YYYY_NNN_xxxx
+status: in_progress
+type: FEATURE
 title: Short imperative title
 description: >-
-  One-line summary (optional; long form goes in the body). ALWAYS use this
-  block-scalar form, even for a short summary.
-assignee: # reserved
-depends_on: [] # e.g. [TASK_2026_140, TASK_2026_155]
-executor: # optional agent lane hint
-claim: # reserved
+  One-line card summary. ALWAYS this block-scalar form.
+depends_on: []
 created: 2026-07-14T10:00:00.000Z
 updated: 2026-07-14T10:00:00.000Z
 ---
 
 ## Description
 
-Free markdown body — rendered in the card detail. The frontmatter block above
-is the only machine-read part; edit the body freely.
+Task description shown in the card detail.
 ```
 
-### Field Rules
+| Field | Required | Rule |
+| --- | --- | --- |
+| `status` | yes | `backlog` \| `in_progress` \| `in_review` \| `blocked` \| `done` \| `cancelled`. Invalid ⇒ folder excluded |
+| `title` | yes | Non-empty. Use a `>-` block scalar when it contains a colon |
+| `id` | recommended | Folder name wins on mismatch |
+| `type` | optional | `FEATURE` \| `BUGFIX` \| `REFACTORING` \| `DOCUMENTATION` \| `RESEARCH` \| `DEVOPS` \| `SAAS_INIT` \| `CREATIVE` |
+| `description` | optional | **Always a `>-` block scalar** |
+| `depends_on` | optional | Array of task IDs |
+| `executor` | optional | Lane hint |
+| `assignee`, `claim` | reserved | |
+| `created`, `updated` | optional | ISO 8601; `updated` refreshes on status change |
 
-| Field         | Required    | Notes                                                            |
-| ------------- | ----------- | ---------------------------------------------------------------- |
-| `status`      | **Yes**     | Must be one of the six values below. Invalid ⇒ folder excluded.  |
-| `title`       | **Yes**     | Non-empty. Missing ⇒ folder excluded.                            |
-| `id`          | Recommended | Folder name always wins on mismatch (warning only).              |
-| `type`        | Optional    | Unknown value ⇒ warning, treated as unset.                       |
-| `description` | Optional    | One-line card summary. **Always `>-` block scalar** — see below. |
-| `depends_on`  | Optional    | Array of task ids. Malformed ⇒ warning, treated as `[]`.         |
-| `executor`    | Optional    | Agent lane hint.                                                 |
-| `assignee`    | Optional    | Reserved.                                                        |
-| `claim`       | Optional    | Reserved.                                                        |
-| `created`     | Optional    | ISO 8601. Unparseable ⇒ warning, treated as unset.               |
-| `updated`     | Optional    | ISO 8601. Refreshed automatically on every status transition.    |
+**Why the block scalar**: a plain YAML scalar ends at the first colon-space, so a description that
+quotes code (`a ? b : c`, `{"field": null}`) makes the whole frontmatter unparseable and the task
+disappears from the board. A `>-` block survives colons, braces, quotes and apostrophes unescaped.
 
-### `description` MUST be a block scalar — this one has already cost tasks
+**Changing status**: `Edit` exactly the `status:` line. Never rewrite the carrier with `Write`, and
+never track status in any other file.
 
-Write it as `>-` with the text indented on the following lines, ALWAYS:
-
-```yaml
-description: >-
-  Any text at all, including a ternary like a ? b : c, a mapping such as
-  {"field": null}, "double quotes" and it's apostrophes.
-```
-
-A plain (unquoted) YAML scalar **terminates at the first colon-space**, so a
-description that quotes code destroys the whole frontmatter block. The carrier
-then fails to parse, and a folder whose carrier does not parse is **invisible to
-the board** — the failure is total, not cosmetic. Three carriers written from an
-earlier version of this template were dark for exactly this reason
-(`TASK_2026_182`, `188`, `189`, repaired 2026-08-09). A block scalar survives
-colons, braces, quotes and apostrophes with no escaping at all.
-
-The same rule applies to `title` whenever it contains a colon.
-
-Ptah's own writer (`renderTaskMd`) emits a quoted scalar and is safe; this rule
-exists because agents hand-write carriers from this template.
-
-### Status Values (`task.md` frontmatter)
-
-| Status        | Meaning                           |
-| ------------- | --------------------------------- |
-| `backlog`     | Not yet started                   |
-| `in_progress` | Actively being worked             |
-| `in_review`   | Implementation done, under review |
-| `blocked`     | Waiting on an external dependency |
-| `done`        | Completed                         |
-| `cancelled`   | Abandoned                         |
-
-### Changing Status
-
-**Status transitions happen by editing the `task.md` frontmatter only** — set
-`status` to the new value (and let `updated` refresh). Do not track status in any
-other file, and do not hand-edit the registry to reflect a status change.
-
----
-
-## Folder Structure
-
-```
-.ptah/specs/
-  registry.md                    # GENERATED registry (derived — never hand-edit)
-  TASK_[ID]/
-    task.md                      # REQUIRED first artifact — frontmatter carrier
-    context.md                   # User intent, conversation summary
-    task-description.md          # Requirements (PM output)
-    implementation-plan.md       # Architecture design (Architect output)
-    tasks.md                     # Atomic task breakdown (Team-leader output)
-    test-report.md               # Testing results (Tester output)
-    code-style-review.md         # Style review (Code-style-reviewer output)
-    code-logic-review.md         # Logic review (Code-logic-reviewer output)
-    visual-review.md             # Visual review (Visual-reviewer output)
-    screenshots/                 # Visual testing screenshots
-      baseline.png               # Baseline screenshot
-      mobile.png                 # Mobile viewport
-      tablet.png                 # Tablet viewport
-      desktop.png                # Desktop viewport
-    future-enhancements.md       # Future work (Modernization-detector output)
-    visual-design-specification.md # Visual design (UI/UX Designer output, optional)
-```
-
----
-
-## Registry Management
-
-### The Registry is GENERATED
-
-```
-.ptah\specs\registry.md
-```
-
-`registry.md` is a **derived view generated from each folder's `task.md`
-frontmatter** — it is NOT a hand-edited source of truth. Never hand-edit it; any
-manual change is overwritten on the next regeneration. It carries a
-`GENERATED — DO NOT HAND-EDIT` header and lists only folders that have a valid
-`task.md`, followed by an excluded-folder count.
-
-### Registry Format
+## `context.md` template
 
 ```markdown
-<!-- GENERATED — DO NOT HAND-EDIT. Derived from TASK_*/task.md frontmatter. -->
-
-# Task Registry
-
-| Task ID       | Status      | Type          | Title                 | Created    | Updated    |
-| ------------- | ----------- | ------------- | --------------------- | ---------- | ---------- |
-| TASK_2026_110 | in_progress | DOCUMENTATION | Skill conversion      | 2026-01-20 | 2026-01-21 |
-| TASK_2026_108 | done        | FEATURE       | WebSocket integration | 2026-01-15 | 2026-01-16 |
-
-_Excluded (no valid frontmatter): 85 folder(s)._
-```
-
-### Reading Task History
-
-Read the registry to understand project task history and current statuses.
-Because the registry is generated, treat the per-folder `task.md` frontmatter as
-ground truth if the two ever appear to differ (regenerate to reconcile).
-
-### Generating a New Task ID
-
-The next id is derived from a **folder scan**, then **reserved atomically**. A
-plain scan-then-write races two concurrent sessions onto the same id and the
-second write silently clobbers the first (this is what TASK_2026_194 fixes):
-
-1. Scan all `TASK_YYYY_*` folder names (including excluded/legacy folders).
-2. Find the highest `NNN` for the current year, increment by 1, zero-pad to
-   `TASK_YYYY_NNN`.
-3. **Reserve it with an exclusive, fail-if-exists `mkdir`** (`fs.mkdirSync(dir)`
-   without `recursive: true` — NOT `mkdir -p`). The atomic folder creation is the
-   lock.
-4. On `EEXIST`, a concurrent session already claimed that id — re-scan from step
-   1, increment, and retry (bounded; give up with an error rather than overwrite).
-5. Write `task.md` with an **exclusive create** so it fails loudly if the carrier
-   already exists — never overwrite an occupied folder.
-
-**Example**: If the highest for the year is `TASK_2026_109`, the candidate is
-`TASK_2026_110`; if that `mkdir` throws `EEXIST`, retry `111`, and so on.
-
-`registry.md` is generated, derived output — it is **never** an allocation input.
-The canonical implementation is `TaskWriterService.create` (behind the
-`tasks:create` RPC); hand-allocation must follow the same reserve-then-write rule.
-The folder joins the board and the next registry regeneration automatically.
-
----
-
-## Document Templates
-
-### task.md Template
-
-Created FIRST during Phase 0 initialization (see the frontmatter contract above):
-
-```markdown
----
-id: TASK_[ID]
-status: in_progress
-type: FEATURE
-title: [Short imperative title]
-description: >-
-  [One-line summary — block scalar ALWAYS, see the frontmatter contract above]
-depends_on: []
-created: [ISO date]
-updated: [ISO date]
----
-
-## Description
-
-[Task description shown in the card detail]
-```
-
-### context.md Template
-
-Created during Phase 0 initialization:
-
-```markdown
-# Task Context - TASK\_[ID]
+# Task Context - TASK_[ID]
 
 ## User Request
-
 [Exact user request text]
 
 ## Task Type
+[FEATURE | BUGFIX | REFACTORING | DOCUMENTATION | RESEARCH | DEVOPS | SAAS_INIT | CREATIVE]
 
-[FEATURE | BUGFIX | REFACTORING | DOCUMENTATION | RESEARCH | DEVOPS | CREATIVE]
-
-## Complexity Assessment
-
+## Complexity
 [Simple | Medium | Complex]
 
-## Strategy Selected
+## Strategy
+[Strategy and depth]
 
-[Strategy name from strategies.md]
+## CLI Lanes
+[Gate 0.1 outcome — see lane-assignment.md]
 
 ## Conversation Summary
-
-[Key decisions, clarifications, and context from conversation]
-
-## Related Tasks
-
-- [TASK_YYYY_NNN]: [relationship]
-
-## Created
-
-[ISO date]
-```
-
-### Document Ownership
-
-| Document               | Created By             | Contains                          |
-| ---------------------- | ---------------------- | --------------------------------- |
-| task.md                | Orchestrator (Phase 0) | Frontmatter carrier (status/meta) |
-| context.md             | Orchestrator (Phase 0) | User intent, task metadata        |
-| task-description.md    | project-manager        | Requirements, acceptance criteria |
-| implementation-plan.md | software-architect     | Architecture, file specifications |
-| tasks.md               | team-leader (MODE 1)   | Batched atomic tasks              |
-| test-report.md         | senior-tester          | Test results, coverage            |
-| code-style-review.md   | code-style-reviewer    | Pattern compliance findings       |
-| code-logic-review.md   | code-logic-reviewer    | Business logic findings           |
-| visual-review.md       | visual-reviewer        | UI/UX visual testing results      |
-| future-enhancements.md | modernization-detector | Future improvement opportunities  |
-
----
-
-## Continuation Mode
-
-### Detecting Continuation Request
-
-```
-/orchestrate TASK_2026_XXX    → Continuation mode
-/orchestrate [description]    → New task mode
-```
-
-### Phase Detection
-
-When continuing a task, read existing documents to determine current phase:
-
-```bash
-Glob(.ptah/specs/TASK_[ID]/*.md)
-```
-
-### Phase Detection Table
-
-| Documents Present                | Phase Status           | Next Action                           |
-| -------------------------------- | ---------------------- | ------------------------------------- |
-| No task.md                       | **Invalid / excluded** | ERROR: task has no valid carrier      |
-| task.md only                     | Initialized            | Invoke project-manager                |
-| + context.md                     | Context captured       | Invoke project-manager                |
-| + task-description.md            | PM done                | User validate OR next agent           |
-| + visual-design-specification.md | Designer done          | Invoke software-architect             |
-| + implementation-plan.md         | Architect done         | User validate OR team-leader MODE 1   |
-| + tasks.md (all PENDING)         | Decomposition done     | team-leader MODE 2 (first assignment) |
-| + tasks.md (has IN PROGRESS)     | Dev in progress        | team-leader MODE 2 (verify + next)    |
-| + tasks.md (has IMPLEMENTED)     | Dev done, await verify | team-leader MODE 2 (verify + commit)  |
-| + tasks.md (all COMPLETE)        | Dev complete           | team-leader MODE 3 OR QA choice       |
-| + test-report.md                 | Tester complete        | Continue QA or complete               |
-| + code-style-review.md           | Style reviewed         | Continue QA or complete               |
-| + code-logic-review.md           | Logic reviewed         | Continue QA or complete               |
-| + visual-review.md               | Visual reviewed        | Complete workflow                     |
-| + future-enhancements.md         | All done               | Workflow already complete             |
-
-### Continuation Logic
-
-```
-1. Parse TASK_ID from user input
-2. Read task.md frontmatter for the current status
-3. Glob task folder for existing documents
-4. Match against phase detection table
-5. Resume at detected phase
-```
-
-### Example Continuation
-
-```
-User: /orchestrate TASK_2026_108
-
-Orchestrator:
-1. Read .ptah/specs/TASK_2026_108/task.md → status: in_progress
-2. Glob .ptah/specs/TASK_2026_108/*.md
-3. Found: task.md, context.md, task-description.md, implementation-plan.md, tasks.md
-4. Check tasks.md → has IN PROGRESS tasks
-5. Detected phase: "Dev in progress"
-6. Action: Invoke team-leader MODE 2 (verify + next)
+[Key decisions and clarifications]
 ```
 
 ---
 
-## Task Status Values
+## Folder layout
 
-There are two distinct status vocabularies. Both use **word tokens only — no emoji**.
+```
+.ptah/specs/
+  registry.md                      GENERATED — never hand-edit
+  TASK_[ID]/
+    task.md                        carrier (first)
+    context.md                     user intent, strategy, lane roster
+    task-description.md            project-manager
+    research-report.md             researcher-expert
+    visual-design-specification.md ui-ux-designer
+    implementation-plan.md         software-architect
+    batches.md                     team-leader (former name tasks.md is still read)
+    test-report.md                 senior-tester
+    code-style-review.md           code-style-reviewer
+    code-logic-review.md           code-logic-reviewer
+    visual-review.md               visual-reviewer
+    screenshots/                   visual-reviewer evidence
+    future-enhancements.md         modernization-detector
+```
 
-### Task Status (`task.md` frontmatter — the source of truth)
-
-See the six values under the frontmatter contract above
-(`backlog | in_progress | in_review | blocked | done | cancelled`). This is what
-the board, the registry, and spec harvesting read.
-
-### Batch Status (in `tasks.md`)
-
-`tasks.md` breaks a task into batches; each batch heading carries a **word-token**
-status. No emoji — the harvester parses these tokens directly.
-
-| Status      | Meaning                              |
-| ----------- | ------------------------------------ |
-| PENDING     | Not yet assigned                     |
-| IN PROGRESS | Developer working                    |
-| IMPLEMENTED | Code complete, awaiting verification |
-| COMPLETE    | Verified and committed               |
-| FAILED      | Verification failed                  |
-
-**Example batch heading**: `## Batch 1: Backend — COMPLETE`
+`registry.md` is derived from each folder's `task.md` and carries a `GENERATED — DO NOT HAND-EDIT`
+header. If it disagrees with a carrier, the carrier is right; regenerate.
 
 ---
 
-## File Path Conventions
+## Continuation
 
-**CRITICAL**: Always use absolute Windows paths with drive letters for all file operations.
+Read `task.md` for status and `Glob` the folder. The furthest row that matches decides:
 
-```
-Correct:  .ptah\specs\TASK_2026_110\task.md
-Incorrect: .ptah/specs/TASK_2026_110/task.md
-Incorrect: ./.ptah/specs/TASK_2026_110/task.md
-```
+| Present | Next action |
+| --- | --- |
+| no `task.md` | Stop — invalid folder; create the carrier first |
+| `task.md` / `context.md` only | project-manager |
+| `task-description.md` | Gate 1 if not approved, else next agent |
+| `visual-design-specification.md` | software-architect |
+| `implementation-plan.md` | Gate 2 if not approved, else team-leader Mode 1 |
+| `batches.md`, a batch not COMPLETE | team-leader Mode 2 |
+| `batches.md`, every batch COMPLETE | team-leader Mode 3, then Gate 3 |
+| review / test reports | Continue the chosen QA, or finish |
+| `future-enhancements.md` | Workflow already complete |
 
----
+## Status vocabularies
 
-## Integration with Other References
+Word tokens only, no symbols.
 
-- **SKILL.md**: Phase 0 initialization creates task.md (first) then context.md
-- **strategies.md**: Determines which documents are created for each workflow type
-- **team-leader-modes.md**: MODE 1 creates tasks.md
-- **agent-catalog.md**: Each agent outputs specific document(s)
-- **checkpoints.md**: Validation points between document creation phases
+- **Task status** (`task.md`): the six values above.
+- **Batch and task status** (`batches.md`, written by team-leader): `PENDING`, `IN_PROGRESS`,
+  `IMPLEMENTED`, `COMPLETE`, `FAILED`. Example heading: `## Batch 1: Backend — COMPLETE`.
+
+Every path given to an agent is absolute.

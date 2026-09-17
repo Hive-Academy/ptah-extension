@@ -6,6 +6,7 @@ import {
   ACTIVITY_RING_CAPACITY,
   BackOfficeActivityService,
 } from './back-office-activity.service';
+import { WorkspaceScopeService } from './workspace-scope.service';
 
 function send(
   service: BackOfficeActivityService,
@@ -17,11 +18,13 @@ function send(
 
 describe('BackOfficeActivityService', () => {
   let service: BackOfficeActivityService;
+  let workspaceScope: WorkspaceScopeService;
 
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-01-01T00:00:00Z'));
     TestBed.configureTestingModule({});
+    workspaceScope = TestBed.inject(WorkspaceScopeService);
     service = TestBed.inject(BackOfficeActivityService);
   });
 
@@ -159,10 +162,11 @@ describe('BackOfficeActivityService', () => {
       elapsedMs: 1,
       totalKnown: true,
     });
-    send(service, MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED, {
-      sessionId: 's',
-      workspaceRoot: null,
-      kind: 'decision',
+    send(service, MESSAGE_TYPES.MEMORY_CORPUS_CHANGED, {
+      action: 'rebuilt',
+      corpusId: 'c1',
+      name: 'Docs',
+      count: 1,
       timestamp: 1,
     });
 
@@ -245,6 +249,52 @@ describe('BackOfficeActivityService', () => {
       timestamp: 2,
     });
     expect(service.latest()?.summary).toBe('Curated 1 memories');
+  });
+
+  it('ignores curation outcomes from a different active workspace', () => {
+    workspaceScope.switchTo('/ws-a');
+    send(service, MESSAGE_TYPES.MEMORY_EXTRACTED, {
+      workspaceRoot: '/ws-b',
+      extracted: 2,
+      created: 1,
+      merged: 0,
+      timestamp: 1,
+    });
+    expect(service.recent()).toEqual([]);
+
+    send(service, MESSAGE_TYPES.MEMORY_EXTRACTED, {
+      workspaceRoot: '/ws-a',
+      extracted: 2,
+      created: 1,
+      merged: 0,
+      timestamp: 2,
+    });
+    expect(service.latest()?.summary).toBe('Curated 1 memories');
+  });
+
+  it('matches Windows workspace identity across case and separators', () => {
+    workspaceScope.switchTo('D:\\Projects\\Ptah');
+    send(service, MESSAGE_TYPES.MEMORY_EXTRACTED, {
+      workspaceRoot: 'd:/projects/ptah/',
+      extracted: 2,
+      created: 0,
+      merged: 2,
+      timestamp: 1,
+    });
+
+    expect(service.latest()?.summary).toBe('Merged 2 memories');
+  });
+
+  it('drops workspace-scoped curation before an active workspace is known', () => {
+    send(service, MESSAGE_TYPES.MEMORY_EXTRACTED, {
+      workspaceRoot: '/ws-a',
+      extracted: 1,
+      created: 1,
+      merged: 0,
+      timestamp: 1,
+    });
+
+    expect(service.recent()).toEqual([]);
   });
 
   it('summarises a corpus change', () => {
@@ -355,7 +405,6 @@ describe('BackOfficeActivityService', () => {
     send(service, MESSAGE_TYPES.VEC_STATUS_CHANGED, {});
     send(service, MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED, {});
     send(service, MESSAGE_TYPES.MEMORY_EXTRACTED, {});
-    send(service, MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED, undefined);
     send(service, MESSAGE_TYPES.MEMORY_CORPUS_CHANGED, { action: 'built' });
     send(service, MESSAGE_TYPES.INDEXING_PROGRESS, {});
     send(service, MESSAGE_TYPES.INDEXING_COMPLETE, {});
@@ -368,10 +417,10 @@ describe('BackOfficeActivityService', () => {
 
   it('substitutes now() for a timestamp of the wrong type', () => {
     const now = Date.now();
-    send(service, MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED, {
-      sessionId: 's',
+    send(service, MESSAGE_TYPES.MEMORY_EXTRACTED, {
       workspaceRoot: null,
-      kind: 'decision',
+      created: 1,
+      merged: 0,
       timestamp: 'yesterday',
     });
 
@@ -527,12 +576,11 @@ describe('BackOfficeActivityService', () => {
     expect(service.recent()).toEqual([]);
   });
 
-  it('declares all ten handled wire strings', () => {
+  it('declares the nine user-meaningful handled wire strings', () => {
     expect(service.handledMessageTypes).toEqual([
       'activity:event',
       'boot:readinessChanged',
       'memory:extracted',
-      'memory:observationCaptured',
       'memory:corpusChanged',
       'indexing:progress',
       'indexing:complete',

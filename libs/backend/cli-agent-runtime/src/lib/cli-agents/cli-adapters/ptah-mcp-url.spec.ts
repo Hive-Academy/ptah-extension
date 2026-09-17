@@ -29,6 +29,37 @@ describe('ptahMcpServerUrl', () => {
     expect(ptahMcpServerUrl(51820, '')).toBe('http://localhost:51820');
   });
 
+  it('leads with /agent/{id} and keeps /workspace/{root} terminal', () => {
+    // The ordering rule is load-bearing: the server's grammar only accepts the
+    // agent (or session) segment FIRST, with the workspace segment last.
+    expect(ptahMcpServerUrl(51820, '/tmp/ws-a', 'agent-123')).toBe(
+      'http://localhost:51820/agent/agent-123/workspace/%2Ftmp%2Fws-a',
+    );
+  });
+
+  it('percent-encodes the agent id', () => {
+    expect(ptahMcpServerUrl(51820, '/tmp/ws-a', 'a/b?c')).toBe(
+      'http://localhost:51820/agent/a%2Fb%3Fc/workspace/%2Ftmp%2Fws-a',
+    );
+  });
+
+  it('emits the agent segment alone when there is no working directory', () => {
+    expect(ptahMcpServerUrl(51820, '', 'agent-123')).toBe(
+      'http://localhost:51820/agent/agent-123',
+    );
+  });
+
+  it('yields the pre-existing URL byte for byte when no agent id is given', () => {
+    // The failure behaviour Component 6 fixes: an absent id must not change
+    // the URL at all, so an unattributed caller looks exactly as it did.
+    expect(ptahMcpServerUrl(51820, '/tmp/ws-a', undefined)).toBe(
+      ptahMcpServerUrl(51820, '/tmp/ws-a'),
+    );
+    expect(ptahMcpServerUrl(51820, '/tmp/ws-a', '')).toBe(
+      ptahMcpServerUrl(51820, '/tmp/ws-a'),
+    );
+  });
+
   it('cannot leak a literal /sse out of a path segment', () => {
     // `/foo/sse/bar` would read back as transport `sse` if the slashes
     // survived. Encoding turns them into %2F, so the transport inference

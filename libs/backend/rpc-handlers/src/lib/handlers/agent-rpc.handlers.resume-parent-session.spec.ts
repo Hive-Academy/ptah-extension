@@ -81,7 +81,12 @@ interface Harness {
   handlers: AgentRpcHandlers;
   rpcHandler: MockRpcHandler;
   registry: { spawnAgent: jest.Mock; listAgents: jest.Mock };
-  processManager: { spawnFromSdkHandle: jest.Mock; spawn: jest.Mock };
+  processManager: {
+    spawnFromSdkHandle: jest.Mock;
+    spawn: jest.Mock;
+    reserveAgentId: jest.Mock;
+  };
+  metadataStore: { createChild: jest.Mock };
 }
 
 function makeHarness(): Harness {
@@ -99,6 +104,9 @@ function makeHarness(): Harness {
   const processManager = {
     spawnFromSdkHandle: jest.fn().mockResolvedValue({ agentId: 'a-1' }),
     spawn: jest.fn().mockResolvedValue({ agentId: 'a-1' }),
+    // The resume path reserves the record's id BEFORE the handle is built, so
+    // the MCP URL the resumed agent calls back on can name it (TASK_2026_402).
+    reserveAgentId: jest.fn().mockReturnValue('reserved-agent-id'),
   };
 
   const workspace = {
@@ -116,6 +124,7 @@ function makeHarness(): Harness {
   };
 
   const cliDetection = { getAdapter: jest.fn().mockReturnValue(undefined) };
+  const metadataStore = { createChild: jest.fn().mockResolvedValue(undefined) };
 
   const handlers = new AgentRpcHandlers(
     createMockLogger() as unknown as Logger,
@@ -123,7 +132,7 @@ function makeHarness(): Harness {
     cliDetection as unknown as CliDetectionService,
     registry as unknown as PtahCliRegistry,
     processManager as unknown as AgentProcessManager,
-    { createChild: jest.fn() } as unknown as SessionMetadataStore,
+    metadataStore as unknown as SessionMetadataStore,
     workspace as unknown as IWorkspaceProvider,
     stateStorage as unknown as IStateStorage,
     {} as unknown as IModelDiscovery,
@@ -135,7 +144,7 @@ function makeHarness(): Harness {
   );
   handlers.register();
 
-  return { handlers, rpcHandler, registry, processManager };
+  return { handlers, rpcHandler, registry, processManager, metadataStore };
 }
 
 type ResumeResult = { success: boolean; error?: string };
@@ -170,9 +179,6 @@ describe('AgentRpcHandlers — agent:resumeCliSession parent session', () => {
   beforeEach(() => {
     mockReaddir.mockReset();
     mockAccess.mockReset();
-    // The workspace resolves to a project dir and the CLI session file exists.
-    mockReaddir.mockResolvedValue(['D-ws']);
-    mockAccess.mockResolvedValue(undefined);
   });
 
   it('threads parentSessionId into PtahCliRegistry.spawnAgent, not just the process manager', async () => {
@@ -190,7 +196,24 @@ describe('AgentRpcHandlers — agent:resumeCliSession parent session', () => {
     ).toBe('chat-session-uuid');
   });
 
-  it('still threads the parent when the CLI session file is missing (fresh start)', async () => {
+  it('reserves ONE agent id and hands it to both halves of the resume', async () => {
+    // Without this, a RESUMED ptah-cli agent gets the pre-existing
+    // workspace-only MCP URL, so `ptah_agent_report` sees no `/agent/{id}`
+    // segment and refuses every report as `unattributed-caller`. The failure
+    // is silent on both sides, which is why it is pinned here.
+    const h = makeHarness();
+
+    await resume(h, 'chat-session-uuid');
+
+    expect(h.processManager.reserveAgentId).toHaveBeenCalledTimes(1);
+    const reserved = h.processManager.reserveAgentId.mock.results[0].value;
+    expect(h.registry.spawnAgent.mock.calls[0][2].agentId).toBe(reserved);
+    expect(h.processManager.spawnFromSdkHandle.mock.calls[0][1].agentId).toBe(
+      reserved,
+    );
+  });
+
+  it('preserves the resume and parent session ids on both halves of the ptah-cli resume', async () => {
     const h = makeHarness();
     mockAccess.mockRejectedValue(
       Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
@@ -199,9 +222,38 @@ describe('AgentRpcHandlers — agent:resumeCliSession parent session', () => {
     await resume(h, 'chat-session-uuid');
 
     const options = h.registry.spawnAgent.mock.calls[0][2];
-    // resumeSessionId is correctly dropped — parentSessionId must not be.
-    expect(options.resumeSessionId).toBeUndefined();
+    expect(options.resumeSessionId).toBe(CLI_SESSION_ID);
     expect(options.parentSessionId).toBe('chat-session-uuid');
+    expect(
+      h.processManager.spawnFromSdkHandle.mock.calls[0][1].resumeSessionId,
+    ).toBe(CLI_SESSION_ID);
+    expect(mockReaddir).not.toHaveBeenCalled();
+    expect(mockAccess).not.toHaveBeenCalled();
+  });
+
+  it('stores the configured agent name as child metadata when the SDK session resolves', async () => {
+    const h = makeHarness();
+    let onSessionResolved: ((sessionId: string) => void) | undefined;
+    h.registry.spawnAgent.mockResolvedValueOnce({
+      handle: {
+        onSessionResolved: jest.fn((callback: (sessionId: string) => void) => {
+          onSessionResolved = callback;
+        }),
+      },
+      agentName: 'Test CLI Agent',
+      setAgentId: jest.fn(),
+    });
+
+    await resume(h, 'chat-session-uuid');
+    expect(onSessionResolved).toBeDefined();
+    onSessionResolved?.('resolved-cli-session');
+    await Promise.resolve();
+
+    expect(h.metadataStore.createChild).toHaveBeenCalledWith(
+      'resolved-cli-session',
+      WORKSPACE,
+      'Test CLI Agent',
+    );
   });
 
   // TASK_2026_296 inverted this case. It used to assert that an empty
@@ -237,11 +289,6 @@ describe('AgentRpcHandlers — agent:resumeCliSession param validation', () => {
   beforeEach(() => {
     mockReaddir.mockReset();
     mockAccess.mockReset();
-    // `sessionFileExists` escapes the workspace root with /[:\\/]/g → '-', so
-    // 'D:/ws' becomes 'D--ws'. Matching it exactly is what lets the spec below
-    // observe `cliSessionId` reaching the spawn as `resumeSessionId`.
-    mockReaddir.mockResolvedValue(['D--ws']);
-    mockAccess.mockResolvedValue(undefined);
   });
 
   // The door an empty session id came through. `cliSessionId: ''` satisfied
@@ -443,4 +490,177 @@ describe('AgentRpcHandlers — agent:resumeCliSession from ptah agent-cli resume
     expect(result.error).toContain('No Ptah CLI agents configured');
     expect(h.registry.spawnAgent).not.toHaveBeenCalled();
   });
+});
+
+// TASK_2026_396 — the `~/.claude/projects` transcript probe was deleted from
+// every resume lane. A Codex thread id never lives in that store, and the
+// probe's unguarded `fs.access` threw ENOENT straight to the user. These specs
+// pin that NO resume path reads the filesystem, and that `cliSessionId` reaches
+// the spawn as `resumeSessionId` unchanged. The negative fs assertions are the
+// load-bearing half: a test that only checks `{ success: true }` stays green if
+// a probe creeps back in.
+describe('agent:resumeCliSession — no filesystem gate (TASK_2026_396)', () => {
+  beforeEach(() => {
+    mockReaddir.mockReset();
+    mockAccess.mockReset();
+  });
+
+  // AC1 — the Claude projects directory is absent entirely. The old probe's
+  // `fs.readdir` threw ENOENT and the user saw a raw Node error. The resume
+  // must now succeed and must not touch the filesystem at all.
+  it('resumes a codex session when the claude projects directory is absent', async () => {
+    const h = makeHarness();
+    mockReaddir.mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
+
+    const result = await resumeRaw(h, {
+      cliSessionId: CLI_SESSION_ID,
+      cli: 'codex',
+      task: 'continue the work',
+    });
+
+    expect(result.success).toBe(true);
+    expect(h.processManager.spawn).toHaveBeenCalledTimes(1);
+    expect(mockReaddir).not.toHaveBeenCalled();
+    expect(mockAccess).not.toHaveBeenCalled();
+  });
+
+  // AC2 — the directory matches but the session file is missing. This is the
+  // exact shape that used to throw, and the shape that would silently discard
+  // the id if the probe returned `false` and the handler started fresh. The
+  // codex thread id must reach the spawn as `resumeSessionId`, not `undefined`.
+  it('passes the codex thread id through as resumeSessionId when the session file is missing', async () => {
+    const h = makeHarness();
+    mockReaddir.mockResolvedValue(['D--ws']);
+    mockAccess.mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
+
+    const result = await resumeRaw(h, {
+      cliSessionId: CLI_SESSION_ID,
+      cli: 'codex',
+      task: 'continue the work',
+    });
+
+    expect(result.success).toBe(true);
+    expect(h.processManager.spawn.mock.calls[0][0].resumeSessionId).toBe(
+      CLI_SESSION_ID,
+    );
+    expect(mockReaddir).not.toHaveBeenCalled();
+    expect(mockAccess).not.toHaveBeenCalled();
+  });
+
+  // AC3' — the ptah-cli path passes `cliSessionId` to BOTH halves. The two
+  // halves must agree; a regression that drops the id from one half is the
+  // silent-conversation-loss defect this task exists to remove.
+  it('threads the cli session id into both halves of the ptah-cli resume', async () => {
+    const h = makeHarness();
+    mockReaddir.mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
+    mockAccess.mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
+
+    const result = await resumeRaw(h, {
+      cliSessionId: CLI_SESSION_ID,
+      cli: 'ptah-cli',
+      task: 'continue the work',
+      ptahCliId: PTAH_CLI_ID,
+    });
+
+    expect(result.success).toBe(true);
+    expect(
+      h.registry.spawnAgent.mock.calls[0][2].resumeSessionId,
+    ).toBe(CLI_SESSION_ID);
+    expect(
+      h.processManager.spawnFromSdkHandle.mock.calls[0][1].resumeSessionId,
+    ).toBe(CLI_SESSION_ID);
+    expect(mockReaddir).not.toHaveBeenCalled();
+    expect(mockAccess).not.toHaveBeenCalled();
+  });
+
+  // Finding A1 — a stale codex thread id must surface as a clean error, not a
+  // crash or a false success. The outer catch at `agent-rpc.handlers.ts:818-825`
+  // converts a vendor rejection into `{ success: false, error }` the UI can
+  // render. A regression that leaks the rejection or reports false success
+  // leaves this test red.
+  it('surfaces a stale codex thread id as a clean error instead of rejecting', async () => {
+    const h = makeHarness();
+    h.processManager.spawn.mockRejectedValue(
+      new Error('thread not found: cli-session-uuid'),
+    );
+
+    const result = await resumeRaw(h, {
+      cliSessionId: CLI_SESSION_ID,
+      cli: 'codex',
+      task: 'continue the work',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('thread not found');
+  });
+
+  // Finding A2 — a ptah-cli registry failure must surface as a clean error and
+  // must NOT reach the second half. `agent-rpc.handlers.ts:883-885` throws when
+  // `spawnResult` carries a `status` field; the outer catch converts that throw.
+  it('surfaces a ptah-cli registry failure as a clean error before the second half spawns', async () => {
+    const h = makeHarness();
+    h.registry.spawnAgent.mockResolvedValue({
+      status: 'error',
+      message: 'session expired',
+    });
+
+    const result = await resumeRaw(h, {
+      cliSessionId: CLI_SESSION_ID,
+      cli: 'ptah-cli',
+      task: 'continue the work',
+      ptahCliId: PTAH_CLI_ID,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('session expired');
+    expect(h.processManager.spawnFromSdkHandle).not.toHaveBeenCalled();
+  });
+
+  // Finding B — the pass-through branch is shared by every system CLI today
+  // (`agent-rpc.handlers.ts:800-808`). A vendor-specific probe or id-drop
+  // reintroduced for any of them would escape a codex-only assertion. The six
+  // literals below mirror `SYSTEM_CLI_TYPES` at
+  // `libs/shared/src/lib/types/agent-process.types.ts:62-69`; written here as a
+  // literal (not imported) to match the surrounding file's style and avoid a
+  // heavy barrel pull.
+  it.each([
+    'codex',
+    'copilot',
+    'cursor',
+    'antigravity',
+    'opencode',
+    'pi',
+  ])(
+    'passes cliSessionId through as resumeSessionId for cli %s without touching the filesystem',
+    async (cli: string) => {
+      const h = makeHarness();
+      mockReaddir.mockRejectedValue(
+        Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+      );
+      mockAccess.mockRejectedValue(
+        Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+      );
+
+      const result = await resumeRaw(h, {
+        cliSessionId: CLI_SESSION_ID,
+        cli,
+        task: 'continue the work',
+      });
+
+      expect(result.success).toBe(true);
+      expect(h.processManager.spawn.mock.calls[0][0].resumeSessionId).toBe(
+        CLI_SESSION_ID,
+      );
+      expect(mockReaddir).not.toHaveBeenCalled();
+      expect(mockAccess).not.toHaveBeenCalled();
+    },
+  );
 });

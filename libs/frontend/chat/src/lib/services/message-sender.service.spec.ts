@@ -7,7 +7,9 @@
  *     there is no session, to continueConversation when one exists
  *   - startNewConversation (happy path): auto-name, chat:start RPC payload
  *     including effective model/effort, user message appended
- *   - startNewConversation (RPC failure): marks loaded + failSession()
+ *   - startNewConversation (RPC failure): marks loaded + failSession(), and
+ *     removes the tab from the streaming set on BOTH pre-stream failure exits
+ *     (structural rejection and throw) — TASK_2026_360 B1
  *   - startNewConversation (no workspace): still calls chat:start with
  *     workspacePath omitted so the backend can fall back to
  *     IWorkspaceProvider.getWorkspaceRoot() — fixes the bootstrap-restore
@@ -32,7 +34,10 @@ import {
 import { MessageSenderService } from './message-sender.service';
 import { UltracodeStateService } from './ultracode-state.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '@ptah-extension/chat-streaming';
+import {
+  SessionManager,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
 import type { TabState } from '@ptah-extension/chat-types';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
@@ -47,6 +52,7 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
     streamingState: null,
     currentMessageId: null,
     claudeSessionId: null,
+    titleOrigin: 'default',
     ...overrides,
   } as TabState;
 }
@@ -63,6 +69,7 @@ describe('MessageSenderService', () => {
     switchTab: jest.Mock;
     markTabStreaming: jest.Mock;
     markTabIdle: jest.Mock;
+    isTabStreaming: jest.Mock;
     // AbortController plumbing for tab-close → stream-cancel.
     createAbortController: jest.Mock;
     getAbortSignal: jest.Mock;
@@ -78,6 +85,14 @@ describe('MessageSenderService', () => {
   };
   /** Tabs parked in a NON-active workspace — absent from `tabs()` by design. */
   let backgroundTabsSignal: ReturnType<typeof signal<TabState[]>>;
+  /**
+   * Models `TabManagerService._streamingTabIds` (tab-manager.service.ts:157) —
+   * the spinner/send-vs-queue set. It is a SEPARATE store from `TabState.status`:
+   * `markLoaded` writes status alone (`:1104`) and only `markTabIdle` (`:2344`)
+   * or `applyTurnState` (`:1197`) removes a tab from it. Modelling it here lets
+   * the failure specs assert the set itself rather than a call count.
+   */
+  let streamingTabIds: Set<string>;
   let sessionManager: jest.Mocked<
     Pick<
       SessionManager,
@@ -88,6 +103,8 @@ describe('MessageSenderService', () => {
     Pick<MessageValidationService, 'validate' | 'sanitize'>
   >;
   let rpcCall: jest.Mock;
+  let recordBoundary: jest.Mock;
+  let removeBoundary: jest.Mock;
   let flagAuthRequired: jest.Mock;
   let vscodeConfig: jest.Mock;
   let consoleWarn: jest.SpyInstance;
@@ -97,6 +114,7 @@ describe('MessageSenderService', () => {
     tabsSignal = signal<TabState[]>([makeTab({ id: 'tab-1' })]);
     activeTabIdSignal = signal<string | null>('tab-1');
     backgroundTabsSignal = signal<TabState[]>([]);
+    streamingTabIds = new Set<string>();
 
     const applyPatch = (tabId: string, patch: Partial<TabState>): void => {
       if (backgroundTabsSignal().some((t) => t.id === tabId)) {
@@ -122,8 +140,13 @@ describe('MessageSenderService', () => {
       ),
       createTab: jest.fn(() => 'tab-new'),
       switchTab: jest.fn(),
-      markTabStreaming: jest.fn(),
-      markTabIdle: jest.fn(),
+      markTabStreaming: jest.fn((tabId: string) => {
+        streamingTabIds.add(tabId);
+      }),
+      markTabIdle: jest.fn((tabId: string) => {
+        streamingTabIds.delete(tabId);
+      }),
+      isTabStreaming: jest.fn((tabId: string) => streamingTabIds.has(tabId)),
       consumeFirstMessagePreamble: jest.fn(() => null),
       // Stub returns a real AbortSignal so the wireAbortDispatch listener
       // can attach without throwing.
@@ -131,12 +154,8 @@ describe('MessageSenderService', () => {
       // No existing controller tracked by default; individual tests override
       // this to simulate an in-flight (still-tracked) AbortController.
       getAbortSignal: jest.fn(() => undefined),
-      applyNewConversationStreaming: jest.fn((tabId: string, name: string) =>
-        applyPatch(tabId, {
-          name,
-          title: name,
-          status: 'streaming',
-        } as Partial<TabState>),
+      applyNewConversationStreaming: jest.fn((tabId: string) =>
+        applyPatch(tabId, { status: 'streaming' }),
       ),
       appendUserMessageAndResetStreaming: jest.fn(
         (tabId: string, messages: ExecutionChatMessage[]) =>
@@ -191,6 +210,8 @@ describe('MessageSenderService', () => {
     >;
 
     rpcCall = jest.fn();
+    recordBoundary = jest.fn();
+    removeBoundary = jest.fn();
     flagAuthRequired = jest.fn();
     vscodeConfig = jest.fn(() => ({ workspaceRoot: 'D:/repo' }));
 
@@ -202,6 +223,13 @@ describe('MessageSenderService', () => {
         MessageSenderService,
         { provide: TabManagerService, useValue: tabManager },
         { provide: SessionManager, useValue: sessionManager },
+        {
+          provide: StreamingHandlerService,
+          useValue: {
+            recordUserPromptBoundary: recordBoundary,
+            removeUserPromptBoundary: removeBoundary,
+          },
+        },
         { provide: MessageValidationService, useValue: validator },
         { provide: ClaudeRpcService, useValue: { call: rpcCall } },
         {
@@ -284,6 +312,181 @@ describe('MessageSenderService', () => {
       );
       expect(startCalled).toBe(false);
       expect(continueCalled).toBe(true);
+    });
+
+    it('records the continued prompt as a boundary in the live tree', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      rpcCall.mockImplementation(
+        (method: string): Promise<{ success: boolean; data?: unknown }> =>
+          Promise.resolve(
+            method === 'session:validate'
+              ? { success: true, data: { exists: true } }
+              : { success: true },
+          ),
+      );
+
+      await service.send('sent mid-turn');
+
+      const userMessage = tabsSignal()[0].messages.at(-1);
+      expect(userMessage?.role).toBe('user');
+      expect(recordBoundary).toHaveBeenCalledWith('tab-1', userMessage);
+    });
+
+    describe('a continue whose prompt never reaches the backend', () => {
+      /** `chat:continue` resolves to `continueResult`, or rejects with it. */
+      const failContinue = (continueResult: unknown, reject = false): void => {
+        rpcCall.mockImplementation((method: string): Promise<unknown> => {
+          if (method === 'session:validate') {
+            return Promise.resolve({ success: true, data: { exists: true } });
+          }
+          if (method === 'chat:continue') {
+            return reject
+              ? Promise.reject(continueResult)
+              : Promise.resolve(continueResult);
+          }
+          return Promise.resolve({ success: true });
+        });
+      };
+
+      /** The bubble the send recorded as a boundary. */
+      const recordedBubbleId = (): string =>
+        (recordBoundary.mock.calls[0][1] as ExecutionChatMessage).id;
+
+      beforeEach(() => {
+        tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      });
+
+      it('removes the boundary but keeps the bubble when chat:continue is rejected', async () => {
+        failContinue({ success: false, error: 'turn rejected' });
+
+        const outcome = await service.send('follow up', { tabId: 'tab-1' });
+
+        expect(outcome).toEqual(expect.objectContaining({ success: false }));
+        expect(removeBoundary).toHaveBeenCalledWith(
+          'tab-1',
+          recordedBubbleId(),
+        );
+        expect(tabsSignal()[0].messages.map((m) => m.id)).toEqual([
+          recordedBubbleId(),
+        ]);
+      });
+
+      it('removes the boundary but keeps the bubble when chat:continue throws', async () => {
+        failContinue(new Error('socket closed'), true);
+
+        await service.send('follow up', { tabId: 'tab-1' });
+
+        expect(removeBoundary).toHaveBeenCalledWith(
+          'tab-1',
+          recordedBubbleId(),
+        );
+        expect(tabsSignal()[0].messages.map((m) => m.id)).toEqual([
+          recordedBubbleId(),
+        ]);
+      });
+
+      it('also removes the bubble when a rejected queue flush re-queues the text', async () => {
+        failContinue({ success: true, data: { success: false, error: 'no' } });
+
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+          tabId: 'tab-1',
+        });
+
+        expect(removeBoundary).toHaveBeenCalledWith(
+          'tab-1',
+          recordedBubbleId(),
+        );
+        expect(tabsSignal()[0].messages).toEqual([]);
+      });
+
+      it('also removes the bubble when a queue flush throws', async () => {
+        failContinue(new Error('socket closed'), true);
+
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+          tabId: 'tab-1',
+        });
+
+        expect(removeBoundary).toHaveBeenCalledWith(
+          'tab-1',
+          recordedBubbleId(),
+        );
+        expect(tabsSignal()[0].messages).toEqual([]);
+      });
+
+      it('rolls nothing back when the continue is delivered', async () => {
+        failContinue({ success: true });
+
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+          tabId: 'tab-1',
+        });
+
+        expect(removeBoundary).not.toHaveBeenCalled();
+        expect(tabsSignal()[0].messages).toHaveLength(1);
+      });
+
+      it('drops the undelivered prompt from a turn that finalized before the flush failed', async () => {
+        // Accepted behaviour (TASK_2026_420 round 4, S3): the prompt never
+        // reached the backend, so it must not sit between reply parts the
+        // model produced without it. The text goes back to the queue.
+        let reachContinue!: () => void;
+        const continueReached = new Promise<void>((resolve) => {
+          reachContinue = resolve;
+        });
+        let rejectContinue!: (reason: unknown) => void;
+        rpcCall.mockImplementation((method: string): Promise<unknown> => {
+          if (method === 'session:validate') {
+            return Promise.resolve({ success: true, data: { exists: true } });
+          }
+          if (method === 'chat:continue') {
+            reachContinue();
+            return new Promise((_resolve, reject) => {
+              rejectContinue = reject;
+            });
+          }
+          return Promise.resolve({ success: true });
+        });
+
+        const pending = service.continueExistingSessionForQueueFlush(
+          'queued',
+          'sess-X',
+          { tabId: 'tab-1' },
+        );
+        await continueReached;
+
+        // The interrupted turn finalizes while `chat:continue` is in flight.
+        const bubble = tabsSignal()[0].messages[0];
+        expect(bubble.id).toBe(recordedBubbleId());
+        const before = {
+          id: 'before',
+          role: 'assistant',
+        } as ExecutionChatMessage;
+        const after = {
+          id: 'after',
+          role: 'assistant',
+        } as ExecutionChatMessage;
+        tabsSignal.update((tabs) =>
+          tabs.map((t) =>
+            t.id === 'tab-1'
+              ? ({
+                  ...t,
+                  messages: [before, bubble, after],
+                  streamingState: null,
+                } as TabState)
+              : t,
+          ),
+        );
+
+        rejectContinue(new Error('socket closed'));
+
+        await expect(pending).resolves.toEqual(
+          expect.objectContaining({ success: false }),
+        );
+        expect(removeBoundary).toHaveBeenCalledWith('tab-1', bubble.id);
+        const messages = tabsSignal()[0].messages;
+        expect(messages.map((m) => m.id)).toEqual(['before', 'after']);
+        expect(messages[0]).toBe(before);
+        expect(messages[1]).toBe(after);
+      });
     });
 
     it('uses the options.tabId to target a non-active tab (canvas tile isolation)', async () => {
@@ -400,14 +603,17 @@ describe('MessageSenderService', () => {
       );
     });
 
-    it('auto-names the tab from the first 50 chars when name is still "New Chat"', async () => {
+    it('sends the bounded first-message title to chat:start for a default tab', async () => {
       rpcCall.mockResolvedValue({ success: true });
       const prompt = 'Explain the new module boundaries in the monorepo';
       await service.send(prompt);
 
+      const [, payload] = rpcCall.mock.calls.find(
+        (call) => call[0] === 'chat:start',
+      ) as [string, { name: string }];
+      expect(payload.name).toBe('Explain the new module boundaries in…');
       expect(tabManager.applyNewConversationStreaming).toHaveBeenCalledWith(
         'tab-1',
-        prompt.substring(0, 50).trim(),
       );
     });
 
@@ -430,6 +636,55 @@ describe('MessageSenderService', () => {
       await service.send('hello');
       expect(sessionManager.failSession).toHaveBeenCalled();
       expect(tabManager.markLoaded).toHaveBeenCalledWith('tab-1');
+    });
+
+    /**
+     * TASK_2026_360 B1 — the optimistic `markTabStreaming` at
+     * message-sender.service.ts:377 fires BEFORE `chat:start`. A pre-stream
+     * failure creates no broadcaster, so no backend `turn_state` and no
+     * CHAT_ERROR can ever repair the spinner set; Stop cannot heal it either
+     * (the tab never bound a `claudeSessionId`). The send path must therefore
+     * pair its own optimistic write with `markTabIdle` on BOTH failure exits,
+     * exactly as `continueConversation` already does (`:653`, `:669`).
+     *
+     * These assert the SET, not the call: `markLoaded` alone leaves the tab in
+     * `_streamingTabIds`, which lights Stop and silently queues every later
+     * message (`tab-manager.service.ts:150-156`, TASK_2026_382).
+     */
+    it('leaves no tab in the streaming set after a structural chat:start rejection', async () => {
+      rpcCall.mockResolvedValue({
+        success: true,
+        data: { success: false, error: 'AUTH_REQUIRED' },
+      });
+
+      await service.send('hello');
+
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.isTabStreaming('tab-1')).toBe(false);
+    });
+
+    it('leaves no tab in the streaming set after a transport-level chat:start failure', async () => {
+      rpcCall.mockResolvedValue({ success: false, error: 'nope' });
+
+      await service.send('hello');
+
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.isTabStreaming('tab-1')).toBe(false);
+    });
+
+    it('leaves no tab in the streaming set when chat:start throws', async () => {
+      // AuthRequiredError raised inside sdkAdapter.startChatSession, before
+      // streamEventsToWebview — no broadcaster exists to emit a terminal
+      // turn_state. startNewConversation rethrows, so `send` rejects.
+      const authError = new Error('AUTH_REQUIRED');
+      rpcCall.mockRejectedValue(authError);
+
+      await expect(service.send('hello')).rejects.toThrow('AUTH_REQUIRED');
+
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.isTabStreaming('tab-1')).toBe(false);
     });
 
     it('returns { success: true } on a started conversation (F-D2 contract)', async () => {

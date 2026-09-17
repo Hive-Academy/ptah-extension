@@ -5,6 +5,13 @@ export { FileSettingsStore } from './settings/file-settings-store';
 export { ElectronFileSystemProvider } from './implementations/electron-file-system-provider';
 export { ElectronFileDialog } from './implementations/electron-file-dialog';
 export { ElectronStateStorage } from './implementations/electron-state-storage';
+export type { ElectronStateStorageWorkerOptions } from './implementations/electron-state-storage';
+export { ElectronStateStorageWorkerHost } from './implementations/electron-state-storage-worker-host';
+export type {
+  ElectronStateWorkerFactory,
+  ElectronStateWorkerHostOptions,
+  ElectronStateWorkerLike,
+} from './implementations/electron-state-storage-worker-host';
 export { ElectronSecretStorage } from './implementations/electron-secret-storage';
 export type { SafeStorageApi } from './implementations/electron-secret-storage';
 export { ElectronWorkspaceProvider } from './implementations/electron-workspace-provider';
@@ -17,5 +24,11 @@ export type {
 export { ElectronOutputChannel } from './implementations/electron-output-channel';
 export { ElectronCommandRegistry } from './implementations/electron-command-registry';
 export { ElectronEditorProvider } from './implementations/electron-editor-provider';
+export { ElectronEditorLauncher } from './implementations/electron-editor-launcher';
+export type { ElectronEditorLauncherOptions } from './implementations/electron-editor-launcher';
 export { ElectronDiagnosticsProvider } from './implementations/electron-diagnostics-provider';
 export { ElectronHttpServerProvider } from './implementations/electron-http-server-provider';
+export { ElectronWorkspaceWatcher } from './workspace-watch/electron-workspace-watcher';
+export type { ElectronWorkspaceWatcherOptions } from './workspace-watch/electron-workspace-watcher';
+export { createInProcessWorkspaceWatchHostForker } from './workspace-watch/in-process-workspace-watch-host';
+export type { InProcessWorkspaceWatchHostOptions } from './workspace-watch/in-process-workspace-watch-host';

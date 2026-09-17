@@ -25,6 +25,7 @@ import { VscodeTokenCounter } from './implementations/vscode-token-counter';
 import { VscodeDiagnosticsProvider } from './implementations/vscode-diagnostics-provider';
 import { VscodeHttpServerProvider } from './implementations/vscode-http-server-provider';
 import { VscodeUriOAuthCallbackListener } from './implementations/vscode-uri-oauth-callback-listener';
+import { VscodeWorkspaceWatcher } from './implementations/vscode-workspace-watcher';
 
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
@@ -91,6 +92,19 @@ export function registerPlatformVscodeServices(
     useValue: outputChannel,
   });
   context.subscriptions.push(outputChannel);
+  // TASK_2026_437 C9: VS Code's own out-of-process watcher behind the batched
+  // port. Its diagnostics go to the platform output channel — this lib cannot
+  // reach the vscode-core Logger.
+  const workspaceWatcher = new VscodeWorkspaceWatcher({
+    onDiagnostic: ({ level, message, detail }) =>
+      outputChannel.appendLine(
+        `[${level}] ${message}${detail ? ` ${JSON.stringify(detail)}` : ''}`,
+      ),
+  });
+  container.register(PLATFORM_TOKENS.WORKSPACE_WATCHER, {
+    useValue: workspaceWatcher,
+  });
+  context.subscriptions.push(workspaceWatcher);
   container.register(PLATFORM_TOKENS.COMMAND_REGISTRY, {
     useValue: new VscodeCommandRegistry(),
   });

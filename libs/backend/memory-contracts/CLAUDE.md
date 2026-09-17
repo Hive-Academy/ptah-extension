@@ -20,13 +20,15 @@ Pure contracts (interfaces + tokens) for the Letta-style memory subsystem. Lets 
 ## Public API
 
 Types: `MemoryHit`, `MemoryHitPage`, `MemoryRecord`, `MemoryListPage`, `SymbolChunkInsert`, `ExtractedMemoryDraft`, `ResolvedMemoryDraft`, `BuildCorpusParams`, `CorpusRef`, `CorpusListEntry`, `CorpusRebuildResult`, `CorpusPrimeResult`.
-Interfaces: `IMemoryReader`, `IMemoryLister`, `ICuratorLLM`, `ICompactionCallbackRegistry`, `ISymbolSink`, `IKnowledgeAgent`.
-Tokens: `MEMORY_CONTRACT_TOKENS`, `KNOWLEDGE_AGENT_TOKEN`.
+Interfaces: `IMemoryReader`, `IMemoryLister`, `IMemoryUsageRecorder`, `ICuratorLLM` (+ `CuratorCallOptions`), `ICompactionCallbackRegistry`, `ISymbolSink`, `IKnowledgeAgent`.
+Tokens: `MEMORY_CONTRACT_TOKENS` (including `MEMORY_USAGE_RECORDER`), `KNOWLEDGE_AGENT_TOKEN`.
+Null implementations: `NullMemoryReader`, `NullMemoryLister`, `NullMemoryUsageRecorder`, `NullSymbolSink`.
 
 ## Internal Structure
 
 - `src/lib/memory-reader.port.ts` — `IMemoryReader`, `IMemoryLister`, `MemoryHit/Record/Page` types
-- `src/lib/curator-llm.port.ts` — `ICuratorLLM` (consumed by curator; implemented in `agent-sdk/curator-llm-adapter`)
+- `src/lib/memory-usage-recorder.port.ts` — `IMemoryUsageRecorder` explicit-use port
+- `src/lib/curator-llm.port.ts` — `ICuratorLLM` (consumed by curator; implemented in `agent-sdk/curator-llm-adapter`). `CuratorStallReason` is `provider-cooling-down` (quota gate, before dispatch) or `provider-unreachable` (dispatched, network-class failure, TASK_2026_437 C14 f); both keep the caller's input. `extract`/`resolve` take an optional `CuratorCallOptions { userInitiated? }` (TASK_2026_437 C14): `true` only for `memory:runNow`, which makes the adapter use the ungoverned `user-action` lane instead of `memory-curator`.
 - `src/lib/compaction-callback.port.ts` — registry interface (implementation in `agent-sdk`)
 - `src/lib/symbol-sink.port.ts` — sink for workspace symbol chunks
 - `src/lib/tokens.ts` — `MEMORY_CONTRACT_TOKENS`

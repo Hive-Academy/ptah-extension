@@ -10,15 +10,23 @@
  * Registration uses singleton pattern to ensure consistent state across consumers.
  */
 
-import { DependencyContainer, Lifecycle } from 'tsyringe';
+import {
+  DependencyContainer,
+  instanceCachingFactory,
+  Lifecycle,
+} from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type {
+  BackgroundWorkGovernor,
+  Logger,
+} from '@ptah-extension/vscode-core';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
 import { SessionMetadataStore } from '../session-metadata-store';
 import { SessionImporterService } from '../session-importer.service';
 import { SessionHistoryReaderService } from '../session-history-reader.service';
+import { SessionStatsReaderService } from '../session-stats';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { ClaudeCliDetector } from '../detector/claude-cli-detector';
@@ -45,6 +53,7 @@ import {
   CompactionConfigProvider,
   CompactionHookHandler,
   CompactionCallbackRegistry,
+  CompactionBoundaryGenerationRegistry,
   SessionIdResolvedCallbackRegistry,
   SessionMcpStatusCallbackRegistry,
   SessionTurnStateRegistry,
@@ -73,11 +82,14 @@ import {
   WorktreeHookHandler,
   SlashCommandInterceptor,
   SessionForkService,
+  SessionTitleService,
   SdkRuntimeStateService,
   SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
+import { PeerSessionDirectory, PeerSessionMessenger } from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
+import { TurnStateForegroundSource } from '../helpers/turn-state-foreground-source';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
 import { SDK_TOKENS } from './tokens';
@@ -141,6 +153,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_HISTORY_READER,
     { useClass: SessionHistoryReaderService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SESSION_STATS_READER,
+    { useClass: SessionStatsReaderService },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -366,6 +384,23 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
+  // `instanceCachingFactory` rather than `useClass`: the registry's only
+  // constructor parameter is a defaulted primitive (`maxEntries = 256`) with
+  // no explicit type annotation, so TypeScript emits `Object` for its
+  // `design:paramtypes` entry and tsyringe's constructor auto-wiring tries
+  // (and fails) to resolve a dependency named "Object" — surfaced as
+  // "TypeInfo not known for \"Object\"" through every consumer's DI chain
+  // (`SdkMessageTransformer`, `SessionHistoryReaderService`, `PtahCliRegistry`
+  // in cli-agent-runtime). A factory sidesteps tsyringe's parameter
+  // resolution entirely and just calls the constructor directly, keeping the
+  // default-parameter API every existing spec constructs with `new
+  // CompactionBoundaryGenerationRegistry()` / `(n)`.
+  container.register(SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY, {
+    useFactory: instanceCachingFactory(
+      () => new CompactionBoundaryGenerationRegistry(),
+    ),
+  });
+
   container.register(
     SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
     { useClass: SessionIdResolvedCallbackRegistry },
@@ -390,6 +425,21 @@ export function registerSdkServices(
   const turnStateRegistry = container.resolve<SessionTurnStateRegistry>(
     SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
   );
+  // Foreground source for the background-work governor (TASK_2026_437 C14):
+  // background lanes yield while any session is generating (a record stuck in
+  // `generating` past the stale ceiling stops counting). The governor lives in
+  // vscode-core, which this lib already depends on; vscode-core cannot see the
+  // registry, so the source implements the structural `ForegroundActivitySource`.
+  // Every host registers the governor in `registerVsCodeCorePlatformAgnostic`
+  // before this runs; a container without it (a test host) simply has no
+  // foreground signal, and `InternalQueryService` reports that degradation.
+  if (container.isRegistered(TOKENS.BACKGROUND_WORK_GOVERNOR, true)) {
+    container
+      .resolve<BackgroundWorkGovernor>(TOKENS.BACKGROUND_WORK_GOVERNOR)
+      .addForegroundSource(
+        new TurnStateForegroundSource(turnStateRegistry, logger),
+      );
+  }
   container
     .resolve<SessionIdResolvedCallbackRegistry>(
       SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
@@ -397,6 +447,17 @@ export function registerSdkServices(
     .register(({ tabId, realSessionId }) => {
       if (tabId) {
         turnStateRegistry.rekey(tabId, realSessionId);
+        // A PreCompact whose payload lacked `session_id` recorded its
+        // expectation under the tab id; move it onto the real id so
+        // chat:resume verifies it. Resolved LAZILY, at the first binding: an
+        // eager resolve here would make registration itself fail on any host
+        // where the registry cannot be constructed, instead of only the
+        // consumers that need it.
+        container
+          .resolve<CompactionBoundaryGenerationRegistry>(
+            SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY,
+          )
+          .rekey(tabId, realSessionId);
       }
     });
 
@@ -494,8 +555,26 @@ export function registerSdkServices(
   );
 
   container.register(
+    SDK_TOKENS.SDK_SESSION_TITLE_SERVICE,
+    { useClass: SessionTitleService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
     SDK_TOKENS.SDK_AGENT_ADAPTER,
     { useClass: SdkAgentAdapter },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PEER_SESSION_DIRECTORY,
+    { useClass: PeerSessionDirectory },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PEER_SESSION_MESSENGER,
+    { useClass: PeerSessionMessenger },
     { lifecycle: Lifecycle.Singleton },
   );
 

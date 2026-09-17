@@ -14,6 +14,7 @@
  */
 import { instanceCachingFactory } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
+import { execGit } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { TaskScannerService } from '../task-scanner.service';
@@ -27,6 +28,12 @@ import {
 } from '../task-index.store';
 import { TaskIndexService } from '../task-index.service';
 import { TASK_INDEX_NOTIFIER_TOKEN } from '../task-index.port';
+import { TASK_FOLDER_VISIBILITY_TOKEN } from '../task-folder-visibility.port';
+import {
+  GitTaskFolderVisibility,
+  VISIBILITY_EXEC_GIT_TOKEN,
+  type ExecGitFn,
+} from '../git-task-folder-visibility.service';
 import { TASK_SPECS_TOKENS } from './tokens';
 
 export function registerTaskSpecsServices(
@@ -89,6 +96,25 @@ export function registerTaskSpecsServices(
   // mutating `task.md` so the derived index reparses the changed folder.
   container.register(TASK_INDEX_NOTIFIER_TOKEN, {
     useToken: TaskIndexService,
+  });
+
+  // `execGit` is the production default for the injectable test seam. Register
+  // it explicitly so every constructor token has one composition-root binding;
+  // tests may still replace this child-container registration with a fake.
+  container.register<ExecGitFn>(VISIBILITY_EXEC_GIT_TOKEN, {
+    useValue: execGit,
+  });
+
+  // Cross-checkout visibility seam (TASK_2026_403): `TaskWriterService.create`
+  // allocates against sibling worktrees and `origin/main` as well as its own
+  // `.ptah/specs`. Registered here and nowhere else — the git-backed reader is
+  // host-agnostic, so no `apps/**` file binds anything. Electron's off-thread
+  // spawner reaches it through the optional mirrored `SdkProcessSpawner` token
+  // that host already binds; VS Code and the CLI bind none and take `execGit`'s
+  // inline path, which is what they did before this seam existed.
+  container.registerSingleton(GitTaskFolderVisibility);
+  container.register(TASK_FOLDER_VISIBILITY_TOKEN, {
+    useToken: GitTaskFolderVisibility,
   });
 
   logger.info('[task-specs] services registered', {

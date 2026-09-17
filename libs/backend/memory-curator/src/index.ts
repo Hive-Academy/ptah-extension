@@ -49,10 +49,16 @@ export type {
   ObservationCaptureEvent,
   ObservationCaptureListener,
 } from './lib/observation-queue.store';
-export { SalienceScorer } from './lib/salience-scorer';
-export type { ScoreInputs } from './lib/salience-scorer';
-export { MemoryDecayJob } from './lib/memory-decay.job';
-export type { DecayJobOptions, DecayRunStats } from './lib/memory-decay.job';
+export {
+  SALIENCE_PIN_BONUS,
+  SALIENCE_RANK_HALF_LIFE_MS,
+  SALIENCE_USE_SATURATION,
+  SALIENCE_USE_WEIGHT,
+  baseSalience,
+  rankSalience,
+  salienceRankOrderBy,
+} from './lib/salience-ranking';
+export type { SalienceRankRow } from './lib/salience-ranking';
 export { MemoryTriggerService } from './lib/triggers/memory-trigger.service';
 export {
   DEFAULT_CUE_LIST,
@@ -82,7 +88,6 @@ export type {
   MemoryCuratorEvent,
   MemoryCuratorEventKind,
   MemoryDbHealth,
-  MemoryDecayStats,
   MemoryDiagnosticsSnapshot,
 } from './lib/diagnostics.types';
 export { MemoryCuratorService } from './lib/memory-curator.service';
@@ -120,6 +125,47 @@ export type {
   EmbedderStatusError,
   EmbedderStatusChangeListener,
 } from './lib/embedder/embedder-status.service';
+export { MemoryRetentionService } from './lib/retention/memory-retention.service';
+export { RetentionRunBudget } from './lib/retention/retention-run-budget';
+export { MemoryLifecycleStore } from './lib/retention/memory-lifecycle.store';
+export type {
+  MemoryLifecycleBatchResult,
+  MemoryArchiveBatchResult,
+  MemoryEvictBatchResult,
+  MemoryLifecyclePreviewReading,
+  OverCapWorkspace,
+  OverCapWorkspacesReading,
+} from './lib/retention/memory-lifecycle.store';
+export { MemoryLifecycleService } from './lib/retention/memory-lifecycle.service';
+export type {
+  MemoryLifecycleStepResult,
+  MemoryLifecycleNote,
+  MemoryLifecyclePreview,
+} from './lib/retention/memory-lifecycle.service';
+export type {
+  MemoryRetentionReport,
+  MemoryRetentionRunOptions,
+  MemoryRetentionRunReport,
+  MemoryRetentionSkippedReport,
+  RetentionSkipReason,
+  RetentionStopReason,
+} from './lib/retention/memory-retention.types';
+export {
+  MEMORY_LIFECYCLE_DEFAULTS,
+  MEMORY_LIFECYCLE_KEYS,
+  MEMORY_LIFECYCLE_SETTING_RANGES,
+  readMemoryLifecycleSettings,
+} from './lib/retention/memory-lifecycle-config';
+export type { MemoryLifecycleSettings } from './lib/retention/memory-lifecycle-config';
+export {
+  MEMORY_RETENTION_DEFAULTS,
+  MEMORY_RETENTION_KEYS,
+  MEMORY_RETENTION_LIMITS,
+} from './lib/retention/memory-retention-config';
+export type {
+  MemoryRetentionLimits,
+  MemoryRetentionSettings,
+} from './lib/retention/memory-retention-config';
 export { MEMORY_TOKENS } from './lib/di/tokens';
 export type { MemoryDIToken } from './lib/di/tokens';
 export { registerMemoryCuratorServices } from './lib/di/register';

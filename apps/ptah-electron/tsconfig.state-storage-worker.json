@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.build.json",
+  "include": [
+    "../../libs/backend/platform-electron/src/implementations/electron-state-storage-worker.ts",
+    "../../libs/backend/platform-electron/src/implementations/electron-state-storage-worker-*.ts",
+    "../../libs/backend/platform-electron/src/implementations/electron-state-storage-manifest.ts"
+  ],
+  "exclude": ["**/*.spec.ts"]
+}

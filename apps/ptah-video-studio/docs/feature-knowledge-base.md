@@ -53,7 +53,7 @@ Welcome → Scan → Analysis → Selection → **Enhance** → **Generation** �
 
 - **8 task types** auto-detected (FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, SAAS_INIT, CREATIVE) via a weighted matrix (`SKILL.md:30-39, 108-113`).
 - **3 workflow depths**: Full (PM → Architect → Team-Leader → QA) / Partial / Minimal (`SKILL.md:273-280`).
-- **3-tier hierarchy** (`references/cli-agent-delegation.md:7-28`):
+- **3-tier hierarchy** (`references/lane-assignment.md` § Who spawns; lane mechanics in the `agent-lanes` skill):
   - **Tier 1 — Claude (orchestrator/CTO):** sole spawn authority, owns all user interaction, never implements.
   - **Tier 2 — subagents (senior leads):** 14-15 specialists (`references/agent-catalog.md`) that retain full reasoning.
   - **Tier 3 — CLI agents (junior helpers):** `ptah-cli`, `codex`, `copilot` — **no shared context**, fully self-contained prompts.

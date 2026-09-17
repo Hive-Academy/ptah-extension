@@ -169,6 +169,20 @@ describe('SourceControlFileComponent — row actions are siblings, not nested (D
     expect(host.discard).toEqual([]);
   });
 
+  it('does not emit a diff request for a directory-shaped legacy row', () => {
+    host.file.set({
+      path: '.github',
+      status: '??',
+      staged: false,
+      isDirectory: true,
+    } as GitFileStatus);
+    fixture.detectChanges();
+
+    clickReal(openDiffButton());
+
+    expect(host.openDiff).toEqual([]);
+  });
+
   // -- AC2/AC4/AC7 -----------------------------------------------------------
 
   it('gives every control a distinct label and independent keyboard focus (AC2, AC4)', () => {
@@ -180,6 +194,7 @@ describe('SourceControlFileComponent — row actions are siblings, not nested (D
       'Open diff for a.ts',
       'Stage file',
       'Discard changes',
+      'Choose editor',
     ]);
     expect(new Set(labels).size).toBe(labels.length);
 
@@ -187,7 +202,9 @@ describe('SourceControlFileComponent — row actions are siblings, not nested (D
     // what buys Enter/Space activation from the user agent unconditionally.
     // (jsdom does not implement that default action, so the key press itself
     // cannot be asserted here.)
-    for (const el of fixture.nativeElement.querySelectorAll('button')) {
+    for (const el of fixture.nativeElement.querySelectorAll(
+      'button:not(:disabled)',
+    )) {
       const btn = el as HTMLButtonElement;
       expect(btn.type).toBe('button');
       expect(btn.getAttribute('tabindex')).toBeNull();
@@ -231,6 +248,44 @@ describe('SourceControlFileComponent — row actions are siblings, not nested (D
     const badge = row.lastElementChild as HTMLElement;
     expect(badge.textContent?.trim()).toBe('M');
     expect(badge.closest('button')).toBeNull();
+  });
+
+  it.each([
+    ['M', 'M', 'Modified'],
+    ['A', 'A', 'Added'],
+    ['D', 'D', 'Deleted'],
+    ['??', 'U', 'Untracked'],
+    ['R', 'R', 'Renamed'],
+    ['C', 'C', 'Copied'],
+  ])(
+    'renders %s as badge %s with the human-readable label %s',
+    (status, badgeText, label) => {
+      host.file.set({
+        path: 'src/a.ts',
+        status,
+        staged: false,
+      } as GitFileStatus);
+      fixture.detectChanges();
+
+      const badge = q<HTMLElement>('[role="listitem"] > span:last-child');
+      expect(badge.textContent?.trim()).toBe(badgeText);
+      expect(badge.getAttribute('title')).toBe(label);
+      expect(badge.getAttribute('aria-label')).toBe(label);
+    },
+  );
+
+  it('falls back to the raw status code for an unmapped badge', () => {
+    host.file.set({
+      path: 'src/a.ts',
+      status: 'X',
+      staged: false,
+    } as GitFileStatus);
+    fixture.detectChanges();
+
+    const badge = q<HTMLElement>('[role="listitem"] > span:last-child');
+    expect(badge.textContent?.trim()).toBe('X');
+    expect(badge.getAttribute('title')).toBe('X');
+    expect(badge.getAttribute('aria-label')).toBe('X');
   });
 
   it('still carries the rename-aware row title (AC6)', () => {

@@ -1,6 +1,6 @@
 ---
 name: dotnet-solution-architect
-description: .NET solution and project layout from bounded contexts -- Clean Architecture vs vertical slices, project naming, ProjectReference direction rules, Central Package Management via Directory.Packages.props, Directory.Build.props for shared settings, global.json SDK pinning, and test project placement. Use when deriving the project/solution structure for a new .NET workspace or a new bounded context, or when a .csproj graph has grown tangled and needs a layout decision. Does not run dotnet new or any build/test command -- hand off execution to dotnet-template-engine and dotnet-test.
+description: Derives .NET solution and project layout from bounded contexts — Clean Architecture vs vertical slices, project references, shared build settings, test placement. Use when designing or untangling the project layout of a .NET solution or bounded context. Not for initializing a workspace — use dotnet-solution-initializer.
 ---
 
 # .NET Solution Architect

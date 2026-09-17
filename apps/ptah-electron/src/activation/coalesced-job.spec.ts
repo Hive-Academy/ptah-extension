@@ -339,3 +339,157 @@ describe('createCoalescedJob — isolation', () => {
     expect(runs).toEqual([['retry']]);
   });
 });
+
+/**
+ * TASK_2026_437 C14 (c) — the admission gate. A held batch stays pending, so
+ * requests during the hold join it; a new reason re-asks the gate; `skip`
+ * settles requesters without running; a throwing gate fails open.
+ */
+describe('createCoalescedJob — admission gate', () => {
+  function gate() {
+    const asks: { reasons: string[]; signal: AbortSignal }[] = [];
+    let answer: ((verdict: 'run' | 'skip') => void) | undefined;
+    const admit = jest.fn(
+      (request: { reasons: readonly string[]; signal: AbortSignal }) =>
+        new Promise<'run' | 'skip'>((resolve) => {
+          asks.push({ reasons: [...request.reasons], signal: request.signal });
+          answer = resolve;
+        }),
+    );
+    return { admit, asks, answer: (v: 'run' | 'skip') => answer?.(v) };
+  }
+
+  it('asks the gate after the window, and holds the run until it answers', async () => {
+    const runs: string[][] = [];
+    const g = gate();
+    const job = createCoalescedJob<undefined>({
+      windowMs: WINDOW,
+      run: async ({ reasons }) => {
+        runs.push([...reasons]);
+      },
+      admit: g.admit,
+    });
+
+    const pending = job.request(KEY, 'background', undefined);
+    await flushMicrotasks();
+    expect(g.admit).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(WINDOW);
+    await flushMicrotasks();
+    expect(g.asks).toHaveLength(1);
+    expect(runs).toHaveLength(0);
+    expect(job.pendingReasons(KEY)).toEqual(['background']);
+
+    g.answer('run');
+    await pending;
+    expect(runs).toEqual([['background']]);
+  });
+
+  it('requests during the hold join the held batch — one run', async () => {
+    const runs: string[][] = [];
+    const g = gate();
+    const job = createCoalescedJob<undefined>({
+      windowMs: WINDOW,
+      run: async ({ reasons }) => {
+        runs.push([...reasons]);
+      },
+      admit: g.admit,
+    });
+
+    const first = job.request(KEY, 'background', undefined);
+    jest.advanceTimersByTime(WINDOW);
+    await flushMicrotasks();
+
+    // A duplicate reason joins without re-asking.
+    const second = job.request(KEY, 'background', undefined);
+    jest.advanceTimersByTime(WINDOW * 10);
+    await flushMicrotasks();
+    expect(g.asks).toHaveLength(1);
+    expect(g.asks[0].signal.aborted).toBe(false);
+
+    g.answer('run');
+    await Promise.all([first, second]);
+    expect(runs).toEqual([['background']]);
+  });
+
+  it('a NEW reason aborts the pending ask and re-asks with the grown list', async () => {
+    const runs: string[][] = [];
+    const g = gate();
+    const job = createCoalescedJob<undefined>({
+      windowMs: WINDOW,
+      run: async ({ reasons }) => {
+        runs.push([...reasons]);
+      },
+      admit: g.admit,
+    });
+
+    const first = job.request(KEY, 'background', undefined);
+    jest.advanceTimersByTime(WINDOW);
+    await flushMicrotasks();
+
+    const second = job.request(KEY, 'user-click', undefined);
+    expect(g.asks[0].signal.aborted).toBe(true);
+    // The stale ask's answer is ignored; the coalescer asks again.
+    g.answer('skip');
+    await flushMicrotasks();
+    expect(g.asks).toHaveLength(2);
+    expect(g.asks[1].reasons).toEqual(['background', 'user-click']);
+
+    g.answer('run');
+    await Promise.all([first, second]);
+    expect(runs).toEqual([['background', 'user-click']]);
+  });
+
+  it("'skip' settles every requester without running, and the next request runs", async () => {
+    const runs: string[][] = [];
+    const g = gate();
+    const job = createCoalescedJob<undefined>({
+      windowMs: WINDOW,
+      run: async ({ reasons }) => {
+        runs.push([...reasons]);
+      },
+      admit: g.admit,
+    });
+
+    const skipped = job.request(KEY, 'background', undefined);
+    jest.advanceTimersByTime(WINDOW);
+    await flushMicrotasks();
+    g.answer('skip');
+    await expect(skipped).resolves.toBeUndefined();
+    expect(runs).toEqual([]);
+    expect(job.pendingReasons(KEY)).toEqual([]);
+
+    const next = job.request(KEY, 'later', undefined);
+    jest.advanceTimersByTime(WINDOW);
+    await flushMicrotasks();
+    g.answer('run');
+    await next;
+    expect(runs).toEqual([['later']]);
+  });
+
+  it('a throwing gate is reported and the batch runs (fail open)', async () => {
+    const runs: string[][] = [];
+    const onError = jest.fn();
+    const job = createCoalescedJob<undefined>({
+      windowMs: WINDOW,
+      run: async ({ reasons }) => {
+        runs.push([...reasons]);
+      },
+      admit: async () => {
+        throw new Error('gate broke');
+      },
+      onError,
+    });
+
+    const pending = job.request(KEY, 'background', undefined);
+    jest.advanceTimersByTime(WINDOW);
+    await pending;
+
+    expect(runs).toEqual([['background']]);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error), {
+      key: KEY,
+      reasons: ['background'],
+      payload: undefined,
+    });
+  });
+});

@@ -1,4 +1,5 @@
 export * from './lib/services';
+export { PeerSessionFacade } from './lib/services/peer-session.facade';
 export { LogLevel, type LoggingConfig } from './lib/services/logging.service';
 export {
   SESSION_DATA_PROVIDER,
@@ -10,6 +11,12 @@ export {
   type IWorkspaceCoordinator,
   type ConfirmDialogOptions,
 } from './lib/tokens/workspace-coordinator.token';
+
+export {
+  FILE_LINK_OPENER,
+  type FileLinkOpenRequest,
+  type IFileLinkOpener,
+} from './lib/tokens/file-link-opener.token';
 
 export {
   type LazyViewLoader,

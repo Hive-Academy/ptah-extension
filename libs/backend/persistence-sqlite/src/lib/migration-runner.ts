@@ -19,7 +19,7 @@
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { Migration } from './migrations';
 import type { SqliteDatabase } from './sqlite-connection.service';
-import type { IBackupService } from './backup.service';
+import { KEEP_BY_KIND, type IBackupService } from './backup.service';
 
 /** Result of an `applyAll` run — useful for telemetry. */
 export interface MigrationRunResult {
@@ -96,7 +96,10 @@ export class SqliteMigrationRunner {
         );
       }
       if (backupDest !== null) {
-        this.backupService.rotate('pre-migration', 3);
+        this.backupService.rotate(
+          'pre-migration',
+          KEEP_BY_KIND['pre-migration'],
+        );
       }
     }
 

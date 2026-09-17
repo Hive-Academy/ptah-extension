@@ -39,7 +39,11 @@ import {
   type MockConfigManager,
 } from '@ptah-extension/vscode-core/testing';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import { getAnthropicProvider, type AuthEnv } from '@ptah-extension/shared';
+import {
+  getAnthropicProvider,
+  getModelContextWindow,
+  type AuthEnv,
+} from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 
 import { ProviderModelsService } from './provider-models.service';
@@ -113,6 +117,55 @@ afterEach(() => {
       process.env[key] = val;
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// Discovered context windows (no pricing required)
+// ---------------------------------------------------------------------------
+
+describe('ProviderModelsService — discovered context windows', () => {
+  it('a dynamic fetcher result with contextLength and no pricing registers the window', async () => {
+    const { service } = makeService({});
+    const modelId = 'gpt-ctx-dynamic-fetch-414';
+    expect(getModelContextWindow(modelId)).toBe(0);
+    service.registerDynamicFetcher('codex', async () => [
+      {
+        id: modelId,
+        name: 'Discovered',
+        description: '',
+        contextLength: 400_000,
+        supportsToolUse: true,
+      },
+    ]);
+
+    await service.fetchModels('codex', null);
+
+    expect(getModelContextWindow(modelId)).toBe(400_000);
+  });
+
+  it('a persisted catalog read registers windows', () => {
+    const modelId = 'gpt-ctx-persisted-catalog-414';
+    const { service } = makeService({
+      configValues: {
+        'provider.codex.modelCatalog': {
+          models: [
+            {
+              id: modelId,
+              name: 'Persisted',
+              description: '',
+              contextLength: 272_000,
+              supportsToolUse: true,
+            },
+          ],
+        },
+      },
+    });
+    expect(getModelContextWindow(modelId)).toBe(0);
+
+    service.getLiveDerivedTiers('codex');
+
+    expect(getModelContextWindow(modelId)).toBe(272_000);
+  });
 });
 
 // ---------------------------------------------------------------------------

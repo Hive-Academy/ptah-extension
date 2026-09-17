@@ -1,6 +1,8 @@
 ## Tooling precedence
 
-Reach for the `ptah_*` tools first. They are the starting point, not a fallback.
+When the `ptah_*` tools are in your tool list, reach for them first; they are
+the starting point, not a fallback. When they are not listed, use the harness's
+native search and read tools and do not probe for them.
 
 - `ptah_workspace_analyze` — project type, frameworks, layout. Run it before you
   form a plan in an unfamiliar tree.
@@ -15,6 +17,5 @@ Reach for the `ptah_*` tools first. They are the starting point, not a fallback.
   when a baseline matters, and after you edit to identify regressions.
 - `ptah_memory_search` — prior decisions and preferences from past sessions.
 
-Fall back to the harness's native file search and read capabilities only when the
-Ptah tool is unavailable or returns nothing useful. Say which tool came back
-empty when you do.
+When a Ptah tool fails or returns nothing useful, fall back to native search and
+read, and say which tool came back empty.

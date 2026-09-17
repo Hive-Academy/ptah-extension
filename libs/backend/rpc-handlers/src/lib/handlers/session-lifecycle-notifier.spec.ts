@@ -150,6 +150,10 @@ describe('SessionLifecycleNotifier', () => {
     expect(calls[0].type).toBe(MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE);
     const payload = calls[0].payload as SdkCompactionCompletePayload;
     expect(payload).toEqual(event);
+    expect(logger.info).toHaveBeenCalledWith(
+      '[SessionLifecycleNotifier] Broadcasting PostCompact advisory',
+      { sessionId: event.sessionId, trigger: event.trigger },
+    );
   });
 
   it('drops a malformed payload (Zod validation) and logs a warning', () => {

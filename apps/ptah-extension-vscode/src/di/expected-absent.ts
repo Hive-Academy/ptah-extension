@@ -26,6 +26,8 @@ import {
   SkillsSynthesisRpcHandlers,
   VoiceRpcHandlers,
   WorkspaceRpcHandlers,
+  ElectronFileOpenRpcHandlers,
+  FileViewRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 /** Handler classes the VS Code host must never construct. */
@@ -41,6 +43,10 @@ export const EXPECTED_ABSENT_HANDLERS = [
   VoiceRpcHandlers,
   PersistenceRpcHandlers,
   WorkspaceRpcHandlers,
+  ElectronFileOpenRpcHandlers,
+  // No in-app viewer here: VS Code opens files in its own native tabs, so
+  // `file:viewContent` would be a second, redundant read surface.
+  FileViewRpcHandlers,
 ] as const;
 
 /**
@@ -56,5 +62,6 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   'persistence',
   'workspaceLifecycle',
   'fileSystemAccess',
+  'fileViewer',
   'appUpdater',
 ] as const;

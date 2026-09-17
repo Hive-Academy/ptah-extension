@@ -1,4 +1,3 @@
-
 import * as fs from 'fs';
 import * as path from 'path';
 import type { BrowserWindow } from 'electron';
@@ -7,8 +6,10 @@ import {
   ElectronWorkspaceProvider,
   type ElectronStateStorage,
 } from '@ptah-extension/platform-electron';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IStateStorage } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  type IStateStorage,
+} from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { WorkspaceContextManager } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
@@ -96,6 +97,13 @@ export async function restoreWorkspaces(
       console.log(
         '[Ptah Electron] No persisted workspaces; using CLI workspace',
       );
+      const cliResolved = path.resolve(cliWorkspacePath);
+      await workspaceContextManager.restoreWorkspaces(
+        [cliResolved],
+        cliResolved,
+      );
+      workspaceProviderForRestore.setWorkspaceFolders([cliResolved]);
+      workspaceProviderForRestore.setActiveFolder(cliResolved);
     } else {
       console.log(
         '[Ptah Electron] No persisted workspaces and no CLI arg — starting without workspace',
@@ -187,10 +195,11 @@ export async function restoreWorkspaces(
       }
     });
   } catch (error) {
-    console.warn(
-      '[Ptah Electron] Workspace restoration failed (non-fatal):',
+    console.error(
+      '[Ptah Electron] Workspace restoration failed before readiness:',
       error instanceof Error ? error.message : String(error),
     );
+    throw error;
   }
 
   return { startupWorkspaceRoot, flushWorkspacePersistence };

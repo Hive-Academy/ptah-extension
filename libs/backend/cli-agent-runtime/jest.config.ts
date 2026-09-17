@@ -2,6 +2,7 @@ export default {
   displayName: 'cli-agent-runtime',
   preset: '../../../jest.preset.js',
   testEnvironment: 'node',
+  setupFiles: ['reflect-metadata'],
   transform: {
     '^.+\\.[tj]s$': [
       'ts-jest',

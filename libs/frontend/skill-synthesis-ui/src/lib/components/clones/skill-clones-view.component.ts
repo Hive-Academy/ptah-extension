@@ -30,7 +30,9 @@ import {
   Component,
   OnInit,
   computed,
+  effect,
   inject,
+  input,
   signal,
 } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
@@ -45,21 +47,32 @@ import type {
 
 import { SkillSynthesisRpcService } from '../../services/skill-synthesis-rpc.service';
 import { SkillClonesStateService } from '../../services/skill-clones-state.service';
+import { CloneBulkRebaseService } from '../../services/clone-bulk-rebase.service';
 import { CloneCardComponent } from './clone-card.component';
 import {
+  CloneBodySaveRequest,
   CloneDetailDrawerComponent,
   CloneHistoryDiff,
   CloneHistoryRequest,
 } from './clone-detail-drawer.component';
+import { BulkRebaseConfirmComponent } from './bulk-rebase-confirm.component';
+import { CloneBulkToolbarComponent } from './clone-bulk-toolbar.component';
 import { EnhancePreviewDrawerComponent } from './enhance-preview-drawer.component';
 import {
+  canEditCloneBody,
+  eligibleForBulkRebase,
   KEEP_MINE_EXPLANATION,
   REBASE_EXPLANATION,
 } from './clone-action-gating';
 
 interface ClonesToast {
   readonly message: string;
-  readonly kind: 'success' | 'error' | 'info';
+  /**
+   * `warning` is for an operation that DID succeed but whose result the user
+   * must act on — today, a body save the next sync can overwrite. It is not an
+   * `error` (nothing failed) and not a `success` (the outcome is qualified).
+   */
+  readonly kind: 'success' | 'error' | 'info' | 'warning';
 }
 
 /** A divergence resolution awaiting explicit confirmation. */
@@ -73,6 +86,14 @@ const KIND_TABS: ReadonlyArray<{ id: SkillCloneKind; label: string }> = [
   { id: 'agent', label: 'Agents' },
   { id: 'command', label: 'Commands' },
 ];
+
+/**
+ * Shown when the diverged filter is on and has emptied the list. R2.3: an
+ * emptied filter is an EMPTY STATE naming the filter, never a blank region the
+ * user reads as a failed load.
+ */
+const DIVERGED_EMPTY_COPY =
+  'No diverged entries in this kind. Turn off "Show diverged only" to see the rest.';
 
 const EMPTY_COPY: Record<SkillCloneKind, string> = {
   skill:
@@ -91,8 +112,13 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
     NativeTabGroupComponent,
     CloneCardComponent,
     CloneDetailDrawerComponent,
+    CloneBulkToolbarComponent,
+    BulkRebaseConfirmComponent,
     EnhancePreviewDrawerComponent,
   ],
+  // Per-surface, deliberately not root: a finished batch's outcomes must die
+  // with the surface rather than reappear on the next visit.
+  providers: [CloneBulkRebaseService],
   template: `
     @if (!isElectron()) {
       <div
@@ -115,7 +141,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
             type="button"
             class="btn btn-ghost btn-xs shrink-0 transition-colors duration-150"
             data-testid="clones-refresh"
-            [disabled]="loading()"
+            [disabled]="actionsLocked()"
             (click)="onRefresh()"
           >
             {{ loading() ? 'Refreshing…' : 'Refresh' }}
@@ -167,6 +193,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
             [class.alert-success]="t.kind === 'success'"
             [class.alert-error]="t.kind === 'error'"
             [class.alert-info]="t.kind === 'info'"
+            [class.alert-warning]="t.kind === 'warning'"
           >
             <span>{{ t.message }}</span>
           </div>
@@ -178,6 +205,16 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
           ariaLabel="Library sections"
         >
           <div class="pt-4">
+            <ptah-clone-bulk-toolbar
+              [eligibleCount]="bulkEligible().length"
+              [otherKindCount]="divergedInOtherKinds().length"
+              [divergedOnly]="divergedOnly()"
+              [locked]="actionsLocked()"
+              [progress]="bulk.running() ? bulk.progress() : null"
+              (divergedOnlyToggled)="divergedOnly.set($event)"
+              (bulkRebaseRequested)="bulkConfirmOpen.set(true)"
+            />
+
             @if (visibleClones().length === 0) {
               <p
                 class="px-1 py-8 text-center text-sm text-base-content-muted"
@@ -199,7 +236,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
                     <ptah-clone-card
                       [clone]="c"
                       [scorecard]="scorecardFor(c.slug)"
-                      [busy]="busySlug() === c.slug"
+                      [busy]="busySlug() === c.slug || bulk.running()"
                       (opened)="onOpenDetail($event)"
                       (enhance)="onEnhance($event)"
                       (revert)="onOpenDetail($event)"
@@ -223,9 +260,12 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
         [scorecardRows]="selectedScorecardRows()"
         [scorecardFindings]="selectedScorecardFindings()"
         [scorecardLoading]="selectedScorecardLoading()"
-        [busy]="busySlug() !== null"
+        [busy]="actionsLocked()"
         [historyDiff]="historyDiff()"
         [historyDiffLoading]="historyDiffLoading()"
+        [canEditBody]="canEditSelectedBody()"
+        [bodySaving]="bodySaving()"
+        (bodySaved)="onSaveBody($event)"
         (closed)="onCloseDetail()"
         (enhance)="onEnhance($event)"
         (rebase)="onRequestReconcile($event, 'rebase')"
@@ -244,6 +284,15 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
         (apply)="onApplyProposal($event)"
         (discard)="onDiscardPreview()"
       />
+
+      @if (bulkConfirmOpen()) {
+        <ptah-bulk-rebase-confirm
+          [count]="bulkEligible().length"
+          [busy]="actionsLocked()"
+          (confirmed)="onConfirmBulkRebase()"
+          (cancelled)="bulkConfirmOpen.set(false)"
+        />
+      }
 
       @if (reconcile(); as intent) {
         <dialog
@@ -284,7 +333,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
                 type="button"
                 class="btn btn-warning btn-sm"
                 data-testid="clones-reconcile-confirm"
-                [disabled]="busySlug() !== null"
+                [disabled]="actionsLocked()"
                 (click)="onConfirmReconcile(intent)"
               >
                 {{ intent.action === 'rebase' ? 'Rebase' : 'Keep mine' }}
@@ -300,6 +349,28 @@ export class SkillClonesViewComponent implements OnInit {
   private readonly state = inject(SkillClonesStateService);
   private readonly rpc = inject(SkillSynthesisRpcService);
   private readonly vscodeService = inject(VSCodeService);
+  protected readonly bulk = inject(CloneBulkRebaseService);
+
+  /**
+   * The deep link's request to arrive pre-filtered to diverged entries (R2.5),
+   * as a monotonically increasing token. `0` means never asked.
+   *
+   * A TOKEN, not a boolean: this view stays mounted while the user clears the
+   * filter by hand, and a boolean that is already `true` cannot signal a
+   * SECOND request. Each new value re-applies the filter exactly once.
+   *
+   * A plain `input()`, NOT a second read of
+   * `AppStateManager.consumeSkillsDivergedRequest()`. The tab consumes that
+   * read-and-clear exactly once and hands the answer down; two consumers would
+   * race, and whichever effect ran second would see a cleared flag.
+   */
+  public readonly divergedFilterRequest = input<number>(0);
+
+  public constructor() {
+    effect(() => {
+      if (this.divergedFilterRequest() > 0) this.divergedOnly.set(true);
+    });
+  }
 
   public readonly isElectron = computed(
     () => this.vscodeService.config()?.isElectron === true,
@@ -319,6 +390,13 @@ export class SkillClonesViewComponent implements OnInit {
   public readonly toast = signal<ClonesToast | null>(null);
   public readonly reconcile = signal<ReconcileIntent | null>(null);
 
+  /** Narrow the list to diverged entries only. R2.1/R2.3. */
+  public readonly divergedOnly = signal<boolean>(false);
+  /** The bulk confirmation is showing. Nothing is written while it is (R1.3). */
+  public readonly bulkConfirmOpen = signal<boolean>(false);
+  /** A body save is in flight; the drawer's editor locks on this. */
+  public readonly bodySaving = signal<boolean>(false);
+
   public readonly historyDiff = signal<CloneHistoryDiff | null>(null);
   public readonly historyDiffLoading = signal<string | null>(null);
 
@@ -337,11 +415,58 @@ export class SkillClonesViewComponent implements OnInit {
     () => this.state.detail()?.body ?? null,
   );
 
-  /** Entries in the active tab, in list order. */
+  /** Entries in the active tab, in list order, after the diverged filter. */
   public readonly visibleClones = computed<CloneSummary[]>(() => {
     const kind = this.currentKind();
-    return this.clones().filter((c) => c.kind === kind);
+    const divergedOnly = this.divergedOnly();
+    return this.clones().filter(
+      (c) => c.kind === kind && (!divergedOnly || c.diverged),
+    );
   });
+
+  /**
+   * What the bulk rebase would act on: the CURRENT kind only. Acting on rows
+   * the user cannot see would make the confirmation's count dishonest.
+   */
+  public readonly bulkEligible = computed<CloneSummary[]>(() =>
+    eligibleForBulkRebase(this.clones(), this.currentKind()),
+  );
+
+  /**
+   * Eligible entries sitting in the OTHER kind tabs. Reported, never acted on —
+   * it exists so a user who cleared one tab does not believe they are finished.
+   */
+  public readonly divergedInOtherKinds = computed<CloneSummary[]>(() => {
+    const kind = this.currentKind();
+    return KIND_TABS.filter((t) => t.id !== kind).flatMap((t) =>
+      eligibleForBulkRebase(this.clones(), t.id),
+    );
+  });
+
+  /**
+   * Any write that a second write could conflict with is in flight, OR the
+   * list those writes name is being re-read. R1.7: the bulk control, the
+   * refresh, both confirmations and every card lock on this.
+   *
+   * `loading()` belongs here. A clone-list refresh replaces every row, so a
+   * write started mid-refresh was authorised against rows that are already
+   * gone — including the eligibility the confirmation counted.
+   */
+  public readonly actionsLocked = computed<boolean>(
+    () =>
+      this.loading() ||
+      this.bulk.running() ||
+      this.busySlug() !== null ||
+      this.bodySaving(),
+  );
+
+  /**
+   * R3.1/R3.9. Every condition lives in {@link canEditCloneBody} — including
+   * "an entry is selected at all", which used to be re-spelled here.
+   */
+  protected readonly canEditSelectedBody = computed<boolean>(() =>
+    canEditCloneBody(this.selected(), this.detailBody()),
+  );
 
   public readonly tabs = computed<NativeTab[]>(() => {
     const list = this.clones();
@@ -352,7 +477,9 @@ export class SkillClonesViewComponent implements OnInit {
     }));
   });
 
-  protected readonly emptyCopy = computed(() => EMPTY_COPY[this.currentKind()]);
+  protected readonly emptyCopy = computed(() =>
+    this.divergedOnly() ? DIVERGED_EMPTY_COPY : EMPTY_COPY[this.currentKind()],
+  );
 
   public ngOnInit(): void {
     if (!this.isElectron()) return;
@@ -527,6 +654,86 @@ export class SkillClonesViewComponent implements OnInit {
       this.showToast(this.toMessage(err), 'error');
     } finally {
       this.busySlug.set(null);
+    }
+  }
+
+  // ── Bulk rebase ──────────────────────────────────────────────────────────
+
+  /**
+   * Run the batch, then refresh the list exactly ONCE (R1.5). The count and
+   * the filtered list are `computed` off `state.clones()`, so a single reload
+   * updates both — a per-clone refresh would re-hash the whole library N times
+   * for the same end state.
+   */
+  protected async onConfirmBulkRebase(): Promise<void> {
+    this.bulkConfirmOpen.set(false);
+    const targets = this.bulkEligible();
+    if (targets.length === 0) return;
+
+    const outcomes = await this.bulk.run(targets);
+    await this.state.refreshClones();
+
+    const failed = outcomes.filter((o) => !o.ok).map((o) => o.slug);
+    const succeeded = outcomes.length - failed.length;
+    if (failed.length === 0) {
+      this.showToast(
+        `Rebased ${succeeded} of ${outcomes.length} to upstream.`,
+        'success',
+      );
+      return;
+    }
+    this.showToast(
+      `Rebased ${succeeded} of ${outcomes.length}. Failed: ${failed.join(', ')}.`,
+      'error',
+    );
+  }
+
+  // ── Body save ────────────────────────────────────────────────────────────
+
+  /**
+   * R3.2/R3.4: the drawer asked; the write happens here. On success the detail
+   * reload (inside the state service) is what lets the drawer leave edit mode,
+   * and `historyCount` rises because the backend snapshotted first.
+   *
+   * A save whose result says `reconcileProtected: false` is still a success —
+   * the body is on disk — but the next sync pass can overwrite it, so the
+   * message says that and points at History instead of claiming the edit is
+   * settled. The contract on `SkillSynthesisSaveCloneBodyResult` requires it.
+   */
+  protected async onSaveBody(req: CloneBodySaveRequest): Promise<void> {
+    this.bodySaving.set(true);
+    try {
+      const result = await this.state.saveCloneBody(
+        req.clone.kind,
+        req.clone.slug,
+        req.body,
+      );
+      if (result.metadataIncomplete) {
+        // Checked FIRST because both flags can be true at once: the sidecar is
+        // read — which is what proves the clone reconcile-protected — before
+        // the sidecar write that failed. Reporting only the protection would
+        // claim the edit is settled when its bookkeeping is not.
+        this.showToast(
+          `Saved "${req.clone.slug}", but some of its metadata could not be ` +
+            `updated. History keeps a snapshot you can restore.`,
+          'warning',
+        );
+      } else if (result.reconcileProtected) {
+        this.showToast(`Saved "${req.clone.slug}".`, 'success');
+      } else {
+        this.showToast(
+          `Saved "${req.clone.slug}", but a later sync may replace it — ` +
+            `History keeps a snapshot you can restore.`,
+          'warning',
+        );
+      }
+      await this.state.refreshClones();
+    } catch (err: unknown) {
+      // Already sanitised server-side by `toUserError`; the draft survives
+      // because the drawer only leaves edit mode on a matching reload.
+      this.showToast(this.toMessage(err), 'error');
+    } finally {
+      this.bodySaving.set(false);
     }
   }
 

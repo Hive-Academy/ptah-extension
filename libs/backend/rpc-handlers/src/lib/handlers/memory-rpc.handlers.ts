@@ -245,6 +245,14 @@ export class MemoryRpcHandlers {
         const memory = this.store.getById(id);
         if (!memory) return { memory: null, chunks: [] };
         const chunks = this.store.getChunks(id);
+        try {
+          this.store.recordUse([params.id]);
+        } catch (error: unknown) {
+          // degradation-audit: reported - usage recording is best-effort and must not change the RPC read result
+          this.logger.warn('[memory] failed to record memory use', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
         return {
           memory: toMemoryWire(memory),
           chunks: chunks.map(toChunkWire),
@@ -529,16 +537,6 @@ export class MemoryRpcHandlers {
                   skipped: snapshot.lastRunStats.skipped,
                 }
               : null,
-            lastDecayAt: snapshot.lastDecayAt,
-            lastDecayStats: snapshot.lastDecayStats
-              ? {
-                  scanned: snapshot.lastDecayStats.scanned,
-                  promoted: snapshot.lastDecayStats.promoted,
-                  demoted: snapshot.lastDecayStats.demoted,
-                  archived: snapshot.lastDecayStats.archived,
-                  expired: snapshot.lastDecayStats.expired,
-                }
-              : null,
             recentEvents: snapshot.recentEvents.map((e) => ({
               kind: e.kind,
               timestamp: e.timestamp,
@@ -559,6 +557,7 @@ export class MemoryRpcHandlers {
               mismatches: snapshot.dbHealth.mismatches,
               countErrors: snapshot.dbHealth.countErrors,
             },
+            storage: snapshot.storage,
             triggers: {
               preCompact: snapshot.triggers.preCompact,
               idleMs: snapshot.triggers.idleMs,
@@ -623,6 +622,9 @@ export class MemoryRpcHandlers {
           const stats = await this.curator.curate({
             sessionId: validated.sessionId,
             workspaceRoot: validated.workspaceRoot,
+            // A user is waiting: the pass's LLM calls skip the background-work
+            // governor (TASK_2026_437 C14, Batch 16b). Only this RPC sets it.
+            userInitiated: true,
           });
           // `outcome` rides both the event and the response — TASK_2026_306
           // Batch 10, F-1.

@@ -35,11 +35,15 @@ import {
 } from '@ptah-extension/shared';
 import {
   ConversationRegistry,
+  deriveSessionTitle,
   TabId,
   TabManagerService,
   TabSessionBinding,
 } from '@ptah-extension/chat-state';
-import { SessionManager } from '@ptah-extension/chat-streaming';
+import {
+  SessionManager,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
 import { UltracodeStateService } from './ultracode-state.service';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
@@ -72,6 +76,7 @@ export class MessageSenderService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
+  private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly validator = inject(MessageValidationService);
   private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
@@ -369,11 +374,11 @@ export class MessageSenderService {
       // conversation (TASK_2026_154 Wave 2 revision).
       this.sessionManager.clearNodeMaps(sessionId);
       const currentName = activeTab?.name;
-      const hasUserName = currentName && currentName !== 'New Chat';
-      const autoName = hasUserName
-        ? currentName
-        : content.substring(0, 50).trim() || 'New Chat';
-      this.tabManager.applyNewConversationStreaming(activeTabId, autoName);
+      const autoName =
+        activeTab?.titleOrigin !== 'default' && currentName
+          ? currentName
+          : deriveSessionTitle(content) || currentName || 'New Chat';
+      this.tabManager.applyNewConversationStreaming(activeTabId);
       this.tabManager.markTabStreaming(activeTabId);
       this.sessionManager.setSessionId(sessionId); // Default to 'draft' state
       this.sessionManager.setStatus('streaming'); // Start streaming status so UI shows content
@@ -429,6 +434,13 @@ export class MessageSenderService {
           result.data?.error ?? result.error,
         );
         this.tabManager.markLoaded(activeTabId);
+        // `markLoaded` writes `status` alone; the spinner/send-vs-queue set is a
+        // separate store that only `markTabIdle` or a backend `turn_state`
+        // clears. This turn never created a broadcaster, so no `turn_state` and
+        // no CHAT_ERROR will ever arrive to repair it — the optimistic
+        // `markTabStreaming` above must undo itself here, as
+        // `continueConversation` already does (TASK_2026_360).
+        this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
         this.sessionManager.failSession();
         // Structural failure: transport succeeded but the backend rejected the
@@ -445,6 +457,11 @@ export class MessageSenderService {
 
       if (activeTabId) {
         this.tabManager.markLoaded(activeTabId);
+        // Same reason as the structural exit above: a throw before the stream
+        // starts (e.g. AuthRequiredError out of startChatSession) leaves nothing
+        // downstream able to clear the optimistic streaming flag
+        // (TASK_2026_360).
+        this.tabManager.markTabIdle(activeTabId);
       }
       this.sessionManager.setStatus('loaded');
       this.sessionManager.failSession();
@@ -495,6 +512,10 @@ export class MessageSenderService {
    * `TabManagerService`, so stop-button / tab-close keep working) or sends
    * with no signal when the controller was already cleared by finalization.
    *
+   * A failed flush also removes the optimistic bubble: the caller
+   * (`MessageDispatchService.sendQueuedMessage`) puts the text back in the
+   * queue, so a retry would otherwise show the same prompt twice.
+   *
    * @param content - Message content
    * @param sessionId - Existing session ID
    * @param options - Optional send options (files, images, effort, tabId)
@@ -513,6 +534,7 @@ export class MessageSenderService {
       sessionId,
       options,
       abortSignal,
+      true,
     );
   }
 
@@ -529,11 +551,14 @@ export class MessageSenderService {
     sessionId: SessionId,
     options: SendMessageOptions | undefined,
     abortSignal: AbortSignal | undefined,
+    dropBubbleOnFailure = false,
   ): Promise<SendOutcome> {
     const files = options?.files;
     const images = options?.images;
     const effort = options?.effort;
     const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
+    /** Set once the bubble + boundary are written, so every failure exit after it rolls back. */
+    let sentPromptId: string | null = null;
     try {
       const ready = await this.waitForServices(5000);
       if (!ready) {
@@ -618,6 +643,8 @@ export class MessageSenderService {
         ...(activeTab?.messages ?? []),
         userMessage,
       ]);
+      this.streamingHandler.recordUserPromptBoundary(activeTabId, userMessage);
+      sentPromptId = userMessage.id;
       const effectiveModel = this.resolveValidModel(
         activeTab?.overrideModel ?? this.modelState.currentModel(),
       );
@@ -649,6 +676,11 @@ export class MessageSenderService {
           '[MessageSender] Failed to continue chat:',
           result.data?.error ?? result.error,
         );
+        this.rollBackUnsentPrompt(
+          activeTabId,
+          userMessage.id,
+          dropBubbleOnFailure,
+        );
         this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
@@ -665,6 +697,13 @@ export class MessageSenderService {
     } catch (error) {
       console.error('[MessageSender] Failed to continue conversation:', error);
       if (activeTabId) {
+        if (sentPromptId) {
+          this.rollBackUnsentPrompt(
+            activeTabId,
+            sentPromptId,
+            dropBubbleOnFailure,
+          );
+        }
         this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
       }
@@ -674,5 +713,26 @@ export class MessageSenderService {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /**
+   * Undo what a continue wrote before `chat:continue` failed. The boundary
+   * always goes: the backend never received the prompt, so the live turn must
+   * not split at it. The optimistic bubble goes only when the caller puts the
+   * text back in the queue, where a retry would otherwise show it twice.
+   */
+  private rollBackUnsentPrompt(
+    tabId: string,
+    messageId: string,
+    dropBubble: boolean,
+  ): void {
+    this.streamingHandler.removeUserPromptBoundary(tabId, messageId);
+    if (!dropBubble) return;
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab) return;
+    this.tabManager.setMessages(
+      tabId,
+      tab.messages.filter((m) => m.id !== messageId),
+    );
   }
 }

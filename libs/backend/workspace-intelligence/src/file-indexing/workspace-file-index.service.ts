@@ -12,12 +12,16 @@
  *      batches. It does NOT stat, read or classify — autocomplete needs only
  *      path metadata, and the stat-per-file walk it used to share cost 8-15 s
  *      of Electron main-loop time per workspace switch (TASK_2026_344).
- *   2. Stays live via one `IFileSystemProvider` watcher PER OPEN FOLDER:
- *      create/delete/change events patch that folder's maps. node_modules and
- *      the other default-excluded trees are excluded at the OS level (the
- *      watcher is created with `{ exclude: DEFAULT_WORKSPACE_EXCLUDES }`), and
- *      created paths are re-checked against that folder's ignore rules so a
- *      file created under an ignored directory never enters the index.
+ *   2. Stays live via one `IWorkspaceWatcher` subscription PER OPEN FOLDER
+ *      (TASK_2026_437 C10): each coalesced batch patches that folder's maps in
+ *      one synchronous pass. node_modules, the other default-excluded trees,
+ *      agent worktrees and nested repositories are excluded where the events
+ *      are produced (the watch host), and new paths are re-checked against the
+ *      folder's compiled ignore rules so a file created under an ignored
+ *      directory never enters the index. An `overflow` batch — events lost or
+ *      suppressed — rebuilds the folder once instead. That live half is the
+ *      collaborator `FolderIndexLiveSync` (`folder-index-live-sync.ts`); the
+ *      snapshot shape and its writers are `folder-index-snapshot.ts`.
  *   3. Exposes SYNCHRONOUS query methods (`search`, `getAll`,
  *      `searchDirectories`) returning the same `FileSearchResult` shape the
  *      autocomplete pipeline already consumes. `ensureReady()` performs the
@@ -86,7 +90,6 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
-import picomatch from 'picomatch';
 import {
   PLATFORM_TOKENS,
   normalizeWorkspaceRoot,
@@ -94,16 +97,31 @@ import {
 import type {
   IFileSystemProvider,
   IWorkspaceProvider,
-  IFileWatcher,
+  IWorkspaceWatcher,
   IDisposable,
 } from '@ptah-extension/platform-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type BackgroundWorkAdmission,
+} from '@ptah-extension/vscode-core';
 import { WorkspaceIndexerService } from './workspace-indexer.service';
 import {
   IgnorePatternResolverService,
   type ParsedIgnoreFile,
 } from './ignore-pattern-resolver.service';
-import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
+import {
+  FolderIndexLiveSync,
+  type FileIndexLogger,
+} from './folder-index-live-sync';
+import {
+  IGNORE_NOTHING,
+  addFileEntry,
+  emptySnapshot,
+  type FolderIndex,
+  type FolderSnapshot,
+  type IndexEntry,
+  type IndexedFileType,
+} from './folder-index-snapshot';
 
 const LOGGER = Symbol.for('Logger');
 
@@ -136,16 +154,6 @@ const LOGGER = Symbol.for('Logger');
 const MAX_CACHED_FOLDERS = 8;
 
 /**
- * Logger interface (avoids a hard dependency on vscode-core's concrete Logger).
- */
-interface ILogger {
-  info(message: string, ...args: unknown[]): void;
-  warn(message: string, ...args: unknown[]): void;
-  error(message: string, error?: unknown): void;
-  debug(message: string, ...args: unknown[]): void;
-}
-
-/**
  * File search result with metadata for `@` syntax autocomplete.
  *
  * Kept structurally identical to what `ContextService` used to return so the
@@ -157,100 +165,12 @@ export interface FileSearchResult {
   readonly path: string;
   readonly relativePath: string;
   readonly fileName: string;
-  readonly fileType: 'text' | 'image' | 'binary' | 'unknown';
+  readonly fileType: IndexedFileType;
   readonly size: number;
   readonly lastModified: number;
   readonly isDirectory: boolean;
   readonly relevanceScore?: number;
 }
-
-/**
- * Lightweight in-memory entry. Deliberately excludes size/mtime.
- */
-interface IndexEntry {
-  readonly path: string;
-  readonly relativePath: string;
-  readonly fileName: string;
-  readonly directory: string;
-  readonly fileType: FileSearchResult['fileType'];
-  readonly isDirectory: boolean;
-}
-
-/**
- * Everything one open workspace folder owns.
- *
- * One record per normalized root. Nothing here is shared between folders —
- * that is the whole point: the pre-TASK_2026_344 service kept `files`,
- * `directories`, `ignoreFiles` and `watcher` as SERVICE fields, which is why a
- * switch had to clear them and why every late-landing async write had to be
- * generation-gated against contaminating the other root.
- */
-interface FolderIndex {
-  /** `normalizeWorkspaceRoot(root)` — the cache key. */
-  readonly key: string;
-  /**
-   * The host-native root string this snapshot was built from.
-   *
-   * Fixed at creation and never re-assigned: `path.relative` results depend on
-   * it, so swapping in another spelling of the same normalized root (a trailing
-   * separator, a different drive case) mid-life would silently change every
-   * relative path the entry produces from then on.
-   */
-  readonly root: string;
-  /** Absolute file path → entry. */
-  readonly files: Map<string, IndexEntry>;
-  /** Absolute directory path → entry. */
-  readonly directories: Map<string, IndexEntry>;
-  /** Parsed ignore files for this folder (for watcher create/change re-checks). */
-  ignoreFiles: ParsedIgnoreFile[];
-  watcher: IFileWatcher | undefined;
-  /** In-flight or settled build. `undefined` after a FAILED build, so it retries. */
-  buildPromise: Promise<void> | undefined;
-  ready: boolean;
-  /**
-   * Bumped whenever this entry is torn down, so a build or watcher handler
-   * still in flight for it stops writing.
-   */
-  generation: number;
-  /** Activation clock stamp, for LRU eviction under the overflow cap. */
-  lastActiveAt: number;
-}
-
-const IMAGE_EXTENSIONS = new Set([
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.gif',
-  '.bmp',
-  '.svg',
-  '.webp',
-  '.ico',
-]);
-const TEXT_EXTENSIONS = new Set([
-  '.txt',
-  '.md',
-  '.json',
-  '.js',
-  '.ts',
-  '.jsx',
-  '.tsx',
-  '.css',
-  '.scss',
-  '.html',
-  '.xml',
-  '.yaml',
-  '.yml',
-]);
-const BINARY_EXTENSIONS = new Set([
-  '.exe',
-  '.dll',
-  '.so',
-  '.dylib',
-  '.bin',
-  '.zip',
-  '.tar',
-  '.gz',
-]);
 
 @injectable()
 export class WorkspaceFileIndexService {
@@ -271,23 +191,40 @@ export class WorkspaceFileIndexService {
   /** Latch so "held above the cap" is logged per crossing, not per query. */
   private overCapNoticeLogged = false;
 
-  /** Matcher over DEFAULT_WORKSPACE_EXCLUDES for created-path re-checks. */
-  private readonly defaultExcludeMatcher = picomatch(
-    [...DEFAULT_WORKSPACE_EXCLUDES],
-    { dot: true },
-  );
+  /**
+   * The live half of every folder: its watcher subscription, batch patches and
+   * lost-event rebuilds (FU-11b). Built here rather than registered, because it
+   * is this service's collaborator and nothing else resolves it.
+   */
+  private readonly liveSync: FolderIndexLiveSync;
 
   constructor(
-    @inject(LOGGER) private readonly logger: ILogger,
+    @inject(LOGGER) private readonly logger: FileIndexLogger,
     @inject(TOKENS.WORKSPACE_INDEXER_SERVICE)
     private readonly indexer: WorkspaceIndexerService,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
-    private readonly fsProvider: IFileSystemProvider,
+    fsProvider: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE)
     private readonly ignoreResolver: IgnorePatternResolverService,
-  ) {}
+    @inject(PLATFORM_TOKENS.WORKSPACE_WATCHER)
+    workspaceWatcher: IWorkspaceWatcher,
+    /**
+     * Optional: without one (a bare container, a spec) a lost-event rebuild
+     * starts at once, as it did before TASK_2026_437 C14.
+     */
+    @inject(TOKENS.BACKGROUND_WORK_GOVERNOR, { isOptional: true })
+    governor: BackgroundWorkAdmission | null = null,
+  ) {
+    this.liveSync = new FolderIndexLiveSync({
+      logger,
+      fsProvider,
+      workspaceWatcher,
+      governor,
+      build: (entry, generation, into) => this.build(entry, generation, into),
+    });
+  }
 
   /**
    * Explicitly start the index for a workspace. Activation-time alias for
@@ -312,6 +249,11 @@ export class WorkspaceFileIndexService {
    * - Folder building (this call or another) → shares that build.
    * - Folder unknown, or its last build FAILED (`buildPromise` was reset) →
    *   builds now.
+   * - Folder built but holding a lost-event rebuild for the background-work
+   *   governor → the rebuild starts now: a caller needs this folder, and
+   *   user-initiated work is never governed (TASK_2026_437). The returned
+   *   promise does not wait for it; queries keep the previous snapshot until
+   *   the rebuild swaps in.
    *
    * `activeKey` is assigned before the first await on every path, because
    * `ContextService.assertIndexServes` reads `indexedRoot` synchronously right
@@ -326,14 +268,16 @@ export class WorkspaceFileIndexService {
       entry = {
         key,
         root,
-        files: new Map(),
-        directories: new Map(),
-        ignoreFiles: [],
-        watcher: undefined,
+        ...emptySnapshot(),
+        subscription: undefined,
         buildPromise: undefined,
         ready: false,
         generation: 0,
         lastActiveAt: 0,
+        rebuildStaging: undefined,
+        rebuildQueued: false,
+        rebuildDeferral: undefined,
+        subscribeRetryAt: undefined,
       };
       this.entries.set(key, entry);
     }
@@ -343,6 +287,8 @@ export class WorkspaceFileIndexService {
     this.evictOverflow();
 
     if (entry.buildPromise) {
+      this.liveSync.retrySubscribeIfDue(entry);
+      this.liveSync.expediteDeferredRebuild(entry);
       return entry.buildPromise;
     }
     const generation = ++this.generationClock;
@@ -382,6 +328,22 @@ export class WorkspaceFileIndexService {
     return this.entries.get(normalizeWorkspaceRoot(root))?.ready === true;
   }
 
+  /**
+   * The folder the three query methods read: the active one, once its FIRST
+   * build has completed (TASK_2026_437 FU-4c).
+   *
+   * Contract: callers await `ensureReadyFor` (or `ensureReady`) before
+   * querying — every production caller does, through `ContextService`'s
+   * `ensureIndexFor` + `assertIndexServes` blocks. This gate makes a caller
+   * that does not see an EMPTY result rather than a partial one while the first
+   * walk is still filling the maps. A later overflow rebuild never needs it: it
+   * fills a staging snapshot and swaps it in whole.
+   */
+  private get queryable(): FolderIndex | undefined {
+    const active = this.active;
+    return active?.ready ? active : undefined;
+  }
+
   /** The folder every query reads, or `undefined` before the first activation. */
   private get active(): FolderIndex | undefined {
     return this.activeKey ? this.entries.get(this.activeKey) : undefined;
@@ -392,9 +354,9 @@ export class WorkspaceFileIndexService {
     try {
       await this.build(entry, generation);
       // The folder was closed (or the service disposed) while this ran. Its
-      // maps are gone; do not arm a watcher over a folder nobody holds.
+      // maps are gone; do not subscribe for a folder nobody holds.
       if (entry.generation !== generation) return;
-      this.setupWatcher(entry, generation);
+      this.liveSync.subscribe(entry, generation);
       entry.ready = true;
       this.logger.info(
         `[WorkspaceFileIndex] Ready: ${entry.files.size} files, ${entry.directories.size} directories`,
@@ -411,14 +373,22 @@ export class WorkspaceFileIndexService {
     }
   }
 
-  private async build(entry: FolderIndex, generation: number): Promise<void> {
-    entry.files.clear();
-    entry.directories.clear();
+  /**
+   * Walk `entry`'s folder into `into` — the entry itself for a first build, a
+   * staging snapshot for an overflow rebuild.
+   */
+  private async build(
+    entry: FolderIndex,
+    generation: number,
+    into: FolderSnapshot = entry,
+  ): Promise<void> {
+    into.files.clear();
+    into.directories.clear();
 
     // Parse into a LOCAL first, then publish behind the generation check.
-    // `ignoreFiles` is read by `isExcluded()` on every watcher create/change
-    // event, so a build for a torn-down folder must never publish its rules
-    // over the rules of the entry that replaced it under the same key.
+    // The compiled rules are read by every batch, so a build for a torn-down
+    // folder must never publish its rules over the rules of the entry that
+    // replaced it under the same key.
     let parsed: ParsedIgnoreFile[];
     try {
       parsed = await this.ignoreResolver.parseWorkspaceIgnoreFiles(entry.root);
@@ -430,7 +400,8 @@ export class WorkspaceFileIndexService {
       parsed = [];
     }
     if (entry.generation !== generation) return;
-    entry.ignoreFiles = parsed;
+    into.ignoreFiles = parsed;
+    into.isIgnored = this.ignoreResolver.compileMatcher(parsed, entry.root);
 
     // Path-only, batched, yielding. The ignore files are handed over rather
     // than re-parsed: they are the same set, and re-reading every ignore file
@@ -438,12 +409,15 @@ export class WorkspaceFileIndexService {
     for await (const batch of this.indexer.discoverWorkspacePaths({
       workspaceFolder: entry.root,
       ignoreFiles: parsed,
+      onNestedRepoRoots: (roots) => {
+        if (entry.generation === generation) into.nestedRepoRoots = roots;
+      },
     })) {
       // Checked per batch, not once up front: the walk yields to the event loop
       // between batches, so an eviction can land at any point inside it.
       if (entry.generation !== generation) return;
       for (const filePath of batch) {
-        this.addFileEntry(entry, filePath);
+        addFileEntry(entry.root, filePath, into);
       }
     }
   }
@@ -540,7 +514,7 @@ export class WorkspaceFileIndexService {
    * free: a real multi-root workspace with more folders open than the cap would
    * dispose the least-recently-used folder's live watcher and clear its
    * snapshot on every activation past the cap, so cycling across those folders
-   * re-walks and re-arms chokidar almost every switch. That is the
+   * re-walks and re-subscribes almost every switch. That is the
    * pre-TASK_2026_344 behaviour, reintroduced at N=9 instead of N=1.
    *
    * So the cap is soft: when every remaining candidate is still open, the cache
@@ -584,209 +558,32 @@ export class WorkspaceFileIndexService {
   /**
    * Release everything one entry holds and mark it dead.
    *
-   * Bumping the generation is what stops a build, or a watcher handler parked
+   * Bumping the generation is what stops a build, or a batch handler parked
    * behind an await, from writing after the caller believes it is gone.
    */
   private teardownEntry(entry: FolderIndex): void {
     entry.generation++;
-    this.disposeWatcher(entry);
+    this.liveSync.release(entry);
     entry.files.clear();
     entry.directories.clear();
     entry.ignoreFiles = [];
+    entry.isIgnored = IGNORE_NOTHING;
+    entry.nestedRepoRoots = [];
     entry.buildPromise = undefined;
     entry.ready = false;
-  }
-
-  /**
-   * Dispose this entry's watcher, if any, and drop the reference.
-   *
-   * Clearing the field guarantees a given watcher is disposed exactly once, and
-   * a throwing `dispose()` never blocks the caller.
-   */
-  private disposeWatcher(entry: FolderIndex): void {
-    const watcher = entry.watcher;
-    if (!watcher) return;
-    entry.watcher = undefined;
-    try {
-      watcher.dispose();
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[WorkspaceFileIndex] failed to dispose previous watcher',
-        error,
-      );
-    }
-  }
-
-  /**
-   * Arm this folder's watcher — ONCE per folder per process.
-   *
-   * It is not disposed when the folder goes inactive: chokidar has no recursive
-   * mode, so arming one is a readdirp walk of every directory plus one
-   * `fs.watch` handle each, and paying that on every switch was a measurable
-   * part of the 260-554 ms event-loop lag runs. Keeping it live also keeps the
-   * inactive folder's snapshot correct, which is what makes switching back free
-   * rather than merely fast.
-   */
-  private setupWatcher(entry: FolderIndex, generation: number): void {
-    // Defensive: teardown disposes, but never let a second watcher be armed
-    // over a live one.
-    this.disposeWatcher(entry);
-    try {
-      const watcher = this.fsProvider.createFileWatcher('**/*', {
-        exclude: [...DEFAULT_WORKSPACE_EXCLUDES],
-        cwd: entry.root,
-      });
-      entry.watcher = watcher;
-      // Every handler is generation-gated: an event a disposed watcher already
-      // had in flight must not patch an entry that has been torn down. The gate
-      // here is necessary but NOT sufficient for the async handlers — they
-      // await inside, so they re-check at their write. See `onCreate`.
-      watcher.onDidCreate((p) => {
-        if (entry.generation !== generation) return;
-        void this.onCreate(entry, generation, p);
-      });
-      watcher.onDidChange((p) => {
-        if (entry.generation !== generation) return;
-        void this.onChange(entry, generation, p);
-      });
-      watcher.onDidDelete((p) => {
-        if (entry.generation !== generation) return;
-        this.onDelete(entry, p);
-      });
-    } catch (error: unknown) {
-      // A host without a real watcher degrades to a static snapshot — still
-      // correct, just not live. Re-indexing must never start throwing here.
-      this.logger.warn(
-        '[WorkspaceFileIndex] watcher unavailable (index will not stay live)',
-        error,
-      );
-    }
-  }
-
-  /**
-   * The caller's gate in `setupWatcher` is NOT enough on its own: `isExcluded`
-   * awaits `isIgnored` whenever the folder has any ignore file — the normal
-   * case — so a teardown can land in that window, and this would then resurrect
-   * maps the service has already released.
-   *
-   * Rule for this file: a generation check upstream does not protect a write
-   * that sits behind an `await`. Re-check immediately before the write.
-   *
-   * Note this runs for INACTIVE folders too, and must: keeping a background
-   * folder's snapshot fresh is exactly what lets a switch back to it skip the
-   * rebuild.
-   */
-  private async onCreate(
-    entry: FolderIndex,
-    generation: number,
-    absPath: string,
-  ): Promise<void> {
-    if (entry.files.has(absPath)) return;
-    if (await this.isExcluded(entry, absPath)) return;
-    if (entry.generation !== generation) return;
-    this.addFileEntry(entry, absPath);
-  }
-
-  private async onChange(
-    entry: FolderIndex,
-    generation: number,
-    absPath: string,
-  ): Promise<void> {
-    // Content changes carry no metadata we track. Re-add only if a prior create
-    // event was missed and the path is not ignored.
-    if (entry.files.has(absPath)) return;
-    if (await this.isExcluded(entry, absPath)) return;
-    if (entry.generation !== generation) return;
-    this.addFileEntry(entry, absPath);
-  }
-
-  private onDelete(entry: FolderIndex, absPath: string): void {
-    entry.files.delete(absPath);
-    // Directory entries are derived from surviving files; a stale directory
-    // entry is harmless for autocomplete and cheaper than pruning on every
-    // unlink. Directory deletes surface as file unlinks per child.
-  }
-
-  /**
-   * Add a file entry plus its ancestor directory entries (derived from the
-   * path, so they inherit the file's not-ignored status for free).
-   */
-  private addFileEntry(entry: FolderIndex, absPath: string): void {
-    const relativePath = path.relative(entry.root, absPath);
-    const fileName = path.basename(absPath);
-    const directory = path.dirname(absPath);
-    entry.files.set(absPath, {
-      path: absPath,
-      relativePath,
-      fileName,
-      directory,
-      fileType: detectFileType(fileName),
-      isDirectory: false,
-    });
-    this.addAncestorDirectories(entry, absPath);
-  }
-
-  private addAncestorDirectories(entry: FolderIndex, absPath: string): void {
-    // Derive ancestor dirs from the RELATIVE path so we never mix the
-    // workspace root's native separators/drive with the POSIX separators
-    // fast-glob emits. Each ancestor inherits the file's not-ignored status.
-    const relative = path.relative(entry.root, absPath);
-    if (!relative || relative.startsWith('..')) return;
-    const segments = relative.split(/[\\/]/).filter(Boolean);
-    segments.pop(); // drop the file name
-    const soFar: string[] = [];
-    for (const segment of segments) {
-      soFar.push(segment);
-      const absDir = path.join(entry.root, ...soFar);
-      if (entry.directories.has(absDir)) continue;
-      entry.directories.set(absDir, {
-        path: absDir,
-        relativePath: path.relative(entry.root, absDir),
-        fileName: segment,
-        directory: path.dirname(absDir),
-        fileType: 'unknown',
-        isDirectory: true,
-      });
-    }
-  }
-
-  private async isExcluded(
-    entry: FolderIndex,
-    absPath: string,
-  ): Promise<boolean> {
-    const relative = path.relative(entry.root, absPath).replace(/\\/g, '/');
-    if (!relative || relative.startsWith('..')) return true;
-    if (this.defaultExcludeMatcher(relative)) return true;
-    // Resolved into a local in the same synchronous block as the read: this
-    // method awaits below, and re-reading `entry.ignoreFiles` afterwards would
-    // filter against rules a concurrent rebuild had just replaced.
-    const ignoreFiles = entry.ignoreFiles;
-    if (ignoreFiles.length > 0) {
-      try {
-        const result = await this.ignoreResolver.isIgnored(
-          relative,
-          ignoreFiles,
-          entry.root,
-        );
-        if (result.ignored) return true;
-      } catch (error) {
-        this.logger.debug(
-          '[WorkspaceFileIndex] ignore check failed (treating as not ignored)',
-          error,
-        );
-      }
-    }
-    return false;
   }
 
   /**
    * Score + filter the ACTIVE folder's file list against a query. Directories
    * are not included here (use {@link searchDirectories}); this mirrors the
    * files-only search path autocomplete relied on.
+   *
+   * Await `ensureReadyFor` first; before the folder's first build completes
+   * this returns nothing (see `queryable`).
    */
   search(query: string, limit: number): FileSearchResult[] {
     if (!query) return this.getAll(limit);
-    const active = this.active;
+    const active = this.queryable;
     if (!active) return [];
     const queryLower = query.toLowerCase();
     const matches: Array<IndexEntry & { score: number }> = [];
@@ -802,9 +599,12 @@ export class WorkspaceFileIndexService {
   /**
    * Return every indexed file in the ACTIVE folder, then its directories, up to
    * `limit`. Used for the "no query yet" suggestion list.
+   *
+   * Await `ensureReadyFor` first; before the folder's first build completes
+   * this returns nothing (see `queryable`).
    */
   getAll(limit: number): FileSearchResult[] {
-    const active = this.active;
+    const active = this.queryable;
     if (!active) return [];
     const results: FileSearchResult[] = [];
     for (const entry of active.files.values()) {
@@ -821,9 +621,12 @@ export class WorkspaceFileIndexService {
   /**
    * Filter the ACTIVE folder's directory entries by query (name or relative
    * path substring).
+   *
+   * Await `ensureReadyFor` first; before the folder's first build completes
+   * this returns nothing (see `queryable`).
    */
   searchDirectories(query: string, limit: number): FileSearchResult[] {
-    const active = this.active;
+    const active = this.queryable;
     if (!active) return [];
     const queryLower = query.toLowerCase();
     const matches: FileSearchResult[] = [];
@@ -877,19 +680,6 @@ export class WorkspaceFileIndexService {
     this.folderChangeSubscription = undefined;
     this.folderChangeSubscribed = false;
   }
-}
-
-/**
- * Classify a file by extension into the coarse autocomplete buckets. Kept
- * intentionally identical to the previous `ContextService.detectFileType` so
- * downstream consumers see the same `fileType` values.
- */
-function detectFileType(fileName: string): FileSearchResult['fileType'] {
-  const ext = path.extname(fileName).toLowerCase();
-  if (IMAGE_EXTENSIONS.has(ext)) return 'image';
-  if (TEXT_EXTENSIONS.has(ext)) return 'text';
-  if (BINARY_EXTENSIONS.has(ext)) return 'binary';
-  return 'unknown';
 }
 
 /**

@@ -142,6 +142,14 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
   host: {
     '[class.hidden]': '!active()',
     class: 'flex-1 flex flex-col min-h-0 relative',
+    // Agent-output surface: file links in rendered markdown route into Ptah's
+    // viewer, and `data-ptah-tab-id` tells the router which workspace a
+    // relative path belongs to (this transcript may render a BACKGROUND
+    // workspace's tab). Both are host bindings by contract — never written on
+    // a `<markdown>` element and never inside rendered content, so agent HTML
+    // cannot opt a surface in or redirect one (TASK_2026_413 R2/R8).
+    'data-ptah-file-links': '',
+    '[attr.data-ptah-tab-id]': 'tabId()',
   },
 })
 export class ChatTranscriptComponent {
@@ -194,10 +202,9 @@ export class ChatTranscriptComponent {
 
   /**
    * The plain scroll container (`#messageContainer`). Off-screen message
-   * bubbles are skipped by the browser via `content-visibility: auto`
-   * (see chat-transcript.component.css), so this gives virtual-scroll-class
-   * performance without the experimental autosize estimator — scroll
-   * positions are the element's real `scrollTop`/`scrollHeight`.
+   * bubbles are unmounted by `TranscriptRenderWindow`, and native scroll
+   * anchoring absorbs their height changes — scroll positions are the
+   * element's real `scrollTop`/`scrollHeight`.
    */
   private readonly scrollContainer =
     viewChild<ElementRef<HTMLElement>>('messageContainer');
@@ -223,10 +230,13 @@ export class ChatTranscriptComponent {
   private wasStreaming = false;
 
   /**
-   * Suppresses onScroll bookkeeping while WE drive the scroll position. The
-   * programmatic scroll emits scroll events that must not flip `pinnedToBottom`.
+   * `scrollTop` seen by the previous scroll event. An upward move away from the
+   * bottom is always the user: the stick-to-bottom only moves down, and a
+   * clamp or an anchoring adjustment keeps the bottom distance unchanged. So no
+   * scroll event is ever ignored — ignoring them is what let a pinned stream
+   * yank the user back while they tried to scroll up.
    */
-  private isAdjusting = false;
+  private lastScrollTop = 0;
 
   /**
    * Saved scroll offset for THIS tab. Each instance owns exactly one tab, so the
@@ -240,8 +250,7 @@ export class ChatTranscriptComponent {
   private wasActive = false;
 
   /**
-   * Active during the streaming→finalized DOM transition. Suppresses onScroll
-   * bookkeeping so the swap can't flip `pinnedToBottom`.
+   * Active during the streaming→finalized DOM transition.
    *
    * A signal so it flows reactively into <ptah-message-bubble> and onward to
    * ExecutionNodeComponent + InlineAgentBubbleComponent — those use it to
@@ -497,31 +506,39 @@ export class ChatTranscriptComponent {
   }
 
   /**
-   * Handle viewport scroll events. Updates `pinnedToBottom` from the user's
-   * position and caches the offset per tab. Ignored while WE drive the scroll
-   * (isAdjusting) or during the finalize transition, so neither can falsely
-   * unpin.
+   * Handle viewport scroll events and cache the offset per tab. Any upward
+   * move that leaves the bottom unpins at once — one wheel tick is enough, and
+   * a pending stick-to-bottom is dropped. Moving back within NEAR_BOTTOM_PX
+   * re-pins.
    */
   onScroll(_event: Event): void {
-    if (this.isAdjusting || this.isFinalizingTransition()) return;
-
     const el = this.scrollContainer()?.nativeElement;
     if (!el) return;
 
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    this.pinnedToBottom = distanceFromBottom < this.NEAR_BOTTOM_PX;
+    const top = el.scrollTop;
+    const distanceFromBottom = el.scrollHeight - top - el.clientHeight;
+    const movedUp = top < this.lastScrollTop - 1;
+    this.lastScrollTop = top;
+    this.savedScrollTop = top;
 
-    this.savedScrollTop = el.scrollTop;
+    if (movedUp && distanceFromBottom > 1) {
+      this.pinnedToBottom = false;
+      if (this.scrollRafId !== null) {
+        cancelAnimationFrame(this.scrollRafId);
+        this.scrollRafId = null;
+      }
+      return;
+    }
+    if (distanceFromBottom < this.NEAR_BOTTOM_PX) {
+      this.pinnedToBottom = true;
+    }
   }
 
   /**
    * Stick the container to the bottom on the next frame. rAF-coalesced so a
    * burst of streaming chunks collapses to a single adjustment per frame.
-   *
-   * Uses the element's real `scrollHeight` — there is no estimator to go
-   * stale, so the streamed content is always reachable without a manual
-   * scroll, and the position can't oscillate as it did with the autosize
-   * strategy.
+   * Re-checks the pin inside the frame: scroll events run before rAF
+   * callbacks, so a user who scrolled up in this frame is not pulled back.
    */
   private scheduleStickToBottom(): void {
     if (this.scrollRafId !== null) {
@@ -530,12 +547,11 @@ export class ChatTranscriptComponent {
     this.scrollRafId = requestAnimationFrame(() => {
       this.scrollRafId = null;
       const el = this.scrollContainer()?.nativeElement;
-      if (!el) return;
-      this.isAdjusting = true;
-      el.scrollTop = el.scrollHeight;
-      requestAnimationFrame(() => {
-        this.isAdjusting = false;
-      });
+      if (!el || !this.pinnedToBottom) return;
+      const bottom = el.scrollHeight - el.clientHeight;
+      if (el.scrollTop < bottom) {
+        el.scrollTop = el.scrollHeight;
+      }
     });
   }
 
@@ -551,15 +567,12 @@ export class ChatTranscriptComponent {
       this.scrollRafId = null;
       const el = this.scrollContainer()?.nativeElement;
       if (!el) return;
-      this.isAdjusting = true;
       if (this.pinnedToBottom || this.savedScrollTop === null) {
         el.scrollTop = el.scrollHeight;
       } else {
         el.scrollTop = this.savedScrollTop;
       }
-      requestAnimationFrame(() => {
-        this.isAdjusting = false;
-      });
+      this.lastScrollTop = el.scrollTop;
     });
   }
 
@@ -573,7 +586,6 @@ export class ChatTranscriptComponent {
     if (!wrapper || this.resizeObserver) return;
 
     this.resizeObserver = new ResizeObserver((entries) => {
-      if (this.isAdjusting) return;
       const height = entries[0]?.contentRect.height ?? 0;
       if (Math.abs(height - this.lastContentHeight) < 1) return;
       this.lastContentHeight = height;

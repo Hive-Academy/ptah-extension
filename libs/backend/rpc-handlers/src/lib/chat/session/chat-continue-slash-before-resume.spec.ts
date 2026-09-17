@@ -109,7 +109,7 @@ const NO_RECORD: SessionState = { registered: false, streaming: false };
 const LIVE: SessionState = { registered: true, streaming: true };
 const DEAD_RECORD: SessionState = { registered: true, streaming: false };
 
-function makeHarness(opts: SessionState): Harness {
+function makeHarness(opts: SessionState, autopilot = false): Harness {
   const noop = jest.fn();
   const logger = createMockLogger();
   const provider = createMockWorkspaceProvider({ folders: [OPEN_FOLDER] });
@@ -148,7 +148,11 @@ function makeHarness(opts: SessionState): Harness {
     { broadcastMessage: noop } as never,
     {
       get: noop,
-      getWithDefault: jest.fn().mockReturnValue(false),
+      getWithDefault: jest
+        .fn()
+        .mockImplementation((key: string) =>
+          key === 'autopilot.permissionLevel' ? 'yolo' : autopilot,
+        ),
     } as unknown as ConfigManager,
     sdkAdapter,
     { captureException: jest.fn() } as unknown as SentryService,
@@ -160,17 +164,22 @@ function makeHarness(opts: SessionState): Harness {
     } as never,
     {
       readSessionHistory: jest.fn().mockResolvedValue({ events: [] }),
-      readHistoryAsMessages: jest.fn().mockResolvedValue([]),
     } as never,
     {
+      restoreResumableBySession: jest.fn().mockReturnValue(0),
       registerFromHistoryEvents: jest.fn().mockReturnValue(0),
       getResumableBySession: jest.fn().mockReturnValue([]),
     } as unknown as SubagentRegistryService,
     {
       intercept: jest.fn().mockReturnValue({ action: 'passthrough' }),
     } as never,
-    { getCliSessionsForRestore: jest.fn().mockResolvedValue([]) } as never,
+    {
+      get: jest.fn().mockResolvedValue(null),
+      getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
+      saveResumeState: jest.fn().mockResolvedValue(undefined),
+    } as never,
     provider as unknown as IWorkspaceProvider,
+    { exists: jest.fn().mockResolvedValue(true) } as never,
     {
       type: 'cli',
       extensionPath: '/tmp/ptah-app',
@@ -213,6 +222,7 @@ function makeHarness(opts: SessionState): Harness {
     // The constructor subscribes to the fan-out, so `register` must exist; a
     // real registry is cheap and keeps the stub honest.
     new SessionMcpStatusRegistry(),
+    { register: jest.fn().mockReturnValue(() => undefined) } as never,
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
   );
 
@@ -458,5 +468,25 @@ describe('chat:continue — dead record (registered, not streaming)', () => {
     await h.service.continueSession(params('keep going'));
 
     expect(teardownFinishedFirst).toBe(true);
+  });
+});
+
+it('reports failed interruption as not delivered rather than sending to retired session', async () => {
+  const { service, interruptCurrentTurn, sendMessageToSession } = makeHarness(
+    LIVE,
+    true,
+  );
+  interruptCurrentTurn.mockResolvedValue(false);
+  const result = await service.continueSession({
+    sessionId: SESSION_ID,
+    tabId: TAB_ID,
+    prompt: 'stop',
+    workspacePath: OPEN_FOLDER,
+  } as ChatContinueParams);
+  expect(interruptCurrentTurn).toHaveBeenCalledTimes(1);
+  expect(sendMessageToSession).not.toHaveBeenCalled();
+  expect(result).toEqual({
+    success: false,
+    error: expect.stringContaining('Your follow-up was not sent'),
   });
 });

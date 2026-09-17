@@ -1,11 +1,11 @@
 ---
 title: Agent Orchestration
-description: How Ptah coordinates an orchestrator, senior leads, and CLI helpers to deliver non-trivial work.
+description: How Ptah assigns development work to specialist sub-agents and CLI lanes, with checkpoints and verified handoffs.
 ---
 
 # Agent Orchestration
 
-Ptah doesn't throw one model at every problem. It uses a **three-tier orchestration model** that mirrors how a real engineering team splits work: a coordinator at the top, specialists in the middle, and a pool of parallel helpers at the bottom.
+The `orchestration` skill in `ptah-core` coordinates development work: classify the request, choose a workflow, assign specialists or CLI lanes, run user checkpoints, and verify the results. A phase can run on a sub-agent or a CLI lane; a whole pipeline on lanes is [Relay](/tribunal/relay/).
 
 <video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
   <source src="/assets/videos/cli-agent-orchestration.mp4" type="video/mp4" />
@@ -13,113 +13,55 @@ Ptah doesn't throw one model at every problem. It uses a **three-tier orchestrat
 
 ![Orchestration hierarchy](/screenshots/agents-orchestration.png)
 
-## The three tiers
+## Who does what
 
-### Tier 1 — Orchestrator
+| Role | Responsibility |
+| --- | --- |
+| **Orchestrator** | Owns the conversation and checkpoints; spawns sub-agents, batch executors, and phase lanes; verifies what returns. |
+| **Team-leader** | Decomposes the plan into batches, recommends executors, verifies and gates batches behind review, and records their states in `batches.md`. It spawns nothing. |
+| **Specialists** | Work within their assigned scope and return deliverables with evidence. Eligible specialists may use CLI lanes for focused sub-tasks when lanes are enabled or in auto mode. |
+| **CLI lanes** | Run self-contained tasks through `ptah_agent_spawn`, using an installed CLI or a configured Ptah CLI provider. |
 
-The top-level agent that owns the conversation. It:
+`visual-reviewer` and `ui-ux-designer` do not delegate to CLI lanes: visual review needs browser tools, and design needs interactive discovery. The team-leader recommends work for the orchestrator to assign.
 
-- Reads the user's goal
-- Decomposes the goal into a plan
-- Picks which specialists to invoke and in what order
-- Synthesizes results back into a single response
+Specialists do not allocate task IDs or edit `task.md` or `batches.md`. They report completion and blockers; the team-leader records batch state. In a Relay run without a team-leader, the conductor verifies the implementation report and records `batches.md`.
 
-You usually talk to the orchestrator directly unless you've explicitly picked a specialist.
+## Choosing a workflow
 
-### Tier 2 — Senior leads (sub-agents)
+The skill covers FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, SAAS_INIT, and CREATIVE work. It chooses full, partial, or minimal depth from the request and asks when the type is ambiguous.
 
-Specialists spawned by the orchestrator. Each has a narrow domain (architecture, backend, frontend, reviews, research) and a stricter tool set. They:
+A feature typically goes through project-manager → optional research/design → software-architect → team-leader → QA. The team-leader recommends batch executors; the orchestrator spawns them and acts on each returned next action.
 
-- Receive a scoped task with acceptance criteria
-- Do the work (or delegate again to CLI helpers)
-- Return a structured report to the orchestrator
+## Checkpoints
 
-Senior leads can spawn other senior leads. Hierarchy depth is capped to prevent runaway recursion.
+The orchestrator owns every user checkpoint:
 
-### Tier 3 — CLI helpers
+- **CLI lanes** — choose enabled, auto, or disabled when a spawnable lane is available.
+- **Scope and technical choices** — clarify ambiguity before planning or architecture.
+- **Requirements and architecture** — present `task-description.md` and `implementation-plan.md` for approval before continuing.
+- **QA** — choose the verification work after implementation.
+- **Specialist clarification** — relay an agent's blocking questions to you, then re-invoke it with your decisions.
 
-External CLIs (Copilot, Codex, ptah-cli) spawned for bulk, parallel, or provider-specific work. They follow the [spawn → poll → read](/agents/cli-agents/#the-spawn--poll--read-pattern) pattern and are capped at 3 concurrent.
+## CLI lanes and required skills
+
+Enable **`agent-lanes`** alongside `orchestration` to run CLI work. It defines discovery, addressing, self-contained prompts, spawn/status/read, recovery, messaging, review independence, and revision limits. If it is unavailable, orchestration asks you to enable it and uses sub-agents only until you do.
+
+If the session has no `ptah_agent_*` tools, work proceeds with native tools and the agent says so. When `ptah_*` tools are available, agent templates use them first; when absent, they use native tools directly without probing for them.
 
 :::tip[CLI-only delivery: Relay]
-If you want this same plan → architect → implement → review pipeline run **entirely on CLI vendors with no sub-agents** — each phase handed to a different vendor, persisted to `.ptah/specs`, with the review phase done by a different vendor family — use Tribunal's [**Relay**](/tribunal/relay/) move. It's orchestration's pipeline on the vendor panel.
+[Relay](/tribunal/relay/) is the orchestration pipeline run on CLI lanes, launched from the Tribunal panel for now. Assign a vendor and model to plan, architect, implement, and review. Review uses a separate lane, with another vendor family preferred; a user-requested same-family review is flagged.
 :::
 
-## When to delegate
+## Parallel work and handoffs
 
-| Task shape                                                     | Who handles it                                                    |
-| -------------------------------------------------------------- | ----------------------------------------------------------------- |
-| One quick question                                             | Orchestrator answers directly                                     |
-| A multi-step feature                                           | Orchestrator delegates to 1–3 senior leads sequentially           |
-| Wide, parallel exploration (e.g., "write tests for 6 modules") | Senior lead spawns CLI helpers in parallel                        |
-| Cross-cutting refactor                                         | Architect plans → implementation leads execute → reviewers verify |
-| Research + write-up                                            | researcher-expert → technical-content-writer                      |
+The lane skill defaults to **three concurrent lanes**. Parallel writes must be file-disjoint, or each lane needs its own worktree. This workflow budget is separate from the [runtime concurrency setting](/agents/cli-agents/#concurrency-limits).
 
-:::tip[Rule of thumb]
-If a task has more than **three distinct deliverables**, let the orchestrator decompose it. If a task has more than **three files to touch in parallel**, push it to CLI helpers.
-:::
+Each handoff includes the objective, acceptance criteria, absolute input paths, permitted files, and an output format. File-producing tasks name an absolute deliverable path and return `WROTE: <path>` plus a short verdict. Agents that cannot proceed return `## Clarifications Needed` for the orchestrator to resolve with you.
 
-## Parallelization rules
+The orchestrator checks reports against files and runs the project's validation commands. A lane's `PASS` does not replace a build, tests, or lint. Reviewers do not review their own implementation, and ordinary lane revision stops after two rounds if it has not converged.
 
-Ptah parallelizes aggressively where it's safe:
+## Following up with a lane
 
-- **Read-only work** (searches, analyses, reads) — parallelize freely.
-- **Independent writes** (different files, no shared state) — parallelize up to the 3-CLI cap.
-- **Overlapping writes** (same file or same module) — serialize. The orchestrator enforces this by batching overlapping tasks into a single agent.
+`ptah_agent_message` sends a message to a running lane and reports its delivery mode. A message may steer the current turn, queue a next turn, interrupt and resume with partial work discarded, or be unsupported. The orchestrator checks the result; delivery is not assumed.
 
-:::caution[Never in parallel]
-
-- Git commits and git resets
-- Migrations against the same database
-- Writes to the same file from different agents
-  :::
-
-## Handoff protocol
-
-When Tier 1 hands off to Tier 2, the message includes:
-
-1. **Goal** — what success looks like
-2. **Context** — relevant files, prior decisions, constraints
-3. **Acceptance criteria** — how the orchestrator will check the result
-4. **Return format** — structured markdown the orchestrator can parse
-
-Senior leads return a report with the same shape. CLI helpers return a transcript plus a final summary block.
-
-## Example: "Add a dark mode toggle"
-
-```text
-User → Orchestrator:
-  "Add a dark mode toggle to the settings page."
-
-Orchestrator plan:
-  1. ui-ux-designer — design tokens + component spec
-  2. frontend-developer — implement the toggle
-  3. senior-tester — add tests
-  4. code-style-reviewer — final polish pass
-
-Execution:
-  Step 1 runs → returns spec
-  Step 2 runs with spec in context → writes code
-  Steps 3 and 4 run IN PARALLEL (tester reads tests-dir, reviewer reads src) → both return reports
-  Orchestrator merges reports → replies to user.
-```
-
-## Steering a running orchestration
-
-You can interrupt at any point. Type a new message in the chat and the orchestrator will:
-
-1. Stop any in-flight CLI helpers (or let them finish if you say "finish current work")
-2. Incorporate your new input into the plan
-3. Resume with the adjusted plan
-
-For finer-grained control, open the **Agent Timeline** panel to pause, resume, or cancel individual sub-agents.
-
-## Observability
-
-Every orchestration produces a timeline you can inspect:
-
-- Which agents ran
-- How long each took
-- Token usage per agent
-- The exact handoff messages between tiers
-
-See [Session analytics](/sessions/analytics/) for aggregate dashboards.
+A lane can send a finding or blocker back with `ptah_agent_report`; its `delivered` result says whether the spawning session received it. To resume a finished or interrupted lane, `ptah_agent_status` must have reported a **CLI Session ID**. Otherwise, a fresh spawn restates the context. See [CLI agents](/agents/cli-agents/) for the tool flow.

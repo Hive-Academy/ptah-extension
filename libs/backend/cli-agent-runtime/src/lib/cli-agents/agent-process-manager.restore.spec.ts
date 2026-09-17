@@ -21,6 +21,9 @@ import type {
   CliSessionReference,
 } from '@ptah-extension/shared';
 import { AgentProcessManager } from './agent-process-manager.service';
+import { AgentMessageRouter } from './agent-message-router.service';
+import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
+import { AgentOutputBuffer } from './agent-output-buffer.service';
 
 // `readOutput` runs the id through `AgentId.from`, which validates the UUID
 // shape — spec ids have to be real v4-shaped strings, not readable labels.
@@ -56,18 +59,28 @@ function makeManager(options: {
   } as unknown as IWorkspaceProvider;
 
   type Args = ConstructorParameters<typeof AgentProcessManager>;
+  type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
+  const cliDetection = { getAdapter: jest.fn() } as unknown as Args[1];
+  const sentryService = { captureException: jest.fn() };
   return new AgentProcessManager(
     logger as unknown as Args[0],
-    { getAdapter: jest.fn() } as unknown as Args[1],
+    cliDetection,
     {
       getRunningBySession: jest.fn().mockReturnValue([]),
     } as unknown as Args[2],
-    workspaceProvider as unknown as Args[3],
-    { captureException: jest.fn() } as unknown as Args[4],
-    { effort: { get: jest.fn(() => '') } } as unknown as Args[5],
-    null,
-    null,
-    options.resolver ?? null,
+    sentryService as unknown as Args[3],
+    new AgentMessageRouter(logger as unknown as Args[0], cliDetection),
+    new AgentSpawnEnvironment(
+      logger as unknown as Args[0],
+      cliDetection,
+      workspaceProvider,
+      { effort: { get: jest.fn(() => '') } } as unknown as EnvironmentArgs[3],
+      sentryService as unknown as EnvironmentArgs[4],
+      null,
+      null,
+      options.resolver ?? null,
+    ),
+    new AgentOutputBuffer(logger as unknown as Args[0]),
   );
 }
 
@@ -112,19 +125,16 @@ function agentsOf(manager: AgentProcessManager): Map<
 }
 
 describe('AgentProcessManager.restoreAgents', () => {
-  it('readOutput returns the persisted stdout for a restored record', () => {
+  it('readOutput returns an empty stdout buffer for a lean restored reference', () => {
     const manager = makeManager({ providerRoot: ROOT_A });
 
-    const count = manager.restoreAgents(
-      [makeRef({ stdout: 'line one\nline two\n' })],
-      ROOT_A,
-    );
+    const count = manager.restoreAgents([makeRef()], ROOT_A);
 
     expect(count).toBe(1);
     const output = manager.readOutput(RESTORED_ID);
-    expect(output.stdout).toBe('line one\nline two\n');
+    expect(output.stdout).toBe('');
     expect(output.stderr).toBe('');
-    expect(output.lineCount).toBe(2);
+    expect(output.lineCount).toBe(0);
     expect(output.truncated).toBe(false);
   });
 
@@ -227,21 +237,23 @@ describe('AgentProcessManager.restoreAgents', () => {
     );
   });
 
-  it('refuses steer on a restored record, naming the real condition', () => {
+  it('refuses sendToAgent on a restored record, naming the real condition', async () => {
     const manager = makeManager({ providerRoot: ROOT_A });
     manager.restoreAgents([makeRef({ cliSessionId: 'session-abc' })], ROOT_A);
 
-    expect(() => manager.steer(RESTORED_ID, 'do it differently')).toThrow(
-      /restored from a previous run of this host/,
-    );
-    expect(() => manager.steer(RESTORED_ID, 'do it differently')).toThrow(
-      /resume_session_id: session-abc/,
-    );
+    const error = await manager
+      .sendToAgent(RESTORED_ID, 'do it differently')
+      .then(
+        () => null,
+        (err: unknown) => err as { code?: string; message: string },
+      );
+
+    expect(error?.code).toBe('restored');
+    expect(error?.message).toMatch(/restored from a previous run of this host/);
+    expect(error?.message).toMatch(/resume_session_id: session-abc/);
     // Not the old "is not running (status: …)" wording, which says nothing
     // about why or what to do next.
-    expect(() => manager.steer(RESTORED_ID, 'do it differently')).not.toThrow(
-      /is not running/,
-    );
+    expect(error?.message).not.toMatch(/is not running/);
   });
 
   it('refuses stop on a restored record instead of reporting a no-op release as success', async () => {
@@ -274,6 +286,48 @@ describe('AgentProcessManager.restoreAgents', () => {
     expect(agentsOf(manager).get(RESTORED_ID)?.timeoutHandle).toBeUndefined();
     await expect(manager.disposeAll()).resolves.toBeUndefined();
     expect(agentsOf(manager).size).toBe(0);
+  });
+
+  it('never emits a persisting lifecycle event for a restored record, so its empty output is never written back', async () => {
+    jest.useFakeTimers();
+    try {
+      const manager = makeManager({ providerRoot: ROOT_A });
+      const emitted: string[] = [];
+      for (const name of [
+        'agent:spawned',
+        'agent:exited',
+        'agent:released',
+        'agent:expired',
+      ]) {
+        manager.events.on(name, () => emitted.push(name));
+      }
+      manager.restoreAgents([makeRef({ cliSessionId: 'session-abc' })], ROOT_A);
+
+      // Lean restore refs leave the persistence accumulators empty...
+      expect(manager.readOutputForPersistence(RESTORED_ID)).toMatchObject({
+        segments: [],
+        streamEvents: [],
+      });
+      // ...but every path that could re-persist is closed. `agent:spawned` and
+      // `agent:exited` are the only triggers for `persistCliSessionReference`.
+      await expect(
+        manager.sendToAgent(RESTORED_ID, 'again'),
+      ).rejects.toMatchObject({ code: 'restored' });
+      await expect(manager.stop(RESTORED_ID)).rejects.toThrow();
+      await expect(
+        manager.continueConversation(RESTORED_ID, 'again'),
+      ).rejects.toMatchObject({ code: 'released' });
+      // No parent id, so the sdk-callbacks session-id remap never selects it.
+      expect(
+        (manager.getStatus(RESTORED_ID) as AgentProcessInfo).parentSessionId,
+      ).toBeUndefined();
+      jest.runOnlyPendingTimers();
+      await Promise.resolve();
+
+      expect(emitted).toEqual(['agent:expired']);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('an unknown id says no record exists in this host at all, keeping the "Agent not found" prefix', () => {

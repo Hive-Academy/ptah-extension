@@ -1,5 +1,6 @@
 import nx from '@nx/eslint-plugin';
 import baseConfig, {
+  IN_MAIN_RECURSIVE_WATCH_SELECTORS,
   MESSAGE_LITERAL_SELECTORS,
 } from '../../../eslint.config.mjs';
 import angularConfig from '../../../eslint.angular.config.mjs';
@@ -51,7 +52,7 @@ const BANNED_DESIGN_TOKENS = [
     // there is a word character, so there is no boundary before `ink`.
     pattern: String.raw`\bink-(?:[0-9]{2,3}|content)\b`,
     message:
-      'The ink-* ramp belongs to the `operator` marketing theme and is tied to that theme\'s own untouched ladder — it is NOT derived against the member ladder (panel-theme-spec.md §2 rejects ink-700 as a hairline candidate for exactly this reason). Use base-100/base-200/base-300/surface-high instead.',
+      "The ink-* ramp belongs to the `operator` marketing theme and is tied to that theme's own untouched ladder — it is NOT derived against the member ladder (panel-theme-spec.md §2 rejects ink-700 as a hairline candidate for exactly this reason). Use base-100/base-200/base-300/surface-high instead.",
   },
   {
     id: 'amber-ramp',
@@ -131,7 +132,8 @@ export default [
       '@angular-eslint/prefer-on-push-component-change-detection': 'error',
 
       /**
-       * NFR-U2. MESSAGE_LITERAL_SELECTORS is re-stated because flat config
+       * NFR-U2. MESSAGE_LITERAL_SELECTORS and IN_MAIN_RECURSIVE_WATCH_SELECTORS
+       * (TASK_2026_437 INV-1) are re-stated because flat config
        * REPLACES a rule's options rather than merging them — omitting it here
        * would silently switch the workspace-wide message-constant restrictions
        * off for this lib.
@@ -139,6 +141,7 @@ export default [
       'no-restricted-syntax': [
         'error',
         ...MESSAGE_LITERAL_SELECTORS,
+        ...IN_MAIN_RECURSIVE_WATCH_SELECTORS,
         ...bannedTokenTsSelectors,
       ],
     },

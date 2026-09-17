@@ -11,13 +11,13 @@ Ptah remembers. Long-running work tends to outlive a single context window — p
 
 The design is **Letta-style tiered**:
 
-| Tier         | Cap (default) | What lives here                                          |
-| ------------ | ------------- | -------------------------------------------------------- |
-| **core**     | 50            | Identity, durable preferences, project invariants        |
-| **recall**   | 500           | Recent events, decisions, things that happened this week |
-| **archival** | 5000          | Deep history — searchable but rarely surfaced            |
+| Tier         | What lives here                                                   |
+| ------------ | ----------------------------------------------------------------- |
+| **core**     | Wizard seeds and pinned identity or project invariants            |
+| **recall**   | Curated memories and archival memories restored by recorded use   |
+| **archival** | Unused recall memories moved by the age lifecycle; still searchable |
 
-A **curator** runs automatically on every context compaction (driven by the SDK's `PreCompact` hook). It reads the conversation, extracts memory drafts, then a **resolver** merges those drafts against existing memories — inserting, updating, promoting, demoting, or forgetting. Salience scoring decides which memories rise to `core` and which decay out of `archival`.
+A **curator** runs automatically on every context compaction (driven by the SDK's `PreCompact` hook). It reads the conversation, extracts memory drafts, then a **resolver** merges those drafts against existing memories — inserting, updating, merging, or forgetting. Tiers are set by the writer: wizard seeds and pinned identity use `core`, while curated memories use `recall`. Salience affects query-time ranking only; it never promotes or demotes a memory. The age lifecycle moves unused `recall` rows to `archival` and deletes archival rows after the configured deletion window.
 
 Search is **hybrid**: BM25 (SQLite FTS5) and vector similarity (sqlite-vec, 384-dim `bge-small-en-v1.5` embeddings) are fused with **Reciprocal Rank Fusion**. If sqlite-vec isn't available on your platform, search falls back to BM25-only — no setup pain, just slightly less semantic recall.
 
@@ -27,7 +27,7 @@ Memory kinds: `fact`, `preference`, `event`, `entity`.
 
 <CardGrid>
   <Card title="How it works" icon="setting">
-    Curator pipeline, resolver, salience scoring. [Learn more →](/memory/how-it-works/)
+    Curator pipeline, resolver, query-time salience ranking, and the age lifecycle. [Learn more →](/memory/how-it-works/)
   </Card>
   <Card title="Searching" icon="magnifier">
     Hybrid BM25 + vector retrieval, top-K, weighting. [Learn more →](/memory/searching/)

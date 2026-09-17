@@ -27,6 +27,11 @@ export const SDK_TOKENS = {
   SDK_SESSION_METADATA_STORE: Symbol.for('SdkSessionMetadataStore'),
   SDK_SESSION_IMPORTER: Symbol.for('SdkSessionImporter'),
   SDK_SESSION_HISTORY_READER: Symbol.for('SdkSessionHistoryReader'),
+  /**
+   * Stats-only transcript projection behind `session:stats-batch`
+   * (TASK_2026_411 B4). Never replays history.
+   */
+  SDK_SESSION_STATS_READER: Symbol.for('SdkSessionStatsReader'),
   SDK_PERMISSION_HANDLER: Symbol.for('SdkPermissionHandler'),
   SDK_MESSAGE_TRANSFORMER: Symbol.for('SdkMessageTransformer'),
   SDK_SESSION_LIFECYCLE_MANAGER: Symbol.for('SdkSessionLifecycleManager'),
@@ -39,6 +44,9 @@ export const SDK_TOKENS = {
   SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
 
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
+  SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY: Symbol.for(
+    'SdkCompactionBoundaryGenerationRegistry',
+  ),
 
   SDK_SESSION_END_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionEndCallbackRegistry',
@@ -78,6 +86,7 @@ export const SDK_TOKENS = {
   SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
 
   SDK_SESSION_FORK_SERVICE: Symbol.for('SdkSessionForkService'),
+  SDK_SESSION_TITLE_SERVICE: Symbol.for('SdkSessionTitleService'),
   SDK_RUNTIME_STATE: Symbol.for('SdkRuntimeState'),
   SDK_ADAPTER_EVENTS: Symbol.for('SdkAdapterEvents'),
 
@@ -145,6 +154,19 @@ export const SDK_TOKENS = {
   SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionMcpStatusCallbackRegistry',
   ),
+  /**
+   * The list of OTHER Claude Code sessions this user can reach, read from the
+   * CLI's own `~/.claude/sessions` registry (TASK_2026_402, Task 10.2). Not
+   * Ptah bookkeeping: Ptah does not know about sessions it did not start, and
+   * those are the ones this answers for.
+   */
+  SDK_PEER_SESSION_DIRECTORY: Symbol.for('SdkPeerSessionDirectory'),
+  /**
+   * Addressing one of those sessions (TASK_2026_402, Task 10.3). Reports
+   * ACCEPTANCE by the transport and never delivery — see
+   * `peer-session-messenger.service.ts`.
+   */
+  SDK_PEER_SESSION_MESSENGER: Symbol.for('SdkPeerSessionMessenger'),
 } as const;
 
 /**

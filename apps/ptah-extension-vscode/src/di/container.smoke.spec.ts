@@ -18,10 +18,16 @@
 
 import 'reflect-metadata';
 
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer, InjectionToken } from 'tsyringe';
 
-import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  registerVsCodeCorePlatformAgnostic,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
@@ -110,6 +116,23 @@ function buildMinimalContainer(): DependencyContainer {
       getConfiguration: jest.fn(() => ({ get: jest.fn() })),
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
     },
+  });
+  c.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
+    useValue: {
+      detect: jest.fn(async () => []),
+      openFile: jest.fn(async () => undefined),
+      openWorkspace: jest.fn(async () => undefined),
+    },
+  });
+  c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
+    useValue: {},
+  });
+  // `EditorRpcHandlers` injects `FileLinkRootPolicy`, which needs
+  // GitInfoService to widen the authorized root set to a registered folder's
+  // worktrees (TASK_2026_413 Batch 8a). The real VS Code container binds this
+  // in `phase-3-handlers.ts`.
+  c.register(TOKENS.GIT_INFO_SERVICE, {
+    useValue: { getWorktrees: jest.fn(async () => []) },
   });
 
   c.register(SDK_TOKENS.SDK_PLUGIN_LOADER, {
@@ -205,4 +228,131 @@ describe('VS Code DI — handlers that must NOT be constructed', () => {
       expect(profile.capabilities[capability]).toBe(false);
     },
   );
+});
+
+/**
+ * `TOKENS.MAIN_LOOP_WATCHDOG` (TASK_2026_437) is bound by
+ * `registerVsCodeCorePlatformAgnostic`, which this host reaches through
+ * `libs/backend/vscode-core/src/di/register.ts`. Pinned here rather than in `expected-resolvable.ts`, which
+ * lists RPC handler classes only (batches.md plan defect D2). Resolving must
+ * NOT start the worker — arming belongs to `armDiagnostics`.
+ */
+describe('VS Code DI — main-loop watchdog (TASK_2026_437)', () => {
+  it('resolves MAIN_LOOP_WATCHDOG as an unstarted singleton', () => {
+    const c = rootContainer.createChildContainer();
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    registerVsCodeCorePlatformAgnostic(c, logger, {
+      includeLicensingAndAuth: false,
+    });
+
+    const watchdog = c.resolve<{
+      running: boolean;
+      setBreadcrumb: (key: string, value: string | number) => void;
+    }>(TOKENS.MAIN_LOOP_WATCHDOG);
+
+    expect(watchdog.running).toBe(false);
+    expect(typeof watchdog.setBreadcrumb).toBe('function');
+    expect(c.resolve(TOKENS.MAIN_LOOP_WATCHDOG)).toBe(watchdog);
+  });
+});
+
+/**
+ * `TOKENS.BACKGROUND_WORK_GOVERNOR` (TASK_2026_437 C14) is bound by
+ * `registerVsCodeCorePlatformAgnostic`, which this host reaches through
+ * `libs/backend/vscode-core/src/di/register.ts`. Pinned here rather than in `expected-resolvable.ts` (plan defect D2).
+ * Resolving attaches no lag source and arms no timer; it starts clear.
+ */
+describe('VS Code DI — background-work governor (TASK_2026_437)', () => {
+  it('resolves BACKGROUND_WORK_GOVERNOR as a clear singleton', () => {
+    const c = rootContainer.createChildContainer();
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    registerVsCodeCorePlatformAgnostic(c, logger, {
+      includeLicensingAndAuth: false,
+    });
+
+    const governor = c.resolve<{
+      isClear: () => boolean;
+      whenClear: () => Promise<string>;
+    }>(TOKENS.BACKGROUND_WORK_GOVERNOR);
+
+    expect(governor.isClear()).toBe(true);
+    expect(typeof governor.whenClear).toBe('function');
+    expect(c.resolve(TOKENS.BACKGROUND_WORK_GOVERNOR)).toBe(governor);
+  });
+});
+
+/**
+ * `PLATFORM_TOKENS.WORKSPACE_WATCHER` (TASK_2026_437 C9) is bound in PHASE 0 by
+ * `registerPlatformVscodeServices`, which `phase-0-platform.ts` calls. Pinned
+ * here rather than in `expected-resolvable.ts` (plan defect D2). Resolving
+ * creates no `FileSystemWatcher` — that happens per `watch` — and the instance
+ * is on `context.subscriptions`, so deactivation disposes it.
+ *
+ * The registration runs against platform-vscode's stateful `vscode` double in
+ * an isolated module registry: this app's shared `vscode` mock lacks the
+ * window/workspace surface every phase-0 adapter touches, and swapping it for
+ * the whole file would change what the handler suites above resolve against.
+ */
+describe('VS Code DI — workspace watcher (TASK_2026_437)', () => {
+  it('resolves WORKSPACE_WATCHER from phase 0 as a context-disposed singleton', () => {
+    let registerPlatformVscodeServices!: (
+      container: DependencyContainer,
+      context: unknown,
+    ) => void;
+    let vscodeDouble!: { workspace: { createFileSystemWatcher: jest.Mock } };
+    jest.isolateModules(() => {
+      jest.doMock('vscode', () =>
+        jest.requireActual(
+          '../../../../libs/backend/platform-vscode/__mocks__/vscode',
+        ),
+      );
+      vscodeDouble = jest.requireMock('vscode');
+      ({ registerPlatformVscodeServices } = jest.requireActual(
+        '@ptah-extension/platform-vscode',
+      ));
+    });
+
+    const storagePath = path.join(
+      os.tmpdir(),
+      `ptah-vscode-watch-di-${process.pid}`,
+    );
+    const subscriptions: Array<{ dispose(): unknown }> = [];
+    const c = rootContainer.createChildContainer();
+    registerPlatformVscodeServices(c, {
+      extensionPath: storagePath,
+      globalStorageUri: { fsPath: storagePath },
+      storageUri: undefined,
+      globalState: { get: jest.fn(), update: jest.fn(), keys: () => [] },
+      secrets: {
+        onDidChange: () => ({ dispose: jest.fn() }),
+        get: jest.fn(),
+        store: jest.fn(),
+        delete: jest.fn(),
+      },
+      subscriptions,
+    });
+
+    const watcher = c.resolve<{ watch: unknown; dispose: () => void }>(
+      PLATFORM_TOKENS.WORKSPACE_WATCHER,
+    );
+    expect(typeof watcher.watch).toBe('function');
+    expect(c.resolve(PLATFORM_TOKENS.WORKSPACE_WATCHER)).toBe(watcher);
+    expect(subscriptions).toContain(watcher);
+    expect(
+      vscodeDouble.workspace.createFileSystemWatcher,
+    ).not.toHaveBeenCalled();
+    for (const subscription of subscriptions) subscription.dispose();
+  });
 });

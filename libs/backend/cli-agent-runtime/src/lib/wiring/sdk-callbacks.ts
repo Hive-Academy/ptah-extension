@@ -16,7 +16,6 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   MESSAGE_TYPES,
   retryWithBackoff,
-  type AgentProcessInfo,
   type IAgentAdapter,
   type ResultStatsPayload,
 } from '@ptah-extension/shared';
@@ -232,9 +231,17 @@ function remapAgentProcessManagerParents(
     TOKENS.AGENT_PROCESS_MANAGER,
   );
 
-  // Captured BEFORE the remap — afterwards the two ids are indistinguishable.
+  // `listTrackedAgents()`, NOT `getStatus()`. This callback fires on the chat
+  // SDK stream, never inside `runWithMcpRequestContext`, so the caller-workspace
+  // resolver answers `undefined` and `getStatus()` scopes on the process-global
+  // active folder instead. With two workspaces open that dropped every agent of
+  // the non-focused window from this set, the early return below fired, and
+  // their session references stayed keyed to the pre-resolution tab id —
+  // invisible to `chat:resume` (TASK_2026_364 blocker B1). Bookkeeping is
+  // unscoped by construction: there is no caller to scope it to.
   const remappedAgentIds = new Set(
-    (agentProcessManager.getStatus() as AgentProcessInfo[])
+    agentProcessManager
+      .listTrackedAgents()
       .filter((a) => a.parentSessionId === tabId)
       .map((a) => a.agentId),
   );
@@ -245,7 +252,7 @@ function remapAgentProcessManagerParents(
     return;
   }
 
-  const allAgents = agentProcessManager.getStatus() as AgentProcessInfo[];
+  const allAgents = agentProcessManager.listTrackedAgents();
   const exitedWithParent = allAgents.filter(
     (a) =>
       remappedAgentIds.has(a.agentId) &&
