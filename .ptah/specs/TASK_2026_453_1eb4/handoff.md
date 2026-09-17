@@ -9,7 +9,7 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | Item         | Value                                                                                                                                  |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | Worktree     | `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks` (inside the repo on purpose, so CLI lanes can run there)  |
-| Branch       | `perf/task-453-tile-open-long-tasks`, tracks origin, all commits pushed                                                                |
+| Branch       | `perf/task-453-tile-open-long-tasks`, tracks origin; pushed through `990955dfe`, later commits local (see §2)                          |
 | PR           | #524, draft; CI all green at `d8951fa03`                                                                                               |
 | Base         | `51d0d2e1f` (main with PR #518 and PR #519)                                                                                            |
 | node_modules | a junction to `D:\projects\ptah-extension\node_modules`. Never delete it with a tool that follows junctions; use `cmd /c rmdir` first. |
@@ -35,11 +35,13 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | `7a84fd031` | Batch 9 — `feat(shared): add tail history page contracts and cursor utils` (C6)                                                                                                                     |
 | `b19b013fd` | Batch 11 — `feat(chat-streaming): extract history message builder and tab cursor prepend` (C10 + C11)                                                                                               |
 | `990955dfe` | Batch 12 — `feat(chat): page older session history on demand after a tail resume` (C12)                                                                                                             |
-| (feat)      | Batch 10 — `feat(rpc-handlers): serve tail-paged chat history through chat:history-page` (C7 + C8 + CLI doc)                                                                                        |
+| `486b6d78a` | Batch 10 — `feat(rpc-handlers): serve tail-paged chat history through chat:history-page` (C7 + C8 + CLI doc)                                                                                        |
+| (feat)      | Batch 13 — `feat(chat): add a load-earlier affordance for tail-paged transcripts` (C13)                                                                                                             |
 
-**Stage 1 (C1-C5), the Batch 7 scroll fix, and Stage 2 Batches 9-12 (C6-C12) are committed. Batch
+**Stage 1 (C1-C5), the Batch 7 scroll fix, and Stage 2 Batches 9-13 (C6-C13) are committed. Batch
 12 was committed before Batch 10 and did not typecheck alone; the Batch 10 commit resolves that.
-Draft PR #524 CI was last all green at `d8951fa03`; later commits are not pushed.**
+Push state: every commit through `990955dfe` is pushed to origin. `486b6d78a` (Batch 10) and the
+Batch 13 commit are local only, not pushed. Draft PR #524 CI was last all green at `d8951fa03`.**
 
 ## 3. Batch state
 
@@ -57,7 +59,8 @@ Draft PR #524 CI was last all green at `d8951fa03`; later commits are not pushed
 | B10     | C7 events read + C8 `chat:history-page` + CLI doc | COMPLETE, committed (revise 1 of 2)                        |
 | B11     | C10 history message builder + C11 tab cursor      | COMPLETE, committed `b19b013fd`                            |
 | B12     | C12 paging orchestration (`chat`)                 | COMPLETE, committed `990955dfe` (revise 1 of 2)            |
-| B13-B17 | C13 affordance, C14 e2e, M2 (B16-B17 conditional) | PENDING                                                    |
+| B13     | C13 "Load earlier" affordance (transcript)        | COMPLETE, committed (revise 1 of 2; 13.2 STOPPED guardrail) |
+| B14-B17 | C14 e2e, M2 (B16-B17 conditional)                 | PENDING                                                    |
 | B18     | Post-Stage-2 follow-ups (test quality)            | PENDING                                                    |
 
 **Batch 8 result**: PASS — 0 scroll-sanity failures in 23 counted attempts (review APPROVED). 3 of
@@ -168,14 +171,15 @@ questions", `batches.md` Stage 2):
 (logic + style APPROVED, revise 1 of 2). F1 (serious, open): the release window can still coincide
 with live growth below — Batch 8 re-check and U1 escalation cover it.
 
-Batch 8 PASS (0/23 scroll failures). Stage 2 Batches 9-12 committed 2026-09-17, each after logic +
-style reviews.
+Batch 8 PASS (0/23 scroll failures). Stage 2 Batches 9-13 committed 2026-09-17, each after logic +
+style reviews. Batch 13: Task 13.2 STOPPED by the anti-fragment guardrail (~76 extractable lines);
+transcript component is 710 lines (warn-level, no lint warning). Revise 1 had no delta review; the
+orchestrator read the delta line by line.
 
 **Next steps, in order**:
 
-1. Batch 13: C13 "Load earlier" affordance (Task 13.0 timer-clear dedup, 13.1 sentinel directive,
-   13.2 conditional facade split), then logic + style reviews and commit.
-2. Batches 14-17 (C14 e2e, M2, conditional 150-event fallback), then Batch 18 follow-ups.
+1. Batch 14: C14 paging-faithful harness + functional e2e, then logic + style reviews and commit.
+2. Batches 15-17 (C14 e2e, M2, conditional 150-event fallback), then Batch 18 follow-ups.
 3. Push the branch and re-check draft PR #524 CI when the orchestrator decides.
 
 **TASK_2026_437 leftovers** moved to **TASK_2026_463_f13d**, branch

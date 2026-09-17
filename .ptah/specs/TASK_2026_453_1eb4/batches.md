@@ -1601,7 +1601,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
 - Team-leader reads the Task 12.4 specs and, if a production fix landed, confirms the loader line
   delta is reported and the fix is limited to the ordering defect the spec shows.
 
-## Batch 13: C13 "Load earlier" affordance (transcript) — PENDING
+## Batch 13: C13 "Load earlier" affordance (transcript) — COMPLETE (commit: `feat(chat): add a load-earlier affordance for tail-paged transcripts`)
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `frontend-developer` sub-agent
@@ -1615,7 +1615,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
   no scroll writes; 13.0 and 13.2 behaviour-preserving) + style (directive shape vs
   `transcript-slot.directive.ts`, a11y; 13.2 facade rule and nameability). Revise cap 2.
 
-### Task 13.0: Remove the duplicated replay motion hold timer-clear — PENDING
+### Task 13.0: Remove the duplicated replay motion hold timer-clear — COMPLETE (commit: `feat(chat): add a load-earlier affordance for tail-paged transcripts`)
 
 - Source: `leftovers-inventory.md` B11 (`batches.md:707-708`; `b4-code-style-review-delta.md:145`).
 - File: MODIFY `W\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts`
@@ -1632,12 +1632,19 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
   4. `chat-transcript.component.replay-motion.spec.ts`, `.replay-mount.spec.ts` and
      `chat-transcript.component.spec.ts` green and unedited.
 
-### Task 13.1: `TranscriptOlderHistorySentinelDirective` + transcript IO + chat-view binding — PENDING
+### Task 13.1: `TranscriptOlderHistorySentinelDirective` + transcript IO + chat-view binding — COMPLETE (commit: `feat(chat): add a load-earlier affordance for tail-paged transcripts`)
 
 - Files: CREATE `W\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-older-history-sentinel.directive.ts`;
   CREATE `...\transcript\chat-transcript.older-history.spec.ts`; MODIFY
   `...\transcript\chat-transcript.component.ts`, `...\chat-transcript.component.html`,
   `W\libs\frontend\chat\src\lib\components\templates\chat-view.component.html`
+- **Scope amendment (orchestrator-approved, 2026-09-17)**: the base lane blocked because
+  `historyPaging` is private in `chat-view.component.ts` and `strictTemplates` rejects template
+  access. Added to scope: MODIFY `W\libs\frontend\chat\src\lib\components\templates\chat-view.component.ts`
+  (two protected read methods `hasOlderHistory(tabId)` and `isOlderHistoryLoading(tabId)`, +9
+  lines, 1326 → 1335) and `...\templates\chat-view.component.spec.ts` (their tests). Revise round 1
+  added `W\libs\frontend\chat\src\lib\services\chat-store\history-paging.service.spec.ts`
+  (test-only: real-service same-tick click + auto-load dedup).
 - Plan reference: (ii).6 C13; decision 2.
 - Pattern to follow: `transcript-slot.directive.ts`; local fake `IntersectionObserver` in
   `transcript-render-window.spec.ts`.
@@ -1661,7 +1668,13 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
      no scroll writes; no `content-visibility`. `chat-transcript.component.spec.ts` (Gate A,
      scroll specs), `.replay-mount.spec.ts`, `.replay-motion.spec.ts` green and unedited.
 
-### Task 13.2: CONDITIONAL — facade split of the replay hold concern out of the transcript — PENDING
+### Task 13.2: CONDITIONAL — facade split of the replay hold concern out of the transcript — STOPPED (guardrail)
+
+- Outcome: triggered (component 707 lines after 13.1 base) but STOPPED by its own anti-fragment
+  guardrail: the extractable replay-hold concern measured ~76 lines, below the ~150-line floor.
+  The style reviewer agreed stopping is correct. Component is 710 lines after revise round 1 (3
+  doc-comment lines added). `max-lines` is warn-level and lint emits no warning for this file.
+  No `transcript-replay-hold.service.ts` was created; chat `CLAUDE.md` unchanged.
 
 - Runs only if Task 13.1 leaves `chat-transcript.component.ts` > 700 lines. Otherwise mark it
   `CANCELLED (not needed)` with the reported count.
@@ -1705,6 +1718,34 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
 ptah-extension-webview`. Lint `@ptah-extension/chat` (report the `max-lines` warn state). Webview
   `build:development` + `build:production`. Team-leader re-runs the diff safeguards itself; for
   Task 13.2 it reads the moved code side by side with the removed lines.
+
+### Batch 13 outcome
+
+- Executor: codex lane (`b13-codex-report.md`, base + "Revise round 1"). Base run blocked on scope;
+  orchestrator approved the Task 13.1 scope amendment (chat-view `.ts` + `.spec.ts`).
+- Reviews: logic `b13-code-logic-review.md` NEEDS_REVISION (2 moderate); style
+  `b13-code-style-review.md` APPROVED 7/10 (1 serious, 4 minor).
+- Revise round 1 of 2 closed every item: (1) `hasOlderHistory` resolves the tab with
+  `findTabByIdAcrossWorkspaces`, like `loadOlder`, + spec; (2) real-service same-tick click +
+  auto-load dedup spec in `history-paging.service.spec.ts` (test-only); (3) inactive → active
+  frozen-vm catch-up assertion; (4) doc comments + `input<boolean>(false)`; (5) import order;
+  (6) dead `|| historyReplaying()` removed; (7) template comments for the auto and manual paths.
+  **No delta review was run**: the orchestrator read the delta line by line (1 logic line plus
+  tests, comments and an import) and confirmed it.
+- Gates (orchestrator, current tree, `D:\projects\ptah-extension\tmp\b13-tests.log` and
+  `b13-gates.log`): tests `-p @ptah-extension/chat` header 1 project, 81 suites, 1299 passed / 2
+  skipped, exit 0; typecheck `@ptah-extension/chat ptah-extension-webview` 2 projects success;
+  lint chat 0 errors (17 existing warnings), degradation audit TOTAL 303; webview
+  `build:development` and `build:production` success (existing 2.50 MB initial budget warning only).
+- Team-leader diff safeguards (re-run): `chat-transcript.component.ts` hunks only in imports,
+  the vm interface/empty vm/vm builder, the new inputs/output, and the 13.0 falling-edge call to the
+  pre-existing `clearReplayMotionHold()`; no hunk in `onScroll`, `scheduleStickToBottom`,
+  `restoreScrollOnActivation`, `lastScrollTop`, the render-window feed effect or `cleanup()`
+  retention. No CSS diff, no `content-visibility`. The three existing transcript specs are
+  unedited. Directive: arms only on a `scrollTop` decrease, disarms on emit, passive listener
+  removed with the observer on cleanup, no scroll writes.
+- Line counts: `chat-transcript.component.ts` 700 → 710; directive 83; `chat-view.component.ts`
+  1326 → 1335; `chat-transcript.older-history.spec.ts` 315.
 
 ## Batch 14: C14 paging-faithful harness + functional e2e — PENDING
 

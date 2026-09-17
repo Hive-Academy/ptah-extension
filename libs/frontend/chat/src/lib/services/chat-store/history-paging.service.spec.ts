@@ -119,6 +119,33 @@ describe('HistoryPagingService', () => {
     );
   });
 
+  it('deduplicates same-tick manual-click and auto-load routes', async () => {
+    let resolve!: (result: RpcResult<ChatHistoryPageResult>) => void;
+    rpcCall.mockReturnValue(
+      new Promise<RpcResult<ChatHistoryPageResult>>((done) => {
+        resolve = done;
+      }),
+    );
+
+    const manualClick = service.loadOlder(TAB);
+    const autoLoadEmit = service.loadOlder(TAB);
+
+    expect(autoLoadEmit).toBe(manualClick);
+    expect(rpcCall).toHaveBeenCalledTimes(1);
+
+    resolve(
+      new RpcResult(true, {
+        events: [],
+        olderCursor: null,
+        resumableSubagents: [],
+      }),
+    );
+    await expect(Promise.all([manualClick, autoLoadEmit])).resolves.toEqual([
+      'prepended',
+      'prepended',
+    ]);
+  });
+
   it.each([undefined, null] as const)(
     'returns none without an RPC when the cursor is %s',
     async (missingCursor) => {

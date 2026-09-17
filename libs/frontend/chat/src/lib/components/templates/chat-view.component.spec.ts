@@ -169,6 +169,7 @@ function makeHarness(
   const sessionIsActiveSig = signal<boolean>(sessionIsActive);
   const showErrorMock = jest.fn();
   const loadOlderMock = jest.fn().mockResolvedValue('prepended');
+  const olderHistoryLoadingTabIds = signal<ReadonlySet<string>>(new Set());
   const suppressAnimateOnceSig = signal<boolean>(false);
   const replayingTabIds = new Set<string>();
   const isReplayingMock = jest.fn((tabId: string) =>
@@ -208,16 +209,19 @@ function makeHarness(
       id: string;
       claudeSessionId: string | null;
       hasLiveSession: boolean;
+      olderHistoryCursor?: string | null;
     }>
   >([
     {
       id: 'tab-abc',
       claudeSessionId: sessionId,
       hasLiveSession: sessionIsActive,
+      olderHistoryCursor: 'older-cursor',
     },
   ]);
   const openSessionTabMock = jest.fn();
   const findTabsBySessionIdMock = jest.fn().mockReturnValue([]);
+  const findTabByIdAcrossWorkspacesMock = jest.fn();
   const closeTabMock = jest.fn().mockResolvedValue(undefined);
   const rebindTabSessionMock = jest.fn();
   const originTab = {
@@ -244,7 +248,7 @@ function makeHarness(
     // Consumed by the component-scoped TranscriptRetentionService effects.
     closedTab: signal(null).asReadonly(),
     removedWorkspace$: signal(null).asReadonly(),
-    findTabByIdAcrossWorkspaces: jest.fn(() => null),
+    findTabByIdAcrossWorkspaces: findTabByIdAcrossWorkspacesMock,
     clearRemovedWorkspace: jest.fn(),
   } as unknown as TabManagerService;
 
@@ -356,7 +360,13 @@ function makeHarness(
         provide: SessionHistoryReplayer,
         useValue: { isReplaying: isReplayingMock },
       },
-      { provide: HistoryPagingService, useValue: { loadOlder: loadOlderMock } },
+      {
+        provide: HistoryPagingService,
+        useValue: {
+          loadOlder: loadOlderMock,
+          loadingTabIds: olderHistoryLoadingTabIds.asReadonly(),
+        },
+      },
       { provide: AgentMonitorStore, useValue: agentMonitorStoreStub },
       {
         provide: PanelResizeService,
@@ -400,6 +410,7 @@ function makeHarness(
     openSessionTabMock,
     findTabBySessionIdMock,
     findTabsBySessionIdMock,
+    findTabByIdAcrossWorkspacesMock,
     rebindTabSessionMock,
     closeTabMock,
     upsertSessionSummaryMock,
@@ -419,6 +430,7 @@ function makeHarness(
     replayingTabIds,
     isReplayingMock,
     loadOlderMock,
+    olderHistoryLoadingTabIds,
   };
 }
 
@@ -481,6 +493,37 @@ describe('ChatViewComponent — older history orchestration', () => {
       expect.stringMatching(/try again/i),
       'tab-abc',
     );
+  });
+
+  it('reports older-history availability from the requested tab cursor', () => {
+    const h = makeHarness();
+    const component = h.component as unknown as {
+      hasOlderHistory(tabId: string): boolean;
+    };
+
+    h.findTabByIdAcrossWorkspacesMock.mockImplementation((tabId: string) =>
+      tabId === 'background-tab'
+        ? {
+            tab: { id: 'background-tab', olderHistoryCursor: 'older-cursor' },
+            workspacePath: 'D:/background-repo',
+          }
+        : null,
+    );
+
+    expect(component.hasOlderHistory('background-tab')).toBe(true);
+    expect(component.hasOlderHistory('missing-tab')).toBe(false);
+  });
+
+  it('reports older-history loading state per tab', () => {
+    const h = makeHarness();
+    const component = h.component as unknown as {
+      isOlderHistoryLoading(tabId: string): boolean;
+    };
+
+    expect(component.isOlderHistoryLoading('tab-abc')).toBe(false);
+    h.olderHistoryLoadingTabIds.set(new Set(['tab-abc']));
+    expect(component.isOlderHistoryLoading('tab-abc')).toBe(true);
+    expect(component.isOlderHistoryLoading('other-tab')).toBe(false);
   });
 });
 

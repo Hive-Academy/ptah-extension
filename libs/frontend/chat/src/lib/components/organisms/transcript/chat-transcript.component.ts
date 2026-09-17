@@ -26,6 +26,7 @@ import {
 } from '@ptah-extension/shared';
 import type { ExecutionNode } from '@ptah-extension/shared';
 import { filterCompactionNoise } from './transcript-filter.utils';
+import { TranscriptOlderHistorySentinelDirective } from './transcript-older-history-sentinel.directive';
 import { TranscriptRenderWindow } from './transcript-render-window';
 import { TranscriptSlotDirective } from './transcript-slot.directive';
 
@@ -107,6 +108,7 @@ interface TranscriptViewModel {
   readonly totalCount: number;
   readonly isStreaming: boolean;
   readonly hasMessages: boolean;
+  readonly hasOlderHistory: boolean;
   readonly isSessionActive: boolean;
 }
 
@@ -117,6 +119,7 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
   totalCount: 0,
   isStreaming: false,
   hasMessages: false,
+  hasOlderHistory: false,
   isSessionActive: false,
 };
 
@@ -141,6 +144,7 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
     MessageBubbleComponent,
     ChatEmptyStateComponent,
     TranscriptSlotDirective,
+    TranscriptOlderHistorySentinelDirective,
   ],
   providers: [TranscriptRenderWindow],
   templateUrl: './chat-transcript.component.html',
@@ -191,6 +195,13 @@ export class ChatTranscriptComponent {
 
   /** True only while this tab is replaying persisted history. */
   readonly historyReplaying = input<boolean>(false);
+
+  /** Whether this tab has another persisted-history page available. */
+  readonly hasOlderHistory = input<boolean>(false);
+  /** Whether this tab is currently requesting an older-history page. */
+  readonly olderHistoryLoading = input<boolean>(false);
+  /** Requests the next older-history page for this tab. */
+  readonly olderHistoryRequested = output<void>();
 
   readonly branchRequested = output<string>();
   readonly rewindRequested = output<string>();
@@ -436,6 +447,7 @@ export class ChatTranscriptComponent {
       totalCount,
       isStreaming: this.isStreaming(),
       hasMessages: this.messages().length > 0,
+      hasOlderHistory: this.hasOlderHistory(),
       isSessionActive: this.isSessionActive(),
     };
     this._frozenView = next;
@@ -464,9 +476,7 @@ export class ChatTranscriptComponent {
         }
         if (!this.wasHistoryReplaying) return;
         this.wasHistoryReplaying = false;
-        if (this.replayMotionHoldTimeoutId) {
-          clearTimeout(this.replayMotionHoldTimeoutId);
-        }
+        this.clearReplayMotionHold();
         this.replayMotionHold.set(true);
         this.replayMotionHoldTimeoutId = setTimeout(() => {
           this.replayMotionHold.set(false);

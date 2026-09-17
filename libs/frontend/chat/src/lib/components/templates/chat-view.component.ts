@@ -173,6 +173,15 @@ export class ChatViewComponent implements OnDestroy {
     return this.sessionHistoryReplayer.isReplaying(tabId);
   }
 
+  protected hasOlderHistory(tabId: string): boolean {
+    const tab = this._tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    return typeof tab?.olderHistoryCursor === 'string';
+  }
+
+  protected isOlderHistoryLoading(tabId: string): boolean {
+    return this.historyPaging.loadingTabIds().has(tabId);
+  }
+
   protected async onOlderHistoryRequested(tabId: string): Promise<void> {
     const outcome = await this.historyPaging.loadOlder(tabId);
     if (outcome === 'stale') {
