@@ -244,11 +244,54 @@ function parseAllowlistedValue<T extends string>(
     : undefined;
 }
 
+function parseDatePart(value: string, start: number, end: number): number {
+  return Number(value.slice(start, end));
+}
+
+function hasValidCalendarDate(value: string): boolean {
+  const year = parseDatePart(value, 0, 4);
+  const month = parseDatePart(value, 5, 7);
+  const day = parseDatePart(value, 8, 10);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+function hasValidTime(value: string): boolean {
+  const hour = parseDatePart(value, 11, 13);
+  const minute = parseDatePart(value, 14, 16);
+  const second = parseDatePart(value, 17, 19);
+
+  return hour <= 23 && minute <= 59 && second <= 59;
+}
+
+function hasValidOffset(value: string): boolean {
+  if (value.endsWith('Z')) {
+    return true;
+  }
+
+  const offsetHour = parseDatePart(value, value.length - 5, value.length - 3);
+  const offsetMinute = parseDatePart(value, value.length - 2, value.length);
+  return offsetHour <= 23 && offsetMinute <= 59;
+}
+
 function parseIsoDate(value: string | null): string | undefined {
-  const isIsoFormat =
-    value !== null &&
-    (ISO_DATE_ONLY_PATTERN.test(value) || ISO_DATE_TIME_PATTERN.test(value));
-  return value && isIsoFormat && !Number.isNaN(Date.parse(value))
+  if (value === null || !hasValidCalendarDate(value)) {
+    return undefined;
+  }
+
+  if (ISO_DATE_ONLY_PATTERN.test(value)) {
+    return value;
+  }
+
+  return ISO_DATE_TIME_PATTERN.test(value) &&
+    hasValidTime(value) &&
+    hasValidOffset(value) &&
+    !Number.isNaN(Date.parse(value))
     ? value
     : undefined;
 }
