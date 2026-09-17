@@ -1002,6 +1002,16 @@ describe('SessionLoaderService', () => {
         expect.anything(),
       );
 
+      // The restored tab's tail-page cursor must be recorded even though
+      // this refresh path never replays events, or "load older history"
+      // silently returns 'none' for the rest of the session.
+      expect(historyPagingMock.recordTail).toHaveBeenCalledWith(
+        TabId.from('61a250e8-805c-4f1c-823a-791e06784980'),
+        expect.objectContaining({
+          resumableSubagents: expect.any(Array),
+        }),
+      );
+
       service.removeResumableSubagent('tc-1');
       expect(
         service.resumableSubagents().map((a) => a.toolCallId),

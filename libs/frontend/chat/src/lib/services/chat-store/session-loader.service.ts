@@ -1310,6 +1310,8 @@ export class SessionLoaderService {
         return;
       }
 
+      this.historyPaging.recordTail(tabId, result.data);
+
       const stats = result.data?.stats;
       if (stats) {
         this.applyResumeStats(tabId, stats);
