@@ -61,6 +61,22 @@ export interface TaskScanResult {
   specsDirExists: boolean;
 }
 
+type FolderScanResult =
+  | { task: ScannedTask; excluded?: never }
+  | { task?: never; excluded: ExcludedTaskFolder };
+
+/** Keep filesystem pressure bounded while still overlapping independent reads. */
+const SCAN_CONCURRENCY = 8;
+
+function isMissingFileError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return false;
+  }
+  const code = (error as { code?: unknown }).code;
+  // Node/Electron uses ENOENT; vscode.workspace.fs uses FileNotFound.
+  return code === 'ENOENT' || code === 'FileNotFound';
+}
+
 /**
  * Scans `.ptah/specs/<id>/task.md` and classifies each folder into an included
  * task or a typed exclusion. NEVER throws (NFR-5): unreadable folders/files
@@ -104,9 +120,6 @@ export class TaskScannerService {
       return { tasks: [], excluded: [], specsDirExists: true };
     }
 
-    const tasks: ScannedTask[] = [];
-    const excluded: ExcludedTaskFolder[] = [];
-
     // Every task-folder name on disk, gathered BEFORE parsing so a `depends_on`
     // pointing at a folder later in the iteration order is not mistaken for a
     // dangling reference. This is the one caller with a view of the whole
@@ -117,14 +130,32 @@ export class TaskScannerService {
       .map((e) => e.name);
     const knownFolders = new Set(folderNames);
 
-    for (const folderName of folderNames) {
-      await this.scanFolder(
-        specsDir,
-        folderName,
-        tasks,
-        excluded,
-        knownFolders,
-      );
+    // Workers claim monotonically increasing indexes. Storing by index keeps
+    // the observable result deterministic even when later reads finish first.
+    const results = new Array<FolderScanResult>(folderNames.length);
+    let nextIndex = 0;
+    const worker = async (): Promise<void> => {
+      while (nextIndex < folderNames.length) {
+        const index = nextIndex++;
+        results[index] = await this.scanFolder(
+          specsDir,
+          folderNames[index],
+          knownFolders,
+        );
+      }
+    };
+    await Promise.all(
+      Array.from(
+        { length: Math.min(SCAN_CONCURRENCY, folderNames.length) },
+        () => worker(),
+      ),
+    );
+
+    const tasks: ScannedTask[] = [];
+    const excluded: ExcludedTaskFolder[] = [];
+    for (const result of results) {
+      if (result.task) tasks.push(result.task);
+      else excluded.push(result.excluded);
     }
 
     this.mergeCrossFileIssues(tasks);
@@ -177,32 +208,27 @@ export class TaskScannerService {
   private async scanFolder(
     specsDir: string,
     folderName: string,
-    tasks: ScannedTask[],
-    excluded: ExcludedTaskFolder[],
     knownFolders: ReadonlySet<string>,
-  ): Promise<void> {
+  ): Promise<FolderScanResult> {
     const carrier = path.join(specsDir, folderName, CARRIER_FILE);
     let raw: string;
     try {
-      if (!(await this.fs.exists(carrier))) {
-        excluded.push({ folderName, reason: 'no_carrier' });
-        return;
-      }
       raw = await this.fs.readFile(carrier);
     } catch (error: unknown) {
+      if (isMissingFileError(error)) {
+        return { excluded: { folderName, reason: 'no_carrier' } };
+      }
       this.logger.warn('[task-specs] folder unreadable', {
         folderName,
         error: error instanceof Error ? error.message : String(error),
       });
-      excluded.push({ folderName, reason: 'unreadable' });
-      return;
+      return { excluded: { folderName, reason: 'unreadable' } };
     }
 
     const result = parseTaskFile(folderName, raw, { knownFolders });
     if (result.kind === 'excluded') {
-      excluded.push(result.excluded);
-      return;
+      return { excluded: result.excluded };
     }
-    tasks.push({ ...result.task, body: result.body });
+    return { task: { ...result.task, body: result.body } };
   }
 }

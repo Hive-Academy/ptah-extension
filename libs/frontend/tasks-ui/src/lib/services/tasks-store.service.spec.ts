@@ -283,7 +283,7 @@ describe('TasksStore', () => {
     expect(store.columns().backlog).toHaveLength(1);
   });
 
-  it('reindex sets an action message and reloads', async () => {
+  it('reindex uses the batch timeout and explicitly reloads the board', async () => {
     rpcCall.mockResolvedValueOnce(
       ok({ success: true, indexedCount: 3, excludedCount: 85, durationMs: 12 }),
     );
@@ -291,7 +291,14 @@ describe('TasksStore', () => {
 
     await store.reindex();
 
-    expect(rpcCall).toHaveBeenCalledWith('tasks:reindex', {});
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      1,
+      'tasks:reindex',
+      {},
+      { timeout: 120_000 },
+    );
+    expect(rpcCall).toHaveBeenNthCalledWith(2, 'tasks:board', {});
+    expect(rpcCall).toHaveBeenCalledTimes(2);
     expect(store.actionMessage()).toContain('3');
   });
 
@@ -1581,9 +1588,12 @@ describe('TasksStore — workspace awareness', () => {
     );
     rpcCall.mockResolvedValueOnce(ok(makeBoard({})));
     await store.reindex();
-    expect(rpcCall).toHaveBeenNthCalledWith(1, 'tasks:reindex', {
-      workspaceRoot: 'D:/ws-a',
-    });
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      1,
+      'tasks:reindex',
+      { workspaceRoot: 'D:/ws-a' },
+      { timeout: 120_000 },
+    );
   });
 
   it('reloads the board with the new workspaceRoot when the workspace switches', async () => {

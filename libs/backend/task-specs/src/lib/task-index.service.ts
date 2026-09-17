@@ -85,7 +85,7 @@ interface WorkspaceState {
    * at activation, so an RPC can now arrive while the very first scan is still
    * running. Returning early there would hand that RPC an empty index.
    */
-  startPromise: Promise<boolean> | null;
+  startPromise: Promise<RebuildResult> | null;
   watcher: IFileWatcher | null;
   subscriptions: IDisposable[];
   specsDirExists: boolean;
@@ -101,6 +101,12 @@ const REGISTRY_FILE = 'registry.md';
  * concrete `<root>/.ptah/specs` directory in the chokidar-backed adapters.
  */
 const SPECS_GLOB = '.ptah/specs/**';
+
+interface RebuildResult {
+  indexedCount: number;
+  excludedCount: number;
+  indexWritten: boolean;
+}
 
 /**
  * Files this service itself generates at the ROOT of `.ptah/specs/`.
@@ -152,13 +158,13 @@ export class TaskIndexService implements ITaskIndexNotifier {
    * `started` is latched SYNCHRONOUSLY before the first `await`, so the second
    * caller can never begin a rebuild of its own; it awaits the first instead.
    */
-  async ensureStarted(workspaceRoot: string): Promise<void> {
+  async ensureStarted(workspaceRoot: string): Promise<RebuildResult | null> {
     const root = normalizeWorkspaceRoot(workspaceRoot);
     const existing = this.states.get(root);
     if (existing?.started) {
       // Join a still-warming first call rather than returning an empty index.
-      if (existing.startPromise) await existing.startPromise;
-      return;
+      if (existing.startPromise) return existing.startPromise;
+      return null;
     }
 
     const state: WorkspaceState = existing ?? {
@@ -176,8 +182,8 @@ export class TaskIndexService implements ITaskIndexNotifier {
     const start = this.performStart(root, state);
     state.startPromise = start;
     try {
-      const indexWritten = await start;
-      if (!indexWritten) {
+      const result = await start;
+      if (!result.indexWritten) {
         // The README landed but the derived index did not — most often a store
         // whose SQLite connection is not open yet. Un-latch so the next caller
         // performs a real warm-up instead of inheriting an empty index for the
@@ -190,6 +196,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
         // paths with no open signal — do not remove it as redundant.
         state.started = false;
       }
+      return result;
     } catch (error: unknown) {
       state.started = false;
       throw error;
@@ -206,13 +213,13 @@ export class TaskIndexService implements ITaskIndexNotifier {
   private async performStart(
     root: string,
     state: WorkspaceState,
-  ): Promise<boolean> {
+  ): Promise<RebuildResult> {
     this.startWatcher(root, state);
     // Initial index is silent — the caller (RPC handler) returns the data
     // itself, so an extra push would be redundant noise.
-    const { indexWritten } = await this.rebuild(root, [], 'reindex', false);
+    const result = await this.rebuild(root, [], 'reindex', false);
     await this.ensureSpecsReadme(root, state);
-    return indexWritten;
+    return result;
   }
 
   /**
@@ -263,13 +270,24 @@ export class TaskIndexService implements ITaskIndexNotifier {
   async reindex(workspaceRoot: string): Promise<ReindexResult> {
     const root = normalizeWorkspaceRoot(workspaceRoot);
     const t0 = Date.now();
-    await this.ensureStarted(root);
-    const { indexedCount, excludedCount } = await this.rebuild(
-      root,
-      [],
-      'reindex',
-      true,
-    );
+    const started = await this.ensureStarted(root);
+    let indexedCount: number;
+    let excludedCount: number;
+    if (started?.indexWritten) {
+      ({ indexedCount, excludedCount } = started);
+      this.fireChange({
+        workspaceRoot: root,
+        folderNames: [],
+        reason: 'reindex',
+      });
+    } else {
+      ({ indexedCount, excludedCount } = await this.rebuild(
+        root,
+        [],
+        'reindex',
+        true,
+      ));
+    }
     return { indexedCount, excludedCount, durationMs: Date.now() - t0 };
   }
 
@@ -501,11 +519,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
     folderNames: string[],
     reason: TaskIndexChangeEvent['reason'],
     emit: boolean,
-  ): Promise<{
-    indexedCount: number;
-    excludedCount: number;
-    indexWritten: boolean;
-  }> {
+  ): Promise<RebuildResult> {
     const scan = await this.scanner.scan(root);
     const summaries: TaskSpecSummary[] = scan.tasks.map(
       ({ body: _body, ...summary }) => summary,

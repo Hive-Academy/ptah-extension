@@ -82,7 +82,9 @@ class FakeFs implements Partial<IFileSystemProvider> {
   async readFile(p: string): Promise<string> {
     const n = norm(p);
     const content = this.files.get(n);
-    if (content === undefined) throw new Error(`ENOENT ${n}`);
+    if (content === undefined) {
+      throw Object.assign(new Error(`ENOENT ${n}`), { code: 'ENOENT' });
+    }
     return content;
   }
 
@@ -581,6 +583,29 @@ describe('TaskIndexService write-order (applyFolderChange)', () => {
 });
 
 describe('TaskIndexService.reindex', () => {
+  it('reuses a successful first-start rebuild and still emits reindex', async () => {
+    const fs = new FakeFs();
+    seedTwoValidOneExcluded(fs);
+    const { service, scanner } = buildServiceWithParts(fs);
+    const scanSpy = jest.spyOn(scanner, 'scan');
+    const events: TaskIndexChangeEvent[] = [];
+    service.onDidChangeIndex((event) => events.push(event));
+
+    const result = await service.reindex(ROOT);
+
+    expect(scanSpy).toHaveBeenCalledTimes(1);
+    expect(result.indexedCount).toBe(2);
+    expect(result.excludedCount).toBe(1);
+    expect(events).toEqual([
+      {
+        workspaceRoot: normalizeWorkspaceRoot(ROOT),
+        folderNames: [],
+        reason: 'reindex',
+      },
+    ]);
+    service.dispose();
+  });
+
   it('is equivalent to the watch-updated index (rebuild equivalence)', async () => {
     const fs = new FakeFs();
     seedTwoValidOneExcluded(fs);

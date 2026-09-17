@@ -52,6 +52,9 @@ import { isTaskExclusionReason } from '../task-presentation';
  */
 export const TASKS_CHANGED_MESSAGE_TYPE = 'tasks:changed';
 
+/** Full scans may cover hundreds of task folders and need a batch-sized budget. */
+const REINDEX_TIMEOUT_MS = 120_000;
+
 /**
  * One rendered board column: a status, the tasks currently visible in it, and
  * how many the workspace holds for that status regardless of the filter.
@@ -1553,6 +1556,7 @@ export class TasksStore implements MessageHandler {
       const result = await this.rpc.call(
         'tasks:reindex',
         this.workspaceParam(),
+        { timeout: REINDEX_TIMEOUT_MS },
       );
       if (result.isSuccess() && result.data?.success) {
         this._actionMessage.set(
