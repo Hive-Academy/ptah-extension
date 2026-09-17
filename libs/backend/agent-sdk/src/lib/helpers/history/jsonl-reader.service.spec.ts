@@ -143,6 +143,43 @@ describe('JsonlReaderService', () => {
     service = new JsonlReaderService(asLogger(logger));
   });
 
+  describe('listSessionsDirectories', () => {
+    it('returns null when the projects root is absent', async () => {
+      mockedReaddir.mockRejectedValueOnce(
+        Object.assign(new Error('missing'), { code: 'ENOENT' }),
+      );
+
+      await expect(service.listSessionsDirectories()).resolves.toBeNull();
+    });
+
+    it('returns absolute immediate directories and filters files', async () => {
+      mockedReaddir.mockResolvedValueOnce([
+        { name: 'workspace-one', isDirectory: () => true },
+        { name: 'notes.txt', isDirectory: () => false },
+        { name: 'workspace-two', isDirectory: () => true },
+      ] as unknown as Awaited<ReturnType<typeof fs.readdir>>);
+
+      await expect(service.listSessionsDirectories()).resolves.toEqual([
+        path.join('/home/testuser', '.claude', 'projects', 'workspace-one'),
+        path.join('/home/testuser', '.claude', 'projects', 'workspace-two'),
+      ]);
+      expect(mockedReaddir).toHaveBeenCalledWith(
+        path.join('/home/testuser', '.claude', 'projects'),
+        { withFileTypes: true },
+      );
+    });
+
+    it('returns null when listing fails', async () => {
+      mockedReaddir.mockRejectedValueOnce(new Error('permission denied'));
+
+      await expect(service.listSessionsDirectories()).resolves.toBeNull();
+      expect(logger.debug).toHaveBeenCalledWith(
+        '[JsonlReader] Could not list session directories',
+        expect.objectContaining({ error: 'permission denied' }),
+      );
+    });
+  });
+
   // -------------------------------------------------------------------------
   // findSessionsDirectory
   // -------------------------------------------------------------------------

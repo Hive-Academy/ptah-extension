@@ -1029,6 +1029,71 @@ describe('startThothCron', () => {
     });
   });
 
+  describe('skills backlog cleanup job', () => {
+    function makeCleanupContainer(withService: boolean) {
+      const handlers = new Map<string, JobHandler>();
+      const handlerRegistry = {
+        has: jest.fn((name: string) => handlers.has(name)),
+        register: jest.fn((name: string, handler: JobHandler) => {
+          handlers.set(name, handler);
+        }),
+      };
+      const jobStore = { upsert: jest.fn() };
+      const entries: Entry[] = [
+        [CRON_TOKENS.CRON_SCHEDULER, { start: jest.fn() }],
+        [CRON_TOKENS.CRON_JOB_STORE, jobStore],
+        [CRON_TOKENS.CRON_HANDLER_REGISTRY, handlerRegistry],
+        [CRON_TOKENS.CRON_POWER_MONITOR, { isOnBattery: jest.fn(() => false) }],
+        [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],
+      ];
+      if (withService) {
+        entries.push([
+          SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE,
+          { run: jest.fn() },
+        ]);
+      }
+      return { container: makeContainer(entries), handlerRegistry, jobStore };
+    }
+
+    it('upserts @ptah/skills-backlog-cleanup and registers skills:backlog-cleanup when its service is registered', async () => {
+      const { container, handlerRegistry, jobStore } =
+        makeCleanupContainer(true);
+
+      await startThothCron(container, refsWithSqlite());
+
+      expect(jobStore.upsert).toHaveBeenCalledWith({
+        id: '@ptah/skills-backlog-cleanup',
+        name: 'Skills Backlog Cleanup',
+        cronExpr: '41 * * * *',
+        timezone: 'UTC',
+        prompt: 'handler:skills:backlog-cleanup',
+        enabled: true,
+      });
+      expect(handlerRegistry.register).toHaveBeenCalledWith(
+        'skills:backlog-cleanup',
+        expect.any(Function),
+      );
+    });
+
+    it('registers no cleanup job when its service token is absent', async () => {
+      const { container, handlerRegistry, jobStore } =
+        makeCleanupContainer(false);
+
+      await startThothCron(container, refsWithSqlite());
+
+      expect(
+        jobStore.upsert.mock.calls.some(
+          (call) =>
+            (call[0] as { id: string }).id === '@ptah/skills-backlog-cleanup',
+        ),
+      ).toBe(false);
+      expect(handlerRegistry.register).not.toHaveBeenCalledWith(
+        'skills:backlog-cleanup',
+        expect.any(Function),
+      );
+    });
+  });
+
   describe('back-office activity events (TASK_2026_380)', () => {
     /** Register the built-in jobs and hand back the handlers + broadcast spy. */
     async function bootWithWebview(

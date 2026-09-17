@@ -693,12 +693,10 @@ describe('skill settings mappers', () => {
     dedupCosineThreshold: 0.85,
     maxActiveSkills: 50,
     candidatesDir: '.ptah/skills',
-    eligibilityMinTurns: 5,
     evictionDecayRate: 0.95,
     generalizationContextThreshold: 3,
     dedupClusterThreshold: 0.78,
     prefilterMinEdits: 1,
-    prefilterMinChars: 800,
     prefilterMinToolUses: 2,
     judgeEnabled: true,
     minJudgeScore: 6,
@@ -800,6 +798,61 @@ describe('skill settings mappers', () => {
     // write direction: a missing control makes the panel render a blank input.
     expect(form.get('drain.nightlyMaxItemsPerRun')?.value).toBe(55);
     expect(form.get('drain.weeklyMaxItemsPerRun')?.value).toBe(321);
+  });
+
+  it('blocks saving when either prefilter minimum is zero', async () => {
+    const rpc = { updateSettings: jest.fn(async () => undefined) };
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+        { provide: SkillSynthesisRpcService, useValue: rpc },
+      ],
+    });
+    const component = TestBed.createComponent(
+      SkillSynthesisTabComponent,
+    ).componentInstance;
+    component.settingsForm.patchValue(skillSettingsDtoToForm(dto));
+    component.settingsForm.patchValue({ prefilterMinEdits: 0 });
+
+    expect(component.settingsForm.valid).toBe(false);
+    await (
+      component as unknown as { onSaveSettings(): Promise<void> }
+    ).onSaveSettings();
+    expect(rpc.updateSettings).not.toHaveBeenCalled();
+
+    component.settingsForm.patchValue({
+      prefilterMinEdits: 1,
+      prefilterMinToolUses: 0,
+    });
+    expect(component.settingsForm.valid).toBe(false);
+  });
+
+  it('accepts one for both prefilter minimums', () => {
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+    const form = TestBed.createComponent(SkillSynthesisTabComponent)
+      .componentInstance.settingsForm;
+    form.patchValue(skillSettingsDtoToForm(dto));
+    form.patchValue({ prefilterMinEdits: 1, prefilterMinToolUses: 1 });
+
+    expect(form.valid).toBe(true);
   });
 
   it('drops the nested drain / budget groups from the outgoing DTO', () => {

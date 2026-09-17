@@ -42,12 +42,10 @@ const SETTINGS: SkillSynthesisSettings = {
   dedupCosineThreshold: 0.85,
   maxActiveSkills: 50,
   candidatesDir: '',
-  eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
   generalizationContextThreshold: 3,
   dedupClusterThreshold: 0.78,
   prefilterMinEdits: 1,
-  prefilterMinChars: 800,
   prefilterMinToolUses: 2,
   judgeEnabled: false,
   minJudgeScore: 6.0,
@@ -89,30 +87,38 @@ function makeStore(
   residents: SkillCandidateRow[] = [],
 ): jest.Mocked<SkillCandidateStore> {
   let current = initial;
+  const updateStatus = jest.fn((id, next, opts) => {
+    current = {
+      ...current,
+      status: next,
+      promotedAt: opts?.promotedAt ?? current.promotedAt,
+      bodyPath: opts?.bodyPath ?? current.bodyPath,
+    };
+    return current;
+  });
+  const setResidency = jest.fn((id: CandidateId, residency) => ({
+    ...current,
+    id,
+    residency,
+  }));
   return {
     findById: jest.fn((id: CandidateId) =>
       id === current.id ? current : null,
     ),
     listActiveOrderedByDecayScore: jest.fn(() => residents),
     getWinRates: jest.fn(() => []),
-    updateStatus: jest.fn((id, next, opts) => {
-      current = {
-        ...current,
-        status: next,
-        promotedAt: opts?.promotedAt ?? current.promotedAt,
-        bodyPath: opts?.bodyPath ?? current.bodyPath,
-      };
-      return current;
+    updateStatus,
+    promoteAtomically: jest.fn((id, opts) => {
+      if (opts.demotedResidentId) {
+        setResidency(opts.demotedResidentId, 'dormant');
+      }
+      return updateStatus(id, 'promoted', opts);
     }),
     getEmbedding: jest.fn(() => null),
     searchActiveByEmbedding: jest.fn(() => []),
     listByStatus: jest.fn(() => []),
     countDistinctContexts: jest.fn(() => 0),
-    setResidency: jest.fn((id: CandidateId, residency) => ({
-      ...current,
-      id,
-      residency,
-    })),
+    setResidency,
   } as unknown as jest.Mocked<SkillCandidateStore>;
 }
 
@@ -123,6 +129,7 @@ function makeMdGenerator(): jest.Mocked<SkillMdGenerator> {
       dir: '/tmp/active/do-thing',
       filePath: '/tmp/active/do-thing/SKILL.md',
     })),
+    removeActive: jest.fn(),
     candidatesRoot: jest.fn(() => '/tmp/cands'),
     activeRoot: jest.fn(() => '/tmp/active'),
     writeCandidate: jest.fn(),

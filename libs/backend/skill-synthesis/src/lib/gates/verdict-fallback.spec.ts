@@ -150,6 +150,7 @@ function trajectory(): ExtractedTrajectory {
     slug: 'the-release-build-failed',
     editCount: 3,
     toolUseCount: 9,
+    nonMcpToolUseCount: 9,
     bashTestPassed: true,
     charLength: 300,
     hasSuccessMarker: true,

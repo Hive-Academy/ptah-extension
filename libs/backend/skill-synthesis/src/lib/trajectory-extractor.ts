@@ -90,6 +90,8 @@ export interface ExtractedTrajectory {
   editCount: number;
   /** Count of all tool_use blocks observed. */
   toolUseCount: number;
+  /** Count of tool_use blocks whose name does not start with `mcp__`. */
+  nonMcpToolUseCount: number;
   /** True when a test-runner Bash command completed in the session. */
   bashTestPassed: boolean;
   /** Length of the normalized canonical text. */
@@ -181,6 +183,7 @@ export class TrajectoryExtractor {
     let sessionTurnCount = 0;
     let editCount = 0;
     let toolUseCount = 0;
+    let nonMcpToolUseCount = 0;
     let bashTestPassed = false;
     const turns: Array<{ role: 'user' | 'assistant'; text: string }> = [];
     for (const m of messages) {
@@ -190,6 +193,7 @@ export class TrajectoryExtractor {
       const signals = this.collectToolSignals(m);
       editCount += signals.editCount;
       toolUseCount += signals.toolUseCount;
+      nonMcpToolUseCount += signals.nonMcpToolUseCount;
       if (signals.bashTestPassed) bashTestPassed = true;
       const text = this.textOf(m);
       if (!text) continue;
@@ -240,6 +244,7 @@ export class TrajectoryExtractor {
       slug: slug || `skill-${hash.slice(0, 8)}`,
       editCount,
       toolUseCount,
+      nonMcpToolUseCount,
       bashTestPassed,
       charLength: normalized.length,
       hasSuccessMarker,
@@ -331,18 +336,20 @@ export class TrajectoryExtractor {
   private collectToolSignals(msg: unknown): {
     editCount: number;
     toolUseCount: number;
+    nonMcpToolUseCount: number;
     bashTestPassed: boolean;
   } {
     let editCount = 0;
     let toolUseCount = 0;
+    let nonMcpToolUseCount = 0;
     let bashTestPassed = false;
     if (!msg || typeof msg !== 'object') {
-      return { editCount, toolUseCount, bashTestPassed };
+      return { editCount, toolUseCount, nonMcpToolUseCount, bashTestPassed };
     }
     const m = msg as { message?: { content?: unknown } };
     const content = m.message?.content;
     if (!Array.isArray(content)) {
-      return { editCount, toolUseCount, bashTestPassed };
+      return { editCount, toolUseCount, nonMcpToolUseCount, bashTestPassed };
     }
     for (const c of content) {
       if (!c || typeof c !== 'object') continue;
@@ -350,6 +357,7 @@ export class TrajectoryExtractor {
       if (block.type !== 'tool_use') continue;
       toolUseCount++;
       const toolName = typeof block.name === 'string' ? block.name : '';
+      if (!toolName.startsWith('mcp__')) nonMcpToolUseCount++;
       if (EDIT_TOOL_NAMES.has(toolName)) {
         editCount++;
       } else if (toolName === 'Bash') {
@@ -357,7 +365,7 @@ export class TrajectoryExtractor {
         if (cmd && BASH_TEST_PATTERN.test(cmd)) bashTestPassed = true;
       }
     }
-    return { editCount, toolUseCount, bashTestPassed };
+    return { editCount, toolUseCount, nonMcpToolUseCount, bashTestPassed };
   }
 
   private hasSuccessMarker(

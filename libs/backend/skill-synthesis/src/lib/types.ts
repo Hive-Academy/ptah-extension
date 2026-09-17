@@ -415,8 +415,6 @@ export interface SkillSynthesisSettings {
   maxActiveSkills: number;
   /** Absolute path to candidates dir; empty string ⇒ derive from homedir. */
   candidatesDir: string;
-  /** Minimum number of turns in a session for trajectory extraction eligibility. */
-  eligibilityMinTurns: number;
   /** Exponential decay rate (0-1) applied to invocation recency scoring. */
   evictionDecayRate: number;
   /** Minimum distinct context count for accelerated promotion threshold. */
@@ -425,8 +423,6 @@ export interface SkillSynthesisSettings {
   dedupClusterThreshold: number;
   /** Minimum edit count for the prefilter edit-only acceptance path. */
   prefilterMinEdits: number;
-  /** Minimum canonical-text length for the prefilter tool-heavy acceptance path. */
-  prefilterMinChars: number;
   /** Minimum tool_use count for the prefilter tool-heavy acceptance path. */
   prefilterMinToolUses: number;
   /** Whether the LLM-as-judge gate is active during promotion. */
