@@ -1,8 +1,10 @@
 /**
  * Zod schemas for {@link GitRpcHandlers}.
  *
- * Scope note: this file covers `git:diffFile` and `git:applyHunks` only. The
- * other sixteen `git:*` methods predate them and are deliberately left on
+ * Scope note: this file covers `git:diffFile`, `git:applyHunks`, the review
+ * pair, and the methods added with them since (`git:pull`, `git:fetch`, the
+ * stash mutations and `git:stashShow`). The older `git:*` methods predate them
+ * and are deliberately left on
  * their hand-rolled guards — retrofitting them is a separate change with its
  * own regression surface.
  *
@@ -17,6 +19,8 @@ import type {
   GitDiffFileParams,
   GitReviewChangesParams,
   GitReviewFileParams,
+  GitStashRefParams,
+  GitWorkspaceScopedParams,
 } from '@ptah-extension/shared';
 
 const WorkspaceRootSchema = z.string().min(1).max(4096);
@@ -72,6 +76,42 @@ export function parseGitReviewFileParams(
   raw: unknown,
 ): GitReviewFileParams | null {
   const result = GitReviewFileParamsSchema.safeParse(raw);
+  return result.success ? result.data : null;
+}
+
+/**
+ * Params of the methods that name nothing but the workspace folder
+ * (`git:pull`, `git:fetch`). A missing payload is the same as `{}`.
+ */
+export const GitWorkspaceScopedParamsSchema = z
+  .object({ workspaceRoot: WorkspaceRootSchema.optional() })
+  .strict();
+
+export function parseGitWorkspaceScopedParams(
+  raw: unknown,
+): GitWorkspaceScopedParams | null {
+  const result = GitWorkspaceScopedParamsSchema.safeParse(raw ?? {});
+  return result.success ? result.data : null;
+}
+
+/**
+ * Params naming one stash entry. `index` becomes `stash@{index}` in a git
+ * argv, so it must be a non-negative integer — never a string a caller could
+ * shape into another revision or an option.
+ */
+export const GitStashRefParamsSchema = z
+  .object({
+    workspaceRoot: WorkspaceRootSchema.optional(),
+    index: z.number().int().nonnegative().max(1_000_000),
+    expectedHash: z
+      .string()
+      .regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/)
+      .optional(),
+  })
+  .strict();
+
+export function parseGitStashRefParams(raw: unknown): GitStashRefParams | null {
+  const result = GitStashRefParamsSchema.safeParse(raw);
   return result.success ? result.data : null;
 }
 

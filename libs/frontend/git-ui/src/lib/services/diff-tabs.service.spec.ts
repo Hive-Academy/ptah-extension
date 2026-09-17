@@ -53,7 +53,7 @@ import { DiffTabsService } from './diff-tabs.service';
 import { GitStatusService } from './git-status.service';
 import { GIT_READ_TRANSPORT_MESSAGE } from './git-read-error-messages';
 import { diffTabKey } from '../types/diff-tab.types';
-import type { OpenDiffRequest } from '../types/diff-tab.types';
+import type { EditorTab, OpenDiffRequest } from '../types/diff-tab.types';
 
 // ----------------------------------------------------------------------------
 // Mock @ptah-extension/core. `VSCodeService` is re-declared as a bare class
@@ -1346,5 +1346,49 @@ describe('DiffTabsService file views', () => {
     mockRpcCall.mockClear();
     await service.refreshAllDiffTabs();
     expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+});
+
+describe('DiffTabsService.openHistoricalDiff', () => {
+  function historicalTab(modified: string): EditorTab {
+    return {
+      filePath: 'diff:stash@{0}:head:src/a.ts',
+      fileName: 'a.ts (stash@{0})',
+      content: modified,
+      isDirty: false,
+      diff: {
+        provenance: {
+          kind: 'historical',
+          base: { name: 'stash@{0}^1', sha: 'base' },
+          head: { name: 'stash@{0}', sha: 'head' },
+        },
+        comparison: 'staged',
+        path: 'src/a.ts',
+        originalPath: 'src/a.ts',
+        original: 'old',
+        modified,
+        originalRef: { kind: 'commit', sha: 'base' },
+        modifiedRef: { kind: 'commit', sha: 'head' },
+        snapshotToken: '',
+        hunks: [],
+        isBinary: false,
+        status: 'fresh',
+        requestId: 0,
+      },
+    };
+  }
+
+  it('activates the tab, replaces it on reopen, and never revalidates it', async () => {
+    const { service } = makeService();
+    service.openHistoricalDiff(historicalTab('one'));
+    service.openHistoricalDiff(historicalTab('two'));
+
+    expect(service.diffTabs()).toHaveLength(1);
+    expect(service.activeDiffKey()).toBe('diff:stash@{0}:head:src/a.ts');
+    expect(service.activeDiffTab()?.diff?.modified).toBe('two');
+
+    await service.refreshAllDiffTabs();
+    expect(mockRpcCall).not.toHaveBeenCalled();
+    expect(service.activeDiffTab()?.diff?.status).toBe('fresh');
   });
 });

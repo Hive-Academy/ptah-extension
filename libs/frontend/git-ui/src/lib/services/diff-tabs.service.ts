@@ -289,6 +289,25 @@ export class DiffTabsService implements MessageHandler {
     this._activeDiffKey.set(key);
   }
 
+  /**
+   * Show a pre-read historical diff (e.g. a stash entry against its parent).
+   *
+   * The caller has already read both sides from immutable commits, so the tab
+   * is inserted — or replaced, when the same key is open — as-is and is never
+   * revalidated: {@link refreshDiffTab} skips `historical` provenance.
+   */
+  public openHistoricalDiff(tab: EditorTab): void {
+    if (tab.diff?.provenance.kind !== 'historical') return;
+    this._diffTabs.update((tabs) =>
+      tabs.some((existing) => existing.filePath === tab.filePath)
+        ? tabs.map((existing) =>
+            existing.filePath === tab.filePath ? tab : existing,
+          )
+        : [...tabs, tab],
+    );
+    this._activeDiffKey.set(tab.filePath);
+  }
+
   /** Open or refresh a read-only file view inside the existing dock tab set. */
   public async openFileView(request: FileViewOpenRequest): Promise<void> {
     this.layout.setEditorPanelVisible(true);
@@ -464,6 +483,8 @@ export class DiffTabsService implements MessageHandler {
   public async refreshDiffTab(key: string): Promise<void> {
     const tab = this._diffTabs().find((t) => t.filePath === key);
     if (!tab?.diff) return;
+    // Historical diffs read immutable commits and have no git:diffFile form.
+    if (tab.diff.provenance?.kind === 'historical') return;
     if (this.inFlightDiffRefreshes.has(key)) return;
 
     const originWorkspace = this.activeWorkspacePath();

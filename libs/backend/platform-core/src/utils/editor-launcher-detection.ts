@@ -5,6 +5,11 @@ import type {
   EditorTargetId,
 } from '../interfaces/editor-launcher.interface';
 import type { IProcessSpawner } from '../interfaces/process-spawner.interface';
+import {
+  TERMINAL_DISPLAY_NAME,
+  terminalCommand,
+  terminalExecutableCandidates,
+} from './terminal-launch';
 
 export interface EditorExecutableCandidate {
   readonly kind: 'executable';
@@ -63,7 +68,9 @@ export interface EditorWorkspaceLaunch {
   readonly cwd: string;
 }
 
-const EDITOR_APP_NAMES: Readonly<Record<EditorTargetId, string>> = {
+const EDITOR_APP_NAMES: Readonly<
+  Record<Exclude<EditorTargetId, 'terminal'>, string>
+> = {
   vscode: 'Visual Studio Code',
   cursor: 'Cursor',
   antigravity: 'Antigravity',
@@ -81,6 +88,8 @@ export function editorExecutableCandidates(
   // Kiro documents the `kiro` shell command. Installer locations are not
   // treated as stable public API, so detection is PATH-only.
   if (id === 'kiro') return [];
+  if (id === 'terminal')
+    return terminalExecutableCandidates(platform, env, homeDir);
   const command = id === 'vscode' ? 'code' : id;
   const appName =
     id === 'vscode' && platform === 'win32'
@@ -111,13 +120,25 @@ export function editorExecutableCandidates(
   ];
 }
 
-/** Build executable-only detection definitions from the shared editor facts. */
+/**
+ * Build executable-only detection definitions from the shared editor facts,
+ * followed by the external `terminal` target. The terminal is listed by
+ * detection only when one of its launchers exists on this machine.
+ */
 export function createExecutableEditorDefinitions(
   platform: NodeJS.Platform,
   env: Readonly<Record<string, string | undefined>>,
   homeDir: string,
 ): readonly EditorDetectionDefinition[] {
-  return EDITOR_DESCRIPTORS.map((descriptor) => ({
+  const descriptors: readonly EditorDescriptor[] = [
+    ...EDITOR_DESCRIPTORS,
+    {
+      id: 'terminal',
+      displayName: TERMINAL_DISPLAY_NAME,
+      command: terminalCommand(platform),
+    },
+  ];
+  return descriptors.map((descriptor) => ({
     ...descriptor,
     installCandidates: editorExecutableCandidates(
       descriptor.id,
@@ -499,6 +520,8 @@ export function prepareEditorFileLaunch(
   filePath: string,
   line?: number,
 ): EditorFileLaunch {
+  if (target.id === 'terminal')
+    throw new Error(`${target.displayName} cannot open a file`);
   const normalizedPath = normalizeAbsolute(filePath, 'File path');
   if (line !== undefined && (!Number.isInteger(line) || line < 1))
     throw new Error('Line must be a positive integer');

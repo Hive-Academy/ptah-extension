@@ -5,6 +5,7 @@ import {
   prepareEditorFileLaunch,
   prepareEditorWorkspaceLaunch,
   spawnEditorProcess,
+  spawnTerminalProcess,
   type EditorDetectionDefinition,
   type EditorDetectionOptions,
   type EditorTarget,
@@ -50,6 +51,15 @@ export class ElectronEditorLauncher implements IEditorLauncher {
     target: EditorTarget,
     workspaceRoot: string,
   ): Promise<void> {
+    if (target.id === 'terminal') {
+      await spawnTerminalProcess(
+        this.spawner,
+        target,
+        workspaceRoot,
+        this.options.platform ?? process.platform,
+      );
+      return;
+    }
     const launch = prepareEditorWorkspaceLaunch(workspaceRoot);
     await spawnEditorProcess(this.spawner, target, launch.args, launch.cwd);
   }

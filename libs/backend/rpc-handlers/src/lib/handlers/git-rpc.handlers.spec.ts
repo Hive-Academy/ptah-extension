@@ -76,6 +76,12 @@ type MockGitInfo = jest.Mocked<
     | 'getRemotes'
     | 'getLastCommit'
     | 'push'
+    | 'pull'
+    | 'fetch'
+    | 'stashApply'
+    | 'stashPop'
+    | 'stashDrop'
+    | 'stashShow'
     | 'diffFile'
     | 'applyHunks'
   >
@@ -124,6 +130,15 @@ function createMockGitInfo(): MockGitInfo {
       time: 0,
     }),
     push: jest.fn().mockResolvedValue({ success: true }),
+    pull: jest.fn().mockResolvedValue({ success: true }),
+    fetch: jest.fn().mockResolvedValue({ success: true }),
+    stashApply: jest.fn().mockResolvedValue({ success: true }),
+    stashPop: jest.fn().mockResolvedValue({ success: true }),
+    stashDrop: jest.fn().mockResolvedValue({ success: true }),
+    stashShow: jest.fn().mockResolvedValue({
+      success: true,
+      files: [{ path: 'a.txt', status: 'M' }],
+    }),
     diffFile: jest.fn().mockResolvedValue({
       path: 'src/a.ts',
       originalPath: 'src/a.ts',
@@ -217,8 +232,22 @@ function getHandler(
 // ===========================================================================
 
 describe('GitRpcHandlers.METHODS coverage invariant', () => {
-  it('contains exactly 20 entries including the two historical review reads', () => {
-    expect(GitRpcHandlers.METHODS).toHaveLength(20);
+  it('contains exactly 26 entries including the two historical review reads', () => {
+    expect(GitRpcHandlers.METHODS).toHaveLength(26);
+  });
+
+  it('contains the pull/fetch and stash mutation methods', () => {
+    const methods: readonly string[] = GitRpcHandlers.METHODS;
+    for (const method of [
+      'git:pull',
+      'git:fetch',
+      'git:stashApply',
+      'git:stashPop',
+      'git:stashDrop',
+      'git:stashShow',
+    ]) {
+      expect(methods).toContain(method);
+    }
   });
 
   it('contains git:push', () => {
@@ -448,6 +477,131 @@ describe('git:push handler', () => {
   });
 });
 
+describe.each([
+  ['git:pull', 'pull'],
+  ['git:fetch', 'fetch'],
+] as const)('%s handler', (method, serviceMethod) => {
+  it('delegates with the active workspace root when params are omitted', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    const result = await getHandler(rpc, method)(undefined);
+
+    expect(gitInfo[serviceMethod]).toHaveBeenCalledWith('/workspace');
+    expect(result).toEqual({ success: true });
+  });
+
+  it('refuses an unregistered workspaceRoot without invoking git', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    const result = (await getHandler(
+      rpc,
+      method,
+    )({
+      workspaceRoot: '/elsewhere',
+    })) as { success: boolean };
+
+    expect(result.success).toBe(false);
+    expect(gitInfo[serviceMethod]).not.toHaveBeenCalled();
+  });
+
+  it('rejects unknown params without invoking git', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    const result = (await getHandler(rpc, method)({ remote: 'evil' })) as {
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(gitInfo[serviceMethod]).not.toHaveBeenCalled();
+  });
+});
+
+describe.each([
+  ['git:stashApply', 'stashApply'],
+  ['git:stashPop', 'stashPop'],
+  ['git:stashDrop', 'stashDrop'],
+  ['git:stashShow', 'stashShow'],
+] as const)('%s handler', (method, serviceMethod) => {
+  it('delegates the validated index for a registered workspace', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    await getHandler(rpc, method)({ workspaceRoot: '/workspace', index: 2 });
+
+    expect(gitInfo[serviceMethod]).toHaveBeenCalledWith('/workspace', 2);
+  });
+
+  it('delegates expectedHash when provided', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    const hash = 'a'.repeat(40);
+    await getHandler(
+      rpc,
+      method,
+    )({
+      workspaceRoot: '/workspace',
+      index: 2,
+      expectedHash: hash,
+    });
+
+    expect(gitInfo[serviceMethod]).toHaveBeenCalledWith('/workspace', 2, hash);
+  });
+
+  it.each([
+    [{ index: -1 }],
+    [{ index: 1.5 }],
+    [{ index: '0' }],
+    [{}],
+    [undefined],
+    [{ index: 0, ref: 'HEAD' }],
+    [{ index: 0, expectedHash: 'not-a-hash' }],
+    [{ index: 0, expectedHash: '1234' }],
+  ])('rejects invalid params %j without invoking git', async (params) => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    const result = (await getHandler(rpc, method)(params)) as {
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(gitInfo[serviceMethod]).not.toHaveBeenCalled();
+  });
+
+  it('refuses when no workspace is open', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite(null);
+    handlers.register();
+
+    const result = (await getHandler(rpc, method)({ index: 0 })) as {
+      success: boolean;
+      error?: string;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('No workspace folder open');
+    expect(gitInfo[serviceMethod]).not.toHaveBeenCalled();
+  });
+});
+
+describe('git:stashShow handler result shape', () => {
+  it('returns an empty file list on invalid params', async () => {
+    const { handlers, rpc } = buildSuite();
+    handlers.register();
+
+    await expect(
+      getHandler(rpc, 'git:stashShow')({ index: -3 }),
+    ).resolves.toEqual({
+      success: false,
+      files: [],
+      error: 'Invalid stash request.',
+    });
+  });
+});
+
 describe('git:branches handler', () => {
   it('returns empty result when workspace root is null', async () => {
     const { handlers, rpc } = buildSuite(null);
@@ -613,8 +767,18 @@ describe('git:stashList handler', () => {
     const stashResult = {
       count: 2,
       entries: [
-        { index: 0, message: 'WIP on main', ref: 'stash@{0}' },
-        { index: 1, message: 'WIP on feat', ref: 'stash@{1}' },
+        {
+          index: 0,
+          hash: '1111111111111111111111111111111111111111',
+          message: 'WIP on main',
+          ref: 'stash@{0}',
+        },
+        {
+          index: 1,
+          hash: '2222222222222222222222222222222222222222',
+          message: 'WIP on feat',
+          ref: 'stash@{1}',
+        },
       ],
     };
     gitInfo.stashList.mockResolvedValueOnce(stashResult);

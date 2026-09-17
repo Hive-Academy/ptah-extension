@@ -623,13 +623,13 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
     });
 
     it('a read command does not invalidate the entry it just populated', async () => {
-      await service.stashList(WS);
-      await service.stashList(WS);
+      await service.getTags(WS);
+      await service.getTags(WS);
 
-      const stashCalls = mockSpawn.mock.calls.filter(
-        ([, args]: [unknown, string[]]) => args[0] === 'stash',
+      const tagCalls = mockSpawn.mock.calls.filter(
+        ([, args]: [unknown, string[]]) => args[0] === 'tag',
       );
-      expect(stashCalls).toHaveLength(1);
+      expect(tagCalls).toHaveLength(1);
     });
 
     // `getGitInfo` is the working-tree status walk and the git watcher's own
@@ -719,8 +719,8 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
   describe('stashList()', () => {
     it('parses tab-separated stash list output into StashEntry[]', async () => {
       const stashOutput = [
-        'stash@{0}\tWIP on main: fix tests\t1700000100',
-        'stash@{1}\tWIP on feat/x: add feature\t1700000050',
+        'stash@{0}\tWIP on main: fix tests\t1700000100\t1111111111111111111111111111111111111111',
+        'stash@{1}\tWIP on feat/x: add feature\t1700000050\t2222222222222222222222222222222222222222',
         '',
       ].join('\n');
 
@@ -735,10 +735,12 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
 
       const first = result.entries[0];
       expect(first.index).toBe(0);
+      expect(first.hash).toBe('1111111111111111111111111111111111111111');
       expect(first.message).toBe('WIP on main: fix tests');
 
       const second = result.entries[1];
       expect(second.index).toBe(1);
+      expect(second.hash).toBe('2222222222222222222222222222222222222222');
       expect(second.message).toBe('WIP on feat/x: add feature');
     });
 
@@ -2108,5 +2110,81 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  describe('network sync operations (push, pull, fetch)', () => {
+    let syncService: GitInfoService;
+    beforeEach(() => {
+      jest.clearAllMocks();
+      syncService = new GitInfoService(makeLogger() as never);
+    });
+
+    it('push passes GIT_TERMINAL_PROMPT=0 and translates auth failures', async () => {
+      // 1. rev-parse @{u} succeeds (upstream exists)
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({ stdout: 'origin/main\n', exitCode: 0 }),
+      );
+      // 2. git push fails with terminal prompts disabled
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({
+          stdout: '',
+          stderr:
+            "fatal: could not read Username for 'https://github.com': terminal prompts disabled\n",
+          exitCode: 128,
+        }),
+      );
+
+      const result = await syncService.push(WS);
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Authentication is required for this remote.',
+      });
+
+      const pushCall = mockSpawn.mock.calls[1];
+      expect(pushCall[2]?.env?.GIT_TERMINAL_PROMPT).toBe('0');
+    });
+
+    it('pull passes GIT_TERMINAL_PROMPT=0 and translates auth failures', async () => {
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({
+          stdout: '',
+          stderr:
+            "fatal: Authentication failed for 'https://github.com/repo.git'\n",
+          exitCode: 128,
+        }),
+      );
+
+      const result = await syncService.pull(WS);
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Authentication is required for this remote.',
+      });
+
+      const pullCall = mockSpawn.mock.calls[0];
+      expect(pullCall[2]?.env?.GIT_TERMINAL_PROMPT).toBe('0');
+    });
+
+    it('fetch passes GIT_TERMINAL_PROMPT=0 and translates auth failures', async () => {
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({
+          stdout: '',
+          stderr:
+            'Permission denied (publickey).\nfatal: Could not read from remote repository.\n',
+          exitCode: 128,
+        }),
+      );
+
+      const result = await syncService.fetch(WS);
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Authentication is required for this remote.',
+      });
+
+      const fetchCall = mockSpawn.mock.calls[0];
+      expect(fetchCall[2]?.env?.GIT_TERMINAL_PROMPT).toBe('0');
+    });
   });
 });

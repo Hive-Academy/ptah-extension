@@ -2,7 +2,15 @@ import { ElectronEditorLauncher } from './electron-editor-launcher';
 import * as path from 'node:path';
 
 describe('ElectronEditorLauncher', () => {
-  const spawnProcess = jest.fn(() => ({ whenSpawned: Promise.resolve(7) }));
+  // exitCode 0: a terminal launch that starts and settles cleanly (the
+  // shape git-bash.exe and the cmd.exe trampoline produce) — the exit probe
+  // reads this instead of waiting out its window.
+  const spawnProcess = jest.fn(() => ({
+    whenSpawned: Promise.resolve(7),
+    exitCode: 0,
+    once: () => undefined,
+    off: () => undefined,
+  }));
 
   beforeEach(() => {
     spawnProcess.mockClear();
@@ -93,6 +101,44 @@ describe('ElectronEditorLauncher', () => {
         cwd: workspaceRoot,
       }),
     );
+  });
+
+  it('opens an external terminal at the workspace root', async () => {
+    const launcher = new ElectronEditorLauncher({ spawnProcess } as never, {
+      platform: 'win32',
+    });
+    const executablePath = path.resolve('Git/git-bash.exe');
+    const workspaceRoot = path.resolve('workspace');
+
+    await launcher.openWorkspace(
+      { id: 'terminal', displayName: 'Terminal', executablePath },
+      workspaceRoot,
+    );
+
+    expect(spawnProcess).toHaveBeenCalledWith({
+      command: executablePath,
+      args: [`--cd=${workspaceRoot}`],
+      cwd: workspaceRoot,
+      env: process.env,
+      detached: false,
+      needsConsole: true,
+    });
+  });
+
+  it('rejects opening a file in the terminal without spawning', async () => {
+    const launcher = new ElectronEditorLauncher({ spawnProcess } as never);
+
+    await expect(
+      launcher.openFile(
+        {
+          id: 'terminal',
+          displayName: 'Terminal',
+          executablePath: path.resolve('xterm'),
+        },
+        path.resolve('workspace/a.ts'),
+      ),
+    ).rejects.toThrow('Terminal cannot open a file');
+    expect(spawnProcess).not.toHaveBeenCalled();
   });
 
   it('propagates a launch failure', async () => {

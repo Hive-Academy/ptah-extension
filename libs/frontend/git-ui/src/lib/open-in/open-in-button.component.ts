@@ -1,21 +1,19 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   OnInit,
   computed,
   inject,
   input,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
-import {
-  ChevronDown,
-  Code2,
-  ExternalLink,
-  LucideAngularModule,
-} from 'lucide-angular';
+import { ChevronDown, ExternalLink, LucideAngularModule } from 'lucide-angular';
 import { rpcCall, VSCodeService } from '@ptah-extension/core';
 import type { EditorTarget, EditorTargetId } from '@ptah-extension/shared';
+import { EditorBrandIconComponent } from './editor-brand-icon.component';
 
 export type OpenInButtonMode = 'full' | 'icon-only';
 
@@ -32,8 +30,9 @@ const NO_EDITOR_TITLE = 'No supported editor found on this machine';
 @Component({
   selector: 'ptah-open-in-button',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, EditorBrandIconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(document:click)': 'onDocumentClick($event)' },
   template: `
     <div class="join join-horizontal" data-testid="open-in-button">
       <button
@@ -43,38 +42,43 @@ const NO_EDITOR_TITLE = 'No supported editor found on this machine';
         [class.w-5]="mode() === 'icon-only'"
         [class.h-5]="mode() === 'icon-only'"
         [class.p-0]="mode() === 'icon-only'"
-        [class.btn-disabled]="targets().length === 0"
-        [disabled]="targets().length === 0"
-        [attr.aria-disabled]="targets().length === 0"
+        [class.btn-disabled]="available().length === 0"
+        [disabled]="available().length === 0"
+        [attr.aria-disabled]="available().length === 0"
         [attr.aria-label]="primaryAriaLabel()"
         [title]="primaryTitle()"
         (click)="onPrimaryClick()"
         (keydown.escape)="menuOpen.set(false)"
       >
-        <lucide-angular
-          [img]="ExternalLinkIcon"
-          class="w-3 h-3"
-          aria-hidden="true"
-        />
+        @if (primaryTarget(); as target) {
+          <ptah-editor-brand-icon [target]="target.id" />
+        } @else {
+          <lucide-angular
+            [img]="ExternalLinkIcon"
+            class="w-3 h-3"
+            aria-hidden="true"
+          />
+        }
         @if (mode() === 'full') {
           <span>{{ primaryLabel() }}</span>
         }
       </button>
 
-      @if (targets().length > 1) {
+      @if (available().length > 0) {
         <div
           class="dropdown dropdown-end join-item"
           [class.dropdown-open]="menuOpen()"
         >
           <button
+            #caret
             type="button"
             class="btn btn-ghost btn-xs join-item px-1"
             data-testid="open-in-caret"
             aria-haspopup="menu"
-            aria-label="More editors"
+            aria-label="Choose where to open"
             [attr.aria-expanded]="menuOpen()"
             (click)="menuOpen.set(!menuOpen())"
-            (keydown.escape)="menuOpen.set(false)"
+            (keydown.escape)="closeMenu()"
           >
             <lucide-angular
               [img]="ChevronDownIcon"
@@ -86,20 +90,19 @@ const NO_EDITOR_TITLE = 'No supported editor found on this machine';
             <ul
               class="dropdown-content menu menu-xs bg-base-200 rounded-box shadow z-20 min-w-36"
               role="menu"
+              data-testid="open-in-menu"
             >
-              @for (target of targets(); track target.id) {
+              @for (target of available(); track target.id) {
                 <li>
                   <button
                     type="button"
                     role="menuitem"
+                    [attr.data-target-id]="target.id"
                     [class.menu-active]="selectedTarget()?.id === target.id"
-                    (click)="choose(target)"
+                    (click)="choose(target, $event)"
+                    (keydown.escape)="closeMenu()"
                   >
-                    <lucide-angular
-                      [img]="CodeIcon"
-                      class="w-3 h-3"
-                      aria-hidden="true"
-                    />
+                    <ptah-editor-brand-icon [target]="target.id" />
                     <span>{{ target.displayName }}</span>
                   </button>
                 </li>
@@ -113,6 +116,8 @@ const NO_EDITOR_TITLE = 'No supported editor found on this machine';
 })
 export class OpenInButtonComponent implements OnInit {
   private readonly vscodeService = inject(VSCodeService, { optional: true });
+  private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly caret = viewChild<ElementRef<HTMLButtonElement>>('caret');
 
   readonly targets = input.required<readonly EditorTarget[]>();
   readonly remembered = input<string | null>(null);
@@ -124,17 +129,28 @@ export class OpenInButtonComponent implements OnInit {
 
   protected readonly ExternalLinkIcon = ExternalLink;
   protected readonly ChevronDownIcon = ChevronDown;
-  protected readonly CodeIcon = Code2;
   protected readonly menuOpen = signal(false);
   private readonly storedTargetId = signal<string | null>(null);
+  private choiceGeneration = 0;
+
+  /**
+   * Targets this control offers. A terminal opens a folder, not a file
+   * (`editor:openFile` refuses it), so it is dropped whenever a file path is
+   * bound.
+   */
+  protected readonly available = computed(() =>
+    this.path() === undefined
+      ? this.targets()
+      : this.targets().filter(({ id }) => id !== 'terminal'),
+  );
 
   protected readonly selectedTarget = computed(() => {
     const selectedId = this.remembered() ?? this.storedTargetId();
-    return this.targets().find(({ id }) => id === selectedId) ?? null;
+    return this.available().find(({ id }) => id === selectedId) ?? null;
   });
 
-  private readonly primaryTarget = computed(() => {
-    if (this.targets().length === 1) return this.targets()[0];
+  protected readonly primaryTarget = computed(() => {
+    if (this.available().length === 1) return this.available()[0];
     return this.selectedTarget();
   });
 
@@ -149,7 +165,7 @@ export class OpenInButtonComponent implements OnInit {
   });
 
   protected readonly primaryTitle = computed(() =>
-    this.targets().length === 0 ? NO_EDITOR_TITLE : this.primaryAriaLabel(),
+    this.available().length === 0 ? NO_EDITOR_TITLE : this.primaryAriaLabel(),
   );
 
   ngOnInit(): void {
@@ -163,11 +179,28 @@ export class OpenInButtonComponent implements OnInit {
       this.choose(target);
       return;
     }
-    if (this.targets().length > 1) this.menuOpen.set(true);
+    if (this.available().length > 1) this.menuOpen.set(true);
   }
 
-  protected choose(target: EditorTarget): void {
+  protected closeMenu(): void {
+    if (!this.menuOpen()) return;
+    this.menuOpen.set(false);
+    this.caret()?.nativeElement.focus();
+  }
+
+  protected onDocumentClick(event: MouseEvent): void {
+    if (
+      this.menuOpen() &&
+      event.target instanceof Node &&
+      !this.element.nativeElement.contains(event.target)
+    )
+      this.menuOpen.set(false);
+  }
+
+  protected choose(target: EditorTarget, event?: UIEvent): void {
+    this.choiceGeneration += 1;
     this.storedTargetId.set(target.id);
+    const wasMenuOpen = this.menuOpen();
     this.menuOpen.set(false);
     void this.persistTarget(target.id);
     this.open.emit({
@@ -176,10 +209,35 @@ export class OpenInButtonComponent implements OnInit {
       ...(this.line() === undefined ? {} : { line: this.line() }),
       ...(this.root() === undefined ? {} : { root: this.root() }),
     });
+
+    const isMouseClick = Boolean(
+      event &&
+      (event.detail > 0 ||
+        ('pointerType' in event &&
+          (event as PointerEvent).pointerType === 'mouse')),
+    );
+    const isFocusInMenu = this.isFocusInMenu();
+    const isKeyboardActivation =
+      wasMenuOpen && !isMouseClick && (event?.detail === 0 || isFocusInMenu);
+
+    if (wasMenuOpen && !isMouseClick && isKeyboardActivation) {
+      this.caret()?.nativeElement.focus();
+    }
+  }
+
+  private isFocusInMenu(): boolean {
+    if (typeof document === 'undefined') return false;
+    const active = document.activeElement;
+    if (!active) return false;
+    const menu = this.element.nativeElement.querySelector(
+      '[data-testid="open-in-menu"]',
+    );
+    return Boolean(menu?.contains(active));
   }
 
   private async loadRememberedTarget(): Promise<void> {
     if (!this.vscodeService) return;
+    const generation = this.choiceGeneration;
     try {
       const result = await rpcCall<{ value?: unknown }>(
         this.vscodeService,
@@ -187,7 +245,11 @@ export class OpenInButtonComponent implements OnInit {
         { key: LAST_EDITOR_SETTING_KEY },
       );
       const value = result.data?.value;
-      if (result.success && typeof value === 'string') {
+      if (
+        generation === this.choiceGeneration &&
+        result.success &&
+        typeof value === 'string'
+      ) {
         this.storedTargetId.set(value);
       }
     } catch {

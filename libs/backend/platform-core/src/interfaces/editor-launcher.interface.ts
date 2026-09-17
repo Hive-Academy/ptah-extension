@@ -4,7 +4,13 @@ export type EditorTargetId =
   | 'cursor'
   | 'antigravity'
   | 'zed'
-  | 'kiro';
+  | 'kiro'
+  /**
+   * An external terminal opened at a folder (displayName "Terminal").
+   * Workspace-only: `openFile` with this target rejects, and the RPC layer
+   * turns that into `{ success: false }`.
+   */
+  | 'terminal';
 
 /**
  * A detected editor and the concrete executable path that proved it exists.

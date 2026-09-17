@@ -103,6 +103,8 @@ export class EditorRpcHandlers {
         error:
           parsed.error.issues[0]?.message ?? 'Invalid editor:openFile params',
       };
+    if (parsed.data.target === 'terminal')
+      return { success: false, error: 'A terminal cannot open a file.' };
     const resolved = await this.resolveForScope(parsed.data);
     if (!resolved.success) return resolved;
     return this.openDetected(parsed.data.target, (target) =>
@@ -169,16 +171,22 @@ export class EditorRpcHandlers {
     );
   }
 
+  /**
+   * Launch the detected target. Detection yields at most ONE target per id,
+   * so there is nothing to retry here — the terminal candidate fallback lives
+   * in `spawnTerminalProcess` (platform-core), where the candidate order is.
+   */
   private async openDetected(
     targetId: EditorTarget['id'],
     open: (target: EditorTarget) => Promise<void>,
   ): Promise<EditorOpenResult> {
     try {
-      const target = (await this.launcher.detect()).find(
+      const [target] = (await this.launcher.detect()).filter(
         ({ id }) => id === targetId,
       );
       if (!target)
         return { success: false, error: 'Editor target is not installed' };
+
       await open(target);
       return { success: true };
     } catch (error: unknown) {

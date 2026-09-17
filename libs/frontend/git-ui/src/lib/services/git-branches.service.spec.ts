@@ -391,6 +391,63 @@ describe('GitBranchesService (TASK_2026_111)', () => {
   });
 
   // ==========================================================================
+  // push / pull / fetch
+  // ==========================================================================
+
+  describe.each([
+    ['push', 'git:push'],
+    ['pull', 'git:pull'],
+    ['fetch', 'git:fetch'],
+  ] as const)('%s()', (action, method) => {
+    it(`calls ${method} scoped to the workspace and passes the result through`, async () => {
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { success: false, error: 'Not possible to fast-forward.' },
+      });
+
+      const result = await service[action]();
+
+      expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), method, {
+        workspaceRoot: '/test-workspace',
+      });
+      expect(result).toEqual({
+        success: false,
+        error: 'Not possible to fast-forward.',
+      });
+    });
+
+    it('refreshes the branch list after success', async () => {
+      jest.useFakeTimers();
+      try {
+        mockRpcCall.mockResolvedValueOnce({
+          success: true,
+          data: { success: true },
+        });
+        await service[action]();
+        mockRpcCall.mockClear();
+        await jest.advanceTimersByTimeAsync(250);
+        expect(mockRpcCall).toHaveBeenCalledWith(
+          expect.anything(),
+          'git:branches',
+          expect.anything(),
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('folds a transport failure into { success: false, error }', async () => {
+      mockRpcCall.mockRejectedValueOnce(new Error('offline'));
+      const spy = jest.spyOn(console, 'error').mockImplementation(() => {
+        /* silence expected log */
+      });
+      const result = await service[action]();
+      spy.mockRestore();
+      expect(result).toEqual({ success: false, error: 'offline' });
+    });
+  });
+
+  // ==========================================================================
   // startListening / MessageHandler dispatch
   // ==========================================================================
 

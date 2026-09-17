@@ -151,6 +151,76 @@ describe('EditorRpcHandlers', () => {
     expect(openFile).not.toHaveBeenCalled();
   });
 
+  describe("target 'terminal'", () => {
+    const terminal = {
+      id: 'terminal' as const,
+      displayName: 'Terminal',
+      executablePath: '/usr/bin/x-terminal-emulator',
+    };
+
+    it('opens a terminal at an authorized workspace root', async () => {
+      detect.mockResolvedValueOnce([target, terminal] as never);
+
+      await expect(
+        methods.get('editor:openWorkspace')?.({
+          target: 'terminal',
+          root: '/workspace',
+        }),
+      ).resolves.toEqual({ success: true });
+      expect(openWorkspace).toHaveBeenCalledWith(terminal, '/workspace');
+    });
+
+    it('answers a failed launch with fixed copy, never a retry loop', async () => {
+      detect.mockResolvedValueOnce([target, terminal] as never);
+      openWorkspace.mockRejectedValueOnce(new Error('wt failed') as never);
+
+      await expect(
+        methods.get('editor:openWorkspace')?.({
+          target: 'terminal',
+          root: '/workspace',
+        }),
+      ).resolves.toEqual({
+        success: false,
+        error: 'Could not launch the requested editor.',
+      });
+
+      // Detection yields at most one target per id; the candidate fallback
+      // lives in spawnTerminalProcess (platform-core), not here.
+      expect(openWorkspace).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        '[editor RPC] launch failed',
+        expect.any(Error),
+      );
+    });
+
+    it('refuses a root outside the workspace before launching', async () => {
+      await expect(
+        methods.get('editor:openWorkspace')?.({
+          target: 'terminal',
+          root: '/etc',
+        }),
+      ).resolves.toEqual({
+        success: false,
+        error: 'Workspace root is outside the workspace',
+      });
+      expect(openWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('answers openFile with an error result, never a launch', async () => {
+      await expect(
+        methods.get('editor:openFile')?.({
+          target: 'terminal',
+          path: '/workspace/a.ts',
+        }),
+      ).resolves.toEqual({
+        success: false,
+        error: 'A terminal cannot open a file.',
+      });
+      expect(openFile).not.toHaveBeenCalled();
+      expect(detect).not.toHaveBeenCalled();
+    });
+  });
+
   describe("scope 'external-link'", () => {
     it('routes an out-of-workspace link through the external-link policy', async () => {
       await expect(

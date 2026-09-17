@@ -458,12 +458,82 @@ export interface GitApplyHunksResult {
   snapshotToken?: string;
 }
 
-/** Parameters for git:push RPC method */
+/**
+ * Parameters for git:push RPC method. Pushes the current branch; when the
+ * branch has no upstream the backend runs `git push -u <remote> HEAD`
+ * (remote: `origin` when it exists, else the repository's only remote).
+ */
 export type GitPushParams = GitWorkspaceScopedParams;
 
 /** Result from git:push RPC method */
 export interface GitPushResult {
   success: boolean;
+  error?: string;
+}
+
+/** Parameters for git:pull RPC method (`git pull --ff-only`). */
+export type GitPullParams = GitWorkspaceScopedParams;
+
+/** Result from git:pull RPC method */
+export interface GitPullResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Parameters for git:fetch RPC method (`git fetch --prune`). */
+export type GitFetchParams = GitWorkspaceScopedParams;
+
+/** Result from git:fetch RPC method */
+export interface GitFetchResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Names one stash entry: `stash@{index}`. `index` is a non-negative integer. */
+export interface GitStashRefParams extends GitWorkspaceScopedParams {
+  index: number;
+  /** Full commit SHA expected at stash@{index}; mutation or preview is refused on mismatch */
+  expectedHash?: string;
+}
+
+/** Parameters for git:stashApply RPC method (`git stash apply stash@{N}`). */
+export type GitStashApplyParams = GitStashRefParams;
+/** Parameters for git:stashPop RPC method (`git stash pop stash@{N}`). */
+export type GitStashPopParams = GitStashRefParams;
+/** Parameters for git:stashDrop RPC method (`git stash drop stash@{N}`). */
+export type GitStashDropParams = GitStashRefParams;
+
+/** Result from git:stashApply / git:stashPop / git:stashDrop */
+export interface GitStashMutationResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Parameters for git:stashShow RPC method.
+ *
+ * Diff preview of one file in the stash: the file list comes from here; the
+ * two sides come from the existing read-only review pair —
+ * `git:reviewChanges({ base: 'stash@{N}^1', head: 'stash@{N}' })` issues the
+ * review, then `git:reviewFile({ baseSha, headSha, path, originalPath })`
+ * reads both blobs. No `GitDiffComparison` variant exists for stashes: that
+ * union names mutable Source Control rows with hunk operations, and a stash
+ * diff has none.
+ */
+export type GitStashShowParams = GitStashRefParams;
+
+/** One file changed by a stash entry, relative to the stash's base commit. */
+export interface GitStashFileEntry {
+  path: string;
+  status: 'A' | 'M' | 'D' | 'R';
+  /** Pre-rename path, present only when `status === 'R'`. */
+  oldPath?: string;
+}
+
+/** Result from git:stashShow RPC method */
+export interface GitStashShowResult {
+  success: boolean;
+  files: GitStashFileEntry[];
   error?: string;
 }
 
@@ -527,6 +597,8 @@ export interface GitCheckoutResult {
 export interface StashEntry {
   /** Zero-based stash index (the N in stash@{N}) */
   index: number;
+  /** Full commit SHA of stash@{N} */
+  hash: string;
   /** Stash message */
   message: string;
   /** Branch name the stash was created on */

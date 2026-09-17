@@ -6,6 +6,7 @@ import {
   prepareEditorFileLaunch,
   prepareEditorWorkspaceLaunch,
   spawnEditorProcess,
+  TERMINAL_DISPLAY_NAME,
   type EditorDetectionDefinition,
   type EditorDetectionOptions,
   type EditorTarget,
@@ -21,6 +22,8 @@ export interface VscodeEditorLauncherOptions extends EditorDetectionOptions {
 export interface VscodeEditorApi {
   openFile(filePath: string, line?: number): Promise<void>;
   openWorkspace(workspaceRoot: string): Promise<void>;
+  /** Open an integrated terminal whose cwd is `workspaceRoot` and show it. */
+  openTerminal(workspaceRoot: string): Promise<void>;
 }
 
 const defaultVscodeApi: VscodeEditorApi = {
@@ -44,17 +47,31 @@ const defaultVscodeApi: VscodeEditorApi = {
       false,
     );
   },
+  openTerminal(workspaceRoot) {
+    vscode.window.createTerminal({ cwd: workspaceRoot }).show();
+    return Promise.resolve();
+  },
 };
 
+/**
+ * VS Code itself and the terminal are served in-process by this host, so
+ * neither is probed on disk.
+ */
 function definitionsFor(
   platform: NodeJS.Platform,
   env: Readonly<Record<string, string | undefined>>,
   homeDir: string,
 ): readonly EditorDetectionDefinition[] {
   return createExecutableEditorDefinitions(platform, env, homeDir).filter(
-    (definition) => definition.id !== 'vscode',
+    (definition) => definition.id !== 'vscode' && definition.id !== 'terminal',
   );
 }
+
+/** The integrated terminal: always available, launched without a path. */
+const IN_PROCESS_TERMINAL: EditorTarget = {
+  id: 'terminal',
+  displayName: TERMINAL_DISPLAY_NAME,
+};
 
 export class VscodeEditorLauncher implements IEditorLauncher {
   constructor(
@@ -63,14 +80,18 @@ export class VscodeEditorLauncher implements IEditorLauncher {
     private readonly options: VscodeEditorLauncherOptions = {},
   ) {}
 
-  detect(): Promise<EditorTarget[]> {
+  async detect(): Promise<EditorTarget[]> {
     const platform = this.options.platform ?? process.platform;
     const env = this.options.env ?? process.env;
-    return detectEditorTargets(
+    const editors = await detectEditorTargets(
       this.options.definitions ??
         definitionsFor(platform, env, this.options.homeDir ?? os.homedir()),
       this.options,
     );
+    return [
+      ...editors.filter(({ id }) => id !== 'terminal'),
+      { ...IN_PROCESS_TERMINAL },
+    ];
   }
 
   async openFile(
@@ -91,6 +112,10 @@ export class VscodeEditorLauncher implements IEditorLauncher {
     workspaceRoot: string,
   ): Promise<void> {
     const launch = prepareEditorWorkspaceLaunch(workspaceRoot);
+    if (target.id === 'terminal') {
+      await this.vscodeApi.openTerminal(launch.normalizedRoot);
+      return;
+    }
     if (target.id === 'vscode') {
       await this.vscodeApi.openWorkspace(launch.normalizedRoot);
       return;
