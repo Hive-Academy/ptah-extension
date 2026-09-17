@@ -65,7 +65,7 @@ export function formatOklch(color: OklchColor, alpha?: number): string {
 }
 
 /**
- * Generate a consistent oklch CSS string from an agent type string.
+ * Generate a consistent oklch CSS string from an agent or session identity.
  * Same string always produces the same color.
  *
  * Built-in agents get fixed oklch colors for theme consistency.
@@ -74,6 +74,10 @@ export function formatOklch(color: OklchColor, alpha?: number): string {
  *
  * Prefer `generateAgentColorOklch()` when you need to derive variants
  * (different alpha/chroma) without round-tripping through string parsing.
+ *
+ * Session colors belong at this UI boundary: chat-state cannot depend on this
+ * feature library, so consumers pass `tab.claudeSessionId` to this existing
+ * generator rather than duplicating the hash or persisting color in TabState.
  */
 export function generateAgentColor(agentType: string): string {
   return formatOklch(generateAgentColorOklch(agentType));

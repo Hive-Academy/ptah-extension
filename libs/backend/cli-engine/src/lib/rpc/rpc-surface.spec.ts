@@ -43,6 +43,7 @@ export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'file:pick-images',
   'file:read',
   'file:save-dialog',
+  'file:viewContent',
   'update:check-now',
   'update:get-state',
   'update:mark-downloaded',
@@ -81,6 +82,21 @@ describe('CLI RPC surface', () => {
       expect(surface.registered.some((m) => m.startsWith(ns))).toBe(true);
       expect(surface.excluded.some((m) => m.startsWith(ns))).toBe(false);
     }
+  });
+
+  it('serves external-editor launch without enabling the host file opener', () => {
+    const profile = createCliRpcHostProfile('cli');
+
+    expect(profile.capabilities.editorLauncher).toBe(true);
+    expect(profile.capabilities.fileOpen).toBe(false);
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'editor:detectTargets',
+        'editor:openFile',
+        'editor:openWorkspace',
+      ]),
+    );
+    expect(surface.excluded).toContain('file:open');
   });
 });
 

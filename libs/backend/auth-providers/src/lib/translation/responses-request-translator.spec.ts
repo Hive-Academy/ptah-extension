@@ -52,6 +52,7 @@ describe('translateToolsForResponses', () => {
         name: 'lookup',
         description: 'Find things',
         parameters: { type: 'object' },
+        strict: false,
       },
     ]);
   });
@@ -66,6 +67,52 @@ describe('translateToolsForResponses', () => {
     // parameters is an empty object per the spread-guard behaviour (schema
     // is non-null but empty — we still emit parameters: {}).
     expect(out.parameters).toEqual({});
+    expect(out.strict).toBe(false);
+  });
+
+  it('preserves required and optional properties while disabling the Responses strict default', () => {
+    const agentSchema = {
+      type: 'object',
+      properties: {
+        description: { type: 'string' },
+        prompt: { type: 'string' },
+        isolation: { type: 'string', enum: ['worktree', 'remote'] },
+      },
+      required: ['description', 'prompt'],
+    };
+    const lookupSchema = {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        limit: { type: 'number' },
+      },
+      required: ['query'],
+    };
+
+    const translated = translateToolsForResponses([
+      { name: 'Agent', input_schema: agentSchema },
+      { name: 'lookup', input_schema: lookupSchema },
+    ]);
+
+    expect(translated).toEqual([
+      {
+        type: 'function',
+        name: 'Agent',
+        parameters: agentSchema,
+        strict: false,
+      },
+      {
+        type: 'function',
+        name: 'lookup',
+        parameters: lookupSchema,
+        strict: false,
+      },
+    ]);
+    expect(
+      (translated[0].parameters?.['required'] as string[]).includes(
+        'isolation',
+      ),
+    ).toBe(false);
   });
 });
 
@@ -162,6 +209,7 @@ describe('translateAnthropicToResponses (end-to-end round-trip)', () => {
       "parameters": {
         "type": "object",
       },
+      "strict": false,
       "type": "function",
     },
   ],

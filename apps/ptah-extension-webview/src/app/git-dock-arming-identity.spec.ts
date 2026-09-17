@@ -39,6 +39,7 @@ import {
 import {
   GitBranchesService,
   GitDockComponent,
+  GitReviewService,
   GitStatusService,
 } from '@ptah-extension/git-ui';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
@@ -83,6 +84,7 @@ function makeVscodeStub() {
 interface GitDockInternals {
   gitStatus: GitStatusService;
   gitBranches: GitBranchesService;
+  review: GitReviewService;
 }
 
 describe('GitDockComponent resolves the same singletons MESSAGE_HANDLERS holds (FIX 2)', () => {
@@ -181,5 +183,13 @@ describe('GitDockComponent resolves the same singletons MESSAGE_HANDLERS holds (
 
     fixture.destroy();
     gitStatus.stopListening();
+  });
+
+  it('injects the root GitReviewService used by workspace coordination', () => {
+    const fixture = TestBed.createComponent(GitDockComponent);
+    const injected = (fixture.componentInstance as unknown as GitDockInternals)
+      .review;
+    expect(injected).toBe(TestBed.inject(GitReviewService));
+    fixture.destroy();
   });
 });

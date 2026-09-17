@@ -34,6 +34,15 @@ jobs:
       # that is the whole point. It exercises DNS, TLS, the caddy port bind and
       # the app's database connection the same way a paying customer does. Give
       # it droplet access and it starts proving something weaker.
+      #
+      # Having no checkout is why every `gh` call below passes an explicit
+      # `--repo "${GITHUB_REPOSITORY}"`. `gh` otherwise infers the target from
+      # the git remote in the working directory and dies with
+      # `failed to run git: fatal: not a git repository`. That is what the first
+      # two scheduled runs on main did (2026-09-08 21:42 and 23:41) — the health
+      # probe passed and the job still went red. Adding `actions/checkout` would
+      # also fix it and is the wrong trade: a clone per run, every 15 minutes,
+      # to recover one value already in the environment.
       - name: Probe the public health endpoint
         id: probe
         run: |
@@ -117,7 +126,7 @@ jobs:
           # recovery path below while the step reported success. Under
           # `set -e` a command substitution assignment does propagate.
           open_issues="$(
-            gh issue list --state open --limit 1000 --json number,title \
+            gh issue list --repo "${GITHUB_REPOSITORY}" --state open --limit 1000 --json number,title \
               --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}'
           )"
 
@@ -133,18 +142,18 @@ jobs:
 
           if (( ${#matching_issues[@]} == 0 )); then
             issue_url="$(
-              gh issue create --title "${ISSUE_TITLE}" --body-file "${body_file}"
+              gh issue create --repo "${GITHUB_REPOSITORY}" --title "${ISSUE_TITLE}" --body-file "${body_file}"
             )"
             keeper_number="${issue_url##*/}"
           else
             keeper_number="${matching_issues[0]}"
-            gh issue edit "${keeper_number}" \
+            gh issue edit --repo "${GITHUB_REPOSITORY}" "${keeper_number}" \
               --title "${ISSUE_TITLE}" \
               --body-file "${body_file}"
           fi
 
           for duplicate_number in "${matching_issues[@]:1}"; do
-            gh issue close "${duplicate_number}" --reason 'not planned'
+            gh issue close --repo "${GITHUB_REPOSITORY}" "${duplicate_number}" --reason 'not planned'
           done
 
           echo "Outage recorded in issue #${keeper_number}."
@@ -159,7 +168,7 @@ jobs:
           # step above: a failed listing must fail this step, not read as
           # "nothing to close" and leave the outage issue open forever.
           open_issues="$(
-            gh issue list --state open --limit 1000 --json number,title \
+            gh issue list --repo "${GITHUB_REPOSITORY}" --state open --limit 1000 --json number,title \
               --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}'
           )"
 
@@ -176,12 +185,12 @@ jobs:
           # Comment before closing so the issue keeps the recovery timestamp —
           # the gap between the open and this comment IS the outage duration.
           for issue_number in "${matching_issues[@]}"; do
-            gh issue comment "${issue_number}" --body "$(
+            gh issue comment --repo "${GITHUB_REPOSITORY}" "${issue_number}" --body "$(
               printf 'Recovered: `%s` returned `status: ok` / `database: connected` at %s.\n\nRun: %s/%s/actions/runs/%s' \
                 "${HEALTH_URL}" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
                 "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
             )"
-            gh issue close "${issue_number}" --reason 'completed'
+            gh issue close --repo "${GITHUB_REPOSITORY}" "${issue_number}" --reason 'completed'
             echo "Closed recovered outage issue #${issue_number}."
           done
 

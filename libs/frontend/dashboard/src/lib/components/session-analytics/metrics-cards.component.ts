@@ -1,6 +1,9 @@
 import { Component, ChangeDetectionStrategy, input } from '@angular/core';
 import { AggregateTotals } from '../../services/session-analytics-state.service';
-import { formatCost, formatTokenCount } from '../../utils/format.utils';
+import {
+  formatEstimatedCost,
+  formatTokenCount,
+} from '../../utils/format.utils';
 
 /**
  * MetricsCardsComponent
@@ -22,14 +25,18 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
     >
       <div
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20"
+        [title]="estimateLabel"
       >
         <div
           class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1"
         >
-          Total Cost
+          Est. Total Cost
         </div>
-        <div class="text-xl font-semibold text-success tabular-nums">
-          {{ formatCost(aggregates().totalCost) }}
+        <div
+          class="text-xl font-semibold text-success tabular-nums"
+          data-testid="metrics-total-cost"
+        >
+          {{ costText(aggregates().totalCost) }}
         </div>
       </div>
 
@@ -92,7 +99,7 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
           Avg / Session
         </div>
         <div class="text-xl font-semibold text-base-content-muted tabular-nums">
-          {{ formatCost(aggregates().avgCostPerSession) }}
+          {{ costText(aggregates().avgCostPerSession) }}
         </div>
       </div>
     </div>
@@ -101,6 +108,15 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
 export class MetricsCardsComponent {
   readonly aggregates = input.required<AggregateTotals>();
 
-  readonly formatCost = formatCost;
+  readonly estimateLabel = 'Estimated from recorded usage and current rate card';
   readonly formatTokenCount = formatTokenCount;
+
+  /**
+   * A null estimate is "…" while pages are still arriving and "Unknown" once
+   * they have all landed — never $0.
+   */
+  costText(cost: number | null): string {
+    if (cost === null && this.aggregates().pendingSessionCount > 0) return '…';
+    return formatEstimatedCost(cost);
+  }
 }

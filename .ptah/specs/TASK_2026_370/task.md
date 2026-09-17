@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: bugfix
 title: SdkMessageTransformer singleton shares per-stream state across concurrent chat sessions
 description: >-

@@ -67,6 +67,8 @@ type MockGitInfo = jest.Mocked<
   Pick<
     GitInfoService,
     | 'getGitInfo'
+    | 'reviewChanges'
+    | 'reviewFile'
     | 'getBranches'
     | 'checkout'
     | 'stashList'
@@ -85,6 +87,23 @@ function createMockGitInfo(): MockGitInfo {
       isGitRepo: true,
       branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
       files: [],
+    }),
+    reviewChanges: jest.fn().mockResolvedValue({
+      success: true,
+      base: { name: 'main', sha: 'a'.repeat(40) },
+      head: { name: 'feature', sha: 'b'.repeat(40) },
+      mergeBaseSha: 'a'.repeat(40),
+      files: [],
+      totals: { additions: 0, deletions: 0, binaryFiles: 0 },
+    }),
+    reviewFile: jest.fn().mockResolvedValue({
+      success: true,
+      path: 'src/a.ts',
+      originalPath: 'src/a.ts',
+      baseSha: 'a'.repeat(40),
+      headSha: 'b'.repeat(40),
+      original: { outcome: 'content', content: 'old' },
+      modified: { outcome: 'content', content: 'new' },
     }),
     getBranches: jest.fn().mockResolvedValue({
       current: 'main',
@@ -198,8 +217,8 @@ function getHandler(
 // ===========================================================================
 
 describe('GitRpcHandlers.METHODS coverage invariant', () => {
-  it('contains exactly 18 entries (9 original + 6 from TASK_2026_111 + git:push + git:diffFile + git:applyHunks)', () => {
-    expect(GitRpcHandlers.METHODS).toHaveLength(18);
+  it('contains exactly 20 entries including the two historical review reads', () => {
+    expect(GitRpcHandlers.METHODS).toHaveLength(20);
   });
 
   it('contains git:push', () => {
@@ -249,7 +268,7 @@ describe('GitRpcHandlers.METHODS coverage invariant', () => {
 // ===========================================================================
 
 describe('GitRpcHandlers.register()', () => {
-  it('registers all 17 methods into the RpcHandler', () => {
+  it('registers all methods into the RpcHandler', () => {
     const { handlers, rpc } = buildSuite();
     handlers.register();
 
@@ -334,6 +353,76 @@ describe('git:info handler', () => {
 // ===========================================================================
 // git:push
 // ===========================================================================
+
+describe('historical review handlers', () => {
+  it('validates refs and delegates a registered workspace review', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:reviewChanges');
+
+    await handler({
+      workspaceRoot: '/workspace',
+      base: 'main',
+      head: 'feature',
+    });
+
+    expect(gitInfo.reviewChanges).toHaveBeenCalledWith(
+      '/workspace',
+      'main',
+      'feature',
+    );
+  });
+
+  it.each([
+    { base: '--output=/tmp/x', head: 'main' },
+    { base: 'main', head: '' },
+    { base: 'main', head: 'feature', extra: true },
+  ])('rejects malformed review refs without invoking git', async (params) => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const result = (await getHandler(rpc, 'git:reviewChanges')(params)) as {
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(gitInfo.reviewChanges).not.toHaveBeenCalled();
+  });
+
+  it('rejects a well-formed but unissued/unregistered review file boundary', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const result = (await getHandler(
+      rpc,
+      'git:reviewFile',
+    )({
+      workspaceRoot: '/elsewhere',
+      baseSha: 'a'.repeat(40),
+      headSha: 'b'.repeat(40),
+      path: 'src/a.ts',
+    })) as { success: boolean };
+
+    expect(result.success).toBe(false);
+    expect(gitInfo.reviewFile).not.toHaveBeenCalled();
+  });
+
+  it.each(['../secret', '/absolute', 'src//a.ts'])(
+    'rejects unsafe review path %s',
+    async (path) => {
+      const { handlers, rpc, gitInfo } = buildSuite();
+      handlers.register();
+      const result = (await getHandler(
+        rpc,
+        'git:reviewFile',
+      )({
+        baseSha: 'a'.repeat(40),
+        headSha: 'b'.repeat(40),
+        path,
+      })) as { success: boolean };
+      expect(result.success).toBe(false);
+      expect(gitInfo.reviewFile).not.toHaveBeenCalled();
+    },
+  );
+});
 
 describe('git:push handler', () => {
   it('returns { success: false, error } when workspace root is null', async () => {

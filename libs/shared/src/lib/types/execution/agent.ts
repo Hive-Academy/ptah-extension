@@ -119,6 +119,18 @@ export interface ExecutionChatMessage {
   /** Number of inline images sent with this message */
   readonly imageCount?: number;
 
+  /**
+   * Present ONLY when this turn arrived from another session rather than from
+   * the person watching the tab. The message keeps `role: 'user'` — the role
+   * union is deliberately not widened for a purely presentational difference.
+   *
+   * `label` is display-only text derived from the sender's self-reported
+   * `origin.name`, never from `origin.from`, and it is NOT a verified
+   * identity: any same-user process can author it. The bubble that renders it
+   * must say so.
+   */
+  readonly inboundPeer?: { readonly label: string };
+
   /** Session ID this message belongs to */
   readonly sessionId?: string;
 

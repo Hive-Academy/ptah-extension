@@ -98,7 +98,8 @@ export class CompactionMarkerComponent {
     const pre = this.preTokens();
     const post = this.postTokens();
     if (pre === null || post === null) return null;
-    const base = `shrank ${this.format(pre)} → ${this.format(post)} tokens`;
+    const prefix = pre > post ? 'shrank ' : '';
+    const base = `${prefix}${this.format(pre)} → ${this.format(post)} tokens`;
     const ms = this.durationMs();
     if (ms === null) return base;
     return `${base} in ${this.formatDuration(ms)}`;

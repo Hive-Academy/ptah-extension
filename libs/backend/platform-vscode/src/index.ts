@@ -15,5 +15,12 @@ export { VscodeUserInteraction } from './implementations/vscode-user-interaction
 export { VscodeOutputChannel } from './implementations/vscode-output-channel';
 export { VscodeCommandRegistry } from './implementations/vscode-command-registry';
 export { VscodeEditorProvider } from './implementations/vscode-editor-provider';
+export {
+  VscodeEditorLauncher,
+  type VscodeEditorApi,
+  type VscodeEditorLauncherOptions,
+} from './implementations/vscode-editor-launcher';
 export { VscodeDiagnosticsProvider } from './implementations/vscode-diagnostics-provider';
 export { VscodeHttpServerProvider } from './implementations/vscode-http-server-provider';
+export { VscodeWorkspaceWatcher } from './implementations/vscode-workspace-watcher';
+export type { VscodeWorkspaceWatcherOptions } from './implementations/vscode-workspace-watcher';

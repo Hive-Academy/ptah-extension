@@ -59,6 +59,7 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'file:exists',
   'file:read',
   'file:save-dialog',
+  'file:viewContent',
   'gateway:approveBinding',
   'gateway:attachSession',
   'gateway:blockBinding',
@@ -146,6 +147,9 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'skillSynthesis:rejectByPattern',
   'skillSynthesis:revertEnhancement',
   'skillSynthesis:runCurator',
+  // Clone body save — writes into `~/.ptah/user` through
+  // `UserLayerMirrorService`, which this host does not bind.
+  'skillSynthesis:saveCloneBody',
   // Lane config write — counterpart of `getLanes`, same reason.
   'skillSynthesis:setLanes',
   'skillSynthesis:setTriggers',

@@ -99,6 +99,10 @@ export class SessionLifecycleNotifier {
       return;
     }
     const payload: SdkCompactionCompletePayload = parsed.data;
+    this.logger.info('[SessionLifecycleNotifier] Broadcasting PostCompact advisory', {
+      sessionId: payload.sessionId,
+      trigger: payload.trigger,
+    });
     this.webviewManager
       .broadcastMessage(MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE, payload)
       .catch((err: unknown) => {

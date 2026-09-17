@@ -30,9 +30,10 @@ DI: `TOKENS`, `registerVsCodeCoreServices`, `registerVsCodeCorePlatformAgnostic`
 Core: `Logger`, `ErrorHandler`, `ConfigManager`, `MessageValidatorService`, `ValidationError`, `MessageValidationError`, `PtahError`.
 API wrappers: `CommandManager`, `WebviewManager`, `OutputManager`, `StatusBarManager`, `FileSystemManager`.
 Messaging: `RpcHandler`, `RpcUserError`, `verifyRpcRegistration`, `assertRpcRegistration`.
-Diagnostics: `armDiagnostics` (+ `DiagnosticsHandle`), `EventLoopMonitor`, `CpuProfileCapture`, `readMsEnv`, `roundMs` — see "Diagnosing a hang".
+Diagnostics: `armDiagnostics` (+ `DiagnosticsHandle`), `EventLoopMonitor`, `CpuProfileCapture`, `readMsEnv`, `roundMs` — see "Diagnosing a hang". Background work: `BackgroundWorkGovernor`, `DEFAULT_MAX_DEFER_MS`, and the types `BackgroundWorkAdmission`, `BackgroundWorkSignal`, `BackgroundWorkState`, `ForegroundActivitySource`, `WhenClearOptions`, `WhenClearOutcome` — see "Background work yields".
 Degradation: `DegradationReporter`, `MAX_TRACKED_DEGRADATION_CODES`, and the types `DegradationReport`, `DegradationCount`, `DegradationSnapshot` — see "Counting a degradation".
 Services: `SubagentRegistryService`, `WebviewMessageHandlerService`, `AuthSecretsService`, `LicenseService`.
+Git: `GitInfoService`, `execGit`, `DEFAULT_GIT_TIMEOUT_MS`, `WORKTREE_GIT_TIMEOUT_MS`, `DEFAULT_GIT_MAX_OUTPUT_BYTES`, `GIT_STATUS_MAX_OUTPUT_BYTES`, `DEFAULT_GIT_MAX_CONCURRENT`, `MIN_GIT_MAX_CONCURRENT`, `GitOutputLimitError` (`code: 'GIT_OUTPUT_LIMIT'`), `configureGitProcessGate` (+ `GitProcessGateConfig`), and the types `ExecGitOptions`, `ExecGitResult`, `GitGateLane`. Every git child waits in one process-wide gate (TASK_2026_437 C11): at most `PTAH_GIT_MAX_CONCURRENT` live, background-priority and >60 s calls capped at max-1 so interactive reads always have a slot, and a slot is held until the child exits. The gate is a module instance, not DI — `execGit` is a free function called without a container; `registerVsCodeCorePlatformAgnostic` hands it the host logger in all three hosts (first configuration wins).
 Subsystem bring-up: `bringUpSubsystems` (+ `SubsystemBringUpDeps`) — unconditional MCP server start at activation (no license gate). The CLI skill/agent sync callbacks it used to drive were removed in TASK_2026_278 Batch 2; harness propagation is `HarnessReconciler.reconcile`, called from each host's activation path.
 
 ## Diagnosing a hang
@@ -50,17 +51,31 @@ env vars only change thresholds; the CPU profiler stays dormant unless asked.
 
 ### Environment variables
 
-| Variable                 | Default | Effect                                                                       |
-| ------------------------ | ------- | ---------------------------------------------------------------------------- |
-| `PTAH_LOOP_LAG_WARN_MS`  | `250`   | Warn `[event-loop] lag` when a 2 s window's worst delay hits this.           |
-| `PTAH_RPC_SLOW_WARN_MS`  | `2000`  | Warn `[RPC] slow handler` with the method name and duration.                 |
-| `PTAH_MCP_SLOW_WARN_MS`  | `2000`  | Warn `[MCP] slow tool` with the tool name and duration.                      |
-| `PTAH_PROFILE_ON_LAG_MS` | unset   | When set, lag above it auto-captures a 10 s CPU profile (max one per 5 min). |
-| `PTAH_PROFILE_DIR`       | unset   | Override where `.cpuprofile` files are written.                              |
+| Variable                    | Default | Effect                                                                                                                  |
+| --------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `PTAH_LOOP_LAG_WARN_MS`     | `250`   | Warn `[event-loop] lag` when a 2 s window's worst delay hits this.                                                      |
+| `PTAH_RPC_SLOW_WARN_MS`     | `2000`  | Warn `[RPC] slow handler` with the method name and duration.                                                            |
+| `PTAH_MCP_SLOW_WARN_MS`     | `2000`  | Warn `[MCP] slow tool` with the tool name and duration.                                                                 |
+| `PTAH_SQLITE_SLOW_WARN_MS`  | `50`    | Warn `[SQLite] slow statement` with SQL, op, rows and duration.                                                         |
+| `PTAH_HISTORY_SLOW_WARN_MS` | `250`   | Warn `[SessionHistoryReader] slow history read` with the phase split.                                                   |
+| `PTAH_PROFILE_ON_LAG_MS`    | unset   | When set, lag above it auto-captures a 10 s CPU profile (max one per 5 min).                                            |
+| `PTAH_PROFILE_DIR`          | unset   | Override where `.cpuprofile` files are written.                                                                         |
+| `PTAH_GIT_MAX_CONCURRENT`   | `4`     | Live git children process-wide (`exec-git` gate); minimum 2 (lower is raised, logged once); background lane gets max-1. |
 
 A malformed or non-positive value is ignored and the default applies — a typo in
 an env var must never stop the app booting. Note `0` counts as unset: it reads
 like "disable" but would in fact warn on every call.
+
+The two main-thread cost lines exist to measure before moving synchronous work
+off the host thread (TASK_2026_437 C13). `[SQLite] slow statement` comes from
+`persistence-sqlite`'s `slow-statement-timing.ts`, which wraps the one shared
+connection: `run/get/all/iterate`, `exec`, `pragma` and transaction functions
+(BEGIN to COMMIT). It logs the first 120 chars of SQL, at most one line per SQL
+text per minute, with repeats counted in `suppressedSinceLastLog`.
+`[SessionHistoryReader] slow history read` splits a resume into `readMs` (I/O +
+JSONL parse), `projectMs` (synchronous replay, stats and projection) and
+`pricingMs`, with message, agent-session and event counts — at most one line
+per session per minute.
 
 ### Reading the log
 
@@ -103,6 +118,124 @@ itself a suspect), VS Code as soon as the logger exists, the CLI only under
 `--verbose`. Registration alone never starts sampling. Every timer involved is
 `unref()`-ed: a hang detector that keeps the process alive would be a poor
 outcome (see commit `5dc525f02` for that defect class).
+
+### The hang log (`ptah-hang.log`)
+
+`[event-loop] lag` is written by a timer on the very loop it measures, so a
+block that ends in a force-quit or a crash never reaches the log. The hang log
+exists for that case (TASK_2026_437, INV-8). It lives beside the other logs in
+`logsPath` and holds one JSON object per line.
+
+- **`MainLoopWatchdog`** (`src/diagnostics/main-loop-watchdog.ts`, token
+  `TOKENS.MAIN_LOOP_WATCHDOG`). `armDiagnostics` starts it only when the host
+  passes `logsPath`, which all three hosts do. The CLI arms diagnostics only
+  under `--verbose`, so the CLI has the watchdog only under `--verbose` too.
+  Main posts a heartbeat every 1 s. An eval'd `worker_threads` worker
+  (`main-loop-watchdog-source.ts`) appends `{"event":"hang"}` after 5 s with no
+  heartbeat. It writes that line WHILE main is still blocked. When heartbeats
+  come back, it appends `{"event":"recovered","blockedForMs":…}`. Each line
+  carries `breadcrumbs`. `setBreadcrumb(key, value)` sets them, with at most 16
+  keys and 200 characters per value. `armDiagnostics` records `lastLag` from
+  every lag warning. The RPC method in flight is not recorded yet: `RpcHandler`
+  has no breadcrumb hook (plan defect D6). A watchdog that fails to start logs
+  `[diagnostics] main-loop watchdog not armed` and leaves the lag monitor
+  running. The worker swallows a failed append. It ignores a gap when its own
+  timer was late too, because that means the machine slept. A worker that dies
+  on its own logs `[watchdog] worker died — restarting` and is respawned, at
+  most 3 times per 10 min. After that it logs one `[watchdog] degraded` error
+  and stays down.
+- **Size bound**: both writers use `appendHangLogLine`. Before an append, a file
+  at or past 1 MiB (`HANG_LOG_MAX_BYTES`) is renamed to `ptah-hang.log.1`,
+  which replaces the older one. The worker runs a string copy of it
+  (`HANG_LOG_APPEND_SOURCE`). `main-loop-watchdog.spec.ts` checks that the copy
+  and the TS function write the same files. Change both together.
+- **Electron lifecycle lines**
+  (`apps/ptah-electron/src/services/diagnostics/process-lifecycle-recorder.ts`)
+  go to the same file with
+  `"source":"process-lifecycle"`. They cover `child-process-gone`,
+  `render-process-gone` and `window-unresponsive` / `window-responsive` (with
+  `unresponsiveForMs`). Each one also goes to the logger. Renderer
+  `console.warn` / `console.error` go to the logger only, as
+  `[renderer] console.*`. At most 20 lines are kept per 10 s, then one
+  `suppressed` line, with 2 KB per message.
+- **Crash dumps**: Electron starts `crashReporter` with `uploadToServer: false`.
+  Minidumps stay under `app.getPath('crashDumps')`, and each start keeps only the
+  newest 5.
+
+Reading it: a `hang` with no matching `recovered` means the process died while
+it was frozen. A `hang` whose `blockedForMs` matches a `window-unresponsive` →
+`window-responsive` pair means main blocked the window. A `window-unresponsive`
+with no watchdog `hang` points at the renderer, or at a main-loop block shorter
+than 5 s — check `[event-loop] lag` for the same minute.
+
+### Background work yields (`BackgroundWorkGovernor`)
+
+`src/diagnostics/background-work-governor.ts` (TASK_2026_437 C14, INV-7),
+token `TOKENS.BACKGROUND_WORK_GOVERNOR`, registered in every host by
+`registerVsCodeCorePlatformAgnostic` (a caching factory; constructing it starts
+nothing). It answers "may background work start a unit now?" and owns derived
+state only: `clear | foreground-busy | lagging | disposed`.
+
+- **Foreground**: `addForegroundSource({ isForegroundBusy, onForegroundChange })`.
+  agent-sdk's `registerSdkServices` adds `TurnStateForegroundSource` over
+  `SessionTurnStateRegistry` (busy while a session is `generating`, except a
+  record generating longer than 60 min, which is ignored for this signal with
+  one warn). The source is structural because this lib cannot import agent-sdk.
+- **Lag**: `armDiagnostics` calls `attachLagSource(monitor)`, which reads
+  `EventLoopMonitor.onSample` (every 2 s window, not only breaches). Enter
+  `lagging` at p99 > 100 ms for 2 windows, OR at once when one window's max
+  reaches `LAG_FREEZE_MAX_MS` (1 s). The second rule exists because a total
+  freeze yields at most one post-freeze window with a healthy p99, so the
+  2-window rule never fires. Leave at max < 40 ms for 3 windows. The CLI
+  without `--verbose` never arms diagnostics, so it gates on the foreground
+  signal alone.
+- **Freeze visibility**: `monitorEventLoopDelay` can miss a whole freeze. On
+  Node 24.15, a 1.5 s or 5 s block that starts within 20 ms after `reset()`
+  left `max` at 0-33 ms in every window. So `EventLoopMonitor` takes `maxMs` as
+  the larger of the histogram max and its own sampler tick's lateness. The
+  remaining gap is a block shorter than 2 s that starts in that 20 ms slot and
+  ends before the next tick. A machine sleep also reads as one lag window after
+  resume.
+- **API**: `isClear()`, `onChange(listener)` (real transitions only, a throwing
+  listener is logged), `whenClear({ signal?, maxDeferMs?, lane? })` →
+  `'clear' | 'timeout'`. The ceiling defaults to `DEFAULT_MAX_DEFER_MS`
+  (10 min); at it the waiter resolves `'timeout'` and the work runs (R-P7:
+  never starved). The `[background-work] deferral ceiling reached — proceeding`
+  line is logged once per lane per deferral episode (an episode ends at the
+  next `clear`). Abort rejects with `AbortError` and removes the waiter. A
+  throwing foreground source counts as idle (fail open). Ceiling timers are
+  `unref()`-ed.
+- **Shutdown**: `dispose()` is terminal. It moves to `disposed` first, tells
+  listeners `'disposed'`, and rejects pending `whenClear` waiters with
+  `AbortError`. It never releases them as `clear`, because that would start
+  background jobs during quit. The diagnostics handle's `dispose` calls it in
+  Electron (`shutdown.ts`), VS Code (`deactivate`) and the CLI with `--verbose`.
+  The CLI without `--verbose` disposes it through `disposeDiagnostics`.
+- **Adopters** depend on `BackgroundWorkSignal` (`isClear` + `onChange`) or
+  `whenClear`, and treat a `'disposed'` notification as cancellation. If the
+  governor cannot be resolved, an adopter treats the gate as always clear and
+  reports ONE degradation. First adopter: `InternalQueryConcurrencyGate` in
+  agent-sdk. It governs only the allow-list `GOVERNED_BACKGROUND_LANES`
+  (`memory-curator`, `skill-synthesis`). `default` (wizard, harness, cron),
+  `user-action` (RPC-driven clicks) and any unlisted lane are never governed. A
+  new background lane must be added to that list.
+- **`whenClear` adopters (Batch 17)** depend on `BackgroundWorkAdmission`
+  (`isClear` + `whenClear`, implemented by `BackgroundWorkGovernor`; never a
+  local `Pick` of the class), inject the token `{ isOptional: true }` and treat
+  a missing governor as clear (no degradation event: only bare containers lack
+  it). Each checks `isClear()` first and governs background work only; user- or
+  agent-initiated work never waits: `CodeSymbolIndexer` (before each batch;
+  `userInitiated` opts out — `ptah.code.reindex` and the `indexing:start` /
+  `indexing:resume` clicks set it), `FolderIndexLiveSync` (lost-event file-index
+  rebuild, coalesced while held, started at once when `ensureReadyFor` asks for
+  the folder), `SqliteBackupService` (`daily` only), and the Electron
+  user-layer coalescer (`GOVERNED_USER_LAYER_REASONS`: `content-download-complete`
+  and `skill-repropagation` — a skill re-propagation with no `userInitiated`
+  origin, which `ElectronSkillRepropagation` starts without awaiting; FU-17b).
+  One rejection rule for
+  all of them: `'timeout'` runs the unit; an `AbortError` cancels it quietly
+  (debug/info); any other rejection is a governor defect — warn (once per
+  adopter instance where it could repeat) and run the unit (fail open).
 
 ## Counting a degradation
 
@@ -159,7 +292,7 @@ on its **own** line. Run it with `npx nx run degradation-audit:lint`.
 
 ## Internal Structure
 
-- `src/diagnostics/` — `EventLoopMonitor`, `CpuProfileCapture`, `armDiagnostics`
+- `src/diagnostics/` — `EventLoopMonitor`, `CpuProfileCapture`, `MainLoopWatchdog`, `BackgroundWorkGovernor`, `armDiagnostics`
 - `src/api-wrappers/` — VS Code API wrappers
 - `src/logging/` — `Logger`, `DegradationReporter`
 - `src/error-handling/` — `ErrorHandler`

@@ -18,6 +18,7 @@ import { SqliteBackupService } from '../backup.service';
 import { VecStatusService } from '../vec-status.service';
 import { SqliteIntegrityService } from '../integrity/integrity-check.service';
 import { DbWorkerRunner } from '../integrity/db-worker-runner';
+import { SqlitePageReclaimer } from '../sqlite-page-reclaimer';
 
 /**
  * Register persistence-sqlite services in the supplied container.
@@ -50,6 +51,12 @@ export function registerPersistenceSqliteServices(
     SqliteBackupService,
   );
   container.registerSingleton(PERSISTENCE_TOKENS.VEC_STATUS, VecStatusService);
+  // Stateless over the shared connection; a singleton so every consumer gets
+  // the same instance and the same logger scope.
+  container.registerSingleton(
+    PERSISTENCE_TOKENS.SQLITE_PAGE_RECLAIMER,
+    SqlitePageReclaimer,
+  );
   // Singleton because its single-flight flag IS the "one spawn at a time"
   // guarantee — two instances would be two flags and two workers. It resolves
   // `INTEGRITY_WORKER_PROCESS_FACTORY` optionally, so registering it here is

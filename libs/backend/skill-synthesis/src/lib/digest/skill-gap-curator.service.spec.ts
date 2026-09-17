@@ -561,6 +561,36 @@ describe('SkillGapCuratorService', () => {
     const SPEND = { workspaceRoot: WORKSPACE, allowRewrite: true } as const;
 
     maybe(
+      'marks the rewrite call userInitiated only when the RPC said so (C14)',
+      async () => {
+        // One fresh library per run: a rewrite that landed leaves nothing for
+        // a second run on the same library to author.
+        for (const [request, expected] of [
+          [{ ...SPEND, userInitiated: true }, true],
+          [SPEND, undefined],
+        ] as const) {
+          const db = createDb();
+          try {
+            const lane = makeLaneStub({ '1': AUTHORED });
+            const h = makeHarness(db, null, lane);
+            promoteSkill(h, 'deep-research', RESEARCH_DESCRIPTION);
+            saveVerdict(h, 's-research', 'tests-green', {
+              intent: RESEARCH_INTENT,
+            });
+            seedSuggestion(h, 'deep-research', 'Research things.');
+
+            await h.curator.runDigest(request);
+
+            expect(lane.run).toHaveBeenCalledTimes(1);
+            expect(lane.run.mock.calls[0][0].userInitiated).toBe(expected);
+          } finally {
+            db.close();
+          }
+        }
+      },
+    );
+
+    maybe(
       'authors the clause, on the synthesis lane, in ONE call',
       async () => {
         const db = createDb();

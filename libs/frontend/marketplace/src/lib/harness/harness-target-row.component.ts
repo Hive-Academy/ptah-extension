@@ -3,6 +3,7 @@ import {
   Component,
   computed,
   input,
+  output,
 } from '@angular/core';
 import { Check, LucideAngularModule, Minus } from 'lucide-angular';
 import type { HarnessTargetHealth } from '@ptah-extension/shared';
@@ -14,8 +15,8 @@ import {
 } from './harness-health.model';
 
 /**
- * One target's line in the harness health panel. Pure presentation — it takes a
- * {@link HarnessTargetHealth} and emits nothing.
+ * One target's line in the harness health panel. Pure presentation — it takes
+ * target and host-capability inputs and emits navigation intent.
  *
  * The row exists to keep ONE distinction visible, because conflating the two is
  * what made the old sync silent (defect 12 / 16 of the TASK_2026_278 inventory):
@@ -31,7 +32,7 @@ import {
  * An undetected target is greyed wholesale: it is not installed in this
  * workspace, so its facets are hypothetical.
  *
- * Complexity Level: 1 — one input, two derived views, no state.
+ * Complexity Level: 1 — inputs, one output, two derived views, no state.
  */
 @Component({
   selector: 'ptah-harness-target-row',
@@ -122,21 +123,38 @@ import {
       }
 
       @if (target().overwrittenLocalEdit.length > 0) {
-        <p
-          class="text-[10px] text-base-content-muted"
-          data-testid="harness-target-overwritten"
-        >
-          {{ target().overwrittenLocalEdit.length }} local
-          {{ target().overwrittenLocalEdit.length === 1 ? 'edit' : 'edits' }}
-          replaced from the source. Edit skills in the Ptah user layer so your
-          changes survive the next sync.
-        </p>
+        @if (canOpenDivergedClones()) {
+          <button
+            type="button"
+            class="text-[10px] text-base-content-muted text-left"
+            data-testid="harness-target-overwritten"
+            aria-label="Open the Skills library filtered to diverged entries"
+            (click)="openDivergedClones.emit()"
+          >
+            {{ target().overwrittenLocalEdit.length }} local
+            {{ target().overwrittenLocalEdit.length === 1 ? 'edit' : 'edits' }}
+            replaced from the source. Edit skills in the Ptah user layer so your
+            changes survive the next sync.
+          </button>
+        } @else {
+          <p
+            class="text-[10px] text-base-content-muted"
+            data-testid="harness-target-overwritten"
+          >
+            {{ target().overwrittenLocalEdit.length }} local
+            {{ target().overwrittenLocalEdit.length === 1 ? 'edit' : 'edits' }}
+            replaced from the source. Edit skills in the Ptah user layer so your
+            changes survive the next sync.
+          </p>
+        }
       }
     </div>
   `,
 })
 export class HarnessTargetRowComponent {
   public readonly target = input.required<HarnessTargetHealth>();
+  public readonly canOpenDivergedClones = input(false);
+  public readonly openDivergedClones = output<void>();
 
   protected readonly CheckIcon = Check;
   protected readonly MinusIcon = Minus;

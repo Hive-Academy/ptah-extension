@@ -102,6 +102,7 @@ export const ExecutionChatMessageSchema = z.object({
   nativeUuid: z.string().optional(),
   files: z.array(z.string()).readonly().optional(),
   imageCount: z.number().optional(),
+  inboundPeer: z.object({ label: z.string() }).optional(),
   sessionId: z.string().optional(),
   agentInfo: AgentInfoSchema.optional(),
 });

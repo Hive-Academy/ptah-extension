@@ -3,6 +3,13 @@ title: Changelog
 description: Release notes for the Ptah desktop app.
 ---
 
+## Memory lifecycle update
+
+- Stored salience is now an immutable base used by query-time ranking rather than a value rewritten by decay maintenance.
+- Unused recall memories become archival after 30 days; archival memories are deleted 60 days after their `archived_at` stamp, including their chunks, FTS rows, and vector rows.
+- A recorded use restores an archival memory to recall. Each workspace is capped at 25,000 evictable rows, with archival-first eviction and a 7-day archival grace; pinned, core, and corpus memories are exempt.
+- Destructive lifecycle work pauses when sqlite-vec is unavailable and the `memory_chunks_vec_ad` cleanup trigger exists; without that trigger, deletion proceeds.
+
 ## Hermes Release
 
 - **[Memory](/memory/)** — Letta-style tiered memory (`core` / `recall` / `archival`) with hybrid BM25 + vector search, an LLM curator on PreCompact, and salience-driven decay

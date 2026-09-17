@@ -266,6 +266,37 @@ describe('ChatTranscriptComponent — hidden-transcript reactivity pause', () =>
 
     expect(container.scrollTop).toBe(42);
   });
+
+  it('unpins on a single small scroll up and never pulls the user back', () => {
+    const h = makeHarness();
+    h.fixture.detectChanges();
+    const container: HTMLElement = h.fixture.nativeElement.querySelector(
+      '.chat-scroll-container',
+    );
+    Object.defineProperty(container, 'scrollHeight', { value: 5000 });
+    Object.defineProperty(container, 'clientHeight', { value: 500 });
+    const state = h.component as unknown as { pinnedToBottom: boolean };
+
+    // Pinned at the bottom.
+    container.scrollTop = 4500;
+    h.component.onScroll(new Event('scroll'));
+    expect(state.pinnedToBottom).toBe(true);
+
+    // One wheel tick up — still inside NEAR_BOTTOM_PX, but it is the user.
+    container.scrollTop = 4440;
+    h.component.onScroll(new Event('scroll'));
+    expect(state.pinnedToBottom).toBe(false);
+
+    // Streaming content arrives: the transcript must not re-stick.
+    h.messagesSig.set([makeMessage('m1')]);
+    h.fixture.detectChanges();
+    expect(container.scrollTop).toBe(4440);
+
+    // Scrolling back down near the bottom re-pins.
+    container.scrollTop = 4450;
+    h.component.onScroll(new Event('scroll'));
+    expect(state.pinnedToBottom).toBe(true);
+  });
 });
 
 /**
@@ -712,5 +743,27 @@ describe('ChatTranscriptComponent — transcript ordering (TASK_2026_382 D1)', (
 
     expect(second).toBe(first);
     expect(first.map((m) => m.id)).toEqual(['m1', 'live']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Agent-output link markers (TASK_2026_413 Batch 8c-2)
+//
+// The transcript IS agent output, so it opts its rendered markdown into
+// file-link routing and names the tab whose workspace a relative path belongs
+// to. Both are HOST bindings: they sit outside every `<markdown>` element, so
+// agent-authored HTML can neither opt a surface in nor point it at another
+// workspace (R2/R8). If either disappears, agent file links silently stop
+// working, or start resolving against the wrong root.
+// ---------------------------------------------------------------------------
+describe('ChatTranscriptComponent — agent-output link markers', () => {
+  it('carries the opt-in marker and the tab id on the HOST, not in content', () => {
+    const h = makeHarness();
+    h.fixture.detectChanges();
+    const host = h.fixture.nativeElement as HTMLElement;
+
+    expect(host.hasAttribute('data-ptah-file-links')).toBe(true);
+    expect(host.getAttribute('data-ptah-tab-id')).toBe('tab-1');
+    expect(host.querySelector('markdown[data-ptah-file-links]')).toBeNull();
   });
 });

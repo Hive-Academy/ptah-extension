@@ -62,10 +62,18 @@ export class HarnessConfigStore {
 
     const claudeMdPath = path.join(claudeDir, 'CLAUDE.md');
 
-    await fs.access(claudeMdPath);
-    const backupPath = claudeMdPath + '.bak';
-    await fs.copyFile(claudeMdPath, backupPath);
-    this.logger.info('Backed up existing CLAUDE.md', { backupPath });
+    let backupPath: string | undefined;
+    try {
+      await fs.access(claudeMdPath);
+      const candidateBackupPath = claudeMdPath + '.bak';
+      await fs.copyFile(claudeMdPath, candidateBackupPath);
+      backupPath = candidateBackupPath;
+      this.logger.info('Backed up existing CLAUDE.md', { backupPath });
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
     const content = config.claudeMd.previewContent
       ? config.claudeMd.previewContent
       : this.promptBuilder.buildClaudeMdContent(config);
@@ -75,10 +83,13 @@ export class HarnessConfigStore {
     this.logger.debug('Wrote CLAUDE.md to workspace', {
       path: claudeMdPath,
       contentLength: content.length,
-      backedUp: !!backupPath,
+      backedUp: Boolean(backupPath),
     });
 
-    return { claudeMdPath, backupPath };
+    return {
+      claudeMdPath,
+      ...(backupPath ? { backupPath } : {}),
+    };
   }
 
   /**
@@ -92,8 +103,14 @@ export class HarnessConfigStore {
 
     let existingSettings: Record<string, unknown> = {};
 
-    const raw = await fs.readFile(settingsPath, 'utf-8');
-    existingSettings = JSON.parse(raw) as Record<string, unknown>;
+    try {
+      const raw = await fs.readFile(settingsPath, 'utf-8');
+      existingSettings = JSON.parse(raw) as Record<string, unknown>;
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
     const agentConfig: Record<string, unknown> = {};
     for (const [agentId, override] of Object.entries(
       config.agents.enabledAgents,

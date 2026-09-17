@@ -197,6 +197,7 @@ describe('WaitlistService', () => {
         email: 'lead@example.com',
         notifiedAt: null,
         approvedAt: null,
+        convertedAt: null,
       });
       tx.waitlist.updateMany.mockResolvedValue({ count: 1 });
 
@@ -209,15 +210,23 @@ describe('WaitlistService', () => {
           email: 'lead@example.com',
           notifiedAt: null,
           approvedAt: null,
+          convertedAt: null,
         },
       });
       expect(tx.waitlist.findUnique).toHaveBeenCalledWith({
         where: { id: 'wl-1' },
-        select: { id: true, email: true, notifiedAt: true, approvedAt: true },
+        select: {
+          id: true,
+          email: true,
+          notifiedAt: true,
+          approvedAt: true,
+          convertedAt: true,
+        },
       });
-      // The exact conditional claim of R5 — id AND approvedAt IS NULL.
+      // The exact conditional claim of R5 + the 462 converted guard — id AND
+      // both stamps IS NULL.
       expect(tx.waitlist.updateMany).toHaveBeenCalledWith({
-        where: { id: 'wl-1', approvedAt: null },
+        where: { id: 'wl-1', approvedAt: null, convertedAt: null },
         data: { approvedAt: expect.any(Date) },
       });
       // R5.5: the claim is a transaction write. Nothing may reach the base
@@ -233,6 +242,7 @@ describe('WaitlistService', () => {
         email: 'done@example.com',
         notifiedAt: null,
         approvedAt: new Date('2026-08-01'),
+        convertedAt: null,
       });
       tx.waitlist.updateMany.mockResolvedValue({ count: 0 });
 
@@ -252,6 +262,42 @@ describe('WaitlistService', () => {
       expect(tx.waitlist.updateMany).not.toHaveBeenCalled();
     });
 
+    it('🔴 reports already_paid for a CONVERTED row, and stamps nothing over the conversion (TASK_2026_462 C4)', async () => {
+      // The row paid; `approvedAt` and `convertedAt` are disjoint facts, so
+      // the claim must refuse the free gift rather than corrupt the funnel.
+      // The outcome maps to the pre-existing `already_paid` — the public
+      // five-outcome contract does not grow.
+      const tx = createMockTx();
+      tx.waitlist.findUnique.mockResolvedValue({
+        id: 'wl-5',
+        email: 'paid@example.com',
+        notifiedAt: null,
+        approvedAt: null,
+        convertedAt: new Date('2026-09-01'),
+      });
+      tx.waitlist.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await service.claimForApproval(asTx(tx), 'wl-5');
+
+      expect(result).toEqual({
+        outcome: 'already_paid',
+        row: {
+          id: 'wl-5',
+          email: 'paid@example.com',
+          notifiedAt: null,
+          approvedAt: null,
+          convertedAt: new Date('2026-09-01'),
+        },
+      });
+      // The single claim attempt carried the convertedAt guard — the write
+      // itself is what refused, not a pre-check.
+      expect(tx.waitlist.updateMany).toHaveBeenCalledWith({
+        where: { id: 'wl-5', approvedAt: null, convertedAt: null },
+        data: { approvedAt: expect.any(Date) },
+      });
+      expect(tx.waitlist.updateMany).toHaveBeenCalledTimes(1);
+    });
+
     it('lets exactly ONE of two claimers win the same row (R5.2)', async () => {
       // One shared row, one shared claim counter — the shape a real
       // Read-Committed row lock produces: the loser re-evaluates
@@ -262,6 +308,7 @@ describe('WaitlistService', () => {
         email: 'race@example.com',
         notifiedAt: null,
         approvedAt: null,
+        convertedAt: null,
       };
       tx.waitlist.findUnique.mockResolvedValue(row);
       tx.waitlist.updateMany
@@ -277,15 +324,16 @@ describe('WaitlistService', () => {
 
     it('surfaces the advisory read even on already_approved, so the caller can still name the row', async () => {
       // The findUnique is advisory: it exists ONLY to tell not_found from
-      // already_approved. A racer that stamps between the read and the update
-      // leaves `row.approvedAt` null here — which is exactly why `outcome`, not
-      // `row.approvedAt`, is the truth.
+      // already_approved/already_paid. A racer that stamps between the read
+      // and the update leaves `row.approvedAt` null here — which is exactly
+      // why `outcome`, not `row.approvedAt`, is the truth.
       const tx = createMockTx();
       tx.waitlist.findUnique.mockResolvedValue({
         id: 'wl-4',
         email: 'raced@example.com',
         notifiedAt: new Date('2026-07-01'),
         approvedAt: null,
+        convertedAt: null,
       });
       tx.waitlist.updateMany.mockResolvedValue({ count: 0 });
 
@@ -294,6 +342,56 @@ describe('WaitlistService', () => {
       expect(result.outcome).toBe('already_approved');
       expect(result).toHaveProperty('row.approvedAt', null);
       expect(result).toHaveProperty('row.notifiedAt', new Date('2026-07-01'));
+    });
+
+    it('handles payment race: row read unconverted, update count 0, re-read shows converted → already_paid', async () => {
+      const tx = createMockTx();
+      const initialRow = {
+        id: 'wl-race-pay',
+        email: 'race-pay@example.com',
+        notifiedAt: null,
+        approvedAt: null,
+        convertedAt: null,
+      };
+      const convertedRow = {
+        ...initialRow,
+        convertedAt: new Date('2026-09-17T01:00:00.000Z'),
+      };
+
+      tx.waitlist.findUnique
+        .mockResolvedValueOnce(initialRow)
+        .mockResolvedValueOnce(convertedRow);
+      tx.waitlist.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await service.claimForApproval(asTx(tx), 'wl-race-pay');
+
+      expect(result.outcome).toBe('already_paid');
+      expect(result).toEqual({
+        outcome: 'already_paid',
+        row: convertedRow,
+      });
+      expect(tx.waitlist.findUnique).toHaveBeenCalledTimes(2);
+    });
+
+    it('handles vanished row on claim loss: row read initially, update count 0, re-read shows null → not_found', async () => {
+      const tx = createMockTx();
+      const initialRow = {
+        id: 'wl-vanished',
+        email: 'vanished@example.com',
+        notifiedAt: null,
+        approvedAt: null,
+        convertedAt: null,
+      };
+
+      tx.waitlist.findUnique
+        .mockResolvedValueOnce(initialRow)
+        .mockResolvedValueOnce(null);
+      tx.waitlist.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await service.claimForApproval(asTx(tx), 'wl-vanished');
+
+      expect(result).toEqual({ outcome: 'not_found' });
+      expect(tx.waitlist.findUnique).toHaveBeenCalledTimes(2);
     });
   });
 });

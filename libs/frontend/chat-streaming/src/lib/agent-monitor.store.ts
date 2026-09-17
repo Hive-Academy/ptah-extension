@@ -59,9 +59,6 @@ function readWorkflowFields(src: unknown): WorkflowRunFields {
   return { workflowRunId: s.workflowRunId, workflowName: s.workflowName };
 }
 
-/** Maximum number of simultaneously expanded agent cards */
-const MAX_EXPANDED_AGENTS = 3;
-
 /** Maximum completed/failed agents retained in the store.
  * Only agents with status 'completed' or 'failed' are evicted; 'running' and
  * 'interrupted' agents are always preserved. */
@@ -87,8 +84,6 @@ export interface MonitoredAgent {
   stderr: string;
   exitCode?: number;
   expanded: boolean;
-  /** Order in which this card was expanded (for auto-collapse of oldest). */
-  expandedAt?: number;
   /** Structured output segments from SDK-based adapters (Codex, Copilot). */
   segments: CliOutputSegment[];
   /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering.
@@ -100,6 +95,15 @@ export interface MonitoredAgent {
    *  in place its reference is stable, so this counter is what tells the agent
    *  card to recompute its execution tree. */
   streamRevision: number;
+  /**
+   * Continuation cursor after the last persisted-output page merged into this
+   * card (`undefined` = none merged yet), and whether paging finished. A page is
+   * merged only when its request cursor equals this value, so a load restarted
+   * after a binding change can never append the same page twice.
+   */
+  historyCursor?: string;
+  historyDone?: boolean;
+  restoredHistory?: boolean;
   /** Parent Ptah Claude SDK session that spawned this agent.
    * Mutable: initially set to tab ID, resolved to real SDK UUID
    * when SESSION_ID_RESOLVED fires.
@@ -179,6 +183,12 @@ export interface SubagentRecord {
    * (never downgraded to undefined) across later progress/status/completed merges.
    */
   teammateName?: string;
+  /**
+   * SDK agent type from `agent_start` (`AgentStartEvent.agentType`, e.g.
+   * `software-architect`). Only `agent_start` carries it, so it is set there and
+   * preserved across later progress/status/completed merges.
+   */
+  agentType?: string;
   /** Latest description from progress/status events */
   description?: string;
   /** AI-generated rolling summary from progress events (most recent) */
@@ -267,8 +277,6 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly _panelOpen = signal(false);
   /** Tracks whether the user explicitly closed the panel (prevents auto-reopen) */
   private _userExplicitlyClosed = false;
-  /** Monotonic counter for tracking expand order (oldest = lowest value) */
-  private _expandOrder = 0;
 
   /**
    * Buffer for permission requests that arrive before the agent spawn event.
@@ -369,6 +377,38 @@ export class AgentMonitorStore implements OnDestroy {
    * lookup. Readers prefer this to `agents().find(...)` when scanning is hot.
    */
   readonly agentsById = computed(() => this._byId());
+
+  readonly cliOutputDemand = computed<
+    readonly { readonly sessionId: string; readonly agentId: string }[]
+  >(
+    () => {
+      const demand: { readonly sessionId: string; readonly agentId: string }[] =
+        [];
+      for (const agent of this._agents()) {
+        if (
+          agent.restoredHistory === true &&
+          agent.expanded &&
+          agent.historyDone !== true &&
+          agent.parentSessionId !== undefined
+        ) {
+          demand.push({
+            sessionId: agent.parentSessionId,
+            agentId: agent.agentId,
+          });
+        }
+      }
+      return demand;
+    },
+    {
+      equal: (previous, next) =>
+        previous.length === next.length &&
+        previous.every(
+          (entry, index) =>
+            entry.sessionId === next[index].sessionId &&
+            entry.agentId === next[index].agentId,
+        ),
+    },
+  );
 
   /**
    * Agents filtered to the active tab's session, per `agentVisibleInSession`:
@@ -664,7 +704,6 @@ export class AgentMonitorStore implements OnDestroy {
           stdout: '',
           stderr: '',
           expanded: oldCard.expanded,
-          expandedAt: oldCard.expandedAt,
           segments: [],
           streamEvents: [],
           streamRevision: 0,
@@ -684,7 +723,6 @@ export class AgentMonitorStore implements OnDestroy {
         );
       }
 
-      const order = this._expandOrder++;
       const fresh: MonitoredAgent = {
         agentId: info.agentId,
         cli: info.cli,
@@ -694,7 +732,6 @@ export class AgentMonitorStore implements OnDestroy {
         stdout: '',
         stderr: '',
         expanded: true,
-        expandedAt: order,
         segments: [],
         streamEvents: [],
         streamRevision: 0,
@@ -708,7 +745,7 @@ export class AgentMonitorStore implements OnDestroy {
         workflowRunId: wf.workflowRunId,
         workflowName: wf.workflowName,
       };
-      return this.enforceMaxExpanded(insertAgentSorted(list, fresh));
+      return insertAgentSorted(list, fresh);
     });
     const buffered = this._pendingPermissionBuffer.get(info.agentId);
     if (buffered && buffered.length > 0) {
@@ -906,19 +943,14 @@ export class AgentMonitorStore implements OnDestroy {
       }
 
       const agent = list[foundIndex];
-      const needsExpand = !agent.expanded;
-      const order = needsExpand ? this._expandOrder++ : agent.expandedAt;
-
       const next = [...list];
       next[foundIndex] = {
         ...agent,
         permissionQueue: [...agent.permissionQueue, request],
         expanded: true,
-        expandedAt: order,
       };
 
-      const result = needsExpand ? this.enforceMaxExpanded(next) : next;
-      return result;
+      return next;
     });
     this._panelOpen.set(true);
   }
@@ -961,13 +993,8 @@ export class AgentMonitorStore implements OnDestroy {
       const agent = list[foundIndex];
       const next = [...list];
 
-      if (agent.expanded) {
-        next[foundIndex] = { ...agent, expanded: false, expandedAt: undefined };
-        return next;
-      }
-      const order = this._expandOrder++;
-      next[foundIndex] = { ...agent, expanded: true, expandedAt: order };
-      return this.enforceMaxExpanded(next);
+      next[foundIndex] = { ...agent, expanded: !agent.expanded };
+      return next;
     });
   }
 
@@ -1014,32 +1041,6 @@ export class AgentMonitorStore implements OnDestroy {
     }
 
     return null;
-  }
-
-  /**
-   * Enforce that at most MAX_EXPANDED_AGENTS are expanded at once.
-   * Collapses the oldest expanded card(s) when the limit is exceeded.
-   * Returns a new array (does not mutate the input).
-   */
-  private enforceMaxExpanded(
-    list: readonly MonitoredAgent[],
-  ): MonitoredAgent[] {
-    const expanded = list.filter((a) => a.expanded);
-    if (expanded.length <= MAX_EXPANDED_AGENTS) return [...list];
-    const sortedExpanded = [...expanded].sort(
-      (a, b) => (a.expandedAt ?? 0) - (b.expandedAt ?? 0),
-    );
-    const toCollapse = sortedExpanded.length - MAX_EXPANDED_AGENTS;
-    const collapseIds = new Set<string>();
-    for (let i = 0; i < toCollapse; i++) {
-      collapseIds.add(sortedExpanded[i].agentId);
-    }
-
-    return list.map((a) =>
-      collapseIds.has(a.agentId)
-        ? { ...a, expanded: false, expandedAt: undefined }
-        : a,
-    );
   }
 
   /**
@@ -1094,6 +1095,8 @@ export class AgentMonitorStore implements OnDestroy {
           segments: restoredSegments,
           streamEvents: restoredEvents,
           streamRevision: 0,
+          restoredHistory:
+            restoredSegments.length === 0 && restoredEvents.length === 0,
           cliSessionId: ref.cliSessionId,
           parentSessionId,
           ptahCliId: ref.ptahCliId,
@@ -1106,6 +1109,99 @@ export class AgentMonitorStore implements OnDestroy {
     if (!this._userExplicitlyClosed) {
       this._panelOpen.set(true);
     }
+  }
+
+  /**
+   * How far persisted-output paging got for one card, or null when the card is
+   * absent. A card rebuilt by {@link loadCliSessions} reports no progress.
+   */
+  cliOutputProgress(
+    sessionId: string,
+    agentId: string,
+  ): { readonly cursor: string | undefined; readonly done: boolean } | null {
+    const agent = this._agents().find(
+      (a) => a.agentId === agentId && a.parentSessionId === sessionId,
+    );
+    if (!agent) return null;
+    return { cursor: agent.historyCursor, done: agent.historyDone === true };
+  }
+
+  /**
+   * Merge one bounded persisted-output page into an existing restored card.
+   * Idempotent: a page whose request cursor is not the card's current
+   * `historyCursor` (a replay, or a page after paging finished) is ignored.
+   */
+  appendCliOutputPage(
+    sessionId: string,
+    agentId: string,
+    items: readonly (
+      | { readonly tag: 'segment'; readonly value: CliOutputSegment }
+      | { readonly tag: 'streamEvent'; readonly value: FlatStreamEventUnion }
+    )[],
+    page: {
+      readonly requestCursor: string | undefined;
+      readonly nextCursor: string | undefined;
+      readonly done: boolean;
+    },
+  ): void {
+    this._agents.update((list) =>
+      list.map((agent) => {
+        if (
+          agent.agentId !== agentId ||
+          agent.parentSessionId !== sessionId ||
+          agent.historyDone === true ||
+          agent.historyCursor !== page.requestCursor
+        )
+          return agent;
+        if (items.length === 0) {
+          return {
+            ...agent,
+            historyCursor: page.nextCursor,
+            historyDone: page.done,
+          };
+        }
+        const segments = items
+          .filter((item) => item.tag === 'segment')
+          .map((item) => item.value as CliOutputSegment);
+        const streamEvents = items
+          .filter((item) => item.tag === 'streamEvent')
+          .map((item) => item.value as FlatStreamEventUnion);
+        const nextSegments = capSegments([...agent.segments, ...segments]);
+        const nextEvents = [...agent.streamEvents, ...streamEvents];
+        capStreamEventsInPlace(nextEvents);
+        return {
+          ...agent,
+          segments: nextSegments,
+          streamEvents: nextEvents,
+          historyCursor: page.nextCursor,
+          historyDone: page.done,
+          streamRevision:
+            streamEvents.length > 0
+              ? agent.streamRevision + 1
+              : agent.streamRevision,
+        };
+      }),
+    );
+  }
+
+  resetCliOutputHistory(sessionId: string, agentId: string): void {
+    this._agents.update((list) => {
+      const index = list.findIndex(
+        (a) => a.agentId === agentId && a.parentSessionId === sessionId,
+      );
+      if (index === -1) return list;
+      const agent = list[index];
+      const next = [...list];
+      next[index] = {
+        ...agent,
+        segments: [],
+        streamEvents: [],
+        historyCursor: undefined,
+        historyDone: undefined,
+        streamRevision: agent.streamRevision + 1,
+      };
+      return next;
+    });
   }
 
   /**
@@ -1226,6 +1322,7 @@ export class AgentMonitorStore implements OnDestroy {
         taskId: event.taskId ?? existing?.taskId,
         agentId: event.agentId ?? existing?.agentId,
         teammateName: event.teammateName ?? existing?.teammateName,
+        agentType: event.agentType || existing?.agentType,
         description: event.agentDescription ?? existing?.description,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -1263,6 +1360,7 @@ export class AgentMonitorStore implements OnDestroy {
         taskId: event.taskId ?? existing?.taskId,
         agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
+        agentType: existing?.agentType,
         description: event.description ?? existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: event.lastToolName ?? existing?.lastToolName,
@@ -1295,6 +1393,7 @@ export class AgentMonitorStore implements OnDestroy {
         taskId: event.taskId ?? existing?.taskId,
         agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
+        agentType: existing?.agentType,
         description: event.description ?? existing?.description,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -1327,6 +1426,7 @@ export class AgentMonitorStore implements OnDestroy {
         taskId: event.taskId ?? existing?.taskId,
         agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
+        agentType: existing?.agentType,
         description: existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: existing?.lastToolName,

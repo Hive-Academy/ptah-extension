@@ -54,6 +54,7 @@ import {
   type SkillBudgetStageDay,
   type SkillGapCuratorService,
   type DigestItem,
+  type QueryOrigin,
 } from '@ptah-extension/skill-synthesis';
 import {
   CRON_TOKENS,
@@ -124,6 +125,8 @@ import type {
   SkillSynthesisRebaseCloneResult,
   SkillSynthesisKeepCloneParams,
   SkillSynthesisKeepCloneResult,
+  SkillSynthesisSaveCloneBodyParams,
+  SkillSynthesisSaveCloneBodyResult,
   SkillSynthesisInvocationStatsParams,
   SkillSynthesisInvocationStatsResult,
   SkillSynthesisGetScorecardsParams,
@@ -191,6 +194,7 @@ import {
   SkillRevertEnhancementParamsSchema,
   SkillRebaseCloneParamsSchema,
   SkillKeepCloneParamsSchema,
+  SkillSaveCloneBodyParamsSchema,
   SkillInvocationStatsParamsSchema,
   SkillListCandidatesParamsSchema,
   SkillListSuggestionsParamsSchema,
@@ -216,7 +220,7 @@ const DEFAULT_QUEUE_ITEM_LIMIT = 50;
 const DEFAULT_DRAIN_RUN_LIMIT = 20;
 
 interface ICuratorService {
-  runManual(): Promise<{
+  runManual(origin?: QueryOrigin): Promise<{
     reportPath: string;
     changesQueued: number;
     skippedPinned: number;
@@ -227,7 +231,8 @@ interface ICuratorService {
   acceptSuggestion(
     id: string,
     settings: SkillSynthesisSettings,
-  ): { accepted: boolean; filePath: string };
+    origin?: QueryOrigin,
+  ): Promise<{ accepted: boolean; filePath: string }>;
   dismissSuggestion(id: string): { dismissed: boolean };
 }
 
@@ -260,6 +265,7 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:revertEnhancement',
     'skillSynthesis:rebaseClone',
     'skillSynthesis:keepClone',
+    'skillSynthesis:saveCloneBody',
     'skillSynthesis:invocationStats',
     'skillSynthesis:getScorecards',
     'skillSynthesis:getScorecardDetail',
@@ -368,6 +374,7 @@ export class SkillsSynthesisRpcHandlers {
     this.registerRevertEnhancement();
     this.registerRebaseClone();
     this.registerKeepClone();
+    this.registerSaveCloneBody();
     this.registerInvocationStats();
     this.registerGetScorecards();
     this.registerGetScorecardDetail();
@@ -440,7 +447,12 @@ export class SkillsSynthesisRpcHandlers {
         if (!id) {
           return { promoted: false, reason: 'missing-id', filePath: null };
         }
-        const decision = await this.synthesis.promote(id);
+        // A user is waiting on this RPC: its LLM calls take the ungoverned
+        // user-initiated lane, never behind the background-work governor
+        // (TASK_2026_437 C14, Batch 16b). Only RPC handlers set this.
+        const decision = await this.synthesis.promote(id, {
+          userInitiated: true,
+        });
         return {
           promoted: decision.promoted,
           reason: decision.reason ?? null,
@@ -645,7 +657,10 @@ export class SkillsSynthesisRpcHandlers {
             suggestionsCreated: 0,
           };
         }
-        const result = await this.curator.runManual();
+        // A user is waiting on this RPC: its LLM calls take the ungoverned
+        // user-initiated lane, never behind the background-work governor
+        // (TASK_2026_437 C14, Batch 16b). Only RPC handlers set this.
+        const result = await this.curator.runManual({ userInitiated: true });
         return {
           reportPath: result.reportPath,
           changesQueued: result.changesQueued,
@@ -1021,6 +1036,8 @@ export class SkillsSynthesisRpcHandlers {
         const result = await enhancer.enhance(parsed.slug, settings, {
           manual: true,
           kind,
+          // Skips the background-work governor (C14, Batch 16b).
+          userInitiated: true,
         });
         return {
           changed: result.changed,
@@ -1071,6 +1088,8 @@ export class SkillsSynthesisRpcHandlers {
         const result = await enhancer.generateProposal(parsed.slug, settings, {
           manual: true,
           kind,
+          // Skips the background-work governor (C14, Batch 16b).
+          userInitiated: true,
         });
         return {
           proposed: result.proposed,
@@ -1114,6 +1133,8 @@ export class SkillsSynthesisRpcHandlers {
           kind,
           parsed.slug,
           parsed.proposalId,
+          // The harness refresh after the write skips the governor (FU-17b).
+          { userInitiated: true },
         );
         return { applied: result.applied, historyTs: result.historyTs };
       } catch (error: unknown) {
@@ -1204,6 +1225,8 @@ export class SkillsSynthesisRpcHandlers {
           parsed.slug,
           parsed.historyTs,
           parsed.kind as SkillRegistryKind,
+          // The harness refresh after the restore skips the governor (FU-17b).
+          { userInitiated: true },
         );
         return {
           reverted: result.reverted,
@@ -1306,6 +1329,88 @@ export class SkillsSynthesisRpcHandlers {
         if (error instanceof RpcUserError) throw error;
         this.report(error, 'SkillsSynthesisRpcHandlers.registerKeepClone');
         throw this.toUserError('skillSynthesis:keepClone');
+      }
+    });
+  }
+
+  /**
+   * Replace a clone body with content the user typed in the drawer.
+   *
+   * The Zod schema is the FIRST gate and runs before any path is built;
+   * `assertUnderUserLayer`, inside the mirror, is the second. A registry row
+   * that has no file on disk comes back as `written: false` and is reported as
+   * a user error rather than creating the file — the save never mints a clone.
+   *
+   * No registry write. The mirror leaves `diverged` and `pendingSourceHash`
+   * alone, so the columns `listClones` reads from are still correct.
+   *
+   * Only a write that did NOT happen becomes an error. `metadataIncomplete`
+   * and `reconcileProtected: false` are both committed writes with a caveat,
+   * and they travel on the successful result for the surface to state — a
+   * committed edit reported as a failure is the one outcome worse than an
+   * unqualified success.
+   */
+  private registerSaveCloneBody(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisSaveCloneBodyParams,
+      SkillSynthesisSaveCloneBodyResult
+    >('skillSynthesis:saveCloneBody', async (params) => {
+      const parsed = this.parseParams(
+        SkillSaveCloneBodyParamsSchema,
+        params,
+        'skillSynthesis:saveCloneBody',
+      );
+      try {
+        const registry = this.requireDesktop(this.registry);
+        const mirror = this.requireDesktop(this.mirror);
+        const kind = parsed.kind as SkillRegistryKind;
+        const row = registry.getBySlug(kind, parsed.slug);
+        if (!row) {
+          throw new RpcUserError(
+            `No cloned ${parsed.kind} found for slug "${parsed.slug}".`,
+            'INVALID_PARAMS',
+          );
+        }
+        const result = await mirror.saveCloneBody({
+          kind,
+          slug: parsed.slug,
+          body: parsed.body,
+          workspaceRoot: this.agentScope(),
+        });
+        if (!result.written || result.historyTs === null) {
+          throw new RpcUserError(
+            `No cloned ${parsed.kind} found for slug "${parsed.slug}".`,
+            'INVALID_PARAMS',
+          );
+        }
+        // `metadataIncomplete` is NOT an error branch. The body is committed;
+        // mapping it to an RpcUserError would tell the user their save failed
+        // while their edit sits on disk. It travels on the result so the
+        // surface can qualify the success it reports.
+        if (result.metadataIncomplete) {
+          this.logger.warn(
+            '[skill-synthesis] clone body saved with incomplete metadata',
+            { kind: result.kind, slug: result.slug },
+          );
+        }
+        this.logger.info('[skill-synthesis] clone body saved', {
+          kind: result.kind,
+          slug: result.slug,
+          historyTs: result.historyTs,
+          metadataIncomplete: result.metadataIncomplete,
+          reconcileProtected: result.reconcileProtected,
+        });
+        return {
+          kind: result.kind as SkillCloneKind,
+          slug: result.slug,
+          historyTs: result.historyTs,
+          metadataIncomplete: result.metadataIncomplete,
+          reconcileProtected: result.reconcileProtected,
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerSaveCloneBody');
+        throw this.toUserError('skillSynthesis:saveCloneBody');
       }
     });
   }
@@ -1447,7 +1552,10 @@ export class SkillsSynthesisRpcHandlers {
         this.requireDesktop(this.suggestionStore);
         const curator = this.requireDesktop(this.curator);
         const settings = this.synthesis.readSettings();
-        const result = curator.acceptSuggestion(parsed.id, settings);
+        const result = await curator.acceptSuggestion(parsed.id, settings, {
+          // The harness refresh after the accept skips the governor (FU-17b).
+          userInitiated: true,
+        });
         return { accepted: result.accepted, filePath: result.filePath };
       } catch (error: unknown) {
         if (error instanceof RpcUserError) throw error;
@@ -1574,7 +1682,12 @@ export class SkillsSynthesisRpcHandlers {
       );
       try {
         const ids = parsed.ids.map((id) => id as CandidateId);
-        const decisions = await this.synthesis.promoteBulk(ids);
+        // A user is waiting on this RPC: its LLM calls take the ungoverned
+        // user-initiated lane, never behind the background-work governor
+        // (TASK_2026_437 C14, Batch 16b). Only RPC handlers set this.
+        const decisions = await this.synthesis.promoteBulk(ids, {
+          userInitiated: true,
+        });
         const promoted = decisions.filter((d) => d.promoted).length;
         return { decisions, promoted };
       } catch (error) {
@@ -1783,6 +1896,10 @@ export class SkillsSynthesisRpcHandlers {
           workspaceRoot,
           limit: parsed?.limit,
           allowRewrite: parsed?.allowRewrite,
+          // A user is waiting on this RPC. The rewrite lane still only runs
+          // when `allowRewrite` is `true`, so the automatic digest refreshes
+          // (which send `false`) never spend on either lane (C14, Batch 16b).
+          userInitiated: true,
         });
         return { items: SkillDigestItemsSchema.parse(items.map(toDigestItem)) };
       } catch (error: unknown) {

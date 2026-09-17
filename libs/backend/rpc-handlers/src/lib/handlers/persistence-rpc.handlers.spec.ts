@@ -6,6 +6,7 @@
  *   db:health — unavailable connection (isOpen=false, all nulls)
  *   db:health — fullCheck=true runs integrity_check
  *   db:reset  — happy path (backup → close → rename → reopen)
+ *   db:reset  — rotates reset backups to KEEP_BY_KIND.reset only after a backup
  *   db:reset  — rejects wrong confirm token
  *   db:reset  — rejects when inTransaction=true
  *   db:reset  — EPERM retry succeeds on second attempt
@@ -374,6 +375,54 @@ describe('PersistenceRpcHandlers', () => {
     expect(backup.backup).toHaveBeenCalledWith('reset');
     expect(conn.close).toHaveBeenCalled();
     expect(conn.openAndMigrate).toHaveBeenCalled();
+  });
+
+  // Reset backups are bounded (TASK_2026_440): rotate to KEEP_BY_KIND.reset
+  // after a backup was written, and never when none was.
+  it('db:reset rotates reset backups to 2 after a successful backup', async () => {
+    const { conn } = makeConnection({ isOpen: true });
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+      vecStatus as never,
+      userInteraction as never,
+    );
+    handler.register();
+
+    const result = (await rpcHandler._call('db:reset', {
+      confirm: mintResetChallengeToken(),
+    })) as DbResetResult;
+
+    expect(result.success).toBe(true);
+    expect(backup.rotate).toHaveBeenCalledTimes(1);
+    expect(backup.rotate).toHaveBeenCalledWith('reset', 2);
+    expect(backup.rotate.mock.invocationCallOrder[0]).toBeGreaterThan(
+      backup.backup.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('db:reset does not rotate when the backup resolves null', async () => {
+    const { conn } = makeConnection({ isOpen: true });
+    backup.backup.mockResolvedValue(null);
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+      vecStatus as never,
+      userInteraction as never,
+    );
+    handler.register();
+
+    const result = (await rpcHandler._call('db:reset', {
+      confirm: mintResetChallengeToken(),
+    })) as DbResetResult;
+
+    expect(result.success).toBe(true);
+    expect(result.backupPath).toBeNull();
+    expect(backup.rotate).not.toHaveBeenCalled();
   });
 
   // The backup is AWAITED, and that is the point of this caller (TASK_2026_383).

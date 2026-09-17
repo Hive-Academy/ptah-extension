@@ -11,6 +11,7 @@ import {
   TabViewMode,
   StreamingState,
   SendMessageOptions,
+  type TitleOrigin,
 } from '@ptah-extension/chat-types';
 import {
   ExecutionChatMessage,
@@ -37,13 +38,22 @@ import {
 } from './tab-state.types';
 import { TabSessionBinding } from './tab-session-binding.service';
 import { ConversationRegistry } from './conversation-registry.service';
-import { ClaudeSessionId, TabId } from './identity/ids';
+import { TabId } from './identity/ids';
 import {
   buildPersistedTabState,
+  nextPersistFailure,
+  persistBackedOff,
+  persistBackoffMs,
   persistNeeded,
   sanitizeRestoredTabs,
+  type PersistFailure,
   type PersistedSnapshot,
 } from './tab-persistence';
+import {
+  DEFAULT_SESSION_NAME_PATTERN,
+  deriveSessionTitle,
+  isGenuinelyNewFirstMessage,
+} from './session-identity';
 
 export type { LiveModelStatsPayload, PreloadedStatsPayload };
 
@@ -221,6 +231,23 @@ export class TabManagerService {
   private _lastPersisted: PersistedSnapshot | null = null;
 
   /**
+   * The last failed write, while storage is behind memory (INV-10). A quota
+   * failure repeats on every save, and each attempt re-serializes every tab's
+   * transcript on the main thread first, so the next attempts wait out a
+   * doubling window — see `persistBackedOff` in `tab-persistence.ts`.
+   * Cleared by the next successful write.
+   */
+  private _persistFailure: PersistFailure | null = null;
+
+  /**
+   * A save the back-off skipped since the last attempt. Keeps
+   * `flushPendingSave` from treating skipped work as nothing pending once the
+   * timers have fired, and from retrying twice when several teardown signals
+   * fire in one unload.
+   */
+  private _saveSkippedByBackoff = false;
+
+  /**
    * Per-tab AbortControllers for in-flight streaming RPCs.
    * Keyed by tabId so closing a tab while its stream is still being generated
    * can fire `abort()` and trigger backend stop via the `chat:abort` RPC
@@ -338,14 +365,6 @@ export class TabManagerService {
     () =>
       this._tabs().find((t) => t.id === this._activeTabId())?.modelUsageList ??
       null,
-    { equal: (a, b) => a === b },
-  );
-
-  /** Whether compaction is in progress for the active tab. */
-  readonly activeTabIsCompacting = computed(
-    () =>
-      this._tabs().find((t) => t.id === this._activeTabId())?.isCompacting ??
-      false,
     { equal: (a, b) => a === b },
   );
 
@@ -738,6 +757,7 @@ export class TabManagerService {
       claudeSessionId,
       name: title || claudeSessionId.substring(0, 50),
       title: title || claudeSessionId.substring(0, 50),
+      titleOrigin: 'history',
       order: this._tabs().length,
       status: 'loaded',
       isDirty: false,
@@ -767,15 +787,29 @@ export class TabManagerService {
    * @param name - Optional session name
    * @returns Tab ID
    */
-  createTab(name?: string): string {
+  createTab(
+    name?: string,
+    titleOrigin?: Extract<TitleOrigin, 'default' | 'user'>,
+  ): string {
     const id = this.generateTabId();
     const sessionName = name || 'New Chat';
+    // Existing callers historically passed only a string, including the
+    // timestamp fallback produced by defaultSessionName(). Keep those callers
+    // compatible by recognizing its exact shape. A UI entry point that knows
+    // the user typed the value passes `user` explicitly, so even a deliberately
+    // typed timestamp-shaped name remains user-owned.
+    const initialTitleOrigin =
+      titleOrigin ??
+      (!name || name === 'New Chat' || DEFAULT_SESSION_NAME_PATTERN.test(name)
+        ? 'default'
+        : 'user');
 
     const newTab: TabState = {
       id,
       claudeSessionId: null, // Set by StreamingHandler on first streaming event
       name: sessionName,
       title: sessionName,
+      titleOrigin: initialTitleOrigin,
       order: this._tabs().length,
       status: 'fresh',
       isDirty: false,
@@ -951,6 +985,7 @@ export class TabManagerService {
       claudeSessionId: null,
       name: 'New Chat',
       title: 'New Chat',
+      titleOrigin: 'default',
       status: 'fresh',
       isDirty: false,
       messages: [],
@@ -962,7 +997,6 @@ export class TabManagerService {
       liveModelStats: null,
       modelUsageList: undefined,
       hasLiveSession: false,
-      isCompacting: false,
       compactionCount: 0,
       lastCompactionAt: null,
       lastTerminalReason: undefined,
@@ -1343,9 +1377,19 @@ export class TabManagerService {
    * claudeSessionId so the SDK can assign a real UUID.
    */
   applyNewConversationDraft(tabId: string, name: string): void {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    const derivedTitle =
+      tab?.titleOrigin === 'default' ? deriveSessionTitle(name) : '';
+    const namingUpdates =
+      derivedTitle.length > 0
+        ? {
+            name: derivedTitle,
+            title: derivedTitle,
+            titleOrigin: 'auto' as const,
+          }
+        : {};
     this.updateTabInternal(tabId, {
-      name,
-      title: name,
+      ...namingUpdates,
       status: 'draft',
       isDirty: false,
       claudeSessionId: null,
@@ -1358,13 +1402,11 @@ export class TabManagerService {
   }
 
   /**
-   * Apply auto-derived name/title and switch to `streaming`, clearing dirty.
+   * Switch a new conversation to `streaming`, clearing dirty.
    * Used by the synchronous send path that skips the `draft` intermediate.
    */
-  applyNewConversationStreaming(tabId: string, name: string): void {
+  applyNewConversationStreaming(tabId: string): void {
     this.updateTabInternal(tabId, {
-      name,
-      title: name,
       status: 'streaming',
       isDirty: false,
       hasLiveSession: true,
@@ -1466,10 +1508,33 @@ export class TabManagerService {
     tabId: string,
     nextMessages: ExecutionChatMessage[],
   ): void {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    const firstUserMessage = nextMessages.find(
+      (message) => message.role === 'user',
+    );
+    const shouldDeriveTitle =
+      tab != null &&
+      isGenuinelyNewFirstMessage(tab.titleOrigin, tab.messages, nextMessages);
+    const derivedTitle =
+      shouldDeriveTitle && firstUserMessage
+        ? deriveSessionTitle(firstUserMessage.rawContent ?? '')
+        : '';
+
+    // A persisted origin is deliberate: name/title alone cannot distinguish a
+    // timestamp fallback from a user typing the same text. We stamp `auto` only
+    // with a real title; if derivation is empty, the appended user message makes
+    // replay safe because the pure first-message predicate then stays false.
     this.updateTabInternal(tabId, {
       messages: nextMessages,
       currentMessageId: null,
       streamingState: null,
+      ...(derivedTitle
+        ? {
+            name: derivedTitle,
+            title: derivedTitle,
+            titleOrigin: 'auto' as const,
+          }
+        : {}),
     });
   }
 
@@ -1697,27 +1762,33 @@ export class TabManagerService {
 
   // ----- Compaction -----
 
-  /** Mark compaction in progress for the tab. */
-  markCompactionStart(tabId: string): void {
-    this.updateTabInternal(tabId, { isCompacting: true });
-  }
-
-  /** Clear the per-tab `isCompacting` flag (no other state touched). */
-  clearCompactingFlag(tabId: string): void {
-    this.updateTabInternal(tabId, { isCompacting: false });
-  }
-
   /**
-   * Apply the compaction-safety-timeout reset: clear isCompacting and reset
-   * the streaming state machine so a stuck compaction banner doesn't leave
-   * the tab in a non-recoverable state.
+   * Apply the compaction-safety-timeout reset: reset the streaming state
+   * machine so a stuck compaction doesn't leave the tab in a non-recoverable
+   * state. Compaction in-flight state itself lives in `ConversationRegistry`.
    */
   applyCompactionTimeoutReset(tabId: string): void {
     this.updateTabInternal(tabId, {
-      isCompacting: false,
       status: 'loaded',
       streamingState: null,
       currentMessageId: null,
+    });
+  }
+
+  /**
+   * Seed a verified post-compaction context usage value without touching
+   * transcript, reload, compaction count, or any other tab state.
+   */
+  seedPostCompactionContext(
+    tabId: string,
+    postTokens: number | undefined,
+  ): void {
+    const tab = this.tabs().find((candidate) => candidate.id === tabId);
+    this.updateTabInternal(tabId, {
+      liveModelStats: this.postCompactionContextStats(
+        tab?.liveModelStats,
+        postTokens,
+      ),
     });
   }
 
@@ -1732,8 +1803,15 @@ export class TabManagerService {
     payload: {
       preloadedStats: PreloadedStatsPayload | null | undefined;
       compactionCount: number;
+      postCompactionContextTokens?: number;
     },
   ): void {
+    const tab = this.tabs().find((candidate) => candidate.id === tabId);
+    const liveModelStats = this.postCompactionContextStats(
+      tab?.liveModelStats,
+      payload.postCompactionContextTokens,
+    );
+
     this.updateTabInternal(tabId, {
       messages: [],
       preloadedStats: payload.preloadedStats,
@@ -1747,9 +1825,42 @@ export class TabManagerService {
       currentMessageId: null,
       queuedContent: null,
       queuedOptions: null,
-      liveModelStats: null,
+      liveModelStats,
       modelUsageList: [],
     });
+  }
+
+  private postCompactionContextStats(
+    priorLiveStats: LiveModelStatsPayload | null | undefined,
+    postTokens: number | undefined,
+  ): LiveModelStatsPayload | null {
+    if (
+      typeof postTokens !== 'number' ||
+      !Number.isFinite(postTokens) ||
+      postTokens <= 0 ||
+      priorLiveStats == null ||
+      priorLiveStats.model.length === 0
+    ) {
+      return null;
+    }
+    // The prior finite positive window wins over the pricing lookup: for a
+    // model the registry does not recognize (proxied Codex ids such as
+    // gpt-5.6-sol), falling back to getModelContextWindow would return 0 and
+    // clear the context gauge even though the tab carried a usable window.
+    const priorWindow = priorLiveStats.contextWindow;
+    const contextWindow =
+      Number.isFinite(priorWindow) && priorWindow > 0
+        ? priorWindow
+        : getModelContextWindow(priorLiveStats.model);
+    if (!Number.isFinite(contextWindow) || contextWindow <= 0) {
+      return null;
+    }
+    return {
+      model: priorLiveStats.model,
+      contextUsed: postTokens,
+      contextWindow,
+      contextPercent: Math.round((postTokens / contextWindow) * 1000) / 10,
+    };
   }
 
   /**
@@ -1876,7 +1987,7 @@ export class TabManagerService {
    * success). Sets both name and title atomically.
    */
   setNameAndTitle(tabId: string, name: string, title: string): void {
-    this.updateTabInternal(tabId, { name, title });
+    this.updateTabInternal(tabId, { name, title, titleOrigin: 'user' });
   }
 
   /**
@@ -1905,6 +2016,7 @@ export class TabManagerService {
       claudeSessionId: newSessionId,
       name: title,
       title,
+      titleOrigin: 'history',
       status: 'loaded',
       isDirty: false,
       hasLiveSession: false,
@@ -1915,7 +2027,6 @@ export class TabManagerService {
       preloadedStats: null,
       liveModelStats: null,
       modelUsageList: [],
-      isCompacting: false,
       compactionCount: 0,
     });
 
@@ -2008,6 +2119,7 @@ export class TabManagerService {
       status: 'resuming',
       title: payload.title,
       name: payload.name,
+      titleOrigin: 'history',
       claudeSessionId: payload.sessionId,
       // A resume installs a fresh SDK query. Its revisions do NOT restart —
       // the backend floor is per session id (TASK_2026_371) — but this tab may
@@ -2015,19 +2127,6 @@ export class TabManagerService {
       // revision and accepts the first thing the resumed query emits.
       lastTurnStateRevision: undefined,
       lastTurnStateSessionId: undefined,
-    });
-  }
-
-  /**
-   * Resume-fallback path: install the simple-message replay, drop streaming
-   * state, mark `loaded`. Used when the backend has only legacy messages
-   * (no events array).
-   */
-  applyResumedHistory(tabId: string, messages: ExecutionChatMessage[]): void {
-    this.updateTabInternal(tabId, {
-      messages,
-      status: 'loaded',
-      streamingState: null,
     });
   }
 
@@ -2091,7 +2190,10 @@ export class TabManagerService {
     // Truncate to 100 chars max
     const sanitizedTitle = newTitle.trim().substring(0, 100);
 
-    this.updateTabInternal(tabId, { title: sanitizedTitle });
+    this.updateTabInternal(tabId, {
+      title: sanitizedTitle,
+      titleOrigin: 'user',
+    });
   }
 
   /**
@@ -2108,6 +2210,7 @@ export class TabManagerService {
       id: newTabId,
       name: `${tab.name} (Copy)`,
       title: `${tab.title} (Copy)`,
+      titleOrigin: tab.titleOrigin,
       order: this._tabs().length,
       status: 'loaded', // Duplicated tab is loaded (not streaming)
       isDirty: false,
@@ -2233,7 +2336,9 @@ export class TabManagerService {
    */
   flushPendingSave(): void {
     const pending =
-      this._saveTimeout !== null || this._saveMaxWaitTimeout !== null;
+      this._saveTimeout !== null ||
+      this._saveMaxWaitTimeout !== null ||
+      this._saveSkippedByBackoff;
     if (!pending) return;
 
     if (this._saveTimeout) {
@@ -2241,7 +2346,8 @@ export class TabManagerService {
       this._saveTimeout = null;
     }
     this._clearSaveMaxWait();
-    this._doSaveTabState();
+    // Teardown is the last chance to write, so it ignores a quota back-off.
+    this._doSaveTabState({ ignoreBackoff: true });
   }
 
   private _clearSaveMaxWait(): void {
@@ -2263,8 +2369,15 @@ export class TabManagerService {
    * The in-memory partition mirror is synced either way — it is a `Map.set`,
    * and letting it drift would hand a stale tab set to the next workspace
    * switch.
+   *
+   * After a failed write (typically `QuotaExceededError`) the next attempts
+   * are skipped until the back-off window passes, the tab set shrinks, or the
+   * teardown flush passes `ignoreBackoff` (INV-10). No timer is added: a
+   * skipped save is retried by the next ordinary save trigger.
    */
-  private _doSaveTabState(): void {
+  private _doSaveTabState(options: { ignoreBackoff?: boolean } = {}): void {
+    let attemptedKey: string | null = null;
+    let attemptedTabCount = 0;
     try {
       const tabs = this._tabs();
       const activeTabId = this._activeTabId();
@@ -2276,17 +2389,46 @@ export class TabManagerService {
 
       this.workspacePartition.syncActiveWorkspaceState(tabs, activeTabId);
 
+      if (
+        !options.ignoreBackoff &&
+        persistBackedOff(this._persistFailure, key, tabs.length, Date.now())
+      ) {
+        this._saveSkippedByBackoff = true;
+        return;
+      }
+      this._saveSkippedByBackoff = false;
+
       if (!persistNeeded(this._lastPersisted, key, tabs, activeTabId)) {
         return;
       }
 
+      attemptedKey = key;
+      attemptedTabCount = tabs.length;
       localStorage.setItem(
         key,
         JSON.stringify(buildPersistedTabState(tabs, activeTabId)),
       );
       this._lastPersisted = { key, tabs, activeTabId };
-    } catch (error) {
-      console.warn('[TabManager] Failed to save tab state:', error);
+      this._persistFailure = null;
+    } catch (error: unknown) {
+      if (attemptedKey === null) {
+        console.warn('[TabManager] Failed to save tab state:', error);
+      } else {
+        // One warn per back-off step: inside the window nothing is attempted,
+        // so nothing fails and nothing is logged.
+        this._persistFailure = nextPersistFailure(
+          this._persistFailure,
+          attemptedKey,
+          attemptedTabCount,
+          Date.now(),
+        );
+        console.warn(
+          `[TabManager] Failed to save tab state; retrying in ${
+            persistBackoffMs(this._persistFailure.attempt) / 1000
+          } s unless a tab closes (attempt ${this._persistFailure.attempt + 1}):`,
+          error,
+        );
+      }
     }
   }
 

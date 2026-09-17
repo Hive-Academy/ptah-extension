@@ -4,7 +4,8 @@ import {
   formatLspDefinitions,
   formatDirtyFiles,
   formatAgentStop,
-  formatAgentSteer,
+  formatAgentMessage,
+  formatAgentReport,
   formatWebSearch,
   formatWorktreeRemove,
   formatBrowserScreenshot,
@@ -123,16 +124,54 @@ describe('mcp-response-formatter › formatAgentStop', () => {
   });
 });
 
-describe('mcp-response-formatter › formatAgentSteer', () => {
-  it('renders Yes when steered is true', () => {
-    const out = formatAgentSteer({ agentId: 'a', steered: true });
-    expect(out).toMatch(/Agent Steered/);
-    expect(out).toMatch(/Steered:\*\* Yes/);
+describe('mcp-response-formatter › formatAgentMessage', () => {
+  it('names the mode and the agent', () => {
+    const out = formatAgentMessage({ agentId: 'a', mode: 'steer' });
+    expect(out).toMatch(/Agent Message/);
+    expect(out).toMatch(/Agent ID:\*\* a/);
+    expect(out).toMatch(/Mode:\*\* steer/);
   });
 
-  it('renders No when steered is false', () => {
-    const out = formatAgentSteer({ agentId: 'a', steered: false });
-    expect(out).toMatch(/Steered:\*\* No/);
+  it('states that interrupt-resume discarded the interrupted turn (R-11)', () => {
+    const out = formatAgentMessage({ agentId: 'a', mode: 'interrupt-resume' });
+    expect(out).toMatch(/DISCARDED/);
+  });
+
+  it('renders unsupported as "nothing was delivered", with the detail', () => {
+    const out = formatAgentMessage({
+      agentId: 'a',
+      mode: 'unsupported',
+      detail: 'this agent offers no messaging mechanism',
+    });
+    expect(out).toMatch(/NOTHING was delivered/);
+    expect(out).toMatch(/Detail:\*\* this agent offers no messaging mechanism/);
+  });
+
+  it('omits the detail line when there is no detail', () => {
+    const out = formatAgentMessage({ agentId: 'a', mode: 'queue-next-turn' });
+    expect(out).not.toMatch(/Detail:/);
+  });
+});
+
+describe('mcp-response-formatter › formatAgentReport', () => {
+  it('renders a delivery with its parent session', () => {
+    const out = formatAgentReport({
+      delivered: true,
+      parentSessionId: 'sess-1',
+    });
+    expect(out).toMatch(/Report Delivered/);
+    expect(out).toMatch(/Delivered:\*\* Yes/);
+    expect(out).toMatch(/Parent Session:\*\* sess-1/);
+  });
+
+  it('renders a refusal as a refusal, with its reason', () => {
+    const out = formatAgentReport({
+      delivered: false,
+      reason: 'unattributed-caller',
+    });
+    expect(out).toMatch(/Report NOT Delivered/);
+    expect(out).toMatch(/Delivered:\*\* No/);
+    expect(out).toMatch(/Reason:\*\* unattributed-caller/);
   });
 });
 

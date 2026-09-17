@@ -50,11 +50,13 @@ import {
   SDK_TOKENS,
   SlashCommandInterceptor,
   AuthRequiredError,
+  type SessionEndCallbackRegistry,
   type SessionMcpStatusCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
   isUnsafeWorkspacePath,
+  type IFileSystemProvider,
   type IPlatformInfo,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
@@ -141,6 +143,8 @@ export class ChatSessionService {
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fileSystemProvider: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
     @inject(CHAT_TOKENS.SDK_CONTEXT)
@@ -173,6 +177,8 @@ export class ChatSessionService {
     private readonly mcpStatusRegistry: SessionMcpStatusRegistry,
     @inject(SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY)
     private readonly mcpStatusEvents: SessionMcpStatusCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY)
+    private readonly sessionEndEvents: SessionEndCallbackRegistry,
     /**
      * Optional so a host that never registers the manager resumes exactly as
      * before. Used for one thing: putting the CLI session references this
@@ -183,6 +189,7 @@ export class ChatSessionService {
     private readonly agentProcessManager: AgentProcessManager | null = null,
   ) {
     this.subscribeToMcpStatus();
+    this.subscribeToSessionEnd();
   }
 
   /**
@@ -213,6 +220,18 @@ export class ChatSessionService {
           : this.mcpStatusRegistry.recordNotice(event.sessionId, event.notice);
       if (!record) return;
       this.publishMcpStatus(event.sessionId, record);
+    });
+  }
+
+  /** Persist resume continuity whenever any SDK lifecycle path ends a session. */
+  private subscribeToSessionEnd(): void {
+    this.sessionEndEvents.register(({ sessionId, workspaceRoot }) => {
+      const resumableSdkSubagents =
+        this.subagentRegistry.getResumableBySession(sessionId);
+      return this.sessionMetadataStore.saveResumeState(sessionId, {
+        workingDirectory: workspaceRoot,
+        resumableSdkSubagents,
+      });
     });
   }
 
@@ -719,7 +738,15 @@ export class ChatSessionService {
             'RPC: chat:continue - stop intent detected, interrupting current turn',
             { sessionId, permissionLevel, prompt: prompt.substring(0, 80) },
           );
-          await this.sdkAdapter.interruptCurrentTurn(sessionId);
+          const interrupted =
+            await this.sdkAdapter.interruptCurrentTurn(sessionId);
+          if (!interrupted) {
+            return {
+              success: false,
+              error:
+                'The current turn could not be interrupted safely. Your follow-up was not sent. Retry to resume the session.',
+            };
+          }
         }
       }
       const images = params.images ?? [];
@@ -744,17 +771,65 @@ export class ChatSessionService {
   }
 
   /**
+   * Resolve the SDK process cwd from durable session metadata before any JSONL
+   * lookup or activation. Invalid, unsafe, or deleted paths are ignored and the
+   * caller/current workspace fallback keeps legacy metadata resumable.
+   */
+  private async resolveResumeWorkingDirectory(
+    persistedPath: string | undefined,
+    fallbackPath: string,
+    sessionId: string,
+  ): Promise<string> {
+    if (!persistedPath) return fallbackPath;
+
+    if (!isAuthorizedWorkspace(persistedPath, this.workspaceProvider)) {
+      this.logger.warn(
+        '[RPC] chat:resume - persisted working directory is not authorized; using fallback',
+        { sessionId, persistedPath, fallbackPath },
+      );
+      return fallbackPath;
+    }
+
+    const safety = isUnsafeWorkspacePath(persistedPath, this.platformInfo);
+    if (!safety.ok) {
+      this.logger.warn(
+        '[RPC] chat:resume - persisted working directory is unsafe; using fallback',
+        { sessionId, persistedPath, fallbackPath, reason: safety.reason },
+      );
+      return fallbackPath;
+    }
+
+    try {
+      if (await this.fileSystemProvider.exists(persistedPath)) {
+        return persistedPath;
+      }
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[RPC] chat:resume - persisted working directory could not be checked; using fallback',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return fallbackPath;
+    }
+
+    this.logger.warn(
+      '[RPC] chat:resume - persisted working directory no longer exists; using fallback',
+      { sessionId, persistedPath, fallbackPath },
+    );
+    return fallbackPath;
+  }
+
+  /**
    * chat:resume - Load session history from JSONL files. Returns full
-   * `events` (FlatStreamEventUnion[]) for tree reconstruction plus `messages`
-   * (deprecated, backward compat), aggregated usage stats, resumable
-   * subagents, and any CLI session references.
+   * `events` (FlatStreamEventUnion[]) for tree reconstruction — the only
+   * transcript in the reply (TASK_2026_437 INV-9) — plus aggregated usage
+   * stats, resumable subagents, and any CLI session references.
    */
   async resumeSession(params: ChatResumeParams): Promise<ChatResumeResult> {
     try {
       const { sessionId } = params;
-      const resolvedWorkspacePath =
+      const fallbackWorkspacePath =
         params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
-      if (!resolvedWorkspacePath) {
+      if (!fallbackWorkspacePath) {
         return {
           success: false,
           error:
@@ -771,15 +846,24 @@ export class ChatSessionService {
         };
       }
       const unsafeResume = this.rejectIfUnsafeWorkspace(
-        resolvedWorkspacePath,
+        fallbackWorkspacePath,
         'chat:resume',
       );
       if (unsafeResume) return unsafeResume;
+
+      const metadata = await this.sessionMetadataStore.get(sessionId);
+      const resolvedWorkspacePath = await this.resolveResumeWorkingDirectory(
+        metadata?.workingDirectory,
+        fallbackWorkspacePath,
+        sessionId,
+      );
       this.logger.info('RPC: chat:resume called', {
         sessionId,
         workspacePath: params.workspacePath || '(empty)',
         resolvedWorkspacePath,
-        usedFallback: !params.workspacePath,
+        usedFallback: resolvedWorkspacePath === fallbackWorkspacePath,
+        restoredWorkingDirectory:
+          resolvedWorkspacePath !== fallbackWorkspacePath,
         ptahCliId: params.ptahCliId,
       });
       if (params.ptahCliId) {
@@ -792,14 +876,27 @@ export class ChatSessionService {
       const result = await this.historyReader.readSessionHistory(
         sessionId,
         resolvedWorkspacePath,
+        { checkCompactionBoundary: true },
       );
       const events = result.events;
       const stats = result.stats;
+      const staleSnapshot = result.staleSnapshot;
 
-      const messages = await this.historyReader.readHistoryAsMessages(
-        sessionId,
-        resolvedWorkspacePath,
-      );
+      const restoredFromMetadata =
+        this.subagentRegistry.restoreResumableBySession(
+          sessionId,
+          metadata?.resumableSdkSubagents ?? [],
+        );
+      if (restoredFromMetadata > 0) {
+        this.logger.info(
+          '[RPC] Restored interrupted SDK agents from session metadata',
+          { sessionId, restoredCount: restoredFromMetadata },
+        );
+      }
+
+      // Legacy/additive fallback. The history registrar skips toolCallIds that
+      // the durable snapshot restored above, so old sessions still work without
+      // duplicating current records.
       const registeredFromHistory =
         this.subagentRegistry.registerFromHistoryEvents(events, sessionId);
 
@@ -813,8 +910,10 @@ export class ChatSessionService {
         this.subagentRegistry.getResumableBySession(sessionId);
       let cliSessions: CliSessionReference[] | undefined;
       try {
-        // Rehydrates full agent output from the per-agent keys (TASK_2026_323
-        // B5); must agree with `session:cli-sessions`, the other restore path.
+        // Lean references only (TASK_2026_411): no segments or stream events.
+        // The webview fetches each agent's output in bounded pages through
+        // `session:cli-output-page`. Must agree with `session:cli-sessions`,
+        // the other restore path.
         const restored =
           await this.sessionMetadataStore.getCliSessionsForRestore(sessionId);
         if (restored.length > 0) {
@@ -840,7 +939,6 @@ export class ChatSessionService {
 
       this.logger.info('[RPC] Session history loaded from JSONL', {
         sessionId,
-        messageCount: messages.length,
         eventCount: events.length,
         hasStats: !!stats,
         totalCost: stats?.totalCost,
@@ -888,12 +986,12 @@ export class ChatSessionService {
 
       return {
         success: true,
-        messages,
         events,
         stats,
         resumableSubagents,
         cliSessions,
         activated,
+        ...(staleSnapshot ? { staleSnapshot } : {}),
         ...(activationError ? { activationError } : {}),
         ...(activationErrorCode ? { activationErrorCode } : {}),
       };
@@ -936,6 +1034,10 @@ export class ChatSessionService {
           })),
         });
       }
+
+      await this.sessionMetadataStore.saveResumeState(sessionId, {
+        resumableSdkSubagents: resumableSubagents,
+      });
 
       return {
         success: true,

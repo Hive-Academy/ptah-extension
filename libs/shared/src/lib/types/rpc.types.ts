@@ -34,6 +34,8 @@ export * from './rpc/rpc-output-style.types';
 
 export * from './rpc/rpc-plugin-marketplace.types';
 
+export * from './rpc/rpc-peer-session.types';
+
 import type {
   ExternalInstallParams,
   ExternalInstallResponse,
@@ -88,6 +90,8 @@ import type {
   SessionValidateResult,
   SessionCliSessionsParams,
   SessionCliSessionsResult,
+  SessionCliOutputPageParams,
+  SessionCliOutputPageResult,
   SessionStatsBatchParams,
   SessionStatsBatchResult,
   SessionForkParams,
@@ -152,6 +156,8 @@ import type {
   ProviderRemoveCustomEntryResult,
   ProviderTestCustomEntryParams,
   ProviderTestCustomEntryResult,
+  ProviderGetAccountUsageParams,
+  ProviderGetAccountUsageResult,
   LlmGetProviderStatusParams,
   LlmProviderStatusResponse,
   LlmSetApiKeyParams,
@@ -284,6 +290,10 @@ import type {
 import type {
   GitInfoParams,
   GitInfoResult,
+  GitReviewChangesParams,
+  GitReviewChangesResult,
+  GitReviewFileParams,
+  GitReviewFileResult,
   GitWorktreesParams,
   GitWorktreesResult,
   GitAddWorktreeParams,
@@ -411,6 +421,8 @@ import type {
   SkillSynthesisRebaseCloneResult,
   SkillSynthesisKeepCloneParams,
   SkillSynthesisKeepCloneResult,
+  SkillSynthesisSaveCloneBodyParams,
+  SkillSynthesisSaveCloneBodyResult,
   SkillSynthesisInvocationStatsParams,
   SkillSynthesisInvocationStatsResult,
   SkillSynthesisGetScorecardsParams,
@@ -483,6 +495,8 @@ import type {
   AutocompleteCommandsResult,
   FileOpenParams,
   FileOpenResult,
+  FileViewContentParams,
+  FileViewContentResult,
   LicenseGetStatusParams,
   LicenseGetStatusResponse,
   LicenseSetKeyParams,
@@ -501,6 +515,13 @@ import type {
   PluginConfigState,
   PluginSkillEntry,
 } from './rpc/rpc-misc.types';
+import type {
+  EditorDetectTargetsParams,
+  EditorDetectTargetsResult,
+  EditorOpenFileParams,
+  EditorOpenWorkspaceParams,
+  EditorOpenResult,
+} from './rpc/rpc-editor.types';
 import type {
   DbHealthResult,
   DbResetResult,
@@ -595,6 +616,12 @@ import type {
   OutputStyleDiagnoseParams,
   OutputStyleDiagnoseResult,
 } from './rpc/rpc-output-style.types';
+import type {
+  PeerSessionListParams,
+  PeerSessionListResult,
+  PeerSessionSendParams,
+  PeerSessionSendResult,
+} from './rpc/rpc-peer-session.types';
 
 /**
  * RPC Method Registry
@@ -643,6 +670,10 @@ export interface RpcMethodRegistry {
     params: SessionCliSessionsParams;
     result: SessionCliSessionsResult;
   };
+  'session:cli-output-page': {
+    params: SessionCliOutputPageParams;
+    result: SessionCliOutputPageResult;
+  };
   'session:stats-batch': {
     params: SessionStatsBatchParams;
     result: SessionStatsBatchResult;
@@ -676,6 +707,22 @@ export interface RpcMethodRegistry {
     result: AutocompleteCommandsResult;
   };
   'file:open': { params: FileOpenParams; result: FileOpenResult };
+  'file:viewContent': {
+    params: FileViewContentParams;
+    result: FileViewContentResult;
+  };
+  'editor:detectTargets': {
+    params: EditorDetectTargetsParams;
+    result: EditorDetectTargetsResult;
+  };
+  'editor:openFile': {
+    params: EditorOpenFileParams;
+    result: EditorOpenResult;
+  };
+  'editor:openWorkspace': {
+    params: EditorOpenWorkspaceParams;
+    result: EditorOpenResult;
+  };
   'file:pick': {
     params: { multiple?: boolean };
     result: { files: Array<{ path: string; size: number }> };
@@ -910,6 +957,10 @@ export interface RpcMethodRegistry {
   'provider:testCustomEntry': {
     params: ProviderTestCustomEntryParams;
     result: ProviderTestCustomEntryResult;
+  };
+  'provider:getAccountUsage': {
+    params: ProviderGetAccountUsageParams;
+    result: ProviderGetAccountUsageResult;
   };
   'chat:subagent-query': {
     params: SubagentQueryParams;
@@ -1398,6 +1449,14 @@ export interface RpcMethodRegistry {
     result: { success: boolean };
   };
   'git:info': { params: GitInfoParams; result: GitInfoResult };
+  'git:reviewChanges': {
+    params: GitReviewChangesParams;
+    result: GitReviewChangesResult;
+  };
+  'git:reviewFile': {
+    params: GitReviewFileParams;
+    result: GitReviewFileResult;
+  };
   'git:worktrees': { params: GitWorktreesParams; result: GitWorktreesResult };
   'git:addWorktree': {
     params: GitAddWorktreeParams;
@@ -1719,6 +1778,10 @@ export interface RpcMethodRegistry {
   'skillSynthesis:keepClone': {
     params: SkillSynthesisKeepCloneParams;
     result: SkillSynthesisKeepCloneResult;
+  };
+  'skillSynthesis:saveCloneBody': {
+    params: SkillSynthesisSaveCloneBodyParams;
+    result: SkillSynthesisSaveCloneBodyResult;
   };
   'skillSynthesis:invocationStats': {
     params: SkillSynthesisInvocationStatsParams;
@@ -2073,6 +2136,14 @@ export interface RpcMethodRegistry {
   'outputStyle:diagnose': {
     params: OutputStyleDiagnoseParams;
     result: OutputStyleDiagnoseResult;
+  };
+  'peerSession:list': {
+    params: PeerSessionListParams;
+    result: PeerSessionListResult;
+  };
+  'peerSession:send': {
+    params: PeerSessionSendParams;
+    result: PeerSessionSendResult;
   };
 }
 
@@ -2588,12 +2659,10 @@ export interface SkillSynthesisSettingsDto {
   dedupCosineThreshold: number;
   maxActiveSkills: number;
   candidatesDir: string;
-  eligibilityMinTurns: number;
   evictionDecayRate: number;
   generalizationContextThreshold: number;
   dedupClusterThreshold: number;
   prefilterMinEdits: number;
-  prefilterMinChars: number;
   prefilterMinToolUses: number;
   judgeEnabled: boolean;
   minJudgeScore: number;
@@ -3306,6 +3375,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:rename': true,
   'session:validate': true,
   'session:cli-sessions': true,
+  'session:cli-output-page': true,
   'session:stats-batch': true,
   'session:forkSession': true,
   'session:rewindFiles': true,
@@ -3315,6 +3385,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'autocomplete:agents': true,
   'autocomplete:commands': true,
   'file:open': true,
+  'file:viewContent': true,
+  'editor:detectTargets': true,
+  'editor:openFile': true,
+  'editor:openWorkspace': true,
   'file:pick': true,
   'file:pick-images': true,
   'config:model-switch': true,
@@ -3373,6 +3447,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:updateCustomEntry': true,
   'provider:removeCustomEntry': true,
   'provider:testCustomEntry': true,
+  'provider:getAccountUsage': true,
   'chat:subagent-query': true,
   'subagent:send-message': true,
   'subagent:stop': true,
@@ -3465,6 +3540,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'webSearch:getConfig': true,
   'webSearch:setConfig': true,
   'git:info': true,
+  'git:reviewChanges': true,
+  'git:reviewFile': true,
   'git:worktrees': true,
   'git:addWorktree': true,
   'git:removeWorktree': true,
@@ -3566,6 +3643,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:revertEnhancement': true,
   'skillSynthesis:rebaseClone': true,
   'skillSynthesis:keepClone': true,
+  'skillSynthesis:saveCloneBody': true,
   'skillSynthesis:invocationStats': true,
   'skillSynthesis:getScorecards': true,
   'skillSynthesis:getScorecardDetail': true,
@@ -3677,6 +3755,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'outputStyle:save': true,
   'outputStyle:delete': true,
   'outputStyle:diagnose': true,
+
+  'peerSession:list': true,
+  'peerSession:send': true,
 };
 
 /**

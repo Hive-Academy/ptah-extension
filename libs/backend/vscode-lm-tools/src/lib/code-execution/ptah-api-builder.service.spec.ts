@@ -179,6 +179,13 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
   McpInstallService: class McpInstallServiceStub {},
   SmitheryRegistrySource: class SmitheryRegistrySourceStub {},
   SkillsShApiClient: class SkillsShApiClientStub {},
+  // A VALUE, not a type: the constructor's `@inject` decorator dereferences
+  // `CLI_AGENT_RUNTIME_TOKENS.AGENT_REPORT_ROUTER` at class-definition time,
+  // so the mocked barrel has to carry it (TASK_2026_402).
+  CLI_AGENT_RUNTIME_TOKENS: {
+    AGENT_REPORT_ROUTER: Symbol.for('AgentReportRouter'),
+    AGENT_ROLE_RESOLVER: Symbol.for('AgentRoleResolver'),
+  },
 }));
 
 import * as namespaceBuilders from './namespace-builders';
@@ -193,6 +200,7 @@ import type {
   IDiagnosticsProvider,
   ISecretStorage,
 } from '@ptah-extension/platform-core';
+import type { IMemoryUsageRecorder } from '@ptah-extension/memory-contracts';
 import type {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
@@ -210,8 +218,10 @@ import type {
 } from '@ptah-extension/workspace-intelligence';
 import type {
   AgentProcessManager,
+  AgentRoleResolver,
   CliDetectionService,
 } from '@ptah-extension/cli-agent-runtime';
+import type { AgentNamespaceDependencies } from './namespace-builders/agent-namespace.builder';
 
 const PLATFORM_ROOT = 'D:\\platform-root';
 const SESSION_ROOT = 'D:\\session-root';
@@ -309,6 +319,8 @@ function spyOnEveryNamespaceBuilder(): jest.Mock[] {
 function buildTestBuilder(
   rawProvider: IWorkspaceProvider,
   sessionManager: ReturnType<typeof makeSessionManager>,
+  agentRoleResolver?: AgentRoleResolver,
+  memoryUsageRecorder?: IMemoryUsageRecorder,
 ): PtahAPIBuilder {
   return new PtahAPIBuilder(
     {} as unknown as WorkspaceAnalyzerService,
@@ -338,6 +350,7 @@ function buildTestBuilder(
     undefined, // harnessReconciler
     undefined, // ptahCliRegistry
     undefined, // memorySearch
+    memoryUsageRecorder,
     undefined, // memoryStore
     undefined, // knowledgeAgent
     undefined, // codeSymbolReader
@@ -350,6 +363,8 @@ function buildTestBuilder(
     undefined, // authSecretsService
     undefined, // taskWriter
     undefined, // taskIndex
+    undefined, // agentReportRouter
+    agentRoleResolver,
     // diagnosticsCacheInvalidator — required, and started by the constructor.
     // This suite is about namespace root resolution, so the collaborator is a
     // stub; the subscription itself is covered by
@@ -361,6 +376,26 @@ function buildTestBuilder(
 describe('PtahAPIBuilder.build() — session-aware root resolution (criterion 6)', () => {
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('passes the optional memory usage recorder getter to the memory namespace', () => {
+    const usage: IMemoryUsageRecorder = { recordUse: jest.fn() };
+    const builder = buildTestBuilder(
+      makeRawWorkspaceProvider(),
+      makeSessionManager(),
+      undefined,
+      usage,
+    );
+
+    builder.build();
+
+    const memoryBuilder = namespaceBuilders.buildMemoryNamespace as jest.Mock;
+    const dependencies = memoryBuilder.mock.calls[0][0] as {
+      getMemoryUsageRecorder: () => IMemoryUsageRecorder | undefined;
+      logger?: { warn(message: string): void };
+    };
+    expect(dependencies.getMemoryUsageRecorder()).toBe(usage);
+    expect(typeof dependencies.logger?.warn).toBe('function');
   });
 
   it('resolves the calling session root, never the raw process-global provider root, from every root-capable namespace bag it constructs', () => {
@@ -432,5 +467,90 @@ describe('PtahAPIBuilder.build() — session-aware root resolution (criterion 6)
     // this dependency — never `getWorkspaceRoot()`. Legitimately excluded from
     // the root-resolution assertion above.
     expect(deps.workspaceProvider).toBe(rawProvider);
+  });
+});
+
+describe('PtahAPIBuilder.build() — agent role resolver wiring', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function buildAgentDeps(
+    agentRoleResolver?: AgentRoleResolver,
+  ): AgentNamespaceDependencies {
+    const builder = buildTestBuilder(
+      makeRawWorkspaceProvider(),
+      makeSessionManager(),
+      agentRoleResolver,
+    );
+    builder.build();
+    const mockedBuilder =
+      namespaceBuilders.buildAgentNamespace as unknown as jest.Mock;
+    expect(mockedBuilder).toHaveBeenCalledTimes(1);
+    return mockedBuilder.mock.calls[0][0] as AgentNamespaceDependencies;
+  }
+
+  it('resolveAgentRole delegates to the injected resolver', async () => {
+    const definition = {
+      name: 'code-logic-reviewer',
+      body: 'Review logic.',
+      sourcePath: 'D:\\ws\\.claude\\agents\\code-logic-reviewer.md',
+      bytes: 13,
+    };
+    const resolver = {
+      resolve: jest.fn().mockResolvedValue(definition),
+      listRoles: jest.fn(),
+    };
+    const deps = buildAgentDeps(resolver as unknown as AgentRoleResolver);
+
+    await expect(
+      deps.resolveAgentRole?.('D:\\ws', 'code-logic-reviewer'),
+    ).resolves.toBe(definition);
+    expect(resolver.resolve).toHaveBeenCalledWith(
+      'D:\\ws',
+      'code-logic-reviewer',
+    );
+  });
+
+  it('resolveAgentRole propagates a resolver failure unchanged', async () => {
+    const failure = new Error('unknown role');
+    const resolver = {
+      resolve: jest.fn().mockRejectedValue(failure),
+      listRoles: jest.fn(),
+    };
+    const deps = buildAgentDeps(resolver as unknown as AgentRoleResolver);
+
+    await expect(deps.resolveAgentRole?.('D:\\ws', 'nope')).rejects.toBe(
+      failure,
+    );
+  });
+
+  it('resolveAgentRole throws a NAMED error when no resolver is registered', async () => {
+    const deps = buildAgentDeps(undefined);
+
+    expect(deps.resolveAgentRole).toBeDefined();
+    await expect(
+      deps.resolveAgentRole?.('D:\\ws', 'code-logic-reviewer'),
+    ).rejects.toThrow(/Agent roles are unavailable/);
+  });
+
+  it('listAgentRoles delegates to the injected resolver', async () => {
+    const resolver = {
+      resolve: jest.fn(),
+      listRoles: jest.fn().mockResolvedValue(['architect', 'reviewer']),
+    };
+    const deps = buildAgentDeps(resolver as unknown as AgentRoleResolver);
+
+    await expect(deps.listAgentRoles?.('D:\\ws')).resolves.toEqual([
+      'architect',
+      'reviewer',
+    ]);
+    expect(resolver.listRoles).toHaveBeenCalledWith('D:\\ws');
+  });
+
+  it('listAgentRoles returns [] when no resolver is registered', async () => {
+    const deps = buildAgentDeps(undefined);
+
+    await expect(deps.listAgentRoles?.('D:\\ws')).resolves.toEqual([]);
   });
 });

@@ -37,7 +37,8 @@ const MCP_TOOLS = [
   { name: 'agent_spawn', description: 'Spawn a rival CLI agent.' },
   { name: 'agent_status', description: 'Report agent status.' },
   { name: 'agent_read', description: 'Read agent stdout.' },
-  { name: 'agent_steer', description: 'Steer a running agent.' },
+  { name: 'agent_message', description: 'Message a running agent.' },
+  { name: 'agent_report', description: 'Report back to the spawning session.' },
   { name: 'agent_stop', description: 'Stop an agent.' },
   { name: 'agent_list', description: 'List available rival CLIs.' },
   { name: 'session_submit', description: 'Submit a full task to Ptah.' },
@@ -111,12 +112,13 @@ describe('buildSessionDescribe', () => {
       });
 
       expect(result.mode).toBe('mcp-serve');
-      expect(result.catalog.tools).toHaveLength(7);
+      expect(result.catalog.tools).toHaveLength(8);
       expect(result.catalog.tools.map((t) => t.name)).toEqual([
         'agent_spawn',
         'agent_status',
         'agent_read',
-        'agent_steer',
+        'agent_message',
+        'agent_report',
         'agent_stop',
         'agent_list',
         'session_submit',

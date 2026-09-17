@@ -18,6 +18,7 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type {
   IMemoryReader,
   IMemoryLister,
+  IMemoryUsageRecorder,
   MemoryHit,
   MemoryHitPage,
   MemoryListPage,
@@ -97,9 +98,17 @@ function makeInjector(
   lister: IMemoryLister = makeLister(),
   workspace: IWorkspaceProvider = makeWorkspace(),
   corpus: CorpusReader | null = null,
+  usage: IMemoryUsageRecorder | null = null,
 ): MemoryPromptInjector {
   const logger = createMockLogger() as unknown as Logger;
-  return new MemoryPromptInjector(logger, reader, lister, workspace, corpus);
+  return new MemoryPromptInjector(
+    logger,
+    reader,
+    lister,
+    workspace,
+    usage,
+    corpus,
+  );
 }
 
 function makeCorpus(
@@ -133,6 +142,141 @@ function makeRecord(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
 }
 
 const LONG_QUERY = 'a long enough query string';
+
+describe('MemoryPromptInjector usage recording', () => {
+  it('records exactly the qualifying injected memory ids', async () => {
+    const usage: IMemoryUsageRecorder = { recordUse: jest.fn() };
+    const reader = makeReader({
+      hits: [
+        makeHit({ memoryId: 'kept-1', score: 0.9 }),
+        makeHit({ memoryId: 'filtered', score: 0.04 }),
+        makeHit({ memoryId: 'kept-2', score: 0.05 }),
+      ],
+      bm25Only: false,
+    });
+    const injector = makeInjector(
+      reader,
+      makeLister(),
+      makeWorkspace(),
+      null,
+      usage,
+    );
+
+    await injector.buildBlock(LONG_QUERY);
+
+    expect(usage.recordUse).toHaveBeenCalledTimes(1);
+    expect(usage.recordUse).toHaveBeenCalledWith(['kept-1', 'kept-2']);
+  });
+
+  it('does not record for a short query or for zero qualifying hits', async () => {
+    const usage: IMemoryUsageRecorder = { recordUse: jest.fn() };
+    const reader = makeReader({
+      hits: [makeHit({ score: 0.04 })],
+      bm25Only: false,
+    });
+    const injector = makeInjector(
+      reader,
+      makeLister(),
+      makeWorkspace(),
+      null,
+      usage,
+    );
+
+    await injector.buildBlock('short');
+    await injector.buildBlock(LONG_QUERY);
+
+    expect(usage.recordUse).not.toHaveBeenCalled();
+  });
+
+  it('keeps the returned block when the usage recorder throws', async () => {
+    const usage: IMemoryUsageRecorder = {
+      recordUse: jest.fn(() => {
+        throw new Error('recorder unavailable');
+      }),
+    };
+    const injector = makeInjector(
+      makeReader({ hits: [makeHit()], bm25Only: false }),
+      makeLister(),
+      makeWorkspace(),
+      null,
+      usage,
+    );
+
+    const result = await injector.buildBlock(LONG_QUERY);
+
+    expect(result).toMatch(/^## Recalled Memory Context/);
+  });
+
+  it('does not record when rendering a malformed hit fails', async () => {
+    const usage: IMemoryUsageRecorder = { recordUse: jest.fn() };
+    const malformedHit = makeHit({
+      chunkText: null as unknown as string,
+    });
+    const injector = makeInjector(
+      makeReader({ hits: [malformedHit], bm25Only: false }),
+      makeLister(),
+      makeWorkspace(),
+      null,
+      usage,
+    );
+
+    const result = await injector.buildBlock(LONG_QUERY);
+
+    expect(result).toBe('');
+    expect(usage.recordUse).not.toHaveBeenCalled();
+  });
+
+  it('does not record when memory search rejects', async () => {
+    const usage: IMemoryUsageRecorder = { recordUse: jest.fn() };
+    const reader: IMemoryReader = {
+      search: jest.fn().mockRejectedValue(new Error('DB locked')),
+    };
+    const injector = makeInjector(
+      reader,
+      makeLister(),
+      makeWorkspace(),
+      null,
+      usage,
+    );
+
+    const result = await injector.buildBlock(LONG_QUERY);
+
+    expect(result).toBe('');
+    expect(usage.recordUse).not.toHaveBeenCalled();
+  });
+
+  it('does not record session-start roster entries', async () => {
+    const usage: IMemoryUsageRecorder = { recordUse: jest.fn() };
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      makeLister({ memories: [makeRecord()], total: 1 }),
+      makeWorkspace(),
+      null,
+      usage,
+    );
+
+    await injector.buildSessionStartBlock('D:/ws');
+
+    expect(usage.recordUse).not.toHaveBeenCalled();
+  });
+
+  it('does not record corpus priming entries', async () => {
+    const usage: IMemoryUsageRecorder = { recordUse: jest.fn() };
+    const corpus = makeCorpus({ members: [makeMember()] });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      makeLister(),
+      makeWorkspace(),
+      corpus,
+      usage,
+    );
+
+    const result = await injector.buildCorpusBlock('corpus-A');
+
+    expect(result).toMatch(/^## Knowledge corpus: corpus-A/);
+    expect(usage.recordUse).not.toHaveBeenCalled();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Guard conditions

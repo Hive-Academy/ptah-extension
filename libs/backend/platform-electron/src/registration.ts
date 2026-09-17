@@ -36,6 +36,10 @@ import { ElectronEditorProvider } from './implementations/electron-editor-provid
 import { ElectronTokenCounter } from './implementations/electron-token-counter';
 import { ElectronDiagnosticsProvider } from './implementations/electron-diagnostics-provider';
 import { ElectronHttpServerProvider } from './implementations/electron-http-server-provider';
+import {
+  ElectronWorkspaceWatcher,
+  type ElectronWorkspaceWatcherOptions,
+} from './workspace-watch/electron-workspace-watcher';
 
 /**
  * Options for Electron platform registration.
@@ -66,6 +70,14 @@ export interface ElectronPlatformOptions {
   shell?: ElectronShellApi | null;
   /** Initial workspace folders (from command line or recent) */
   initialFolders?: string[];
+  /** Bundled worker_threads entry used by workspace state storage. */
+  stateStorageWorkerPath?: string;
+  /**
+   * Watch host wiring for `PLATFORM_TOKENS.WORKSPACE_WATCHER` (TASK_2026_437
+   * C8): the host forker plus the log and degradation sinks. The token is left
+   * unregistered when omitted — a host that never watches forks nothing.
+   */
+  workspaceWatchHost?: ElectronWorkspaceWatcherOptions;
 }
 
 /**
@@ -106,11 +118,28 @@ export function registerPlatformElectronServices(
       'global-state.json',
     ),
   });
+  // LAZY, and memoized to keep the single-instance semantics the previous
+  // `useValue` had. A worker-backed store spawns a thread and takes ownership
+  // of a v2 commit root the moment it is CONSTRUCTED, so eager construction
+  // here started a worker on `<userData>/workspace-storage/default` that the
+  // Electron host then immediately orphaned: `phase-1-infra.ts` overrides this
+  // very token with its own `ElectronStateStorage` over the identical
+  // directory — the authoritative one, the only one carrying `migrations` and
+  // `cacheExcludeKeyPrefixes`. Two live workers then raced on one commit root
+  // and the boot's readiness gate hung behind the loser.
+  //
+  // A host that does NOT override the token still resolves a working store,
+  // built on first resolve; a host that does override pays for nothing.
+  let workspaceStateStorage: ElectronStateStorage | null = null;
   container.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
-    useValue: new ElectronStateStorage(
-      workspaceStoragePath,
-      'workspace-state.json',
-    ),
+    useFactory: () =>
+      (workspaceStateStorage ??= new ElectronStateStorage(
+        workspaceStoragePath,
+        'workspace-state.json',
+        options.stateStorageWorkerPath
+          ? { workerPath: options.stateStorageWorkerPath }
+          : undefined,
+      )),
   });
   container.register(PLATFORM_TOKENS.SECRET_STORAGE, {
     useValue: new ElectronSecretStorage(
@@ -157,6 +186,12 @@ export function registerPlatformElectronServices(
   container.register(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER, {
     useValue: new ElectronHttpServerProvider(),
   });
+  if (options.workspaceWatchHost) {
+    // Construction forks nothing: the host starts on the first `watch`.
+    container.register(PLATFORM_TOKENS.WORKSPACE_WATCHER, {
+      useValue: new ElectronWorkspaceWatcher(options.workspaceWatchHost),
+    });
+  }
 }
 
 /**

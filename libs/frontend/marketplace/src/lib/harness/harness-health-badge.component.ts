@@ -14,6 +14,7 @@ import {
   TriangleAlert,
 } from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { HarnessHealthStore } from './harness-health.store';
 import {
   harnessBadgeTone,
@@ -154,7 +155,11 @@ const TONE_CLASSES: Readonly<Record<HarnessBadgeTone, string>> = {
         } @else {
           <div class="space-y-1.5">
             @for (target of store.targets(); track target.target) {
-              <ptah-harness-target-row [target]="target" />
+              <ptah-harness-target-row
+                [target]="target"
+                [canOpenDivergedClones]="isElectron()"
+                (openDivergedClones)="appState.openSkillsDivergedClones()"
+              />
             }
           </div>
         }
@@ -200,6 +205,12 @@ const TONE_CLASSES: Readonly<Record<HarnessBadgeTone, string>> = {
 })
 export class HarnessHealthBadgeComponent implements OnInit {
   protected readonly store = inject(HarnessHealthStore);
+  protected readonly appState = inject(AppStateManager);
+  private readonly vscodeService = inject(VSCodeService);
+
+  protected readonly isElectron = computed(
+    () => this.vscodeService.isElectron,
+  );
 
   protected readonly RefreshIcon = RefreshCw;
 

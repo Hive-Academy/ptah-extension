@@ -8,6 +8,7 @@ import {
   MEMORY_CONTRACT_TOKENS,
   NullMemoryLister,
   NullMemoryReader,
+  NullMemoryUsageRecorder,
   NullSymbolSink,
 } from '@ptah-extension/memory-contracts';
 import { registerCuratorAuthServices } from '@ptah-extension/auth-providers';
@@ -202,6 +203,13 @@ function ensureMemoryContractFallbacks(
       useValue: NullMemoryLister,
     });
     missing.push('MEMORY_LISTER');
+  }
+
+  if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER)) {
+    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER, {
+      useValue: NullMemoryUsageRecorder,
+    });
+    missing.push('MEMORY_USAGE_RECORDER');
   }
 
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)) {

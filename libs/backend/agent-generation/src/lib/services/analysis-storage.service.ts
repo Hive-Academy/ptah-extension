@@ -209,6 +209,50 @@ export class AnalysisStorageService {
     }
   }
 
+  /**
+   * Read a phase output file's modification time.
+   * Returns null if the file doesn't exist or stats aren't available.
+   *
+   * The mtime is an OPTIONAL signal by design: `recordPhaseOutcome` uses it to
+   * tell "the agent rewrote the file with identical bytes" apart from "the
+   * agent wrote nothing", and falls back to comparing content when it is
+   * absent. A provider that cannot stat therefore behaves exactly as it did
+   * before the mtime signal existed, which is why null is an answer here and
+   * not a failure.
+   */
+  async readPhaseFileMtime(
+    slugDir: string,
+    filename: string,
+  ): Promise<number | null> {
+    try {
+      return (await this.fs.stat(join(slugDir, filename))).mtime;
+    } catch {
+      // degradation-audit: optional-capability - a missing file or a provider
+      // with no usable stat returns null, and the caller falls back to the
+      // content comparison. Nothing downstream is skipped or degraded.
+      return null;
+    }
+  }
+
+  /**
+   * Remove a readable stale phase file before a resumed phase runs.
+   * Returns false when the provider cannot remove it so callers can retain
+   * their observational freshness fallback.
+   */
+  async tryRemovePhaseFile(
+    slugDir: string,
+    filename: string,
+  ): Promise<boolean> {
+    try {
+      await this.fs.delete(join(slugDir, filename));
+      return true;
+    } catch {
+      // degradation-audit: optional-capability - some providers may reject a
+      // phase-file delete; the caller then retains content/mtime freshness.
+      return false;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Analysis manifest (version 3)
   // ---------------------------------------------------------------------------

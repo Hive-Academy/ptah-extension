@@ -10,6 +10,7 @@ import {
 import { JUDGE_DEFAULT_MODEL_ID, type SkillSynthesisSettings } from './types';
 import type { JudgeDecision } from './skill-judge.service';
 import type { AgentScorecard } from '@ptah-extension/shared';
+import { ProviderNetworkBackoffs } from './lanes/provider-network-backoffs';
 
 function emptyScorecard(slug: string): AgentScorecard {
   return {
@@ -38,12 +39,10 @@ function makeSettings(
     dedupCosineThreshold: 0.85,
     maxActiveSkills: 50,
     candidatesDir: '',
-    eligibilityMinTurns: 5,
     evictionDecayRate: 0.95,
     generalizationContextThreshold: 3,
     dedupClusterThreshold: 0.78,
     prefilterMinEdits: 1,
-    prefilterMinChars: 800,
     prefilterMinToolUses: 2,
     judgeEnabled: true,
     minJudgeScore: 6.0,
@@ -63,6 +62,18 @@ const logger = {
   warn: jest.fn(),
   error: jest.fn(),
 };
+
+function makeStreamQuery(messages: readonly unknown[]) {
+  return {
+    execute: jest.fn().mockImplementation(async () => ({
+      stream: (async function* () {
+        for (const msg of messages) yield msg;
+      })(),
+      abort: jest.fn(),
+      close: jest.fn(),
+    })),
+  };
+}
 
 function makeInternalQuery(text: string) {
   return {
@@ -133,6 +144,10 @@ function makeHarness(opts: {
    * that started none. `undefined` injects no status port at all — the CLI.
    */
   mcpPort?: number | null;
+  /** Replaces the one-text-block stream with these messages (C14 f). */
+  streamMessages?: readonly unknown[];
+  /** The library's per-provider network back-offs; absent = none injected. */
+  networkBackoffs?: ProviderNetworkBackoffs;
 }): Harness {
   const workspaceProvider = {
     getConfiguration: jest.fn(
@@ -209,7 +224,9 @@ function makeHarness(opts: {
       slug: 's',
     }),
   };
-  const internalQuery = makeInternalQuery(opts.candidateText);
+  const internalQuery = opts.streamMessages
+    ? makeStreamQuery(opts.streamMessages)
+    : makeInternalQuery(opts.candidateText);
   const repropagation = { repropagate: jest.fn().mockResolvedValue(undefined) };
   const specFindings = {
     getRecentFindings: jest.fn().mockResolvedValue(opts.specFindings ?? null),
@@ -239,6 +256,7 @@ function makeHarness(opts: {
     (opts.mcpPort === undefined
       ? null
       : { getPort: () => opts.mcpPort ?? null }) as never,
+    opts.networkBackoffs ?? null,
   );
 
   return {
@@ -287,10 +305,12 @@ describe('SkillEnhancerService', () => {
       'sha256:new',
     );
     expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+    // No `userInitiated`: the automatic pass re-propagates as background work.
     expect(h.repropagation.repropagate).toHaveBeenCalledWith(
       'skill',
       'deep-research',
       expect.any(String),
+      {},
     );
   });
 
@@ -418,6 +438,92 @@ describe('SkillEnhancerService', () => {
     it('reports false in a host that registered no status port at all', async () => {
       const call = await mcpFieldsSentWith(undefined);
       expect(call['mcpServerRunning']).toBe(false);
+    });
+  });
+
+  /**
+   * TASK_2026_437 C14. The automatic pass is the curator daemon: it must run on
+   * the governed skill-synthesis lane, or it ignores a generating turn. A run
+   * the enhance RPC asked for (`userInitiated`) takes the ungoverned
+   * `user-action` lane (Batch 16b).
+   */
+  describe('enhance: the concurrency lane handed to InternalQuery', () => {
+    const judgeDecision = {
+      status: 'scored',
+      score: 8,
+      criteria: null,
+      reason: 'judge-verdict',
+    } as const;
+
+    async function laneSentWith(options: {
+      manual?: boolean;
+      userInitiated?: boolean;
+    }): Promise<unknown> {
+      const h = makeHarness({ judgeDecision, candidateText: 'Improved body' });
+      await h.svc.enhance('deep-research', makeSettings(), options);
+      expect(h.internalQuery.execute).toHaveBeenCalledTimes(1);
+      return (
+        h.internalQuery.execute.mock.calls[0][0] as Record<string, unknown>
+      )['lane'];
+    }
+
+    it('charges the automatic pass to the governed skill-synthesis lane', async () => {
+      expect(await laneSentWith({})).toBe('skill-synthesis');
+    });
+
+    it('runs a user-initiated call (the enhance RPC) on the user-action lane', async () => {
+      expect(await laneSentWith({ manual: true, userInitiated: true })).toBe(
+        'user-action',
+      );
+    });
+
+    it('hands the same origin to the judge verdict call', async () => {
+      const h = makeHarness({ judgeDecision, candidateText: 'Improved body' });
+      await h.svc.enhance('deep-research', makeSettings(), {
+        manual: true,
+        userInitiated: true,
+      });
+      expect(h.judge.judge.mock.calls[0][5]).toEqual({ userInitiated: true });
+    });
+
+    // TASK_2026_437 FU-17b: the same origin reaches the harness refresh.
+    it('hands the enhance origin to the re-propagation (enhanceNow click)', async () => {
+      // Frontmatter present, so the candidate is valid and reaches the write.
+      const h = makeHarness({
+        judgeDecision,
+        candidateText:
+          '---\nname: deep-research\ndescription: Research deeply\n---\nImproved body',
+      });
+      await h.svc.enhance('deep-research', makeSettings(), {
+        manual: true,
+        userInitiated: true,
+      });
+      expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+      expect(h.repropagation.repropagate.mock.calls[0][3]).toEqual({
+        userInitiated: true,
+      });
+    });
+
+    it('re-propagates an automatic enhance with no userInitiated (background)', async () => {
+      // Frontmatter present, so the candidate is valid and reaches the write.
+      const h = makeHarness({
+        judgeDecision,
+        candidateText:
+          '---\nname: deep-research\ndescription: Research deeply\n---\nImproved body',
+      });
+      await h.svc.enhance('deep-research', makeSettings(), {});
+      expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+      const origin = h.repropagation.repropagate.mock.calls[0][3] as {
+        userInitiated?: boolean;
+      };
+      expect(origin.userInitiated).toBeUndefined();
+    });
+
+    it('decides the lane by userInitiated, not by manual', async () => {
+      // A manual curator run is userInitiated without `manual`; `manual` alone
+      // (no caller does that today) must not skip the governor.
+      expect(await laneSentWith({ userInitiated: true })).toBe('user-action');
+      expect(await laneSentWith({ manual: true })).toBe('skill-synthesis');
     });
   });
 
@@ -648,6 +754,29 @@ describe('SkillEnhancerService', () => {
     });
     expect(h.registry.markEnhanced).toHaveBeenCalledTimes(1);
     expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+    // No origin given: background.
+    expect(h.repropagation.repropagate.mock.calls[0][3]).toEqual({});
+  });
+
+  it('revert: hands the revertEnhancement click origin to the re-propagation (FU-17b)', async () => {
+    const h = makeHarness({
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
+      candidateText: 'x',
+    });
+    await h.svc.revert('deep-research', '1700000000000', 'agent', {
+      userInitiated: true,
+    });
+    expect(h.repropagation.repropagate).toHaveBeenCalledWith(
+      'agent',
+      'deep-research',
+      expect.any(String),
+      { userInitiated: true },
+    );
   });
 
   it('kind=agent: judge PASS writes via writeEnhancedFileClone + markEnhanced/repropagate agent', async () => {
@@ -684,6 +813,7 @@ describe('SkillEnhancerService', () => {
       'agent',
       'deep-research',
       expect.any(String),
+      {},
     );
   });
 
@@ -736,6 +866,7 @@ describe('SkillEnhancerService', () => {
       'command',
       'deep-research',
       expect.any(String),
+      {},
     );
   });
 
@@ -798,6 +929,7 @@ describe('SkillEnhancerService', () => {
       'agent',
       'deep-research',
       expect.any(String),
+      {},
     );
   });
 
@@ -1128,6 +1260,44 @@ describe('SkillEnhancerService — preview-before-apply', () => {
       'sha256:new',
     );
     expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+  });
+
+  it('applyProposal hands the applyProposal click origin to the re-propagation (FU-17b)', async () => {
+    const h = passingHarness();
+    const proposal = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+
+    await h.svc.applyProposal(
+      'skill',
+      'deep-research',
+      proposal.proposalId as string,
+      { userInitiated: true },
+    );
+
+    expect(h.repropagation.repropagate).toHaveBeenCalledWith(
+      'skill',
+      'deep-research',
+      expect.any(String),
+      { userInitiated: true },
+    );
+  });
+
+  it('applyProposal with no origin re-propagates as background work', async () => {
+    const h = passingHarness();
+    const proposal = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+
+    await h.svc.applyProposal(
+      'skill',
+      'deep-research',
+      proposal.proposalId as string,
+    );
+
+    expect(h.repropagation.repropagate.mock.calls[0][3]).toEqual({});
   });
 
   it('applyProposal(kind=agent) routes through writeEnhancedFileClone', async () => {
@@ -1589,6 +1759,124 @@ describe('SkillEnhancerService — win rate as an eligibility input', () => {
       expect(result.changed).toBe(false);
       expect(result.skipReason).toBe('win-rate-sufficient');
       expect(h.registry.markEnhanced).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * TASK_2026_437 C14 (f). The subprocess closes a request it gave up retrying
+   * with an error message whose TEXT is not an enhanced body. Read as text it
+   * would have been judged and written over the live skill.
+   */
+  describe('enhance: a network failure writes nothing and stays retryable', () => {
+    const judgeDecision = {
+      status: 'scored',
+      score: 9,
+      criteria: null,
+      reason: 'judge-verdict',
+    } as const;
+    const INCIDENT = [
+      {
+        type: 'system',
+        subtype: 'api_retry',
+        error_status: null,
+        error: 'unknown',
+      },
+      {
+        type: 'assistant',
+        error: 'server_error',
+        message: {
+          content: [{ type: 'text', text: 'API Error: 500 upstream failed' }],
+        },
+      },
+      {
+        type: 'result',
+        subtype: 'success',
+        is_error: true,
+        api_error_status: 500,
+      },
+    ];
+
+    function backoffsAt(now: { value: number }) {
+      return new ProviderNetworkBackoffs({
+        logger: logger as never,
+        logPrefix: '[skill-synthesis]',
+        now: () => now.value,
+        random: () => 0.5,
+      });
+    }
+
+    it('reports provider-unreachable and writes, judges and marks nothing', async () => {
+      const backoffs = backoffsAt({ value: 1_800_000_000_000 });
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: '',
+        streamMessages: INCIDENT,
+        networkBackoffs: backoffs,
+      });
+
+      const result = await h.svc.enhance('deep-research', makeSettings(), {});
+
+      expect(result).toMatchObject({
+        changed: false,
+        skipReason: 'provider-unreachable',
+      });
+      expect(h.judge.judge).not.toHaveBeenCalled();
+      expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+      expect(h.registry.markEnhanced).not.toHaveBeenCalled();
+      expect(backoffs.remainingMs('')).toBe(30_000);
+    });
+
+    it('holds a background enhancement while the window is open, without calling the model', async () => {
+      const now = { value: 1_800_000_000_000 };
+      const backoffs = backoffsAt(now);
+      backoffs.for('').recordFailure('dns');
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        networkBackoffs: backoffs,
+      });
+
+      const result = await h.svc.enhance('deep-research', makeSettings(), {});
+
+      expect(result.skipReason).toBe('provider-unreachable');
+      expect(h.internalQuery.execute).not.toHaveBeenCalled();
+    });
+
+    it('never holds a user-initiated enhancement, and keeps it on the user-action lane', async () => {
+      const backoffs = backoffsAt({ value: 1_800_000_000_000 });
+      backoffs.for('').recordFailure('dns');
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        networkBackoffs: backoffs,
+      });
+
+      await h.svc.enhance('deep-research', makeSettings(), {
+        manual: true,
+        userInitiated: true,
+      });
+
+      expect(h.internalQuery.execute).toHaveBeenCalledTimes(1);
+      expect(
+        (h.internalQuery.execute.mock.calls[0][0] as Record<string, unknown>)[
+          'lane'
+        ],
+      ).toBe('user-action');
+      expect(backoffs.remainingMs('')).toBe(0);
+    });
+
+    it('reports provider-unreachable for a thrown socket error', async () => {
+      const h = makeHarness({ judgeDecision, candidateText: 'Improved body' });
+      h.internalQuery.execute.mockRejectedValueOnce(
+        Object.assign(new Error('connect ECONNREFUSED'), {
+          code: 'ECONNREFUSED',
+        }),
+      );
+
+      const result = await h.svc.enhance('deep-research', makeSettings(), {});
+
+      expect(result.skipReason).toBe('provider-unreachable');
+      expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
     });
   });
 });

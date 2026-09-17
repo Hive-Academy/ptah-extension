@@ -1,19 +1,20 @@
 /**
- * GitWatcherService specs — git-ops/workspace/content-change debouncing,
- * watcher lifecycle, ignore-list filtering, and stop/start cleanup.
+ * GitWatcherService specs — git-ops/workspace/content-change debouncing, the
+ * workspace subscription on the batched `IWorkspaceWatcher` port, overflow
+ * handling, nested worktree roots, watcher lifecycle and stop/start cleanup.
  *
- * Strategy: most tests are deterministic — they invoke the private
- * `scheduleUpdate` / `scheduleGitOpsRefresh` / `scheduleContentChange`
- * callbacks directly via `(svc as any)` and drive timers via
- * `jest.useFakeTimers()`.
+ * Strategy: deterministic. The workspace feed is a fake `IWorkspaceWatcher`
+ * that records each subscription and lets a test deliver batches exactly as
+ * the port shapes them; timers are `jest.useFakeTimers()`. The per-event work
+ * the port replaced — exclusion, storm breaking, coalescing — is the watch
+ * host's, pinned in platform-core (`workspace-change-coalescer.spec.ts`) and
+ * end to end on the real host in `git-watcher.stress.spec.ts`.
  *
- * A small number of tests exercise the real `fs.watch` path with actual
- * temp directories (real timers). These are timing-sensitive on Windows;
- * they intentionally use generous timeouts and tolerate occasional flake
- * by polling rather than asserting on a single tick.
- *
- * The `GitInfoService.getGitInfo` mock returns a static result so the
- * `git:status-update` broadcast is observable without spawning git.
+ * The dedicated `.git` watchers stay real `fs.watch` handles over temp
+ * directories. The `GitInfoService.refreshGitInfo` mock returns a static
+ * result so the `git:status-update` broadcast is observable without spawning
+ * git, and `getWorktrees` resolves to no worktrees unless a test says
+ * otherwise.
  */
 
 import * as fs from 'fs';
@@ -21,10 +22,21 @@ import * as os from 'os';
 import * as path from 'path';
 import { GitWatcherService } from './git-watcher.service';
 import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
+import type { WorkspaceChange } from '@ptah-extension/platform-core';
+import {
+  createMockWorkspaceWatcher,
+  type MockWorkspaceWatcher,
+} from '@ptah-extension/platform-core/testing';
+import {
+  NESTED_WORKSPACE_PATH_RULES,
+  WATCH_IGNORED_DIRS,
+} from '@ptah-extension/shared';
 import type {
+  FileContentChangedPayload,
   GitChangeKind,
   GitInfoResult,
   GitStatusUpdatePayload,
+  GitWorktreeInfo,
 } from '@ptah-extension/shared';
 
 type Broadcast = jest.Mock<void, [string, unknown]>;
@@ -39,139 +51,294 @@ function makeLogger(): Logger {
 }
 
 function makeGitInfo(): jest.Mocked<GitInfoService> {
+  const result = async (): Promise<GitInfoResult> =>
+    ({
+      isGitRepo: true,
+      branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
+      files: [],
+    }) as unknown as GitInfoResult;
   return {
     invalidateReadCache: jest.fn(),
-    getGitInfo: jest.fn(
-      async (): Promise<GitInfoResult> =>
-        ({
-          isGitRepo: true,
-          branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
-          files: [],
-        }) as unknown as GitInfoResult,
-    ),
+    getGitInfo: jest.fn(result),
+    refreshGitInfo: jest.fn(result),
+    getWorktrees: jest.fn(async (): Promise<GitWorktreeInfo[]> => []),
   } as unknown as jest.Mocked<GitInfoService>;
 }
 
-/** Wait until `predicate()` returns true or `timeoutMs` elapses. */
-async function waitFor(
-  predicate: () => boolean,
-  timeoutMs = 1500,
-  intervalMs = 25,
-): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (predicate()) return true;
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-  return predicate();
+function changes(
+  root: string,
+  kind: WorkspaceChange['kind'],
+  ...names: string[]
+): WorkspaceChange[] {
+  return names.map((name) => ({ path: path.join(root, name), kind }));
+}
+
+/** Let the `void fetchAndPush()` chain settle. */
+async function flush(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+}
+
+function makeGitDir(root: string, withWorktrees = false): void {
+  const gitDir = path.join(root, '.git');
+  fs.mkdirSync(path.join(gitDir, 'refs'), { recursive: true });
+  if (withWorktrees) fs.mkdirSync(path.join(gitDir, 'worktrees'));
+  fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(gitDir, 'index'), '');
 }
 
 describe('GitWatcherService', () => {
   let logger: Logger;
   let gitInfo: jest.Mocked<GitInfoService>;
+  let workspaceWatcher: MockWorkspaceWatcher;
   let svc: GitWatcherService;
   let broadcast: Broadcast;
+  const tempDirs: string[] = [];
+
+  function tempDir(prefix: string): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    tempDirs.push(dir);
+    return dir;
+  }
+
+  function calls(type: string): unknown[][] {
+    return broadcast.mock.calls.filter(([t]) => t === type);
+  }
 
   beforeEach(() => {
     logger = makeLogger();
     gitInfo = makeGitInfo();
-    svc = new GitWatcherService(gitInfo, logger);
+    workspaceWatcher = createMockWorkspaceWatcher();
+    svc = new GitWatcherService(gitInfo, logger, workspaceWatcher);
     broadcast = jest.fn();
   });
 
   afterEach(() => {
     svc.stop();
     jest.useRealTimers();
+    for (const dir of tempDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   // ===========================================================================
-  // DETERMINISTIC TESTS — drive scheduler callbacks directly via (svc as any)
+  // THE WORKSPACE SUBSCRIPTION (TASK_2026_437 C10)
   // ===========================================================================
 
-  describe('debounce semantics (deterministic, fake timers)', () => {
+  describe('workspace subscription', () => {
+    it('subscribes once to the root with the shared exclusion policy and nested repo detection', () => {
+      const root = tempDir('gw-sub-');
+      svc.start(root, broadcast);
+
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
+      const { root: watched, options } =
+        workspaceWatcher.__state.subscriptions[0];
+      expect(watched).toBe(root);
+      expect(options.excludeGlobs).toEqual([]);
+      expect(new Set(options.excludeDirNames)).toEqual(WATCH_IGNORED_DIRS);
+      expect(options.excludeDirNames).toContain('.git');
+      expect(options.excludeSegmentRules).toBe(NESTED_WORKSPACE_PATH_RULES);
+      expect(options.nestedRepoDetection).toBe(true);
+      expect(options.nestedRepoRoots).toEqual([]);
+      // A 1 s leading-edge hold: longer than @parcel/watcher's up-to-550 ms
+      // gap between a burst's lone first event and the rest (ST-1b, AC-2).
+      expect(options.minBatchIntervalMs).toBe(1_000);
+      // No recursive fs.watch of the workspace any more: a non-git workspace
+      // holds no fs.watch handle at all.
+      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
+        0,
+      );
+    });
+
+    it('a failing watch() is logged and does not break start()', () => {
+      const root = tempDir('gw-sub-fail-');
+      makeGitDir(root);
+      workspaceWatcher.watch.mockImplementation(() => {
+        throw new Error('host unavailable');
+      });
+
+      expect(() => svc.start(root, broadcast)).not.toThrow();
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[GitWatcher] Failed to watch workspace root',
+        expect.objectContaining({ error: 'host unavailable' }),
+      );
+      // The dedicated .git watchers are still armed.
+      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
+        3,
+      );
+    });
+
+    it('stop() disposes the subscription and a late batch does nothing', async () => {
+      jest.useFakeTimers();
+      const root = tempDir('gw-sub-stop-');
+      svc.start(root, broadcast);
+      svc.stop();
+
+      expect(workspaceWatcher.__state.live()).toHaveLength(0);
+      workspaceWatcher.__state
+        .latest()
+        .deliver({ changes: changes(root, 'update', 'a.ts') });
+      workspaceWatcher.__state.latest().deliver({ overflow: true });
+      jest.advanceTimersByTime(10_000);
+      await flush();
+
+      expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
+    });
+
+    it('a batch from the previous workspace is ignored after a restart', async () => {
+      jest.useFakeTimers();
+      const rootA = tempDir('gw-sub-a-');
+      const rootB = tempDir('gw-sub-b-');
+      svc.start(rootA, broadcast);
+      const stale = workspaceWatcher.__state.subscriptions[0];
+      svc.start(rootB, broadcast);
+
+      expect(stale.disposed).toBe(true);
+      stale.listener({
+        root: rootA,
+        changes: changes(rootA, 'update', 'a.ts'),
+        truncated: false,
+        overflow: false,
+        droppedCount: 0,
+      });
+      jest.advanceTimersByTime(10_000);
+      await flush();
+
+      expect(calls('file:content-changed')).toHaveLength(0);
+      expect(calls('git:status-update')).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
+  // BATCHES — debounce semantics (deterministic, fake timers)
+  // ===========================================================================
+
+  describe('batch handling', () => {
+    const WS = path.join(os.tmpdir(), 'gw-fake-ws');
+
     beforeEach(() => {
       jest.useFakeTimers();
+      (svc as unknown as { workspacePath: string }).workspacePath = WS;
+      svc.start(WS, broadcast);
+      // The fake timers hold the initial fetch; a non-git root has none.
+      broadcast.mockClear();
     });
 
-    it('scheduleContentChange coalesces rapid saves to the same path', () => {
-      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
-      (svc as unknown as { workspacePath: string }).workspacePath =
-        'D:\\fake\\ws';
-      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+    it('a normal batch schedules one refresh after the debounce and one content push for its updates', async () => {
+      workspaceWatcher.__state.latest().deliver({
+        changes: [
+          ...changes(WS, 'update', 'src/a.ts', 'src/b.ts'),
+          ...changes(WS, 'create', 'src/new.ts'),
+          ...changes(WS, 'delete', 'src/gone.ts'),
+        ],
+      });
 
-      const sched = (
-        svc as unknown as {
-          scheduleContentChange(root: string, name: string): void;
-        }
-      ).scheduleContentChange.bind(svc);
-
-      for (let i = 0; i < 5; i++) sched('D:\\fake\\ws', 'a.ts');
       jest.advanceTimersByTime(500);
+      expect(calls('file:content-changed')).toHaveLength(1);
+      const payload = calls('file:content-changed')[0][1];
+      expect(payload).toEqual({
+        filePaths: [
+          path.join(WS, 'src/a.ts').replace(/\\/g, '/'),
+          path.join(WS, 'src/b.ts').replace(/\\/g, '/'),
+        ],
+        truncated: false,
+      } satisfies FileContentChangedPayload);
 
-      const contentCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'file:content-changed',
-      );
-      expect(contentCalls).toHaveLength(1);
-      expect(contentCalls[0][1]).toEqual({ filePath: 'D:/fake/ws/a.ts' });
+      jest.advanceTimersByTime(1_500);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledWith(WS);
+      expect(gitInfo.invalidateReadCache).not.toHaveBeenCalled();
+      const status = calls('git:status-update');
+      expect(status).toHaveLength(1);
+      expect((status[0][1] as GitStatusUpdatePayload).causes).toEqual([
+        'workspace',
+      ]);
     });
 
-    it('scheduleUpdate fetches and broadcasts git status after debounce', async () => {
-      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
-      (svc as unknown as { workspacePath: string }).workspacePath =
-        'D:\\fake\\ws';
-      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+    it('a batch of creates and deletes refreshes status but pushes no content', async () => {
+      workspaceWatcher.__state.latest().deliver({
+        changes: [
+          ...changes(WS, 'create', 'x.ts'),
+          ...changes(WS, 'delete', 'y.ts'),
+        ],
+      });
+      jest.advanceTimersByTime(2_000);
+      await flush();
 
-      (
-        svc as unknown as {
-          scheduleUpdate(ms: number, kind: GitChangeKind): void;
-        }
-      ).scheduleUpdate(500, 'workspace');
-      jest.advanceTimersByTime(500);
-
-      await Promise.resolve();
-      await Promise.resolve();
-
-      expect(gitInfo.getGitInfo).toHaveBeenCalledWith('D:\\fake\\ws');
-      const gitCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'git:status-update',
-      );
-      expect(gitCalls.length).toBeGreaterThanOrEqual(1);
-      const payload = gitCalls[0][1] as GitStatusUpdatePayload;
-      expect(payload.causes).toEqual(['workspace']);
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(calls('file:content-changed')).toHaveLength(0);
     });
 
-    // TASK_2026_343. `GitInfoService` caches the branch list, stash list, tags
-    // and remotes until something invalidates them, and its own invalidation
-    // only covers commands it ran itself. A `git checkout` in the integrated
-    // terminal reaches it through this watcher or not at all.
-    it('invalidates the GitInfoService read cache BEFORE fetching status', async () => {
-      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
-      (svc as unknown as { workspacePath: string }).workspacePath =
-        'D:\\fake\\ws';
-      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+    it('an empty non-overflow batch does nothing', async () => {
+      workspaceWatcher.__state.latest().deliver({ changes: [] });
+      jest.advanceTimersByTime(10_000);
+      await flush();
 
-      (
-        svc as unknown as {
-          scheduleUpdate(ms: number, kind: GitChangeKind): void;
-        }
-      ).scheduleUpdate(500, 'refs');
-      jest.advanceTimersByTime(500);
+      expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
+    });
 
-      await Promise.resolve();
-      await Promise.resolve();
+    it('batches arriving 250 ms apart coalesce into one refresh and one content push', async () => {
+      for (let i = 0; i < 4; i++) {
+        workspaceWatcher.__state.latest().deliver({
+          changes: changes(WS, 'update', `src/f-${i}.ts`),
+        });
+        jest.advanceTimersByTime(250);
+      }
+      jest.advanceTimersByTime(2_000);
+      await flush();
 
-      expect(gitInfo.invalidateReadCache).toHaveBeenCalledWith('D:\\fake\\ws');
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(calls('file:content-changed')).toHaveLength(1);
       expect(
-        gitInfo.invalidateReadCache.mock.invocationCallOrder[0],
-      ).toBeLessThan(gitInfo.getGitInfo.mock.invocationCallOrder[0]);
+        (calls('file:content-changed')[0][1] as FileContentChangedPayload)
+          .filePaths,
+      ).toHaveLength(4);
+    });
+
+    it('caps the content set at 256 paths and marks the push truncated', () => {
+      const names = Array.from({ length: 300 }, (_, i) => `src/file-${i}.ts`);
+      workspaceWatcher.__state.latest().deliver({
+        changes: changes(WS, 'update', ...names.slice(0, 150)),
+      });
+      jest.advanceTimersByTime(250);
+      workspaceWatcher.__state.latest().deliver({
+        changes: changes(WS, 'update', ...names.slice(150)),
+      });
+      jest.advanceTimersByTime(500);
+
+      expect(calls('file:content-changed')).toHaveLength(1);
+      const payload = calls(
+        'file:content-changed',
+      )[0][1] as FileContentChangedPayload;
+      expect(payload.truncated).toBe(true);
+      expect(payload.filePaths).toHaveLength(256);
+    });
+
+    it('.claude/commands and .claude/skills still refresh and push content (the port excludes only worktrees)', async () => {
+      workspaceWatcher.__state.latest().deliver({
+        changes: changes(
+          WS,
+          'update',
+          '.claude/commands/x.md',
+          '.claude/skills/y/SKILL.md',
+        ),
+      });
+      jest.advanceTimersByTime(2_000);
+      await flush();
+
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(
+        (calls('file:content-changed')[0][1] as FileContentChangedPayload)
+          .filePaths,
+      ).toEqual([
+        path.join(WS, '.claude/commands/x.md').replace(/\\/g, '/'),
+        path.join(WS, '.claude/skills/y/SKILL.md').replace(/\\/g, '/'),
+      ]);
     });
 
     it('coalesces multiple .git/* kinds into a single broadcast carrying both causes', async () => {
-      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
-      (svc as unknown as { workspacePath: string }).workspacePath =
-        'D:\\fake\\ws';
-      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
-
       const sched = (
         svc as unknown as {
           scheduleGitOpsRefresh(kind: GitChangeKind): void;
@@ -183,65 +350,34 @@ describe('GitWatcherService', () => {
       sched('head');
 
       jest.advanceTimersByTime(500);
-      await Promise.resolve();
-      await Promise.resolve();
+      await flush();
 
-      const gitCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'git:status-update',
-      );
+      const gitCalls = calls('git:status-update');
       expect(gitCalls).toHaveLength(1);
       const payload = gitCalls[0][1] as GitStatusUpdatePayload;
       expect(new Set(payload.causes)).toEqual(new Set(['head', 'refs']));
     });
 
-    it('fetchAndPush with no pending causes emits ["initial"]', async () => {
-      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
-      (svc as unknown as { workspacePath: string }).workspacePath =
-        'D:\\fake\\ws';
-      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
-
+    it('fetchAndPush with no pending causes emits ["initial"], stamped with the watched root', async () => {
       await (
         svc as unknown as { fetchAndPush(): Promise<void> }
       ).fetchAndPush();
 
-      const gitCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'git:status-update',
-      );
+      const gitCalls = calls('git:status-update');
       expect(gitCalls).toHaveLength(1);
       const payload = gitCalls[0][1] as GitStatusUpdatePayload;
       expect(payload.causes).toEqual(['initial']);
-    });
-
-    it('fetchAndPush stamps the payload with the watched workspaceRoot', async () => {
-      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
-      (svc as unknown as { workspacePath: string }).workspacePath =
-        'D:\\fake\\ws';
-      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
-
-      await (
-        svc as unknown as { fetchAndPush(): Promise<void> }
-      ).fetchAndPush();
-
-      const gitCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'git:status-update',
-      );
-      expect(gitCalls).toHaveLength(1);
-      const payload = gitCalls[0][1] as GitStatusUpdatePayload;
-      expect(payload.workspaceRoot).toBe('D:\\fake\\ws');
+      expect(payload.workspaceRoot).toBe(WS);
     });
 
     it('fetchAndPush drops the broadcast when the workspace switches mid-fetch', async () => {
-      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
-      (svc as unknown as { workspacePath: string }).workspacePath =
-        'D:\\fake\\ws-a';
-      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
-
-      gitInfo.getGitInfo.mockImplementationOnce(async () => {
-        (svc as unknown as { workspacePath: string }).workspacePath =
-          'D:\\fake\\ws-b';
+      gitInfo.refreshGitInfo.mockImplementationOnce(async () => {
+        (svc as unknown as { workspacePath: string }).workspacePath = path.join(
+          os.tmpdir(),
+          'gw-other-ws',
+        );
         return {
           isGitRepo: true,
-          branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
           files: [],
         } as unknown as GitInfoResult;
       });
@@ -250,10 +386,125 @@ describe('GitWatcherService', () => {
         svc as unknown as { fetchAndPush(): Promise<void> }
       ).fetchAndPush();
 
-      const gitCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'git:status-update',
+      expect(calls('git:status-update')).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
+  // OVERFLOW (TASK_2026_437 C10, FU-4d, FU-8b)
+  //
+  // `overflow` means events were lost or suppressed (a storm, a host restart, a
+  // degraded 60 s rescan tick); `truncated` means more paths than one batch
+  // holds. Both leave the path list incomplete, so both become exactly one
+  // refresh and one truncated content push, and repeating them never stacks.
+  // ===========================================================================
+
+  describe('overflow and truncated batches', () => {
+    const WS = path.join(os.tmpdir(), 'gw-fake-overflow-ws');
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      svc.start(WS, broadcast);
+      broadcast.mockClear();
+    });
+
+    it('overflow issues exactly one refresh and one truncated content push, immediately', async () => {
+      workspaceWatcher.__state
+        .latest()
+        .deliver({ overflow: true, droppedCount: 8_000 });
+      await flush();
+
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(calls('git:status-update')).toHaveLength(1);
+      expect(
+        (calls('git:status-update')[0][1] as GitStatusUpdatePayload).causes,
+      ).toEqual(['workspace']);
+      expect(calls('file:content-changed')).toEqual([
+        [
+          'file:content-changed',
+          {
+            filePaths: [],
+            truncated: true,
+          } satisfies FileContentChangedPayload,
+        ],
+      ]);
+
+      // Nothing else is left pending behind it.
+      jest.advanceTimersByTime(60_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(broadcast).toHaveBeenCalledTimes(2);
+    });
+
+    it('a truncated batch is handled like an overflow', async () => {
+      workspaceWatcher.__state.latest().deliver({
+        changes: changes(WS, 'update', 'a.ts'),
+        truncated: true,
+        droppedCount: 1_200,
+      });
+      await flush();
+
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(calls('file:content-changed')).toEqual([
+        ['file:content-changed', { filePaths: [], truncated: true }],
+      ]);
+      jest.advanceTimersByTime(10_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+    });
+
+    it('absorbs a refresh and content paths still pending from an earlier batch', async () => {
+      workspaceWatcher.__state
+        .latest()
+        .deliver({ changes: changes(WS, 'update', 'early.ts') });
+      jest.advanceTimersByTime(250);
+      workspaceWatcher.__state.latest().deliver({ overflow: true });
+      await flush();
+
+      jest.advanceTimersByTime(60_000);
+      await flush();
+
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(calls('git:status-update')).toHaveLength(1);
+      expect(calls('file:content-changed')).toEqual([
+        ['file:content-changed', { filePaths: [], truncated: true }],
+      ]);
+    });
+
+    it('degraded rescans every 60 s cost one refresh each and never stack while a refresh is running', async () => {
+      let finish!: () => void;
+      gitInfo.refreshGitInfo.mockImplementation(
+        () =>
+          new Promise<GitInfoResult>((resolve) => {
+            finish = () =>
+              resolve({
+                isGitRepo: true,
+                files: [],
+              } as unknown as GitInfoResult);
+          }),
       );
-      expect(gitCalls).toHaveLength(0);
+
+      // Three overflow ticks, the first refresh never settling in between.
+      workspaceWatcher.__state.latest().deliver({ overflow: true });
+      jest.advanceTimersByTime(60_000);
+      workspaceWatcher.__state.latest().deliver({ overflow: true });
+      jest.advanceTimersByTime(60_000);
+      workspaceWatcher.__state.latest().deliver({ overflow: true });
+      await flush();
+
+      // One call per tick; GitInfoService's single flight joins them to at
+      // most one running and one trailing git status (pinned in vscode-core).
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(3);
+      expect(calls('file:content-changed')).toHaveLength(3);
+      // No timer is left armed by the overflow path itself.
+      expect(
+        (svc as unknown as { debounceTimer: unknown }).debounceTimer,
+      ).toBeNull();
+      expect(
+        (svc as unknown as { contentChangeTimer: unknown }).contentChangeTimer,
+      ).toBeNull();
+      finish();
+      await flush();
     });
   });
 
@@ -272,12 +523,12 @@ describe('GitWatcherService', () => {
   // ===========================================================================
 
   describe('max-wait ceilings under continuous churn', () => {
+    const WS = path.join(os.tmpdir(), 'gw-fake-maxwait-ws');
+
     beforeEach(() => {
       jest.useFakeTimers();
-      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
-      (svc as unknown as { workspacePath: string }).workspacePath =
-        'D:\\fake\\ws';
-      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+      svc.start(WS, broadcast);
+      broadcast.mockClear();
     });
 
     /** Emit `count` events `gapMs` apart, advancing fake time between them. */
@@ -288,23 +539,11 @@ describe('GitWatcherService', () => {
       }
     }
 
-    function calls(type: string): unknown[][] {
-      return broadcast.mock.calls.filter(([t]) => t === type);
-    }
-
-    /** Let the `void fetchAndPush()` chain settle. */
-    async function flush(): Promise<void> {
-      await Promise.resolve();
-      await Promise.resolve();
-    }
-
     it('workspace git status fires within WORKSPACE_MAX_WAIT_MS (8000)', async () => {
       const emit = () =>
-        (
-          svc as unknown as {
-            scheduleUpdate(ms: number, kind: GitChangeKind): void;
-          }
-        ).scheduleUpdate(2000, 'workspace');
+        workspaceWatcher.__state
+          .latest()
+          .deliver({ changes: changes(WS, 'create', 'x.ts') });
 
       // 500ms apart — a quarter of the debounce window, so the trailing edge
       // is never reached by coalescing alone. Last emit lands at t=7500.
@@ -339,44 +578,19 @@ describe('GitWatcherService', () => {
 
     it('content change fires within CONTENT_CHANGE_MAX_WAIT_MS (2000)', () => {
       const emit = () =>
-        (
-          svc as unknown as {
-            scheduleContentChange(root: string, name: string): void;
-          }
-        ).scheduleContentChange('D:\\fake\\ws', 'a.ts');
+        workspaceWatcher.__state
+          .latest()
+          .deliver({ changes: changes(WS, 'update', 'a.ts') });
 
-      churn(emit, 10, 200);
+      // 250 ms apart: the port's batch cadence, half the content debounce.
+      churn(emit, 8, 250);
       expect(calls('file:content-changed')).toHaveLength(0);
 
       emit(); // t=2000
       expect(calls('file:content-changed')).toHaveLength(1);
       expect(calls('file:content-changed')[0][1]).toEqual({
-        filePath: 'D:/fake/ws/a.ts',
-      });
-    });
-
-    it('content-change ceilings are tracked per file, not globally', () => {
-      const emit = (name: string) =>
-        (
-          svc as unknown as {
-            scheduleContentChange(root: string, name: string): void;
-          }
-        ).scheduleContentChange('D:\\fake\\ws', name);
-
-      // `a.ts` is rewritten continuously; `b.ts` is touched once near the end.
-      churn(() => emit('a.ts'), 10, 200);
-      emit('b.ts');
-      emit('a.ts'); // t=2000 — only a.ts has an expired burst
-      expect(calls('file:content-changed')).toHaveLength(1);
-      expect(calls('file:content-changed')[0][1]).toEqual({
-        filePath: 'D:/fake/ws/a.ts',
-      });
-
-      // b.ts still coalesces normally on its own 500ms window.
-      jest.advanceTimersByTime(500);
-      expect(calls('file:content-changed')).toHaveLength(2);
-      expect(calls('file:content-changed')[1][1]).toEqual({
-        filePath: 'D:/fake/ws/b.ts',
+        filePaths: [path.join(WS, 'a.ts').replace(/\\/g, '/')],
+        truncated: false,
       });
     });
 
@@ -421,269 +635,256 @@ describe('GitWatcherService', () => {
   });
 
   // ===========================================================================
-  // FILTERING TESTS — exercise the real watcher callback function
+  // NESTED WORKTREE ROOTS (TASK_2026_437 INV-2)
+  //
+  // The host excludes nested repositories it SEES appear (a `.git` event). A
+  // worktree that already exists produces no such event, so the listing seeds
+  // the subscription; a changed listing resubscribes.
   // ===========================================================================
 
-  describe('node_modules / dist / .git filtering', () => {
-    let tmpDir: string;
+  describe('nested worktree roots', () => {
+    let root: string;
 
     beforeEach(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-filter-'));
+      root = tempDir('gw-nested-');
+      makeGitDir(root, true);
     });
 
-    afterEach(() => {
-      try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch {
-        /* ignore */
-      }
-    });
-
-    it('start() on a non-git workspace does NOT schedule git-specific watchers', () => {
-      // No .git directory present
-      svc.start(tmpDir, broadcast);
-
-      // Workspace-root watcher attached (1), git-specific watchers (HEAD,
-      // index, refs) NOT attached.
-      const watchers = (svc as unknown as { watchers: unknown[] }).watchers;
-      expect(watchers.length).toBe(1);
-    });
-
-    /**
-     * Calls the SHIPPED exclusion decision (`isIgnoredWorkspaceEvent`, a
-     * one-line adapter over `isExcludedWorkspacePath` /`WATCH_IGNORED_DIRS`
-     * in `@ptah-extension/shared`).
-     *
-     * The previous version of this test hand-rolled the predicate inline,
-     * which made the spec a fourth maintained copy of the exclusion list and
-     * blind to exactly the drift TASK_2026_173 B4 exists to prevent. There is
-     * now no list here at all.
-     *
-     * `fs.watch` itself is not intercepted: Node's `fs` exports are
-     * non-configurable, so `jest.spyOn(fs, 'watch')` throws
-     * "Cannot redefine property". The end-to-end wiring (this decision
-     * actually gating the watcher callback) is covered by the real-`fs.watch`
-     * integration test further down.
-     */
-    function isIgnored(filename: string): boolean {
-      return (
-        svc as unknown as {
-          isIgnoredWorkspaceEvent(f: string | null): boolean;
-        }
-      ).isIgnoredWorkspaceEvent(filename);
+    async function settleListing(): Promise<void> {
+      await flush();
+      await flush();
     }
 
-    it('drops events under every excluded directory', () => {
-      // Pre-existing exclusions — unchanged behaviour.
-      for (const name of [
-        '.git',
-        '.git/HEAD',
-        '.git\\HEAD',
-        'node_modules/foo.ts',
-        'node_modules\\foo.ts',
-        'dist/main.js',
-        'dist\\main.js',
-      ]) {
-        expect(isIgnored(name)).toBe(true);
-      }
+    it('lists worktrees without blocking start() and resubscribes with the roots under the workspace only', async () => {
+      gitInfo.getWorktrees.mockResolvedValueOnce([
+        { path: root },
+        { path: path.join(root, 'sandbox', 'wt1') },
+        { path: path.join(root, '.claude-worktrees', 'agent-1') },
+        { path: path.join(os.tmpdir(), 'elsewhere', 'wt2') },
+      ] as GitWorktreeInfo[]);
 
-      // Newly excluded by TASK_2026_173 B4 — the intentional behavioural delta.
-      for (const name of [
-        '.nx/cache/abc.tmp',
-        '.nx\\cache\\abc.tmp',
-        '.angular/cache/x.tmp',
-        '.cache/build/x.bin',
-        '.tmp/scratch',
-        '.temp/scratch',
-        '.hg/store',
-        '.svn/entries',
-        '.Trash/deleted',
-        '.DS_Store',
-      ]) {
-        expect(isIgnored(name)).toBe(true);
-      }
+      svc.start(root, broadcast);
+      expect(gitInfo.getWorktrees).toHaveBeenCalledWith(root);
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
 
-      // Newly excluded by TASK_2026_385 Batch 4.3 — the explorer that made
-      // `coverage`/`tmp` risky to hide is gone (see workspace-scan.constants.ts).
-      for (const name of [
-        'coverage/lcov.info',
-        'coverage\\lcov.info',
-        'tmp/x',
-        'tmp\\x',
-      ]) {
-        expect(isIgnored(name)).toBe(true);
-      }
+      await settleListing();
 
-      // Nested occurrences too — monorepo churn does not only live at the root.
-      for (const name of [
-        'packages/foo/node_modules/bar/index.js',
-        'libs\\shared\\dist\\index.js',
-      ]) {
-        expect(isIgnored(name)).toBe(true);
-      }
-    });
-
-    it('keeps genuine source events, including plausible-source directories (R-9)', () => {
-      for (const name of [
-        'src/foo.ts',
-        'src\\foo.ts',
-        'apps/ptah-electron/src/main.ts',
-        'README.md',
-        // Deliberately NOT excluded: each is a plausible source directory.
-        'out/generated.ts',
-        'build/config.ts',
-        '.next/page.ts',
-        '.turbo/log.ts',
-        // Prefix collisions must not be treated as segment matches.
-        'distribution/a.ts',
-        'node_modules_backup/a.ts',
-        // Config dot-directories the watcher still tracks.
-        '.vscode/settings.json',
-        '.github/workflows/ci.yml',
-      ]) {
-        expect(isIgnored(name)).toBe(false);
-      }
-
-      // A null filename (platforms that do not surface it) is never ignored —
-      // the update must still be scheduled.
-      expect(
-        (
-          svc as unknown as {
-            isIgnoredWorkspaceEvent(f: string | null): boolean;
-          }
-        ).isIgnoredWorkspaceEvent(null),
-      ).toBe(false);
-    });
-
-    it('arms the dedicated .git watchers unfiltered (git ops still detected)', () => {
-      // `.git` is excluded from the RECURSIVE workspace watcher only, because
-      // the dedicated HEAD/index/refs watchers own it. If the shared exclusion
-      // predicate ever leaked into watchFile/watchDirectory, every commit,
-      // stage, checkout and branch switch would stop being detected — a far
-      // worse regression than the churn B4 removes.
-      const gitDir = path.join(tmpDir, '.git');
-      fs.mkdirSync(gitDir);
-      fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
-      fs.writeFileSync(path.join(gitDir, 'index'), '');
-      fs.mkdirSync(path.join(gitDir, 'refs'));
-
-      svc.start(tmpDir, broadcast);
-
-      // 1 workspace-root + HEAD + index + refs = 4. A leak of the predicate
-      // into watchFile/watchDirectory would drop this to 1.
-      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
-        4,
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(2);
+      const [first, second] = workspaceWatcher.__state.subscriptions;
+      expect(first.disposed).toBe(true);
+      expect(second.disposed).toBe(false);
+      // Agent worktree directories are already excluded by name.
+      const expected = path.join(root, 'sandbox', 'wt1');
+      expect(second.options.nestedRepoRoots).toHaveLength(1);
+      expect(second.options.nestedRepoRoots?.[0].toLowerCase()).toBe(
+        expected.toLowerCase(),
       );
+    });
+
+    it('does not resubscribe when no worktree lives under the workspace', async () => {
+      gitInfo.getWorktrees.mockResolvedValueOnce([
+        { path: root },
+      ] as GitWorktreeInfo[]);
+
+      svc.start(root, broadcast);
+      await settleListing();
+
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
+    });
+
+    it('drops a worktree listing that resolves after the watcher moved on', async () => {
+      let resolveList!: (list: GitWorktreeInfo[]) => void;
+      gitInfo.getWorktrees.mockReturnValueOnce(
+        new Promise((resolve) => (resolveList = resolve)),
+      );
+
+      svc.start(root, broadcast);
+      svc.stop();
+      resolveList([
+        { path: path.join(root, 'sandbox', 'wt1') },
+      ] as GitWorktreeInfo[]);
+      await settleListing();
+
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
+      expect(workspaceWatcher.__state.live()).toHaveLength(0);
+    });
+
+    it('a failed worktree listing keeps the subscription and warns once', async () => {
+      gitInfo.getWorktrees.mockRejectedValue(new Error('git missing'));
+
+      svc.start(root, broadcast);
+      await settleListing();
+      await (
+        svc as unknown as {
+          refreshNestedRepoRoots(
+            root: string,
+            generation: number,
+          ): Promise<void>;
+        }
+      ).refreshNestedRepoRoots(
+        root,
+        (svc as unknown as { armGeneration: number }).armGeneration,
+      );
+
+      const failures = (logger.warn as jest.Mock).mock.calls.filter(([m]) =>
+        String(m).startsWith('[GitWatcher] Could not list worktrees'),
+      );
+      expect(failures).toHaveLength(1);
+      expect(workspaceWatcher.__state.live()).toHaveLength(1);
+    });
+
+    it('a listing that resolves after a newer one never resubscribes over it', async () => {
+      const wt1 = path.join(root, 'sandbox', 'wt1');
+      const wt2 = path.join(root, 'sandbox', 'wt2');
+      gitInfo.getWorktrees.mockResolvedValueOnce([
+        { path: root },
+      ] as GitWorktreeInfo[]);
+      svc.start(root, broadcast);
+      await settleListing();
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
+
+      // Rapid worktree churn: two listings in flight, the older resolves last.
+      let resolveOlder!: (list: GitWorktreeInfo[]) => void;
+      let resolveNewer!: (list: GitWorktreeInfo[]) => void;
+      gitInfo.getWorktrees
+        .mockReturnValueOnce(new Promise((r) => (resolveOlder = r)))
+        .mockReturnValueOnce(new Promise((r) => (resolveNewer = r)));
+      const refresh = (
+        svc as unknown as {
+          refreshNestedRepoRoots(
+            root: string,
+            generation: number,
+          ): Promise<void>;
+        }
+      ).refreshNestedRepoRoots.bind(svc);
+      const generation = (svc as unknown as { armGeneration: number })
+        .armGeneration;
+      const older = refresh(root, generation);
+      const newer = refresh(root, generation);
+
+      resolveNewer([
+        { path: root },
+        { path: wt1 },
+        { path: wt2 },
+      ] as GitWorktreeInfo[]);
+      await newer;
+      resolveOlder([{ path: root }, { path: wt1 }] as GitWorktreeInfo[]);
+      await older;
+
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(2);
+      const live = workspaceWatcher.__state.live();
+      expect(live).toHaveLength(1);
+      expect(
+        live[0].options.nestedRepoRoots?.map((r) => r.toLowerCase()),
+      ).toEqual([wt1.toLowerCase(), wt2.toLowerCase()]);
+    });
+
+    it('re-lists worktrees on a .git/worktrees change, resubscribing only when the set changed', async () => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+      const wt = path.join(root, 'sandbox', 'wt1');
+      gitInfo.getWorktrees
+        .mockResolvedValueOnce([{ path: root }] as GitWorktreeInfo[])
+        .mockResolvedValueOnce([
+          { path: root },
+          { path: wt },
+        ] as GitWorktreeInfo[])
+        .mockResolvedValueOnce([
+          { path: root },
+          { path: wt },
+        ] as GitWorktreeInfo[]);
+
+      svc.start(root, broadcast);
+      await settleListing();
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
+
+      const refresh = (
+        svc as unknown as { scheduleNestedRootsRefresh(): void }
+      ).scheduleNestedRootsRefresh.bind(svc);
+      refresh();
+      refresh();
+      jest.advanceTimersByTime(500);
+      await settleListing();
+      expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(2);
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(2);
+
+      refresh();
+      jest.advanceTimersByTime(500);
+      await settleListing();
+      expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(3);
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(2);
+      expect(workspaceWatcher.__state.live()).toHaveLength(1);
     });
   });
 
   // ===========================================================================
-  // LIFECYCLE TESTS — start() twice, switchWorkspace(), real fs.watch
+  // DEDICATED .git WATCHERS AND LIFECYCLE — real fs.watch on temp directories
   // ===========================================================================
 
   describe('lifecycle', () => {
-    let tmpA: string;
-    let tmpB: string;
+    it('arms the dedicated .git watchers (HEAD, index, refs) on a git workspace', () => {
+      const root = tempDir('gw-life-git-');
+      makeGitDir(root);
 
-    beforeEach(() => {
-      tmpA = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-life-a-'));
-      tmpB = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-life-b-'));
+      svc.start(root, broadcast);
+
+      // HEAD + index + refs. The workspace itself is the port subscription.
+      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
+        3,
+      );
+      expect(workspaceWatcher.__state.live()).toHaveLength(1);
     });
 
-    afterEach(() => {
-      try {
-        fs.rmSync(tmpA, { recursive: true, force: true });
-      } catch {
-        /* ignore */
+    it('watches .git/worktrees when the repository has linked worktrees', () => {
+      const root = tempDir('gw-life-wt-');
+      makeGitDir(root, true);
+
+      svc.start(root, broadcast);
+
+      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
+        4,
+      );
+    });
+
+    it('a non-git workspace arms no .git watcher and lists no worktrees', () => {
+      const root = tempDir('gw-life-plain-');
+      svc.start(root, broadcast);
+
+      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
+        0,
+      );
+      expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+      expect(workspaceWatcher.__state.live()).toHaveLength(1);
+    });
+
+    it('start() called twice cleans up the previous subscription and watchers (no leak)', () => {
+      const rootA = tempDir('gw-life-a-');
+      const rootB = tempDir('gw-life-b-');
+      makeGitDir(rootA);
+
+      svc.start(rootA, broadcast);
+      svc.start(rootB, broadcast);
+
+      expect(workspaceWatcher.__state.live()).toHaveLength(1);
+      expect(workspaceWatcher.__state.live()[0].root).toBe(rootB);
+      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
+        0,
+      );
+    });
+
+    it('git workspace push fires the initial git:status-update', async () => {
+      const root = tempDir('gw-life-initial-');
+      makeGitDir(root);
+
+      svc.start(root, broadcast);
+
+      const start = Date.now();
+      while (
+        Date.now() - start < 2_000 &&
+        calls('git:status-update').length === 0
+      ) {
+        await new Promise((r) => setTimeout(r, 25));
       }
-      try {
-        fs.rmSync(tmpB, { recursive: true, force: true });
-      } catch {
-        /* ignore */
-      }
-    });
-
-    it('start() called twice cleans up previous watchers (no leak)', () => {
-      svc.start(tmpA, broadcast);
-      const firstCount = (svc as unknown as { watchers: unknown[] }).watchers
-        .length;
-      expect(firstCount).toBe(1);
-
-      svc.start(tmpB, broadcast);
-      const secondCount = (svc as unknown as { watchers: unknown[] }).watchers
-        .length;
-      // Switching to a different non-git workspace should still result in
-      // exactly the workspace-root watcher (no accumulation from tmpA).
-      expect(secondCount).toBe(1);
-    });
-
-    it('switchWorkspace() to a non-git workspace re-attaches workspace watcher (after debounce)', async () => {
-      svc.start(tmpA, broadcast);
-      svc.switchWorkspace(tmpB);
-
-      // Debounced: the re-arm has not happened yet.
-      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
-        tmpA,
-      );
-
-      // After the switch-debounce window the final target is armed.
-      await waitFor(
-        () =>
-          (svc as unknown as { workspacePath: string }).workspacePath === tmpB,
-        1500,
-      );
-
-      const watchers = (svc as unknown as { watchers: unknown[] }).watchers;
-      expect(watchers.length).toBe(1);
-      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
-        tmpB,
-      );
-    });
-
-    it('switchWorkspace() to the same path is a no-op', () => {
-      svc.start(tmpA, broadcast);
-      const before = (svc as unknown as { watchers: unknown[] }).watchers;
-      const beforeRef = before;
-      svc.switchWorkspace(tmpA);
-      const after = (svc as unknown as { watchers: unknown[] }).watchers;
-      // Same array reference — start() was not re-invoked
-      expect(after).toBe(beforeRef);
-    });
-
-    it('start() on a git workspace attaches git-specific watchers (HEAD, index, refs)', () => {
-      // Build a minimal .git structure
-      const gitDir = path.join(tmpA, '.git');
-      fs.mkdirSync(gitDir);
-      fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
-      fs.writeFileSync(path.join(gitDir, 'index'), '');
-      fs.mkdirSync(path.join(gitDir, 'refs'));
-
-      svc.start(tmpA, broadcast);
-
-      // 1 workspace-root + 1 HEAD + 1 index + 1 refs = 4
-      const watchers = (svc as unknown as { watchers: unknown[] }).watchers;
-      expect(watchers.length).toBe(4);
-    });
-
-    it('git workspace push fires initial git:status-update', async () => {
-      const gitDir = path.join(tmpA, '.git');
-      fs.mkdirSync(gitDir);
-      fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
-      fs.writeFileSync(path.join(gitDir, 'index'), '');
-      fs.mkdirSync(path.join(gitDir, 'refs'));
-
-      svc.start(tmpA, broadcast);
-
-      // start() calls fetchAndPush() synchronously after attaching watchers
-      await waitFor(
-        () => broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
-        2000,
-      );
-
-      const gitCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'git:status-update',
-      );
-      expect(gitCalls.length).toBeGreaterThanOrEqual(1);
+      expect(calls('git:status-update').length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -696,20 +897,9 @@ describe('GitWatcherService', () => {
     let tmpB: string;
 
     beforeEach(() => {
-      tmpA = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-switch-a-'));
-      tmpB = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-switch-b-'));
+      tmpA = tempDir('gw-switch-a-');
+      tmpB = tempDir('gw-switch-b-');
       jest.useFakeTimers();
-    });
-
-    afterEach(() => {
-      jest.useRealTimers();
-      for (const dir of [tmpA, tmpB]) {
-        try {
-          fs.rmSync(dir, { recursive: true, force: true });
-        } catch {
-          /* ignore */
-        }
-      }
     });
 
     it('collapses rapid switches into a single re-arm on the final target', () => {
@@ -731,9 +921,8 @@ describe('GitWatcherService', () => {
       // Exactly one re-arm, on the final target (tmpB).
       expect(startSpy).toHaveBeenCalledTimes(1);
       expect(startSpy).toHaveBeenCalledWith(tmpB, broadcast);
-      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
-        tmpB,
-      );
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(2);
+      expect(workspaceWatcher.__state.live()[0].root).toBe(tmpB);
     });
 
     it('A→B→A quickly leaves A watched with no teardown (queued restart dropped)', () => {
@@ -745,172 +934,42 @@ describe('GitWatcherService', () => {
 
       jest.advanceTimersByTime(300);
 
-      // The restart is dropped because the final target is already watched.
       expect(startSpy).not.toHaveBeenCalled();
-      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
-        tmpA,
-      );
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
+      expect(workspaceWatcher.__state.live()[0].root).toBe(tmpA);
+    });
+
+    it('switchWorkspace() to the same path is a no-op', () => {
+      svc.start(tmpA, broadcast);
+      svc.switchWorkspace(tmpA);
+      jest.advanceTimersByTime(300);
+
+      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
     });
 
     it('does not fire the initial git:status-update synchronously on arm', async () => {
-      // Give tmpA a .git dir so the initial fetch path is reached.
-      const gitDir = path.join(tmpA, '.git');
-      fs.mkdirSync(gitDir);
-      fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
-      fs.writeFileSync(path.join(gitDir, 'index'), '');
-      fs.mkdirSync(path.join(gitDir, 'refs'));
-
+      makeGitDir(tmpA);
       svc.start(tmpA, broadcast);
 
       // Watchers are armed immediately, but the fetch is deferred.
-      expect(
-        broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
-      ).toBe(false);
+      expect(calls('git:status-update')).toHaveLength(0);
 
       jest.advanceTimersByTime(50);
-      // Flush the async fetchAndPush microtasks.
-      await Promise.resolve();
-      await Promise.resolve();
+      await flush();
 
-      expect(gitInfo.getGitInfo).toHaveBeenCalledWith(tmpA);
-      expect(
-        broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
-      ).toBe(true);
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledWith(tmpA);
+      expect(calls('git:status-update')).toHaveLength(1);
     });
 
     it('stop() before the deferred initial fetch fires suppresses it', async () => {
-      const gitDir = path.join(tmpA, '.git');
-      fs.mkdirSync(gitDir);
-      fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
-      fs.writeFileSync(path.join(gitDir, 'index'), '');
-      fs.mkdirSync(path.join(gitDir, 'refs'));
-
+      makeGitDir(tmpA);
       svc.start(tmpA, broadcast);
       svc.stop();
 
       jest.advanceTimersByTime(50);
-      await Promise.resolve();
-      await Promise.resolve();
+      await flush();
 
-      expect(
-        broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
-      ).toBe(false);
+      expect(calls('git:status-update')).toHaveLength(0);
     });
-  });
-
-  // ===========================================================================
-  // REAL fs.watch INTEGRATION — non-git workspace still schedules git:status-update
-  //
-  // TASK_2026_385 Batch 4.3: the file-tree refresh job (and its
-  // `file:tree-changed` push) is gone along with the file explorer it fed.
-  // `git:status-update` is now the only observable signal that the workspace
-  // watcher's `WATCH_IGNORED_DIRS` predicate is wired into the real
-  // `fs.watch` callback, so these tests assert on it instead.
-  //
-  // These tests use real timers and real file system events. They are
-  // timing-sensitive on Windows; we tolerate up to a few seconds and poll
-  // rather than depend on a precise tick.
-  // ===========================================================================
-
-  describe('real fs.watch integration (non-git workspace)', () => {
-    let tmpDir: string;
-
-    beforeEach(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-real-'));
-    });
-
-    afterEach(() => {
-      try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch {
-        /* ignore */
-      }
-    });
-
-    it('non-git workspace still schedules git:status-update when a file is created', async () => {
-      svc.start(tmpDir, broadcast);
-      broadcast.mockClear();
-
-      // Create a new file — fs.watch should emit 'rename', which schedules
-      // scheduleUpdate; the broadcast fires after WORKSPACE_DEBOUNCE_MS (2000).
-      fs.writeFileSync(path.join(tmpDir, 'new-file.ts'), 'export {};\n');
-
-      const fired = await waitFor(
-        () => broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
-        4000,
-      );
-
-      // Document timing-sensitivity: fs.watch on Windows can occasionally
-      // miss events for very short-lived test files. We assert the contract
-      // but tolerate a single retry.
-      if (!fired) {
-        fs.writeFileSync(path.join(tmpDir, 'new-file-2.ts'), 'export {};\n');
-        await waitFor(
-          () => broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
-          4000,
-        );
-      }
-
-      const statusCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'git:status-update',
-      );
-      expect(statusCalls.length).toBeGreaterThanOrEqual(1);
-    }, 10000);
-
-    /**
-     * End-to-end proof that the shared exclusion predicate is actually wired
-     * into the `fs.watch` callback — the unit tests above exercise the
-     * decision, this exercises the wiring.
-     *
-     * Positive control in the same test: if the negative half passed because
-     * `fs.watch` simply delivered nothing, the positive half would fail too.
-     */
-    it('writes under .nx/.angular/coverage/tmp are ignored while a real source write still pushes', async () => {
-      const nxCache = path.join(tmpDir, '.nx', 'cache');
-      const ngCache = path.join(tmpDir, '.angular', 'cache');
-      const coverageDir = path.join(tmpDir, 'coverage');
-      const tmpOutputDir = path.join(tmpDir, 'tmp');
-      const srcDir = path.join(tmpDir, 'src');
-      // Created BEFORE start() so the mkdir events themselves are not measured.
-      fs.mkdirSync(nxCache, { recursive: true });
-      fs.mkdirSync(ngCache, { recursive: true });
-      fs.mkdirSync(coverageDir, { recursive: true });
-      fs.mkdirSync(tmpOutputDir, { recursive: true });
-      fs.mkdirSync(srcDir, { recursive: true });
-
-      svc.start(tmpDir, broadcast);
-      broadcast.mockClear();
-
-      for (let i = 0; i < 5; i++) {
-        fs.writeFileSync(path.join(nxCache, `probe-${i}.tmp`), String(i));
-        fs.writeFileSync(path.join(ngCache, `probe-${i}.tmp`), String(i));
-        fs.writeFileSync(path.join(coverageDir, `probe-${i}.tmp`), String(i));
-        fs.writeFileSync(path.join(tmpOutputDir, `probe-${i}.tmp`), String(i));
-      }
-
-      // Well past WORKSPACE_DEBOUNCE_MS (2000) — nothing may have been pushed.
-      await new Promise((r) => setTimeout(r, 2800));
-      expect(
-        broadcast.mock.calls.filter(([t]) => t === 'git:status-update'),
-      ).toHaveLength(0);
-
-      // Positive control: a genuine source write still fires (B4 AC3, R-9).
-      fs.writeFileSync(path.join(srcDir, 'real.ts'), 'export {};\n');
-      const fired = await waitFor(
-        () => broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
-        4000,
-      );
-      if (!fired) {
-        // fs.watch on Windows occasionally misses a short-lived file event.
-        fs.writeFileSync(path.join(srcDir, 'real-2.ts'), 'export {};\n');
-        await waitFor(
-          () => broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
-          4000,
-        );
-      }
-      expect(
-        broadcast.mock.calls.filter(([t]) => t === 'git:status-update').length,
-      ).toBeGreaterThanOrEqual(1);
-    }, 20000);
   });
 });

@@ -168,6 +168,7 @@ const TWENTY_LINES = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join(
 
 function hunkTab(): EditorTab {
   const diff: DiffTabState = {
+    provenance: { kind: 'mutable', comparison: 'worktree' },
     comparison: 'worktree',
     path: 'src/index.ts',
     originalPath: 'src/index.ts',

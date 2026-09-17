@@ -42,11 +42,16 @@
  * two of three sessions reads "cluster size 3, member sessions 2" rather than
  * quietly reporting itself as smaller than the evidence behind it.
  */
+import type { QueryOrigin } from './internal-query.interface';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   SDK_TOKENS,
   type CuratorRateLimitService,
@@ -62,6 +67,10 @@ import {
   MIN_INVOCATIONS_TO_ENHANCE,
 } from './skill-enhancer.service';
 import { SkillMdGenerator } from './skill-md-generator';
+import {
+  SKILL_REPROPAGATION_TOKEN,
+  type SkillRepropagationPort,
+} from './skill-repropagation.port';
 import { SkillSuggestionStore } from './skill-suggestion.store';
 import {
   SkillClusteringService,
@@ -164,6 +173,16 @@ export class SkillCuratorService {
     private readonly judge: SkillJudgeService | null,
     @inject(SkillMdGenerator)
     private readonly mdGenerator: SkillMdGenerator,
+    /**
+     * Pushes an accepted suggestion out to the harness surfaces (b17b logic
+     * review). Optional and last, as in `SkillPromotionService`: the CLI/e2e
+     * hosts bind no port and the registered default is a no-op.
+     */
+    @inject(SKILL_REPROPAGATION_TOKEN, { isOptional: true })
+    private readonly repropagation: SkillRepropagationPort | null = null,
+    /** Read only for the workspace root handed to {@link repropagation}. */
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
+    private readonly workspace: IWorkspaceProvider | null = null,
   ) {}
 
   start(
@@ -203,18 +222,23 @@ export class SkillCuratorService {
     this.onEvent = null;
   }
 
-  runManual(): Promise<CuratorReport> {
+  /**
+   * One pass now (RPC `skillSynthesis:runCurator`). The RPC handler passes
+   * `userInitiated: true`; the interval in {@link start} never does.
+   */
+  runManual(origin: QueryOrigin = {}): Promise<CuratorReport> {
     if (!this.currentSettings) {
       this.logger.warn(
         '[skill-curator] runManual called before start (no settings); returning empty report',
       );
       return Promise.resolve(this.emptyReport());
     }
-    return this.runPass(this.currentSettings);
+    return this.runPass(this.currentSettings, origin);
   }
 
   private async runPass(
     settings: SkillSynthesisSettings,
+    origin: QueryOrigin = {},
   ): Promise<CuratorReport> {
     this.onEvent?.({ kind: 'curator-pass-start', timestamp: Date.now() });
 
@@ -223,8 +247,8 @@ export class SkillCuratorService {
       this.logger.info(
         '[skill-curator] no promoted skills to review; skipping overlap pass',
       );
-      await this.runEnhancementPass(settings);
-      const suggestionsCreated = await this.runSuggestionPass(settings);
+      await this.runEnhancementPass(settings, origin);
+      const suggestionsCreated = await this.runSuggestionPass(settings, origin);
       this.onEvent?.({
         kind: 'curator-pass',
         timestamp: Date.now(),
@@ -261,7 +285,11 @@ export class SkillCuratorService {
 
     let result;
     try {
-      result = await this.laneRunner.run({ laneId: 'synthesis', prompt });
+      result = await this.laneRunner.run({
+        laneId: 'synthesis',
+        prompt,
+        userInitiated: origin.userInitiated,
+      });
     } catch (err: unknown) {
       this.logger.warn('[skill-curator] lane call threw', {
         error: err instanceof Error ? err.message : String(err),
@@ -327,8 +355,8 @@ export class SkillCuratorService {
       skippedPinned,
     );
 
-    await this.runEnhancementPass(settings);
-    const suggestionsCreated = await this.runSuggestionPass(settings);
+    await this.runEnhancementPass(settings, origin);
+    const suggestionsCreated = await this.runSuggestionPass(settings, origin);
 
     this.onEvent?.({
       kind: 'curator-pass',
@@ -361,6 +389,7 @@ export class SkillCuratorService {
    */
   private async runSuggestionPass(
     settings: SkillSynthesisSettings,
+    origin: QueryOrigin,
   ): Promise<number> {
     if (
       !this.clustering ||
@@ -439,6 +468,7 @@ export class SkillCuratorService {
         const synthesized = await this.synthesizer.synthesizeFromCluster(
           members,
           settings,
+          origin,
         );
         if (!synthesized) continue;
         const verdict = await this.judge.judge(
@@ -449,6 +479,9 @@ export class SkillCuratorService {
           },
           synthesized.body,
           settings,
+          undefined,
+          undefined,
+          origin,
         );
         // A suggestion row carries a NUMBER in `judge_score`, so only a genuine
         // `scored` verdict may create one. Before phase 1 an unparseable or
@@ -504,12 +537,18 @@ export class SkillCuratorService {
 
   /**
    * Accept a pending suggestion: materialize a promoted SKILL.md and register
-   * it as a synth-origin skill, then mark the suggestion accepted.
+   * it as a synth-origin skill, mark the suggestion accepted, then re-propagate
+   * the skill so the harness surfaces see it now, not at the next activation.
+   *
+   * `origin`: the `skillSynthesis:acceptSuggestion` click passes
+   * `userInitiated: true`, so the re-propagation never waits for the
+   * background-work governor (TASK_2026_437 FU-17b).
    */
-  acceptSuggestion(
+  async acceptSuggestion(
     id: string,
     settings: SkillSynthesisSettings,
-  ): AcceptSuggestionResult {
+    origin: QueryOrigin = {},
+  ): Promise<AcceptSuggestionResult> {
     if (!this.suggestionStore) {
       return { accepted: false, filePath: '' };
     }
@@ -562,7 +601,44 @@ export class SkillCuratorService {
     }
     this.suggestionStore.accept(id);
     void settings;
+    await this.repropagateAccepted(slug, origin);
     return { accepted: true, filePath };
+  }
+
+  /**
+   * NEVER throws: the skill is already materialized and accepted, and the next
+   * activation's reconcile heals a missed propagation.
+   */
+  private async repropagateAccepted(
+    slug: string,
+    origin: QueryOrigin,
+  ): Promise<void> {
+    if (!this.repropagation) return;
+    try {
+      await this.repropagation.repropagate(
+        'skill',
+        slug,
+        this.workspaceRoot(),
+        origin,
+      );
+    } catch (err: unknown) {
+      this.logger.warn(
+        '[skill-curator] accepted skill repropagation failed (the skill is still accepted)',
+        { slug, error: err instanceof Error ? err.message : String(err) },
+      );
+    }
+  }
+
+  /** `''` when no workspace is open, the value `SkillPromotionService` passes. */
+  private workspaceRoot(): string {
+    try {
+      return this.workspace?.getWorkspaceRoot() ?? '';
+    } catch {
+      // degradation-audit: optional-capability - An open workspace is optional
+      // in headless hosts; empty string asks the adapter to reconcile known
+      // scope.
+      return '';
+    }
   }
 
   dismissSuggestion(id: string): DismissSuggestionResult {
@@ -624,6 +700,7 @@ export class SkillCuratorService {
 
   private async runEnhancementPass(
     settings: SkillSynthesisSettings,
+    origin: QueryOrigin,
   ): Promise<void> {
     if (!this.registry || !this.enhancer) {
       return;
@@ -660,8 +737,11 @@ export class SkillCuratorService {
         break;
       }
       try {
+        // `userInitiated` but NOT `manual`: a manual curator run still honours
+        // the auto-enhance cooldown and floor; it only skips the governor.
         const result = await this.enhancer.enhance(candidate.slug, settings, {
           kind: candidate.kind,
+          userInitiated: origin.userInitiated,
         });
         if (result.changed) {
           enhancedThisPass += 1;

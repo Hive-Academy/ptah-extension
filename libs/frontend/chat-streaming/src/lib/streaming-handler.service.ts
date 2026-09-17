@@ -41,6 +41,25 @@ import { TurnStateApplier } from './turn-state-applier.service';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
+  /**
+   * Event types the accumulator routes to a STORE and nowhere else — see the
+   * `background_agent_*` / `agent_*` arms of
+   * `StreamingAccumulatorCore.process`. None of them reads or writes
+   * `StreamingState`, so none may cause one to be created. `turn_state` is not
+   * listed because it is intercepted in `processStreamEvent` and never reaches
+   * the per-tab path at all.
+   */
+  private static readonly STORE_ONLY_EVENT_TYPES: ReadonlySet<string> = new Set(
+    [
+      'agent_progress',
+      'agent_status',
+      'agent_completed',
+      'background_agent_started',
+      'background_agent_completed',
+      'background_agent_stopped',
+    ],
+  );
+
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
 
@@ -72,6 +91,77 @@ export class StreamingHandlerService {
     this.warnedNoTargetSessions.delete(sessionId);
   }
 
+  /** Drop queued tab writes before replacing its state from session history. */
+  clearPendingUpdates(tabId: string): void {
+    this.batchedUpdate.clearPendingUpdates(tabId);
+  }
+
+  /**
+   * Split the live bubble at a user prompt sent while a turn is streaming.
+   *
+   * `buildTree` merges consecutive root assistant messages into one bubble,
+   * and only a user `message_start` stops the merge. The optimistic user
+   * bubble lands in `messages` at once, but the SDK echoes its own user
+   * `message_start` only when it consumes the prompt at turn end — so every
+   * later assistant message of the running turn merged into the bubble ABOVE
+   * the prompt until the turn settled.
+   *
+   * A user root is never tree output, so the boundary renders nothing of its
+   * own. It carries the bubble's own id, which is how
+   * `finalizeCurrentMessage` places the settled turn around the prompt. A tab
+   * with no live tree needs no boundary: the next turn starts its own state.
+   *
+   * Known limit: a `compaction_complete` replacement state and the
+   * `STREAMING_EVENT_CAP` eviction can both drop the boundary. The turn then
+   * renders and finalizes as it did before the boundary existed.
+   */
+  recordUserPromptBoundary(tabId: string, message: ExecutionChatMessage): void {
+    const state = this.findTabStreamingState(tabId);
+    if (!state || state.currentMessageId == null) return;
+    this.accumulatorCore.recordUserPromptBoundary(state, {
+      id: message.id,
+      eventType: 'message_start',
+      timestamp: message.timestamp,
+      source: 'complete',
+      messageId: message.id,
+      role: 'user',
+    });
+    this.publishBoundaryChange(tabId, state);
+  }
+
+  /**
+   * Undo {@link recordUserPromptBoundary} for a prompt that never reached the
+   * backend (`chat:continue` rejected or threw). Left in place, the live turn
+   * stays split — and later settles — around a prompt the agent never saw.
+   */
+  removeUserPromptBoundary(tabId: string, messageId: string): void {
+    const state = this.findTabStreamingState(tabId);
+    if (!state) return;
+    if (!this.accumulatorCore.removeUserPromptBoundary(state, messageId)) {
+      return;
+    }
+    this.publishBoundaryChange(tabId, state);
+  }
+
+  /** Workspace-aware, like the send path that appended the bubble. */
+  private findTabStreamingState(tabId: string): StreamingState | null {
+    return (
+      this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.streamingState ??
+      null
+    );
+  }
+
+  /** Active tab → the batched frame; background tab → its partition. */
+  private publishBoundaryChange(tabId: string, state: StreamingState): void {
+    if (this.tabManager.tabs().some((t) => t.id === tabId)) {
+      this.batchedUpdate.scheduleUpdate(tabId, state);
+    } else {
+      this.tabManager.updateBackgroundTab(tabId, {
+        streamingState: { ...state },
+      });
+    }
+  }
+
   /**
    * Process flat streaming event from SDK
    *
@@ -87,7 +177,7 @@ export class StreamingHandlerService {
     event: FlatStreamEventUnion,
     tabId?: string,
     sessionId?: string,
-    options?: { isReplay?: boolean },
+    options?: { isReplay?: boolean; fanOut?: boolean },
   ): {
     tabId: string;
     queuedContent?: string;
@@ -182,9 +272,10 @@ export class StreamingHandlerService {
         sessionId,
         isReplay,
       );
-      const allBoundTabs = eventSession
-        ? this.tabManager.findTabsBySessionId(eventSession)
-        : [];
+      const allBoundTabs =
+        eventSession && options?.fanOut !== false
+          ? this.tabManager.findTabsBySessionId(eventSession)
+          : [];
       if (allBoundTabs.length > 1) {
         for (const otherTab of allBoundTabs) {
           if (otherTab.id === primaryTab.id) continue;
@@ -244,7 +335,19 @@ export class StreamingHandlerService {
     if (sessionId && !targetTab.claudeSessionId) {
       this.tabManager.attachSession(targetTab.id, sessionId);
     }
-    if (!targetTab.streamingState) {
+    // An event that writes NOTHING into `StreamingState` must never create one.
+    // These six only touch the monitor / background-agent stores, and they all
+    // arrive after a turn ends as a matter of course (TASK_2026_360). Minting
+    // for them left a settled tab holding an empty tree that no finalize can
+    // clear — `finalizeCurrentMessage` early-returns on the null
+    // `currentMessageId` such a state carries — which every busy-predicate
+    // reader then saw as a live turn (TASK_2026_382 review B5). The accumulator
+    // still runs, on a scratch state it discards, so the stores are updated
+    // exactly as before.
+    const ephemeralState =
+      !targetTab.streamingState &&
+      StreamingHandlerService.STORE_ONLY_EVENT_TYPES.has(event.eventType);
+    if (!targetTab.streamingState && !ephemeralState) {
       this.tabManager.setStreamingState(
         targetTab.id,
         createEmptyStreamingState(),
@@ -257,7 +360,9 @@ export class StreamingHandlerService {
       }
     }
 
-    const state = targetTab.streamingState as StreamingState;
+    const state = ephemeralState
+      ? createEmptyStreamingState()
+      : (targetTab.streamingState as StreamingState);
 
     // Capture the SDK's real transcript UUID for the user's own turn — emitted
     // on the user `message_start` because `replay-user-messages` is enabled —
@@ -315,7 +420,7 @@ export class StreamingHandlerService {
         return { tabId: targetTab.id, queuedContent };
       }
     }
-    if (result.stateMutated) {
+    if (result.stateMutated && !ephemeralState) {
       // Content only. The spinner / `status` are NOT re-asserted from content
       // any more: a post-turn `agent_progress` used to re-light the stop
       // button with nothing left to clear it (TASK_2026_360, Defect 1). The
@@ -345,6 +450,11 @@ export class StreamingHandlerService {
     if (!lookup) return false;
 
     const { tab } = lookup;
+    // This is the background half of the `processEventForTab` ephemeral-state
+    // rule: store-only events still run, but their scratch state is not saved.
+    const ephemeralState =
+      !tab.streamingState &&
+      StreamingHandlerService.STORE_ONLY_EVENT_TYPES.has(event.eventType);
     let state: StreamingState =
       tab.streamingState ?? createEmptyStreamingState();
 
@@ -360,6 +470,7 @@ export class StreamingHandlerService {
     if (result.compactionComplete && result.replacementState) {
       state = result.replacementState;
     }
+    if (ephemeralState) return true;
 
     // Streaming state only. A cron- or gateway-triggered turn that starts on a
     // backgrounded tab gets its spinner and `status` from the backend

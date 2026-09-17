@@ -15,12 +15,14 @@ Ptah ships with a **built-in MCP server** exposing the `ptah_*` tool family: wor
 
 Skills are versioned, file-based prompt packages. Each has a `SKILL.md` that tells the orchestrator _when_ to invoke it and _what_ context it adds. Ptah auto-publishes plugin skills as real file copies under the harness directory of every AI tool it detects — `.claude/skills/`, `.agents/skills/`, `.github/skills/`, and `.cursor/skills/` — so third-party AI clients (Claude Code, Copilot, Cursor, Codex CLI, Antigravity) discover the same knowledge.
 
+The `agent-lanes` skill defines the CLI lane contract used by `orchestration` and `tribunal`. Keep it enabled when running those workflows on lanes — see [skill dependencies](/mcp-and-skills/skills/#skill-dependencies). When `ptah_*` tools are listed in a session, agent templates use them first; otherwise they use native tools directly.
+
 ## Why this matters
 
 Without MCP and Skills, a model depends on whatever its provider gave it — Claude knows nothing about Copilot's tools, and vice versa. Ptah solves this with a unified layer:
 
 - **One tool catalog** across all providers via the built-in MCP server.
-- **One skill catalog** across all AI clients via `.claude/skills/` junctions.
+- **One skill catalog** across all AI clients via manifest-owned copies in detected harness directories.
 - **One extension mechanism** — plugins contribute both.
 
 ## Explore the docs
@@ -29,7 +31,7 @@ Without MCP and Skills, a model depends on whatever its provider gave it — Cla
 | ------------------------------------------ | ----------------------------------------------------------- |
 | The built-in MCP server and Code Execution | [Built-in MCP server](/mcp-and-skills/built-in-mcp-server/) |
 | Full catalog of `ptah_*` tools             | [Ptah tools](/mcp-and-skills/ptah-tools/)                   |
-| What skills are and how junctions work     | [Skills](/mcp-and-skills/skills/)                           |
+| What skills are, their dependencies, and how sync works     | [Skills](/mcp-and-skills/skills/)                           |
 | Pre-curated skill catalog                  | [Popular skills](/mcp-and-skills/popular-skills/)           |
 | Authoring your own skills                  | [Creating skills](/mcp-and-skills/creating-skills/)         |
 | Connecting third-party MCP servers         | [Third-party MCP](/mcp-and-skills/third-party-mcp/)         |

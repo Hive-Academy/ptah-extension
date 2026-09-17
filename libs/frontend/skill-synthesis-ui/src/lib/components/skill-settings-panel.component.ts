@@ -153,16 +153,6 @@ const INHERIT_EXPLANATION =
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label class="flex flex-col gap-1">
               <span class="text-xs text-base-content-muted"
-                >Eligibility min turns</span
-              >
-              <input
-                type="number"
-                class="input input-bordered input-sm"
-                formControlName="eligibilityMinTurns"
-              />
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content-muted"
                 >Eviction decay rate (0-1)</span
               >
               <input
@@ -190,16 +180,6 @@ const INHERIT_EXPLANATION =
                 type="number"
                 class="input input-bordered input-sm"
                 formControlName="prefilterMinEdits"
-              />
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content-muted"
-                >Prefilter min chars</span
-              >
-              <input
-                type="number"
-                class="input input-bordered input-sm"
-                formControlName="prefilterMinChars"
               />
             </label>
             <label class="flex flex-col gap-1">

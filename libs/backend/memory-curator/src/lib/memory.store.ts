@@ -12,6 +12,7 @@ import { blankToNull } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   type IMemoryLister,
+  type IMemoryUsageRecorder,
   type MemoryListPage,
 } from '@ptah-extension/memory-contracts';
 import {
@@ -33,6 +34,7 @@ import {
   type MemoryTier,
   type MemoryType,
 } from './memory.types';
+import { salienceRankOrderBy } from './salience-ranking';
 
 interface MemoryRow {
   id: string;
@@ -131,7 +133,7 @@ function rowToChunk(row: ChunkRow): MemoryChunk {
 }
 
 @injectable()
-export class MemoryStore implements IMemoryLister {
+export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
   /** Per-workspace write generation counter. Key '' = global (no workspace). */
   private readonly writeCounts = new Map<string, number>();
   /** Suppresses repeated per-chunk WARN logs once the embedder is known-dead. */
@@ -153,6 +155,18 @@ export class MemoryStore implements IMemoryLister {
    */
   getWriteCounter(workspaceRoot: string): number {
     return this.writeCounts.get(workspaceRoot) ?? 0;
+  }
+
+  /** Invalidate search-cache generations after lifecycle writes committed. */
+  markWorkspacesChanged(roots: Iterable<string | null>): void {
+    let changed = false;
+    let unscopedChanged = false;
+    for (const root of roots) {
+      this.bumpWriteCounter(root);
+      changed = true;
+      if (root === null || root === '') unscopedChanged = true;
+    }
+    if (changed && !unscopedChanged) this.bumpWriteCounter('');
   }
 
   /** Increment the write counter for the given workspaceRoot (or '' if null). */
@@ -195,6 +209,7 @@ export class MemoryStore implements IMemoryLister {
       created_at: now,
       updated_at: now,
       last_used_at: now,
+      archived_at: insert.tier === 'archival' ? now : null,
       expires_at: insert.expiresAt ?? null,
       request: insert.request ?? null,
       investigated: insert.investigated ?? null,
@@ -215,12 +230,12 @@ export class MemoryStore implements IMemoryLister {
     const insertMemoryStmt = db.prepare(
       `INSERT INTO memories (id, session_id, workspace_root, tier, kind, subject, content,
          source_message_ids, salience, decay_rate, hits, pinned,
-         created_at, updated_at, last_used_at, expires_at,
+         created_at, updated_at, last_used_at, archived_at, expires_at,
          request, investigated, learned, completed, next_steps,
          type, concepts_json, files_json)
        VALUES (@id, @session_id, @workspace_root, @tier, @kind, @subject, @content,
          @source_message_ids, @salience, @decay_rate, @hits, @pinned,
-         @created_at, @updated_at, @last_used_at, @expires_at,
+         @created_at, @updated_at, @last_used_at, @archived_at, @expires_at,
          @request, @investigated, @learned, @completed, @next_steps,
          @type, @concepts_json, @files_json)`,
     );
@@ -348,9 +363,14 @@ export class MemoryStore implements IMemoryLister {
       .get(params) as { n: number } | undefined;
     const rows = this.connection.db
       .prepare(
-        `SELECT * FROM memories ${whereSql} ORDER BY salience DESC, last_used_at DESC LIMIT @__limit OFFSET @__offset`,
+        `SELECT m.* FROM memories m ${whereSql} ${salienceRankOrderBy('@rankNow')} LIMIT @__limit OFFSET @__offset`,
       )
-      .all({ ...params, __limit: limit, __offset: offset }) as MemoryRow[];
+      .all({
+        ...params,
+        rankNow: Date.now(),
+        __limit: limit,
+        __offset: offset,
+      }) as MemoryRow[];
     return {
       memories: rows.map(rowToMemory),
       total: totalRow?.n ?? rows.length,
@@ -359,7 +379,7 @@ export class MemoryStore implements IMemoryLister {
 
   /**
    * IMemoryLister implementation — read-only list for cross-layer consumers.
-   * Returns a page of memories with a total count for pagination, sorted by salience.
+   * Returns a page of memories with a total count for pagination, sorted by ranking salience.
    */
   listAll(
     workspaceRoot?: string,
@@ -383,9 +403,9 @@ export class MemoryStore implements IMemoryLister {
     const clampedOffset = Math.max(0, offset);
     const rows = this.connection.db
       .prepare(
-        `SELECT id, subject, content, tier, kind, salience, created_at FROM memories ${where} ORDER BY salience DESC LIMIT ? OFFSET ?`,
+        `SELECT m.id, m.subject, m.content, m.tier, m.kind, m.salience, m.created_at FROM memories m ${where} ${salienceRankOrderBy('?')} LIMIT ? OFFSET ?`,
       )
-      .all(...params, clampedLimit, clampedOffset) as Array<{
+      .all(...params, Date.now(), clampedLimit, clampedOffset) as Array<{
       id: string;
       subject: string | null;
       content: string;
@@ -513,30 +533,46 @@ export class MemoryStore implements IMemoryLister {
     return result.changes;
   }
 
-  recordHit(id: MemoryId): void {
-    this.connection.db
-      .prepare(
-        `UPDATE memories SET hits = hits + 1, last_used_at = ? WHERE id = ?`,
-      )
-      .run(Date.now(), id);
-  }
-
-  updateSalience(id: MemoryId, salience: number, tier?: MemoryTier): void {
-    const ws = this.lookupWorkspaceRoot(id);
-    if (tier) {
-      this.connection.db
-        .prepare(
-          `UPDATE memories SET salience = ?, tier = ?, updated_at = ? WHERE id = ?`,
-        )
-        .run(salience, tier, Date.now(), id);
-    } else {
-      this.connection.db
-        .prepare(
-          `UPDATE memories SET salience = ?, updated_at = ? WHERE id = ?`,
-        )
-        .run(salience, Date.now(), id);
+  recordUse(memoryIds: readonly string[]): void {
+    const uniqueIds = [...new Set(memoryIds)];
+    if (uniqueIds.length > 200) {
+      this.logger.debug('[memory-curator] recordUse truncated memory ids', {
+        received: uniqueIds.length,
+        recorded: 200,
+      });
     }
-    this.bumpWriteCounter(ws);
+    const ids = uniqueIds.slice(0, 200);
+    if (ids.length === 0) return;
+    const params = { ids: JSON.stringify(ids), now: Date.now() };
+    try {
+      const db = this.connection.db;
+      const restoredRoots = db.transaction(() => {
+        const roots = db
+          .prepare(
+            `SELECT DISTINCT workspace_root
+               FROM memories
+              WHERE id IN (SELECT value FROM json_each(@ids))
+                AND tier = 'archival'`,
+          )
+          .all({ ids: params.ids }) as Array<{ workspace_root: string | null }>;
+        db.prepare(
+          `UPDATE memories
+              SET hits = hits + 1,
+                  last_used_at = @now,
+                  tier = CASE WHEN tier = 'archival' THEN 'recall' ELSE tier END,
+                  archived_at = NULL
+            WHERE id IN (SELECT value FROM json_each(@ids))`,
+        ).run(params);
+        return roots;
+      })();
+      for (const row of restoredRoots) {
+        this.bumpWriteCounter(row.workspace_root);
+      }
+    } catch (error: unknown) {
+      this.logger.warn('[memory-curator] failed to record memory use', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /** Append source content to an existing memory's chunk list (used on merge). */
@@ -545,7 +581,12 @@ export class MemoryStore implements IMemoryLister {
     additional: readonly Omit<ChunkInsert, 'memoryId'>[],
   ): Promise<void> {
     if (additional.length === 0) return;
-    const ws = this.lookupWorkspaceRoot(id);
+    const existing = this.connection.db
+      .prepare(`SELECT workspace_root, tier FROM memories WHERE id = ?`)
+      .get(id) as
+      | { workspace_root: string | null; tier: MemoryTier }
+      | undefined;
+    const ws = existing?.workspace_root;
     const now = Date.now();
     const vecAvailable = this.vecStatus.available;
     const embeddings: Float32Array[] = vecAvailable
@@ -571,7 +612,7 @@ export class MemoryStore implements IMemoryLister {
       `SELECT rowid AS rowid FROM memory_chunks WHERE id = ?`,
     );
     const updateMemoryStmt = db.prepare(
-      `UPDATE memories SET updated_at = ?, last_used_at = ? WHERE id = ?`,
+      `UPDATE memories SET updated_at = ?, last_used_at = ?, tier = CASE WHEN tier = 'archival' THEN 'recall' ELSE tier END, archived_at = NULL WHERE id = ?`,
     );
     const txn = db.transaction(((..._args: unknown[]) => {
       for (let i = 0; i < additional.length; i++) {

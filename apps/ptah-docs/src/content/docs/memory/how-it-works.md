@@ -31,9 +31,9 @@ a trigger fires
 Curator LLM      → extracts memory drafts from the about-to-be-compacted turns
         ↓
 Resolver LLM     → merges drafts against existing memories (insert / update /
-                   promote / demote / forget)
+                   merge / forget)
         ↓
-Salience scorer  → assigns a weight per memory based on novelty + reuse signals
+Salience ranking → stores an immutable base score and ranks by recency + use
         ↓
 SQLite + vec     → memories land in ~/.ptah/ptah.db, chunks are embedded and
                    indexed for hybrid search
@@ -45,14 +45,13 @@ Both stages are LLM calls. Choose the curator provider and model in the **Memory
 
 The curator's output is structured: each draft has a `kind` (`fact | preference | event | entity`), a body, an optional `subject`, and a tier hint. The resolver does the work of deciding what's actually new versus what's a refinement of something Ptah already knows.
 
-## Salience and tier movement
+## Salience and the memory lifecycle
 
-Each memory carries a salience score. The score increases when a memory is **retrieved and used** in subsequent turns, and decays exponentially when it's not. The half-life is `memory.decayHalflifeDays` (default 30 days).
+Each memory stores an immutable base salience in the range `[0,1]`. Ptah combines that base with recency, recorded use, and pin status when it ranks a query; it does not rewrite salience as a maintenance step.
 
-- High salience + frequent hits → promoted toward `core`
-- Low salience over time → demoted toward `archival`, eventually pruned
+Lifecycle retention is age- and capacity-based. An unused recall memory becomes archival after 30 days. An archival memory is deleted 60 days after its `archived_at` stamp, together with its chunks, FTS rows, and vector rows. A recorded use restores an archival memory to recall.
 
-Pinned memories (see [Pinning & forgetting](/memory/pinning-and-forgetting/)) are exempt from decay.
+Each workspace may hold 25,000 evictable memories. Above that cap, Ptah evicts archival rows first after a 7-day archival grace, then recall rows. Pinned, core, and corpus memories are exempt. If sqlite-vec is unavailable and the `memory_chunks_vec_ad` cleanup trigger exists, deletion pauses so the trigger cannot fail; without that trigger, deletion proceeds.
 
 ## Embeddings
 

@@ -12,7 +12,6 @@ import {
   type MemoryCuratorService,
   type EmbedderStatusService,
   type EmbedderStatusSnapshot,
-  type ObservationQueueStore,
   type CorpusStore,
 } from '@ptah-extension/memory-curator';
 
@@ -36,18 +35,19 @@ export function wireThothPushBridges(
       );
       disposables.push(
         memoryCurator.onEvent((ev) => {
+          const created = Number(ev.stats?.['created'] ?? 0);
+          const merged = Number(ev.stats?.['merged'] ?? 0);
           if (
             ev.kind === 'curator-run' &&
             ev.stats &&
-            typeof ev.stats['created'] === 'number' &&
-            (ev.stats['created'] as number) > 0
+            (created > 0 || merged > 0)
           ) {
             void pushAdapter.broadcastMessage(MESSAGE_TYPES.MEMORY_EXTRACTED, {
               sessionId: ev.sessionId,
-              workspaceRoot: null,
+              workspaceRoot: ev.workspaceRoot ?? null,
               extracted: Number(ev.stats['extracted'] ?? 0),
-              created: Number(ev.stats['created'] ?? 0),
-              merged: Number(ev.stats['merged'] ?? 0),
+              created,
+              merged,
               timestamp: ev.timestamp,
             });
           }
@@ -56,26 +56,6 @@ export function wireThothPushBridges(
     }
   } catch (error: unknown) {
     logger.warn('[CLI Thoth] Memory curator push bridge skipped (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  try {
-    if (container.isRegistered(MEMORY_TOKENS.OBSERVATION_QUEUE_STORE)) {
-      const queueStore = container.resolve<ObservationQueueStore>(
-        MEMORY_TOKENS.OBSERVATION_QUEUE_STORE,
-      );
-      disposables.push(
-        queueStore.onCapture((evt) => {
-          void pushAdapter.broadcastMessage(
-            MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED,
-            evt,
-          );
-        }),
-      );
-    }
-  } catch (error: unknown) {
-    logger.warn('[CLI Thoth] Observation push bridge skipped (non-fatal)', {
       error: error instanceof Error ? error.message : String(error),
     });
   }

@@ -205,15 +205,20 @@ export class ChatStreamBroadcaster {
           childMetadataSaved = true;
           const workspacePath = this.workspaceProvider.getWorkspaceRoot() ?? '';
           const ptahCliAgentId = this.ptahCli.getAgentId(tabId);
-          const sessionName = ptahCliAgentId
-            ? `CLI Agent: ${ptahCliAgentId}`
-            : 'CLI Agent Session';
+          const sessionName = this.ptahCli.getSessionName(tabId);
           try {
-            await this.sessionMetadataStore.createChild(
-              event.sessionId,
-              workspacePath,
-              sessionName,
-            );
+            if (sessionName?.trim()) {
+              await this.sessionMetadataStore.createChild(
+                event.sessionId,
+                workspacePath,
+                sessionName,
+              );
+            } else {
+              this.logger.warn(
+                '[RPC] Ptah CLI session name unavailable — child metadata was not replaced',
+                { tabId, sessionId: event.sessionId },
+              );
+            }
             this.ptahCli.setSdkSessionId(tabId, event.sessionId);
             if (ptahCliAgentId) {
               this.ptahCli.setSdkSessionId(ptahCliAgentId, event.sessionId);
@@ -392,9 +397,27 @@ export class ChatStreamBroadcaster {
               { normalExit: streamExitedNormally, eventCount },
             );
           } else {
-            recordReplaced = true;
+            // `false` has TWO causes and they need opposite teardown
+            // (TASK_2026_374). A NEWER record owns the id (the slash follow-up
+            // race above) — leave its turn state alone. Or NOTHING is
+            // registered, which is what a user abort produces: `chat:abort`
+            // already ended the record, so there is nothing to match. Treating
+            // that as "replaced" skipped both `turnState.clear` calls below, so
+            // the `TurnRecord` outlived the process' interest in it and
+            // `session:status` kept answering with a `turnState` for a session
+            // that ended long ago.
+            //
+            // A second `getSessionToken` separates them: a token is minted per
+            // registration (`randomUUID`), so a value that is present and
+            // different is a genuine replacement, and `null` is an id nobody
+            // holds.
+            const currentToken = this.sdkAdapter.getSessionToken(sessionId);
+            recordReplaced =
+              currentToken !== null && currentToken !== recordToken;
             this.logger.info(
-              `[RPC] Session ${sessionId} record was replaced before stream exit — leaving the newer query alone`,
+              recordReplaced
+                ? `[RPC] Session ${sessionId} record was replaced before stream exit — leaving the newer query alone`
+                : `[RPC] Session ${sessionId} was already ended before stream exit`,
               { normalExit: streamExitedNormally, eventCount },
             );
           }

@@ -13,13 +13,26 @@
  * The body preview goes through `@ptah-extension/markdown`, never
  * `[innerHTML]`. The diff surface is `ptah-lazy-diff-view`, which pulls the
  * editor bundle at runtime only.
+ *
+ * When `canEditBody()` is true the Body section offers an Edit affordance that
+ * REPLACES the read-only render with `ptah-clone-body-editor` — one body on
+ * screen, never two. The drawer still writes nothing itself: Save leaves as a
+ * `bodySaved` output and the smart view makes the call.
  */
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
   computed,
+  effect,
+  inject,
   input,
+  linkedSignal,
   output,
+  signal,
+  viewChild,
 } from '@angular/core';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { NativeDrawerComponent } from '@ptah-extension/ui';
@@ -31,6 +44,7 @@ import type {
   SkillCloneStatus,
 } from '@ptah-extension/shared';
 
+import { CloneBodyEditorComponent } from './clone-body-editor.component';
 import { LazyDiffViewComponent } from './lazy-diff-view.component';
 import { ScorecardBadgeComponent } from './scorecard-badge.component';
 import { ScorecardDetailComponent } from './scorecard-detail.component';
@@ -55,6 +69,17 @@ export interface CloneHistoryDiff {
 export interface CloneHistoryRequest {
   readonly clone: CloneSummary;
   readonly ts: string;
+}
+
+/**
+ * A request to replace one entry's body with the edited text.
+ *
+ * The drawer emits it and waits; the smart view owns the RPC call. `body` is a
+ * FULL replacement, not a patch.
+ */
+export interface CloneBodySaveRequest {
+  readonly clone: CloneSummary;
+  readonly body: string;
 }
 
 interface DrawerViewModel {
@@ -82,6 +107,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
     ScorecardBadgeComponent,
     ScorecardDetailComponent,
     LazyDiffViewComponent,
+    CloneBodyEditorComponent,
   ],
   template: `
     <ptah-native-drawer
@@ -235,8 +261,36 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
           }
 
           <section class="space-y-2">
-            <h3 class="text-xs font-medium text-base-content-muted">Body</h3>
-            @if (detailLoading()) {
+            <div class="flex items-center justify-between gap-2">
+              <h3 class="text-xs font-medium text-base-content-muted">Body</h3>
+              @if (canEditBody() && !editing()) {
+                <button
+                  #editBodyButton
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  data-testid="drawer-body-edit-btn"
+                  [attr.aria-label]="'Edit the body of ' + m.clone.slug"
+                  [disabled]="busy()"
+                  (click)="startEditingBody()"
+                >
+                  Edit
+                </button>
+              }
+            </div>
+
+            <!--
+              Edit mode REPLACES the read-only render; it never renders a second
+              copy of the body beside it.
+            -->
+            @if (editing()) {
+              <ptah-clone-body-editor
+                [value]="body() ?? ''"
+                [label]="m.clone.slug"
+                [saving]="bodySaving()"
+                (save)="onBodySaved(m.clone, $event)"
+                (cancelled)="cancelEditingBody()"
+              />
+            } @else if (detailLoading()) {
               <p
                 class="text-xs text-base-content-muted"
                 data-testid="drawer-body-loading"
@@ -376,6 +430,13 @@ export class CloneDetailDrawerComponent {
   public readonly historyDiff = input<CloneHistoryDiff | null>(null);
   /** Timestamp whose body is currently being fetched, or `null`. */
   public readonly historyDiffLoading = input<string | null>(null);
+  /**
+   * Whether the body editor may be offered at all. Fed from
+   * `canEditCloneBody()` — never decided here, and false in the VS Code host.
+   */
+  public readonly canEditBody = input<boolean>(false);
+  /** A body save for this entry is in flight. */
+  public readonly bodySaving = input<boolean>(false);
 
   public readonly closed = output<void>();
   public readonly enhance = output<CloneSummary>();
@@ -384,6 +445,41 @@ export class CloneDetailDrawerComponent {
   public readonly revertTo = output<CloneHistoryRequest>();
   public readonly historyDiffRequested = output<CloneHistoryRequest>();
   public readonly historyDiffCleared = output<void>();
+  /** The user pressed Save on the body editor. Cancel emits nothing. */
+  public readonly bodySaved = output<CloneBodySaveRequest>();
+
+  private readonly injector = inject(Injector);
+
+  /**
+   * Whether the Body section is in edit mode. Reset to read-only whenever the
+   * drawer switches to a different entry, so a half-finished draft can never
+   * follow the user onto another clone.
+   */
+  protected readonly editing = linkedSignal<CloneSummary | null, boolean>({
+    source: this.clone,
+    computation: () => false,
+  });
+
+  private readonly editBodyButton =
+    viewChild<ElementRef<HTMLButtonElement>>('editBodyButton');
+
+  /**
+   * The text of the last submitted save, held until the reloaded `body` input
+   * matches it. That match is the only honest success signal a presentational
+   * component has — a FAILED save leaves `body` unchanged, so edit mode (and
+   * the draft) survives, which is what R3.3's failure path requires.
+   */
+  private readonly submittedBody = signal<string | null>(null);
+
+  public constructor() {
+    effect(() => {
+      const submitted = this.submittedBody();
+      if (submitted === null || this.bodySaving()) return;
+      if (this.body() !== submitted) return;
+      this.submittedBody.set(null);
+      this.editing.set(false);
+    });
+  }
 
   protected readonly keepMineExplanation = KEEP_MINE_EXPLANATION;
   protected readonly rebaseExplanation = REBASE_EXPLANATION;
@@ -411,6 +507,30 @@ export class CloneDetailDrawerComponent {
 
   protected formatTs(ts: string): string {
     return formatHistoryTimestamp(ts);
+  }
+
+  /** Enter edit mode. The editor focuses its own textarea once it renders. */
+  protected startEditingBody(): void {
+    this.submittedBody.set(null);
+    this.editing.set(true);
+  }
+
+  /**
+   * Leave edit mode without emitting anything, and hand focus back to the Edit
+   * button the user came from — it only exists again after the next render.
+   */
+  protected cancelEditingBody(): void {
+    this.submittedBody.set(null);
+    this.editing.set(false);
+    afterNextRender(
+      () => this.editBodyButton()?.nativeElement.focus(),
+      { injector: this.injector },
+    );
+  }
+
+  protected onBodySaved(clone: CloneSummary, body: string): void {
+    this.submittedBody.set(body);
+    this.bodySaved.emit({ clone, body });
   }
 
   /** Only metrics that carry real data — never a row of em dashes. */

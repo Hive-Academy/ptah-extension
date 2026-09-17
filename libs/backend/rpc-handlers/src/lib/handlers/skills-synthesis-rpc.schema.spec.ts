@@ -14,6 +14,7 @@ import {
   SkillRevertEnhancementParamsSchema,
   SkillRebaseCloneParamsSchema,
   SkillKeepCloneParamsSchema,
+  SkillSaveCloneBodyParamsSchema,
   SkillInvocationStatsParamsSchema,
   getScorecardsParamsSchema,
   getScorecardDetailParamsSchema,
@@ -78,12 +79,10 @@ const validFull = {
   dedupCosineThreshold: 0.85,
   maxActiveSkills: 50,
   candidatesDir: '',
-  eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
   generalizationContextThreshold: 3,
   dedupClusterThreshold: 0.78,
   prefilterMinEdits: 1,
-  prefilterMinChars: 800,
   prefilterMinToolUses: 2,
   judgeEnabled: true,
   minJudgeScore: 6.0,
@@ -130,6 +129,18 @@ describe('SkillSynthesisSettingsSchema', () => {
       }),
     ).toThrow();
   });
+
+  it.each(['prefilterMinEdits', 'prefilterMinToolUses'] as const)(
+    'requires %s to be at least 1',
+    (key) => {
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({ ...validFull, [key]: 0 }),
+      ).toThrow();
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({ ...validFull, [key]: 1 }),
+      ).not.toThrow();
+    },
+  );
 
   it('rejects dedupCosineThreshold > 1', () => {
     expect(() =>
@@ -495,6 +506,21 @@ describe('UpdateSkillSynthesisSettingsParamsSchema', () => {
     ).not.toThrow();
   });
 
+  it('strips stale depth settings from an update payload', () => {
+    const staleTurnsKey = ['eligibility', 'MinTurns'].join('');
+    const staleCharsKey = ['prefilter', 'MinChars'].join('');
+    const result = UpdateSkillSynthesisSettingsParamsSchema.parse({
+      settings: {
+        [staleTurnsKey]: 5,
+        [staleCharsKey]: 800,
+      },
+    });
+
+    expect(result).toEqual({ settings: {} });
+    expect(result.settings).not.toHaveProperty(staleTurnsKey);
+    expect(result.settings).not.toHaveProperty(staleCharsKey);
+  });
+
   it('rejects an invalid value in a partial update', () => {
     expect(() =>
       UpdateSkillSynthesisSettingsParamsSchema.parse({
@@ -856,6 +882,70 @@ describe('SkillKeepCloneParamsSchema', () => {
     expect(() =>
       SkillKeepCloneParamsSchema.parse({ kind: 'skill', slug: '' }),
     ).toThrow();
+  });
+});
+
+describe('SkillSaveCloneBodyParamsSchema', () => {
+  it('accepts kind + slug + a non-empty body', () => {
+    const result = SkillSaveCloneBodyParamsSchema.parse({
+      kind: 'skill',
+      slug: 'deep-research',
+      body: '# Deep research\n',
+    });
+    expect(result.slug).toBe('deep-research');
+    expect(result.body).toBe('# Deep research\n');
+  });
+
+  it.each([
+    ['traversal slug', { kind: 'skill', slug: '../x', body: 'x' }],
+    ['posix-separator slug', { kind: 'skill', slug: 'a/b', body: 'x' }],
+    ['windows-separator slug', { kind: 'skill', slug: 'a\\b', body: 'x' }],
+    ['unknown kind', { kind: 'plugin', slug: 'a', body: 'x' }],
+    ['non-string body', { kind: 'skill', slug: 'a', body: 42 }],
+    ['empty body', { kind: 'skill', slug: 'a', body: '' }],
+    // `.min(1)` passes every one of these. A body of whitespace is the
+    // effectively-empty skill the non-empty rule exists to stop: it would be
+    // written and then reconciled outward into every harness directory.
+    ['single-space body', { kind: 'skill', slug: 'a', body: ' ' }],
+    ['spaces-only body', { kind: 'skill', slug: 'a', body: '   ' }],
+    ['newlines-only body', { kind: 'skill', slug: 'a', body: '\n\n' }],
+    ['tabs-and-newlines body', { kind: 'skill', slug: 'a', body: '\t \r\n ' }],
+  ])('rejects %s before any path is built', (_label, params) => {
+    expect(() => SkillSaveCloneBodyParamsSchema.parse(params)).toThrow();
+  });
+
+  /**
+   * The blank check reads the TRIMMED length; the value that comes out is the
+   * body the user typed. Trimming what gets written would silently reshape
+   * real content — a Markdown body's trailing newline is the author's.
+   */
+  it('preserves surrounding whitespace on a body with real content', () => {
+    const body = '\n\n# Deep research\n\nBody text.\n\n';
+    const result = SkillSaveCloneBodyParamsSchema.parse({
+      kind: 'skill',
+      slug: 'deep-research',
+      body,
+    });
+    expect(result.body).toBe(body);
+  });
+
+  it('rejects a body over the 1 MiB cap', () => {
+    expect(() =>
+      SkillSaveCloneBodyParamsSchema.parse({
+        kind: 'skill',
+        slug: 'a',
+        body: 'x'.repeat(1_048_577),
+      }),
+    ).toThrow();
+  });
+
+  it('accepts a body exactly at the cap', () => {
+    const result = SkillSaveCloneBodyParamsSchema.parse({
+      kind: 'skill',
+      slug: 'a',
+      body: 'x'.repeat(1_048_576),
+    });
+    expect(result.body).toHaveLength(1_048_576);
   });
 });
 

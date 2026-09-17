@@ -21,6 +21,7 @@ export {
 
 // Pure helpers.
 export { allocateTaskId } from './lib/id-allocator';
+export { randomIdSuffix, TASK_ID_SUFFIX_RE } from './lib/id-suffix';
 export { normalizeWorkspaceRoot } from './lib/normalize-workspace-root';
 
 // Services.
@@ -85,6 +86,16 @@ export {
   NoOpTaskIndexNotifier,
   type ITaskIndexNotifier,
 } from './lib/task-index.port';
+
+// Cross-checkout visibility seam (TASK_2026_403). `NoOpTaskFolderVisibility` is
+// exported because consumers that construct `TaskWriterService` directly — the
+// CLI's spec command spec among them — need the null object as a fixture.
+export {
+  TASK_FOLDER_VISIBILITY_TOKEN,
+  NoOpTaskFolderVisibility,
+  type ITaskFolderVisibility,
+} from './lib/task-folder-visibility.port';
+export { GitTaskFolderVisibility } from './lib/git-task-folder-visibility.service';
 
 // DI.
 export { TASK_SPECS_TOKENS, type TaskSpecsDIToken } from './lib/di/tokens';

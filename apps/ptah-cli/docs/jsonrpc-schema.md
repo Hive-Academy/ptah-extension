@@ -45,20 +45,20 @@ Notifications carry no `id` and require no response. Each `params` includes a ba
 
 ### 1.1 Session lifecycle (`session.*`)
 
-| Method                | Trigger                                            | Key params                                                                                         |
-| --------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `session.ready`       | `interact` startup post-DI, post-bridge attach     | `{ session_id, version, schema_version, capabilities: string[], protocol_version: '2.0' }`         |
-| `session.created`     | `session start` succeeded                          | `{ session_id, profile?, cwd, created_at }`                                                        |
-| `session.list`        | `session list` result                              | `{ entries: Array<{ id, name?, profile?, cwd, last_active, status }> }`                            |
-| `session.history`     | `session load` / inbound `session.history` request | `{ session_id, messages: Array<{ role, text, timestamp, tool_calls?, cost? }> }`                   |
-| `session.stats`       | `session stats` result                             | `{ entries: Array<{ session_id, turns, total_cost_usd, total_tokens, last_active }> }`             |
-| `session.valid`       | `session validate` result                          | `{ session_id, valid: bool, issues?: string[] }`                                                   |
-| `session.stopped`     | `session stop` succeeded                           | `{ session_id, stopped_at }`                                                                       |
-| `session.deleted`     | `session delete` succeeded                         | `{ session_id }`                                                                                   |
-| `session.renamed`     | `session rename` succeeded                         | `{ session_id, name }`                                                                             |
-| `session.id_resolved` | Internal — resolves a tabId to an SDK session id   | `{ tab_id, session_id }`                                                                           |
-| `session.cost`        | After each agent turn                              | `{ session_id, turn_id, delta_usd, total_usd }`                                                    |
-| `session.token_usage` | After each agent turn                              | `{ session_id, turn_id, input_tokens, output_tokens, cache_read_tokens?, cache_creation_tokens? }` |
+| Method                | Trigger                                            | Key params                                                                                                            |
+| --------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `session.ready`       | `interact` startup post-DI, post-bridge attach     | `{ session_id, version, schema_version, capabilities: string[], protocol_version: '2.0' }`                            |
+| `session.created`     | `session start` succeeded                          | `{ session_id, profile?, cwd, created_at }`                                                                           |
+| `session.list`        | `session list` result                              | `{ entries: Array<{ id, name?, profile?, cwd, last_active, status }> }`                                               |
+| `session.history`     | `session load` / inbound `session.history` request | `{ session_id, tab_id?, messages: [], agentSessions: [] }` — metadata only; `messages` is always empty, no transcript |
+| `session.stats`       | `session stats` result                             | `{ entries: Array<{ session_id, turns, total_cost_usd, total_tokens, last_active }> }`                                |
+| `session.valid`       | `session validate` result                          | `{ session_id, valid: bool, issues?: string[] }`                                                                      |
+| `session.stopped`     | `session stop` succeeded                           | `{ session_id, stopped_at }`                                                                                          |
+| `session.deleted`     | `session delete` succeeded                         | `{ session_id }`                                                                                                      |
+| `session.renamed`     | `session rename` succeeded                         | `{ session_id, name }`                                                                                                |
+| `session.id_resolved` | Internal — resolves a tabId to an SDK session id   | `{ tab_id, session_id }`                                                                                              |
+| `session.cost`        | After each agent turn                              | `{ session_id, turn_id, delta_usd, total_usd }`                                                                       |
+| `session.token_usage` | After each agent turn                              | `{ session_id, turn_id, input_tokens, output_tokens, cache_read_tokens?, cache_creation_tokens? }`                    |
 
 Example:
 
@@ -463,7 +463,7 @@ Wired by `apps/ptah-cli/src/cli/commands/interact.ts` after `session.ready` is e
 | `task.submit`         | Submit a new turn (or first turn — `chat:start` for the first turn, `chat:continue` thereafter). Only ONE turn may be in flight; concurrent submit returns `-32603 'turn already in flight'`.                                                                                                                                                                                     | `{ task: string, cwd?: string, profile?: 'claude_code'\|'enhanced' }`                            | `{ turn_id: string, complete: bool, cancelled?: bool, error?: string, session_id?: string }` |
 | `task.cancel`         | Cancel an in-flight turn (races the in-flight `runTurn` with `chat:abort` via an `AbortController`). Idempotent — non-matching `turn_id` returns `{ cancelled: false, reason: 'no matching turn' }`.                                                                                                                                                                              | `{ turn_id: string }`                                                                            | `{ cancelled: bool, turn_id?: string, reason?: string }`                                     |
 | `session.shutdown`    | Graceful shutdown. CLI responds immediately, then drains (≤ 5s) and exits 0.                                                                                                                                                                                                                                                                                                      | `{}`                                                                                             | `{ shutdown: true }`                                                                         |
-| `session.history`     | Retrieve full conversation history; proxies `session:load`.                                                                                                                                                                                                                                                                                                                       | `{ limit?: number }`                                                                             | `{ messages: unknown[], session_id: string }`                                                |
+| `session.history`     | Proxies `session:load`, which validates session metadata only. Carries no transcript: `messages` is always empty. `limit` is accepted for compatibility and has no effect.                                                                                                                                                                                                        | `{ limit?: number }` (no effect)                                                                 | `{ messages: [], session_id: string }`                                                       |
 | `permission.response` | Reply to a `permission.request` (handled by `ApprovalBridge`). Fire-and-forget — no response.                                                                                                                                                                                                                                                                                     | `{ id: string\|number, decision: 'allow'\|'deny'\|'always_allow', scope?: 'session'\|'global' }` | (no response)                                                                                |
 | `question.response`   | Reply to a `question.ask` (handled by `ApprovalBridge`). Fire-and-forget — no response.                                                                                                                                                                                                                                                                                           | `{ id: string\|number, answer: string, custom?: bool }`                                          | (no response)                                                                                |
 | `proxy.shutdown`      | Close the embedded Anthropic-compatible HTTP proxy gracefully. Only registered when `ptah proxy start` is launched inside `ptah interact`. Idempotent — second call returns `{ stopped: false }`.                                                                                                                                                                                 | `{}`                                                                                             | `{ stopped: bool, port?: number, reason?: string }`                                          |
@@ -494,7 +494,7 @@ CLI reply:
 { "jsonrpc": "2.0", "id": "desc-1", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.2", "mode": "interact", "catalog": { "methods": ["task.submit", "task.cancel", "session.shutdown", "session.history", "rpc.call", "session.describe", "session.methods"], "tools": [] }, "errorCodes": ["db_lock", "provider_unavailable", "auth_required", "rate_limited", "license_required", "unknown", "internal_failure", "cli_agent_unavailable", "sdk_init_failed", "workspace_missing", "proxy_bind_failed", "proxy_invalid_request", "permission_gate_unavailable", "claude_cli_not_found", "mcp_handshake_failed", "mcp_tool_not_found", "mcp_invalid_tool_args", "mcp_tool_denied"], "capabilities": ["chat", "session", "permission", "question"] } }
 ```
 
-Example — describe in `mcp-serve` mode (catalog includes the 7 MCP tools):
+Example — describe in `mcp-serve` mode (catalog includes the 8 MCP tools):
 
 ```json
 { "jsonrpc": "2.0", "id": "desc-2", "method": "session.describe" }
@@ -503,7 +503,7 @@ Example — describe in `mcp-serve` mode (catalog includes the 7 MCP tools):
 CLI reply (abbreviated):
 
 ```json
-{ "jsonrpc": "2.0", "id": "desc-2", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.2", "mode": "mcp-serve", "catalog": { "methods": ["initialize", "tools/list", "tools/call", "notifications/cancelled", "session.describe", "session.methods"], "tools": [{ "name": "agent_spawn", "description": "..." }, { "name": "agent_status", "description": "..." }, { "name": "agent_read", "description": "..." }, { "name": "agent_steer", "description": "..." }, { "name": "agent_stop", "description": "..." }, { "name": "agent_list", "description": "..." }, { "name": "session_submit", "description": "..." }] }, "errorCodes": [...], "capabilities": ["mcp"] } }
+{ "jsonrpc": "2.0", "id": "desc-2", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.2", "mode": "mcp-serve", "catalog": { "methods": ["initialize", "tools/list", "tools/call", "notifications/cancelled", "session.describe", "session.methods"], "tools": [{ "name": "agent_spawn", "description": "..." }, { "name": "agent_status", "description": "..." }, { "name": "agent_read", "description": "..." }, { "name": "agent_message", "description": "..." }, { "name": "agent_report", "description": "..." }, { "name": "agent_stop", "description": "..." }, { "name": "agent_list", "description": "..." }, { "name": "session_submit", "description": "..." }] }, "errorCodes": [...], "capabilities": ["mcp"] } }
 ```
 
 Example — methods-only introspection:
@@ -605,13 +605,12 @@ These namespaces register unconditionally, but their backing subsystems activate
 
 The following push notifications stream on stdout from the Thoth subsystems (forwarded via the CLI NDJSON notification pipe). Payload contracts match the Electron renderer message shapes:
 
-| Notification                  | Source                        |
-| ----------------------------- | ----------------------------- |
-| `MEMORY_EXTRACTED`            | memory-curator `onEvent`      |
-| `MEMORY_OBSERVATION_CAPTURED` | observation queue `onCapture` |
-| `MEMORY_CORPUS_CHANGED`       | corpus store `onChange`       |
-| `VEC_STATUS_CHANGED`          | vec status service            |
-| `EMBEDDER_STATUS_CHANGED`     | embedder status service       |
+| Notification              | Source                   |
+| ------------------------- | ------------------------ |
+| `MEMORY_EXTRACTED`        | memory-curator `onEvent` |
+| `MEMORY_CORPUS_CHANGED`   | corpus store `onChange`  |
+| `VEC_STATUS_CHANGED`      | vec status service       |
+| `EMBEDDER_STATUS_CHANGED` | embedder status service  |
 
 Gateway inbound events and cron run-update events broadcast through the same notification pipe from library/handler code.
 

@@ -88,6 +88,7 @@ function trajectory(turnCount: number) {
     slug: 'do-thing',
     editCount: 2,
     toolUseCount: 4,
+    nonMcpToolUseCount: 4,
     bashTestPassed: false,
     charLength: 900,
     hasSuccessMarker: true,
@@ -796,6 +797,67 @@ describe('SkillSynthesisService — gate stage handlers (B3.5.1)', () => {
 
       expect(summary[field as 'unscored' | 'skippedItems']).toBe(1);
     });
+  });
+
+  it.each(['judge-panel', 'replay', 'trigger-eval'] as SkillQueueStage[])(
+    'skips a rejected candidate before dispatching the %s gate',
+    async (stage) => {
+      const queue = makeOneRowQueue(gateRow(stage));
+      const drain = makeDrainOver(queue);
+      const judgePanel = { evaluate: jest.fn(async () => scoredVerdict) };
+      const replayValidator = {
+        validate: jest.fn(async () =>
+          replayResult({
+            status: 'measured',
+            confidence: 0.7,
+            reason: REPLAY_REASONS.measured,
+          }),
+        ),
+      };
+      const triggerEval = {
+        evaluate: jest.fn(async () => ({
+          status: 'evaluated',
+          report: { unmeasuredReason: null },
+        })),
+      };
+      const { svc, store } = makeService({
+        queue,
+        drain,
+        judgePanel: judgePanel as never,
+        replayValidator: replayValidator as never,
+        triggerEval: triggerEval as never,
+      });
+      store.findById.mockReturnValue({ ...CANDIDATE, status: 'rejected' });
+      await svc.start();
+
+      const summary = await drain.drain(weeklyOpts());
+
+      expect(summary.skippedItems).toBe(1);
+      expect(queue.markSkipped).toHaveBeenCalledWith('row-1', {
+        reason: 'gate-candidate-rejected',
+      });
+      expect(judgePanel.evaluate).not.toHaveBeenCalled();
+      expect(replayValidator.validate).not.toHaveBeenCalled();
+      expect(triggerEval.evaluate).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still dispatches a promoted candidate to a gate', async () => {
+    const queue = makeOneRowQueue(gateRow('judge-panel'));
+    const drain = makeDrainOver(queue);
+    const judgePanel = { evaluate: jest.fn(async () => scoredVerdict) };
+    const { svc, store } = makeService({
+      queue,
+      drain,
+      judgePanel: judgePanel as never,
+    });
+    store.findById.mockReturnValue({ ...CANDIDATE, status: 'promoted' });
+    await svc.start();
+
+    const summary = await drain.drain(weeklyOpts());
+
+    expect(summary.done).toBe(1);
+    expect(judgePanel.evaluate).toHaveBeenCalledTimes(1);
   });
 
   it.each(['judge-panel', 'replay', 'trigger-eval'] as SkillQueueStage[])(

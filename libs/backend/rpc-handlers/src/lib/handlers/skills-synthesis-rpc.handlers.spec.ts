@@ -74,6 +74,7 @@ function makeSynthesis() {
     analyzeSession: jest.fn(),
     readSettings: jest.fn().mockReturnValue({}),
     promote: jest.fn(),
+    promoteBulk: jest.fn().mockResolvedValue([]),
     reject: jest.fn(),
   };
 }
@@ -157,6 +158,7 @@ function makeMirror() {
     listHistory: jest.fn().mockResolvedValue([]),
     rebaseClone: jest.fn(),
     keepClone: jest.fn(),
+    saveCloneBody: jest.fn(),
     // TASK_2026_278: the clone surface joins the registry row with the
     // user-layer sidecar's `orphaned` flag, which the registry has no column
     // for. Both reads degrade to "not orphaned" on failure, so these doubles
@@ -856,7 +858,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(enhancer.enhance).toHaveBeenCalledWith(
       'deep-research',
       { minJudgeScore: 6 },
-      { manual: true, kind: 'skill' },
+      { manual: true, kind: 'skill', userInitiated: true },
     );
     expect(result).toMatchObject({
       changed: true,
@@ -881,10 +883,12 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       historyTs: '1717848000000',
     });
 
+    // A click: the harness refresh after the restore never waits (FU-17b).
     expect(enhancer.revert).toHaveBeenCalledWith(
       'deep-research',
       '1717848000000',
       'skill',
+      { userInitiated: true },
     );
     expect(result).toMatchObject({ reverted: true });
   });
@@ -908,6 +912,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       'my-agent',
       '1717848000000',
       'agent',
+      { userInitiated: true },
     );
   });
 
@@ -948,7 +953,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(enhancer.enhance).toHaveBeenCalledWith(
       'my-agent',
       { minJudgeScore: 6 },
-      { manual: true, kind: 'agent' },
+      { manual: true, kind: 'agent', userInitiated: true },
     );
     expect(result).toMatchObject({ changed: true, kind: 'agent' });
   });
@@ -978,7 +983,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(enhancer.enhance).toHaveBeenCalledWith(
       'my-cmd',
       { minJudgeScore: 6 },
-      { manual: true, kind: 'command' },
+      { manual: true, kind: 'command', userInitiated: true },
     );
   });
 
@@ -1018,7 +1023,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(enhancer.enhance).toHaveBeenCalledWith(
       'deep-research',
       { minJudgeScore: 6 },
-      { manual: true, kind: 'skill' },
+      { manual: true, kind: 'skill', userInitiated: true },
     );
     expect(result).toMatchObject({ changed: true, skipReason: null });
   });
@@ -1111,6 +1116,215 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       false,
     );
     expect(result).toMatchObject({ sourceHash: 'sha256:ccc' });
+  });
+
+  describe('saveCloneBody', () => {
+    it('delegates to the mirror with exactly kind, slug, body and workspaceRoot', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: '1700000000001',
+        written: true,
+        reason: null,
+        metadataIncomplete: false,
+        reconcileProtected: true,
+      });
+
+      const result = await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# edited by the user',
+      });
+
+      expect(mirror.saveCloneBody).toHaveBeenCalledWith({
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# edited by the user',
+        workspaceRoot: '/workspace/project',
+      });
+      expect(result).toEqual({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: '1700000000001',
+        metadataIncomplete: false,
+        reconcileProtected: true,
+      });
+    });
+
+    /**
+     * The body write is the commit point. A bookkeeping failure after it is a
+     * SUCCESS with a caveat: telling the user the save failed while their edit
+     * sits on disk is the one outcome worse than an unqualified success.
+     */
+    it('returns a SUCCESS carrying metadataIncomplete when the post-write step failed', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: '1700000000001',
+        written: true,
+        reason: null,
+        metadataIncomplete: true,
+        reconcileProtected: false,
+      });
+
+      const result = await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# edited by the user',
+      });
+
+      expect(result).toEqual({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: '1700000000001',
+        metadataIncomplete: true,
+        reconcileProtected: false,
+      });
+    });
+
+    /**
+     * A sidecar-less clone whose slug shadows an upstream source can be
+     * fast-forwarded over by a later reconcile pass (the reconciler's
+     * missing-sidecar mint, out of this surface's scope to change). The result
+     * says so, so the editor cannot claim an unqualified success.
+     */
+    it('carries reconcileProtected:false for a sidecar-less clone', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'hand-written',
+        historyTs: '1700000000002',
+        written: true,
+        reason: null,
+        metadataIncomplete: false,
+        reconcileProtected: false,
+      });
+
+      const result = await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill',
+        slug: 'hand-written',
+        body: '# mine, edited',
+      });
+
+      expect(result).toMatchObject({ reconcileProtected: false });
+    });
+
+    it('rejects a whitespace-only body before it can reach the mirror', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+
+      await expect(
+        rpcHandler.call('skillSynthesis:saveCloneBody', {
+          kind: 'skill',
+          slug: 'deep-research',
+          body: '   ',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(mirror.saveCloneBody).not.toHaveBeenCalled();
+    });
+
+    it('never writes the SQLite registry — diverged and pending are untouched', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: '1700000000001',
+        written: true,
+        reason: null,
+        metadataIncomplete: false,
+        reconcileProtected: true,
+      });
+
+      await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# edited',
+      });
+
+      expect(registry.setDiverged).not.toHaveBeenCalled();
+      expect(registry.setPending).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a traversal slug', { kind: 'skill', slug: '../x', body: 'x' }],
+      ['an empty body', { kind: 'skill', slug: 'deep-research', body: '' }],
+      ['an unknown kind', { kind: 'plugin', slug: 'deep-research', body: 'x' }],
+    ])(
+      'rejects %s with INVALID_PARAMS and never reaches the mirror',
+      async (_label, params) => {
+        const { rpcHandler, registry, mirror } = buildHandlers();
+        registry.getBySlug.mockReturnValue(sampleRow);
+
+        await expect(
+          rpcHandler.call('skillSynthesis:saveCloneBody', params),
+        ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+        expect(mirror.saveCloneBody).not.toHaveBeenCalled();
+      },
+    );
+
+    it('returns INVALID_PARAMS when no registry row claims the slug', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(null);
+
+      await expect(
+        rpcHandler.call('skillSynthesis:saveCloneBody', {
+          kind: 'skill',
+          slug: 'missing',
+          body: '# x',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(mirror.saveCloneBody).not.toHaveBeenCalled();
+    });
+
+    it('maps written:false (row present, file absent) to INVALID_PARAMS', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: null,
+        written: false,
+        reason: 'clone-missing',
+        metadataIncomplete: false,
+        reconcileProtected: false,
+      });
+
+      await expect(
+        rpcHandler.call('skillSynthesis:saveCloneBody', {
+          kind: 'skill',
+          slug: 'deep-research',
+          body: '# x',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    });
+
+    it('never surfaces a raw filesystem message when the mirror throws', async () => {
+      const { rpcHandler, registry, mirror, sentry } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockRejectedValue(
+        new Error(
+          'EPERM: refused — /home/someone/.ptah/plugins/secret/SKILL.md',
+        ),
+      );
+
+      await expect(
+        rpcHandler.call('skillSynthesis:saveCloneBody', {
+          kind: 'skill',
+          slug: 'deep-research',
+          body: '# x',
+        }),
+      ).rejects.toMatchObject({
+        errorCode: 'PERSISTENCE_UNAVAILABLE',
+        message: 'skillSynthesis:saveCloneBody failed; please try again.',
+      });
+      expect(sentry.captureException).toHaveBeenCalled();
+    });
   });
 
   /**
@@ -2574,7 +2788,7 @@ function makeCurator() {
     }),
     start: jest.fn(),
     stop: jest.fn(),
-    acceptSuggestion: jest.fn().mockReturnValue({
+    acceptSuggestion: jest.fn().mockResolvedValue({
       accepted: true,
       filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
     }),
@@ -2584,6 +2798,7 @@ function makeCurator() {
 
 function buildHandlersWithSuggestions(
   workspaceFolders: string[] = ['/workspace/project'],
+  gapCurator: { runDigest: jest.Mock } | null = null,
 ) {
   const logger = makeLogger();
   const rpcHandler = makeRpcHandler();
@@ -2633,6 +2848,12 @@ function buildHandlersWithSuggestions(
     SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
     makeBudgetStore(),
   );
+  if (gapCurator !== null) {
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_GAP_CURATOR_SERVICE,
+      gapCurator,
+    );
+  }
   child.register(SkillsSynthesisRpcHandlers, {
     useClass: SkillsSynthesisRpcHandlers,
   });
@@ -2736,12 +2957,10 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:acceptSuggestion', () =>
       dedupCosineThreshold: 0.85,
       maxActiveSkills: 50,
       candidatesDir: '',
-      eligibilityMinTurns: 5,
       evictionDecayRate: 0.95,
       generalizationContextThreshold: 3,
       dedupClusterThreshold: 0.78,
       prefilterMinEdits: 1,
-      prefilterMinChars: 800,
       prefilterMinToolUses: 2,
       judgeEnabled: true,
       minJudgeScore: 6.0,
@@ -2753,7 +2972,7 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:acceptSuggestion', () =>
       suggestionMaxCandidates: 200,
     };
     synthesis.readSettings.mockReturnValue(fakeSettings);
-    curator.acceptSuggestion.mockReturnValue({
+    curator.acceptSuggestion.mockResolvedValue({
       accepted: true,
       filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
     });
@@ -2763,9 +2982,11 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:acceptSuggestion', () =>
     });
 
     expect(synthesis.readSettings).toHaveBeenCalled();
+    // A click: the harness refresh after the accept never waits (FU-17b).
     expect(curator.acceptSuggestion).toHaveBeenCalledWith(
       'sug-42',
       fakeSettings,
+      { userInitiated: true },
     );
     expect(result).toMatchObject({
       accepted: true,
@@ -3055,7 +3276,7 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
     expect(enhancer.generateProposal).toHaveBeenCalledWith(
       'deep-research',
       { minJudgeScore: 6 },
-      { manual: true, kind: 'skill' },
+      { manual: true, kind: 'skill', userInitiated: true },
     );
     expect(result).toEqual({
       proposed: true,
@@ -3171,10 +3392,12 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
       proposalId: PROPOSAL_ID,
     });
 
+    // A click: the harness refresh after the write never waits (FU-17b).
     expect(enhancer.applyProposal).toHaveBeenCalledWith(
       'skill',
       'deep-research',
       PROPOSAL_ID,
+      { userInitiated: true },
     );
     expect(result).toEqual({ applied: true, historyTs: '1700000000000' });
   });
@@ -3423,5 +3646,62 @@ describe('SkillsSynthesisRpcHandlers — getHistoryBody', () => {
     }
     expect(thrown).toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
     expect((thrown as Error).message).not.toContain('id_rsa');
+  });
+});
+
+/**
+ * TASK_2026_437 C14, Batch 16b. Every skill-synthesis RPC a user waits on
+ * marks its work `userInitiated`, which is what routes its LLM calls to the
+ * ungoverned default lane (the lane mapping itself is pinned in
+ * skill-synthesis's `user-initiated-lane.spec.ts`). enhanceNow and
+ * previewEnhancement are pinned by the exact-argument cases above.
+ */
+describe('SkillsSynthesisRpcHandlers — user-initiated work skips the governor', () => {
+  it('skillSynthesis:promote passes userInitiated', async () => {
+    const { rpcHandler, synthesis } = buildHandlersWithSuggestions();
+    synthesis.promote.mockResolvedValue({ promoted: true, filePath: '/x' });
+
+    await rpcHandler.call('skillSynthesis:promote', { id: 'cand-1' });
+
+    expect(synthesis.promote).toHaveBeenCalledWith('cand-1', {
+      userInitiated: true,
+    });
+  });
+
+  it('skillSynthesis:promoteBulk passes userInitiated', async () => {
+    const { rpcHandler, synthesis } = buildHandlersWithSuggestions();
+
+    await rpcHandler.call('skillSynthesis:promoteBulk', {
+      ids: ['cand-1', 'cand-2'],
+    });
+
+    expect(synthesis.promoteBulk).toHaveBeenCalledWith(['cand-1', 'cand-2'], {
+      userInitiated: true,
+    });
+  });
+
+  it('skillSynthesis:runCurator passes userInitiated', async () => {
+    const { rpcHandler, curator } = buildHandlersWithSuggestions();
+
+    await rpcHandler.call('skillSynthesis:runCurator', {});
+
+    expect(curator.runManual).toHaveBeenCalledWith({ userInitiated: true });
+  });
+
+  it('skillSynthesis:digest passes userInitiated beside the caller allowRewrite', async () => {
+    const gapCurator = { runDigest: jest.fn().mockResolvedValue([]) };
+    const { rpcHandler } = buildHandlersWithSuggestions(
+      ['/workspace/project'],
+      gapCurator,
+    );
+
+    await rpcHandler.call('skillSynthesis:digest', {
+      workspaceRoot: '/workspace/project',
+      allowRewrite: true,
+    });
+
+    expect(gapCurator.runDigest).toHaveBeenCalledWith(
+      expect.objectContaining({ allowRewrite: true, userInitiated: true }),
+    );
   });
 });

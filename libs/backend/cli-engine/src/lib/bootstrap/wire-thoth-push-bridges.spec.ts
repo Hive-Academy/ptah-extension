@@ -124,11 +124,63 @@ describe('wireThothPushBridges — MEMORY_EXTRACTED session identity', () => {
     );
   });
 
-  it('does not broadcast for a curator run that created nothing', () => {
+  it('broadcasts a merge-only curation outcome', () => {
     const { pushAdapter, emit } = wireCurator();
 
-    emit({ kind: 'curator-run', stats: { created: 0 }, timestamp: 1 });
+    emit({
+      kind: 'curator-run',
+      stats: { created: 0, extracted: 2, merged: 2 },
+      timestamp: 1,
+    });
+
+    expect(pushAdapter.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.MEMORY_EXTRACTED,
+      expect.objectContaining({ created: 0, merged: 2 }),
+    );
+  });
+
+  it('does not broadcast for a curator run that changed nothing', () => {
+    const { pushAdapter, emit } = wireCurator();
+
+    emit({
+      kind: 'curator-run',
+      stats: { created: 0, merged: 0 },
+      timestamp: 1,
+    });
 
     expect(pushAdapter.broadcastMessage).not.toHaveBeenCalled();
+  });
+
+  it('propagates the curation workspace root', () => {
+    const { pushAdapter, emit } = wireCurator();
+
+    emit({
+      kind: 'curator-run',
+      sessionId: 's1',
+      workspaceRoot: '/ws/a',
+      stats: { created: 1, extracted: 1, merged: 0 },
+      timestamp: 9,
+    });
+
+    expect(pushAdapter.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.MEMORY_EXTRACTED,
+      expect.objectContaining({ workspaceRoot: '/ws/a' }),
+    );
+  });
+
+  it('does not subscribe to routine observation captures', () => {
+    const observationQueue = { onCapture: jest.fn() };
+    const container = makeContainer([
+      [MEMORY_TOKENS.OBSERVATION_QUEUE_STORE, observationQueue],
+    ]);
+
+    const disposables = wireThothPushBridges(
+      container,
+      makePushAdapter() as unknown as CliWebviewManagerAdapter,
+      makeLogger(),
+    );
+
+    expect(observationQueue.onCapture).not.toHaveBeenCalled();
+    expect(disposables).toEqual([]);
   });
 });

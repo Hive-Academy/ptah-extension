@@ -821,6 +821,9 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
   let gitBranches: InstanceType<
     typeof import('@ptah-extension/git-ui').GitBranchesService
   >;
+  let gitReview: InstanceType<
+    typeof import('@ptah-extension/git-ui').GitReviewService
+  >;
 
   beforeEach(async () => {
     mockGitRpcCall.mockReset();
@@ -885,6 +888,7 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
     service = TestBed.inject(WorkspaceCoordinatorService);
     gitStatus = TestBed.inject(gitUi.GitStatusService);
     gitBranches = TestBed.inject(gitUi.GitBranchesService);
+    gitReview = TestBed.inject(gitUi.GitReviewService);
   });
 
   afterEach(() => {
@@ -892,23 +896,27 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
     TestBed.resetTestingModule();
   });
 
-  it('notifies the REAL GitStatusService and GitBranchesService singletons of a workspace switch', async () => {
+  it('notifies the REAL GitStatusService, GitBranchesService, and GitReviewService singletons of a workspace switch', async () => {
     const gitStatusSwitch = jest.spyOn(gitStatus, 'switchWorkspace');
     const gitBranchesSwitch = jest.spyOn(gitBranches, 'switchWorkspace');
+    const gitReviewSwitch = jest.spyOn(gitReview, 'switchWorkspace');
 
     await service.switchWorkspace('/ws/regression');
 
     expect(gitStatusSwitch).toHaveBeenCalledWith('/ws/regression');
     expect(gitBranchesSwitch).toHaveBeenCalledWith('/ws/regression');
+    expect(gitReviewSwitch).toHaveBeenCalledWith('/ws/regression');
   });
 
   it('notifies the REAL git services of a workspace removal', async () => {
     const gitStatusRemove = jest.spyOn(gitStatus, 'removeWorkspaceState');
     const gitBranchesRemove = jest.spyOn(gitBranches, 'removeWorkspaceState');
+    const gitReviewRemove = jest.spyOn(gitReview, 'removeWorkspaceState');
 
     await service.removeWorkspaceState('/ws/regression');
 
     expect(gitStatusRemove).toHaveBeenCalledWith('/ws/regression');
     expect(gitBranchesRemove).toHaveBeenCalledWith('/ws/regression');
+    expect(gitReviewRemove).toHaveBeenCalledWith('/ws/regression');
   });
 });

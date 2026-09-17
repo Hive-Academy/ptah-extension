@@ -1,7 +1,11 @@
 import * as path from 'path';
 import picomatch from 'picomatch';
 import { inject, injectable } from 'tsyringe';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type BackgroundWorkAdmission,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IFileSystemProvider,
@@ -36,6 +40,15 @@ export interface CodeSymbolIndexerOptions {
    * surface incremental progress.
    */
   onProgress?: (progress: CodeSymbolIndexerProgress) => void;
+  /**
+   * A caller acting for the user or for a running agent turn (the
+   * `ptah.code.reindex` tool) sets this, and the run never waits on the
+   * background-work governor. Every other run is background work and yields
+   * before each batch while the foreground is busy or the main loop lags
+   * (TASK_2026_437 C14 b). Without it, a reindex requested from INSIDE a
+   * generating turn would wait for that same turn to finish.
+   */
+  userInitiated?: boolean;
 }
 
 export interface CodeSymbolIndexerProgress {
@@ -63,6 +76,8 @@ const DEFAULT_EXTENSIONS = [
   '.csx',
 ] as const;
 const DEFAULT_BATCH_SIZE = 20;
+/** `whenClear` lane name; it only labels the governor's ceiling log line. */
+const GOVERNOR_LANE = 'code-symbol-indexer';
 const DEFAULT_MAX_FILES = 2000;
 
 const DEFAULT_SKIP_PATTERNS = [
@@ -140,6 +155,9 @@ interface FileStats {
 
 @injectable()
 export class CodeSymbolIndexer {
+  /** Latch: a defective governor is warned about once, not per batch. */
+  private governorFailureWarned = false;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.AST_ANALYSIS_SERVICE)
@@ -150,11 +168,25 @@ export class CodeSymbolIndexer {
     private readonly fs: IFileSystemProvider,
     @inject(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)
     private readonly sink: ISymbolSink,
+    /**
+     * Optional: a bare container (and every host before Batch 16) has none,
+     * and then indexing runs exactly as it did — ungoverned.
+     */
+    @inject(TOKENS.BACKGROUND_WORK_GOVERNOR, { isOptional: true })
+    private readonly governor: BackgroundWorkAdmission | null = null,
   ) {}
 
   /**
    * Index all matching files in the workspace.
    * Uses setImmediate() between batches to avoid stalling the event loop.
+   *
+   * Background runs wait for the governor to clear before EACH batch,
+   * including the first. The wait sits on a batch boundary, so a batch is
+   * never split: every file's stale symbols are deleted and its new ones
+   * inserted inside one batch. When the governor aborts the wait (host
+   * shutdown) or `options.signal` fires during it, the run stops with the
+   * same `AbortError` the signal check below throws — callers already treat
+   * that as a clean stop.
    */
   async indexWorkspace(
     workspaceRoot: string,
@@ -204,8 +236,10 @@ export class CodeSymbolIndexer {
     let totalSymbols = 0;
     let totalErrors = 0;
 
+    const governed = options?.userInitiated !== true;
     let filesProcessed = 0;
     for (let i = 0; i < filteredPaths.length; i += batchSize) {
+      if (governed) await this.yieldToForeground(options?.signal);
       const batch = filteredPaths.slice(i, i + batchSize);
 
       for (const filePath of batch) {
@@ -261,6 +295,44 @@ export class CodeSymbolIndexer {
       errors: totalErrors,
       durationMs,
     };
+  }
+
+  /**
+   * Wait until background work may start its next batch.
+   *
+   * `isClear()` first, so an idle host pays no promise per batch. A governor
+   * `AbortError` (its `dispose()` at shutdown, or `signal`) is rethrown as the
+   * `DOMException` the batch-boundary check throws, so callers see one abort
+   * shape; it is logged at debug only — a shutdown mid-index is not an error.
+   * A `'timeout'` (the governor's starvation ceiling) proceeds; the governor
+   * logs that itself. Any other rejection is a governor defect: warn once per
+   * indexer and run the batch (fail open), the rule every adopter follows.
+   */
+  private async yieldToForeground(
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const governor = this.governor;
+    if (governor === null || governor.isClear()) return;
+    try {
+      await governor.whenClear({
+        ...(signal ? { signal } : {}),
+        lane: GOVERNOR_LANE,
+      });
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        this.logger.debug?.(
+          '[CodeSymbolIndexer] Stopped while waiting for background work to clear',
+          { reason: error.message },
+        );
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      if (this.governorFailureWarned) return;
+      this.governorFailureWarned = true;
+      this.logger.warn(
+        '[CodeSymbolIndexer] background-work wait failed — indexing anyway',
+        { reason: error instanceof Error ? error.message : String(error) },
+      );
+    }
   }
 
   /**

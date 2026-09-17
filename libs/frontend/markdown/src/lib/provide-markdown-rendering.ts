@@ -2,13 +2,14 @@ import type { Provider } from '@angular/core';
 import { provideMarkdown, MARKED_EXTENSIONS, SANITIZE } from 'ngx-markdown';
 import DOMPurify from 'dompurify';
 import { getMarkedExtensions } from './marked-extensions';
+import { MARKDOWN_FILE_LINKS_OPT_IN_ATTR } from './markdown-file-links';
 
 /**
  * Configuration for the markdown rendering pipeline.
  *
- * - `'full'`: webview app preset — five marked extensions (callouts, code-block
- *   headers, decorative dividers, enhanced headings, list cards) plus a
- *   permissive DOMPurify sanitizer that blocks only real XSS vectors.
+ * - `'full'`: webview app preset — six marked extensions (callouts, code-block
+ *   headers, decorative dividers, enhanced headings, list cards, file links)
+ *   plus a permissive DOMPurify sanitizer that blocks only real XSS vectors.
  * - `'basic'`: landing-page preset — bare ngx-markdown with no extensions and
  *   no sanitizer override.
  * - `'member'`: Ptah Builders member panel preset — an ALLOWLIST DOMPurify
@@ -61,6 +62,10 @@ function createPermissiveSanitizer(): (html: string) => string {
         'onkeydown',
         'onkeyup',
         'onkeypress',
+        // The file-link opt-in marker belongs to the surface around the
+        // rendered markdown, never to content. FORBID_ATTR wins over
+        // ALLOW_DATA_ATTR, so agent HTML cannot carry it.
+        MARKDOWN_FILE_LINKS_OPT_IN_ATTR,
       ],
       ALLOW_DATA_ATTR: true,
       ALLOW_ARIA_ATTR: true,

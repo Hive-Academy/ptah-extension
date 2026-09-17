@@ -1,26 +1,31 @@
 import {
   Component,
+  ElementRef,
   input,
   inject,
   output,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, ExternalLink } from 'lucide-angular';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { FILE_LINK_OPENER } from '@ptah-extension/core';
 
 /**
- * FilePathLinkComponent - Clickable file path that opens file in editor
+ * FilePathLinkComponent - Clickable file path that opens the file.
  *
  * Complexity Level: 1 (Simple atom)
- * Patterns: RPC integration, path shortening
+ * Patterns: injected port, path shortening
  *
  * Features:
  * - Shorten paths > 2 segments to ".../last/two"
  * - Show full path on hover (title attribute)
- * - Opens via the `file:open` RPC on every host: VS Code opens the file
- *   natively; Electron launches the user's external editor
- *   (`ElectronFileOpenRpcHandlers`, TASK_2026_385 Batch 3.2)
+ * - Opens through `FILE_LINK_OPENER`: Ptah's read-only viewer on desktop, the
+ *   native editor in VS Code. The host element travels as `origin` so the
+ *   opener can resolve the workspace this path belongs to.
  * - Emit click event for parent to handle event propagation
+ *
+ * This atom keeps chat-ui's single documented `@ptah-extension/core` exception
+ * (see the library's guideline 1), now as a port rather than a concrete
+ * service.
  */
 @Component({
   selector: 'ptah-file-path-link',
@@ -43,7 +48,8 @@ import { ClaudeRpcService } from '@ptah-extension/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FilePathLinkComponent {
-  private readonly rpcService = inject(ClaudeRpcService);
+  private readonly opener = inject(FILE_LINK_OPENER);
+  private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
 
   readonly fullPath = input.required<string>();
   readonly clicked = output<Event>(); // For parent to handle stopPropagation
@@ -63,14 +69,19 @@ export class FilePathLinkComponent {
   }
 
   /**
-   * Open the file via the `file:open` RPC. Every host handles it: VS Code
-   * opens the file natively, Electron launches the user's external editor.
+   * Open the file through the injected opener. The atom has no error surface
+   * of its own, so a rejection is logged rather than shown; the host renders
+   * the failure (a blocked dock tab on desktop, a native warning in VS Code).
    */
   protected openFile(event: Event): void {
     this.clicked.emit(event); // Let parent handle stopPropagation
     const filePath = this.fullPath();
     if (!filePath) return;
 
-    void this.rpcService.openFile(filePath);
+    void this.opener
+      .open({ path: filePath, origin: this.host.nativeElement })
+      .catch((error: unknown) => {
+        console.error('[FilePathLink] Failed to open', filePath, error);
+      });
   }
 }

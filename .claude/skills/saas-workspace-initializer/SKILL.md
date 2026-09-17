@@ -1,11 +1,15 @@
 ---
 name: saas-workspace-initializer
-description: Two-stage SaaS bootstrap workflow. Stage A (this skill, single chat session) runs mandatory two-round AskUserQuestion discovery (business, then stack), names bounded contexts and lib layout via the ddd-architecture and nx-workspace-architect skills, writes a phased roadmap to `.ptah/roadmap.md`, and scaffolds only the foundation (Nx workspace, base apps, lint/test/CI, plus tenant/auth/DB primitives if discovery makes them load-bearing). Stage B is each unchecked roadmap item run later as its own task via the orchestration skill or project-manager agent. Use when starting a new SaaS project, initializing an Nx + NestJS + Angular/React workspace, or setting up multi-tenant foundations. Do not use to implement features end-to-end in one session.
+description: Bootstraps a new SaaS workspace on Nx, NestJS and Angular or React — discovery, a phased roadmap and a foundation-only scaffold. Use when starting a new SaaS or multi-tenant project. Not for .NET stacks — use dotnet-solution-initializer.
 ---
 
 # SaaS Workspace Initializer
 
 Two-stage bootstrap for SaaS applications. Recommended default stack is Nx + NestJS + Angular/React, but the discovery answers in Step a override the default whenever the user picks a different stack. This skill owns Stage A only: discovery, domain/workspace design, roadmap, and foundation scaffold. Stage B (every other module) runs in separate sessions, one task at a time.
+
+## Shared Stage A contract
+
+This skill is the canonical home of the **Stage A contract** every per-stack initializer specializes: the two-round `AskUserQuestion` discovery protocol (Round 1 business questions are stack-agnostic and reused verbatim; where the `AskUserQuestion` tool is unavailable, the same questions are asked in plain text and answered before the run continues), the `.ptah/roadmap.md` schema in [references/roadmap-format.md](references/roadmap-format.md), and the foundation-scaffold-then-stop rule (Steps c-e). A per-stack initializer such as [`dotnet-solution-initializer`](../dotnet-solution-initializer/SKILL.md) (ptah-dotnet plugin -- the link resolves because every plugin's skills land as siblings in one flat skills namespace at runtime, regardless of which plugin's source directory they ship from; resolve it relative to this file, never against a workspace-relative path) links back here for Round 1 and the roadmap schema instead of duplicating them, and only states its own stack-specific Round 2 questions and foundation triggers. When editing Round 1's questions or the roadmap schema, remember every specializing initializer inherits the change -- verify them too, not just this plugin's own command and companion skills.
 
 ## Trigger Keywords
 
@@ -34,7 +38,7 @@ Each unchecked item in `.ptah/roadmap.md` is its own task. The user starts a new
 
 ## Step a) Discovery — mandatory, two-round `AskUserQuestion`
 
-Discovery is not optional and answers are never assumed. Ask every choice question through the `AskUserQuestion` tool (2-4 options each) — not as prose. Never answer a discovery question on the user's behalf. Never proceed to Step a2 or scaffolding while a required question is unanswered.
+Discovery is not optional and answers are never assumed. Ask every choice question through the `AskUserQuestion` tool (2-4 options each) — not as prose. If the `AskUserQuestion` tool is unavailable in this harness, ask the same question in plain text, listing the same options, and wait for the answer before proceeding — the tool may degrade, the question may not. Never answer a discovery question on the user's behalf. Never proceed to Step a2 or scaffolding while a required question is unanswered.
 
 If the seed prompt already contains an intake block (product, users, constraints), read it first. Acknowledge what it already answers and skip those questions; still ask everything the intake block leaves open.
 

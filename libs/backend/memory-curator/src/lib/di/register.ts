@@ -3,11 +3,9 @@
  *
  * Registration order:
  *   1. EmbedderWorkerClient (concrete IEmbedder) under PERSISTENCE_TOKENS.EMBEDDER
- *   2. SalienceScorer
- *   3. MemoryStore (depends on EMBEDDER)
- *   4. MemorySearchService (depends on EMBEDDER, MEMORY_STORE)
- *   5. MemoryDecayJob (depends on MEMORY_STORE, SCORER)
- *   6. MemoryCuratorService (depends on registry, store, scorer, llm)
+ *   2. MemoryStore (depends on EMBEDDER)
+ *   3. MemorySearchService (depends on EMBEDDER, MEMORY_STORE)
+ *   4. MemoryCuratorService (depends on registry, store, llm)
  *      The CURATOR_LLM (Symbol.for('PtahCuratorLlm')) is registered by agent-sdk
  *      under SDK_TOKENS.SDK_CURATOR_LLM_ADAPTER — NOT by this function.
  *      registerSdkServices() MUST be called before this function (or before
@@ -28,10 +26,8 @@ import {
   DEFAULT_EMBEDDER_IDLE_MS,
 } from '../embedder/embedder-worker-client';
 import { EmbedderStatusService } from '../embedder/embedder-status.service';
-import { SalienceScorer } from '../salience-scorer';
 import { MemoryStore } from '../memory.store';
 import { MemorySearchService } from '../memory-search.service';
-import { MemoryDecayJob } from '../memory-decay.job';
 import { MemoryCuratorService } from '../memory-curator.service';
 import { MemoryWriterAdapter } from '../memory-writer.adapter';
 import { MemoryStoreSymbolSink } from '../symbol-sink.adapter';
@@ -43,6 +39,11 @@ import { ObservationQueueStore } from '../observation-queue.store';
 import { CorpusStore } from '../knowledge-agents/corpus.store';
 import { CorpusSuggestionService } from '../knowledge-agents/corpus-suggestion.service';
 import { KnowledgeAgentService } from '../knowledge-agents/knowledge-agent.service';
+import { ObservationRetentionStore } from '../retention/observation-retention.store';
+import { MemoryRetentionService } from '../retention/memory-retention.service';
+import { MEMORY_RETENTION_LIMITS } from '../retention/memory-retention-config';
+import { MemoryLifecycleStore } from '../retention/memory-lifecycle.store';
+import { MemoryLifecycleService } from '../retention/memory-lifecycle.service';
 
 export function registerMemoryCuratorServices(
   container: DependencyContainer,
@@ -63,12 +64,6 @@ export function registerMemoryCuratorServices(
   container.register(
     PERSISTENCE_TOKENS.EMBEDDER,
     { useClass: EmbedderWorkerClient },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    MEMORY_TOKENS.MEMORY_SALIENCE_SCORER,
-    { useClass: SalienceScorer },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -109,6 +104,9 @@ export function registerMemoryCuratorServices(
   container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
     useToken: MEMORY_TOKENS.MEMORY_STORE,
   });
+  container.register(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER, {
+    useToken: MEMORY_TOKENS.MEMORY_STORE,
+  });
 
   container.register(
     MEMORY_TOKENS.CORPUS_STORE,
@@ -126,9 +124,32 @@ export function registerMemoryCuratorServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
+  // Retention (TASK_2026_440). Singleton is required, not a default: the
+  // single-flight flag and the boot-deferral `startedAt` are per instance.
+  // Depends on PERSISTENCE_TOKENS.SQLITE_PAGE_RECLAIMER from
+  // registerPersistenceSqliteServices().
+  container.registerInstance(
+    MEMORY_TOKENS.MEMORY_RETENTION_LIMITS,
+    MEMORY_RETENTION_LIMITS,
+  );
   container.register(
-    MEMORY_TOKENS.MEMORY_DECAY_JOB,
-    { useClass: MemoryDecayJob },
+    MEMORY_TOKENS.OBSERVATION_RETENTION_STORE,
+    { useClass: ObservationRetentionStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    MEMORY_TOKENS.MEMORY_LIFECYCLE_STORE,
+    { useClass: MemoryLifecycleStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    MEMORY_TOKENS.MEMORY_LIFECYCLE_SERVICE,
+    { useClass: MemoryLifecycleService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    MEMORY_TOKENS.MEMORY_RETENTION_SERVICE,
+    { useClass: MemoryRetentionService },
     { lifecycle: Lifecycle.Singleton },
   );
 

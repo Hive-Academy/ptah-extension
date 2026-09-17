@@ -63,9 +63,6 @@ export function createMockRpcService(
   const loadSession = jest.fn(async () =>
     rpcError<unknown>('Not implemented in mock'),
   ) as unknown as MockRpcService['loadSession'];
-  const openFile = jest.fn(async () =>
-    rpcSuccess({ success: true }),
-  ) as unknown as MockRpcService['openFile'];
   const deleteSession = jest.fn(async () =>
     rpcSuccess({ success: true }),
   ) as MockRpcService['deleteSession'];
@@ -92,7 +89,6 @@ export function createMockRpcService(
     handledMessageTypes: [MESSAGE_TYPES.RPC_RESPONSE],
     listSessions,
     loadSession,
-    openFile,
     deleteSession,
     renameSession,
     querySubagents,

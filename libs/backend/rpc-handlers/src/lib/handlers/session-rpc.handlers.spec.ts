@@ -32,9 +32,11 @@
  *     without a `ptahCliId` (legacy `recoverMissingCliSessions()`
  *     artifacts — see the handler header). Real entries with
  *     `ptahCliId` pass through; other cli types pass through as-is.
- *   - `session:stats-batch`: maps success/empty/error per session using
- *     `SessionHistoryReaderService.readSessionHistory()` and exposes
- *     the optional `cliAgents` list from metadata.
+ *   - `session:stats-batch`: validates params (<=20 UUIDs, scope/range),
+ *     delegates to `SessionStatsReaderService.readStats()` under an abort
+ *     budget, and adds the optional `cliAgents` list from metadata. A
+ *     source-level spec pins that the handler cannot reach history replay
+ *     (TASK_2026_411 B4).
  *
  * Mocking posture: direct constructor injection, narrow
  * `jest.Mocked<Pick<T, ...>>` surfaces, no `as any` casts.
@@ -73,23 +75,31 @@ import type {
   RpcHandler,
   SentryService,
 } from '@ptah-extension/vscode-core';
+import { RpcUserError } from '@ptah-extension/vscode-core';
 import {
   createMockRpcHandler,
   createMockSentryService,
   type MockRpcHandler,
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import {
+  StateStorageValueTooLargeError,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   createMockWorkspaceProvider,
   type MockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
 import type {
   SessionMetadataStore,
-  SessionHistoryReaderService,
+  SessionStatsReaderService,
+  SessionStatsReadEntry,
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
-import { SdkError } from '@ptah-extension/agent-sdk';
+import {
+  AgentOutputCursorStaleError,
+  SdkError,
+} from '@ptah-extension/agent-sdk';
 import type {
   CliSessionReference,
   SessionId,
@@ -110,7 +120,12 @@ import type { SessionMcpStatusRecord } from '../chat/session/session-mcp-status.
 type MockMetadataStore = jest.Mocked<
   Pick<
     SessionMetadataStore,
-    'get' | 'getForWorkspace' | 'delete' | 'rename' | 'getCliSessionsForRestore'
+    | 'get'
+    | 'getForWorkspace'
+    | 'delete'
+    | 'rename'
+    | 'getCliSessionsForRestore'
+    | 'getAgentOutputPage'
   >
 >;
 
@@ -118,20 +133,39 @@ function createMockMetadataStore(): MockMetadataStore {
   return {
     get: jest.fn(),
     getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
+    getAgentOutputPage: jest
+      .fn()
+      .mockResolvedValue({ items: [], nextCursor: null, done: true }),
     getForWorkspace: jest.fn().mockResolvedValue([]),
     delete: jest.fn().mockResolvedValue(undefined),
     rename: jest.fn().mockResolvedValue(undefined),
   };
 }
 
-type MockHistoryReader = jest.Mocked<
-  Pick<SessionHistoryReaderService, 'readSessionHistory'>
+type MockStatsReader = jest.Mocked<
+  Pick<SessionStatsReaderService, 'readStats'>
 >;
 
-function createMockHistoryReader(): MockHistoryReader {
+function createMockStatsReader(): MockStatsReader {
   return {
-    readSessionHistory: jest.fn(),
-  } as unknown as MockHistoryReader;
+    readStats: jest.fn(),
+  } as unknown as MockStatsReader;
+}
+
+function statsEntry(
+  overrides: Partial<SessionStatsReadEntry> & { sessionId: string },
+): SessionStatsReadEntry {
+  return {
+    model: null,
+    totalCost: null,
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+    messageCount: 0,
+    status: 'ok',
+    coverage: 'complete',
+    untimestampedCount: 0,
+    pricingCoverage: 'none',
+    ...overrides,
+  };
 }
 
 type MockSdkAdapter = jest.Mocked<
@@ -252,20 +286,21 @@ interface Harness {
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   metadataStore: MockMetadataStore;
-  historyReader: MockHistoryReader;
+  statsReader: MockStatsReader;
   workspace: MockWorkspaceProvider;
   sentry: MockSentryService;
   sdkAdapter: MockSdkAdapter;
   chatSession: MockChatSession;
   turnState: MockTurnState;
   mcpStatus: MockMcpStatus;
+  sessionTitle: { retitle: jest.Mock };
 }
 
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const logger = createMockLogger();
   const rpcHandler = createMockRpcHandler();
   const metadataStore = createMockMetadataStore();
-  const historyReader = createMockHistoryReader();
+  const statsReader = createMockStatsReader();
   const workspace = createMockWorkspaceProvider({
     folders: opts.workspaceFolders ?? [WORKSPACE],
   });
@@ -274,18 +309,22 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const chatSession = createMockChatSession();
   const turnState = createMockTurnState();
   const mcpStatus = createMockMcpStatus();
+  // The SDK-side half of a rename. `retitle` never rejects in production — it
+  // logs and swallows — so the default mock resolves.
+  const sessionTitle = { retitle: jest.fn().mockResolvedValue(true) };
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as RpcHandler,
     metadataStore as unknown as SessionMetadataStore,
-    historyReader as unknown as SessionHistoryReaderService,
+    statsReader as unknown as SessionStatsReaderService,
     sentry as unknown as SentryService,
     workspace as unknown as IWorkspaceProvider,
     sdkAdapter as unknown as SdkAgentAdapter,
     chatSession as never,
     turnState as never,
     mcpStatus as never,
+    sessionTitle as never,
   );
 
   return {
@@ -293,13 +332,14 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     logger,
     rpcHandler,
     metadataStore,
-    historyReader,
+    statsReader,
     workspace,
     sentry,
     sdkAdapter,
     chatSession,
     turnState,
     mcpStatus,
+    sessionTitle,
   };
 }
 
@@ -348,6 +388,7 @@ describe('SessionRpcHandlers', () => {
 
       expect(h.rpcHandler.getRegisteredMethods().sort()).toEqual(
         [
+          'session:cli-output-page',
           'session:cli-sessions',
           'session:delete',
           'session:forkSession',
@@ -930,6 +971,69 @@ describe('SessionRpcHandlers', () => {
       );
     });
 
+    it('follows the rename through to the SDK session title, with the trimmed name', async () => {
+      // The title is the SDK-persisted name a human reads. The REGISTRY name
+      // (`--name`) is fixed at spawn and deliberately does NOT follow.
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'session:rename', {
+        sessionId: VALID_SESSION_ID,
+        name: '  Shiny New Name  ',
+      });
+
+      expect(h.sessionTitle.retitle).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        'Shiny New Name',
+      );
+    });
+
+    it('still succeeds when the SDK retitle fails — a title is a convenience', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      // `retitle` swallows its own failures; this pins that a regression there
+      // still cannot fail the user's rename.
+      h.sessionTitle.retitle.mockResolvedValue(false);
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'session:rename', {
+        sessionId: VALID_SESSION_ID,
+        name: 'New Name',
+      });
+
+      expect(result.success).toBe(true);
+      expect(h.metadataStore.rename).toHaveBeenCalled();
+    });
+
+    it('does not touch the session title when the rename is rejected', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'session:rename', {
+        sessionId: VALID_SESSION_ID,
+        name: '   ',
+      });
+
+      expect(h.sessionTitle.retitle).not.toHaveBeenCalled();
+    });
+
     it('returns structured failure (not throw) when the store throws', async () => {
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(
@@ -1170,8 +1274,8 @@ describe('SessionRpcHandlers', () => {
       const codex = { cli: 'codex' } as CliSessionReference;
 
       // `get` still backs the authorization check; the refs themselves come
-      // through `getCliSessionsForRestore`, which rehydrates per-agent output
-      // onto them (TASK_2026_323 B5).
+      // through `getCliSessionsForRestore`, which returns them lean; output is
+      // paged separately through `session:cli-output-page` (TASK_2026_411).
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
           sessionId: VALID_SESSION_ID,
@@ -1217,141 +1321,444 @@ describe('SessionRpcHandlers', () => {
   });
 
   // -------------------------------------------------------------------------
-  // session:stats-batch
+  // session:cli-output-page
   // -------------------------------------------------------------------------
 
-  describe('session:stats-batch', () => {
-    it('returns status=ok stats for sessions the history reader resolves', async () => {
+  describe('session:cli-output-page', () => {
+    const AGENT_ID = 'agent-output-1';
+    const authorizedMetadata = makeMetadata({
+      sessionId: VALID_SESSION_ID,
+      workspaceId: WORKSPACE,
+      cliSessions: [{ agentId: AGENT_ID, cli: 'codex' } as CliSessionReference],
+    });
+
+    it('authorizes the session and forwards cursor and maxBytes exactly', async () => {
       const h = makeHarness();
-      h.historyReader.readSessionHistory.mockResolvedValue({
-        events: [],
-        stats: {
-          totalCost: 1.23,
-          tokens: {
-            input: 100,
-            output: 50,
-            cacheRead: 10,
-            cacheCreation: 5,
-          },
-          messageCount: 7,
-        },
-      } as never);
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      h.metadataStore.getAgentOutputPage.mockResolvedValue({
+        items: [],
+        nextCursor: 'next-2',
+        done: false,
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        items: readonly unknown[];
+        nextCursor: string | null;
+        done: boolean;
+      }>(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        cursor: 'cursor-1',
+        maxBytes: 32 * 1024,
+      });
+
+      expect(h.metadataStore.getAgentOutputPage).toHaveBeenCalledWith(
+        AGENT_ID,
+        'cursor-1',
+        32 * 1024,
+      );
+      expect(result).toEqual({ items: [], nextCursor: 'next-2', done: false });
+    });
+
+    it('rejects a session outside the active workspace before reading output', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
-          sessionId: 'sess-ok',
-          cliSessions: [
-            { cli: 'copilot' } as CliSessionReference,
-            { cli: 'codex' } as CliSessionReference,
-          ],
+          sessionId: VALID_SESSION_ID,
+          workspaceId: '/not/authorized',
+          cliSessions: authorizedMetadata.cliSessions,
         }) as never,
       );
       h.handlers.register();
 
-      const result = await call<{
-        sessionStats: Array<{
-          sessionId: string;
-          status: 'ok' | 'empty' | 'error';
-          totalCost: number | null;
-          messageCount: number;
-          cliAgents?: string[];
-        }>;
-      }>(h, 'session:stats-batch', {
-        sessionIds: ['sess-ok'],
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(h.metadataStore.getAgentOutputPage).not.toHaveBeenCalled();
+    });
+
+    it('rejects output not referenced by the authorized session', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: 'agent-not-in-session',
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+      expect(h.metadataStore.getAgentOutputPage).not.toHaveBeenCalled();
+    });
+
+    it('maps a stale output cursor to OUTPUT_CURSOR_STALE without the thrown message', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      const thrown = new AgentOutputCursorStaleError(AGENT_ID);
+      thrown.message = 'internal-cursor-detail s3.9 secret-content';
+      h.metadataStore.getAgentOutputPage.mockRejectedValue(thrown);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        cursor: 's3.9',
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('OUTPUT_CURSOR_STALE');
+      expect(response.error).toBe('Agent output changed');
+      expect(JSON.stringify(response)).not.toContain(thrown.message);
+    });
+
+    it('maps an oversized stored value to a fixed user error without the thrown message', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      const thrown = new StateStorageValueTooLargeError(
+        'ptah.agentOutput.agent-output-1',
+        9_999_999,
+      );
+      thrown.message = 'ptah.agentOutput.agent-output-1 secret-content';
+      h.metadataStore.getAgentOutputPage.mockRejectedValue(thrown);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
+      expect(response.error).toBe('Agent output is too large to load');
+      expect(JSON.stringify(response)).not.toContain(thrown.message);
+      expect(JSON.stringify(response)).not.toContain('ptah.agentOutput');
+    });
+
+    it('maps an oversized session metadata read to the same fixed user error', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockRejectedValue(
+        new StateStorageValueTooLargeError('ptah.sessionMetadata', 9_999_999),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
+      expect(h.metadataStore.getAgentOutputPage).not.toHaveBeenCalled();
+    });
+
+    it('keeps the existing behaviour for any other output page failure', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      h.metadataStore.getAgentOutputPage.mockRejectedValue(
+        new Error('store boom'),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBeUndefined();
+      expect(response.error).toBe('store boom');
+    });
+
+    it('keeps the actual serialized RpcHandler success envelope bounded', async () => {
+      const h = makeHarness();
+      const content = '界'.repeat(80_000);
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      h.metadataStore.getAgentOutputPage.mockResolvedValue({
+        items: [{ tag: 'segment', value: { type: 'text', content } }],
+        nextCursor: '1',
+        done: false,
+      });
+      h.handlers.register();
+
+      const correlationId = '0'.repeat(64);
+      const response = await h.rpcHandler.handleMessage({
+        method: 'session:cli-output-page',
+        params: {
+          sessionId: VALID_SESSION_ID,
+          agentId: AGENT_ID,
+          maxBytes: 256 * 1024,
+        },
+        correlationId,
+      });
+
+      expect(response.success).toBe(true);
+      expect(
+        Buffer.byteLength(JSON.stringify(response), 'utf8'),
+      ).toBeLessThanOrEqual(256 * 1024);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // session:stats-batch
+  // -------------------------------------------------------------------------
+
+  describe('session:stats-batch', () => {
+    type StatsPage = {
+      sessionStats: Array<SessionStatsReadEntry & { cliAgents?: string[] }>;
+      scope?: string;
+      since?: number;
+      until?: number;
+    };
+
+    it('serves the reader entries in order and adds deduped cliAgents to non-error rows', async () => {
+      const h = makeHarness();
+      const ok = uuidForRow(1);
+      const empty = uuidForRow(2);
+      const failed = uuidForRow(3);
+      h.statsReader.readStats.mockResolvedValue([
+        statsEntry({
+          sessionId: ok,
+          totalCost: 1.23,
+          messageCount: 7,
+          pricingCoverage: 'full',
+        }),
+        statsEntry({ sessionId: empty, status: 'empty' }),
+        statsEntry({ sessionId: failed, status: 'error', coverage: 'partial' }),
+      ]);
+      h.metadataStore.get.mockImplementation(async (id: string) =>
+        id === ok
+          ? (makeMetadata({
+              sessionId: ok,
+              cliSessions: [
+                { cli: 'copilot' } as CliSessionReference,
+                { cli: 'codex' } as CliSessionReference,
+                { cli: 'codex' } as CliSessionReference,
+              ],
+            }) as never)
+          : null,
+      );
+      h.handlers.register();
+
+      const result = await call<StatsPage>(h, 'session:stats-batch', {
+        sessionIds: [ok, empty, failed],
         workspacePath: WORKSPACE,
       });
 
-      expect(result.sessionStats).toHaveLength(1);
-      expect(result.sessionStats[0].sessionId).toBe('sess-ok');
-      expect(result.sessionStats[0].status).toBe('ok');
+      expect(result.scope).toBe('current-context');
+      expect(result.sessionStats.map((s) => s.status)).toEqual([
+        'ok',
+        'empty',
+        'error',
+      ]);
       expect(result.sessionStats[0].totalCost).toBe(1.23);
-      expect(result.sessionStats[0].messageCount).toBe(7);
-      // Deduped CLI agent list from metadata.
+      expect(result.sessionStats[0].pricingCoverage).toBe('full');
       expect(result.sessionStats[0].cliAgents?.sort()).toEqual([
         'codex',
         'copilot',
       ]);
+      expect(result.sessionStats[1].cliAgents).toEqual([]);
+      expect(result.sessionStats[2].cliAgents).toBeUndefined();
     });
 
-    it('returns status=empty when the history reader returns no stats', async () => {
+    it('defaults to current-context and passes an abort signal', async () => {
       const h = makeHarness();
-      h.historyReader.readSessionHistory.mockResolvedValue({
-        events: [],
-        stats: null,
-      } as never);
-      h.metadataStore.get.mockResolvedValue(null);
+      h.statsReader.readStats.mockResolvedValue([]);
       h.handlers.register();
 
-      const result = await call<{
-        sessionStats: Array<{
-          sessionId: string;
-          status: 'ok' | 'empty' | 'error';
-          totalCost: number | null;
-          messageCount: number;
-          cliAgents?: string[];
-        }>;
-      }>(h, 'session:stats-batch', {
-        sessionIds: ['sess-empty'],
+      await call(h, 'session:stats-batch', {
+        sessionIds: [VALID_SESSION_ID],
         workspacePath: WORKSPACE,
       });
 
-      expect(result.sessionStats[0].status).toBe('empty');
-      expect(result.sessionStats[0].totalCost).toBeNull();
-      expect(result.sessionStats[0].messageCount).toBe(0);
+      expect(h.statsReader.readStats).toHaveBeenCalledWith({
+        sessionIds: [VALID_SESSION_ID],
+        workspacePath: WORKSPACE,
+        scope: { kind: 'current-context' },
+        signal: expect.any(AbortSignal),
+      });
+    });
+
+    it('forwards a range scope and echoes it on the page', async () => {
+      const h = makeHarness();
+      h.statsReader.readStats.mockResolvedValue([]);
+      h.handlers.register();
+
+      const result = await call<StatsPage>(h, 'session:stats-batch', {
+        sessionIds: [VALID_SESSION_ID],
+        workspacePath: WORKSPACE,
+        scope: 'range',
+        since: 1_000,
+        until: 2_000,
+      });
+
+      expect(h.statsReader.readStats).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: { kind: 'range', since: 1_000, until: 2_000 },
+        }),
+      );
+      expect(result).toEqual({
+        sessionStats: [],
+        scope: 'range',
+        since: 1_000,
+        until: 2_000,
+      });
+    });
+
+    it.each([
+      [
+        'more than 20 ids',
+        { sessionIds: Array.from({ length: 21 }, (_, i) => uuidForRow(i)) },
+      ],
+      ['a non-UUID id', { sessionIds: ['sess-ok'] }],
+      [
+        'a range without until',
+        { sessionIds: [VALID_SESSION_ID], scope: 'range', since: 1 },
+      ],
+      [
+        'since after until',
+        { sessionIds: [VALID_SESSION_ID], scope: 'range', since: 5, until: 4 },
+      ],
+      [
+        'a range bound on current-context',
+        { sessionIds: [VALID_SESSION_ID], since: 1 },
+      ],
+      ['an unknown key', { sessionIds: [VALID_SESSION_ID], untill: 4 }],
+    ])(
+      'rejects %s as INVALID_PARAMS before reading',
+      async (_label, params) => {
+        const h = makeHarness();
+        h.handlers.register();
+
+        const response = await callRaw(h, 'session:stats-batch', {
+          workspacePath: WORKSPACE,
+          ...params,
+        });
+
+        expect(response.success).toBe(false);
+        expect(response.errorCode).toBe('INVALID_PARAMS');
+        expect(h.statsReader.readStats).not.toHaveBeenCalled();
+      },
+    );
+
+    it('accepts exactly 20 ids', async () => {
+      const h = makeHarness();
+      h.statsReader.readStats.mockResolvedValue([]);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:stats-batch', {
+        sessionIds: Array.from({ length: 20 }, (_, i) => uuidForRow(i)),
+        workspacePath: WORKSPACE,
+      });
+
+      expect(response.success).toBe(true);
+    });
+
+    it('keeps a row when its metadata read fails', async () => {
+      const h = makeHarness();
+      h.statsReader.readStats.mockResolvedValue([
+        statsEntry({ sessionId: VALID_SESSION_ID }),
+      ]);
+      h.metadataStore.get.mockRejectedValue(new Error('store unavailable'));
+      h.handlers.register();
+
+      const result = await call<StatsPage>(h, 'session:stats-batch', {
+        sessionIds: [VALID_SESSION_ID],
+        workspacePath: WORKSPACE,
+      });
+
+      expect(result.sessionStats[0].status).toBe('ok');
       expect(result.sessionStats[0].cliAgents).toEqual([]);
     });
 
-    it('returns status=error when the history reader throws (never bubbles)', async () => {
+    // b4 code-logic review, failure mode 3: the transport returns a plain
+    // Error's message verbatim, so an unexpected reader rejection must be
+    // replaced by a fixed message before it leaves the handler.
+    it('returns a fixed message when the reader rejects unexpectedly, keeping the detail internal', async () => {
       const h = makeHarness();
-      h.historyReader.readSessionHistory.mockRejectedValue(
-        new Error('jsonl parse failed'),
+      const internal = new Error(
+        'EACCES: permission denied, open /home/someone/.claude/projects/x.jsonl',
       );
-      h.metadataStore.get.mockResolvedValue(null);
+      h.statsReader.readStats.mockRejectedValue(internal);
       h.handlers.register();
 
-      const result = await call<{
-        sessionStats: Array<{
-          sessionId: string;
-          status: 'ok' | 'empty' | 'error';
-        }>;
-      }>(h, 'session:stats-batch', {
-        sessionIds: ['sess-error'],
+      const response = await callRaw(h, 'session:stats-batch', {
+        sessionIds: [VALID_SESSION_ID],
         workspacePath: WORKSPACE,
       });
 
-      expect(result.sessionStats[0].status).toBe('error');
+      expect(response.success).toBe(false);
+      expect(response.error).toBe('Failed to read session stats');
+      expect(response.error).not.toContain('EACCES');
+      expect(response.errorCode).toBeUndefined();
+      expect(h.logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('session:stats-batch failed'),
+        internal,
+      );
+      expect(h.sentry.captureException).toHaveBeenCalledWith(internal, {
+        errorSource: 'SessionRpcHandlers.registerSessionStatsBatch',
+      });
     });
 
-    it('processes many sessions without losing any (5x concurrency batching)', async () => {
+    it('keeps the code and message of an RpcUserError the reader rejects with', async () => {
       const h = makeHarness();
-      // Stats reader returns a canonical ok shape for every session id.
-      h.historyReader.readSessionHistory.mockImplementation(
-        async (_sessionId: string) =>
-          ({
-            events: [],
-            stats: {
-              totalCost: 0.01,
-              tokens: {
-                input: 1,
-                output: 1,
-                cacheRead: 0,
-                cacheCreation: 0,
-              },
-              messageCount: 1,
-            },
-          }) as never,
+      h.statsReader.readStats.mockRejectedValue(
+        new RpcUserError(
+          'Invalid session:stats-batch params (sessionIds)',
+          'INVALID_PARAMS',
+        ),
       );
-      h.metadataStore.get.mockResolvedValue(null);
       h.handlers.register();
 
-      const sessionIds = Array.from({ length: 12 }, (_, i) => `sess-${i}`);
-      const result = await call<{
-        sessionStats: Array<{ sessionId: string }>;
-      }>(h, 'session:stats-batch', { sessionIds, workspacePath: WORKSPACE });
+      const response = await callRaw(h, 'session:stats-batch', {
+        sessionIds: [VALID_SESSION_ID],
+        workspacePath: WORKSPACE,
+      });
 
-      expect(result.sessionStats).toHaveLength(12);
-      expect(new Set(result.sessionStats.map((s) => s.sessionId))).toEqual(
-        new Set(sessionIds),
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+      expect(response.error).toBe(
+        'Invalid session:stats-batch params (sessionIds)',
       );
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // session:stats-batch source contract (TASK_2026_411 B4)
+  //
+  // The stats page used to replay whole transcripts through the history
+  // reader. Mock-level tests cannot prove the handler no longer CAN, so this
+  // reads the handler source itself.
+  // -------------------------------------------------------------------------
+
+  describe('session:stats-batch source contract', () => {
+    const source: string = jest
+      .requireActual<typeof import('fs')>('fs')
+      .readFileSync(path.join(__dirname, 'session-rpc.handlers.ts'), 'utf8');
+
+    it('names neither the history reader nor its replay method anywhere in the handler', () => {
+      expect(source).not.toContain('readSessionHistory');
+      expect(source).not.toContain('SessionHistoryReaderService');
+      expect(source).not.toContain('SDK_SESSION_HISTORY_READER');
+    });
+
+    it('serves stats-batch through the stats reader', () => {
+      const start = source.indexOf('private registerSessionStatsBatch(');
+      const end = source.indexOf('private async cliAgentsFor(');
+      expect(start).toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      expect(source.slice(start, end)).toContain('this.statsReader.readStats(');
     });
   });
 
@@ -2098,7 +2505,7 @@ describe('SessionRpcHandlers', () => {
 
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/workspace-not-authorized/);
-      expect(h.historyReader.readSessionHistory).not.toHaveBeenCalled();
+      expect(h.statsReader.readStats).not.toHaveBeenCalled();
     });
   });
 

@@ -14,19 +14,46 @@ export type {
   SessionIdResolvedCallback,
   ResultStatsCallback,
 } from './lib/sdk-agent-adapter';
-export { InternalQueryService } from './lib/internal-query';
+export {
+  InternalQueryService,
+  DEFAULT_INTERNAL_QUERY_LANE,
+  USER_ACTION_QUERY_LANE,
+  MEMORY_CURATOR_QUERY_LANE,
+  SKILL_SYNTHESIS_QUERY_LANE,
+  GOVERNED_BACKGROUND_LANES,
+} from './lib/internal-query';
 export type {
   InternalQueryConfig,
   InternalQueryHandle,
 } from './lib/internal-query';
+export {
+  classifyThrownNetworkFailure,
+  networkSignalForHttpStatus,
+  QueryNetworkObserver,
+  NetworkBackoff,
+  NETWORK_BACKOFF_CEILING_LEVEL,
+  NETWORK_BACKOFF_INITIAL_MS,
+  NETWORK_BACKOFF_MAX_MS,
+  NETWORK_BACKOFF_JITTER_RATIO,
+} from './lib/internal-query';
+export type {
+  NetworkFailureSignal,
+  NetworkObservableMessage,
+  QueryNetworkVerdict,
+  NetworkBackoffOptions,
+} from './lib/internal-query';
 export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 export {
+  AgentOutputCursorStaleError,
   SessionMetadataStore,
   flushSessionMetadataStores,
+  SESSION_METADATA_MIGRATION,
+  SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
 } from './lib/session-metadata-store';
 export type {
   SessionMetadata,
   PersistedAgentOutput,
+  TaggedAgentOutputItem,
 } from './lib/session-metadata-store';
 export { SessionImporterService } from './lib/session-importer.service';
 export {
@@ -34,11 +61,24 @@ export {
   MESSAGE_ID_NOT_FOUND_PHRASE,
 } from './lib/session-history-reader.service';
 
+export {
+  SessionStatsReaderService,
+  PARENT_FILE_CONCURRENCY,
+  SUBAGENT_FILE_CONCURRENCY,
+} from './lib/session-stats';
+export type {
+  SessionStatsRequest,
+  SessionStatsReadEntry,
+  SessionStatsScopeSelection,
+} from './lib/session-stats';
+
 export { SdkTranscriptReaderAdapter } from './lib/sdk-transcript-reader.adapter';
 export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
 export type {
   JsonlReadOptions,
   JsonlTailOptions,
+  JsonlProjectionOptions,
+  JsonlProjectionResult,
 } from './lib/helpers/history/jsonl-reader.service';
 export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
@@ -68,6 +108,10 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+// The 8th `SdkMessageTransformer` constructor argument. Exported because a
+// consumer that constructs the transformer directly — `auth-providers`' Codex
+// stream-parity spec — cannot reach the internal helpers barrel.
+export { CompactionBoundaryGenerationRegistry } from './lib/helpers';
 export {
   SessionTurnStateRegistry,
   toTurnStateEvent,
@@ -75,6 +119,7 @@ export {
   type TurnFailureSnapshot,
 } from './lib/helpers';
 export { SessionLifecycleManager } from './lib/helpers';
+export { SessionTitleService } from './lib/helpers';
 export {
   CallbackRegistryBase,
   type CallbackRegistryCallback,
@@ -156,6 +201,17 @@ export {
   type SdkAdapterSubagentEndedEvent,
 } from './lib/helpers';
 export type { SdkQueryOptions } from './lib/helpers';
+// The flag-tier serializer and the session-name builder are consumed by
+// `cli-agent-runtime` for its own Ptah CLI spawns. Both call sites must share
+// ONE definition, so the public barrel is the only route in.
+export {
+  buildFlagSettingsArg,
+  CROSS_SESSION_INBOUND_VALUES,
+  type CrossSessionInbound,
+  buildSessionName,
+  deriveWorkspaceLabel,
+  type SessionNameInput,
+} from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';
 export { redactMcpUrl, redactMcpOverrideMap } from './lib/helpers';
 export {
@@ -205,10 +261,18 @@ export {
   // definition of `Options.settings`.
   buildFlagSettings,
   getActiveProviderId,
+  // The one translation of compaction settings into runtime controls, shared
+  // by the interactive builder and the CLI-agent spawn path.
+  resolveAutoCompactControl,
+  isValidAutoCompactWindow,
+  SDK_AUTO_COMPACT_WINDOW_MIN,
+  SDK_AUTO_COMPACT_WINDOW_MAX,
 } from './lib/helpers';
 export type {
   AssembleSystemPromptInput,
   SystemPromptAssemblyResult,
+  AutoCompactSettings,
+  AutoCompactControlInput,
 } from './lib/helpers';
 export {
   PTAH_CORE_SYSTEM_PROMPT,
@@ -258,4 +322,25 @@ export {
   type WireSessionMetadataEventsContext,
   type SessionMetadataEventPlatform,
 } from './lib/wiring/session-metadata-events';
+export {
+  MAX_PEER_MESSAGE_LENGTH,
+  PEER_SEND_ACCEPTANCE_CAVEAT,
+  PeerSessionDirectory,
+  PeerSessionMessenger,
+  PeerSessionRecordSchema,
+  ProcessStartTimeProbe,
+  composePeerMessageRequest,
+  currentPidDomain,
+  decodeStartFingerprint,
+  peerSessionRegistryDirectory,
+  recordStartFingerprint,
+  resolveName,
+  resolveUnreachableReason,
+  scanPeerSessionRegistry,
+  type PeerMessageTarget,
+  type PeerSessionListOptions,
+  type PeerSessionRecord,
+  type PeerSessionSendInput,
+} from './lib/peer-sessions';
+
 export const AGENT_SDK_VERSION = '0.0.1';

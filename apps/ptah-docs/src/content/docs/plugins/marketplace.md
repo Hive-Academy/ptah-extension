@@ -71,6 +71,7 @@ ptah-core/
 │   ├── review-logic.md
 │   └── review-security.md
 └── skills/
+    ├── agent-lanes/
     ├── ddd-architecture/
     ├── humanize-library/
     ├── orchestration/
@@ -81,7 +82,7 @@ ptah-core/
     └── ui-ux-designer/
 ```
 
-That is eight skills and five slash commands — the counts you see on the `ptah-core` row.
+That is nine skills and five slash commands — the counts you see on the `ptah-core` row.
 
 ## Offline behaviour
 

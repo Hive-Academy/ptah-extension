@@ -209,6 +209,7 @@ function trajectory(
     slug: 'the-new-migration-broke',
     editCount: 5,
     toolUseCount: 12,
+    nonMcpToolUseCount: 12,
     bashTestPassed: true,
     charLength: 400,
     hasSuccessMarker: true,

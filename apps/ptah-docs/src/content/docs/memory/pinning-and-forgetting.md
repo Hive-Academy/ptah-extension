@@ -5,14 +5,11 @@ description: Make memories permanent — or make them go away.
 
 # Pinning & Forgetting
 
-Memory is opinionated by default: salient stuff stays, stale stuff fades. Sometimes you need to override that.
+Memory is opinionated by default: useful memories rank higher, while unused memories move through an age-based lifecycle. Sometimes you need to override that.
 
 ## Pinning
 
-Pinning a memory does two things:
-
-1. **Exempts it from decay.** Half-life math doesn't apply.
-2. **Locks its tier.** Pinned `core` memories stay in `core`; pinned `archival` memories stay searchable forever.
+Pinning exempts a memory from lifecycle archival, deletion, and cap eviction. Tiers are otherwise set by the writer, and a recorded use restores any archival row — pinned or not — to `recall`. A restored pinned row remains exempt from every lifecycle removal path.
 
 Use it for:
 
@@ -36,8 +33,8 @@ Use it for:
 Forgetting is not the same as deleting the underlying conversation. Session transcripts live in `<workspace>/.ptah/sessions/` and are independent of the memory store.
 :::
 
-## Decay
+## Lifecycle
 
-Unpinned memories decay exponentially. The half-life is `memory.decayHalflifeDays` (default `14`). After several half-lives without retrieval hits, a memory's salience drops below the cutoff and it's pruned from the active store.
+Stored salience is an immutable base in `[0,1]`; recency and recorded use affect query-time ranking instead of rewriting that value. An unpinned recall memory that remains unused for 30 days moves to archival. If it remains archival for another 60 days, counted from its `archived_at` stamp, Ptah deletes it with its chunks, FTS rows, and vector rows.
 
-Salience increases every time a memory is **retrieved and actually used** by the agent — so things you reference often stick around naturally.
+Recorded use restores an archival memory to recall. Use includes memories injected into a prompt, MCP memory-search hits, direct `memory:get` and `mem:getObservations` reads, and curator merges. The per-workspace cap is 25,000 evictable rows: archival rows are evicted first after a 7-day grace, then recall rows. Pinned, core, and corpus memories are exempt. Deletion pauses when sqlite-vec is unavailable and the `memory_chunks_vec_ad` cleanup trigger exists; without that trigger, deletion proceeds.

@@ -1,5 +1,6 @@
 import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
+import { sourceControlFileButton } from '../../support/source-control';
 
 /**
  * `git:applyHunks` end-to-end in Electron — TASK_2026_218.
@@ -17,8 +18,6 @@ import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
  * widget (TASK_2026_221) does not exist yet, and the glyph-margin markers
  * (TASK_2026_222) are checked separately in this same harness.
  */
-
-const FILE_NAME = THREE_HUNK_FILE.split('/').pop() as string;
 
 /**
  * How long the causation control holds before declaring the index untouched.
@@ -87,9 +86,7 @@ test.describe('git:applyHunks end-to-end in Electron (TASK_2026_218)', () => {
     // step that followed goto('editor') is gone.
     await ui.goto('git');
 
-    const changedRow = page.locator('[role="listitem"]', {
-      hasText: FILE_NAME,
-    });
+    const changedRow = await sourceControlFileButton(page, THREE_HUNK_FILE);
     await expect(changedRow).toBeVisible({ timeout: 20_000 });
     await changedRow.click();
 
@@ -161,9 +158,7 @@ test.describe('git:applyHunks end-to-end in Electron (TASK_2026_218)', () => {
     // step that followed goto('editor') is gone.
     await ui.goto('git');
 
-    const changedRow = page.locator('[role="listitem"]', {
-      hasText: FILE_NAME,
-    });
+    const changedRow = await sourceControlFileButton(page, THREE_HUNK_FILE);
     await expect(changedRow).toBeVisible({ timeout: 20_000 });
     await changedRow.click();
 

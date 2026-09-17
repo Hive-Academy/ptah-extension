@@ -20,25 +20,37 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
       (backdropClicked)="closeDropdown()"
     >
       <!-- Trigger Button -->
+      <!-- Composer status-line pill (h-6). Colour lives on the icon only. -->
       <button
         trigger
-        class="btn btn-ghost btn-xs gap-1 font-normal h-6 min-h-0 px-1.5"
+        class="inline-flex items-center gap-1 h-6 px-1.5 rounded-full text-xs font-normal min-w-0 text-base-content-muted hover:text-base-content hover:bg-base-content/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30 disabled:opacity-50 disabled:pointer-events-none"
+        [class.bg-base-300]="isOpen()"
+        [class.text-base-content]="isOpen()"
         type="button"
         (click)="toggleDropdown()"
         [disabled]="autopilotState.isPending()"
-        [class.text-primary]="autopilotState.enabled()"
+        [attr.aria-expanded]="isOpen()"
+        [title]="'Autopilot: ' + autopilotState.statusText()"
       >
         @if (autopilotState.isPending()) {
           <span class="loading loading-spinner loading-xs"></span>
         } @else if (autopilotState.enabled()) {
-          <lucide-angular [img]="ZapIcon" class="w-3 h-3" />
+          <lucide-angular
+            [img]="ZapIcon"
+            class="w-3.5 h-3.5 flex-shrink-0 text-primary"
+          />
         } @else {
-          <lucide-angular [img]="ZapOffIcon" class="w-3 h-3 opacity-60" />
+          <lucide-angular
+            [img]="ZapOffIcon"
+            class="w-3.5 h-3.5 flex-shrink-0"
+          />
         }
-        <span class="text-[10px]">{{ autopilotState.statusText() }}</span>
+        <span class="ptah-composer-label truncate">{{
+          autopilotState.statusText()
+        }}</span>
         <lucide-angular
           [img]="ChevronDownIcon"
-          class="w-2.5 h-2.5 opacity-60"
+          class="w-3 h-3 flex-shrink-0 opacity-60"
         />
       </button>
 

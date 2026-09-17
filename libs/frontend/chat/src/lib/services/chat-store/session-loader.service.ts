@@ -10,9 +10,10 @@
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  *
  * Cleanup note: all message conversion logic has been removed.
- * Session switching now uses SDK resume flow (chat:resume RPC), which streams
- * replayed events via chat:chunk. The existing ExecutionTreeBuilder handles
- * all message reconstruction.
+ * Session switching uses the SDK resume flow (chat:resume RPC), whose reply
+ * carries the history as replayable events — its only transcript.
+ * `SessionHistoryReplayer` replays them into the tab in bounded chunks, and
+ * the existing ExecutionTreeBuilder handles all message reconstruction.
  */
 
 import { Injectable, signal, inject, effect, untracked } from '@angular/core';
@@ -20,10 +21,11 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   ChatSessionSummary,
   CliSessionReference,
+  TabId,
   SessionId,
-  FlatStreamEventUnion,
   SubagentRecord,
   getModelContextWindow,
+  type ChatResumeResult,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -31,7 +33,14 @@ import {
   AgentMonitorStore,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { createEmptyStreamingState } from '@ptah-extension/chat-types';
+import {
+  SessionHistoryReplayer,
+  type ReplayClaim,
+} from './session-history-replayer.service';
+import {
+  createEmptyStreamingState,
+  type TabState,
+} from '@ptah-extension/chat-types';
 
 /**
  * Cached session list state for a single workspace.
@@ -44,6 +53,25 @@ interface CachedSessionState {
   sessionsOffset: number;
 }
 
+interface SwitchSessionOptions {
+  reason?: 'compaction';
+  activate?: boolean;
+  targetTabId?: TabId;
+}
+
+type CliOutputLoadOutcome = 'settled' | 'stale';
+
+interface CliOutputLoadState {
+  readonly sessionId: string;
+  readonly agentId: string;
+  readonly generation: number;
+  readonly bindingTabIds: ReadonlySet<string>;
+  cursor: string | undefined;
+  done: boolean;
+  inFlight: Promise<CliOutputLoadOutcome> | null;
+  abortController: AbortController | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SessionLoaderService {
   private readonly claudeRpcService = inject(ClaudeRpcService);
@@ -52,6 +80,7 @@ export class SessionLoaderService {
   private readonly sessionManager = inject(SessionManager);
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly historyReplayer = inject(SessionHistoryReplayer);
 
   private readonly _sessions = signal<readonly ChatSessionSummary[]>([]);
   private readonly _hasMoreSessions = signal(false);
@@ -67,10 +96,11 @@ export class SessionLoaderService {
   private _resumableSubagentsSessionId: string | null = null;
 
   /**
-   * Set of sessionIds currently being loaded via switchSession() or
+   * Set of load identities currently being loaded via switchSession() or
    * refreshResumableSubagentsForSession(). Prevents duplicate chat:resume
-   * calls when the same session is requested while a load is already in
-   * progress (e.g., from restored-session effect firing alongside switchSession).
+   * calls when the same destination is requested while a load is already in
+   * progress. Targeted loads use `(sessionId, tabId)` so sibling tabs sharing
+   * one session can be restored concurrently.
    */
   private readonly _inFlightSessions = new Set<string>();
 
@@ -82,13 +112,18 @@ export class SessionLoaderService {
    * "Clear completed".
    */
   private readonly _cliSessionsRestored = new Set<string>();
+  private readonly cliOutputLoads = new Map<string, CliOutputLoadState>();
+  private readonly cliOutputSessionsLoading = new Set<string>();
+  private readonly haltedCliOutputLoads = new Map<string, string>();
+  private readonly _cliOutputServeEpoch = signal(0);
+  private cliOutputGeneration = 0;
   private static readonly SESSIONS_PAGE_SIZE = 30;
 
   /**
    * Timeout for `chat:resume`, well above the 30 s RPC default.
    *
-   * The handler reads the whole JSONL transcript TWICE (events + legacy
-   * messages) and rehydrates every persisted agent's output. Measured on
+   * The handler parses the whole JSONL transcript into replay events and
+   * rehydrates every persisted agent's output. Measured on
    * 2026-09-04: a 2.5 MB transcript with 11 restored agents took under a
    * second warm, and a cold read during app start ran past 31 s — long enough
    * for the default to fire. A timeout is not a soft failure here: the reply
@@ -169,7 +204,10 @@ export class SessionLoaderService {
       ) {
         this.restoredSessionChecked = true;
         untracked(() =>
-          this.refreshResumableSubagentsForSession(sessionId, tabId),
+          this.refreshResumableSubagentsForSession(
+            sessionId,
+            TabId.from(tabId),
+          ),
         );
       }
     });
@@ -181,6 +219,18 @@ export class SessionLoaderService {
           this._resumableSubagentsSessionId = activeSessionId ?? null;
         }
       });
+    });
+    effect(() => {
+      const bindings = this.tabManager.tabs().map((tab) => ({
+        tabId: tab.id,
+        sessionId: tab.claudeSessionId,
+      }));
+      untracked(() => this.invalidateChangedCliOutputBindings(bindings));
+    });
+    effect(() => {
+      const demand = this.agentMonitorStore.cliOutputDemand();
+      this._cliOutputServeEpoch();
+      untracked(() => this.serveCliOutputDemand(demand));
     });
   }
 
@@ -533,31 +583,44 @@ export class SessionLoaderService {
    *
    * The backend returns FlatStreamEventUnion[] which we process exactly
    * like live streaming events, building the same execution tree.
+   *
+   * Resolves `staleSnapshot: true` only when a targeted compaction reload was
+   * contained because the backend could not verify its boundary; the
+   * compaction lifecycle uses it to retry that reload once. Every other
+   * completed or skipped path (including a coalesced duplicate) resolves false.
    */
   async switchSession(
     sessionId: SessionId,
-    opts?: { reason?: 'compaction'; activate?: boolean },
-  ): Promise<void> {
-    if (this._inFlightSessions.has(sessionId)) {
+    opts?: SwitchSessionOptions,
+  ): Promise<{ staleSnapshot: boolean }> {
+    const targetTabId = opts?.targetTabId;
+    const loadKey = targetTabId ? `${sessionId}:${targetTabId}` : sessionId;
+    const targetedTab = targetTabId
+      ? this.requireTargetTab(sessionId, targetTabId)
+      : null;
+
+    if (this._inFlightSessions.has(loadKey)) {
       console.debug(
         '[SessionLoaderService] Skipping duplicate switchSession for:',
         sessionId,
       );
-      return;
+      return { staleSnapshot: false };
     }
 
-    const existingTab = this.tabManager.findTabBySessionId(sessionId);
+    const existingTab =
+      targetedTab ?? this.tabManager.findTabBySessionId(sessionId);
     if (opts?.reason !== 'compaction' && existingTab?.hasLiveSession) {
       const inActiveWorkspace = this.tabManager
         .tabs()
         .some((t) => t.id === existingTab.id);
       if (inActiveWorkspace) {
         this.tabManager.switchTab(existingTab.id);
-        return;
+        return { staleSnapshot: false };
       }
     }
 
-    this._inFlightSessions.add(sessionId);
+    this._inFlightSessions.add(loadKey);
+    let replayClaim: ReplayClaim | null = null;
     try {
       const workspacePath = this.vscodeService.config().workspaceRoot;
       if (!workspacePath) {
@@ -584,18 +647,22 @@ export class SessionLoaderService {
       // yet in `_sessions()`).
       const title =
         session?.name || existingTab?.name || sessionId.substring(0, 50);
-      const activeTabId = this.tabManager.openSessionTab(sessionId, title);
+      const resolvedTabId = targetTabId
+        ? this.requireTargetTab(sessionId, targetTabId).id
+        : this.tabManager.openSessionTab(sessionId, title);
+      // Claims the tab and opens the session's live-event fence BEFORE
+      // `chat:resume` is sent: an `activate: true` resume starts the live query
+      // on the backend before its reply arrives. The `finally` below releases
+      // the claim on every exit, which closes the fence exactly once.
+      replayClaim = this.historyReplayer.claim(resolvedTabId, sessionId);
 
       // [compaction-diag] TEMPORARY — remove after the 2-tile stale-transcript
-      // repro is confirmed. Reveals the RELOAD TARGET: for a compaction reload,
-      // `openSessionTab(sessionId)` re-derives the tab from the session id. If
-      // `activeTabId` here does NOT equal the tile that was cleared in
-      // `handleCompactionComplete`, the reload is writing history into the
-      // wrong tab and the compacted tile stays stale.
+      // repro is confirmed. Reveals the explicit reload target so a missing or
+      // ownership-drifted tile can be correlated with the lifecycle fan-out.
       if (opts?.reason === 'compaction') {
         console.warn('[compaction-diag] switchSession reload target', {
           requestedSessionId: sessionId,
-          resolvedTabId: activeTabId,
+          resolvedTabId,
           existingTabId: existingTab?.id ?? null,
           openTabsForSession: this.tabManager
             .tabs()
@@ -603,12 +670,25 @@ export class SessionLoaderService {
             .map((t) => t.id),
         });
       }
-      this.tabManager.applyResumingSession(activeTabId, {
-        sessionId,
-        name: title,
-        title,
-        streamingState: createEmptyStreamingState(),
-      });
+      // A compaction chunk may have queued a live-state write before this
+      // targeted reload started. Close/reopen clears that queue through
+      // StreamRouter; in-place reload must do the same or history finalization's
+      // flush can reinstall the stale two-stub compaction state over the replay.
+      if (targetTabId) {
+        this.streamingHandler.clearPendingUpdates(resolvedTabId);
+      }
+      // A targeted compaction reload must keep the compacted transcript visible
+      // until its immutable snapshot is known to be boundary-ready. Applying
+      // the normal resume initializer here would clear that transcript before a
+      // staleSnapshot response can be contained.
+      if (opts?.reason !== 'compaction' || !targetTabId) {
+        this.tabManager.applyResumingSession(resolvedTabId, {
+          sessionId,
+          name: title,
+          title,
+          streamingState: createEmptyStreamingState(),
+        });
+      }
       this.sessionManager.setNodeMaps(
         {
           agents: new Map(),
@@ -623,18 +703,56 @@ export class SessionLoaderService {
         'chat:resume',
         {
           sessionId,
-          tabId: activeTabId,
+          tabId: resolvedTabId,
           workspacePath,
-          ...(opts?.activate === true ? { activate: true } : {}),
+          ...(opts?.activate === true && !targetTabId
+            ? { activate: true }
+            : {}),
         },
         { timeout: SessionLoaderService.RESUME_TIMEOUT_MS },
       );
-      if (opts?.activate === true && resumeResult.data?.activated === true) {
-        this.tabManager.markSessionActive(activeTabId);
+      if (
+        opts?.activate === true &&
+        !targetTabId &&
+        resumeResult.data?.activated === true
+      ) {
+        this.tabManager.markSessionActive(resolvedTabId);
+      }
+
+      if (targetTabId) {
+        this.requireTargetTab(sessionId, targetTabId);
+      }
+
+      // A newer resume claimed this tab while this one awaited the RPC. Its
+      // reply owns the tab; this older reply must write nothing into it.
+      if (!this.historyReplayer.isCurrent(replayClaim)) {
+        return { staleSnapshot: false };
+      }
+
+      if (
+        opts?.reason === 'compaction' &&
+        targetTabId &&
+        resumeResult.data?.staleSnapshot === true
+      ) {
+        // The backend could not verify this compaction snapshot's boundary.
+        // Do not let its stale transcript, stats, or auxiliary state replace
+        // the compaction marker and preloaded totals already on this tab.
+        this.tabManager.applyResumeFailure(resolvedTabId);
+        this.tabManager.markTabIdle(resolvedTabId);
+        this.sessionManager.setStatus('loaded');
+        return { staleSnapshot: true };
+      }
+
+      if (opts?.reason === 'compaction' && targetTabId) {
+        this.tabManager.applyResumingSession(resolvedTabId, {
+          sessionId,
+          name: title,
+          title,
+          streamingState: createEmptyStreamingState(),
+        });
       }
 
       const events = resumeResult.data?.events;
-      const messages = resumeResult.data?.messages;
       const stats = resumeResult.data?.stats;
       const resumableSubagents = resumeResult.data?.resumableSubagents;
       const cliSessions = resumeResult.data?.cliSessions;
@@ -643,99 +761,153 @@ export class SessionLoaderService {
       // restores them on a reopen — `restoreCliSessionsForSession` refuses to
       // fetch twice per session per app run. Anything that throws while
       // replaying 250+ events (or a transcript that yields none at all, the
-      // third branch below) therefore cost the whole Agents panel silently.
+      // failure branch below) therefore cost the whole Agents panel silently.
       this.applyCliSessions(cliSessions, sessionId);
       if (stats) {
-        this.tabManager.applyLoadedSessionStats(
-          activeTabId,
-          stats,
-          stats.model ?? null,
-        );
-        if (stats.model) {
-          const contextWindow = getModelContextWindow(stats.model);
-          const contextUsed =
-            stats.tokens.input +
-            (stats.tokens.cacheRead ?? 0) +
-            stats.tokens.output;
-          const cumulativeExceedsWindow =
-            contextWindow > 0 && contextUsed > contextWindow;
-
-          if (!cumulativeExceedsWindow) {
-            const contextPercent =
-              contextWindow > 0
-                ? Math.round((contextUsed / contextWindow) * 1000) / 10
-                : 0;
-            this.tabManager.setLiveModelStats(activeTabId, {
-              model: stats.model,
-              contextUsed,
-              contextWindow,
-              contextPercent,
-            });
-          }
-        }
-        if (stats.modelUsageList && stats.modelUsageList.length > 0) {
-          const backendModelList = stats.modelUsageList;
-          this.tabManager.setModelUsageList(
-            activeTabId,
-            backendModelList.map((entry) => ({
-              ...entry,
-              contextWindow: getModelContextWindow(entry.model),
-            })),
-          );
-        }
-      } else {
-        this.tabManager.setPreloadedStats(activeTabId, null);
-        this.tabManager.setLiveModelStats(activeTabId, null);
-        this.tabManager.setModelUsageList(activeTabId, []);
+        this.applyResumeStats(resolvedTabId, stats, {
+          preserveCompactionContextSeed:
+            opts?.reason === 'compaction' && targetTabId != null,
+        });
+      } else if (
+        !targetTabId &&
+        resumeResult.success &&
+        (events?.length ?? 0) > 0
+      ) {
+        this.tabManager.setPreloadedStats(resolvedTabId, null);
+        this.tabManager.setLiveModelStats(resolvedTabId, null);
+        this.tabManager.setModelUsageList(resolvedTabId, []);
       }
       if (resumeResult.success && events && events.length > 0) {
-        for (const event of events) {
-          this.streamingHandler.processStreamEvent(
-            event as FlatStreamEventUnion,
-            activeTabId,
+        try {
+          const outcome = await this.historyReplayer.replay(
+            events,
+            replayClaim,
             sessionId,
-            { isReplay: true },
+            resumableSubagents,
           );
+          if (outcome === 'superseded') {
+            return { staleSnapshot: false };
+          }
+        } catch (error: unknown) {
+          // A throwing chunk must not leave a half-replayed tab that looks
+          // complete: drop the partial state (and its queued flush) and settle
+          // the tab through the ordinary failure branch.
+          if (this.historyReplayer.isCurrent(replayClaim)) {
+            this.streamingHandler.clearPendingUpdates(resolvedTabId);
+            this.tabManager.applyResumeFailure(resolvedTabId);
+            this.sessionManager.setStatus('loaded');
+          }
+          throw error;
         }
-        this.streamingHandler.finalizeSessionHistory(
-          activeTabId,
-          resumableSubagents,
-        );
 
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set(resumableSubagents ?? []);
         this._resumableSubagentsSessionId = sessionId;
-      } else if (resumeResult.success && messages && messages.length > 0) {
-        const executionMessages = messages.map((msg) => ({
-          id: msg.id,
-          role: msg.role as 'user' | 'assistant',
-          timestamp: msg.timestamp,
-          streamingState: null,
-          rawContent: msg.content,
-          sessionId,
-        }));
-        this.tabManager.applyResumedHistory(activeTabId, executionMessages);
-        this.sessionManager.setStatus('loaded');
-        this._resumableSubagents.set(resumableSubagents ?? []);
-        this._resumableSubagentsSessionId = sessionId;
       } else {
-        this.tabManager.applyResumeFailure(activeTabId);
+        this.tabManager.applyResumeFailure(resolvedTabId);
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set([]);
         this._resumableSubagentsSessionId = sessionId;
         throw new Error(
           `[SessionLoaderService] chat:resume failed for ${sessionId}: ${
-            resumeResult.error ?? 'No messages or events found'
+            resumeResult.error ?? 'No events found'
           }`,
         );
       }
+      return { staleSnapshot: false };
     } catch (error: unknown) {
       this._resumableSubagents.set([]);
       this._resumableSubagentsSessionId = null;
       throw error;
     } finally {
-      this._inFlightSessions.delete(sessionId);
+      this._inFlightSessions.delete(loadKey);
+      this.historyReplayer.release(replayClaim);
     }
+  }
+
+  private requireTargetTab(sessionId: SessionId, targetTabId: TabId): TabState {
+    const target =
+      this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab;
+    const ownsDifferentSession =
+      target?.claudeSessionId != null && target.claudeSessionId !== sessionId;
+    if (!target || ownsDifferentSession) {
+      throw new Error(
+        `[SessionLoaderService] Compaction reload target ${targetTabId} no longer owns session ${sessionId}`,
+      );
+    }
+    // A null owner is adoptable. applyResumingSession binds it after the
+    // session-load re-check; later checks still reject a competing owner.
+    return target;
+  }
+
+  /** Apply one persisted resume snapshot without treating lifetime totals as CTX. */
+  private applyResumeStats(
+    tabId: TabId,
+    stats: NonNullable<ChatResumeResult['stats']>,
+    options?: { preserveCompactionContextSeed?: boolean },
+  ): void {
+    // Capture before applying persisted stats: applyLoadedSessionStats creates a
+    // zero-valued live-model placeholder, which would otherwise erase the fresh
+    // post-compaction seed before this targeted-reload guard can preserve it.
+    const compactionContextSeed =
+      options?.preserveCompactionContextSeed === true
+        ? (this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
+            .liveModelStats ?? null)
+        : null;
+
+    this.tabManager.applyLoadedSessionStats(tabId, stats, stats.model ?? null);
+    this.tabManager.setModelUsageList(
+      tabId,
+      (stats.modelUsageList ?? []).map((entry) => ({
+        ...entry,
+        contextWindow: this.wireContextWindow(entry.contextWindow, entry.model),
+      })),
+    );
+
+    // A targeted compaction reload reads immutable history, which may still
+    // describe the pre-compaction generation. Its context snapshot must never
+    // displace the fresh post-compaction seed; the next live usage frame owns
+    // that replacement. Ordinary resumes retain their existing behavior.
+    if (compactionContextSeed) {
+      this.tabManager.setLiveModelStats(tabId, compactionContextSeed);
+      return;
+    }
+
+    const snapshot = stats.contextSnapshot;
+    if (!snapshot) {
+      this.tabManager.setLiveModelStats(tabId, null);
+      return;
+    }
+
+    const contextWindow = this.wireContextWindow(
+      snapshot.contextWindow,
+      snapshot.model,
+    );
+    this.tabManager.setLiveModelStats(tabId, {
+      model: snapshot.model,
+      contextUsed: snapshot.contextTokens,
+      contextWindow,
+      contextPercent:
+        contextWindow > 0
+          ? Math.round((snapshot.contextTokens / contextWindow) * 1000) / 10
+          : 0,
+    });
+  }
+
+  /**
+   * The backend carries the window it knows (including provider-discovered
+   * ones the renderer's bundled table cannot resolve). Reverse-resolving from
+   * the model name is only the fallback for an older payload or unknown model.
+   */
+  private wireContextWindow(
+    carried: number | undefined,
+    model: string,
+  ): number {
+    return typeof carried === 'number' &&
+      Number.isFinite(carried) &&
+      carried > 0
+      ? carried
+      : getModelContextWindow(model);
   }
 
   /**
@@ -749,7 +921,250 @@ export class SessionLoaderService {
   ): void {
     if (!cliSessions || cliSessions.length === 0) return;
     this._cliSessionsRestored.add(sessionId);
-    this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+    if (!this.hasCliOutputLoadState(sessionId, cliSessions)) {
+      this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+    }
+    this.releaseHaltedCliOutput(sessionId);
+  }
+
+  private cliOutputLoadKey(sessionId: string, agentId: string): string {
+    return `${sessionId} ${agentId}`;
+  }
+
+  private currentBindingTabIds(sessionId: string): ReadonlySet<string> {
+    return new Set(
+      this.tabManager
+        .tabs()
+        .filter((tab) => tab.claudeSessionId === sessionId)
+        .map((tab) => tab.id),
+    );
+  }
+
+  private sameBindings(
+    left: ReadonlySet<string>,
+    right: ReadonlySet<string>,
+  ): boolean {
+    return (
+      left.size === right.size && [...left].every((tabId) => right.has(tabId))
+    );
+  }
+
+  private isCliOutputLoadCurrent(state: CliOutputLoadState): boolean {
+    return (
+      this.cliOutputLoads.get(
+        this.cliOutputLoadKey(state.sessionId, state.agentId),
+      ) === state &&
+      this.sameBindings(
+        state.bindingTabIds,
+        this.currentBindingTabIds(state.sessionId),
+      )
+    );
+  }
+
+  private invalidateChangedCliOutputBindings(
+    bindings: readonly {
+      readonly tabId: string;
+      readonly sessionId: string | null;
+    }[],
+  ): void {
+    for (const [key, state] of this.cliOutputLoads) {
+      const current = new Set(
+        bindings
+          .filter((binding) => binding.sessionId === state.sessionId)
+          .map((binding) => binding.tabId),
+      );
+      if (this.sameBindings(state.bindingTabIds, current)) continue;
+      state.abortController?.abort();
+      this.cliOutputLoads.delete(key);
+    }
+  }
+
+  private hasCliOutputLoadState(
+    sessionId: SessionId,
+    cliSessions: readonly CliSessionReference[],
+  ): boolean {
+    return cliSessions.some(({ agentId }) => {
+      const key = this.cliOutputLoadKey(sessionId, agentId);
+      const state = this.cliOutputLoads.get(key);
+      if (!state) return false;
+      if (this.isCliOutputLoadCurrent(state)) return true;
+      state.abortController?.abort();
+      this.cliOutputLoads.delete(key);
+      return false;
+    });
+  }
+
+  private serveCliOutputDemand(
+    demand: readonly { readonly sessionId: string; readonly agentId: string }[],
+  ): void {
+    const demanded = new Set(
+      demand.map(({ sessionId, agentId }) =>
+        this.cliOutputLoadKey(sessionId, agentId),
+      ),
+    );
+    for (const key of this.haltedCliOutputLoads.keys()) {
+      if (!demanded.has(key)) this.haltedCliOutputLoads.delete(key);
+    }
+    for (const { sessionId, agentId } of demand) {
+      if (this.cliOutputSessionsLoading.has(sessionId)) continue;
+      if (
+        this.haltedCliOutputLoads.has(this.cliOutputLoadKey(sessionId, agentId))
+      )
+        continue;
+      this.cliOutputSessionsLoading.add(sessionId);
+      void this.loadDemandedCliOutput(sessionId, agentId).finally(() => {
+        this.cliOutputSessionsLoading.delete(sessionId);
+        this._cliOutputServeEpoch.update((epoch) => epoch + 1);
+      });
+    }
+  }
+
+  private async loadDemandedCliOutput(
+    sessionId: string,
+    agentId: string,
+  ): Promise<void> {
+    const key = this.cliOutputLoadKey(sessionId, agentId);
+    try {
+      let outcome = await this.loadCliOutputForAgent(sessionId, agentId);
+      if (outcome === 'stale') {
+        this.restartCliOutputHistory(sessionId, agentId);
+        outcome = await this.loadCliOutputForAgent(sessionId, agentId);
+      }
+      if (outcome === 'stale') {
+        this.haltedCliOutputLoads.set(key, sessionId);
+        console.warn(
+          '[SessionLoaderService] CLI output cursor stayed stale after a restart',
+          { sessionId, agentId },
+        );
+        return;
+      }
+      const state = this.cliOutputLoads.get(key);
+      const progress = this.agentMonitorStore.cliOutputProgress(
+        sessionId,
+        agentId,
+      );
+      if (
+        state?.done === true &&
+        this.isCliOutputLoadCurrent(state) &&
+        progress?.done !== true
+      ) {
+        this.haltedCliOutputLoads.set(key, sessionId);
+      }
+    } catch (error: unknown) {
+      this.haltedCliOutputLoads.set(key, sessionId);
+      this._cliSessionsRestored.delete(sessionId);
+      console.warn('[SessionLoaderService] Failed to page CLI output', {
+        sessionId,
+        error,
+      });
+    }
+  }
+
+  private restartCliOutputHistory(sessionId: string, agentId: string): void {
+    const key = this.cliOutputLoadKey(sessionId, agentId);
+    this.cliOutputLoads.get(key)?.abortController?.abort();
+    this.cliOutputLoads.delete(key);
+    this.agentMonitorStore.resetCliOutputHistory(sessionId, agentId);
+  }
+
+  private releaseHaltedCliOutput(sessionId: string): void {
+    for (const [key, haltedSessionId] of this.haltedCliOutputLoads) {
+      if (haltedSessionId === sessionId) this.haltedCliOutputLoads.delete(key);
+    }
+    this._cliOutputServeEpoch.update((epoch) => epoch + 1);
+  }
+
+  private loadCliOutputForAgent(
+    sessionId: string,
+    agentId: string,
+  ): Promise<CliOutputLoadOutcome> {
+    const key = this.cliOutputLoadKey(sessionId, agentId);
+    let state = this.cliOutputLoads.get(key);
+    if (state && !this.isCliOutputLoadCurrent(state)) {
+      state.abortController?.abort();
+      this.cliOutputLoads.delete(key);
+      state = undefined;
+    }
+    if (!state) {
+      // A binding change drops the load state, not the card. Resume from what
+      // the card already merged so a restart never re-requests merged pages; a
+      // card rebuilt by `loadCliSessions` reports no progress and starts over.
+      const progress = this.agentMonitorStore.cliOutputProgress(
+        sessionId,
+        agentId,
+      );
+      state = {
+        sessionId,
+        agentId,
+        generation: ++this.cliOutputGeneration,
+        bindingTabIds: this.currentBindingTabIds(sessionId),
+        cursor: progress?.cursor,
+        done: progress?.done ?? false,
+        inFlight: null,
+        abortController: null,
+      };
+      this.cliOutputLoads.set(key, state);
+    }
+    if (state.done) return Promise.resolve('settled');
+    if (state.inFlight) return state.inFlight;
+
+    const promise = this.runCliOutputLoad(state).finally(() => {
+      if (state?.inFlight === promise) state.inFlight = null;
+    });
+    state.inFlight = promise;
+    return promise;
+  }
+
+  private async runCliOutputLoad(
+    state: CliOutputLoadState,
+  ): Promise<CliOutputLoadOutcome> {
+    while (!state.done && this.isCliOutputLoadCurrent(state)) {
+      const requestCursor = state.cursor;
+      const abortController = new AbortController();
+      state.abortController = abortController;
+      const result = await this.claudeRpcService.call(
+        'session:cli-output-page',
+        {
+          sessionId: state.sessionId,
+          agentId: state.agentId,
+          cursor: requestCursor,
+          maxBytes: 128 * 1024,
+        },
+        { signal: abortController.signal },
+      );
+      if (
+        !this.isCliOutputLoadCurrent(state) ||
+        state.generation !==
+          this.cliOutputLoads.get(
+            this.cliOutputLoadKey(state.sessionId, state.agentId),
+          )?.generation ||
+        state.cursor !== requestCursor
+      ) {
+        return 'settled';
+      }
+      state.abortController = null;
+      if (!result.success && result.errorCode === 'OUTPUT_CURSOR_STALE') {
+        return 'stale';
+      }
+      if (!result.success || !result.data) {
+        throw new Error(result.error ?? 'CLI output page request failed');
+      }
+      const nextCursor = result.data.nextCursor ?? undefined;
+      if (!result.data.done && (!nextCursor || nextCursor === requestCursor)) {
+        throw new Error(
+          'CLI output page returned an invalid continuation cursor',
+        );
+      }
+      this.agentMonitorStore.appendCliOutputPage(
+        state.sessionId,
+        state.agentId,
+        result.data.items,
+        { requestCursor, nextCursor, done: result.data.done },
+      );
+      state.cursor = nextCursor;
+      state.done = result.data.done;
+    }
+    return 'settled';
   }
 
   /**
@@ -789,7 +1204,10 @@ export class SessionLoaderService {
 
       const cliSessions = result.data?.cliSessions;
       if (result.success && cliSessions && cliSessions.length > 0) {
-        this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+        if (!this.hasCliOutputLoadState(sessionId, cliSessions)) {
+          this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+        }
+        this.releaseHaltedCliOutput(sessionId);
         return;
       }
       if (!result.success) {
@@ -855,7 +1273,7 @@ export class SessionLoaderService {
    */
   private async refreshResumableSubagentsForSession(
     sessionId: SessionId,
-    tabId: string,
+    tabId: TabId,
   ): Promise<void> {
     if (this._inFlightSessions.has(sessionId)) {
       return;
@@ -879,6 +1297,21 @@ export class SessionLoaderService {
           { sessionId, error: result.error },
         );
         return;
+      }
+
+      const restoredTab =
+        this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+      if (!restoredTab || restoredTab.claudeSessionId !== sessionId) {
+        return;
+      }
+
+      const stats = result.data?.stats;
+      if (stats) {
+        this.applyResumeStats(tabId, stats);
+      } else {
+        this.tabManager.setPreloadedStats(tabId, null);
+        this.tabManager.setLiveModelStats(tabId, null);
+        this.tabManager.setModelUsageList(tabId, []);
       }
 
       const resumableSubagents = result.data?.resumableSubagents;

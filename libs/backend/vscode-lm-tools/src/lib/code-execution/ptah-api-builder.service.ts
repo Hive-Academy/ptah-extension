@@ -29,10 +29,14 @@ import type { WebviewManager } from '@ptah-extension/vscode-core';
 import type {
   IMemoryReader,
   IMemoryLister,
+  IMemoryUsageRecorder,
   ICodeSymbolReader,
   IKnowledgeAgent,
 } from '@ptah-extension/memory-contracts';
-import { KNOWLEDGE_AGENT_TOKEN } from '@ptah-extension/memory-contracts';
+import {
+  KNOWLEDGE_AGENT_TOKEN,
+  MEMORY_CONTRACT_TOKENS,
+} from '@ptah-extension/memory-contracts';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -97,11 +101,16 @@ import {
 import { resolveSessionWorkspaceRoot as resolveWorkspaceRootWithPrecedence } from './workspace-root-resolver';
 import {
   AgentProcessManager,
+  CLI_AGENT_RUNTIME_TOKENS,
   CliDetectionService,
   McpRegistryProvider,
   McpInstallService,
   SmitheryRegistrySource,
   SkillsShApiClient,
+} from '@ptah-extension/cli-agent-runtime';
+import type {
+  AgentReportRouter,
+  AgentRoleResolver,
 } from '@ptah-extension/cli-agent-runtime';
 import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
 import {
@@ -383,6 +392,11 @@ export class PtahAPIBuilder {
     @inject(MEMORY_SEARCH_TOKEN, { isOptional: true })
     private readonly memorySearch: IMemoryReader | undefined,
 
+    @inject(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER, {
+      isOptional: true,
+    })
+    private readonly memoryUsageRecorder: IMemoryUsageRecorder | undefined,
+
     @inject(MEMORY_STORE_TOKEN, { isOptional: true })
     private readonly memoryStore: IMemoryLister | undefined,
 
@@ -421,6 +435,19 @@ export class PtahAPIBuilder {
 
     @inject(TASK_SPECS_TOKENS.TASK_INDEX_SERVICE, { isOptional: true })
     private readonly taskIndex: TaskSpecIndexLike | undefined,
+
+    /**
+     * Child -> parent report delivery (TASK_2026_402). Optional for the same
+     * reason `ptahCliRegistry` is: a host that never registered
+     * `cli-agent-runtime` must still construct this builder. Absence becomes a
+     * NAMED error at call time (see `deliverAgentReport` below), never a silent
+     * no-op — the same rule `HarnessMcpInstaller` follows.
+     */
+    @inject(CLI_AGENT_RUNTIME_TOKENS.AGENT_REPORT_ROUTER, { isOptional: true })
+    private readonly agentReportRouter: AgentReportRouter | undefined,
+
+    @inject(CLI_AGENT_RUNTIME_TOKENS.AGENT_ROLE_RESOLVER, { isOptional: true })
+    private readonly agentRoleResolver: AgentRoleResolver | undefined,
 
     /**
      * NOT stored — injected to be constructed and started.
@@ -646,6 +673,36 @@ export class PtahAPIBuilder {
           getPtahCliRegistry: () => {
             return this.ptahCliRegistry;
           },
+          // The ONE wiring point for `ptah_agent_report`: there is a single
+          // `buildAgentNamespace` call in the workspace, behind a single DI
+          // singleton, so this is wired once rather than per host.
+          deliverAgentReport: async (input) => {
+            if (!this.agentReportRouter) {
+              throw new Error(
+                'Agent reporting is unavailable: the CLI agent runtime is not ' +
+                  'registered in this host, so there is no router to deliver ' +
+                  'the report. Register cli-agent-runtime services during ' +
+                  'container setup.',
+              );
+            }
+            return this.agentReportRouter.deliver(input);
+          },
+          resolveAgentRole: async (workspaceRoot, role) => {
+            if (!this.agentRoleResolver) {
+              throw new Error(
+                'Agent roles are unavailable: the CLI agent runtime is not ' +
+                  'registered in this host, so there is no role resolver. ' +
+                  'Register cli-agent-runtime services during container setup.',
+              );
+            }
+            return this.agentRoleResolver.resolve(workspaceRoot, role);
+          },
+          listAgentRoles: async (workspaceRoot) => {
+            if (!this.agentRoleResolver) {
+              return [];
+            }
+            return this.agentRoleResolver.listRoles(workspaceRoot);
+          },
           getDisabledClis: () => {
             return (
               this.workspaceProvider.getConfiguration<string[]>(
@@ -706,6 +763,8 @@ export class PtahAPIBuilder {
       memory: this.buildNamespaceSafe('memory', () =>
         buildMemoryNamespace({
           getMemorySearch: () => this.memorySearch,
+          getMemoryUsageRecorder: () => this.memoryUsageRecorder,
+          logger: this.logger,
           getMemoryStore: () => this.memoryStore,
           getMemoryWriter: () => this.memoryWriter,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),

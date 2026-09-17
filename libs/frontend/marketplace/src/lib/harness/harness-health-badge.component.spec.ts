@@ -20,7 +20,11 @@
  */
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import type {
   HarnessHealth,
   HarnessTargetHealth,
@@ -111,6 +115,14 @@ describe('HarnessHealthBadgeComponent', () => {
     }),
   };
 
+  const appStateMock = {
+    openSkillsDivergedClones: jest.fn(),
+  };
+
+  const vscodeMock = {
+    isElectron: false,
+  };
+
   const badge = (): HTMLButtonElement | null =>
     host.querySelector<HTMLButtonElement>(
       '[data-testid="harness-health-badge"]',
@@ -143,10 +155,16 @@ describe('HarnessHealthBadgeComponent', () => {
     calls = [];
     responders = new Map();
     rpcMock.call.mockClear();
+    appStateMock.openSkillsDivergedClones.mockClear();
+    vscodeMock.isElectron = false;
 
     TestBed.configureTestingModule({
       imports: [HarnessHealthBadgeComponent],
-      providers: [{ provide: ClaudeRpcService, useValue: rpcMock }],
+      providers: [
+        { provide: ClaudeRpcService, useValue: rpcMock },
+        { provide: AppStateManager, useValue: appStateMock },
+        { provide: VSCodeService, useValue: vscodeMock },
+      ],
     });
   });
 
@@ -397,6 +415,46 @@ describe('HarnessHealthBadgeComponent', () => {
       expect(testId('harness-target-overwritten')?.textContent).toContain(
         'user layer',
       );
+    });
+
+    it('opens diverged Skills clones from an Electron overwritten-edit button', async () => {
+      vscodeMock.isElectron = true;
+      await render(
+        makeHealth({
+          targets: [
+            makeTarget('claude', {
+              overwrittenLocalEdit: ['.claude/skills/a/SKILL.md'],
+            }),
+          ],
+        }),
+      );
+      await openPanel();
+
+      const control = testId('harness-target-overwritten');
+      expect(control?.tagName).toBe('BUTTON');
+      expect(control?.getAttribute('aria-label')).toContain('Skills library');
+
+      control?.click();
+
+      expect(appStateMock.openSkillsDivergedClones).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps overwritten-edit copy inert outside Electron', async () => {
+      await render(
+        makeHealth({
+          targets: [
+            makeTarget('claude', {
+              overwrittenLocalEdit: ['.claude/skills/a/SKILL.md'],
+            }),
+          ],
+        }),
+      );
+      await openPanel();
+
+      const copy = testId('harness-target-overwritten');
+      expect(copy?.tagName).toBe('P');
+      expect(copy?.textContent).toContain('user layer');
+      expect(appStateMock.openSkillsDivergedClones).not.toHaveBeenCalled();
     });
 
     it('explains why every row is empty when the sources are', async () => {

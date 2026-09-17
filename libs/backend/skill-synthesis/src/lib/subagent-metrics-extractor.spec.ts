@@ -93,9 +93,32 @@ describe('extractTaskIdFromPrompt', () => {
     expect(extractTaskIdFromPrompt(text)).toBe('TASK_2026_042');
   });
 
+  it('matches a suffixed id in a specs path', () => {
+    const text = 'Task Folder: /repo/.ptah/specs/TASK_2026_403_a1f2';
+    expect(extractTaskIdFromPrompt(text)).toBe('TASK_2026_403_a1f2');
+  });
+
   it('returns the single distinct bare id when no specs path is present', () => {
     expect(extractTaskIdFromPrompt('working on TASK_2026_042 now')).toBe(
       'TASK_2026_042',
+    );
+  });
+
+  it('returns a bare suffixed id', () => {
+    expect(extractTaskIdFromPrompt('working on TASK_2026_403_b2c3 now')).toBe(
+      'TASK_2026_403_b2c3',
+    );
+  });
+
+  it('accepts a legacy non-hex suffix', () => {
+    expect(extractTaskIdFromPrompt('working on TASK_2026_146_ORCHESTRA')).toBe(
+      'TASK_2026_146_ORCHESTRA',
+    );
+  });
+
+  it('accepts task numbers longer than three digits', () => {
+    expect(extractTaskIdFromPrompt('working on TASK_2026_1000')).toBe(
+      'TASK_2026_1000',
     );
   });
 
@@ -105,9 +128,41 @@ describe('extractTaskIdFromPrompt', () => {
     ).toBe('TASK_2026_042');
   });
 
+  it('deduplicates case-insensitively and returns the first match verbatim', () => {
+    expect(
+      extractTaskIdFromPrompt(
+        'TASK_2026_403_a1f2 then again TASK_2026_403_A1F2',
+      ),
+    ).toBe('TASK_2026_403_a1f2');
+  });
+
+  it('stops a suffixed id before an adjacent underscore segment', () => {
+    expect(
+      extractTaskIdFromPrompt('task TASK_2026_403_a1f2_v2 was completed'),
+    ).toBe('TASK_2026_403_a1f2');
+  });
+
+  it('stops a legacy id before an adjacent underscore segment', () => {
+    expect(
+      extractTaskIdFromPrompt('legacy TASK_2026_146_ORCHESTRA_V2 shipped'),
+    ).toBe('TASK_2026_146_ORCHESTRA');
+  });
+
+  it('stops a specs-path id before an adjacent underscore segment', () => {
+    expect(
+      extractTaskIdFromPrompt('/repo/.ptah/specs/TASK_2026_403_a1f2_v2'),
+    ).toBe('TASK_2026_403_a1f2');
+  });
+
   it('returns null when multiple distinct bare ids are present', () => {
     expect(
       extractTaskIdFromPrompt('see TASK_2026_100 and TASK_2026_200'),
+    ).toBeNull();
+  });
+
+  it('returns null for two genuinely different suffixed ids', () => {
+    expect(
+      extractTaskIdFromPrompt('see TASK_2026_403_a1f2 and TASK_2026_403_b2c3'),
     ).toBeNull();
   });
 

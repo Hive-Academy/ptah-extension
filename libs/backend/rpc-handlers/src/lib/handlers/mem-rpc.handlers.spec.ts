@@ -14,6 +14,7 @@ import {
   ALLOWED_METHOD_PREFIXES,
 } from '@ptah-extension/vscode-core';
 import { MEMORY_TOKENS } from '@ptah-extension/memory-curator';
+import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { MemRpcHandlers } from './mem-rpc.handlers';
 
 function makeLogger() {
@@ -56,17 +57,22 @@ function buildHandlers() {
   const logger = makeLogger();
   const rpcHandler = makeRpcHandler();
   const search = makeSearch();
+  const usageRecorder = { recordUse: jest.fn() };
 
   const child = container.createChildContainer();
   child.registerInstance(TOKENS.LOGGER, logger);
   child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
   child.registerInstance(MEMORY_TOKENS.MEMORY_SEARCH, search);
+  child.registerInstance(
+    MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER,
+    usageRecorder,
+  );
   child.register(MemRpcHandlers, { useClass: MemRpcHandlers });
 
   const handlers = child.resolve(MemRpcHandlers);
   handlers.register();
 
-  return { handlers, rpcHandler, search, logger };
+  return { handlers, rpcHandler, search, usageRecorder, logger };
 }
 
 describe('MemRpcHandlers — runtime allowlist', () => {
@@ -113,7 +119,7 @@ describe('MemRpcHandlers — mem:searchIndex', () => {
   });
 
   it('forwards full filter blob to the service', async () => {
-    const { rpcHandler, search } = buildHandlers();
+    const { rpcHandler, search, usageRecorder } = buildHandlers();
     await rpcHandler.call('mem:searchIndex', {
       query: 'bug',
       topK: 10,
@@ -132,6 +138,7 @@ describe('MemRpcHandlers — mem:searchIndex', () => {
       files: ['a.ts'],
       dateRange: { fromMs: 1 },
     });
+    expect(usageRecorder.recordUse).not.toHaveBeenCalled();
   });
 
   it('maps `project` alias onto workspaceRoot when workspaceRoot is absent', async () => {
@@ -197,7 +204,7 @@ describe('MemRpcHandlers — mem:searchIndex', () => {
 
 describe('MemRpcHandlers — mem:timeline', () => {
   it('forwards anchorId + before/after to the service', async () => {
-    const { rpcHandler, search } = buildHandlers();
+    const { rpcHandler, search, usageRecorder } = buildHandlers();
     await rpcHandler.call('mem:timeline', {
       anchorId: 'mem-anchor',
       before: 3,
@@ -210,6 +217,7 @@ describe('MemRpcHandlers — mem:timeline', () => {
       after: 7,
       workspaceRoot: '/ws',
     });
+    expect(usageRecorder.recordUse).not.toHaveBeenCalled();
   });
 
   it('rejects missing anchorId with INVALID_PARAMS', async () => {
@@ -252,7 +260,7 @@ describe('MemRpcHandlers — mem:getObservations', () => {
   });
 
   it('returns memories + observationsBySession unchanged', async () => {
-    const { rpcHandler, search } = buildHandlers();
+    const { rpcHandler, search, usageRecorder } = buildHandlers();
     search.getObservations.mockReturnValue({
       memories: [
         {
@@ -292,5 +300,28 @@ describe('MemRpcHandlers — mem:getObservations', () => {
     };
     expect(result.memories).toHaveLength(1);
     expect(Object.keys(result.observationsBySession)).toContain('sess-1');
+    expect(usageRecorder.recordUse).toHaveBeenCalledWith(['mem-1']);
+  });
+
+  it('returns observations unchanged when recording fails', async () => {
+    const { rpcHandler, search, usageRecorder, logger } = buildHandlers();
+    const memories = [{ id: 'mem-1' }, { id: 'mem-2' }];
+    search.getObservations.mockReturnValue({
+      memories,
+      observationsBySession: {},
+    });
+    usageRecorder.recordUse.mockImplementation(() => {
+      throw new Error('usage ledger unavailable');
+    });
+
+    const result = await rpcHandler.call('mem:getObservations', {
+      ids: ['mem-1', 'mem-2'],
+    });
+
+    expect(result).toEqual({ memories, observationsBySession: {} });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[mem] failed to record memory use',
+      { error: 'usage ledger unavailable' },
+    );
   });
 });

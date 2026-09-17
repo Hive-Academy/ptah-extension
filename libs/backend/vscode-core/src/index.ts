@@ -99,10 +99,25 @@ export type {
 } from './services/git-info.service';
 export {
   execGit,
+  configureGitProcessGate,
+  GitOutputLimitError,
   DEFAULT_GIT_TIMEOUT_MS,
   WORKTREE_GIT_TIMEOUT_MS,
+  DEFAULT_GIT_MAX_OUTPUT_BYTES,
+  GIT_STATUS_MAX_OUTPUT_BYTES,
+  DEFAULT_GIT_MAX_CONCURRENT,
+  MIN_GIT_MAX_CONCURRENT,
 } from './utils/exec-git';
-export type { ExecGitOptions, ExecGitResult } from './utils/exec-git';
+export type {
+  ExecGitOptions,
+  ExecGitResult,
+  GitGateLane,
+  GitProcessGateConfig,
+} from './utils/exec-git';
+export {
+  resolveWorktreePath,
+  worktreeDirectoryName,
+} from './utils/worktree-path';
 export { WorkspaceContextManager } from './services/workspace-context-manager';
 export { WorkspaceAwareStateStorage } from './services/workspace-aware-state-storage';
 export type { StateStorageFactory } from './services/workspace-aware-state-storage';
@@ -111,6 +126,10 @@ export type { SubsystemBringUpDeps } from './services/subsystem-bringup';
 export {
   EventLoopMonitor,
   CpuProfileCapture,
+  MainLoopWatchdog,
+  BackgroundWorkGovernor,
+  DEFAULT_MAX_DEFER_MS,
+  appendHangLogLine,
   armDiagnostics,
   readMsEnv,
   roundMs,
@@ -121,8 +140,25 @@ export {
   CPU_PROFILE_DIR_ENV,
   DEFAULT_CPU_PROFILE_DURATION_MS,
   AUTO_CAPTURE_COOLDOWN_MS,
+  HANG_LOG_FILE_NAME,
+  HANG_LOG_MAX_BYTES,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_HANG_THRESHOLD_MS,
+  DEFAULT_HANG_CHECK_INTERVAL_MS,
+  MAX_BREADCRUMB_KEYS,
+  MAX_BREADCRUMB_VALUE_LENGTH,
+  MAX_WORKER_RESTARTS,
+  WORKER_RESTART_WINDOW_MS,
 } from './diagnostics';
 export type {
+  BackgroundWorkAdmission,
+  BackgroundWorkSignal,
+  BackgroundWorkState,
+  BackgroundWorkStateListener,
+  ForegroundActivitySource,
+  WhenClearOptions,
+  WhenClearOutcome,
+  MainLoopWatchdogOptions,
   EventLoopLagSample,
   EventLoopLagListener,
   EventLoopMonitorOptions,

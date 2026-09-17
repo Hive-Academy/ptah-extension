@@ -16,18 +16,22 @@ import type {
 import { isCodexAccessTokenStale } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
+  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapter.interface';
 import {
+  assertCommandLineWithinLimit,
   stripAnsiCodes,
   buildTaskPrompt,
   probeCliVersion,
   resolveCliPath,
   createBufferedEmitter,
+  renderRoleBlock,
   withAsarUnpackedTwin,
 } from './cli-adapter.utils';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
@@ -439,6 +443,7 @@ interface CodexAuthFile {
 export class CodexCliAdapter implements CliAdapter {
   readonly name = 'codex' as const;
   readonly displayName = 'Codex CLI';
+  readonly roleChannel = 'developer-instructions' as const;
 
   /**
    * @param logger - Optional; when supplied it receives the FULL SDK rejection
@@ -450,7 +455,11 @@ export class CodexCliAdapter implements CliAdapter {
     try {
       const binaryPath = await resolveCliPath('codex');
       if (!binaryPath) {
-        return { cli: 'codex', installed: false, supportsSteer: false };
+        return {
+          cli: 'codex',
+          installed: false,
+          messagingMode: bestMessagingCapability(this.capabilities()),
+        };
       }
       const version = await probeCliVersion(binaryPath);
 
@@ -459,19 +468,24 @@ export class CodexCliAdapter implements CliAdapter {
         installed: true,
         path: binaryPath,
         version,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     } catch {
       return {
         cli: 'codex',
         installed: false,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     }
   }
 
-  supportsSteer(): boolean {
-    return false;
+  /**
+   * The installed `@openai/codex-sdk` Thread API exposes no mid-turn steer and
+   * no run-scoped interrupt; `continue` on the handle resumes the same thread,
+   * so a message is delivered as the next full turn.
+   */
+  capabilities(): AgentMessagingCapabilities {
+    return { steer: false, interrupt: false, continuation: true };
   }
 
   parseOutput(raw: string): string {
@@ -594,7 +608,11 @@ export class CodexCliAdapter implements CliAdapter {
         ptah: {
           // Scoped to the spawn's working directory so the server attributes
           // this agent's calls to the right workspace (TASK_2026_364).
-          url: ptahMcpServerUrl(options.mcpPort, options.workingDirectory),
+          url: ptahMcpServerUrl(
+            options.mcpPort,
+            options.workingDirectory,
+            options.agentId,
+          ),
         },
       };
       // Codex connects to this server and then hides its tools. Measured on
@@ -608,8 +626,16 @@ export class CodexCliAdapter implements CliAdapter {
       // off puts `ptah_*` and `execute_code` in the tool list from turn one.
       config['features'] = { tool_search_always_defer_mcp_tools: false };
     }
-    codexOptions.config = config;
     const nativeBinaryPath = resolveCodexNativeBinary(options.binaryPath);
+    if (options.role) {
+      const developerInstructions = renderRoleBlock(options.role, this.name);
+      assertCommandLineWithinLimit(nativeBinaryPath ?? 'codex', [
+        '--config',
+        `developer_instructions=${JSON.stringify(developerInstructions)}`,
+      ]);
+      config['developer_instructions'] = developerInstructions;
+    }
+    codexOptions.config = config;
     if (nativeBinaryPath) {
       codexOptions.codexPathOverride = nativeBinaryPath;
     }
@@ -640,7 +666,7 @@ export class CodexCliAdapter implements CliAdapter {
     const thread = options.resumeSessionId
       ? codex.resumeThread(options.resumeSessionId, threadOptions)
       : codex.startThread(threadOptions);
-    const taskPrompt = buildTaskPrompt(options);
+    const taskPrompt = buildTaskPrompt({ ...options, role: undefined });
     const abortController = new AbortController();
     let capturedThreadId: string | undefined;
     const itemTextTracker = new Map<string, string>();
@@ -700,6 +726,24 @@ export class CodexCliAdapter implements CliAdapter {
             itemTextTracker,
             itemsWithDeltas,
           );
+
+          // The turn is over the moment `turn.completed` or `turn.failed`
+          // arrives — never wait for the iterator to end. The SDK ends it only
+          // when `codex exec` closes stdout, and on Windows codex.exe was
+          // measured alive for over an hour after its final event (a
+          // long-lived powershell.exe child holds it open), so `done` never
+          // settled and the agent read `running` until the timeout. Leaving
+          // the loop calls the generator's `return()`, which runs the SDK's
+          // `finally`: readline closed, child killed. `continue()` is safe
+          // because each turn spawns its own `codex exec … resume <threadId>`.
+          // `error` is deliberately NOT terminal: the SDK's own `Thread.run`
+          // reads past it, and the turn still ends with one of these two.
+          if (event.type === 'turn.completed') {
+            return 0;
+          }
+          if (event.type === 'turn.failed') {
+            return 1;
+          }
         }
 
         return 0;

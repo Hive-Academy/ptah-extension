@@ -24,6 +24,7 @@ import {
   MEMORY_CONTRACT_TOKENS,
   type IMemoryReader,
   type IMemoryLister,
+  type IMemoryUsageRecorder,
 } from '@ptah-extension/memory-contracts';
 import {
   PLATFORM_TOKENS,
@@ -91,6 +92,10 @@ export class MemoryPromptInjector {
     private readonly memoryLister: IMemoryLister,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    @inject(MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER, {
+      isOptional: true,
+    })
+    private readonly usage: IMemoryUsageRecorder | null = null,
     @inject(CORPUS_STORE_TOKEN, { isOptional: true })
     private readonly corpus: CorpusReader | null = null,
   ) {}
@@ -121,7 +126,7 @@ export class MemoryPromptInjector {
             : raw;
         return `${i + 1}. ${label}: ${text}`;
       });
-      return [
+      const block = [
         '## Recalled Memory Context',
         'The following facts were recalled from your persistent memory based on this session:',
         '',
@@ -129,6 +134,17 @@ export class MemoryPromptInjector {
         '',
         '---',
       ].join('\n');
+      try {
+        this.usage?.recordUse(hits.map((hit) => hit.memoryId));
+      } catch (err: unknown) {
+        // The recorder is an optional side effect. Its port promises not to
+        // throw, but prompt construction must survive a faulty implementation.
+        this.logger.warn(
+          '[MemoryPromptInjector] Memory use recording failed; continuing injection',
+          { error: err instanceof Error ? err.message : String(err) },
+        );
+      }
+      return block;
     } catch (err: unknown) {
       // degradation-audit: optional-capability - recalled memory is additive
       // prompt context; '' omits the block and the turn runs without recall,

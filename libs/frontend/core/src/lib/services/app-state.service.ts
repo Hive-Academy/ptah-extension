@@ -272,6 +272,17 @@ export class AppStateManager implements MessageHandler {
     signal<HarnessWorkflowRequest | null>(null);
   /** Signal bridge: request to launch a chat session with a seed prompt (Tasks board → orchestrate) */
   private readonly _chatPromptRequest = signal<ChatPromptRequest | null>(null);
+  /**
+   * One-shot request to open the Skills library filtered to diverged clones,
+   * holding the workspace path it was raised FOR (`null` when none is pending).
+   *
+   * Deliberately not part of ViewSlice: navigation pointers are retained per
+   * workspace, while this intent must be consumed exactly once on arrival.
+   * It is still workspace-BOUND, because the diverged entries it points at are
+   * one workspace's — carried into another workspace the deep link would
+   * filter that workspace's Library on a divergence the user never saw.
+   */
+  private readonly _skillsDivergedRequest = signal<string | null>(null);
   private readonly _pendingSettingsTab = signal<PendingSettingsTab | null>(
     null,
   );
@@ -590,6 +601,34 @@ export class AppStateManager implements MessageHandler {
   setThothActiveTab(tab: ThothActiveTabId): void {
     this.updateActiveViewSlice((slice) =>
       slice.thothActiveTab === tab ? slice : { ...slice, thothActiveTab: tab },
+    );
+  }
+
+  /**
+   * Open the Skills tab and raise a one-shot request for its diverged filter.
+   *
+   * Gated on {@link canSwitchViews} — the same guard {@link setCurrentView}
+   * applies. Without it the view switch would be dropped while disconnected or
+   * loading and the request would survive, so the filter fired later against
+   * whatever surface the user reached next.
+   */
+  openSkillsDivergedClones(): void {
+    if (!this.canSwitchViews()) return;
+    this.setCurrentView('thoth');
+    this.setThothActiveTab('skills');
+    this._skillsDivergedRequest.set(this._activeWorkspacePath());
+  }
+
+  /**
+   * Read and clear the pending diverged-clones navigation request. Answers
+   * `true` only for the workspace the request was raised in; a request the
+   * user walked away from by switching workspaces is cleared, not honoured.
+   */
+  consumeSkillsDivergedRequest(): boolean {
+    const requestedFor = this._skillsDivergedRequest();
+    this._skillsDivergedRequest.set(null);
+    return (
+      requestedFor !== null && requestedFor === this._activeWorkspacePath()
     );
   }
 

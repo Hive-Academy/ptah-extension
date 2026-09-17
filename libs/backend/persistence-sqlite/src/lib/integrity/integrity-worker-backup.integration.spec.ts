@@ -157,6 +157,7 @@ describe('integrity worker backup — real better-sqlite3 (A-1)', () => {
         type: 'backup',
         dbPath,
         destPath: dest,
+        stagingPath: `${dest}.11111111.tmp`,
       });
 
       // THE ASSUMPTION ITSELF. A `'unavailable'` here is the silent-degradation
@@ -186,6 +187,7 @@ describe('integrity worker backup — real better-sqlite3 (A-1)', () => {
       type: 'backup',
       dbPath,
       destPath: dest,
+      stagingPath: `${dest}.22222222.tmp`,
     });
 
     expect(response.verdict).toBe('ok');
@@ -208,6 +210,7 @@ describe('integrity worker backup — real better-sqlite3 (A-1)', () => {
       type: 'backup',
       dbPath,
       destPath: dest,
+      stagingPath: `${dest}.33333333.tmp`,
     });
 
     expect(response.verdict).toBe('ok');
@@ -230,11 +233,12 @@ describe('integrity worker backup — real better-sqlite3 (A-1)', () => {
       // file first, so this exercises the cleanup path on a genuine artifact
       // rather than on a path nothing ever created.
       const dest = path.join(workDir, 'backups', 'ptah-2026-09-06.sqlite');
+      const staging = `${dest}.44444444.tmp`;
       const env = makeEnvironment({
         fs: {
           ...fs,
           chmodSync: (target: string, mode: number) => {
-            if (target === dest)
+            if (target === staging)
               throw new Error('EPERM: forced lockdown failure');
             fs.chmodSync(target, mode);
           },
@@ -246,14 +250,16 @@ describe('integrity worker backup — real better-sqlite3 (A-1)', () => {
         type: 'backup',
         dbPath,
         destPath: dest,
+        stagingPath: staging,
       });
 
       expect(response.verdict).toBe('unavailable');
       expect(response.detail).toContain('forced lockdown failure');
       expect(response.bytesWritten).toBe(0);
       expect(fs.existsSync(dest)).toBe(false);
-      expect(fs.existsSync(`${dest}-wal`)).toBe(false);
-      expect(fs.existsSync(`${dest}-shm`)).toBe(false);
+      expect(fs.existsSync(staging)).toBe(false);
+      expect(fs.existsSync(`${staging}-wal`)).toBe(false);
+      expect(fs.existsSync(`${staging}-shm`)).toBe(false);
     },
   );
 
@@ -270,6 +276,7 @@ describe('integrity worker backup — real better-sqlite3 (A-1)', () => {
         type: 'backup',
         dbPath,
         destPath: dest,
+        stagingPath: `${dest}.55555555.tmp`,
       });
 
       expect(response.verdict).toBe('unavailable');
@@ -315,6 +322,7 @@ describe('integrity worker backup — real better-sqlite3 (A-1)', () => {
       type: 'backup',
       dbPath,
       destPath: dest,
+      stagingPath: `${dest}.66666666.tmp`,
     });
 
     expect(response.verdict).toBe('corrupt');
@@ -332,6 +340,7 @@ describe('integrity worker backup — real better-sqlite3 (A-1)', () => {
         type: 'backup' as const,
         dbPath,
         destPath: dest,
+        stagingPath: `${dest}.77777777.tmp`,
       };
 
       const [first, second] = await Promise.all([
@@ -383,6 +392,7 @@ describe('integrity worker backup — real better-sqlite3 (A-1)', () => {
         type: 'backup',
         dbPath,
         destPath: dest,
+        stagingPath: `${dest}.99999999.tmp`,
       });
 
       expect(response.verdict).toBe('unavailable');

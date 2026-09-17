@@ -34,6 +34,23 @@ export interface JsonlReadOptions {
   readonly signal?: AbortSignal;
 }
 
+/** Options for {@link JsonlReaderService.projectJsonlLines}. */
+export interface JsonlProjectionOptions extends JsonlReadOptions {
+  /**
+   * Read only the first N bytes. Pass the size from the same `fs.stat` that
+   * produced a cache token so the projection and the token agree.
+   */
+  readonly byteLength?: number;
+}
+
+/** Outcome of {@link JsonlReaderService.projectJsonlLines}. */
+export interface JsonlProjectionResult {
+  /** Non-blank lines handed to the visitor. */
+  readonly lines: number;
+  /** Event-loop yields taken while scanning. */
+  readonly yields: number;
+}
+
 /** Options for {@link JsonlReaderService.readJsonlTail}. */
 export interface JsonlTailOptions extends JsonlReadOptions {
   /** Size of the window read from the END of the file, in bytes. */
@@ -168,6 +185,30 @@ export class JsonlReaderService {
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
+   * List the immediate session directories below the projects root.
+   *
+   * This lookup is deliberately uncached: callers that need reuse own a
+   * shorter-lived cache whose invalidation matches their operation.
+   */
+  async listSessionsDirectories(): Promise<string[] | null> {
+    const projectsDir = this.projectsRoot();
+    try {
+      const entries = await fs.readdir(projectsDir, { withFileTypes: true });
+      return entries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => path.join(projectsDir, entry.name));
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - transcript history is absent
+      // or unavailable, so callers retain candidates instead of guessing.
+      this.logger.debug('[JsonlReader] Could not list session directories', {
+        projectsDir,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
    * Find the sessions directory for a workspace.
    *
    * Claude stores sessions in ~/.claude/projects/{escaped-workspace-path}/
@@ -195,8 +236,7 @@ export class JsonlReaderService {
    * @returns The sessions directory path, or null if not found
    */
   async findSessionsDirectory(workspacePath: string): Promise<string | null> {
-    const homeDir = os.homedir();
-    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    const projectsDir = this.projectsRoot();
 
     try {
       await fs.access(projectsDir);
@@ -237,6 +277,10 @@ export class JsonlReaderService {
     }
 
     return resolved;
+  }
+
+  private projectsRoot(): string {
+    return path.join(os.homedir(), '.claude', 'projects');
   }
 
   /**
@@ -344,9 +388,9 @@ export class JsonlReaderService {
    *
    * ## The parse is memoised on `(path, size, mtimeMs)`
    *
-   * Three independent callers read the SAME transcript within a second of each
-   * other on the resume path: `chat:resume` calls `readSessionHistory()` and
-   * then `readHistoryAsMessages()` — two full parses of one file — and
+   * Two independent callers read the SAME transcript within a second of each
+   * other on the resume path: `chat:resume` calls `readSessionHistory()`
+   * once and replays the single-parse `events` it returns, and
    * `session:stats-batch` parses it again for the sidebar. Nothing about the
    * bytes changed between them.
    *
@@ -559,11 +603,82 @@ export class JsonlReaderService {
     options: { dropFirstLine: boolean; signal?: AbortSignal },
   ): Promise<SessionHistoryMessage[]> {
     const messages: SessionHistoryMessage[] = [];
+    await this.scanJsonlLines(stream, options, (line) =>
+      this.parseAndCollect(line, messages, filePath),
+    );
+    return messages;
+  }
+
+  /**
+   * Stream a JSONL file and hand each non-blank line to `visit`, retaining
+   * nothing between lines.
+   *
+   * This is the projection path for callers that need a few fields from every
+   * record and none of the content — `SessionStatsReaderService` keeps only
+   * usage, timestamps, model ids and compact boundaries (TASK_2026_411 B4).
+   * `visit` decides what, if anything, to parse; a line it ignores is garbage
+   * as soon as it returns.
+   *
+   * Deliberately NOT memoised and NOT subject to {@link MAX_SESSION_FILE_SIZE}:
+   * that cap bounds the parsed ARRAY {@link readJsonlMessages} returns, and
+   * this method returns no array. Memory is bounded by the longest single line;
+   * time is bounded by the caller's `signal`, checked at every yield.
+   *
+   * Yields to the event loop on the same line/byte budget as every other read
+   * here. `visit` must be synchronous and must not throw for a malformed line.
+   *
+   * @returns How many lines were visited and how many times the scan yielded.
+   */
+  async projectJsonlLines(
+    filePath: string,
+    visit: (line: string) => void,
+    options?: JsonlProjectionOptions,
+  ): Promise<JsonlProjectionResult> {
+    options?.signal?.throwIfAborted();
+    const byteLength = options?.byteLength;
+    if (byteLength !== undefined && byteLength <= 0) {
+      return { lines: 0, yields: 0 };
+    }
+    return this.scanJsonlLines(
+      createReadStream(filePath, {
+        encoding: 'utf8',
+        highWaterMark: this.READ_CHUNK_BYTES,
+        // `end` is inclusive. Stopping at the size the caller stat-ed makes the
+        // projection describe exactly the bytes its validity token names, even
+        // while the CLI is appending to the file.
+        ...(byteLength !== undefined ? { end: byteLength - 1 } : {}),
+      }),
+      { dropFirstLine: false, signal: options?.signal },
+      visit,
+    );
+  }
+
+  /**
+   * The one line scanner every read path shares: index-advanced buffer, CRLF
+   * and blank-line handling, and the line/byte yield budget with an abort
+   * check at each yield.
+   */
+  private async scanJsonlLines(
+    stream: NodeJS.ReadableStream,
+    options: { dropFirstLine: boolean; signal?: AbortSignal },
+    visit: (line: string) => void,
+  ): Promise<JsonlProjectionResult> {
     const { signal } = options;
     let skipNextLine = options.dropFirstLine;
     let buffer = '';
     let linesSinceYield = 0;
     let charsSinceYield = 0;
+    let lines = 0;
+    let yields = 0;
+
+    const emit = (rawLine: string): void => {
+      // The original implementation split on `/\r?\n/`, so a CRLF file never
+      // presented the `\r` to `JSON.parse` or to the malformed-line preview.
+      const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+      if (!line.trim()) return;
+      lines++;
+      visit(line);
+    };
 
     try {
       for await (const chunk of stream) {
@@ -580,7 +695,7 @@ export class JsonlReaderService {
           if (skipNextLine) {
             skipNextLine = false;
           } else {
-            this.parseAndCollect(line, messages, filePath);
+            emit(line);
           }
 
           linesSinceYield++;
@@ -590,6 +705,7 @@ export class JsonlReaderService {
           ) {
             linesSinceYield = 0;
             charsSinceYield = 0;
+            yields++;
             await yieldToEventLoop();
             signal?.throwIfAborted();
           }
@@ -608,26 +724,21 @@ export class JsonlReaderService {
 
     // Trailing line with no terminating newline.
     if (buffer.length > 0 && !skipNextLine) {
-      this.parseAndCollect(buffer, messages, filePath);
+      emit(buffer);
     }
 
-    return messages;
+    return { lines, yields };
   }
 
   /**
-   * Parse one JSONL line and append it, skipping blank and malformed lines
+   * Parse one non-blank JSONL line and append it, skipping malformed lines
    * exactly as the previous whole-file implementation did.
    */
   private parseAndCollect(
-    rawLine: string,
+    line: string,
     messages: SessionHistoryMessage[],
     filePath: string,
   ): void {
-    // The previous implementation split on `/\r?\n/`, so a CRLF file never
-    // presented the `\r` to `JSON.parse` or to the malformed-line preview.
-    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-    if (!line.trim()) return;
-
     try {
       const parsed = JSON.parse(line) as JsonlMessageLine;
       messages.push(this.convertToSessionHistoryMessage(parsed));
@@ -660,6 +771,7 @@ export class JsonlReaderService {
       sessionId: line.sessionId,
       timestamp: line.timestamp,
       isMeta: line.isMeta,
+      isSynthetic: line.isSynthetic,
       slug: line.slug,
       message: line.message as SessionHistoryMessage['message'],
       model: line.model,

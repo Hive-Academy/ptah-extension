@@ -31,6 +31,7 @@ import {
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 import { ObservationQueueStore } from './observation-queue.store';
 import { escapeFtsQuery } from './fts-query.util';
+import { salienceRankOrderBy } from './salience-ranking';
 
 export interface MemSearchIndexFilter {
   readonly query?: string;
@@ -338,6 +339,7 @@ export class MemorySearchService implements IMemoryReader {
       }
     }
 
+    fused = fused.slice(0, limit);
     const hits: MemorySearchHit[] = [];
     for (const entry of fused) {
       const memory = this.lookupMemory(entry.row.memory_id);
@@ -356,8 +358,6 @@ export class MemorySearchService implements IMemoryReader {
         bm25Rank: entry.bm25Rank,
         vecRank: entry.vecRank,
       });
-
-      this.store.recordHit(memory.id);
     }
 
     const response: MemorySearchResponse = { hits, bm25Only };
@@ -812,12 +812,12 @@ export class MemorySearchService implements IMemoryReader {
                         m.concepts_json, m.files_json, m.created_at
                  FROM memories m
                  ${clause}
-                 ORDER BY m.salience DESC, m.last_used_at DESC
+                 ${salienceRankOrderBy('?')}
                  LIMIT ?`;
     try {
       const rows = this.connection.db
         .prepare(sql)
-        .all(...params, limit) as MemoryRowCompact[];
+        .all(...params, Date.now(), limit) as MemoryRowCompact[];
       return rows.map((r) => this.compactRowToOut(r, 0));
     } catch (err) {
       this.logger.warn('[memory-curator] mem:searchIndex pure-filter failed', {

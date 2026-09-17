@@ -69,6 +69,7 @@ import {
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import type { ViewType } from '@ptah-extension/core';
+import type { TitleOrigin } from '@ptah-extension/chat-types';
 
 /**
  * AppShellComponent - Main application layout with collapsible sidebar
@@ -495,7 +496,8 @@ export class AppShellComponent {
     if (this.layoutMode() === 'grid') {
       this.appState.requestNewCanvasSession(sessionName);
     } else {
-      this.tabManager.createTab(sessionName);
+      const titleOrigin: TitleOrigin = name ? 'user' : 'default';
+      this.tabManager.createTab(sessionName, titleOrigin);
     }
     this._sessionNamePopoverOpen.set(false);
   }

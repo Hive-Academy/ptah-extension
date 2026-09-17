@@ -72,6 +72,42 @@ export type SystemCliType = (typeof SYSTEM_CLI_TYPES)[number];
 
 export type CliType = SystemCliType | 'ptah-cli';
 
+/**
+ * A workspace role an agent can be spawned as, resolved from `.claude/agents/<name>.md`.
+ *
+ * `body` has the frontmatter stripped and is otherwise untransformed; adapters
+ * apply their own CLI rewrite before delivery.
+ */
+export interface AgentRoleDefinition {
+  readonly name: string;
+  readonly description?: string;
+  readonly body: string;
+  /** Absolute path of the role file the definition was read from. */
+  readonly sourcePath: string;
+  /** UTF-8 byte length of `body`. */
+  readonly bytes: number;
+}
+
+/**
+ * How a role reached the agent.
+ *
+ * - `preamble` — the role body was injected into the agent's instructions.
+ * - `native` — the CLI selected the role through its own agent mechanism.
+ */
+export type AgentRoleDelivery = 'preamble' | 'native';
+
+/**
+ * The adapter channel that carries a role to the agent.
+ *
+ * `agent-selection` is reserved for native role selection and is not used by
+ * preamble delivery.
+ */
+export type AgentRoleChannel =
+  | 'task-prompt'
+  | 'developer-instructions'
+  | 'system-prompt'
+  | 'agent-selection';
+
 export interface AgentProcessInfo {
   readonly agentId: AgentId;
   readonly cli: CliType;
@@ -102,6 +138,12 @@ export interface AgentProcessInfo {
   readonly resumedFromAgentId?: string;
   /** Whether the agent's handle can continue the same conversation with a follow-up. */
   readonly supportsContinuation?: boolean;
+  /** Workspace role name the agent was spawned as. */
+  readonly role?: string;
+  /** How the role was delivered (only set when `role` is set). */
+  readonly roleDelivery?: AgentRoleDelivery;
+  /** Adapter channel that carried the role (only set when `role` is set). */
+  readonly roleChannel?: AgentRoleChannel;
 }
 
 export interface SpawnAgentRequest {
@@ -111,7 +153,12 @@ export interface SpawnAgentRequest {
   readonly cli?: CliType;
   /** Working directory (defaults to workspace root) */
   readonly workingDirectory?: string;
-  /** Timeout in milliseconds (default: 3600000 = 1hr, max: 3600000 = 1hr) */
+  /**
+   * Inactivity window in milliseconds — how long the agent may produce NO
+   * output before it is treated as hung (default: 3600000 = 1hr). The window is
+   * re-armed by every output flush, so a working agent never hits it. `0`
+   * disables the watchdog. There is no maximum.
+   */
   readonly timeout?: number;
   /** Files the agent should focus on */
   readonly files?: string[];
@@ -141,6 +188,10 @@ export interface SpawnAgentRequest {
   readonly modelTier?: 'opus' | 'sonnet' | 'haiku';
   /** When set, this agent is resuming a previous agent. Frontend replaces the old card in-place. */
   readonly resumedFromAgentId?: string;
+  /** Workspace role name from `.claude/agents/<name>.md` the agent should act as. */
+  readonly role?: string;
+  /** Resolved definition of `role`. Injected by MCP server, NOT set by callers. */
+  readonly roleDefinition?: AgentRoleDefinition;
 }
 
 export interface AgentOutput {
@@ -164,6 +215,49 @@ export interface SpawnAgentResult {
   readonly ptahCliName?: string;
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
   readonly ptahCliId?: string;
+  /** Workspace role name the agent was spawned as. */
+  readonly role?: string;
+  /** How the role was delivered (only set when `role` is set). */
+  readonly roleDelivery?: AgentRoleDelivery;
+  /** Adapter channel that carried the role (only set when `role` is set). */
+  readonly roleChannel?: AgentRoleChannel;
+}
+
+/**
+ * The mechanism that actually delivered a message to a running agent.
+ *
+ * - `steer` — injected mid-turn; the current turn continues and absorbs it.
+ * - `interrupt-resume` — the current turn was aborted and the message re-submitted
+ *   on the SAME session. **Discards the aborted turn's partial work**, which is why
+ *   the mode is always reported back to the caller rather than presented as a plain
+ *   success.
+ * - `queue-next-turn` — held and delivered as the next full turn.
+ * - `unsupported` — nothing was delivered; `detail` carries the reason.
+ */
+export type AgentMessagingMode =
+  | 'steer'
+  | 'interrupt-resume'
+  | 'queue-next-turn'
+  | 'unsupported';
+
+/**
+ * The best mechanism a CLI can offer, as reported by agent listings.
+ *
+ * This is the declared capability, not the outcome of a delivery — see
+ * {@link AgentMessagingMode} for the latter.
+ */
+export type AgentMessagingCapability = 'steer' | 'interrupt' | 'queue' | 'none';
+
+/**
+ * What actually happened to a message aimed at a live agent.
+ *
+ * `mode` is never inferred by the caller and never omitted: an `unsupported`
+ * outcome means NOTHING was delivered, and `detail` carries the reason in
+ * words the caller (often a model) can act on.
+ */
+export interface AgentMessageOutcome {
+  readonly mode: AgentMessagingMode;
+  readonly detail?: string;
 }
 
 export interface CliDetectionResult {
@@ -171,7 +265,8 @@ export interface CliDetectionResult {
   readonly installed: boolean;
   readonly path?: string;
   readonly version?: string;
-  readonly supportsSteer: boolean;
+  /** Best messaging mechanism this CLI offers for a message sent to a live agent. */
+  readonly messagingMode: AgentMessagingCapability;
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli') */
   readonly ptahCliId?: string;
   /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
@@ -192,6 +287,10 @@ export interface CliDetectionResult {
    * are switched off with their own `enabled: false` registry field.
    */
   readonly disabled?: boolean;
+  /** How a role given to this CLI is delivered. */
+  readonly roleDelivery?: AgentRoleDelivery;
+  /** Adapter channel this CLI uses to carry a role. */
+  readonly roleChannel?: AgentRoleChannel;
 }
 
 /**

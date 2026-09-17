@@ -116,6 +116,7 @@ function makeHarness(opts: { broadcastRejects?: boolean } = {}): Harness {
     createMockWorkspaceProvider({
       folders: ['/c/projects/my-repo'],
     }) as unknown as IWorkspaceProvider,
+    { exists: jest.fn().mockResolvedValue(true) } as never,
     {
       type: 'cli',
       extensionPath: '/tmp/ptah-app',
@@ -144,6 +145,7 @@ function makeHarness(opts: { broadcastRejects?: boolean } = {}): Harness {
     { resolveSessionFields: jest.fn().mockResolvedValue({}) } as never,
     registry,
     fanOut as never,
+    { register: jest.fn().mockReturnValue(() => undefined) } as never,
   );
 
   return {

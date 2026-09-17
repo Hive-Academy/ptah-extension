@@ -100,7 +100,9 @@ export class AgentContinueInputComponent {
   protected readonly queued = signal<string | null>(null);
 
   protected readonly visible = computed(
-    () => this.agent().supportsContinuation === true,
+    () =>
+      this.agent().supportsContinuation === true ||
+      !!this.agent().cliSessionId,
   );
 
   /**
@@ -125,14 +127,16 @@ export class AgentContinueInputComponent {
   });
 
   /**
-   * The backend dropped the process record, so a follow-up has to go through a
-   * session resume. Only true when there is a session to resume with — without
-   * `cliSessionId` there is no path at all, and saying "resumes the session"
-   * would promise one.
+   * A follow-up has to go through session resume when the continuation record
+   * expired or the agent never supported in-process continuation. Only true
+   * when there is a session to resume with — without `cliSessionId` there is no
+   * path at all, and saying "resumes the session" would promise one.
    */
   protected readonly resumesInstead = computed(
     () =>
-      this.agent().continuationExpired === true && !!this.agent().cliSessionId,
+      !!this.agent().cliSessionId &&
+      (this.agent().continuationExpired === true ||
+        this.agent().supportsContinuation !== true),
   );
 
   protected readonly subtitle = computed(() => {
@@ -220,12 +224,18 @@ export class AgentContinueInputComponent {
         // The card's status had not caught up with the backend yet. Re-queue
         // rather than erroring — the flush effect retries at the real turn end.
         this.enqueue(message);
-      } else if (result.code === 'not_found' || result.code === 'released') {
+      } else if (
+        result.code === 'not_found' ||
+        result.code === 'released' ||
+        result.code === 'unsupported'
+      ) {
         // `not_found`: the record aged out (or the host restarted) without us
         // hearing about it. `released`: the record is still there but its
         // process was reclaimed after idling, so there is nothing in memory to
-        // continue INTO. Either way the CONVERSATION is still on disk, so resume
-        // it rather than telling the user to start over and lose the context.
+        // continue INTO. `unsupported` means the adapter has no in-process
+        // continuation capability. In every case the CONVERSATION is still on
+        // disk, so resume it rather than telling the user to start over and lose
+        // the context.
         await this.sendByResuming(message);
       } else {
         this.restoreUndelivered(message);

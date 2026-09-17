@@ -143,6 +143,43 @@ describe('JsonlReaderService', () => {
     service = new JsonlReaderService(asLogger(logger));
   });
 
+  describe('listSessionsDirectories', () => {
+    it('returns null when the projects root is absent', async () => {
+      mockedReaddir.mockRejectedValueOnce(
+        Object.assign(new Error('missing'), { code: 'ENOENT' }),
+      );
+
+      await expect(service.listSessionsDirectories()).resolves.toBeNull();
+    });
+
+    it('returns absolute immediate directories and filters files', async () => {
+      mockedReaddir.mockResolvedValueOnce([
+        { name: 'workspace-one', isDirectory: () => true },
+        { name: 'notes.txt', isDirectory: () => false },
+        { name: 'workspace-two', isDirectory: () => true },
+      ] as unknown as Awaited<ReturnType<typeof fs.readdir>>);
+
+      await expect(service.listSessionsDirectories()).resolves.toEqual([
+        path.join('/home/testuser', '.claude', 'projects', 'workspace-one'),
+        path.join('/home/testuser', '.claude', 'projects', 'workspace-two'),
+      ]);
+      expect(mockedReaddir).toHaveBeenCalledWith(
+        path.join('/home/testuser', '.claude', 'projects'),
+        { withFileTypes: true },
+      );
+    });
+
+    it('returns null when listing fails', async () => {
+      mockedReaddir.mockRejectedValueOnce(new Error('permission denied'));
+
+      await expect(service.listSessionsDirectories()).resolves.toBeNull();
+      expect(logger.debug).toHaveBeenCalledWith(
+        '[JsonlReader] Could not list session directories',
+        expect.objectContaining({ error: 'permission denied' }),
+      );
+    });
+  });
+
   // -------------------------------------------------------------------------
   // findSessionsDirectory
   // -------------------------------------------------------------------------
@@ -498,6 +535,33 @@ describe('JsonlReaderService', () => {
       expect(out[0].type).toBe('assistant');
     });
 
+    it('preserves isSynthetic so replay can suppress synthetic user records', async () => {
+      // Regression (PR #493 review A): convertToSessionHistoryMessage dropped
+      // isSynthetic, so the replay filter in session-replay.service never saw
+      // it and synthetic user records leaked into replayed history.
+      const jsonl = [
+        JSON.stringify({
+          uuid: 'u-synthetic',
+          type: 'user',
+          isSynthetic: true,
+          message: { role: 'user', content: 'synthetic cue' },
+        }),
+        JSON.stringify({
+          uuid: 'u-real',
+          type: 'user',
+          message: { role: 'user', content: 'real message' },
+        }),
+      ].join('\n');
+      mockedStat.mockResolvedValueOnce(statsWithSize(Buffer.byteLength(jsonl)));
+      primeFileContent(jsonl);
+
+      const out = await service.readJsonlMessages('/tmp/session.jsonl');
+
+      expect(out).toHaveLength(2);
+      expect(out[0].isSynthetic).toBe(true);
+      expect(out[1].isSynthetic).toBeUndefined();
+    });
+
     it('rejects files over the 50 MB cap with SdkError before reading content', async () => {
       // `await expect(...).rejects.toThrow(...)` invokes the thunk once, so we
       // need exactly one stat reply — any extra primed replies stay queued
@@ -637,9 +701,8 @@ describe('JsonlReaderService', () => {
   // -------------------------------------------------------------------------
   // Parsed-transcript cache (TASK_2026_353)
   //
-  // `chat:resume` parses the same transcript twice — `readSessionHistory()`
-  // then `readHistoryAsMessages()` — and `session:stats-batch` parses it a
-  // third time moments later. The validity token is (size, mtimeMs).
+  // `chat:resume` parses the transcript once via `readSessionHistory()`, and
+  // `session:stats-batch` parses it again moments later. The validity token is (size, mtimeMs).
   // -------------------------------------------------------------------------
   describe('transcript cache', () => {
     const FILE = '/tmp/session.jsonl';
@@ -683,6 +746,42 @@ describe('JsonlReaderService', () => {
       await service.readJsonlMessages(FILE);
 
       expect(mockedCreateReadStream).toHaveBeenCalledTimes(2);
+    });
+
+    it('re-parses when (size, mtimeMs) change and the new short transcript contains the expected boundary', async () => {
+      const short = JSON.stringify({
+        uuid: 'b1',
+        sessionId: 's1',
+        type: 'system',
+        subtype: 'compact_boundary',
+      });
+      const changed = [
+        short,
+        JSON.stringify({
+          uuid: 'b2',
+          sessionId: 's1',
+          type: 'system',
+          subtype: 'compact_boundary',
+        }),
+      ].join('\n');
+
+      mockedStat.mockResolvedValueOnce(statsOf(Buffer.byteLength(short), 1000));
+      mockedStat.mockResolvedValueOnce(statsOf(Buffer.byteLength(short), 1000));
+      mockedStat.mockResolvedValueOnce(
+        statsOf(Buffer.byteLength(changed), 2000),
+      );
+      primeFileContent(short, changed);
+
+      const first = await service.readJsonlMessages(FILE);
+      const second = await service.readJsonlMessages(FILE);
+      const third = await service.readJsonlMessages(FILE);
+
+      // First parse is cached; changed stats force a re-parse on the third call.
+      expect(mockedCreateReadStream).toHaveBeenCalledTimes(2);
+      expect(first).toHaveLength(1);
+      expect(second).toEqual(first);
+      expect(third).toHaveLength(2);
+      expect(third[1].uuid).toBe('b2');
     });
 
     it('keys on the file path — one transcript never answers for another', async () => {

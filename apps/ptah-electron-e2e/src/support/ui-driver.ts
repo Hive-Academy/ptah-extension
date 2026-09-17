@@ -56,12 +56,24 @@ export class UiDriver {
       const g = globalThis as unknown as {
         __uiMockStatics?: Record<string, unknown>;
         __uiMockFns?: Record<string, string>;
+        __uiCompiledFns?: Map<string, (params: unknown) => unknown>;
         __uiNamespaceDefaults?: Record<string, unknown>;
         __uiObservedCalls?: { method: string; params: unknown }[];
         __uiObservedMessages?: { type: string; payload: unknown }[];
       };
       g.__uiMockStatics = g.__uiMockStatics ?? {};
       g.__uiMockFns = g.__uiMockFns ?? {};
+      // Keyed by the resolver's own source text, not by method: a spec that
+      // embeds a large literal (e.g. thousands of fixture events) in the
+      // resolver body would otherwise pay `new Function` parse+compile cost
+      // on EVERY inbound call for that method, serializing what should be
+      // independent concurrent RPC replies behind main-process compile work
+      // (found in Batch 22 code-logic-review.md, TASK_2026_437). Never
+      // bounded or cleared within a page's lifetime — harmless today because
+      // `fixtures.ts` launches a fresh Electron app per test, so this Map's
+      // lifetime is bounded by the test itself; a future spec that reuses one
+      // page across multiple tests would need to revisit this.
+      g.__uiCompiledFns = g.__uiCompiledFns ?? new Map();
       g.__uiNamespaceDefaults = namespaceDefaults;
       g.__uiObservedCalls = [];
       g.__uiObservedMessages = [];
@@ -99,10 +111,25 @@ export class UiDriver {
         const fns = g.__uiMockFns ?? {};
         const statics = g.__uiMockStatics ?? {};
         if (Object.prototype.hasOwnProperty.call(fns, method)) {
-          const resolver = new Function(
-            'params',
-            `return (${fns[method]})(params);`,
-          ) as (p: unknown) => unknown;
+          const source = fns[method];
+          const compiled = g.__uiCompiledFns ?? new Map();
+          let resolver = compiled.get(source);
+          if (!resolver) {
+            // `source` is the string form of a resolver function literal
+            // authored in a spec file (e.g. fixtures.ts, a *.spec.ts) and
+            // handed to page.evaluate/addInitScript, which serializes it to
+            // text to cross the Playwright -> Electron main-process boundary.
+            // There is no other channel to reconstitute a function from that
+            // boundary, and nothing here is user- or network-supplied: only
+            // e2e specs in this repo populate __uiMockFns, and only e2e runs
+            // this file.
+            resolver = new Function( // NOSONAR typescript:S1523 — test-authored source, see above
+              'params',
+              `return (${source})(params);`,
+            ) as (p: unknown) => unknown;
+            compiled.set(source, resolver);
+            g.__uiCompiledFns = compiled;
+          }
           data = resolver(params);
         } else if (Object.prototype.hasOwnProperty.call(statics, method)) {
           data = statics[method];

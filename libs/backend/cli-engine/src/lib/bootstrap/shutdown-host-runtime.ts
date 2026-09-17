@@ -1,8 +1,8 @@
 /**
  * Host-runtime teardown — end the OS-level resources a `ptah` process owns.
  *
- * Two subsystems hold things the operating system will not reclaim for us when
- * the event loop is abandoned:
+ * Three subsystems hold things the operating system will not reclaim for us, or
+ * reclaims only late, when the event loop is abandoned:
  *
  *   1. `AgentProcessManager` — spawned CLI agent subprocesses. They are
  *      children of this process, and `process.exit` orphans anything still
@@ -10,14 +10,18 @@
  *      on purpose, so nothing else ends it.
  *   2. `PtahCliRegistry` — the Anthropic-compatible proxy leases each ptah-cli
  *      agent talks through. Every lease is a listening socket.
+ *   3. `PLATFORM_TOKENS.WORKSPACE_WATCHER` — `CliWorkspaceWatcher` and its forked
+ *      watch host (TASK_2026_437 C9). The host also exits on its own when this
+ *      process's IPC channel closes; disposing here ends it and its timers
+ *      deterministically instead of relying on that.
  *
  * **Agents first, then proxies.** An agent subprocess speaks to its provider
  * *through* the proxy; ending the proxy first strands a live child on a dead
  * endpoint, where it will either hang or spew connection errors while it is
  * being killed anyway. This is the same order `apps/ptah-electron` uses on
- * `will-quit`.
+ * `will-quit`. The watcher is independent of both and goes last.
  *
- * Each half is guarded by `isRegistered` and wrapped in its own `try/catch`, so
+ * Each step is guarded by `isRegistered` and wrapped in its own `try/catch`, so
  * a failure in one cannot stop the other and a bootstrap that never registered
  * a subsystem (`mode: 'minimal'` registers neither) pays nothing and warns
  * about nothing.
@@ -39,6 +43,9 @@ const AGENT_PROCESS_MANAGER_TOKEN = Symbol.for('AgentProcessManager');
  */
 const PTAH_CLI_REGISTRY_TOKEN = Symbol.for('SdkPtahCliRegistry');
 
+/** `PLATFORM_TOKENS.WORKSPACE_WATCHER` from `@ptah-extension/platform-core`. */
+const WORKSPACE_WATCHER_TOKEN = Symbol.for('PlatformWorkspaceWatcher');
+
 /**
  * The slice of `DependencyContainer` this module uses. Narrow on purpose:
  * every caller here is a teardown path, and several of them run against
@@ -46,13 +53,12 @@ const PTAH_CLI_REGISTRY_TOKEN = Symbol.for('SdkPtahCliRegistry');
  */
 type ContainerLike = Pick<DependencyContainer, 'resolve' | 'isRegistered'>;
 
-/** Both subsystems expose the same teardown verb; only the return type differs. */
-interface DisposableSubsystem {
-  disposeAll(): void | Promise<void>;
-}
+/** The teardown verbs the subsystems expose; only the return type differs. */
+type TeardownVerb = 'disposeAll' | 'dispose';
+type DisposableSubsystem = Record<TeardownVerb, () => void | Promise<void>>;
 
 /**
- * Resolve `token` and call `disposeAll()` on it. Never throws.
+ * Resolve `token` and call its teardown `verb`. Never throws.
  *
  * The `isRegistered` guard sits INSIDE the `try`, not in front of it. This runs
  * on teardown paths that include the one turning an SDK init failure into
@@ -67,6 +73,7 @@ async function disposeSubsystem(
   container: ContainerLike,
   token: symbol,
   label: string,
+  verb: TeardownVerb = 'disposeAll',
 ): Promise<void> {
   try {
     if (
@@ -75,7 +82,7 @@ async function disposeSubsystem(
     ) {
       return;
     }
-    await container.resolve<DisposableSubsystem>(token).disposeAll();
+    await container.resolve<DisposableSubsystem>(token)[verb]();
   } catch (error: unknown) {
     // Reported on stderr rather than through the logger: this also runs from
     // signal handlers, mid-teardown, where the logger lives in the very
@@ -118,8 +125,25 @@ export async function shutdownPtahCliProxies(
 }
 
 /**
+ * Stop the workspace watcher and its forked host. Never throws. No-op when the
+ * host never registered one.
+ */
+export async function shutdownWorkspaceWatcher(
+  container: ContainerLike | undefined,
+): Promise<void> {
+  if (!container) return;
+  await disposeSubsystem(
+    container,
+    WORKSPACE_WATCHER_TOKEN,
+    'workspace watcher',
+    'dispose',
+  );
+}
+
+/**
  * The whole host-runtime teardown, in the one order that is safe: agent
- * subprocesses, then the proxies they were speaking through.
+ * subprocesses, then the proxies they were speaking through, then the
+ * workspace watcher.
  *
  * Never throws, and never short-circuits — if the agent half rejects, its
  * rejection is absorbed by {@link disposeSubsystem} and the proxy half still
@@ -130,4 +154,5 @@ export async function shutdownHostRuntime(
 ): Promise<void> {
   await shutdownAgentProcesses(container);
   await shutdownPtahCliProxies(container);
+  await shutdownWorkspaceWatcher(container);
 }

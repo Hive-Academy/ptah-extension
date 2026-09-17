@@ -1,7 +1,8 @@
 /**
  * AgentProcessManager Unit Tests - SDK Execution Path
  *
- * Tests: SDK spawn path, output streaming, stop/abort, timeout, steer rejection,
+ * Tests: SDK spawn path, output streaming, stop/abort, timeout, sendToAgent
+ *        mode routing and its pending queue,
  *        idle subprocess release, disposeAll with mixed CLI/SDK agents,
  *        concurrent limit enforcement.
  */
@@ -70,13 +71,21 @@ jest.mock('@ptah-extension/vscode-core', () => ({
   SentryService: class {},
 }));
 
-// Mock platform-core for the PLATFORM_TOKENS.WORKSPACE_PROVIDER injection.
-jest.mock('@ptah-extension/platform-core', () => ({
-  PLATFORM_TOKENS: {
-    WORKSPACE_PROVIDER: Symbol('WORKSPACE_PROVIDER'),
-    MCP_SERVER_STATUS: Symbol('MCP_SERVER_STATUS'),
-  },
-}));
+// Keep platform-core's real path guards while replacing DI tokens used by this
+// manually-constructed unit. A closed mock hides new runtime exports and makes
+// the suite fail before SDK-path assertions can run.
+jest.mock('@ptah-extension/platform-core', () => {
+  const actual = jest.requireActual<
+    typeof import('@ptah-extension/platform-core')
+  >('@ptah-extension/platform-core');
+  return {
+    ...actual,
+    PLATFORM_TOKENS: {
+      WORKSPACE_PROVIDER: Symbol('WORKSPACE_PROVIDER'),
+      MCP_SERVER_STATUS: Symbol('MCP_SERVER_STATUS'),
+    },
+  };
+});
 
 // We need uuid to generate valid AgentIds, but shared uses it internally.
 // Produce unique-but-valid v4-shaped ids so multiple agents can coexist in
@@ -93,23 +102,34 @@ jest.mock('uuid', () => ({
 import {
   AgentProcessManager,
   AgentContinueError,
+  type AgentRoleStamp,
 } from './agent-process-manager.service';
+import { PTAH_CLI_ROLE_DELIVERY } from '../ptah-cli/helpers/ptah-cli-registry.utils';
 import {
   BUFFER_LOW_WATER_SIZE,
   COMPLETED_AGENT_TTL,
-  DEFAULT_TIMEOUT,
+  DEFAULT_INACTIVITY_TIMEOUT,
   MAX_BUFFER_SIZE,
+  OUTPUT_FLUSH_INTERVAL,
   MIN_SDK_IDLE_RELEASE_MS,
   SDK_IDLE_RELEASE_MS,
   countNewlines,
 } from './agent-process-manager-helpers';
 import { CliDetectionService } from './cli-detection.service';
+import { AgentMessageRouter } from './agent-message-router.service';
+import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
+import { AgentOutputBuffer } from './agent-output-buffer.service';
 import type {
   CliAdapter,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { CliDetectionResult } from '@ptah-extension/shared';
+import type {
+  AgentProcessInfo,
+  AgentRoleDefinition,
+  CliDetectionResult,
+  CliSessionReference,
+} from '@ptah-extension/shared';
 
 // ---- Test Helpers ----
 
@@ -209,14 +229,17 @@ function createSdkAdapter(
   return {
     name: 'codex',
     displayName: 'Codex CLI',
+    roleChannel: 'developer-instructions',
     detect: jest.fn<Promise<CliDetectionResult>, []>().mockResolvedValue({
       cli: 'codex',
       installed: true,
       path: '/usr/local/bin/codex',
       version: '1.0.0',
-      supportsSteer: false,
+      messagingMode: 'queue',
     }),
-    supportsSteer: jest.fn().mockReturnValue(false),
+    capabilities: jest
+      .fn()
+      .mockReturnValue({ steer: false, interrupt: false, continuation: true }),
     parseOutput: jest.fn((raw: string) => raw),
     runSdk: jest
       .fn<Promise<SdkHandle>, []>()
@@ -236,7 +259,7 @@ function createMockCliDetection(
     installed: true,
     path: '/usr/local/bin/codex',
     version: '1.0.0',
-    supportsSteer: false,
+    messagingMode: 'queue',
   };
 
   return {
@@ -318,8 +341,47 @@ function createMockSentryService(): Record<string, jest.Mock> {
   };
 }
 
+interface ManagerHarness {
+  manager: AgentProcessManager;
+  outputBuffer: AgentOutputBuffer;
+}
+
+function createManager(deps: {
+  logger: jest.Mocked<Logger>;
+  cliDetection: jest.Mocked<CliDetectionService>;
+  workspaceProvider: Record<string, jest.Mock>;
+  reasoningSettings: { effort: { get: jest.Mock } };
+  harnessPreflight: { ensure: jest.Mock } | null;
+  mcpServerStatus: { getPort: jest.Mock<number | null, []> };
+}): ManagerHarness {
+  type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
+  type ManagerArgs = ConstructorParameters<typeof AgentProcessManager>;
+  const sentryService = createMockSentryService();
+  const spawnEnvironment = new AgentSpawnEnvironment(
+    deps.logger,
+    deps.cliDetection,
+    deps.workspaceProvider as unknown as EnvironmentArgs[2],
+    deps.reasoningSettings as unknown as EnvironmentArgs[3],
+    sentryService as unknown as EnvironmentArgs[4],
+    deps.harnessPreflight as unknown as EnvironmentArgs[5],
+    deps.mcpServerStatus,
+  );
+  const outputBuffer = new AgentOutputBuffer(deps.logger);
+  const manager = new AgentProcessManager(
+    deps.logger,
+    deps.cliDetection,
+    createMockSubagentRegistry() as unknown as ManagerArgs[2],
+    sentryService as unknown as ManagerArgs[3],
+    new AgentMessageRouter(deps.logger, deps.cliDetection),
+    spawnEnvironment,
+    outputBuffer,
+  );
+  return { manager, outputBuffer };
+}
+
 describe('AgentProcessManager - SDK Execution Path', () => {
   let manager: AgentProcessManager;
+  let outputBuffer: AgentOutputBuffer;
   let logger: jest.Mocked<Logger>;
   let sdkControls: MockSdkHandleControls;
   let sdkAdapter: jest.Mocked<CliAdapter>;
@@ -338,33 +400,16 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     setupVscodeConfig();
 
-    // Instantiate manager directly (tsyringe decorators are mocked to no-ops).
-    // The constructor takes 6 deps: logger, cliDetection, subagentRegistry,
-    // workspaceProvider, sentryService, reasoningSettings.
-    const subagentRegistry = createMockSubagentRegistry();
-    const workspaceProvider = createMockWorkspaceProvider();
-    const sentryService = createMockSentryService();
     reasoningEffortGet = jest.fn(() => '');
-    const reasoningSettings = { effort: { get: reasoningEffortGet } };
     getMcpPort = jest.fn<number | null, []>(() => null);
-    manager = new AgentProcessManager(
+    ({ manager, outputBuffer } = createManager({
       logger,
       cliDetection,
-      subagentRegistry as unknown as ConstructorParameters<
-        typeof AgentProcessManager
-      >[2],
-      workspaceProvider as unknown as ConstructorParameters<
-        typeof AgentProcessManager
-      >[3],
-      sentryService as unknown as ConstructorParameters<
-        typeof AgentProcessManager
-      >[4],
-      reasoningSettings as unknown as ConstructorParameters<
-        typeof AgentProcessManager
-      >[5],
-      null,
-      { getPort: getMcpPort },
-    );
+      workspaceProvider: createMockWorkspaceProvider(),
+      reasoningSettings: { effort: { get: reasoningEffortGet } },
+      harnessPreflight: null,
+      mcpServerStatus: { getPort: getMcpPort },
+    }));
   });
 
   afterEach(() => {
@@ -451,6 +496,154 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const status = manager.getStatus(result.agentId);
       expect(status).toHaveProperty('status', 'running');
+    });
+  });
+
+  describe('role plumbing', () => {
+    const roleDefinition: AgentRoleDefinition = {
+      name: 'backend-developer',
+      description: 'Writes server-side code',
+      body: 'You write server-side code.',
+      sourcePath: '/workspace/root/.claude/agents/backend-developer.md',
+      bytes: 27,
+    };
+
+    it('forwards the role definition to runSdk', async () => {
+      await manager.spawn({
+        task: 'Implement the batch',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        role: 'backend-developer',
+        roleDefinition,
+      });
+
+      const runSdkCall = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+      expect(runSdkCall.role).toBe(roleDefinition);
+    });
+
+    it('stamps role, delivery and channel on the record, the spawned event and the result', async () => {
+      const spawnedInfos: AgentProcessInfo[] = [];
+      manager.events.on('agent:spawned', (info: AgentProcessInfo) =>
+        spawnedInfos.push(info),
+      );
+
+      const result = await manager.spawn({
+        task: 'Implement the batch',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        role: 'backend-developer',
+        roleDefinition,
+      });
+
+      const expected = {
+        role: 'backend-developer',
+        roleDelivery: 'preamble',
+        roleChannel: 'developer-instructions',
+      };
+      expect(result).toMatchObject(expected);
+      expect(manager.getStatus(result.agentId)).toMatchObject(expected);
+      expect(spawnedInfos).toHaveLength(1);
+      expect(spawnedInfos[0]).toMatchObject(expected);
+      expect(logger.info).toHaveBeenCalledWith(
+        '[AgentProcessManager] Spawning SDK agent',
+        expect.objectContaining({
+          role: 'backend-developer',
+          roleChannel: 'developer-instructions',
+        }),
+      );
+    });
+
+    it('carries none of the role fields on a role-less spawn', async () => {
+      const spawnedInfos: AgentProcessInfo[] = [];
+      manager.events.on('agent:spawned', (info: AgentProcessInfo) =>
+        spawnedInfos.push(info),
+      );
+
+      const result = await manager.spawn({
+        task: 'Implement the batch',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      const runSdkCall = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+      expect(runSdkCall.role).toBeUndefined();
+      for (const carrier of [
+        result,
+        manager.getStatus(result.agentId),
+        spawnedInfos[0],
+      ]) {
+        expect(carrier).not.toHaveProperty('role');
+        expect(carrier).not.toHaveProperty('roleDelivery');
+        expect(carrier).not.toHaveProperty('roleChannel');
+      }
+    });
+
+    it('copies role meta from spawnFromSdkHandle onto the record and the result', async () => {
+      const spawnedInfos: AgentProcessInfo[] = [];
+      manager.events.on('agent:spawned', (info: AgentProcessInfo) =>
+        spawnedInfos.push(info),
+      );
+      const handleControls = createMockSdkHandle();
+
+      const result = await manager.spawnFromSdkHandle(handleControls.handle, {
+        task: 'Review the batch',
+        cli: 'ptah-cli',
+        workingDirectory: '/workspace/root',
+        ptahCliName: 'Moonshot',
+        ptahCliId: 'ptah-cli-1',
+        roleStamp: { role: 'code-style-reviewer', ...PTAH_CLI_ROLE_DELIVERY },
+      });
+
+      const expected = {
+        role: 'code-style-reviewer',
+        roleDelivery: 'preamble',
+        roleChannel: 'system-prompt',
+      };
+      expect(result).toMatchObject(expected);
+      expect(manager.getStatus(result.agentId)).toMatchObject(expected);
+      expect(spawnedInfos[0]).toMatchObject(expected);
+    });
+
+    it('accepts role fields on spawnFromSdkHandle only as one complete stamp', () => {
+      type Meta = Parameters<AgentProcessManager['spawnFromSdkHandle']>[1];
+      const noFlatRoleKeys: Extract<
+        keyof Meta,
+        'role' | 'roleDelivery' | 'roleChannel'
+      > extends never
+        ? true
+        : false = true;
+      const partialStampAccepted: Partial<AgentRoleStamp> extends NonNullable<
+        Meta['roleStamp']
+      >
+        ? true
+        : false = false;
+      const stampWithoutChannelAccepted: Omit<
+        AgentRoleStamp,
+        'roleChannel'
+      > extends NonNullable<Meta['roleStamp']>
+        ? true
+        : false = false;
+
+      expect(noFlatRoleKeys).toBe(true);
+      expect(partialStampAccepted).toBe(false);
+      expect(stampWithoutChannelAccepted).toBe(false);
+    });
+
+    it('omits role fields from spawnFromSdkHandle when meta carries none', async () => {
+      const handleControls = createMockSdkHandle();
+
+      const result = await manager.spawnFromSdkHandle(handleControls.handle, {
+        task: 'Review the batch',
+        cli: 'ptah-cli',
+        workingDirectory: '/workspace/root',
+      });
+
+      const record = manager.getStatus(result.agentId);
+      for (const carrier of [result, record]) {
+        expect(carrier).not.toHaveProperty('role');
+        expect(carrier).not.toHaveProperty('roleDelivery');
+        expect(carrier).not.toHaveProperty('roleChannel');
+      }
     });
   });
 
@@ -639,13 +832,13 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     });
   });
 
-  describe('timeout for SDK agents', () => {
-    it('should trigger handleTimeout when timeout expires for SDK agent', async () => {
+  describe('inactivity watchdog for SDK agents', () => {
+    it('should trigger handleTimeout when the agent is silent for the whole window', async () => {
       const result = await manager.spawn({
         task: 'Slow task',
         cli: 'codex',
         workingDirectory: '/workspace/root',
-        timeout: 5000, // 5 second timeout
+        timeout: 5000, // 5 second inactivity window
       });
 
       // Advance past the timeout
@@ -657,6 +850,71 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const status = manager.getStatus(result.agentId);
       expect(status).toHaveProperty('status', 'timeout');
+    });
+
+    // The window is SILENCE, not wall clock. A job that keeps working outlives
+    // any window, which is the whole point: the predecessor killed a healthy
+    // agent one hour after spawn and reported it as a timeout.
+    it('re-arms the window on output, so a working agent outlives it', async () => {
+      const result = await manager.spawn({
+        task: 'Long task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        timeout: 5000,
+      });
+
+      // Five windows' worth of wall clock, each broken by output before the
+      // window elapses. The flush that re-arms is itself throttled, so let it
+      // fire between the chunks.
+      for (let i = 0; i < 5; i++) {
+        jest.advanceTimersByTime(4000);
+        sdkControls.emitOutput(`still working ${i}\n`);
+        jest.advanceTimersByTime(OUTPUT_FLUSH_INTERVAL);
+      }
+      await Promise.resolve();
+
+      expect(manager.getStatus(result.agentId)).toHaveProperty(
+        'status',
+        'running',
+      );
+    });
+
+    it('arms no watchdog at all when the caller passes timeout: 0', async () => {
+      const result = await manager.spawn({
+        task: 'Unbounded task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        timeout: 0,
+      });
+
+      jest.advanceTimersByTime(DEFAULT_INACTIVITY_TIMEOUT * 3);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(manager.getStatus(result.agentId)).toHaveProperty(
+        'status',
+        'running',
+      );
+    });
+
+    // The old ceiling clamped a larger request back down to one hour and said
+    // nothing, so a caller asking for four hours got one.
+    it('honours a window larger than the default instead of clamping it', async () => {
+      const result = await manager.spawn({
+        task: 'Very long task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        timeout: DEFAULT_INACTIVITY_TIMEOUT * 4,
+      });
+
+      jest.advanceTimersByTime(DEFAULT_INACTIVITY_TIMEOUT * 2);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(manager.getStatus(result.agentId)).toHaveProperty(
+        'status',
+        'running',
+      );
     });
   });
 
@@ -735,37 +993,205 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     });
   });
 
-  describe('steer() on SDK agent', () => {
-    it('should throw an error for SDK-based agents that do not support steering', async () => {
+  describe('sendToAgent() — one row per capability shape', () => {
+    /** Spawn an agent whose handle is exactly the one under test. */
+    const spawnWithHandle = async (handle: SdkHandle): Promise<string> => {
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(handle);
       const result = await manager.spawn({
         task: 'Task',
         cli: 'codex',
         workingDirectory: '/workspace/root',
       });
+      return result.agentId;
+    };
 
-      expect(() => manager.steer(result.agentId, 'do something else')).toThrow(
-        /not supported/i,
+    /** Let the exit handling for a settled turn run to completion. */
+    const settle = async (): Promise<void> => {
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(3100);
+      await Promise.resolve();
+    };
+
+    it('steers when the live handle owns a steer channel', async () => {
+      const steerSpy = jest.fn();
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      (controls.handle as { steer?: (message: string) => void }).steer =
+        steerSpy;
+
+      const agentId = await spawnWithHandle(controls.handle);
+      const outcome = await manager.sendToAgent(agentId, 'also handle errors');
+
+      expect(outcome.mode).toBe('steer');
+      expect(steerSpy).toHaveBeenCalledWith('also handle errors');
+
+      controls.resolve(0);
+    });
+
+    it('interrupts, waits for the turn to settle, then resumes', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      const interrupt = jest.fn(async () => {
+        // A real interrupt ends the current run: its `done` settles, which is
+        // what moves the record out of `running`.
+        controls.resolve(1);
+      });
+      Object.assign(controls.handle, {
+        supportsInterrupt: () => true,
+        interrupt,
+      });
+
+      const agentId = await spawnWithHandle(controls.handle);
+      const outcome = await manager.sendToAgent(agentId, 'change direction');
+
+      expect(interrupt).toHaveBeenCalledTimes(1);
+      expect(outcome.mode).toBe('interrupt-resume');
+      // The resume really happened on the same handle, and it did NOT come back
+      // as `busy` — that is the whole point of currentTurnDone.
+      expect(controls.continueCallCount()).toBe(1);
+      expect(controls.continueMessages).toEqual(['change direction']);
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'running');
+    });
+
+    it('reports unsupported (not interrupt-resume) when interrupt rejects', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      Object.assign(controls.handle, {
+        supportsInterrupt: () => true,
+        interrupt: jest.fn().mockRejectedValue(new Error('cancel failed')),
+      });
+
+      const agentId = await spawnWithHandle(controls.handle);
+      const outcome = await manager.sendToAgent(agentId, 'change direction');
+
+      expect(outcome.mode).toBe('unsupported');
+      expect(outcome.detail).toContain('cancel failed');
+      expect(controls.continueCallCount()).toBe(0);
+
+      controls.resolve(0);
+    });
+
+    it('queues a message for a continuation-only agent mid-turn and flushes it on exit', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      const agentId = await spawnWithHandle(controls.handle);
+
+      const outcome = await manager.sendToAgent(agentId, 'next turn please');
+
+      expect(outcome.mode).toBe('queue-next-turn');
+      expect(controls.continueCallCount()).toBe(0);
+
+      controls.resolve(0);
+      await settle();
+
+      expect(controls.continueCallCount()).toBe(1);
+      expect(controls.continueMessages).toEqual(['next turn please']);
+    });
+
+    it('starts a new turn immediately for a completed-but-alive agent', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      const agentId = await spawnWithHandle(controls.handle);
+
+      controls.resolve(0);
+      await settle();
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'completed');
+
+      const outcome = await manager.sendToAgent(agentId, 'a brand new turn');
+
+      expect(outcome.mode).toBe('queue-next-turn');
+      expect(outcome.detail).toMatch(/new turn/i);
+      expect(controls.continueMessages).toEqual(['a brand new turn']);
+    });
+
+    it('refuses with unsupported when the handle offers no mechanism at all', async () => {
+      sdkAdapter.capabilities.mockReturnValue({
+        steer: false,
+        interrupt: false,
+        continuation: false,
+      });
+      const agentId = await spawnWithHandle(sdkControls.handle);
+
+      const outcome = await manager.sendToAgent(agentId, 'anything');
+
+      expect(outcome.mode).toBe('unsupported');
+      expect(outcome.detail).toContain('codex');
+      expect(outcome.detail).toMatch(/[Nn]othing was delivered/);
+
+      sdkControls.resolve(0);
+    });
+
+    it('refuses over the pending-queue cap instead of dropping the message', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      const agentId = await spawnWithHandle(controls.handle);
+
+      for (let i = 0; i < 8; i++) {
+        const queued = await manager.sendToAgent(agentId, `message ${i}`);
+        expect(queued.mode).toBe('queue-next-turn');
+      }
+
+      const refused = await manager.sendToAgent(agentId, 'one too many');
+
+      expect(refused.mode).toBe('unsupported');
+      expect(refused.detail).toContain('8');
+
+      // The refused message was never queued: the first flush delivers the
+      // oldest accepted one, not the rejected one.
+      controls.resolve(0);
+      await settle();
+      expect(controls.continueMessages).toEqual(['message 0']);
+    });
+
+    it('throws not_found for an id this host holds no record of', async () => {
+      await expect(
+        manager.sendToAgent('missing-agent', 'hi'),
+      ).rejects.toMatchObject({ code: 'not_found' });
+    });
+
+    it('throws restored for a record rebuilt from persisted session state', async () => {
+      const restoredId = 'aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff';
+      manager.restoreAgents(
+        [
+          {
+            cliSessionId: 'sess-1',
+            cli: 'codex',
+            agentId: restoredId as unknown as CliSessionReference['agentId'],
+            task: 'old work',
+            startedAt: new Date().toISOString(),
+            status: 'completed',
+          },
+        ],
+        '/workspace/root',
+      );
+
+      await expect(manager.sendToAgent(restoredId, 'hi')).rejects.toMatchObject(
+        { code: 'restored' },
       );
     });
 
-    it('routes steering to sdkHandle.steer when the handle exposes it', async () => {
-      // Simulate a steer-capable SDK adapter (e.g. Pi RPC mode): the adapter
-      // reports supportsSteer() true and the handle owns a live steer channel.
-      const steerSpy = jest.fn();
-      (sdkControls.handle as { steer?: (message: string) => void }).steer =
-        steerSpy;
-      sdkAdapter.supportsSteer.mockReturnValue(true);
+    it('throws not_running, naming the status, for a finished agent with no continuation', async () => {
+      const agentId = await spawnWithHandle(sdkControls.handle);
+      sdkControls.resolve(0);
+      await settle();
 
-      const result = await manager.spawn({
-        task: 'Task',
-        cli: 'codex',
-        workingDirectory: '/workspace/root',
+      await expect(manager.sendToAgent(agentId, 'hi')).rejects.toMatchObject({
+        code: 'not_running',
+        message: expect.stringContaining('status: completed'),
       });
+    });
 
-      expect(() =>
-        manager.steer(result.agentId, 'also handle errors'),
-      ).not.toThrow();
-      expect(steerSpy).toHaveBeenCalledWith('also handle errors');
+    it('logs the selected mode with the agent id and the CLI', async () => {
+      const controls = createMockSdkHandle({ supportsContinuation: true });
+      const agentId = await spawnWithHandle(controls.handle);
+
+      await manager.sendToAgent(agentId, 'next turn please');
+
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Message routed'),
+        expect.objectContaining({
+          agentId,
+          cli: 'codex',
+          mode: 'queue-next-turn',
+        }),
+      );
+
+      controls.resolve(0);
     });
   });
 
@@ -845,42 +1271,6 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(result2.status).toBe('running');
       sdkControls2.resolve(0);
-    });
-  });
-
-  describe('getMaxConcurrentAgents()', () => {
-    const readConfiguredMax = (): number =>
-      (
-        manager as unknown as {
-          getMaxConcurrentAgents(): number;
-        }
-      ).getMaxConcurrentAgents();
-
-    it('clamps a configured value above the maximum down to 20', () => {
-      setupVscodeConfig({ maxConcurrentAgents: 200 });
-
-      expect(readConfiguredMax()).toBe(20);
-    });
-
-    it.each([0, -5])(
-      'clamps a configured %i up to the minimum of 1',
-      (configured) => {
-        setupVscodeConfig({ maxConcurrentAgents: configured });
-
-        expect(readConfiguredMax()).toBe(1);
-      },
-    );
-
-    it('preserves a configured value inside the supported range', () => {
-      setupVscodeConfig({ maxConcurrentAgents: 12 });
-
-      expect(readConfiguredMax()).toBe(12);
-    });
-
-    it('falls back to 5 for a non-finite configured value', () => {
-      setupVscodeConfig({ maxConcurrentAgents: Number.NaN });
-
-      expect(readConfiguredMax()).toBe(5);
     });
   });
 
@@ -1127,7 +1517,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       await manager.continueConversation(agentId, 'long-running follow-up');
 
-      jest.advanceTimersByTime(DEFAULT_TIMEOUT);
+      jest.advanceTimersByTime(DEFAULT_INACTIVITY_TIMEOUT);
       await Promise.resolve();
       await Promise.resolve();
 
@@ -1736,7 +2126,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     const flushTimerFor = (agentId: string): NodeJS.Timeout | undefined =>
       (
-        manager as unknown as { flushTimers: Map<string, NodeJS.Timeout> }
+        outputBuffer as unknown as { flushTimers: Map<string, NodeJS.Timeout> }
       ).flushTimers.get(agentId);
 
     it('does not hold the loop open with the spawn timeout or the output flush timer', async () => {
@@ -1881,26 +2271,14 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
         setupVscodeConfig({ maxConcurrentAgents: 3 });
 
-        overlapManager = new AgentProcessManager(
+        overlapManager = createManager({
           logger,
           cliDetection,
-          createMockSubagentRegistry() as unknown as ConstructorParameters<
-            typeof AgentProcessManager
-          >[2],
-          createMockWorkspaceProvider() as unknown as ConstructorParameters<
-            typeof AgentProcessManager
-          >[3],
-          createMockSentryService() as unknown as ConstructorParameters<
-            typeof AgentProcessManager
-          >[4],
-          {
-            effort: { get: jest.fn(() => '') },
-          } as unknown as ConstructorParameters<typeof AgentProcessManager>[5],
-          { ensure } as unknown as ConstructorParameters<
-            typeof AgentProcessManager
-          >[6],
-          { getPort: jest.fn(() => null) },
-        );
+          workspaceProvider: createMockWorkspaceProvider(),
+          reasoningSettings: { effort: { get: jest.fn(() => '') } },
+          harnessPreflight: { ensure },
+          mcpServerStatus: { getPort: jest.fn<number | null, []>(() => null) },
+        }).manager;
       });
 
       afterEach(async () => {

@@ -1127,6 +1127,46 @@ describe('ElectronLayoutService — sidebar and editor panel controls', () => {
     });
   });
 
+  describe('Git source-control rail layout', () => {
+    it('defaults to an expanded 256px rail', () => {
+      setup();
+      expect(service.gitRailWidth()).toBe(256);
+      expect(service.gitRailCollapsed()).toBe(false);
+    });
+
+    it('clamps drag frames without persisting them', () => {
+      setup();
+      vscodeService.setState.mockClear();
+      service.setGitRailWidth(80);
+      expect(service.gitRailWidth()).toBe(160);
+      service.setGitRailWidth(900);
+      expect(service.gitRailWidth()).toBe(480);
+      expect(vscodeService.setState).not.toHaveBeenCalled();
+    });
+
+    it('persists the clamped width on commit', () => {
+      setup();
+      service.setGitRailWidth(200);
+      vscodeService.setState.mockClear();
+      service.commitGitRailWidth();
+      expect(vscodeService.setState).toHaveBeenCalledWith(
+        'electron-layout',
+        expect.objectContaining({ gitRailWidth: 200 }),
+      );
+    });
+
+    it('toggles and persists the collapsed state', () => {
+      setup();
+      vscodeService.setState.mockClear();
+      service.toggleGitRail();
+      expect(service.gitRailCollapsed()).toBe(true);
+      expect(vscodeService.setState).toHaveBeenCalledWith(
+        'electron-layout',
+        expect.objectContaining({ gitRailCollapsed: true }),
+      );
+    });
+  });
+
   describe('setWorkspaceFolders()', () => {
     it('directly sets the workspace folders signal', () => {
       setup();
@@ -1454,7 +1494,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
 
     (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
     rpc.call.mockClear();
-    await service.removeFolder(5);
+    await expect(service.removeFolder(5)).resolves.toBe(false);
     // No workspace:removeFolder call should occur for out-of-bounds
     const removeCalls = (rpc.call as jest.Mock).mock.calls.filter(
       (c: unknown[]) => c[0] === 'workspace:removeFolder',
@@ -1496,7 +1536,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
     ]);
     (service as never)['_activeWorkspaceIndex'].set(0);
 
-    await service.removeFolder(1);
+    await expect(service.removeFolder(1)).resolves.toBe(true);
     jest.advanceTimersByTime(150);
     await Promise.resolve();
     jest.useRealTimers();
@@ -1536,7 +1576,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
     ]);
     (service as never)['_activeWorkspaceIndex'].set(0);
 
-    await service.removeFolder(0);
+    await expect(service.removeFolder(0)).resolves.toBe(true);
 
     expect(service.workspaceFolders()).toHaveLength(0);
     expect(service.activeWorkspaceIndex()).toBe(0);
@@ -1578,7 +1618,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
     ]);
     (service as never)['_activeWorkspaceIndex'].set(0);
 
-    await expect(service.removeFolder(0)).resolves.toBeUndefined();
+    await expect(service.removeFolder(0)).resolves.toBe(true);
 
     expect(vscodeService.updateWorkspaceRoot).toHaveBeenCalledWith('');
     expect(consoleError).toHaveBeenCalled();
@@ -1597,7 +1637,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
     ]);
     (service as never)['_activeWorkspaceIndex'].set(0);
 
-    await service.removeFolder(0);
+    await expect(service.removeFolder(0)).resolves.toBe(true);
 
     expect(coordinator.clearWorkspace).not.toHaveBeenCalled();
     expect(coordinator.switchWorkspace).toHaveBeenCalledWith('/b');
@@ -1627,11 +1667,34 @@ describe('ElectronLayoutService — removeFolder()', () => {
 
     (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
 
-    await service.removeFolder(0);
+    await expect(service.removeFolder(0)).resolves.toBe(false);
 
     expect(service.workspaceFolders()).toHaveLength(1);
   });
 
+  it('returns false when the user cancels closing a streaming workspace', async () => {
+    coordinator = buildCoordinator();
+    coordinator.getStreamingSessionIds = jest.fn().mockReturnValue(['sess-1']);
+    coordinator.confirm = jest.fn().mockResolvedValue(false);
+    vscodeService = buildVscodeService(null);
+    appState = buildAppState();
+    rpc = buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinator },
+      ],
+    });
+    service = TestBed.inject(ElectronLayoutService);
+    (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
+
+    await expect(service.removeFolder(0)).resolves.toBe(false);
+    expect(service.workspaceFolders()).toHaveLength(1);
+  });
   it('does not mutate state when backend removeFolder RPC fails', async () => {
     coordinator = buildCoordinator();
     coordinator.getStreamingSessionIds = jest.fn().mockReturnValue([]);
@@ -1660,7 +1723,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
 
     (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
 
-    await service.removeFolder(0);
+    await expect(service.removeFolder(0)).resolves.toBe(false);
 
     expect(service.workspaceFolders()).toHaveLength(1);
   });
@@ -1901,6 +1964,50 @@ describe('ElectronLayoutService — restoreLayout with stored state', () => {
     expect(service.workspaceSidebarVisible()).toBe(true);
     // sidebarWidth = 250 should be applied (valid number)
     expect(service.workspaceSidebarWidth()).toBe(250);
+  }));
+
+  it('restores and clamps valid Git rail state', fakeAsync(() => {
+    const vscodeService = buildVscodeService({
+      gitRailWidth: 900,
+      gitRailCollapsed: true,
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: buildAppState() },
+        { provide: ClaudeRpcService, useValue: buildRpc() },
+        { provide: WORKSPACE_COORDINATOR, useValue: buildCoordinator() },
+      ],
+    });
+
+    const service = TestBed.inject(ElectronLayoutService);
+    tick(0);
+
+    expect(service.gitRailWidth()).toBe(480);
+    expect(service.gitRailCollapsed()).toBe(true);
+  }));
+
+  it('ignores malformed or absent Git rail state', fakeAsync(() => {
+    const vscodeService = buildVscodeService({
+      gitRailWidth: 'wide',
+      gitRailCollapsed: 1,
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: buildAppState() },
+        { provide: ClaudeRpcService, useValue: buildRpc() },
+        { provide: WORKSPACE_COORDINATOR, useValue: buildCoordinator() },
+      ],
+    });
+
+    const service = TestBed.inject(ElectronLayoutService);
+    tick(0);
+
+    expect(service.gitRailWidth()).toBe(256);
+    expect(service.gitRailCollapsed()).toBe(false);
   }));
 });
 

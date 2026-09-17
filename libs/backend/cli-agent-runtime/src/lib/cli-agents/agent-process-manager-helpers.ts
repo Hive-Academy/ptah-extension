@@ -31,11 +31,24 @@ export const MAX_BUFFER_SIZE = 1024 * 1024;
  */
 export const BUFFER_LOW_WATER_SIZE = Math.floor(MAX_BUFFER_SIZE * 0.75);
 
-/** Default timeout: 1 hour */
-export const DEFAULT_TIMEOUT = 60 * 60 * 1000;
-
-/** Maximum timeout: 1 hour */
-export const MAX_TIMEOUT = 60 * 60 * 1000;
+/**
+ * Default INACTIVITY window before an agent is declared hung: 1 hour.
+ *
+ * This is a silence window, not a wall clock. The watchdog is re-armed by every
+ * output flush, so an agent that keeps producing output runs for as long as its
+ * task takes. It was a wall clock, clamped to one hour in BOTH directions
+ * (`MAX_TIMEOUT`), which killed a healthy long job at the hour mark and reported
+ * `status: 'timeout'` — a job the caller could not opt out of, because the clamp
+ * silently discarded any larger `timeout` it asked for.
+ *
+ * What remains is the case the watchdog exists for: an agent whose process is
+ * alive and has emitted nothing at all for the whole window. That one still
+ * holds a concurrency slot and a subprocess, so it is still reclaimed.
+ *
+ * `SpawnAgentRequest.timeout` overrides the window with no upper bound, and `0`
+ * disables the watchdog outright.
+ */
+export const DEFAULT_INACTIVITY_TIMEOUT = 60 * 60 * 1000;
 
 /** Grace period for SIGTERM before SIGKILL: 5 seconds */
 export const KILL_GRACE_PERIOD = 5000;

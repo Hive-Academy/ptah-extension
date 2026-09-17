@@ -1,7 +1,7 @@
 import { ApplicationRef } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, FILE_LINK_OPENER } from '@ptah-extension/core';
 import {
   DEFAULT_TASK_SORT,
   EMPTY_TASK_FILTER,
@@ -21,6 +21,13 @@ import { TasksViewComponent } from './tasks-view.component';
 import type { TaskPaletteAction } from './palette/palette-entries';
 import { TaskBulkBarComponent } from './bulk/task-bulk-bar.component';
 import { TaskBulkSummaryComponent } from './bulk/task-bulk-summary.component';
+
+/**
+ * `TasksStore` opens artifacts through the `FILE_LINK_OPENER` port. It is a
+ * required dependency with no default provider — the composition root binds it
+ * — so every TestBed that builds the store supplies this fake.
+ */
+const fileLinkOpener = { open: jest.fn(async () => undefined) };
 
 function task(
   id: string,
@@ -125,6 +132,7 @@ describe('TasksViewComponent', () => {
           provide: ClaudeRpcService,
           useValue: { call: rpcCall as unknown as ClaudeRpcService['call'] },
         },
+        { provide: FILE_LINK_OPENER, useValue: fileLinkOpener },
       ],
     });
   }
@@ -361,6 +369,7 @@ describe('TasksViewComponent', () => {
             provide: ClaudeRpcService,
             useValue: { call: rpcCall as unknown as ClaudeRpcService['call'] },
           },
+          { provide: FILE_LINK_OPENER, useValue: fileLinkOpener },
         ],
       });
       const fixture = TestBed.createComponent(TasksViewComponent);

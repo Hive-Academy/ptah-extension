@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_367
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Fix the seven defect clusters surfaced by tmp/logs/log.log

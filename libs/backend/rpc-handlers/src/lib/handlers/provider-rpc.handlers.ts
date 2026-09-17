@@ -27,6 +27,7 @@ import {
   ProviderUpdateCustomEntrySchema,
   ProviderRemoveCustomEntrySchema,
   ProviderTestCustomEntrySchema,
+  ProviderGetAccountUsageSchema,
 } from './provider-rpc.schema';
 import {
   SETTINGS_TOKENS,
@@ -50,6 +51,7 @@ import {
   OllamaModelDiscoveryService,
   CopilotAuthService,
   CodexAuthService,
+  type ICodexAccountUsageService,
 } from '@ptah-extension/auth-providers';
 import { CliDetectionService } from '@ptah-extension/cli-agent-runtime';
 import {
@@ -72,6 +74,8 @@ import {
   ProviderRemoveCustomEntryResult,
   ProviderTestCustomEntryParams,
   ProviderTestCustomEntryResult,
+  ProviderGetAccountUsageParams,
+  ProviderGetAccountUsageResult,
   getModelPricingDescription,
   getModelContextWindow,
 } from '@ptah-extension/shared';
@@ -93,6 +97,7 @@ export class ProviderRpcHandlers {
     'provider:updateCustomEntry',
     'provider:removeCustomEntry',
     'provider:testCustomEntry',
+    'provider:getAccountUsage',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -118,6 +123,8 @@ export class ProviderRpcHandlers {
     private readonly copilotAuthService: CopilotAuthService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
     private readonly codexAuthService: CodexAuthService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE)
+    private readonly codexAccountUsage: ICodexAccountUsageService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
     @inject(SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE)
@@ -137,10 +144,24 @@ export class ProviderRpcHandlers {
     this.registerGetModelTiers();
     this.registerClearModelTier();
     this.registerCustomEntryMethods();
+    this.registerAccountUsage();
 
     this.logger.debug('Provider RPC handlers registered', {
       methods: ProviderRpcHandlers.METHODS,
     });
+  }
+
+  private registerAccountUsage(): void {
+    this.rpcHandler.registerMethod<ProviderGetAccountUsageParams, ProviderGetAccountUsageResult>(
+      'provider:getAccountUsage',
+      async (params) => {
+        const validated = ProviderGetAccountUsageSchema.parse(params);
+        if (validated.providerId !== CODEX_PROVIDER_ENTRY.id) {
+          return { status: 'provider-unsupported', providerId: validated.providerId };
+        }
+        return this.codexAccountUsage.getAccountUsage({ refresh: validated.refresh });
+      },
+    );
   }
 
   /**

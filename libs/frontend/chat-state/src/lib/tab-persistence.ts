@@ -49,6 +49,18 @@
  */
 
 import type { SessionStatus, TabState } from '@ptah-extension/chat-types';
+import { DEFAULT_SESSION_NAME_PATTERN } from './session-identity';
+
+function legacyTitleOrigin(tab: TabState): 'default' | 'history' {
+  const isRecognizedDefaultName = (value: string): boolean =>
+    value === 'New Chat' || DEFAULT_SESSION_NAME_PATTERN.test(value);
+  return tab.claudeSessionId == null &&
+    tab.messages.length === 0 &&
+    isRecognizedDefaultName(tab.name) &&
+    isRecognizedDefaultName(tab.title)
+    ? 'default'
+    : 'history';
+}
 
 /**
  * Storage-format version. UNCHANGED at 2 across the projection: the projection
@@ -93,6 +105,11 @@ export interface PersistedTabState {
 export function projectTabForPersist(tab: TabState): TabState {
   return {
     ...tab,
+    // Persist the once-only marker with the title. Without it, a reload could
+    // mistake an auto-titled session for an untouched default and derive again.
+    // Only recognized placeholder/generated names on a pre-feature empty draft
+    // remain eligible. An unknown legacy name is conservatively user-owned.
+    titleOrigin: tab.titleOrigin ?? legacyTitleOrigin(tab),
     streamingState: null,
     attachedBinding: null,
     lastTurnStateRevision: undefined,
@@ -152,6 +169,9 @@ const NON_RESTORABLE_STATUSES: ReadonlySet<SessionStatus> = new Set([
 export function sanitizeRestoredTab(tab: TabState): TabState {
   return {
     ...tab,
+    // Mirror projectTabForPersist explicitly. Only a recognized placeholder or
+    // generated name on an empty draft is safe to treat as default.
+    titleOrigin: tab.titleOrigin ?? legacyTitleOrigin(tab),
     // The live flat-event model belongs to a process that no longer exists.
     streamingState: null,
     status: NON_RESTORABLE_STATUSES.has(tab.status) ? 'loaded' : tab.status,
@@ -220,6 +240,69 @@ export interface PersistedSnapshot {
   readonly key: string;
   readonly tabs: readonly TabState[];
   readonly activeTabId: string | null;
+}
+
+/** First back-off window after a failed write. */
+export const PERSIST_BACKOFF_BASE_MS = 5_000;
+
+/** Ceiling on the back-off window, however many writes have failed. */
+export const PERSIST_BACKOFF_MAX_MS = 5 * 60_000;
+
+/**
+ * A failed tab-state write (INV-10).
+ *
+ * A `localStorage` quota failure is not transient in the way a retry loop
+ * hopes: the payload only grows while the session runs, so every later save
+ * fails the same way — after first paying `JSON.stringify` over every tab's
+ * finalized transcript on the renderer main thread. The record lets the next
+ * saves skip that work for a doubling window instead.
+ */
+export interface PersistFailure {
+  readonly key: string;
+  /** Epoch ms of the failure. */
+  readonly failedAt: number;
+  /** 0 for the first failure under `key`, +1 for each consecutive one. */
+  readonly attempt: number;
+  /** Size of the tab set that failed; a smaller set is retried at once. */
+  readonly tabCount: number;
+}
+
+/** `min(5 s × 2^attempt, 5 min)`. */
+export function persistBackoffMs(attempt: number): number {
+  return Math.min(
+    PERSIST_BACKOFF_BASE_MS * 2 ** attempt,
+    PERSIST_BACKOFF_MAX_MS,
+  );
+}
+
+/** The failure record after a write under `key` failed at `now`. */
+export function nextPersistFailure(
+  previous: PersistFailure | null,
+  key: string,
+  tabCount: number,
+  now: number,
+): PersistFailure {
+  const attempt = previous?.key === key ? previous.attempt + 1 : 0;
+  return { key, failedAt: now, attempt, tabCount };
+}
+
+/**
+ * True when a save to `key` should be skipped without serializing anything.
+ *
+ * Only a failure under the same key backs off — another workspace's key is a
+ * different payload. A closed tab shrinks the payload, which is exactly the
+ * change that can make a quota-bound write succeed, so it retries immediately.
+ * The teardown flush does not consult this at all.
+ */
+export function persistBackedOff(
+  failure: PersistFailure | null,
+  key: string,
+  tabCount: number,
+  now: number,
+): boolean {
+  if (!failure || failure.key !== key) return false;
+  if (tabCount < failure.tabCount) return false;
+  return now < failure.failedAt + persistBackoffMs(failure.attempt);
 }
 
 /** True when `tabs`/`activeTabId` under `key` differ from what was written. */

@@ -22,14 +22,19 @@ jest.mock('electron', () => ({
   app: { getVersion: jest.fn(() => '0.1.48') },
   net: { fetch: jest.fn() },
 }));
+jest.mock('../../config/build-identity', () => ({
+  isLocalProductionBuild: jest.fn(() => false),
+}));
 
 import { app, net } from 'electron';
 import { UpdateManager } from './update-manager';
 import type { UpdateLifecycleState } from '@ptah-extension/shared';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { isLocalProductionBuild } from '../../config/build-identity';
 
 const getVersion = app.getVersion as jest.Mock;
 const netFetch = net.fetch as unknown as jest.Mock;
+const localProductionBuild = isLocalProductionBuild as jest.Mock;
 
 // Mirrors the private constants in update-manager.ts.
 const INITIAL_CHECK_DELAY_MS = 10_000;
@@ -171,6 +176,7 @@ function setPlatform(value: NodeJS.Platform) {
 }
 
 beforeEach(() => {
+  localProductionBuild.mockReturnValue(false);
   getVersion.mockReturnValue('0.1.48');
   setPlatform('win32');
   delete process.env['NODE_ENV'];
@@ -195,6 +201,30 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('UpdateManager', () => {
+  describe('local-production gate', () => {
+    it('does not schedule automatic checks', async () => {
+      localProductionBuild.mockReturnValue(true);
+      const { manager, logger } = createUpdateManager();
+
+      await manager.start();
+
+      expect(manager.getCheckInterval()).toBeNull();
+      expect(netFetch).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('local-production'),
+      );
+    });
+
+    it('does not run a manual check', async () => {
+      localProductionBuild.mockReturnValue(true);
+      const { manager } = createUpdateManager();
+
+      await manager.triggerCheck();
+
+      expect(netFetch).not.toHaveBeenCalled();
+      expect(manager.getCurrentState()).toEqual({ state: 'idle' });
+    });
+  });
   describe('dev-mode gate', () => {
     it('returns early without fetching or setting an interval when NODE_ENV=development', async () => {
       process.env['NODE_ENV'] = 'development';

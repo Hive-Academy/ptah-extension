@@ -41,3 +41,52 @@ export interface SessionMetadataChangedNotification {
   /** Workspace path the session belongs to. */
   workspaceId: string;
 }
+
+export type EditorTargetId =
+  | 'vscode'
+  | 'cursor'
+  | 'antigravity'
+  | 'zed'
+  | 'kiro';
+
+/** Wire-safe projection of a detected editor target. */
+export interface EditorTarget {
+  id: EditorTargetId;
+  displayName: string;
+  executablePath?: string;
+}
+
+export type EditorDetectTargetsParams = Record<string, never>;
+export interface EditorDetectTargetsResult {
+  success: boolean;
+  targets: EditorTarget[];
+  error?: string;
+}
+
+export interface EditorOpenFileParams {
+  target: EditorTargetId;
+  path: string;
+  line?: number;
+  workspaceRoot?: string;
+  /**
+   * Which path policy authorizes this launch.
+   *
+   * - `'workspace'` (default, unchanged behaviour): the path must resolve
+   *   inside a registered workspace folder.
+   * - `'external-link'`: an agent-authored link the viewer refused to show
+   *   in-app. Adds the user's home and temp directories as authorized roots,
+   *   MINUS a credential deny-list checked on both the lexical and the real
+   *   path. Bytes go to the user's own editor process, never to the renderer.
+   */
+  scope?: 'workspace' | 'external-link';
+}
+
+export interface EditorOpenWorkspaceParams {
+  target: EditorTargetId;
+  root: string;
+}
+
+export interface EditorOpenResult {
+  success: boolean;
+  error?: string;
+}

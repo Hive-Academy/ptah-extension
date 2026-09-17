@@ -701,21 +701,11 @@ describe('TabManagerService — intent-named mutators', () => {
   });
 
   describe('compaction', () => {
-    it('markCompactionStart/clearCompactingFlag toggle isCompacting', () => {
-      const id = service.createTab('compact');
-      service.markCompactionStart(id);
-      expect(service.tabs().find((t) => t.id === id)?.isCompacting).toBe(true);
-      service.clearCompactingFlag(id);
-      expect(service.tabs().find((t) => t.id === id)?.isCompacting).toBe(false);
-    });
-
     it('applyCompactionTimeoutReset clears state machine', () => {
       const id = service.createTab('timeout');
-      service.markCompactionStart(id);
       service.setStreamingState(id, createEmptyStreamingState());
       service.applyCompactionTimeoutReset(id);
       const tab = service.tabs().find((t) => t.id === id);
-      expect(tab?.isCompacting).toBe(false);
       expect(tab?.streamingState).toBeNull();
       expect(tab?.status).toBe('loaded');
     });
@@ -956,15 +946,6 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(tab?.streamingState).toBe(state);
     });
 
-    it('applyResumedHistory installs replay messages and marks loaded', () => {
-      const id = service.createTab('replay');
-      const msgs = [makeMessage('h', 'hist')];
-      service.applyResumedHistory(id, msgs);
-      const tab = service.tabs().find((t) => t.id === id);
-      expect(tab?.messages).toBe(msgs);
-      expect(tab?.status).toBe('loaded');
-    });
-
     it('applyResumeFailure clears streamingState', () => {
       const id = service.createTab('failure');
       service.setStreamingState(id, createEmptyStreamingState());
@@ -985,21 +966,23 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(service.getTabViewMode(id)).toBe('full');
     });
 
-    it('applyNewConversationDraft sets draft + clears claudeSessionId', () => {
+    it('applyNewConversationDraft preserves a user name, sets draft, and clears claudeSessionId', () => {
       const id = service.createTab('draft');
       service.attachSession(id, SESS_PRE);
       service.applyNewConversationDraft(id, 'Drafted');
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.status).toBe('draft');
-      expect(tab?.name).toBe('Drafted');
+      expect(tab?.name).toBe('draft');
+      expect(tab?.titleOrigin).toBe('user');
       expect(tab?.claudeSessionId).toBeNull();
     });
 
-    it('applyNewConversationStreaming applies name+title and forces streaming', () => {
+    it('applyNewConversationStreaming preserves a user title and forces streaming', () => {
       const id = service.createTab('go');
-      service.applyNewConversationStreaming(id, 'Auto Name');
+      service.applyNewConversationStreaming(id);
       const tab = service.tabs().find((t) => t.id === id);
-      expect(tab?.name).toBe('Auto Name');
+      expect(tab?.name).toBe('go');
+      expect(tab?.titleOrigin).toBe('user');
       expect(tab?.status).toBe('streaming');
     });
   });

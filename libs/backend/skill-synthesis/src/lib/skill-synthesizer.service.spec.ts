@@ -45,6 +45,7 @@ function trajectory(
     slug: 'do-thing',
     editCount: 1,
     toolUseCount: 1,
+    nonMcpToolUseCount: 1,
     bashTestPassed: false,
     charLength: 40,
     hasSuccessMarker: false,
@@ -371,6 +372,19 @@ describe('SkillSynthesizerService', () => {
       ]);
       expect(await svc.synthesizeFromCluster([], SETTINGS)).toBeNull();
       expect(query.execute).not.toHaveBeenCalled();
+    });
+
+    it('runs on the user-action lane when a user is waiting, else on skill-synthesis (C14)', async () => {
+      const answer = [[resultMessage({ structured_output: SKILL_JSON })]];
+      const user = makeSynthesizer(answer);
+      await user.svc.synthesizeFromCluster(members, SETTINGS, {
+        userInitiated: true,
+      });
+      expect(user.query.calls[0].lane).toBe('user-action');
+
+      const daemon = makeSynthesizer(answer);
+      await daemon.svc.synthesizeFromCluster(members, SETTINGS);
+      expect(daemon.query.calls[0].lane).toBe('skill-synthesis');
     });
 
     it('parses a skill distilled from the cluster', async () => {

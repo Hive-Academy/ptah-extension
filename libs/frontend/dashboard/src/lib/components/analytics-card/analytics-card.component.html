@@ -8,26 +8,49 @@
         <h3 class="card-title text-base">Session Analytics</h3>
         <span
           class="badge badge-outline badge-sm gap-1 text-[10px] text-base-content-muted border-base-content/20"
+          data-testid="analytics-estimate-label"
         >
-          Real costs from JSONL
+          {{ estimateLabel }}
         </span>
       </div>
+    </div>
+
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs text-base-content-muted">Range:</span>
+      <div class="join" role="group" aria-label="Filter sessions by date range">
+        @for (option of dateRangeOptions; track option.value) {
+          <button
+            type="button"
+            class="join-item btn btn-xs"
+            [class.btn-active]="dateRange() === option.value"
+            [attr.aria-pressed]="dateRange() === option.value"
+            (click)="setDateRange(option.value)"
+          >
+            {{ option.label }}
+          </button>
+        }
+      </div>
+      @if (!isLoading() && !loadError()) {
+        <span class="text-[10px] text-base-content-muted">
+          {{ totalSessionCount() }} sessions
+        </span>
+      }
     </div>
 
     @if (isLoading()) {
       <div
         class="flex flex-col items-center justify-center py-8"
+        role="status"
         aria-label="Loading session analytics"
       >
-        <span class="loading loading-spinner loading-md"></span>
-        <p class="text-xs text-base-content-muted mt-3">
-          Reading session history...
-        </p>
+        <span class="loading loading-spinner loading-md" aria-hidden="true"></span>
+        <p class="text-xs text-base-content-muted mt-3">Loading sessions...</p>
       </div>
     } @else if (loadError()) {
       <div class="alert alert-error" role="alert">
         <span>{{ loadError() }}</span>
         <button
+          type="button"
           class="btn btn-sm"
           (click)="retry()"
           aria-label="Retry loading sessions"
@@ -44,28 +67,75 @@
           class="w-10 h-10 mb-3"
           aria-hidden="true"
         ></lucide-angular>
-        <p class="text-xs">No sessions found. Start a chat to see analytics.</p>
+        <p class="text-xs">No sessions in this range. Start a chat to see analytics.</p>
       </div>
     } @else {
+      <ptah-provider-account-card />
+
       <ptah-session-metrics-cards [aggregates]="aggregates()" />
 
-      <div class="flex items-center gap-2 flex-wrap">
-        <span class="text-xs text-base-content-muted">Range:</span>
-        <div class="join" role="group" aria-label="Filter sessions by date range">
-          @for (option of dateRangeOptions; track option.value) {
-            <button
-              class="join-item btn btn-xs"
-              [class.btn-active]="dateRange() === option.value"
-              [attr.aria-pressed]="dateRange() === option.value"
-              (click)="setDateRange(option.value)"
-            >
-              {{ option.label }}
-            </button>
+      <div class="flex items-start justify-between gap-2">
+        <ul
+          class="space-y-0.5 text-[11px] text-base-content-muted"
+          role="status"
+          aria-live="polite"
+          data-testid="analytics-status"
+        >
+          @if (isLoadingStats()) {
+            <li class="flex items-center gap-1.5" data-testid="analytics-progress">
+              <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+              Reading usage: {{ statsProgress().loaded }} of
+              {{ statsProgress().total }} sessions
+            </li>
           }
-        </div>
-        <span class="text-[10px] text-base-content-muted">
-          {{ totalSessionCount() }} sessions
-        </span>
+          @if (hasMoreSessions()) {
+            <li class="text-warning" data-testid="analytics-cap">
+              Showing the {{ sessionCap }} most recent sessions in this range; totals
+              cover only these.
+            </li>
+          }
+          @if (aggregates().partialSessionCount > 0) {
+            <li class="text-warning" data-testid="analytics-partial">
+              Partial coverage in {{ aggregates().partialSessionCount }}
+              {{ aggregates().partialSessionCount === 1 ? 'session' : 'sessions' }}
+              @if (aggregates().untimestampedCount > 0) {
+                ({{ aggregates().untimestampedCount }} untimestamped usage
+                {{ aggregates().untimestampedCount === 1 ? 'record' : 'records' }}
+                not counted)
+              }
+            </li>
+          }
+          @if (aggregates().errorSessionCount > 0) {
+            <li class="text-warning" data-testid="analytics-errors">
+              Stats unavailable for {{ aggregates().errorSessionCount }}
+              {{ aggregates().errorSessionCount === 1 ? 'session' : 'sessions' }}
+            </li>
+          }
+          @if (aggregates().unknownCostSessionCount > 0) {
+            <li data-testid="analytics-unknown-cost">
+              Cost unknown for {{ aggregates().unknownCostSessionCount }}
+              {{ aggregates().unknownCostSessionCount === 1 ? 'session' : 'sessions' }}
+              (no current rate-card price); the total leaves them out.
+            </li>
+          }
+          @if (aggregates().partiallyPricedSessionCount > 0) {
+            <li data-testid="analytics-partial-pricing">
+              Some usage in {{ aggregates().partiallyPricedSessionCount }}
+              {{ aggregates().partiallyPricedSessionCount === 1 ? 'session' : 'sessions' }}
+              has no rate-card price; the total is a lower bound.
+            </li>
+          }
+        </ul>
+        @if (canRetryFailed()) {
+          <button
+            type="button"
+            class="btn btn-xs"
+            (click)="retry()"
+            aria-label="Retry loading session stats"
+          >
+            Retry
+          </button>
+        }
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">

@@ -6,11 +6,13 @@
  * fields (`tool_response_text`, JSONL excerpts, chunk content) so the
  * structured-clone boundary stays cheap.
  *
- * Four channels, matching `MESSAGE_TYPES.MEMORY_*`:
- *   - `memory:observationCaptured` — single observation queued by a hook.
+ * Active channels matching `MESSAGE_TYPES.MEMORY_*`:
  *   - `memory:corpusChanged`       — corpus built / rebuilt / primed / deleted.
  *   - `memory:extracted`           — curator run produced N new memories.
  *   - `memory:sessionStartInjected` — SessionStart prompt block emitted (UI badge).
+ *
+ * `MemoryObservationCapturedPayload` remains as a compatibility contract for
+ * older hosts, but current hosts do not broadcast routine queue telemetry.
  */
 
 /**

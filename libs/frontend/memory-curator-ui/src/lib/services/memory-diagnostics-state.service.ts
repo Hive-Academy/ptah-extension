@@ -4,6 +4,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   MemoryCuratorEventWire,
   MemoryDbHealthDto,
+  MemoryStorageHealthDto,
   MemoryTriggersDto,
 } from '@ptah-extension/shared';
 
@@ -26,19 +27,19 @@ export class MemoryDiagnosticsStateService {
 
   private readonly _triggers = signal<MemoryTriggersDto | null>(null);
   private readonly _lastRun = signal<LastRunSnapshot | null>(null);
-  private readonly _lastDecay = signal<LastRunSnapshot | null>(null);
   private readonly _recentEvents = signal<readonly MemoryCuratorEventWire[]>(
     [],
   );
   private readonly _dbHealth = signal<MemoryDbHealthDto | null>(null);
+  private readonly _storage = signal<MemoryStorageHealthDto | null>(null);
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
 
   public readonly triggers = this._triggers.asReadonly();
   public readonly lastRun = this._lastRun.asReadonly();
-  public readonly lastDecay = this._lastDecay.asReadonly();
   public readonly recentEvents = this._recentEvents.asReadonly();
   public readonly dbHealth = this._dbHealth.asReadonly();
+  public readonly storage = this._storage.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
 
@@ -62,13 +63,9 @@ export class MemoryDiagnosticsStateService {
           ? { at: snapshot.lastRunAt, stats: snapshot.lastRunStats }
           : null,
       );
-      this._lastDecay.set(
-        snapshot.lastDecayAt !== null
-          ? { at: snapshot.lastDecayAt, stats: snapshot.lastDecayStats }
-          : null,
-      );
       this._recentEvents.set(snapshot.recentEvents);
       this._dbHealth.set(snapshot.dbHealth);
+      this._storage.set(snapshot.storage);
     } catch (err) {
       this._error.set(toErrorMessage(err));
     } finally {

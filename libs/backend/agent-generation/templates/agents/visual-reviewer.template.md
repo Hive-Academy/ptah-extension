@@ -1,6 +1,6 @@
 ---
 templateId: visual-reviewer-v2
-templateVersion: 2.1.0
+templateVersion: 2.2.0
 applicabilityRules:
   projectTypes: [ALL]
   minimumRelevanceScore: 65
@@ -32,9 +32,6 @@ variables:
 
 <!-- STATIC:CLARIFICATION_PROTOCOL -->
 <!-- /STATIC:CLARIFICATION_PROTOCOL -->
-
-<!-- STATIC:CLI_DELEGATION -->
-<!-- /STATIC:CLI_DELEGATION -->
 
 ## Role
 

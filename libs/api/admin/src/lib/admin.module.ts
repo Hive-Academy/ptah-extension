@@ -12,6 +12,7 @@ import { AdminWaitlistController } from './admin-waitlist.controller';
 import { AdminGuard } from '@ptah-api/identity';
 import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { AdminService } from './admin.service';
+import { AdminWaitlistService } from './admin-waitlist.service';
 import { WaitlistApprovalService } from './waitlist-approval/waitlist-approval.service';
 
 /**
@@ -31,22 +32,10 @@ import { WaitlistApprovalService } from './waitlist-approval/waitlist-approval.s
  * import needed here, which is why `WaitlistApprovalService` can inject
  * `MemberGroupsService` with no new module edge.
  *
- * ⚠️ FIVE CONTROLLERS, TWO SERVICES, ONE MODULE (TASK_2026_170 R2).
- * `AdminController` used to be a single 306-line class carrying four unrelated
- * concerns — generic model CRUD, user administration, licence issuance and
- * waitlist invitation — under `@Controller('v1/admin')` with three `:model`
- * wildcards that contested ten sibling admin routes. The CONTROLLERS split by
- * resource; the MODULE did not, because "the native admin dashboard backend" is
- * genuinely one concern and `AdminService` is shared. The `imports` array is
- * unchanged: it already covered every dependency of every new controller.
- *
- * ⚠️ `WaitlistApprovalService` IS A SECOND SERVICE, NOT A METHOD ON
- * `AdminService`, and that is deliberate. `AdminService` is generic model CRUD
- * plus bulk email over nine Prisma models; the approval orchestrator owns one
- * transactional workflow across four libs (licensing, marketing, community,
- * email) and a five-value outcome taxonomy. Folding it in would give
- * `AdminService` a second reason to change and put a transaction boundary
- * inside a class whose other methods have none.
+ * ⚠️ FIVE CONTROLLERS, THREE SERVICES, ONE MODULE.
+ * Controllers split by resource; the module provides AdminService (generic CRUD),
+ * WaitlistApprovalService (founding cohort grant mutation orchestration), and
+ * AdminWaitlistService (pipeline list, eligible-ids, CSV export, details).
  *
  * Leaf module: exports only `AdminThrottlerGuard` (consumed by sibling admin
  * surfaces in other modules).
@@ -69,6 +58,7 @@ import { WaitlistApprovalService } from './waitlist-approval/waitlist-approval.s
   providers: [
     AdminService,
     WaitlistApprovalService,
+    AdminWaitlistService,
     AdminGuard,
     AdminThrottlerGuard,
   ],

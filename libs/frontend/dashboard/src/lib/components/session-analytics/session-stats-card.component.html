@@ -2,6 +2,7 @@
   role="button"
   tabindex="0"
   [attr.aria-label]="'View details for session: ' + session().name"
+  [attr.aria-busy]="session().status === 'pending'"
   (click)="activate()"
   (keydown.enter)="activate()"
   (keydown.space)="$event.preventDefault(); activate()"
@@ -15,13 +16,25 @@
       >
         {{ session().name }}
       </h3>
-      <div class="flex items-center gap-2 mt-0.5">
+      <div class="flex items-center flex-wrap gap-2 mt-0.5">
         <span class="text-[10px] text-base-content-muted" [title]="formatDate(session().lastActivityAt)">
           {{ formatRelativeTime(session().lastActivityAt) || formatDate(session().lastActivityAt) }}
         </span>
-        @if (session().status === 'error') {
+        @if (session().status === 'pending') {
+          <span class="text-[10px] text-base-content-muted flex items-center gap-1" data-testid="session-card-pending">
+            <span class="loading loading-dots loading-xs" aria-hidden="true"></span> Loading stats
+          </span>
+        } @else if (session().status === 'error') {
           <span class="text-[10px] text-warning flex items-center gap-1">
             <span aria-hidden="true">&#9888;</span> Stats unavailable
+          </span>
+        } @else if (showPartialBadge()) {
+          <span
+            class="badge badge-xs border-warning/30 text-warning bg-warning/10"
+            [title]="coverageNotes().join(' ')"
+            data-testid="session-card-partial"
+          >
+            Partial
           </span>
         }
       </div>
@@ -36,12 +49,20 @@
   </div>
 
   <div class="grid grid-cols-3 gap-1.5">
-    <div class="bg-base-300/30 rounded px-2 py-1.5 border border-success/20">
+    <div class="bg-base-300/30 rounded px-2 py-1.5 border border-success/20" [title]="estimateLabel">
       <div class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight">
-        Cost
+        Est. Cost
       </div>
-      <div class="text-sm font-semibold text-success tabular-nums leading-tight mt-0.5">
-        {{ formatCost(session().totalCost) }}
+      <div
+        class="text-sm font-semibold text-success tabular-nums leading-tight mt-0.5"
+        data-testid="session-card-cost"
+      >
+        @if (session().status === 'pending') {
+          <span class="loading loading-dots loading-xs" aria-hidden="true"></span>
+          <span class="sr-only">Loading</span>
+        } @else {
+          {{ costText() }}
+        }
       </div>
     </div>
 
@@ -50,7 +71,7 @@
         Messages
       </div>
       <div class="text-sm font-semibold text-info tabular-nums leading-tight mt-0.5">
-        {{ session().messageCount }}
+        {{ session().status === 'pending' ? '…' : session().messageCount }}
       </div>
     </div>
 
@@ -107,7 +128,7 @@
             <span title="Input / Output tokens">
               {{ formatTokenCount(m.inputTokens) }} / {{ formatTokenCount(m.outputTokens) }}
             </span>
-            <span class="text-success font-medium">{{ formatCost(m.costUSD) }}</span>
+            <span class="text-success font-medium">{{ formatEstimatedCost(m.costUSD) }}</span>
           </span>
         </div>
       }

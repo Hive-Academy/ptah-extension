@@ -181,8 +181,12 @@ export function buildCodeNamespace(
             durationMs: stats.durationMs,
           };
         } else {
-          const stats: IndexingStats =
-            await indexer.indexWorkspace(workspaceRoot);
+          // An agent tool call runs INSIDE a generating turn, so a governed run
+          // would wait for the very turn that is waiting on it (TASK_2026_437).
+          const stats: IndexingStats = await indexer.indexWorkspace(
+            workspaceRoot,
+            { userInitiated: true },
+          );
           return stats;
         }
       } catch (err) {

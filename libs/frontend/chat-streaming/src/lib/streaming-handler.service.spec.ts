@@ -283,6 +283,10 @@ describe('StreamingHandlerService', () => {
       markTabStreaming: jest.fn(),
       isTabStreaming: jest.fn().mockReturnValue(false),
       findTabBySessionIdAcrossWorkspaces: jest.fn(() => null),
+      findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
+        const tab = tabsSignal().find((t) => t.id === tabId);
+        return tab ? { tab, workspacePath: 'D:/repo' } : null;
+      }),
       updateBackgroundTab: jest.fn(() => false),
     } as unknown as jest.Mocked<
       Pick<
@@ -526,6 +530,108 @@ describe('StreamingHandlerService', () => {
     });
   });
 
+  describe('recordUserPromptBoundary', () => {
+    const prompt = {
+      id: 'msg_prompt',
+      role: 'user',
+      timestamp: 50,
+    } as ExecutionChatMessage;
+
+    it('adds a user root to the live tree of an active tab', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.recordUserPromptBoundary(TAB_ID, prompt);
+
+      const state = currentState();
+      expect(state.messageEventIds).toContain('msg_prompt');
+      expect(state.currentMessageId).toBe(MESSAGE_ID);
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(TAB_ID, state);
+    });
+
+    it('writes a background-workspace tab through its partition', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      const backgroundTab = tabsSignal()[0];
+      tabsSignal.set([]);
+      (
+        tabManager as unknown as { findTabByIdAcrossWorkspaces: jest.Mock }
+      ).findTabByIdAcrossWorkspaces.mockReturnValue({
+        tab: backgroundTab,
+        workspacePath: 'D:/other',
+      });
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.recordUserPromptBoundary(TAB_ID, prompt);
+
+      const update = (
+        tabManager as unknown as { updateBackgroundTab: jest.Mock }
+      ).updateBackgroundTab;
+      expect(update).toHaveBeenCalledWith(TAB_ID, {
+        streamingState: expect.objectContaining({
+          messageEventIds: expect.arrayContaining(['msg_prompt']),
+        }),
+      });
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the tab has no live tree', () => {
+      service.recordUserPromptBoundary(TAB_ID, prompt);
+
+      // `makeTab` holds an empty state: no `message_start`, so no live turn.
+      expect(currentState().messageEventIds).toEqual([]);
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
+    });
+
+    it('removes the boundary of a prompt that was never delivered', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      service.recordUserPromptBoundary(TAB_ID, prompt);
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.removeUserPromptBoundary(TAB_ID, 'msg_prompt');
+
+      const state = currentState();
+      expect(state.messageEventIds).toEqual([MESSAGE_ID]);
+      expect(state.eventsByMessage.has('msg_prompt')).toBe(false);
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(TAB_ID, state);
+    });
+
+    it('removes a background-workspace boundary through its partition', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      service.recordUserPromptBoundary(TAB_ID, prompt);
+      const backgroundTab = tabsSignal()[0];
+      tabsSignal.set([]);
+      (
+        tabManager as unknown as { findTabByIdAcrossWorkspaces: jest.Mock }
+      ).findTabByIdAcrossWorkspaces.mockReturnValue({
+        tab: backgroundTab,
+        workspacePath: 'D:/other',
+      });
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.removeUserPromptBoundary(TAB_ID, 'msg_prompt');
+
+      const update = (
+        tabManager as unknown as { updateBackgroundTab: jest.Mock }
+      ).updateBackgroundTab;
+      expect(update).toHaveBeenCalledWith(TAB_ID, {
+        streamingState: expect.objectContaining({
+          messageEventIds: [MESSAGE_ID],
+        }),
+      });
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
+    });
+
+    it('publishes nothing when there is no boundary to remove', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.removeUserPromptBoundary(TAB_ID, 'msg_prompt');
+
+      expect(currentState().messageEventIds).toEqual([MESSAGE_ID]);
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
+    });
+  });
+
   describe('STREAMING_EVENT_CAP FIFO eviction (5000 entries)', () => {
     it('evicts the oldest event when more than the cap arrive', () => {
       // Sanity: cap is what we expect.
@@ -670,6 +776,40 @@ describe('StreamingHandlerService', () => {
       expect(tabManager.markStreaming).not.toHaveBeenCalled();
     });
 
+    it('does NOT mint a StreamingState for a settled tab on agent_progress (TASK_2026_382 review B5)', () => {
+      // The latch: `agent_progress` writes nothing into `StreamingState`, but
+      // minting one for it left a settled tab holding an empty tree with a null
+      // `currentMessageId` — which `finalizeCurrentMessage` early-returns on,
+      // so nothing could ever clear it, and every busy predicate read it as a
+      // live turn. The tab could then neither send nor stop.
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([makeTab({ status: 'loaded', streamingState: null })]);
+      tabManager.setStreamingState.mockClear();
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.processStreamEvent(agentProgress(), TAB_ID);
+
+      // The store still gets the event — only the tab write is gone.
+      expect(agentMonitorStore.onAgentProgress).toHaveBeenCalled();
+      expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
+      expect(
+        tabsSignal().find((t) => t.id === TAB_ID)?.streamingState,
+      ).toBeNull();
+    });
+
+    it('still mints a StreamingState for an event that writes one (text_delta)', () => {
+      tabsSignal.set([makeTab({ status: 'streaming', streamingState: null })]);
+      tabManager.setStreamingState.mockClear();
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.setStreamingState).toHaveBeenCalled();
+      expect(
+        tabsSignal().find((t) => t.id === TAB_ID)?.streamingState,
+      ).not.toBeNull();
+    });
+
     it('binds the session on the fresh-tab hijack without writing status', () => {
       const freshTab = makeTab({
         claudeSessionId: undefined,
@@ -762,6 +902,37 @@ describe('StreamingHandlerService', () => {
       expect(stateB?.events.size).toBeGreaterThan(0);
       // Both states scheduled a UI update.
       expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(
+        'tab-a',
+        expect.anything(),
+      );
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(
+        'tab-b',
+        expect.anything(),
+      );
+    });
+
+    it('target-only replay writes only to the explicit tab', () => {
+      const tabA = makeTab({
+        id: 'tab-a',
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+      });
+      const tabB = makeTab({
+        id: 'tab-b',
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+      });
+      tabsSignal.set([tabA, tabB]);
+      tabManager.findTabsBySessionId.mockReturnValue([tabA, tabB]);
+
+      service.processStreamEvent(textDelta(), 'tab-b', SESSION_ID, {
+        isReplay: true,
+        fanOut: false,
+      });
+
+      expect(tabA.streamingState?.events.size).toBe(0);
+      expect(tabB.streamingState?.events.size).toBeGreaterThan(0);
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalledWith(
         'tab-a',
         expect.anything(),
       );

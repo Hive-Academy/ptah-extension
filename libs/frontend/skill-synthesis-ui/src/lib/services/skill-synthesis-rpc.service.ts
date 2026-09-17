@@ -26,6 +26,7 @@ import type {
   SkillSynthesisRebaseCloneResult,
   SkillSynthesisRejectByPatternResult,
   SkillSynthesisRevertEnhancementResult,
+  SkillSynthesisSaveCloneBodyResult,
   SkillSynthesisRunCuratorResult,
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
@@ -506,6 +507,30 @@ export class SkillSynthesisRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to keep clone');
+  }
+
+  /**
+   * Replace a clone's body with user-edited text.
+   *
+   * The backend snapshots the previous body to `.history/` before overwriting
+   * and updates exactly one sidecar field, so a save never resolves a pending
+   * divergence on the user's behalf. `PROMOTE_MS` matches the other write
+   * wrappers: this hashes a file or a small tree on the far side.
+   */
+  public async saveCloneBody(
+    kind: SkillCloneKind,
+    slug: string,
+    body: string,
+  ): Promise<SkillSynthesisSaveCloneBodyResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:saveCloneBody',
+      { kind, slug, body },
+      { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to save clone body');
   }
 
   /** Fetch slug-keyed invocation stats from the events table. */

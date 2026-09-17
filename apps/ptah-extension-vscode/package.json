@@ -218,14 +218,17 @@
         "ptah.compaction.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable automatic context compaction for long sessions. When enabled, the AI will summarize conversation history to stay within context limits."
+          "description": "Enable automatic context compaction for long sessions. Manual /compact always remains available."
         },
         "ptah.compaction.threshold": {
-          "type": "number",
-          "default": 100000,
-          "minimum": 50000,
-          "maximum": 500000,
-          "description": "Token threshold to trigger automatic compaction (default: 100,000 tokens)."
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": null,
+          "minimum": 100000,
+          "maximum": 1000000,
+          "description": "Auto-compact window in tokens (a whole number from 100000 to 1000000). Leave unset to let the agent runtime decide. The runtime compacts near the smaller of this window and the model's own context limit. An out-of-range value is ignored with a warning."
         },
         "ptah.reasoningEffort": {
           "type": "string",

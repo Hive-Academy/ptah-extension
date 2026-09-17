@@ -76,12 +76,14 @@ export interface InternalQueryConfig {
    * The gate holds a per-lane ceiling as well as a global one, so two
    * unrelated background pipelines no longer serialise into each other
    * (TASK_2026_352). Case- and whitespace-insensitive; omitted means
-   * `'default'`, the shared bucket for user-initiated callers.
+   * `'default'`, the shared bucket for wizard, harness and cron callers.
    *
    * The two background pipelines name themselves: `'memory-curator'` and
-   * `'skill-synthesis'`. A caller that invents a new lane gets its own slot,
-   * which is the intended way to add one — but it also gets counted against
-   * the GLOBAL ceiling, so adding lanes is not a way to buy concurrency.
+   * `'skill-synthesis'` — the only lanes the background-work governor holds
+   * (`GOVERNED_BACKGROUND_LANES`). A call a user is waiting on from an RPC uses
+   * `'user-action'`. A caller that invents a new lane gets its own slot, is NOT
+   * governed, and is counted against the GLOBAL ceiling, so adding lanes is not
+   * a way to buy concurrency.
    */
   lane?: string;
 

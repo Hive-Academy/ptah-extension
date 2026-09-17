@@ -5,7 +5,7 @@
  * Pins the failure behaviour of plan section 4 on the agent surface:
  * - no port registered (the CLI host, unit tests) → the platform provider
  *   answers, exactly as before the port existed;
- * - the port's answer outranks the provider for spawn validation and status;
+ * - the port's answer outranks the provider for status;
  * - `getStatus()` lists only the caller's workspace;
  * - `getStatus(agentId)` for a live agent in ANOTHER workspace says so — it
  *   must never be mistakable for `Agent not found`. Two sessions read that
@@ -19,23 +19,9 @@ import type {
 } from '@ptah-extension/platform-core';
 import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
 import { AgentProcessManager } from './agent-process-manager.service';
-
-// The roots below are synthetic Windows paths that exist on no machine.
-// `validateWorkingDirectory` skips `realpath` on win32 but calls it everywhere
-// else, so without this mock the whole file passes on a developer's Windows box
-// and fails on the ubuntu CI runner with ENOENT. Identity-resolve, so the
-// `startsWith` prefix check downstream still measures what it is here to
-// measure. Same mock, same reason, as `agent-process-manager.service.spec.ts`.
-jest.mock('fs', () => {
-  const actual = jest.requireActual('fs');
-  return {
-    ...actual,
-    promises: {
-      ...actual.promises,
-      realpath: jest.fn((p: string) => Promise.resolve(p)),
-    },
-  };
-});
+import { AgentMessageRouter } from './agent-message-router.service';
+import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
+import { AgentOutputBuffer } from './agent-output-buffer.service';
 
 const ROOT_A = 'D:\\projects\\workspace-a';
 const ROOT_B = 'D:\\projects\\workspace-b';
@@ -64,18 +50,28 @@ function makeManager(options: {
   } as unknown as IWorkspaceProvider;
 
   type Args = ConstructorParameters<typeof AgentProcessManager>;
+  type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
+  const cliDetection = { getAdapter: jest.fn() } as unknown as Args[1];
+  const sentryService = { captureException: jest.fn() };
   return new AgentProcessManager(
     logger as unknown as Args[0],
-    { getAdapter: jest.fn() } as unknown as Args[1],
+    cliDetection,
     {
       getRunningBySession: jest.fn().mockReturnValue([]),
     } as unknown as Args[2],
-    workspaceProvider as unknown as Args[3],
-    { captureException: jest.fn() } as unknown as Args[4],
-    { effort: { get: jest.fn(() => '') } } as unknown as Args[5],
-    null,
-    null,
-    options.resolver ?? null,
+    sentryService as unknown as Args[3],
+    new AgentMessageRouter(logger as unknown as Args[0], cliDetection),
+    new AgentSpawnEnvironment(
+      logger as unknown as Args[0],
+      cliDetection,
+      workspaceProvider,
+      { effort: { get: jest.fn(() => '') } } as unknown as EnvironmentArgs[3],
+      sentryService as unknown as EnvironmentArgs[4],
+      null,
+      null,
+      options.resolver ?? null,
+    ),
+    new AgentOutputBuffer(logger as unknown as Args[0]),
   );
 }
 
@@ -100,29 +96,8 @@ function seedAgent(
   ).agents.set(agentId, { info });
 }
 
-function validateWorkingDirectory(
-  manager: AgentProcessManager,
-  dir: string,
-): Promise<void> {
-  return (
-    manager as unknown as {
-      validateWorkingDirectory(dir: string): Promise<void>;
-    }
-  ).validateWorkingDirectory(dir);
-}
-
 describe('AgentProcessManager workspace scoping (TASK_2026_364)', () => {
   describe('no resolver registered — the CLI host, and every pre-port caller', () => {
-    it('validates the working directory against the platform provider root, as before', async () => {
-      const manager = makeManager({ providerRoot: ROOT_A });
-      await expect(
-        validateWorkingDirectory(manager, `${ROOT_A}\\sub`),
-      ).resolves.toBeUndefined();
-      await expect(validateWorkingDirectory(manager, ROOT_B)).rejects.toThrow(
-        /within workspace root/,
-      );
-    });
-
     it('getStatus() scoped by the provider root hides nothing the provider owns', () => {
       const manager = makeManager({ providerRoot: ROOT_A });
       seedAgent(manager, 'agent-1', `${ROOT_A}\\sub`);
@@ -140,45 +115,6 @@ describe('AgentProcessManager workspace scoping (TASK_2026_364)', () => {
   });
 
   describe('resolver registered — the caller workspace outranks the provider', () => {
-    it('a spawn into the CALLER workspace passes although the provider points at another (the 2026-08-31 regression)', async () => {
-      const manager = makeManager({
-        providerRoot: ROOT_B,
-        resolver: { resolveCallerWorkspaceRoot: () => ROOT_A },
-      });
-      await expect(
-        validateWorkingDirectory(
-          manager,
-          `${ROOT_A}\\.claude-worktrees\\native-loop`,
-        ),
-      ).resolves.toBeUndefined();
-    });
-
-    it('a resolver answering undefined (anonymous caller, UI RPC) falls to the provider root — unchanged', async () => {
-      const manager = makeManager({
-        providerRoot: ROOT_A,
-        resolver: { resolveCallerWorkspaceRoot: () => undefined },
-      });
-      await expect(
-        validateWorkingDirectory(manager, `${ROOT_A}\\sub`),
-      ).resolves.toBeUndefined();
-    });
-
-    it('a resolver refusal (declared workspace not open) propagates — it must not degrade to the provider root', async () => {
-      const manager = makeManager({
-        providerRoot: ROOT_B,
-        resolver: {
-          resolveCallerWorkspaceRoot: () => {
-            throw new Error(
-              "The caller declared workspace 'D:\\closed', but that folder is not open in this window",
-            );
-          },
-        },
-      });
-      await expect(
-        validateWorkingDirectory(manager, `${ROOT_B}\\sub`),
-      ).rejects.toThrow(/declared workspace/);
-    });
-
     it('getStatus() lists only the caller workspace, matched case- and separator-insensitively', () => {
       const manager = makeManager({
         providerRoot: ROOT_B,
@@ -228,6 +164,47 @@ describe('AgentProcessManager workspace scoping (TASK_2026_364)', () => {
       seedAgent(manager, 'agent-a', `${ROOT_A}\\sub`);
       const status = manager.getStatus('agent-a') as AgentProcessInfo;
       expect(status.status).toBe('running');
+    });
+  });
+
+  /**
+   * The internal bookkeeping accessor (TASK_2026_364 blocker B1).
+   *
+   * `sdk-callbacks.ts` remaps parent session ids on the chat SDK stream, which
+   * is not an MCP request, so there is no caller to scope to and every scope it
+   * could inherit is the wrong one. Reading that list through `getStatus()`
+   * silently dropped the non-active workspace's agents and skipped their
+   * re-persist — see `wiring/sdk-callbacks.spec.ts`. This accessor is the way to
+   * say "unscoped" out loud; it must stay unscoped whatever the caller context.
+   */
+  describe('listTrackedAgents() — the unscoped bookkeeping view', () => {
+    it('returns agents from EVERY workspace, whatever the caller and provider say', () => {
+      const manager = makeManager({
+        providerRoot: ROOT_B,
+        resolver: { resolveCallerWorkspaceRoot: () => ROOT_A },
+      });
+      seedAgent(manager, 'agent-a', `${ROOT_A}\\sub`);
+      seedAgent(manager, 'agent-b', `${ROOT_B}\\sub`);
+
+      expect(manager.listTrackedAgents().map((a) => String(a.agentId))).toEqual(
+        ['agent-a', 'agent-b'],
+      );
+      // The caller-facing list is still scoped — the two views differ on
+      // purpose, which is the whole point of having both.
+      expect(
+        (manager.getStatus() as AgentProcessInfo[]).map((a) =>
+          String(a.agentId),
+        ),
+      ).toEqual(['agent-a']);
+    });
+
+    it('hands out copies, so a bookkeeping consumer cannot mutate tracked state', () => {
+      const manager = makeManager({ providerRoot: ROOT_A });
+      seedAgent(manager, 'agent-a', `${ROOT_A}\\sub`);
+
+      manager.listTrackedAgents()[0].parentSessionId = 'tampered';
+
+      expect(manager.listTrackedAgents()[0].parentSessionId).toBeUndefined();
     });
   });
 });

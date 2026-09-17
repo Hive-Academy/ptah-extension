@@ -15,6 +15,7 @@ import type {
   CliAdapter,
   CliModelInfo,
 } from './cli-adapters/cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapters/cli-adapter.interface';
 import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
 import { CopilotSdkAdapter } from './cli-adapters/copilot-sdk.adapter';
 import { CopilotPermissionBridge } from './cli-adapters/copilot-permission-bridge';
@@ -98,7 +99,11 @@ export class CliDetectionService {
 
     for (const [name, adapter] of this.adapters) {
       try {
-        const result = await adapter.detect();
+        const result: CliDetectionResult = {
+          ...(await adapter.detect()),
+          roleDelivery: 'preamble',
+          roleChannel: adapter.roleChannel,
+        };
         results.set(name, result);
         if (result.installed) {
           this.logger.info(`[CliDetection] ${adapter.displayName} detected`, {
@@ -122,7 +127,9 @@ export class CliDetectionService {
         results.set(name, {
           cli: name,
           installed: false,
-          supportsSteer: false,
+          messagingMode: bestMessagingCapability(adapter.capabilities()),
+          roleDelivery: 'preamble',
+          roleChannel: adapter.roleChannel,
         });
       }
     }

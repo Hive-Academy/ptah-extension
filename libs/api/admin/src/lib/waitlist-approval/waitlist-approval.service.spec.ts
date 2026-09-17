@@ -98,6 +98,7 @@ function waitlistRow(overrides: Record<string, unknown> = {}) {
     email: 'lead@example.com',
     notifiedAt: null,
     approvedAt: null,
+    convertedAt: null,
     ...overrides,
   };
 }
@@ -277,7 +278,7 @@ describe('WaitlistApprovalService.approve — the happy path (R1)', () => {
 
     // The claim, and the cohort placement.
     expect(h.prisma.waitlist.updateMany).toHaveBeenCalledWith({
-      where: { id: 'wl-1', approvedAt: null },
+      where: { id: 'wl-1', approvedAt: null, convertedAt: null },
       data: { approvedAt: expect.any(Date) },
     });
     expect(h.prisma.memberGroupAssignment.upsert).toHaveBeenCalledWith({
@@ -627,6 +628,29 @@ describe('WaitlistApprovalService.approve — already paying (R5.4)', () => {
     const response = await h.service.approve(['wl-1'], ACTOR);
 
     expect(response.results[0].outcome).toBe('approved');
+  });
+
+  it('maps a converted claim to already_paid with no license, cohort, audit or email (TASK_2026_462 C4)', async () => {
+    const h = build();
+    h.prisma.waitlist.findUnique.mockResolvedValue(
+      waitlistRow({ convertedAt: new Date('2026-09-01') }),
+    );
+    h.prisma.waitlist.updateMany.mockResolvedValue({ count: 0 });
+
+    const response = await h.service.approve(['wl-1'], ACTOR);
+
+    expect(response.results[0]).toEqual({
+      id: 'wl-1',
+      email: 'lead@example.com',
+      outcome: 'already_paid',
+      wasNotified: false,
+    });
+    expect(response.tally.already_paid).toBe(1);
+    expect(response.tally.approved).toBe(0);
+    expect(h.prisma.license.create).not.toHaveBeenCalled();
+    expect(h.prisma.memberGroupAssignment.upsert).not.toHaveBeenCalled();
+    expect(h.audit.write).not.toHaveBeenCalled();
+    expect(h.email.sendFoundingCohortWelcome).not.toHaveBeenCalled();
   });
 });
 

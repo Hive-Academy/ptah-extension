@@ -1,113 +1,144 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 
 import {
   AdminApiService,
   AdminApproveWaitlistResponse,
   AdminStatsResponse,
 } from '../services/admin-api.service';
-import { WaitlistPipeline, WaitlistRow } from './waitlist-pipeline';
+import {
+  WaitlistDetailsResponse,
+  WaitlistEligibleIdsResponse,
+  WaitlistListResponse,
+  WaitlistListRow,
+} from './waitlist-query-state';
+import { WaitlistPipeline } from './waitlist-pipeline';
 
-/**
- * WaitlistPipeline — the approve queue (TASK_2026_201 R9).
- *
- * These tests guard the four behaviours that a template tweak can silently
- * break: the `?tab=approved` deep link, the server filter each tab sends, the
- * four-way stage ranking, and that a returned tally actually reaches the
- * admin's toast rather than being swallowed.
- */
-
-function row(overrides: Partial<WaitlistRow> = {}): WaitlistRow {
+function row(overrides: Partial<WaitlistListRow> = {}): WaitlistListRow {
   return {
     id: 'wl-1',
-    email: 'someone@example.com',
+    email: 'dev@hive.com',
     source: 'landing',
     createdAt: '2026-01-01T00:00:00.000Z',
     notifiedAt: null,
     approvedAt: null,
     convertedAt: null,
+    stage: 'new',
+    stageAt: '2026-01-01T00:00:00.000Z',
+    approvalEligible: true,
     ...overrides,
   };
 }
 
-function stats(approved: number | undefined): AdminStatsResponse {
+function mockListResponse(
+  overrides: Partial<WaitlistListResponse> = {},
+): WaitlistListResponse {
   return {
-    waitlist: {
-      total: 100,
-      notified: 40,
-      converted: 5,
-      last7Days: 12,
-      approved,
+    data: [row()],
+    total: 1,
+    page: 1,
+    pageSize: 25,
+    totalPages: 1,
+    counts: {
+      all: 10,
+      pending: 5,
+      new: 3,
+      invited: 2,
+      approved: 3,
+      converted: 2,
     },
-    members: { builders: 10, community: 90 },
-    groups: [],
-    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
   };
 }
 
-function approvalResponse(): AdminApproveWaitlistResponse {
+function mockApprovalResponse(): AdminApproveWaitlistResponse {
   return {
-    requested: 5,
+    requested: 3,
     tally: {
-      approved: 2,
+      approved: 1,
       already_approved: 1,
-      already_paid: 1,
-      not_found: 1,
-      failed: 0,
+      already_paid: 0,
+      not_found: 0,
+      failed: 1,
     },
     results: [
-      { id: 'a', email: 'a@example.com', outcome: 'approved', licenseId: 'l1' },
-      { id: 'b', email: 'b@example.com', outcome: 'already_approved' },
-      { id: 'c', email: 'c@example.com', outcome: 'already_paid' },
-      { id: 'd', email: null, outcome: 'not_found' },
-      { id: 'e', email: 'e@example.com', outcome: 'approved', licenseId: 'l2' },
+      {
+        id: 'wl-1',
+        email: 'dev@hive.com',
+        outcome: 'approved',
+        licenseId: 'lic-1',
+      },
+      { id: 'wl-2', email: 'two@hive.com', outcome: 'already_approved' },
+      {
+        id: 'wl-3',
+        email: 'three@hive.com',
+        outcome: 'failed',
+        error: { code: 'GRANT_FAILED' },
+      },
     ],
   };
 }
 
-/**
- * The component's members are `protected`, which is a template-visibility
- * modifier only — TypeScript blocks the read from a spec, so the cast names
- * the surface under test rather than widening the component's API.
- */
-interface PipelineInternals {
-  normalizeTab(raw: string | null): string;
-  filter(): string | undefined;
-  stageLabel(row: WaitlistRow): string;
-  stageVariant(row: WaitlistRow): string;
-  approvableTab(): boolean;
-  selectedIds(): readonly string[];
-  approveIds(): readonly string[];
-  approveOpen(): boolean;
-  approveToast(): AdminApproveWaitlistResponse | null;
-  summaryApproved(): number;
-  toggleSelected(id: string): void;
-  onApproveSelected(): void;
-  onApproveRow(row: WaitlistRow): void;
-  onApproveDone(result: AdminApproveWaitlistResponse): void;
-}
-
-const internals = (c: WaitlistPipeline): PipelineInternals =>
-  c as unknown as PipelineInternals;
-
 describe('WaitlistPipeline', () => {
   let api: {
-    list: jest.Mock;
+    listWaitlist: jest.Mock;
+    resolveEligibleWaitlistIds: jest.Mock;
+    getWaitlistDetails: jest.Mock;
+    exportWaitlistCsv: jest.Mock;
     getStats: jest.Mock;
     approveWaitlist: jest.Mock;
   };
 
+  beforeAll(() => {
+    window.URL.createObjectURL = jest.fn().mockReturnValue('blob:mock-url');
+    window.URL.revokeObjectURL = jest.fn();
+  });
+
   beforeEach(() => {
     api = {
-      list: jest
-        .fn()
-        .mockReturnValue(
-          of({ data: [], total: 0, page: 1, pageSize: 25, totalPages: 0 }),
-        ),
-      getStats: jest.fn().mockReturnValue(of(stats(7))),
-      approveWaitlist: jest.fn(),
+      listWaitlist: jest.fn().mockReturnValue(of(mockListResponse())),
+      resolveEligibleWaitlistIds: jest.fn().mockReturnValue(
+        of<WaitlistEligibleIdsResponse>({
+          ids: ['wl-1', 'wl-2'],
+          selected: 2,
+          eligibleMatching: 85,
+          limit: 50,
+          truncated: true,
+        }),
+      ),
+      getWaitlistDetails: jest.fn().mockReturnValue(
+        of<WaitlistDetailsResponse>({
+          entry: row(),
+          user: null,
+          audit: [],
+        }),
+      ),
+      exportWaitlistCsv: jest.fn().mockReturnValue(
+        of({
+          blob: new Blob(['id,email'], { type: 'text/csv' }),
+          filename: 'waitlist-2026-03-16.csv',
+        }),
+      ),
+      getStats: jest.fn().mockReturnValue(
+        of<AdminStatsResponse>({
+          waitlist: {
+            total: 100,
+            notified: 40,
+            converted: 5,
+            last7Days: 12,
+            approved: 15,
+            new: 45,
+            invited: 40,
+            pending: 85,
+          },
+          members: { builders: 10, community: 90 },
+          groups: [],
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        }),
+      ),
+      approveWaitlist: jest.fn().mockReturnValue(of(mockApprovalResponse())),
     };
 
     TestBed.configureTestingModule({
@@ -121,189 +152,462 @@ describe('WaitlistPipeline', () => {
     });
   });
 
-  /** Renders the component at a URL so `?tab=` really drives the tab signal. */
-  async function renderAt(url: string): Promise<WaitlistPipeline> {
+  async function renderAt(
+    url: string,
+  ): Promise<{ component: WaitlistPipeline; harness: RouterTestingHarness }> {
     const harness = await RouterTestingHarness.create();
-    return harness.navigateByUrl(url, WaitlistPipeline);
+    const component = await harness.navigateByUrl(url, WaitlistPipeline);
+    harness.detectChanges();
+    return { component, harness };
   }
 
-  function createDetached(): ComponentFixture<WaitlistPipeline> {
-    const fixture = TestBed.createComponent(WaitlistPipeline);
-    fixture.detectChanges();
-    return fixture;
-  }
+  describe('URL state & query binding', () => {
+    it('restores all filters and pagination from deep-link query parameters', async () => {
+      await renderAt(
+        '/admin/waitlist?stage=invited&search=alex&source=vscode&createdFrom=2026-03-01T00:00:00.000Z&createdTo=2026-03-10T23:59:59.999Z&sortBy=notifiedAt&sortOrder=asc&page=2&pageSize=50',
+      );
 
-  describe('tab normalisation (R9.5)', () => {
-    it('accepts every real stage, including the new approved stage', () => {
-      const c = internals(createDetached().componentInstance);
-      expect(c.normalizeTab('approved')).toBe('approved');
-      expect(c.normalizeTab('invited')).toBe('invited');
-      expect(c.normalizeTab('converted')).toBe('converted');
-      expect(c.normalizeTab('all')).toBe('all');
+      expect(api.listWaitlist).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'invited',
+          search: 'alex',
+          source: 'vscode',
+          createdFrom: '2026-03-01T00:00:00.000Z',
+          createdTo: '2026-03-10T23:59:59.999Z',
+          sortBy: 'notifiedAt',
+          sortOrder: 'asc',
+          page: 2,
+          pageSize: 50,
+        }),
+      );
     });
 
-    it('falls back to new for an absent or unknown tab', () => {
-      const c = internals(createDetached().componentInstance);
-      expect(c.normalizeTab(null)).toBe('new');
-      expect(c.normalizeTab('nonsense')).toBe('new');
-      // The retired stage name must NOT resolve to itself.
-      expect(c.normalizeTab('invite')).toBe('new');
+    it('falls back to defaults for absent or invalid parameters', async () => {
+      await renderAt(
+        '/admin/waitlist?stage=invalid&sortBy=invalid&page=-5&pageSize=999',
+      );
+
+      expect(api.listWaitlist).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'new',
+          sortBy: 'createdAt',
+          sortOrder: 'asc',
+          page: 1,
+          pageSize: 25,
+        }),
+      );
     });
 
-    it('activates the Approved tab from the ?tab=approved deep link', async () => {
-      const component = await renderAt('/admin/waitlist?tab=approved');
-      expect(internals(component).filter()).toBe('approved:true');
-    });
-  });
+    it('canonicalizes legacy ?tab= query param to stage', async () => {
+      await renderAt('/admin/waitlist?tab=approved');
 
-  describe('server filter per tab', () => {
-    it.each([
-      ['/admin/waitlist', 'notified:false'],
-      ['/admin/waitlist?tab=invited', 'notified:true'],
-      ['/admin/waitlist?tab=approved', 'approved:true'],
-      ['/admin/waitlist?tab=converted', 'converted:true'],
-    ])('%s sends filter %s', async (url, expected) => {
-      const component = await renderAt(url);
-      expect(internals(component).filter()).toBe(expected);
+      expect(api.listWaitlist).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'approved',
+        }),
+      );
     });
 
-    it('sends no filter on the All tab', async () => {
-      const component = await renderAt('/admin/waitlist?tab=all');
-      expect(internals(component).filter()).toBeUndefined();
-    });
-  });
+    it('canonicalizes invalid values in URL using replaceUrl without navigation loop', async () => {
+      const router = TestBed.inject(Router);
+      const navigateSpy = jest.spyOn(router, 'navigate');
 
-  describe('stage ranking Converted → Approved → Invited → New (R9.4)', () => {
-    it('ranks converted above every other stamp', () => {
-      const c = internals(createDetached().componentInstance);
-      const r = row({
-        notifiedAt: '2026-01-02T00:00:00.000Z',
-        approvedAt: '2026-01-03T00:00:00.000Z',
-        convertedAt: '2026-01-04T00:00:00.000Z',
-      });
-      expect(c.stageLabel(r)).toBe('Converted');
-      expect(c.stageVariant(r)).toBe('success');
-    });
+      const { harness } = await renderAt(
+        '/admin/waitlist?stage=invalid&sortBy=invalid&sortOrder=invalid&source=invalid&page=-5&pageSize=999&createdFrom=invalid&createdTo=invalid',
+      );
 
-    it('ranks approved above invited', () => {
-      const c = internals(createDetached().componentInstance);
-      const r = row({
-        notifiedAt: '2026-01-02T00:00:00.000Z',
-        approvedAt: '2026-01-03T00:00:00.000Z',
-      });
-      expect(c.stageLabel(r)).toBe('Approved');
-      expect(c.stageVariant(r)).toBe('info');
+      expect(navigateSpy).toHaveBeenCalledWith(
+        [],
+        expect.objectContaining({
+          replaceUrl: true,
+        }),
+      );
+      await navigateSpy.mock.results[0]?.value;
+      harness.detectChanges();
+
+      // Clean canonical URL has no invalid query params
+      expect(router.url).toBe('/admin/waitlist');
     });
 
-    it('reads Approved for a row approved without ever being invited', () => {
-      // The accepted tab overlap: this row appears under both New and
-      // Approved, and the chip is what tells the admin which it really is.
-      const c = internals(createDetached().componentInstance);
-      const r = row({ approvedAt: '2026-01-03T00:00:00.000Z' });
-      expect(c.stageLabel(r)).toBe('Approved');
-    });
+    it('uses replaceUrl: true for debounced search navigation to avoid flooding history', fakeAsync(() => {
+      const fixture = TestBed.createComponent(WaitlistPipeline);
+      fixture.detectChanges();
+      const component = fixture.componentInstance;
+      const router = TestBed.inject(Router);
+      const navigateSpy = jest.spyOn(router, 'navigate');
 
-    it('ranks invited above new, and an untouched row reads New', () => {
-      const c = internals(createDetached().componentInstance);
-      expect(
-        c.stageLabel(row({ notifiedAt: '2026-01-02T00:00:00.000Z' })),
-      ).toBe('Invited');
-      expect(c.stageLabel(row())).toBe('New');
-      expect(c.stageVariant(row())).toBe('ghost');
-    });
-  });
-
-  describe('approve action', () => {
-    // R6.4 — New is approvable. Approve used to be gated behind Invited, so a
-    // New row could only be approved after being mailed the paid invite.
-    it.each([
-      ['/admin/waitlist', true],
-      ['/admin/waitlist?tab=invited', true],
-      ['/admin/waitlist?tab=approved', false],
-      ['/admin/waitlist?tab=converted', false],
-    ])('%s → approvable: %s', async (url, approvable) => {
-      const component = await renderAt(url);
-      expect(internals(component).approvableTab()).toBe(approvable);
-    });
-
-    it('opens the modal with a single id from a per-row approve', () => {
-      const c = internals(createDetached().componentInstance);
-      c.onApproveRow(row({ id: 'wl-42' }));
-      expect(c.approveIds()).toEqual(['wl-42']);
-      expect(c.approveOpen()).toBe(true);
-    });
-
-    it('opens the modal with the whole selection from a bulk approve', () => {
-      const c = internals(createDetached().componentInstance);
-      c.toggleSelected('wl-1');
-      c.toggleSelected('wl-2');
-      c.onApproveSelected();
-      expect(c.approveIds()).toEqual(['wl-1', 'wl-2']);
-      expect(c.approveOpen()).toBe(true);
-    });
-
-    it('does not open the modal with an empty selection', () => {
-      const c = internals(createDetached().componentInstance);
-      c.onApproveSelected();
-      expect(c.approveOpen()).toBe(false);
-    });
-  });
-
-  describe('approval result handling (R9.3)', () => {
-    it('puts the full per-outcome tally on the toast, skips included', () => {
-      const c = internals(createDetached().componentInstance);
-      const result = approvalResponse();
-      c.onApproveDone(result);
-
-      const toast = c.approveToast();
-      expect(toast).toBe(result);
-      // The skips are the point — a summary of successes only would hide them.
-      expect(toast?.tally).toEqual({
-        approved: 2,
-        already_approved: 1,
-        already_paid: 1,
-        not_found: 1,
-        failed: 0,
-      });
-    });
-
-    it('refreshes both the row list and the header summary', () => {
-      const fixture = createDetached();
-      const c = internals(fixture.componentInstance);
-      const listCallsBefore = api.list.mock.calls.length;
-      const statsCallsBefore = api.getStats.mock.calls.length;
-
-      c.onApproveDone(approvalResponse());
+      component.onSearchChange('debounced query');
+      tick(300);
       fixture.detectChanges();
 
-      expect(api.list.mock.calls.length).toBeGreaterThan(listCallsBefore);
-      expect(api.getStats.mock.calls.length).toBeGreaterThan(statsCallsBefore);
-    });
+      expect(navigateSpy).toHaveBeenCalledWith(
+        [],
+        expect.objectContaining({
+          replaceUrl: true,
+          queryParams: expect.objectContaining({
+            search: 'debounced query',
+          }),
+        }),
+      );
+    }));
 
-    it('clears the selection once a response comes back', () => {
-      const c = internals(createDetached().componentInstance);
-      c.toggleSelected('wl-1');
-      c.onApproveDone(approvalResponse());
-      expect(c.selectedIds()).toEqual([]);
+    it('does not navigate for a pending search after the component is destroyed', fakeAsync(() => {
+      const fixture = TestBed.createComponent(WaitlistPipeline);
+      fixture.detectChanges();
+      const component = fixture.componentInstance;
+      const router = TestBed.inject(Router);
+      const navigateSpy = jest.spyOn(router, 'navigate');
+
+      component.onSearchChange('abandoned query');
+      fixture.destroy();
+      tick(300);
+
+      expect(navigateSpy).not.toHaveBeenCalled();
+    }));
+
+    it('navigates when the same search is entered again after clearing filters', fakeAsync(() => {
+      const fixture = TestBed.createComponent(WaitlistPipeline);
+      fixture.detectChanges();
+      const component = fixture.componentInstance;
+      const router = TestBed.inject(Router);
+      const navigateSpy = jest.spyOn(router, 'navigate');
+
+      component.onSearchChange('alex');
+      tick(300);
+      tick();
+      fixture.detectChanges();
+
+      void component.onClearFilters();
+      tick();
+      fixture.detectChanges();
+
+      component.onSearchChange('alex');
+      tick(300);
+      fixture.detectChanges();
+
+      const alexNavigations = navigateSpy.mock.calls.filter(
+        ([, extras]) => extras?.queryParams?.['search'] === 'alex',
+      );
+      expect(alexNavigations).toHaveLength(2);
+    }));
+
+    it('replace-navigates an empty out-of-range page to the last page exactly once', async () => {
+      api.listWaitlist.mockImplementation((query: { page?: number }) =>
+        of(
+          query.page === 99
+            ? mockListResponse({
+                data: [],
+                total: 26,
+                page: 99,
+                totalPages: 2,
+              })
+            : mockListResponse({ page: 2, total: 26, totalPages: 2 }),
+        ),
+      );
+      const router = TestBed.inject(Router);
+      const navigateSpy = jest.spyOn(router, 'navigate');
+
+      const { harness } = await renderAt('/admin/waitlist?page=99');
+      await Promise.resolve();
+      harness.detectChanges();
+
+      const lastPageCalls = navigateSpy.mock.calls.filter(
+        ([, extras]) =>
+          extras?.replaceUrl === true && extras.queryParams?.['page'] === 2,
+      );
+      expect(lastPageCalls).toHaveLength(1);
     });
   });
 
-  describe('header summary', () => {
-    it('reads the approved count from the stats endpoint', () => {
-      const c = internals(createDetached().componentInstance);
-      expect(c.summaryApproved()).toBe(7);
+  describe('filter clearing & stage preservation', () => {
+    it('clears optional filters and resets sort/page while preserving the active stage', async () => {
+      const { component, harness } = await renderAt(
+        '/admin/waitlist?stage=approved&search=test&source=pricing&page=3',
+      );
+
+      await component.onClearFilters();
+      harness.detectChanges();
+
+      expect(api.listWaitlist).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          stage: 'approved',
+          search: undefined,
+          source: undefined,
+          page: 1,
+          pageSize: 25,
+        }),
+      );
+    });
+  });
+
+  describe('selection & pagination interaction', () => {
+    it('retains explicit selection across page changes', async () => {
+      const row1 = row({ id: 'wl-1' });
+      const row2 = row({ id: 'wl-2' });
+      api.listWaitlist.mockReturnValue(
+        of(
+          mockListResponse({
+            data: [row1],
+            totalPages: 2,
+          }),
+        ),
+      );
+
+      const { component } = await renderAt('/admin/waitlist');
+      const selection = component.selection;
+
+      // Select row1
+      selection.toggleRow(row1);
+      expect(selection.isSelected('wl-1')).toBe(true);
+
+      // Navigate to page 2 with new row
+      api.listWaitlist.mockReturnValue(
+        of(
+          mockListResponse({
+            data: [row2],
+            page: 2,
+            totalPages: 2,
+          }),
+        ),
+      );
+
+      component.onPageChange(2);
+
+      // Selection of row1 is preserved across page change
+      expect(selection.isSelected('wl-1')).toBe(true);
+      expect(selection.count()).toBe(1);
     });
 
-    it('reads 0 when a server predating the approve endpoint omits the count', () => {
-      api.getStats.mockReturnValue(of(stats(undefined)));
-      const c = internals(createDetached().componentInstance);
-      expect(c.summaryApproved()).toBe(0);
+    it('clears selection when narrowing criteria (stage) changes', async () => {
+      const { component } = await renderAt('/admin/waitlist?stage=new');
+      const selection = component.selection;
+
+      selection.toggleRow(row({ id: 'wl-1' }));
+      expect(selection.count()).toBe(1);
+
+      component.setStage('invited');
+
+      expect(selection.count()).toBe(0);
+    });
+  });
+
+  describe('select matching & 50-of-N disclosure', () => {
+    it('requests eligible matching IDs and discloses 50 of N', async () => {
+      const { component } = await renderAt('/admin/waitlist?stage=new');
+      const selection = component.selection;
+
+      component.onSelectMatching();
+
+      expect(api.resolveEligibleWaitlistIds).toHaveBeenCalled();
+      expect(selection.count()).toBe(2);
+      expect(selection.disclosureLabel()).toBe('2 selected of 85 matching');
     });
 
-    it('survives a failing stats call without blanking the page', () => {
-      api.getStats.mockReturnValue(throwError(() => new Error('boom')));
-      const c = internals(createDetached().componentInstance);
-      expect(c.summaryApproved()).toBe(0);
+    it('ignores an old select-matching response after a filter changes', async () => {
+      const response$ = new Subject<WaitlistEligibleIdsResponse>();
+      api.resolveEligibleWaitlistIds.mockReturnValue(response$);
+      const { component } = await renderAt('/admin/waitlist?stage=new');
+
+      component.onSelectMatching();
+      component.setStage('invited');
+      response$.next({
+        ids: ['stale-id'],
+        selected: 1,
+        eligibleMatching: 1,
+        limit: 50,
+        truncated: false,
+      });
+
+      expect(component.selection.count()).toBe(0);
+      expect(component.selection.isSelected('stale-id')).toBe(false);
+    });
+  });
+
+  describe('partial approval results & retry', () => {
+    it('retains failed IDs in selection and refreshes the list', () => {
+      const fixture = TestBed.createComponent(WaitlistPipeline);
+      fixture.detectChanges();
+      const component = fixture.componentInstance;
+      const selection = component.selection;
+
+      selection.toggleRow(row({ id: 'wl-1' }));
+      selection.toggleRow(row({ id: 'wl-2' }));
+      selection.toggleRow(row({ id: 'wl-3' }));
+      expect(selection.count()).toBe(3);
+
+      const listCallsBefore = api.listWaitlist.mock.calls.length;
+      component.onApproveDone(mockApprovalResponse());
+      fixture.detectChanges();
+
+      // wl-1 was approved, wl-2 was already_approved -> removed
+      // wl-3 failed -> retained for retry
+      expect(selection.isSelected('wl-1')).toBe(false);
+      expect(selection.isSelected('wl-2')).toBe(false);
+      expect(selection.isSelected('wl-3')).toBe(true);
+      expect(selection.count()).toBe(1);
+
+      // List and stats refreshed
+      expect(api.listWaitlist.mock.calls.length).toBeGreaterThan(
+        listCallsBefore,
+      );
+      expect(api.getStats).toHaveBeenCalled();
+    });
+  });
+
+  describe('CSV export', () => {
+    it('initiates export and cleans up object URL', async () => {
+      const { component } = await renderAt('/admin/waitlist?stage=new');
+
+      component.onExportCsv();
+
+      expect(api.exportWaitlistCsv).toHaveBeenCalledWith(
+        expect.objectContaining({ stage: 'new' }),
+      );
+      expect(window.URL.createObjectURL).toHaveBeenCalled();
+      expect(window.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    });
+
+    it('maps a known export code to fixed safe copy', async () => {
+      api.exportWaitlistCsv.mockReturnValue(
+        throwError(() => ({
+          status: 413,
+          error: {
+            code: 'WAITLIST_EXPORT_LIMIT_EXCEEDED',
+            message: 'raw server detail',
+          },
+        })),
+      );
+      const { component, harness } = await renderAt('/admin/waitlist');
+
+      component.onExportCsv();
+      harness.detectChanges();
+
+      const text =
+        (harness.routeNativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain(
+        'This export is too large. Narrow the filters and try again.',
+      );
+      expect(text).not.toContain('raw server detail');
+    });
+
+    it('uses generic fixed copy for an unknown export error object', async () => {
+      api.exportWaitlistCsv.mockReturnValue(
+        throwError(() => ({
+          status: 502,
+          error: { code: 'UNKNOWN_PROXY', message: 'private proxy detail' },
+          message: 'private transport detail',
+        })),
+      );
+      const { component, harness } = await renderAt('/admin/waitlist');
+
+      component.onExportCsv();
+      harness.detectChanges();
+
+      const text =
+        (harness.routeNativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain(
+        'Failed to export waitlist CSV. Please try again.',
+      );
+      expect(text).not.toContain('private proxy detail');
+      expect(text).not.toContain('private transport detail');
+    });
+  });
+
+  describe('details drawer & focus return', () => {
+    it('opens drawer on row viewDetails and restores focus on drawer close', async () => {
+      const { component } = await renderAt('/admin/waitlist');
+
+      const triggerBtn = document.createElement('button');
+      document.body.appendChild(triggerBtn);
+      const focusSpy = jest.spyOn(triggerBtn, 'focus');
+
+      component.onOpenDetails({
+        row: row({ id: 'wl-42' }),
+        triggerEl: triggerBtn,
+      });
+
+      expect(component.drawerOpen()).toBe(true);
+      expect(component.activeEntryId()).toBe('wl-42');
+
+      component.onDrawerClosed();
+
+      expect(component.drawerOpen()).toBe(false);
+      expect(component.activeEntryId()).toBeNull();
+      expect(focusSpy).toHaveBeenCalled();
+
+      document.body.removeChild(triggerBtn);
+    });
+  });
+
+  describe('selection limits and accessibility announcements', () => {
+    it('renders waitlist rows as semantic list children', async () => {
+      const { harness } = await renderAt('/admin/waitlist');
+      const el = harness.routeNativeElement as HTMLElement;
+      const list = el.querySelector('ul.flex.flex-col.gap-2');
+
+      expect(list).toBeTruthy();
+      expect(list?.querySelectorAll(':scope > li')).toHaveLength(1);
+      expect(list?.querySelector('li > ptah-admin-waitlist-row')).toBeTruthy();
+      expect(list?.hasAttribute('role')).toBe(false);
+    });
+
+    it('wraps selection toolbar in an aria-live="polite" output and shows limit message when cap reached', async () => {
+      const { component, harness } = await renderAt('/admin/waitlist');
+      const selection = component.selection;
+
+      // Select 1 row
+      selection.toggleRow(row({ id: 'wl-1' }));
+      harness.detectChanges();
+
+      const el = harness.routeNativeElement as HTMLElement;
+      const liveRegion = el.querySelector('output[aria-live="polite"]');
+      expect(liveRegion).toBeTruthy();
+      expect(liveRegion?.textContent).toContain('1 row selected');
+
+      // Select 50 rows to reach cap
+      for (let i = 2; i <= 50; i++) {
+        selection.toggleRow(row({ id: `wl-${i}` }));
+      }
+      harness.detectChanges();
+
+      expect(selection.limitReached()).toBe(true);
+      expect(liveRegion?.textContent).toContain(
+        'Selection limit of 50 reached',
+      );
+    });
+  });
+
+  describe('date range error mapping', () => {
+    it('maps 400 INVALID_DATE_RANGE list response to filter bar input instead of generic load error banner', async () => {
+      api.listWaitlist.mockReturnValue(
+        throwError(() => ({
+          status: 400,
+          error: {
+            code: 'INVALID_DATE_RANGE',
+            message: 'createdFrom must be before or equal to createdTo',
+          },
+        })),
+      );
+
+      const { component, harness } = await renderAt(
+        '/admin/waitlist?createdFrom=2026-03-10T00:00:00.000Z&createdTo=2026-03-01T00:00:00.000Z',
+      );
+      harness.detectChanges();
+
+      expect(component.loadError()).toBe(false);
+      expect(component.dateRangeError()).toBe(
+        'createdFrom must be before or equal to createdTo',
+      );
+
+      const el = harness.routeNativeElement as HTMLElement;
+      // Generic error alert should NOT be present
+      expect(
+        el.querySelector('div[aria-label="Waitlist load error"]'),
+      ).toBeNull();
+      // Filter bar should display the invalid date range error
+      expect(el.textContent).toContain(
+        'createdFrom must be before or equal to createdTo',
+      );
     });
   });
 });

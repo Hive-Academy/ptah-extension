@@ -76,9 +76,7 @@ function buildSuite(opts: { attached?: boolean } = {}): Suite {
     continueSession: jest
       .fn()
       .mockResolvedValue({ success: true, sessionId: 'sid' }),
-    resumeSession: jest
-      .fn()
-      .mockResolvedValue({ success: true, messages: [], events: [] }),
+    resumeSession: jest.fn().mockResolvedValue({ success: true, events: [] }),
     abortSession: jest.fn().mockResolvedValue({ success: true }),
     getRunningAgents: jest.fn().mockResolvedValue({ agents: [] }),
     listBackgroundAgents: jest.fn().mockResolvedValue({ agents: [] }),

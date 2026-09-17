@@ -34,7 +34,11 @@ export type {
 } from './responses-request-translator';
 export { ResponsesStreamTranslator } from './responses-stream-translator';
 export { TranslationProxyBase } from './translation-proxy-base';
-export type { TranslationProxyConfig } from './translation-proxy-base';
+export type {
+  TranslationProxyConfig,
+  ProxyPhaseTimingRecord,
+  ProxyTimingOptions,
+} from './translation-proxy-base';
 export type {
   ITranslationProxy,
   OpenAIChatMessage,

@@ -26,6 +26,7 @@ import {
 import { TabManagerService, TabId } from '@ptah-extension/chat-state';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import { SessionLoaderService } from './chat-store/session-loader.service';
+import { SessionHistoryReplayer } from './chat-store/session-history-replayer.service';
 import { ConversationService } from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
@@ -46,6 +47,7 @@ import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
  * - StreamingHandlerService — Execution tree building
  * - CompletionHandlerService — Chat completion handling and auto-send
  * - SessionLoaderService — Session loading, pagination, switching
+ * - SessionHistoryReplayer — Chunked history replay + live-event fence
  * - ConversationService — New/continue conversation, message sending, abort
  * - PermissionHandlerService — Permission request management and correlation
  * - CompactionLifecycleService — SDK session-compaction state machine
@@ -61,6 +63,7 @@ export class ChatStore {
   private readonly tabManager = inject(TabManagerService);
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly sessionLoader = inject(SessionLoaderService);
+  private readonly historyReplayer = inject(SessionHistoryReplayer);
   private readonly conversation = inject(ConversationService);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
@@ -96,7 +99,14 @@ export class ChatStore {
   readonly questionRequests = this.permissionHandler.questionRequests;
   readonly resumableSubagents = this.sessionLoader.resumableSubagents;
   readonly licenseStatus = this.lifecycle.licenseStatus;
-  readonly isCompacting = this.tabManager.activeTabIsCompacting;
+
+  /**
+   * Registry-derived compaction state for one tab. Every compaction surface
+   * (banner, input overlay) reads this so they agree by construction.
+   */
+  isCompactingForTab(tabId: string | null | undefined): boolean {
+    return this.compaction.isCompactingForTab(tabId);
+  }
 
   readonly activeTab = computed(() => this.tabManager.activeTab());
   readonly currentSessionId = this.tabManager.activeTabSessionId;
@@ -190,7 +200,7 @@ export class ChatStore {
     sessionId: SessionId,
     opts?: { reason?: 'compaction'; activate?: boolean },
   ): Promise<void> {
-    return this.sessionLoader.switchSession(sessionId, opts);
+    await this.sessionLoader.switchSession(sessionId, opts);
   }
 
   removeSessionFromList(sessionId: SessionId): void {
@@ -377,6 +387,25 @@ export class ChatStore {
       const resultTabId = result.tabId;
       this.messageDispatch.sendQueuedMessage(resultTabId, queuedContent);
     }
+  }
+
+  /**
+   * Hold a live `chat:chunk` event back while its tab replays resume history
+   * in chunks (TASK_2026_437 C15). Returns `true` when `deliver` was buffered
+   * and will run after the replay; `false` when the caller delivers it now.
+   */
+  deferLiveStreamEvent(
+    event: FlatStreamEventUnion,
+    tabId: string | undefined,
+    sessionId: string | undefined,
+    deliver: () => void,
+  ): boolean {
+    return this.historyReplayer.deferLiveEvent(
+      event,
+      tabId,
+      sessionId,
+      deliver,
+    );
   }
 
   /** Finalize the current streaming message. Delegates to StreamingHandlerService. */

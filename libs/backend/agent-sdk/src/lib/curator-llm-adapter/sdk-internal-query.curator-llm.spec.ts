@@ -144,6 +144,7 @@ interface ExecuteCapture {
   auth?: OneShotAuthOverride;
   authWasPresent?: boolean;
   maxTurns?: number;
+  lane?: string;
 }
 
 function makeInternalQuery(opts: {
@@ -160,9 +161,11 @@ function makeInternalQuery(opts: {
         model: string;
         cwd: string;
         maxTurns?: number;
+        lane?: string;
         auth?: OneShotAuthOverride;
       }) => {
         if (opts.capture) {
+          opts.capture.lane = config.lane;
           opts.capture.model = config.model;
           opts.capture.cwd = config.cwd;
           opts.capture.maxTurns = config.maxTurns;
@@ -740,6 +743,66 @@ describe('SdkInternalQueryCuratorLlm — the turn budget (TASK_2026_376 F8)', ()
   });
 });
 
+describe('SdkInternalQueryCuratorLlm — the concurrency lane (TASK_2026_437 C14)', () => {
+  it('charges every curation call to the governed memory-curator lane', async () => {
+    // An omitted lane lands on the ungoverned 'default' bucket: the curator
+    // would stop yielding to a generating turn and would take the slot
+    // user-initiated calls share.
+    const capture: ExecuteCapture = {};
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ text: '{"memories":[]}', capture }),
+      makeWorkspace(''),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.lane).toBe('memory-curator');
+  });
+
+  it('runs a user-initiated extract (memory:runNow) on the ungoverned user-action lane', async () => {
+    const capture: ExecuteCapture = {};
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ text: '{"memories":[]}', capture }),
+      makeWorkspace(''),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT, undefined, {
+      userInitiated: true,
+    });
+    expect(capture.lane).toBe('user-action');
+  });
+
+  it('runs a user-initiated resolve on the user-action lane, and a background one on memory-curator', async () => {
+    const draft = {
+      kind: 'fact',
+      subject: 'ptah',
+      content: 'lanes exist',
+      salienceHint: 0.5,
+    } as unknown as Parameters<
+      SdkInternalQueryCuratorLlm['resolve']
+    >[0][number];
+    const related = [{ id: 'm1', subject: 'ptah', content: 'lanes exist' }];
+
+    const userCapture: ExecuteCapture = {};
+    await new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ text: '{"memories":[]}', capture: userCapture }),
+      makeWorkspace(''),
+    ).resolve([draft], related, undefined, { userInitiated: true });
+    expect(userCapture.lane).toBe('user-action');
+
+    const backgroundCapture: ExecuteCapture = {};
+    await new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({
+        text: '{"memories":[]}',
+        capture: backgroundCapture,
+      }),
+      makeWorkspace(''),
+    ).resolve([draft], related);
+    expect(backgroundCapture.lane).toBe('memory-curator');
+  });
+});
+
 describe('SdkInternalQueryCuratorLlm — tool-only runs are not silent runs', () => {
   const toolsOnly: readonly AssistantBlock[] = [
     { type: 'tool_use', name: 'mcp__ptah__ptah_memory_search' },
@@ -1011,5 +1074,119 @@ describe('SdkInternalQueryCuratorLlm — a multi-turn run is read from its LAST 
         { id: 'm1', subject: 'ptah', content: 'older note' },
       ]),
     ).resolves.toMatchObject([{ ...drafts[0], mergeTargetId: 'm1' }]);
+  });
+});
+
+/**
+ * TASK_2026_437 C14 (f). On 2026-09-14 the Codex upstream stopped resolving;
+ * the translation proxy answered HTTP 500, the subprocess retried and then
+ * closed the request with an error message whose TEXT is not the model's
+ * answer. Read as text it parsed to zero drafts — a clean empty extraction
+ * that consumes the session's observations. It must be a stall instead.
+ */
+describe('SdkInternalQueryCuratorLlm — an unreachable provider stalls the pass', () => {
+  function adapterOver(
+    stream: () => AsyncIterable<unknown>,
+    logger = makeLogger(),
+  ) {
+    const internalQuery = {
+      execute: jest.fn(async () => ({ stream: stream() })),
+    } as unknown as InternalQueryService;
+    return new SdkInternalQueryCuratorLlm(
+      logger,
+      internalQuery,
+      makeWorkspaceFromConfig({ 'memory.curatorProvider': 'openai-codex' }),
+    );
+  }
+
+  async function* incidentStream(): AsyncIterable<unknown> {
+    yield {
+      type: 'system',
+      subtype: 'api_retry',
+      attempt: 1,
+      max_retries: 10,
+      retry_delay_ms: 500,
+      error_status: 500,
+      error: 'server_error',
+    };
+    yield {
+      type: 'assistant',
+      error: 'server_error',
+      message: {
+        content: [{ type: 'text', text: 'API Error: 500 {"memories": []}' }],
+      },
+    };
+    yield {
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      api_error_status: 500,
+    };
+  }
+
+  it('reports the incident shape as stalled provider-unreachable, not an empty extraction', async () => {
+    const adapter = adapterOver(incidentStream);
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'stalled',
+      reason: 'provider-unreachable',
+      providerId: 'openai-codex',
+    });
+  });
+
+  it('stalls instead of throwing when the query throws a network error', async () => {
+    const internalQuery = makeInternalQuery({
+      throwOnExecute: new Error('fetch failed', {
+        cause: Object.assign(new Error('getaddrinfo ENOTFOUND chatgpt.com'), {
+          code: 'ENOTFOUND',
+        }),
+      }),
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspace(''),
+    );
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'stalled',
+      reason: 'provider-unreachable',
+      providerId: '',
+    });
+  });
+
+  it('stores drafts unmerged when the resolve call finds the provider unreachable', async () => {
+    const drafts = [
+      {
+        kind: 'fact' as const,
+        subject: 'ptah',
+        content: 'lanes exist',
+        salienceHint: 0.5,
+      },
+    ];
+    const adapter = adapterOver(incidentStream);
+    await expect(
+      adapter.resolve(drafts, [
+        { id: 'm1', subject: 'ptah', content: 'older' },
+      ]),
+    ).resolves.toEqual([{ ...drafts[0], mergeTargetId: null }]);
+  });
+
+  it('still parses a run whose retries recovered', async () => {
+    const adapter = adapterOver(async function* () {
+      yield { type: 'system', subtype: 'api_retry', error_status: null };
+      yield {
+        type: 'assistant',
+        message: {
+          content: [
+            {
+              type: 'text',
+              text: '{"memories":[{"kind":"fact","subject":"ptah","content":"lanes exist","salienceHint":0.5}]}',
+            },
+          ],
+        },
+      };
+      yield { type: 'result', subtype: 'success', is_error: false };
+    });
+    const result = await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(result.status).toBe('extracted');
   });
 });

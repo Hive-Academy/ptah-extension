@@ -30,9 +30,13 @@
  * --activate` and the rewind path restart a query under an existing id too, so
  * this closes them at the same time.
  *
- * The floor map is BOUNDED (`REVISION_FLOOR_MAP_LIMIT`), because this is a
- * long-lived Electron process and a map that only ever grows is a leak
- * whatever its retention rule.
+ * BOTH maps are BOUNDED (`REVISION_FLOOR_MAP_LIMIT`, `TURN_RECORD_MAP_LIMIT`),
+ * because this is a long-lived Electron process and a map that only ever grows
+ * is a leak whatever its retention rule. `clear` is not enough on its own: it is
+ * called from one place (`ChatStreamBroadcaster`'s loop exit), while `ensure` is
+ * reached from the hooks, the harness stream, the Ptah-CLI stream loop and every
+ * id a `result` message resolves to — so records were created down paths that
+ * had no teardown at all (TASK_2026_374).
  *
  * ## Why the Stop hook only snapshots
  *
@@ -57,6 +61,26 @@
  * so the next commit is strictly greater than anything already emitted under
  * either alias. It is wired to `SessionIdResolvedCallbackRegistry` in
  * `di/register.ts`.
+ *
+ * ## Foreground signal (TASK_2026_437 C14)
+ *
+ * `generatingSessions()` + `onGeneratingChange` are what
+ * `TurnStateForegroundSource` (wired in `di/register.ts`) reads to give the
+ * vscode-core `BackgroundWorkGovernor` its foreground signal: background lanes
+ * yield while a session is generating. The stale-record ceiling for that
+ * signal lives in the source, not here — turn state itself never changes on a
+ * timer, and this class stays timer-free. Listeners are called
+ * synchronously after every mutation that can change the answer
+ * (`markGenerating`, `settleTurn`, `forceIdle`, and a `clear` or eviction that
+ * drops a generating record) — possibly when it did not change, never with
+ * I/O here.
+ *
+ * **A listener that throws is swallowed, and the next listener still runs.**
+ * Every notifying call is on the turn state machine's hot path, inside the
+ * stream transformer; a subscriber's bug must never abort `markGenerating`,
+ * `settleTurn`, `forceIdle`, `clear` or an eviction. The registry has no logger
+ * (it stays I/O-free), so the SUBSCRIBER owns reporting its own failures — the
+ * governor's foreground source logs inside its callback.
  */
 import { injectable } from 'tsyringe';
 import type {
@@ -69,6 +93,13 @@ import type {
   TurnStateEvent,
 } from '@ptah-extension/shared';
 import { generateEventId } from '../message-transform/message-transform-helpers';
+
+/** One record currently `generating`, as the foreground signal reads it. */
+export interface GeneratingSession {
+  readonly sessionId: string;
+  /** Epoch ms of the `generating` commit (`state.timestamp`). */
+  readonly since: number;
+}
 
 /** What the `Stop` hook reports; consumed at `settleTurn`. */
 export interface TurnStopSnapshot {
@@ -126,6 +157,63 @@ type TurnStateDraft = Omit<SessionTurnState, 'revision' | 'timestamp'>;
  * the other.
  */
 export const REVISION_FLOOR_MAP_LIMIT = 256;
+
+/**
+ * Upper bound for the record map; the least-recently-USED entry is evicted.
+ *
+ * `clear` has exactly one caller, `ChatStreamBroadcaster`'s loop exit, and it
+ * does not cover the record's other creators: the `Stop` / `StopFailure` /
+ * `SubagentStop` hooks, the harness stream broadcaster, the Ptah-CLI stream loop
+ * and every `result` message `ResultMessageTransformer` settles. Those records
+ * were never removed at all, so the map grew for the life of the process and
+ * `session:status` kept answering with a `turnState` for sessions that ended
+ * long ago (TASK_2026_374).
+ *
+ * **Eviction is only safe because the victim's FLOOR is written first.** A
+ * record's revision never exceeds its own floor — `ensure` seeds a record AT the
+ * floor, `commit` raises both together, `rekey` writes the same baseline to
+ * both — so re-seeding an evicted session from its floor issues the same next
+ * number the surviving record would have. `evictOldestRecord` writes
+ * `noteFloor(victim, victim.state.revision)` before dropping it, which both
+ * guarantees that floor exists and (through `noteFloor`'s re-insertion) moves it
+ * to the recent end of the floor map, so the session that just lost its record
+ * is the LAST one whose floor is evicted. Without that write the eviction would
+ * restart the counter under an id a live tab still remembers, which is
+ * TASK_2026_371 D1 / review F1 — the defect this bound must not reintroduce.
+ *
+ * The order is use recency, not insertion: `ensure` re-inserts on a hit, so the
+ * victim is the session nobody has touched for longest. Insertion order would
+ * pick the chat tab that has been streaming all day, because in streaming-input
+ * mode its broadcast loop — and therefore its single record — is created once
+ * and lives for the whole session.
+ *
+ * **KNOWN AND ACCEPTED — eviction is phase-BLIND, and a mid-turn victim loses
+ * more than its revision.** The floor carries `state.revision` and nothing else,
+ * so a record evicted while `generating` also drops its `stopSnapshot`, its
+ * `failure` and `generatingEmitted`. Re-seeded from the floor, `settleTurn` then
+ * derives `idle` where the snapshots would have said `awaiting-background`,
+ * `sleeping` or `failed`, `applySnapshot` returns `null` for the gap between the
+ * eviction and the `result`, and `session:status` answers "no turn state" for a
+ * session that is mid-turn. The turn after that is correct — the record is
+ * re-created and the counter never went backwards — so the residue is one wrong
+ * terminal phase, self-healing.
+ *
+ * Skipping `generating` records when choosing the victim was considered and
+ * REJECTED, twice over. It inverts the rule the bullet above states — the only
+ * non-`generating` entry in a busy map is typically the long-lived chat tab,
+ * which is precisely the record that must survive — and the records this bound
+ * exists to collect are the ones whose teardown never ran, which is exactly how
+ * a record gets STUCK in `generating`. A policy that refuses to evict them
+ * cannot bound the map it is there to bound.
+ *
+ * Reaching the residue needs `TURN_RECORD_MAP_LIMIT` distinct session ids
+ * touched between one session's `markGenerating` and its `result`. Hooks and the
+ * Ptah-CLI stream loop do create records for ids the chat never streams, so it
+ * is not unreachable — but 256 of them inside one turn is not ordinary load. If
+ * that ever becomes ordinary, raise the bound; do not make eviction selective.
+ * Pinned by the `drops a mid-turn record's snapshots` spec (TASK_2026_374).
+ */
+export const TURN_RECORD_MAP_LIMIT = 256;
 
 /**
  * Wrap a state as the `turn_state` chunk-stream event. `messageId` is never
@@ -189,6 +277,37 @@ export class SessionTurnStateRegistry {
    * `REVISION_FLOOR_MAP_LIMIT` for the bound.
    */
   private readonly revisionFloors = new Map<string, number>();
+  private readonly generatingListeners = new Set<() => void>();
+
+  /**
+   * Every record currently `generating`, with the time it entered that phase.
+   * A scan, bounded by `TURN_RECORD_MAP_LIMIT`, run only when the foreground
+   * source asks. `since` is the generating commit's own timestamp: nothing
+   * re-commits a `generating` record until it settles (`applySnapshot` refuses
+   * to, and `rekey` carries the state object over), so it is the turn's start.
+   */
+  generatingSessions(): GeneratingSession[] {
+    const sessions: GeneratingSession[] = [];
+    for (const [sessionId, record] of this.records) {
+      if (record.state.phase === 'generating') {
+        sessions.push({ sessionId, since: record.state.timestamp });
+      }
+    }
+    return sessions;
+  }
+
+  /**
+   * Subscribe to "the generating set may have changed". See the "Foreground
+   * signal" section of the file header for when it fires.
+   *
+   * @returns An unsubscribe function.
+   */
+  onGeneratingChange(listener: () => void): () => void {
+    this.generatingListeners.add(listener);
+    return () => {
+      this.generatingListeners.delete(listener);
+    };
+  }
 
   /**
    * Root assistant `message_start`. Returns a NEW state on the first call of a
@@ -203,12 +322,14 @@ export class SessionTurnStateRegistry {
       return null;
     }
     record.generatingEmitted = true;
-    return this.commit(sessionId, record, {
+    const state = this.commit(sessionId, record, {
       phase: 'generating',
       backgroundTasks: [],
       sessionCrons: [],
       terminalReason: null,
     });
+    this.notifyGeneratingChange();
+    return state;
   }
 
   /** `Stop` hook — snapshot only, no phase change. */
@@ -244,13 +365,15 @@ export class SessionTurnStateRegistry {
     record.failure = null;
     record.generatingEmitted = false;
 
-    return this.commit(sessionId, record, {
+    const state = this.commit(sessionId, record, {
       phase,
       backgroundTasks,
       sessionCrons,
       terminalReason: failure?.terminalReason ?? stop?.terminalReason ?? null,
       ...(failure ? { error: failure.error } : {}),
     });
+    this.notifyGeneratingChange();
+    return state;
   }
 
   /**
@@ -268,6 +391,7 @@ export class SessionTurnStateRegistry {
     if (!record || record.state.phase === 'generating') {
       return null;
     }
+    this.storeRecord(sessionId, record);
     const current = record.state;
     let phase = current.phase;
     if (phase === 'awaiting-background' && backgroundTasks.length === 0) {
@@ -296,12 +420,14 @@ export class SessionTurnStateRegistry {
     record.stopSnapshot = null;
     record.failure = null;
     record.generatingEmitted = false;
-    return this.commit(sessionId, record, {
+    const state = this.commit(sessionId, record, {
       phase: 'idle',
       backgroundTasks: [],
       sessionCrons: [],
       terminalReason: terminalReason ?? null,
     });
+    this.notifyGeneratingChange();
+    return state;
   }
 
   get(sessionId: string): SessionTurnState | undefined {
@@ -343,7 +469,7 @@ export class SessionTurnStateRegistry {
       this.revisionFloors.get(realId) ?? 0,
     );
     if (merged) {
-      this.records.set(
+      this.storeRecord(
         realId,
         baseline === merged.state.revision
           ? merged
@@ -361,30 +487,87 @@ export class SessionTurnStateRegistry {
    * — see the "monotonic per SESSION ID" section of the file header.
    */
   clear(sessionId: string): void {
+    const wasGenerating =
+      this.records.get(sessionId)?.state.phase === 'generating';
     this.records.delete(sessionId);
+    // A loop that exits mid-turn without `forceIdle` must not leave the
+    // foreground signal stuck busy until some other session settles.
+    if (wasGenerating) this.notifyGeneratingChange();
   }
 
   private ensure(sessionId: string): TurnRecord {
-    let record = this.records.get(sessionId);
-    if (!record) {
-      record = {
-        state: {
-          phase: 'idle',
-          // Seeded from the floor, not from 0: the next commit must beat every
-          // revision ever emitted under this id, including a previous query's.
-          revision: this.revisionFloors.get(sessionId) ?? 0,
-          backgroundTasks: [],
-          sessionCrons: [],
-          terminalReason: null,
-          timestamp: Date.now(),
-        },
-        stopSnapshot: null,
-        failure: null,
-        generatingEmitted: false,
-      };
-      this.records.set(sessionId, record);
-    }
+    const record = this.records.get(sessionId) ?? {
+      state: {
+        phase: 'idle' as SessionTurnPhase,
+        // Seeded from the floor, not from 0: the next commit must beat every
+        // revision ever emitted under this id, including a previous query's.
+        revision: this.revisionFloors.get(sessionId) ?? 0,
+        backgroundTasks: [],
+        sessionCrons: [],
+        terminalReason: null,
+        timestamp: Date.now(),
+      },
+      stopSnapshot: null,
+      failure: null,
+      generatingEmitted: false,
+    };
+    // Mutating paths that create records or accept every phase reach them
+    // through here. `applySnapshot` preserves its do-not-create/phase guards
+    // and refreshes recency explicitly on its hit path.
+    this.storeRecord(sessionId, record);
     return record;
+  }
+
+  /**
+   * Write `record` under `sessionId` as the most recently used entry and keep
+   * the map inside `TURN_RECORD_MAP_LIMIT`. Same `delete`-then-`set` idiom as
+   * `noteFloor`: Map key order becomes use recency, and re-inserting an existing
+   * key shrinks the map first, so a touch can never evict anything.
+   */
+  private storeRecord(sessionId: string, record: TurnRecord): void {
+    this.records.delete(sessionId);
+    if (this.records.size >= TURN_RECORD_MAP_LIMIT) {
+      this.evictOldestRecord();
+    }
+    this.records.set(sessionId, record);
+  }
+
+  /**
+   * Drop the least recently used record, after folding its revision into the
+   * floor map. The floor write is not bookkeeping — it is what makes the
+   * eviction safe. The choice of victim is deliberately phase-BLIND, and the
+   * snapshots a mid-turn victim loses are an accepted residue; both are argued
+   * at `TURN_RECORD_MAP_LIMIT`.
+   */
+  private evictOldestRecord(): void {
+    const victim = this.records.keys().next().value;
+    if (victim === undefined) {
+      return;
+    }
+    const victimRecord = this.records.get(victim);
+    const revision = victimRecord?.state.revision ?? 0;
+    this.records.delete(victim);
+    if (victimRecord?.state.phase === 'generating') {
+      this.notifyGeneratingChange();
+    }
+    // A floor of 0 is indistinguishable from no floor at `ensure`, so writing
+    // one would spend a slot in the bounded floor map to say nothing.
+    if (revision > 0) {
+      this.noteFloor(victim, revision);
+    }
+  }
+
+  /** Isolated per listener — see "Foreground signal" in the file header. */
+  private notifyGeneratingChange(): void {
+    for (const listener of [...this.generatingListeners]) {
+      try {
+        listener();
+      } catch {
+        // degradation-audit: optional-capability - a throwing subscriber loses
+        // only its own notification; the turn transition that called it must
+        // complete. Subscribers report their own failures (file header).
+      }
+    }
   }
 
   private commit(

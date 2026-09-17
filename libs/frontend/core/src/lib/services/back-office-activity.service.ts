@@ -1,5 +1,5 @@
 /**
- * BackOfficeActivityService — ten push messages become one bounded, coalesced
+ * BackOfficeActivityService — nine push messages become one bounded, coalesced
  * list of human sentences (TASK_2026_380, component 14d).
  *
  * Ptah does a lot of work the user never sees. Each subsystem already
@@ -36,6 +36,7 @@ import {
   isActivityEventPayload,
   isBackendReadiness,
   isBootPhase,
+  normalizeWorkspaceRoot,
   type ActivityEventPayload,
   type ActivityLevel,
   type ActivitySource,
@@ -46,13 +47,13 @@ import {
   type IndexingProgressEvent,
   type MemoryCorpusChangedPayload,
   type MemoryExtractedPayload,
-  type MemoryObservationCapturedPayload,
   type SkillSynthesisEventPayload,
   type SkillSynthesisEventWire,
   type VecStatusChangedPayload,
 } from '@ptah-extension/shared';
 
 import type { MessageHandler } from './message-router.types';
+import { WorkspaceScopeService } from './workspace-scope.service';
 
 /** One rendered line of back-office activity. */
 export interface ActivityItem {
@@ -98,12 +99,12 @@ function nextItemId(): string {
 @Injectable({ providedIn: 'root' })
 export class BackOfficeActivityService implements MessageHandler {
   private readonly destroyRef = inject(DestroyRef);
+  private readonly workspaceScope = inject(WorkspaceScopeService);
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.ACTIVITY_EVENT,
     MESSAGE_TYPES.BOOT_READINESS_CHANGED,
     MESSAGE_TYPES.MEMORY_EXTRACTED,
-    MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED,
     MESSAGE_TYPES.MEMORY_CORPUS_CHANGED,
     MESSAGE_TYPES.INDEXING_PROGRESS,
     MESSAGE_TYPES.INDEXING_COMPLETE,
@@ -158,9 +159,15 @@ export class BackOfficeActivityService implements MessageHandler {
       case MESSAGE_TYPES.BOOT_READINESS_CHANGED:
         return mapBootReadiness(payload);
       case MESSAGE_TYPES.MEMORY_EXTRACTED:
+        if (
+          !isForActiveWorkspace(
+            payload,
+            this.workspaceScope.activeWorkspacePath(),
+          )
+        ) {
+          return null;
+        }
         return mapMemoryExtracted(payload);
-      case MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED:
-        return mapMemoryObservation(payload);
       case MESSAGE_TYPES.MEMORY_CORPUS_CHANGED:
         return mapMemoryCorpus(payload);
       case MESSAGE_TYPES.INDEXING_PROGRESS:
@@ -356,22 +363,29 @@ function mapMemoryExtracted(payload: unknown): ActivityItem | null {
     source: 'memory',
     kind: 'curated',
     summary:
-      merged > 0
-        ? `Curated ${body.created} memories (${merged} merged)`
-        : `Curated ${body.created} memories`,
+      body.created === 0 && merged > 0
+        ? `Merged ${merged} memories`
+        : merged > 0
+          ? `Curated ${body.created} memories (${merged} merged)`
+          : `Curated ${body.created} memories`,
     timestamp: body.timestamp,
   });
 }
 
-function mapMemoryObservation(payload: unknown): ActivityItem | null {
-  const body = payload as MemoryObservationCapturedPayload | undefined;
-  if (!body || typeof body.kind !== 'string') return null;
-  return makeItem({
-    source: 'memory',
-    kind: 'observed',
-    summary: `Captured a ${body.kind} observation`,
-    timestamp: body.timestamp,
-  });
+function isForActiveWorkspace(
+  payload: unknown,
+  activeWorkspacePath: string | null,
+): boolean {
+  const workspaceRoot = (payload as { workspaceRoot?: unknown } | undefined)
+    ?.workspaceRoot;
+  if (workspaceRoot === null || workspaceRoot === undefined) return true;
+  if (typeof workspaceRoot !== 'string' || activeWorkspacePath === null) {
+    return false;
+  }
+  return (
+    normalizeWorkspaceRoot(workspaceRoot) ===
+    normalizeWorkspaceRoot(activeWorkspacePath)
+  );
 }
 
 function mapMemoryCorpus(payload: unknown): ActivityItem | null {

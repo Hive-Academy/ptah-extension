@@ -104,6 +104,11 @@ export type ProviderClearModelTierInput = z.infer<
   typeof ProviderClearModelTierSchema
 >;
 
+export const ProviderGetAccountUsageSchema = z.object({
+  providerId: z.string().min(1),
+  refresh: z.boolean().optional(),
+}).strict();
+
 // ---------------------------------------------------------------------------
 // User-defined provider entries (TASK_2026_236)
 //

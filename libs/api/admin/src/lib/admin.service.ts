@@ -24,6 +24,7 @@ import { DeleteUserDto } from './dto/delete-user.dto';
 import { MemberGroupsService } from '@ptah-api/community';
 import type { AdminListResponse } from './admin-records.controller';
 import type { AdminBulkEmailResponse } from './admin-users.controller';
+import { WAITLIST_STAGE_PREDICATES } from './waitlist-query';
 
 /**
  * Per-user relation counts included in the deletion preview & result payloads.
@@ -73,17 +74,13 @@ export interface DeleteUserActor {
 export interface AdminStatsResponse {
   waitlist: {
     total: number;
+    pending: number;
+    new: number;
+    invited: number;
+    approved: number;
+    converted: number;
     /** Rows sent the WITHDRAWN paid invite. Historical — nothing writes it. */
     notified: number;
-    /**
-     * TASK_2026_201 R4.5 — rows granted FREE founding access (`approvedAt`
-     * non-null). A separate fact from `converted`, and that separation is the
-     * whole point of the column: a gift is not a conversion, and counting one
-     * as the other silently inflates the paid funnel the day checkout opens.
-     */
-    approved: number;
-    /** Rows that PAID. Written by the Paddle fan-out only. */
-    converted: number;
     last7Days: number;
   };
   members: {
@@ -95,7 +92,7 @@ export interface AdminStatsResponse {
    * additive — cheap `count()` queries surfacing the operator work queue.
    */
   attention: {
-    /** Waitlist rows with no `notifiedAt` (= total − notified). */
+    /** Waitlist rows in the new stage (= waitlist.new). */
     waitlistUninvited: number;
     /** Failed webhooks with `resolved = false`. */
     failedWebhooksUnresolved: number;
@@ -343,38 +340,59 @@ export class AdminService {
 
     const [
       total,
-      notified,
+      newCount,
+      invited,
       approved,
       converted,
+      notified,
       last7Days,
       builders,
       community,
       failedWebhooksUnresolved,
       subscriptionsPastDue,
       sessionRequestsPending,
-    ] = await this.prisma.$transaction([
-      this.prisma.waitlist.count(),
-      this.prisma.waitlist.count({ where: { notifiedAt: { not: null } } }),
-      this.prisma.waitlist.count({ where: { approvedAt: { not: null } } }),
-      this.prisma.waitlist.count({ where: { convertedAt: { not: null } } }),
-      this.prisma.waitlist.count({ where: { createdAt: { gte: since } } }),
-      this.prisma.license.count({
-        where: { plan: 'builders', status: 'active' },
-      }),
-      this.prisma.license.count({
-        where: { plan: 'community', status: 'active' },
-      }),
-      this.prisma.failedWebhook.count({ where: { resolved: false } }),
-      this.prisma.subscription.count({ where: { status: 'past_due' } }),
-      this.prisma.sessionRequest.count({ where: { status: 'pending' } }),
-    ]);
+    ] = await this.prisma.$transaction(
+      [
+        this.prisma.waitlist.count(),
+        this.prisma.waitlist.count({ where: WAITLIST_STAGE_PREDICATES.new }),
+        this.prisma.waitlist.count({
+          where: WAITLIST_STAGE_PREDICATES.invited,
+        }),
+        this.prisma.waitlist.count({
+          where: WAITLIST_STAGE_PREDICATES.approved,
+        }),
+        this.prisma.waitlist.count({
+          where: WAITLIST_STAGE_PREDICATES.converted,
+        }),
+        this.prisma.waitlist.count({ where: { notifiedAt: { not: null } } }),
+        this.prisma.waitlist.count({ where: { createdAt: { gte: since } } }),
+        this.prisma.license.count({
+          where: { plan: 'builders', status: 'active' },
+        }),
+        this.prisma.license.count({
+          where: { plan: 'community', status: 'active' },
+        }),
+        this.prisma.failedWebhook.count({ where: { resolved: false } }),
+        this.prisma.subscription.count({ where: { status: 'past_due' } }),
+        this.prisma.sessionRequest.count({ where: { status: 'pending' } }),
+      ],
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
 
     return {
-      waitlist: { total, notified, approved, converted, last7Days },
+      waitlist: {
+        total,
+        pending: newCount + invited,
+        new: newCount,
+        invited,
+        approved,
+        converted,
+        notified,
+        last7Days,
+      },
       members: { builders, community },
       attention: {
-        // No notifiedAt timestamp yet = not-yet-invited; total minus notified.
-        waitlistUninvited: total - notified,
+        waitlistUninvited: newCount,
         failedWebhooksUnresolved,
         subscriptionsPastDue,
         sessionRequestsPending,

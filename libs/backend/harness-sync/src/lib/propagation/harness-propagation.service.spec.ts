@@ -68,10 +68,35 @@ describe('HarnessPropagationService', () => {
 
     await h.service.propagate('/ws', 'skill-repropagation:agent');
 
-    expect(h.refresh).toHaveBeenCalledWith('/ws');
+    expect(h.refresh).toHaveBeenCalledWith('/ws', undefined);
     expect(h.refresh.mock.invocationCallOrder[0]).toBeLessThan(
       h.reconcile.mock.invocationCallOrder[0],
     );
+  });
+
+  // TASK_2026_437 FU-17b: the refresh label is a separate, opt-in option.
+  it('passes no label (undefined, the same as an omitted argument) when none is given', async () => {
+    const h = buildHarness();
+
+    await h.service.propagate('/ws', 'plugins:uninstall-external');
+
+    expect(h.refresh).toHaveBeenCalledTimes(1);
+    expect(h.refresh.mock.calls[0][0]).toBe('/ws');
+    expect(h.refresh.mock.calls[0][1]).toBeUndefined();
+  });
+
+  it('hands the refresher the refresh label, and keeps the reconcile reason', async () => {
+    const h = buildHarness();
+
+    await h.service.propagate('/ws', 'skill-repropagation:skill', {
+      userLayerRefreshReason: 'skill-repropagation',
+    });
+
+    expect(h.refresh.mock.calls).toEqual([['/ws', 'skill-repropagation']]);
+    expect(h.reconcile).toHaveBeenCalledWith('/ws', {
+      mode: 'full',
+      reason: 'skill-repropagation:skill',
+    });
   });
 
   it('reconciles in full mode and carries the caller reason through', async () => {

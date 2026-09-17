@@ -41,6 +41,9 @@ export const PLATFORM_TOKENS = {
   /** IEditorProvider — active editor and document events */
   EDITOR_PROVIDER: Symbol.for('PlatformEditorProvider'),
 
+  /** IEditorLauncher - detected external-editor launch routes */
+  EDITOR_LAUNCHER: Symbol.for('PlatformEditorLauncher'),
+
   /** IPlatformInfo — platform type, extension path, storage paths */
   PLATFORM_INFO: Symbol.for('PlatformInfo'),
 
@@ -113,4 +116,12 @@ export const PLATFORM_TOKENS = {
    * ready — VS Code and CLI hosts have no staged boot).
    */
   BOOT_READINESS: Symbol.for('PlatformBootReadiness'),
+
+  /**
+   * IWorkspaceWatcher — recursive workspace change feed, delivered as
+   * coalesced batches (≤ 4 per second, ≤ 500 paths) or an overflow marker
+   * (TASK_2026_437 INV-1). Adapters: ElectronWorkspaceWatcher (utilityProcess
+   * host), CliWorkspaceWatcher (worker_threads host), VscodeWorkspaceWatcher.
+   */
+  WORKSPACE_WATCHER: Symbol.for('PlatformWorkspaceWatcher'),
 } as const;

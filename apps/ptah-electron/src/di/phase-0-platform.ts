@@ -2,7 +2,8 @@
  * Electron DI — Phase 0: Platform abstraction layer + Logger adapter.
  *
  * Registers:
- *   - All 10 PLATFORM_TOKENS via registerPlatformElectronServices
+ *   - The PLATFORM_TOKENS registerPlatformElectronServices binds, including
+ *     WORKSPACE_WATCHER (ElectronWorkspaceWatcher over the watch host)
  *   - TOKENS.OUTPUT_MANAGER (ElectronOutputManagerAdapter)
  *   - TOKENS.LOGGER (ElectronLoggerAdapter, cast to Logger)
  *
@@ -23,6 +24,7 @@ import {
   ElectronOutputManagerAdapter,
   ElectronLoggerAdapter,
 } from './electron-adapters';
+import { createElectronWorkspaceWatcherOptions } from '../services/platform/electron-workspace-watch-host-factory';
 
 export interface Phase0Result {
   logger: Logger;
@@ -38,7 +40,15 @@ export function registerPhase0Platform(
   container: DependencyContainer,
   options: ElectronPlatformOptions,
 ): Phase0Result {
-  registerPlatformElectronServices(container, options);
+  // `PLATFORM_TOKENS.WORKSPACE_WATCHER` (TASK_2026_437 C8): the out-of-main
+  // watch host. Registered here with every other port; nothing forks until a
+  // consumer calls `watch`. A caller-supplied wiring (a spec) wins.
+  registerPlatformElectronServices(container, {
+    ...options,
+    workspaceWatchHost:
+      options.workspaceWatchHost ??
+      createElectronWorkspaceWatcherOptions(container),
+  });
   const outputChannel = container.resolve<IOutputChannel>(
     PLATFORM_TOKENS.OUTPUT_CHANNEL,
   );

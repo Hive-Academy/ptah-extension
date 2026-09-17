@@ -47,12 +47,10 @@ function makeSettings(
     dedupCosineThreshold: 0.85,
     maxActiveSkills: 50,
     candidatesDir: '',
-    eligibilityMinTurns: 5,
     evictionDecayRate: 0.95,
     generalizationContextThreshold: 3,
     dedupClusterThreshold: 0.78,
     prefilterMinEdits: 1,
-    prefilterMinChars: 800,
     prefilterMinToolUses: 2,
     judgeEnabled: true,
     minJudgeScore: 6.0,
@@ -444,6 +442,35 @@ describe('SkillJudgeService', () => {
       );
       expect(result.status).toBe('unscored');
       expect(result.score).toBeNull();
+    });
+  });
+
+  /**
+   * TASK_2026_437 C14, Batch 16b. The RPC-driven flows (manual promote, manual
+   * enhance/preview, manual curator run) pass `userInitiated`; the verdict call
+   * must reach the internal query on the ungoverned user-action lane. Every drain
+   * and daemon call passes nothing and keeps the governed lane.
+   */
+  describe('the concurrency lane the verdict call runs on', () => {
+    const answer = [[resultMessage({ structured_output: flatScorecard(7) })]];
+
+    it('runs a user-initiated verdict on the user-action lane', async () => {
+      const { svc, query } = makeJudge(answer);
+      await svc.judge(
+        fakeCandidate(),
+        'body',
+        makeSettings(),
+        undefined,
+        undefined,
+        { userInitiated: true },
+      );
+      expect(query.calls[0].lane).toBe('user-action');
+    });
+
+    it('keeps a background verdict on the skill-synthesis lane', async () => {
+      const { svc, query } = makeJudge(answer);
+      await svc.judge(fakeCandidate(), 'body', makeSettings());
+      expect(query.calls[0].lane).toBe('skill-synthesis');
     });
   });
 });

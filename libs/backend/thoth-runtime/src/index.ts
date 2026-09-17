@@ -18,6 +18,18 @@ export {
   SKILL_DRAIN_JOBS,
   type SkillDrainJobSpec,
 } from './lib/skill-drain-jobs';
+// The ONE memory retention job spec and its per-run handler, shared with
+// `cli-engine` on the same terms as the drain table.
+export {
+  MEMORY_RETENTION_JOB,
+  createMemoryRetentionHandler,
+  type MemoryRetentionJobSpec,
+} from './lib/memory-retention-job';
+export {
+  SKILL_BACKLOG_CLEANUP_JOB,
+  createSkillBacklogCleanupHandler,
+  type SkillBacklogCleanupJobSpec,
+} from './lib/skill-backlog-cleanup-job';
 export {
   createActivityEmitter,
   withActivityEmit,

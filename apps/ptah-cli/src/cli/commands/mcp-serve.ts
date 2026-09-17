@@ -45,6 +45,7 @@ import type { GlobalOptions } from '../router.js';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   buildMcpMvpTools,
+  MCP_MVP_TOOL_NAMES,
   MCP_PROTOCOL_VERSION,
   registerMcpStdioServices,
   STDIO_MCP_SERVER_TOKEN,
@@ -60,8 +61,10 @@ import type { SessionDescribeToolEntry } from '@ptah-extension/shared';
 export interface McpServeOptions {
   /**
    * Tool allowlist override. CSV string from the `--allow-tools` flag
-   * already coerced by the router. When undefined, the full 7-tool MVP
-   * catalog is advertised.
+   * already coerced by the router. When undefined, the full MVP catalog is
+   * advertised — `MCP_MVP_TOOL_NAMES`, which is the one place its size is
+   * stated. Do not repeat the count here; this comment said 7 while the
+   * tuple held 8.
    */
   allowTools?: readonly string[];
 }
@@ -368,8 +371,15 @@ export async function execute(
         },
       });
 
+      // Derived, never a literal. This read `mvp:7` while the tuple held 8
+      // (TASK_2026_402 retired `agent_steer` and added `agent_message` +
+      // `agent_report`), so the readiness line reported a count that was
+      // simply wrong. Counting the tuple keeps it true through the next change.
       process.stderr.write(
-        `[ptah-mcp] ready (tools=${(opts.allowTools ?? []).join(',') || 'mvp:7'})\n`,
+        `[ptah-mcp] ready (tools=${
+          (opts.allowTools ?? []).join(',') ||
+          `mvp:${MCP_MVP_TOOL_NAMES.length}`
+        })\n`,
       );
 
       const exitCode = await drainPromise;

@@ -1,6 +1,6 @@
 ---
 name: resilient-nestjs-patterns
-description: 'Production-ready NestJS architectural patterns for service orchestration, domain layering, resilient external communication, event-driven architecture, and dynamic module design. Use when decomposing complex services into single-responsibility units, implementing orchestrator patterns, building Controller-Service-DbService layering, adding retry with exponential backoff, implementing fallback strategies, setting up NestJS EventEmitter with SSE (Server-Sent Events), creating event listeners for async side-effects, designing dynamic modules with forRoot/forTesting patterns, or configuring environment-driven provider selection.'
+description: 'NestJS service patterns for orchestration and resilience. Use when splitting a complex service, layering controller, service and db service, adding retries or fallbacks, wiring EventEmitter events or SSE, or designing forRoot/forTesting dynamic modules.'
 ---
 
 # Resilient NestJS Patterns

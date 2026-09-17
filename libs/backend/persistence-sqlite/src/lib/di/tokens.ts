@@ -43,6 +43,12 @@ export const PERSISTENCE_TOKENS = {
   INTEGRITY_WORKER_PATH: Symbol.for('PtahIntegrityWorkerPath'),
   /** SqliteIntegrityService — owns the due-decision and the worker dispatch. */
   SQLITE_INTEGRITY_SERVICE: Symbol.for('PtahSqliteIntegrityService'),
+  /**
+   * SqlitePageReclaimer — owns free-page statistics and bounded
+   * `incremental_vacuum` steps for the shared file. Consumed by memory
+   * retention; never issues a full vacuum.
+   */
+  SQLITE_PAGE_RECLAIMER: Symbol.for('PtahSqlitePageReclaimer'),
   /** IBackupService — SQLite backup + rotation. */
   BACKUP_SERVICE: Symbol.for('PtahBackupService'),
   /** VecStatusService — single source of truth for sqlite-vec availability. */

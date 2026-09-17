@@ -322,6 +322,13 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * `GET v1/admin/courses/:id/modules` (141 + 1). It lives on the existing
  * courses controller, so no controller or prefix census changed.
  *
+ * **146** since TASK_2026_462 Batch A added the four admin waitlist read routes
+ * (142 + 4): `GET v1/admin/waitlist`, `GET v1/admin/waitlist/:id/details`,
+ * `GET v1/admin/waitlist/eligible-ids` and `GET v1/admin/waitlist/export.csv`,
+ * all on the existing `AdminWaitlistController` at `v1/admin/waitlist`.
+ * No new controller, so the controller census and prefix ledgers are untouched.
+ * Counting the array below gives 146 unique routes.
+ *
  * ⚠️ THIS IS A LIST, NOT A COUNT, ON PURPOSE. A count tells you the surface
  * changed; a list tells you WHICH route appeared, vanished or moved, in the
  * failure diff, in review, before it ships. Any change to the server's HTTP
@@ -548,6 +555,10 @@ const EXPECTED_ROUTES: readonly string[] = [
   'GET v1/admin/sessions',
   'GET v1/admin/stats',
   'GET v1/admin/users/:id/deletion-preview',
+  'GET v1/admin/waitlist',
+  'GET v1/admin/waitlist/:id/details',
+  'GET v1/admin/waitlist/eligible-ids',
+  'GET v1/admin/waitlist/export.csv',
   'GET v1/auth/callback',
   'GET v1/auth/login',
   'GET v1/auth/me',

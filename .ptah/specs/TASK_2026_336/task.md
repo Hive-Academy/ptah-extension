@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_336
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   The execution-tree reuse check has no state-identity guard, so a resumed tab

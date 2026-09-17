@@ -1,6 +1,6 @@
 ---
 name: angular-frontend-patterns
-description: Modern Angular development patterns with signals and reactive architecture. Use when (1) Building Angular components with signals, (2) Implementing smart/dumb component patterns, (3) State management with signals, (4) RxJS integration patterns, (5) Push-based architecture, (6) Component communication, (7) Angular routing patterns, (8) Form handling with signals.
+description: Angular component and state patterns built on signals. Use when building Angular components, smart/dumb component splits, signal-based state, RxJS interop, component communication, routing or forms.
 ---
 
 # Modern Angular Frontend Patterns

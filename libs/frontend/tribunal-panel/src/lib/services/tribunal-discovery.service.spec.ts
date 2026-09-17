@@ -15,7 +15,7 @@ function makeCli(
   return {
     cli: 'codex',
     installed: true,
-    supportsSteer: false,
+    messagingMode: 'queue',
     ...overrides,
   } as CliDetectionResult;
 }

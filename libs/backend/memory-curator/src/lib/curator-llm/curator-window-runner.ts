@@ -12,6 +12,7 @@
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   ICuratorLLM,
+  CuratorCallOptions,
   CuratorExtraction,
   ExtractedMemoryDraft,
 } from './curator-llm.interface';
@@ -176,6 +177,7 @@ export class CuratorWindowRunner {
     windows: readonly CuratorWindow[],
     signal?: AbortSignal,
     budget: QueueSlotRetryBudget = new QueueSlotRetryBudget(),
+    options: CuratorCallOptions = {},
   ): Promise<WindowedExtraction> {
     const drafts: ExtractedMemoryDraft[] = [];
     const seen = new Set<string>();
@@ -185,7 +187,12 @@ export class CuratorWindowRunner {
       if (signal?.aborted) return { status: 'aborted', completedWindows };
       let extraction: CuratorExtraction;
       try {
-        extraction = await this.extractOneWindow(chunk, budget, signal);
+        extraction = await this.extractOneWindow(
+          chunk,
+          budget,
+          signal,
+          options,
+        );
       } catch (error: unknown) {
         // An aborted pass keeps its existing `failed` reporting. `deferred`
         // promises the caller that the pass is worth retrying, and a caller
@@ -247,11 +254,12 @@ export class CuratorWindowRunner {
   private async extractOneWindow(
     chunk: CuratorWindow,
     budget: QueueSlotRetryBudget,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    options: CuratorCallOptions,
   ): Promise<CuratorExtraction> {
     for (;;) {
       try {
-        return await this.llm.extract(chunk.text, signal);
+        return await this.llm.extract(chunk.text, signal, options);
       } catch (error: unknown) {
         if (!isQueueSlotTimeout(error)) throw error;
         if (signal?.aborted) throw error;

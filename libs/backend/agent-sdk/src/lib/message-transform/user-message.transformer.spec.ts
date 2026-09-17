@@ -199,4 +199,23 @@ describe('UserMessageTransformer', () => {
       'parent-tool',
     );
   });
+  it('stamps the inbound peer label onto message_start only when one is given', () => {
+    const msg = {
+      uuid: 'u-peer-1',
+      message: { content: 'status please' },
+    } as never;
+
+    const labelled = transformer.transform(msg, state, helpers, undefined, {
+      label: 'reviewer',
+    });
+    expect(labelled[0]).toMatchObject({
+      eventType: 'message_start',
+      inboundPeer: { label: 'reviewer' },
+    });
+    // The label belongs to the message, not to each event.
+    expect(labelled[1]).not.toHaveProperty('inboundPeer');
+
+    const plain = transformer.transform(msg, state, helpers);
+    expect(plain[0]).not.toHaveProperty('inboundPeer');
+  });
 });

@@ -1,6 +1,6 @@
 ---
 name: angular-3d-scene-crafter
-description: 'Interactive 3D scene designer for @hive-academy/angular-3d library. Guides users through creating stunning Three.js scenes using declarative Angular components. Use when users want to: (1) Create new 3D scenes or hero sections, (2) Design visual effects (neon, space, glass, particles), (3) Get recommendations for primitives, lighting, and materials, (4) Learn composition patterns and best practices, (5) Generate complete Angular scene components with proper configuration, (6) Analyze reference images and reverse-engineer scenes to recreate similar aesthetics with available components (extracts colors, lighting, materials, composition).'
+description: 'Designs Angular 3D scenes with @hive-academy/angular-3d (declarative Three.js components). Use for 3D hero sections, neon, space, glass or particle effects, primitives, lighting and materials, or recreating a scene from a reference image.'
 ---
 
 # Angular 3D Scene Crafter

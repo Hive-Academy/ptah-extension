@@ -39,7 +39,7 @@ JSON: ptah.json.* (validate/repair JSON files)
 GIT: ptah.git.* (worktree operations)
 IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
 ORCHESTRATION: ptah.orchestration.* (workflow state management)
-AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, steer)
+AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, message, report)
 MEMORY/CORPUS: ptah.memory.* (search/list memories), ptah.corpus.* (build/list/rebuild/prime knowledge boards)
 HARNESS: ptah.harness.* (skill + MCP discovery, install, and proposeConfig)
 
@@ -296,15 +296,21 @@ LIFECYCLE:
 - read(agentId, tail?) - Read agent stdout/stderr output
   returns: { agentId, stdout, stderr, lineCount, truncated }
 
-- steer(agentId, instruction) - Send instruction to agent stdin
-  (only if CLI supports steering)
+- message(agentId, message) - Send a message to a running agent
+  returns: { mode: 'steer'|'interrupt-resume'|'queue-next-turn'|'unsupported', detail? }
+  ALWAYS read mode: 'unsupported' delivered nothing, and 'interrupt-resume'
+  discarded the partial work of the turn it interrupted.
+
+- report({ agentId, message, summary? }) - Deliver a running agent's report to
+  the session that spawned it. agentId identifies the REPORTING agent.
+  returns: { delivered, reason?, parentSessionId? }
 
 - stop(agentId) - Stop a running agent (SIGTERM, then SIGKILL after 5s)
   returns: final status
 
 DISCOVERY:
 - list() - List available CLI agents with installation status
-  returns: [{ cli, installed, path?, version?, supportsSteer }]
+  returns: [{ cli, installed, path?, version?, messagingMode }]
 
 WAITING:
 - waitFor(agentId, { pollInterval?, timeout? }) - Block until agent completes

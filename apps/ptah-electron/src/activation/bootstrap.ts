@@ -16,7 +16,11 @@ import type {
   IWorkspaceProvider,
   IWorkspaceLifecycleProvider,
 } from '@ptah-extension/platform-core';
-import { TOKENS, SentryService } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  SentryService,
+  type WorkspaceAwareStateStorage,
+} from '@ptah-extension/vscode-core';
 import {
   SETTINGS_TOKENS,
   type CustomProviderStore,
@@ -184,6 +188,7 @@ export async function bootstrapElectron(
     },
     ipcMain,
     initialFolders,
+    stateStorageWorkerPath: path.join(__dirname, 'state-storage-worker.mjs'),
   };
 
   const container = ElectronDIContainer.setup(platformOptions);
@@ -295,6 +300,14 @@ export async function bootstrapElectron(
   if (!startupWorkspaceRoot && initialFolders?.[0]) {
     startupWorkspaceRoot = initialFolders[0];
   }
+
+  // The exact active delegate completes verification/migration before IPC,
+  // RPC activation, session import, or the Angular renderer can observe it.
+  await container
+    .resolve<WorkspaceAwareStateStorage>(
+      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
+    )
+    .whenReady();
 
   // Started, NOT awaited — see `startMembershipVerification`. The settings
   // migration and `restoreWorkspaces()` above stay awaited because the renderer

@@ -209,7 +209,7 @@ describe('persistCliSessionReference — bulk output stays out of the blob', () 
     );
   });
 
-  it('omits streamEvents from the reference and stores them per agent on exit', async () => {
+  it('keeps stdout, segments and streamEvents off the reference and stores them per agent on exit', async () => {
     const readOutput = jest.fn().mockReturnValue(buildOutput());
     const { container, addCliSession, saveAgentOutput } = harness(readOutput);
 
@@ -231,18 +231,20 @@ describe('persistCliSessionReference — bulk output stays out of the blob', () 
     await Promise.resolve();
 
     const ref = addCliSession.mock.calls[0][1];
-    expect(ref.streamEvents).toBeUndefined();
-    expect(ref.segments).toHaveLength(3);
-    expect(ref.stdout).toBe('tail of stdout');
+    expect(ref).not.toHaveProperty('streamEvents');
+    expect(ref).not.toHaveProperty('segments');
+    expect(ref).not.toHaveProperty('stdout');
 
     expect(saveAgentOutput).toHaveBeenCalledWith(
       AGENT_ID,
       expect.objectContaining({
+        stdout: 'tail of stdout',
         streamEvents: expect.arrayContaining([
           expect.objectContaining({ id: 'evt-0' }),
         ]),
       }),
     );
+    expect(saveAgentOutput.mock.calls[0][1].segments).toHaveLength(3);
     expect(saveAgentOutput.mock.calls[0][1].streamEvents).toHaveLength(25);
   });
 
@@ -274,6 +276,10 @@ describe('persistCliSessionReference — bulk output stays out of the blob', () 
     );
 
     expect(addCliSession).toHaveBeenCalledTimes(1);
+    const ref = addCliSession.mock.calls[0][1];
+    expect(ref.stdout).toBe('tail of stdout');
+    expect(ref.segments).toHaveLength(3);
+    expect(ref).not.toHaveProperty('streamEvents');
   });
 });
 

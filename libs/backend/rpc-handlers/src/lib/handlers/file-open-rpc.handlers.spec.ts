@@ -1,207 +1,178 @@
 import 'reflect-metadata';
+import * as path from 'node:path';
 import { ElectronFileOpenRpcHandlers } from './file-open-rpc.handlers';
+import { FileType } from '@ptah-extension/platform-core';
 
 type RpcMethod = (params?: unknown) => unknown;
-type ErrorListener = (error: Error) => void;
 
-interface FakeSpawnedHandle {
-  on: jest.Mock;
-  whenSpawned: Promise<number | null>;
-}
+const WORKSPACE = path.resolve('/ws');
+const WORKSPACE_FILE = path.resolve('/ws/a.ts');
+const OUTSIDE_FILE = path.resolve('/other/a.ts');
 
-interface FakeSpawnRequest {
-  command: string;
-  args: readonly string[];
-  cwd?: string;
-  detached?: boolean;
-  needsConsole?: boolean;
-}
+describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () => {
+  const vscode = {
+    id: 'vscode' as const,
+    displayName: 'VS Code',
+    executablePath: 'C:\\editors\\code.exe',
+  };
+  const cursor = {
+    id: 'cursor' as const,
+    displayName: 'Cursor',
+    executablePath: 'C:\\editors\\cursor.exe',
+  };
 
-type FakeSpawner = jest.Mock<FakeSpawnedHandle, [FakeSpawnRequest]>;
-
-/** Narrows a plain object to the slice of a port this handler actually reaches. */
-const fake = <T>(value: unknown): T => value as T;
-
-describe('ElectronFileOpenRpcHandlers — file:open (TASK_2026_385 Batch 3.2)', () => {
-  const WS = 'C:/ws';
-
-  function build(options: {
-    spawnProcess: FakeSpawner;
-    workspaceFolders?: string[];
-  }): {
-    method: RpcMethod;
-    notifyFileOpened: jest.Mock;
-    logger: { warn: jest.Mock; error: jest.Mock };
-  } {
+  function build(
+    options: {
+      targets?: Array<typeof vscode | typeof cursor>;
+      remembered?: string;
+      workspaceFolders?: string[];
+      openFile?: jest.Mock;
+    } = {},
+  ) {
     const methods = new Map<string, RpcMethod>();
     const notifyFileOpened = jest.fn();
-    const logger = {
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
-      debug: jest.fn(),
-      trace: jest.fn(),
+    const openFile = options.openFile ?? jest.fn(async () => undefined);
+    const launcher = {
+      detect: jest.fn(async () => options.targets ?? [vscode, cursor]),
+      openFile,
     };
-
-    const handlers = new ElectronFileOpenRpcHandlers(
-      fake(logger),
-      fake({
-        registerMethod: (name: string, fn: RpcMethod) => methods.set(name, fn),
-      }),
-      fake({
-        getWorkspaceFolders: () => options.workspaceFolders ?? [WS],
-        getWorkspaceRoot: () => WS,
-      }),
-      fake({ notifyFileOpened }),
-      fake({ spawnProcess: options.spawnProcess }),
-    );
-
-    handlers.register();
+    new ElectronFileOpenRpcHandlers(
+      { warn: jest.fn() } as never,
+      {
+        registerMethod: (name: string, method: RpcMethod) =>
+          methods.set(name, method),
+      } as never,
+      {
+        getWorkspaceFolders: () => options.workspaceFolders ?? [WORKSPACE],
+        getConfiguration: () => options.remembered,
+      } as never,
+      { notifyFileOpened },
+      launcher as never,
+      {
+        stat: async () => ({
+          type: FileType.File,
+          ctime: 0,
+          mtime: 0,
+          size: 1,
+        }),
+      } as never,
+    ).register();
     const method = methods.get('file:open');
     if (!method) throw new Error('file:open was not registered');
-
-    return { method, notifyFileOpened, logger };
+    return { method, launcher, openFile, notifyFileOpened };
   }
 
-  /**
-   * A handle that resolves `whenSpawned` with `pid` — the shape a real
-   * successful spawn takes: the handle returns synchronously, the pid
-   * confirmation arrives on a later microtask.
-   */
-  function fakeHandle(pid: number | null = 1234): FakeSpawnedHandle {
-    return {
-      on: jest.fn(),
-      whenSpawned: Promise.resolve(pid),
-    };
-  }
-
-  /**
-   * A handle that resolves `whenSpawned` to `null` (the port's own contract
-   * for "the child never started") and, like the real `OffThreadProcessSpawner`,
-   * fires its `'error'` listener SYNCHRONOUSLY-BEFORE-MICROTASK — i.e. before
-   * any `await` on `whenSpawned` resumes — so a caller's listener always sees
-   * the error ahead of reading the settled pid.
-   */
-  function fakeFailingHandle(error: Error): FakeSpawnedHandle {
-    let listener: ErrorListener | undefined;
-    const on = jest.fn((event: string, cb: ErrorListener) => {
-      if (event === 'error') listener = cb;
-    }) as FakeSpawnedHandle['on'];
-
-    const whenSpawned = new Promise<number | null>((resolve) => {
-      // Fire the error listener before the pid promise settles, mirroring
-      // WorkerBackedProcess.fail(): settleSpawned() runs, then emit('error').
-      queueMicrotask(() => {
-        listener?.(error);
-        resolve(null);
-      });
+  it('keeps VS Code as the default when no preference is stored', async () => {
+    const { method, openFile, notifyFileOpened } = build();
+    await expect(method({ path: WORKSPACE_FILE, line: 12 })).resolves.toEqual({
+      success: true,
     });
-
-    return { on, whenSpawned };
-  }
-
-  it('spawns `code -g <path>:<line>`, confirms the spawn, and notifies the editor provider on success', async () => {
-    const spawnProcess = jest.fn((_req: FakeSpawnRequest) => fakeHandle());
-    const { method, notifyFileOpened } = build({ spawnProcess });
-
-    const result = await method({ path: 'C:\\ws\\a.ts', line: 12 });
-
-    expect(spawnProcess).toHaveBeenCalledTimes(1);
-    const request = spawnProcess.mock.calls[0][0];
-    expect(request.command).toBe('code');
-    expect(request.args).toEqual(['-g', 'C:\\ws\\a.ts:12']);
-    expect(request.cwd).toBe(WS);
-    expect(request.detached).toBe(process.platform !== 'win32');
-    expect(request.needsConsole).toBe(false);
-
-    expect(notifyFileOpened).toHaveBeenCalledWith('C:\\ws\\a.ts');
-    expect(result).toEqual({ success: true });
+    expect(openFile).toHaveBeenCalledWith(vscode, WORKSPACE_FILE, 12);
+    expect(notifyFileOpened).toHaveBeenCalledWith(WORKSPACE_FILE);
   });
 
-  it('spawns without a line number when none is given', async () => {
-    const spawnProcess = jest.fn((_req: FakeSpawnRequest) => fakeHandle());
-    const { method } = build({ spawnProcess });
-
-    await method({ path: 'C:\\ws\\a.ts' });
-
-    const request = spawnProcess.mock.calls[0][0];
-    expect(request.args).toEqual(['-g', 'C:\\ws\\a.ts']);
+  it('opens a file without a line number when none is given', async () => {
+    const { method, openFile } = build();
+    await expect(method({ path: WORKSPACE_FILE })).resolves.toEqual({
+      success: true,
+    });
+    expect(openFile).toHaveBeenCalledWith(vscode, WORKSPACE_FILE, undefined);
   });
 
-  it('refuses a path outside every workspace root without spawning', async () => {
-    const spawnProcess = jest.fn((_req: FakeSpawnRequest) => fakeHandle());
-    const { method, notifyFileOpened } = build({
-      spawnProcess,
-      workspaceFolders: [WS],
+  it('resolves a relative path from a registered workspace, independent of cwd', async () => {
+    const { method, openFile } = build();
+    await expect(
+      method({ path: 'src/a.ts', workspaceRoot: WORKSPACE }),
+    ).resolves.toEqual({ success: true });
+    expect(openFile).toHaveBeenCalledWith(
+      vscode,
+      path.join(WORKSPACE, 'src', 'a.ts'),
+      undefined,
+    );
+  });
+
+  it('rejects relative paths without a registered root', async () => {
+    const { method, openFile } = build();
+    await expect(method({ path: 'src/a.ts' })).resolves.toMatchObject({
+      success: false,
     });
+    expect(openFile).not.toHaveBeenCalled();
+  });
 
-    const result = await method({ path: 'C:\\other\\a.ts' });
+  it('uses a detected remembered target', async () => {
+    const { method, openFile } = build({ remembered: 'cursor' });
+    await method({ path: WORKSPACE_FILE });
+    expect(openFile).toHaveBeenCalledWith(cursor, WORKSPACE_FILE, undefined);
+  });
 
-    expect(spawnProcess).not.toHaveBeenCalled();
-    expect(notifyFileOpened).not.toHaveBeenCalled();
-    expect(result).toEqual({
+  it('falls back to VS Code when the remembered target is unavailable', async () => {
+    const { method, openFile } = build({
+      remembered: 'cursor',
+      targets: [vscode],
+    });
+    await method({ path: WORKSPACE_FILE });
+    expect(openFile).toHaveBeenCalledWith(vscode, WORKSPACE_FILE, undefined);
+  });
+
+  it('falls back to the first detected editor when VS Code is unavailable', async () => {
+    const { method, openFile } = build({ targets: [cursor] });
+    await method({ path: WORKSPACE_FILE });
+    expect(openFile).toHaveBeenCalledWith(cursor, WORKSPACE_FILE, undefined);
+  });
+
+  it('refuses an outside path and never launches', async () => {
+    const { method, openFile } = build();
+    await expect(method({ path: OUTSIDE_FILE })).resolves.toEqual({
       success: false,
       error: 'Path is outside the workspace',
     });
+    expect(openFile).not.toHaveBeenCalled();
   });
 
-  it('returns {success:false} instead of rejecting when spawnProcess throws synchronously', async () => {
-    const spawnProcess = jest.fn((_req: FakeSpawnRequest) => {
-      throw new Error('ENOENT: code not found');
+  it('reports launcher failures without notifying the editor provider', async () => {
+    const openFile = jest.fn(async () => {
+      throw new Error('launch failed');
     });
-    const { method, notifyFileOpened, logger } = build({ spawnProcess });
-
-    const result = await method({ path: 'C:\\ws\\a.ts' });
-
-    expect(result).toEqual({
+    const { method, notifyFileOpened } = build({ openFile });
+    await expect(method({ path: WORKSPACE_FILE })).resolves.toEqual({
       success: false,
-      error: 'ENOENT: code not found',
+      error: 'launch failed',
     });
     expect(notifyFileOpened).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalled();
   });
 
-  it('returns {success:false} — not an optimistic success — when the handle reports an async spawn failure, and never notifies', async () => {
-    // This is the shape the real OffThreadProcessSpawner actually produces:
-    // spawnProcess() returns a handle synchronously, and the failure (e.g.
-    // `code` not on PATH) surfaces later via the handle's 'error' event, not
-    // a thrown exception. A handler that answers right after spawnProcess()
-    // returns would report success here even though nothing launched.
-    const error = new Error('spawn code ENOENT');
-    const spawnProcess = jest.fn((_req: FakeSpawnRequest) =>
-      fakeFailingHandle(error),
-    );
-    const { method, notifyFileOpened, logger } = build({ spawnProcess });
-
-    const result = await method({ path: 'C:\\ws\\a.ts' });
-
-    expect(result).toEqual({ success: false, error: 'spawn code ENOENT' });
-    expect(notifyFileOpened).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalled();
-  });
-
-  it('rejects malformed params without throwing', async () => {
-    const spawnProcess = jest.fn((_req: FakeSpawnRequest) => fakeHandle());
-    const { method } = build({ spawnProcess });
-
+  it('rejects malformed params before detection', async () => {
+    const { method, launcher } = build();
     const result = (await method({})) as { success: boolean; error: string };
-
-    expect(spawnProcess).not.toHaveBeenCalled();
     expect(result.success).toBe(false);
     expect(result.error).toContain('path');
+    expect(launcher.detect).not.toHaveBeenCalled();
   });
 
-  it('reports a line-specific error for an invalid line, not the generic path message', async () => {
-    const spawnProcess = jest.fn((_req: FakeSpawnRequest) => fakeHandle());
-    const { method } = build({ spawnProcess });
+  /**
+   * `column` is part of the shared `file:open` contract so the VS Code host
+   * can place a cursor. Electron launches an EXTERNAL editor through an argv
+   * array that carries no column, so the field must be accepted and then
+   * ignored here — not rejected by `.strict()`, which would break the very
+   * callers Batch 8a is adding.
+   */
+  it('accepts a column and does not forward it to the launcher', async () => {
+    const { method, openFile } = build();
+    await expect(
+      method({ path: WORKSPACE_FILE, line: 12, column: 3 }),
+    ).resolves.toEqual({ success: true });
+    expect(openFile).toHaveBeenCalledWith(vscode, WORKSPACE_FILE, 12);
+  });
 
-    const result = (await method({ path: 'C:\\ws\\a.ts', line: 0 })) as {
+  it('reports a line-specific error for an invalid line', async () => {
+    const { method, launcher } = build();
+    const result = (await method({ path: WORKSPACE_FILE, line: 0 })) as {
       success: boolean;
       error: string;
     };
-
-    expect(spawnProcess).not.toHaveBeenCalled();
     expect(result.success).toBe(false);
     expect(result.error).toContain('line');
+    expect(result.error).not.toContain('path');
+    expect(launcher.detect).not.toHaveBeenCalled();
   });
 });

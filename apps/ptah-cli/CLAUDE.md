@@ -40,6 +40,36 @@ Headless Node CLI that hosts the full Ptah agent backend in-process and exposes 
 
 ## Build & Run
 
+`dist/apps/ptah-cli` carries FIVE generated artifacts, all built by targets in
+`apps/ptah-cli/project.json` except `tui.mjs`, which is `ptah-tui`'s own
+target writing into this same directory:
+
+| Artifact                   | Built by                              | Entry                                                                         |
+| -------------------------- | ------------------------------------- | ----------------------------------------------------------------------------- |
+| `main.mjs`                 | `ptah-cli:build-esbuild`              | `apps/ptah-cli/src/main.ts`                                                   |
+| `tui.mjs`                  | `ptah-tui:build`                      | `apps/ptah-tui/src/main.tsx`                                                  |
+| `embedder-worker.mjs`      | `ptah-cli:build-embedder-worker`      | `libs/backend/memory-curator/.../embedder-worker.ts`                          |
+| `integrity-worker.mjs`     | `ptah-cli:build-integrity-worker`     | `libs/backend/persistence-sqlite/.../integrity-worker.ts`                     |
+| `workspace-watch-host.mjs` | `ptah-cli:build-workspace-watch-host` | `libs/backend/platform-cli/src/workspace-watch/workspace-watch-host.entry.ts` |
+
+**`nx run ptah-cli:restore-cli-manifest` is the one target that builds and
+orders all five correctly** — `build-embedder-worker` → `build-integrity-worker`
+→ `build-workspace-watch-host` → `ptah-tui:build`, then the `package.json`
+copy. Its own `dependsOn` graph is the only thing that guarantees `build-esbuild`
+(which `deleteOutputPath: true`s the whole directory) runs BEFORE every sibling
+bundle, in every invocation. Do not replay that sequence by hand as three
+separate `nx` calls (`build ptah-cli` then `build ptah-tui` then a manual
+`package.json` copy) — that was exactly how `publish-cli.yml` shipped a
+tarball missing `embedder-worker.mjs`/`integrity-worker.mjs`/
+`workspace-watch-host.mjs` while every step reported green
+(TASK_2026_437 Batch 10 review fix); `apps/ptah-cli/src/test-utils/packaged-files.spec.ts`
+now pins the required set and the publish workflow's build sequence.
+`build-esbuild`/`build-embedder-worker`/`build-integrity-worker`/
+`build-workspace-watch-host` each declare `outputs` scoped to their own single
+file (not the whole directory) for the same reason — an unscoped `outputs`
+lets an Nx cache-hit replay of one target silently restore an old snapshot of
+the entire directory, discarding files the other targets had already written.
+
 - `nx build ptah-cli` — an `nx:noop` wrapper over `build-esbuild` + `copy-wasm`, matching the `ptah-extension-vscode` shape. Call `build`, never `build-esbuild` directly: `build-esbuild` has `deleteOutputPath: true` and wipes `wasm/`, which is why `copy-wasm` runs after it.
 - `nx run ptah-cli:build-esbuild` — the actual esbuild ESM bundle to `dist/apps/ptah-cli/main.mjs`, with a `createRequire` + `__filename` + `__dirname` banner so the ESM bundle behaves like CJS for `require()`-using deps.
 - `nx run ptah-cli:copy-wasm` — copies the web-tree-sitter runtime and all five grammars into `dist/apps/ptah-cli/wasm/`. Load-bearing, not incidental: `resolveWasmPath` locates grammars as a sibling of the executing bundle, and `tui.mjs` builds into this same directory, so this one copy serves both `main.mjs` and `tui.mjs`. Without it, AST init aborts on every file in both the CLI and the TUI (TASK_2026_273).

@@ -197,12 +197,12 @@ describe('mcp-response-formatter › agent namespace', () => {
       {
         cli: 'codex',
         installed: true,
-        supportsSteer: true,
+        messagingMode: 'steer',
       },
       {
         cli: 'copilot',
         installed: false,
-        supportsSteer: false,
+        messagingMode: 'queue',
       },
     ] as unknown as CliDetectionResult[];
 
@@ -214,10 +214,43 @@ describe('mcp-response-formatter › agent namespace', () => {
     expect(out).toMatch(/not installed/);
   });
 
+  it('formatAgentList renders the messaging capability for a system CLI', () => {
+    const agents = [
+      { cli: 'cursor', installed: true, messagingMode: 'interrupt' },
+    ] as unknown as CliDetectionResult[];
+
+    expect(formatAgentList(agents)).toMatch(/messaging: interrupt/);
+  });
+
+  it('formatAgentList appends messaging to the Ptah CLI row (Req 5.2)', () => {
+    // The cell must read the SAME declaration the message router reads. A
+    // hardcoded value here would advertise a mechanism the router never uses.
+    const agents = [
+      {
+        cli: 'ptah-cli',
+        installed: true,
+        messagingMode: 'queue',
+        ptahCliId: 'pc-1',
+        ptahCliName: 'Reviewer',
+        providerName: 'Acme',
+      },
+    ] as unknown as CliDetectionResult[];
+
+    const out = formatAgentList(agents);
+    expect(out).toMatch(/provider: Acme/);
+    expect(out).toMatch(/ptahCliId: pc-1/);
+    expect(out).toMatch(/messaging: queue/);
+  });
+
   it('formatAgentList marks a disabled-but-installed agent as disabled', () => {
     const agents = [
-      { cli: 'codex', installed: true, supportsSteer: true, disabled: true },
-      { cli: 'cursor', installed: false, supportsSteer: false, disabled: true },
+      { cli: 'codex', installed: true, messagingMode: 'steer', disabled: true },
+      {
+        cli: 'cursor',
+        installed: false,
+        messagingMode: 'interrupt',
+        disabled: true,
+      },
     ] as unknown as CliDetectionResult[];
 
     const out = formatAgentList(agents);
@@ -264,6 +297,123 @@ describe('mcp-response-formatter › agent namespace', () => {
     expect(out).toMatch(/agent-1/);
     expect(out).toMatch(/codex/);
     expect(out).toMatch(/hello world/);
+  });
+
+  it('formatAgentList adds role delivery to each Capabilities cell that has it', () => {
+    const agents = [
+      {
+        cli: 'codex',
+        installed: true,
+        messagingMode: 'steer',
+        roleDelivery: 'preamble',
+        roleChannel: 'developer-instructions',
+      },
+      {
+        cli: 'ptah-cli',
+        installed: true,
+        messagingMode: 'queue',
+        ptahCliId: 'pc-1',
+        ptahCliName: 'Reviewer',
+        providerName: 'Acme',
+        roleDelivery: 'preamble',
+        roleChannel: 'system-prompt',
+      },
+      { cli: 'cursor', installed: true, messagingMode: 'interrupt' },
+    ] as unknown as CliDetectionResult[];
+
+    const out = formatAgentList(agents, []);
+    expect(out).toMatch(
+      /messaging: steer, role delivery: preamble\/developer-instructions/,
+    );
+    expect(out).toMatch(
+      /messaging: queue, role delivery: preamble\/system-prompt/,
+    );
+    expect(out).toMatch(/messaging: interrupt \|/);
+  });
+
+  it('formatAgentList lists the workspace roles when there are some', () => {
+    const agents = [
+      { cli: 'codex', installed: true, messagingMode: 'steer' },
+    ] as unknown as CliDetectionResult[];
+
+    const out = formatAgentList(agents, ['architect', 'reviewer']);
+    expect(out).toMatch(/Roles in this workspace: architect, reviewer/);
+    expect(out).not.toMatch(/No agent roles generated/);
+  });
+
+  it('formatAgentList says no roles were generated for an empty role list', () => {
+    const agents = [
+      { cli: 'codex', installed: true, messagingMode: 'steer' },
+    ] as unknown as CliDetectionResult[];
+
+    expect(formatAgentList(agents, [])).toMatch(
+      /No agent roles generated for this workspace/,
+    );
+    expect(formatAgentList([], [])).toMatch(
+      /No agent roles generated for this workspace/,
+    );
+  });
+
+  it('formatAgentList renders no roles line when roles are not supplied', () => {
+    const agents = [
+      { cli: 'codex', installed: true, messagingMode: 'steer' },
+    ] as unknown as CliDetectionResult[];
+
+    const out = formatAgentList(agents);
+    expect(out).not.toMatch(/Roles in this workspace/);
+    expect(out).not.toMatch(/No agent roles generated/);
+  });
+
+  it('formatAgentSpawn renders the role with its delivery and channel', () => {
+    const result = {
+      agentId: 'agent-7',
+      cli: 'codex',
+      status: 'running',
+      startedAt: '2026-04-24T00:00:00Z',
+      role: 'reviewer',
+      roleDelivery: 'preamble',
+      roleChannel: 'developer-instructions',
+    } as unknown as SpawnAgentResult;
+
+    expect(formatAgentSpawn(result)).toMatch(
+      /\*\*Role:\*\* reviewer \(preamble via developer-instructions\)/,
+    );
+  });
+
+  it('formatAgentSpawn omits the role line on a role-less spawn', () => {
+    const result = {
+      agentId: 'agent-8',
+      cli: 'codex',
+      status: 'running',
+      startedAt: '2026-04-24T00:00:00Z',
+    } as unknown as SpawnAgentResult;
+
+    expect(formatAgentSpawn(result)).not.toMatch(/Role:/);
+  });
+
+  it('formatAgentStatus shows the role an agent was spawned as', () => {
+    const withRole = {
+      agentId: 'agent-2',
+      cli: 'codex',
+      task: 'review',
+      status: 'running',
+      startedAt: '2026-04-24T01:02:03Z',
+      role: 'architect',
+      roleDelivery: 'preamble',
+      roleChannel: 'task-prompt',
+    } as unknown as AgentProcessInfo;
+    const withoutRole = {
+      agentId: 'agent-3',
+      cli: 'codex',
+      task: 'review',
+      status: 'running',
+      startedAt: '2026-04-24T01:02:03Z',
+    } as unknown as AgentProcessInfo;
+
+    expect(formatAgentStatus(withRole)).toMatch(
+      /\*\*Role:\*\* architect \(preamble via task-prompt\)/,
+    );
+    expect(formatAgentStatus(withoutRole)).not.toMatch(/Role:/);
   });
 
   it('formatAgentRead emits stdout/stderr blocks or the no-output marker', () => {

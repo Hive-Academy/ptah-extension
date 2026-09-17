@@ -39,6 +39,7 @@ import type {
   HunkApplyFn,
 } from '../types/diff-tab.types';
 import { diffTabKey } from '../types/diff-tab.types';
+import * as Core from '@ptah-extension/core';
 
 /**
  * jsdom implements no HTMLDialogElement methods, so the revert dialog's
@@ -74,6 +75,7 @@ type AnyComponent = DiffViewComponent & Record<string, unknown>;
 
 function makeDiffTab(overrides: Partial<DiffTabState> = {}): EditorTab {
   const diff: DiffTabState = {
+    provenance: { kind: 'mutable', comparison: 'worktree' },
     comparison: 'worktree',
     path: 'src/index.ts',
     originalPath: 'src/index.ts',
@@ -176,7 +178,7 @@ describe('DiffViewComponent', () => {
       const { component } = await createFixture();
       setVscodeThemeKind('vscode-light');
 
-      const theme = (component['detectMonacoTheme'] as () => string)();
+      const theme = component['detectMonacoTheme']();
 
       expect(theme).toBe('vs');
     });
@@ -185,7 +187,7 @@ describe('DiffViewComponent', () => {
       const { component } = await createFixture();
       setVscodeThemeKind('vscode-high-contrast');
 
-      const theme = (component['detectMonacoTheme'] as () => string)();
+      const theme = component['detectMonacoTheme']();
 
       expect(theme).toBe('hc-black');
     });
@@ -194,7 +196,7 @@ describe('DiffViewComponent', () => {
       const { component } = await createFixture();
       setVscodeThemeKind('vscode-dark');
 
-      const theme = (component['detectMonacoTheme'] as () => string)();
+      const theme = component['detectMonacoTheme']();
 
       expect(theme).toBe('vs-dark');
     });
@@ -204,7 +206,7 @@ describe('DiffViewComponent', () => {
       setVscodeThemeKind(null); // ensure no vscode attribute
       setDataTheme('light');
 
-      const theme = (component['detectMonacoTheme'] as () => string)();
+      const theme = component['detectMonacoTheme']();
 
       expect(theme).toBe('vs');
     });
@@ -213,7 +215,7 @@ describe('DiffViewComponent', () => {
       const { component } = await createFixture();
       cleanBodyAttributes();
 
-      const theme = (component['detectMonacoTheme'] as () => string)();
+      const theme = component['detectMonacoTheme']();
 
       expect(theme).toBe('vs-dark');
     });
@@ -223,7 +225,7 @@ describe('DiffViewComponent', () => {
       setVscodeThemeKind(null);
       setDataTheme('dark');
 
-      const theme = (component['detectMonacoTheme'] as () => string)();
+      const theme = component['detectMonacoTheme']();
 
       expect(theme).toBe('vs-dark');
     });
@@ -233,7 +235,7 @@ describe('DiffViewComponent', () => {
       setVscodeThemeKind('vscode-light');
       setDataTheme('dark'); // conflicting — vscode attribute wins
 
-      const theme = (component['detectMonacoTheme'] as () => string)();
+      const theme = component['detectMonacoTheme']();
 
       // vscode-light wins over data-theme=dark
       expect(theme).toBe('vs');
@@ -250,7 +252,7 @@ describe('DiffViewComponent', () => {
       setVscodeThemeKind(null);
       setRootTheme('anubis-light', 'light');
 
-      const theme = (component['detectMonacoTheme'] as () => string)();
+      const theme = component['detectMonacoTheme']();
 
       expect(theme).toBe('vs');
     });
@@ -260,7 +262,7 @@ describe('DiffViewComponent', () => {
       setVscodeThemeKind(null);
       setRootTheme('anubis', 'dark');
 
-      const theme = (component['detectMonacoTheme'] as () => string)();
+      const theme = component['detectMonacoTheme']();
 
       expect(theme).toBe('vs-dark');
     });
@@ -272,7 +274,7 @@ describe('DiffViewComponent', () => {
       // lightness; matching on the name alone would send it to a dark editor.
       setRootTheme('cupcake', 'light');
 
-      const theme = (component['detectMonacoTheme'] as () => string)();
+      const theme = component['detectMonacoTheme']();
 
       expect(theme).toBe('vs');
     });
@@ -282,7 +284,7 @@ describe('DiffViewComponent', () => {
       setVscodeThemeKind('vscode-high-contrast');
       setRootTheme('anubis-light', 'light');
 
-      const theme = (component['detectMonacoTheme'] as () => string)();
+      const theme = component['detectMonacoTheme']();
 
       expect(theme).toBe('hc-black');
     });
@@ -761,6 +763,7 @@ function patchDiff(tab: EditorTab, patch: Partial<DiffTabState>): EditorTab {
 async function createLiveFixture(
   tab: EditorTab | null = makeDiffTab(),
   applyHunks: HunkApplyFn | null = null,
+  layoutOverride: 'inline' | null = null,
 ): Promise<{
   fixture: ComponentFixture<DiffViewComponent>;
   componentRef: ComponentRef<DiffViewComponent>;
@@ -787,6 +790,7 @@ async function createLiveFixture(
   componentRef.setInput('diffTab', tab);
   componentRef.setInput('openDiffKeys', tab ? [tab.filePath] : []);
   componentRef.setInput('applyHunks', applyHunks);
+  componentRef.setInput('layoutOverride', layoutOverride);
   fixture.detectChanges();
   // afterNextRender ran; let the loader promise resolve and the editor build.
   await fixture.whenStable();
@@ -970,11 +974,13 @@ describe('DiffViewComponent — editor lifecycle (B1, B2, D3)', () => {
     );
 
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(editor.options['useInlineViewWhenSpaceIsLimited']).toBe(false);
 
     toggle.click();
     fixture.detectChanges();
 
     expect(editor.options['renderSideBySide']).toBe(false);
+    expect(editor.options['useInlineViewWhenSpaceIsLimited']).toBe(false);
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
     expect(monaco.diffEditors).toHaveLength(1);
 
@@ -984,6 +990,47 @@ describe('DiffViewComponent — editor lifecycle (B1, B2, D3)', () => {
     expect(editor.options['renderSideBySide']).toBe(true);
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
     expect(monaco.diffEditors).toHaveLength(1);
+  });
+
+  it('forces inline layout without changing the saved side-by-side preference', async () => {
+    const { fixture, componentRef, monaco } = await createLiveFixture(
+      makeDiffTab(),
+      null,
+      'inline',
+    );
+    const editor = monaco.diffEditors[0];
+
+    expect(editor.options['renderSideBySide']).toBe(false);
+    componentRef.setInput('layoutOverride', null);
+    fixture.detectChanges();
+    expect(editor.options['renderSideBySide']).toBe(true);
+  });
+
+  it('loads and persists the explicit layout choice through settings RPC', async () => {
+    const rpc = jest
+      .spyOn(Core, 'rpcCall')
+      .mockImplementation(async (_service, method) =>
+        method === 'settings:get'
+          ? { success: true, data: { value: false } }
+          : { success: true },
+      );
+
+    const { fixture, monaco } = await createLiveFixture();
+    expect(monaco.diffEditors[0].options['renderSideBySide']).toBe(false);
+    expect(rpc).toHaveBeenCalledWith(expect.anything(), 'settings:get', {
+      key: 'diff.renderSideBySide',
+    });
+
+    fixture.nativeElement
+      .querySelector<HTMLButtonElement>('[data-testid="diff-layout-toggle"]')
+      ?.click();
+    fixture.detectChanges();
+
+    expect(rpc).toHaveBeenCalledWith(expect.anything(), 'settings:set', {
+      key: 'diff.renderSideBySide',
+      value: true,
+    });
+    rpc.mockRestore();
   });
 
   it('preserves scroll position across a layout toggle (D3)', async () => {

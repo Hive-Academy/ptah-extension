@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   SkillSynthesisSettingsDto,
@@ -27,6 +27,8 @@ import {
 import { SkillSynthesisStateService } from '../services/skill-synthesis-state.service';
 import type { RefreshDigestOptions } from '../services/skill-synthesis-state.service';
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
+import { SkillClonesStateService } from '../services/skill-clones-state.service';
+import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
 
 interface DiagnosticsStub {
   readonly lastAnalyzeRunAt: ReturnType<typeof signal<number | null>>;
@@ -691,12 +693,10 @@ describe('skill settings mappers', () => {
     dedupCosineThreshold: 0.85,
     maxActiveSkills: 50,
     candidatesDir: '.ptah/skills',
-    eligibilityMinTurns: 5,
     evictionDecayRate: 0.95,
     generalizationContextThreshold: 3,
     dedupClusterThreshold: 0.78,
     prefilterMinEdits: 1,
-    prefilterMinChars: 800,
     prefilterMinToolUses: 2,
     judgeEnabled: true,
     minJudgeScore: 6,
@@ -800,6 +800,61 @@ describe('skill settings mappers', () => {
     expect(form.get('drain.weeklyMaxItemsPerRun')?.value).toBe(321);
   });
 
+  it('blocks saving when either prefilter minimum is zero', async () => {
+    const rpc = { updateSettings: jest.fn(async () => undefined) };
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+        { provide: SkillSynthesisRpcService, useValue: rpc },
+      ],
+    });
+    const component = TestBed.createComponent(
+      SkillSynthesisTabComponent,
+    ).componentInstance;
+    component.settingsForm.patchValue(skillSettingsDtoToForm(dto));
+    component.settingsForm.patchValue({ prefilterMinEdits: 0 });
+
+    expect(component.settingsForm.valid).toBe(false);
+    await (
+      component as unknown as { onSaveSettings(): Promise<void> }
+    ).onSaveSettings();
+    expect(rpc.updateSettings).not.toHaveBeenCalled();
+
+    component.settingsForm.patchValue({
+      prefilterMinEdits: 1,
+      prefilterMinToolUses: 0,
+    });
+    expect(component.settingsForm.valid).toBe(false);
+  });
+
+  it('accepts one for both prefilter minimums', () => {
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+    const form = TestBed.createComponent(SkillSynthesisTabComponent)
+      .componentInstance.settingsForm;
+    form.patchValue(skillSettingsDtoToForm(dto));
+    form.patchValue({ prefilterMinEdits: 1, prefilterMinToolUses: 1 });
+
+    expect(form.valid).toBe(true);
+  });
+
   it('drops the nested drain / budget groups from the outgoing DTO', () => {
     const out = saveThroughForm();
 
@@ -810,5 +865,121 @@ describe('skill settings mappers', () => {
 
   it('round-trips every settings key unchanged', () => {
     expect(saveThroughForm()).toEqual(dto);
+  });
+});
+
+describe('SkillSynthesisTabComponent — diverged-clones deep link', () => {
+  /** Stand-in for the Library's data layer; the tab only has to route to it. */
+  function clonesStateStub() {
+    return {
+      clones: signal<unknown[]>([]),
+      loading: signal<boolean>(false),
+      error: signal<string | null>(null),
+      detailLoading: signal<boolean>(false),
+      detail: signal<unknown>(null),
+      scorecards: signal<Record<string, unknown>>({}),
+      scorecardDetails: signal<Record<string, unknown>>({}),
+      scorecardDetailLoading: signal<string | null>(null),
+      refreshClones: jest.fn(async () => undefined),
+      loadDetail: jest.fn(async () => undefined),
+      clearDetail: jest.fn(() => undefined),
+      loadScorecardDetail: jest.fn(async () => undefined),
+      saveCloneBody: jest.fn(async () => undefined),
+    };
+  }
+
+  function mount(): { appState: AppStateManager } {
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+        { provide: SkillClonesStateService, useValue: clonesStateStub() },
+        { provide: SkillSynthesisRpcService, useValue: {} },
+      ],
+    });
+    return { appState: TestBed.inject(AppStateManager) };
+  }
+
+  function activeSubView(root: HTMLElement): string | undefined {
+    const nav = root.querySelector('[aria-label="Skills views"]');
+    const selected = nav?.querySelector('[role="tab"][aria-selected="true"]');
+    return selected?.textContent?.trim();
+  }
+
+  it('lands on Library with the diverged filter applied when the flag is raised', () => {
+    const { appState } = mount();
+    appState.openSkillsDivergedClones();
+
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(activeSubView(root)).toBe('Library');
+    expect(root.querySelector('ptah-skill-clones-view')).toBeTruthy();
+    expect(
+      root
+        .querySelector('[data-testid="clones-diverged-filter"]')
+        ?.getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
+  it('consumes the flag exactly once, so a second mount does not re-filter', () => {
+    const { appState } = mount();
+    appState.openSkillsDivergedClones();
+
+    const first = TestBed.createComponent(SkillSynthesisTabComponent);
+    first.detectChanges();
+    expect(activeSubView(first.nativeElement as HTMLElement)).toBe('Library');
+
+    const second = TestBed.createComponent(SkillSynthesisTabComponent);
+    second.detectChanges();
+    expect(activeSubView(second.nativeElement as HTMLElement)).toBe(
+      'Recommended',
+    );
+  });
+
+  /**
+   * The tab stays mounted across deep links. A boolean flag already `true`
+   * cannot express a SECOND request, so the Library kept whatever filter state
+   * the user had left it in and the deep link silently did nothing.
+   */
+  it('re-applies the diverged filter on a SECOND deep link while still mounted', () => {
+    const { appState } = mount();
+    appState.openSkillsDivergedClones();
+
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const filter = (): HTMLButtonElement | null =>
+      root.querySelector<HTMLButtonElement>(
+        '[data-testid="clones-diverged-filter"]',
+      );
+    expect(filter()?.getAttribute('aria-pressed')).toBe('true');
+
+    // The user widens the list back out by hand, WITHOUT leaving the Library.
+    filter()?.click();
+    fixture.detectChanges();
+    expect(filter()?.getAttribute('aria-pressed')).toBe('false');
+
+    appState.openSkillsDivergedClones();
+    fixture.detectChanges();
+
+    expect(activeSubView(root)).toBe('Library');
+    expect(filter()?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('stays on Recommended when no deep link asked for the Library', () => {
+    mount();
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    expect(activeSubView(fixture.nativeElement as HTMLElement)).toBe(
+      'Recommended',
+    );
   });
 });

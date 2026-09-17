@@ -18,6 +18,60 @@ export interface GitFileStatus {
    * against this path at HEAD, not against `path`.
    */
   origPath?: string;
+  /** Text line additions, or null when Git cannot calculate them. */
+  additions?: number | null;
+  /** Text line deletions, or null when Git cannot calculate them. */
+  deletions?: number | null;
+  /** True when Git reports binary numstat markers for this change. */
+  binary?: boolean;
+}
+
+/** Parameters for a read-only merge-base-to-head branch review. */
+export interface GitReviewChangesParams extends GitWorkspaceScopedParams {
+  base: string;
+  head: string;
+}
+
+export interface GitResolvedReviewRef {
+  name: string;
+  sha: string;
+}
+
+export interface GitReviewFile {
+  path: string;
+  originalPath?: string;
+  status: 'M' | 'A' | 'D' | 'R' | 'C';
+  additions: number | null;
+  deletions: number | null;
+  binary: boolean;
+}
+
+export interface GitReviewChangesResult {
+  success: boolean;
+  base?: GitResolvedReviewRef;
+  head?: GitResolvedReviewRef;
+  mergeBaseSha?: string;
+  files: GitReviewFile[];
+  totals: { additions: number; deletions: number; binaryFiles: number };
+  error?: string;
+}
+
+export interface GitReviewFileParams extends GitWorkspaceScopedParams {
+  baseSha: string;
+  headSha: string;
+  path: string;
+  originalPath?: string;
+}
+
+export interface GitReviewFileResult {
+  success: boolean;
+  path: string;
+  originalPath: string;
+  baseSha: string;
+  headSha: string;
+  original: GitBlobRead;
+  modified: GitBlobRead;
+  error?: string;
 }
 
 /** Branch ahead/behind information */
@@ -54,6 +108,12 @@ export interface GitInfoResult {
   files: GitFileStatus[];
   /** Whether the workspace is inside a git repository */
   isGitRepo: boolean;
+  /**
+   * Set when the status could not be read, so an empty `files` list does NOT
+   * mean a clean tree. `output-too-large`: git's status output passed the
+   * backend's cap and the run was killed (TASK_2026_437).
+   */
+  statusUnavailable?: 'output-too-large';
 }
 
 /** Parameters for git:worktrees RPC method */
@@ -82,7 +142,7 @@ export interface GitWorktreesResult {
 export interface GitAddWorktreeParams {
   /** Branch name to checkout in the new worktree */
   branch: string;
-  /** Optional custom path for the worktree directory (defaults to ../<branch>) */
+  /** Optional custom path for the worktree directory. */
   path?: string;
   /** Whether to create a new branch (vs checkout existing) */
   createBranch?: boolean;

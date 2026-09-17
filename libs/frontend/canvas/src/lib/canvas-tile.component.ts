@@ -11,6 +11,7 @@ import {
   effect,
   untracked,
   viewChild,
+  ElementRef,
   EnvironmentInjector,
   createEnvironmentInjector,
 } from '@angular/core';
@@ -23,9 +24,37 @@ import {
   SendToMessagingComponent,
 } from '@ptah-extension/chat';
 import { EffortStateService, ModelStateService } from '@ptah-extension/core';
-import { LucideAngularModule, Minimize2, Maximize2 } from 'lucide-angular';
+import { NativePopoverComponent } from '@ptah-extension/ui';
+import {
+  LucideAngularModule,
+  Minimize2,
+  Maximize2,
+  Ellipsis,
+} from 'lucide-angular';
 import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
 import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
+import {
+  DEFAULT_TILE_WIDTH,
+  type TileSpan,
+  type TileWidthIntent,
+} from './canvas-layout-intent';
+
+const SPAN_OPTIONS: ReadonlyArray<{
+  readonly span: TileSpan;
+  readonly text: string;
+  readonly label: string;
+}> = [
+  { span: 'third', text: '1/3 width', label: 'Set tile width to one third' },
+  { span: 'half', text: '1/2 width', label: 'Set tile width to one half' },
+  {
+    span: 'two-thirds',
+    text: '2/3 width',
+    label: 'Set tile width to two thirds',
+  },
+  { span: 'full', text: 'Full width', label: 'Set tile width to full' },
+];
+
+const MENU_NAVIGATION_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);
 
 /**
  * CanvasTileComponent — renders a single chat session tile within the Orchestra Canvas.
@@ -34,6 +63,10 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
  * Signal<string|null> scoped to this tile's tabId. ChatViewComponent, which injects
  * SESSION_CONTEXT optionally, will use tile-local messages/session data instead of
  * global active-tab state.
+ *
+ * The header carries a layout menu (span, layout focus, row break). The tile
+ * stays presentational: it emits intent requests and the workspace grid
+ * commits them to the store.
  *
  * CRITICAL CONTRACTS:
  * 1. childInjector()?.destroy() is called in ngOnDestroy — prevents EnvironmentInjector leak.
@@ -48,6 +81,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
   imports: [
     NgComponentOutlet,
     LucideAngularModule,
+    NativePopoverComponent,
     TileAgentIndicatorComponent,
     TileAgentMiniPanelComponent,
     SendToMessagingComponent,
@@ -62,7 +96,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
       [class.border-base-300]="!focused()"
       (click)="onTileClick()"
     >
-      <!-- Tile header: label + agent indicator + close button -->
+      <!-- Tile header: label + agent indicator + layout menu + close button -->
       <div
         class="tile-header flex items-center gap-2 px-2 py-1 bg-base-300 text-xs rounded-t-lg shrink-0"
       >
@@ -74,12 +108,107 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
           [tabId]="tabId()"
           (click)="$event.stopPropagation()"
         />
+        <!-- Pointer events stop here so menu use never focuses or drags the tile -->
+        <ptah-native-popover
+          [isOpen]="layoutMenuOpen()"
+          [placement]="'bottom-end'"
+          [hasBackdrop]="true"
+          [backdropClass]="'transparent'"
+          (opened)="focusCheckedLayoutItem()"
+          (closed)="closeLayoutMenu()"
+          (click)="$event.stopPropagation()"
+          (mousedown)="$event.stopPropagation()"
+          (pointerdown)="$event.stopPropagation()"
+          (touchstart)="$event.stopPropagation()"
+        >
+          <button
+            trigger
+            type="button"
+            class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-base-content"
+            aria-haspopup="menu"
+            [attr.aria-expanded]="layoutMenuOpen()"
+            [attr.aria-label]="'Layout options for ' + tabLabel()"
+            title="Layout options"
+            data-testid="tile-layout-trigger"
+            (click)="toggleLayoutMenu()"
+          >
+            <lucide-angular [img]="EllipsisIcon" class="w-3 h-3" />
+          </button>
+          <div
+            #layoutMenu
+            content
+            role="menu"
+            class="p-1 flex flex-col min-w-44 text-xs"
+            [attr.aria-label]="'Layout for ' + tabLabel()"
+            (keydown)="onLayoutMenuKeydown($event)"
+          >
+            @for (option of spanOptions; track option.span) {
+              <button
+                type="button"
+                role="menuitemradio"
+                tabindex="-1"
+                data-layout-item
+                class="btn btn-ghost btn-xs justify-start font-normal"
+                [attr.data-span]="option.span"
+                [attr.aria-checked]="isSpanChecked(option.span)"
+                [attr.aria-label]="option.label"
+                [disabled]="layoutLocked()"
+                (click)="requestSpan(option.span)"
+              >
+                {{ option.text }}
+              </button>
+            }
+            <div class="h-px bg-base-content/10 my-1" role="separator"></div>
+            <button
+              type="button"
+              role="menuitem"
+              tabindex="-1"
+              data-layout-item
+              data-layout-action="focus"
+              class="btn btn-ghost btn-xs justify-start font-normal"
+              [attr.aria-label]="
+                layoutFocused() ? 'Exit tile focus' : 'Focus tile at full width'
+              "
+              [disabled]="layoutLocked()"
+              (click)="requestLayoutFocus()"
+            >
+              {{ layoutFocused() ? 'Exit focus' : 'Focus' }}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              tabindex="-1"
+              data-layout-item
+              data-layout-action="row"
+              class="btn btn-ghost btn-xs justify-start font-normal"
+              [attr.aria-label]="
+                rowBreakBefore()
+                  ? 'Join the previous row'
+                  : 'Start a new row before this tile'
+              "
+              [disabled]="layoutLocked() || firstInOrder()"
+              (click)="requestRowBreak()"
+            >
+              {{ rowBreakBefore() ? 'Join previous row' : 'Start new row' }}
+            </button>
+          </div>
+        </ptah-native-popover>
+        <!-- View-mode toggle: header-drag pointer isolation matches the layout
+             menu, and the button stays enabled under layout lock because view
+             mode is owned by TabManagerService, not by canvas layout intent. -->
         <button
           class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-base-content"
           (click)="onToggleViewMode($event)"
+          (mousedown)="$event.stopPropagation()"
+          (pointerdown)="$event.stopPropagation()"
+          (touchstart)="$event.stopPropagation()"
           [title]="
             isCompactMode() ? 'Switch to full view' : 'Switch to compact view'
           "
+          [attr.aria-label]="
+            isCompactMode() ? 'Switch to full view' : 'Switch to compact view'
+          "
+          data-testid="tile-view-mode-toggle"
         >
           <lucide-angular
             [img]="isCompactMode() ? MaximizeIcon : MinimizeIcon"
@@ -133,6 +262,22 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    */
   readonly visible = input<boolean>(true);
 
+  /** Stored width preference — not the responsive width it renders at. */
+  readonly widthIntent = input<TileWidthIntent>(DEFAULT_TILE_WIDTH);
+  /** Whether this tile starts a logical row. */
+  readonly rowBreakBefore = input<boolean>(false);
+  /** The first tile in reading order can never start a new row. */
+  readonly firstInOrder = input<boolean>(false);
+  /** Whether this tile is the workspace's transient layout-focus tile. */
+  readonly layoutFocused = input<boolean>(false);
+  /**
+   * Canvas lock: every layout action is disabled. The compact/full toggle is
+   * the deliberate exception — view mode is owned by `TabManagerService`, not
+   * by canvas layout intent, so it stays enabled and its authoritative
+   * reflow is applied by the workspace grid.
+   */
+  readonly layoutLocked = input<boolean>(false);
+
   /**
    * Emits tabId when the user clicks anywhere on the tile.
    * Parent must call canvasStore.focusTile(tabId) to update global activeTabId
@@ -146,8 +291,20 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    */
   readonly closeRequested = output<string>();
 
+  /** Parent commits the named span to the store. */
+  readonly spanRequested = output<TileSpan>();
+  /** Parent enters or exits transient layout focus. */
+  readonly layoutFocusToggled = output<void>();
+  /** Parent starts a new row before this tile or joins the previous row. */
+  readonly rowBreakToggled = output<void>();
+
   /** Reference to the agent indicator for reading expanded() and agents() signals. */
   readonly tileAgentIndicator = viewChild(TileAgentIndicatorComponent);
+
+  private readonly layoutMenu =
+    viewChild<ElementRef<HTMLElement>>('layoutMenu');
+  readonly layoutMenuOpen = signal(false);
+  protected readonly spanOptions = SPAN_OPTIONS;
 
   private readonly tabManager = inject(TabManagerService);
   private readonly effortState = inject(EffortStateService);
@@ -216,6 +373,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
 
   readonly MinimizeIcon = Minimize2;
   readonly MaximizeIcon = Maximize2;
+  readonly EllipsisIcon = Ellipsis;
 
   /**
    * Display label for the tile header.
@@ -261,8 +419,10 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Toggles compact/full view mode for this tile.
-   * Stops propagation to avoid triggering onTileClick / Gridstack drag.
+   * Toggles compact/full view mode for this tile. View mode stays owned by
+   * `TabManagerService`; canvas only projects it. Stops propagation to avoid
+   * triggering onTileClick / Gridstack drag, and stays available under layout
+   * lock because it is not a layout-intent mutation.
    */
   onToggleViewMode(event: Event): void {
     event.stopPropagation();
@@ -276,5 +436,80 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   onClose(event: Event): void {
     event.stopPropagation();
     this.closeRequested.emit(this.tabId());
+  }
+
+  protected isSpanChecked(span: TileSpan): boolean {
+    const width = this.widthIntent();
+    return width.kind === 'span' && width.span === span;
+  }
+
+  protected toggleLayoutMenu(): void {
+    this.layoutMenuOpen.update((open) => !open);
+  }
+
+  protected closeLayoutMenu(): void {
+    this.layoutMenuOpen.set(false);
+  }
+
+  /** Selection closes the menu; the popover restores focus to the trigger. */
+  protected requestSpan(span: TileSpan): void {
+    if (this.layoutLocked()) return;
+    this.spanRequested.emit(span);
+    this.closeLayoutMenu();
+  }
+
+  protected requestLayoutFocus(): void {
+    if (this.layoutLocked()) return;
+    this.layoutFocusToggled.emit();
+    this.closeLayoutMenu();
+  }
+
+  protected requestRowBreak(): void {
+    if (this.layoutLocked() || this.firstInOrder()) return;
+    this.rowBreakToggled.emit();
+    this.closeLayoutMenu();
+  }
+
+  /** On open, move focus to the checked span, else the first enabled item. */
+  protected focusCheckedLayoutItem(): void {
+    const items = this.enabledLayoutItems();
+    const checked = items.find(
+      (item) => item.getAttribute('aria-checked') === 'true',
+    );
+    (checked ?? items[0])?.focus();
+  }
+
+  /** Up/Down cycle through enabled items; Home/End jump to first/last. */
+  protected onLayoutMenuKeydown(event: KeyboardEvent): void {
+    if (!MENU_NAVIGATION_KEYS.has(event.key)) return;
+    const items = this.enabledLayoutItems();
+    if (items.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const last = items.length - 1;
+    const current = items.findIndex((item) => item === document.activeElement);
+    let next: number;
+    switch (event.key) {
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = last;
+        break;
+      case 'ArrowDown':
+        next = current >= last ? 0 : current + 1;
+        break;
+      default:
+        next = current <= 0 ? last : current - 1;
+    }
+    items[next].focus();
+  }
+
+  private enabledLayoutItems(): HTMLButtonElement[] {
+    const menu = this.layoutMenu()?.nativeElement;
+    if (!menu) return [];
+    return Array.from(
+      menu.querySelectorAll<HTMLButtonElement>('button[data-layout-item]'),
+    ).filter((item) => !item.disabled);
   }
 }

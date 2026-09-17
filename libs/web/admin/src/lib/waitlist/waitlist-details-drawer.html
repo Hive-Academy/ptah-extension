@@ -1,0 +1,217 @@
+<ptah-detail-drawer [open]="open()" [title]="title()" (closed)="onClose()">
+  @if (loading()) {
+    <div class="flex flex-col items-center justify-center gap-3 py-12 text-sm text-base-content-muted" aria-busy="true">
+      <span class="loading loading-spinner loading-md"></span>
+      <span>Loading waitlist details…</span>
+    </div>
+  } @else if (error() === 'not_found') {
+    <div class="alert alert-warning flex flex-col items-start gap-2 text-sm">
+      <span class="font-medium">Entry no longer exists</span>
+      <p class="text-xs">This waitlist entry may have been deleted or removed.</p>
+      <button type="button" class="btn btn-sm" (click)="onClose()">Close</button>
+    </div>
+  } @else if (error() === 'unavailable') {
+    <div class="alert alert-error flex flex-col items-start gap-2 text-sm">
+      <span class="font-medium">Waitlist details are temporarily unavailable</span>
+      <p class="text-xs">Failed to load account and audit context. You can retry.</p>
+      <div class="flex gap-2">
+        <button type="button" class="btn btn-sm btn-outline" (click)="retry()">
+          <lucide-angular [img]="RefreshIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+          Retry
+        </button>
+        <button type="button" class="btn btn-sm" (click)="onClose()">Close</button>
+      </div>
+    </div>
+  } @else if (data(); as d) {
+    <div class="flex flex-col gap-6 text-sm">
+      <!-- Section 1: Identity & Timeline -->
+      <section class="flex flex-col gap-3 rounded-md border border-hairline bg-base-100 p-3">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content-muted">
+          Identity &amp; Timeline
+        </h3>
+
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div>
+            <span class="text-base-content-muted">Waitlist ID:</span>
+            <span class="ml-1 font-mono font-medium">{{ d.entry.id }}</span>
+          </div>
+          <div>
+            <span class="text-base-content-muted">Source:</span>
+            <span class="ml-1 font-medium">{{ d.entry.source || 'Unknown' }}</span>
+          </div>
+          <div class="col-span-2 flex items-center gap-2">
+            <span class="text-base-content-muted">Stage:</span>
+            <ptah-status-badge
+              [variant]="stageVariant()"
+              [label]="d.entry.stage"
+              size="xs"
+            />
+          </div>
+        </div>
+
+        <div class="mt-2 flex flex-col gap-1.5 border-t border-hairline pt-2 text-xs">
+          <div class="flex justify-between">
+            <span class="text-base-content-muted">Joined:</span>
+            <span>{{ d.entry.createdAt | date: 'medium' }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-base-content-muted">Invited:</span>
+            <span>{{ d.entry.notifiedAt ? (d.entry.notifiedAt | date: 'medium') : 'Not recorded' }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-base-content-muted">Approved:</span>
+            <span>{{ d.entry.approvedAt ? (d.entry.approvedAt | date: 'medium') : 'Not recorded' }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-base-content-muted">Converted:</span>
+            <span>{{ d.entry.convertedAt ? (d.entry.convertedAt | date: 'medium') : 'Not recorded' }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2: Linked User & Entitlements -->
+      <section class="flex flex-col gap-3 rounded-md border border-hairline bg-base-100 p-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content-muted">
+            Linked User &amp; Entitlements
+          </h3>
+          @if (d.user; as u) {
+            <a
+              class="link link-primary text-xs font-medium"
+              [routerLink]="['/admin', 'users', u.id]"
+            >
+              View linked user &amp; licenses →
+            </a>
+          }
+        </div>
+
+        @if (!d.user) {
+          <p class="text-xs text-base-content-muted">No linked user account found.</p>
+        } @else {
+          <div class="flex flex-col gap-2 text-xs">
+            <div class="font-medium">
+              {{ d.user.email }}
+              @if (d.user.firstName || d.user.lastName) {
+                <span class="text-base-content-muted">({{ d.user.firstName }} {{ d.user.lastName }})</span>
+              }
+            </div>
+            <div class="text-base-content-muted">
+              Account created: {{ d.user.createdAt | date: 'mediumDate' }}
+            </div>
+
+            <!-- Licenses -->
+            <div class="mt-2">
+              <span class="font-semibold text-base-content">Licenses:</span>
+              @if (d.user.licenses.length === 0) {
+                <p class="text-base-content-muted">No licenses found.</p>
+              } @else {
+                <ul class="mt-1 flex flex-col gap-1 pl-2">
+                  @for (lic of d.user.licenses; track lic.id) {
+                    <li class="rounded bg-base-200 p-1.5">
+                      <span class="font-medium">{{ lic.plan }}</span> ·
+                      <span class="text-success">{{ lic.status }}</span> ·
+                      <span class="text-base-content-muted">{{ lic.source }}</span> ·
+                      <span>Expires: {{ lic.expiresAt ? (lic.expiresAt | date: 'mediumDate') : 'Never' }}</span>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+
+            <!-- Subscriptions -->
+            <div class="mt-2">
+              <span class="font-semibold text-base-content">Subscriptions:</span>
+              @if (d.user.subscriptions.length === 0) {
+                <p class="text-base-content-muted">No subscriptions found.</p>
+              } @else {
+                <ul class="mt-1 flex flex-col gap-1 pl-2">
+                  @for (sub of d.user.subscriptions; track sub.id) {
+                    <li class="rounded bg-base-200 p-1.5">
+                      Status: <span class="font-medium">{{ sub.status }}</span> ·
+                      Period end: {{ sub.currentPeriodEnd | date: 'mediumDate' }}
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+
+            <!-- Groups / Cohorts -->
+            <div class="mt-2">
+              <span class="font-semibold text-base-content">Cohorts:</span>
+              @if (d.user.groups.length === 0) {
+                <p class="text-base-content-muted">No group memberships.</p>
+              } @else {
+                <ul class="mt-1 flex flex-col gap-1 pl-2">
+                  @for (grp of d.user.groups; track grp.id) {
+                    <li class="rounded bg-base-200 p-1.5">
+                      <span class="font-medium">{{ grp.name }}</span> ({{ grp.key }}) ·
+                      Assigned {{ grp.assignedAt | date: 'mediumDate' }}
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+          </div>
+        }
+      </section>
+
+      <!-- Section 3: Audit History -->
+      <section class="flex flex-col gap-3 rounded-md border border-hairline bg-base-100 p-3">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content-muted">
+          Audit History
+        </h3>
+
+        @if (d.audit.length === 0) {
+          <p class="text-xs text-base-content-muted">No audit history found.</p>
+        } @else {
+          <ul class="flex flex-col gap-2 text-xs">
+            @for (item of d.audit; track item.id) {
+              <li class="rounded border border-hairline bg-base-200/50 p-2">
+                <div class="flex items-center justify-between font-medium">
+                  <span>{{ item.action }}</span>
+                  <span class="text-base-content-muted">{{ item.createdAt | date: 'short' }}</span>
+                </div>
+                <div class="text-base-content-muted">
+                  By: {{ item.actorEmail || 'System' }}
+                </div>
+                @if (item.metadata) {
+                  <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-base-content-muted">
+                    @if (item.metadata.userId) {
+                      <span>User ID: <span class="font-mono text-base-content">{{ item.metadata.userId }}</span></span>
+                    }
+                    @if (item.metadata.licenseId) {
+                      <span>License ID: <span class="font-mono text-base-content">{{ item.metadata.licenseId }}</span></span>
+                    }
+                    @if (item.metadata.durationPreset) {
+                      <span>Duration: <span class="text-base-content">{{ item.metadata.durationPreset }}</span></span>
+                    }
+                    @if (item.metadata.groupKey) {
+                      <span>Cohort: <span class="text-base-content">{{ item.metadata.groupKey }}</span></span>
+                    }
+                    @if (item.metadata.wasNotified !== undefined) {
+                      <span>Notified: <span class="text-base-content">{{ item.metadata.wasNotified ? 'Yes' : 'No' }}</span></span>
+                    }
+                    @if (item.metadata.cohortAlreadyAssigned !== undefined) {
+                      <span>Cohort Assigned: <span class="text-base-content">{{ item.metadata.cohortAlreadyAssigned ? 'Yes' : 'No' }}</span></span>
+                    }
+                  </div>
+                }
+              </li>
+            }
+          </ul>
+        }
+      </section>
+    </div>
+  }
+
+  <div drawerFooter class="flex items-center justify-end gap-2">
+    <button type="button" class="btn btn-ghost btn-sm" (click)="onClose()">
+      Close
+    </button>
+    @if (data()?.entry?.approvalEligible) {
+      <button type="button" class="btn btn-primary btn-sm" (click)="onApprove()">
+        Approve to Founding Cohort
+      </button>
+    }
+  </div>
+</ptah-detail-drawer>

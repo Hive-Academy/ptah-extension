@@ -130,10 +130,26 @@ import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
 import type { GitStatusUpdatePayload } from './git-status';
 
-/** Payload for MESSAGE_TYPES.FILE_CONTENT_CHANGED ('file:content-changed'). */
+/**
+ * Payload for MESSAGE_TYPES.FILE_CONTENT_CHANGED ('file:content-changed').
+ *
+ * One push per coalesced window, never one per file (TASK_2026_437 INV-5): a
+ * bulk rewrite used to queue one renderer message — and one change-detection
+ * pass — per touched file.
+ */
 export interface FileContentChangedPayload {
-  /** Absolute path (forward-slash normalized) of the file that changed. */
-  readonly filePath: string;
+  /**
+   * Absolute, forward-slash normalized paths of the files that changed in the
+   * window, without duplicates. May be empty when `truncated` is true.
+   */
+  readonly filePaths: readonly string[];
+  /**
+   * True when the producer stopped listing paths (the batch cap was reached,
+   * or an event storm was only counted). `filePaths` is then incomplete and
+   * the consumer revalidates every open view once. An empty, untruncated
+   * payload carries nothing and is ignored.
+   */
+  readonly truncated: boolean;
 }
 
 /** Payload for MESSAGE_TYPES.VEC_STATUS_CHANGED ('db:vecStatusChanged'). */

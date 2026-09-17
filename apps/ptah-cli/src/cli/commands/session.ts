@@ -19,6 +19,8 @@
  *   rename <id> --to <name>                              session:rename
  *   load <id> [--out <path>]                             session:load
  *                                                        emits session.history
+ *                                                        (metadata only; its
+ *                                                        messages are always [])
  *                                                        optionally writes JSON
  *   stats [--ids <csv>]                                  session:stats-batch
  *   validate <id>                                        session:validate
@@ -59,12 +61,13 @@ import {
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import type {
-  SessionListResult,
-  SessionLoadResult,
-  SessionStatsBatchResult,
-  SessionId,
-  ISdkPermissionHandler,
+import {
+  SESSION_STATS_BATCH_MAX_IDS,
+  type SessionListResult,
+  type SessionLoadResult,
+  type SessionStatsBatchResult,
+  type SessionId,
+  type ISdkPermissionHandler,
 } from '@ptah-extension/shared';
 
 export type SessionSubcommand =
@@ -901,6 +904,10 @@ async function runLoad(
       { sessionId },
     );
 
+    // `session:load` validates metadata only: its `messages` and
+    // `agentSessions` are always `[]` (`SessionLoadResult`). The keys stay on
+    // the wire for existing JSON-RPC readers; no RPC returns a text transcript
+    // (TASK_2026_437 C15 — `chat:resume` `events` is the only one).
     await formatter.writeNotification('session.history', {
       session_id: sessionId,
       tab_id: persisted?.tabId,
@@ -931,13 +938,28 @@ async function runStats(
     const workspacePath =
       workspaceProvider.getWorkspaceRoot() ?? globals.cwd ?? process.cwd();
 
-    const result = await callRpc<SessionStatsBatchResult>(
-      ctx.transport,
-      'session:stats-batch',
-      { sessionIds, workspacePath },
-    );
+    // `session:stats-batch` rejects a page over SESSION_STATS_BATCH_MAX_IDS
+    // (TASK_2026_411 B4), so the ids go out in sequential pages. Every page is
+    // fetched before anything is written: a failing page propagates exactly as
+    // the single call did, with no partial output, and pages are concatenated
+    // in request order (each response is itself in request order).
+    const pages: string[][] = [];
+    for (let i = 0; i < sessionIds.length; i += SESSION_STATS_BATCH_MAX_IDS) {
+      pages.push(sessionIds.slice(i, i + SESSION_STATS_BATCH_MAX_IDS));
+    }
+    if (pages.length === 0) pages.push([]);
 
-    for (const entry of result?.sessionStats ?? []) {
+    const entries: SessionStatsBatchResult['sessionStats'] = [];
+    for (const page of pages) {
+      const result = await callRpc<SessionStatsBatchResult>(
+        ctx.transport,
+        'session:stats-batch',
+        { sessionIds: page, workspacePath },
+      );
+      entries.push(...(result?.sessionStats ?? []));
+    }
+
+    for (const entry of entries) {
       await formatter.writeNotification('session.stats', entry);
     }
     return ExitCode.Success;

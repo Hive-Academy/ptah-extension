@@ -92,6 +92,7 @@
  * the guards wrap the READS rather than the whole method — a missing verdict
  * table must not cost the win-rate sweep its answer.
  */
+import type { QueryOrigin } from '../internal-query.interface';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -253,7 +254,12 @@ const KIND_ORDER: readonly DigestItemKind[] = [
 ];
 
 /** What one pass is scoped to. */
-export interface DigestRequest {
+/**
+ * `userInitiated` (from `QueryOrigin`): the `skillSynthesis:digest` RPC is
+ * waiting, so the rewrite lane call — when `allowRewrite` permits one — skips
+ * the background-work governor.
+ */
+export interface DigestRequest extends QueryOrigin {
   /** The workspace whose verdicts are swept. `''` is the cross-project feed. */
   readonly workspaceRoot: string;
   /** Items returned after ranking. Defaults to `DIGEST_DEFAULT_LIMIT`. */
@@ -635,7 +641,11 @@ export class SkillGapCuratorService {
     const clusters = this.clusterFriction(verdicts);
 
     const missed = this.collectMissedTriggers(verdicts, skills);
-    const rewritten = await this.applyDescriptionRewrites(missed, allowRewrite);
+    const rewritten = await this.applyDescriptionRewrites(
+      missed,
+      allowRewrite,
+      { userInitiated: request.userInitiated },
+    );
     items.push(...this.buildMissedTriggerItems(missed, rewritten, winRates));
     items.push(...this.sweepFrictionOpportunities(clusters));
     items.push(...this.sweepWinRates(winRates, skills));
@@ -769,6 +779,7 @@ export class SkillGapCuratorService {
   private async applyDescriptionRewrites(
     found: readonly MissedTrigger[],
     allowRewrite: boolean,
+    origin: QueryOrigin,
   ): Promise<Set<string>> {
     const changed = new Set<string>();
     const targets = this.collectRewriteTargets(found);
@@ -782,7 +793,10 @@ export class SkillGapCuratorService {
     // entirely: an unbudgeted call whose answer is then discarded costs exactly
     // as much as one that is used.
     const authored = allowRewrite
-      ? await this.authorClauses(targets.slice(0, DIGEST_REWRITE_MAX_SKILLS))
+      ? await this.authorClauses(
+          targets.slice(0, DIGEST_REWRITE_MAX_SKILLS),
+          origin,
+        )
       : null;
 
     for (const target of targets) {
@@ -859,6 +873,7 @@ export class SkillGapCuratorService {
    */
   private async authorClauses(
     targets: readonly RewriteTarget[],
+    origin: QueryOrigin,
   ): Promise<Map<string, string> | null> {
     const runner = this.laneRunner;
     if (!runner) return null;
@@ -871,6 +886,7 @@ export class SkillGapCuratorService {
         // FIXED instructions on the half `maxInputChars` does not clip.
         systemPromptAppend: DIGEST_REWRITE_RUBRIC,
         outputSchema: DIGEST_REWRITE_SCHEMA,
+        userInitiated: origin.userInitiated,
       });
     } catch (error: unknown) {
       // degradation-audit: optional-capability - LLM-authored rewrites are

@@ -170,11 +170,11 @@ batch, not opportunistically.
 
 ## Task Specs (`.ptah/specs/`)
 
-- **Carrier**: each `TASK_YYYY_NNN/` folder MUST contain `task.md` — YAML frontmatter (`status`, `type`, `title`) + short body. A folder without it is invisible to the Tasks board.
+- **Carrier**: each `TASK_YYYY_NNN_xxxx/` folder MUST contain `task.md` — YAML frontmatter (`status`, `type`, `title`) + short body. A folder without it is invisible to the Tasks board.
 - **Prose**: user intent and narrative go in `context.md`. The team-leader batch breakdown goes in `batches.md` (its former name `tasks.md` is still read, permanently). Never put prose in the carrier.
 - **`description` is ALWAYS a `>-` block scalar** — a plain YAML scalar ends at the first colon-space, so a description quoting code makes the whole carrier unparseable and the task vanishes from the board. Three carriers were dark for exactly this (repaired 2026-08-09). Same rule for `title` when it contains a colon.
 - **Status change**: `Edit` exactly the `status:` line in `task.md` (`backlog | in_progress | in_review | blocked | done | cancelled`). Never rewrite the whole carrier with `Write`.
-- **ID allocation**: folder scan of `.ptah/specs/TASK_*` — highest `NNN` for the current year + 1, zero-padded. NEVER derive the ID from `registry.md` (it is generated and can be stale).
+- **ID allocation**: scan `.ptah/specs` on `origin/main` (`git fetch`, then `git ls-tree`), every path from `git worktree list`, and the local folder. Take the highest `NNN` for the current year, add 1, zero-pad to at least three digits, and append `_` plus four random lowercase hex characters (`TASK_YYYY_NNN_xxxx`). Claim the folder with an exclusive, fail-if-exists `mkdir`; it is the lock. NEVER derive the ID from `registry.md` (it is generated and can be stale). Never rename an existing folder.
 - **Folder name is the canonical ID**: a mismatched `id:` field inside the frontmatter is a warning; do not "fix" it by renaming folders.
 
 ## VS Code Marketplace (BLOCKING)

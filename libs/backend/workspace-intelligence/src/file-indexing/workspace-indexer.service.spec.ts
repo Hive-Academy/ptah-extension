@@ -1195,4 +1195,135 @@ describe('WorkspaceIndexerService', () => {
       );
     });
   });
+
+  /**
+   * TASK_2026_437 D4 — nested repositories and worktrees are excluded from
+   * every consumer, including the `@` picker. The static globs drop agent
+   * worktree directories by name; everything else is found by the `.git`
+   * entry at its root, probed once per directory the walk returned files in.
+   */
+  describe('nested repository and worktree exclusion (TASK_2026_437 D4)', () => {
+    /** `exists` answering true for the given `.git` paths (root-relative, `/`). */
+    function gitEntriesAt(...relativeGitPaths: string[]): jest.Mock {
+      const wanted = new Set(
+        relativeGitPaths.map((p) => `${WORKSPACE_ROOT}/${p}`),
+      );
+      const exists = mockFsProvider.exists as jest.Mock;
+      exists.mockImplementation(async (p: string) =>
+        wanted.has(p.replace(/\\/g, '/')),
+      );
+      return exists;
+    }
+
+    const collectAll = async (
+      onNestedRepoRoots?: (roots: readonly string[]) => void,
+    ): Promise<string[]> => {
+      const all: string[] = [];
+      for await (const batch of service.discoverWorkspacePaths({
+        workspaceFolder: WORKSPACE_ROOT,
+        onNestedRepoRoots,
+      })) {
+        all.push(...batch);
+      }
+      return all;
+    };
+
+    beforeEach(() => {
+      ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/src/app.ts',
+        '/workspace/pkg/vendor/src/lib.ts',
+        '/workspace/pkg/vendor/deep/er/x.ts',
+        '/workspace/sandbox/wt1/main.ts',
+        '/workspace/pkg/own/index.ts',
+      ]);
+    });
+
+    it('skips a directory holding a .git directory (a repository) or a .git file (a worktree)', async () => {
+      gitEntriesAt('pkg/vendor/.git', 'sandbox/wt1/.git');
+      const reported: Array<readonly string[]> = [];
+
+      const files = await collectAll((roots) => reported.push(roots));
+
+      expect(files).toEqual([
+        '/workspace/src/app.ts',
+        '/workspace/pkg/own/index.ts',
+      ]);
+      expect(reported).toHaveLength(1);
+      expect(
+        reported[0].map((root) => root.replace(/\\/g, '/')).sort(),
+      ).toEqual(['/workspace/pkg/vendor', '/workspace/sandbox/wt1']);
+    });
+
+    it('probes each directory once, never the root and never below a found root', async () => {
+      const exists = gitEntriesAt('pkg/vendor/.git');
+
+      await collectAll();
+
+      const probed = exists.mock.calls.map(([p]) =>
+        String(p).replace(/\\/g, '/'),
+      );
+      expect(new Set(probed).size).toBe(probed.length);
+      expect(probed).not.toContain('/workspace/.git');
+      // `pkg/vendor/src`, `pkg/vendor/deep`, `pkg/vendor/deep/er` are below the
+      // root found at depth 2, and are deeper, so they are never probed.
+      expect(probed).not.toContain('/workspace/pkg/vendor/src/.git');
+      expect(probed).not.toContain('/workspace/pkg/vendor/deep/er/.git');
+      expect(probed).toEqual(
+        expect.arrayContaining([
+          '/workspace/src/.git',
+          '/workspace/pkg/.git',
+          '/workspace/sandbox/.git',
+          '/workspace/pkg/vendor/.git',
+          '/workspace/sandbox/wt1/.git',
+          '/workspace/pkg/own/.git',
+        ]),
+      );
+    });
+
+    it('keeps everything, and reports no roots, when no directory holds a .git entry', async () => {
+      gitEntriesAt();
+      const reported: Array<readonly string[]> = [];
+
+      const files = await collectAll((roots) => reported.push(roots));
+
+      expect(files).toHaveLength(5);
+      expect(reported).toEqual([[]]);
+    });
+
+    it('indexes a directory whose probe fails like any other', async () => {
+      (mockFsProvider.exists as jest.Mock).mockRejectedValue(
+        new Error('EACCES'),
+      );
+
+      const files = await collectAll();
+
+      expect(files).toHaveLength(5);
+    });
+
+    it('applies to the stat + classify walk too', async () => {
+      gitEntriesAt('pkg/vendor/.git');
+      fileSystemService.stat.mockResolvedValue({
+        type: FileType.Source as unknown as number,
+        ctime: 0,
+        mtime: 0,
+        size: 10,
+      });
+      fileClassifier.classifyFile.mockReturnValue({
+        type: FileType.Source,
+        language: 'typescript',
+      } as never);
+
+      const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
+        respectIgnoreFiles: false,
+      });
+
+      expect(result.files.map((f) => f.path)).toEqual([
+        '/workspace/src/app.ts',
+        '/workspace/sandbox/wt1/main.ts',
+        '/workspace/pkg/own/index.ts',
+      ]);
+    });
+  });
 });
