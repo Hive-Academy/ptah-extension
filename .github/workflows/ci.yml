@@ -38,14 +38,17 @@ jobs:
     # reached "nx affected -t build", so 30 was only ever measured against a
     # failing job. The first fully-passing run was cut off mid-build at 30m.
     timeout-minutes: 60
-    # Skip if PR was closed/merged, or if this is an auto-generated version
-    # bump. On pull_request events `github.event.head_commit` is null (it only
-    # exists on push), so the commit-message check alone never matched bump
-    # PRs — guard on the head branch (chore/bump-*) instead, which IS populated
-    # for PRs. The head_commit check is kept for the push/non-PR path.
+    # Skip closed/merged PRs and bot bumps from publish-cli.yml,
+    # publish-electron.yml, and publish-extension.yml: chore/bump-cli-v*,
+    # chore/bump-electron-v*, and chore/bump-extension-v*. Human
+    # chore/bump-<dep> branches run CI; PR #512 was skipped by the old broad guard.
+    # Accepted residual: a human chore/bump-electron-v… branch still skips. On
+    # pull_request, head_commit is null; keep its check for any future non-PR trigger.
     if: |
       (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
-      !startsWith(github.head_ref, 'chore/bump-') &&
+      !startsWith(github.head_ref, 'chore/bump-cli-v') &&
+      !startsWith(github.head_ref, 'chore/bump-electron-v') &&
+      !startsWith(github.head_ref, 'chore/bump-extension-v') &&
       !contains(github.event.head_commit.message, 'chore(release)')
     steps:
       - uses: actions/checkout@v4

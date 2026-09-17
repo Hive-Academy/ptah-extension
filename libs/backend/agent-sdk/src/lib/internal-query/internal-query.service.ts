@@ -23,6 +23,7 @@ import {
   DEFAULT_MAX_CONCURRENT_PER_LANE,
   DEFAULT_QUEUE_TIMEOUT_MS,
   InternalQueryConcurrencyGate,
+  backgroundLimit,
 } from './internal-query-concurrency-gate';
 
 const SERVICE_TAG = '[InternalQueryService]';
@@ -146,11 +147,16 @@ export class InternalQueryService {
     if (GOVERNED_BACKGROUND_LANES.has(lane)) this.reportIfUngoverned(lane);
     const queueTimeoutMs = this.resolveQueueTimeoutMs(config);
     const laneInFlight = this.gate.inFlightForLane(lane);
+    const backgroundInFlight = this.gate.inFlightInBackground;
+    const backgroundCapped =
+      GOVERNED_BACKGROUND_LANES.has(lane) &&
+      backgroundInFlight >= backgroundLimit(limit);
     const governorHolds =
       this.gate.isGoverned(lane) && this.governor?.isClear() === false;
     if (
       this.gate.inFlight >= limit ||
       laneInFlight >= perLaneLimit ||
+      backgroundCapped ||
       governorHolds
     ) {
       this.logger?.debug(
@@ -161,6 +167,8 @@ export class InternalQueryService {
           perLaneLimit,
           inFlight: this.gate.inFlight,
           laneInFlight,
+          backgroundInFlight,
+          backgroundCapped,
           queued: this.gate.queued,
           model: config.model,
           // Which ceiling is the binding one. Without it the log says a query
@@ -171,7 +179,9 @@ export class InternalQueryService {
               ? 'global'
               : laneInFlight >= perLaneLimit
                 ? 'lane'
-                : 'governor',
+                : backgroundCapped
+                  ? 'background'
+                  : 'governor',
         },
       );
     }

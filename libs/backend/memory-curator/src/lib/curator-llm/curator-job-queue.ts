@@ -36,7 +36,7 @@
  * and counts no slots; it is a promise chain over the curator's OWN jobs, and
  * every query it lets through still faces the one gate with the one admission
  * predicate. Raising `maxConcurrentPerLane` was the forbidden fix here
- * (TASK_2026_352): it would let the curator claim both global slots and starve
+ * (TASK_2026_352): it would let the curator claim both background slots and starve
  * skill-synthesis, which is the coupling the lanes exist to remove.
  */
 

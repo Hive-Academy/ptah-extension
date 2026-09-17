@@ -398,6 +398,7 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.new_version }}"
           TAG="${{ steps.version.outputs.tag }}"
+          # Renaming this branch requires the same edit in the bump guards of ci.yml, electron-e2e.yml and vscode-e2e.yml.
           BRANCH="chore/bump-cli-v${VERSION}"
 
           cp apps/ptah-cli/package.json /tmp/bumped-cli-package.json

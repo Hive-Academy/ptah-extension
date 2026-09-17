@@ -223,6 +223,7 @@ jobs:
         run: |
           VERSION="${{ steps.bump.outputs.new_version }}"
           TAG="${{ steps.bump.outputs.tag }}"
+          # Renaming this branch requires the same edit in the bump guards of ci.yml, electron-e2e.yml and vscode-e2e.yml.
           BRANCH="chore/bump-extension-v${VERSION}"
 
           # Save the bumped package.json

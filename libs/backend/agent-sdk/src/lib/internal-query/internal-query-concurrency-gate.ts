@@ -43,15 +43,17 @@ export const MEMORY_CURATOR_QUERY_LANE = 'memory-curator';
 export const SKILL_SYNTHESIS_QUERY_LANE = 'skill-synthesis';
 
 /**
- * The ONLY lanes the background-work governor holds (TASK_2026_437 C14).
+ * The ONLY lanes the background-work governor holds and the background slot
+ * cap counts (TASK_2026_437 C14, TASK_2026_463 FU-16b-c).
  *
  * An allow-list, not "everything but default": a lane that is not named here —
  * `default`, `user-action`, or a lane nobody has heard of — is admitted on
  * slots alone. Failing open is deliberate: a new foreground caller that picks
  * a fresh lane name must never discover the governor by waiting 10 minutes.
  *
- * **A NEW BACKGROUND LANE MUST BE ADDED HERE**, or it will not yield to a
- * generating turn or to event-loop lag.
+ * **A NEW BACKGROUND LANE MUST BE ADDED HERE**, or it will neither yield to a
+ * generating turn or event-loop lag nor be prevented from taking the reserved
+ * foreground slot.
  */
 export const GOVERNED_BACKGROUND_LANES: ReadonlySet<string> = new Set([
   MEMORY_CURATOR_QUERY_LANE,
@@ -61,7 +63,7 @@ export const GOVERNED_BACKGROUND_LANES: ReadonlySet<string> = new Set([
 /**
  * How many one-shot queries may be in flight at once, across every caller.
  *
- * TWO. It was one, and the reason it was one has been removed.
+ * THREE. It was one, and the reason it was one has been removed.
  *
  * The original argument (TASK_2026_323, blocker B6) was that each one-shot
  * spawns a real `claude` subprocess, that `child_process.spawn` runs
@@ -80,11 +82,27 @@ export const GOVERNED_BACKGROUND_LANES: ReadonlySet<string> = new Set([
  * reading `limit:1, inFlight:1`), turning two independent backlogs into one
  * queue that took 122 s and 156 s to drain.
  *
- * Two rather than "unbounded": a subprocess is still a subprocess, and the
- * per-lane limit below is what makes two enough — the two background families
- * each get a slot and neither can take both.
+ * Three rather than "unbounded": a subprocess is still a subprocess. The two
+ * background families may each run, while the background cap below reserves a
+ * third slot that background may never take (TASK_2026_463 FU-16b-c). Without
+ * it, a user-action query with a 60 s queue timeout could sit behind a 90-120 s
+ * background call. The per-lane limit remains load-bearing because it stops
+ * either background family from taking the whole background allowance.
  */
-export const DEFAULT_MAX_CONCURRENT = 2;
+export const DEFAULT_MAX_CONCURRENT = 3;
+
+/**
+ * Maximum slots the background lane family may hold for a global `limit`.
+ *
+ * D2-c deliberately keeps one background slot when `limit = 1`: returning
+ * zero would silently stop memory curation and skill synthesis. A configured
+ * `limit = 2` therefore gives a cap of one and serialises those background
+ * lanes again (accepted risk A-D2-1); limits above two reserve one slot for
+ * foreground work.
+ */
+export function backgroundLimit(limit: number): number {
+  return limit >= 2 ? limit - 1 : 1;
+}
 
 /**
  * How many one-shot queries ONE lane may hold at once.
@@ -182,10 +200,11 @@ export interface AcquireRequest {
  * holds exactly one instance and is registered `Lifecycle.Singleton`
  * (`di/register.ts`), which is what makes the limits host-wide.
  *
- * ## One gate, two ceilings, no second lock
+ * ## One gate, three admission terms, no second lock
  *
- * A waiter is admitted when BOTH `active < limit` and
- * `activeInLane(lane) < perLaneLimit`. That is one predicate over one queue.
+ * A waiter is admitted when `active < limit`,
+ * `activeInLane(lane) < perLaneLimit`, and a background lane is below the
+ * shared background cap. That is one predicate over one queue.
  * The obvious alternative — a lane semaphore acquired before a global one —
  * would be two locks and would need an ordering argument to stay
  * deadlock-free; there is nothing to argue about here because there is nothing
@@ -201,6 +220,14 @@ export interface AcquireRequest {
  * the queue in order and admits the first waiter whose lane has room. Order is
  * still FIFO WITHIN a lane, which is the fairness property that matters: no
  * call can be overtaken by a later call from the same caller.
+ *
+ * ## Background never takes the last slot (TASK_2026_463 FU-16b-c)
+ *
+ * The lanes in {@link GOVERNED_BACKGROUND_LANES} may together hold at most
+ * `backgroundLimit(limit)` slots. At the default, two background calls can run
+ * while one slot remains available to foreground work. That reserved slot is
+ * shared by `default` and `user-action`; if a wizard or harness call already
+ * holds it, a user action can still wait for one of the three holders.
  *
  * ## Background lanes yield to the governor (TASK_2026_437 C14, INV-7)
  *
@@ -263,6 +290,15 @@ export class InternalQueryConcurrencyGate {
   /** Callers currently holding a slot, across every lane. */
   get inFlight(): number {
     return this.active;
+  }
+
+  /** Callers currently holding slots across all governed background lanes. */
+  get inFlightInBackground(): number {
+    let total = 0;
+    for (const lane of GOVERNED_BACKGROUND_LANES) {
+      total += this.inFlightForLane(lane);
+    }
+    return total;
   }
 
   /** Callers from `lane` currently holding a slot. */
@@ -431,7 +467,10 @@ export class InternalQueryConcurrencyGate {
 
   private admissible(lane: string): boolean {
     return (
-      this.active < this.limit && this.inFlightForLane(lane) < this.perLaneLimit
+      this.active < this.limit &&
+      this.inFlightForLane(lane) < this.perLaneLimit &&
+      (!GOVERNED_BACKGROUND_LANES.has(lane) ||
+        this.inFlightInBackground < backgroundLimit(this.limit))
     );
   }
 

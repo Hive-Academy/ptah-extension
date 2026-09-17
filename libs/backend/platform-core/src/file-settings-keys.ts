@@ -362,12 +362,14 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // The one-shot concurrency gate that every internal caller shares —
   // memory-curator, skill-synthesis, cron, the harness LLM runner and the setup
   // wizard all queue on the same process-wide singleton (TASK_2026_323 B6).
-  // Both keys were read through `getConfiguration` from the day the gate
+  // The global and timeout keys were read through `getConfiguration` from the day the gate
   // shipped and registered NOWHERE — not here, not in the VS Code
   // `contributes.configuration` — so they hit this file's documented silent-drop
   // failure mode in the write direction on every host, and the gate stayed
   // pinned at its defaults with no way for a user to move it (TASK_2026_328).
+  // The per-lane key was also unregistered until TASK_2026_463.
   'internalQuery.maxConcurrent',
+  'internalQuery.maxConcurrentPerLane',
   'internalQuery.queueTimeoutMs',
   'cron.enabled',
   'cron.maxConcurrentJobs',
@@ -620,11 +622,13 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.triggers.postToolUse.enabled': true,
   'skillSynthesis.triggers.postToolUse.minEditCount': 3,
   'skillSynthesis.triggers.maxAnalyzesPerHour': 6,
-  // Match `DEFAULT_MAX_CONCURRENT` and `DEFAULT_QUEUE_TIMEOUT_MS` in
-  // `agent-sdk/src/lib/internal-query/internal-query.service.ts`. A drift here
-  // is invisible: the service falls back to its own constant, so the two would
-  // disagree only for a user who never wrote the setting.
-  'internalQuery.maxConcurrent': 1,
+  // Match `DEFAULT_MAX_CONCURRENT`, `DEFAULT_MAX_CONCURRENT_PER_LANE`, and
+  // `DEFAULT_QUEUE_TIMEOUT_MS` in
+  // `agent-sdk/src/lib/internal-query/internal-query-concurrency-gate.ts`. A
+  // drift here is invisible: the service falls back to its own constant, so
+  // the two would disagree only for a user who never wrote the setting.
+  'internalQuery.maxConcurrent': 3,
+  'internalQuery.maxConcurrentPerLane': 1,
   'internalQuery.queueTimeoutMs': 60000,
   'cron.enabled': true,
   'cron.maxConcurrentJobs': 3,
