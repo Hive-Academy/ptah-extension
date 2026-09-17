@@ -145,6 +145,22 @@ describe('WaitlistSelectionState', () => {
 
       expect(state.disclosureLabel()).toBe('2 selected');
     });
+
+    it('defensively slices an oversized matching response to 50 ids', () => {
+      const ids = Array.from({ length: 51 }, (_, index) => `wl-${index + 1}`);
+
+      state.selectMatching({
+        ids,
+        selected: 51,
+        eligibleMatching: 51,
+        limit: 50,
+        truncated: false,
+      });
+
+      expect(state.count()).toBe(50);
+      expect(state.isSelected('wl-50')).toBe(true);
+      expect(state.isSelected('wl-51')).toBe(false);
+    });
   });
 
   describe('clear', () => {

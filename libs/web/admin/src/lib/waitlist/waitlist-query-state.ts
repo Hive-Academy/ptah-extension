@@ -104,13 +104,38 @@ export const waitlistListResponseSchema = z.object({
 });
 export type WaitlistListResponse = z.infer<typeof waitlistListResponseSchema>;
 
-export const waitlistEligibleIdsResponseSchema = z.object({
-  ids: z.array(z.string()),
-  selected: z.number(),
-  eligibleMatching: z.number(),
-  limit: z.literal(50),
-  truncated: z.boolean(),
-});
+export const waitlistEligibleIdsResponseSchema = z
+  .object({
+    ids: z.array(z.string()).max(50),
+    selected: z.number().int().nonnegative(),
+    eligibleMatching: z.number().int().nonnegative(),
+    limit: z.literal(50),
+    truncated: z.boolean(),
+  })
+  .superRefine((value, context) => {
+    if (value.selected !== value.ids.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['selected'],
+        message: 'selected must equal ids.length',
+      });
+    }
+    if (value.eligibleMatching < value.selected) {
+      context.addIssue({
+        code: 'custom',
+        path: ['eligibleMatching'],
+        message: 'eligibleMatching must be greater than or equal to selected',
+      });
+    }
+    if (value.truncated !== value.eligibleMatching > value.selected) {
+      context.addIssue({
+        code: 'custom',
+        path: ['truncated'],
+        message:
+          'truncated must reflect whether eligibleMatching exceeds selected',
+      });
+    }
+  });
 export type WaitlistEligibleIdsResponse = z.infer<
   typeof waitlistEligibleIdsResponseSchema
 >;

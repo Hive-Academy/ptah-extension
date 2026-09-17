@@ -9,13 +9,13 @@ import { ApproveWaitlistModal } from './approve-waitlist-modal';
 
 function mockApprovalResponse(): AdminApproveWaitlistResponse {
   return {
-    requested: 3,
+    requested: 5,
     tally: {
       approved: 1,
       already_approved: 1,
       already_paid: 1,
-      not_found: 0,
-      failed: 0,
+      not_found: 1,
+      failed: 1,
     },
     results: [
       {
@@ -26,6 +26,13 @@ function mockApprovalResponse(): AdminApproveWaitlistResponse {
       },
       { id: 'wl-2', email: 'two@example.com', outcome: 'already_approved' },
       { id: 'wl-3', email: 'three@example.com', outcome: 'already_paid' },
+      { id: 'wl-4', email: null, outcome: 'not_found' },
+      {
+        id: 'wl-5',
+        email: 'five@example.com',
+        outcome: 'failed',
+        error: { code: 'GRANT_FAILED' },
+      },
     ],
   };
 }
@@ -76,9 +83,15 @@ describe('ApproveWaitlistModal', () => {
     expect(el.textContent).toContain('approve at most 50 at a time');
   });
 
-  it('submits 1-50 IDs, renders all outcome totals, and emits full response', () => {
+  it('submits 1-50 IDs, renders aggregate and per-entry outcomes, and emits full response', () => {
     fixture.componentRef.setInput('open', true);
-    fixture.componentRef.setInput('ids', ['wl-1', 'wl-2', 'wl-3']);
+    fixture.componentRef.setInput('ids', [
+      'wl-1',
+      'wl-2',
+      'wl-3',
+      'wl-4',
+      'wl-5',
+    ]);
     fixture.detectChanges();
 
     let emittedResponse: AdminApproveWaitlistResponse | null = null;
@@ -89,24 +102,34 @@ describe('ApproveWaitlistModal', () => {
     fixture.detectChanges();
 
     expect(api.approveWaitlist).toHaveBeenCalledWith({
-      ids: ['wl-1', 'wl-2', 'wl-3'],
+      ids: ['wl-1', 'wl-2', 'wl-3', 'wl-4', 'wl-5'],
     });
     expect(emittedResponse).not.toBeNull();
     expect(emittedResponse?.tally.approved).toBe(1);
 
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.textContent).toContain('3 rows processed');
+    expect(el.textContent).toContain('5 rows processed');
     expect(el.textContent).toContain('Approved');
     expect(el.textContent).toContain('Already approved');
     expect(el.textContent).toContain('Already paid');
     expect(el.textContent).toContain('Not found');
     expect(el.textContent).toContain('Failed');
+    expect(el.textContent).toContain('one@example.com');
+    expect(el.textContent).toContain('wl-4');
+    expect(el.textContent).toContain('five@example.com');
+    expect(el.textContent).toContain('GRANT_FAILED');
+    expect(el.querySelector('[data-outcome="not_found"]')).toBeTruthy();
+    expect(el.querySelector('[data-outcome="failed"]')).toBeTruthy();
   });
 
-  it('preserves request on transport failure, displays error message, and does NOT emit submitted', () => {
+  it('maps a known approval API code to fixed safe copy', () => {
     api.approveWaitlist.mockReturnValue(
       throwError(() => ({
-        error: { message: 'Network connection timeout' },
+        status: 500,
+        error: {
+          code: 'COHORT_NOT_CONFIGURED',
+          message: 'database relation member_groups missing',
+        },
       })),
     );
 
@@ -123,13 +146,39 @@ describe('ApproveWaitlistModal', () => {
 
     expect(submittedCalled).toBe(false);
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.textContent).toContain('Network connection timeout');
+    expect(el.textContent).toContain(
+      'The founding cohort is not configured. Please contact support.',
+    );
+    expect(el.textContent).not.toContain('database relation');
 
     // Submit button is re-enabled so the admin can retry
     const submitBtn = el.querySelector(
       'button[type="submit"]',
     ) as HTMLButtonElement;
     expect(submitBtn.disabled).toBe(false);
+  });
+
+  it('uses generic fixed copy for an unknown error object', () => {
+    api.approveWaitlist.mockReturnValue(
+      throwError(() => ({
+        status: 502,
+        error: { code: 'PROXY_FAILURE', message: 'upstream secret detail' },
+        message: 'transport secret detail',
+      })),
+    );
+
+    fixture.componentRef.setInput('open', true);
+    fixture.componentRef.setInput('ids', ['wl-1']);
+    fixture.detectChanges();
+
+    const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;
+    form.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Failed to approve these rows. Please try again.');
+    expect(text).not.toContain('upstream secret detail');
+    expect(text).not.toContain('transport secret detail');
   });
 
   it('emits closeModal on Cancel or Close click', () => {

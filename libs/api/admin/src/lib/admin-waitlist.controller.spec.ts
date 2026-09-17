@@ -1,9 +1,5 @@
 import { ValidationPipe } from '@nestjs/common';
-import {
-  METHOD_METADATA,
-  PATH_METADATA,
-  ROUTE_ARGS_METADATA,
-} from '@nestjs/common/constants';
+import { PATH_METADATA, ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import type { Request, Response } from 'express';
 import {
   AdminGuard,
@@ -147,20 +143,19 @@ describe('AdminWaitlistController', () => {
   });
 
   describe('route ordering (shadow prevention)', () => {
-    it('declares eligible-ids and export.csv before :id/details on the prototype', () => {
+    it('registers eligible-ids and export.csv as static paths distinct from :id/details', () => {
       const proto = AdminWaitlistController.prototype;
-      const methods = Object.getOwnPropertyNames(proto);
+      const eligiblePath = Reflect.getMetadata(
+        PATH_METADATA,
+        proto.getEligibleIds,
+      );
+      const exportPath = Reflect.getMetadata(PATH_METADATA, proto.exportCsv);
+      const detailsPath = Reflect.getMetadata(PATH_METADATA, proto.getDetails);
 
-      const eligibleIdx = methods.indexOf('getEligibleIds');
-      const exportIdx = methods.indexOf('exportCsv');
-      const detailsIdx = methods.indexOf('getDetails');
-
-      expect(eligibleIdx).toBeGreaterThan(-1);
-      expect(exportIdx).toBeGreaterThan(-1);
-      expect(detailsIdx).toBeGreaterThan(-1);
-
-      expect(eligibleIdx).toBeLessThan(detailsIdx);
-      expect(exportIdx).toBeLessThan(detailsIdx);
+      expect(eligiblePath).toBe('eligible-ids');
+      expect(exportPath).toBe('export.csv');
+      expect(detailsPath).toBe(':id/details');
+      expect(new Set([eligiblePath, exportPath, detailsPath]).size).toBe(3);
     });
   });
 

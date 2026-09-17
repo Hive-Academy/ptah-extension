@@ -466,7 +466,7 @@ describe('AdminWaitlistService', () => {
       expect(mockPrisma.waitlist.findMany).toHaveBeenCalledWith({
         where: buildWaitlistWhere({ search: 'jane@example.com' }),
         orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-        take: 50_000,
+        take: 50_001,
         select: WAITLIST_SELECT,
       });
 
@@ -520,6 +520,32 @@ describe('AdminWaitlistService', () => {
       expect(result.filename).toMatch(/^waitlist-\d{4}-\d{2}-\d{2}\.csv$/);
     });
 
+    it.each([
+      ['leading equals', '=1+1', '"\'=1+1"'],
+      ['leading plus', '+1+1', '"\'+1+1"'],
+      ['leading minus', '-1+1', '"\'-1+1"'],
+      ['leading at', '@SUM(A1)', '"\'@SUM(A1)"'],
+      ['leading tab', '\t=1+1', '"\'\t=1+1"'],
+      ['leading carriage return', '\r=1+1', '"\'\r=1+1"'],
+      ['embedded quote', 'He said "hi"', '"He said ""hi"""'],
+      ['embedded newline', 'line one\nline two', '"line one\nline two"'],
+    ])(
+      'encodes a formula-safe CSV cell for %s',
+      async (_label, source, cell) => {
+        mockPrisma.waitlist.count.mockResolvedValue(1);
+        mockPrisma.waitlist.findMany.mockResolvedValue([
+          { ...NEW_ROW, source },
+        ]);
+
+        const result = await service.exportCsv(
+          {} as WaitlistFilterQueryDto,
+          ACTOR,
+        );
+
+        expect(result.csv).toContain(`,${cell},"new",`);
+      },
+    );
+
     it('🔴 fails closed with 503 WAITLIST_EXPORT_AUDIT_FAILED and sends no csv when the audit write fails', async () => {
       mockPrisma.waitlist.count.mockResolvedValue(1);
       mockPrisma.waitlist.findMany.mockResolvedValue([NEW_ROW]);
@@ -559,6 +585,32 @@ describe('AdminWaitlistService', () => {
         message: 'Narrow the filters before exporting.',
       });
       expect(mockPrisma.waitlist.findMany).not.toHaveBeenCalled();
+      expect(mockAudit.write).not.toHaveBeenCalled();
+    });
+
+    it('rejects a count/read race returning 50,001 rows before encoding or audit', async () => {
+      mockPrisma.waitlist.count.mockResolvedValue(50_000);
+      mockPrisma.waitlist.findMany.mockResolvedValue(
+        new Array<WaitlistRecordRow>(50_001).fill(NEW_ROW),
+      );
+
+      let thrown: unknown;
+      try {
+        await service.exportCsv({} as WaitlistFilterQueryDto, ACTOR);
+      } catch (error: unknown) {
+        thrown = error;
+      }
+
+      const body = (
+        thrown as { getResponse: () => unknown }
+      ).getResponse() as Record<string, unknown>;
+      expect(body).toMatchObject({
+        code: 'WAITLIST_EXPORT_LIMIT_EXCEEDED',
+        message: 'Narrow the filters before exporting.',
+      });
+      expect(mockPrisma.waitlist.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 50_001 }),
+      );
       expect(mockAudit.write).not.toHaveBeenCalled();
     });
 
@@ -622,9 +674,13 @@ describe('AdminWaitlistService', () => {
           createdAt: new Date('2026-08-01T12:00:00.000Z'),
           metadata: {
             userId: 'user-1',
-            licenseId: 'lic-1',
+            userWasCreated: { invalid: true },
+            licenseId: 42,
+            durationPreset: ['one-year'],
+            expiresAt: 123,
             groupKey: 'founding',
             wasNotified: false,
+            cohortAlreadyAssigned: 'false',
             // Anything the projection does not know is dropped.
             secret: 'internal-only',
           },
@@ -709,7 +765,6 @@ describe('AdminWaitlistService', () => {
           createdAt: '2026-08-01T12:00:00.000Z',
           metadata: {
             userId: 'user-1',
-            licenseId: 'lic-1',
             groupKey: 'founding',
             wasNotified: false,
           },

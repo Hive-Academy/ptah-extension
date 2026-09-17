@@ -250,6 +250,33 @@ describe('WaitlistPipeline', () => {
         }),
       );
     }));
+
+    it('replace-navigates an empty out-of-range page to the last page exactly once', async () => {
+      api.listWaitlist.mockImplementation((query: { page?: number }) =>
+        of(
+          query.page === 99
+            ? mockListResponse({
+                data: [],
+                total: 26,
+                page: 99,
+                totalPages: 2,
+              })
+            : mockListResponse({ page: 2, total: 26, totalPages: 2 }),
+        ),
+      );
+      const router = TestBed.inject(Router);
+      const navigateSpy = jest.spyOn(router, 'navigate');
+
+      const { harness } = await renderAt('/admin/waitlist?page=99');
+      await Promise.resolve();
+      harness.detectChanges();
+
+      const lastPageCalls = navigateSpy.mock.calls.filter(
+        ([, extras]) =>
+          extras?.replaceUrl === true && extras.queryParams?.['page'] === 2,
+      );
+      expect(lastPageCalls).toHaveLength(1);
+    });
   });
 
   describe('filter clearing & stage preservation', () => {
@@ -379,6 +406,51 @@ describe('WaitlistPipeline', () => {
       );
       expect(window.URL.createObjectURL).toHaveBeenCalled();
       expect(window.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    });
+
+    it('maps a known export code to fixed safe copy', async () => {
+      api.exportWaitlistCsv.mockReturnValue(
+        throwError(() => ({
+          status: 413,
+          error: {
+            code: 'WAITLIST_EXPORT_LIMIT_EXCEEDED',
+            message: 'raw server detail',
+          },
+        })),
+      );
+      const { component, harness } = await renderAt('/admin/waitlist');
+
+      component.onExportCsv();
+      harness.detectChanges();
+
+      const text =
+        (harness.routeNativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain(
+        'This export is too large. Narrow the filters and try again.',
+      );
+      expect(text).not.toContain('raw server detail');
+    });
+
+    it('uses generic fixed copy for an unknown export error object', async () => {
+      api.exportWaitlistCsv.mockReturnValue(
+        throwError(() => ({
+          status: 502,
+          error: { code: 'UNKNOWN_PROXY', message: 'private proxy detail' },
+          message: 'private transport detail',
+        })),
+      );
+      const { component, harness } = await renderAt('/admin/waitlist');
+
+      component.onExportCsv();
+      harness.detectChanges();
+
+      const text =
+        (harness.routeNativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain(
+        'Failed to export waitlist CSV. Please try again.',
+      );
+      expect(text).not.toContain('private proxy detail');
+      expect(text).not.toContain('private transport detail');
     });
   });
 

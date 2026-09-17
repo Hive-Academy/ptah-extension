@@ -592,21 +592,64 @@ describe('AdminService.getStats', () => {
     expect(stats.attention.waitlistUninvited).toBe(stats.waitlist.new);
   });
 
-  it('counts approved-without-notified only as Approved (R1.1 precedence)', () => {
-    expect(WAITLIST_STAGE_PREDICATES.approved).toEqual({
-      convertedAt: null,
-      approvedAt: { not: null },
-    });
-  });
+  it.each([
+    {
+      name: 'approved rows that were never notified',
+      counts: {
+        total: 10,
+        newCount: 2,
+        invited: 1,
+        approved: 7,
+        converted: 0,
+        notified: 1,
+        last7Days: 0,
+        builders: 0,
+        community: 0,
+      },
+      expected: {
+        new: 2,
+        invited: 1,
+        approved: 7,
+        converted: 0,
+        pending: 3,
+        attention: 2,
+      },
+    },
+    {
+      name: 'converted rows excluded from the approved stage',
+      counts: {
+        total: 10,
+        newCount: 1,
+        invited: 2,
+        approved: 3,
+        converted: 4,
+        notified: 6,
+        last7Days: 0,
+        builders: 0,
+        community: 0,
+      },
+      expected: {
+        new: 1,
+        invited: 2,
+        approved: 3,
+        converted: 4,
+        pending: 3,
+        attention: 1,
+      },
+    },
+  ])('returns disjoint stats for $name', async ({ counts, expected }) => {
+    const { service } = build(counts);
 
-  it('counts converted+approved row only as Converted (convertedAt > approvedAt)', () => {
-    expect(WAITLIST_STAGE_PREDICATES.converted).toEqual({
-      convertedAt: { not: null },
+    const stats = await service.getStats();
+
+    expect(stats.waitlist).toMatchObject({
+      new: expected.new,
+      invited: expected.invited,
+      approved: expected.approved,
+      converted: expected.converted,
+      pending: expected.pending,
     });
-    expect(WAITLIST_STAGE_PREDICATES.approved).toEqual({
-      convertedAt: null,
-      approvedAt: { not: null },
-    });
+    expect(stats.attention.waitlistUninvited).toBe(expected.attention);
   });
 
   it('includes per-group member counts from MemberGroupsService', async () => {

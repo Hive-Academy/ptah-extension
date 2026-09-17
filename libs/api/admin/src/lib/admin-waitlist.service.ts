@@ -78,22 +78,6 @@ const CSV_HEADER =
 const CSV_FORMULA_PREFIX = /^[\t\r ]*[=+\-@]/;
 
 /**
- * The metadata keys a details audit row may project to the client. Anything
- * else a writer stored — now or in the future — is dropped by
- * {@link projectAuditMetadata}, never forwarded.
- */
-const AUDIT_METADATA_KEYS = [
-  'userId',
-  'userWasCreated',
-  'licenseId',
-  'durationPreset',
-  'expiresAt',
-  'groupKey',
-  'wasNotified',
-  'cohortAlreadyAssigned',
-] as const;
-
-/**
  * AdminWaitlistService — the admin waitlist READ surface
  * (TASK_2026_462 Batch A, Component 2).
  *
@@ -325,7 +309,7 @@ export class AdminWaitlistService {
       rows = await this.prisma.waitlist.findMany({
         where,
         orderBy,
-        take: WAITLIST_EXPORT_MAX_ROWS,
+        take: WAITLIST_EXPORT_MAX_ROWS + 1,
         select: WAITLIST_SELECT,
       });
     } catch (error: unknown) {
@@ -335,6 +319,13 @@ export class AdminWaitlistService {
         'Waitlist export is temporarily unavailable',
         'export read',
       );
+    }
+
+    if (rows.length > WAITLIST_EXPORT_MAX_ROWS) {
+      throw new PayloadTooLargeException({
+        code: 'WAITLIST_EXPORT_LIMIT_EXCEEDED',
+        message: 'Narrow the filters before exporting.',
+      });
     }
 
     const csv = this.encodeCsv(rows);
@@ -682,9 +673,9 @@ export class AdminWaitlistService {
 }
 
 /**
- * Project stored audit metadata onto the allowlisted view. Every key outside
- * {@link AUDIT_METADATA_KEYS} — anything a writer stored for its own reasons,
- * now or in the future — is dropped here, never forwarded to the client.
+ * Project stored audit metadata onto the allowlisted view, field by field.
+ * Unknown keys, and known keys holding a value of the wrong type, are dropped
+ * here — never forwarded to the client or cast into the response type.
  */
 function projectAuditMetadata(metadata: unknown): WaitlistDetailsAuditMetadata {
   if (
@@ -695,11 +686,32 @@ function projectAuditMetadata(metadata: unknown): WaitlistDetailsAuditMetadata {
     return {};
   }
   const source = metadata as Record<string, unknown>;
-  const projected: Record<string, unknown> = {};
-  for (const key of AUDIT_METADATA_KEYS) {
-    if (key in source) {
-      projected[key] = source[key];
-    }
+  const projected: WaitlistDetailsAuditMetadata = {};
+
+  if (typeof source['userId'] === 'string') {
+    projected.userId = source['userId'];
   }
-  return projected as WaitlistDetailsAuditMetadata;
+  if (typeof source['userWasCreated'] === 'boolean') {
+    projected.userWasCreated = source['userWasCreated'];
+  }
+  if (typeof source['licenseId'] === 'string') {
+    projected.licenseId = source['licenseId'];
+  }
+  if (typeof source['durationPreset'] === 'string') {
+    projected.durationPreset = source['durationPreset'];
+  }
+  if (source['expiresAt'] === null || typeof source['expiresAt'] === 'string') {
+    projected.expiresAt = source['expiresAt'];
+  }
+  if (typeof source['groupKey'] === 'string') {
+    projected.groupKey = source['groupKey'];
+  }
+  if (typeof source['wasNotified'] === 'boolean') {
+    projected.wasNotified = source['wasNotified'];
+  }
+  if (typeof source['cohortAlreadyAssigned'] === 'boolean') {
+    projected.cohortAlreadyAssigned = source['cohortAlreadyAssigned'];
+  }
+
+  return projected;
 }

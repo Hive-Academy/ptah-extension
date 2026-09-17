@@ -144,7 +144,7 @@ export class WaitlistSelectionState {
    * Replaces selection with up to 50 server-resolved eligible matching IDs.
    */
   public selectMatching(res: WaitlistEligibleIdsResponse): void {
-    this._ids.set(new Set(res.ids));
+    this._ids.set(new Set(res.ids.slice(0, this.limit)));
     this._scope.set('matching');
     this._eligibleMatching.set(res.eligibleMatching);
   }

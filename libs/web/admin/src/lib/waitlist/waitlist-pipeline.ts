@@ -64,6 +64,31 @@ type ListStreamResult =
   | { status: 'invalid_date'; message: string }
   | { status: 'error' };
 
+const EXPORT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  WAITLIST_EXPORT_LIMIT_EXCEEDED:
+    'This export is too large. Narrow the filters and try again.',
+  WAITLIST_EXPORT_UNAVAILABLE:
+    'Waitlist export is temporarily unavailable. Please try again.',
+  WAITLIST_EXPORT_AUDIT_FAILED:
+    'Waitlist export is temporarily unavailable. Please try again.',
+};
+
+function extractApiErrorCode(err: unknown): string | null {
+  if (!err || typeof err !== 'object') return null;
+  const shaped = err as {
+    code?: unknown;
+    error?: { code?: unknown };
+  };
+  if (typeof shaped.error?.code === 'string') return shaped.error.code;
+  return typeof shaped.code === 'string' ? shaped.code : null;
+}
+
+function mapExportError(err: unknown): string {
+  const fallback = 'Failed to export waitlist CSV. Please try again.';
+  const code = extractApiErrorCode(err);
+  return code ? (EXPORT_ERROR_MESSAGES[code] ?? fallback) : fallback;
+}
+
 function isInvalidDateRangeError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const e = err as {
@@ -295,6 +320,27 @@ export class WaitlistPipeline {
       }
     });
 
+    // A non-empty result set can become shorter while an old deep link still
+    // points beyond its last page. Canonicalize once to the last valid page.
+    effect(() => {
+      const response = this.responseRaw();
+      const requestedPage = this.page();
+      if (
+        response?.status !== 'success' ||
+        response.data.data.length > 0 ||
+        response.data.total <= 0 ||
+        response.data.totalPages < 1 ||
+        requestedPage <= response.data.totalPages
+      ) {
+        return;
+      }
+
+      const lastPage = response.data.totalPages;
+      untracked(() => {
+        this.navigateWithFilters({ page: lastPage }, { replaceUrl: true });
+      });
+    });
+
     // Handle debounced search changes (uses replaceUrl to prevent flooding history)
     this.searchInput$
       .pipe(debounceTime(300), distinctUntilChanged())
@@ -465,9 +511,7 @@ export class WaitlistPipeline {
       },
       error: (err: unknown) => {
         this.exporting.set(false);
-        const msg =
-          err instanceof Error ? err.message : 'Failed to export waitlist CSV.';
-        this.exportError.set(msg);
+        this.exportError.set(mapExportError(err));
         setTimeout(() => this.exportError.set(null), 6000);
       },
     });

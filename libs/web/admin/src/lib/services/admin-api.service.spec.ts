@@ -146,6 +146,67 @@ describe('AdminApiService - waitlist boundary', () => {
       expect(res.truncated).toBe(true);
       expect(res.eligibleMatching).toBe(120);
     });
+
+    it.each([
+      [
+        'more than 50 ids',
+        {
+          ids: Array.from({ length: 51 }, (_, index) => `wl-${index}`),
+          selected: 51,
+          eligibleMatching: 51,
+          limit: 50,
+          truncated: false,
+        },
+      ],
+      [
+        'selected does not equal ids.length',
+        {
+          ids: ['wl-1'],
+          selected: 0,
+          eligibleMatching: 1,
+          limit: 50,
+          truncated: true,
+        },
+      ],
+      [
+        'eligibleMatching is below selected',
+        {
+          ids: ['wl-1', 'wl-2'],
+          selected: 2,
+          eligibleMatching: 1,
+          limit: 50,
+          truncated: false,
+        },
+      ],
+      [
+        'truncated disagrees with the counts',
+        {
+          ids: ['wl-1'],
+          selected: 1,
+          eligibleMatching: 2,
+          limit: 50,
+          truncated: false,
+        },
+      ],
+      [
+        'selected is negative',
+        {
+          ids: [],
+          selected: -1,
+          eligibleMatching: 0,
+          limit: 50,
+          truncated: true,
+        },
+      ],
+    ])('rejects an eligible-ids response when %s', async (_label, body) => {
+      const promise = firstValueFrom(api.resolveEligibleWaitlistIds());
+      const req = httpMock.expectOne(
+        (request) => request.url === '/api/v1/admin/waitlist/eligible-ids',
+      );
+      req.flush(body);
+
+      await expect(promise).rejects.toThrow();
+    });
   });
 
   describe('getWaitlistDetails', () => {
@@ -291,6 +352,22 @@ describe('AdminApiService - waitlist boundary', () => {
   });
 
   describe('getStats', () => {
+    const validStatsPayload = () => ({
+      waitlist: {
+        total: 100,
+        pending: 60,
+        new: 40,
+        invited: 20,
+        approved: 30,
+        converted: 10,
+        notified: 25,
+        last7Days: 15,
+      },
+      members: { builders: 50, community: 150 },
+      groups: [],
+      updatedAt: '2026-03-16T00:00:00.000Z',
+    });
+
     it('parses stats with new waitlist stage fields', async () => {
       const statsPayload = {
         waitlist: {
@@ -323,6 +400,34 @@ describe('AdminApiService - waitlist boundary', () => {
       expect(res.waitlist.new).toBe(40);
       expect(res.waitlist.invited).toBe(20);
       expect(res.waitlist.approved).toBe(30);
+    });
+
+    it.each(['pending', 'new', 'invited', 'approved'])(
+      'rejects stats when waitlist.%s is missing',
+      async (field) => {
+        const statsPayload = validStatsPayload();
+        delete (statsPayload.waitlist as Record<string, number>)[field];
+
+        const promise = firstValueFrom(api.getStats());
+        const req = httpMock.expectOne('/api/v1/admin/stats');
+        req.flush(statsPayload);
+
+        await expect(promise).rejects.toThrow();
+      },
+    );
+
+    it.each([
+      ['negative', -1],
+      ['fractional', 1.5],
+    ])('rejects stats when waitlist.pending is %s', async (_label, pending) => {
+      const statsPayload = validStatsPayload();
+      statsPayload.waitlist.pending = pending;
+
+      const promise = firstValueFrom(api.getStats());
+      const req = httpMock.expectOne('/api/v1/admin/stats');
+      req.flush(statsPayload);
+
+      await expect(promise).rejects.toThrow();
     });
   });
 });

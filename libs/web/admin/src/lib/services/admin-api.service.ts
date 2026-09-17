@@ -380,15 +380,10 @@ const adminStatsWaitlistSchema = z.object({
   notified: z.number(),
   converted: z.number(),
   last7Days: z.number(),
-  /**
-   * Rows with `approvedAt` set. OPTIONAL following the `attention` precedent
-   * below: a brief server/client deploy skew must not break the whole stats
-   * call and blank the Overview.
-   */
-  approved: z.number().optional(),
-  pending: z.number().optional(),
-  new: z.number().optional(),
-  invited: z.number().optional(),
+  approved: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+  new: z.number().int().nonnegative(),
+  invited: z.number().int().nonnegative(),
 });
 
 const adminStatsMembersSchema = z.object({
