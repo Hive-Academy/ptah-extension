@@ -464,7 +464,7 @@ describe('AdminService.getStats', () => {
   }
 
   it('returns the waitlist funnel + member counts with an ISO updatedAt', async () => {
-    const { service } = build({
+    const { service, prisma } = build({
       total: 42,
       newCount: 21,
       invited: 10,
@@ -491,6 +491,9 @@ describe('AdminService.getStats', () => {
     expect(stats.members).toEqual({ builders: 5, community: 100 });
     expect(typeof stats.updatedAt).toBe('string');
     expect(new Date(stats.updatedAt).toISOString()).toBe(stats.updatedAt);
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Array), {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
   });
 
   it('counts the free-grant stage as ONE aggregate, disjoint from converted', async () => {

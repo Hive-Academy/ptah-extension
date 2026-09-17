@@ -251,6 +251,32 @@ describe('WaitlistPipeline', () => {
       );
     }));
 
+    it('navigates when the same search is entered again after clearing filters', fakeAsync(() => {
+      const fixture = TestBed.createComponent(WaitlistPipeline);
+      fixture.detectChanges();
+      const component = fixture.componentInstance;
+      const router = TestBed.inject(Router);
+      const navigateSpy = jest.spyOn(router, 'navigate');
+
+      component.onSearchChange('alex');
+      tick(300);
+      tick();
+      fixture.detectChanges();
+
+      void component.onClearFilters();
+      tick();
+      fixture.detectChanges();
+
+      component.onSearchChange('alex');
+      tick(300);
+      fixture.detectChanges();
+
+      const alexNavigations = navigateSpy.mock.calls.filter(
+        ([, extras]) => extras?.queryParams?.['search'] === 'alex',
+      );
+      expect(alexNavigations).toHaveLength(2);
+    }));
+
     it('replace-navigates an empty out-of-range page to the last page exactly once', async () => {
       api.listWaitlist.mockImplementation((query: { page?: number }) =>
         of(
@@ -481,7 +507,7 @@ describe('WaitlistPipeline', () => {
   });
 
   describe('selection limits and accessibility announcements', () => {
-    it('wraps selection toolbar in an aria-live="polite" status region and shows limit message when cap reached', async () => {
+    it('wraps selection toolbar in an aria-live="polite" output and shows limit message when cap reached', async () => {
       const { component, harness } = await renderAt('/admin/waitlist');
       const selection = component.selection;
 
@@ -490,9 +516,7 @@ describe('WaitlistPipeline', () => {
       harness.detectChanges();
 
       const el = harness.routeNativeElement as HTMLElement;
-      const liveRegion = el.querySelector(
-        'div[aria-live="polite"][role="status"]',
-      );
+      const liveRegion = el.querySelector('output[aria-live="polite"]');
       expect(liveRegion).toBeTruthy();
       expect(liveRegion?.textContent).toContain('1 row selected');
 

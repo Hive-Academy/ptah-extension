@@ -282,13 +282,15 @@ export function buildWaitlistWhere(
 
   const createdFrom = parseInstant(filters.createdFrom);
   const createdTo = parseInstant(filters.createdTo);
-  if (createdFrom !== undefined && createdTo !== undefined) {
-    if (createdFrom.getTime() > createdTo.getTime()) {
-      throw new BadRequestException({
-        code: 'INVALID_DATE_RANGE',
-        message: 'createdFrom must be before or equal to createdTo',
-      });
-    }
+  if (
+    createdFrom !== undefined &&
+    createdTo !== undefined &&
+    createdFrom.getTime() > createdTo.getTime()
+  ) {
+    throw new BadRequestException({
+      code: 'INVALID_DATE_RANGE',
+      message: 'createdFrom must be before or equal to createdTo',
+    });
   }
 
   if (createdFrom !== undefined || createdTo !== undefined) {

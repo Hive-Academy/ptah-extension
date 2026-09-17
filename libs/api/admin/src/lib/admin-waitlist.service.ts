@@ -627,12 +627,12 @@ export class AdminWaitlistService {
         [
           this.csvCell(row.id),
           this.csvCell(row.email),
-          this.csvCell(row.source),
+          this.csvCell(row.source ?? undefined),
           this.csvCell(stage),
           this.csvCell(row.createdAt.toISOString()),
-          this.csvCell(row.notifiedAt ? row.notifiedAt.toISOString() : null),
-          this.csvCell(row.approvedAt ? row.approvedAt.toISOString() : null),
-          this.csvCell(row.convertedAt ? row.convertedAt.toISOString() : null),
+          this.csvCell(row.notifiedAt?.toISOString()),
+          this.csvCell(row.approvedAt?.toISOString()),
+          this.csvCell(row.convertedAt?.toISOString()),
         ].join(','),
       );
     }
@@ -644,12 +644,9 @@ export class AdminWaitlistService {
    * value matching {@link CSV_FORMULA_PREFIX} gains a leading `'` so
    * spreadsheet applications treat it as text.
    */
-  private csvCell(value: string | null): string {
-    let scalar = value ?? '';
-    if (CSV_FORMULA_PREFIX.test(scalar)) {
-      scalar = `'${scalar}`;
-    }
-    return `"${scalar.replace(/"/g, '""')}"`;
+  private csvCell(value = ''): string {
+    const formulaSafe = CSV_FORMULA_PREFIX.test(value) ? `'${value}` : value;
+    return `"${formulaSafe.replaceAll('"', '""')}"`;
   }
 
   /**

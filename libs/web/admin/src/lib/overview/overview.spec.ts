@@ -28,7 +28,7 @@ function mockStats(
     },
     groups: [],
     attention: {
-      waitlistUninvited: 45,
+      waitlistUninvited: 42,
       failedWebhooksUnresolved: 0,
       subscriptionsPastDue: 0,
       sessionRequestsPending: 0,
@@ -65,11 +65,11 @@ describe('AdminOverview', () => {
 
     // total is 100, notified is 40. The old formula would be 100 - 40 = 60,
     // which wrongly overcounted the 15 approved rows as uninvited.
-    // The server's authoritative attention.waitlistUninvited is 45.
+    // The server's authoritative attention.waitlistUninvited is 42.
     const waitlistUninvited = (
       component as unknown as { waitlistUninvited: () => number }
     ).waitlistUninvited();
-    expect(waitlistUninvited).toBe(45);
+    expect(waitlistUninvited).toBe(42);
   });
 
   it('falls back to waitlist.new when attention block is absent', () => {

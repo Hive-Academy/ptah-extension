@@ -4,18 +4,14 @@ import { Observable, map } from 'rxjs';
 import { z } from 'zod';
 
 import { validate } from '@ptah-web/core';
-import {
+import type {
   WaitlistDetailsResponse,
   WaitlistEligibleIdsResponse,
   WaitlistFilterQuery,
   WaitlistListQuery,
   WaitlistListResponse,
-  WaitlistListRow,
-  WaitlistSortField,
-  WaitlistSource,
-  WaitlistStage,
-  WaitlistStageCounts,
-  SortOrder,
+} from '../waitlist/waitlist-query-state';
+import {
   waitlistDetailsResponseSchema,
   waitlistEligibleIdsResponseSchema,
   waitlistListResponseSchema,
@@ -33,7 +29,7 @@ export type {
   WaitlistStage,
   WaitlistStageCounts,
   SortOrder,
-};
+} from '../waitlist/waitlist-query-state';
 
 /**
  * URL slug for every admin-addressable Prisma model.
@@ -841,7 +837,7 @@ export class AdminApiService {
             /filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?/i.exec(
               disposition,
             );
-          const filename = match && match[1] ? match[1] : 'waitlist.csv';
+          const filename = match?.[1] || 'waitlist.csv';
           return { blob: res.body, filename };
         }),
       );

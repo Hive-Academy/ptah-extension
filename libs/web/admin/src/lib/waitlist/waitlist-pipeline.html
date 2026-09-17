@@ -18,11 +18,15 @@
         </span>
         <span class="flex items-center gap-1.5">
           <span class="text-base-content-muted">Approved</span>
-          <span class="font-semibold tabular-nums text-info">{{ counts().approved }}</span>
+          <span class="font-semibold tabular-nums text-info">{{
+            counts().approved
+          }}</span>
         </span>
         <span class="flex items-center gap-1.5">
           <span class="text-base-content-muted">Converted</span>
-          <span class="font-semibold tabular-nums text-success">{{ counts().converted }}</span>
+          <span class="font-semibold tabular-nums text-success">{{
+            counts().converted
+          }}</span>
         </span>
       </div>
 
@@ -32,9 +36,12 @@
         class="btn btn-outline btn-sm gap-1.5"
         [disabled]="exporting()"
         (click)="onExportCsv()"
-        aria-label="Export matching waitlist entries to CSV"
       >
-        <lucide-angular [img]="DownloadIcon" class="h-4 w-4" aria-hidden="true" />
+        <lucide-angular
+          [img]="DownloadIcon"
+          class="h-4 w-4"
+          aria-hidden="true"
+        />
         {{ exporting() ? 'Exporting…' : 'Export CSV' }}
       </button>
     </div>
@@ -53,7 +60,9 @@
       >
         <span>{{ t.label }}</span>
         @if (counts()[t.key] !== undefined) {
-          <span class="badge badge-sm font-mono opacity-80">{{ counts()[t.key] }}</span>
+          <span class="badge badge-sm font-mono opacity-80">{{
+            counts()[t.key]
+          }}</span>
         }
       </button>
     }
@@ -81,7 +90,7 @@
 
   <!-- Bulk action toolbar -->
   @if (selection.count() > 0) {
-    <div aria-live="polite" role="status">
+    <output aria-live="polite" class="block">
       <ptah-selection-toolbar
         [count]="selection.count()"
         itemNoun="row"
@@ -92,12 +101,13 @@
             Selection limit of 50 reached
           </span>
         }
-
         @if (selection.isTruncatedMatching()) {
           <span class="text-xs font-medium text-accent">
             {{ selection.disclosureLabel() }}
           </span>
-        } @else if (selection.scope() !== 'matching' && total() > selection.count()) {
+        } @else if (
+          selection.scope() !== 'matching' && total() > selection.count()
+        ) {
           <button
             type="button"
             class="btn btn-ghost btn-xs text-xs"
@@ -112,16 +122,24 @@
           class="btn btn-primary btn-sm gap-1.5"
           (click)="onApproveSelected()"
         >
-          <lucide-angular [img]="BadgeCheckIcon" class="h-4 w-4" aria-hidden="true" />
+          <lucide-angular
+            [img]="BadgeCheckIcon"
+            class="h-4 w-4"
+            aria-hidden="true"
+          />
           Approve to Founding Cohort
         </button>
       </ptah-selection-toolbar>
-    </div>
+    </output>
   }
 
   <!-- Body -->
   @if (loading()) {
-    <div class="flex flex-col gap-2" aria-busy="true" aria-label="Loading waitlist">
+    <div
+      class="flex flex-col gap-2"
+      aria-busy="true"
+      aria-label="Loading waitlist"
+    >
       @for (i of [1, 2, 3, 4, 5]; track i) {
         <div class="h-14 animate-pulse rounded-md bg-base-200"></div>
       }
@@ -159,7 +177,9 @@
     }
   } @else {
     <!-- Select Page row control -->
-    <div class="flex items-center justify-between border-b border-hairline px-3 py-1.5 text-xs text-base-content-muted">
+    <div
+      class="flex items-center justify-between border-b border-hairline px-3 py-1.5 text-xs text-base-content-muted"
+    >
       <label class="flex cursor-pointer items-center gap-2">
         <input
           type="checkbox"
@@ -174,7 +194,7 @@
       <span>{{ rows().length }} entries on this page</span>
     </div>
 
-    <ul class="flex flex-col gap-2">
+    <div role="list" class="flex flex-col gap-2">
       @for (row of rows(); track row.id) {
         <ptah-admin-waitlist-row
           [row]="row"
@@ -184,12 +204,14 @@
           (viewDetails)="onOpenDetails($event)"
         />
       }
-    </ul>
+    </div>
 
     <!-- Pagination -->
     @if (totalPages() > 1) {
       <div class="flex items-center justify-end gap-3 text-sm">
-        <span class="text-base-content-muted">Page {{ page() }} of {{ totalPages() }}</span>
+        <span class="text-base-content-muted"
+          >Page {{ page() }} of {{ totalPages() }}</span
+        >
         <div class="join">
           <button
             type="button"
@@ -237,9 +259,10 @@
         [class.alert-warning]="t.tally.failed > 0"
       >
         <span>
-          Approved {{ t.tally.approved }} of {{ t.requested }} · already approved
-          {{ t.tally.already_approved }} · already paid {{ t.tally.already_paid }} ·
-          not found {{ t.tally.not_found }} · failed {{ t.tally.failed }}.
+          Approved {{ t.tally.approved }} of {{ t.requested }} · already
+          approved {{ t.tally.already_approved }} · already paid
+          {{ t.tally.already_paid }} · not found {{ t.tally.not_found }} ·
+          failed {{ t.tally.failed }}.
         </span>
       </div>
     </div>

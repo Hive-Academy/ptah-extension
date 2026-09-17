@@ -101,7 +101,7 @@ export class WaitlistDetailsDrawer {
 
   protected onApprove(): void {
     const entry = this.data()?.entry;
-    if (entry && entry.approvalEligible) {
+    if (entry?.approvalEligible) {
       this.approve.emit(entry.id);
     }
   }

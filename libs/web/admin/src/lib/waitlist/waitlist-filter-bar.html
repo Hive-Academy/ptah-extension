@@ -1,4 +1,6 @@
-<div class="flex flex-col gap-3 rounded-lg border border-hairline bg-base-200/50 p-3">
+<div
+  class="flex flex-col gap-3 rounded-lg border border-hairline bg-base-200/50 p-3"
+>
   <div class="flex flex-wrap items-center gap-3">
     <!-- Free-text search matching email or source -->
     <div class="relative min-w-[200px] flex-1">
@@ -19,11 +21,14 @@
 
     <!-- Source dropdown -->
     <div class="flex items-center gap-1.5">
-      <label for="waitlist-source-select" class="text-xs text-base-content-muted">Source</label>
+      <label
+        for="waitlist-source-select"
+        class="text-xs text-base-content-muted"
+        >Source</label
+      >
       <select
         id="waitlist-source-select"
         class="select select-bordered select-sm"
-        aria-label="Filter by source"
         [value]="source() ?? ''"
         (change)="onSourceSelect($event)"
       >
@@ -36,7 +41,9 @@
 
     <!-- Date range filters -->
     <div class="flex items-center gap-1.5">
-      <label for="waitlist-created-from" class="text-xs text-base-content-muted">From</label>
+      <label for="waitlist-created-from" class="text-xs text-base-content-muted"
+        >From</label
+      >
       <input
         id="waitlist-created-from"
         type="date"
@@ -48,7 +55,9 @@
     </div>
 
     <div class="flex items-center gap-1.5">
-      <label for="waitlist-created-to" class="text-xs text-base-content-muted">To</label>
+      <label for="waitlist-created-to" class="text-xs text-base-content-muted"
+        >To</label
+      >
       <input
         id="waitlist-created-to"
         type="date"
@@ -61,7 +70,9 @@
 
     <!-- Sort controls -->
     <div class="flex items-center gap-1.5">
-      <label for="waitlist-sort-select" class="text-xs text-base-content-muted">Sort</label>
+      <label for="waitlist-sort-select" class="text-xs text-base-content-muted"
+        >Sort</label
+      >
       <select
         id="waitlist-sort-select"
         class="select select-bordered select-sm"
@@ -89,11 +100,14 @@
 
     <!-- Page size dropdown -->
     <div class="flex items-center gap-1.5">
-      <label for="waitlist-page-size-select" class="text-xs text-base-content-muted">Show</label>
+      <label
+        for="waitlist-page-size-select"
+        class="text-xs text-base-content-muted"
+        >Show</label
+      >
       <select
         id="waitlist-page-size-select"
         class="select select-bordered select-sm"
-        aria-label="Page size"
         [value]="pageSize()"
         (change)="onPageSizeSelect($event)"
       >
@@ -108,9 +122,12 @@
       type="button"
       class="btn btn-ghost btn-sm gap-1 text-xs"
       (click)="onClear()"
-      aria-label="Clear all optional filters"
     >
-      <lucide-angular [img]="RotateCcwIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+      <lucide-angular
+        [img]="RotateCcwIcon"
+        class="h-3.5 w-3.5"
+        aria-hidden="true"
+      />
       Clear filters
     </button>
   </div>

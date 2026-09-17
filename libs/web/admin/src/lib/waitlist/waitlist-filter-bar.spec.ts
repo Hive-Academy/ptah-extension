@@ -21,8 +21,8 @@ describe('WaitlistFilterBar', () => {
       el.querySelector('input[aria-label="Search email or source"]'),
     ).toBeTruthy();
     expect(
-      el.querySelector('select[aria-label="Filter by source"]'),
-    ).toBeTruthy();
+      el.querySelector('label[for="waitlist-source-select"]')?.textContent,
+    ).toContain('Source');
     expect(
       el.querySelector('input[aria-label="Signup date from"]'),
     ).toBeTruthy();
@@ -31,10 +31,12 @@ describe('WaitlistFilterBar', () => {
     expect(
       el.querySelector('select[aria-label="Sort direction"]'),
     ).toBeTruthy();
-    expect(el.querySelector('select[aria-label="Page size"]')).toBeTruthy();
     expect(
-      el.querySelector('button[aria-label="Clear all optional filters"]'),
-    ).toBeTruthy();
+      el.querySelector('label[for="waitlist-page-size-select"]')?.textContent,
+    ).toContain('Show');
+    const clearButton = el.querySelector('button');
+    expect(clearButton?.textContent).toContain('Clear filters');
+    expect(clearButton?.hasAttribute('aria-label')).toBe(false);
   });
 
   it('emits searchChange when search input changes', () => {
@@ -55,7 +57,7 @@ describe('WaitlistFilterBar', () => {
     component.sourceChange.subscribe((val) => (emittedSource = val));
 
     const select = fixture.nativeElement.querySelector(
-      'select[aria-label="Filter by source"]',
+      '#waitlist-source-select',
     ) as HTMLSelectElement;
     select.value = 'vscode';
     select.dispatchEvent(new Event('change'));
@@ -128,7 +130,7 @@ describe('WaitlistFilterBar', () => {
     component.pageSizeChange.subscribe((val) => (emittedPageSize = val));
 
     const pageSelect = fixture.nativeElement.querySelector(
-      'select[aria-label="Page size"]',
+      '#waitlist-page-size-select',
     ) as HTMLSelectElement;
     pageSelect.value = '50';
     pageSelect.dispatchEvent(new Event('change'));
@@ -141,7 +143,7 @@ describe('WaitlistFilterBar', () => {
     component.cleared.subscribe(() => (clearCalled = true));
 
     const btn = fixture.nativeElement.querySelector(
-      'button[aria-label="Clear all optional filters"]',
+      'button',
     ) as HTMLButtonElement;
     btn.click();
 

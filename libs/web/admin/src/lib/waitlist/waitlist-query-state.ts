@@ -106,7 +106,12 @@ export type WaitlistListResponse = z.infer<typeof waitlistListResponseSchema>;
 
 export const waitlistEligibleIdsResponseSchema = z
   .object({
-    ids: z.array(z.string()).max(50),
+    ids: z
+      .array(z.string())
+      .max(50)
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: 'ids must be unique',
+      }),
     selected: z.number().int().nonnegative(),
     eligibleMatching: z.number().int().nonnegative(),
     limit: z.literal(50),
@@ -215,6 +220,42 @@ export function defaultSortOrder(stage: WaitlistStage): SortOrder {
   return stage === 'new' ? 'asc' : 'desc';
 }
 
+function getQueryParam(
+  rawParams: ParamMap | Params,
+  key: string,
+): string | null {
+  if ('get' in rawParams && typeof rawParams.get === 'function') {
+    return rawParams.get(key);
+  }
+  const value = (rawParams as Params)[key];
+  return value != null ? String(value) : null;
+}
+
+function parseAllowlistedValue<T extends string>(
+  value: string | null,
+  allowedValues: readonly T[],
+): T | undefined {
+  return value !== null && (allowedValues as readonly string[]).includes(value)
+    ? (value as T)
+    : undefined;
+}
+
+function parseIsoDate(value: string | null): string | undefined {
+  return value && !Number.isNaN(Date.parse(value)) ? value : undefined;
+}
+
+function parsePage(value: string | null): number {
+  const parsed = value ? Number.parseInt(value, 10) : 1;
+  return Number.isInteger(parsed) && parsed >= 1 ? parsed : 1;
+}
+
+function parsePageSize(value: string | null): WaitlistPageSize {
+  const parsed = value ? Number.parseInt(value, 10) : 25;
+  return (WAITLIST_PAGE_SIZES as readonly number[]).includes(parsed)
+    ? (parsed as WaitlistPageSize)
+    : 25;
+}
+
 /**
  * Normalizes router query params into a type-safe WaitlistListQuery object.
  * Invalid values fall back to defaults.
@@ -222,68 +263,35 @@ export function defaultSortOrder(stage: WaitlistStage): SortOrder {
 export function parseWaitlistQuery(
   rawParams: ParamMap | Params,
 ): WaitlistListQuery {
-  const get = (key: string): string | null => {
-    if ('get' in rawParams && typeof rawParams.get === 'function') {
-      return rawParams.get(key);
-    }
-    const val = (rawParams as Params)[key];
-    return val != null ? String(val) : null;
-  };
-
   // Support both canonical ?stage= and legacy ?tab=
-  const rawStage = get('stage') ?? get('tab');
-  const stage: WaitlistStage =
-    rawStage && (WAITLIST_STAGES as readonly string[]).includes(rawStage)
-      ? (rawStage as WaitlistStage)
-      : 'new';
+  const rawStage =
+    getQueryParam(rawParams, 'stage') ?? getQueryParam(rawParams, 'tab');
+  const stage = parseAllowlistedValue(rawStage, WAITLIST_STAGES) ?? 'new';
 
-  const rawSearch = get('search');
+  const rawSearch = getQueryParam(rawParams, 'search');
   const search =
     rawSearch && rawSearch.trim().length > 0
       ? rawSearch.trim().slice(0, 256)
       : undefined;
 
-  const rawSource = get('source');
-  const source: WaitlistSource | undefined =
-    rawSource && (WAITLIST_SOURCES as readonly string[]).includes(rawSource)
-      ? (rawSource as WaitlistSource)
-      : undefined;
-
-  const rawCreatedFrom = get('createdFrom');
-  const createdFrom =
-    rawCreatedFrom && !Number.isNaN(Date.parse(rawCreatedFrom))
-      ? rawCreatedFrom
-      : undefined;
-
-  const rawCreatedTo = get('createdTo');
-  const createdTo =
-    rawCreatedTo && !Number.isNaN(Date.parse(rawCreatedTo))
-      ? rawCreatedTo
-      : undefined;
-
-  const rawSortBy = get('sortBy');
-  const sortBy: WaitlistSortField =
-    rawSortBy && (WAITLIST_SORT_FIELDS as readonly string[]).includes(rawSortBy)
-      ? (rawSortBy as WaitlistSortField)
-      : 'createdAt';
-
-  const rawSortOrder = get('sortOrder');
-  const sortOrder: SortOrder =
-    rawSortOrder === 'asc' || rawSortOrder === 'desc'
-      ? rawSortOrder
-      : defaultSortOrder(stage);
-
-  const rawPage = get('page');
-  const parsedPage = rawPage ? parseInt(rawPage, 10) : 1;
-  const page = Number.isInteger(parsedPage) && parsedPage >= 1 ? parsedPage : 1;
-
-  const rawPageSize = get('pageSize');
-  const parsedPageSize = rawPageSize ? parseInt(rawPageSize, 10) : 25;
-  const pageSize: WaitlistPageSize = (
-    WAITLIST_PAGE_SIZES as readonly number[]
-  ).includes(parsedPageSize)
-    ? (parsedPageSize as WaitlistPageSize)
-    : 25;
+  const source = parseAllowlistedValue(
+    getQueryParam(rawParams, 'source'),
+    WAITLIST_SOURCES,
+  );
+  const createdFrom = parseIsoDate(getQueryParam(rawParams, 'createdFrom'));
+  const createdTo = parseIsoDate(getQueryParam(rawParams, 'createdTo'));
+  const sortBy =
+    parseAllowlistedValue(
+      getQueryParam(rawParams, 'sortBy'),
+      WAITLIST_SORT_FIELDS,
+    ) ?? 'createdAt';
+  const sortOrder =
+    parseAllowlistedValue(getQueryParam(rawParams, 'sortOrder'), [
+      'asc',
+      'desc',
+    ] as const) ?? defaultSortOrder(stage);
+  const page = parsePage(getQueryParam(rawParams, 'page'));
+  const pageSize = parsePageSize(getQueryParam(rawParams, 'pageSize'));
 
   return {
     stage,
@@ -343,16 +351,8 @@ export function needsWaitlistQueryCanonicalization(
   rawParams: ParamMap | Params,
   parsed: WaitlistListQuery,
 ): boolean {
-  const get = (key: string): string | null => {
-    if ('get' in rawParams && typeof rawParams.get === 'function') {
-      return rawParams.get(key);
-    }
-    const val = (rawParams as Params)[key];
-    return val != null ? String(val) : null;
-  };
-
   // Legacy tab parameter always triggers canonicalization
-  if (get('tab') !== null) {
+  if (getQueryParam(rawParams, 'tab') !== null) {
     return true;
   }
 
@@ -371,7 +371,7 @@ export function needsWaitlistQueryCanonicalization(
   ] as const;
 
   for (const key of keys) {
-    const rawVal = get(key);
+    const rawVal = getQueryParam(rawParams, key);
     const canonicalVal =
       serialized[key] != null ? String(serialized[key]) : null;
     if (rawVal !== canonicalVal) {

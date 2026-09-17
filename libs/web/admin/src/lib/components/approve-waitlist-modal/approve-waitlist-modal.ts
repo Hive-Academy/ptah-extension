@@ -48,6 +48,14 @@ const APPROVAL_OUTCOME_LABELS: Record<EntryOutcomeLine['outcome'], string> = {
   failed: 'Failed',
 };
 
+const ENTRY_OUTCOME_TONES: Record<EntryOutcomeLine['outcome'], string> = {
+  approved: 'border-hairline bg-base-200',
+  already_approved: 'border-hairline bg-base-200',
+  already_paid: 'border-hairline bg-base-200',
+  not_found: 'border-warning/40 bg-warning/10',
+  failed: 'border-error/40 bg-error/10',
+};
+
 const APPROVAL_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   COHORT_NOT_CONFIGURED:
     'The founding cohort is not configured. Please contact support.',
@@ -171,12 +179,7 @@ export class ApproveWaitlistModal {
         outcome: entry.outcome,
         label: APPROVAL_OUTCOME_LABELS[entry.outcome],
         code: entry.warning?.code ?? entry.error?.code ?? null,
-        tone:
-          entry.outcome === 'failed'
-            ? 'border-error/40 bg-error/10'
-            : entry.outcome === 'not_found'
-              ? 'border-warning/40 bg-warning/10'
-              : 'border-hairline bg-base-200',
+        tone: ENTRY_OUTCOME_TONES[entry.outcome],
       })),
   );
 
@@ -235,12 +238,12 @@ export class ApproveWaitlistModal {
       code?: unknown;
       error?: { code?: unknown };
     };
-    const code =
-      typeof shaped.error?.code === 'string'
-        ? shaped.error.code
-        : typeof shaped.code === 'string'
-          ? shaped.code
-          : null;
+    let code: string | null = null;
+    if (typeof shaped.error?.code === 'string') {
+      code = shaped.error.code;
+    } else if (typeof shaped.code === 'string') {
+      code = shaped.code;
+    }
 
     if (code && APPROVAL_ERROR_MESSAGES[code]) {
       return APPROVAL_ERROR_MESSAGES[code];

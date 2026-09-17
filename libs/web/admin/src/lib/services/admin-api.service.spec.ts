@@ -96,7 +96,7 @@ describe('AdminApiService - waitlist boundary', () => {
 
       req.flush(mockResponse);
       const res = await promise;
-      expect(res.data.length).toBe(1);
+      expect(res.data).toHaveLength(1);
       expect(res.data[0].email).toBe('user@example.com');
       expect(res.counts.pending).toBe(5);
     });
@@ -166,6 +166,16 @@ describe('AdminApiService - waitlist boundary', () => {
           eligibleMatching: 1,
           limit: 50,
           truncated: true,
+        },
+      ],
+      [
+        'ids contain duplicates',
+        {
+          ids: ['wl-1', 'wl-1'],
+          selected: 2,
+          eligibleMatching: 2,
+          limit: 50,
+          truncated: false,
         },
       ],
       [
@@ -277,7 +287,7 @@ describe('AdminApiService - waitlist boundary', () => {
       const res = await promise;
       expect(res.entry.id).toBe('wl-10');
       expect(res.user?.firstName).toBe('Ada');
-      expect(res.audit.length).toBe(1);
+      expect(res.audit).toHaveLength(1);
     });
 
     it('accepts null user when entry is not yet linked to an account', async () => {

@@ -351,26 +351,33 @@ export class AdminService {
       failedWebhooksUnresolved,
       subscriptionsPastDue,
       sessionRequestsPending,
-    ] = await this.prisma.$transaction([
-      this.prisma.waitlist.count(),
-      this.prisma.waitlist.count({ where: WAITLIST_STAGE_PREDICATES.new }),
-      this.prisma.waitlist.count({ where: WAITLIST_STAGE_PREDICATES.invited }),
-      this.prisma.waitlist.count({ where: WAITLIST_STAGE_PREDICATES.approved }),
-      this.prisma.waitlist.count({
-        where: WAITLIST_STAGE_PREDICATES.converted,
-      }),
-      this.prisma.waitlist.count({ where: { notifiedAt: { not: null } } }),
-      this.prisma.waitlist.count({ where: { createdAt: { gte: since } } }),
-      this.prisma.license.count({
-        where: { plan: 'builders', status: 'active' },
-      }),
-      this.prisma.license.count({
-        where: { plan: 'community', status: 'active' },
-      }),
-      this.prisma.failedWebhook.count({ where: { resolved: false } }),
-      this.prisma.subscription.count({ where: { status: 'past_due' } }),
-      this.prisma.sessionRequest.count({ where: { status: 'pending' } }),
-    ]);
+    ] = await this.prisma.$transaction(
+      [
+        this.prisma.waitlist.count(),
+        this.prisma.waitlist.count({ where: WAITLIST_STAGE_PREDICATES.new }),
+        this.prisma.waitlist.count({
+          where: WAITLIST_STAGE_PREDICATES.invited,
+        }),
+        this.prisma.waitlist.count({
+          where: WAITLIST_STAGE_PREDICATES.approved,
+        }),
+        this.prisma.waitlist.count({
+          where: WAITLIST_STAGE_PREDICATES.converted,
+        }),
+        this.prisma.waitlist.count({ where: { notifiedAt: { not: null } } }),
+        this.prisma.waitlist.count({ where: { createdAt: { gte: since } } }),
+        this.prisma.license.count({
+          where: { plan: 'builders', status: 'active' },
+        }),
+        this.prisma.license.count({
+          where: { plan: 'community', status: 'active' },
+        }),
+        this.prisma.failedWebhook.count({ where: { resolved: false } }),
+        this.prisma.subscription.count({ where: { status: 'past_due' } }),
+        this.prisma.sessionRequest.count({ where: { status: 'pending' } }),
+      ],
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
 
     return {
       waitlist: {

@@ -89,6 +89,8 @@ export class AdminWaitlistController {
    * audited before download. Declared BEFORE `:id/details`.
    */
   @Get('export.csv')
+  @UseGuards(AdminThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async exportCsv(
     @Req() req: Request,
     @Query(dtoPipe(WaitlistFilterQueryDto)) query: WaitlistFilterQueryDto,

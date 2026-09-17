@@ -74,6 +74,15 @@ describe('AdminWaitlistController', () => {
       expect(guards).toEqual([AdminThrottlerGuard]);
     });
 
+    it('export carries a five-per-minute admin-keyed throttle', () => {
+      const handler = AdminWaitlistController.prototype.exportCsv;
+      const guards = Reflect.getMetadata('__guards__', handler);
+
+      expect(guards).toEqual([AdminThrottlerGuard]);
+      expect(Reflect.getMetadata('THROTTLER:LIMITdefault', handler)).toBe(5);
+      expect(Reflect.getMetadata('THROTTLER:TTLdefault', handler)).toBe(60_000);
+    });
+
     it('controller prefix is v1/admin/waitlist', () => {
       const prefix = Reflect.getMetadata(
         PATH_METADATA,

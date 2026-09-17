@@ -107,7 +107,10 @@ export class WaitlistFilterBar {
   }
 
   protected onPageSizeSelect(event: Event): void {
-    const parsed = parseInt((event.target as HTMLSelectElement).value, 10);
+    const parsed = Number.parseInt(
+      (event.target as HTMLSelectElement).value,
+      10,
+    );
     if ((this.availablePageSizes as readonly number[]).includes(parsed)) {
       this.pageSizeChange.emit(parsed as WaitlistPageSize);
     }

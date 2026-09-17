@@ -13,7 +13,6 @@ import {
   catchError,
   combineLatest,
   debounceTime,
-  distinctUntilChanged,
   map,
   of,
   Subject,
@@ -342,18 +341,19 @@ export class WaitlistPipeline {
     });
 
     // Handle debounced search changes (uses replaceUrl to prevent flooding history)
-    this.searchInput$
-      .pipe(debounceTime(300), distinctUntilChanged())
-      .subscribe((searchVal) => {
-        this.navigateWithFilters(
-          {
-            search: searchVal.trim().length > 0 ? searchVal.trim() : undefined,
-            page: 1,
-          },
-          { replaceUrl: true },
-        );
-        this.selection.clear();
-      });
+    this.searchInput$.pipe(debounceTime(300)).subscribe((searchVal) => {
+      const next = searchVal.trim().length > 0 ? searchVal.trim() : undefined;
+      if (next === this.currentQuery().search) return;
+
+      this.navigateWithFilters(
+        {
+          search: next,
+          page: 1,
+        },
+        { replaceUrl: true },
+      );
+      this.selection.clear();
+    });
   }
 
   private fetchStats(): void {
@@ -506,7 +506,7 @@ export class WaitlistPipeline {
         a.download = filename;
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
+        a.remove();
         URL.revokeObjectURL(url);
       },
       error: (err: unknown) => {
