@@ -29,6 +29,11 @@ export interface MeasurementSummary {
   readonly totalDuration: number;
 }
 
+interface MeasurementUsabilityDiagnostics {
+  readonly outputDirectory: string;
+  readonly scenario: string;
+}
+
 export interface OptionalDiagnostics {
   readonly rafAttribution: RafAttributionRow[];
   readonly traceSummary: ReturnType<typeof summarizeTraceEvents> | null;
@@ -136,7 +141,25 @@ export function logMeasurementBuckets(
   }
 }
 
-export function assertUsableMeasurement(openResult: OpenTilesResult): void {
+export function assertUsableMeasurement(
+  openResult: OpenTilesResult,
+  diagnostics: MeasurementUsabilityDiagnostics,
+): void {
+  if (openResult.measurementError) {
+    writeDiagnostics(
+      diagnostics.outputDirectory,
+      `${diagnostics.scenario}-measurement-unusable`,
+      {
+        scenario: diagnostics.scenario,
+        measurementUsable: false,
+        measurementError: openResult.measurementError,
+        openResult,
+      },
+    );
+    throw new Error(
+      `[AC-11 perf] measurement unusable: ${openResult.measurementError}`,
+    );
+  }
   if (!openResult.ok) {
     throw new Error(
       `[AC-11 perf] tiles did not all render their markers within the window ` +

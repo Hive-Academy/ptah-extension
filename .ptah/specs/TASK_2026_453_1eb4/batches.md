@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 32 | Batches: 18 (13 code, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 12/18
+Total tasks: 33 | Batches: 19 (14 code incl. Batch 14A added 2026-09-17, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 14/19
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -1747,7 +1747,29 @@ ptah-extension-webview`. Lint `@ptah-extension/chat` (report the `max-lines` war
 - Line counts: `chat-transcript.component.ts` 700 → 710; directive 83; `chat-view.component.ts`
   1326 → 1335; `chat-transcript.older-history.spec.ts` 315.
 
-## Batch 14: C14 paging-faithful harness + functional e2e — PENDING
+## Batch 14: C14 paging-faithful harness + functional e2e — COMPLETE (commit: `test(electron-e2e): page the perf mock like the backend and cover loading older history`, committed after Batch 14A)
+
+**Outcome (2026-09-17)**: revise 2 of 2 (cap used). Logic + style base reviews, then delta logic
+review `b14-b14a-code-logic-review-delta.md` APPROVED. The lane found the product defect that became
+Batch 14A: a prepend at `scrollTop === 0` moved the top-visible message ~5,073-7,038 px (A-ii-2 /
+R-ii-2); the `scrollTop` 300 case moved 0.13 px (native anchoring). Round 2 made the stepped scroll
+settle (8 stable frames + 300 ms DOM quiet, bounded retries), asserts preconditions, uses the
+button-only no-IntersectionObserver fallback for the two measured anchor cases, and requires
+`prependedHeight > 0`. The e2e scrolls like a user (user decision 2, see Batch 14A).
+
+Gates (orchestrator, current tree, log `D:\projects\ptah-extension\tmp\b14-gates.log`): tests
+`-p @ptah-extension/chat` 82 suites, 1312 passed / 2 skipped (runners 0 before); typecheck
+`@ptah-extension/chat`, `ptah-extension-webview`, `ptah-electron-e2e` 3 projects success; lint chat +
+e2e 0 errors (17 + 9 existing warnings); degradation audit TOTAL 303; webview build development +
+production success (existing 2.50 MB budget warning). Headed functional run
+`tile-load-older-history.spec.ts`: **5 passed (1.3m)**. scrollTop-zero: precondition scrollTop 0,
+distanceFromBottom 7566, prependedHeight 5211, offsetDelta 0.38 px. scrollTop-nonzero: precondition
+300, prependedHeight 5489, offsetDelta 0.50 px. Pinned prepend distance-from-bottom 0.00 px (<= 120,
+no U1 trigger). Node-runner count before the e2e read 2 (transient Nx cleanup right after the
+production build), 0 after — recorded as observed.
+
+Residual (moved to Batch 18 follow-ups): moderate — only the sampler-driven "measurement unusable"
+exit writes diagnostics first; the `!ok`, `!settled` and `collectPagingDiagnostics` exits do not.
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `senior-tester` sub-agent
@@ -1759,7 +1781,7 @@ ptah-extension-webview`. Lint `@ptah-extension/chat` (report the `max-lines` war
 - Playwright runs: node-runner count 0 before the functional run (common rules); no perf run
   in this batch.
 
-### Task 14.1: Mock `chat:resume` paging + `chat:history-page`; per-tile paging diagnostics — PENDING
+### Task 14.1: Mock `chat:resume` paging + `chat:history-page`; per-tile paging diagnostics — COMPLETE
 
 - Files: MODIFY `W\apps\ptah-electron-e2e\src\support\perf-session-fixture.ts`,
   `W\apps\ptah-electron-e2e\src\specs\chat\tile-open-longtask-budget.perf.spec.ts`,
@@ -1796,7 +1818,7 @@ ptah-extension-webview`. Lint `@ptah-extension/chat` (report the `max-lines` war
      `perf-scroll-sanity.ts` and update imports (move only, no behaviour change), then add the new
      export. If no export is added there, no split; report the export count.
 
-### Task 14.2: Functional load-older spec + e2e `CLAUDE.md` note — PENDING
+### Task 14.2: Functional load-older spec + e2e `CLAUDE.md` note — COMPLETE
 
 - Depends on: Task 14.1
 - Files: CREATE `W\apps\ptah-electron-e2e\src\specs\chat\tile-load-older-history.spec.ts`; MODIFY
@@ -1823,13 +1845,59 @@ ptah-extension-webview`. Lint `@ptah-extension/chat` (report the `max-lines` war
   first run that populates them; if M2 finds them missing, the M2 run is unusable and Batch 14
   reopens. No `project.json` edit, no `nx reset` (B9 stays out of branch).
 
+## Batch 14A: top-boundary prepend anchor (user decision 2026-09-17) — COMPLETE (commit: `fix(chat): keep the reader's place when older history lands at the top`)
+
+Not in the original plan; created from the Batch 14 lane finding (prepend at `scrollTop === 0`
+moved the top-visible message ~5,073-7,038 px; Chromium selects no scroll anchor at block offset 0).
+
+- Executor: CLI lane `codex` x 1 (`b14a-codex-report.md`, all rounds). Reviews:
+  `b14a-code-logic-review.md`, `b14a-code-style-review.md`, delta `b14-b14a-code-logic-review-delta.md`
+  APPROVED. Revise 2 of 2 (cap used).
+- Files: MODIFY `W\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts`
+  (710 → 714 lines), `...\transcript\chat-transcript.component.html`, `W\libs\frontend\chat\CLAUDE.md`;
+  CREATE `...\transcript\transcript-prepend-anchor.directive.ts` (163 lines),
+  `...\transcript\transcript-prepend-anchor.directive.spec.ts` (209 lines). No `apps/**` file.
+
+**User decision 1 (2026-09-17) — "Narrow scroll write"**: transcript only. Before an older page is
+prepended, and only when `scrollTop` is 0 (active, unpinned, not replaying), read the first visible
+message offset; after render restore it with ONE `scrollTop` write. No change to `onScroll`,
+`scheduleStickToBottom`, `restoreScrollOnActivation`, `lastScrollTop`, the render-window feed effect,
+`cleanup()` retention, or CSS.
+
+**User decision 2 (2026-09-17) — "Prove test artifact first"**: revise round 1 went past decision 1
+(a pin-reconcile call in the `(scroll)` binding plus a transient forced mount). Round 2 removed the
+pin path and kept the forced mount; the e2e must scroll like a user. Result: the stuck pin was a test
+artifact of a direct jump to `scrollTop` 0.
+
+Acceptance criteria as implemented:
+
+1. `TranscriptPrependAnchorDirective` on the scroll container; `ngOnChanges` (not an effect) reads
+   the old DOM before the descendant `@for` reconciles. Arms only for a strict head prepend on the
+   same tab + session while active before and after, not replaying, not pinned, `scrollTop === 0`.
+2. Captures the first visible `[data-ptah-transcript-message-id]` slot offset; `afterNextRender`
+   restores it with one `scrollTop` write (skips when delta <= 0, > `scrollHeight`, or the slot is
+   gone). A newer change cancels an older pending restore through a revision counter.
+3. The prepended page's ids stay force-mounted for that one render, so placeholder growth does not
+   skew the measurement; cleared after the restore or on the next change.
+4. Every `scrollTop` > 0 stays with native overflow anchoring (e2e 300 px case 0.50 px).
+5. `isPinnedToBottom()` is a pure read of `pinnedToBottom`; `sessionId` computed made `protected`
+   for template wiring only.
+
+Gates: same orchestrator gate set as Batch 14 (chat tests 1312 passed / 2 skipped, typecheck 3
+projects, lint 0 errors, audit TOTAL 303, webview builds success); e2e scrollTop-zero offsetDelta
+0.38 px, scrollTop-nonzero 0.50 px, pinned 0.00 px.
+
+Residual (accepted, listed in Batch 18): minor — no debug log when the anchor slot is not found and
+the restore is skipped.
+
 ## Batch 15: M2 measurement (Electron, AC-11 verdict) — PENDING
 
 - Recommended executor: Claude `senior-tester` sub-agent
 - Fallback executor: none (idle machine required; wait instead)
 - Execution mode: sequential
 - Rationale: measurement protocol on an idle machine; no product or spec code.
-- Tasks: 1 | Depends on: **Batch 8 PASS (explicit)**, Batches 9-14 committed
+- Tasks: 1 | Depends on: **Batch 8 PASS (explicit)**, Batches 9-14 and **14A** committed (M2 needs
+  both the paging-faithful harness and the top-boundary prepend anchor)
 - Review: `code-logic-reviewer` on the report methodology; team-leader commits the report.
 - **Peer hold protocol** (handoff.md §6 rule 4): before the first run the orchestrator asks the
   peer sessions on this machine (the `continue-task` session and any other active one) to hold
@@ -1957,6 +2025,16 @@ ptah-extension-webview`. Lint `@ptah-extension/chat` (report the `max-lines` war
   3. If not feasible without a new harness (Playwright `webview-e2e-harness`, a jest config or a
      `project.json` change): no diff; the task is marked `CANCELLED (not feasible on branch)` and
      B10 is added to "Out-of-branch follow-ups" below with the evidence.
+
+### Batch 18 follow-up items from Batches 14 / 14A (delta logic review residuals)
+
+- **B14 (moderate)**: in the perf harness (`perf-measurement-report.ts:160-171`,
+  `tile-open-longtask-budget.perf.spec.ts:206-234`), only the sampler-driven
+  "measurement unusable" exit writes diagnostics first; the `!ok`, `!settled` and
+  `collectPagingDiagnostics` exits still throw without writing diagnostics. Write them before each
+  exit (e2e-only; no `project.json` edit).
+- **B14A (minor, accepted)**: `transcript-prepend-anchor.directive.ts` has no debug log when the
+  anchor slot is not found and the restore is skipped. Optional; add only if a logger fits the lib.
 
 ### Batch 18 verification
 

@@ -9,7 +9,7 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | Item         | Value                                                                                                                                  |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | Worktree     | `D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks` (inside the repo on purpose, so CLI lanes can run there)  |
-| Branch       | `perf/task-453-tile-open-long-tasks`, tracks origin; pushed through `990955dfe`, later commits local (see §2)                          |
+| Branch       | `perf/task-453-tile-open-long-tasks`, tracks origin; pushed through `4d9735544`, later commits local (see §2)                          |
 | PR           | #524, draft; CI all green at `d8951fa03`                                                                                               |
 | Base         | `51d0d2e1f` (main with PR #518 and PR #519)                                                                                            |
 | node_modules | a junction to `D:\projects\ptah-extension\node_modules`. Never delete it with a tool that follows junctions; use `cmd /c rmdir` first. |
@@ -36,12 +36,15 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | `b19b013fd` | Batch 11 — `feat(chat-streaming): extract history message builder and tab cursor prepend` (C10 + C11)                                                                                               |
 | `990955dfe` | Batch 12 — `feat(chat): page older session history on demand after a tail resume` (C12)                                                                                                             |
 | `486b6d78a` | Batch 10 — `feat(rpc-handlers): serve tail-paged chat history through chat:history-page` (C7 + C8 + CLI doc)                                                                                        |
-| (feat)      | Batch 13 — `feat(chat): add a load-earlier affordance for tail-paged transcripts` (C13)                                                                                                             |
+| `4d9735544` | Batch 13 — `feat(chat): add a load-earlier affordance for tail-paged transcripts` (C13)                                                                                                             |
+| (fix)       | Batch 14A — `fix(chat): keep the reader's place when older history lands at the top` (top-boundary prepend anchor)                                                                                  |
+| (test)      | Batch 14 — `test(electron-e2e): page the perf mock like the backend and cover loading older history` (C14)                                                                                          |
 
-**Stage 1 (C1-C5), the Batch 7 scroll fix, and Stage 2 Batches 9-13 (C6-C13) are committed. Batch
-12 was committed before Batch 10 and did not typecheck alone; the Batch 10 commit resolves that.
-Push state: every commit through `990955dfe` is pushed to origin. `486b6d78a` (Batch 10) and the
-Batch 13 commit are local only, not pushed. Draft PR #524 CI was last all green at `d8951fa03`.**
+**Stage 1 (C1-C5), the Batch 7 scroll fix, Stage 2 Batches 9-13 (C6-C13), Batch 14A and Batch 14
+are committed. Batch 12 was committed before Batch 10 and did not typecheck alone; the Batch 10
+commit resolves that. Push state (2026-09-17): every commit through `4d9735544` is pushed to origin.
+The Batch 14A and Batch 14 commits are local only until pushed. Draft PR #524 CI was last all green
+at `d8951fa03`.**
 
 ## 3. Batch state
 
@@ -60,7 +63,9 @@ Batch 13 commit are local only, not pushed. Draft PR #524 CI was last all green 
 | B11     | C10 history message builder + C11 tab cursor      | COMPLETE, committed `b19b013fd`                            |
 | B12     | C12 paging orchestration (`chat`)                 | COMPLETE, committed `990955dfe` (revise 1 of 2)            |
 | B13     | C13 "Load earlier" affordance (transcript)        | COMPLETE, committed (revise 1 of 2; 13.2 STOPPED guardrail) |
-| B14-B17 | C14 e2e, M2 (B16-B17 conditional)                 | PENDING                                                    |
+| B14     | C14 paging-faithful harness + functional e2e      | COMPLETE, committed (revise 2 of 2; e2e 5 passed)          |
+| B14A    | Top-boundary prepend anchor (user decision)       | COMPLETE, committed (revise 2 of 2; offsetDelta 0.38 px)   |
+| B15-B17 | M2 (B16-B17 conditional)                          | PENDING                                                    |
 | B18     | Post-Stage-2 follow-ups (test quality)            | PENDING                                                    |
 
 **Batch 8 result**: PASS — 0 scroll-sanity failures in 23 counted attempts (review APPROVED). 3 of
@@ -176,11 +181,29 @@ style reviews. Batch 13: Task 13.2 STOPPED by the anti-fragment guardrail (~76 e
 transcript component is 710 lines (warn-level, no lint warning). Revise 1 had no delta review; the
 orchestrator read the delta line by line.
 
+**Batch 14 / 14A decisions, 2026-09-17** (full record: `batches.md` "Batch 14A"):
+
+1. **"Narrow scroll write"**: the Batch 14 lane found that a prepend at `scrollTop === 0` moved the
+   top-visible message ~5,073-7,038 px (A-ii-2 / R-ii-2; the 300 px case moved 0.13 px). Fix in the
+   transcript only: when `scrollTop` is 0 (active, unpinned, not replaying) read the first visible
+   message offset before the prepend and restore it with ONE `scrollTop` write after render. No
+   change to `onScroll`, `scheduleStickToBottom`, `restoreScrollOnActivation`, `lastScrollTop`, the
+   render-window feed effect, `cleanup()` retention or CSS. New Batch 14A.
+2. **"Prove test artifact first"**: 14A revise 1 added a pin-reconcile call in the `(scroll)` binding.
+   Round 2 removed it, kept the transient forced mount, and the e2e now scrolls like a user. The stuck
+   pin was a test artifact of a direct jump to `scrollTop` 0.
+
+Batches 14A and 14 committed 2026-09-17 (each revise 2 of 2; delta logic review APPROVED both). Headed
+e2e 5 passed: offsetDelta 0.38 px at scrollTop 0, 0.50 px at 300, pinned distance 0.00 px.
+Residuals moved to Batch 18 (B14 diagnostics on every "measurement unusable" exit; B14A optional
+debug log on anchor-not-found).
+
 **Next steps, in order**:
 
-1. Batch 14: C14 paging-faithful harness + functional e2e, then logic + style reviews and commit.
-2. Batches 15-17 (C14 e2e, M2, conditional 150-event fallback), then Batch 18 follow-ups.
-3. Push the branch and re-check draft PR #524 CI when the orchestrator decides.
+1. Batch 15: M2 measurement on an idle machine (peer hold protocol), AC-11 verdict.
+2. Batches 16-17 only if decision 5 applies, then Batch 18 follow-ups.
+3. Push the branch (the Batch 14A and 14 commits are local) and re-check draft PR #524 CI when the
+   orchestrator decides.
 
 **TASK_2026_437 leftovers** moved to **TASK_2026_463_f13d**, branch
 `chore/task-463-437-leftovers`, worktree `.claude-worktrees/task-463-437-leftovers`. The

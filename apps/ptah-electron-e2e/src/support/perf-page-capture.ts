@@ -13,6 +13,12 @@ export interface DomNodeSample {
   readonly allMarkersPresent: boolean;
 }
 
+export interface PerTileDomSample {
+  readonly marker: string;
+  readonly replaying: DomNodeSample;
+  readonly settled: DomNodeSample;
+}
+
 export interface OpenTilesResult {
   readonly ok: boolean;
   readonly timedOut: boolean;
@@ -24,6 +30,9 @@ export interface OpenTilesResult {
   readonly markerTimes: number[];
   readonly replayingDom: DomNodeSample | null;
   readonly settledDomCount: number;
+  readonly perTileDom: readonly PerTileDomSample[];
+  readonly perTileDomHarnessTaskMaxDurationMs: number;
+  readonly measurementError: string | null;
 }
 
 export interface RafAttributionRow {
@@ -127,30 +136,40 @@ export async function collectRafAttribution(
 }
 
 /** Starts the permanent FU-22d trace capture around the measured window. */
-export async function startTraceCapture(page: Page): Promise<TraceCapture> {
-  const session = await page.context().newCDPSession(page);
-  const events: TraceEvent[] = [];
-  let complete!: () => void;
-  const completed = new Promise<void>((resolve) => {
-    complete = resolve;
-  });
-  session.on('Tracing.dataCollected', (payload) => {
-    events.push(...(payload.value as unknown as TraceEvent[]));
-  });
-  session.on('Tracing.tracingComplete', () => complete());
-  await session.send('Tracing.start', {
-    categories: [
-      'devtools.timeline',
-      'disabled-by-default-devtools.timeline',
-      'blink.user_timing',
-      'v8.execute',
-      'disabled-by-default-v8.compile',
-      'sampling-frequency=10000',
-    ].join(','),
-    options: 'sampling-frequency=10000',
-    transferMode: 'ReportEvents',
-  });
-  return { session, events, completed };
+export async function startTraceCapture(
+  page: Page,
+): Promise<TraceCapture | null> {
+  let session: CDPSession | null = null;
+  try {
+    session = await page.context().newCDPSession(page);
+    const events: TraceEvent[] = [];
+    let complete!: () => void;
+    const completed = new Promise<void>((resolve) => {
+      complete = resolve;
+    });
+    session.on('Tracing.dataCollected', (payload) => {
+      events.push(...(payload.value as unknown as TraceEvent[]));
+    });
+    session.on('Tracing.tracingComplete', () => complete());
+    await session.send('Tracing.start', {
+      categories: [
+        'devtools.timeline',
+        'disabled-by-default-devtools.timeline',
+        'blink.user_timing',
+        'v8.execute',
+        'disabled-by-default-v8.compile',
+        'sampling-frequency=10000',
+      ].join(','),
+      options: 'sampling-frequency=10000',
+      transferMode: 'ReportEvents',
+    });
+    return { session, events, completed };
+  } catch (error: unknown) {
+    await session?.detach().catch(() => undefined);
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[AC-11 perf] trace capture unavailable: ${message}`);
+    return null;
+  }
 }
 
 export async function stopTraceCapture(
@@ -194,6 +213,10 @@ export async function openTilesWithinPage(
       const markerTimeByValue = new Map<string, number>();
       const clickTimes: number[] = [];
       let replayingDom: DomNodeSample | null = null;
+      let replayingPerTile: DomNodeSample[] | null = null;
+      let perTileDomHarnessTaskMaxDurationMs = 0;
+      let measurementError: string | null = null;
+      let replaySampleScheduled = false;
       let finished = false;
       let quietId: ReturnType<typeof setTimeout> | undefined;
       let settleCapId: ReturnType<typeof setTimeout> | undefined;
@@ -206,16 +229,100 @@ export async function openTilesWithinPage(
       const domCount = (): number =>
         document.querySelectorAll('[data-testid="canvas-tile"] *').length;
 
+      const recordPerTileDomHarnessTask = (
+        label: string,
+        startedAt: number,
+      ): void => {
+        const durationMs = performance.now() - startedAt;
+        perTileDomHarnessTaskMaxDurationMs = Math.max(
+          perTileDomHarnessTaskMaxDurationMs,
+          durationMs,
+        );
+        if (durationMs >= 50) {
+          measurementError ??=
+            `${label} harness macrotask took ${durationMs.toFixed(2)} ms ` +
+            'and could contaminate the long-task sum';
+        }
+      };
+
+      const samplePerTileDom = (): DomNodeSample[] => {
+        const tiles = Array.from(
+          document.querySelectorAll('[data-testid="canvas-tile"]'),
+        );
+        const samples = markers.map((marker) => {
+          const tile = tiles.find((candidate) =>
+            (candidate.textContent ?? '').includes(marker),
+          );
+          const transcript = tile?.querySelector('ptah-chat-transcript');
+          if (!tile || !transcript) {
+            throw new Error(
+              `per-tile DOM sample could not find the transcript root for ${marker}`,
+            );
+          }
+          return {
+            count: transcript.querySelectorAll('*').length,
+            // DomNodeSample predates per-tile rows. This flag intentionally
+            // repeats the same whole-canvas marker fact on every tile sample.
+            allMarkersPresent: markers.every((expected) =>
+              tiles.some((candidate) =>
+                (candidate.textContent ?? '').includes(expected),
+              ),
+            ),
+          };
+        });
+        return samples;
+      };
+
       function finish(ok: boolean, timedOut: boolean, settled: boolean): void {
         if (finished) return;
+        const harnessTaskStartedAt = performance.now();
         finished = true;
         observer.disconnect();
         clearTimeout(markerTimeoutId);
         if (quietId !== undefined) clearTimeout(quietId);
         if (settleCapId !== undefined) clearTimeout(settleCapId);
+        let settledPerTile: DomNodeSample[] = [];
+        if (replayingPerTile !== null) {
+          try {
+            settledPerTile = samplePerTileDom();
+          } catch (error: unknown) {
+            measurementError =
+              error instanceof Error ? error.message : String(error);
+          }
+        }
+
+        const perTileDom: PerTileDomSample[] = [];
+        if (replayingPerTile !== null) {
+          if (settledPerTile.length !== replayingPerTile.length) {
+            measurementError ??=
+              'per-tile DOM replay/settled sample length mismatch ' +
+              `(${replayingPerTile.length} !== ${settledPerTile.length})`;
+          } else {
+            for (let index = 0; index < replayingPerTile.length; index++) {
+              const replayingSample = replayingPerTile[index];
+              const settledSample = settledPerTile[index];
+              const marker = markers[index];
+              if (!replayingSample || !settledSample || marker === undefined) {
+                measurementError ??= `per-tile DOM sample ${index} could not be paired`;
+                break;
+              }
+              perTileDom.push({
+                marker,
+                replaying: replayingSample,
+                settled: settledSample,
+              });
+            }
+          }
+        }
+
+        const settledDomCount = domCount();
+        recordPerTileDomHarnessTask(
+          'settled per-tile DOM sampling',
+          harnessTaskStartedAt,
+        );
         const windowEndMs = performance.now();
         resolveDone({
-          ok,
+          ok: ok && measurementError === null,
           timedOut,
           settled,
           windowStartMs,
@@ -226,7 +333,10 @@ export async function openTilesWithinPage(
             (marker) => markerTimeByValue.get(marker) ?? Number.NaN,
           ),
           replayingDom,
-          settledDomCount: domCount(),
+          settledDomCount,
+          perTileDom,
+          perTileDomHarnessTaskMaxDurationMs,
+          measurementError,
         });
       }
 
@@ -269,9 +379,35 @@ export async function openTilesWithinPage(
             allMarkersPresent: remaining.size === 0,
           };
         }
-        if (remaining.size === 0 && settleCapId === undefined) {
+        if (
+          remaining.size === 0 &&
+          settleCapId === undefined &&
+          !replaySampleScheduled
+        ) {
+          replaySampleScheduled = true;
           clearTimeout(markerTimeoutId);
-          beginSettleWindow();
+          // Time the entire enclosing macrotask, including the sampler and
+          // beginSettleWindow's query/observer setup. A >=50 ms task rejects
+          // the run so harness work cannot masquerade as an app long task.
+          setTimeout(() => {
+            const harnessTaskStartedAt = performance.now();
+            try {
+              replayingPerTile = samplePerTileDom();
+              beginSettleWindow();
+            } catch (error: unknown) {
+              measurementError =
+                error instanceof Error ? error.message : String(error);
+            }
+            recordPerTileDomHarnessTask(
+              'replaying per-tile DOM sampling and settle setup',
+              harnessTaskStartedAt,
+            );
+            if (measurementError !== null) {
+              // Keep failure finalization in a separate, independently timed
+              // macrotask instead of folding it into this measured callback.
+              setTimeout(() => finish(false, false, false), 0);
+            }
+          }, 0);
         }
       }
 

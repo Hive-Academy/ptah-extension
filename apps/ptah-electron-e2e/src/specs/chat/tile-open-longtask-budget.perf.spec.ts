@@ -11,6 +11,7 @@ import {
   openTilesWithinPage,
   startTraceCapture,
   type CDPSession,
+  type OpenTilesResult,
 } from '../../support/perf-page-capture';
 import {
   assertScrollSanity,
@@ -29,7 +30,9 @@ import {
   resolveButtonHandles,
   sessionRowButton,
   waitForTileMarker,
+  type SessionFixture,
 } from '../../support/perf-session-fixture';
+import type { UiDriver } from '../../support/ui-driver';
 
 /**
  * AC-11 perf spec (TASK_2026_437 P4, Batch 22) — opening 3 tiles of a
@@ -181,6 +184,85 @@ const PERF_OUT_DIR = resolvePerfOutputDirectory(
   process.env['PTAH_PERF_OUT_DIR'],
 );
 
+interface PagingDiagnostic {
+  readonly sessionId: string;
+  readonly marker: string;
+  readonly requestedMaxEvents: number;
+  readonly replayedEventCount: number;
+}
+
+interface DomDiagnostics {
+  readonly replaying: OpenTilesResult['replayingDom'];
+  readonly settled: number;
+  readonly perTileHarnessTaskMaxDurationMs: number;
+  readonly perTile: readonly {
+    readonly marker: string;
+    readonly domReplaying: number;
+    readonly domSettled: number;
+    readonly ratio: number | null;
+  }[];
+}
+
+async function collectPagingDiagnostics(
+  ui: UiDriver,
+  sessions: readonly SessionFixture[],
+): Promise<PagingDiagnostic[]> {
+  const calls = await ui.getObservedCalls('chat:resume');
+  return sessions.map((session) => {
+    const matchingCalls = calls.filter((candidate) => {
+      const params = candidate.params as { sessionId?: unknown };
+      return params.sessionId === session.id;
+    });
+    if (matchingCalls.length !== 1) {
+      throw new Error(
+        `[AC-11 perf] measurement unusable: tile ${session.id} observed ` +
+          `${matchingCalls.length} chat:resume calls; expected exactly one`,
+      );
+    }
+    const call = matchingCalls[0];
+    if (!call) {
+      throw new Error(
+        `[AC-11 perf] measurement unusable: tile ${session.id} resume call disappeared`,
+      );
+    }
+    const params = call.params as
+      | { historyPage?: { maxEvents?: unknown } }
+      | undefined;
+    const maxEvents = params?.historyPage?.maxEvents;
+    if (typeof maxEvents !== 'number') {
+      throw new Error(
+        `[AC-11 perf] measurement unusable: tile ${session.id} resumed without historyPage`,
+      );
+    }
+    return {
+      sessionId: session.id,
+      marker: session.marker,
+      requestedMaxEvents: maxEvents,
+      replayedEventCount: session.paging.tail.events.length,
+    };
+  });
+}
+
+function domDiagnostics(
+  openResult: Awaited<ReturnType<typeof openTilesWithinPage>>,
+): DomDiagnostics {
+  return {
+    replaying: openResult.replayingDom,
+    settled: openResult.settledDomCount,
+    perTileHarnessTaskMaxDurationMs:
+      openResult.perTileDomHarnessTaskMaxDurationMs,
+    perTile: openResult.perTileDom.map((sample) => ({
+      marker: sample.marker,
+      domReplaying: sample.replaying.count,
+      domSettled: sample.settled.count,
+      ratio:
+        sample.settled.count === 0
+          ? null
+          : sample.replaying.count / sample.settled.count,
+    })),
+  };
+}
+
 test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK_2026_437 AC-11)', () => {
   test.skip(
     !PERF_ENABLED,
@@ -274,7 +356,11 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       await handle.dispose();
     }
 
-    assertUsableMeasurement(openResult);
+    assertUsableMeasurement(openResult, {
+      outputDirectory: PERF_OUT_DIR,
+      scenario: 'cold-3tile',
+    });
+    const paging = await collectPagingDiagnostics(ui, sessions);
 
     // Sanity check AFTER the window closed and the observer was already read —
     // Playwright locator work here cannot pollute the measurement.
@@ -328,10 +414,8 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       clickTimes: openResult.clickTimes,
       markerTimes: openResult.markerTimes,
       preWindowExcluded: measurement.preWindowExcluded,
-      domNodes: {
-        replaying: openResult.replayingDom,
-        settled: openResult.settledDomCount,
-      },
+      domNodes: domDiagnostics(openResult),
+      paging,
       longTaskCount: entries.length,
       maxDurationMs: maxDuration,
       totalDurationMs: totalDuration,
@@ -376,7 +460,11 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       RAF_ATTRIBUTION_ENABLED,
     );
     for (const handle of buttonHandles) await handle.dispose();
-    assertUsableMeasurement(openResult);
+    assertUsableMeasurement(openResult, {
+      outputDirectory: PERF_OUT_DIR,
+      scenario: `diagnostic-cold-3tile-${eventCount}`,
+    });
+    const paging = await collectPagingDiagnostics(ui, sessions);
     await assertScrollSanity(page, sessions);
     const measurement = summarizeMeasurement(
       observedEntries,
@@ -402,10 +490,8 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       clickTimes: openResult.clickTimes,
       markerTimes: openResult.markerTimes,
       preWindowExcluded: measurement.preWindowExcluded,
-      domNodes: {
-        replaying: openResult.replayingDom,
-        settled: openResult.settledDomCount,
-      },
+      domNodes: domDiagnostics(openResult),
+      paging,
       longTaskCount: measurement.entries.length,
       maxDurationMs: measurement.maxDuration,
       totalDurationMs: measurement.totalDuration,
@@ -452,7 +538,11 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       await handle.dispose();
     }
 
-    assertUsableMeasurement(openResult);
+    assertUsableMeasurement(openResult, {
+      outputDirectory: PERF_OUT_DIR,
+      scenario: 'warm-1tile',
+    });
+    const paging = await collectPagingDiagnostics(ui, [real]);
     await waitForTileMarker(page, real.marker);
 
     const measurement = summarizeMeasurement(observedEntries, openResult, [
@@ -484,10 +574,8 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       clickTimes: openResult.clickTimes,
       markerTimes: openResult.markerTimes,
       preWindowExcluded: measurement.preWindowExcluded,
-      domNodes: {
-        replaying: openResult.replayingDom,
-        settled: openResult.settledDomCount,
-      },
+      domNodes: domDiagnostics(openResult),
+      paging,
       longTaskCount: entries.length,
       maxDurationMs: maxDuration,
       totalDurationMs: totalDuration,
@@ -533,7 +621,11 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       await handle.dispose();
     }
 
-    assertUsableMeasurement(openResult);
+    assertUsableMeasurement(openResult, {
+      outputDirectory: PERF_OUT_DIR,
+      scenario: 'warm-3tile',
+    });
+    const paging = await collectPagingDiagnostics(ui, sessions);
     for (const s of sessions) {
       await waitForTileMarker(page, s.marker);
     }
@@ -575,10 +667,8 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       clickTimes: openResult.clickTimes,
       markerTimes: openResult.markerTimes,
       preWindowExcluded: measurement.preWindowExcluded,
-      domNodes: {
-        replaying: openResult.replayingDom,
-        settled: openResult.settledDomCount,
-      },
+      domNodes: domDiagnostics(openResult),
+      paging,
       longTaskCount: entries.length,
       maxDurationMs: maxDuration,
       totalDurationMs: totalDuration,
