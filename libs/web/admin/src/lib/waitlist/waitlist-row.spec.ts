@@ -58,6 +58,7 @@ describe('WaitlistRowComponent', () => {
 
     expect(el.textContent).toContain('dev@hive.com');
     expect(el.textContent).toContain('Joined');
+    expect(el.querySelector('[role="listitem"]')).toBeNull();
   });
 
   it('renders eligible Invited row with checkbox and Approve button', () => {

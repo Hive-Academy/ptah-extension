@@ -1,0 +1,31 @@
+import {
+  needsWaitlistQueryCanonicalization,
+  parseWaitlistQuery,
+} from './waitlist-query-state';
+
+describe('waitlist query state', () => {
+  it.each([
+    ['page', '2junk'],
+    ['pageSize', '25abc'],
+  ])('rejects a partially valid numeric %s value', (key, value) => {
+    const parsed = parseWaitlistQuery({ [key]: value });
+
+    expect(parsed.page).toBe(1);
+    expect(parsed.pageSize).toBe(25);
+    expect(needsWaitlistQueryCanonicalization({ [key]: value }, parsed)).toBe(
+      true,
+    );
+  });
+
+  it.each(['2026-13-45', 'March 3'])(
+    'rejects a non-ISO or invalid createdFrom value: %s',
+    (createdFrom) => {
+      const parsed = parseWaitlistQuery({ createdFrom });
+
+      expect(parsed.createdFrom).toBeUndefined();
+      expect(needsWaitlistQueryCanonicalization({ createdFrom }, parsed)).toBe(
+        true,
+      );
+    },
+  );
+});

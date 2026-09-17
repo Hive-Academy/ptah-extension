@@ -4,6 +4,7 @@ import {
   computed,
   effect,
   inject,
+  OnDestroy,
   signal,
   untracked,
 } from '@angular/core';
@@ -16,6 +17,7 @@ import {
   map,
   of,
   Subject,
+  Subscription,
   switchMap,
 } from 'rxjs';
 import {
@@ -142,7 +144,7 @@ function extractDateErrorMessage(err: unknown): string {
   ],
   templateUrl: './waitlist-pipeline.html',
 })
-export class WaitlistPipeline {
+export class WaitlistPipeline implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly api = inject(AdminApiService);
@@ -159,6 +161,7 @@ export class WaitlistPipeline {
 
   // --- Search debouncer ---
   private readonly searchInput$ = new Subject<string>();
+  private matchingSelectionSubscription: Subscription | null = null;
 
   // --- State signals derived from URL ---
   private readonly rawQueryParams = toSignal(this.route.queryParams, {
@@ -352,8 +355,12 @@ export class WaitlistPipeline {
         },
         { replaceUrl: true },
       );
-      this.selection.clear();
+      this.clearSelection();
     });
+  }
+
+  public ngOnDestroy(): void {
+    this.cancelMatchingSelection();
   }
 
   private fetchStats(): void {
@@ -367,7 +374,7 @@ export class WaitlistPipeline {
 
   public setStage(s: WaitlistStage): void {
     if (s === this.stage()) return;
-    this.selection.clear();
+    this.clearSelection();
     this.navigateWithFilters({
       stage: s,
       page: 1,
@@ -380,27 +387,27 @@ export class WaitlistPipeline {
   }
 
   protected onSourceChange(source: WaitlistSource | undefined): void {
-    this.selection.clear();
+    this.clearSelection();
     this.navigateWithFilters({ source, page: 1 });
   }
 
   protected onCreatedFromChange(createdFrom: string | undefined): void {
-    this.selection.clear();
+    this.clearSelection();
     this.navigateWithFilters({ createdFrom, page: 1 });
   }
 
   protected onCreatedToChange(createdTo: string | undefined): void {
-    this.selection.clear();
+    this.clearSelection();
     this.navigateWithFilters({ createdTo, page: 1 });
   }
 
   protected onSortByChange(sortBy: WaitlistSortField): void {
-    this.selection.clear();
+    this.clearSelection();
     this.navigateWithFilters({ sortBy, page: 1 });
   }
 
   protected onSortOrderChange(sortOrder: SortOrder): void {
-    this.selection.clear();
+    this.clearSelection();
     this.navigateWithFilters({ sortOrder, page: 1 });
   }
 
@@ -420,7 +427,7 @@ export class WaitlistPipeline {
    * while STRICTLY RETAINING the active stage.
    */
   public onClearFilters(): Promise<boolean> {
-    this.selection.clear();
+    this.clearSelection();
     const currentStage = this.stage();
     return this.router.navigate([], {
       relativeTo: this.route,
@@ -453,18 +460,40 @@ export class WaitlistPipeline {
   // --- Selection & Matching ---
 
   protected onToggleRow(row: WaitlistListRow): void {
+    this.cancelMatchingSelection();
     this.selection.toggleRow(row);
   }
 
   protected onTogglePageSelection(): void {
+    this.cancelMatchingSelection();
     this.selection.selectPage(this.rows());
+  }
+
+  protected onClearSelection(): void {
+    this.clearSelection();
   }
 
   /**
    * "Select all matching" action: fetches up to 50 server-resolved eligible ids.
    */
   public onSelectMatching(): void {
-    const filterQuery: WaitlistFilterQuery = {
+    this.cancelMatchingSelection();
+    const filterQuery = this.getCurrentFilterQuery();
+
+    this.matchingSelectionSubscription = this.api
+      .resolveEligibleWaitlistIds(filterQuery)
+      .subscribe({
+        next: (res) => {
+          if (this.isCurrentFilterQuery(filterQuery)) {
+            this.selection.selectMatching(res);
+          }
+        },
+        error: () => this.selection.handleTransportFailure(),
+      });
+  }
+
+  private getCurrentFilterQuery(): WaitlistFilterQuery {
+    return {
       stage: this.stage(),
       search: this.search() || undefined,
       source: this.source(),
@@ -473,11 +502,29 @@ export class WaitlistPipeline {
       sortBy: this.sortBy(),
       sortOrder: this.sortOrder(),
     };
+  }
 
-    this.api.resolveEligibleWaitlistIds(filterQuery).subscribe({
-      next: (res) => this.selection.selectMatching(res),
-      error: () => this.selection.handleTransportFailure(),
-    });
+  private isCurrentFilterQuery(captured: WaitlistFilterQuery): boolean {
+    const current = this.getCurrentFilterQuery();
+    return (
+      captured.stage === current.stage &&
+      captured.search === current.search &&
+      captured.source === current.source &&
+      captured.createdFrom === current.createdFrom &&
+      captured.createdTo === current.createdTo &&
+      captured.sortBy === current.sortBy &&
+      captured.sortOrder === current.sortOrder
+    );
+  }
+
+  private clearSelection(): void {
+    this.cancelMatchingSelection();
+    this.selection.clear();
+  }
+
+  private cancelMatchingSelection(): void {
+    this.matchingSelectionSubscription?.unsubscribe();
+    this.matchingSelectionSubscription = null;
   }
 
   // --- CSV Export ---

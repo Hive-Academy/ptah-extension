@@ -1,7 +1,7 @@
 import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 
 import {
   AdminApiService,
@@ -388,6 +388,25 @@ describe('WaitlistPipeline', () => {
       expect(selection.count()).toBe(2);
       expect(selection.disclosureLabel()).toBe('2 selected of 85 matching');
     });
+
+    it('ignores an old select-matching response after a filter changes', async () => {
+      const response$ = new Subject<WaitlistEligibleIdsResponse>();
+      api.resolveEligibleWaitlistIds.mockReturnValue(response$);
+      const { component } = await renderAt('/admin/waitlist?stage=new');
+
+      component.onSelectMatching();
+      component.setStage('invited');
+      response$.next({
+        ids: ['stale-id'],
+        selected: 1,
+        eligibleMatching: 1,
+        limit: 50,
+        truncated: false,
+      });
+
+      expect(component.selection.count()).toBe(0);
+      expect(component.selection.isSelected('stale-id')).toBe(false);
+    });
   });
 
   describe('partial approval results & retry', () => {
@@ -507,6 +526,17 @@ describe('WaitlistPipeline', () => {
   });
 
   describe('selection limits and accessibility announcements', () => {
+    it('renders waitlist rows as semantic list children', async () => {
+      const { harness } = await renderAt('/admin/waitlist');
+      const el = harness.routeNativeElement as HTMLElement;
+      const list = el.querySelector('ul.flex.flex-col.gap-2');
+
+      expect(list).toBeTruthy();
+      expect(list?.querySelectorAll(':scope > li')).toHaveLength(1);
+      expect(list?.querySelector('li > ptah-admin-waitlist-row')).toBeTruthy();
+      expect(list?.hasAttribute('role')).toBe(false);
+    });
+
     it('wraps selection toolbar in an aria-live="polite" output and shows limit message when cap reached', async () => {
       const { component, harness } = await renderAt('/admin/waitlist');
       const selection = component.selection;

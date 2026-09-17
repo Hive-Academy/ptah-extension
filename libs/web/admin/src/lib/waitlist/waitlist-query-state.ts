@@ -241,16 +241,20 @@ function parseAllowlistedValue<T extends string>(
 }
 
 function parseIsoDate(value: string | null): string | undefined {
-  return value && !Number.isNaN(Date.parse(value)) ? value : undefined;
+  const isoDatePattern =
+    /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+  return value && isoDatePattern.test(value) && !Number.isNaN(Date.parse(value))
+    ? value
+    : undefined;
 }
 
 function parsePage(value: string | null): number {
-  const parsed = value ? Number.parseInt(value, 10) : 1;
+  const parsed = value && /^\d+$/.test(value) ? Number(value) : 1;
   return Number.isInteger(parsed) && parsed >= 1 ? parsed : 1;
 }
 
 function parsePageSize(value: string | null): WaitlistPageSize {
-  const parsed = value ? Number.parseInt(value, 10) : 25;
+  const parsed = value && /^\d+$/.test(value) ? Number(value) : 25;
   return (WAITLIST_PAGE_SIZES as readonly number[]).includes(parsed)
     ? (parsed as WaitlistPageSize)
     : 25;

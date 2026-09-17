@@ -94,7 +94,7 @@
       <ptah-selection-toolbar
         [count]="selection.count()"
         itemNoun="row"
-        (cleared)="selection.clear()"
+        (cleared)="onClearSelection()"
       >
         @if (selection.limitReached()) {
           <span class="text-xs font-medium text-warning">
@@ -194,17 +194,19 @@
       <span>{{ rows().length }} entries on this page</span>
     </div>
 
-    <div role="list" class="flex flex-col gap-2">
+    <ul class="flex flex-col gap-2">
       @for (row of rows(); track row.id) {
-        <ptah-admin-waitlist-row
-          [row]="row"
-          [selected]="selection.isSelected(row.id)"
-          (toggleSelect)="onToggleRow($event)"
-          (approve)="onApproveRow($event)"
-          (viewDetails)="onOpenDetails($event)"
-        />
+        <li>
+          <ptah-admin-waitlist-row
+            [row]="row"
+            [selected]="selection.isSelected(row.id)"
+            (toggleSelect)="onToggleRow($event)"
+            (approve)="onApproveRow($event)"
+            (viewDetails)="onOpenDetails($event)"
+          />
+        </li>
       }
-    </div>
+    </ul>
 
     <!-- Pagination -->
     @if (totalPages() > 1) {
