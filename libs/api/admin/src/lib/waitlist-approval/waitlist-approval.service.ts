@@ -308,6 +308,13 @@ export class WaitlistApprovalService {
     if (claim.outcome === 'already_approved') {
       throw new SkipRow('already_approved', claim.row);
     }
+    // TASK_2026_462 C4 — the row PAID in the gap before this approve landed.
+    // The claim itself refused to stamp over the conversion, so this skip is
+    // the same already_paid the paid-entitlement guard below reports, with the
+    // same meaning: no gift, no audit, no mail.
+    if (claim.outcome === 'already_paid') {
+      throw new SkipRow('already_paid', claim.row);
+    }
     const row = claim.row;
 
     // ── 2. RECIPIENT ───────────────────────────────────────────────────────

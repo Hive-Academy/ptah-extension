@@ -371,8 +371,36 @@ const EXCLUDED: ReadonlyArray<{
  * the server's URL limit rather than by `@ArrayMaxSize`, every proxy in the
  * path logs it, and a comma-split string cannot carry per-element validation.
  * `UNVALIDATED_DEBT` is still `[]`.
+ *
+ * ── 80 -> 83, TASK_2026_462 Batch A (waitlist pipeline reads) ───────────────
+ * Re-derived by exactly the procedure above: `Expected: >= 9999 / Received: 83`.
+ *
+ * **+3, AND ALL THREE ARE WHOLE-OBJECT QUERIES.** Three query-bearing read routes
+ * are added to the existing `AdminWaitlistController` at `v1/admin/waitlist`:
+ *
+ *   admin/AdminWaitlistController.listWaitlist
+ *       `@Query(dtoPipe(WaitlistListQueryDto))`                              +1
+ *   admin/AdminWaitlistController.getEligibleIds
+ *       `@Query(dtoPipe(WaitlistFilterQueryDto))`                            +1
+ *   admin/AdminWaitlistController.exportCsv
+ *       `@Query(dtoPipe(WaitlistFilterQueryDto))`                            +1
+ *   admin/AdminWaitlistController.getDetails
+ *       `@Param(dtoPipe(WaitlistIdParamsDto))`  (@Param — not Body/Query)     0
+ *                                                                          ---
+ *                                              74 + 3 = 77 whole-object
+ *                                                       77 + 6 = 83 total
+ *
+ * ⚠️ THE PATH PARAM ON `:id/details` CONTRIBUTES ZERO, and that is correct
+ * rather than a gap: `paramBindings` filters on `PARAMTYPE.BODY | QUERY`.
+ * `WaitlistIdParamsDto` is bound via `dtoPipe` at the route boundary and
+ * asserted in `admin-waitlist.controller.spec.ts`.
+ *
+ * 🔴 `NAMED_PRIMITIVE_PARAM_COUNT` IS UNCHANGED AT 6, AND THAT IS THE
+ * LOAD-BEARING HALF (RISK-I). Every query param arrives inside its whole-object
+ * DTO; no `@Query('stage')` or `@Query('source')` named primitive was added.
+ * `UNVALIDATED_DEBT` is still `[]`.
  */
-const MIN_TOTAL_PAYLOAD_PARAMS = 80;
+const MIN_TOTAL_PAYLOAD_PARAMS = 83;
 
 /**
  * Named-primitive params — `@Query('code') code: string` — bind a STRING, not a
