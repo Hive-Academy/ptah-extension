@@ -460,6 +460,88 @@ export class SkillCandidateStore {
   }
 
   /**
+   * Promote one candidate and optionally demote the weakest resident as one
+   * durable state transition. The explicit transaction is shared by both
+   * SQLite bindings; `node:sqlite` deliberately has no `db.transaction()`.
+   */
+  promoteAtomically(
+    id: CandidateId,
+    options: {
+      promotedAt: number;
+      bodyPath: string;
+      demotedResidentId?: CandidateId;
+    },
+  ): SkillCandidateRow {
+    const current = this.findById(id);
+    if (!current) {
+      throw new Error(`[skill-synthesis] promoteAtomically: ${id} not found`);
+    }
+    if (!LEGAL_TRANSITIONS[current.status].includes('promoted')) {
+      throw new Error(
+        `[skill-synthesis] illegal status transition ${current.status} → promoted for ${id}`,
+      );
+    }
+    if (options.demotedResidentId === id) {
+      throw new Error(
+        `[skill-synthesis] promoteAtomically: candidate ${id} cannot demote itself`,
+      );
+    }
+
+    return this.inImmediateTransaction(() => {
+      if (options.demotedResidentId) {
+        const demotion = this.db
+          .prepare(
+            `UPDATE skill_candidates
+             SET residency = @residency
+             WHERE id = @demotedResidentId
+               AND status = @promotedStatus
+               AND residency = @residentResidency`,
+          )
+          .run({
+            residency: 'dormant',
+            demotedResidentId: options.demotedResidentId,
+            promotedStatus: 'promoted',
+            residentResidency: 'resident',
+          });
+        if (demotion.changes !== 1) {
+          throw new Error(
+            `[skill-synthesis] promoteAtomically: resident ${options.demotedResidentId} was not demotable`,
+          );
+        }
+      }
+
+      const promotion = this.db
+        .prepare(
+          `UPDATE skill_candidates
+           SET status = @promotedStatus,
+               promoted_at = @promotedAt,
+               body_path = @bodyPath
+           WHERE id = @candidateId AND status = @candidateStatus`,
+        )
+        .run({
+          promotedStatus: 'promoted',
+          promotedAt: options.promotedAt,
+          bodyPath: options.bodyPath,
+          candidateId: id,
+          candidateStatus: 'candidate',
+        });
+      if (promotion.changes !== 1) {
+        throw new Error(
+          `[skill-synthesis] promoteAtomically: candidate ${id} was not promotable`,
+        );
+      }
+
+      const promoted = this.findById(id);
+      if (!promoted) {
+        throw new Error(
+          `[skill-synthesis] promoteAtomically: row ${id} disappeared after update`,
+        );
+      }
+      return promoted;
+    });
+  }
+
+  /**
    * Slugs (candidate.name) of promoted skills currently marked dormant. Used by
    * the junction integration seam to skip dormant skills so they no longer
    * occupy the prompt budget.
@@ -550,6 +632,18 @@ export class SkillCandidateStore {
       );
     }
     return updated;
+  }
+
+  private inImmediateTransaction<T>(fn: () => T): T {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = fn();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (error: unknown) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   /**

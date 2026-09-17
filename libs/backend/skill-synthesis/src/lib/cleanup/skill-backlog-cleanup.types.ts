@@ -10,6 +10,11 @@ export type BacklogCleanupSkipReason =
 
 export type BacklogCleanupStopReason =
   | 'aborted'
+  /**
+   * Evaluation will be retried using an in-memory, per-process attempt count;
+   * a restart can therefore add up to two more stopping ticks.
+   */
+  | 'deferred-error'
   | 'time-budget'
   | 'row-budget'
   | 'unexpected-error';
@@ -65,7 +70,7 @@ export interface BacklogCleanupSkippedReport {
 
 export interface BacklogCleanupRunReport extends BacklogCleanupRunCounters {
   status: 'completed' | 'partial' | 'failed';
-  reason: BacklogCleanupStopReason | string | null;
+  reason: BacklogCleanupStopReason | null;
   durationMs: number;
   error: string | null;
 }

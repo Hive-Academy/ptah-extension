@@ -73,6 +73,12 @@ interface RunProgress {
 @injectable()
 export class SkillBacklogCleanupService {
   private readonly startedAt = Date.now();
+  /**
+   * Retry counts live only for this singleton's process lifetime. After a
+   * restart, a persistently failing candidate can stop up to two more ticks
+   * before the third in-process attempt is passed and counted.
+   */
+  private readonly evaluationFailures = new Map<string, number>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -201,6 +207,7 @@ export class SkillBacklogCleanupService {
         const rejections: Array<{ id: string; reason: string }> = [];
         const increments = this.emptyCounters();
         let processed = 0;
+        let retryDeferred = false;
         for (const candidate of page) {
           const betweenCandidates = this.stopReason(
             options.signal,
@@ -215,13 +222,22 @@ export class SkillBacklogCleanupService {
               config,
               transcriptLookup,
             );
+            this.evaluationFailures.delete(candidate.id);
           } catch (error: unknown) {
-            // degradation-audit: reported - the candidate is deferred, counted
-            // in the run report, and the failure is recorded in this warning.
+            // degradation-audit: reported - evaluation failures are retried
+            // twice, then counted, advanced, and warned once on attempt three.
+            const attempts =
+              (this.evaluationFailures.get(candidate.id) ?? 0) + 1;
+            this.evaluationFailures.set(candidate.id, attempts);
+            if (attempts < 3) {
+              retryDeferred = true;
+              break;
+            }
+            this.evaluationFailures.delete(candidate.id);
             disposition = 'deferred-error';
             progress.deferredOnError++;
             this.logger.warn(
-              '[skill-synthesis] backlog candidate evaluation failed',
+              '[skill-synthesis] backlog candidate evaluation failed after retries',
               { candidateId: candidate.id, error: this.errorText(error) },
             );
           }
@@ -241,6 +257,30 @@ export class SkillBacklogCleanupService {
           }
           increments.examined++;
           processed++;
+        }
+
+        if (retryDeferred) {
+          if (processed > 0) {
+            this.store.rejectBatch(rejections, now());
+            const last = page[processed - 1];
+            state = this.store.writeProgress({
+              cursorCreatedAt: last.createdAt,
+              cursorId: last.id,
+              finishedAt: null,
+              lastRunAt: now(),
+              lastOutcome: 'partial',
+              lastReason: null,
+              counters: this.addCounters(state, increments),
+            });
+            progress.state = state;
+          }
+          return this.finishPartial(
+            state,
+            'deferred-error',
+            now,
+            runStartedAt,
+            progress,
+          );
         }
 
         if (processed === 0) {

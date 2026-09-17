@@ -519,21 +519,118 @@ describe('SkillBacklogCleanupService', () => {
     expect(h.locate).not.toHaveBeenCalled();
   });
 
-  it('defers a candidate whose verdict lookup throws and continues the page', async () => {
+  it('stops before a first evaluation failure and retries it on the next run', async () => {
     const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
     h.store.pageCandidates
       .mockReturnValueOnce([
         row({ id: 'deferred', sourceSessionIds: ['deferred-session'] }),
-        row({ id: 'processed', sourceSessionIds: ['processed-session'] }),
+      ])
+      .mockReturnValueOnce([
+        row({ id: 'deferred', sourceSessionIds: ['deferred-session'] }),
       ])
       .mockReturnValueOnce([]);
+    h.verdicts.findBySession
+      .mockImplementationOnce(() => {
+        throw new Error('SQLITE_BUSY');
+      })
+      .mockReturnValue(null);
+    h.extractor.extract.mockResolvedValue(conversationTrajectory('deferred'));
+
+    const first = await h.service.run({
+      signal: live(),
+      isOnBattery: () => false,
+    });
+    expect(first).toMatchObject({
+      status: 'partial',
+      reason: 'deferred-error',
+      examined: 0,
+      deferredOnError: 0,
+    });
+    expect(h.store.writeProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursorCreatedAt: null, cursorId: null }),
+    );
+
+    const second = await h.service.run({
+      signal: live(),
+      isOnBattery: () => false,
+    });
+    expect(second).toMatchObject({
+      status: 'completed',
+      examined: 1,
+      rejectedNoEvidence: 1,
+    });
+    expect(h.verdicts.findBySession).toHaveBeenCalledTimes(2);
+    expect(h.store.rejectBatch).toHaveBeenCalledWith(
+      [
+        {
+          id: 'deferred',
+          reason: 'backlog-cleanup: no code evidence and no verdict',
+        },
+      ],
+      expect.any(Number),
+    );
+  });
+
+  it('advances and counts a candidate after three failed evaluations', async () => {
+    const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
+    const candidate = row({
+      id: 'deferred',
+      sourceSessionIds: ['deferred-session'],
+    });
+    h.store.pageCandidates
+      .mockReturnValueOnce([candidate])
+      .mockReturnValueOnce([candidate])
+      .mockReturnValueOnce([candidate])
+      .mockReturnValueOnce([]);
+    h.verdicts.findBySession.mockImplementation(() => {
+      throw new Error('SQLITE_BUSY');
+    });
+
+    for (let attempt = 1; attempt < 3; attempt++) {
+      await expect(
+        h.service.run({ signal: live(), isOnBattery: () => false }),
+      ).resolves.toMatchObject({
+        status: 'partial',
+        reason: 'deferred-error',
+        examined: 0,
+        deferredOnError: 0,
+      });
+    }
+    const third = await h.service.run({
+      signal: live(),
+      isOnBattery: () => false,
+    });
+
+    expect(third).toMatchObject({
+      status: 'completed',
+      examined: 1,
+      deferredOnError: 1,
+    });
+    expect(h.store.writeProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ cursorCreatedAt: 10, cursorId: 'deferred' }),
+    );
+    expect(h.log.warn).toHaveBeenCalledTimes(1);
+    expect(h.log.warn).toHaveBeenCalledWith(
+      '[skill-synthesis] backlog candidate evaluation failed after retries',
+      { candidateId: 'deferred', error: 'SQLITE_BUSY' },
+    );
+  });
+
+  it('commits candidates before a retryable evaluation failure in the same page', async () => {
+    const h = makeHarness({ 'skillSynthesis.drain.bootDeferralMs': 0 });
+    h.store.pageCandidates.mockReturnValueOnce([
+      row({ id: 'before', createdAt: 9, sourceSessionIds: ['before-session'] }),
+      row({
+        id: 'failed',
+        createdAt: 10,
+        sourceSessionIds: ['failed-session'],
+      }),
+    ]);
     h.verdicts.findBySession.mockImplementation((sessionId: string) => {
-      if (sessionId === 'deferred-session') throw new Error('SQLITE_BUSY');
+      if (sessionId === 'failed-session') throw new Error('SQLITE_BUSY');
       return null;
     });
-    h.extractor.extract.mockImplementation(async (sessionId: string) =>
-      conversationTrajectory(sessionId),
-    );
+    h.extractor.extract.mockResolvedValue(conversationTrajectory('before'));
 
     const report = await h.service.run({
       signal: live(),
@@ -541,24 +638,22 @@ describe('SkillBacklogCleanupService', () => {
     });
 
     expect(report).toMatchObject({
-      status: 'completed',
-      examined: 2,
-      deferredOnError: 1,
+      status: 'partial',
+      reason: 'deferred-error',
+      examined: 1,
       rejectedNoEvidence: 1,
-      rejectedTranscriptUnreadable: 0,
     });
     expect(h.store.rejectBatch).toHaveBeenCalledWith(
       [
         {
-          id: 'processed',
+          id: 'before',
           reason: 'backlog-cleanup: no code evidence and no verdict',
         },
       ],
       expect.any(Number),
     );
-    expect(h.log.warn).toHaveBeenCalledWith(
-      '[skill-synthesis] backlog candidate evaluation failed',
-      { candidateId: 'deferred', error: 'SQLITE_BUSY' },
+    expect(h.store.writeProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ cursorCreatedAt: 9, cursorId: 'before' }),
     );
   });
 

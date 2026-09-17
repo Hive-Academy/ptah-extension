@@ -1273,9 +1273,9 @@ export class SkillSynthesisService {
         return fallback;
       }
     };
-    const getNonNegativeFiniteNumber = (key: string, fallback: number) => {
+    const getPositiveFiniteNumber = (key: string, fallback: number) => {
       const value = get<unknown>(key, fallback);
-      return typeof value === 'number' && Number.isFinite(value) && value >= 0
+      return typeof value === 'number' && Number.isFinite(value) && value >= 1
         ? value
         : fallback;
     };
@@ -1309,11 +1309,11 @@ export class SkillSynthesisService {
         'skillSynthesis.dedupClusterThreshold',
         SETTINGS_DEFAULTS.dedupClusterThreshold,
       ),
-      prefilterMinEdits: getNonNegativeFiniteNumber(
+      prefilterMinEdits: getPositiveFiniteNumber(
         'skillSynthesis.prefilterMinEdits',
         SETTINGS_DEFAULTS.prefilterMinEdits,
       ),
-      prefilterMinToolUses: getNonNegativeFiniteNumber(
+      prefilterMinToolUses: getPositiveFiniteNumber(
         'skillSynthesis.prefilterMinToolUses',
         SETTINGS_DEFAULTS.prefilterMinToolUses,
       ),

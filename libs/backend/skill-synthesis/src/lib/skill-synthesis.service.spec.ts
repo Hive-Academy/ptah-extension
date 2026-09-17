@@ -902,6 +902,41 @@ describe('SkillSynthesisService', () => {
     expect(store.registerCandidate).toHaveBeenCalledTimes(1);
   });
 
+  it('falls back from zero prefilter thresholds and rejects a no-work trajectory', async () => {
+    const { svc, workspaceProvider, extractor, store } = setup();
+    (workspaceProvider.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, fallback: unknown) =>
+        key === 'skillSynthesis.prefilterMinEdits' ||
+        key === 'skillSynthesis.prefilterMinToolUses'
+          ? 0
+          : fallback,
+    );
+    (extractor.extract as jest.Mock).mockResolvedValue({
+      hash: 'no-work-hash',
+      canonicalText: 'talked about work',
+      turnCount: 2,
+      sessionTurnCount: 2,
+      shortDescription: 'no work',
+      slug: 'no-work',
+      editCount: 0,
+      toolUseCount: 0,
+      nonMcpToolUseCount: 0,
+      bashTestPassed: false,
+      charLength: 17,
+      hasSuccessMarker: false,
+    });
+
+    expect(svc.readSettings()).toMatchObject({
+      prefilterMinEdits: 1,
+      prefilterMinToolUses: 2,
+    });
+    await svc.start();
+    await expect(
+      svc.analyzeSession('s-zero-settings', '/repo'),
+    ).resolves.toBeNull();
+    expect(store.registerCandidate).not.toHaveBeenCalled();
+  });
+
   /**
    * One candidate per session, superseded in place.
    *

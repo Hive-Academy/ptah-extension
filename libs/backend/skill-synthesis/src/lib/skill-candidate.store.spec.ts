@@ -225,6 +225,41 @@ function candidateInput(suffix: string): NewCandidateInput {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('SkillCandidateStore', () => {
+  describe('promoteAtomically', () => {
+    maybe(
+      'rolls back residency demotion when promotion status write fails',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        const { candidate: resident } = store.registerCandidate(
+          candidateInput('resident'),
+        );
+        const { candidate } = store.registerCandidate(
+          candidateInput('candidate'),
+        );
+        store.updateStatus(resident.id, 'promoted', { promotedAt: 1 });
+        db.exec(`
+        CREATE TRIGGER fail_candidate_promotion
+        BEFORE UPDATE OF status ON skill_candidates
+        WHEN NEW.status = 'promoted'
+        BEGIN
+          SELECT RAISE(ABORT, 'forced promotion failure');
+        END
+      `);
+
+        expect(() =>
+          store.promoteAtomically(candidate.id, {
+            promotedAt: 2,
+            bodyPath: '/active/candidate/SKILL.md',
+            demotedResidentId: resident.id,
+          }),
+        ).toThrow(/forced promotion failure/);
+        expect(store.findById(resident.id)?.residency).toBe('resident');
+        expect(store.findById(candidate.id)?.status).toBe('candidate');
+      },
+    );
+  });
+
   describe('setPin', () => {
     maybe('pins a skill when under the cap', () => {
       const db = createInMemoryDb();

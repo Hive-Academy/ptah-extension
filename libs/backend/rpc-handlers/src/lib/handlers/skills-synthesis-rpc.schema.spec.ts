@@ -130,6 +130,18 @@ describe('SkillSynthesisSettingsSchema', () => {
     ).toThrow();
   });
 
+  it.each(['prefilterMinEdits', 'prefilterMinToolUses'] as const)(
+    'requires %s to be at least 1',
+    (key) => {
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({ ...validFull, [key]: 0 }),
+      ).toThrow();
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({ ...validFull, [key]: 1 }),
+      ).not.toThrow();
+    },
+  );
+
   it('rejects dedupCosineThreshold > 1', () => {
     expect(() =>
       SkillSynthesisSettingsSchema.parse({

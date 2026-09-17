@@ -800,6 +800,61 @@ describe('skill settings mappers', () => {
     expect(form.get('drain.weeklyMaxItemsPerRun')?.value).toBe(321);
   });
 
+  it('blocks saving when either prefilter minimum is zero', async () => {
+    const rpc = { updateSettings: jest.fn(async () => undefined) };
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+        { provide: SkillSynthesisRpcService, useValue: rpc },
+      ],
+    });
+    const component = TestBed.createComponent(
+      SkillSynthesisTabComponent,
+    ).componentInstance;
+    component.settingsForm.patchValue(skillSettingsDtoToForm(dto));
+    component.settingsForm.patchValue({ prefilterMinEdits: 0 });
+
+    expect(component.settingsForm.valid).toBe(false);
+    await (
+      component as unknown as { onSaveSettings(): Promise<void> }
+    ).onSaveSettings();
+    expect(rpc.updateSettings).not.toHaveBeenCalled();
+
+    component.settingsForm.patchValue({
+      prefilterMinEdits: 1,
+      prefilterMinToolUses: 0,
+    });
+    expect(component.settingsForm.valid).toBe(false);
+  });
+
+  it('accepts one for both prefilter minimums', () => {
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+    const form = TestBed.createComponent(SkillSynthesisTabComponent)
+      .componentInstance.settingsForm;
+    form.patchValue(skillSettingsDtoToForm(dto));
+    form.patchValue({ prefilterMinEdits: 1, prefilterMinToolUses: 1 });
+
+    expect(form.valid).toBe(true);
+  });
+
   it('drops the nested drain / budget groups from the outgoing DTO', () => {
     const out = saveThroughForm();
 

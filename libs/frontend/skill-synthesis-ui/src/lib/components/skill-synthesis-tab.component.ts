@@ -13,6 +13,7 @@ import {
   ReactiveFormsModule,
   FormBuilder,
   FormGroup,
+  Validators,
 } from '@angular/forms';
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
@@ -794,8 +795,8 @@ export class SkillSynthesisTabComponent implements OnInit {
     evictionDecayRate: [0.95],
     generalizationContextThreshold: [3],
     dedupClusterThreshold: [0.78],
-    prefilterMinEdits: [1],
-    prefilterMinToolUses: [2],
+    prefilterMinEdits: [1, Validators.min(1)],
+    prefilterMinToolUses: [2, Validators.min(1)],
     judgeEnabled: [true],
     minJudgeScore: [6.0],
     judgeModel: ['inherit'],

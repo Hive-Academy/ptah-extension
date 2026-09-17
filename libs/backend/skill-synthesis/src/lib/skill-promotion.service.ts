@@ -22,7 +22,7 @@ import {
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { SkillCandidateStore } from './skill-candidate.store';
-import { SkillMdGenerator } from './skill-md-generator';
+import { SkillMdGenerator, type MaterializedSkill } from './skill-md-generator';
 import { SkillClusterDedupService } from './skill-cluster-dedup.service';
 import { SkillJudgeService } from './skill-judge.service';
 import { SkillRegistryStore } from './skill-registry.store';
@@ -302,8 +302,10 @@ export class SkillPromotionService {
     }
     const body = this.readCandidateBody(candidate);
     let bodyPath = candidate.bodyPath;
+    let materialized: MaterializedSkill | null = null;
+    let promoted: SkillCandidateRow;
     try {
-      const md = this.mdGenerator.promoteToActive(
+      materialized = this.mdGenerator.promoteToActive(
         {
           slug: candidate.name,
           description: candidate.description,
@@ -311,11 +313,31 @@ export class SkillPromotionService {
         },
         settings.candidatesDir,
       );
-      bodyPath = md.filePath;
+      bodyPath = materialized.filePath;
+      promoted = this.store.promoteAtomically(candidate.id, {
+        promotedAt: nowFn(),
+        bodyPath,
+        demotedResidentId: weakestResident?.id,
+      });
     } catch (err) {
       // degradation-audit: reported - promotion refused; decision reason write-failed
+      if (materialized) {
+        try {
+          this.mdGenerator.removeActive(materialized);
+        } catch (error: unknown) {
+          // degradation-audit: reported - failed rollback cleanup is logged; write-failed remains the caller contract
+          this.logger.warn(
+            '[skill-synthesis] failed to remove active skill after promotion rollback',
+            {
+              candidate: candidate.id,
+              slug: materialized.slug,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+      }
       this.logger.warn(
-        '[skill-synthesis] failed to materialize promoted SKILL.md; promotion refused',
+        '[skill-synthesis] failed to persist promoted skill; promotion refused',
         {
           candidate: candidate.id,
           error: err instanceof Error ? err.message : String(err),
@@ -325,14 +347,12 @@ export class SkillPromotionService {
         promoted: false,
         reason: 'write-failed',
         candidate: graded,
-        evictedSkillId,
         closestMatchSimilarity: dedupResult.similarity,
         ranking,
       };
     }
 
     if (weakestResident) {
-      this.store.setResidency(weakestResident.id, 'dormant');
       evictedSkillId = weakestResident.id;
       demotedSlug = weakestResident.name;
       this.logger.info('[skill-synthesis] residency-cap demotion to dormant', {
@@ -346,10 +366,6 @@ export class SkillPromotionService {
       });
     }
 
-    const promoted = this.store.updateStatus(candidate.id, 'promoted', {
-      promotedAt: nowFn(),
-      bodyPath,
-    });
     this.clusterDedup?.invalidate();
 
     // Both residency changes, emitted together AFTER the last write. Emitting

@@ -79,6 +79,23 @@ function makeStore(
   initial: SkillCandidateRow,
 ): jest.Mocked<SkillCandidateStore> {
   let current = initial;
+  const updateStatus = jest.fn((id, next, opts) => {
+    current = {
+      ...current,
+      status: next,
+      promotedAt: opts?.promotedAt ?? current.promotedAt,
+      rejectedAt: next === 'rejected' ? Date.now() : current.rejectedAt,
+      rejectedReason:
+        next === 'rejected' ? (opts?.reason ?? null) : current.rejectedReason,
+      bodyPath: opts?.bodyPath ?? current.bodyPath,
+    };
+    return current;
+  });
+  const setResidency = jest.fn((id: CandidateId, residency) => ({
+    ...current,
+    id,
+    residency,
+  }));
   return {
     findById: jest.fn((id: CandidateId) =>
       id === current.id ? current : null,
@@ -87,17 +104,12 @@ function makeStore(
     listActiveOrderedByDecayScore: jest.fn(() => []),
     /** Nothing measured by default — the pre-B4.3 decay ordering stands. */
     getWinRates: jest.fn(() => []),
-    updateStatus: jest.fn((id, next, opts) => {
-      current = {
-        ...current,
-        status: next,
-        promotedAt: opts?.promotedAt ?? current.promotedAt,
-        rejectedAt: next === 'rejected' ? Date.now() : current.rejectedAt,
-        rejectedReason:
-          next === 'rejected' ? (opts?.reason ?? null) : current.rejectedReason,
-        bodyPath: opts?.bodyPath ?? current.bodyPath,
-      };
-      return current;
+    updateStatus,
+    promoteAtomically: jest.fn((id, opts) => {
+      if (opts.demotedResidentId) {
+        setResidency(opts.demotedResidentId, 'dormant');
+      }
+      return updateStatus(id, 'promoted', opts);
     }),
     getEmbedding: jest.fn(() => null),
     searchActiveByEmbedding: jest.fn(() => []),
@@ -121,11 +133,7 @@ function makeStore(
       };
       return current;
     }),
-    setResidency: jest.fn((id: CandidateId, residency) => ({
-      ...current,
-      id,
-      residency,
-    })),
+    setResidency,
   } as unknown as jest.Mocked<SkillCandidateStore>;
 }
 
@@ -136,6 +144,7 @@ function makeMdGenerator(): jest.Mocked<SkillMdGenerator> {
       dir: '/tmp/active/do-thing',
       filePath: '/tmp/active/do-thing/SKILL.md',
     })),
+    removeActive: jest.fn(),
     candidatesRoot: jest.fn(() => '/tmp/cands'),
     activeRoot: jest.fn(() => '/tmp/active'),
     writeCandidate: jest.fn(),
@@ -1248,6 +1257,91 @@ describe('SkillPromotionService', () => {
       expect(repropagation.repropagate).not.toHaveBeenCalled();
     },
   );
+
+  it('removes the active file and returns write-failed when the atomic promotion fails', async () => {
+    const store = makeStore(row({ successCount: 3 }));
+    store.listActiveOrderedByDecayScore.mockReturnValue([
+      row({ id: 'weak' as CandidateId, name: 'weak' }),
+    ]);
+    store.promoteAtomically.mockImplementation(() => {
+      throw new Error('forced transaction failure');
+    });
+    const md = makeMdGenerator();
+    const repropagation = { repropagate: jest.fn() };
+    const svc = new SkillPromotionService(
+      noopLogger,
+      store,
+      md,
+      null,
+      null,
+      null,
+      null,
+      repropagation as never,
+    );
+
+    const decision = await svc.evaluate('cand_test' as CandidateId, {
+      ...SETTINGS,
+      maxActiveSkills: 1,
+    });
+
+    expect(decision).toMatchObject({
+      promoted: false,
+      reason: 'write-failed',
+      candidate: { status: 'candidate' },
+    });
+    expect(decision.evictedSkillId).toBeUndefined();
+    expect(md.removeActive).toHaveBeenCalledWith({
+      slug: 'do-thing',
+      dir: '/tmp/active/do-thing',
+      filePath: '/tmp/active/do-thing/SKILL.md',
+    });
+    expect(repropagation.repropagate).not.toHaveBeenCalled();
+  });
+
+  it('returns write-failed when both atomic promotion and rollback cleanup fail', async () => {
+    const store = makeStore(row({ successCount: 3 }));
+    store.promoteAtomically.mockImplementation(() => {
+      throw new Error('forced transaction failure');
+    });
+    const md = makeMdGenerator();
+    (md.removeActive as jest.Mock).mockImplementation(() => {
+      throw new Error('forced cleanup failure');
+    });
+    const logger = {
+      ...noopLogger,
+      warn: jest.fn(),
+    } as unknown as ConstructorParameters<typeof SkillPromotionService>[0];
+    const repropagation = { repropagate: jest.fn() };
+    const svc = new SkillPromotionService(
+      logger,
+      store,
+      md,
+      null,
+      null,
+      null,
+      null,
+      repropagation as never,
+    );
+
+    await expect(
+      svc.evaluate('cand_test' as CandidateId, SETTINGS),
+    ).resolves.toMatchObject({
+      promoted: false,
+      reason: 'write-failed',
+      candidate: { status: 'candidate' },
+    });
+    expect(logger.warn).toHaveBeenCalledTimes(2);
+    expect(logger.warn).toHaveBeenNthCalledWith(
+      1,
+      '[skill-synthesis] failed to remove active skill after promotion rollback',
+      {
+        candidate: 'cand_test',
+        slug: 'do-thing',
+        error: 'forced cleanup failure',
+      },
+    );
+    expect(repropagation.repropagate).not.toHaveBeenCalled();
+  });
 
   /**
    * TASK_2026_437 C14, Batch 16b. A manual promote (RPC) hands its origin to
