@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_420_84d9
-status: in_review
+status: done
 type: BUGFIX
 title: Split the live assistant bubble at a mid-turn user prompt
 description: >-

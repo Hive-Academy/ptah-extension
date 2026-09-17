@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_442_68ba
-status: in_review
+status: done
 type: FEATURE
 title: Fluid, user-driven canvas tile spans beyond the fixed 1/2/3 column caps
 depends_on: []

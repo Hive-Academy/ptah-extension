@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: bugfix
 title: >-
   Subagent templates grant delegation to roles that may not delegate and teach

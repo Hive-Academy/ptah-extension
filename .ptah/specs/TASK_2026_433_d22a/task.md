@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: feature
 title: >-
   Let a CLI lane act as a named subagent role — ptah_agent_spawn takes a role

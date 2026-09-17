@@ -90,6 +90,57 @@ describe('TaskScannerService', () => {
     ]);
   });
 
+  it.each(['ENOENT', 'FileNotFound'])(
+    'maps a missing carrier reported as %s to no_carrier',
+    async (code) => {
+      const fs = createMockFileSystemProvider();
+      await fs.writeFile(
+        path.join(specsDir(), 'TASK_2026_011', 'context.md'),
+        'notes',
+      );
+      fs.readFile.mockRejectedValueOnce(Object.assign(new Error(code), { code }));
+
+      const result = await new TaskScannerService(fs, makeLogger()).scan(ROOT);
+
+      expect(result.excluded).toEqual([
+        { folderName: 'TASK_2026_011', reason: 'no_carrier' },
+      ]);
+    },
+  );
+
+  it('reads each carrier once with bounded concurrency and preserves folder order', async () => {
+    const fs = createMockFileSystemProvider();
+    const ids = Array.from(
+      { length: 12 },
+      (_, index) => `TASK_2026_${String(index + 100).padStart(3, '0')}`,
+    );
+    for (const id of ids) {
+      await fs.writeFile(carrier(id), validTask(id));
+    }
+
+    const realRead = fs.readFile.getMockImplementation();
+    let active = 0;
+    let maxActive = 0;
+    fs.readFile.mockImplementation(async (filePath: string) => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      const index = ids.findIndex((id) => filePath.includes(id));
+      await new Promise((resolve) => setTimeout(resolve, ids.length - index));
+      try {
+        return realRead ? await realRead(filePath) : '';
+      } finally {
+        active--;
+      }
+    });
+
+    const result = await new TaskScannerService(fs, makeLogger()).scan(ROOT);
+
+    expect(fs.readFile).toHaveBeenCalledTimes(ids.length);
+    expect(maxActive).toBeGreaterThan(1);
+    expect(maxActive).toBeLessThanOrEqual(8);
+    expect(result.tasks.map((task) => task.id)).toEqual(ids);
+  });
+
   /**
    * The scan is FLAT, and this test exists to keep it that way.
    *

@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: refactoring
 title: >-
   Give CLI-lane mechanics one home in a shared agent-lanes skill, and cut

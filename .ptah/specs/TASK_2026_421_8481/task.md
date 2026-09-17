@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_421_8481
-status: in_review
+status: done
 type: BUGFIX
 title: Codex CLI agents never reach completed after their turn ends
 description: >-

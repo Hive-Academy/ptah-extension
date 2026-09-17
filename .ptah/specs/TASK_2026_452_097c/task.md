@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_452_097c
-status: in_review
+status: done
 type: BUGFIX
 title: Make the initial session name consistent across metadata, --name and CLI agents
 depends_on:

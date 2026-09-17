@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_462_c819
-status: in_review
+status: done
 type: FEATURE
 title: Waitlist admin bulk actions, stage separation, advanced filters and details drawer
 description: >-

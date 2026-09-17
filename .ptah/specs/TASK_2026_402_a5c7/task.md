@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: done
 type: feature
 title: Agent two-way messaging
 description: >-

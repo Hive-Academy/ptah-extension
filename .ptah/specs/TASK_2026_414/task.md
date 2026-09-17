@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_414
-status: in_review
+status: done
 type: BUGFIX
 title: Fix compaction history refresh and context UI consistency
 depends_on: []

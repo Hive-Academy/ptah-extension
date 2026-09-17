@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_461_639c
-status: in_review
+status: done
 type: FEATURE
 title: >-
   Thoth phase 3: skills unblock
