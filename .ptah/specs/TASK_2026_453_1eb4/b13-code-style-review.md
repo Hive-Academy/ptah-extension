@@ -9,7 +9,7 @@
 | Blocking issues | 0                                    |
 | Serious issues  | 1                                    |
 | Minor issues    | 4                                    |
-| Files reviewed  | 5 (2 modified product, 1 modified template, 1 created directive, 2 spec — one new, one modified) |
+| Files reviewed  | 7 concrete files across 5 review groups (transcript component pair, directive, transcript spec, chat-view component pair, chat-view spec) |
 
 ## Five style questions
 

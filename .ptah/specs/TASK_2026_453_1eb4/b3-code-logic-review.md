@@ -7,7 +7,7 @@
 | Overall score        | 6/10                                  |
 | Assessment            | NEEDS_REVISION                        |
 | Blocking issues       | 0                                      |
-| Serious issues        | 2                                      |
+| Serious issues        | 1                                      |
 | Moderate issues       | 2                                      |
 | Failure modes found   | 3                                      |
 

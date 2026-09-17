@@ -327,7 +327,8 @@ export class SessionHistoryReaderService {
       main = await readMainMessages(
         path.join(sessionsDir, `${sessionId}.jsonl`),
       );
-    } catch {
+    } catch (error: unknown) {
+      if (!isMissingFileError(error)) throw error;
       this.logger.warn(MISSING_SESSION_LOG, { sessionId });
     }
     if (!main) return null;
@@ -1123,4 +1124,13 @@ export class SessionHistoryReaderService {
       ...(modelUsageList.length > 0 && { modelUsageList }),
     };
   }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  );
 }

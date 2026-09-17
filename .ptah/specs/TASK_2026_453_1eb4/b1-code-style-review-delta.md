@@ -16,7 +16,7 @@ Scope: re-read `tile-open-longtask-budget.perf.spec.ts` (602 lines), `perf-page-
 in this round per `git status --short`), and the new `perf-measurement-report.ts` (186 lines).
 Cross-checked against `b1-code-style-review.md`'s Serious issue and three Minors, and against
 the "Revise round 1" section of `b1-codex-report.md`. `git status --short` confirms only the
-same six Batch 1 artifacts changed (`perf-diagnostics.ts` modified, `perf-page-capture.ts` /
+same seven Batch 1 artifacts changed (`perf-diagnostics.ts` modified, `perf-page-capture.ts` /
 `perf-session-fixture.ts` / `perf-measurement-report.ts` new/untracked, spec + `CLAUDE.md` +
 `test-report-b22.md` modified) plus the three review/report docs — no scope creep.
 

@@ -176,6 +176,31 @@ describe('TabManagerService history window', () => {
     ).toBeUndefined();
   });
 
+  it('clears paging when a tab is reset or rebound to another session', () => {
+    const resetTabId = service.createTab('reset-history');
+    service.setOlderHistoryCursor(resetTabId, 'reset-cursor');
+
+    service.resetTabToFresh(resetTabId);
+
+    expect(
+      service.tabs().find((candidate) => candidate.id === resetTabId)
+        ?.olderHistoryCursor,
+    ).toBeUndefined();
+
+    const reboundTabId = service.createTab('rebind-history');
+    service.setOlderHistoryCursor(reboundTabId, 'rebind-cursor');
+    service.rebindTabSession(
+      reboundTabId,
+      SessionId.create(),
+      'Replacement session',
+    );
+
+    expect(
+      service.tabs().find((candidate) => candidate.id === reboundTabId)
+        ?.olderHistoryCursor,
+    ).toBeUndefined();
+  });
+
   it('persists and restores the cursor without coercion', () => {
     const tabId = service.createTab('history');
     service.setOlderHistoryCursor(tabId, 'opaque-cursor');

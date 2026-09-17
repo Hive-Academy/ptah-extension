@@ -6,6 +6,7 @@
 
 import { Injectable, signal, computed } from '@angular/core';
 import {
+  SessionId,
   WorkspaceInfo,
   MESSAGE_TYPES,
   type NewProjectIntake,
@@ -701,6 +702,9 @@ export class AppStateManager implements MessageHandler {
    * settles `false` so it cannot execute later.
    */
   requestCanvasSession(sessionId: string, name?: string): Promise<boolean> {
+    const validatedSessionId = SessionId.safeParse(sessionId);
+    if (!validatedSessionId) return Promise.resolve(false);
+
     return new Promise<boolean>((resolve) => {
       let settled = false;
       const settle = (success: boolean): void => {
@@ -710,7 +714,7 @@ export class AppStateManager implements MessageHandler {
         resolve(success);
       };
       const request: CanvasSessionRequest = {
-        sessionId,
+        sessionId: validatedSessionId,
         name,
         resolve: settle,
       };

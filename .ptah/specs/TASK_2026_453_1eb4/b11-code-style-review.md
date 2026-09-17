@@ -9,7 +9,7 @@
 | Blocking issues | 0                                     |
 | Serious issues  | 1                                     |
 | Minor issues    | 2                                     |
-| Files reviewed  | 7 (2 created product, 2 created spec, 3 modified) |
+| Files reviewed  | 8 (3 created, 5 modified)              |
 
 Scope: uncommitted diff under `libs/frontend/**` for Batch 11 (C10 `HistoryMessageBuilder`, C11 tab
 history-window cursor/prepend). `libs/shared` and Batch 9 files excluded per instructions and

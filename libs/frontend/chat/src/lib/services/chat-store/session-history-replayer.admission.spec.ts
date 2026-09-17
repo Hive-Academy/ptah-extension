@@ -19,9 +19,9 @@ import { SessionHistoryReplayer } from './session-history-replayer.service';
 const TAB_A = 'tab-a';
 const TAB_B = 'tab-b';
 const TAB_C = 'tab-c';
-const SESSION_A = 'session-a' as SessionId;
-const SESSION_B = 'session-b' as SessionId;
-const SESSION_C = 'session-c' as SessionId;
+const SESSION_A = '11111111-1111-4111-8111-111111111111' as SessionId;
+const SESSION_B = '22222222-2222-4222-8222-222222222222' as SessionId;
+const SESSION_C = '33333333-3333-4333-8333-333333333333' as SessionId;
 
 describe('SessionHistoryReplayer replay admission', () => {
   const originalMessageChannel = globalThis.MessageChannel;

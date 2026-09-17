@@ -30,7 +30,11 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { MESSAGE_TYPES, type WorkspaceInfo } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  SessionId,
+  type WorkspaceInfo,
+} from '@ptah-extension/shared';
 import {
   AppStateManager,
   THOTH_FIRST_RUN_DISMISSED_KEY,
@@ -617,23 +621,25 @@ describe('AppStateManager', () => {
   describe('canvas session request signal bridge', () => {
     it('queues two requests in order and takeCanvasSessionRequests empties the queue', async () => {
       const service = createService();
+      const firstSessionId = SessionId.create();
+      const secondSessionId = SessionId.create();
       const firstPending = service.requestCanvasSession(
-        'sess-1',
+        firstSessionId,
         'Session One',
       );
       const secondPending = service.requestCanvasSession(
-        'sess-2',
+        secondSessionId,
         'Session Two',
       );
 
       expect(service.canvasSessionRequests()).toEqual([
         expect.objectContaining({
-          sessionId: 'sess-1',
+          sessionId: firstSessionId,
           name: 'Session One',
           resolve: expect.any(Function),
         }),
         expect.objectContaining({
-          sessionId: 'sess-2',
+          sessionId: secondSessionId,
           name: 'Session Two',
           resolve: expect.any(Function),
         }),
@@ -641,8 +647,8 @@ describe('AppStateManager', () => {
 
       const requests = service.takeCanvasSessionRequests();
       expect(requests.map(({ sessionId }) => sessionId)).toEqual([
-        'sess-1',
-        'sess-2',
+        firstSessionId,
+        secondSessionId,
       ]);
       expect(service.canvasSessionRequests()).toEqual([]);
       expect(service.takeCanvasSessionRequests()).toEqual([]);
@@ -656,7 +662,10 @@ describe('AppStateManager', () => {
     it('removes a timed-out request and resolves false when no canvas consumes it', async () => {
       jest.useFakeTimers();
       const service = createService();
-      const pending = service.requestCanvasSession('sess-orphan', 'Orphan');
+      const pending = service.requestCanvasSession(
+        SessionId.create(),
+        'Orphan',
+      );
 
       expect(service.canvasSessionRequests()).toHaveLength(1);
       jest.advanceTimersByTime(5000);
@@ -668,7 +677,7 @@ describe('AppStateManager', () => {
     it('resolves true and clears the safety timer when the canvas accepts the request', async () => {
       jest.useFakeTimers();
       const service = createService();
-      const pending = service.requestCanvasSession('sess-accepted');
+      const pending = service.requestCanvasSession(SessionId.create());
       const [request] = service.takeCanvasSessionRequests();
 
       request?.resolve?.(true);
@@ -682,7 +691,12 @@ describe('AppStateManager', () => {
       jest.useFakeTimers();
       const service = createService();
       const settlementOrder: string[] = [];
-      const pending = ['sess-1', 'sess-2', 'sess-3'].map((sessionId) =>
+      const sessionIds = [
+        SessionId.create(),
+        SessionId.create(),
+        SessionId.create(),
+      ];
+      const pending = sessionIds.map((sessionId) =>
         service.requestCanvasSession(sessionId).then((result) => {
           settlementOrder.push(sessionId);
           return result;
@@ -691,9 +705,7 @@ describe('AppStateManager', () => {
 
       const requests = service.takeCanvasSessionRequests();
       expect(requests.map(({ sessionId }) => sessionId)).toEqual([
-        'sess-1',
-        'sess-2',
-        'sess-3',
+        ...sessionIds,
       ]);
 
       jest.advanceTimersByTime(15_000);
@@ -706,9 +718,18 @@ describe('AppStateManager', () => {
       }
 
       await expect(Promise.all(pending)).resolves.toEqual([true, true, true]);
-      expect(settlementOrder).toEqual(['sess-1', 'sess-2', 'sess-3']);
+      expect(settlementOrder).toEqual(sessionIds);
       expect(jest.getTimerCount()).toBe(0);
       jest.useRealTimers();
+    });
+
+    it('rejects an invalid session id without enqueueing it', async () => {
+      const service = createService();
+
+      await expect(
+        service.requestCanvasSession('not-a-session-id'),
+      ).resolves.toBe(false);
+      expect(service.canvasSessionRequests()).toEqual([]);
     });
 
     it('requestNewCanvasSession / clearNewCanvasSessionRequest flip the signal', () => {

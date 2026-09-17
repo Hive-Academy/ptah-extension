@@ -1292,6 +1292,7 @@ export class SessionLoaderService {
           sessionId,
           tabId,
           workspacePath,
+          historyPage: this.historyPaging.tailRequest(),
         },
         { timeout: SessionLoaderService.RESUME_TIMEOUT_MS },
       );

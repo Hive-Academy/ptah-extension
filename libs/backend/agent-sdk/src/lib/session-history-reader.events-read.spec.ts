@@ -128,11 +128,23 @@ describe('SessionHistoryReaderService event-only read', () => {
 
     const missingFile = makeHarness();
     missingFile.jsonlReader.readJsonlMessages.mockRejectedValue(
-      new Error('ENOENT'),
+      Object.assign(new Error('session file missing'), { code: 'ENOENT' }),
     );
     await expect(
       missingFile.service.readSessionEvents(SESSION_ID, WORKSPACE),
     ).resolves.toEqual([]);
+  });
+
+  it('propagates non-missing transcript read failures', async () => {
+    const harness = makeHarness();
+    const accessError = Object.assign(new Error('access denied'), {
+      code: 'EACCES',
+    });
+    harness.jsonlReader.readJsonlMessages.mockRejectedValue(accessError);
+
+    await expect(
+      harness.service.readSessionEvents(SESSION_ID, WORKSPACE),
+    ).rejects.toBe(accessError);
   });
 
   it('rejects an invalid session id before reading the filesystem', async () => {

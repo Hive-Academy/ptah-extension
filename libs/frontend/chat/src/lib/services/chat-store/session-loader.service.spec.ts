@@ -990,10 +990,17 @@ describe('SessionLoaderService', () => {
       activeTabSessionIdSignal.set('sess-1');
       activeTabStatusSignal.set('loaded');
       activeTabIdSignal.set(TabId.from('61a250e8-805c-4f1c-823a-791e06784980'));
+      TestBed.tick();
       // Flush the async refresh.
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'chat:resume',
+        expect.objectContaining({ historyPage: { maxEvents: 250 } }),
+        expect.anything(),
+      );
 
       service.removeResumableSubagent('tc-1');
       expect(

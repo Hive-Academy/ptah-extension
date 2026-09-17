@@ -4,7 +4,9 @@
 
 Implemented the narrow transcript-only scroll exception for an older-history HEAD prepend at exact `scrollTop === 0`. A component-local directive captures the first visible persistent message slot before Angular reconciles the `@for`, restores that slot's viewport offset in `afterNextRender`, and performs exactly one `scrollTop` assignment. Native overflow anchoring remains responsible for every non-zero scroll position and for later placeholder/mount height changes.
 
-## Requirement checklist
+## Historical implementation checklist
+
+This checklist records the implementation state before the final required headed verification. The later full headed run was not green (`2 failed, 3 passed`): its nominal zero-target case settled at `scrollTopBefore=5226`, while the later exact-zero diagnostic passed with `offsetDelta=0` and the non-zero diagnostic still failed. The pinned case remained valid and passed with its required `distance-from-bottom=0.00px` precondition.
 
 - [x] **1 — Detect only a strict HEAD prepend.** `transcript-prepend-anchor.directive.ts:61-66,123-133` requires a non-empty prior list, a longer next list, identical tab and session identities, and every prior message id as the next list's contiguous suffix. This excludes initial population, live append, replacement, tab switch, and session switch. Specs cover append/replacement/session/tab changes at `transcript-prepend-anchor.directive.spec.ts:138-153`.
 - [x] **2 — Apply every eligibility gate.** `transcript-prepend-anchor.directive.ts:61-72` requires the transcript to have been active and remain active, the same tab/session, no raw history replay, not pinned, and exact `scrollTop === 0`. Pinned, replaying, and inactive cases are covered at `transcript-prepend-anchor.directive.spec.ts:123-136`.

@@ -262,7 +262,7 @@ describe('SessionHistoryReaderService', () => {
         '/sessions/dir',
       );
       stubs.jsonlReader.readJsonlMessages.mockRejectedValue(
-        new Error('ENOENT: session file missing'),
+        Object.assign(new Error('session file missing'), { code: 'ENOENT' }),
       );
 
       const service = makeService(stubs);
@@ -1991,7 +1991,7 @@ describe('SessionHistoryReaderService', () => {
     it('does not seed when the session file is missing', async () => {
       const stubs = readyStubs();
       stubs.jsonlReader.readJsonlMessages.mockRejectedValue(
-        new Error('ENOENT: session file missing'),
+        Object.assign(new Error('session file missing'), { code: 'ENOENT' }),
       );
 
       const service = makeService(stubs);
