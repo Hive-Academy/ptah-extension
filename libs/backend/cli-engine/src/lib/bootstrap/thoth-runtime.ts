@@ -24,8 +24,10 @@ import {
 } from '@ptah-extension/skill-synthesis';
 import {
   MEMORY_RETENTION_JOB,
+  SKILL_BACKLOG_CLEANUP_JOB,
   SKILL_DRAIN_JOBS,
   createMemoryRetentionHandler,
+  createSkillBacklogCleanupHandler,
 } from '@ptah-extension/thoth-runtime';
 import {
   CRON_TOKENS,
@@ -328,6 +330,7 @@ async function startCron(
     registerBackupJob(container, logger);
     registerSkillDrainJobs(container, logger);
     registerMemoryRetentionJob(container, logger);
+    registerSkillBacklogCleanupJob(container, logger);
 
     const workspaceProvider = container.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
@@ -558,6 +561,48 @@ function registerMemoryRetentionJob(
   } catch (error: unknown) {
     logger.warn(
       '[CLI Thoth] Memory retention cron registration failed (non-fatal)',
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
+function registerSkillBacklogCleanupJob(
+  container: DependencyContainer,
+  logger: Logger,
+): void {
+  try {
+    if (
+      !container.isRegistered(CRON_TOKENS.CRON_JOB_STORE) ||
+      !container.isRegistered(CRON_TOKENS.CRON_HANDLER_REGISTRY) ||
+      !container.isRegistered(
+        SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE,
+      )
+    ) {
+      return;
+    }
+    const jobStore = container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE);
+    const handlerRegistry = container.resolve<IHandlerRegistry>(
+      CRON_TOKENS.CRON_HANDLER_REGISTRY,
+    );
+    if (!handlerRegistry.has(SKILL_BACKLOG_CLEANUP_JOB.handlerName)) {
+      handlerRegistry.register(
+        SKILL_BACKLOG_CLEANUP_JOB.handlerName,
+        createSkillBacklogCleanupHandler(container),
+      );
+    }
+    jobStore.upsert({
+      id: SKILL_BACKLOG_CLEANUP_JOB.jobId,
+      name: SKILL_BACKLOG_CLEANUP_JOB.name,
+      cronExpr: SKILL_BACKLOG_CLEANUP_JOB.cronExpr,
+      timezone: SKILL_BACKLOG_CLEANUP_JOB.timezone,
+      prompt: `handler:${SKILL_BACKLOG_CLEANUP_JOB.handlerName}`,
+      enabled: true,
+    });
+  } catch (error: unknown) {
+    logger.warn(
+      '[CLI Thoth] Skills backlog cleanup cron registration failed (non-fatal)',
       {
         error: error instanceof Error ? error.message : String(error),
       },

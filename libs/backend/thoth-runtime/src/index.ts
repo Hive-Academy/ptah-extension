@@ -26,6 +26,11 @@ export {
   type MemoryRetentionJobSpec,
 } from './lib/memory-retention-job';
 export {
+  SKILL_BACKLOG_CLEANUP_JOB,
+  createSkillBacklogCleanupHandler,
+  type SkillBacklogCleanupJobSpec,
+} from './lib/skill-backlog-cleanup-job';
+export {
   createActivityEmitter,
   withActivityEmit,
   type ActivityEmitter,

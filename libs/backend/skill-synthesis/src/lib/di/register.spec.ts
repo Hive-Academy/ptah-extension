@@ -9,7 +9,12 @@
  */
 import 'reflect-metadata';
 import { container as rootContainer } from 'tsyringe';
-import type { Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { SkillBacklogCleanupService } from '../cleanup/skill-backlog-cleanup.service';
+import { SkillBacklogCleanupStore } from '../cleanup/skill-backlog-cleanup.store';
 import { registerSkillSynthesisServices } from './register';
 import {
   PROVIDER_AUTH_RESOLVER_TOKEN,
@@ -34,6 +39,34 @@ describe('registerSkillSynthesisServices', () => {
       .map(([name]) => name);
 
     expect(unregistered).toEqual([]);
+  });
+
+  it('resolves the backlog cleanup store and service tokens as singletons', () => {
+    // Resolve through the REAL registration twice and compare identity. Only
+    // the host-provided tokens the constructors inject are supplied; the
+    // constructors store them and touch nothing, so inert stubs suffice.
+    const container = rootContainer.createChildContainer();
+    container.registerInstance(TOKENS.LOGGER, stubLogger);
+    container.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    container.registerInstance(SDK_TOKENS.SDK_JSONL_READER, {});
+    container.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {});
+    registerSkillSynthesisServices(container, stubLogger);
+
+    const store = container.resolve<SkillBacklogCleanupStore>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_STORE,
+    );
+    const service = container.resolve<SkillBacklogCleanupService>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE,
+    );
+
+    expect(store).toBeInstanceOf(SkillBacklogCleanupStore);
+    expect(service).toBeInstanceOf(SkillBacklogCleanupService);
+    expect(
+      container.resolve(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_STORE),
+    ).toBe(store);
+    expect(
+      container.resolve(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE),
+    ).toBe(service);
   });
 
   it('gives the queue and budget stores globally unique token descriptions', () => {

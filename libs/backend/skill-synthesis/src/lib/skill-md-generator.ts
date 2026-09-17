@@ -201,6 +201,11 @@ export class SkillMdGenerator {
     return this.writeAtRoot(input, root);
   }
 
+  /** Remove the exact active materialization returned by {@link promoteToActive}. */
+  removeActive(materialized: MaterializedSkill): void {
+    fs.rmSync(materialized.dir, { recursive: true, force: true });
+  }
+
   private writeAtRoot(input: SkillMdInput, root: string): MaterializedSkill {
     fs.mkdirSync(root, { recursive: true });
     const baseSlug = this.sanitizeSlug(input.slug);

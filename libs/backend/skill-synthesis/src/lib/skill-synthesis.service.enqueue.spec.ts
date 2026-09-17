@@ -63,6 +63,7 @@ function trajectory(turnCount: number) {
     slug: 'do-thing',
     editCount: 2,
     toolUseCount: 4,
+    nonMcpToolUseCount: 4,
     bashTestPassed: false,
     charLength: 900,
     hasSuccessMarker: true,
@@ -775,6 +776,7 @@ describe('SkillSynthesisService — the archaeology stage (P2-4)', () => {
       ...trajectory(2),
       editCount: 0,
       toolUseCount: 0,
+      nonMcpToolUseCount: 0,
       turnCount: 2,
       charLength: 10,
     });

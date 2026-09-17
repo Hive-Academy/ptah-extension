@@ -476,10 +476,13 @@ export class SkillStageHandlersService {
    * deleted, is not a failure and not a retry — there is nothing to measure and
    * nothing that will make one appear.
    */
-  private gateTarget(row: SkillQueueRow): SkillCandidateRow | null {
+  private gateTarget(
+    row: SkillQueueRow,
+  ): SkillCandidateRow | null | 'rejected' {
     const id = row.payload[SKILL_QUEUE_PAYLOAD_KEYS.candidateId];
     if (typeof id !== 'string' || id.length === 0) return null;
-    return this.store.findById(id as CandidateId);
+    const candidate = this.store.findById(id as CandidateId);
+    return candidate?.status === 'rejected' ? 'rejected' : candidate;
   }
 
   /**
@@ -517,6 +520,9 @@ export class SkillStageHandlersService {
     if (!panel)
       return { outcome: 'skipped', reason: 'no judge panel in this host' };
     const candidate = this.gateTarget(ctx.row);
+    if (candidate === 'rejected') {
+      return { outcome: 'skipped', reason: 'gate-candidate-rejected' };
+    }
     if (!candidate) {
       return { outcome: 'skipped', reason: 'judge-panel-no-candidate' };
     }
@@ -592,6 +598,9 @@ export class SkillStageHandlersService {
     }
     const { row } = ctx;
     const candidate = this.gateTarget(row);
+    if (candidate === 'rejected') {
+      return { outcome: 'skipped', reason: 'gate-candidate-rejected' };
+    }
     if (!candidate) {
       return { outcome: 'skipped', reason: 'replay-no-candidate' };
     }
@@ -718,6 +727,9 @@ export class SkillStageHandlersService {
       return { outcome: 'skipped', reason: 'no trigger eval in this host' };
     }
     const candidate = this.gateTarget(ctx.row);
+    if (candidate === 'rejected') {
+      return { outcome: 'skipped', reason: 'gate-candidate-rejected' };
+    }
     if (!candidate) {
       return { outcome: 'skipped', reason: 'trigger-eval-no-candidate' };
     }

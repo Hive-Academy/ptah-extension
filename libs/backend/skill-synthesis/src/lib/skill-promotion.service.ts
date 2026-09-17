@@ -22,7 +22,7 @@ import {
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { SkillCandidateStore } from './skill-candidate.store';
-import { SkillMdGenerator } from './skill-md-generator';
+import { SkillMdGenerator, type MaterializedSkill } from './skill-md-generator';
 import { SkillClusterDedupService } from './skill-cluster-dedup.service';
 import { SkillJudgeService } from './skill-judge.service';
 import { SkillRegistryStore } from './skill-registry.store';
@@ -90,6 +90,7 @@ export interface PromotionDecision {
     | 'already-rejected'
     | 'not-found'
     | 'below-judge-score'
+    | 'write-failed'
     /**
      * The judge could not produce a trustworthy score. NEITHER a pass NOR a
      * block, and deliberately not folded into `below-judge-score`: the
@@ -182,6 +183,36 @@ export class SkillPromotionService {
     nowFn: () => number = () => Date.now(),
     origin: QueryOrigin = {},
   ): Promise<PromotionDecision> {
+    return this.runGatePipeline(
+      candidateId,
+      settings,
+      'automatic',
+      origin,
+      nowFn,
+    );
+  }
+
+  /**
+   * Promote a user-selected candidate through every gate except the automatic
+   * recurrence threshold. The origin is required because this path is exposed
+   * only through user actions.
+   */
+  async promoteManually(
+    candidateId: CandidateId,
+    settings: SkillSynthesisSettings,
+    origin: QueryOrigin,
+    nowFn: () => number = () => Date.now(),
+  ): Promise<PromotionDecision> {
+    return this.runGatePipeline(candidateId, settings, 'manual', origin, nowFn);
+  }
+
+  private async runGatePipeline(
+    candidateId: CandidateId,
+    settings: SkillSynthesisSettings,
+    mode: 'automatic' | 'manual',
+    origin: QueryOrigin,
+    nowFn: () => number,
+  ): Promise<PromotionDecision> {
     const candidate = this.store.findById(candidateId);
     if (!candidate) {
       return { promoted: false, reason: 'not-found', candidate: null };
@@ -208,13 +239,15 @@ export class SkillPromotionService {
         closestMatchSimilarity: dedupResult.similarity,
       };
     }
-    const distinctContexts = this.store.countDistinctContexts(candidate.id);
-    const effectiveSuccessThreshold =
-      distinctContexts >= settings.generalizationContextThreshold
-        ? Math.ceil(settings.successesToPromote / 2)
-        : settings.successesToPromote;
-    if (candidate.successCount < effectiveSuccessThreshold) {
-      return { promoted: false, reason: 'below-threshold', candidate };
+    if (mode === 'automatic') {
+      const distinctContexts = this.store.countDistinctContexts(candidate.id);
+      const effectiveSuccessThreshold =
+        distinctContexts >= settings.generalizationContextThreshold
+          ? Math.ceil(settings.successesToPromote / 2)
+          : settings.successesToPromote;
+      if (candidate.successCount < effectiveSuccessThreshold) {
+        return { promoted: false, reason: 'below-threshold', candidate };
+      }
     }
     if (this.clusterDedup && candidate.embeddingRowid !== null) {
       const probe = this.store.getEmbedding(candidate.embeddingRowid);
@@ -238,6 +271,8 @@ export class SkillPromotionService {
 
     let evictedSkillId: CandidateId | undefined;
     let demotedSlug: string | null = null;
+    let weakestResident: SkillCandidateRow | undefined;
+    let weakestWinRate: number | null = null;
     const activeResident = this.store.listActiveOrderedByDecayScore(
       nowFn(),
       settings.evictionDecayRate,
@@ -253,21 +288,8 @@ export class SkillPromotionService {
           : new Map<string, number | null>();
       const weakest = orderForDemotion(demotable, winRates).at(0);
       if (weakest) {
-        this.store.setResidency(weakest.id, 'dormant');
-        evictedSkillId = weakest.id;
-        demotedSlug = weakest.name;
-        this.logger.info(
-          '[skill-synthesis] residency-cap demotion to dormant',
-          {
-            demoted: weakest.id,
-            demotedName: weakest.name,
-            // `null` = never measured; it is why this row sorted LAST among the
-            // demotable set and was reached anyway.
-            demotedWinRate: winRates.get(weakest.name) ?? null,
-            residentCount: activeResident.length,
-            cap: settings.maxActiveSkills,
-          },
-        );
+        weakestResident = weakest;
+        weakestWinRate = winRates.get(weakest.name) ?? null;
       } else {
         this.logger.info(
           '[skill-synthesis] residency cap reached but all residents are authored — none demoted',
@@ -280,8 +302,10 @@ export class SkillPromotionService {
     }
     const body = this.readCandidateBody(candidate);
     let bodyPath = candidate.bodyPath;
+    let materialized: MaterializedSkill | null = null;
+    let promoted: SkillCandidateRow;
     try {
-      const md = this.mdGenerator.promoteToActive(
+      materialized = this.mdGenerator.promoteToActive(
         {
           slug: candidate.name,
           description: candidate.description,
@@ -289,21 +313,59 @@ export class SkillPromotionService {
         },
         settings.candidatesDir,
       );
-      bodyPath = md.filePath;
+      bodyPath = materialized.filePath;
+      promoted = this.store.promoteAtomically(candidate.id, {
+        promotedAt: nowFn(),
+        bodyPath,
+        demotedResidentId: weakestResident?.id,
+      });
     } catch (err) {
+      // degradation-audit: reported - promotion refused; decision reason write-failed
+      if (materialized) {
+        try {
+          this.mdGenerator.removeActive(materialized);
+        } catch (error: unknown) {
+          // degradation-audit: reported - failed rollback cleanup is logged; write-failed remains the caller contract
+          this.logger.warn(
+            '[skill-synthesis] failed to remove active skill after promotion rollback',
+            {
+              candidate: candidate.id,
+              slug: materialized.slug,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+      }
       this.logger.warn(
-        '[skill-synthesis] failed to materialize promoted SKILL.md (continuing with candidate body_path)',
+        '[skill-synthesis] failed to persist promoted skill; promotion refused',
         {
           candidate: candidate.id,
           error: err instanceof Error ? err.message : String(err),
         },
       );
+      return {
+        promoted: false,
+        reason: 'write-failed',
+        candidate: graded,
+        closestMatchSimilarity: dedupResult.similarity,
+        ranking,
+      };
     }
 
-    const promoted = this.store.updateStatus(candidate.id, 'promoted', {
-      promotedAt: nowFn(),
-      bodyPath,
-    });
+    if (weakestResident) {
+      evictedSkillId = weakestResident.id;
+      demotedSlug = weakestResident.name;
+      this.logger.info('[skill-synthesis] residency-cap demotion to dormant', {
+        demoted: weakestResident.id,
+        demotedName: weakestResident.name,
+        // `null` = never measured; it is why this row sorted LAST among the
+        // demotable set and was reached anyway.
+        demotedWinRate: weakestWinRate,
+        residentCount: activeResident.length,
+        cap: settings.maxActiveSkills,
+      });
+    }
+
     this.clusterDedup?.invalidate();
 
     // Both residency changes, emitted together AFTER the last write. Emitting

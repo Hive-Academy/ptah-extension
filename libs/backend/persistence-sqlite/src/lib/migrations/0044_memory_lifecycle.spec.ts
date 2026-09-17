@@ -62,8 +62,9 @@ describe('migration 0044_memory_lifecycle — registry and static SQL', () => {
     expect(MIGRATIONS.filter((migration) => migration.version === 44)).toHaveLength(
       1,
     );
+    // 45 since TASK_2026_461 appended 0045_skill_backlog_cleanup.
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      44,
+      45,
     );
     expect(entry?.vecSql).toBeUndefined();
     expect(entry?.requiresVec).toBeUndefined();

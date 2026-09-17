@@ -58,7 +58,8 @@ describe('migration 0039_reap_orphaned_queue_rows — registry entry', () => {
     // moves forward with every appended migration (0038 precedent).
     // 43 since TASK_2026_440 appended 0043_memory_retention.
     // 44 since TASK_2026_443 appended 0044_memory_lifecycle.
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(44);
+    // 45 since TASK_2026_461 appended 0045_skill_backlog_cleanup.
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(45);
   });
 
   it('contains no id-shape predicate — a tabId is a UUID v4', () => {

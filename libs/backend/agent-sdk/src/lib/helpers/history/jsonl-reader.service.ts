@@ -185,6 +185,30 @@ export class JsonlReaderService {
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
+   * List the immediate session directories below the projects root.
+   *
+   * This lookup is deliberately uncached: callers that need reuse own a
+   * shorter-lived cache whose invalidation matches their operation.
+   */
+  async listSessionsDirectories(): Promise<string[] | null> {
+    const projectsDir = this.projectsRoot();
+    try {
+      const entries = await fs.readdir(projectsDir, { withFileTypes: true });
+      return entries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => path.join(projectsDir, entry.name));
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - transcript history is absent
+      // or unavailable, so callers retain candidates instead of guessing.
+      this.logger.debug('[JsonlReader] Could not list session directories', {
+        projectsDir,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
    * Find the sessions directory for a workspace.
    *
    * Claude stores sessions in ~/.claude/projects/{escaped-workspace-path}/
@@ -212,8 +236,7 @@ export class JsonlReaderService {
    * @returns The sessions directory path, or null if not found
    */
   async findSessionsDirectory(workspacePath: string): Promise<string | null> {
-    const homeDir = os.homedir();
-    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    const projectsDir = this.projectsRoot();
 
     try {
       await fs.access(projectsDir);
@@ -254,6 +277,10 @@ export class JsonlReaderService {
     }
 
     return resolved;
+  }
+
+  private projectsRoot(): string {
+    return path.join(os.homedir(), '.claude', 'projects');
   }
 
   /**

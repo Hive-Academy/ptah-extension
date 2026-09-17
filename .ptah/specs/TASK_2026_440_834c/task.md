@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_440_834c
-status: in_review
+status: done
 type: FEATURE
 title: 'Thoth phase 1: stop database growth with a scheduled retention job'
 description: >-
