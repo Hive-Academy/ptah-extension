@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_449_5aad
-status: in_review
+status: done
 type: BUGFIX
 title: Keep the peer registry session name in sync with the Ptah session name
 depends_on: []

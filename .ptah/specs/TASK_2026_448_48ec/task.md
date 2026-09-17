@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_448_48ec
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Branch review panel reads like a real review tab

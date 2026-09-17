@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_405
-status: in_review
+status: done
 type: feature
 title: Move the activity ticker out of the navbar into a floating toast
 description: >-

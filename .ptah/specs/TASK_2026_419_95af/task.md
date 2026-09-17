@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_419_95af
-status: in_review
+status: done
 type: BUGFIX
 title: Preserve worktree context when resuming sessions
 depends_on: []

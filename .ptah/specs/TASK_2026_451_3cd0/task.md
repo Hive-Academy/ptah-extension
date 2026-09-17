@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_451_3cd0
-status: in_review
+status: done
 type: FEATURE
 title: Let a compact canvas tile shrink and its neighbours reflow
 description: >-

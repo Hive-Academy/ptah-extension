@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_430_83a2
-status: in_review
+status: done
 type: BUGFIX
 title: Keep session and sub-agent state lazy and bounded in the Electron state worker
 depends_on: []

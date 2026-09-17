@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_437_0778
-status: in_progress
+status: done
 type: BUGFIX
 title: Keep the Electron main process responsive under heavy file-system and process load
 depends_on: []
