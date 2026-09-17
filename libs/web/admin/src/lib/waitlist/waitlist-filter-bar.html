@@ -1,0 +1,123 @@
+<div class="flex flex-col gap-3 rounded-lg border border-hairline bg-base-200/50 p-3">
+  <div class="flex flex-wrap items-center gap-3">
+    <!-- Free-text search matching email or source -->
+    <div class="relative min-w-[200px] flex-1">
+      <lucide-angular
+        [img]="SearchIcon"
+        class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content-muted"
+        aria-hidden="true"
+      />
+      <input
+        type="search"
+        class="input input-bordered input-sm w-full pl-9"
+        placeholder="Search email or source..."
+        aria-label="Search email or source"
+        [value]="search()"
+        (input)="onSearchInput($event)"
+      />
+    </div>
+
+    <!-- Source dropdown -->
+    <div class="flex items-center gap-1.5">
+      <label for="waitlist-source-select" class="text-xs text-base-content-muted">Source</label>
+      <select
+        id="waitlist-source-select"
+        class="select select-bordered select-sm"
+        aria-label="Filter by source"
+        [value]="source() ?? ''"
+        (change)="onSourceSelect($event)"
+      >
+        <option value="">All sources</option>
+        @for (s of availableSources; track s) {
+          <option [value]="s">{{ s }}</option>
+        }
+      </select>
+    </div>
+
+    <!-- Date range filters -->
+    <div class="flex items-center gap-1.5">
+      <label for="waitlist-created-from" class="text-xs text-base-content-muted">From</label>
+      <input
+        id="waitlist-created-from"
+        type="date"
+        class="input input-bordered input-sm"
+        aria-label="Signup date from"
+        [value]="fromDateValue()"
+        (change)="onFromDateChange($event)"
+      />
+    </div>
+
+    <div class="flex items-center gap-1.5">
+      <label for="waitlist-created-to" class="text-xs text-base-content-muted">To</label>
+      <input
+        id="waitlist-created-to"
+        type="date"
+        class="input input-bordered input-sm"
+        aria-label="Signup date to"
+        [value]="toDateValue()"
+        (change)="onToDateChange($event)"
+      />
+    </div>
+
+    <!-- Sort controls -->
+    <div class="flex items-center gap-1.5">
+      <label for="waitlist-sort-select" class="text-xs text-base-content-muted">Sort</label>
+      <select
+        id="waitlist-sort-select"
+        class="select select-bordered select-sm"
+        aria-label="Sort by field"
+        [value]="sortBy()"
+        (change)="onSortBySelect($event)"
+      >
+        <option value="createdAt">Joined date</option>
+        <option value="notifiedAt">Invited date</option>
+        <option value="approvedAt">Approved date</option>
+        <option value="convertedAt">Converted date</option>
+        <option value="source">Source</option>
+      </select>
+
+      <select
+        class="select select-bordered select-sm"
+        aria-label="Sort direction"
+        [value]="sortOrder()"
+        (change)="onSortOrderSelect($event)"
+      >
+        <option value="asc">Ascending</option>
+        <option value="desc">Descending</option>
+      </select>
+    </div>
+
+    <!-- Page size dropdown -->
+    <div class="flex items-center gap-1.5">
+      <label for="waitlist-page-size-select" class="text-xs text-base-content-muted">Show</label>
+      <select
+        id="waitlist-page-size-select"
+        class="select select-bordered select-sm"
+        aria-label="Page size"
+        [value]="pageSize()"
+        (change)="onPageSizeSelect($event)"
+      >
+        @for (sz of availablePageSizes; track sz) {
+          <option [value]="sz">{{ sz }} / page</option>
+        }
+      </select>
+    </div>
+
+    <!-- Clear filters action -->
+    <button
+      type="button"
+      class="btn btn-ghost btn-sm gap-1 text-xs"
+      (click)="onClear()"
+      aria-label="Clear all optional filters"
+    >
+      <lucide-angular [img]="RotateCcwIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+      Clear filters
+    </button>
+  </div>
+
+  @if (localDateError(); as err) {
+    <div class="alert alert-warning py-1.5 text-xs" role="alert">
+      <span>{{ err }}</span>
+    </div>
+  }
+</div>
