@@ -2,13 +2,18 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   effect,
   inject,
   OnDestroy,
   signal,
   untracked,
 } from '@angular/core';
-import { toObservable, toSignal } from '@angular/core/rxjs-interop';
+import {
+  takeUntilDestroyed,
+  toObservable,
+  toSignal,
+} from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
   catchError,
@@ -148,6 +153,7 @@ export class WaitlistPipeline implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly api = inject(AdminApiService);
+  private readonly destroyRef = inject(DestroyRef);
   public readonly selection = inject(WaitlistSelectionState);
 
   // --- Icons ---
@@ -344,19 +350,21 @@ export class WaitlistPipeline implements OnDestroy {
     });
 
     // Handle debounced search changes (uses replaceUrl to prevent flooding history)
-    this.searchInput$.pipe(debounceTime(300)).subscribe((searchVal) => {
-      const next = searchVal.trim().length > 0 ? searchVal.trim() : undefined;
-      if (next === this.currentQuery().search) return;
+    this.searchInput$
+      .pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef))
+      .subscribe((searchVal) => {
+        const next = searchVal.trim().length > 0 ? searchVal.trim() : undefined;
+        if (next === this.currentQuery().search) return;
 
-      this.navigateWithFilters(
-        {
-          search: next,
-          page: 1,
-        },
-        { replaceUrl: true },
-      );
-      this.clearSelection();
-    });
+        this.navigateWithFilters(
+          {
+            search: next,
+            page: 1,
+          },
+          { replaceUrl: true },
+        );
+        this.clearSelection();
+      });
   }
 
   public ngOnDestroy(): void {

@@ -28,4 +28,16 @@ describe('waitlist query state', () => {
       );
     },
   );
+
+  it.each(['2026-09-17T14:30:45+02:00', '2026-09-17T12:30:45.123Z'])(
+    'accepts a valid ISO date-time value: %s',
+    (createdFrom) => {
+      const parsed = parseWaitlistQuery({ createdFrom });
+
+      expect(parsed.createdFrom).toBe(createdFrom);
+      expect(needsWaitlistQueryCanonicalization({ createdFrom }, parsed)).toBe(
+        false,
+      );
+    },
+  );
 });

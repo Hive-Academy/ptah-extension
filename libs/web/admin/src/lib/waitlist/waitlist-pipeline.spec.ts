@@ -251,6 +251,20 @@ describe('WaitlistPipeline', () => {
       );
     }));
 
+    it('does not navigate for a pending search after the component is destroyed', fakeAsync(() => {
+      const fixture = TestBed.createComponent(WaitlistPipeline);
+      fixture.detectChanges();
+      const component = fixture.componentInstance;
+      const router = TestBed.inject(Router);
+      const navigateSpy = jest.spyOn(router, 'navigate');
+
+      component.onSearchChange('abandoned query');
+      fixture.destroy();
+      tick(300);
+
+      expect(navigateSpy).not.toHaveBeenCalled();
+    }));
+
     it('navigates when the same search is entered again after clearing filters', fakeAsync(() => {
       const fixture = TestBed.createComponent(WaitlistPipeline);
       fixture.detectChanges();

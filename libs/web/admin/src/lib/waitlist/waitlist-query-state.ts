@@ -53,6 +53,10 @@ export type SortOrder = 'asc' | 'desc';
 export const WAITLIST_PAGE_SIZES = [10, 25, 50, 100] as const;
 export type WaitlistPageSize = (typeof WAITLIST_PAGE_SIZES)[number];
 
+const ISO_DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE_TIME_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
 export interface WaitlistFilterQuery {
   stage?: WaitlistStage;
   search?: string;
@@ -241,9 +245,10 @@ function parseAllowlistedValue<T extends string>(
 }
 
 function parseIsoDate(value: string | null): string | undefined {
-  const isoDatePattern =
-    /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))?$/;
-  return value && isoDatePattern.test(value) && !Number.isNaN(Date.parse(value))
+  const isIsoFormat =
+    value !== null &&
+    (ISO_DATE_ONLY_PATTERN.test(value) || ISO_DATE_TIME_PATTERN.test(value));
+  return value && isIsoFormat && !Number.isNaN(Date.parse(value))
     ? value
     : undefined;
 }
