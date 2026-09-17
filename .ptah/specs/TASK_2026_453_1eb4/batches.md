@@ -1,6 +1,6 @@
 # Batches - TASK_2026_453_1eb4
 
-Total tasks: 32 | Batches: 18 (13 code, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 11/18
+Total tasks: 32 | Batches: 18 (13 code, 5 measurement; Batches 16-17 conditional; Task 13.2 conditional) | Complete: 12/18
 
 Worktree (every path below is inside it; never touch `D:\projects\ptah-extension` root files or
 `D:\projects\ptah-437`): `W = D:\projects\ptah-extension\.claude-worktrees\task-453-tile-open-long-tasks`
@@ -1312,7 +1312,24 @@ ptah-extension-vscode ptah-cli --parallel=1` (drop any app a batch cannot affect
   `@ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/chat ptah-extension-webview
 ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
 
-## Batch 10: C7 events read + C8 paging RPC + CLI doc (backend) — PENDING
+## Batch 10: C7 events read + C8 paging RPC + CLI doc (backend) — COMPLETE (commit: `feat(rpc-handlers): serve tail-paged chat history through chat:history-page`)
+
+- Outcome: logic APPROVED WITH MINOR (1 moderate + 2 minor), style APPROVED (2 minor); codex
+  revise round 1 of 2 closed all 5 items (out-of-range `occurrenceFromEnd` spec, WORKSPACE_NOT_OPEN
+  + unsafe-workspace specs, MISSING_SESSION_LOG prefix restored, `fullEvents` invariant comment,
+  `SessionEventData` named type). Delta was test/comment/type only; orchestrator read it line by line.
+- Gate (orchestrator, 2026-09-17): tests header 4 projects — shared 60 suites / 1,547; agent-sdk
+  111 suites / 1,952 passed, 3 skipped; rpc-handlers 103 / 3,026 passed, 33 skipped; ptah-cli 67 /
+  1,015 passed, 3 skipped; exit 0. Typecheck 9 projects exit 0. Lint 4 projects 0 errors (existing
+  warnings); degradation-audit TOTAL 303.
+- Line deltas: `session-history-reader.service.ts` 1086 → 1126; `chat-session.service.ts`
+  1419 → 1372.
+- Team-leader reads: `resolveResumeWorkingDirectory` defined once
+  (`chat-history-read.service.ts:127`, absent from `chat-session.service.ts`);
+  `registerFromHistoryEvents(fullEvents, …)` at `chat-session.service.ts:847` with
+  `fullEvents = result.events` unsliced at `:827`; `chat:history-page` in `ChatRpcHandlers.METHODS`
+  (`chat-rpc.handlers.ts:98`), `RpcMethodRegistry` (`rpc.types.ts:648`) and `RPC_METHOD_ENTRIES`
+  (`rpc.types.ts:3380`).
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `backend-developer` sub-agent
@@ -1323,7 +1340,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
 - Review: logic (authorization parity, full-events registry, stale/invalid mapping, no side
   effects) + style (facade rule, DI tokens, schema placement). Revise cap 2.
 
-### Task 10.1: `readSessionEvents` + `occurrenceFromEnd` resolution (agent-sdk) — PENDING
+### Task 10.1: `readSessionEvents` + `occurrenceFromEnd` resolution (agent-sdk) — COMPLETE
 
 - Files: MODIFY `W\libs\backend\agent-sdk\src\lib\session-history-reader.service.ts`; CREATE
   `W\libs\backend\agent-sdk\src\lib\session-history-reader.events-read.spec.ts`
@@ -1346,7 +1363,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
      legacy `occurrence` unchanged.
   5. The file does not grow past +~40 lines; no page selection here.
 
-### Task 10.2: `ChatHistoryReadService`, resume tail, `chat:history-page`, anchor sanitizer — PENDING
+### Task 10.2: `ChatHistoryReadService`, resume tail, `chat:history-page`, anchor sanitizer — COMPLETE
 
 - Depends on: Task 10.1
 - Files:
@@ -1392,7 +1409,7 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
      schema rejects `maxEvents` 0 / 2001, unknown keys, a 4,097-char cursor.
      `chat-session-resume-activate.spec.ts` green.
 
-### Task 10.3: CLI JSON-RPC schema doc (decision 4) — PENDING
+### Task 10.3: CLI JSON-RPC schema doc (decision 4) — COMPLETE
 
 - Depends on: Task 10.2
 - File: MODIFY `W\apps\ptah-cli\docs\jsonrpc-schema.md` (632 lines, §3)
@@ -1473,8 +1490,8 @@ ptah-electron-e2e ptah-cli`. Lint `@ptah-extension/shared`. No builds.
   webview green; lint 0 errors (17 existing warnings). Harness spec edits are provider additions
   only; the two removed loader-spec lines were replaced by stricter assertions.
 - Dependency: `HistoryPagingService` calls `chat:history-page`, whose `RpcMethodRegistry` entry is
-  in the uncommitted Batch 10 `rpc.types.ts` diff. This commit does not typecheck alone until
-  Batch 10 lands.
+  in Batch 10's `rpc.types.ts` diff. RESOLVED: Batch 10 is committed right after this one, so the
+  branch typechecks again from the Batch 10 commit on.
 
 - Recommended executor: CLI lane `codex` x 1
 - Fallback executor: Claude `frontend-developer` sub-agent

@@ -1,4 +1,4 @@
-# Handoff — TASK_2026_453_1eb4 (session ended 2026-09-16)
+# Handoff — TASK_2026_453_1eb4 (updated 2026-09-17)
 
 AC-11: open 3 canvas tiles on 2,000-event sessions; no renderer long task > 200 ms; total
 long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this file first, then
@@ -32,9 +32,14 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | (docs)      | `docs(task-specs): design the TASK_2026_453 scroll fix and tail-paged history` — `scroll-regression-analysis.md`, Stage 2 (ii) in `implementation-plan.md`, Batches 7-17 in `batches.md`, this file |
 | (fix)       | Batch 7 — `fix(chat): keep replayed transcript mounts monotonic so tiles stay pinned` (C5 replay mount retention + `b7-*` reports)                                                                  |
 | (test)      | Batch 8 — `test(electron-e2e): record the TASK_2026_453 scroll re-check after the retention fix` (docs only; `b8-methodology-review.md`, `leftovers-inventory.md`)                                  |
+| `7a84fd031` | Batch 9 — `feat(shared): add tail history page contracts and cursor utils` (C6)                                                                                                                     |
+| `b19b013fd` | Batch 11 — `feat(chat-streaming): extract history message builder and tab cursor prepend` (C10 + C11)                                                                                               |
+| `990955dfe` | Batch 12 — `feat(chat): page older session history on demand after a tail resume` (C12)                                                                                                             |
+| (feat)      | Batch 10 — `feat(rpc-handlers): serve tail-paged chat history through chat:history-page` (C7 + C8 + CLI doc)                                                                                        |
 
-**Stage 1 (C1, C2, C3, C4, C5) is fully committed. The Batch 7 scroll fix is committed; draft PR
-#524 CI was all green at `d8951fa03` (before the Batch 7 commits).**
+**Stage 1 (C1-C5), the Batch 7 scroll fix, and Stage 2 Batches 9-12 (C6-C12) are committed. Batch
+12 was committed before Batch 10 and did not typecheck alone; the Batch 10 commit resolves that.
+Draft PR #524 CI was last all green at `d8951fa03`; later commits are not pushed.**
 
 ## 3. Batch state
 
@@ -48,8 +53,11 @@ long-task blocked time <= 1,500 ms. The budget must never be loosened. Read this
 | B6      | M1 measurement + decision point                   | COMPLETE, committed `d8951fa03` (docs only)                |
 | B7      | C5 scroll retention fix                           | COMPLETE, committed (revise 1 of 2; F1 carried to B8 / U1) |
 | B8      | Scroll sanity re-check (Electron, 23 attempts)    | COMPLETE, committed (docs only) — **PASS, 0/23 failures**  |
-| B9      | C6 paged history contract (`libs/shared`)         | IN_PROGRESS (codex lane) — Stage 2 started                 |
-| B10-B17 | Stage 2 (ii) remainder + M2 (B16-B17 conditional) | PENDING                                                    |
+| B9      | C6 paged history contract (`libs/shared`)         | COMPLETE, committed `7a84fd031`                            |
+| B10     | C7 events read + C8 `chat:history-page` + CLI doc | COMPLETE, committed (revise 1 of 2)                        |
+| B11     | C10 history message builder + C11 tab cursor      | COMPLETE, committed `b19b013fd`                            |
+| B12     | C12 paging orchestration (`chat`)                 | COMPLETE, committed `990955dfe` (revise 1 of 2)            |
+| B13-B17 | C13 affordance, C14 e2e, M2 (B16-B17 conditional) | PENDING                                                    |
 | B18     | Post-Stage-2 follow-ups (test quality)            | PENDING                                                    |
 
 **Batch 8 result**: PASS — 0 scroll-sanity failures in 23 counted attempts (review APPROVED). 3 of
@@ -160,13 +168,15 @@ questions", `batches.md` Stage 2):
 (logic + style APPROVED, revise 1 of 2). F1 (serious, open): the release window can still coincide
 with live growth below — Batch 8 re-check and U1 escalation cover it.
 
-Batch 8 PASS (0/23 scroll failures). Stage 2 started.
+Batch 8 PASS (0/23 scroll failures). Stage 2 Batches 9-12 committed 2026-09-17, each after logic +
+style reviews.
 
 **Next steps, in order**:
 
-1. Batch 9 (in progress): C6 paged history contract in `libs/shared`, then logic + style reviews
-   and commit.
-2. Batches 10-17 (C7-C14, M2, conditional 150-event fallback), then Batch 18 follow-ups.
+1. Batch 13: C13 "Load earlier" affordance (Task 13.0 timer-clear dedup, 13.1 sentinel directive,
+   13.2 conditional facade split), then logic + style reviews and commit.
+2. Batches 14-17 (C14 e2e, M2, conditional 150-event fallback), then Batch 18 follow-ups.
+3. Push the branch and re-check draft PR #524 CI when the orchestrator decides.
 
 **TASK_2026_437 leftovers** moved to **TASK_2026_463_f13d**, branch
 `chore/task-463-437-leftovers`, worktree `.claude-worktrees/task-463-437-leftovers`. The

@@ -6,6 +6,7 @@
  */
 export { ChatSdkContextService } from './chat-sdk-context.service';
 export { ChatSessionService } from './chat-session.service';
+export { ChatHistoryReadService } from './chat-history-read.service';
 export { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
 export { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
 export {

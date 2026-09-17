@@ -67,6 +67,7 @@ import type { ModelSettings } from '@ptah-extension/settings-core';
 
 import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatSessionService } from './chat-session.service';
+import { ChatHistoryReadService } from './chat-history-read.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
 const OPEN_FOLDER = '/c/projects/my-repo';
@@ -124,6 +125,23 @@ function makeService(params: {
     saveResumeState:
       params.saveResumeState ?? jest.fn().mockResolvedValue(undefined),
   };
+  const platformInfo = {
+    type: 'cli',
+    extensionPath: '/tmp/ptah-app',
+    globalStoragePath: '/tmp/ptah-storage',
+    workspaceStoragePath: '/tmp/ptah-workspace-storage',
+  };
+  const historyRead = new ChatHistoryReadService(
+    logger as unknown as Logger,
+    historyReader as never,
+    sessionMetadataStore as never,
+    subagentRegistry,
+    provider as unknown as IWorkspaceProvider,
+    {
+      exists: params.fileExists ?? jest.fn().mockResolvedValue(true),
+    } as never,
+    platformInfo as never,
+  );
   const sdkContext = {
     isMcpServerRunning: jest
       .fn()
@@ -154,22 +172,14 @@ function makeService(params: {
     sdkAdapter,
     { captureException: jest.fn() } as unknown as SentryService,
     codeExecutionMcp as never,
-    historyReader as never,
+    historyRead,
     subagentRegistry,
     {
       intercept: jest.fn().mockReturnValue({ action: 'passthrough' }),
     } as never,
     sessionMetadataStore as never,
     provider as unknown as IWorkspaceProvider,
-    {
-      exists: params.fileExists ?? jest.fn().mockResolvedValue(true),
-    } as never,
-    {
-      type: 'cli',
-      extensionPath: '/tmp/ptah-app',
-      globalStoragePath: '/tmp/ptah-storage',
-      workspaceStoragePath: '/tmp/ptah-workspace-storage',
-    } as never,
+    platformInfo as never,
     sdkContext as never,
     {
       handleStart: jest.fn().mockResolvedValue({ result: { success: false } }),

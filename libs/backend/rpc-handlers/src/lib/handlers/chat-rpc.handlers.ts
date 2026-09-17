@@ -55,18 +55,26 @@ import type {
   ChatRunningAgentsResult,
   ChatResumeParams,
   ChatResumeResult,
+  ChatHistoryPageParams,
+  ChatHistoryPageResult,
   RpcMethodName,
+} from '@ptah-extension/shared';
+import {
+  HistoryCursorInvalidError,
+  HistoryCursorStaleError,
 } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../chat/tokens';
 import type { ChatPtahCliService } from '../chat/ptah-cli/chat-ptah-cli.service';
 import type { ChatStreamBroadcaster } from '../chat/streaming/chat-stream-broadcaster.service';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
+import type { ChatHistoryReadService } from '../chat/session/chat-history-read.service';
 import { hasStopIntent } from '../chat/session/chat-stop-intent';
 import {
   ChatStartParamsSchema,
   ChatContinueParamsSchema,
   ChatResumeParamsSchema,
+  ChatHistoryPageParamsSchema,
   ChatAbortParamsSchema,
   ChatPendingQuestionsParamsSchema,
 } from './chat-rpc.schema';
@@ -87,6 +95,7 @@ export class ChatRpcHandlers {
     'chat:start',
     'chat:continue',
     'chat:resume',
+    'chat:history-page',
     'chat:abort',
     'chat:pending-questions',
     'chat:running-agents',
@@ -104,6 +113,8 @@ export class ChatRpcHandlers {
     private readonly streamBroadcaster: ChatStreamBroadcaster,
     @inject(CHAT_TOKENS.SESSION)
     private readonly session: ChatSessionService,
+    @inject(CHAT_TOKENS.HISTORY_READ)
+    private readonly historyRead: ChatHistoryReadService,
     @inject(PLATFORM_TOKENS.SESSION_ATTACHMENT_GUARD)
     private readonly attachmentGuard: ISessionAttachmentGuard,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
@@ -239,6 +250,27 @@ export class ChatRpcHandlers {
         return this.session.resumeSession(params);
       },
     );
+    this.wire<ChatHistoryPageParams, ChatHistoryPageResult>(
+      'chat:history-page',
+      'registerChatHistoryPage',
+      async (params) => {
+        ChatHistoryPageParamsSchema.parse(params);
+        try {
+          return await this.historyRead.readPage(params);
+        } catch (error: unknown) {
+          if (error instanceof HistoryCursorStaleError) {
+            throw new RpcUserError(
+              'Session history changed',
+              'HISTORY_CURSOR_STALE',
+            );
+          }
+          if (error instanceof HistoryCursorInvalidError) {
+            throw new RpcUserError('Invalid history cursor', 'INVALID_PARAMS');
+          }
+          throw error;
+        }
+      },
+    );
     this.wire<ChatAbortParams, ChatAbortResult>(
       'chat:abort',
       'registerChatAbort',
@@ -295,6 +327,7 @@ export class ChatRpcHandlers {
         'chat:start',
         'chat:continue',
         'chat:resume',
+        'chat:history-page',
         'chat:abort',
         'chat:pending-questions',
         'chat:running-agents',

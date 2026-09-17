@@ -55,13 +55,17 @@ import type {
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import type { HistoryEventFactory } from './helpers/history/history-event-factory';
-import { SessionHistoryReadTiming } from './helpers/history/session-history-read-timing';
+import {
+  SessionHistoryReadTiming,
+  type HistoryReadStopwatch,
+} from './helpers/history/session-history-read-timing';
 import type {
   SessionHistoryMessage,
   AgentSessionData,
 } from './helpers/history/history.types';
 
 const MAX_COMPACTION_RETRIES = 5;
+const MISSING_SESSION_LOG = '[SessionHistoryReader] Session file not found';
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -92,6 +96,12 @@ export interface TranscriptWindowOptions {
   readonly signal?: AbortSignal;
 }
 
+type SessionEventData = {
+  readonly events: FlatStreamEventUnion[];
+  readonly mainMessages: SessionHistoryMessage[];
+  readonly agentSessions: AgentSessionData[];
+  readonly staleSnapshot?: true;
+};
 @injectable()
 export class SessionHistoryReaderService {
   /**
@@ -202,45 +212,22 @@ export class SessionHistoryReaderService {
     const timing = this.readTiming.begin(sessionId);
 
     try {
-      this.validateSessionId(sessionId);
       if (checkCompactionBoundary) {
         expectation =
           this.compactionBoundaryRegistry.capturePendingExpectation(sessionId);
       }
-      const sessionsDir =
-        await this.jsonlReader.findSessionsDirectory(workspacePath);
-      if (!sessionsDir) {
-        this.logger.warn('[SessionHistoryReader] Sessions directory not found');
-        this.consumeCompactionExpectation(
-          sessionId,
-          checkCompactionBoundary,
-          expectation ? 'stale' : 'none',
-        );
-        return {
-          events: [],
-          stats: null,
-          staleSnapshot:
-            checkCompactionBoundary && expectation !== undefined
-              ? true
-              : undefined,
-        };
-      }
-      const sessionPath = path.join(sessionsDir, `${sessionId}.jsonl`);
-
-      let mainMessages: SessionHistoryMessage[];
-      try {
-        const mainMessagesResult =
-          await this.readMainMessagesWithOptionalCompactionCheck(
+      const loaded = await this.loadSessionEventData(
+        sessionId,
+        workspacePath,
+        (sessionPath) =>
+          this.readMainMessagesWithOptionalCompactionCheck(
             sessionId,
             sessionPath,
             expectation,
-          );
-        staleSnapshot = mainMessagesResult.staleSnapshot;
-        mainMessages = mainMessagesResult.messages;
-      } catch {
-        this.logger.warn('[SessionHistoryReader] Session file not found', {
-          sessionId,
-        });
+          ),
+        timing,
+      );
+      if (!loaded) {
         this.consumeCompactionExpectation(
           sessionId,
           checkCompactionBoundary,
@@ -255,19 +242,8 @@ export class SessionHistoryReaderService {
               : undefined,
         };
       }
-
-      const agentSessions = await this.jsonlReader.loadAgentSessions(
-        sessionsDir,
-        sessionId,
-      );
-      timing.readDone(mainMessages.length, agentSessions.length);
-      timing.begin('project');
-      const events = this.replayService.replayToStreamEvents(
-        sessionId,
-        mainMessages,
-        agentSessions,
-      );
-      timing.events(events.length);
+      const { events, mainMessages, agentSessions } = loaded;
+      staleSnapshot = loaded.staleSnapshot;
       if (isDirectAnthropic(this.authEnv)) {
         timing.begin('pricing');
         await this.hydrateMissingPricing(mainMessages, agentSessions);
@@ -313,6 +289,62 @@ export class SessionHistoryReaderService {
             : undefined,
       };
     }
+  }
+
+  async readSessionEvents(
+    sessionId: string,
+    workspacePath: string,
+  ): Promise<FlatStreamEventUnion[]> {
+    const loaded = await this.loadSessionEventData(
+      sessionId,
+      workspacePath,
+      async (sessionPath) => ({
+        messages: await this.jsonlReader.readJsonlMessages(sessionPath),
+      }),
+    );
+    return loaded?.events ?? [];
+  }
+
+  private async loadSessionEventData(
+    sessionId: string,
+    workspacePath: string,
+    readMainMessages: (
+      sessionPath: string,
+    ) => Promise<{ messages: SessionHistoryMessage[]; staleSnapshot?: true }>,
+    timing?: HistoryReadStopwatch,
+  ): Promise<SessionEventData | null> {
+    this.validateSessionId(sessionId);
+    const sessionsDir =
+      await this.jsonlReader.findSessionsDirectory(workspacePath);
+    if (!sessionsDir) {
+      this.logger.warn('[SessionHistoryReader] Sessions directory not found');
+      return null;
+    }
+    let main:
+      | { messages: SessionHistoryMessage[]; staleSnapshot?: true }
+      | undefined;
+    try {
+      main = await readMainMessages(
+        path.join(sessionsDir, `${sessionId}.jsonl`),
+      );
+    } catch {
+      this.logger.warn(MISSING_SESSION_LOG, { sessionId });
+    }
+    if (!main) return null;
+    const { messages: mainMessages, staleSnapshot } = main;
+    const agentSessions = await this.jsonlReader.loadAgentSessions(
+      sessionsDir,
+      sessionId,
+    );
+    timing?.readDone(mainMessages.length, agentSessions.length);
+    timing?.begin('project');
+    const events = this.replayService.replayToStreamEvents(
+      sessionId,
+      mainMessages,
+      agentSessions,
+    );
+    timing?.events(events.length);
+    return { events, mainMessages, agentSessions, staleSnapshot };
   }
 
   /**
@@ -759,6 +791,14 @@ export class SessionHistoryReaderService {
       if (text && text === target) matches.push(uuid);
     }
     if (matches.length === 0) return null;
+    const occurrenceFromEnd = hint.occurrenceFromEnd;
+    if (
+      typeof occurrenceFromEnd === 'number' &&
+      Number.isInteger(occurrenceFromEnd) &&
+      occurrenceFromEnd >= 0
+    ) {
+      return matches[matches.length - 1 - occurrenceFromEnd] ?? null;
+    }
     const occurrence = hint.occurrence ?? 0;
     return matches[occurrence] ?? matches[matches.length - 1];
   }

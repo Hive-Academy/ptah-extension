@@ -38,6 +38,7 @@ import { ChatRpcHandlers } from './chat-rpc.handlers';
 import type { ChatPtahCliService } from '../chat/ptah-cli/chat-ptah-cli.service';
 import type { ChatStreamBroadcaster } from '../chat/streaming/chat-stream-broadcaster.service';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
+import type { ChatHistoryReadService } from '../chat/session/chat-history-read.service';
 
 type Mocked<T> = jest.Mocked<T>;
 
@@ -49,6 +50,7 @@ interface Suite {
   ptahCli: Mocked<ChatPtahCliService>;
   streamBroadcaster: Mocked<ChatStreamBroadcaster>;
   session: Mocked<ChatSessionService>;
+  historyRead: Mocked<ChatHistoryReadService>;
   attachmentGuard: Mocked<ISessionAttachmentGuard>;
   permissionHandler: Mocked<SdkPermissionHandler>;
 }
@@ -81,6 +83,13 @@ function buildSuite(opts: { attached?: boolean } = {}): Suite {
     getRunningAgents: jest.fn().mockResolvedValue({ agents: [] }),
     listBackgroundAgents: jest.fn().mockResolvedValue({ agents: [] }),
   } as unknown as Mocked<ChatSessionService>;
+  const historyRead = {
+    readPage: jest.fn().mockResolvedValue({
+      events: [],
+      olderCursor: null,
+      resumableSubagents: [],
+    }),
+  } as unknown as Mocked<ChatHistoryReadService>;
 
   const attachmentGuard = {
     isAttached: jest.fn().mockReturnValue(opts.attached ?? false),
@@ -97,6 +106,7 @@ function buildSuite(opts: { attached?: boolean } = {}): Suite {
     ptahCli,
     streamBroadcaster,
     session,
+    historyRead,
     attachmentGuard,
     permissionHandler,
   );
@@ -109,6 +119,7 @@ function buildSuite(opts: { attached?: boolean } = {}): Suite {
     ptahCli,
     streamBroadcaster,
     session,
+    historyRead,
     attachmentGuard,
     permissionHandler,
   };
@@ -138,6 +149,7 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
       'chat:start',
       'chat:continue',
       'chat:resume',
+      'chat:history-page',
       'chat:abort',
       'chat:pending-questions',
       'chat:running-agents',

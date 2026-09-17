@@ -45,7 +45,6 @@ import {
 } from '@ptah-extension/auth-providers';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
-  SessionHistoryReaderService,
   SessionMetadataStore,
   SDK_TOKENS,
   SlashCommandInterceptor,
@@ -56,7 +55,6 @@ import {
 import {
   PLATFORM_TOKENS,
   isUnsafeWorkspacePath,
-  type IFileSystemProvider,
   type IPlatformInfo,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
@@ -76,7 +74,7 @@ import type {
   CliSessionReference,
   McpHttpServerOverride,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, selectHistoryPage } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
@@ -87,6 +85,7 @@ import type {
 } from '../streaming/chat-stream-broadcaster.service';
 import type { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
 import type { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
+import type { ChatHistoryReadService } from './chat-history-read.service';
 import {
   OUTPUT_STYLE_TOKENS,
   type OutputStyleSessionActivationService,
@@ -133,8 +132,8 @@ export class ChatSessionService {
     private readonly sentryService: SentryService,
     @inject(TOKENS.CODE_EXECUTION_MCP)
     private readonly codeExecutionMcp: CodeExecutionMCP,
-    @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
-    private readonly historyReader: SessionHistoryReaderService,
+    @inject(CHAT_TOKENS.HISTORY_READ)
+    private readonly historyRead: ChatHistoryReadService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR)
@@ -143,8 +142,6 @@ export class ChatSessionService {
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
-    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
-    private readonly fileSystemProvider: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
     @inject(CHAT_TOKENS.SDK_CONTEXT)
@@ -771,54 +768,6 @@ export class ChatSessionService {
   }
 
   /**
-   * Resolve the SDK process cwd from durable session metadata before any JSONL
-   * lookup or activation. Invalid, unsafe, or deleted paths are ignored and the
-   * caller/current workspace fallback keeps legacy metadata resumable.
-   */
-  private async resolveResumeWorkingDirectory(
-    persistedPath: string | undefined,
-    fallbackPath: string,
-    sessionId: string,
-  ): Promise<string> {
-    if (!persistedPath) return fallbackPath;
-
-    if (!isAuthorizedWorkspace(persistedPath, this.workspaceProvider)) {
-      this.logger.warn(
-        '[RPC] chat:resume - persisted working directory is not authorized; using fallback',
-        { sessionId, persistedPath, fallbackPath },
-      );
-      return fallbackPath;
-    }
-
-    const safety = isUnsafeWorkspacePath(persistedPath, this.platformInfo);
-    if (!safety.ok) {
-      this.logger.warn(
-        '[RPC] chat:resume - persisted working directory is unsafe; using fallback',
-        { sessionId, persistedPath, fallbackPath, reason: safety.reason },
-      );
-      return fallbackPath;
-    }
-
-    try {
-      if (await this.fileSystemProvider.exists(persistedPath)) {
-        return persistedPath;
-      }
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[RPC] chat:resume - persisted working directory could not be checked; using fallback',
-        error instanceof Error ? error : new Error(String(error)),
-      );
-      return fallbackPath;
-    }
-
-    this.logger.warn(
-      '[RPC] chat:resume - persisted working directory no longer exists; using fallback',
-      { sessionId, persistedPath, fallbackPath },
-    );
-    return fallbackPath;
-  }
-
-  /**
    * chat:resume - Load session history from JSONL files. Returns full
    * `events` (FlatStreamEventUnion[]) for tree reconstruction — the only
    * transcript in the reply (TASK_2026_437 INV-9) — plus aggregated usage
@@ -852,11 +801,12 @@ export class ChatSessionService {
       if (unsafeResume) return unsafeResume;
 
       const metadata = await this.sessionMetadataStore.get(sessionId);
-      const resolvedWorkspacePath = await this.resolveResumeWorkingDirectory(
-        metadata?.workingDirectory,
-        fallbackWorkspacePath,
+      const result = await this.historyRead.readForResume(
         sessionId,
+        fallbackWorkspacePath,
+        metadata?.workingDirectory,
       );
+      const resolvedWorkspacePath = result.resolvedWorkspacePath;
       this.logger.info('RPC: chat:resume called', {
         sessionId,
         workspacePath: params.workspacePath || '(empty)',
@@ -873,12 +823,8 @@ export class ChatSessionService {
           params.tabId,
         );
       }
-      const result = await this.historyReader.readSessionHistory(
-        sessionId,
-        resolvedWorkspacePath,
-        { checkCompactionBoundary: true },
-      );
-      const events = result.events;
+      // Keep this unsliced: history registration and stats depend on the full transcript.
+      const fullEvents = result.events;
       const stats = result.stats;
       const staleSnapshot = result.staleSnapshot;
 
@@ -898,7 +844,7 @@ export class ChatSessionService {
       // the durable snapshot restored above, so old sessions still work without
       // duplicating current records.
       const registeredFromHistory =
-        this.subagentRegistry.registerFromHistoryEvents(events, sessionId);
+        this.subagentRegistry.registerFromHistoryEvents(fullEvents, sessionId);
 
       if (registeredFromHistory > 0) {
         this.logger.info('[RPC] Registered interrupted agents from history', {
@@ -939,7 +885,7 @@ export class ChatSessionService {
 
       this.logger.info('[RPC] Session history loaded from JSONL', {
         sessionId,
-        eventCount: events.length,
+        eventCount: fullEvents.length,
         hasStats: !!stats,
         totalCost: stats?.totalCost,
         resumableSubagentCount: resumableSubagents.length,
@@ -984,13 +930,20 @@ export class ChatSessionService {
         }
       }
 
+      const page = params.historyPage
+        ? selectHistoryPage(fullEvents, {
+            endIndex: fullEvents.length,
+            maxEvents: params.historyPage.maxEvents,
+          })
+        : undefined;
       return {
         success: true,
-        events,
+        events: page?.events ?? fullEvents,
         stats,
         resumableSubagents,
         cliSessions,
         activated,
+        ...(page ? { historyPage: { olderCursor: page.olderCursor } } : {}),
         ...(staleSnapshot ? { staleSnapshot } : {}),
         ...(activationError ? { activationError } : {}),
         ...(activationErrorCode ? { activationErrorCode } : {}),
