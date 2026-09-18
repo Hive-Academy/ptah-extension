@@ -95,6 +95,20 @@ export interface TerminalLaunch {
   readonly needsConsole: boolean;
 }
 
+/**
+ * Whether a path is absolute under EITHER convention.
+ *
+ * The guard exists to reject a relative path, and both conventions agree on
+ * what relative looks like. `path.isAbsolute` alone is the HOST's convention,
+ * which is wrong whenever the target platform is not the host: `C:\Git\…` is
+ * not absolute to POSIX, and `/usr/bin/xterm` is not absolute to win32. In
+ * production the two always match, so only the suite crosses them — and it
+ * crosses them in both directions, on a Windows workstation and on Linux CI.
+ */
+function isAbsoluteOnEitherPlatform(candidate: string): boolean {
+  return path.win32.isAbsolute(candidate) || path.posix.isAbsolute(candidate);
+}
+
 function launcherName(executablePath: string): string {
   const base = executablePath.split(/[\\/]/).pop() ?? '';
   return base.toLowerCase().replace(/\.exe$/, '');
@@ -121,9 +135,9 @@ export function prepareTerminalLaunch(
     throw new Error(`${target.displayName} is not a terminal`);
   if (!target.executablePath)
     throw new Error(`${target.displayName} has no executable launch path`);
-  if (!path.isAbsolute(workspaceRoot))
+  if (!isAbsoluteOnEitherPlatform(workspaceRoot))
     throw new Error('Workspace root must be absolute');
-  if (!path.isAbsolute(target.executablePath))
+  if (!isAbsoluteOnEitherPlatform(target.executablePath))
     throw new Error('Terminal executable must be absolute');
 
   const cwd = path.normalize(workspaceRoot);
