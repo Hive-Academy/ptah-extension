@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { AppStateManager } from '@ptah-extension/core';
 import { TasksStore } from './tasks-store.service';
+import type { TaskAgentTarget } from '../types/task-agent.types';
 
 /** Guard for the `ChatPromptRequest.resolve` bridge (§8.3): treat as failure. */
 const RESOLVE_GUARD_TIMEOUT_MS = 30_000;
@@ -70,12 +71,16 @@ export class TaskStartService {
    * NOT create a worktree. Guarded so a second click while a launch is in
    * flight is a no-op.
    */
-  public async start(taskId: string, isolate: boolean): Promise<void> {
+  public async start(
+    taskId: string,
+    isolate: boolean,
+    targetAgent?: TaskAgentTarget,
+  ): Promise<void> {
     if (this._busyTaskId()) return;
     this._error.set(null);
     this._busyTaskId.set(taskId);
     try {
-      const launch = await this.launchPrompt(taskId, isolate);
+      const launch = await this.launchPrompt(taskId, isolate, targetAgent);
       if (!launch.success) {
         this._error.set(
           `Could not start orchestration for ${taskId}: ${launch.error ?? 'unknown error'}`,
@@ -108,6 +113,7 @@ export class TaskStartService {
   private launchPrompt(
     taskId: string,
     isolate: boolean,
+    targetAgent?: TaskAgentTarget,
   ): Promise<{ success: boolean; error?: string }> {
     return new Promise((resolve) => {
       let settled = false;
@@ -126,9 +132,10 @@ export class TaskStartService {
         RESOLVE_GUARD_TIMEOUT_MS,
       );
 
+      const basePrompt = this.buildPrompt(taskId, targetAgent);
       const prompt = isolate
-        ? `${ORCHESTRATE_COMMAND} ${taskId}${ISOLATION_DIRECTIVE}`
-        : `${ORCHESTRATE_COMMAND} ${taskId}`;
+        ? `${basePrompt}${ISOLATION_DIRECTIVE}`
+        : basePrompt;
 
       this.appState.requestChatPrompt({
         prompt,
@@ -136,5 +143,25 @@ export class TaskStartService {
         resolve: (result) => settle(result),
       });
     });
+  }
+
+  private buildPrompt(taskId: string, targetAgent?: TaskAgentTarget): string {
+    if (targetAgent?.category === 'specialist' && targetAgent.role) {
+      return (
+        `${ORCHESTRATE_COMMAND} ${taskId} --agent ${targetAgent.role}\n\n` +
+        `Execute phase for task ${taskId} using role @${targetAgent.role}. ` +
+        `Refer to .ptah/specs/${taskId}/ for requirements and context.`
+      );
+    }
+
+    if (targetAgent?.category === 'lane' && targetAgent.cli) {
+      return (
+        `${ORCHESTRATE_COMMAND} ${taskId} --lane ${targetAgent.cli}\n\n` +
+        `Assign task ${taskId} execution to background CLI lane ${targetAgent.cli} ` +
+        `per agent-lanes guidelines. Deliverables belong in .ptah/specs/${taskId}/.`
+      );
+    }
+
+    return `${ORCHESTRATE_COMMAND} ${taskId}`;
   }
 }

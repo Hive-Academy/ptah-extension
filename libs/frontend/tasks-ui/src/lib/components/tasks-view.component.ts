@@ -36,6 +36,7 @@ import {
 } from '@ptah-extension/shared';
 import { TasksStore } from '../services/tasks-store.service';
 import { TaskStartService } from '../services/task-start.service';
+import { TaskAgentDiscoveryService } from '../services/task-agent-discovery.service';
 import { TaskViewsService } from '../services/task-views.service';
 import {
   TASK_VIEW_MODES,
@@ -47,9 +48,9 @@ import { TaskBoardComponent } from './board/task-board.component';
 import { TaskListComponent } from './board/task-list.component';
 import type {
   TaskSelectionToggle,
-  TaskStartRequest,
   TaskStatusChange,
 } from './board/task-card.component';
+import type { TaskStartRequest } from '../types/task-agent.types';
 import { TaskBulkBarComponent } from './bulk/task-bulk-bar.component';
 import { TaskBulkSummaryComponent } from './bulk/task-bulk-summary.component';
 import { TaskDetailComponent } from './detail/task-detail.component';
@@ -549,6 +550,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
                 [selection]="store.selection()"
                 [pending]="store.pending()"
                 [outcomes]="store.lastRunOutcomes()"
+                [agentTargets]="agentDiscovery.availableAgents()"
                 (taskSelect)="store.openTask($event)"
                 (taskToggle)="onTaskToggle($event)"
                 (selectionToggle)="onSelectionToggle($event)"
@@ -566,6 +568,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
                 [selection]="store.selection()"
                 [pending]="store.pending()"
                 [outcomes]="store.lastRunOutcomes()"
+                [agentTargets]="agentDiscovery.availableAgents()"
                 (taskSelect)="store.openTask($event)"
                 (taskToggle)="onTaskToggle($event)"
                 (selectionToggle)="onSelectionToggle($event)"
@@ -885,6 +888,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
 export class TasksViewComponent {
   protected readonly store = inject(TasksStore);
   protected readonly taskStart = inject(TaskStartService);
+  protected readonly agentDiscovery = inject(TaskAgentDiscoveryService);
   protected readonly views = inject(TaskViewsService);
   protected readonly viewMode = inject(TaskViewModeService);
   private readonly destroyRef = inject(DestroyRef);
@@ -1103,6 +1107,7 @@ export class TasksViewComponent {
     this.store.attachSurface();
     this.destroyRef.onDestroy(() => this.store.detachSurface());
     void this.store.loadBoard();
+    void this.agentDiscovery.load();
     // Independent of the board load, and deliberately not awaited behind it:
     // saved views live in `~/.ptah/settings.json`, not in the task index, so a
     // settings file that cannot be read must not delay or block the board
@@ -1408,6 +1413,10 @@ export class TasksViewComponent {
    * authoritative re-fetch inside `TasksStore.updateStatus` (no optimism).
    */
   protected onStartTask(request: TaskStartRequest): void {
-    void this.taskStart.start(request.taskId, request.isolate);
+    void this.taskStart.start(
+      request.taskId,
+      request.isolate,
+      request.targetAgent,
+    );
   }
 }

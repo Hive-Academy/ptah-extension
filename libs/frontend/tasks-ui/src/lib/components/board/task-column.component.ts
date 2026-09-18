@@ -11,10 +11,13 @@ import type {
   TaskStatus,
 } from '@ptah-extension/shared';
 import type { TaskBulkOutcome } from '../../services/tasks-store.service';
+import type {
+  TaskAgentTarget,
+  TaskStartRequest,
+} from '../../types/task-agent.types';
 import {
   TaskCardComponent,
   type TaskSelectionToggle,
-  type TaskStartRequest,
   type TaskStatusChange,
 } from './task-card.component';
 import { TASK_STATUS_BADGE, TASK_STATUS_LABELS } from '../../task-presentation';
@@ -68,6 +71,7 @@ import { TASK_STATUS_BADGE, TASK_STATUS_LABELS } from '../../task-presentation';
             [pending]="pending().has(task.id)"
             [bulkOutcome]="outcomes().get(task.id) ?? null"
             [focused]="task.id === focusedTaskId()"
+            [agentTargets]="agentTargets()"
             (selectTask)="taskSelect.emit($event)"
             (toggleTask)="taskToggle.emit($event)"
             (selectionToggle)="selectionToggle.emit($event)"
@@ -152,6 +156,7 @@ export class TaskColumnComponent {
   public readonly focusedTaskId = input<string | null>(null);
   /** Forwarded verbatim to every card; see `TaskCardComponent.graph`. */
   public readonly graph = input<TaskGraph | null>(null);
+  public readonly agentTargets = input<readonly TaskAgentTarget[]>([]);
 
   public readonly taskSelect = output<string>();
   /** Space on a focused card — see `TaskCardComponent.toggleTask`. */

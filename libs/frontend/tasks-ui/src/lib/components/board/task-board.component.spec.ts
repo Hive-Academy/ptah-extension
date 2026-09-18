@@ -146,9 +146,9 @@ describe('TaskBoardComponent', () => {
       // Three cards in one column, each carrying the full control set: the
       // card root, the multi-select checkbox, the status-menu trigger, its
       // menu container, six status options, the isolate toggle and Start —
-      // twelve focusable nodes.
+      // agent-picker trigger and menu container: fourteen focusable nodes.
       //
-      // The checkbox is the twelfth, and it is counted here rather than
+      // The checkbox is one of the fourteen, and it is counted here rather than
       // exempted: it is a real `<input>` inside the card, so a checkbox that
       // skipped the roving treatment would put one extra tab stop on all 181
       // cards — the exact defect this test exists to pin, in a new control.
@@ -175,8 +175,8 @@ describe('TaskBoardComponent', () => {
       );
       const stops = tabStops(fixture);
 
-      expect(focusableNodes).toHaveLength(36);
-      expect(stops).toHaveLength(12);
+      expect(focusableNodes).toHaveLength(42);
+      expect(stops).toHaveLength(14);
 
       // …and all twelve belong to the one focused card.
       for (const stop of stops) {

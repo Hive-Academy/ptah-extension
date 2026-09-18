@@ -5,6 +5,7 @@ import type {
   TaskStatus,
 } from '@ptah-extension/shared';
 import type { TaskBoardColumn } from '../../services/tasks-store.service';
+import type { TaskStartRequest } from '../../types/task-agent.types';
 import { TaskListComponent } from './task-list.component';
 
 function makeTask(
@@ -488,6 +489,34 @@ describe('TaskListComponent', () => {
       ?.click();
 
     expect(started).toEqual([{ taskId: 'TASK_2026_200', isolate: true }]);
+  });
+
+  it('assigns a task to the selected CLI lane from the row menu', () => {
+    const view = render([column('backlog', [makeTask('TASK_2026_200')])], {
+      agentTargets: [
+        {
+          id: 'lane:codex',
+          name: 'Codex',
+          category: 'lane',
+          description: 'Run through the codex CLI lane.',
+          cli: 'codex',
+        },
+      ],
+    });
+    const started: TaskStartRequest[] = [];
+    view.fixture.componentInstance.startTask.subscribe((event) =>
+      started.push(event),
+    );
+
+    view.host
+      .querySelector<HTMLButtonElement>(
+        '[title="Run through the codex CLI lane."]',
+      )
+      ?.click();
+
+    expect(started[0]?.targetAgent).toEqual(
+      expect.objectContaining({ category: 'lane', cli: 'codex' }),
+    );
   });
 
   /**

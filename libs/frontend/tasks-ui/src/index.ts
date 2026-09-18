@@ -5,9 +5,13 @@ export { TaskListComponent } from './lib/components/board/task-list.component';
 export { TaskCardComponent } from './lib/components/board/task-card.component';
 export type {
   TaskSelectionToggle,
-  TaskStartRequest,
   TaskStatusChange,
 } from './lib/components/board/task-card.component';
+export type {
+  AgentCategory,
+  TaskAgentTarget,
+  TaskStartRequest,
+} from './lib/types/task-agent.types';
 export { TaskBulkBarComponent } from './lib/components/bulk/task-bulk-bar.component';
 export { TaskBulkSummaryComponent } from './lib/components/bulk/task-bulk-summary.component';
 export { TaskDetailComponent } from './lib/components/detail/task-detail.component';
@@ -77,6 +81,7 @@ export type {
   TaskEstimateBuckets,
 } from './lib/services/tasks-store.service';
 export { TaskStartService } from './lib/services/task-start.service';
+export { TaskAgentDiscoveryService } from './lib/services/task-agent-discovery.service';
 export {
   TaskViewsService,
   nextViewId,

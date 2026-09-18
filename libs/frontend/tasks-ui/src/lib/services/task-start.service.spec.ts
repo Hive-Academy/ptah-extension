@@ -12,6 +12,7 @@ import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import type { ChatPromptRequest } from '@ptah-extension/core';
 import { TasksStore } from './tasks-store.service';
 import { TaskStartService } from './task-start.service';
+import type { TaskAgentTarget } from '../types/task-agent.types';
 
 const ISOLATION_HINT = 'Isolate all implementation for this task';
 
@@ -82,6 +83,59 @@ describe('TaskStartService', () => {
     await pending;
 
     expect(updateStatus).toHaveBeenCalledWith('TASK_2026_201', 'in_progress');
+  });
+
+  it('targets a specialist role with the exact agent prompt format', async () => {
+    const target: TaskAgentTarget = {
+      id: 'specialist:frontend-developer',
+      name: 'Frontend Developer',
+      category: 'specialist',
+      role: 'frontend-developer',
+    };
+
+    const pending = service.start('TASK_2026_206', false, target);
+    await Promise.resolve();
+
+    expect(lastPromptRequest?.prompt).toBe(
+      '/orchestrate TASK_2026_206 --agent frontend-developer\n\n' +
+        'Execute phase for task TASK_2026_206 using role @frontend-developer. ' +
+        'Refer to .ptah/specs/TASK_2026_206/ for requirements and context.',
+    );
+    lastPromptRequest?.resolve?.({ success: true });
+    await pending;
+  });
+
+  it('targets a CLI lane with the exact lane prompt format', async () => {
+    const target: TaskAgentTarget = {
+      id: 'lane:codex',
+      name: 'Codex',
+      category: 'lane',
+      cli: 'codex',
+    };
+
+    const pending = service.start('TASK_2026_207', false, target);
+    await Promise.resolve();
+
+    expect(lastPromptRequest?.prompt).toBe(
+      '/orchestrate TASK_2026_207 --lane codex\n\n' +
+        'Assign task TASK_2026_207 execution to background CLI lane codex ' +
+        'per agent-lanes guidelines. Deliverables belong in .ptah/specs/TASK_2026_207/.',
+    );
+    lastPromptRequest?.resolve?.({ success: true });
+    await pending;
+  });
+
+  it('treats an explicit orchestrator target exactly like no target', async () => {
+    const pending = service.start('TASK_2026_208', false, {
+      id: 'orchestrator',
+      name: 'Full Orchestrator',
+      category: 'orchestrator',
+    });
+    await Promise.resolve();
+
+    expect(lastPromptRequest?.prompt).toBe('/orchestrate TASK_2026_208');
+    lastPromptRequest?.resolve?.({ success: true });
+    await pending;
   });
 
   it('structural session failure: status untouched, error surfaced', async () => {

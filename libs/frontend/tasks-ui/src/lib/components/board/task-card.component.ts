@@ -31,6 +31,10 @@ import {
   type TaskStatus,
 } from '@ptah-extension/shared';
 import type { TaskBulkOutcome } from '../../services/tasks-store.service';
+import type {
+  TaskAgentTarget,
+  TaskStartRequest,
+} from '../../types/task-agent.types';
 import {
   TASK_ESTIMATE_LABELS,
   TASK_STATUS_LABELS,
@@ -45,11 +49,6 @@ import {
  * agent-managed worktree isolation (F-D1): the orchestrate prompt carries a
  * directive so the agent isolates its own work — the host creates no worktree.
  */
-export interface TaskStartRequest {
-  taskId: string;
-  isolate: boolean;
-}
-
 /** Payload emitted when the user picks a new status from the card menu. */
 export interface TaskStatusChange {
   taskId: string;
@@ -419,16 +418,87 @@ export interface TaskSelectionToggle {
               />
               <span class="text-[10px] text-base-content">Isolate</span>
             </label>
-            <button
-              type="button"
-              class="btn btn-primary btn-xs gap-1"
-              [attr.tabindex]="rovingTabIndex()"
-              (click)="$event.stopPropagation(); onStart()"
-              [attr.aria-label]="'Start task ' + task().id"
-            >
-              <lucide-angular [img]="PlayIcon" class="w-3 h-3" />
-              Start
-            </button>
+            <div class="join">
+              <button
+                type="button"
+                class="btn btn-primary btn-xs join-item gap-1"
+                [attr.tabindex]="rovingTabIndex()"
+                (click)="$event.stopPropagation(); onStart()"
+                [attr.aria-label]="'Start task ' + task().id"
+              >
+                <lucide-angular [img]="PlayIcon" class="w-3 h-3" />
+                Start
+              </button>
+              <div class="dropdown dropdown-end">
+                <button
+                  type="button"
+                  class="btn btn-primary btn-xs join-item btn-square"
+                  [attr.tabindex]="rovingTabIndex()"
+                  [attr.aria-label]="
+                    'Assign task ' + task().id + ' to an agent'
+                  "
+                  title="Assign to agent…"
+                  (click)="$event.stopPropagation()"
+                >
+                  <lucide-angular [img]="UserIcon" class="w-3 h-3" />
+                </button>
+                <ul
+                  [attr.tabindex]="rovingTabIndex()"
+                  class="dropdown-content menu menu-xs z-30 mt-1 w-64 rounded-box border border-base-content/10 bg-base-200 p-1 shadow"
+                  aria-label="Available task agents"
+                >
+                  @if (orchestratorAgents().length > 0) {
+                    <li class="menu-title px-2 py-1 text-[10px]">
+                      Orchestrator
+                    </li>
+                    @for (target of orchestratorAgents(); track target.id) {
+                      <li>
+                        <button
+                          type="button"
+                          [attr.tabindex]="rovingTabIndex()"
+                          [title]="target.description ?? target.name"
+                          (click)="$event.stopPropagation(); onStart(target)"
+                        >
+                          {{ target.name }}
+                        </button>
+                      </li>
+                    }
+                  }
+                  @if (specialistAgents().length > 0) {
+                    <li class="menu-title px-2 py-1 text-[10px]">
+                      Specialists
+                    </li>
+                    @for (target of specialistAgents(); track target.id) {
+                      <li>
+                        <button
+                          type="button"
+                          [attr.tabindex]="rovingTabIndex()"
+                          [title]="target.description ?? target.name"
+                          (click)="$event.stopPropagation(); onStart(target)"
+                        >
+                          {{ target.name }}
+                        </button>
+                      </li>
+                    }
+                  }
+                  @if (laneAgents().length > 0) {
+                    <li class="menu-title px-2 py-1 text-[10px]">CLI lanes</li>
+                    @for (target of laneAgents(); track target.id) {
+                      <li>
+                        <button
+                          type="button"
+                          [attr.tabindex]="rovingTabIndex()"
+                          [title]="target.description ?? target.name"
+                          (click)="$event.stopPropagation(); onStart(target)"
+                        >
+                          {{ target.name }}
+                        </button>
+                      </li>
+                    }
+                  }
+                </ul>
+              </div>
+            </div>
           </div>
 
           <!-- Isolation hint (F-D1): the agent isolates its own implementation
@@ -494,6 +564,8 @@ export class TaskCardComponent {
    * close rather than a smaller version of the same problem.
    */
   public readonly focused = input(false);
+  /** Cached assignment roster supplied by the Tasks surface. */
+  public readonly agentTargets = input<readonly TaskAgentTarget[]>([]);
   /**
    * The derived board graph, for the two facts a card cannot know about itself:
    * whether its declared `parent` claim was honoured, and how many children
@@ -672,6 +744,15 @@ export class TaskCardComponent {
   protected readonly canStart = computed(() =>
     isStartableStatus(this.task().status),
   );
+  protected readonly orchestratorAgents = computed(() =>
+    this.agentTargets().filter((target) => target.category === 'orchestrator'),
+  );
+  protected readonly specialistAgents = computed(() =>
+    this.agentTargets().filter((target) => target.category === 'specialist'),
+  );
+  protected readonly laneAgents = computed(() =>
+    this.agentTargets().filter((target) => target.category === 'lane'),
+  );
 
   /**
    * The glyph on the footer a non-startable card shows in place of Start.
@@ -828,10 +909,11 @@ export class TaskCardComponent {
     this.statusChange.emit({ taskId: this.task().id, status });
   }
 
-  protected onStart(): void {
+  protected onStart(targetAgent?: TaskAgentTarget): void {
     this.startTask.emit({
       taskId: this.task().id,
       isolate: this.isolate(),
+      targetAgent,
     });
   }
 }
