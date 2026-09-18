@@ -8,6 +8,7 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { TaskSpecSummary } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { TaskScannerService } from './task-scanner.service';
+import { TASK_SPECS_TOKENS } from './di/tokens';
 
 export interface GenerateRegistryResult {
   /** workspace-relative path (no absolute-path leakage, R4.4). */
@@ -36,6 +37,11 @@ export class RegistryGeneratorService {
     private readonly fs: IFileSystemProvider,
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
+    // Explicit token, not `design:paramtypes`: esbuild does not implement
+    // `emitDecoratorMetadata`, so in the bundled Electron/VS Code hosts an
+    // undecorated class parameter resolves to `undefined` and `generate()`
+    // throws `Cannot read properties of undefined (reading 'scan')`.
+    @inject(TASK_SPECS_TOKENS.TASK_SCANNER)
     private readonly scanner: TaskScannerService,
   ) {}
 

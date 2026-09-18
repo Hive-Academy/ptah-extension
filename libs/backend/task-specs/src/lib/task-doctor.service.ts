@@ -64,6 +64,7 @@ import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { toTaskType } from './task-enum-narrowing';
 import { parseTaskFile } from './task-frontmatter';
 import { TaskWriterService } from './task-writer.service';
+import { TASK_SPECS_TOKENS } from './di/tokens';
 
 /** Doctor-private bookkeeping files. Nothing outside this service reads them. */
 const JOURNAL_FILE = '.doctor-journal.json';
@@ -346,6 +347,10 @@ export class TaskDoctorService {
     private readonly fs: IFileSystemProvider,
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
+    // Same reason as `RegistryGeneratorService.scanner`: esbuild emits no
+    // `design:paramtypes`, so an undecorated class parameter is `undefined`
+    // in the bundled hosts.
+    @inject(TASK_SPECS_TOKENS.TASK_WRITER)
     private readonly writer: TaskWriterService,
   ) {}
 
