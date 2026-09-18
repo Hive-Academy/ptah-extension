@@ -2,18 +2,21 @@
 /**
  * rebuild-native.js
  *
- * Builds the Electron-ABI-specific better-sqlite3 native binary by compiling
- * it FROM SOURCE against the installed Electron version's headers, using
- * @electron/rebuild. Must run once after `npm install` (or when the Electron
- * version changes) and again immediately before electron-builder packs.
+ * Builds the better-sqlite3 native binary from source against the installed
+ * Electron version's headers, then puts that binary at the path the installed
+ * better-sqlite3 loader actually uses. Must run once after `npm install` (or
+ * when the Electron version changes) and again immediately before
+ * electron-builder packs.
  *
  * Why source compile (not prebuild-install):
- *   better-sqlite3 only publishes prebuilt binaries up to electron-v136
- *   (Electron 37). This app targets Electron 44 (ABI 149), for which NO
- *   prebuilt exists — `prebuild-install --runtime electron --target 44.x`
- *   404s. The only way to obtain a NODE_MODULE_VERSION 149 binary is to
- *   compile it. Shipping the wrong ABI crashes every DB feature on first run
- *   (Sentry 124004638: Memory/Skills/Cron/Gateway/Corpus PERSISTENCE_UNAVAILABLE).
+ *   better-sqlite3 13 switched to N-API 10 platform prebuilds under
+ *   `prebuilds/<platform>-<arch>.node`; its loader prefers that path over the
+ *   traditional `build/Release` output. `@electron/rebuild` also needs
+ *   `npm_config_force_build=1`, otherwise binding.gyp deliberately emits a
+ *   no-op target while a platform prebuild exists. We force the source build,
+ *   copy its output over the loader-selected prebuild, then load it and run a
+ *   real query under Electron 44 (ABI 149). Shipping an untested native binary
+ *   crashes every DB feature on first run (Sentry 124004638).
  *
  * Other native deps do NOT need an Electron-specific rebuild:
  *   - sqlite-vec: SQLite loadable extension (.dll/.so/.dylib), not a Node addon.
@@ -63,30 +66,43 @@ function getElectronVersion() {
   return JSON.parse(fs.readFileSync(epkg, 'utf8')).version;
 }
 
-/**
- * Read the NODE_MODULE_VERSION (ABI) baked into a compiled .node file.
- * Heuristic byte-scan for the `node_register_module_v<NMV>` marker. Returns
- * null when the file/marker is absent — callers must treat null as "unknown",
- * never as "wrong", so a successful compile is never falsely rejected.
- */
-function readNativeAbi(packageName, addonName) {
-  const candidate = path.join(
-    ROOT,
-    'node_modules',
-    packageName,
-    'build',
-    'Release',
-    `${addonName}.node`,
-  );
-  if (!fs.existsSync(candidate)) return null;
+function isLinuxMusl() {
+  if (process.platform !== 'linux') return false;
   try {
-    const text = fs.readFileSync(candidate).toString('binary');
-    const m = text.match(/node_register_module_v(\d+)/);
-    if (m) return Number(m[1]);
+    return !process.report.getReport().header.glibcVersionRuntime;
   } catch {
-    /* fall through */
+    return false;
   }
-  return null;
+}
+
+function getElectronRebuildEnv(environment = process.env) {
+  return { ...environment, npm_config_force_build: '1' };
+}
+
+function getPrebuildTarget(platform = process.platform, arch = process.arch) {
+  const targetPlatform =
+    platform === 'linux' && isLinuxMusl() ? 'linuxmusl' : platform;
+  return `${targetPlatform}-${arch}`;
+}
+
+/**
+ * Resolve the binary selected by better-sqlite3's default loader. Version 13+
+ * prefers `prebuilds/<platform>-<arch>.node`; older releases fall back to the
+ * node-gyp output under build/Release.
+ */
+function resolveBetterSqliteRuntimeAddon(
+  root = ROOT,
+  platform = process.platform,
+  arch = process.arch,
+) {
+  const packageRoot = path.join(root, 'node_modules', 'better-sqlite3');
+  const prebuild = path.join(
+    packageRoot,
+    'prebuilds',
+    `${getPrebuildTarget(platform, arch)}.node`,
+  );
+  if (fs.existsSync(prebuild)) return prebuild;
+  return path.join(packageRoot, 'build', 'Release', 'better_sqlite3.node');
 }
 
 /** Map an Electron version to its Node ABI (NODE_MODULE_VERSION). */
@@ -141,11 +157,101 @@ function electronRebuildFromSource(packageName, electronVersion) {
       '--module-dir',
       ROOT,
     ],
-    { cwd: ROOT, stdio: 'inherit' },
+    {
+      cwd: ROOT,
+      stdio: 'inherit',
+      env: getElectronRebuildEnv(),
+    },
   );
 }
 
-(async () => {
+/**
+ * better-sqlite3 13's loader checks prebuilds before build/Release. Promote the
+ * forced node-gyp output into that runtime location so packaging cannot retain
+ * the original npm prebuild while claiming to ship the source rebuild.
+ */
+function promoteRebuiltAddon(
+  root = ROOT,
+  platform = process.platform,
+  arch = process.arch,
+) {
+  const packageRoot = path.join(root, 'node_modules', 'better-sqlite3');
+  const builtAddon = path.join(
+    packageRoot,
+    'build',
+    'Release',
+    'better_sqlite3.node',
+  );
+  if (!fs.existsSync(builtAddon)) {
+    throw new Error(
+      `electron-rebuild completed without producing ${builtAddon}; ` +
+        'better-sqlite3 binding.gyp may have skipped its source target',
+    );
+  }
+
+  const runtimeAddon = resolveBetterSqliteRuntimeAddon(root, platform, arch);
+  if (runtimeAddon !== builtAddon) {
+    fs.copyFileSync(builtAddon, runtimeAddon);
+    console.log(
+      `[rebuild] promoted source build to loader path ${path.relative(ROOT, runtimeAddon)}`,
+    );
+  }
+  return runtimeAddon;
+}
+
+const NATIVE_PROBE_PREFIX = '__PTAH_BETTER_SQLITE3_PROBE__';
+
+/** Load the selected addon and execute SQLite under the target Electron. */
+function probeAddonWithElectron(addonPath, electronVersion, expectedAbi) {
+  const electronExecutable = require(
+    path.join(ROOT, 'node_modules', 'electron'),
+  );
+  const packageRoot = path.join(ROOT, 'node_modules', 'better-sqlite3');
+  const probe = `
+const Database = require(process.argv[1]);
+const db = new Database(':memory:', { nativeBinding: process.argv[2] });
+try {
+  const row = db.prepare('SELECT 42 AS value, sqlite_version() AS sqlite').get();
+  process.stdout.write(${JSON.stringify(NATIVE_PROBE_PREFIX)} + JSON.stringify({
+    modules: process.versions.modules,
+    napi: process.versions.napi,
+    value: row.value,
+    sqlite: row.sqlite,
+  }));
+} finally {
+  db.close();
+}
+`;
+  const output = execFileSync(
+    electronExecutable,
+    ['-e', probe, packageRoot, addonPath],
+    {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    },
+  );
+  const marker = output.lastIndexOf(NATIVE_PROBE_PREFIX);
+  if (marker < 0) throw new Error('Electron native probe returned no result');
+  const result = JSON.parse(output.slice(marker + NATIVE_PROBE_PREFIX.length));
+  if (result.value !== 42) {
+    throw new Error(
+      'Electron native probe returned an unexpected query result',
+    );
+  }
+  if (expectedAbi != null && Number(result.modules) !== expectedAbi) {
+    throw new Error(
+      `Electron ${electronVersion} reported ABI ${result.modules}, expected ${expectedAbi}`,
+    );
+  }
+  console.log(
+    `[verify] better-sqlite3 loaded under Electron ${electronVersion} ` +
+      `(ABI ${result.modules}, N-API ${result.napi}) and queried SQLite ${result.sqlite}`,
+  );
+  return result;
+}
+
+async function main() {
   const electronVersion = getElectronVersion();
   console.log(
     `Rebuilding native modules for Electron ${electronVersion} ` +
@@ -153,40 +259,20 @@ function electronRebuildFromSource(packageName, electronVersion) {
   );
 
   const expectedAbi = await getElectronAbi(electronVersion);
-  const presentAbi = readNativeAbi('better-sqlite3', 'better_sqlite3');
-
-  if (expectedAbi && presentAbi === expectedAbi) {
-    console.log(
-      `[skip] better-sqlite3 already built for Electron ABI ${expectedAbi}`,
-    );
-  } else {
-    if (presentAbi !== null) {
-      console.log(
-        `[rebuild] better-sqlite3 has ABI ${presentAbi}, ` +
-          `need ${expectedAbi || '?'} — rebuilding from source`,
-      );
-    }
-    electronRebuildFromSource('better-sqlite3', electronVersion);
-
-    // Verify only when we positively read an ABI. A null read means the marker
-    // scan could not determine the ABI (not that it is wrong) — trust that
-    // electron-rebuild threw on a genuine compile failure.
-    const afterAbi = readNativeAbi('better-sqlite3', 'better_sqlite3');
-    if (expectedAbi && afterAbi !== null && afterAbi !== expectedAbi) {
-      throw new Error(
-        `better-sqlite3 ABI is ${afterAbi} after rebuild, expected ${expectedAbi}`,
-      );
-    }
-    console.log(
-      `[ok] better-sqlite3 rebuilt for Electron ABI ${afterAbi ?? expectedAbi ?? '(unverified)'}`,
-    );
-  }
+  electronRebuildFromSource('better-sqlite3', electronVersion);
+  const runtimeAddon = promoteRebuiltAddon();
+  probeAddonWithElectron(runtimeAddon, electronVersion, expectedAbi);
+  console.log(
+    `[ok] better-sqlite3 source build is active at ${path.relative(ROOT, runtimeAddon)}`,
+  );
 
   // sqlite-vec is a SQLite loadable extension (.dll/.so/.dylib), NOT a Node
   // addon, so it needs no rebuild.
 
   console.log('\n✅ Native module rebuild complete.');
-})().catch((err) => {
+}
+
+function handleFailure(err) {
   const message = err instanceof Error ? err.message : String(err);
   if (IS_POSTINSTALL) {
     // Never break `npm install` for contributors without a build toolchain;
@@ -200,4 +286,15 @@ function electronRebuildFromSource(packageName, electronVersion) {
   }
   console.error(`[error] rebuild-native failed: ${message}`);
   process.exit(1);
-});
+}
+
+if (require.main === module) main().catch(handleFailure);
+
+module.exports = {
+  getPrebuildTarget,
+  getElectronRebuildEnv,
+  resolveBetterSqliteRuntimeAddon,
+  promoteRebuiltAddon,
+  probeAddonWithElectron,
+  main,
+};
