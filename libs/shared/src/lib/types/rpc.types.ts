@@ -318,6 +318,16 @@ import type {
   GitApplyHunksResult,
   GitPushParams,
   GitPushResult,
+  GitPullParams,
+  GitPullResult,
+  GitFetchParams,
+  GitFetchResult,
+  GitStashApplyParams,
+  GitStashPopParams,
+  GitStashDropParams,
+  GitStashMutationResult,
+  GitStashShowParams,
+  GitStashShowResult,
   GitBranchesParams,
   GitBranchesResult,
   GitCheckoutParams,
@@ -1483,9 +1493,21 @@ export interface RpcMethodRegistry {
     result: GitApplyHunksResult;
   };
   'git:push': { params: GitPushParams; result: GitPushResult };
+  'git:pull': { params: GitPullParams; result: GitPullResult };
+  'git:fetch': { params: GitFetchParams; result: GitFetchResult };
   'git:branches': { params: GitBranchesParams; result: GitBranchesResult };
   'git:checkout': { params: GitCheckoutParams; result: GitCheckoutResult };
   'git:stashList': { params: GitStashListParams; result: GitStashListResult };
+  'git:stashApply': {
+    params: GitStashApplyParams;
+    result: GitStashMutationResult;
+  };
+  'git:stashPop': { params: GitStashPopParams; result: GitStashMutationResult };
+  'git:stashDrop': {
+    params: GitStashDropParams;
+    result: GitStashMutationResult;
+  };
+  'git:stashShow': { params: GitStashShowParams; result: GitStashShowResult };
   'git:tags': { params: GitTagsParams; result: GitTagsResult };
   'git:remotes': { params: GitRemotesParams; result: GitRemotesResult };
   'git:lastCommit': {
@@ -3560,9 +3582,15 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:diffFile': true,
   'git:applyHunks': true,
   'git:push': true,
+  'git:pull': true,
+  'git:fetch': true,
   'git:branches': true,
   'git:checkout': true,
   'git:stashList': true,
+  'git:stashApply': true,
+  'git:stashPop': true,
+  'git:stashDrop': true,
+  'git:stashShow': true,
   'git:tags': true,
   'git:remotes': true,
   'git:lastCommit': true,

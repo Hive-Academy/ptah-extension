@@ -251,6 +251,15 @@ export type {
   EditorFileLaunch,
   EditorWorkspaceLaunch,
 } from './utils/editor-launcher-detection';
+export {
+  prepareTerminalLaunch,
+  spawnTerminalProcess,
+  TERMINAL_DISPLAY_NAME,
+  TERMINAL_EXIT_PROBE_MS,
+  terminalCommand,
+  terminalExecutableCandidates,
+} from './utils/terminal-launch';
+export type { TerminalLaunch } from './utils/terminal-launch';
 export { PtahFileSettingsManager } from './file-settings-manager';
 export type { FileSettingsDefaults } from './file-settings-manager';
 export {

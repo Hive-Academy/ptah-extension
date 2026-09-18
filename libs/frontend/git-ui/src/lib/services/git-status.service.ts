@@ -110,6 +110,7 @@ export class GitStatusService implements MessageHandler {
   private readonly _isLoading = signal(false);
   private readonly _statusUnavailable =
     signal<GitStatusUnavailableReason | null>(null);
+  private fetchGeneration = 0;
 
   /** Current branch info for the active workspace. */
   readonly branch = this._branch.asReadonly();
@@ -199,7 +200,14 @@ export class GitStatusService implements MessageHandler {
       Date.now() - fetchedAt < GitStatusService.CACHE_TTL_MS;
     if (!isFresh) {
       this.fetchGitInfo();
+      return;
     }
+    // The restored cache entry is fresh, so no request is pending for THIS
+    // workspace. A request still in flight for the one we left owns the
+    // loading flag; disown it, or the restored dock shows "Loading…" until
+    // that other workspace answers — forever if it never does.
+    this.fetchGeneration++;
+    this._isLoading.set(false);
   }
 
   /**
@@ -269,6 +277,15 @@ export class GitStatusService implements MessageHandler {
   }
 
   /**
+   * Re-read `git:info` for the active workspace now. For callers that just
+   * ran a git operation (pull, push, stash pop) and cannot rely on a watcher
+   * push — VS Code and the CLI have no `.git` watcher.
+   */
+  refresh(): Promise<void> {
+    return this.fetchGitInfo();
+  }
+
+  /**
    * Apply a git info result to the workspace it belongs to.
    * Used by both push events and on-demand RPC responses.
    *
@@ -318,33 +335,45 @@ export class GitStatusService implements MessageHandler {
     const workspaceAtFetchTime = this._activeWorkspacePath();
     if (!workspaceAtFetchTime) return;
 
+    const generation = ++this.fetchGeneration;
     this._isLoading.set(true);
+    try {
+      const result = await rpcCall<GitInfoResult>(
+        this.vscodeService,
+        'git:info',
+        { workspaceRoot: workspaceAtFetchTime },
+      );
 
-    const result = await rpcCall<GitInfoResult>(
-      this.vscodeService,
-      'git:info',
-      { workspaceRoot: workspaceAtFetchTime },
-    );
+      // A response may only publish while it is BOTH the newest fetch and for
+      // the active workspace: two same-workspace refreshes can resolve out of
+      // order, and the older one would otherwise overwrite newer data.
+      if (
+        this._activeWorkspacePath() !== workspaceAtFetchTime ||
+        generation !== this.fetchGeneration
+      ) {
+        return;
+      }
 
-    if (this._activeWorkspacePath() !== workspaceAtFetchTime) {
-      return;
+      // Explicit null checks, not truthiness: the payload shape is what gates
+      // the update, never the value of a field inside it.
+      if (
+        result.success &&
+        result.data !== undefined &&
+        result.data !== null &&
+        result.data.branch !== undefined &&
+        result.data.branch !== null &&
+        result.data.files !== undefined &&
+        result.data.files !== null
+      ) {
+        this.applyGitInfo(result.data, workspaceAtFetchTime);
+      }
+    } catch {
+      // A refresh is best-effort; existing workspace state remains usable.
+    } finally {
+      if (generation === this.fetchGeneration) {
+        this._isLoading.set(false);
+      }
     }
-
-    // Explicit null checks, not truthiness: the payload shape is what gates
-    // the update, never the value of a field inside it.
-    if (
-      result.success &&
-      result.data !== undefined &&
-      result.data !== null &&
-      result.data.branch !== undefined &&
-      result.data.branch !== null &&
-      result.data.files !== undefined &&
-      result.data.files !== null
-    ) {
-      this.applyGitInfo(result.data, workspaceAtFetchTime);
-    }
-
-    this._isLoading.set(false);
   }
 
   /**

@@ -47,7 +47,12 @@ export type EditorTargetId =
   | 'cursor'
   | 'antigravity'
   | 'zed'
-  | 'kiro';
+  | 'kiro'
+  /**
+   * An external terminal opened at a folder. Only `editor:openWorkspace`
+   * accepts it; `editor:openFile` answers `{ success: false }`.
+   */
+  | 'terminal';
 
 /** Wire-safe projection of a detected editor target. */
 export interface EditorTarget {

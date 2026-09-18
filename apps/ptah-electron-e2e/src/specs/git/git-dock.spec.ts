@@ -76,9 +76,15 @@ test.describe('Git dock', () => {
       registerCallsBefore,
     );
   });
-  test('git dock header hides the push button when there is nothing to push', async ({
+  test('git dock header keeps Fetch, Pull and Push available when the branch is in sync', async ({
     ui,
   }) => {
+    await ui.mockRpc({
+      'git:fetch': { success: true },
+      'git:pull': { success: true },
+      'git:push': { success: true },
+    });
+
     await ui.goto('git');
     const page = ui.page;
 
@@ -101,9 +107,27 @@ test.describe('Git dock', () => {
     );
     await expect(header).toBeVisible();
 
-    await expect(page.locator('[data-testid="git-push-button"]')).toHaveCount(
-      0,
+    const fetchButton = page.locator('[data-testid="git-fetch-button"]');
+    const pullButton = page.locator('[data-testid="git-pull-button"]');
+    const pushButton = page.locator('[data-testid="git-push-button"]');
+
+    await expect(fetchButton).toBeVisible();
+    await expect(fetchButton).toHaveAccessibleName('Fetch');
+    await expect(pullButton).toBeVisible();
+    await expect(pullButton).toHaveAccessibleName('Pull');
+    await expect(pushButton).toBeVisible();
+    await expect(pushButton).toHaveAccessibleName('Push');
+
+    await fetchButton.click();
+    expect((await ui.waitForObservedCall('git:fetch')).method).toBe(
+      'git:fetch',
     );
+    await expect(pullButton).toBeEnabled();
+    await pullButton.click();
+    expect((await ui.waitForObservedCall('git:pull')).method).toBe('git:pull');
+    await expect(pushButton).toBeEnabled();
+    await pushButton.click();
+    expect((await ui.waitForObservedCall('git:push')).method).toBe('git:push');
   });
 
   test('git dock header push button pushes unpushed commits to remote', async ({
@@ -123,7 +147,7 @@ test.describe('Git dock', () => {
           branch: 'main',
           upstream: 'origin/main',
           ahead: 2,
-          behind: 0,
+          behind: 3,
         },
         files: [],
         isGitRepo: true,
@@ -137,7 +161,17 @@ test.describe('Git dock', () => {
 
     const pushButton = page.locator('[data-testid="git-push-button"]');
     await expect(pushButton).toBeVisible();
-    await expect(pushButton).toContainText('Push');
+    await expect(pushButton).toHaveAccessibleName('Push (2 ahead)');
+    await expect(pushButton).toContainText('↑2');
+
+    const pullButton = page.locator('[data-testid="git-pull-button"]');
+    await expect(pullButton).toBeVisible();
+    await expect(pullButton).toHaveAccessibleName('Pull (3 behind)');
+    await expect(pullButton).toContainText('↓3');
+
+    await expect(
+      page.locator('[data-testid="git-fetch-button"]'),
+    ).toBeVisible();
 
     await pushButton.click();
 

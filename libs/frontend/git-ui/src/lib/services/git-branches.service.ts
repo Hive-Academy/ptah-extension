@@ -14,7 +14,9 @@ import type {
   GitChangeKind,
   GitCheckoutParams,
   GitCheckoutResult,
+  GitFetchResult,
   GitLastCommitResult,
+  GitPullResult,
   GitPushResult,
   GitRemotesResult,
   GitStashListResult,
@@ -498,15 +500,40 @@ export class GitBranchesService implements MessageHandler {
   }
 
   /**
-   * Push the current branch to its upstream remote. Refreshes branch state
-   * (ahead/behind counts) on success so the push button hides itself once
-   * there are no more unpushed commits.
+   * Push the current branch (the backend sets the upstream when missing).
+   * Refreshes branch state (ahead/behind counts) on success.
    */
-  async push(): Promise<GitPushResult> {
+  push(): Promise<GitPushResult> {
+    return this.remoteAction('git:push', 'push', false);
+  }
+
+  /**
+   * Fast-forward-only pull of the current branch. Refreshes branches and the
+   * last commit on success, since HEAD moves.
+   */
+  pull(): Promise<GitPullResult> {
+    return this.remoteAction('git:pull', 'pull', true);
+  }
+
+  /** Fetch (and prune) remotes. Refreshes branches so behind counts update. */
+  fetch(): Promise<GitFetchResult> {
+    return this.remoteAction('git:fetch', 'fetch', false);
+  }
+
+  /**
+   * Shared shape of push / pull / fetch: one workspace-scoped RPC whose
+   * failures — transport or git — are folded into `{ success: false, error }`
+   * so callers never need to catch.
+   */
+  private async remoteAction(
+    method: 'git:push' | 'git:pull' | 'git:fetch',
+    label: string,
+    headMoves: boolean,
+  ): Promise<{ success: boolean; error?: string }> {
     try {
-      const response = await rpcCall<GitPushResult>(
+      const response = await rpcCall<{ success: boolean; error?: string }>(
         this.vscodeService,
-        'git:push',
+        method,
         this.scopeParams(),
       );
       if (response.success && response.data) {
@@ -514,16 +541,16 @@ export class GitBranchesService implements MessageHandler {
           void this.requestRefresh({
             branches: true,
             stash: false,
-            lastCommit: false,
+            lastCommit: headMoves,
           });
         return response.data;
       }
       return {
         success: false,
-        error: response.error ?? 'git:push RPC failed',
+        ...(response.error ? { error: response.error } : {}),
       };
-    } catch (err) {
-      console.error('[GitBranchesService] push failed', err);
+    } catch (err: unknown) {
+      console.error(`[GitBranchesService] ${label} failed`, err);
       return {
         success: false,
         error: err instanceof Error ? err.message : String(err),

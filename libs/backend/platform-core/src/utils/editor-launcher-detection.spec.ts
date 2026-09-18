@@ -485,7 +485,12 @@ describe('editor process launch', () => {
       '/home/ptah',
     );
 
-    expect(definitions).toHaveLength(EDITOR_DESCRIPTORS.length);
+    expect(definitions).toHaveLength(EDITOR_DESCRIPTORS.length + 1);
+    expect(definitions[definitions.length - 1]).toMatchObject({
+      id: 'terminal',
+      displayName: 'Terminal',
+      command: 'x-terminal-emulator',
+    });
     expect(
       definitions.flatMap(({ installCandidates }) => installCandidates),
     ).toEqual(
@@ -529,6 +534,54 @@ describe('editor process launch', () => {
       args: ['-g', filePath],
       cwd: path.dirname(filePath),
     });
+  });
+
+  it('lists the terminal only when one of its launchers exists', async () => {
+    const definitions = createExecutableEditorDefinitions(
+      'linux',
+      {},
+      '/home/ptah',
+    );
+    const noTerminal = await detectEditorTargets(definitions, {
+      env: { PATH: '/tools' },
+      platform: 'linux',
+      cache: null,
+      stat: jest.fn(async () => {
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      }),
+    });
+    expect(noTerminal.some(({ id }) => id === 'terminal')).toBe(false);
+
+    const withKonsole = await detectEditorTargets(definitions, {
+      env: { PATH: '/tools' },
+      platform: 'linux',
+      cache: null,
+      stat: jest.fn(async (candidate: string) => {
+        if (candidate !== '/usr/bin/konsole')
+          throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+        return { isFile: () => true, mode: 0o755 };
+      }),
+    });
+    expect(withKonsole).toEqual([
+      {
+        id: 'terminal',
+        displayName: 'Terminal',
+        executablePath: '/usr/bin/konsole',
+      },
+    ]);
+  });
+
+  it('refuses to open a file with the terminal target', () => {
+    expect(() =>
+      prepareEditorFileLaunch(
+        {
+          id: 'terminal',
+          displayName: 'Terminal',
+          executablePath: '/usr/bin/xterm',
+        },
+        path.resolve('workspace/a.ts'),
+      ),
+    ).toThrow('Terminal cannot open a file');
   });
 
   it('rejects relative file and workspace paths and invalid line numbers', () => {

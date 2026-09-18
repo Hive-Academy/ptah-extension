@@ -7,6 +7,7 @@ import { GitStatusService } from '../services/git-status.service';
 import { GitDockHeaderComponent } from './git-dock-header.component';
 import { ElectronLayoutService } from '@ptah-extension/core';
 import { GitReviewService } from '../services/git-review.service';
+import { GitStashService } from '../services/git-stash.service';
 
 const kiro: EditorTarget = {
   id: 'kiro',
@@ -25,6 +26,7 @@ describe('GitDockHeaderComponent', () => {
       behind: 0,
     }),
     activeWorkspacePath: signal('/ws/a'),
+    refresh: jest.fn(async () => undefined),
   };
   const gitBranches = {
     currentBranch: signal('main'),
@@ -44,6 +46,18 @@ describe('GitDockHeaderComponent', () => {
       success: false,
       error: 'Push was rejected.',
     })),
+    pull: jest.fn(async () => ({ success: true })),
+    fetch: jest.fn(async () => ({ success: true })),
+  };
+  const stash = {
+    entries: signal([]),
+    listLoading: signal(false),
+    selectedIndex: signal(null),
+    files: signal([]),
+    filesLoading: signal(false),
+    busy: signal(false),
+    error: signal(null),
+    loadList: jest.fn(async () => undefined),
   };
   const launchers = {
     targets: signal<readonly EditorTarget[]>([kiro]),
@@ -59,8 +73,16 @@ describe('GitDockHeaderComponent', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    gitStatus.activeWorkspacePath.set('/ws/a');
+    gitBranches.stashCount.set(0);
     reviewMode.set('working-tree');
     railCollapsed.set(false);
+    gitStatus.branch.set({
+      branch: 'main',
+      upstream: 'origin/main',
+      ahead: 1,
+      behind: 0,
+    });
     TestBed.configureTestingModule({
       imports: [GitDockHeaderComponent],
       providers: [
@@ -72,6 +94,7 @@ describe('GitDockHeaderComponent', () => {
           useValue: { mode: reviewMode.asReadonly() },
         },
         { provide: ElectronLayoutService, useValue: layout },
+        { provide: GitStashService, useValue: stash },
       ],
     });
   });
@@ -150,5 +173,108 @@ describe('GitDockHeaderComponent', () => {
     ) as HTMLElement;
     expect(status.textContent).toContain('Push was rejected.');
     expect(status.className).toContain('text-error');
+  });
+
+  function query(fixture: { nativeElement: HTMLElement }, id: string) {
+    return fixture.nativeElement.querySelector(
+      `[data-testid="${id}"]`,
+    ) as HTMLButtonElement;
+  }
+
+  it('always shows Pull and Push, with the counts moved off the branch button', () => {
+    gitStatus.branch.set({
+      branch: 'main',
+      upstream: 'origin/main',
+      ahead: 2,
+      behind: 3,
+    });
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    expect(query(fixture, 'git-pull-button').textContent).toContain('↓3');
+    expect(query(fixture, 'git-push-button').textContent).toContain('↑2');
+    expect(query(fixture, 'current-branch-button').textContent).not.toMatch(
+      /[↑↓]/,
+    );
+
+    gitStatus.branch.set({
+      branch: 'main',
+      upstream: null as unknown as string,
+      ahead: 0,
+      behind: 0,
+    });
+    fixture.detectChanges();
+    expect(query(fixture, 'git-pull-button').textContent).toContain('Pull');
+    expect(query(fixture, 'git-push-button').textContent).toContain('Push');
+    expect(query(fixture, 'git-pull-button').getAttribute('aria-label')).toBe(
+      'Pull',
+    );
+    expect(query(fixture, 'git-push-button').getAttribute('aria-label')).toBe(
+      'Push',
+    );
+  });
+
+  it('pulls, disables every sync button while busy, then refreshes status', async () => {
+    let finish: (value: { success: boolean }) => void = () => undefined;
+    gitBranches.pull.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    query(fixture, 'git-pull-button').click();
+    fixture.detectChanges();
+    for (const id of ['git-pull-button', 'git-push-button', 'git-fetch-button'])
+      expect(query(fixture, id).disabled).toBe(true);
+
+    finish({ success: true });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(gitStatus.refresh).toHaveBeenCalled();
+    expect(query(fixture, 'git-pull-button').disabled).toBe(false);
+    expect(fixture.nativeElement.textContent).toContain('Pull completed.');
+  });
+
+  it('fetches from the icon button', async () => {
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    query(fixture, 'git-fetch-button').click();
+    await fixture.whenStable();
+    expect(gitBranches.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish or refresh a sync result after the workspace changes', async () => {
+    let finish: (value: { success: boolean }) => void = () => undefined;
+    gitBranches.pull.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+
+    query(fixture, 'git-pull-button').click();
+    gitStatus.activeWorkspacePath.set('/ws/b');
+    finish({ success: true });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(gitStatus.refresh).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).not.toContain('Pull completed.');
+  });
+
+  it('opens the stash viewer from the stash button and restores focus on Escape', () => {
+    gitBranches.stashCount.set(2);
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    const trigger = query(fixture, 'git-stash-button');
+    expect(trigger.textContent).toContain('2');
+    trigger.click();
+    fixture.detectChanges();
+    expect(query(fixture, 'stash-popover')).not.toBeNull();
+    expect(stash.loadList).toHaveBeenCalled();
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    fixture.detectChanges();
+    expect(query(fixture, 'stash-popover')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 });

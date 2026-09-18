@@ -8,7 +8,15 @@ describe('CliEditorLauncher', () => {
     displayName: 'VS Code',
     executablePath: executable,
   };
-  const spawnProcess = jest.fn(() => ({ whenSpawned: Promise.resolve(42) }));
+  // exitCode 0: a terminal launch that starts and settles cleanly (the
+  // shape git-bash.exe and the cmd.exe trampoline produce) — the exit probe
+  // reads this instead of waiting out its window.
+  const spawnProcess = jest.fn(() => ({
+    whenSpawned: Promise.resolve(42),
+    exitCode: 0,
+    once: () => undefined,
+    off: () => undefined,
+  }));
 
   beforeEach(() => spawnProcess.mockClear());
 
@@ -55,6 +63,28 @@ describe('CliEditorLauncher', () => {
     );
     expect(spawnProcess).toHaveBeenCalledWith(
       expect.objectContaining({ command: executable, args: ['-g', filePath] }),
+    );
+  });
+
+  it('opens an external terminal with the root as cwd', async () => {
+    const launcher = new CliEditorLauncher({ spawnProcess } as never, {
+      platform: 'darwin',
+    });
+    const terminal = path.resolve('bin/open');
+    const workspaceRoot = path.resolve('workspace');
+
+    await launcher.openWorkspace(
+      { id: 'terminal', displayName: 'Terminal', executablePath: terminal },
+      workspaceRoot,
+    );
+
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: terminal,
+        args: ['-a', 'Terminal', workspaceRoot],
+        cwd: workspaceRoot,
+        detached: true,
+      }),
     );
   });
 

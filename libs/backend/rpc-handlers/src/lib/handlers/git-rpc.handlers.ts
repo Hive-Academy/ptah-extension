@@ -13,10 +13,16 @@
  * - git:showFile         - Show file content from HEAD revision
  * - git:diffFile         - Resolve both sides of a staged/worktree file diff
  * - git:applyHunks       - Stage/unstage/revert selected hunks of one file
- * - git:push             - Push the current branch to its upstream remote
+ * - git:push             - Push the current branch (sets upstream when missing)
+ * - git:pull             - Fast-forward the current branch from its upstream
+ * - git:fetch            - Fetch and prune remote-tracking refs
  * - git:branches         - List local/remote branches with ahead/behind counts
  * - git:checkout         - Checkout a branch (with dirty-tree guard)
  * - git:stashList        - List all stash entries
+ * - git:stashApply       - Apply one stash entry (kept)
+ * - git:stashPop         - Apply and remove one stash entry
+ * - git:stashDrop        - Remove one stash entry (destructive)
+ * - git:stashShow        - List the files one stash entry changed
  * - git:tags             - List tags sorted by creation date
  * - git:remotes          - List configured remotes
  * - git:lastCommit       - Get the last commit details for a ref
@@ -46,6 +52,8 @@ import {
   parseGitDiffFileParams,
   parseGitReviewChangesParams,
   parseGitReviewFileParams,
+  parseGitStashRefParams,
+  parseGitWorkspaceScopedParams,
 } from './git-rpc.schema';
 import type {
   GitInfoParams,
@@ -79,6 +87,14 @@ import type {
   DiffSideRef,
   GitPushParams,
   GitPushResult,
+  GitPullParams,
+  GitPullResult,
+  GitFetchParams,
+  GitFetchResult,
+  GitStashRefParams,
+  GitStashMutationResult,
+  GitStashShowParams,
+  GitStashShowResult,
   GitBranchesParams,
   GitBranchesResult,
   GitCheckoutParams,
@@ -115,9 +131,15 @@ export class GitRpcHandlers {
     'git:diffFile',
     'git:applyHunks',
     'git:push',
+    'git:pull',
+    'git:fetch',
     'git:branches',
     'git:checkout',
     'git:stashList',
+    'git:stashApply',
+    'git:stashPop',
+    'git:stashDrop',
+    'git:stashShow',
     'git:tags',
     'git:remotes',
     'git:lastCommit',
@@ -151,9 +173,13 @@ export class GitRpcHandlers {
     this.registerGitDiffFile();
     this.registerGitApplyHunks();
     this.registerGitPush();
+    this.registerGitPull();
+    this.registerGitFetch();
     this.registerGitBranches();
     this.registerGitCheckout();
     this.registerGitStashList();
+    this.registerGitStashMutations();
+    this.registerGitStashShow();
     this.registerGitTags();
     this.registerGitRemotes();
     this.registerGitLastCommit();
@@ -744,6 +770,125 @@ export class GitRpcHandlers {
         } as unknown as Error);
 
         return this.gitInfo.push(wsRoot);
+      },
+    );
+  }
+
+  /** git:pull - Fast-forward the current branch (`git pull --ff-only`). */
+  private registerGitPull(): void {
+    this.rpcHandler.registerMethod<GitPullParams, GitPullResult>(
+      'git:pull',
+      async (rawParams) => {
+        const params = parseGitWorkspaceScopedParams(rawParams);
+        if (!params) return { success: false, error: 'Invalid pull request.' };
+        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:pull');
+        if (!wsRoot) {
+          return { success: false, error: 'No workspace folder open' };
+        }
+        return this.gitInfo.pull(wsRoot);
+      },
+    );
+  }
+
+  /** git:fetch - Update and prune remote-tracking refs (`git fetch --prune`). */
+  private registerGitFetch(): void {
+    this.rpcHandler.registerMethod<GitFetchParams, GitFetchResult>(
+      'git:fetch',
+      async (rawParams) => {
+        const params = parseGitWorkspaceScopedParams(rawParams);
+        if (!params) return { success: false, error: 'Invalid fetch request.' };
+        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:fetch');
+        if (!wsRoot) {
+          return { success: false, error: 'No workspace folder open' };
+        }
+        return this.gitInfo.fetch(wsRoot);
+      },
+    );
+  }
+
+  /**
+   * git:stashApply / git:stashPop / git:stashDrop - Mutate one stash entry.
+   *
+   * The stash list cache is invalidated by `GitInfoService` itself (every
+   * mutating git argv drops the workspace's read cache), and the working-tree
+   * change reaches the renderer through the git watcher's status push — the
+   * same refresh path `git:checkout` and `git:push` rely on.
+   */
+  private registerGitStashMutations(): void {
+    const mutations = [
+      [
+        'git:stashApply',
+        (root: string, index: number, expectedHash?: string) =>
+          expectedHash !== undefined
+            ? this.gitInfo.stashApply(root, index, expectedHash)
+            : this.gitInfo.stashApply(root, index),
+      ],
+      [
+        'git:stashPop',
+        (root: string, index: number, expectedHash?: string) =>
+          expectedHash !== undefined
+            ? this.gitInfo.stashPop(root, index, expectedHash)
+            : this.gitInfo.stashPop(root, index),
+      ],
+      [
+        'git:stashDrop',
+        (root: string, index: number, expectedHash?: string) =>
+          expectedHash !== undefined
+            ? this.gitInfo.stashDrop(root, index, expectedHash)
+            : this.gitInfo.stashDrop(root, index),
+      ],
+    ] as const;
+
+    for (const [method, run] of mutations) {
+      this.rpcHandler.registerMethod<GitStashRefParams, GitStashMutationResult>(
+        method,
+        async (rawParams) => {
+          const params = parseGitStashRefParams(rawParams);
+          if (!params) {
+            return { success: false, error: 'Invalid stash request.' };
+          }
+          const wsRoot = this.resolveRoot(params.workspaceRoot, method);
+          if (!wsRoot) {
+            return { success: false, error: 'No workspace folder open' };
+          }
+          if (method === 'git:stashDrop') {
+            this.logger.warn(
+              '[GitRpc] git:stashDrop called — this is a destructive operation',
+              { index: params.index } as unknown as Error,
+            );
+          }
+          return params.expectedHash !== undefined
+            ? run(wsRoot, params.index, params.expectedHash)
+            : run(wsRoot, params.index);
+        },
+      );
+    }
+  }
+
+  /**
+   * git:stashShow - Files changed by one stash entry. The per-file diff is
+   * read through `git:reviewChanges` (base `stash@{N}^1`, head `stash@{N}`)
+   * and `git:reviewFile`.
+   */
+  private registerGitStashShow(): void {
+    this.rpcHandler.registerMethod<GitStashShowParams, GitStashShowResult>(
+      'git:stashShow',
+      async (rawParams) => {
+        const params = parseGitStashRefParams(rawParams);
+        if (!params) {
+          return { success: false, files: [], error: 'Invalid stash request.' };
+        }
+        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:stashShow');
+        if (!wsRoot) {
+          return {
+            success: false,
+            files: [],
+            error: 'No workspace folder open',
+          };
+        }
+        return params.expectedHash !== undefined
+          ? this.gitInfo.stashShow(wsRoot, params.index, params.expectedHash)
+          : this.gitInfo.stashShow(wsRoot, params.index);
       },
     );
   }

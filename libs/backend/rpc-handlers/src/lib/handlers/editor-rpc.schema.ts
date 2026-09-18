@@ -6,6 +6,7 @@ export const EditorTargetIdSchema = z.enum([
   'antigravity',
   'zed',
   'kiro',
+  'terminal',
 ]);
 
 export const EditorDetectTargetsParamsSchema = z.object({}).strict();

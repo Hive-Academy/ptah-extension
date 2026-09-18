@@ -274,6 +274,113 @@ describe('GitStatusService git:info result handling (TASK_2026_437)', () => {
     expect(service.isGitRepo()).toBe(false);
     expect(service.isLoading()).toBe(false);
   });
+
+  it('keeps refresh best-effort and clears loading when git:info rejects', async () => {
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+    service.switchWorkspace('/ws/a');
+    await flush();
+    mockRpcCall.mockRejectedValueOnce(new Error('transport down'));
+
+    await expect(service.refresh()).resolves.toBeUndefined();
+
+    expect(service.isLoading()).toBe(false);
+  });
+
+  it('clears loading when a refresh becomes stale after a workspace switch', async () => {
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+    service.switchWorkspace('/ws/a');
+    await flush();
+    let finish: (value: unknown) => void = () => undefined;
+    mockRpcCall.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+    const pending = service.refresh();
+    service.switchWorkspace('/ws/b');
+    finish(rpcOk(gitInfo()));
+
+    await pending;
+
+    expect(service.isLoading()).toBe(false);
+  });
+
+  it('does not clear isLoading when a stale fetch settles while a newer fetch is pending', async () => {
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+    service.switchWorkspace('/ws/a');
+    await flush();
+
+    let finishFetchA: (value: unknown) => void = () => undefined;
+    let finishFetchB: (value: unknown) => void = () => undefined;
+
+    mockRpcCall
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (finishFetchA = resolve)),
+      )
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (finishFetchB = resolve)),
+      );
+
+    const pendingA = service.refresh();
+    service.switchWorkspace('/ws/b');
+
+    expect(service.isLoading()).toBe(true);
+
+    finishFetchA(rpcOk(gitInfo()));
+    await pendingA;
+
+    expect(service.isLoading()).toBe(true);
+
+    finishFetchB(rpcOk(gitInfo()));
+    await flush();
+
+    expect(service.isLoading()).toBe(false);
+  });
+
+  it('keeps the newer response when two same-workspace fetches settle out of order', async () => {
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+    service.switchWorkspace('/ws/a');
+    await flush();
+
+    let finishOlder: (value: unknown) => void = () => undefined;
+    mockRpcCall.mockImplementationOnce(
+      () => new Promise((resolve) => (finishOlder = resolve)),
+    );
+    const older = service.refresh();
+
+    mockRpcCall.mockResolvedValueOnce(
+      rpcOk(
+        gitInfo({
+          branch: { branch: 'newer', upstream: null, ahead: 0, behind: 0 },
+        }),
+      ),
+    );
+    await service.refresh();
+    expect(service.branchName()).toBe('newer');
+
+    finishOlder(
+      rpcOk(
+        gitInfo({
+          branch: { branch: 'older', upstream: null, ahead: 0, behind: 0 },
+        }),
+      ),
+    );
+    await older;
+
+    expect(service.branchName()).toBe('newer');
+  });
+
+  it('does not stay loading when a switch back to a fresh workspace leaves another fetch pending', async () => {
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+    service.switchWorkspace('/ws/a');
+    await flush();
+
+    mockRpcCall.mockImplementationOnce(() => new Promise(() => undefined));
+    service.switchWorkspace('/ws/b');
+    expect(service.isLoading()).toBe(true);
+
+    service.switchWorkspace('/ws/a');
+
+    expect(service.isLoading()).toBe(false);
+  });
 });
 
 // ============================================================================

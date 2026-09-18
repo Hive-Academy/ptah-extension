@@ -7,12 +7,15 @@ import {
   viewChild,
 } from '@angular/core';
 import {
+  Archive,
+  ArrowDownToLine,
   ArrowUpFromLine,
   GitBranch,
   Info,
   LucideAngularModule,
   PanelLeft,
   PanelLeftClose,
+  RefreshCw,
 } from 'lucide-angular';
 import { ElectronLayoutService } from '@ptah-extension/core';
 import { BranchPickerDropdownComponent } from '../branch-picker/branch-picker-dropdown.component';
@@ -25,6 +28,15 @@ import { EditorLauncherService } from '../services/editor-launcher.service';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitStatusService } from '../services/git-status.service';
 import { GitReviewService } from '../services/git-review.service';
+import { StashPopoverComponent } from '../stash/stash-popover.component';
+
+type SyncAction = 'fetch' | 'pull' | 'push';
+
+const SYNC_COPY: Record<SyncAction, { done: string; failed: string }> = {
+  fetch: { done: 'Fetch completed.', failed: 'Fetch failed.' },
+  pull: { done: 'Pull completed.', failed: 'Pull failed.' },
+  push: { done: 'Push completed.', failed: 'Push failed.' },
+};
 
 @Component({
   selector: 'ptah-git-dock-header',
@@ -34,6 +46,7 @@ import { GitReviewService } from '../services/git-review.service';
     BranchPickerDropdownComponent,
     BranchDetailsPopoverComponent,
     OpenInButtonComponent,
+    StashPopoverComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `@if (gitStatus.isGitRepo()) {
@@ -81,12 +94,6 @@ import { GitReviewService } from '../services/git-review.service';
           <lucide-angular [img]="BranchIcon" class="h-3 w-3" />{{
             gitBranches.currentBranch() || gitStatus.branchName()
           }}
-          @if (gitStatus.branch().ahead) {
-            <span class="text-info">↑{{ gitStatus.branch().ahead }}</span>
-          }
-          @if (gitStatus.branch().behind) {
-            <span class="text-warning">↓{{ gitStatus.branch().behind }}</span>
-          }
         </button>
         <button
           #detailsTrigger
@@ -109,26 +116,88 @@ import { GitReviewService } from '../services/git-review.service';
       <span role="status" aria-label="Git status" class="sr-only">{{
         gitStatus.branchName()
       }}</span>
-      @if (gitBranches.stashCount()) {
-        <span>stash {{ gitBranches.stashCount() }}</span>
-      }
+      <div class="relative flex items-center">
+        <button
+          #stashTrigger
+          type="button"
+          class="btn btn-ghost btn-xs gap-1 px-1"
+          data-testid="git-stash-button"
+          aria-haspopup="dialog"
+          [attr.aria-expanded]="stashOpen()"
+          [attr.aria-label]="'Stashes (' + gitBranches.stashCount() + ')'"
+          title="Stashes"
+          (click)="stashOpen.set(!stashOpen())"
+        >
+          <lucide-angular
+            [img]="StashIcon"
+            class="h-3 w-3"
+            aria-hidden="true"
+          />{{ gitBranches.stashCount() }}
+        </button>
+        <ptah-stash-popover [isOpen]="stashOpen()" (closed)="closeStash()" />
+      </div>
       <span class="ml-auto"></span>
       <ptah-open-in-button
         [targets]="launchers.targets()"
         [root]="gitStatus.activeWorkspacePath() ?? ''"
         (open)="openWorkspace($event)"
       />
-      @if (gitStatus.branch().ahead > 0) {
-        <button
-          type="button"
-          data-testid="git-push-button"
-          class="btn btn-xs"
-          [disabled]="pushing()"
-          (click)="push()"
-        >
-          <lucide-angular [img]="PushIcon" class="h-3 w-3" />Push
-        </button>
-      }
+      <button
+        type="button"
+        data-testid="git-fetch-button"
+        class="btn btn-ghost btn-xs px-1"
+        aria-label="Fetch"
+        title="Fetch"
+        [disabled]="syncing() !== null"
+        (click)="sync('fetch')"
+      >
+        <lucide-angular
+          [img]="FetchIcon"
+          class="h-3 w-3"
+          [class.animate-spin]="syncing() === 'fetch'"
+          aria-hidden="true"
+        />
+      </button>
+      <button
+        type="button"
+        data-testid="git-pull-button"
+        class="btn btn-ghost btn-xs gap-1"
+        [attr.aria-label]="
+          gitStatus.branch().behind
+            ? 'Pull (' + gitStatus.branch().behind + ' behind)'
+            : 'Pull'
+        "
+        title="Pull (fast-forward only)"
+        [disabled]="syncing() !== null"
+        (click)="sync('pull')"
+      >
+        <lucide-angular [img]="PullIcon" class="h-3 w-3" aria-hidden="true" />
+        @if (gitStatus.branch().behind) {
+          <span class="text-warning">↓{{ gitStatus.branch().behind }}</span>
+        } @else {
+          Pull
+        }
+      </button>
+      <button
+        type="button"
+        data-testid="git-push-button"
+        class="btn btn-ghost btn-xs gap-1"
+        [attr.aria-label]="
+          gitStatus.branch().ahead
+            ? 'Push (' + gitStatus.branch().ahead + ' ahead)'
+            : 'Push'
+        "
+        title="Push"
+        [disabled]="syncing() !== null"
+        (click)="sync('push')"
+      >
+        <lucide-angular [img]="PushIcon" class="h-3 w-3" aria-hidden="true" />
+        @if (gitStatus.branch().ahead) {
+          <span class="text-info">↑{{ gitStatus.branch().ahead }}</span>
+        } @else {
+          Push
+        }
+      </button>
     </div>
     @if (actionStatus(); as message) {
       <div
@@ -158,31 +227,44 @@ export class GitDockHeaderComponent {
   protected readonly BranchIcon = GitBranch;
   protected readonly InfoIcon = Info;
   protected readonly PushIcon = ArrowUpFromLine;
+  protected readonly PullIcon = ArrowDownToLine;
+  protected readonly FetchIcon = RefreshCw;
+  protected readonly StashIcon = Archive;
   protected readonly PanelLeftIcon = PanelLeft;
   protected readonly PanelLeftCloseIcon = PanelLeftClose;
   protected readonly pickerOpen = signal(false);
   protected readonly detailsOpen = signal(false);
-  protected readonly pushing = signal(false);
+  protected readonly stashOpen = signal(false);
+  /** The remote action in flight; disables Fetch, Pull and Push together. */
+  protected readonly syncing = signal<SyncAction | null>(null);
   private readonly branchTrigger =
     viewChild<ElementRef<HTMLButtonElement>>('branchTrigger');
   private readonly detailsTrigger =
     viewChild<ElementRef<HTMLButtonElement>>('detailsTrigger');
+  private readonly stashTrigger =
+    viewChild<ElementRef<HTMLButtonElement>>('stashTrigger');
   protected readonly actionStatus = signal<{
     kind: 'success' | 'error';
     message: string;
   } | null>(null);
-  protected async push(): Promise<void> {
-    if (this.pushing()) return;
-    this.pushing.set(true);
+  protected async sync(action: SyncAction): Promise<void> {
+    if (this.syncing()) return;
+    const workspace = this.gitStatus.activeWorkspacePath();
+    if (!workspace) return;
+    this.syncing.set(action);
+    this.actionStatus.set(null);
+    const copy = SYNC_COPY[action];
     try {
-      const result = await this.gitBranches.push();
+      const result = await this.gitBranches[action]();
+      if (this.gitStatus.activeWorkspacePath() !== workspace) return;
       this.actionStatus.set(
         result.success
-          ? { kind: 'success', message: 'Push completed.' }
-          : { kind: 'error', message: result.error ?? 'Push failed.' },
+          ? { kind: 'success', message: copy.done }
+          : { kind: 'error', message: result.error ?? copy.failed },
       );
+      if (result.success) await this.gitStatus.refresh();
     } finally {
-      this.pushing.set(false);
+      this.syncing.set(null);
     }
   }
   protected openWorkspace(request: OpenInRequest): void {
@@ -196,5 +278,9 @@ export class GitDockHeaderComponent {
   protected closeDetails(): void {
     this.detailsOpen.set(false);
     this.detailsTrigger()?.nativeElement.focus();
+  }
+  protected closeStash(): void {
+    this.stashOpen.set(false);
+    this.stashTrigger()?.nativeElement.focus();
   }
 }

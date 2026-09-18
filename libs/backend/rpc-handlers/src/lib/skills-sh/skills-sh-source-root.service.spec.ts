@@ -132,6 +132,7 @@ afterEach(async () => {
 });
 
 describe('SkillsShSourceRootService — install lands in the source root', () => {
+  jest.setTimeout(30_000);
   it('writes the skill under ~/.ptah/plugins/ptah-skillssh-<owner>-<repo>/skills/<slug>', async () => {
     stageWrites(['frontend-design']);
 

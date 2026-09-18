@@ -6,12 +6,46 @@ describe('VscodeEditorLauncher', () => {
   const vscodeApi = {
     openFile: jest.fn(async () => undefined),
     openWorkspace: jest.fn(async () => undefined),
+    openTerminal: jest.fn(async () => undefined),
   };
 
   beforeEach(() => {
     spawnProcess.mockClear();
     vscodeApi.openFile.mockClear();
     vscodeApi.openWorkspace.mockClear();
+    vscodeApi.openTerminal.mockClear();
+  });
+
+  it('always offers the integrated terminal and never probes for one', async () => {
+    const stat = jest.fn(async () => {
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    });
+    const launcher = new VscodeEditorLauncher(
+      { spawnProcess } as never,
+      vscodeApi,
+      { platform: 'linux', env: { PATH: '/bin' }, homeDir: '/home/me', stat },
+    );
+
+    await expect(launcher.detect()).resolves.toEqual([
+      { id: 'terminal', displayName: 'Terminal' },
+    ]);
+    expect(stat).not.toHaveBeenCalledWith('/usr/bin/x-terminal-emulator');
+  });
+
+  it('opens the integrated terminal at the workspace root', async () => {
+    const launcher = new VscodeEditorLauncher(
+      { spawnProcess } as never,
+      vscodeApi,
+    );
+    const workspaceRoot = path.resolve('workspace');
+
+    await launcher.openWorkspace(
+      { id: 'terminal', displayName: 'Terminal' },
+      workspaceRoot,
+    );
+
+    expect(vscodeApi.openTerminal).toHaveBeenCalledWith(workspaceRoot);
+    expect(spawnProcess).not.toHaveBeenCalled();
   });
 
   it('does not include VS Code in the external target list', async () => {
@@ -37,6 +71,7 @@ describe('VscodeEditorLauncher', () => {
     );
     await expect(launcher.detect()).resolves.toEqual([
       { id: 'cursor', displayName: 'Cursor', executablePath: '/bin/cursor' },
+      { id: 'terminal', displayName: 'Terminal' },
     ]);
   });
 

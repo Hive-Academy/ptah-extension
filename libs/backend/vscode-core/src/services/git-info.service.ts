@@ -33,6 +33,11 @@ import {
   type GitCommitResult,
   type GitShowFileResult,
   type GitPushResult,
+  type GitPullResult,
+  type GitFetchResult,
+  type GitStashMutationResult,
+  type GitStashShowResult,
+  type GitStashFileEntry,
   type BranchRef,
   type GitBranchesResult,
   type GitCheckoutResult,
@@ -169,6 +174,69 @@ export function isMutatingGitCommand(args: readonly string[]): boolean {
     default:
       return true;
   }
+}
+
+/** A usable `stash@{N}` ordinal: a non-negative safe integer. */
+function isStashIndex(index: number): boolean {
+  return Number.isSafeInteger(index) && index >= 0;
+}
+
+function stashRef(index: number): string {
+  return `stash@{${index}}`;
+}
+
+/**
+ * Parse `git diff --name-status -z -M` output into stash file entries.
+ *
+ * Each record is a status token followed by one path, or two (source, then
+ * destination) for a rename or copy. A copy is reported as an addition of its
+ * destination and a type change as a modification, since the wire union
+ * carries `A | M | D | R` only.
+ */
+export function parseStashNameStatus(output: string): GitStashFileEntry[] {
+  const tokens = output.split('\0');
+  const files: GitStashFileEntry[] = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const status = tokens[i];
+    i += 1;
+    if (!status) continue;
+    const code = status.charAt(0);
+    if (code === 'R' || code === 'C') {
+      const oldPath = tokens[i];
+      const newPath = tokens[i + 1];
+      i += 2;
+      if (!oldPath || !newPath) break;
+      files.push(
+        code === 'R'
+          ? { path: newPath, status: 'R', oldPath }
+          : { path: newPath, status: 'A' },
+      );
+      continue;
+    }
+    const filePath = tokens[i];
+    i += 1;
+    if (!filePath) break;
+    if (code === 'A' || code === 'D') {
+      files.push({ path: filePath, status: code });
+    } else {
+      files.push({ path: filePath, status: 'M' });
+    }
+  }
+  return files;
+}
+
+/**
+ * Detect whether git stderr or error message indicates an authentication failure.
+ *
+ * When GIT_TERMINAL_PROMPT=0 is passed, git fails fast with "terminal prompts disabled"
+ * or "could not read Username/Password". Other failures report "Authentication failed"
+ * or "Permission denied".
+ */
+export function isGitAuthFailure(text: string): boolean {
+  return /terminal prompts disabled|authentication failed|could not read (?:username|password)|permission denied.*publickey|permission denied \(|logon failed|invalid credentials/i.test(
+    text,
+  );
 }
 
 /**
@@ -911,24 +979,142 @@ export class GitInfoService {
   }
 
   /**
-   * Push the current branch to its upstream remote.
-   * Runs: git push
-   * Uses the longer worktree timeout since push is a network operation.
+   * Push the current branch.
+   *
+   * With an upstream configured: `git push`. Without one: `git push -u
+   * <remote> HEAD`, where `<remote>` is `origin` when it exists, otherwise the
+   * repository's only remote. `HEAD` rather than the branch name keeps a
+   * user-controlled string out of the argv. Uses the longer worktree timeout
+   * since push is a network operation.
    */
   async push(workspacePath: string): Promise<GitPushResult> {
     try {
-      const { exitCode, stderr } = await this.execGit(['push'], workspacePath, {
+      const upstream = await this.execGit(
+        ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+        workspacePath,
+      );
+
+      let args: string[] = ['push'];
+      if (upstream.exitCode !== 0) {
+        const target = await this.resolvePushRemote(workspacePath);
+        if ('error' in target) return { success: false, error: target.error };
+        args = ['push', '-u', target.remote, 'HEAD'];
+      }
+
+      const { exitCode, stderr } = await this.execGit(args, workspacePath, {
         timeoutMs: WORKTREE_GIT_TIMEOUT_MS,
+        env: { GIT_TERMINAL_PROMPT: '0' },
       });
 
       if (exitCode !== 0) {
+        if (isGitAuthFailure(stderr)) {
+          return {
+            success: false,
+            error: 'Authentication is required for this remote.',
+          };
+        }
         return { success: false, error: stderr.trim() || 'git push failed' };
       }
 
       return { success: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (isGitAuthFailure(message)) {
+        return {
+          success: false,
+          error: 'Authentication is required for this remote.',
+        };
+      }
       this.logger.error('[GitInfoService] push failed', {
+        workspacePath,
+        error: message,
+      } as unknown as Error);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * The remote a first push of an upstream-less branch goes to, or why there
+   * is none. A detached HEAD has no branch to track, so it is refused.
+   */
+  private async resolvePushRemote(
+    workspacePath: string,
+  ): Promise<{ remote: string } | { error: string }> {
+    const head = await this.execGit(
+      ['symbolic-ref', '--quiet', '--short', 'HEAD'],
+      workspacePath,
+    );
+    if (head.exitCode !== 0) {
+      return {
+        error: 'Cannot push a detached HEAD. Check out a branch first.',
+      };
+    }
+
+    const listed = await this.execGit(['remote'], workspacePath);
+    const remotes =
+      listed.exitCode === 0
+        ? listed.stdout
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((name) => name.length > 0 && !name.startsWith('-'))
+        : [];
+    if (remotes.includes('origin')) return { remote: 'origin' };
+    if (remotes.length === 1) return { remote: remotes[0] };
+    return remotes.length === 0
+      ? { error: 'No remote is configured for this repository.' }
+      : {
+          error:
+            'This branch has no upstream and no "origin" remote exists to push to.',
+        };
+  }
+
+  /**
+   * Fast-forward the current branch from its upstream.
+   * Runs: git pull --ff-only
+   * Refuses to create a merge commit; a diverged branch fails with git's own
+   * explanation. Network operation, so the longer timeout applies.
+   */
+  async pull(workspacePath: string): Promise<GitPullResult> {
+    return this.runRemoteSync(workspacePath, ['pull', '--ff-only'], 'pull');
+  }
+
+  /**
+   * Update remote-tracking refs and drop the ones deleted upstream.
+   * Runs: git fetch --prune
+   */
+  async fetch(workspacePath: string): Promise<GitFetchResult> {
+    return this.runRemoteSync(workspacePath, ['fetch', '--prune'], 'fetch');
+  }
+
+  private async runRemoteSync(
+    workspacePath: string,
+    args: string[],
+    verb: 'pull' | 'fetch',
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { exitCode, stderr } = await this.execGit(args, workspacePath, {
+        timeoutMs: WORKTREE_GIT_TIMEOUT_MS,
+        env: { GIT_TERMINAL_PROMPT: '0' },
+      });
+      if (exitCode !== 0) {
+        if (isGitAuthFailure(stderr)) {
+          return {
+            success: false,
+            error: 'Authentication is required for this remote.',
+          };
+        }
+        return { success: false, error: stderr.trim() || `git ${verb} failed` };
+      }
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isGitAuthFailure(message)) {
+        return {
+          success: false,
+          error: 'Authentication is required for this remote.',
+        };
+      }
+      this.logger.error(`[GitInfoService] ${verb} failed`, {
         workspacePath,
         error: message,
       } as unknown as Error);
@@ -2252,14 +2438,13 @@ export class GitInfoService {
 
   /**
    * List all stash entries.
-   * Runs: git stash list --format=%gd%x09%s%x09%ct
-   * Tab (%x09) is used as the field separator — it cannot appear in stash
-   * messages entered via the CLI, so there is no collision with message content.
+   * Runs: git stash list --format=%gd%x09%H%x09%ct%x09%s
+   * Fixed fields come before the variable-length message, so a tab in the
+   * message cannot displace the commit hash or timestamp.
+   * Not cached so external stash mutations (e.g. `git stash drop`) are immediately visible.
    */
   async stashList(workspacePath: string): Promise<GitStashListResult> {
-    return this.cachedRead(`stash|${workspacePath}|`, workspacePath, () =>
-      this.computeStashList(workspacePath),
-    );
+    return this.computeStashList(workspacePath);
   }
 
   private async computeStashList(
@@ -2267,7 +2452,7 @@ export class GitInfoService {
   ): Promise<GitStashListResult> {
     try {
       const { stdout, exitCode } = await this.execGit(
-        ['stash', 'list', '--format=%gd%x09%s%x09%ct'],
+        ['stash', 'list', '--format=%gd%x09%H%x09%ct%x09%s'],
         workspacePath,
       );
 
@@ -2282,13 +2467,14 @@ export class GitInfoService {
 
         const parts = trimmed.split('\t');
         const ref = parts[0] ?? '';
-        const message = parts[1] ?? '';
+        const hash = parts[1] ?? '';
         const timeRaw = parts[2] ?? '';
+        const message = parts.slice(3).join('\t');
         const indexMatch = ref.match(/stash@\{(\d+)\}/);
         const index = indexMatch ? parseInt(indexMatch[1], 10) : 0;
         const time = timeRaw ? parseInt(timeRaw, 10) * 1000 : undefined;
 
-        entries.push({ index, message, time });
+        entries.push({ index, hash, message, time });
       }
 
       return { count: entries.length, entries };
@@ -2298,6 +2484,192 @@ export class GitInfoService {
         error: error instanceof Error ? error.message : String(error),
       } as unknown as Error);
       return { count: 0, entries: [] };
+    }
+  }
+
+  /** Runs: git stash apply stash@{index} — the entry is kept. */
+  async stashApply(
+    workspacePath: string,
+    index: number,
+    expectedHash?: string,
+  ): Promise<GitStashMutationResult> {
+    return this.runStashMutation(workspacePath, 'apply', index, expectedHash);
+  }
+
+  /**
+   * Runs: git stash pop stash@{index}. On a conflict git applies what it can
+   * and KEEPS the entry, exiting non-zero; that is reported as a failure.
+   */
+  async stashPop(
+    workspacePath: string,
+    index: number,
+    expectedHash?: string,
+  ): Promise<GitStashMutationResult> {
+    return this.runStashMutation(workspacePath, 'pop', index, expectedHash);
+  }
+
+  /** Runs: git stash drop stash@{index} (destructive). */
+  async stashDrop(
+    workspacePath: string,
+    index: number,
+    expectedHash?: string,
+  ): Promise<GitStashMutationResult> {
+    return this.runStashMutation(workspacePath, 'drop', index, expectedHash);
+  }
+
+  private async runStashMutation(
+    workspacePath: string,
+    verb: 'apply' | 'pop' | 'drop',
+    index: number,
+    expectedHash?: string,
+  ): Promise<GitStashMutationResult> {
+    if (!isStashIndex(index)) {
+      return { success: false, error: 'Invalid stash index' };
+    }
+    const ref = stashRef(index);
+    try {
+      if (expectedHash) {
+        const verify = await this.execGit(
+          ['rev-parse', '--verify', ref],
+          workspacePath,
+        );
+        if (
+          verify.exitCode !== 0 ||
+          verify.stdout.trim() !== expectedHash.trim()
+        ) {
+          return {
+            success: false,
+            error: 'The stash list changed. Refresh and try again.',
+          };
+        }
+      }
+      const { exitCode, stdout, stderr } = await this.execGit(
+        ['stash', verb, ref],
+        workspacePath,
+      );
+      if (exitCode !== 0) {
+        // A conflicted apply/pop reports on stdout ("CONFLICT (content): …").
+        return {
+          success: false,
+          error: stderr.trim() || stdout.trim() || `git stash ${verb} failed`,
+        };
+      }
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[GitInfoService] stash ${verb} failed`, {
+        workspacePath,
+        index,
+        error: message,
+      } as unknown as Error);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Files one stash entry changed, relative to the commit it was made on.
+   *
+   * Runs: git diff --name-status -z -M stash@{N}^1 stash@{N}
+   *
+   * `git diff` rather than `git stash show`, so `stash.showStat` /
+   * `stash.showIncludeUntracked` config cannot change the output shape. The
+   * listed paths are exactly what `git:reviewChanges` with base
+   * `stash@{N}^1` and head `stash@{N}` issues for `git:reviewFile`. Untracked
+   * files stored in a `-u` stash (the third parent) are added as status 'A'.
+   */
+  async stashShow(
+    workspacePath: string,
+    index: number,
+    expectedHash?: string,
+  ): Promise<GitStashShowResult> {
+    if (!isStashIndex(index)) {
+      return { success: false, files: [], error: 'Invalid stash index' };
+    }
+    const ref = stashRef(index);
+    try {
+      if (expectedHash) {
+        const verify = await this.execGit(
+          ['rev-parse', '--verify', ref],
+          workspacePath,
+        );
+        if (
+          verify.exitCode !== 0 ||
+          verify.stdout.trim() !== expectedHash.trim()
+        ) {
+          return {
+            success: false,
+            files: [],
+            error: 'The stash list changed. Refresh and try again.',
+          };
+        }
+      }
+
+      const exists = await this.execGit(
+        ['rev-parse', '--verify', '--quiet', ref],
+        workspacePath,
+      );
+      if (exists.exitCode !== 0) {
+        return { success: false, files: [], error: 'Stash entry not found' };
+      }
+
+      const { stdout, exitCode, stderr } = await this.execGit(
+        [
+          'diff',
+          '--no-color',
+          '--no-ext-diff',
+          '--name-status',
+          '-z',
+          '-M',
+          `${ref}^1`,
+          ref,
+        ],
+        workspacePath,
+      );
+      if (exitCode !== 0) {
+        this.logger.error('[GitInfoService] stashShow diff failed', {
+          workspacePath,
+          index,
+          stderr,
+        } as unknown as Error);
+        return {
+          success: false,
+          files: [],
+          error: 'The stash contents could not be read',
+        };
+      }
+      const files = parseStashNameStatus(stdout);
+
+      const hasUntracked = await this.execGit(
+        ['rev-parse', '--verify', '--quiet', `${ref}^3`],
+        workspacePath,
+      );
+      if (hasUntracked.exitCode === 0) {
+        const untracked = await this.execGit(
+          ['ls-tree', '-r', '--name-only', '-z', `${ref}^3`],
+          workspacePath,
+        );
+        if (untracked.exitCode === 0 && untracked.stdout) {
+          for (const untrackedPath of untracked.stdout.split('\0')) {
+            if (untrackedPath) {
+              files.push({ path: untrackedPath, status: 'A' });
+            }
+          }
+        }
+      }
+
+      return { success: true, files };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] stashShow failed', {
+        workspacePath,
+        index,
+        error: message,
+      } as unknown as Error);
+      return {
+        success: false,
+        files: [],
+        error: 'The stash contents could not be read',
+      };
     }
   }
 
