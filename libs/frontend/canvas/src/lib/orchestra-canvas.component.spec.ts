@@ -73,11 +73,25 @@ import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.serv
 import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
+import { ActivityTickerComponent } from '@ptah-extension/chat-ui';
 import {
   AppStateManager,
+  BackOfficeActivityService,
+  type ActivityItem,
   type CanvasSessionRequest,
   type CanvasTabRequest,
 } from '@ptah-extension/core';
+
+/** Idle activity stub for the describes that do not exercise the ticker. */
+function idleActivityStub() {
+  return {
+    provide: BackOfficeActivityService,
+    useValue: {
+      recent: signal<readonly ActivityItem[]>([]),
+      isIdle: signal(true),
+    },
+  };
+}
 
 function createMockTabState(
   name: string,
@@ -237,6 +251,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
         { provide: TabManagerService, useValue: tabManagerMock },
         { provide: ChatStore, useValue: chatStoreMock },
         { provide: AppStateManager, useValue: appStateMock },
+        idleActivityStub(),
       ],
     });
     TestBed.overrideComponent(OrchestraCanvasComponent, {
@@ -588,6 +603,7 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
         { provide: TabManagerService, useValue: tabManagerMock },
         { provide: ChatStore, useValue: chatStoreMock },
         { provide: AppStateManager, useValue: appStateMock },
+        idleActivityStub(),
       ],
     });
     TestBed.overrideComponent(OrchestraCanvasComponent, {
@@ -697,11 +713,36 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
   let observeSpy: jest.Mock;
   let tabManagerMock: Partial<TabManagerService>;
   let tabsSignal: WritableSignal<TabState[]>;
+  let activityItems: WritableSignal<readonly ActivityItem[]>;
+  let activityIdle: WritableSignal<boolean>;
+  let setCurrentViewMock: jest.Mock;
+
+  function activityItem(id: string, summary: string): ActivityItem {
+    return {
+      id,
+      source: 'cron',
+      kind: 'cron-run',
+      summary,
+      timestamp: 1,
+      level: 'info',
+    };
+  }
+
+  function dock() {
+    return fixture.debugElement.query(By.css('[data-testid="canvas-dock"]'));
+  }
+
+  function ticker() {
+    return fixture.debugElement.query(By.directive(ActivityTickerComponent));
+  }
 
   beforeEach(() => {
     const initialTab = createMockTabState('tab 1');
     tabsSignal = signal<TabState[]>([initialTab]);
     observeSpy = jest.fn();
+    activityItems = signal<readonly ActivityItem[]>([]);
+    activityIdle = signal(true);
+    setCurrentViewMock = jest.fn();
 
     tabManagerMock = {
       tabs: tabsSignal,
@@ -739,6 +780,9 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
       canvasTabRequest: signal(null),
       clearNewCanvasSessionRequest: jest.fn(),
       clearCanvasTabRequest: jest.fn(),
+      thothFirstRunDismissed: () => true,
+      dismissThothFirstRun: jest.fn(),
+      setCurrentView: setCurrentViewMock,
     };
 
     TestBed.configureTestingModule({
@@ -747,6 +791,10 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
         { provide: TabManagerService, useValue: tabManagerMock },
         { provide: ChatStore, useValue: chatStoreMock },
         { provide: AppStateManager, useValue: appStateMock },
+        {
+          provide: BackOfficeActivityService,
+          useValue: { recent: activityItems, isIdle: activityIdle },
+        },
       ],
     });
 
@@ -758,6 +806,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
           WorkspaceGridStub,
           EmptyStateStub,
           CanvasLayoutControlsComponent,
+          ActivityTickerComponent,
           NativePopoverComponent,
         ],
         providers: [
@@ -832,6 +881,76 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
       By.css('[data-testid="session-viewport"]'),
     );
     expect(observeSpy).toHaveBeenCalledWith(viewport.nativeElement);
+  });
+
+  /**
+   * Activity ticker placement (TASK_2026_405 follow-up). The ticker used to be
+   * a fixed toast in the top-right corner that published its own width, and
+   * the dock padded its right edge from that width — so every arriving message
+   * moved the Layout and New Session buttons. It now sits in this row, in
+   * normal flow, on the free left edge.
+   */
+  it('renders the ticker inside the dock, before the layout controls', () => {
+    activityIdle.set(false);
+    activityItems.set([activityItem('a', 'Backup finished')]);
+    fixture.detectChanges();
+
+    const tickerEl = ticker();
+    expect(tickerEl).toBeTruthy();
+    expect(dock().nativeElement.contains(tickerEl.nativeElement)).toBe(true);
+
+    // DOM order decides the visual order: ticker first, controls after it.
+    const controls = dock().query(By.directive(CanvasLayoutControlsComponent));
+    expect(
+      tickerEl.nativeElement.compareDocumentPosition(controls.nativeElement) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('never positions the ticker with fixed or absolute placement', () => {
+    activityIdle.set(false);
+    activityItems.set([activityItem('a', 'Backup finished')]);
+    fixture.detectChanges();
+
+    const classes = ticker().nativeElement.parentElement?.className ?? '';
+    expect(classes).not.toContain('fixed');
+    expect(classes).not.toContain('absolute');
+    // The left cell absorbs all spare width, so the right controls cannot move.
+    expect(classes).toContain('flex-1');
+    expect(classes).toContain('min-w-0');
+  });
+
+  it('keeps the dock free of any width reservation for the ticker', () => {
+    const dockEl = dock().nativeElement as HTMLElement;
+    expect(dockEl.getAttribute('style') ?? '').not.toContain('padding-right');
+    expect(dockEl.className).not.toContain('justify-end');
+  });
+
+  it('drops the ticker while idle and brings it back on the next message', () => {
+    expect(ticker()).toBeNull();
+
+    activityIdle.set(false);
+    activityItems.set([activityItem('a', 'Backup finished')]);
+    fixture.detectChanges();
+    expect(ticker()).toBeTruthy();
+
+    activityIdle.set(true);
+    fixture.detectChanges();
+    expect(ticker()).toBeNull();
+  });
+
+  it('opens Thoth when the dock ticker is clicked', () => {
+    activityIdle.set(false);
+    activityItems.set([activityItem('a', 'Backup finished')]);
+    fixture.detectChanges();
+
+    const line = ticker().nativeElement.querySelector(
+      '[data-testid="activity-ticker-line"]',
+    );
+    expect(line?.textContent?.trim()).toBe('Backup finished');
+
+    ticker().nativeElement.querySelector('button')?.click();
+    expect(setCurrentViewMock).toHaveBeenCalledWith('thoth');
   });
 
   it('toggles lock state when layout controls emit lockToggled', () => {

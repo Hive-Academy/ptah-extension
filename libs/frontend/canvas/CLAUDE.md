@@ -9,7 +9,7 @@ Multi-session Orchestra Canvas panel. It renders a drag-and-resize Gridstack gri
 ## Boundaries
 
 **Belongs here**: tile composition, panel-scoped layout/store/persistence, and agent indicator widgets.
-**Does not belong**: tab lifecycle (`@ptah-extension/chat`), session RPC, or app routing (`AppStateManager`).
+**Does not belong**: tab lifecycle (`@ptah-extension/chat`), session RPC, or app routing (`AppStateManager`). One deliberate exception: the dock's activity ticker calls `setCurrentView('thoth')` on click, mirroring `ElectronShellComponent`'s handler. That is a single navigation for a user click, not routing logic owned here.
 
 ## Public API
 
@@ -17,7 +17,7 @@ Multi-session Orchestra Canvas panel. It renders a drag-and-resize Gridstack gri
 
 ## Key Files
 
-- `orchestra-canvas.component.ts` is the OnPush panel root. Its providers scope the store, layout, persistence, and metrics services to one canvas instance.
+- `orchestra-canvas.component.ts` is the OnPush panel root. Its providers scope the store, layout, persistence, and metrics services to one canvas instance. Its dock row also hosts the back-office activity ticker on the free left edge, in normal flow (TASK_2026_405 follow-up). The ticker's cell is `flex-1 min-w-0`, so it absorbs every spare pixel and the Layout and New Session controls after it never move. Do not give the ticker a fixed or absolute position, and do not make the dock reserve width for it — that width reservation is exactly the layout shift this placement removed.
 - `canvas.store.ts` is the intent facade. State is partitioned by workspace and contains active-session focus, transient layout focus, revisions, lock state, and at most nine tiles.
 - `canvas-layout-intent.ts` owns the `TileWidthIntent` union, 12-unit deterministic packer, preset projection, resize snapping, row-preserving reconciliation, span-aware drag projection, the 6/2 height tiers, and transient view-constraint projection.
 - `canvas-layout.service.ts` observes the viewport and projects intent to public Gridstack geometry. Responsive capacity derives from `MIN_TILE_WIDTH = 480` and never mutates stored intent. `computeLayout(tiles, layoutFocusTabId, viewConstraints)` returns per-tile geometry plus the fitted `cellHeight`; the 90% viewport floor applies only while a full-height tile is wrapped.

@@ -20,7 +20,12 @@ import {
   Unlock,
 } from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { AppStateManager, defaultSessionName } from '@ptah-extension/core';
+import { ActivityTickerComponent } from '@ptah-extension/chat-ui';
+import {
+  AppStateManager,
+  BackOfficeActivityService,
+  defaultSessionName,
+} from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
@@ -65,6 +70,7 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
     CanvasWorkspaceGridComponent,
     CanvasEmptyStateComponent,
     CanvasLayoutControlsComponent,
+    ActivityTickerComponent,
     LucideAngularModule,
     NativePopoverComponent,
   ],
@@ -76,9 +82,31 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
       @if (canvasStore.tiles().length > 0) {
         <!-- Reserved canvas control dock outside measured session viewport -->
         <div
-          class="canvas-dock flex items-center justify-end gap-2 pl-3 py-1.5 border-b border-base-content/10 shrink-0 bg-base-200/50 backdrop-blur-sm z-20"
+          class="canvas-dock flex items-center gap-2 px-3 py-1.5 border-b border-base-content/10 shrink-0 bg-base-200/50 backdrop-blur-sm z-20"
           data-testid="canvas-dock"
         >
+          <!--
+            Back-office activity ticker (TASK_2026_405 follow-up).
+
+            It sits in this row's free left edge, in normal flow — not in a
+            fixed overlay, and not in the navbar row, where its width would
+            shift the tab strip. This cell takes every spare pixel
+            (flex-1 min-w-0), so the controls after it stay pinned to the
+            right edge and never move when a message arrives or changes
+            length. The ticker's own button carries max-w + truncate, so a
+            long summary is clipped rather than pushed into the controls.
+          -->
+          <div class="flex items-center min-w-0 flex-1">
+            @if (!activity.isIdle()) {
+              <ptah-activity-ticker
+                data-testid="activity-ticker-host"
+                [items]="activity.recent()"
+                [idle]="activity.isIdle()"
+                (activate)="openThoth()"
+              />
+            }
+          </div>
+
           <ptah-canvas-layout-controls
             [locked]="locked()"
             [tileCount]="canvasStore.tiles().length"
@@ -245,25 +273,14 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
       gridstack {
         min-height: 200px;
       }
-
-      /* The Electron shell floats the activity toast over this corner and
-         publishes its width, so the dock controls stay to the toast's left. */
-      .canvas-dock {
-        padding-right: calc(0.75rem + var(--ptah-activity-toast-inset, 0px));
-        transition: padding-right 160ms ease-out;
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .canvas-dock {
-          transition: none;
-        }
-      }
     `,
   ],
 })
 export class OrchestraCanvasComponent implements OnDestroy {
   readonly canvasStore = inject(CanvasStore);
   private readonly appState = inject(AppStateManager);
+  /** The dock ticker's only source of items (TASK_2026_380). */
+  protected readonly activity = inject(BackOfficeActivityService);
   private readonly tabManager = inject(TabManagerService);
   private readonly chatStore = inject(ChatStore);
   private readonly layoutService = inject(CanvasLayoutService);
@@ -449,6 +466,17 @@ export class OrchestraCanvasComponent implements OnDestroy {
 
   protected applyPreset(preset: CanvasLayoutPreset): void {
     this.canvasStore.applyPreset(preset);
+  }
+
+  /**
+   * The dock ticker's click target. It mirrors `ElectronShellComponent`'s
+   * handler so the ticker opens the same destination from either host.
+   */
+  protected openThoth(): void {
+    if (!this.appState.thothFirstRunDismissed()) {
+      this.appState.dismissThothFirstRun();
+    }
+    this.appState.setCurrentView('thoth');
   }
 
   ngOnDestroy(): void {
