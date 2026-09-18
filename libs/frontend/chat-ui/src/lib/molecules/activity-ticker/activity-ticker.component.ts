@@ -17,10 +17,10 @@ import type { ActivityItem } from '@ptah-extension/core';
  * component 14e).
  *
  * Purely presentational and unpositioned: it renders wherever its host puts
- * it. Since TASK_2026_405 that host is the floating toast in
- * `ElectronShellComponent`, not the navbar action cluster — the toast owns
- * `position`, `z-index` and pointer-event handling, this component owns none
- * of it.
+ * it. That host is the canvas dock row in `OrchestraCanvasComponent`, which
+ * puts it in normal flow on the row's free left edge. It is deliberately NOT
+ * in the navbar action cluster: an arriving message would resize that cluster
+ * and shift the tab strip (TASK_2026_405).
  *
  * Shows one {@link ActivityItem} at a time and rotates through the list on a
  * timer, so a burst of background work reads as a sentence rather than a
@@ -33,7 +33,7 @@ import type { ActivityItem } from '@ptah-extension/core';
  * stylesheet rather than in TypeScript.
  *
  * When `idle()` is true the component collapses to a muted dot that is STILL a
- * click target and still in the DOM. The toast host additionally drops the
+ * click target and still in the DOM. The dock host additionally drops the
  * whole element while idle; this collapse is what a host that wants to keep
  * the ticker mounted gets instead.
  */

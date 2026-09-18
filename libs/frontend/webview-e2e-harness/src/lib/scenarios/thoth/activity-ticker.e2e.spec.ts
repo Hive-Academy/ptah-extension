@@ -6,23 +6,25 @@
  * `BackOfficeActivityService`'s unit tests (component 14d) pin the mapper
  * and ring behaviour in isolation, and `ActivityTickerComponent`'s unit
  * tests (component 14e) pin the rotation/idle-collapse behaviour against
- * inputs it is handed directly. Neither proves the wiring in
- * `electron-shell.component.ts` — the service injected and
- * `<ptah-activity-ticker>` mounted in the floating toast — actually carries a
- * real `activity:event` push from the message router into the rendered
- * ticker line.
+ * inputs it is handed directly. Neither proves that a real `activity:event`
+ * push through the message router leaves the shell chrome alone, which is
+ * what this scenario covers.
  *
- * Since TASK_2026_405 the ticker is NOT in the navbar: it renders inside the
- * fixed `[data-testid="activity-toast"]` card, and the whole toast is absent
- * from the DOM while the service reports idle. The assertions below therefore
- * check both the line text and that the navbar row holds no activity element.
+ * Since TASK_2026_405 the ticker is NOT in the navbar. Its host is the canvas
+ * dock row (`OrchestraCanvasComponent`), which renders only when the canvas
+ * holds at least one tile — this harness opens no session, so the rendered
+ * ticker line is out of reach here. Those assertions live in
+ * `libs/frontend/canvas/src/lib/orchestra-canvas.component.spec.ts`. What a
+ * real bundle can still prove is asserted below: the shell mounts no ticker
+ * and no leftover toast, and the tab strip does not move however long the
+ * summary is.
  *
  * Uses the REAL `ptah-extension-webview` Angular bundle, following the
  * pattern (and the `isElectron: true` `ptahConfig` justification) in
  * `../thoth/skills-lane-pickers.e2e.spec.ts` — read its file doc comment
  * before changing that flag. This spec does not navigate into the Thoth
- * tab; the ticker lives in the shell header, mounted as soon as the
- * workspace gate clears, independent of which tab is active.
+ * tab; the shell chrome it asserts on is mounted as soon as the workspace
+ * gate clears, independent of which tab is active.
  */
 import type { Page } from '@playwright/test';
 import { test, expect } from '../../test-fixtures';
@@ -31,8 +33,8 @@ import { installCspStub } from '../../csp-stub';
 
 const RPC_FIXTURES: Record<string, unknown> = {
   // Clears `ElectronLayoutService.hasWorkspaceFolders()` so
-  // `ElectronShellComponent` renders the 3-panel layout (and its header,
-  // where the ticker lives) instead of the open-folder gate.
+  // `ElectronShellComponent` renders the 3-panel layout and its navbar row
+  // instead of the open-folder gate.
   'workspace:getInfo': {
     folders: ['C:\\ptah-e2e-ws'],
     activeFolder: 'C:\\ptah-e2e-ws',
@@ -112,7 +114,7 @@ async function installRpcAutoResponder(
 test.use({ useAppBuild: true });
 
 test.describe('webview > thoth > activity ticker', () => {
-  test('an activity:event push renders in the header ticker line', async ({
+  test('an activity:event push never disturbs the shell chrome', async ({
     page,
     fixtureServer,
   }) => {
@@ -121,17 +123,19 @@ test.describe('webview > thoth > activity ticker', () => {
     await installRpcAutoResponder(page, RPC_FIXTURES);
     await page.goto(fixtureServer.url);
 
-    // Idle by default (empty ring) — the toast is not in the DOM at all, so
-    // neither the card nor the line exists yet (TASK_2026_405).
+    const tabStrip = page.locator('[role="tablist"].electron-tabs');
+    await expect(tabStrip).toHaveCount(1);
+    const beforeBox = await tabStrip.boundingBox();
+
+    // The removed floating toast leaves nothing behind: no pass-through
+    // layer, no card, and no ticker anywhere in the shell.
+    await expect(
+      page.locator('[data-testid="activity-toast-layer"]'),
+    ).toHaveCount(0);
     await expect(page.locator('[data-testid="activity-toast"]')).toHaveCount(0);
     await expect(
-      page.locator('[data-testid="activity-ticker-line"]'),
+      page.locator('ptah-electron-shell > ptah-activity-ticker'),
     ).toHaveCount(0);
-
-    // The pass-through layer is always mounted and never takes clicks.
-    const layer = page.locator('[data-testid="activity-toast-layer"]');
-    await expect(layer).toHaveCount(1);
-    await expect(layer).toHaveCSS('pointer-events', 'none');
 
     await bridge.inject({
       type: 'activity:event',
@@ -143,23 +147,11 @@ test.describe('webview > thoth > activity ticker', () => {
       },
     });
 
-    const line = page.locator('[data-testid="activity-ticker-line"]');
-    await expect(line).toBeVisible();
-    await expect(line).toContainText('Backup finished');
-
-    // The visible card opts back into pointer events, so it stays clickable.
-    await expect(page.locator('[data-testid="activity-toast"]')).toHaveCSS(
-      'pointer-events',
-      'auto',
-    );
-
-    // AC 1: the ticker no longer lives inside the navbar row, so the tab
-    // strip cannot be pushed by a long summary.
+    // AC 1: the ticker is not in the navbar row, so no summary — however
+    // long — can push the tab strip.
     await expect(
       page.locator('[role="tablist"] [data-testid="activity-ticker-line"]'),
     ).toHaveCount(0);
-    const tabStrip = page.locator('[role="tablist"].electron-tabs');
-    const beforeBox = await tabStrip.boundingBox();
 
     await bridge.inject({
       type: 'activity:event',
@@ -171,7 +163,6 @@ test.describe('webview > thoth > activity ticker', () => {
         timestamp: Date.now(),
       },
     });
-    await expect(line).toContainText('considerably longer');
 
     const afterBox = await tabStrip.boundingBox();
     expect(afterBox?.x).toBe(beforeBox?.x);
