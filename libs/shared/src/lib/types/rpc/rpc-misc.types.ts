@@ -111,7 +111,16 @@ export interface AutocompleteAgentsResult {
 export interface AutocompleteCommandInfo {
   name: string;
   description: string;
+  /**
+   * Describes WHO supplied the entry (scope) vs WHAT KIND of entry it is (source).
+   * The two are orthogonal and neither replaces the other.
+   */
   scope: 'builtin' | 'project' | 'user' | 'mcp' | 'plugin';
+  /**
+   * Describes WHAT KIND of entry it is: a hardcoded built-in command,
+   * a markdown command from `.claude/commands/`, or a skill from `.claude/skills/`.
+   */
+  source: 'builtin' | 'command' | 'skill';
   argumentHint?: string;
 }
 

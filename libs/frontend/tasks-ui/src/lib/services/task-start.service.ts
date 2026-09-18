@@ -1,10 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { AppStateManager } from '@ptah-extension/core';
-import { TasksStore } from './tasks-store.service';
+import { TaskPromptContextService } from './task-prompt-context.service';
 import type { TaskAgentTarget } from '../types/task-agent.types';
-
-/** Guard for the `ChatPromptRequest.resolve` bridge (§8.3): treat as failure. */
-const RESOLVE_GUARD_TIMEOUT_MS = 30_000;
 
 /**
  * The slash command Start submits — UN-NAMESPACED, and it has to stay that way.
@@ -34,22 +31,25 @@ const ISOLATION_DIRECTIVE =
 /**
  * TaskStartService — orchestration launch flow for a board task (R6).
  *
- * Sequence (all frontend; only `AppStateManager` + `TasksStore` are touched —
- * **no `chat` import**, NFR-11):
- *   1. Build the prompt `/orchestrate <TASK_ID>`, appending an
- *      agent-managed worktree-isolation directive when `isolate` is chosen (the
- *      agent isolates its own work; the host never creates a worktree — F-D1).
- *   2. `appState.requestChatPrompt(...)` behind a 30s resolve guard.
- *   3. on resolved success ONLY → `TasksStore.updateStatus(taskId, 'in_progress')`.
+ * What it does: build the orchestrate prompt (the agent-managed worktree-
+ * isolation directive when `isolate` is chosen, then a deterministic
+ * launch-time context block from {@link TaskPromptContextService}), publish it
+ * on the `AppStateManager` `ChatPromptRequest` signal bridge, and surface a
+ * launch error when the bridge reports one. The chat consumer PREFILLS a
+ * composer tab with the prompt — the user reviews and presses send; nothing
+ * is sent from here. All frontend; only `AppStateManager` is touched —
+ * **no `chat` import**, NFR-11.
  *
- * Failure posture (§8.3): a structural session failure / guard timeout leaves
- * the status untouched (no phantom transition). `updateStatus` fail post-start →
- * `TasksStore.error` surfaces; the session keeps running (no phantom rollback).
+ * **The AGENT owns the status transition.** This service never writes task
+ * status: the agent that receives the prompt moves the task to `in_progress`
+ * as part of the run it starts. Do not restore an `updateStatus` call on
+ * launch as a "missing feature" — the board deliberately stopped owning task
+ * status (TASK_2026_471, Batch C).
  */
 @Injectable({ providedIn: 'root' })
 export class TaskStartService {
   private readonly appState = inject(AppStateManager);
-  private readonly store = inject(TasksStore);
+  private readonly promptContext = inject(TaskPromptContextService);
 
   private readonly _busyTaskId = signal<string | null>(null);
   private readonly _error = signal<string | null>(null);
@@ -85,12 +85,7 @@ export class TaskStartService {
         this._error.set(
           `Could not start orchestration for ${taskId}: ${launch.error ?? 'unknown error'}`,
         );
-        return; // status untouched (§8.3)
       }
-
-      // Success ONLY here — TasksStore surfaces its own error if this fails,
-      // and the running session is intentionally left alone (§8.3).
-      await this.store.updateStatus(taskId, 'in_progress');
     } catch (error: unknown) {
       // Defense-in-depth: the awaited calls above are all verified to resolve
       // (never reject) today, so this is dormant — but a future change that
@@ -107,45 +102,46 @@ export class TaskStartService {
   }
 
   /**
-   * Fire the `ChatPromptRequest` bridge and await the chat consumer's resolve,
-   * behind a 30s guard that maps a missing resolve to a failure (no transition).
+   * Fire the `ChatPromptRequest` bridge and await the chat consumer's resolve
+   * — no timer. The consumer (`TaskPromptBridgeService`) settles `resolve`
+   * from its `finally` on both the prefill path and a caught tab-creation
+   * throw, so a structural failure reaches the error banner and success never
+   * stalls the launch.
    */
-  private launchPrompt(
+  private async launchPrompt(
     taskId: string,
     isolate: boolean,
     targetAgent?: TaskAgentTarget,
   ): Promise<{ success: boolean; error?: string }> {
+    const prompt = await this.buildPrompt(taskId, isolate, targetAgent);
     return new Promise((resolve) => {
-      let settled = false;
-      const settle = (result: { success: boolean; error?: string }): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(result);
-      };
-      const timer = setTimeout(
-        () =>
-          settle({
-            success: false,
-            error: 'Timed out waiting for the session to start',
-          }),
-        RESOLVE_GUARD_TIMEOUT_MS,
-      );
-
-      const basePrompt = this.buildPrompt(taskId, targetAgent);
-      const prompt = isolate
-        ? `${basePrompt}${ISOLATION_DIRECTIVE}`
-        : basePrompt;
-
       this.appState.requestChatPrompt({
         prompt,
         sessionName: taskId,
-        resolve: (result) => settle(result),
+        resolve: (result) => resolve(result),
       });
     });
   }
 
-  private buildPrompt(taskId: string, targetAgent?: TaskAgentTarget): string {
+  /**
+   * Prompt body + optional isolation directive + launch-time context block,
+   * in that order: the context block is always the LAST thing in the prompt.
+   */
+  private async buildPrompt(
+    taskId: string,
+    isolate: boolean,
+    targetAgent?: TaskAgentTarget,
+  ): Promise<string> {
+    const body = this.buildPromptBody(taskId, targetAgent);
+    const withIsolation = isolate ? `${body}${ISOLATION_DIRECTIVE}` : body;
+    const contextBlock = await this.promptContext.buildContextBlock(taskId);
+    return contextBlock ? `${withIsolation}${contextBlock}` : withIsolation;
+  }
+
+  private buildPromptBody(
+    taskId: string,
+    targetAgent?: TaskAgentTarget,
+  ): string {
     if (targetAgent?.category === 'specialist' && targetAgent.role) {
       return (
         `${ORCHESTRATE_COMMAND} ${taskId} --agent ${targetAgent.role}\n\n` +

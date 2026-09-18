@@ -838,6 +838,18 @@ export class ChatViewComponent implements OnDestroy {
     });
 
     effect(() => {
+      const request = this._appState.composerPrefillRequest();
+      if (request.seq === 0) return;
+      untracked(() => {
+        const mine = this._sessionContext
+          ? request.tabId === this._sessionContext()
+          : request.tabId === null;
+        if (!mine) return;
+        this.handlePromptSelected(request.text);
+      });
+    });
+
+    effect(() => {
       const agents = this.sessionAgents();
       const hasRunning = agents.some((a) => a.status === 'running');
       const hasPendingPermission = agents.some(

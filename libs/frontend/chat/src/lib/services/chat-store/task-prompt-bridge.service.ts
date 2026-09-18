@@ -1,7 +1,6 @@
 import { Injectable, effect, inject, untracked } from '@angular/core';
 import { AppStateManager, type ChatPromptRequest } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { MessageSenderService } from '../message-sender.service';
 
 /**
  * TaskPromptBridgeService — consumes {@link AppStateManager.chatPromptRequest}.
@@ -20,21 +19,18 @@ import { MessageSenderService } from '../message-sender.service';
  *     adopts the new tab as a tile (F-D3) — a fresh mount is covered by the
  *     canvas's own `restoreCanvasTilesFromTabs`, and `adoptTab` dedups the
  *     overlap; single layout has no canvas so the request is skipped,
- *  3. submits the prompt through the normal send path (`MessageSenderService`
- *     → `chat:start`; the backend `SlashCommandInterceptor` routes a
- *     `/orchestrate …` prompt to `executeSlashCommandQuery`),
+ *  3. prefills the freshly created tab's composer so the user can review and
+ *     edit the prompt before sending it,
  *  4. settles `request.resolve` and clears the bridge signal.
  *
- * Sends run against the standard workspace root (the existing `chat:start`
- * mechanics). Worktree isolation is agent-managed (F-D1): the orchestrate
- * prompt carries a natural-language directive so the agent isolates its own
- * implementation work — no host-side worktree or `cwd` override is involved.
+ * Worktree isolation remains agent-managed (F-D1): the prefilled orchestrate
+ * prompt carries the directive so the agent can isolate its implementation
+ * work after the user reviews and sends it.
  */
 @Injectable({ providedIn: 'root' })
 export class TaskPromptBridgeService {
   private readonly appState = inject(AppStateManager);
   private readonly tabManager = inject(TabManagerService);
-  private readonly messageSender = inject(MessageSenderService);
 
   /** Re-entrancy guard: one launch at a time (clearing the signal re-fires). */
   private processing = false;
@@ -66,16 +62,16 @@ export class TaskPromptBridgeService {
       // adopts a newly-created tab — this bridge closes that gap. The canvas
       // effect's `adoptTab` dedups, so a double-adopt on a fresh mount is safe;
       // single layout has no canvas mounted, so we skip the request there.
-      if (this.appState.layoutMode() === 'grid') {
+      const gridLayout = this.appState.layoutMode() === 'grid';
+      if (gridLayout) {
         this.appState.requestCanvasTab(tabId, name);
       }
-      // Adopt the send's structured outcome so a *structural* chat:start failure
-      // (transport OK but `data.success === false` — AUTH_REQUIRED, model
-      // unavailable, license gate) resolves as failure, not the default success
-      // — otherwise the Tasks board flips to a phantom `in_progress` on a session
-      // that never started (TASK_2026_157 F-D2). A thrown error is still caught
-      // below.
-      outcome = await this.messageSender.send(request.prompt, { tabId });
+      // Only canvas tiles have SESSION_CONTEXT. In single layout, null scopes
+      // the request to the main panel, which is already showing this active tab.
+      this.appState.requestComposerPrefill(
+        request.prompt,
+        gridLayout ? tabId : null,
+      );
     } catch (error: unknown) {
       outcome = {
         success: false,
