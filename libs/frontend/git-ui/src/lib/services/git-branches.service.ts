@@ -547,7 +547,7 @@ export class GitBranchesService implements MessageHandler {
       }
       return {
         success: false,
-        error: response.error ?? `${method} RPC failed`,
+        ...(response.error ? { error: response.error } : {}),
       };
     } catch (err: unknown) {
       console.error(`[GitBranchesService] ${label} failed`, err);

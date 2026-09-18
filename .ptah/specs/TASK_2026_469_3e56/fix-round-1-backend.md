@@ -6,13 +6,13 @@
 
 - **Status**: fixed
 - **Files**:
-  - `D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts:495` (`GitStashRefParams.expectedHash`)
-  - `D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts:601` (`StashEntry.hash`)
-  - `D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-rpc.schema.ts:106` (`GitStashRefParamsSchema.expectedHash`)
-  - `D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-rpc.handlers.ts:821`, `854`, `880` (`registerGitStashMutations` and `registerGitStashShow` forwarding `expectedHash`)
-  - `D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts:2455` (`computeStashList` includes `%H` in format and populates `hash`)
-  - `D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts:2519` (`runStashMutation` pre-verifies ref with `git rev-parse --verify` when `expectedHash` is provided)
-  - `D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts:2572` (`stashShow` pre-verifies ref with `git rev-parse --verify` when `expectedHash` is provided)
+  - `libs/shared/src/lib/types/rpc/rpc-git.types.ts:495` (`GitStashRefParams.expectedHash`)
+  - `libs/shared/src/lib/types/rpc/rpc-git.types.ts:601` (`StashEntry.hash`)
+  - `libs/backend/rpc-handlers/src/lib/handlers/git-rpc.schema.ts:106` (`GitStashRefParamsSchema.expectedHash`)
+  - `libs/backend/rpc-handlers/src/lib/handlers/git-rpc.handlers.ts:821`, `854`, `880` (`registerGitStashMutations` and `registerGitStashShow` forwarding `expectedHash`)
+  - `libs/backend/vscode-core/src/services/git-info.service.ts:2455` (`computeStashList` includes `%H` in format and populates `hash`)
+  - `libs/backend/vscode-core/src/services/git-info.service.ts:2519` (`runStashMutation` pre-verifies ref with `git rev-parse --verify` when `expectedHash` is provided)
+  - `libs/backend/vscode-core/src/services/git-info.service.ts:2572` (`stashShow` pre-verifies ref with `git rev-parse --verify` when `expectedHash` is provided)
 - **Tests**:
   - `libs/backend/vscode-core/src/services/git-info.service.remote-stash.spec.ts`:
     - `populates full commit hash on each stash entry`
@@ -29,7 +29,7 @@
 
 - **Status**: fixed
 - **Files**:
-  - `D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts:2446` (`stashList` returns `computeStashList` directly, stopping `cachedRead`)
+  - `libs/backend/vscode-core/src/services/git-info.service.ts:2446` (`stashList` returns `computeStashList` directly, stopping `cachedRead`)
 - **Tests**:
   - `libs/backend/vscode-core/src/services/git-info.service.remote-stash.spec.ts`:
     - `immediately reflects an external git stash drop without caching`
@@ -38,9 +38,9 @@
 
 - **Status**: fixed
 - **Files**:
-  - `D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts:235` (`isGitAuthFailure` classifier)
-  - `D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts:1006` (`push` passes `GIT_TERMINAL_PROMPT=0` and handles authentication failure)
-  - `D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts:1097` (`runRemoteSync` for `pull`/`fetch` passes `GIT_TERMINAL_PROMPT=0` and handles authentication failure)
+  - `libs/backend/vscode-core/src/services/git-info.service.ts:235` (`isGitAuthFailure` classifier)
+  - `libs/backend/vscode-core/src/services/git-info.service.ts:1006` (`push` passes `GIT_TERMINAL_PROMPT=0` and handles authentication failure)
+  - `libs/backend/vscode-core/src/services/git-info.service.ts:1097` (`runRemoteSync` for `pull`/`fetch` passes `GIT_TERMINAL_PROMPT=0` and handles authentication failure)
 - **Tests**:
   - `libs/backend/vscode-core/src/services/git-info.service.spec.ts`:
     - `push passes GIT_TERMINAL_PROMPT=0 and translates auth failures`
@@ -51,8 +51,8 @@
 
 - **Status**: fixed
 - **Files**:
-  - `D:/projects/ptah-extension/libs/backend/platform-core/src/utils/terminal-launch.ts:172` (`spawnTerminalProcess` loops over subsequent candidates when launch fails before throwing)
-  - `D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/editor-rpc.handlers.ts:185` (`openDetected` loops over all matching candidates for `targetId` on launch failure)
+  - `libs/backend/platform-core/src/utils/terminal-launch.ts:172` (`spawnTerminalProcess` loops over subsequent candidates when launch fails before throwing)
+  - `libs/backend/rpc-handlers/src/lib/handlers/editor-rpc.handlers.ts:185` (`openDetected` loops over all matching candidates for `targetId` on launch failure)
 - **Tests**:
   - `libs/backend/platform-core/src/utils/terminal-launch.spec.ts`:
     - `tries the next candidate when the first candidate fails to start`
@@ -63,7 +63,7 @@
 
 - **Status**: fixed
 - **Files**:
-  - `D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts:2605` (`stashShow` checks `git rev-parse --verify --quiet stash@{N}^3` and includes untracked files via `ls-tree -r --name-only -z` as status `'A'`)
+  - `libs/backend/vscode-core/src/services/git-info.service.ts:2605` (`stashShow` checks `git rev-parse --verify --quiet stash@{N}^3` and includes untracked files via `ls-tree -r --name-only -z` as status `'A'`)
 - **Tests**:
   - `libs/backend/vscode-core/src/services/git-info.service.remote-stash.spec.ts`:
     - `includes untracked files from parent 3 as status A in stashShow`

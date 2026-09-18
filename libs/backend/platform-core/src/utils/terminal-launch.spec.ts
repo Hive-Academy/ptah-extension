@@ -212,8 +212,11 @@ describe('terminal launch', () => {
       });
     });
 
-    it('rejects when the terminal never started', async () => {
-      const { spawnProcess } = fakeSpawner([{ pid: null }]);
+    it('rejects when no terminal candidate starts', async () => {
+      const { spawnProcess } = fakeSpawner([
+        { pid: null },
+        ...linuxList.map(() => ({ pid: null })),
+      ]);
 
       await expect(
         spawnTerminalProcess(
@@ -223,21 +226,33 @@ describe('terminal launch', () => {
           'linux',
         ),
       ).rejects.toThrow('Failed to launch Terminal');
-      expect(spawnProcess).toHaveBeenCalledTimes(1);
+      expect(spawnProcess).toHaveBeenCalledTimes(1 + linuxList.length);
     });
 
-    it('attempts only the detected candidate when it is not in the built-in list', async () => {
-      const { spawnProcess } = fakeSpawner([{ pid: 1, exitCode: 0 }]);
+    it('appends every built-in candidate after a detected path outside the built-in list', async () => {
+      const customTerminal = path.resolve('custom-terminal');
+      const { spawnProcess } = fakeSpawner([
+        { pid: null },
+        ...linuxList.map(() => ({ pid: null })),
+      ]);
 
       await expect(
         spawnTerminalProcess(
           { spawnProcess } as never,
-          terminalTarget(path.resolve('custom-terminal')),
+          terminalTarget(customTerminal),
           root,
           'linux',
         ),
-      ).resolves.toBeUndefined();
-      expect(spawnProcess).toHaveBeenCalledTimes(1);
+      ).rejects.toThrow('Failed to launch Terminal');
+      expect(
+        spawnProcess.mock.calls.map(
+          ([request]) => (request as { command: string }).command,
+        ),
+      ).toEqual(
+        [customTerminal, ...linuxList].map((candidate) =>
+          path.normalize(candidate),
+        ),
+      );
     });
 
     it('tries the next candidate when the first candidate never starts', async () => {
@@ -325,13 +340,10 @@ describe('terminal launch', () => {
       expect(spawnProcess).toHaveBeenCalledTimes(2);
     });
 
-    it('answers as soon as the last candidate starts, without waiting out the probe', async () => {
+    it('rejects when the final candidate starts and then dies inside the probe window', async () => {
       jest.useFakeTimers();
       try {
-        // macOS has exactly one candidate, so nothing can rescue a bad
-        // launch and the wait would buy nothing. Timers never advance here:
-        // the call has to settle on its own.
-        const { spawnProcess } = fakeSpawner([{ pid: 77 }]);
+        const { spawnProcess } = fakeSpawner([{ pid: 77, exitCode: 1 }]);
 
         await expect(
           spawnTerminalProcess(
@@ -340,7 +352,7 @@ describe('terminal launch', () => {
             root,
             'darwin',
           ),
-        ).resolves.toBeUndefined();
+        ).rejects.toThrow('Failed to launch Terminal');
         expect(spawnProcess).toHaveBeenCalledTimes(1);
       } finally {
         jest.useRealTimers();

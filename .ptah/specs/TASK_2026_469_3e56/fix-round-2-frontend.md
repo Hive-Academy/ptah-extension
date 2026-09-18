@@ -21,10 +21,12 @@
 5. **Fixed** — `mutate()` does not overwrite a real list-reload failure with `STASH_LIST_CHANGED_ERROR`.
    - Source: `libs/frontend/git-ui/src/lib/services/git-stash.service.ts:307`
    - Test: `preserves a real list-reload failure instead of overwriting with STASH_LIST_CHANGED_ERROR` (`libs/frontend/git-ui/src/lib/services/git-stash.service.spec.ts:409`)
+   - Scope: this proves the directly awaited reload failure is preserved. It does not cover a mutation reload later superseded by a newer failed reload; that remaining defect is recorded in the final frontend logic review and fixed by the subsequent PR-review pass.
 
 6. **Fixed** — a failed mutation that invalidated in-flight list reads triggers a recovery reload while preserving the mutation's error outcome.
    - Source: `libs/frontend/git-ui/src/lib/services/git-stash.service.ts:314`
    - Test: `triggers a recovery list reload when a mutation fails and restores the mutation error` (`libs/frontend/git-ui/src/lib/services/git-stash.service.spec.ts:427`)
+   - Scope: this proves the recovery reload applies and the mutation error is restored in that named scenario. It does not prove a superseded recovery reload cannot overwrite a newer reload failure; that remaining defect is recorded in the final frontend logic review and fixed by the subsequent PR-review pass.
 
 7. **Fixed** — concurrent `openFileDiff` calls use a per-call token so only the latest clicked file request opens and activates a diff tab.
    - Source: `libs/frontend/git-ui/src/lib/services/git-stash.service.ts:358`

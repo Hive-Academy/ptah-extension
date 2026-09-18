@@ -21,6 +21,8 @@ import {
 
 export type GitStashMutation = 'apply' | 'pop' | 'drop';
 
+type ListReloadResult = 'applied' | 'failed' | 'superseded';
+
 /** Resolved commits a stash entry is diffed between: its parent and itself. */
 interface StashRefs {
   baseSha: string;
@@ -114,7 +116,7 @@ export class GitStashService {
     await this.loadListFor(workspace);
   }
 
-  private async loadListFor(workspace: string): Promise<boolean> {
+  private async loadListFor(workspace: string): Promise<ListReloadResult> {
     const generation = this.bumpGeneration(this.listGenerations, workspace);
     this.patch(workspace, { listLoading: true });
     try {
@@ -126,7 +128,7 @@ export class GitStashService {
       if (
         !this.isCurrentGeneration(this.listGenerations, workspace, generation)
       )
-        return true;
+        return 'superseded';
       if (
         response.success &&
         response.data &&
@@ -150,13 +152,13 @@ export class GitStashService {
                 refs: null,
               }),
         });
-        return true;
+        return 'applied';
       } else {
         this.patch(workspace, {
           listLoading: false,
           error: response.error ?? 'Could not list stashes.',
         });
-        return false;
+        return 'failed';
       }
     } catch (error: unknown) {
       // degradation-audit: reported - the message is published through the
@@ -164,12 +166,12 @@ export class GitStashService {
       if (
         !this.isCurrentGeneration(this.listGenerations, workspace, generation)
       )
-        return true;
+        return 'superseded';
       this.patch(workspace, {
         listLoading: false,
         error: messageOf(error, 'Could not list stashes.'),
       });
-      return false;
+      return 'failed';
     } finally {
       if (
         this.isCurrentGeneration(this.listGenerations, workspace, generation)
@@ -313,7 +315,7 @@ export class GitStashService {
     });
     if (outcome.error === STASH_LIST_CHANGED_ERROR) {
       const reloaded = await this.loadListFor(workspace);
-      if (reloaded) {
+      if (reloaded === 'applied') {
         this.patch(workspace, { error: STASH_LIST_CHANGED_ERROR });
       }
     }
@@ -326,7 +328,7 @@ export class GitStashService {
       const mutationError = this.stateFor(workspace).error;
       const reloaded = await this.loadListFor(workspace);
       if (
-        reloaded &&
+        reloaded === 'applied' &&
         mutationError &&
         this.gitStatus.activeWorkspacePath() === workspace
       ) {
@@ -342,7 +344,7 @@ export class GitStashService {
       const listRefresh = refreshes[0];
       if (
         refreshes.some(({ status }) => status === 'rejected') ||
-        (listRefresh.status === 'fulfilled' && !listRefresh.value)
+        (listRefresh.status === 'fulfilled' && listRefresh.value === 'failed')
       ) {
         this.patch(workspace, {
           error: `Stash ${kind} completed, but the view could not refresh.`,

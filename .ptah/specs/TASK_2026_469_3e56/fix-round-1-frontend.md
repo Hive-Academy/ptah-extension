@@ -33,6 +33,7 @@
 8. **Fixed** — drop confirmation is a `linkedSignal` reset by `isOpen`; the effect only loads the list.  
    Source: `libs/frontend/git-ui/src/lib/stash/stash-popover.component.ts:191`  
    Test: `resets drop confirmation when the popover open state changes` (`stash-popover.component.spec.ts:125`)
+   This supersedes the effect-write findings recorded in the frontend style review; those findings remain historical rather than active issues.
 
 9. **Fixed** — Apply, Pop, Drop, and confirm Drop expose contextual stash-ref labels.  
    Source: `libs/frontend/git-ui/src/lib/stash/stash-popover.component.ts:105`, `libs/frontend/git-ui/src/lib/stash/stash-popover.component.ts:123`, `libs/frontend/git-ui/src/lib/stash/stash-popover.component.ts:133`, `libs/frontend/git-ui/src/lib/stash/stash-popover.component.ts:143`  

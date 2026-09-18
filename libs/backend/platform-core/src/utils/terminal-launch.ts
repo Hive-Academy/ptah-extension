@@ -182,8 +182,9 @@ export const TERMINAL_EXIT_PROBE_MS = 1500;
  * a candidate that never starts, reports an `error`, or exits non-zero inside
  * {@link TERMINAL_EXIT_PROBE_MS} hands the launch to the next one — the
  * broken `WindowsApps\wt.exe` app-alias stub is exactly such a start-then-die.
- * Only a candidate with a fallback under it is watched; the last one has
- * nowhere to hand the launch to, so it answers as soon as it starts.
+ * Every candidate is watched, including the last one: a process that starts
+ * and then dies inside the probe window is still a failed launch even when no
+ * fallback remains.
  * This is the ONE fallback location; the RPC layer does not retry candidates.
  */
 export async function spawnTerminalProcess(
@@ -206,12 +207,11 @@ export async function spawnTerminalProcess(
         normalizeForComparison(candidate, platform) ===
         normalizeForComparison(executablePath, platform),
     );
-    if (targetIndex >= 0) {
-      for (let i = targetIndex + 1; i < all.length; i++) {
-        const nextCandidate = all[i];
-        if (!candidatePaths.includes(nextCandidate)) {
-          candidatePaths.push(nextCandidate);
-        }
+    const fallbackStart = targetIndex >= 0 ? targetIndex + 1 : 0;
+    for (let i = fallbackStart; i < all.length; i++) {
+      const nextCandidate = all[i];
+      if (!candidatePaths.includes(nextCandidate)) {
+        candidatePaths.push(nextCandidate);
       }
     }
   }
@@ -232,8 +232,7 @@ export async function spawnTerminalProcess(
   }
 
   let lastError: Error | undefined;
-  for (const [index, candidatePath] of candidatePaths.entries()) {
-    const hasFallback = index < candidatePaths.length - 1;
+  for (const candidatePath of candidatePaths) {
     try {
       const candidateTarget: EditorTarget = {
         ...target,
@@ -253,15 +252,7 @@ export async function spawnTerminalProcess(
         needsConsole: launch.needsConsole,
       });
       const pid = await handle.whenSpawned;
-      // The probe costs its full window for every terminal that stays alive,
-      // so it runs only where its answer can still change something: while a
-      // next candidate exists. On the last one there is nothing to fall back
-      // to, and waiting would only hold the RPC open behind a terminal the
-      // user can already see. macOS has a single candidate, so it never waits.
-      if (
-        pid !== null &&
-        (!hasFallback || !(await exitsInsideProbeWindow(handle)))
-      ) {
+      if (pid !== null && !(await exitsInsideProbeWindow(handle))) {
         return;
       }
       lastError = new Error(`Failed to launch ${target.displayName}`);

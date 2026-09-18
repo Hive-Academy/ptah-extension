@@ -719,8 +719,8 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
   describe('stashList()', () => {
     it('parses tab-separated stash list output into StashEntry[]', async () => {
       const stashOutput = [
-        'stash@{0}\tWIP on main: fix tests\t1700000100\t1111111111111111111111111111111111111111',
-        'stash@{1}\tWIP on feat/x: add feature\t1700000050\t2222222222222222222222222222222222222222',
+        'stash@{0}\t1111111111111111111111111111111111111111\t1700000100\tWIP on main: fix\ttests',
+        'stash@{1}\t2222222222222222222222222222222222222222\t1700000050\tWIP on feat/x: add feature',
         '',
       ].join('\n');
 
@@ -736,7 +736,7 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       const first = result.entries[0];
       expect(first.index).toBe(0);
       expect(first.hash).toBe('1111111111111111111111111111111111111111');
-      expect(first.message).toBe('WIP on main: fix tests');
+      expect(first.message).toBe('WIP on main: fix\ttests');
 
       const second = result.entries[1];
       expect(second.index).toBe(1);

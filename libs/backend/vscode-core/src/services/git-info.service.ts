@@ -2438,9 +2438,9 @@ export class GitInfoService {
 
   /**
    * List all stash entries.
-   * Runs: git stash list --format=%gd%x09%s%x09%ct%x09%H
-   * Tab (%x09) is used as the field separator — it cannot appear in stash
-   * messages entered via the CLI, so there is no collision with message content.
+   * Runs: git stash list --format=%gd%x09%H%x09%ct%x09%s
+   * Fixed fields come before the variable-length message, so a tab in the
+   * message cannot displace the commit hash or timestamp.
    * Not cached so external stash mutations (e.g. `git stash drop`) are immediately visible.
    */
   async stashList(workspacePath: string): Promise<GitStashListResult> {
@@ -2452,7 +2452,7 @@ export class GitInfoService {
   ): Promise<GitStashListResult> {
     try {
       const { stdout, exitCode } = await this.execGit(
-        ['stash', 'list', '--format=%gd%x09%s%x09%ct%x09%H'],
+        ['stash', 'list', '--format=%gd%x09%H%x09%ct%x09%s'],
         workspacePath,
       );
 
@@ -2467,9 +2467,9 @@ export class GitInfoService {
 
         const parts = trimmed.split('\t');
         const ref = parts[0] ?? '';
-        const message = parts[1] ?? '';
+        const hash = parts[1] ?? '';
         const timeRaw = parts[2] ?? '';
-        const hash = parts[3] ?? '';
+        const message = parts.slice(3).join('\t');
         const indexMatch = ref.match(/stash@\{(\d+)\}/);
         const index = indexMatch ? parseInt(indexMatch[1], 10) : 0;
         const time = timeRaw ? parseInt(timeRaw, 10) * 1000 : undefined;

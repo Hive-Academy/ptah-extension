@@ -445,6 +445,12 @@ describe('GitBranchesService (TASK_2026_111)', () => {
       spy.mockRestore();
       expect(result).toEqual({ success: false, error: 'offline' });
     });
+
+    it('leaves caller-specific fallback copy to the caller when the RPC has no error', async () => {
+      mockRpcCall.mockResolvedValueOnce({ success: false });
+
+      await expect(service[action]()).resolves.toEqual({ success: false });
+    });
   });
 
   // ==========================================================================

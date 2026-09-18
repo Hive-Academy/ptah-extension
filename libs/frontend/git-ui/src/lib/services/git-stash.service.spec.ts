@@ -418,6 +418,37 @@ describe('GitStashService', () => {
     expect(service.error()).toBe('Git index locked.');
   });
 
+  it('preserves a newer reload failure when the mutation reload is superseded', async () => {
+    let finishMutationReload: (value: unknown) => void = () => undefined;
+    mockRpcCall
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          success: false,
+          error: 'The stash list changed. Refresh and try again.',
+        },
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishMutationReload = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({ success: false, error: 'Git index locked.' });
+
+    const mutation = service.mutate('pop', ENTRIES[0]);
+    await Promise.resolve();
+    await Promise.resolve();
+    await service.loadList();
+    finishMutationReload({
+      success: true,
+      data: { count: 2, entries: ENTRIES },
+    });
+    await mutation;
+
+    expect(service.error()).toBe('Git index locked.');
+  });
+
   it('triggers a recovery list reload when a mutation fails and restores the mutation error', async () => {
     let finishList: (value: unknown) => void = () => undefined;
     mockRpcCall.mockImplementationOnce(

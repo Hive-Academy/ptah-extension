@@ -74,6 +74,7 @@ describe('GitDockHeaderComponent', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     gitStatus.activeWorkspacePath.set('/ws/a');
+    gitBranches.stashCount.set(0);
     reviewMode.set('working-tree');
     railCollapsed.set(false);
     gitStatus.branch.set({
@@ -275,6 +276,5 @@ describe('GitDockHeaderComponent', () => {
     fixture.detectChanges();
     expect(query(fixture, 'stash-popover')).toBeNull();
     expect(document.activeElement).toBe(trigger);
-    gitBranches.stashCount.set(0);
   });
 });
