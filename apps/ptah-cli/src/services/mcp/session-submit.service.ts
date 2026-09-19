@@ -116,6 +116,15 @@ export interface SessionSubmitServiceDeps {
     ms: number,
   ) => ReturnType<typeof setTimeout>;
   readonly clearTimeoutImpl?: (handle: ReturnType<typeof setTimeout>) => void;
+  /**
+   * Optional lazy SDK initializer. Called before invoking `chat:start` so a
+   * server booted with `requireSdk: false` initializes the adapter at the
+   * point of actual model use rather than at process start.
+   */
+  readonly ensureSdk?: () => Promise<{
+    initialized: boolean;
+    errorMessage?: string;
+  }>;
 }
 
 interface InFlightCall {
@@ -337,6 +346,21 @@ export class SessionSubmitService implements ISessionSubmitHandler {
   ): Promise<MCPResponse> {
     const randomId = this.deps.randomId ?? ulid;
     const tabId = randomId();
+
+    if (this.deps.ensureSdk !== undefined) {
+      const sdkResult = await this.deps.ensureSdk();
+      if (!sdkResult.initialized) {
+        const errorMsg =
+          sdkResult.errorMessage ?? 'No Anthropic API key configured.';
+        return buildErrorResult(
+          request,
+          `session_submit failed: ${errorMsg}`,
+          'sdk_init_failed',
+          { tabId, error: errorMsg },
+        );
+      }
+    }
+
     const allowSubagents = args.allowSubagents ?? true;
     const prompt = buildSessionSubmitPrompt(args.task, allowSubagents);
     const workspacePath = args.cwd ?? this.deps.cwd;
