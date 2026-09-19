@@ -44,14 +44,18 @@ export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
 export { CompactSessionActivityComponent } from './lib/molecules/compact-session/compact-session-activity.component';
-export { CompactSessionHeaderComponent } from './lib/molecules/compact-session/compact-session-header.component';
-export { CompactSessionInputComponent } from './lib/molecules/compact-session/compact-session-input.component';
 export { CompactSessionStatsComponent } from './lib/molecules/compact-session/compact-session-stats.component';
-export { CompactSessionTextComponent } from './lib/molecules/compact-session/compact-session-text.component';
 export {
-  CompactToolRowComponent,
-  type CompactToolRow,
-} from './lib/molecules/compact-session/compact-tool-row.component';
+  summarizeFinalized,
+  summarizeLive,
+  type CompactSemanticMark,
+  type CompactSemanticMarkKind,
+  type CompactSessionSummary,
+  type CompactSummaryContent,
+  type CompactSummaryContext,
+  type CompactSummaryMetrics,
+  type CompactSummaryStatusTone,
+} from './lib/molecules/compact-session/compact-session-summary';
 export { CompactionMarkerComponent } from './lib/molecules/notifications/compaction-marker.component';
 export { CompactionNotificationComponent } from './lib/molecules/notifications/compaction-notification.component';
 export { DenyMessagePopoverComponent } from './lib/molecules/permissions/deny-message-popover.component';

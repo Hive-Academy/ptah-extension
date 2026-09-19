@@ -137,10 +137,7 @@ export * from './molecules/peer-session-send';
  */
 export {
   CompactSessionActivityComponent,
-  CompactSessionHeaderComponent,
-  CompactSessionInputComponent,
   CompactSessionStatsComponent,
-  CompactSessionTextComponent,
 } from '@ptah-extension/chat-ui';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
