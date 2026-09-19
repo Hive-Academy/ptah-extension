@@ -853,4 +853,23 @@ describe('PermissionHandlerService', () => {
       expect(service.hasSurfaceQuestionTargets('q-done')).toBe(false);
     });
   });
+
+  describe('reactive routing target revision', () => {
+    it('changes for permission/question attachment and target cleanup', () => {
+      const initial = service.routingTargetRevision();
+      service.attachPromptTargets('reactive-permission', ['tab-1']);
+      expect(service.routingTargetRevision()).toBe(initial + 1);
+
+      service.handleQuestionRequest(
+        makeQuestionRequest({ id: 'reactive-question' }),
+      );
+      service.attachQuestionTargets('reactive-question', ['tab-1']);
+      expect(service.routingTargetRevision()).toBe(initial + 2);
+
+      service.clearQuestionTargets('reactive-question');
+      expect(service.routingTargetRevision()).toBe(initial + 3);
+      service.cancelPrompt('reactive-permission', null);
+      expect(service.routingTargetRevision()).toBe(initial + 4);
+    });
+  });
 });

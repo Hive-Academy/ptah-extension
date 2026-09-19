@@ -9,6 +9,7 @@ import {
   ElementRef,
   untracked,
   afterNextRender,
+  Injector,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
@@ -285,6 +286,8 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private readonly chatStore = inject(ChatStore);
   private readonly layoutService = inject(CanvasLayoutService);
   private readonly layoutPersistence = inject(CanvasLayoutPersistenceService);
+  private readonly injector = inject(Injector);
+  private focusRequestChain = Promise.resolve();
 
   protected readonly PlusIcon = Plus;
   protected readonly XIcon = X;
@@ -363,6 +366,33 @@ export class OrchestraCanvasComponent implements OnDestroy {
       }
     });
     effect(() => {
+      const pendingRequests = this.appState.canvasFocusRequests();
+      const workspacePath = this.canvasStore.activeWorkspacePath();
+      if (
+        pendingRequests.length === 0 ||
+        workspacePath === null ||
+        !pendingRequests.some(
+          (request) => request.target.workspacePath === workspacePath,
+        )
+      ) {
+        return;
+      }
+      const requests = untracked(() =>
+        this.appState.takeCanvasFocusRequests(workspacePath),
+      );
+      for (const request of requests) {
+        this.focusRequestChain = this.focusRequestChain
+          .then(() => this.processFocusRequest(request))
+          .catch((error: unknown) => {
+            console.error(
+              '[OrchestraCanvas] Failed notification focus request',
+              error instanceof Error ? error.message : error,
+            );
+            request.resolve({ success: false, outcome: 'missing' });
+          });
+      }
+    });
+    effect(() => {
       const name = this.appState.newCanvasSessionRequest();
       if (name !== null) {
         this.canvasStore.addTile(name);
@@ -426,6 +456,77 @@ export class OrchestraCanvasComponent implements OnDestroy {
       untracked(() =>
         this.canvasStore.removeTileFromAnyWorkspace(closed.tabId),
       );
+    });
+  }
+
+  private async processFocusRequest(
+    request: import('@ptah-extension/core').CanvasFocusRequest,
+  ): Promise<void> {
+    const { target } = request;
+    if (this.canvasStore.activeWorkspacePath() !== target.workspacePath) {
+      request.resolve({ success: false, outcome: 'missing' });
+      return;
+    }
+
+    const lookup = target.tabId
+      ? this.tabManager.findTabByIdAcrossWorkspaces(target.tabId)
+      : this.tabManager.findTabBySessionIdAcrossWorkspaces(target.sessionId);
+    const existingTab =
+      lookup?.workspacePath === target.workspacePath ? lookup.tab : null;
+    const existingTile = existingTab
+      ? this.canvasStore.tiles().some((tile) => tile.tabId === existingTab.id)
+      : false;
+
+    if (existingTab && existingTile) {
+      this.canvasStore.focusTile(existingTab.id);
+      await this.afterTileRender();
+      request.resolve({ success: true, outcome: 'focused' });
+      return;
+    }
+
+    if (existingTab) {
+      const adopted = this.canvasStore.adoptTab(existingTab.id);
+      if (!adopted) {
+        request.resolve({ success: false, outcome: 'cap-reached' });
+        return;
+      }
+      this.canvasStore.focusTile(existingTab.id);
+      await this.afterTileRender();
+      request.resolve({ success: true, outcome: 'adopted' });
+      return;
+    }
+
+    const sessionExists = this.chatStore
+      .sessions()
+      .some((session) => session.id === target.sessionId);
+    if (!sessionExists) {
+      request.resolve({ success: false, outcome: 'missing' });
+      return;
+    }
+    const tabId = this.canvasStore.addTileFromSession(
+      SessionId.from(target.sessionId),
+    );
+    if (!tabId) {
+      request.resolve({ success: false, outcome: 'cap-reached' });
+      return;
+    }
+    try {
+      await this.chatStore.switchSession(SessionId.from(target.sessionId));
+      this.canvasStore.focusTile(tabId);
+      await this.afterTileRender();
+      request.resolve({ success: true, outcome: 'opened' });
+    } catch (error: unknown) {
+      console.error(
+        '[OrchestraCanvas] Failed to open notification target',
+        error instanceof Error ? error.message : error,
+      );
+      request.resolve({ success: false, outcome: 'missing' });
+    }
+  }
+
+  private afterTileRender(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      afterNextRender(resolve, { injector: this.injector });
     });
   }
 

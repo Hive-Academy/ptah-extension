@@ -11,6 +11,8 @@
 export {
   TabManagerService,
   type ClosedTabEvent,
+  type TerminalTurnPulse,
+  type TerminalTurnClassification,
 } from './lib/tab-manager.service';
 export {
   TabWorkspacePartitionService,
