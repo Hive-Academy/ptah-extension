@@ -67,6 +67,7 @@ interface HarnessOverrides {
   timeoutMs?: number;
   /** When true, expose a controllable fake timer instead of real setTimeout. */
   fakeTimer?: boolean;
+  ensureSdk?: () => Promise<{ initialized: boolean; errorMessage?: string }>;
 }
 
 interface HarnessWithTimer extends Harness {
@@ -111,6 +112,7 @@ function makeHarness(overrides: HarnessOverrides = {}): HarnessWithTimer {
     timeoutMs: overrides.timeoutMs ?? 0,
     setTimeoutImpl,
     clearTimeoutImpl,
+    ensureSdk: overrides.ensureSdk,
   });
   return {
     transport,
@@ -696,6 +698,53 @@ describe('SessionSubmitService', () => {
       expect((r1.result as { isError: boolean }).isError).toBe(true);
       expect((r2.result as { isError: boolean }).isError).toBe(true);
       expect(h.service.inFlightCount()).toBe(0);
+    });
+  });
+
+  describe('ensureSdk model credential gating', () => {
+    it('fails with sdk_init_failed JSON-RPC MCP error without calling chat:start when SDK init fails', async () => {
+      const ensureSdk = jest.fn().mockResolvedValue({
+        initialized: false,
+        errorMessage: 'No Anthropic API key configured.',
+      });
+      const h = makeHarness({ timeoutMs: 0, ensureSdk });
+      const resp = await h.service.dispatch(makeRequest(), {
+        task: 'do something',
+      });
+
+      expect(ensureSdk).toHaveBeenCalled();
+      expect(h.transport.call).not.toHaveBeenCalled();
+      expect(resp.error).toBeUndefined();
+      expect(resp.result).toBeDefined();
+      const result = resp.result as {
+        content: Array<{ type: string; text: string }>;
+        isError: boolean;
+        structuredContent: { ptah_code: string; error: string };
+      };
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.ptah_code).toBe('sdk_init_failed');
+      expect(result.content[0].text).toContain(
+        'No Anthropic API key configured.',
+      );
+    });
+
+    it('proceeds to chat:start when ensureSdk succeeds', async () => {
+      const ensureSdk = jest.fn().mockResolvedValue({
+        initialized: true,
+      });
+      const h = makeHarness({ timeoutMs: 0, ensureSdk });
+      const promise = h.service.dispatch(makeRequest(), {
+        task: 'do something',
+      });
+      await flush();
+      expect(ensureSdk).toHaveBeenCalled();
+      expect(h.transport.call).toHaveBeenCalledWith(
+        'chat:start',
+        expect.any(Object),
+      );
+      h.pushAdapter.emit('chat:complete', { tabId: 'tab-1' });
+      const resp = await promise;
+      expect((resp.result as { isError?: boolean }).isError).not.toBe(true);
     });
   });
 });

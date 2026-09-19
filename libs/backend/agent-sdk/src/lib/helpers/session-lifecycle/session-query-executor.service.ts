@@ -357,6 +357,7 @@ export class SessionQueryExecutor {
         initialModel,
         abortController,
         activityWatchdog,
+        sessionToken: rec.token,
       };
     } catch (err) {
       if (rec) {

@@ -48,6 +48,7 @@ import type { IModelResolver } from '../auth-env.port';
 import {
   SessionRegistry,
   type SessionRecord,
+  type BindRealSessionIdOutcome,
 } from './session-lifecycle/session-registry.service';
 import { SessionStreamPump } from './session-lifecycle/session-stream-pump.service';
 import { SessionQueryExecutor } from './session-lifecycle/session-query-executor.service';
@@ -60,7 +61,10 @@ import {
   type IHarnessPreflight,
 } from '../harness/harness-preflight.port';
 export type { SDKUserMessage, ContentBlock };
-export type { SessionRecord } from './session-lifecycle/session-registry.service';
+export type {
+  SessionRecord,
+  BindRealSessionIdOutcome,
+} from './session-lifecycle/session-registry.service';
 
 /**
  * Query interface - matches SDK's Query runtime structure
@@ -250,6 +254,15 @@ export interface ExecuteQueryResult {
    * pending permissions and aborts `abortController` with a descriptive error.
    */
   activityWatchdog: NoActivityWatchdog;
+  /**
+   * `token` of the registry record this query owns.
+   *
+   * Hand it back to `bindRealSessionId` so the registry can tell the record's
+   * OWN process ("this session forked, follow the new id") from a displaced
+   * process still emitting against the same tab ("refuse it"). Without the
+   * token those two cases are the same observation.
+   */
+  sessionToken: string;
 }
 
 /**
@@ -345,9 +358,16 @@ export class SessionLifecycleManager {
   /**
    * Bind the real SDK session UUID to a registered session record.
    * Delegates to SessionRegistry.bindRealSessionId().
+   *
+   * The outcome is RETURNED, not swallowed: a caller that announces the
+   * resolution downstream must not announce an id the registry refused.
    */
-  bindRealSessionId(tabId: string, realSessionId: string): void {
-    this._registry.bindRealSessionId(tabId, realSessionId);
+  bindRealSessionId(
+    tabId: string,
+    realSessionId: string,
+    ownerToken?: string,
+  ): BindRealSessionIdOutcome {
+    return this._registry.bindRealSessionId(tabId, realSessionId, ownerToken);
   }
 
   /**

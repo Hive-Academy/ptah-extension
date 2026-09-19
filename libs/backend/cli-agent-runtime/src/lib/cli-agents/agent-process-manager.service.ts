@@ -1103,6 +1103,10 @@ export class AgentProcessManager {
 
     let outcome: { done: Promise<number> };
     try {
+      // The previous turn's tail segments can still be pending in the 200 ms
+      // flush window. Stamp the edge BEFORE the continuation can emit, so the
+      // flush-time merge never fuses the two turns (TASK_2026_466 defect 5).
+      this.outputBuffer.markTurnBoundary(agentId);
       outcome = await sdkHandle.continue(message);
     } catch (error: unknown) {
       const errorMessage =

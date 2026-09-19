@@ -82,6 +82,7 @@ interface Harness {
   hooks: McpServeExecuteHooks;
   sigintHandlers: Set<() => void>;
   sigtermHandlers: Set<() => void>;
+  engineOpts: Array<{ mode: string; requireSdk?: boolean }>;
   waitForLines: (n: number, timeoutMs?: number) => Promise<string[]>;
   findLine: (
     pred: (m: JsonRpcMessage) => boolean,
@@ -217,6 +218,7 @@ function makeHarness(): Harness {
   const exitCalls: number[] = [];
   const sigintHandlers = new Set<() => void>();
   const sigtermHandlers = new Set<() => void>();
+  const engineOpts: Array<{ mode: string; requireSdk?: boolean }> = [];
 
   const fakeStdioServer = makeFakeStdioServer();
   const fakeLogger = {
@@ -239,9 +241,10 @@ function makeHarness(): Harness {
   const hooks: McpServeExecuteHooks = {
     withEngine: (async (
       _globals: unknown,
-      _opts: unknown,
+      opts: { mode: string; requireSdk?: boolean },
       fn: (ctx: unknown) => Promise<unknown>,
     ): Promise<unknown> => {
+      engineOpts.push(opts);
       return fn({ container, transport, pushAdapter });
     }) as unknown as McpServeExecuteHooks['withEngine'],
     serverFactory: () => fakeStdioServer,
@@ -327,6 +330,7 @@ function makeHarness(): Harness {
     hooks,
     sigintHandlers,
     sigtermHandlers,
+    engineOpts,
     waitForLines,
     findLine,
     send,
@@ -751,6 +755,15 @@ describe('ptah mcp-serve', () => {
       await flushAsync();
       expect(h.fakeStdioServer.handleCancelled).toHaveBeenCalled();
 
+      h.stdin.end();
+      await promise;
+    });
+
+    it('boots mode=full with requireSdk:false so tool listing needs no model provider key', async () => {
+      const h = makeHarness();
+      const promise = execute(NO_OPTS, baseGlobals, h.hooks);
+      await flushAsync();
+      expect(h.engineOpts[0]).toEqual({ mode: 'full', requireSdk: false });
       h.stdin.end();
       await promise;
     });

@@ -717,7 +717,22 @@ export class PtahCliRegistry {
     // spawn path's half of it (TASK_2026_402 Req 1.2). The uniqueness suffix is
     // the reserved agent id, which is unique per spawn; the agent's configured
     // name is user DATA and is slugified by the builder like any other input.
-    const extraArgs: Record<string, string | null> = {};
+    // `--replay-user-messages` is what makes an inbound peer turn OBSERVABLE
+    // here (TASK_2026_466 defect 1). The CLI accepts the turn either way —
+    // `crossSessionInbound: 'accept'` below sees to that, and the model reads
+    // it mid-turn — but without this flag the CLI echoes NO user message back
+    // on the SDK stream, so `PtahCliStreamLoop` never sees it, the lane's tile
+    // records nothing, and a message that DID land reads as lost. The chat path
+    // has sent this flag since TASK_2026_402 (`sdk-query-options-builder.ts`
+    // `buildExtraArgs`), which is why the child-to-parent direction was visible
+    // and this one was not. It is a null-valued flag, not a value arg.
+    //
+    // It does not double-render the lane's own prompts: every non-peer replay
+    // is dropped in `SdkMessageTransformer`, and the stream loop below admits
+    // a replay ONLY when its origin is `peer`.
+    const extraArgs: Record<string, string | null> = {
+      'replay-user-messages': null,
+    };
     const sessionName = buildSessionName({
       role: agentConfig.name,
       workspaceLabel: deriveWorkspaceLabel(cwd),

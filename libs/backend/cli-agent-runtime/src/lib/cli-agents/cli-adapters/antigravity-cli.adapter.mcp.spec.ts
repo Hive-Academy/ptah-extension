@@ -56,7 +56,7 @@ import { AntigravityCliAdapter } from './antigravity-cli.adapter';
 interface FakeChild extends EventEmitter {
   stdout: PassThrough;
   stderr: PassThrough;
-  stdin: { end: jest.Mock };
+  stdin: { end: jest.Mock; write: jest.Mock };
   kill: jest.Mock;
   killed: boolean;
   pid: number;
@@ -69,7 +69,7 @@ function createFakeChild(): FakeChild {
   child.stderr = new PassThrough();
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
-  child.stdin = { end: jest.fn() };
+  child.stdin = { end: jest.fn(), write: jest.fn() };
   child.kill = jest.fn();
   child.killed = false;
   child.pid = 4242;
@@ -99,7 +99,7 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
 
     child = createFakeChild();
     mockSpawnCli.mockImplementation(() => child);
-    adapter = new AntigravityCliAdapter();
+    adapter = new AntigravityCliAdapter(undefined, async () => true);
   });
 
   afterEach(() => {

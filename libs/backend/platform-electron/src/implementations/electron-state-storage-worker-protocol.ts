@@ -59,7 +59,10 @@ export const electronStateJsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
     z.number().finite(),
     z.string(),
     z.array(electronStateJsonValueSchema),
-    z.record(z.string(), electronStateJsonValueSchema),
+    z.preprocess(
+      omitUndefinedObjectProperties,
+      z.record(z.string(), electronStateJsonValueSchema),
+    ),
   ]),
 );
 
@@ -615,6 +618,29 @@ export function isPlainObject(
   );
 }
 
+function omitUndefinedObjectProperties(value: unknown): unknown {
+  if (!isPlainObject(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value).filter(([, nested]) => nested !== undefined),
+  );
+}
+
+function formatJsonPath(path: readonly (string | number)[]): string {
+  return path.reduce<string>((formatted, segment) => {
+    if (typeof segment === 'number') return `${formatted}[${segment}]`;
+    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(segment)
+      ? `${formatted}.${segment}`
+      : `${formatted}[${JSON.stringify(segment)}]`;
+  }, '$');
+}
+
+function unsupportedJsonValueMessage(
+  value: unknown,
+  path: readonly (string | number)[],
+): string {
+  return `Worker message contains a non-cloneable JSON value (${typeof value}) at ${formatJsonPath(path)}`;
+}
+
 /**
  * Conservative structured-clone measurement with bounded traversal.
  *
@@ -640,7 +666,11 @@ export function assertElectronStateWorkerPayloadWithinBudget(
     }
   };
 
-  const visit = (value: unknown, depth: number): void => {
+  const visit = (
+    value: unknown,
+    depth: number,
+    path: readonly (string | number)[],
+  ): void => {
     visitedNodes++;
     if (visitedNodes > MAX_PROTOCOL_NODES) {
       throw new ElectronStateWorkerProtocolError(
@@ -667,7 +697,7 @@ export function assertElectronStateWorkerPayloadWithinBudget(
         if (!Number.isFinite(value)) {
           throw new ElectronStateWorkerProtocolError(
             'UNSUPPORTED_VALUE',
-            'Worker message contains a non-finite number',
+            `Worker message contains a non-finite number at ${formatJsonPath(path)}`,
           );
         }
         addBytes(8);
@@ -680,14 +710,14 @@ export function assertElectronStateWorkerPayloadWithinBudget(
       default:
         throw new ElectronStateWorkerProtocolError(
           'UNSUPPORTED_VALUE',
-          'Worker message contains a non-cloneable JSON value',
+          unsupportedJsonValueMessage(value, path),
         );
     }
 
     if (seen.has(value)) {
       throw new ElectronStateWorkerProtocolError(
         'UNSUPPORTED_VALUE',
-        'Worker message contains a cyclic value',
+        `Worker message contains a cyclic value at ${formatJsonPath(path)}`,
       );
     }
     seen.add(value);
@@ -698,27 +728,31 @@ export function assertElectronStateWorkerPayloadWithinBudget(
       }
       if (Array.isArray(value)) {
         addBytes(16);
-        for (const item of value) visit(item, depth + 1);
+        for (let index = 0; index < value.length; index++) {
+          visit(value[index], depth + 1, [...path, index]);
+        }
         return;
       }
       if (!isPlainObject(value)) {
         throw new ElectronStateWorkerProtocolError(
           'UNSUPPORTED_VALUE',
-          'Worker message contains a non-plain object',
+          `Worker message contains a non-plain object at ${formatJsonPath(path)}`,
         );
       }
       addBytes(16);
       for (const key in value) {
         if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+        const nested = (value as Record<string, unknown>)[key];
+        if (nested === undefined) continue;
         addBytes(8 + key.length * 2);
-        visit((value as Record<string, unknown>)[key], depth + 1);
+        visit(nested, depth + 1, [...path, key]);
       }
     } finally {
       seen.delete(value);
     }
   };
 
-  visit(input, 0);
+  visit(input, 0, []);
   return measuredBytes;
 }
 
@@ -732,6 +766,20 @@ export function assertElectronStateWorkerPayloadWithinBudget(
  */
 export function estimateElectronStateJsonBytes(value: JsonValue): number {
   if (value === null) return 4;
+  // An `undefined` NESTED value would otherwise reach `Object.entries` below
+  // and throw a raw TypeError, which is the one place this file would answer
+  // an uncleaned value with something other than
+  // `ElectronStateWorkerProtocolError`. Neither production caller can feed it
+  // one — both pass values that are already `JSON.parse` output or already
+  // cleaned by the Zod preprocess — so this is a latent divergence, not a live
+  // fault. It costs one comparison to keep the taxonomy whole. This function
+  // is an ESTIMATOR, never a validation gate, so it measures the absence
+  // rather than rejecting it: an object property that is `undefined` is
+  // dropped before persistence and occupies nothing.
+  // The cast is the point: `JsonValue` excludes `undefined`, so this guard is
+  // unreachable through the type system and only fires for a caller that
+  // already broke the contract.
+  if ((value as unknown) === undefined) return 0;
   switch (typeof value) {
     case 'string':
       return 8 + value.length * 2;
@@ -775,7 +823,11 @@ export function assertJsonCompatibleValue(
 ): void {
   const activePath = new Set<object>();
 
-  const visit = (value: unknown, depth: number): void => {
+  const visit = (
+    value: unknown,
+    depth: number,
+    path: readonly (string | number)[],
+  ): void => {
     if (depth > maxDepth) {
       throw new ElectronStateWorkerProtocolError(
         'MAX_DEPTH_EXCEEDED',
@@ -789,7 +841,7 @@ export function assertJsonCompatibleValue(
       if (!Number.isFinite(value)) {
         throw new ElectronStateWorkerProtocolError(
           'UNSUPPORTED_VALUE',
-          'Worker message contains a non-finite number',
+          `Worker message contains a non-finite number at ${formatJsonPath(path)}`,
         );
       }
       return;
@@ -801,25 +853,26 @@ export function assertJsonCompatibleValue(
       if (activePath.has(value)) {
         throw new ElectronStateWorkerProtocolError(
           'UNSUPPORTED_VALUE',
-          'Worker message contains a cyclic value',
+          `Worker message contains a cyclic value at ${formatJsonPath(path)}`,
         );
       }
       activePath.add(value);
       try {
         if (Array.isArray(value)) {
-          for (const item of value) {
-            visit(item, depth + 1);
+          for (let index = 0; index < value.length; index++) {
+            visit(value[index], depth + 1, [...path, index]);
           }
           return;
         }
         if (!isPlainObject(value)) {
           throw new ElectronStateWorkerProtocolError(
             'UNSUPPORTED_VALUE',
-            'Worker message contains a non-plain object',
+            `Worker message contains a non-plain object at ${formatJsonPath(path)}`,
           );
         }
         for (const [key, nested] of Object.entries(value)) {
-          visit(nested, depth + 1);
+          if (nested === undefined) continue;
+          visit(nested, depth + 1, [...path, key]);
         }
         return;
       } finally {
@@ -828,11 +881,11 @@ export function assertJsonCompatibleValue(
     }
     throw new ElectronStateWorkerProtocolError(
       'UNSUPPORTED_VALUE',
-      'Worker message contains a non-cloneable JSON value',
+      unsupportedJsonValueMessage(value, path),
     );
   };
 
-  visit(input, 0);
+  visit(input, 0, []);
 }
 
 export function parseElectronStateWorkerRequest(
@@ -1010,7 +1063,7 @@ export function* generateSnapshotOperations(
       if (!Number.isFinite(value)) {
         throw new ElectronStateWorkerProtocolError(
           'UNSUPPORTED_VALUE',
-          'Worker message contains a non-finite number',
+          `Worker message contains a non-finite number at ${formatJsonPath(path)}`,
         );
       }
       yield { kind: 'value', path: [...path], value };
@@ -1024,7 +1077,7 @@ export function* generateSnapshotOperations(
       if (activePath.has(value)) {
         throw new ElectronStateWorkerProtocolError(
           'UNSUPPORTED_VALUE',
-          'Worker message contains a cyclic value',
+          `Worker message contains a cyclic value at ${formatJsonPath(path)}`,
         );
       }
       activePath.add(value);
@@ -1039,11 +1092,12 @@ export function* generateSnapshotOperations(
         if (!isPlainObject(value)) {
           throw new ElectronStateWorkerProtocolError(
             'UNSUPPORTED_VALUE',
-            'Worker message contains a non-plain object',
+            `Worker message contains a non-plain object at ${formatJsonPath(path)}`,
           );
         }
         yield { kind: 'object', path: [...path] };
         for (const [key, nested] of Object.entries(value)) {
+          if (nested === undefined) continue;
           yield* walk(nested, [...path, key], depth + 1);
         }
         return;
@@ -1053,7 +1107,7 @@ export function* generateSnapshotOperations(
     }
     throw new ElectronStateWorkerProtocolError(
       'UNSUPPORTED_VALUE',
-      'Worker message contains a non-cloneable JSON value',
+      unsupportedJsonValueMessage(value, path),
     );
   }
 

@@ -702,7 +702,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       { mcpServerRunning, providerId: providerProfile?.providerId },
     );
 
-    const { sdkQuery, initialModel, activityWatchdog } =
+    const { sdkQuery, initialModel, activityWatchdog, sessionToken } =
       await this.sessionLifecycle.executeQuery({
         sessionId: trackingId,
         sessionConfig: sessionConfigWithProfileModel,
@@ -731,6 +731,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const sessionIdCallback = this.createSessionIdCallback(
       resolvedProjectPath,
       resolvedSessionName,
+      sessionToken,
       config?.tabId,
     );
 
@@ -843,7 +844,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       hasSessionName: !!resolvedSessionName,
     });
 
-    const { sdkQuery, initialModel, activityWatchdog } =
+    const { sdkQuery, initialModel, activityWatchdog, sessionToken } =
       await this.sessionLifecycle.executeQuery({
         sessionId,
         sessionConfig: sessionConfigWithProfileModel,
@@ -865,8 +866,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
     ) => {
       await this.metadataStore.touch(realSessionId);
 
-      if (tabId) {
-        this.sessionLifecycle.bindRealSessionId(tabId, realSessionId);
+      if (tabId && this.bindRefused(tabId, realSessionId, sessionToken)) {
+        return;
       }
 
       this.callbacks.emitSessionIdResolved(tabId, realSessionId);
@@ -932,6 +933,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   private createSessionIdCallback(
     workspaceId: string,
     sessionName: string,
+    sessionToken: string,
     tabId?: string,
   ): (tabId: string | undefined, realSessionId: string) => void {
     return async (
@@ -958,7 +960,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
       await this.metadataStore.create(realSessionId, workspaceId, sessionName);
 
       if (tabId) {
-        this.sessionLifecycle.bindRealSessionId(tabId, realSessionId);
+        if (this.bindRefused(tabId, realSessionId, sessionToken)) {
+          return;
+        }
         // The bind above is what makes `resolveActivityIds` answer with the
         // SDK UUID, so the first turn's buffered activity is published here —
         // after the bind, under the canonical id.
@@ -977,6 +981,55 @@ export class SdkAgentAdapter implements IAgentAdapter {
         timestamp: Date.now(),
       });
     };
+  }
+
+  /**
+   * Bind the tab to the session the SDK just reported, and say whether the
+   * registry REFUSED to establish that identity.
+   *
+   * True means stop: do not flush activity, do not fire the single-slot
+   * callback, do not notify the fan-out registry.
+   *
+   * Only three outcomes are an announcement: `bound`, `already-bound` and
+   * `rebound`. Each one means the registry now holds this tab pointing at this
+   * session, so telling the RPC layer and the webview is telling them the
+   * truth.
+   *
+   * Every other outcome is a refusal, and announcing one publishes an identity
+   * the registry does not hold:
+   *
+   *  - `stale-mismatch` — an SDK process that outlived a restart of its tab and
+   *    is still emitting against it. Announcing its id told the RPC layer, the
+   *    webview and the agent-process-manager remap that the tab had moved BACK
+   *    to the dead session, which is how a restarted tab lost every CLI agent
+   *    linked to the live one (2026-09-17, tab `03497c14-…`).
+   *  - `no-record` — the tab owns no record at all, because it was ended or its
+   *    record was removed. Announcing names a session nothing can resolve.
+   *  - `invalid` — the id was blank. Announcing it resolves the tab to ''.
+   */
+  private bindRefused(
+    tabId: string,
+    realSessionId: string,
+    ownerToken: string,
+  ): boolean {
+    const outcome = this.sessionLifecycle.bindRealSessionId(
+      tabId,
+      realSessionId,
+      ownerToken,
+    );
+    if (
+      outcome === 'bound' ||
+      outcome === 'already-bound' ||
+      outcome === 'rebound'
+    ) {
+      return false;
+    }
+    this.logger.warn(
+      `[SdkAgentAdapter] Dropping a session-id resolution for tabId ${tabId}: ` +
+        `the registry refused ${realSessionId} (${outcome}), so it must not be ` +
+        'announced',
+    );
+    return true;
   }
 
   setSessionIdResolvedCallback(callback: SessionIdResolvedCallback): void {

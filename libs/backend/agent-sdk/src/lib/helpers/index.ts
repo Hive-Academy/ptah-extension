@@ -176,6 +176,7 @@ export {
 } from './sdk-query-options-builder';
 export {
   buildSessionName,
+  buildUniqueSuffix,
   deriveWorkspaceLabel,
   type SessionNameInput,
 } from './session-name.builder';
