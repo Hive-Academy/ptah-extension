@@ -12,7 +12,7 @@ import {
   type CodeSymbolHit,
   type CodeSymbolHitPage,
 } from '@ptah-extension/memory-contracts';
-import { escapeFtsQuery } from './fts-query.util';
+import { buildFtsQueryPlan, executeFtsQueryPlan } from './fts-query.util';
 
 export interface CodeSymbolInsert {
   readonly workspaceRoot: string;
@@ -358,13 +358,17 @@ export class CodeSymbolStore implements ICodeSymbolReader {
       ORDER BY bm25(code_symbols_fts) ASC
       LIMIT ?
     `;
-    const params: unknown[] = [escapeFtsQuery(query)];
-    if (workspaceRoot) params.push(workspaceRoot);
-    params.push(limit);
-    try {
+    const plan = buildFtsQueryPlan(query);
+    const run = (match: string): CodeSymbolHitRow[] => {
+      const params: unknown[] = [match];
+      if (workspaceRoot) params.push(workspaceRoot);
+      params.push(limit);
       return this.connection.db
         .prepare(sql)
         .all(...params) as CodeSymbolHitRow[];
+    };
+    try {
+      return executeFtsQueryPlan(plan, limit, run, (row) => row.rowid);
     } catch (err: unknown) {
       this.logger.warn('[code-symbol-store] BM25 search failed', {
         error: err instanceof Error ? err.message : String(err),

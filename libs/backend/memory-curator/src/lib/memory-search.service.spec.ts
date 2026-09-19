@@ -498,8 +498,9 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
     await service.searchRich('hello world', 10);
     await service.searchRich('hello world', 10);
 
-    // prepare() was called only once (first miss); second call returned from cache.
-    expect(prepareMock).toHaveBeenCalledTimes(1);
+    // The first cache miss runs precise + fallback because the fixture cannot
+    // fill the page; the second identical call performs no additional query.
+    expect(prepareMock).toHaveBeenCalledTimes(2);
   });
 
   it('cache hit: logger.debug is called on cache hit', async () => {
@@ -605,8 +606,8 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
       '/workspace/B',
     );
 
-    // Both calls must have hit the DB — different cache keys.
-    expect(allMock).toHaveBeenCalledTimes(2);
+    // Both cache misses run precise + fallback — different cache keys.
+    expect(allMock).toHaveBeenCalledTimes(4);
 
     // The results should not be the same object reference (distinct cache entries).
     expect(resultA).not.toBe(resultB);

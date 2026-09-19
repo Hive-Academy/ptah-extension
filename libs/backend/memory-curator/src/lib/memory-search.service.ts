@@ -30,7 +30,7 @@ import {
 } from './memory.types';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 import { ObservationQueueStore } from './observation-queue.store';
-import { escapeFtsQuery } from './fts-query.util';
+import { buildFtsQueryPlan, executeFtsQueryPlan } from './fts-query.util';
 import { salienceRankOrderBy } from './salience-ranking';
 
 export interface MemSearchIndexFilter {
@@ -396,11 +396,15 @@ export class MemorySearchService implements IMemoryReader {
       ORDER BY bm25(memory_chunks_fts) ASC
       LIMIT ?
     `;
-    const params: unknown[] = [escapeFtsQuery(query)];
-    if (workspaceRoot) params.push(workspaceRoot);
-    params.push(limit);
-    try {
+    const plan = buildFtsQueryPlan(query);
+    const run = (match: string): FtsRow[] => {
+      const params: unknown[] = [match];
+      if (workspaceRoot) params.push(workspaceRoot);
+      params.push(limit);
       return this.connection.db.prepare(sql).all(...params) as FtsRow[];
+    };
+    try {
+      return executeFtsQueryPlan(plan, limit, run, (row) => row.rowid);
     } catch (err) {
       this.logger.warn('[memory-curator] BM25 search failed', {
         error: err instanceof Error ? err.message : String(err),
@@ -872,14 +876,23 @@ export class MemorySearchService implements IMemoryReader {
       ORDER BY rank ASC
       LIMIT ?
     `;
-    const params: unknown[] = [escapeFtsQuery(query)];
-    if (workspaceRoot) params.push(workspaceRoot);
-    params.push(limit);
-    try {
+    const plan = buildFtsQueryPlan(query);
+    const run = (match: string): Array<{ memory_id: string; rank: number }> => {
+      const params: unknown[] = [match];
+      if (workspaceRoot) params.push(workspaceRoot);
+      params.push(limit);
       return this.connection.db.prepare(sql).all(...params) as Array<{
         memory_id: string;
         rank: number;
       }>;
+    };
+    try {
+      return executeFtsQueryPlan(
+        plan,
+        limit,
+        run,
+        (row) => row.memory_id,
+      );
     } catch (err) {
       this.logger.warn('[memory-curator] mem:searchIndex bm25 failed', {
         error: err instanceof Error ? err.message : String(err),

@@ -34,7 +34,10 @@ import {
   type MemoryTier,
   type MemoryType,
 } from './memory.types';
-import { salienceRankOrderBy } from './salience-ranking';
+import {
+  salienceRankExpression,
+  salienceRankOrderBy,
+} from './salience-ranking';
 
 interface MemoryRow {
   id: string;
@@ -335,6 +338,72 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
       )
       .all(subject, tier) as MemoryRow[];
     return rows.map(rowToMemory);
+  }
+
+  /**
+   * Merge candidates for a set of draft subjects, matched on lowercased
+   * subject across the WHOLE workspace.
+   *
+   * The curator used to read the 200 highest-ranked rows and filter them by
+   * exact, case-sensitive subject equality. In a 36k-row workspace that horizon
+   * holds only the last few days, so a subject older than that produced no
+   * candidate and the draft was stored as a new singleton: 98.3 percent of rows
+   * were singletons when measured (TASK_2026_471 forensics). The ranking still
+   * decides WHICH rows come back, it no longer decides which rows are eligible.
+   */
+  findMergeCandidates(
+    subjects: readonly string[],
+    workspaceRoot: string | null,
+    perSubjectLimit = 5,
+    totalLimit = 50,
+  ): ReadonlyArray<{ id: string; subject: string | null; content: string }> {
+    const keys = [
+      ...new Set(
+        subjects.map((s) => s.trim().toLowerCase()).filter((s) => s.length > 0),
+      ),
+    ];
+    if (keys.length === 0 || perSubjectLimit <= 0 || totalLimit <= 0) return [];
+    const placeholders = keys.map(() => '?').join(',');
+    return this.connection.db
+      .prepare(
+        `WITH candidates AS (
+           SELECT m.id AS id,
+                  m.subject AS subject,
+                  m.content AS content,
+                  LOWER(m.subject) AS subject_key,
+                  ${salienceRankExpression('?')} AS rank_score
+           FROM memories m
+           WHERE m.workspace_root IS ?
+             AND m.subject IS NOT NULL
+             AND LOWER(m.subject) IN (${placeholders})
+         ), ranked AS (
+           SELECT id,
+                  subject,
+                  content,
+                  rank_score,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY subject_key
+                    ORDER BY rank_score DESC, id DESC
+                  ) AS subject_rank
+           FROM candidates
+         )
+         SELECT id, subject, content
+         FROM ranked
+         WHERE subject_rank <= ?
+         ORDER BY rank_score DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(
+        Date.now(),
+        workspaceRoot,
+        ...keys,
+        perSubjectLimit,
+        totalLimit,
+      ) as Array<{
+      id: string;
+      subject: string | null;
+      content: string;
+    }>;
   }
 
   list(
