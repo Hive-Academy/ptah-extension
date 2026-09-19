@@ -1,196 +1,180 @@
 import {
-  Component,
   ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
   input,
   output,
-  computed,
-  signal,
-  inject,
 } from '@angular/core';
+import type { Signal } from '@angular/core';
 import {
-  LucideAngularModule,
-  Maximize2,
-  ChevronDown,
-  ChevronUp,
-} from 'lucide-angular';
-import {
-  CompactSessionHeaderComponent,
-  CompactSessionStatsComponent,
   CompactSessionActivityComponent,
-  CompactSessionInputComponent,
+  summarizeFinalized,
+  summarizeLive,
+  type CompactSessionSummary,
+  type CompactSummaryContext,
 } from '@ptah-extension/chat-ui';
+import {
+  ConversationRegistry,
+  TabManagerService,
+  TabSessionBinding,
+  workspaceLabelFromPath,
+} from '@ptah-extension/chat-state';
+import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
-import { ChatStore } from '../../../services/chat.store';
-import { TabManagerService } from '@ptah-extension/chat-state';
-import type {
-  PermissionResponse,
-  AskUserQuestionResponse,
+import {
+  calculateSessionCostSummary,
+  type AskUserQuestionRequest,
+  type PermissionRequest,
 } from '@ptah-extension/shared';
 
 /**
- * CompactSessionCardComponent - Condensed card view of a session.
- *
- * Renders a collapsible card with:
- * - Header: session title + status indicator
- * - Stats: inline token/cost/agent badges
- * - Activity: last N tool/agent events from flat streaming state
- * - Text: truncated latest assistant output
- * - Input: mini textarea for quick follow-ups
- *
- * Separate component tree from the full chat view — does NOT use
- * MessageBubble, ExecutionNode, or any chat-view internal components.
- *
- * Complexity Level: 3 (Organism-level composition with state coordination)
- * Patterns: Signal composition, standalone components, DaisyUI, OnPush
+ * Local A-lane seam. A's branch will publish the same invalidation as a
+ * readonly signal; changing the property name here is the only integration
+ * edit needed when that contract lands.
  */
+interface ReactivePromptTargetReader {
+  readonly routingRevision?: Signal<number>;
+}
+
+function readPromptRoutingRevision(handler: PermissionHandlerService): number {
+  return (
+    (
+      handler as PermissionHandlerService & ReactivePromptTargetReader
+    ).routingRevision?.() ?? 0
+  );
+}
+
+/** Smart orchestration for the summary-only compact session card. */
 @Component({
   selector: 'ptah-compact-session-card',
   standalone: true,
-  imports: [
-    LucideAngularModule,
-    CompactSessionHeaderComponent,
-    CompactSessionStatsComponent,
-    CompactSessionActivityComponent,
-    CompactSessionInputComponent,
-  ],
-  // Agent-output surface — see ChatTranscriptComponent for the marker contract.
+  imports: [CompactSessionActivityComponent],
   host: {
-    class: 'flex flex-col h-full',
+    class: 'block h-full min-h-0 overflow-hidden',
     'data-ptah-file-links': '',
     '[attr.data-ptah-tab-id]': 'tab().id',
   },
   template: `
     <div
-      class="flex flex-col h-full border overflow-hidden transition-colors duration-150"
-      [class.border-primary/30]="isStreaming()"
-      [class.border-base-content/10]="!isStreaming()"
-      [class.bg-base-200/30]="true"
+      class="h-full min-h-0 overflow-hidden border border-base-content/10 bg-base-200/30"
+      data-testid="compact-session-card"
     >
-      <!-- Header (always visible) -->
-      <ptah-compact-session-header
-        class="shrink-0"
-        [title]="tab().title"
-        [status]="tab().status"
+      <ptah-compact-session-activity
+        class="h-full"
+        [summary]="summary()"
+        (openFullView)="expandToFull.emit()"
       />
-
-      @if (!isCollapsed()) {
-        <!-- Stats bar -->
-        @if (hasStats()) {
-          <ptah-compact-session-stats
-            class="shrink-0"
-            [messages]="tab().messages"
-            [preloadedStats]="tab().preloadedStats ?? null"
-            [liveModelStats]="tab().liveModelStats ?? null"
-          />
-        }
-
-        <!-- Activity feed fills all remaining space -->
-        <ptah-compact-session-activity
-          class="flex-1 min-h-0"
-          [streamingState]="tab().streamingState"
-          [messages]="tab().messages"
-          [maxEntries]="50"
-          [permissionRequests]="sessionPermissions()"
-          [questionRequests]="sessionQuestions()"
-          [isSessionStreaming]="isStreaming()"
-          (permissionResponded)="onPermissionResponse($event)"
-          (questionAnswered)="onQuestionResponse($event)"
-        />
-
-        <!-- Mini input pinned at bottom -->
-        <ptah-compact-session-input
-          class="shrink-0"
-          [isStreaming]="isStreaming()"
-          (messageSent)="onSend($event)"
-          (stopRequested)="onStop()"
-        />
-      }
-
-      <!-- Footer: collapse toggle + expand to full button -->
-      <div
-        class="flex items-center justify-between px-3 py-1 bg-base-300/30 border-t border-base-content/5 shrink-0"
-      >
-        <button
-          class="btn btn-ghost btn-xs gap-1 text-[10px] text-base-content-muted hover:text-base-content"
-          (click)="isCollapsed.set(!isCollapsed())"
-          type="button"
-        >
-          <lucide-angular
-            [img]="isCollapsed() ? ChevronDownIcon : ChevronUpIcon"
-            class="w-3 h-3"
-          />
-          {{ isCollapsed() ? 'Expand' : 'Collapse' }}
-        </button>
-        <button
-          class="btn btn-ghost btn-xs gap-1 text-[10px] text-base-content-muted hover:text-primary"
-          (click)="expandToFull.emit()"
-          title="Switch to full view"
-          type="button"
-        >
-          <lucide-angular [img]="MaximizeIcon" class="w-3 h-3" />
-          Full View
-        </button>
-      </div>
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CompactSessionCardComponent {
-  private readonly chatStore = inject(ChatStore);
   private readonly tabManager = inject(TabManagerService);
+  private readonly permissionHandler = inject(PermissionHandlerService);
+  private readonly sessionBinding = inject(TabSessionBinding);
+  private readonly conversations = inject(ConversationRegistry);
 
   readonly tab = input.required<TabState>();
   readonly expandToFull = output<void>();
 
-  protected readonly MaximizeIcon = Maximize2;
-  protected readonly ChevronDownIcon = ChevronDown;
-  protected readonly ChevronUpIcon = ChevronUp;
+  private readonly routingRevision = computed(() =>
+    readPromptRoutingRevision(this.permissionHandler),
+  );
 
-  /** Local collapse state: streaming sessions start expanded, completed start collapsed */
-  readonly isCollapsed = signal(false);
+  private readonly tabLookup = computed(() =>
+    this.tabManager.findTabByIdAcrossWorkspaces(this.tab().id),
+  );
 
-  readonly isStreaming = computed(() => {
-    const s = this.tab().status;
-    return s === 'streaming' || s === 'resuming';
+  private readonly workspacePath = computed(
+    () => this.tabLookup()?.workspacePath ?? '',
+  );
+
+  readonly sessionQuestions = computed<readonly AskUserQuestionRequest[]>(
+    () => {
+      this.routingRevision();
+      return this.permissionHandler
+        .questionRequests()
+        .filter((request) => this.targetsTab(request, 'question'));
+    },
+  );
+
+  readonly sessionPermissions = computed<readonly PermissionRequest[]>(() => {
+    this.routingRevision();
+    return this.permissionHandler
+      .permissionRequests()
+      .filter((request) => this.targetsTab(request, 'permission'));
   });
 
-  readonly hasStats = computed(() => {
+  private readonly compaction = computed(() => {
+    const conversationId = this.sessionBinding.conversationFor(this.tab().id);
+    if (!conversationId) return null;
+    const state = this.conversations.compactionStateFor(conversationId);
+    const marker = this.conversations.compactionMarkerFor(conversationId);
+    if (!state && !marker) return null;
+    return {
+      inFlight: state?.inFlight ?? false,
+      summary: marker?.summary ?? null,
+      preTokens: marker?.preTokens ?? state?.preTokens ?? null,
+      postTokens: marker?.postTokens ?? null,
+    };
+  });
+
+  private readonly metrics = computed(() => {
     const tab = this.tab();
+    const calculated = calculateSessionCostSummary([...tab.messages]);
+    const tokens = tab.preloadedStats?.tokens ?? calculated.totalTokens;
+    return {
+      model: tab.liveModelStats?.model ?? tab.sessionModel ?? null,
+      tokens:
+        tokens.input +
+        tokens.output +
+        (tokens.cacheRead ?? 0) +
+        (tokens.cacheCreation ?? 0),
+      cost: tab.preloadedStats?.totalCost ?? calculated.totalCost,
+      agentCount: calculated.agentCount,
+      compactionCount: tab.compactionCount ?? 0,
+    };
+  });
+
+  readonly summary = computed<CompactSessionSummary>(() => {
+    const tab = this.tab();
+    const context: CompactSummaryContext = {
+      sessionIdentity: tab.claudeSessionId ?? tab.id,
+      workspacePath: this.workspacePath(),
+      workspaceLabel:
+        workspaceLabelFromPath(this.workspacePath()) || 'Workspace',
+      sessionStatus: tab.status,
+      terminalReason: tab.lastTerminalReason,
+      questions: this.sessionQuestions(),
+      permissions: this.sessionPermissions(),
+      compaction: this.compaction(),
+      metrics: this.metrics(),
+    };
+    return tab.streamingState
+      ? summarizeLive(tab.streamingState, context)
+      : summarizeFinalized(tab.messages, context);
+  });
+
+  private targetsTab(
+    request: AskUserQuestionRequest | PermissionRequest,
+    kind: 'question' | 'permission',
+  ): boolean {
+    const targetIds =
+      kind === 'question'
+        ? this.permissionHandler.questionTargetTabsFor(request.id)
+        : this.permissionHandler.targetTabsFor(request.id);
+    if (targetIds.length > 0) {
+      return targetIds.some(
+        (targetId) =>
+          this.tabManager.findTabByIdAcrossWorkspaces(targetId)?.tab.id ===
+          this.tab().id,
+      );
+    }
+    if (!request.sessionId) return false;
     return (
-      tab.messages.length > 0 ||
-      tab.preloadedStats != null ||
-      tab.liveModelStats != null
+      this.tabManager.findTabBySessionIdAcrossWorkspaces(request.sessionId)?.tab
+        .id === this.tab().id
     );
-  });
-
-  readonly sessionPermissions = computed(() => {
-    const permissions = this.chatStore.permissionRequests();
-    const sessionId = this.tab().claudeSessionId;
-    if (!sessionId) return [];
-    return permissions.filter((p) => p.sessionId === sessionId);
-  });
-
-  readonly sessionQuestions = computed(() => {
-    const questions = this.chatStore.questionRequests();
-    const sessionId = this.tab().claudeSessionId;
-    if (!sessionId) return [];
-    return questions.filter((q) => q.sessionId === sessionId);
-  });
-
-  onSend(message: string): void {
-    const tabId = this.tab().id;
-    this.chatStore.sendOrQueueMessage(message, { tabId });
-  }
-
-  onStop(): void {
-    this.chatStore.abortWithConfirmation();
-  }
-
-  onPermissionResponse(response: PermissionResponse): void {
-    this.chatStore.handlePermissionResponse(response);
-  }
-
-  onQuestionResponse(response: AskUserQuestionResponse): void {
-    this.chatStore.handleQuestionResponse(response);
   }
 }
