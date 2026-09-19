@@ -142,7 +142,7 @@ describe('AntigravityCliAdapter', () => {
       currentChild = createFakeChild();
       return currentChild.child;
     });
-    adapter = new AntigravityCliAdapter();
+    adapter = new AntigravityCliAdapter(undefined, async () => true);
   });
 
   describe('detect()', () => {
@@ -155,13 +155,38 @@ describe('AntigravityCliAdapter', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/agy');
       expect(result.version).toBe('agy 1.1.3');
-      expect(result.messagingMode).toBe('none');
+      expect(result.messagingMode).toBe('queue');
     });
 
     it('reports NOT installed when resolveCliPath returns null', async () => {
       mockResolveCliPath.mockResolvedValue(null);
       const result = await adapter.detect();
       expect(result.installed).toBe(false);
+    });
+
+    it('capability-probes --help instead of comparing version strings', async () => {
+      const probedAdapter = new AntigravityCliAdapter();
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/agy');
+      mockProbeCliVersion.mockResolvedValue('agy future-version');
+
+      const detecting = probedAdapter.detect();
+      await Promise.resolve();
+      await Promise.resolve();
+      currentChild?.stdout.write(
+        '  --input-format  Input format for print mode\n',
+      );
+      currentChild?.emitClose(0);
+
+      await expect(detecting).resolves.toMatchObject({
+        messagingMode: 'queue',
+      });
+      expect(mockSpawnCli).toHaveBeenCalledWith(
+        '/usr/local/bin/agy',
+        ['--help'],
+        {
+          spawner: undefined,
+        },
+      );
     });
   });
 
@@ -200,7 +225,7 @@ describe('AntigravityCliAdapter', () => {
   describe('runSdk() — argument construction', () => {
     const baseOptions = { task: 'Do the thing', workingDirectory: '/proj' };
 
-    it('spawns print mode with stream-json, skip-permissions and the prompt LAST', async () => {
+    it('spawns stream-json input mode with attached empty print and skip-permissions', async () => {
       const handle = await adapter.runSdk(baseOptions);
       collect(handle);
       currentChild?.emitClose(0);
@@ -217,9 +242,36 @@ describe('AntigravityCliAdapter', () => {
       expect(argsArg).toContain('--dangerously-skip-permissions');
       expect(argsArg).toContain('--add-dir');
       expect(argsArg[argsArg.indexOf('--add-dir') + 1]).toBe('/proj');
-      // --print is the LAST flag and its value is the built task prompt.
-      expect(argsArg[argsArg.length - 2]).toBe('--print');
-      expect(argsArg[argsArg.length - 1]).toContain('Do the thing');
+      // Direct spawn receives the shell's quote-free form of `--print=''`.
+      expect(argsArg[0]).toBe('--print=');
+      expect(argsArg.slice(1, 5)).toEqual([
+        '--input-format',
+        'stream-json',
+        '--output-format',
+        'stream-json',
+      ]);
+    });
+
+    it('uses the attached empty --print value and sends the task as validated NDJSON', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      expect(argsArg).toContain('--print=');
+      expect(argsArg).toContain('--input-format');
+      expect(argsArg[argsArg.indexOf('--input-format') + 1]).toBe(
+        'stream-json',
+      );
+      expect(argsArg).not.toContain('--print');
+      expect(currentChild?.child.stdin.write).toHaveBeenCalledWith(
+        `${JSON.stringify({
+          event: 'user',
+          message: { content: buildTaskPrompt(baseOptions, 'antigravity') },
+        })}\n`,
+      );
+      expect(currentChild?.child.stdin.end).not.toHaveBeenCalled();
+
+      currentChild?.emitClose(0);
+      await handle.done;
     });
 
     it('adds --model when a model is provided', async () => {
@@ -333,15 +385,16 @@ describe('AntigravityCliAdapter', () => {
       expect(adapter.roleChannel).toBe('task-prompt');
     });
 
-    it('puts the role block in the --print value', async () => {
+    it('puts the role block in the first stream-json input message', async () => {
       const handle = await adapter.runSdk({ ...baseOptions, role });
       collect(handle);
       currentChild?.emitClose(0);
       await handle.done;
 
-      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
-      expect(argsArg[argsArg.length - 2]).toBe('--print');
-      const prompt = argsArg[argsArg.length - 1];
+      const written = currentChild?.child.stdin.write.mock
+        .calls[0]?.[0] as string;
+      const prompt = (JSON.parse(written) as { message: { content: string } })
+        .message.content;
       expect(prompt).toBe(
         buildTaskPrompt({ ...baseOptions, role }, 'antigravity'),
       );
@@ -349,11 +402,19 @@ describe('AntigravityCliAdapter', () => {
     });
 
     it('rejects an oversized role before writing the MCP entry or spawning', async () => {
-      const mcpWrite = spyOnMcpWrite();
+      const legacy = new AntigravityCliAdapter(undefined, async () => false);
+      const mcpWrite = jest
+        .spyOn(
+          legacy as unknown as {
+            configureMcpServer: () => Promise<undefined>;
+          },
+          'configureMcpServer',
+        )
+        .mockResolvedValue(undefined);
       const hugeBody = 'x'.repeat(1_100_000);
 
       await expect(
-        adapter.runSdk({
+        legacy.runSdk({
           ...baseOptions,
           mcpPort: 51820,
           role: { ...role, body: hugeBody, bytes: hugeBody.length },
@@ -394,7 +455,7 @@ describe('AntigravityCliAdapter', () => {
 
       const [, roleless] = mockSpawnCli.mock.calls[0] as [string, string[]];
       const [, withRole] = mockSpawnCli.mock.calls[1] as [string, string[]];
-      expect(withRole.slice(0, -1)).toEqual(roleless.slice(0, -1));
+      expect(withRole).toEqual(roleless);
     });
   });
 
@@ -418,6 +479,95 @@ describe('AntigravityCliAdapter', () => {
         event: 'step_update',
         step_update: { conversation_id: CONV_ID, ...step },
       });
+
+    it('settles once per result, writes a continuation on the same stdin, and then closes stdin', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      collect(handle);
+      const firstDone = handle.done;
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          event: 'result',
+          result: {
+            conversation_id: CONV_ID,
+            status: 'SUCCESS',
+            response: 'first',
+            num_turns: 1,
+            usage: { total_tokens: 100 },
+          },
+        }) + '\n',
+      );
+      await expect(firstDone).resolves.toBe(0);
+
+      const continuation = await handle.continue?.('second turn');
+      expect(continuation).toBeDefined();
+      expect(currentChild?.child.stdin.write).toHaveBeenLastCalledWith(
+        `${JSON.stringify({
+          event: 'user',
+          message: { content: 'second turn' },
+        })}\n`,
+      );
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          event: 'result',
+          result: {
+            conversation_id: CONV_ID,
+            status: 'SUCCESS',
+            response: 'second',
+            num_turns: 2,
+            usage: { total_tokens: 200 },
+          },
+        }) + '\n',
+      );
+      await expect(continuation?.done).resolves.toBe(0);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(currentChild?.child.stdin.end).toHaveBeenCalledTimes(1);
+
+      currentChild?.emitClose(0);
+    });
+
+    it('refuses an invalid queued message before writing it to stdin', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      collect(handle);
+      currentChild?.stdout.write(
+        JSON.stringify({
+          event: 'result',
+          result: { status: 'SUCCESS', response: 'first' },
+        }) + '\n',
+      );
+      await handle.done;
+      const writesBefore = currentChild?.child.stdin.write.mock.calls.length;
+
+      await expect(
+        handle.continue?.(undefined as unknown as string),
+      ).rejects.toThrow(
+        'Refusing to send an invalid Antigravity stream-json message',
+      );
+      expect(currentChild?.child.stdin.write).toHaveBeenCalledTimes(
+        writesBefore ?? 0,
+      );
+      currentChild?.emitClose(0);
+    });
+
+    it('rejects a known output event with a missing payload at the zod boundary', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(`${JSON.stringify({ event: 'result' })}\n`);
+      currentChild?.emitClose(1);
+      await handle.done;
+
+      expect(segments).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'error',
+            content: expect.stringContaining(
+              'Invalid Antigravity stream-json event',
+            ),
+          }),
+        ]),
+      );
+    });
 
     it('maps a tool step to a tool-call then a tool-result', async () => {
       const handle = await adapter.runSdk(baseOptions);
@@ -501,7 +651,7 @@ describe('AntigravityCliAdapter', () => {
       expect(output.join('')).toContain('Here are the files in the repo root.');
     });
 
-    it('produces no segment for structural steps', async () => {
+    it('ignores structural steps but reports per-turn agent_response usage', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
 
@@ -539,10 +689,12 @@ describe('AntigravityCliAdapter', () => {
       currentChild?.emitClose(0);
       await handle.done;
 
-      expect(segments).toHaveLength(0);
+      expect(segments).toEqual([
+        { type: 'info', content: 'Usage: 0 input, 168 output tokens' },
+      ]);
     });
 
-    it('emits a usage info segment on a SUCCESS result without repeating the response', async () => {
+    it('does not emit cumulative result usage or repeat the response', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
 
@@ -563,9 +715,7 @@ describe('AntigravityCliAdapter', () => {
       currentChild?.emitClose(0);
       await handle.done;
 
-      expect(segments).toEqual([
-        { type: 'info', content: 'Usage: 25269 input, 2562 output tokens' },
-      ]);
+      expect(segments).toEqual([]);
     });
 
     it('emits an error segment for a non-SUCCESS result', async () => {
@@ -771,12 +921,42 @@ describe('AntigravityCliAdapter', () => {
   });
 
   describe('capabilities() / parseOutput()', () => {
-    it('reports no messaging capability at all', () => {
+    it('reports continuation after the capability probe succeeds', async () => {
+      const handle = await adapter.runSdk({
+        task: 'X',
+        workingDirectory: '/proj',
+      });
       expect(adapter.capabilities()).toEqual({
         steer: false,
         interrupt: false,
-        continuation: false,
+        continuation: true,
       });
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
+    it('keeps the one-shot path and unsupported capability when --input-format is absent', async () => {
+      const legacy = new AntigravityCliAdapter(undefined, async () => false);
+      const handle = await legacy.runSdk({
+        task: 'legacy',
+        workingDirectory: '/proj',
+      });
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+
+      expect(argsArg).not.toContain('--input-format');
+      expect(argsArg.slice(-2)).toEqual([
+        '--print',
+        buildTaskPrompt(
+          { task: 'legacy', workingDirectory: '/proj' },
+          'antigravity',
+        ),
+      ]);
+      expect(handle.continue).toBeUndefined();
+      expect(legacy.capabilities().continuation).toBe(false);
+      expect(currentChild?.child.stdin.end).toHaveBeenCalledTimes(1);
+
+      currentChild?.emitClose(0);
+      await handle.done;
     });
 
     it('strips ANSI escape codes', () => {
