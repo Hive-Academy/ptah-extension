@@ -873,4 +873,79 @@ describe('AppStateManager', () => {
       expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
     });
   });
+
+  describe('acknowledged canvas focus bridge', () => {
+    const target = (workspacePath: string, sessionId = SessionId.create()) => ({
+      workspacePath,
+      sessionId,
+      tabId: `tab-${workspacePath}`,
+    });
+
+    it('takes matching requests FIFO and preserves exact resolver ownership', async () => {
+      jest.useFakeTimers();
+      const service = createService();
+      const first = service.requestCanvasFocus(target('/a'));
+      const other = service.requestCanvasFocus(target('/b'));
+      const second = service.requestCanvasFocus(target('/a'));
+
+      const requests = service.takeCanvasFocusRequests('/a');
+      expect(requests.map((request) => request.target.workspacePath)).toEqual([
+        '/a',
+        '/a',
+      ]);
+      expect(service.canvasFocusRequests()).toHaveLength(1);
+      requests[0]?.resolve({ success: true, outcome: 'focused' });
+      requests[1]?.resolve({ success: true, outcome: 'adopted' });
+      service.takeCanvasFocusRequests('/b')[0]?.resolve({
+        success: true,
+        outcome: 'opened',
+      });
+      await expect(first).resolves.toEqual({
+        success: true,
+        outcome: 'focused',
+      });
+      await expect(second).resolves.toEqual({
+        success: true,
+        outcome: 'adopted',
+      });
+      await expect(other).resolves.toEqual({
+        success: true,
+        outcome: 'opened',
+      });
+      expect(jest.getTimerCount()).toBe(0);
+      jest.useRealTimers();
+    });
+
+    it.each([
+      'focused',
+      'adopted',
+      'opened',
+      'cap-reached',
+      'missing',
+    ] as const)('preserves the structured %s outcome', async (outcome) => {
+      const service = createService();
+      const pending = service.requestCanvasFocus(target('/a'));
+      service.takeCanvasFocusRequests('/a')[0]?.resolve({
+        success: outcome !== 'missing',
+        outcome,
+      });
+      await expect(pending).resolves.toEqual({
+        success: outcome !== 'missing',
+        outcome,
+      });
+    });
+
+    it('removes only the stale request and times it out as missing', async () => {
+      jest.useFakeTimers();
+      const service = createService();
+      const pending = service.requestCanvasFocus(target('/orphan'));
+      jest.advanceTimersByTime(5000);
+      expect(service.canvasFocusRequests()).toEqual([]);
+      await expect(pending).resolves.toEqual({
+        success: false,
+        outcome: 'missing',
+      });
+      jest.useRealTimers();
+    });
+  });
 });

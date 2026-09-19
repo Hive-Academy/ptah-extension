@@ -12,6 +12,10 @@ import {
   type NewProjectIntake,
 } from '@ptah-extension/shared';
 import { MessageHandler } from './message-router.types';
+import type {
+  NotificationFocusResult,
+  NotificationFocusTarget,
+} from '../tokens/notification-focus-router.token';
 
 export type ViewType =
   | 'chat'
@@ -125,6 +129,12 @@ export interface CanvasSessionRequest {
    * fabricate the request shape still type-check.
    */
   resolve?: (success: boolean) => void;
+}
+
+export interface CanvasFocusRequest {
+  readonly id: number;
+  readonly target: NotificationFocusTarget;
+  readonly resolve: (result: NotificationFocusResult) => void;
 }
 
 /**
@@ -262,6 +272,10 @@ export class AppStateManager implements MessageHandler {
   private readonly _canvasSessionRequests = signal<
     readonly CanvasSessionRequest[]
   >([]);
+  private readonly _canvasFocusRequests = signal<readonly CanvasFocusRequest[]>(
+    [],
+  );
+  private _canvasFocusRequestId = 0;
   /** Signal bridge: request to create a new session as a canvas tile (from "New Session" in grid mode) */
   private readonly _newCanvasSessionRequest = signal<string | null>(null);
   /**
@@ -334,6 +348,7 @@ export class AppStateManager implements MessageHandler {
   readonly layoutMode = this._layoutMode.asReadonly();
   /** Pending requests to open sessions in canvas tiles, in arrival order. */
   readonly canvasSessionRequests = this._canvasSessionRequests.asReadonly();
+  readonly canvasFocusRequests = this._canvasFocusRequests.asReadonly();
   /** Pending request to create a new canvas tile (consumed by OrchestraCanvasComponent) */
   readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
   /** Pending request to adopt an existing tab as a canvas tile (consumed by OrchestraCanvasComponent) */
@@ -740,6 +755,52 @@ export class AppStateManager implements MessageHandler {
       this._canvasSessionRequests.set([]);
     }
     return requests;
+  }
+
+  requestCanvasFocus(
+    target: NotificationFocusTarget,
+  ): Promise<NotificationFocusResult> {
+    return new Promise<NotificationFocusResult>((resolve) => {
+      let settled = false;
+      const requestId = ++this._canvasFocusRequestId;
+      const settle = (result: NotificationFocusResult): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const request: CanvasFocusRequest = {
+        id: requestId,
+        target,
+        resolve: settle,
+      };
+      const timer = setTimeout(() => {
+        let removed = false;
+        this._canvasFocusRequests.update((requests) => {
+          const remaining = requests.filter(
+            (candidate) => candidate.id !== requestId,
+          );
+          removed = remaining.length !== requests.length;
+          return removed ? remaining : requests;
+        });
+        if (removed) settle({ success: false, outcome: 'missing' });
+      }, 5000);
+      this._canvasFocusRequests.update((requests) => [...requests, request]);
+    });
+  }
+
+  takeCanvasFocusRequests(
+    workspacePath: string,
+  ): readonly CanvasFocusRequest[] {
+    const matching = this._canvasFocusRequests().filter(
+      (request) => request.target.workspacePath === workspacePath,
+    );
+    if (matching.length === 0) return [];
+    const ids = new Set(matching.map((request) => request.id));
+    this._canvasFocusRequests.update((requests) =>
+      requests.filter((request) => !ids.has(request.id)),
+    );
+    return matching;
   }
 
   /** Request that the canvas creates a new tile with the given name */

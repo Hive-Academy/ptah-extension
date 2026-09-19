@@ -85,6 +85,7 @@
         "tribunal-panel",
         "tasks-ui",
         "workspace-indexing",
+        "notification-center",
         "thoth-shell",
         "memory-curator-ui",
         "cron-scheduler-ui",
