@@ -8,7 +8,7 @@ in the working tree.
 
 The degradation audit failed with:
 
-```
+```text
 libs/frontend/tasks-ui: 7 FAIL (baseline 3)
 ```
 
@@ -31,7 +31,7 @@ allows), with a DISTINCT reason per site:
 The baseline was not touched (no `--update-baseline`, no edit to
 `tools/degradation-audit/baseline.json`). Audit line before and after:
 
-```
+```text
 before: libs/frontend/tasks-ui: 7 FAIL (baseline 3)
 after:  libs/frontend/tasks-ui: 3 ok (baseline 3)
 ```
@@ -59,7 +59,7 @@ summary. No defect there; nothing touched.
 
 ## Deferred
 
-**4050641300 — the bridge can prefill a composer for a tab no tile adopted.**
+**4050641300 — the bridge can prefill a composer for a tab that was not adopted as a tile.**
 
 The rejection path is real: `CanvasStore.adoptTab(tabId)` returns `null` at the
 tile cap (`MAX_TILES = 9`, `libs/frontend/canvas/src/lib/canvas.store.ts:219`),
@@ -93,7 +93,7 @@ The lane left this section with the three commands listed and their output
 fences EMPTY. It did not run them. The orchestrator ran every command below in
 the foreground and reports the real results.
 
-```
+```text
 $ npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts
   libs/frontend/tasks-ui: 3 ok (baseline 3)
   degradation-audit: TOTAL 302 unsuppressed site(s)
@@ -102,7 +102,7 @@ $ npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts
 
 `git diff tools/degradation-audit/` is empty, so the baseline was not touched.
 
-```
+```text
 $ npx nx run-many -t test -p @ptah-extension/tasks-ui @ptah-extension/chat @ptah-extension/core
   core:     30 suites, 722 tests passed
   chat:     82 suites, 1313 passed, 2 skipped
@@ -110,7 +110,7 @@ $ npx nx run-many -t test -p @ptah-extension/tasks-ui @ptah-extension/chat @ptah
   NX   Successfully ran target test for 3 projects
 ```
 
-```
+```text
 $ npx nx run-many -t lint -p @ptah-extension/tasks-ui @ptah-extension/chat @ptah-extension/core
   0 errors (warnings are pre-existing: max-lines, non-null assertions)
 
@@ -156,3 +156,72 @@ one added line is mechanical, but it is not pinned by a test.
 4. The rewritten links in `implementation-plan.md` assume the repository root as
    their base (`../../../`), which is correct wherever the repo is checked out
    but not if the document is copied elsewhere.
+
+## Review round 2
+
+| Finding ID | Verdict | Change |
+| --- | --- | --- |
+| 4053502192 | fixed | `libs/frontend/chat/src/lib/components/templates/chat-view.component.ts:843-853` now tracks `chatInputRef`, keeps a matching prefill pending while the input is unavailable, restores the text once the input exists, and only then clears the request. |
+| 4053502178 | fixed | `.ptah/specs/TASK_2026_471_c054/implementation-plan.md:11-23,28,31,34,37,40` now has complete Markdown link destinations; the two orchestration labels now visibly match their real `.claude/skills/...` targets. |
+| 4053502184 | fixed | `.ptah/specs/TASK_2026_471_c054/review-response.md:11,34,96,105,113` now labels each formerly untyped opening fence as `text`. |
+| 4053502185 | fixed | `.ptah/specs/TASK_2026_471_c054/review-response.md:62` now says “for a tab that was not adopted as a tile.” |
+| 4053502187 | fixed | `.ptah/specs/TASK_2026_471_c054/review-response.md` ends with exactly one newline. |
+
+For 4053502192, the effect first reads the current composer request. For a
+non-zero request it also reads the signal-based `chatInputRef` outside
+`untracked`, so Angular reruns the effect when that view child becomes
+available. The existing `SESSION_CONTEXT` predicate is unchanged: a concrete
+request `tabId` must match the tile context, while `null` still targets only the
+main panel. A matching request with no input returns without clearing; once the
+input exists, `restoreContentToInput` runs and `clearComposerPrefill` follows.
+
+**Coverage gap:** no chat-side regression test was added. This component spec
+deliberately does not render its template, and exercising a signal-based
+`viewChild` effect requires the prohibited `fixture.detectChanges()` or
+`TestBed.flushEffects()` path in that harness. The production behavior is
+covered by the required project test, typecheck, and lint commands below, but
+the input-availability transition is not pinned by a focused unit test.
+
+### Review round 2 verification
+
+All commands ran in the foreground from the worktree root. Their real output
+tails were:
+
+```text
+$ npx nx run-many -t test -p @ptah-extension/chat @ptah-extension/core
+Test Suites: 82 passed, 82 total
+Tests:       2 skipped, 1313 passed, 1315 total
+Snapshots:   0 total
+Time:        28.928 s, estimated 33 s
+Ran all test suites.
+
+NX   Successfully ran target test for 2 projects
+
+Nx read the output from the cache instead of running the command for 1 out of 2 tasks.
+```
+
+The same command's cached core task output reported `30 passed` suites and
+`722 passed` tests.
+
+```text
+$ npx nx run-many -t typecheck -p @ptah-extension/chat @ptah-extension/core
+> nx run @ptah-extension/chat:typecheck
+
+> npx ngc --noEmit --project libs/frontend/chat/tsconfig.lib.json
+
+NX   Successfully ran target typecheck for 2 projects
+```
+
+```text
+$ npx nx run-many -t lint -p @ptah-extension/chat @ptah-extension/core
+✖ 17 problems (0 errors, 17 warnings)
+
+NX   Successfully ran target lint for 2 projects
+
+Nx read the output from the cache instead of running the command for 1 out of 2 tasks.
+```
+
+The same lint command's cached core task output reported `11 problems (0
+errors, 11 warnings)`. The warnings are existing `max-lines`, unused-symbol,
+non-null-assertion, and empty-function findings; this change introduced no lint
+error.
