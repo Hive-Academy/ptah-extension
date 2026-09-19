@@ -1,0 +1,405 @@
+diff --git a/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card-truncation.spec.ts b/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card-truncation.spec.ts
+index 6248a1998..40d4479c6 100644
+--- a/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card-truncation.spec.ts
++++ b/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card-truncation.spec.ts
+@@ -17,6 +17,7 @@
+ 
+ import { TestBed } from '@angular/core/testing';
+ import { Component, computed, signal } from '@angular/core';
++import { By } from '@angular/platform-browser';
+ import { provideMarkdown } from 'ngx-markdown';
+ import { AgentCardOutputComponent } from '@ptah-extension/chat-ui';
+ import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
+@@ -29,11 +30,7 @@ import type {
+   AgentProcessInfo,
+   CliOutputSegment,
+ } from '@ptah-extension/shared';
+-import {
+-  mergeConsecutiveTextSegments,
+-  parseAgentOutput,
+-  parseStderr,
+-} from './agent-card.utils';
++import { parseAgentOutput, parseStderr } from './agent-card.utils';
+ 
+ @Component({
+   standalone: true,
+@@ -103,8 +100,8 @@ describe('agent card — what a trimmed card shows', () => {
+ 
+   /**
+    * Render exactly what `AgentCardComponent` binds on the default / ptah-cli
+-   * fallback path: `mergeConsecutiveTextSegments(agent.segments)`, or
+-   * `parseAgentOutput(agent.stdout)` when there are no structured segments.
++   * fallback path: `agent.segments`, or `parseAgentOutput(agent.stdout)` when
++   * there are no structured segments.
+    */
+   function renderedText(
+     segments: RenderSegment[],
+@@ -141,7 +138,7 @@ describe('agent card — what a trimmed card shows', () => {
+       pushLongRun('long', 400);
+ 
+       const text = renderedText(
+-        mergeConsecutiveTextSegments(agentOf('long').segments),
++        agentOf('long').segments,
+       );
+ 
+       // The first thing this agent ever reasoned about. A bare slice deleted
+@@ -160,7 +157,7 @@ describe('agent card — what a trimmed card shows', () => {
+       pushLongRun('long', 400);
+ 
+       const text = renderedText(
+-        mergeConsecutiveTextSegments(agentOf('long').segments),
++        agentOf('long').segments,
+       );
+ 
+       expect(text).toMatch(
+@@ -223,4 +220,21 @@ describe('agent card — what a trimmed card shows', () => {
+       );
+     });
+   });
++
++  describe('turn separation (defect 5)', () => {
++    it('renders consecutive text segments as separate markdown blocks', () => {
++      const fixture = TestBed.createComponent(OutputHostComponent);
++      fixture.componentInstance.segments.set([
++        { type: 'text', content: 'STEP2: done' },
++        {
++          type: 'text',
++          content: 'QUEUED_ACK: codex received the queued message',
++        },
++      ] as RenderSegment[]);
++      fixture.detectChanges();
++
++      const markdownBlocks = fixture.debugElement.queryAll(By.css('markdown'));
++      expect(markdownBlocks.length).toBe(2);
++    });
++  });
+ });
+diff --git a/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts b/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts
+index 8232e720d..d1bdf85bd 100644
+--- a/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts
++++ b/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts
+@@ -29,7 +29,6 @@ import {
+   formatElapsed,
+   parseAgentOutput,
+   parseStderr,
+-  mergeConsecutiveTextSegments,
+ } from './agent-card.utils';
+ import type { RenderSegment } from '@ptah-extension/chat-ui';
+ 
+@@ -179,7 +178,7 @@ export class AgentCardComponent {
+   readonly parsedOutput = computed((): RenderSegment[] => {
+     const agent = this.agent();
+     if (agent.segments.length > 0) {
+-      return mergeConsecutiveTextSegments(agent.segments);
++      return agent.segments;
+     }
+     const stdout = agent.stdout;
+     if (!stdout) return [];
+diff --git a/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.utils.ts b/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.utils.ts
+index 380398596..c84e3b7b7 100644
+--- a/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.utils.ts
++++ b/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.utils.ts
+@@ -1,7 +1,7 @@
+ /**
+  * Agent Card Utilities
+  *
+- * Pure functions for parsing, formatting, and merging agent output.
++ * Pure functions for parsing and formatting agent output.
+  */
+ 
+ import { isOutputTruncationNotice } from '@ptah-extension/chat-streaming';
+@@ -215,49 +215,6 @@ export function parseStderr(stderr: string): StderrSegment[] {
+   return segments;
+ }
+ 
+-/**
+- * Merge consecutive segments of the same streamable type (text, thinking) into a single segment.
+- * SDK adapters (e.g. Copilot) emit per-token text segments, and even after
+- * backend merging, cross-batch boundaries can leave adjacent text segments.
+- * This collapses them for clean markdown rendering.
+- */
+-export function mergeConsecutiveTextSegments(
+-  segments: readonly RenderSegment[],
+-): RenderSegment[] {
+-  if (segments.length <= 1) return segments as RenderSegment[];
+-
+-  const result: RenderSegment[] = [];
+-  let buffer = '';
+-  let bufferType: 'text' | 'thinking' | null = null;
+-
+-  for (const seg of segments) {
+-    if (seg.type === 'text' || seg.type === 'thinking') {
+-      if (bufferType === seg.type) {
+-        buffer += seg.content;
+-      } else {
+-        if (buffer && bufferType) {
+-          result.push({ type: bufferType, content: buffer });
+-        }
+-        buffer = seg.content;
+-        bufferType = seg.type;
+-      }
+-    } else {
+-      if (buffer && bufferType) {
+-        result.push({ type: bufferType, content: buffer });
+-        buffer = '';
+-        bufferType = null;
+-      }
+-      result.push(seg);
+-    }
+-  }
+-
+-  if (buffer && bufferType) {
+-    result.push({ type: bufferType, content: buffer });
+-  }
+-
+-  return result;
+-}
+-
+ /** Check if a line starts a new segment boundary */
+ function isSegmentBoundary(line: string): boolean {
+   const t = line.trim();
+diff --git a/libs/frontend/chat/src/lib/components/organisms/message-bubble.component.spec.ts b/libs/frontend/chat/src/lib/components/organisms/message-bubble.component.spec.ts
+index 9d3ca21c9..e039565de 100644
+--- a/libs/frontend/chat/src/lib/components/organisms/message-bubble.component.spec.ts
++++ b/libs/frontend/chat/src/lib/components/organisms/message-bubble.component.spec.ts
+@@ -346,6 +346,40 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
+       expect(markdown.componentInstance.data).toBe('**check this**');
+     });
+ 
++    it('deduplicates an agent report whose summary equals its message', () => {
++      setMessage(
++        createExecutionChatMessage({
++          id: 'msg-peer-report-dup',
++          role: 'user',
++          rawContent:
++            '<agent-report agent="ollama cloud">\nSTEP2: done\n\nSTEP2: done\n</agent-report>',
++        }),
++      );
++
++      const markdown = fixture.debugElement.query(By.css('markdown'));
++      expect(markdown).toBeTruthy();
++      expect(markdown.componentInstance.data).toBe(
++        '<agent-report agent="ollama cloud">\nSTEP2: done\n</agent-report>',
++      );
++    });
++
++    it('keeps both summary and message when an agent report has different text', () => {
++      const rawContent =
++        '<agent-report agent="codex">\nQueued message delivered\n\ncodex received the queued message\n</agent-report>';
++
++      setMessage(
++        createExecutionChatMessage({
++          id: 'msg-peer-report-diff',
++          role: 'user',
++          rawContent,
++        }),
++      );
++
++      const markdown = fixture.debugElement.query(By.css('markdown'));
++      expect(markdown).toBeTruthy();
++      expect(markdown.componentInstance.data).toBe(rawContent);
++    });
++
+     it('shows the message under a neutral label when the label is blank', () => {
+       setMessage(peerMessage('   '));
+ 
+diff --git a/libs/frontend/chat/src/lib/components/organisms/message-bubble.component.ts b/libs/frontend/chat/src/lib/components/organisms/message-bubble.component.ts
+index db1002120..c3f91cf11 100644
+--- a/libs/frontend/chat/src/lib/components/organisms/message-bubble.component.ts
++++ b/libs/frontend/chat/src/lib/components/organisms/message-bubble.component.ts
+@@ -43,6 +43,10 @@ import {
+   type MessageSummary,
+ } from '../../utils/message-summary.utils';
+ 
++import {
++  deduplicateAgentReportSummary,
++} from '../../utils/agent-report.utils';
++
+ /**
+  * MessageBubbleComponent - Chat message with DaisyUI styling
+  *
+@@ -230,7 +234,7 @@ export class MessageBubbleComponent {
+    */
+   readonly userDisplayContent = computed(() => {
+     const raw = this.message().rawContent || '';
+-    return raw
++    return deduplicateAgentReportSummary(raw)
+       .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+       .trim();
+   });
+diff --git a/libs/frontend/chat/src/lib/services/agent-monitor-tree-builder.service.spec.ts b/libs/frontend/chat/src/lib/services/agent-monitor-tree-builder.service.spec.ts
+index 20ad67dde..c8ea3bbda 100644
+--- a/libs/frontend/chat/src/lib/services/agent-monitor-tree-builder.service.spec.ts
++++ b/libs/frontend/chat/src/lib/services/agent-monitor-tree-builder.service.spec.ts
+@@ -208,26 +208,32 @@ describe('AgentMonitorTreeBuilderService', () => {
+       expect(service.buildTreeFromSegments('agent-1', [])).toEqual([]);
+     });
+ 
+-    it('merges consecutive text segments into a single text node', () => {
++    it('keeps consecutive text segments as separate nodes', () => {
+       const segments: CliOutputSegment[] = [
+-        { type: 'text', content: 'hello ' } as CliOutputSegment,
+-        { type: 'text', content: 'world' } as CliOutputSegment,
++        { type: 'text', content: 'STEP2: done' } as CliOutputSegment,
++        { type: 'text', content: 'QUEUED_ACK: codex received the queued message' } as CliOutputSegment,
+       ];
+       const tree = service.buildTreeFromSegments('agent-1', segments);
+-      expect(tree).toHaveLength(1);
++      expect(tree).toHaveLength(2);
+       expect(tree[0].type).toBe('text');
+-      expect(tree[0].content).toBe('hello world');
++      expect(tree[0].content).toBe('STEP2: done');
++      expect(tree[1].type).toBe('text');
++      expect(tree[1].content).toBe(
++        'QUEUED_ACK: codex received the queued message',
++      );
+     });
+ 
+-    it('merges consecutive thinking segments into a single thinking node', () => {
++    it('keeps consecutive thinking segments as separate nodes', () => {
+       const segments: CliOutputSegment[] = [
+-        { type: 'thinking', content: 'hmm ' } as CliOutputSegment,
++        { type: 'thinking', content: 'hmm' } as CliOutputSegment,
+         { type: 'thinking', content: 'ok' } as CliOutputSegment,
+       ];
+       const tree = service.buildTreeFromSegments('agent-1', segments);
+-      expect(tree).toHaveLength(1);
++      expect(tree).toHaveLength(2);
+       expect(tree[0].type).toBe('thinking');
+-      expect(tree[0].content).toBe('hmm ok');
++      expect(tree[0].content).toBe('hmm');
++      expect(tree[1].type).toBe('thinking');
++      expect(tree[1].content).toBe('ok');
+     });
+ 
+     it('pairs a tool-call with a tool-result by toolCallId', () => {
+diff --git a/libs/frontend/chat/src/lib/services/agent-monitor-tree-builder.service.ts b/libs/frontend/chat/src/lib/services/agent-monitor-tree-builder.service.ts
+index 489ae3b61..d22380edf 100644
+--- a/libs/frontend/chat/src/lib/services/agent-monitor-tree-builder.service.ts
++++ b/libs/frontend/chat/src/lib/services/agent-monitor-tree-builder.service.ts
+@@ -120,8 +120,8 @@ export class AgentMonitorTreeBuilderService {
+    *
+    * Algorithm:
+    * 1. Walk segments sequentially
+-   * 2. text → merge consecutive into a single text ExecutionNode
+-   * 3. thinking → merge consecutive into a single thinking ExecutionNode
++   * 2. text → create one text ExecutionNode per segment
++   * 3. thinking → create one thinking ExecutionNode per segment
+    * 4. tool-call → create tool ExecutionNode (status: streaming), index by toolCallId
+    * 5. tool-result / tool-result-error / command / file-change → pair with tool node via toolCallId (FIFO fallback)
+    * 6. error → text node with error content
+@@ -205,62 +205,35 @@ export class AgentMonitorTreeBuilderService {
+     const toolCallIdToIndex = new Map<string, number>();
+     const unresolvedToolIndices: number[] = [];
+ 
+-    let textBuffer = '';
+-    let textBufferStart = -1; // segment index where current text buffer started
+-    let thinkingBuffer = '';
+-    let thinkingBufferStart = -1;
+-
+-    const flushText = (): void => {
+-      if (textBuffer.trim()) {
+-        nodes.push(
+-          createExecutionNode({
+-            id: `seg-text-${textBufferStart}`,
+-            type: 'text',
+-            status: 'complete',
+-            content: textBuffer,
+-          }),
+-        );
+-      }
+-      textBuffer = '';
+-      textBufferStart = -1;
+-    };
+-
+-    const flushThinking = (): void => {
+-      if (thinkingBuffer.trim()) {
+-        nodes.push(
+-          createExecutionNode({
+-            id: `seg-thinking-${thinkingBufferStart}`,
+-            type: 'thinking',
+-            status: 'complete',
+-            content: thinkingBuffer,
+-          }),
+-        );
+-      }
+-      thinkingBuffer = '';
+-      thinkingBufferStart = -1;
+-    };
+-
+     for (let i = 0; i < segments.length; i++) {
+       const segment = segments[i];
+ 
+       switch (segment.type) {
+         case 'text': {
+-          if (thinkingBuffer) flushThinking();
+-          if (textBufferStart === -1) textBufferStart = i;
+-          textBuffer += segment.content;
++          nodes.push(
++            createExecutionNode({
++              id: `seg-text-${i}`,
++              type: 'text',
++              status: 'complete',
++              content: segment.content,
++            }),
++          );
+           break;
+         }
+ 
+         case 'thinking': {
+-          if (textBuffer) flushText();
+-          if (thinkingBufferStart === -1) thinkingBufferStart = i;
+-          thinkingBuffer += segment.content;
++          nodes.push(
++            createExecutionNode({
++              id: `seg-thinking-${i}`,
++              type: 'thinking',
++              status: 'complete',
++              content: segment.content,
++            }),
++          );
+           break;
+         }
+ 
+         case 'tool-call': {
+-          if (textBuffer) flushText();
+-          if (thinkingBuffer) flushThinking();
+           const toolInput = segment.toolInput
+             ? this.normalizeToolInput(segment.toolName ?? '', segment.toolInput)
+             : segment.toolArgs
+@@ -290,8 +263,6 @@ export class AgentMonitorTreeBuilderService {
+         case 'tool-result-error':
+         case 'command':
+         case 'file-change': {
+-          if (textBuffer) flushText();
+-          if (thinkingBuffer) flushThinking();
+           let matchedIndex = -1;
+           if (segment.toolCallId) {
+             matchedIndex = toolCallIdToIndex.get(segment.toolCallId) ?? -1;
+@@ -328,8 +299,6 @@ export class AgentMonitorTreeBuilderService {
+         }
+ 
+         case 'error': {
+-          if (textBuffer) flushText();
+-          if (thinkingBuffer) flushThinking();
+           nodes.push(
+             createExecutionNode({
+               id: `seg-error-${i}`,
+@@ -343,8 +312,6 @@ export class AgentMonitorTreeBuilderService {
+         }
+ 
+         case 'info': {
+-          if (textBuffer) flushText();
+-          if (thinkingBuffer) flushThinking();
+           nodes.push(
+             createExecutionNode({
+               id: `seg-info-${i}`,
+@@ -360,8 +327,6 @@ export class AgentMonitorTreeBuilderService {
+           break;
+       }
+     }
+-    if (textBuffer) flushText();
+-    if (thinkingBuffer) flushThinking();
+ 
+     return nodes;
+   }

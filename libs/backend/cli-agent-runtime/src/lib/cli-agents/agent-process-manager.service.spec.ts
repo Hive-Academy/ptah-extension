@@ -1400,6 +1400,29 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       ]);
     });
 
+    it('stamps a turn boundary before the continuation can emit', async () => {
+      const agentId = await spawnContinuable();
+      await completeTurn1();
+
+      const stamps: Array<{ id: string; continuesSoFar: number }> = [];
+      jest
+        .spyOn(outputBuffer, 'markTurnBoundary')
+        .mockImplementation((id: string) => {
+          stamps.push({
+            id,
+            continuesSoFar: continuableControls.continueCallCount(),
+          });
+        });
+      const continueBefore = continuableControls.continueCallCount();
+
+      await manager.continueConversation(agentId, 'second turn');
+
+      // The stamp lands while the continuation has not been started yet, so no
+      // segment of the new turn can reach the bucket the old turn is in.
+      expect(stamps).toEqual([{ id: agentId, continuesSoFar: continueBefore }]);
+      expect(continuableControls.continueCallCount()).toBe(continueBefore + 1);
+    });
+
     it('re-opens the agent to running and re-emits agent:spawned with the same id', async () => {
       const agentId = await spawnContinuable();
       await completeTurn1();
