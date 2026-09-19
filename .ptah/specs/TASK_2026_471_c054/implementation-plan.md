@@ -8,9 +8,9 @@ Yes, this feature is fully feasible and directly aligns with the repository's es
 
 | Seam | file:line | What it already gives us |
 | --- | --- | --- |
-| `TaskStartService` | [`libs/frontend/tasks-ui/src/lib/services/task-start.service.ts:49-141`](../../../libs/frontend/tasks-ui/src/lib/services/task-start.service.ts#L49-L141) | Orchestration launch flow for tasks; sets `appState.requestChatPrompt` behind a 30s resolve guard and updates status to `in_progress` on success. |
-| `TaskPromptBridgeService` | [`libs/frontend/chat/src/lib/services/chat-store/task-prompt-bridge.service.ts:33-90`](../../../libs/frontend/chat/src/lib/services/chat-store/task-prompt-bridge.service.ts#L33-L90) | Reactive consumer of `chatPromptRequest`; creates tabs via `TabManagerService`, switches view to chat, adopts canvas tiles in grid mode, and sends via `MessageSenderService`. |
-| `MessageSenderService` | [`libs/frontend/chat/src/lib/services/message-sender.service.ts:329-420`](../../../libs/frontend/chat/src/lib/services/message-sender.service.ts#L329-L420) | Handles `chat:start` RPC invocation, handles transport errors, model selection, effort level, and stream initialization. |
+| `TaskStartService` | [`libs/frontend/tasks-ui/src/lib/services/task-start.service.ts:49-141`](../../../libs/frontend/tasks-ui/src/lib/services/task-start.service.ts#L49-L141) | Orchestration launch flow for tasks. **Pre-change state, since superseded**: it set `appState.requestChatPrompt` behind a 30s resolve guard and updated status to `in_progress` on success. This task removed both — the guard is gone and the AGENT owns the status transition. |
+| `TaskPromptBridgeService` | [`libs/frontend/chat/src/lib/services/chat-store/task-prompt-bridge.service.ts:33-90`](../../../libs/frontend/chat/src/lib/services/chat-store/task-prompt-bridge.service.ts#L33-L90) | Reactive consumer of `chatPromptRequest`; creates tabs via `TabManagerService`, switches view to chat, adopts canvas tiles in grid mode. **Pre-change state, since superseded**: it sent via `MessageSenderService`. This task replaced the send with `appState.requestComposerPrefill(...)`. |
+| `MessageSenderService` | [`libs/frontend/chat/src/lib/services/message-sender.service.ts:329-420`](../../../libs/frontend/chat/src/lib/services/message-sender.service.ts#L329-L420) | Handles `chat:start` RPC invocation, transport errors, model selection, effort level, and stream initialization. **No longer on the launch path**: Start prefills the composer, so this service runs only when the USER presses send. |
 | `PromptSuggestionsComponent` | [`libs/frontend/chat-ui/src/lib/molecules/setup-plugins/prompt-suggestions.component.ts:168-203, 342-345`](../../../libs/frontend/chat-ui/src/lib/molecules/setup-plugins/prompt-suggestions.component.ts#L168-L203) | Reference pattern for categorized prompt launches; emits `promptSelected` into chat input. |
 | `TaskCardComponent` | [`libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts:403-432, 831-836`](../../../libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts#L403-L432) | Kanban card start action UI (`onStart`, `isolate` toggle, `canStart` predicate, `busyTaskId` rendering). |
 | `TaskListComponent` | [`libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts:520-586, 953-956`](../../../libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts#L520-L586) | List view row action controls (`Start` button and `MoreVerticalIcon` dropdown with `Start isolated`). |
@@ -86,15 +86,14 @@ In `TaskStartService.launchPrompt(taskId, isolate, agentTarget)`:
    - Creates a new chat tab via `TabManagerService.createTab(taskId)`.
    - Navigates view to `chat` via `appState.setCurrentView('chat')`.
    - In grid layout, adopts the tab as a canvas tile via `appState.requestCanvasTab(tabId, taskId)`.
-   - Submits prompt via `MessageSenderService.send(prompt, { tabId })`, issuing `chat:start` RPC.
-7. **Settlement**:
-   - `MessageSenderService` returns `{ success: true }`.
-   - `TaskPromptBridgeService` resolves `request.resolve({ success: true })`.
+   - Publishes the prompt via `appState.requestComposerPrefill(prompt, tabId)`. **Nothing is sent.** In grid layout the request carries the created tab id; in single layout it carries `null`, which scopes it to the main panel (only a canvas tile provides `SESSION_CONTEXT`).
+7. **Composer Prefill**:
+   - `ChatViewComponent` consumes the request on the surface whose `SESSION_CONTEXT` matches, and calls `restoreContentToInput(prompt)` — the same seam the Get Started panel uses.
+   - When the composer has not mounted yet, the request stays PENDING and applies as soon as the input exists. It is cleared only after it is applied, so a recreated surface cannot replay it.
+   - The prompt now sits in the composer. **The user reviews it and presses send.**
 8. **Status Transition**:
-   - `TaskStartService` receives `{ success: true }` and calls `TasksStore.updateStatus(taskId, 'in_progress')`.
-   - `TasksStore.applyMetadata` issues `tasks:updateMetadata` RPC to persist `status: in_progress` into `task.md`.
-   - Backend `TaskIndexService` detects `task.md` modification on disk and broadcasts `tasks:changed`.
-   - `TasksStore` handles `tasks:changed`, runs `refreshBoard()`, and moves the card to the `in_progress` column.
+   - The board writes NO status. `TaskStartService` issues no `tasks:updateMetadata` RPC and the card does not move on Start.
+   - **The AGENT owns the status transition**, once it begins the work.
 
 ### 4. Running State and Agent Completion
 - **Running State Representation**:
