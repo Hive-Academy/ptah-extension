@@ -11,7 +11,8 @@
  *                   wired, identity prompt + PTAH_CORE appended. Used by
  *                   `InternalQueryService`.
  *   - `interactive` — caller pre-builds `Options` via `SdkQueryOptionsBuilder`
- *                   and hands them in along with the iterable/string prompt.
+ *                   and hands them in along with the iterable prompt (never a
+ *                   string — see `InteractiveRunInput.prompt`).
  *                   The runner only owns `moduleLoader.getQueryFunction()` +
  *                   `queryFn(...)`. Session-registry / streamInput /
  *                   slash-command orchestration stays on `SessionQueryExecutor`.
@@ -147,7 +148,15 @@ export interface OneShotRunResult {
 
 export interface InteractiveRunInput {
   mode: 'interactive';
-  prompt: string | AsyncIterable<SDKUserMessage>;
+  /**
+   * Never a string. `typeof prompt === 'string'` is what makes the SDK mark a
+   * query single-turn and close its transport input on the first `result`,
+   * which killed every background subagent of a slash-command turn
+   * (TASK_2026_472). The interactive path has no legitimate string caller — the
+   * one-shot path that does is `OneShotRunInput`, which never comes through
+   * here — so the union is closed rather than merely unused.
+   */
+  prompt: AsyncIterable<SDKUserMessage>;
   options: SdkQueryOptions;
 }
 
@@ -317,7 +326,7 @@ export class SdkQueryRunner {
 
   invokeWithLoadedQuery(
     queryFn: QueryFunction,
-    prompt: string | AsyncIterable<SDKUserMessage>,
+    prompt: AsyncIterable<SDKUserMessage>,
     options: SdkQueryOptions,
   ): InteractiveRunResult {
     this.useOffThreadSpawner(options);

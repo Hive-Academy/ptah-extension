@@ -663,7 +663,8 @@ export class ChatSessionService {
       // `chat:continue` for one `/orchestrate` (log.log:2292-2364).
       //
       // `SessionQueryExecutor` already serves "slash command + resume" in ONE
-      // query (`isSlashCommand && isResume` → `string (slash command + resume)`),
+      // streamed query (`idle+streamInput` — the command rides the persistent
+      // user-message stream like any other prompt since TASK_2026_472),
       // and `executeSlashCommandQuery` handles a session with no registered
       // record — `SessionControl.endSession` returns on `if (!rec)` with no
       // interrupt. So the whole fix is to not ask for the resume.

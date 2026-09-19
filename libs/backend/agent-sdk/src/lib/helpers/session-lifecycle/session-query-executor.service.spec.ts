@@ -349,10 +349,11 @@ describe('SessionQueryExecutor — no-activity watchdog policy (TASK_2026_190)',
 //
 // The watchdog fired exactly 180 s after every `result` because idle between
 // turns is silent on the parent stream. The executor now hands the watchdog to
-// the record and takes the initial idle hold for a non-slash prompt; the
-// pump's first yield (`markTurnStarted`) releases it and `markTurnEnded`
-// re-takes it. A slash-command string prompt never goes through the pump, so
-// it takes no idle hold.
+// the record and takes the initial idle hold only when the prompt is EMPTY;
+// the pump's first yield (`markTurnStarted`) releases it and `markTurnEnded`
+// re-takes it. A queued initial prompt is startup work, not between-turn idle,
+// so it takes no hold — and since TASK_2026_472 a slash command is a queued
+// prompt like any other, so it lands on that same branch.
 
 describe('SessionQueryExecutor — idle watchdog hold (TASK_2026_363)', () => {
   it('a non-slash prompt: the record owns the watchdog and it is held until the first turn starts', async () => {
@@ -384,7 +385,7 @@ describe('SessionQueryExecutor — idle watchdog hold (TASK_2026_363)', () => {
     expect(result.activityWatchdog.isHeld).toBe(true);
   });
 
-  it('a slash-command prompt hands the watchdog to the record but takes no idle hold', async () => {
+  it('a slash-command prompt hands the watchdog to the record but takes no idle hold (it is queued content, TASK_2026_472)', async () => {
     const { executor, registry } = makeHarness('ask');
 
     const result = await executor.executeQuery(

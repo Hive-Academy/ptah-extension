@@ -541,8 +541,11 @@ export class SessionLifecycleManager {
   /**
    * Execute a slash command as a new query within an existing session.
    * Used when follow-up messages contain slash commands (e.g., /compact, /orchestrate).
-   * The SDK only parses slash commands from raw string prompts, not from SDKUserMessage objects,
-   * so we must start a new query with resume to maintain conversation context.
+   * The command is delivered through the resumed session's persistent input
+   * stream as an ordinary SDKUserMessage, so the input stays open after the
+   * command's `result` and a background subagent keeps its tools
+   * (TASK_2026_472). A new query with resume is still started so the command
+   * reaches a fresh SDK query with the conversation context restored.
    */
   async executeSlashCommandQuery(
     sessionId: SessionId,
