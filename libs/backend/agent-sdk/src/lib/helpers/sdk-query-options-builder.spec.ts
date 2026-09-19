@@ -348,8 +348,12 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
 
   it('slugifies a name with spaces and punctuation into the registry name', async () => {
     const opts = await buildWith({ sessionName: 'Fix the Billing Bug!' });
-    // `tab-fixture`.slice(0, 6) is the uniqueness suffix, and it is LAST.
-    expect(opts.extraArgs?.['name']).toBe('ptah-ws-fix-the-billing-bug-tab-fi');
+    // The suffix is LAST and is `tab-fixture`.slice(0, 6) plus the allocation
+    // id — the process id and a monotonic counter, both base 36. The routing
+    // id alone repeats across a restart of the same tab.
+    expect(opts.extraArgs?.['name']).toMatch(
+      /^ptah-ws-fix-the-billing-bug-tab-fi[0-9a-z]{8,}$/,
+    );
   });
 
   it('falls back to the default role — and warns — when the name slugifies to nothing', async () => {
@@ -360,7 +364,9 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
       sessionName: '!!! ***',
     });
 
-    expect(options.extraArgs?.['name']).toBe('ptah-ws-chat-tab-fi');
+    expect(options.extraArgs?.['name']).toMatch(
+      /^ptah-ws-chat-tab-fi[0-9a-z]{8,}$/,
+    );
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('did not survive'),
       expect.objectContaining({ sessionNameLength: 7 }),
@@ -372,9 +378,40 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     const opts = await buildWith({ sessionName: 'a'.repeat(120) });
 
     const name = opts.extraArgs?.['name'] as string;
-    expect(name.endsWith('-tab-fi')).toBe(true);
+    expect(name).toMatch(/-tab-fi[0-9a-z]{8,}$/);
     expect(name.length).toBeLessThanOrEqual(64);
     expect(name.startsWith('ptah-ws-aaa')).toBe(true);
+  });
+
+  it('gives two spawns of the SAME tab different registry names', async () => {
+    // Defect 2 of TASK_2026_466: pids 2368 and 17564 both registered
+    // `ptah-ptah-extension-…-03497c` because the suffix was the tab id alone.
+    // A peer addressing that name could not know which process it reached.
+    const first = await buildWith({ sessionName: 'Fix the Billing Bug!' });
+    const second = await buildWith({ sessionName: 'Fix the Billing Bug!' });
+
+    const firstName = first.extraArgs?.['name'] as string;
+    const secondName = second.extraArgs?.['name'] as string;
+    expect(firstName).not.toBe(secondName);
+    // Same head, so a person still reads the same session in a log.
+    const head = 'ptah-ws-fix-the-billing-bug-tab-fi';
+    expect(firstName.startsWith(head)).toBe(true);
+    expect(secondName.startsWith(head)).toBe(true);
+  });
+
+  it('gives EVERY allocation a different name, because the suffix is derived and not drawn', async () => {
+    // Review finding 2 of the batch-2 rejection: four hex characters made a
+    // collision unlikely, not impossible, and nothing downstream detects one.
+    // The allocation id is `<pid base 36><monotonic counter base 36>`, so two
+    // sessions of one host process differ by counter and two host processes
+    // differ by pid. Uniqueness among LIVE sessions holds by construction, and
+    // this spec cannot pass by luck.
+    const names = new Set<string>();
+    for (let index = 0; index < 500; index += 1) {
+      const opts = await buildWith({ sessionName: 'Fix the Billing Bug!' });
+      names.add(opts.extraArgs?.['name'] as string);
+    }
+    expect(names.size).toBe(500);
   });
 
   it('carries the RAW name as the session title for a new session', async () => {
@@ -390,7 +427,9 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     const opts = await buildWith({ sessionName: fallbackName });
 
     expect(opts.title).toBeUndefined();
-    expect(opts.extraArgs?.['name']).toBe('ptah-ws-session-9-15-2026-tab-fi');
+    expect(opts.extraArgs?.['name']).toMatch(
+      /^ptah-ws-session-9-15-2026-tab-fi[0-9a-z]{8,}$/,
+    );
   });
 
   it('sets no title when the user has not named the session', async () => {
@@ -408,7 +447,9 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     expect(opts.title).toBeUndefined();
     // The registry name still rides along — a resume is a NEW process, so it
     // gets a NEW registry record and `--name` applies to it.
-    expect(opts.extraArgs?.['name']).toBe('ptah-ws-renamed-by-the-user-tab-fi');
+    expect(opts.extraArgs?.['name']).toMatch(
+      /^ptah-ws-renamed-by-the-user-tab-fi[0-9a-z]{8,}$/,
+    );
   });
 
   it('disables the SDK built-in auto-memory subsystem (Ptah uses its own indexed memory)', async () => {

@@ -17,7 +17,11 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
 import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
-import { buildSessionName, deriveWorkspaceLabel } from './session-name.builder';
+import {
+  buildSessionName,
+  buildUniqueSuffix,
+  deriveWorkspaceLabel,
+} from './session-name.builder';
 import type { ActivityHold } from './no-activity-watchdog';
 import {
   AISessionConfig,
@@ -1046,9 +1050,11 @@ export class SdkQueryOptionsBuilder {
 
     // The main interactive session. A spawned agent names its own role.
     const workspaceLabel = deriveWorkspaceLabel(cwd);
-    // The routing id is unique per session, so the name is too. Six
-    // characters is enough to separate the sessions one workspace holds.
-    const uniqueSuffix = (routingId ?? '').slice(0, 6);
+    // The routing id is unique per TAB, not per process: a restarted tab keeps
+    // it, and two live CLI processes then registered the same name. The suffix
+    // therefore carries a per-call nonce on top of the routing-id head, so this
+    // spawn's name cannot collide with the name the previous process holds.
+    const uniqueSuffix = buildUniqueSuffix(routingId);
 
     let composedName = sessionName
       ? buildSessionName({ role: sessionName, workspaceLabel, uniqueSuffix })

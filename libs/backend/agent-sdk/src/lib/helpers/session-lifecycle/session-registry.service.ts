@@ -18,7 +18,7 @@
  * facade constructs it eagerly in its constructor body. See WAVE_C7i_DESIGN.md.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
@@ -97,6 +97,47 @@ export interface SessionRecord {
   lastActivityAt: number;
 }
 
+/**
+ * What `bindRealSessionId` did.
+ *
+ * The caller needs this because the fan-out that announces "this tab resolved
+ * to this session" must not fire for a session the registry REFUSED. A stale
+ * process that outlives a tab restart still emits its own init message against
+ * the same tab, and announcing that id told every downstream consumer the tab
+ * had moved back to the dead session (2026-09-17, tab `03497c14-…`).
+ */
+export type BindRealSessionIdOutcome =
+  /** The record took this id; `bySessionId` now resolves it. */
+  | 'bound'
+  /** The record already carried this exact id. Nothing changed. */
+  | 'already-bound'
+  /**
+   * The record carried a different id, and the caller proved it owns the
+   * record by passing its token. The record now points at the new id — this is
+   * the fork/re-init case, where the SAME process reports a new session id.
+   */
+  | 'rebound'
+  /** The record carries a DIFFERENT id. The caller must not announce this one. */
+  | 'stale-mismatch'
+  /** No record is registered under this tab id. */
+  | 'no-record'
+  /** The id was blank or whitespace. */
+  | 'invalid';
+
+/**
+ * Correlatable stand-in for a record's `token`, safe to write to a log.
+ *
+ * The token is a CAPABILITY: `bindRealSessionId` accepts it as proof that the
+ * caller owns the record and moves the binding for whoever presents it. Writing
+ * it verbatim would let anything that can read the log point a record at an
+ * arbitrary session id. A truncated SHA-256 digest keeps two log lines about
+ * one record comparable and cannot be replayed, because the bind compares the
+ * token itself.
+ */
+function tokenFingerprint(token: string): string {
+  return createHash('sha256').update(token).digest('hex').slice(0, 8);
+}
+
 export const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 export const DEFAULT_SWEEP_TTL_MS = 30 * 60 * 1000;
 
@@ -134,6 +175,12 @@ export class SessionRegistry {
    * Creates a SessionRecord with realSessionId = null and inserts it into
    * byTabId only. bySessionId entry is added later via bindRealSessionId().
    *
+   * A record already registered under this tab id is DISPLACED first — see
+   * `displaceExisting`. Before that, the overwrite dropped the old record from
+   * `byTabId` while leaving its SDK query running and its `bySessionId` entry
+   * in place, so a restarted tab left an orphan CLI process that still
+   * answered for the tab.
+   *
    * Also updates _lastActiveTabId so ordering semantics are preserved.
    *
    * @returns The created SessionRecord (same object reference stored in byTabId).
@@ -159,6 +206,7 @@ export class SessionRegistry {
       activityHold: null,
       lastActivityAt: this._now(),
     };
+    this.displaceExisting(tabId);
     this.byTabId.set(tabId, rec);
     if (realSessionId && realSessionId !== tabId) {
       this.bySessionId.set(realSessionId, rec);
@@ -174,36 +222,68 @@ export class SessionRegistry {
    * Guard: realSessionId must be null on entry (set-once invariant).
    * If it is already set this call is a no-op (logs a warning).
    *
+   * The set-once rule stays right even across a tab restart, because a restart
+   * DISPLACES the old record and registers a fresh one whose `realSessionId` is
+   * null — so the new process binds normally. What reaches the `stale-mismatch`
+   * branch is only ever a late emitter: the displaced process's own stream.
+   * The returned outcome is what lets the caller drop that announcement instead
+   * of broadcasting a session id the registry just refused.
+   *
+   * `ownerToken` is the ONE exception to set-once, and it is an identity proof,
+   * not an override flag: a caller that holds the registered record's token IS
+   * that record's query, so its new id replaces the old one (`rebound`). A
+   * caller without the token, or with a token from a displaced registration,
+   * can never move the binding.
+   *
    * Empty/whitespace realSessionId is rejected: a malformed SDK init
    * message yielding a blank UUID would otherwise let `find('')` resolve
    * a live query, attaching arbitrary callers to whichever session is
    * registered.
    */
-  bindRealSessionId(tabId: string, realSessionId: string): void {
+  bindRealSessionId(
+    tabId: string,
+    realSessionId: string,
+    ownerToken?: string,
+  ): BindRealSessionIdOutcome {
     if (blankToUndefined(realSessionId) === undefined) {
       this.logger.warn(
         `[SessionRegistry] bindRealSessionId: rejected empty/whitespace realSessionId for tabId ${tabId}`,
       );
-      return;
+      return 'invalid';
     }
     const rec = this.byTabId.get(tabId);
     if (!rec) {
       this.logger.warn(
         `[SessionRegistry] bindRealSessionId: no record for tabId ${tabId}`,
       );
-      return;
+      return 'no-record';
     }
     if (rec.realSessionId === realSessionId) {
       this.logger.debug(
         `[SessionLifecycle] bindRealSessionId: realSessionId already bound for tabId ${tabId} (idempotent)`,
       );
-      return;
+      return 'already-bound';
     }
     if (rec.realSessionId !== null) {
+      if (ownerToken !== undefined && ownerToken === rec.token) {
+        // The registered record's OWN query is reporting a new id. A resume
+        // with `forkSession` does exactly this: the record was registered
+        // under the id being resumed, and the SDK answers with the forked id.
+        // Refusing it here is what left the tab pointing at an id no live
+        // process holds.
+        this.bySessionId.delete(rec.realSessionId);
+        this.logger.info(
+          `[SessionRegistry] Rebinding tabId ${tabId} from ${rec.realSessionId} to ${realSessionId} (same record)`,
+        );
+        rec.realSessionId = realSessionId;
+        rec.lastActivityAt = this._now();
+        this.bySessionId.set(realSessionId, rec);
+        return 'rebound';
+      }
       this.logger.warn(
-        `[SessionRegistry] bindRealSessionId: realSessionId already set for tabId ${tabId} (${rec.realSessionId}); ignoring`,
+        `[SessionRegistry] bindRealSessionId: realSessionId already set for tabId ${tabId} (${rec.realSessionId}); ignoring ${realSessionId}`,
       );
-      return;
+      return 'stale-mismatch';
     }
     rec.realSessionId = realSessionId;
     rec.lastActivityAt = this._now();
@@ -211,6 +291,7 @@ export class SessionRegistry {
     this.logger.info(
       `[SessionRegistry] Bound real session ID: ${tabId} -> ${realSessionId}`,
     );
+    return 'bound';
   }
 
   /**
@@ -235,13 +316,32 @@ export class SessionRegistry {
   /**
    * Remove a session record from both indexes and recompute _lastActiveTabId.
    * Safe to call when rec.realSessionId is null (skips bySessionId delete).
+   *
+   * **Removal is identity-conditional, per index.** A key alone is not proof of
+   * ownership: `remove` runs after asynchronous work, and by then a RESTART may
+   * have displaced `rec` and put a different record under the same tab id.
+   * Deleting by key would then deregister the live replacement, which stays
+   * running while `find(tabId)` reports nothing. Two real callers reach this
+   * state — the `executeQuery` catch, which removes its record after a failed
+   * initialization, and `SessionControl.endRecord`, which removes its record
+   * after awaiting an interrupt. Each index is therefore cleared only when it
+   * still maps to THIS record, and `_lastActiveTabId` is recomputed only when
+   * this call actually took the tab entry away.
    */
   remove(rec: SessionRecord): void {
-    this.byTabId.delete(rec.tabId);
-    if (rec.realSessionId !== null) {
+    const ownedTabIndex = this.byTabId.get(rec.tabId) === rec;
+    if (ownedTabIndex) {
+      this.byTabId.delete(rec.tabId);
+    }
+    if (
+      rec.realSessionId !== null &&
+      this.bySessionId.get(rec.realSessionId) === rec
+    ) {
       this.bySessionId.delete(rec.realSessionId);
     }
-    this.recomputeLastActiveOnRemoval(rec.tabId);
+    if (ownedTabIndex) {
+      this.recomputeLastActiveOnRemoval(rec.tabId);
+    }
   }
 
   /**
@@ -450,6 +550,52 @@ export class SessionRegistry {
 
   setClockForTesting(now: () => number): void {
     this._now = now;
+  }
+
+  /**
+   * Drop the record currently registered under `tabId`, if any, before a new
+   * one takes the key.
+   *
+   * Two halves, and both are load-bearing:
+   *
+   *  - **Both indexes go.** The old record's `bySessionId` entry survived the
+   *    overwrite, so `find(<old real session id>)` kept resolving a record that
+   *    no longer owned its tab.
+   *  - **Its AbortController fires.** That controller is the ONLY handle on the
+   *    displaced SDK query once the map entry is gone, and aborting it is what
+   *    `endSession` itself relies on to stop the CLI process. Without it the
+   *    old process stayed alive, kept its registry name, and kept emitting
+   *    against the tab. `abort()` is idempotent, so a record whose owner
+   *    already tore it down costs nothing here.
+   *
+   * This does NOT run the full `SessionControl.endRecord` teardown: that is
+   * async, and registration must not await a 5 s interrupt race. The orderly
+   * path still owns the orderly teardown. This is the backstop for the case
+   * where nobody ran one.
+   */
+  private displaceExisting(tabId: string): void {
+    const previous = this.byTabId.get(tabId);
+    if (!previous) {
+      return;
+    }
+    this.byTabId.delete(tabId);
+    if (previous.realSessionId !== null) {
+      this.bySessionId.delete(previous.realSessionId);
+    }
+    this.logger.warn(
+      `[SessionRegistry] Displacing the record registered under tabId ${tabId} ` +
+        `(realSessionId=${previous.realSessionId ?? 'null'}, ` +
+        `token=${tokenFingerprint(previous.token)}) — ` +
+        'aborting its query so the restart leaves no orphan process',
+    );
+    try {
+      previous.abortController.abort();
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[SessionRegistry] Abort of the displaced record for tabId ${tabId} threw: ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    }
   }
 
   /**

@@ -209,6 +209,7 @@ export {
   CROSS_SESSION_INBOUND_VALUES,
   type CrossSessionInbound,
   buildSessionName,
+  buildUniqueSuffix,
   deriveWorkspaceLabel,
   type SessionNameInput,
 } from './lib/helpers';

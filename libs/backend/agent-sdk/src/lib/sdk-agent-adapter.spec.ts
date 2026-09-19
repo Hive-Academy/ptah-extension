@@ -200,7 +200,9 @@ function createMockSessionLifecycle(): jest.Mocked<
     dispose: jest.fn(),
     endSession: jest.fn().mockResolvedValue(undefined),
     find: jest.fn().mockReturnValue(undefined),
-    bindRealSessionId: jest.fn(),
+    // The adapter announces only on a SUCCESSFUL bind outcome, so the double
+    // must report one. A test that needs a refusal overrides this.
+    bindRealSessionId: jest.fn().mockReturnValue('bound'),
     sendMessage: jest.fn().mockResolvedValue(undefined),
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
     markTurnEnded: jest.fn().mockReturnValue(true),
@@ -1561,11 +1563,18 @@ describe('SdkAgentAdapter', () => {
       h.sessionLifecycle.bindRealSessionId.mockImplementation(
         (tabId: string, realSessionId: string) => {
           const rec = byTabId.get(tabId);
-          if (!rec || rec.realSessionId !== null) {
-            return;
+          if (!rec) {
+            return 'no-record';
+          }
+          if (rec.realSessionId === realSessionId) {
+            return 'already-bound';
+          }
+          if (rec.realSessionId !== null) {
+            return 'stale-mismatch';
           }
           rec.realSessionId = realSessionId;
           bySessionId.set(realSessionId, rec);
+          return 'bound';
         },
       );
       h.sessionLifecycle.endSession.mockImplementation(async (id) => {
@@ -1767,6 +1776,97 @@ describe('SdkAgentAdapter', () => {
         expect.objectContaining({ tabId: TAB_ID, realSessionId: REAL_ID }),
       );
       expect(typeof seen[0].timestamp).toBe('number');
+    });
+
+    it('announces nothing when a displaced process reports its own id against the tab', async () => {
+      // Defect 2 of TASK_2026_466, the user-visible half. Tab `03497c14-…` ran
+      // session `7d2539d1-…`, was restarted into `16434295-…`, and the OLD SDK
+      // process stayed alive. Hours later it emitted its own init against the
+      // same tab. The registry refused the bind, correctly — but the adapter
+      // announced the refused id anyway, so the RPC layer, the webview and the
+      // agent-process-manager remap all moved the tab back to the dead session
+      // and every live CLI agent vanished from the strip.
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const seen = captureResolved(h);
+      const singleSlot = jest.fn();
+      h.adapter.setSessionIdResolvedCallback(singleSlot);
+
+      await startSessionWithPrompt(h, registry);
+      await deliverInit(h, REAL_ID);
+      expect(singleSlot).toHaveBeenCalledTimes(1);
+      expect(seen).toHaveLength(1);
+
+      // The displaced process, still streaming, reports the id it owns.
+      await deliverInit(h, '7d2539d1-0000-4000-8000-000000000000');
+
+      expect(singleSlot).toHaveBeenCalledTimes(1);
+      expect(singleSlot).not.toHaveBeenCalledWith(
+        TAB_ID,
+        '7d2539d1-0000-4000-8000-000000000000',
+      );
+      expect(seen).toHaveLength(1);
+      expect(seen[0].realSessionId).toBe(REAL_ID);
+    });
+
+    // -----------------------------------------------------------------
+    // Review finding 3: `stale-mismatch` was the only refusal that stopped
+    // the announcement. `no-record` and `invalid` are refusals too — the
+    // registry holds no tab pointing at that session in either case — and
+    // announcing one tells RPC and webview consumers an identity that does
+    // not exist.
+    // -----------------------------------------------------------------
+
+    it('announces nothing when the tab owns NO record', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const seen = captureResolved(h);
+      const singleSlot = jest.fn();
+      h.adapter.setSessionIdResolvedCallback(singleSlot);
+
+      await startSessionWithPrompt(h, registry);
+      // The session is ended, so nothing is registered under the tab. Its SDK
+      // process then emits init late.
+      await h.sessionLifecycle.endSession(TAB_ID as SessionId);
+      await deliverInit(h, REAL_ID);
+
+      expect(singleSlot).not.toHaveBeenCalled();
+      expect(seen).toEqual([]);
+    });
+
+    it('announces nothing when the registry calls the reported id invalid', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const seen = captureResolved(h);
+      const singleSlot = jest.fn();
+      h.adapter.setSessionIdResolvedCallback(singleSlot);
+      h.sessionLifecycle.bindRealSessionId.mockReturnValue('invalid');
+
+      await startSessionWithPrompt(h, registry);
+      await deliverInit(h, REAL_ID);
+
+      expect(singleSlot).not.toHaveBeenCalled();
+      expect(seen).toEqual([]);
+    });
+
+    it('announces a legitimate FIRST bind exactly once', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const seen = captureResolved(h);
+      const singleSlot = jest.fn();
+      h.adapter.setSessionIdResolvedCallback(singleSlot);
+
+      await startSessionWithPrompt(h, registry);
+      await deliverInit(h, REAL_ID);
+
+      expect(singleSlot).toHaveBeenCalledTimes(1);
+      expect(singleSlot).toHaveBeenCalledWith(TAB_ID, REAL_ID);
+      expect(seen).toHaveLength(1);
+      expect(seen[0].realSessionId).toBe(REAL_ID);
     });
 
     it('notifies the SessionIdResolved registry ALONGSIDE the single-slot setter on the resume path', async () => {
