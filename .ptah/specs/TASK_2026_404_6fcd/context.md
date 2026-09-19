@@ -82,3 +82,28 @@ the rest cost a header strip each.
 
 The same idea already governs geometry in this library: geometry is derived and
 never stored. This work extends that idea to fidelity.
+
+## Decision record — 2026-09-19, R2 + notification-center lane
+
+The user asked whether the compacted-view and notification-sound work still
+existed. It did, as Track R items 2 and 6, unbuilt: `libs/frontend/notification-center`
+did not exist and no sound code existed anywhere in `libs/**`.
+
+Branch `feat/task-404-compact-summary-notifications`, worktree
+`.claude-worktrees/feat-task-404-compact-summary-notifications-eee138dbf59f`,
+based on `main` at `526868b8e`.
+
+Two decisions, both user-made, both fixed for this lane:
+
+1. **Scope is both pieces.** R2 (compact tile becomes a glanceable status card)
+   and R6 (notification center with bell, panel, focus routing and Web Audio
+   sound for completed turns, pending permissions and AskUserQuestion prompts).
+   They ship on one branch with file-disjoint implementer ownership.
+2. **The mute preference lives in localStorage as a UI-only setting.** This
+   answers open question 4 in `task-description.md`. There is no
+   `~/.ptah/settings.json` key, no RPC method and no backend change. The feature
+   is entirely webview-side. Do not create a second store later.
+
+Lanes: codex (architecture, then R2 implementation), ollama cloud at the opus
+tier (notification-center implementation), antigravity (logic review — a
+different family from both implementers). Revise cap: 2 rounds.
