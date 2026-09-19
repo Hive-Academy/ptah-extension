@@ -9,13 +9,14 @@ Multi-session Orchestra Canvas panel. It renders a drag-and-resize Gridstack gri
 ## Boundaries
 
 **Belongs here**: tile composition, panel-scoped layout/store/persistence, and agent indicator widgets.
-**Does not belong**: tab lifecycle (`@ptah-extension/chat`), session RPC, or app routing (`AppStateManager`).
+**Does not belong**: tab lifecycle (`@ptah-extension/chat`), session RPC, or app routing (`AppStateManager`). One deliberate exception: the dock's activity ticker calls `setCurrentView('thoth')` on click, mirroring `ElectronShellComponent`'s handler. That is a single navigation for a user click, not routing logic owned here.
 
 ## Public API
 
 `src/index.ts` exports `OrchestraCanvasComponent`, `CanvasTileComponent`, `CanvasEmptyStateComponent`, `CanvasStore`, `CanvasLayoutService`, `TileAgentIndicatorComponent`, `TileAgentMiniPanelComponent`, and the existing `CanvasTile`, `CanvasLayout`, and `TileLayout` types. `TileLayout` remains exactly `{ x, y, w, h }`; `libs/frontend/tribunal-panel` consumes it.
 
 ## Key Files
+
 
 - `orchestra-canvas.component.ts` is the OnPush panel root. Its providers scope the store, layout, persistence, and metrics services to one canvas instance.
 - `canvas.store.ts` is the intent facade. State is partitioned by workspace and contains active-session focus, transient layout focus, revisions, lock state, and at most `MAX_CANVAS_TILES` tiles (20).

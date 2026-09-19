@@ -22,8 +22,6 @@ import {
   signal,
   effect,
   untracked,
-  viewChild,
-  ElementRef,
   Type,
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
@@ -43,7 +41,6 @@ import {
   ClipboardList,
 } from 'lucide-angular';
 import {
-  BackOfficeActivityService,
   ElectronLayoutService,
   VSCodeService,
   AppStateManager,
@@ -52,7 +49,6 @@ import { AppShellComponent } from './app-shell.component';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
 import {
-  ActivityTickerComponent,
   SidebarTabComponent,
   ElectronResizeHandleComponent,
   ThemeToggleComponent,
@@ -69,7 +65,6 @@ import {
     ElectronResizeHandleComponent,
     NgComponentOutlet,
     ThemeToggleComponent,
-    ActivityTickerComponent,
     LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -87,34 +82,9 @@ import {
     .no-drag {
       -webkit-app-region: no-drag;
     }
-
-    /* Toast entry only — the ticker owns the per-line transition. */
-    .activity-toast {
-      animation: activityToastIn 160ms ease-out both;
-    }
-
-    @keyframes activityToastIn {
-      from {
-        opacity: 0;
-        transform: translateY(-6px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .activity-toast {
-        animation: none !important;
-      }
-    }
   `,
   template: `
-    <div
-      class="flex flex-col h-screen w-screen bg-base-100"
-      [style.--ptah-activity-toast-inset]="toastInset() + 'px'"
-    >
+    <div class="flex flex-col h-screen w-screen bg-base-100">
       <!-- Global Navbar (spans full width, draggable on macOS) -->
       <div
         class="flex items-center h-10 px-3 bg-base-200 border-b border-base-content/10 gap-2 flex-shrink-0"
@@ -236,49 +206,14 @@ import {
         <div class="flex-1"></div>
 
         <!-- Global actions — theme only (navigation moved to pills).
-             The back-office activity ticker used to sit here; it moved to the
-             floating toast below so an arriving message stops resizing this
-             cluster and shifting the tab strip (TASK_2026_405). -->
+             The back-office activity ticker never sits in this row: an
+             arriving message would resize this cluster and shift the tab
+             strip (TASK_2026_405). It lives in the canvas dock row instead,
+             pinned to that row's free left edge. -->
         <div class="flex items-center gap-0.5 no-drag">
           <!-- Theme toggle (always available) -->
           <ptah-theme-toggle />
         </div>
-      </div>
-
-      <!--
-        Back-office activity toast (TASK_2026_405).
-
-        Fixed and out of flow, so the navbar row above keeps a constant width
-        no matter how long the current activity summary is. The outer layer is
-        the full-time click pass-through: it is pointer-events-none and stays
-        that way, so nothing under the top-right corner is ever blocked. Only
-        the rendered card opts back in with pointer-events-auto, which keeps
-        the ticker's own button clickable.
-
-        top-11 clears the h-10 navbar row by 4px. Positioning lives here, not
-        in ActivityTickerComponent, which stays presentational.
-
-        The card's width is published as --ptah-activity-toast-inset so docks
-        under this corner (the canvas dock) can pad their right edge and keep
-        their controls to the left of the toast.
-      -->
-      <div
-        class="pointer-events-none fixed top-11 right-3 z-50 no-drag"
-        data-testid="activity-toast-layer"
-      >
-        @if (!activity.isIdle()) {
-          <div
-            #toastCard
-            class="activity-toast pointer-events-auto rounded-lg border border-base-content/10 bg-base-200/95 shadow-lg backdrop-blur-sm px-1 py-0.5"
-            data-testid="activity-toast"
-          >
-            <ptah-activity-ticker
-              [items]="activity.recent()"
-              [idle]="activity.isIdle()"
-              (activate)="openThoth()"
-            />
-          </div>
-        }
       </div>
 
       <!-- Content: Workspace gate → 3-panel layout -->
@@ -373,8 +308,6 @@ export class ElectronShellComponent {
   protected readonly layout = inject(ElectronLayoutService);
   private readonly vscodeService = inject(VSCodeService);
   protected readonly appState = inject(AppStateManager);
-  /** The floating activity toast's only source of items (TASK_2026_380). */
-  protected readonly activity = inject(BackOfficeActivityService);
 
   /** Lazily loaded GitDockComponent — keeps xterm/monaco out of the initial bundle. */
   readonly dockComponent = signal<Type<unknown> | null>(null);
@@ -390,28 +323,7 @@ export class ElectronShellComponent {
    */
   readonly dockLoadFailed = signal(false);
 
-  private readonly toastCard = viewChild<ElementRef<HTMLElement>>('toastCard');
-
-  /**
-   * Horizontal space the visible toast takes from the right edge (card width
-   * plus an 8px gap), 0 when idle. Published as --ptah-activity-toast-inset.
-   */
-  protected readonly toastInset = signal(0);
-
   constructor() {
-    effect((onCleanup) => {
-      const card = this.toastCard()?.nativeElement;
-      if (!card || typeof ResizeObserver === 'undefined') {
-        this.toastInset.set(0);
-        return;
-      }
-      const observer = new ResizeObserver(() =>
-        this.toastInset.set(Math.ceil(card.getBoundingClientRect().width) + 8),
-      );
-      observer.observe(card);
-      onCleanup(() => observer.disconnect());
-    });
-
     // Electron uses the canvas as its sole chat surface — the single-chat
     // layout was removed. Force grid mode so a returning user with a persisted
     // 'single' layoutMode still lands on the canvas.
