@@ -107,3 +107,28 @@ Two decisions, both user-made, both fixed for this lane:
 Lanes: codex (architecture, then R2 implementation), ollama cloud at the opus
 tier (notification-center implementation), antigravity (logic review — a
 different family from both implementers). Revise cap: 2 rounds.
+
+### Roster change — 2026-09-19
+
+The ollama cloud lane (`pc-85830910-…`, glm-5.3:cloud) was spawned as
+Implementer A and returned exit code 0 after 223 seconds having done nothing:
+
+```
+API Error: Request rejected (429) · you have reached your weekly usage limit
+[Completed: 0 input, 0 output, $0.0000, 223.6s, 1 turns]
+```
+
+Zero tokens, no commits, no `libs/frontend/notification-center`. This is a
+**weekly** cap, not the mid-task rate limit that stopped the same lane during
+TASK_2026_451, so a resume cannot clear it today. Note the failure mode for
+later readers: the lane reports `completed` with exit code 0. Status alone is
+not evidence that work happened — check the diff.
+
+Implementer A reassigned to codex. Implementer B was already codex. Review
+stays on antigravity, which remains a different family from both implementers,
+so the cross-family review signal is preserved.
+
+Each implementer works in its own worktree rather than sharing one. Lane A must
+run `npx nx reset` after creating its `project.json`, and a reset kills the Nx
+daemon for every executor sharing that worktree. Two autonomous lanes cannot
+reliably coordinate that boundary, so the shared state was removed instead.
