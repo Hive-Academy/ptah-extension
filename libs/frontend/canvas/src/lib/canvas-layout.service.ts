@@ -23,7 +23,7 @@ const MIN_TILE_VIEWPORT_RATIO = 0.9;
  * instead of squeezing three ~380 px tiles into the same space.
  */
 export const MIN_TILE_WIDTH = 480;
-/** Upper clamp on derived columns — preserves the 3x3 / `MAX_TILES = 9` grid. */
+/** Upper clamp on derived columns. Tiles past the third wrap into a new row. */
 export const MAX_COLUMNS = 3;
 
 export interface TileLayout {

@@ -87,6 +87,28 @@ Why deferred rather than fixed:
    single-layout path (tabId `null`, main panel) — the common case — is already
    correct.
 
+### Update — the cap is now 20, and the gap is still open
+
+`MAX_CANVAS_TILES` went from 9 to 20 (`canvas-layout-intent.ts`) at the user's
+direction, with more tiles planned. `MAX_COLUMNS` stays 3, so the grid grows
+downward into more rows rather than wider.
+
+State this plainly: **raising the cap does NOT fix finding 4050641300.** It
+moves the threshold from the 10th tile to the 21st. A user at the new cap still
+gets a prefill aimed at a tab no mounted tile owns, and still sees nothing. The
+failure is that `adoptTab`'s refusal is never reported back to the caller — a
+missing return path, not a number. The real fix is still the three-library
+contract change described above.
+
+What the raise buys is that the case becomes rare in practice. What it costs is
+that it becomes rarer to notice, so the gap is now also recorded at the refusal
+site itself (`orchestra-canvas.component.ts:360`) where a future reader meets
+it.
+
+Backward compatibility: a layout written with more than 9 tiles fails an older
+client's Zod schema. That client reports `writable: false` and declines to
+overwrite, so the record survives instead of being truncated.
+
 ## Verification
 
 The lane left this section with the three commands listed and their output

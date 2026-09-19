@@ -357,8 +357,11 @@ export class OrchestraCanvasComponent implements OnDestroy {
     // (no remount / no workspace switch), `restoreCanvasTilesFromTabs` — which
     // only runs on mount — never sees that new tab, so it would linger as a bare
     // tab. This closes exactly that gap. `adoptTab` dedups (safe if a fresh
-    // hydration already tiled it) and returns null at the 9-tile cap, in which case
-    // the tab simply stays in the tab list as the graceful fallback.
+    // hydration already tiled it) and returns null at `MAX_CANVAS_TILES`, in which
+    // case the tab simply stays in the tab list as the graceful fallback.
+    // KNOWN GAP (TASK_2026_471): the refusal is not reported back, so a caller
+    // that also prefills the composer for this tab prefills a surface nobody
+    // mounted. Raising the cap makes it rarer; it does not close it.
     effect(() => {
       const req = this.appState.canvasTabRequest();
       if (req) {
