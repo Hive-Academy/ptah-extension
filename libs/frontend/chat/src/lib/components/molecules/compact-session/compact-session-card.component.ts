@@ -6,7 +6,6 @@ import {
   input,
   output,
 } from '@angular/core';
-import type { Signal } from '@angular/core';
 import {
   CompactSessionActivityComponent,
   summarizeFinalized,
@@ -27,23 +26,6 @@ import {
   type AskUserQuestionRequest,
   type PermissionRequest,
 } from '@ptah-extension/shared';
-
-/**
- * Local A-lane seam. A's branch will publish the same invalidation as a
- * readonly signal; changing the property name here is the only integration
- * edit needed when that contract lands.
- */
-interface ReactivePromptTargetReader {
-  readonly routingRevision?: Signal<number>;
-}
-
-function readPromptRoutingRevision(handler: PermissionHandlerService): number {
-  return (
-    (
-      handler as PermissionHandlerService & ReactivePromptTargetReader
-    ).routingRevision?.() ?? 0
-  );
-}
 
 /** Smart orchestration for the summary-only compact session card. */
 @Component({
@@ -79,7 +61,7 @@ export class CompactSessionCardComponent {
   readonly expandToFull = output<void>();
 
   private readonly routingRevision = computed(() =>
-    readPromptRoutingRevision(this.permissionHandler),
+    this.permissionHandler.routingTargetRevision(),
   );
 
   private readonly tabLookup = computed(() =>
