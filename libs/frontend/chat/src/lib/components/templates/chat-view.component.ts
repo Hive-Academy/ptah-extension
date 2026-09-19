@@ -846,6 +846,10 @@ export class ChatViewComponent implements OnDestroy {
           : request.tabId === null;
         if (!mine) return;
         this.handlePromptSelected(request.text);
+        // Consume the request: a surface recreated for the same tab (a canvas
+        // tile removed and re-added) must not replay this prefill over the
+        // current draft in its own constructor effect.
+        this._appState.clearComposerPrefill();
       });
     });
 

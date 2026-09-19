@@ -568,6 +568,7 @@ const MAX_VISIBLE_LABELS = 3;
                               <details>
                                 <summary
                                   [attr.tabindex]="rovingTabIndex(task.id)"
+                                  (click)="$event.stopPropagation()"
                                 >
                                   Assign to agent…
                                 </summary>

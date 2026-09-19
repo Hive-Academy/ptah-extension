@@ -810,6 +810,16 @@ export class AppStateManager implements MessageHandler {
   }
 
   /**
+   * Clear the composer-prefill request after the owning surface applied it.
+   * Without this the request stays in the signal forever, so a surface
+   * recreated for the same tab (a canvas tile removed and re-added) replays
+   * the stale prefill over the current draft in its constructor effect.
+   */
+  clearComposerPrefill(): void {
+    this._composerPrefillRequest.set({ seq: 0, text: '', tabId: null });
+  }
+
+  /**
    * Clear the chat-prompt request after the bridge has processed it. Callers
    * should invoke `request.resolve(...)` BEFORE calling this so any awaiter
    * unblocks; clearing alone does not settle the promise.

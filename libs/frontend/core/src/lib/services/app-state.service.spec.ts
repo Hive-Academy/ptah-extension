@@ -800,6 +800,19 @@ describe('AppStateManager', () => {
         tabId: null,
       });
     });
+
+    it('clearComposerPrefill resets the request so a recreated surface cannot replay it', () => {
+      const service = createService();
+      service.requestComposerPrefill('first prompt', 'tab-1');
+
+      service.clearComposerPrefill();
+
+      expect(service.composerPrefillRequest()).toEqual({
+        seq: 0,
+        text: '',
+        tabId: null,
+      });
+    });
   });
 
   describe('Thoth first-run hint persistence (B6)', () => {

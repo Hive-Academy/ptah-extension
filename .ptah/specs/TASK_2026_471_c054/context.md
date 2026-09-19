@@ -16,7 +16,7 @@ questions:
 Root cause, confirmed against the production log
 (`Ptah Electron-2026-09-18.log:1104`):
 
-```
+```text
 TypeError: Cannot read properties of undefined (reading 'scan')
     at sp.generate (app.asar/main.mjs:3491:27204)
 ```

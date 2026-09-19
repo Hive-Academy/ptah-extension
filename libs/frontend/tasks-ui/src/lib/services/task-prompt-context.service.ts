@@ -84,6 +84,10 @@ export class TaskPromptContextService {
       if (workflow) lines.push(workflow);
       return lines.join('\n');
     } catch {
+      // degradation-audit: optional-capability - a `tasks:get` that throws
+      // drops only the carrier facts (status, type, estimate, workflow
+      // phase) from the context block; the launch proceeds with the git and
+      // listing sections instead of failing.
       return '';
     }
   }
@@ -109,7 +113,13 @@ export class TaskPromptContextService {
     try {
       const lines: string[] = [];
 
-      const info = await this.safeCall('git:info', { ...this.workspaceParam() });
+      // Both git facts are independent, and `safeCall` waits out a timeout on
+      // a dead transport — run them concurrently so two timeouts do not stack
+      // (the launch's `busyTaskId` stays set for the whole section otherwise).
+      const [info, worktrees] = await Promise.all([
+        this.safeCall('git:info', { ...this.workspaceParam() }),
+        this.safeCall('git:worktrees', {}),
+      ]);
       if (info?.isGitRepo) {
         lines.push(`Branch: ${info.branch.branch}.`);
         if (info.statusUnavailable) {
@@ -124,7 +134,6 @@ export class TaskPromptContextService {
         }
       }
 
-      const worktrees = await this.safeCall('git:worktrees', {});
       for (const worktree of worktrees?.worktrees ?? []) {
         const namesTask =
           this.namesTask(worktree.path, taskId) ||
@@ -138,6 +147,10 @@ export class TaskPromptContextService {
 
       return lines.length > 0 ? `### Git\n${lines.join('\n')}` : '';
     } catch {
+      // degradation-audit: optional-capability - git facts (branch,
+      // working-tree state, a task-named worktree) only orient the receiving
+      // agent; when `git:info` or `git:worktrees` throws, the block ships
+      // without the git section rather than blocking the launch.
       return '';
     }
   }
@@ -165,6 +178,10 @@ export class TaskPromptContextService {
       }
       return sections.join('\n\n');
     } catch {
+      // degradation-audit: optional-capability - the skills and commands
+      // listing only suggests capabilities the agent may use; when
+      // `autocomplete:commands` throws, the block omits both sections and
+      // the prompt still reaches the composer.
       return '';
     }
   }
@@ -199,6 +216,10 @@ export class TaskPromptContextService {
       const result = await this.rpc.call(method, params);
       return result.isSuccess() ? result.data : null;
     } catch {
+      // degradation-audit: optional-capability - `rpc.call` resolves with a
+      // failure result rather than throwing; this guards only a stubbed or
+      // future-throwing provider, where null already means "section absent"
+      // to every caller.
       return null;
     }
   }

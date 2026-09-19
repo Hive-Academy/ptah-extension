@@ -552,6 +552,26 @@ describe('TaskListComponent', () => {
     ).not.toBeNull();
   });
 
+  /**
+   * The "Assign to agent…" disclosure sits inside the row, and a plain row
+   * click opens the task — so the summary must stop the click before the row
+   * handler turns the menu toggle into an open (same posture as the sibling
+   * action buttons, which all carry `stopPropagation`).
+   */
+  it('toggles the agent menu without opening the task', () => {
+    const view = render([column('backlog', [makeTask('TASK_2026_200')])]);
+    const opened: string[] = [];
+    view.fixture.componentInstance.taskSelect.subscribe((id) =>
+      opened.push(id),
+    );
+
+    const summary = view.host.querySelector('summary');
+    expect(summary?.textContent?.trim()).toBe('Assign to agent…');
+    summary?.click();
+
+    expect(opened).toEqual([]);
+  });
+
   // ---------------------------------------------------------------------------
   // The rollup is a control, not a readout
   // ---------------------------------------------------------------------------

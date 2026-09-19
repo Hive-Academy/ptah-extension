@@ -135,6 +135,35 @@ describe('TaskPromptContextService', () => {
     expect(block).toContain('Status: In Progress');
   });
 
+  /**
+   * `git:info` and `git:worktrees` are independent facts and must be in
+   * flight together: `safeCall` waits out a full timeout on a dead transport,
+   * so sequential awaits stacked two timeouts into the launch's busy state.
+   */
+  it('issues both git RPCs before either answers', async () => {
+    const pending = new Map<string, (value: unknown) => void>();
+    rpcCall.mockImplementation((method: string) => {
+      if (method === 'git:info' || method === 'git:worktrees') {
+        return new Promise((resolve) => pending.set(method, resolve));
+      }
+      return Promise.resolve(results[method]);
+    });
+
+    const blockPromise = service.buildContextBlock('TASK_2026_300');
+
+    // Neither git RPC has answered, yet both are already in flight — under
+    // the sequential awaits, `git:worktrees` was not even issued yet.
+    expect(pending.has('git:info')).toBe(true);
+    expect(pending.has('git:worktrees')).toBe(true);
+
+    pending.get('git:info')?.(results['git:info']);
+    pending.get('git:worktrees')?.(results['git:worktrees']);
+    const block = await blockPromise;
+
+    expect(block).toContain('Branch: feat/x.');
+    expect(block).toContain('Worktree for this task: D:/wt/TASK_2026_300');
+  });
+
   it('a failed autocomplete:commands omits only the listings', async () => {
     results['autocomplete:commands'] = err('discovery failed');
 
