@@ -1522,3 +1522,333 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// TASK_2026_473 Track A — findMergeCandidates: merge candidate discovery
+//
+// The curator used to build its candidate list from the 200 highest-ranked
+// rows and then filter them by exact, case-sensitive subject equality
+// (TASK_2026_471 forensics: "The merge that never fires" — 98.29 percent of
+// 36,252 rows were singletons). findMergeCandidates queries the whole
+// workspace on LOWER(subject) instead. Every spec below re-runs the OLD
+// predicate (`list({ limit: 200 })` + `subjects.has(m.subject)`) where it is
+// meaningful, so each one also proves the old path would have missed the row.
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore.findMergeCandidates — TASK_2026_473 Track A', () => {
+  const opener = requireSqliteOpener();
+  let raw: RawDb;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    raw = opener.open(':memory:');
+    raw.exec(`CREATE TABLE memories (
+      id TEXT PRIMARY KEY, session_id TEXT, workspace_root TEXT,
+      tier TEXT NOT NULL, kind TEXT NOT NULL, subject TEXT, content TEXT NOT NULL,
+      source_message_ids TEXT, salience REAL NOT NULL, decay_rate REAL NOT NULL,
+      hits INTEGER NOT NULL, pinned INTEGER NOT NULL, created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL, last_used_at INTEGER NOT NULL, archived_at INTEGER,
+      expires_at INTEGER, request TEXT, investigated TEXT, learned TEXT,
+      completed TEXT, next_steps TEXT, type TEXT NOT NULL,
+      concepts_json TEXT NOT NULL, files_json TEXT NOT NULL
+    )`);
+    const db = adaptSqliteDatabase(raw);
+    const connection = {
+      db,
+      handleFatalWriteError: jest.fn(),
+    } as unknown as SqliteConnectionService;
+    store = new MemoryStore(
+      makeLogger(),
+      connection,
+      makeEmbedder(),
+      makeVecStatus(false),
+    );
+  });
+
+  afterEach(() => raw.close());
+
+  function seed(
+    id: string,
+    subject: string | null,
+    workspaceRoot: string | null,
+    options: {
+      salience?: number;
+      lastUsedAt?: number;
+      hits?: number;
+      pinned?: number;
+    } = {},
+  ): void {
+    raw
+      .prepare(
+        `INSERT INTO memories (
+        id, session_id, workspace_root, tier, kind, subject, content,
+        source_message_ids, salience, decay_rate, hits, pinned, created_at,
+        updated_at, last_used_at, archived_at, expires_at, request, investigated,
+        learned, completed, next_steps, type, concepts_json, files_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        null,
+        workspaceRoot,
+        'recall',
+        'fact',
+        subject,
+        id,
+        '[]',
+        options.salience ?? 0.5,
+        0.01,
+        options.hits ?? 0,
+        options.pinned ?? 0,
+        1,
+        1,
+        options.lastUsedAt ?? 1,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        'discovery',
+        '[]',
+        '[]',
+      );
+  }
+
+  /** The OLD curator predicate, verbatim: top-200 window + case-sensitive Set. */
+  function oldPathSubjects(
+    draftSubjects: readonly string[],
+    workspaceRoot: string | null,
+  ): readonly string[] {
+    const subjects = new Set(draftSubjects);
+    return store
+      .list({ workspaceRoot, limit: 200 })
+      .memories.filter((m) => m.subject && subjects.has(m.subject))
+      .map((m) => m.subject as string);
+  }
+
+  it('matches a stored subject that differs from the draft only by case', () => {
+    // The case-sensitivity defect: the draft arrives as lowercase, the stored
+    // row was extracted with different casing. The old Set filter missed it.
+    seed('legacy-row', 'Memory-Store-Legacy', '/ws');
+
+    expect(oldPathSubjects(['memory-store-legacy'], '/ws')).toEqual([]);
+    expect(
+      store
+        .findMergeCandidates(['memory-store-legacy'], '/ws')
+        .map((r) => r.id),
+    ).toEqual(['legacy-row']);
+  });
+
+  it('finds a memory ranked far outside the 200-row recency window', () => {
+    // Construction: 250 filler rows used "now" at salience 0.5 rank above the
+    // target (salience 0.1, last used 90 days ago — its decayed rank is
+    // ~0.007), so the target sits at rank 251 of 251 and the old top-200
+    // window never contained it. This is the 36k-row live-database shape.
+    const now = Date.now();
+    for (let i = 0; i < 250; i++) {
+      seed(`filler-${i}`, `filler-subject-${i}`, '/ws', {
+        lastUsedAt: now,
+        salience: 0.5,
+      });
+    }
+    seed('buried-row', 'buried-subject', '/ws', {
+      lastUsedAt: now - 90 * 86_400_000,
+      salience: 0.1,
+    });
+
+    expect(oldPathSubjects(['buried-subject'], '/ws')).toEqual([]);
+    expect(
+      store.findMergeCandidates(['buried-subject'], '/ws').map((r) => r.id),
+    ).toEqual(['buried-row']);
+  });
+
+  it('returns nothing for an empty subject list and nothing for a subject with no rows', () => {
+    seed('present-row', 'present-subject', '/ws');
+
+    expect(store.findMergeCandidates([], '/ws')).toEqual([]);
+    expect(store.findMergeCandidates(['absent-subject'], '/ws')).toEqual([]);
+  });
+
+  it('does not return a matching subject stored under a different workspace root', () => {
+    seed('row-a', 'shared-subject', '/ws/A');
+    seed('row-b', 'shared-subject', '/ws/B');
+    seed('row-null', 'shared-subject', null);
+
+    expect(
+      store.findMergeCandidates(['shared-subject'], '/ws/A').map((r) => r.id),
+    ).toEqual(['row-a']);
+    expect(
+      store.findMergeCandidates(['shared-subject'], '/ws/B').map((r) => r.id),
+    ).toEqual(['row-b']);
+    // `null` workspaceRoot means the global/unscoped rows, as elsewhere.
+    expect(
+      store.findMergeCandidates(['shared-subject'], null).map((r) => r.id),
+    ).toEqual(['row-null']);
+  });
+
+  it('caps each subject at 5 candidates and dedupes case-variant draft subjects', () => {
+    for (let i = 0; i < 7; i++) {
+      seed(`busy-${i}`, 'busy-subject', '/ws', { lastUsedAt: Date.now() - i });
+    }
+
+    // Two case variants of one draft subject must count as ONE key, or the
+    // per-subject cap would double to 10.
+    const got = store.findMergeCandidates(
+      ['busy-subject', 'Busy-Subject'],
+      '/ws',
+    );
+    expect(got).toHaveLength(5);
+    expect(got.every((r) => r.subject === 'busy-subject')).toBe(true);
+  });
+
+  it('caps the combined result at 50 rows across subjects', () => {
+    // 12 subjects x 5 rows = 60 matching rows, so only the caps decide.
+    for (let s = 0; s < 12; s++) {
+      for (let i = 0; i < 5; i++) {
+        seed(`s${s}-${i}`, `subject-${s}`, '/ws', {
+          lastUsedAt: Date.now() - s * 1000 - i,
+        });
+      }
+    }
+    const subjects = Array.from({ length: 12 }, (_, s) => `subject-${s}`);
+
+    const got = store.findMergeCandidates(subjects, '/ws');
+    expect(got).toHaveLength(50);
+    const perSubject = new Map<string, number>();
+    for (const r of got) {
+      const key = (r.subject ?? '').toLowerCase();
+      perSubject.set(key, (perSubject.get(key) ?? 0) + 1);
+    }
+    expect([...perSubject.values()].every((n) => n <= 5)).toBe(true);
+  });
+
+  it('applies custom per-subject and total limits at the same time', () => {
+    const now = Date.now();
+    // Subject A owns the three highest raw scores. Its custom cap removes a-3,
+    // then the custom total cap removes b-2 from the four eligible rows.
+    seed('a-1', 'subject-a', '/ws', { salience: 1, lastUsedAt: now });
+    seed('a-2', 'subject-a', '/ws', { salience: 0.9, lastUsedAt: now });
+    seed('a-3', 'subject-a', '/ws', { salience: 0.8, lastUsedAt: now });
+    seed('b-1', 'subject-b', '/ws', { salience: 0.7, lastUsedAt: now });
+    seed('b-2', 'subject-b', '/ws', { salience: 0.6, lastUsedAt: now });
+
+    const got = store.findMergeCandidates(
+      ['subject-a', 'subject-b'],
+      '/ws',
+      2,
+      3,
+    );
+
+    expect(got.map((r) => r.id)).toEqual(['a-1', 'a-2', 'b-1']);
+    expect(got.filter((r) => r.subject === 'subject-a')).toHaveLength(2);
+    expect(got).toHaveLength(3);
+  });
+
+  it('returns exactly the five highest-ranked rows for one subject in rank order', () => {
+    const now = Date.now();
+    const halfLife = 604_800_000;
+    // With zero hits and no pin bonus, score = salience * H / (H + age).
+    seed('rank-1', 'ranked-subject', '/ws', {
+      salience: 1,
+      lastUsedAt: now,
+    });
+    seed('rank-2', 'ranked-subject', '/ws', {
+      salience: 0.9,
+      lastUsedAt: now,
+    });
+    seed('rank-3', 'ranked-subject', '/ws', {
+      salience: 1,
+      lastUsedAt: now - halfLife,
+    });
+    seed('rank-4', 'ranked-subject', '/ws', {
+      salience: 0.8,
+      lastUsedAt: now - halfLife,
+    });
+    seed('rank-5', 'ranked-subject', '/ws', {
+      salience: 0.9,
+      lastUsedAt: now - 2 * halfLife,
+    });
+    seed('rank-6', 'ranked-subject', '/ws', {
+      salience: 0.5,
+      lastUsedAt: now - halfLife,
+    });
+    seed('rank-7', 'ranked-subject', '/ws', {
+      salience: 0.6,
+      lastUsedAt: now - 2 * halfLife,
+    });
+
+    expect(
+      store.findMergeCandidates(['ranked-subject'], '/ws').map((r) => r.id),
+    ).toEqual(['rank-1', 'rank-2', 'rank-3', 'rank-4', 'rank-5']);
+  });
+
+  it('breaks identical rank-score ties by id descending', () => {
+    const lastUsedAt = Date.now() - 1000;
+    seed('aaa', 'tied-subject', '/ws', {
+      salience: 0.5,
+      hits: 2,
+      pinned: 0,
+      lastUsedAt,
+    });
+    seed('zzz', 'tied-subject', '/ws', {
+      salience: 0.5,
+      hits: 2,
+      pinned: 0,
+      lastUsedAt,
+    });
+
+    expect(
+      store.findMergeCandidates(['tied-subject'], '/ws').map((r) => r.id),
+    ).toEqual(['zzz', 'aaa']);
+  });
+
+  it('gives a quiet subject its full quota when busy subjects fill the shared scan horizon', () => {
+    // The live ptah-tui case had 46 matches but received only 2 because nine
+    // busier subjects occupied 198 of the shared 200 ranked scan positions.
+    const now = Date.now();
+    const subjects: string[] = [];
+    for (let s = 0; s < 9; s++) {
+      const subject = `busy-subject-${s}`;
+      subjects.push(subject);
+      for (let i = 0; i < 25; i++) {
+        seed(`${subject}-${i}`, subject, '/ws', {
+          salience: 1,
+          lastUsedAt: now - i,
+        });
+      }
+    }
+    subjects.push('quiet-subject');
+    for (let i = 0; i < 6; i++) {
+      seed(`quiet-${i}`, 'quiet-subject', '/ws', {
+        salience: 0.1,
+        lastUsedAt: now - i,
+      });
+    }
+
+    const quiet = store
+      .findMergeCandidates(subjects, '/ws')
+      .filter((row) => row.subject === 'quiet-subject');
+
+    expect(quiet).toHaveLength(5);
+  });
+
+  it('ignores blank and whitespace-only subjects', () => {
+    seed('real-row', 'real-subject', '/ws');
+
+    expect(store.findMergeCandidates(['', '   ', '\t'], '/ws')).toEqual([]);
+    const got = store.findMergeCandidates(['real-subject', '   ', ''], '/ws');
+    expect(got.map((r) => r.id)).toEqual(['real-row']);
+  });
+
+  it('trims surrounding whitespace from an input subject before matching', () => {
+    seed('padded-row', 'padded-subject', '/ws');
+
+    expect(
+      store
+        .findMergeCandidates(['  padded-subject  '], '/ws')
+        .map((r) => r.id),
+    ).toEqual(['padded-row']);
+  });
+});

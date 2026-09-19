@@ -6,6 +6,7 @@ import {
 import {
   baseSalience,
   rankSalience,
+  salienceRankExpression,
   salienceRankOrderBy,
 } from './salience-ranking';
 
@@ -33,11 +34,7 @@ describe('ranking-only salience', () => {
     const insert = raw.prepare(
       'INSERT INTO memories(id, salience, hits, pinned, last_used_at) VALUES (?, ?, ?, ?, ?)',
     );
-    const order = salienceRankOrderBy('?');
-    const expression = order.slice(
-      'ORDER BY '.length,
-      -' DESC, m.id DESC'.length,
-    );
+    const expression = salienceRankExpression('?');
     const select = raw.prepare(
       `SELECT ${expression} AS rank FROM memories m WHERE m.id = ?`,
     );
@@ -50,10 +47,7 @@ describe('ranking-only salience', () => {
           insert.run(id, 0.7, hits, pinned, lastUsedAt);
           const row = select.get(now, id) as { rank: number };
           expect(row.rank).toBeCloseTo(
-            rankSalience(
-              { salience: 0.7, hits, pinned, lastUsedAt },
-              now,
-            ),
+            rankSalience({ salience: 0.7, hits, pinned, lastUsedAt }, now),
             9,
           );
         }
@@ -77,9 +71,7 @@ describe('ranking-only salience', () => {
       insert.run('tie-a', 0.1, 0, 0, now);
       insert.run('tie-b', 0.1, 0, 0, now);
       const rows = db
-        .prepare(
-          `SELECT m.id FROM memories m ${salienceRankOrderBy('?')}`,
-        )
+        .prepare(`SELECT m.id FROM memories m ${salienceRankOrderBy('?')}`)
         .all(now) as Array<{ id: string }>;
       expect(rows[0]?.id).toBe('pinned');
       expect(rows.findIndex((r) => r.id === 'recent-low')).toBeLessThan(
@@ -94,6 +86,9 @@ describe('ranking-only salience', () => {
   });
 
   it('emits only the two literal placeholder variants', () => {
+    expect(salienceRankOrderBy('?')).toBe(
+      `ORDER BY ${salienceRankExpression('?')} DESC, m.id DESC`,
+    );
     expect(salienceRankOrderBy('?').replace('?', '@rankNow')).toBe(
       salienceRankOrderBy('@rankNow'),
     );

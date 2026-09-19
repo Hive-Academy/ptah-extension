@@ -80,6 +80,7 @@ function build(opts: {
     } as unknown as ICompactionCallbackRegistry,
     {
       list: jest.fn(() => ({ memories: [], total: 0 })),
+      findMergeCandidates: jest.fn(() => []),
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
