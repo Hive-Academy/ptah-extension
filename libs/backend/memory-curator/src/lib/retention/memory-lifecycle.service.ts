@@ -217,7 +217,7 @@ export class MemoryLifecycleService {
     result: MutableResult,
   ): Promise<void> {
     for (;;) {
-      const room = await this.beforeBatch(budget, result);
+      const room = await this.beforeBatch(budget, kind, result);
       if (room === null) return;
       const msBefore = budget.msLeft();
       const batch = call(Math.min(room, budget.batchSize(kind)));
@@ -240,7 +240,7 @@ export class MemoryLifecycleService {
   ): Promise<number> {
     let remaining = target;
     while (remaining > 0) {
-      const room = await this.beforeBatch(budget, result);
+      const room = await this.beforeBatch(budget, 'delete', result);
       if (room === null) return remaining;
       const limit = Math.min(room, budget.batchSize('delete'), remaining);
       const msBefore = budget.msLeft();
@@ -263,6 +263,7 @@ export class MemoryLifecycleService {
 
   private async beforeBatch(
     budget: RetentionRunBudget,
+    kind: RetentionBatchKind,
     result: MutableResult,
   ): Promise<number | null> {
     const hardStop = budget.hardStop();
@@ -277,7 +278,7 @@ export class MemoryLifecycleService {
       result.exhausted = false;
       return null;
     }
-    const governorStop = await budget.waitForGovernor();
+    const governorStop = await budget.waitForGovernor(kind);
     if (governorStop !== null) {
       result.stop = governorStop;
       result.exhausted = false;

@@ -117,12 +117,9 @@ describe('RetentionRunBudget', () => {
     expect(governor.whenClear).not.toHaveBeenCalled();
   });
 
-  it.each([
-    [1_000, 59_000],
-    [59_500, 500],
-  ])(
-    'caps the governor at the remaining budget at %i ms',
-    async (elapsed, remaining) => {
+  it.each([1_000, 59_500])(
+    'uses a fixed governor ceiling independent of remaining budget at %i ms',
+    async (elapsed) => {
       const governor = {
         isClear: () => false,
         whenClear: jest.fn(async () => 'clear' as const),
@@ -132,10 +129,68 @@ describe('RetentionRunBudget', () => {
       expect(governor.whenClear).toHaveBeenCalledWith({
         signal: expect.any(AbortSignal),
         lane: GOVERNOR_LANE,
-        maxDeferMs: remaining,
+        maxDeferMs: MEMORY_RETENTION_LIMITS.governorMaxDeferMs,
       });
     },
   );
+
+  it('allows one minimum batch then stops when a timeout leaves the governor busy', async () => {
+    const governor = {
+      isClear: () => false,
+      whenClear: jest.fn(async () => 'timeout' as const),
+    };
+    const { budget } = makeBudget({ governor });
+
+    await expect(budget.waitForGovernor('queue')).resolves.toBeNull();
+    expect(budget.batchSize('queue')).toBe(
+      MEMORY_RETENTION_LIMITS.minBatchSize,
+    );
+    expect(budget.batchSize('archive')).toBe(400);
+    expect(budget.batchSize('delete')).toBe(200);
+
+    await expect(budget.waitForGovernor('queue')).resolves.toBe(
+      'governor-busy',
+    );
+    expect(governor.whenClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops without dispatch permission when a busy timeout cannot shrink the step', async () => {
+    const governor = {
+      isClear: () => false,
+      whenClear: jest.fn(async () => 'timeout' as const),
+    };
+    const { budget } = makeBudget({ governor });
+
+    await expect(budget.waitForGovernor()).resolves.toBe('governor-busy');
+    expect(budget.batchSize('queue')).toBe(500);
+  });
+
+  it('can bypass only the foreground stop for a starvation-escape run', () => {
+    const regular = makeBudget({ foreground: () => 0 });
+    expect(regular.budget.hardStop()).toBe('foreground-active');
+
+    const clock = { value: 0 };
+    const controller = new AbortController();
+    const forced = new RetentionRunBudget({
+      options: {
+        signal: controller.signal,
+        isOnBattery: () => false,
+        msSinceForegroundActivity: () => 0,
+      },
+      limits: MEMORY_RETENTION_LIMITS,
+      now: () => clock.value,
+      startedAt: 0,
+      logger: logger(),
+      governor: null,
+      queueBatchSize: 500,
+      archiveBatchSize: 400,
+      deleteBatchSize: 200,
+      allowForegroundWork: true,
+    });
+    expect(forced.hardStop()).toBeNull();
+    controller.abort();
+    expect(forced.hardStop()).toBe('aborted');
+  });
 
   it('does not call the governor after the deadline', async () => {
     const governor = {

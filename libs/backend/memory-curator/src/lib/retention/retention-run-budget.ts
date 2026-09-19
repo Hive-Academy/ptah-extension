@@ -22,6 +22,8 @@ export interface RetentionRunBudgetOptions {
   readonly queueBatchSize: number;
   readonly archiveBatchSize: number;
   readonly deleteBatchSize: number;
+  /** A starvation-escape run ignores only the foreground activity stop. */
+  readonly allowForegroundWork?: boolean;
 }
 
 function errorText(error: unknown): string {
@@ -33,6 +35,8 @@ export class RetentionRunBudget {
   private queueRows = 0;
   private memoryRows = 0;
   private governorWarned = false;
+  /** One minimum-size batch may make progress after a still-busy timeout. */
+  private busyTimeoutBatchGranted = false;
   private readonly sizes: Record<RetentionBatchKind, number>;
 
   constructor(private readonly input: RetentionRunBudgetOptions) {
@@ -51,24 +55,50 @@ export class RetentionRunBudget {
     const { options, limits, now, startedAt } = this.input;
     if (options.signal.aborted) return 'aborted';
     if (options.isOnBattery()) return 'on-battery';
-    if (options.msSinceForegroundActivity() < limits.foregroundBackoffMs) {
+    if (
+      !this.input.allowForegroundWork &&
+      options.msSinceForegroundActivity() < limits.foregroundBackoffMs
+    ) {
       return 'foreground-active';
     }
     if (now() >= startedAt + limits.maxRunMs) return 'time-budget';
     return null;
   }
 
-  async waitForGovernor(): Promise<RetentionStopReason | null> {
+  async waitForGovernor(
+    kind?: RetentionBatchKind,
+  ): Promise<RetentionStopReason | null> {
     const { governor, options, logger } = this.input;
-    if (governor === null || governor.isClear()) return this.hardStop();
-    const remainingMs = this.msLeft();
-    if (remainingMs <= 0) return this.hardStop();
+    if (governor === null) return this.hardStop();
+    if (governor.isClear()) {
+      this.busyTimeoutBatchGranted = false;
+      return this.hardStop();
+    }
+    // A still-busy timeout below already granted one deliberately small unit
+    // of work. Do not wait and barge in repeatedly during sustained lag.
+    if (this.busyTimeoutBatchGranted) return 'governor-busy';
+    if (this.msLeft() <= 0) return this.hardStop();
     try {
-      await governor.whenClear({
+      const outcome = await governor.whenClear({
         signal: options.signal,
         lane: GOVERNOR_LANE,
-        maxDeferMs: Math.max(1, remainingMs),
+        maxDeferMs: this.input.limits.governorMaxDeferMs,
       });
+      if (outcome === 'timeout' && !governor.isClear()) {
+        // Ledger prune and page reclaim have no row batch size this budget can
+        // reduce. Stop rather than dispatching an unshrinkable operation while
+        // the host remains busy.
+        if (kind === undefined) return 'governor-busy';
+        this.busyTimeoutBatchGranted = true;
+        this.sizes[kind] = Math.min(
+          this.sizes[kind],
+          this.input.limits.minBatchSize,
+        );
+        logger.info(
+          '[memory-curator] governor remained busy; allowing one minimum retention batch',
+          { kind, batchSize: this.input.limits.minBatchSize },
+        );
+      }
     } catch (error: unknown) {
       // degradation-audit: reported - an unexpected governor failure is logged
       // once per run and retention fails open as required by the admission port.
