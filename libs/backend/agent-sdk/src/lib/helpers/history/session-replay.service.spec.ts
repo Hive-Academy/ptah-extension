@@ -16,7 +16,7 @@
  *
  * Wires `HistoryEventFactory` and `AgentCorrelationService` as real
  * instances (they're dependency-free, pure services), and stubs the
- * `ModelResolver` via a shape that matches the `resolveForPricing` contract
+ * `ModelResolver` via a shape that matches the `resolveForCost` contract
  * used by the replay path.
  */
 
@@ -39,16 +39,24 @@ function asLogger(mock: MockLogger): Logger {
 /**
  * Minimal `ModelResolver` shape consumed by the replay service.
  * The real class lives in `../../auth/model-resolver` and the replay only
- * calls `resolveForPricing`, so we satisfy that surface directly rather than
+ * calls `resolveForCost`, so we satisfy that surface directly rather than
  * instantiating the full DI graph.
  */
 interface ModelResolverLike {
-  resolveForPricing(model: string): string;
+  resolveForCost(model: string): {
+    modelId: string;
+    pricing: null;
+    subscriptionCovered: false;
+  };
 }
 
 function stubModelResolver(): ModelResolverLike {
   return {
-    resolveForPricing: jest.fn((m: string) => m || 'unknown'),
+    resolveForCost: jest.fn((m: string) => ({
+      modelId: m || 'unknown',
+      pricing: null,
+      subscriptionCovered: false,
+    })),
   };
 }
 
@@ -154,6 +162,36 @@ describe('SessionReplayService', () => {
     };
     expect(toolStart.toolName).toBe('Read');
     expect(toolStart.toolCallId).toBe('t-1');
+  });
+
+  it('preserves an unknown model cost as null on replay', () => {
+    const message = {
+      type: 'assistant',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      uuid: 'a-unpriced',
+      message: {
+        role: 'assistant',
+        model: 'unpriced-model',
+        content: [{ type: 'text', text: 'answer' }],
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      },
+    } as SessionHistoryMessage;
+
+    const complete = service
+      .replayToStreamEvents('s', [message], [])
+      .find((event) => event.eventType === 'message_complete');
+
+    expect(complete).toEqual(
+      expect.objectContaining({
+        tokenUsage: { input: 10, output: 5 },
+        cost: null,
+      }),
+    );
   });
 
   // -------------------------------------------------------------------------

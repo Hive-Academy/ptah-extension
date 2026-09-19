@@ -290,6 +290,7 @@ interface ResultModelUsageFixture {
 function resultMessageMulti(opts: {
   totalCostUsd: number;
   modelUsage: Record<string, ResultModelUsageFixture>;
+  durationMs?: number;
 }): SDKMessage {
   const aggInput = Object.values(opts.modelUsage).reduce(
     (s, u) => s + u.inputTokens,
@@ -314,7 +315,7 @@ function resultMessageMulti(opts: {
     type: 'result',
     subtype: 'success',
     session_id: 'sess-1',
-    duration_ms: 100,
+    duration_ms: opts.durationMs ?? 100,
     duration_api_ms: 90,
     is_error: false,
     num_turns: 1,
@@ -326,6 +327,50 @@ function resultMessageMulti(opts: {
       cache_creation_input_tokens: 0,
     },
     modelUsage,
+  } as unknown as SDKMessage;
+}
+
+function rawResultMessage(opts: {
+  totalCostUsd: number;
+  durationMs: number;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens: number;
+    cacheCreationInputTokens: number;
+  };
+  modelUsage?: Record<string, ResultModelUsageFixture>;
+}): SDKMessage {
+  const modelUsage = opts.modelUsage
+    ? Object.fromEntries(
+        Object.entries(opts.modelUsage).map(([model, usage]) => [
+          model,
+          {
+            ...usage,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            contextWindow: 200000,
+          },
+        ]),
+      )
+    : undefined;
+
+  return {
+    type: 'result',
+    subtype: 'success',
+    session_id: 'sess-1',
+    duration_ms: opts.durationMs,
+    duration_api_ms: opts.durationMs,
+    is_error: false,
+    num_turns: 1,
+    total_cost_usd: opts.totalCostUsd,
+    usage: {
+      input_tokens: opts.usage.inputTokens,
+      output_tokens: opts.usage.outputTokens,
+      cache_read_input_tokens: opts.usage.cacheReadInputTokens,
+      cache_creation_input_tokens: opts.usage.cacheCreationInputTokens,
+    },
+    ...(modelUsage ? { modelUsage } : {}),
   } as unknown as SDKMessage;
 }
 
@@ -1012,7 +1057,7 @@ describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', 
     expect(captured[0].modelUsage?.[0].costUSD).toBeNull();
   });
 
-  it('third-party + mixed hit/miss: hit row has numeric cost, miss row null, total is sum of hits only', async () => {
+  it('third-party + mixed hit/miss: one unknown row makes the total unknown', async () => {
     const authEnv = makeAuthEnv({
       ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
     });
@@ -1063,7 +1108,7 @@ describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', 
     expect(typeof hitCost).toBe('number');
     expect(hitCost as number).toBeGreaterThan(0);
     expect(byModel.get('mystery-model-y')).toBeNull();
-    expect(captured[0].cost).toBe(hitCost);
+    expect(captured[0].cost).toBeNull();
   });
 });
 
@@ -1177,6 +1222,343 @@ describe('StreamTransformer — task_* forwarding (workflow watch gate)', () => 
   });
 });
 
+describe('StreamTransformer — result stats validation', () => {
+  async function transformResult(message: SDKMessage): Promise<{
+    onResultStats: jest.Mock;
+    logger: jest.Mocked<Logger>;
+  }> {
+    const { transformer, logger } = makeHarness();
+    const onResultStats = jest.fn();
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([message]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats,
+      }),
+    );
+
+    return { onResultStats, logger };
+  }
+
+  it('accepts the measured cumulative cost 101.12 unchanged', async () => {
+    const { onResultStats } = await transformResult(
+      resultMessageMulti({
+        totalCostUsd: 101.12,
+        modelUsage: {
+          [MODEL]: { inputTokens: 10, outputTokens: 20, costUSD: 101.12 },
+        },
+      }),
+    );
+
+    expect(onResultStats).toHaveBeenCalledWith(
+      expect.objectContaining({ cost: 101.12 }),
+    );
+  });
+
+  it('accepts a cumulative cost of 356 unchanged', async () => {
+    const { onResultStats } = await transformResult(
+      resultMessageMulti({
+        totalCostUsd: 356,
+        modelUsage: {
+          [MODEL]: { inputTokens: 10, outputTokens: 20, costUSD: 356 },
+        },
+      }),
+    );
+
+    expect(onResultStats).toHaveBeenCalledWith(
+      expect.objectContaining({ cost: 356 }),
+    );
+  });
+
+  it('accepts cumulative input and output token counts above 1000000', async () => {
+    const { onResultStats } = await transformResult(
+      resultMessageMulti({
+        totalCostUsd: 1,
+        modelUsage: {
+          [MODEL]: {
+            inputTokens: 1_000_001,
+            outputTokens: 1_000_002,
+            costUSD: 1,
+          },
+        },
+      }),
+    );
+
+    expect(onResultStats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tokens: expect.objectContaining({
+          input: 1_000_001,
+          output: 1_000_002,
+        }),
+      }),
+    );
+  });
+
+  it('accepts a duration above 3600000 unchanged', async () => {
+    const { onResultStats } = await transformResult(
+      resultMessageMulti({
+        totalCostUsd: 1,
+        durationMs: 3_600_001,
+        modelUsage: {
+          [MODEL]: { inputTokens: 10, outputTokens: 20, costUSD: 1 },
+        },
+      }),
+    );
+
+    expect(onResultStats).toHaveBeenCalledWith(
+      expect.objectContaining({ duration: 3_600_001 }),
+    );
+  });
+
+  it.each([
+    ['negative', -1],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('rejects a %s cost', async (_label, invalidCost) => {
+    const { onResultStats, logger } = await transformResult(
+      resultMessageMulti({
+        totalCostUsd: invalidCost,
+        modelUsage: {
+          [MODEL]: { inputTokens: 10, outputTokens: 20, costUSD: invalidCost },
+        },
+      }),
+    );
+
+    expect(onResultStats).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[StreamTransformer] Invalid cost value from SDK:',
+      expect.objectContaining({ cost: invalidCost }),
+    );
+  });
+
+  it.each([
+    ['input', 'negative', -1],
+    ['input', 'NaN', Number.NaN],
+    ['input', 'Infinity', Number.POSITIVE_INFINITY],
+    ['output', 'negative', -1],
+    ['output', 'NaN', Number.NaN],
+    ['output', 'Infinity', Number.POSITIVE_INFINITY],
+  ] as const)(
+    'rejects a %s token count that is %s',
+    async (field, _label, invalidTokens) => {
+      const inputTokens = field === 'input' ? invalidTokens : 10;
+      const outputTokens = field === 'output' ? invalidTokens : 20;
+      const { onResultStats, logger } = await transformResult(
+        resultMessageMulti({
+          totalCostUsd: 1,
+          modelUsage: {
+            [MODEL]: { inputTokens, outputTokens, costUSD: 1 },
+          },
+        }),
+      );
+
+      expect(onResultStats).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[StreamTransformer] Invalid token values from SDK:',
+        expect.objectContaining({
+          tokens: expect.objectContaining({
+            input: inputTokens,
+            output: outputTokens,
+          }),
+        }),
+      );
+    },
+  );
+
+  it.each([
+    ['negative', -1],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('rejects a %s duration', async (_label, invalidDuration) => {
+    const { onResultStats, logger } = await transformResult(
+      resultMessageMulti({
+        totalCostUsd: 1,
+        durationMs: invalidDuration,
+        modelUsage: {
+          [MODEL]: { inputTokens: 10, outputTokens: 20, costUSD: 1 },
+        },
+      }),
+    );
+
+    expect(onResultStats).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[StreamTransformer] Invalid duration value from SDK:',
+      expect.objectContaining({ duration: invalidDuration }),
+    );
+  });
+});
+
+describe('StreamTransformer — usage-less result stats', () => {
+  const noUsageResult = (): SDKMessage =>
+    rawResultMessage({
+      totalCostUsd: 0,
+      durationMs: 63,
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+      },
+    });
+
+  it('does not replace populated header stats with a result that has no usage or modelUsage', async () => {
+    const { transformer } = makeHarness();
+    const populatedHeader = {
+      cost: 1.1098535,
+      tokens: { input: 18, output: 7611 },
+    };
+    let header: unknown = populatedHeader;
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([noUsageResult()]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: (stats) => {
+          header = stats;
+        },
+      }),
+    );
+
+    expect(header).toBe(populatedHeader);
+  });
+
+  it('keeps the populated stats from the real resume sequence after skipping the zero result', async () => {
+    const { transformer } = makeHarness();
+    const onResultStats = jest.fn();
+    const populatedResult = rawResultMessage({
+      totalCostUsd: 1.1098535,
+      durationMs: 95_000,
+      usage: {
+        inputTokens: 18,
+        outputTokens: 7611,
+        cacheReadInputTokens: 1_276_637,
+        cacheCreationInputTokens: 28_117,
+      },
+      modelUsage: {
+        'claude-opus-5[1m]': {
+          inputTokens: 1_304_772,
+          outputTokens: 7611,
+          costUSD: 1.1098535,
+        },
+      },
+    });
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([noUsageResult(), populatedResult]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: 'claude-opus-5[1m]',
+        onResultStats,
+      }),
+    );
+
+    expect(onResultStats).toHaveBeenCalledTimes(1);
+    expect(onResultStats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cost: 1.1098535,
+        tokens: {
+          input: 18,
+          output: 7611,
+          cacheRead: 1_276_637,
+          cacheCreation: 28_117,
+        },
+      }),
+    );
+  });
+
+  it('releases the turn claim even when the no-usage stats emission is skipped', async () => {
+    const { transformer } = makeHarness();
+    const onResultStats = jest.fn();
+    const releaseTurnClaim = jest.fn();
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([noUsageResult()]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats,
+        onTurnEnd: releaseTurnClaim,
+      }),
+    );
+
+    expect(releaseTurnClaim).toHaveBeenCalledTimes(1);
+    expect(onResultStats).not.toHaveBeenCalled();
+  });
+
+  it('leaves a new session header empty when its result has no usage', async () => {
+    const { transformer } = makeHarness();
+    let header: unknown;
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([noUsageResult()]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: (stats) => {
+          header = stats;
+        },
+      }),
+    );
+
+    expect(header).toBeUndefined();
+  });
+
+  it('emits aggregate zero-token deltas with real cost and modelUsage unchanged', async () => {
+    const { transformer } = makeHarness();
+    const onResultStats = jest.fn();
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          rawResultMessage({
+            totalCostUsd: 1.77963875,
+            durationMs: 103_763,
+            usage: {
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadInputTokens: 0,
+              cacheCreationInputTokens: 0,
+            },
+            modelUsage: {
+              'claude-opus-5[1m]': {
+                inputTokens: 273_539,
+                outputTokens: 8847,
+                costUSD: 1.77963875,
+              },
+            },
+          }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: 'claude-opus-5[1m]',
+        onResultStats,
+      }),
+    );
+
+    expect(onResultStats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cost: 1.77963875,
+        tokens: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheCreation: 0,
+        },
+        modelUsage: [
+          expect.objectContaining({
+            model: 'claude-opus-5[1m]',
+            inputTokens: 273_539,
+            outputTokens: 8847,
+            costUSD: 1.77963875,
+          }),
+        ],
+      }),
+    );
+  });
+});
+
 describe('StreamTransformer — onTurnEnd (TASK_2026_294)', () => {
   it('fires on the result message', async () => {
     const { transformer } = makeHarness();
@@ -1198,14 +1580,11 @@ describe('StreamTransformer — onTurnEnd (TASK_2026_294)', () => {
     expect(onTurnEnd).toHaveBeenCalledTimes(1);
   });
 
-  it('fires even when validateStats rejects the payload and onResultStats is skipped', async () => {
+  it('fires and passes through a cumulative cost above the former ceiling', async () => {
     const { transformer } = makeHarness();
     const onTurnEnd = jest.fn();
     const onResultStats = jest.fn();
 
-    // cost > 100 → validateStats returns null → onResultStats never runs.
-    // The pump's turn claim must still be released, or the next follow-up is
-    // held until the 180s no-activity watchdog instead of the turn.
     await drain(
       transformer.transform({
         sdkQuery: asAsyncIterable([
@@ -1223,7 +1602,9 @@ describe('StreamTransformer — onTurnEnd (TASK_2026_294)', () => {
       }),
     );
 
-    expect(onResultStats).not.toHaveBeenCalled();
+    expect(onResultStats).toHaveBeenCalledWith(
+      expect.objectContaining({ cost: 500 }),
+    );
     expect(onTurnEnd).toHaveBeenCalledTimes(1);
   });
 

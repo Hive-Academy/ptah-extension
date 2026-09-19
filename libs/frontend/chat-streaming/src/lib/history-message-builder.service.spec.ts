@@ -38,6 +38,7 @@ function historyState(): StreamingState {
     timestamp: 3,
     source: 'history',
     tokenUsage: { input: 2, output: 3 },
+    cost: null,
   } as FlatStreamEventUnion;
   state.events.set(userStart.id, userStart);
   state.events.set(assistantStart.id, assistantStart);
@@ -139,6 +140,8 @@ describe('HistoryMessageBuilder', () => {
       'user-1',
       'assistant-tree',
     ]);
+    expect(page[1].tokens).toEqual({ input: 2, output: 3 });
+    expect(page[1].cost).toBeNull();
     expect(treeBuilder.clearCache).toHaveBeenCalledWith('history-page-tab-1');
   });
 

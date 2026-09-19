@@ -252,7 +252,7 @@ export class SessionReplayService {
                   cacheCreation: tokenUsage.cacheCreation,
                 },
                 priced.pricing,
-              ) ?? 0;
+              );
             if (!currentMessageUsage) {
               currentMessageUsage = {
                 tokenUsage: {
@@ -271,7 +271,11 @@ export class SessionReplayService {
                   (currentMessageUsage.tokenUsage?.output ?? 0) +
                   tokenUsage.output,
               };
-              currentMessageUsage.cost = (currentMessageUsage.cost ?? 0) + cost;
+              const currentCost = currentMessageUsage.cost;
+              currentMessageUsage.cost =
+                currentCost === null || currentCost === undefined || cost === null
+                  ? null
+                  : currentCost + cost;
             }
           }
         }
@@ -579,7 +583,7 @@ export class SessionReplayService {
                   cacheCreation: tokenUsage.cacheCreation,
                 },
                 priced.pricing,
-              ) ?? 0,
+              ),
           };
         }
       }

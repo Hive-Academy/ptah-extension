@@ -152,7 +152,7 @@ export interface StreamingState {
    * Stores stats that arrive before finalizeCurrentMessage is called.
    */
   pendingStats?: {
-    cost: number;
+    cost: number | null;
     tokens: { input: number; output: number };
     duration: number;
   } | null;

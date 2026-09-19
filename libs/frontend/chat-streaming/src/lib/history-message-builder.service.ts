@@ -171,7 +171,7 @@ export class HistoryMessageBuilder {
         let tokens:
           | { input: number; output: number; cacheHit?: number }
           | undefined;
-        let cost: number | undefined;
+        let cost: number | null | undefined;
         let duration: number | undefined;
 
         if (completeEvent?.tokenUsage) {

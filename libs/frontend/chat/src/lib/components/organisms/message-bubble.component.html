@@ -129,7 +129,7 @@
           [animate.enter]="isFinalizing() ? '' : 'bubble-fade-enter'"
           [animate.leave]="isFinalizing() ? '' : 'bubble-fade-leave'"
         >
-          @if (summary.cost !== undefined && summary.cost > 0) {
+          @if (message().tokens !== undefined) {
             <ptah-cost-badge [cost]="summary.cost" />
           }
           @if (summary.duration !== undefined) {
@@ -150,11 +150,10 @@
 
       <!-- Center: Metadata badges (always visible when data exists) -->
       @if (
-        message().tokens ||
-        message().cost !== undefined ||
-        message().duration !== undefined
+        message().tokens !== undefined || message().duration !== undefined
       ) {
         <div
+          data-testid="message-metadata-footer"
           class="flex gap-1.5 items-center text-base-content-muted"
           [animate.enter]="isFinalizing() ? '' : 'bubble-fade-enter'"
           [animate.leave]="isFinalizing() ? '' : 'bubble-fade-leave'"
@@ -164,13 +163,7 @@
               [count]="message().tokens!.input + message().tokens!.output"
             />
           }
-          <!--
-            No `!` and no undefined-only guard. A turn on a provider with no
-            known pricing carries `cost: null`, which slipped past the old
-            `!== undefined` check and then rendered as "$0.0000" — the badge now
-            takes the nullable value and says "cost unavailable" itself.
-          -->
-          @if (message().cost !== undefined) {
+          @if (message().tokens !== undefined) {
             <ptah-cost-badge [cost]="message().cost" />
           }
           @if (message().duration !== undefined) {

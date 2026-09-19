@@ -70,7 +70,7 @@ interface AgentEntry {
   toolCount?: number;
   agentType?: string;
   tokenUsage?: { input: number; output: number };
-  cost?: number;
+  cost?: number | null;
   duration?: number;
 }
 
@@ -251,7 +251,11 @@ type FeedEntry =
                     <markdown [data]="entry.textContent" />
                   </div>
                 }
-                @if (entry.cost || entry.duration || entry.tokenUsage) {
+                @if (
+                  (entry.cost !== null && entry.cost !== undefined) ||
+                  entry.duration ||
+                  entry.tokenUsage
+                ) {
                   <div
                     class="flex items-center gap-1.5 pl-5 text-[9px] font-mono text-base-content-muted"
                   >
@@ -264,7 +268,7 @@ type FeedEntry =
                         tok</span
                       >
                     }
-                    @if (entry.cost) {
+                    @if (entry.cost !== null && entry.cost !== undefined) {
                       <span>\${{ entry.cost | number: '1.4-4' }}</span>
                     }
                     @if (entry.duration) {

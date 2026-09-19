@@ -367,6 +367,12 @@ export class AssistantMessageTransformer {
         ? {
             input: message.usage.input_tokens,
             output: message.usage.output_tokens,
+            ...(message.usage.cache_read_input_tokens !== undefined
+              ? { cacheRead: message.usage.cache_read_input_tokens }
+              : {}),
+            ...(message.usage.cache_creation_input_tokens !== undefined
+              ? { cacheCreation: message.usage.cache_creation_input_tokens }
+              : {}),
           }
         : undefined;
 
@@ -375,8 +381,16 @@ export class AssistantMessageTransformer {
       : undefined;
     const cost =
       tokenUsage && priced
-        ? (calculateMessageCost(priced.modelId, tokenUsage, priced.pricing) ??
-          undefined)
+        ? calculateMessageCost(
+            priced.modelId,
+            {
+              input: tokenUsage.input,
+              output: tokenUsage.output,
+              cacheHit: tokenUsage.cacheRead ?? 0,
+              cacheCreation: tokenUsage.cacheCreation ?? 0,
+            },
+            priced.pricing,
+          )
         : undefined;
 
     const messageCompleteEvent: MessageCompleteEvent = {

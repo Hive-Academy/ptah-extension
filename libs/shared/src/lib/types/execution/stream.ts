@@ -220,7 +220,7 @@ export interface MessageCompleteEvent extends FlatStreamEvent {
   readonly eventType: 'message_complete';
   readonly stopReason?: string;
   readonly tokenUsage?: { input: number; output: number };
-  readonly cost?: number;
+  readonly cost?: number | null;
   readonly duration?: number;
   readonly model?: string;
 }
