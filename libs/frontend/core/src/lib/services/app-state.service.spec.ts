@@ -776,6 +776,43 @@ describe('AppStateManager', () => {
       service.clearChatPromptRequest();
       expect(service.chatPromptRequest()).toBeNull();
     });
+
+    it('publishes monotonic composer-prefill requests with their target tab', () => {
+      const service = createService();
+
+      expect(service.composerPrefillRequest()).toEqual({
+        seq: 0,
+        text: '',
+        tabId: null,
+      });
+
+      service.requestComposerPrefill('first prompt', 'tab-1');
+      expect(service.composerPrefillRequest()).toEqual({
+        seq: 1,
+        text: 'first prompt',
+        tabId: 'tab-1',
+      });
+
+      service.requestComposerPrefill('second prompt', null);
+      expect(service.composerPrefillRequest()).toEqual({
+        seq: 2,
+        text: 'second prompt',
+        tabId: null,
+      });
+    });
+
+    it('clearComposerPrefill resets the request so a recreated surface cannot replay it', () => {
+      const service = createService();
+      service.requestComposerPrefill('first prompt', 'tab-1');
+
+      service.clearComposerPrefill();
+
+      expect(service.composerPrefillRequest()).toEqual({
+        seq: 0,
+        text: '',
+        tabId: null,
+      });
+    });
   });
 
   describe('Thoth first-run hint persistence (B6)', () => {

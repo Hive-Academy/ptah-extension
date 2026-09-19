@@ -177,7 +177,7 @@ export class PromptSuggestionsComponent {
     return this.categories.find((c) => c.id === id)?.prompts ?? [];
   });
 
-  /** Prompt categories with intelligent suggestions covering all Ptah skills */
+  /** Prompt categories with intelligent suggestions covering shipped Ptah skills and commands */
   readonly categories: PromptCategory[] = [
     {
       id: 'build',
@@ -188,17 +188,27 @@ export class PromptSuggestionsComponent {
         {
           label: 'Orchestrate a feature',
           text: '/orchestrate Build [describe your feature] with full workflow orchestration',
-          description: 'PM → Architect → Dev → QA pipeline',
+          description: 'Plan, implement, review',
         },
         {
-          label: 'Create API endpoint',
-          text: '/orchestrate Create a REST API endpoint for [resource] with CRUD operations',
-          description: 'REST CRUD scaffold',
+          label: 'Bootstrap SaaS workspace',
+          text: '/saas-workspace-initializer Initialize a new SaaS project with Nx, NestJS, and Angular',
+          description: 'Nx + NestJS + Angular',
         },
         {
-          label: 'Build a component',
-          text: '/orchestrate Add a new [component name] component with tests and documentation',
-          description: 'Component + tests + docs',
+          label: 'Design NestJS feature',
+          text: '/nestjs-backend-patterns Design a NestJS feature module for [domain] with provider pattern and Prisma',
+          description: 'Controller-service-Prisma',
+        },
+        {
+          label: 'Add Angular component',
+          text: '/angular-frontend-patterns Add a new Angular component with signals, OnPush, and smart/dumb split',
+          description: 'Signals, OnPush, split',
+        },
+        {
+          label: 'Generate project harness',
+          text: 'Open the Setup Wizard, scan this workspace, analyze the project, and generate a harness.',
+          description: 'Setup wizard scan',
         },
       ],
     },
@@ -211,17 +221,22 @@ export class PromptSuggestionsComponent {
         {
           label: 'Fix a bug',
           text: "/orchestrate BUGFIX: Fix [describe the bug you're seeing]",
-          description: 'Diagnose → fix → verify',
+          description: 'Diagnose, fix, verify',
         },
         {
-          label: 'Simplify changed code',
-          text: '/simplify',
-          description: 'Review recent changes for reuse & quality',
+          label: 'Run fix fleet',
+          text: '/fleet-orchestration Run a multi-agent fix fleet on [task spec range]',
+          description: 'Multi-agent bugfix batch',
         },
         {
-          label: 'Refactor module',
-          text: '/orchestrate REFACTORING: Modernize [component/module] to use current patterns',
-          description: 'Modernize + optimize',
+          label: 'Humanize messy library',
+          text: '/humanize-library Refactor [library path] into single-responsibility files with clear names and no duplication',
+          description: 'Refactor for readability',
+        },
+        {
+          label: 'Extract UI feature',
+          text: '/extract-and-relocate-angular-component-feature Move [feature] from [source component] into a new self-contained component in [destination]',
+          description: 'Move feature to component',
         },
       ],
     },
@@ -246,6 +261,16 @@ export class PromptSuggestionsComponent {
           text: '/review-security',
           description: 'OWASP top 10, auth, injection',
         },
+        {
+          label: 'Code review tribunal',
+          text: '/tribunal Review [module] with a multi-vendor panel and synthesize a cited verdict',
+          description: 'Multi-vendor cited verdict',
+        },
+        {
+          label: 'Audit UX',
+          text: '/impeccable Audit the UX of [page/component] for accessibility, visual hierarchy, and performance',
+          description: 'Accessibility and hierarchy',
+        },
       ],
     },
     {
@@ -255,24 +280,24 @@ export class PromptSuggestionsComponent {
       hieroglyph: '\u{1312D}', // 𓄭
       prompts: [
         {
-          label: 'Parallel codebase analysis',
-          text: 'Spawn CLI agents in parallel to analyze each library in the workspace — architecture, dependencies, and quality gaps. Synthesize findings into a single report.',
-          description: 'Multi-agent parallel research',
+          label: 'Spawn CLI agent lane',
+          text: '/agent-lanes Spawn a background CLI agent lane to implement [task]',
+          description: 'Background implementation worker',
         },
         {
-          label: 'Generate tests with agents',
-          text: 'Use CLI agents to generate unit tests for all untested public methods in [module]. Spawn one agent per service file in parallel, then review and commit the results.',
-          description: 'Parallel test scaffolding',
+          label: 'Run headless Ptah',
+          text: '/ptah-cli-usage Run a headless Ptah CLI session over JSON-RPC to [execute task/serve MCP]',
+          description: 'JSON-RPC CI pipeline',
         },
         {
-          label: 'Multi-agent code review',
-          text: 'Spawn CLI agents to review [module] in parallel — one for style, one for logic, one for security. Merge findings into a unified review.',
-          description: 'Style + logic + security in parallel',
+          label: 'Start tribunal panel',
+          text: '/tribunal Start a tribunal panel for [topic] and render a cited verdict',
+          description: 'Council, Forge, or Crucible',
         },
         {
-          label: 'Delegate documentation',
-          text: 'Use CLI agents to generate API documentation for each service in [module]. One agent per file, then synthesize into a comprehensive doc.',
-          description: 'Parallel doc generation',
+          label: 'Deploy fix fleet',
+          text: '/fleet-orchestration Deploy a fix fleet across [task spec range] with judge and commit',
+          description: 'Parallel agent task swarm',
         },
       ],
     },
@@ -283,24 +308,29 @@ export class PromptSuggestionsComponent {
       hieroglyph: '\u{13000}', // 𓀀
       prompts: [
         {
-          label: 'Health check',
-          text: 'Run a full project health check — analyze workspace structure, check for TypeScript errors, find unused exports, and report code quality metrics.',
-          description: 'Diagnostics + workspace analysis',
-        },
-        {
           label: 'Analyze architecture',
-          text: '/orchestrate RESEARCH: Analyze the codebase architecture, map dependency graph, and document key patterns and boundaries.',
-          description: 'Architecture + dependency deep-dive',
+          text: '/orchestrate RESEARCH: Analyze the codebase architecture, map the dependency graph, and document key patterns and boundaries',
+          description: 'Dependency graph deep dive',
         },
         {
-          label: 'Find what changed',
-          text: 'Show me all unsaved changes and TypeScript errors in the workspace right now. Then explain the impact of the current changes.',
-          description: 'Dirty files + live diagnostics',
+          label: 'Index workspace',
+          text: 'Use Workspace Indexing to scan this workspace and report symbols, dependencies, and code quality metrics.',
+          description: 'Symbols and quality metrics',
         },
         {
-          label: 'Explain how it works',
-          text: 'Analyze the code structure of [feature/module] using AST analysis, then trace its dependencies and explain how it works end-to-end.',
-          description: 'AST + dependency walkthrough',
+          label: 'View task board',
+          text: 'Show the .ptah/specs task board and report tasks grouped by status.',
+          description: '.ptah/specs statuses',
+        },
+        {
+          label: 'Browse marketplace',
+          text: 'Open the Ptah Marketplace and list available plugins or skills for [category].',
+          description: 'Plugins and skills',
+        },
+        {
+          label: 'Search memory',
+          text: 'Search the Memory Curator for prior decisions and context about [topic].',
+          description: 'Prior decisions',
         },
       ],
     },
@@ -311,24 +341,29 @@ export class PromptSuggestionsComponent {
       hieroglyph: '\u{130B8}', // 𓂸
       prompts: [
         {
-          label: 'Design a landing page',
-          text: '/orchestrate CREATIVE: Design and build a landing page with hero section, features, and pricing',
-          description: 'UI/UX → Content → Frontend',
+          label: 'Design landing page',
+          text: '/ui-ux-designer Design a landing page for [product] with brand discovery and design tokens',
+          description: 'Brand discovery and tokens',
         },
         {
-          label: 'Add 3D hero scene',
-          text: 'Create a 3D hero scene with neon lights and floating geometric shapes using @hive-academy/angular-3d',
-          description: 'Three.js declarative components',
+          label: 'Add 3D scene',
+          text: '/angular-3d-scene-crafter Create a 3D hero scene with neon lights and floating geometric shapes',
+          description: 'Three.js Angular scene',
         },
         {
-          label: 'Add scroll animations',
-          text: 'Add smooth scroll-triggered animations with parallax effects using GSAP ScrollTrigger',
-          description: 'GSAP + angular-gsap directives',
+          label: 'Add scroll animation',
+          text: '/angular-gsap-animation-crafter Add scroll-triggered animations with parallax to [section]',
+          description: 'GSAP ScrollTrigger effects',
         },
         {
           label: 'Write technical content',
-          text: '/orchestrate CREATIVE: Write a technical blog post about [topic] based on our codebase implementation',
-          description: 'Blog, docs, or video scripts',
+          text: '/technical-content-writer Write a technical blog post about [topic] grounded in our codebase',
+          description: 'Blog grounded in code',
+        },
+        {
+          label: 'Record video showcase',
+          text: '/video-showcase Record a narrated marketing demo of [feature]',
+          description: 'Narrated product demo',
         },
       ],
     },

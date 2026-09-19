@@ -46,9 +46,12 @@ import {
 import { isTextEntryTarget } from '../keyboard-target';
 import type {
   TaskSelectionToggle,
-  TaskStartRequest,
   TaskStatusChange,
 } from './task-card.component';
+import type {
+  TaskAgentTarget,
+  TaskStartRequest,
+} from '../../types/task-agent.types';
 
 /** One status group, resolved for rendering. */
 interface TaskListGroup {
@@ -561,6 +564,105 @@ const MAX_VISIBLE_LABELS = 3;
                                 Start isolated
                               </button>
                             </li>
+                            <li>
+                              <details>
+                                <summary
+                                  [attr.tabindex]="rovingTabIndex(task.id)"
+                                  (click)="$event.stopPropagation()"
+                                >
+                                  Assign to agent…
+                                </summary>
+                                <ul class="w-60 bg-base-200">
+                                  @if (orchestratorAgents().length > 0) {
+                                    <li
+                                      class="menu-title px-2 py-1 text-[10px]"
+                                    >
+                                      Orchestrator
+                                    </li>
+                                    @for (
+                                      target of orchestratorAgents();
+                                      track target.id
+                                    ) {
+                                      <li>
+                                        <button
+                                          type="button"
+                                          [attr.tabindex]="
+                                            rovingTabIndex(task.id)
+                                          "
+                                          [title]="
+                                            target.description ?? target.name
+                                          "
+                                          (click)="
+                                            $event.stopPropagation();
+                                            onStart(task.id, false, target)
+                                          "
+                                        >
+                                          {{ target.name }}
+                                        </button>
+                                      </li>
+                                    }
+                                  }
+                                  @if (specialistAgents().length > 0) {
+                                    <li
+                                      class="menu-title px-2 py-1 text-[10px]"
+                                    >
+                                      Specialists
+                                    </li>
+                                    @for (
+                                      target of specialistAgents();
+                                      track target.id
+                                    ) {
+                                      <li>
+                                        <button
+                                          type="button"
+                                          [attr.tabindex]="
+                                            rovingTabIndex(task.id)
+                                          "
+                                          [title]="
+                                            target.description ?? target.name
+                                          "
+                                          (click)="
+                                            $event.stopPropagation();
+                                            onStart(task.id, false, target)
+                                          "
+                                        >
+                                          {{ target.name }}
+                                        </button>
+                                      </li>
+                                    }
+                                  }
+                                  @if (laneAgents().length > 0) {
+                                    <li
+                                      class="menu-title px-2 py-1 text-[10px]"
+                                    >
+                                      CLI lanes
+                                    </li>
+                                    @for (
+                                      target of laneAgents();
+                                      track target.id
+                                    ) {
+                                      <li>
+                                        <button
+                                          type="button"
+                                          [attr.tabindex]="
+                                            rovingTabIndex(task.id)
+                                          "
+                                          [title]="
+                                            target.description ?? target.name
+                                          "
+                                          (click)="
+                                            $event.stopPropagation();
+                                            onStart(task.id, false, target)
+                                          "
+                                        >
+                                          {{ target.name }}
+                                        </button>
+                                      </li>
+                                    }
+                                  }
+                                </ul>
+                              </details>
+                            </li>
                           }
                           <li class="menu-title px-2 py-1 text-[10px]">
                             Move to
@@ -659,6 +761,7 @@ export class TaskListComponent {
    * finding the next task, not reading this one.
    */
   public readonly compact = input(false);
+  public readonly agentTargets = input<readonly TaskAgentTarget[]>([]);
 
   public readonly taskSelect = output<string>();
   /** Space on the focused row — toggles its selection. */
@@ -695,6 +798,15 @@ export class TaskListComponent {
   private readonly _focusedTaskId = signal<string | null>(null);
 
   protected readonly statusOptions = TASK_STATUSES;
+  protected readonly orchestratorAgents = computed(() =>
+    this.agentTargets().filter((target) => target.category === 'orchestrator'),
+  );
+  protected readonly specialistAgents = computed(() =>
+    this.agentTargets().filter((target) => target.category === 'specialist'),
+  );
+  protected readonly laneAgents = computed(() =>
+    this.agentTargets().filter((target) => target.category === 'lane'),
+  );
 
   protected readonly groups = computed<readonly TaskListGroup[]>(() => {
     const collapsed = this._collapsed();
@@ -950,8 +1062,12 @@ export class TaskListComponent {
     this.statusChange.emit({ taskId: task.id, status });
   }
 
-  protected onStart(taskId: string, isolate: boolean): void {
-    this.startTask.emit({ taskId, isolate });
+  protected onStart(
+    taskId: string,
+    isolate: boolean,
+    targetAgent?: TaskAgentTarget,
+  ): void {
+    this.startTask.emit({ taskId, isolate, targetAgent });
   }
 
   /**

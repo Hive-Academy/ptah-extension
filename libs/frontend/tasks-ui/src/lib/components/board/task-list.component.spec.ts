@@ -5,6 +5,7 @@ import type {
   TaskStatus,
 } from '@ptah-extension/shared';
 import type { TaskBoardColumn } from '../../services/tasks-store.service';
+import type { TaskStartRequest } from '../../types/task-agent.types';
 import { TaskListComponent } from './task-list.component';
 
 function makeTask(
@@ -490,6 +491,34 @@ describe('TaskListComponent', () => {
     expect(started).toEqual([{ taskId: 'TASK_2026_200', isolate: true }]);
   });
 
+  it('assigns a task to the selected CLI lane from the row menu', () => {
+    const view = render([column('backlog', [makeTask('TASK_2026_200')])], {
+      agentTargets: [
+        {
+          id: 'lane:codex',
+          name: 'Codex',
+          category: 'lane',
+          description: 'Run through the codex CLI lane.',
+          cli: 'codex',
+        },
+      ],
+    });
+    const started: TaskStartRequest[] = [];
+    view.fixture.componentInstance.startTask.subscribe((event) =>
+      started.push(event),
+    );
+
+    view.host
+      .querySelector<HTMLButtonElement>(
+        '[title="Run through the codex CLI lane."]',
+      )
+      ?.click();
+
+    expect(started[0]?.targetAgent).toEqual(
+      expect.objectContaining({ category: 'lane', cli: 'codex' }),
+    );
+  });
+
   /**
    * Both launch controls are gated on startability, matching the card
    * (TASK_2026_252). `in_progress` and `in_review` are the statuses this
@@ -521,6 +550,26 @@ describe('TaskListComponent', () => {
     expect(
       view.host.querySelector('[data-testid="task-row-start-isolated"]'),
     ).not.toBeNull();
+  });
+
+  /**
+   * The "Assign to agent…" disclosure sits inside the row, and a plain row
+   * click opens the task — so the summary must stop the click before the row
+   * handler turns the menu toggle into an open (same posture as the sibling
+   * action buttons, which all carry `stopPropagation`).
+   */
+  it('toggles the agent menu without opening the task', () => {
+    const view = render([column('backlog', [makeTask('TASK_2026_200')])]);
+    const opened: string[] = [];
+    view.fixture.componentInstance.taskSelect.subscribe((id) =>
+      opened.push(id),
+    );
+
+    const summary = view.host.querySelector('summary');
+    expect(summary?.textContent?.trim()).toBe('Assign to agent…');
+    summary?.click();
+
+    expect(opened).toEqual([]);
   });
 
   // ---------------------------------------------------------------------------

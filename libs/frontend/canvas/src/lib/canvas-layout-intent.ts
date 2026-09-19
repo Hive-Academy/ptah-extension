@@ -1,8 +1,16 @@
 /** Gridstack column units in one rendered row. */
 export const GRID_COLUMNS = 12;
 
-/** Hard tile cap shared by the store and the persistence boundary. */
-export const MAX_CANVAS_TILES = 9;
+/**
+ * Hard tile cap shared by the store and the persistence boundary.
+ *
+ * Raised from 9 to 20 (TASK_2026_471). Columns are still capped at 3
+ * (`MAX_COLUMNS`), so the grid grows downward into more rows rather than
+ * wider. A record written at this cap is rejected by an older client, whose
+ * schema still caps at 9 — that client reports `writable: false` and declines
+ * to overwrite, so the record survives rather than being truncated.
+ */
+export const MAX_CANVAS_TILES = 20;
 
 /** Gridstack row units a full tile occupies. */
 export const FULL_TILE_HEIGHT_UNITS = 6;

@@ -196,7 +196,7 @@ async function goToCanvas(page: Page, director: Director): Promise<void> {
 /**
  * Close tiles left behind by previous captures whose header matches our own
  * label. Canvas state persists in the profile, so each run's tile survives into
- * the next — cluttering the frame and eventually hitting the 9-tile cap, which
+ * the next — cluttering the frame and eventually hitting the tile cap, which
  * makes tile creation fail. Only touches OUR artifacts; other tiles are left
  * alone. Runs before the hook beat, so the lead-in trim keeps it out of the cut.
  */

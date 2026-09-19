@@ -31,7 +31,7 @@ The chat area has two layout modes.
 | Mode       | What you see                   |
 | ---------- | ------------------------------ |
 | **Single** | One conversation, full width.  |
-| **Grid**   | The canvas — up to nine tiles. |
+| **Grid**   | The canvas — up to twenty tiles. |
 
 The desktop app starts in **grid** mode. Switch modes from the layout control in
 the chat header.
@@ -44,10 +44,11 @@ name, or leave the field empty and let Ptah name it.
 You can also promote an existing session onto the canvas. A session already open
 as a tab becomes a tile without losing its history.
 
-:::note[Nine is the cap]
-The **Add** control switches off at nine tiles. This is not an arbitrary number.
-Below nine, each tile stays wide enough to host a usable chat surface. Above it,
-they do not.
+:::note[Twenty is the cap]
+The **Add** control switches off at twenty tiles. The canvas keeps a maximum of
+three columns, so tiles past the third wrap into a new row and the grid grows
+downward. Each tile stays wide enough to host a usable chat surface, but a tall
+canvas means more scrolling.
 :::
 
 If you add a session that is already on the canvas, Ptah focuses the existing

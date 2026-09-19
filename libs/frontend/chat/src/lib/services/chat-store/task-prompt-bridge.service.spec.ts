@@ -1,8 +1,8 @@
 /**
  * TaskPromptBridgeService — consumes the AppStateManager `chatPromptRequest`
  * signal bridge: creates a tab, navigates to chat, requests canvas-tile
- * adoption in grid layout, sends the prompt, then settles `resolve` and clears
- * the request.
+ * adoption in grid layout, prefills the composer, then settles `resolve` and
+ * clears the request.
  */
 import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -12,7 +12,6 @@ import {
   type LayoutMode,
 } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { MessageSenderService } from '../message-sender.service';
 import { TaskPromptBridgeService } from './task-prompt-bridge.service';
 
 describe('TaskPromptBridgeService', () => {
@@ -21,8 +20,8 @@ describe('TaskPromptBridgeService', () => {
   let setCurrentView: jest.Mock;
   let clearChatPromptRequest: jest.Mock;
   let requestCanvasTab: jest.Mock;
+  let requestComposerPrefill: jest.Mock;
   let createTab: jest.Mock;
-  let send: jest.Mock;
 
   const flush = async (): Promise<void> => {
     TestBed.flushEffects();
@@ -36,9 +35,8 @@ describe('TaskPromptBridgeService', () => {
     setCurrentView = jest.fn();
     clearChatPromptRequest = jest.fn(() => request.set(null));
     requestCanvasTab = jest.fn();
+    requestComposerPrefill = jest.fn();
     createTab = jest.fn(() => 'tab-1');
-    // send() now returns a structured SendOutcome; the bridge adopts it.
-    send = jest.fn().mockResolvedValue({ success: true });
 
     TestBed.configureTestingModule({
       providers: [
@@ -51,16 +49,16 @@ describe('TaskPromptBridgeService', () => {
             setCurrentView,
             clearChatPromptRequest,
             requestCanvasTab,
+            requestComposerPrefill,
           },
         },
         { provide: TabManagerService, useValue: { createTab } },
-        { provide: MessageSenderService, useValue: { send } },
       ],
     });
     TestBed.inject(TaskPromptBridgeService);
   });
 
-  it('creates a tab, navigates to chat, sends the prompt, resolves success and clears', async () => {
+  it('creates a tab, navigates to chat, prefills the prompt, resolves success and clears', async () => {
     const resolve = jest.fn();
     request.set({
       prompt: '/orchestrate TASK_2026_200',
@@ -72,9 +70,10 @@ describe('TaskPromptBridgeService', () => {
 
     expect(createTab).toHaveBeenCalledWith('TASK_2026_200');
     expect(setCurrentView).toHaveBeenCalledWith('chat');
-    expect(send).toHaveBeenCalledWith('/orchestrate TASK_2026_200', {
-      tabId: 'tab-1',
-    });
+    expect(requestComposerPrefill).toHaveBeenCalledWith(
+      '/orchestrate TASK_2026_200',
+      null,
+    );
     expect(resolve).toHaveBeenCalledWith({ success: true });
     expect(clearChatPromptRequest).toHaveBeenCalled();
     // Single layout (default): no canvas mounted → no tile-adoption request.
@@ -94,6 +93,25 @@ describe('TaskPromptBridgeService', () => {
     expect(requestCanvasTab).toHaveBeenCalledWith('tab-1', 'TASK_2026_300');
   });
 
+  it.each([
+    { layout: 'single' as const, expectedTabId: null },
+    { layout: 'grid' as const, expectedTabId: 'tab-task-target' },
+  ])(
+    'targets the composer prefill correctly in $layout layout',
+    async ({ layout, expectedTabId }) => {
+      layoutMode.set(layout);
+      createTab.mockReturnValueOnce('tab-task-target');
+      request.set({ prompt: '/orchestrate TASK_2026_302' });
+
+      await flush();
+
+      expect(requestComposerPrefill).toHaveBeenCalledWith(
+        '/orchestrate TASK_2026_302',
+        expectedTabId,
+      );
+    },
+  );
+
   it('does NOT request canvas tile adoption in single layout', async () => {
     layoutMode.set('single');
     request.set({ prompt: '/orchestrate TASK_2026_301' });
@@ -111,27 +129,10 @@ describe('TaskPromptBridgeService', () => {
     expect(createTab).toHaveBeenCalledWith('do the thing');
   });
 
-  it('resolves failure on a structural chat:start failure (no phantom transition — F-D2)', async () => {
-    // A structural failure = transport OK, backend rejects (AUTH_REQUIRED,
-    // model-unavailable, license gate). send() resolves normally with
-    // { success: false } rather than throwing. The bridge must NOT default to
-    // success, otherwise TaskStartService flips the task to a phantom
-    // `in_progress` on a session that never started.
-    send.mockResolvedValueOnce({ success: false, error: 'AUTH_REQUIRED' });
-    const resolve = jest.fn();
-    request.set({ prompt: '/orchestrate TASK_2026_202', resolve });
-
-    await flush();
-
-    expect(resolve).toHaveBeenCalledWith({
-      success: false,
-      error: 'AUTH_REQUIRED',
+  it('resolves failure when tab creation throws', async () => {
+    createTab.mockImplementationOnce(() => {
+      throw new Error('tab creation failed');
     });
-    expect(clearChatPromptRequest).toHaveBeenCalled();
-  });
-
-  it('resolves failure when the send path throws (worktree left in place upstream)', async () => {
-    send.mockRejectedValueOnce(new Error('backend down'));
     const resolve = jest.fn();
     request.set({ prompt: '/orchestrate TASK_2026_201', resolve });
 
@@ -139,14 +140,14 @@ describe('TaskPromptBridgeService', () => {
 
     expect(resolve).toHaveBeenCalledWith({
       success: false,
-      error: 'backend down',
+      error: 'tab creation failed',
     });
     expect(clearChatPromptRequest).toHaveBeenCalled();
   });
 
-  it('ignores a null request (no tab, no send)', async () => {
+  it('ignores a null request (no tab, no prefill)', async () => {
     await flush();
     expect(createTab).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
+    expect(requestComposerPrefill).not.toHaveBeenCalled();
   });
 });

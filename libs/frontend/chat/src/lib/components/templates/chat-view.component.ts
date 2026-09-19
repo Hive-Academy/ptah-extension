@@ -838,6 +838,23 @@ export class ChatViewComponent implements OnDestroy {
     });
 
     effect(() => {
+      const request = this._appState.composerPrefillRequest();
+      if (request.seq === 0) return;
+      const chatInput = this.chatInputRef();
+      untracked(() => {
+        const mine = this._sessionContext
+          ? request.tabId === this._sessionContext()
+          : request.tabId === null;
+        if (!mine || !chatInput) return;
+        chatInput.restoreContentToInput(request.text);
+        // Consume the request: a surface recreated for the same tab (a canvas
+        // tile removed and re-added) must not replay this prefill over the
+        // current draft in its own constructor effect.
+        this._appState.clearComposerPrefill();
+      });
+    });
+
+    effect(() => {
       const agents = this.sessionAgents();
       const hasRunning = agents.some((a) => a.status === 'running');
       const hasPendingPermission = agents.some(

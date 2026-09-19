@@ -1,9 +1,11 @@
+import 'reflect-metadata';
 import * as path from 'path';
 import { createMockFileSystemProvider } from '@ptah-extension/platform-core/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { TaskScannerService } from './task-scanner.service';
 import { RegistryGeneratorService } from './registry-generator.service';
+import { TASK_SPECS_TOKENS } from './di/tokens';
 
 function makeLogger(): Logger {
   return {
@@ -149,5 +151,27 @@ describe('RegistryGeneratorService', () => {
     expect(content).toContain(
       '_Excluded (no valid frontmatter): 0 folder(s)._',
     );
+  });
+
+  // esbuild does not implement `emitDecoratorMetadata`, so the bundled
+  // Electron/VS Code hosts carry NO `design:paramtypes`. A container-resolution
+  // test passes under Jest (ts-jest does emit it) while the shipped bundle
+  // constructs the service with `scanner === undefined` and `generate()` throws
+  // `Cannot read properties of undefined (reading 'scan')`. Only the explicit
+  // token survives bundling, so assert the token itself.
+  it('declares an explicit scanner token for metadata-stripped bundles', () => {
+    const tokens = Reflect.getOwnMetadata(
+      'injectionTokens',
+      RegistryGeneratorService,
+    ) as Record<number, unknown> | undefined;
+
+    expect(tokens).toBeDefined();
+    const third = tokens?.[2] as { token?: unknown } | undefined;
+    const resolved =
+      third && typeof third === 'object' && 'token' in third
+        ? third.token
+        : third;
+
+    expect(resolved).toBe(TASK_SPECS_TOKENS.TASK_SCANNER);
   });
 });
