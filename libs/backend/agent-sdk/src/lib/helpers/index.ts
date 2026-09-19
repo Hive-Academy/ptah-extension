@@ -77,6 +77,12 @@ export {
   type SessionCliNoticePayload,
   type SessionMcpStatusRegistryCallback,
 } from './session-mcp-status-callback-registry';
+export {
+  McpServerBackoffService,
+  STDERR_MCP_FAILURE_PATTERN,
+  type McpServerBackoffRecord,
+  type McpServerBackoffOptions,
+} from './mcp-server-backoff.service';
 export { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
 export {
   SessionEndCallbackRegistry,
