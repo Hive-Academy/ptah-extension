@@ -143,8 +143,8 @@ export interface ExecutionChatMessage {
   /** Token usage for this message (aligned with Claude SDK) */
   readonly tokens?: MessageTokenUsage;
 
-  /** Cost in USD for this message */
-  readonly cost?: number;
+  /** Cost in USD for this message, or null when no price is known */
+  readonly cost?: number | null;
 
   /** Duration in milliseconds for this message */
   readonly duration?: number;

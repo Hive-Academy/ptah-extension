@@ -490,7 +490,7 @@ export class ChatStore {
   /** Handle session stats update. Delegates to SessionStatsAggregatorService. */
   handleSessionStats(stats: {
     sessionId: string;
-    cost: number;
+    cost: number | null;
     tokens: {
       input: number;
       output: number;

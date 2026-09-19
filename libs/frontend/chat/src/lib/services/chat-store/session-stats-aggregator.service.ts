@@ -47,7 +47,7 @@ export class SessionStatsAggregatorService {
    */
   handleSessionStats(stats: {
     sessionId: string;
-    cost: number;
+    cost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -137,7 +137,7 @@ export class SessionStatsAggregatorService {
       const prevCost = t.preloadedStats.totalCost;
       const turnCost = stats.cost;
       const nextCost =
-        turnCost === null ? prevCost : (prevCost ?? 0) + turnCost;
+        prevCost === null || turnCost === null ? null : prevCost + turnCost;
       this.tabManager.setPreloadedStats(t.id, {
         ...t.preloadedStats,
         totalCost: nextCost,
@@ -178,7 +178,7 @@ export class SessionStatsAggregatorService {
    */
   private recordSurfaceStats(stats: {
     sessionId: string;
-    cost: number;
+    cost: number | null;
     tokens: {
       input: number;
       output: number;

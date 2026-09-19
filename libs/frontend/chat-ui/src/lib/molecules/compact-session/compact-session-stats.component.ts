@@ -11,6 +11,7 @@ import {
   resolveModelDisplayName,
 } from '@ptah-extension/shared';
 import { ModelStateService } from '@ptah-extension/core';
+import { CostBadgeComponent } from '../../atoms/cost-badge.component';
 
 /**
  * CompactSessionStatsComponent - Inline stats badges for compact session card.
@@ -23,6 +24,7 @@ import { ModelStateService } from '@ptah-extension/core';
 @Component({
   selector: 'ptah-compact-session-stats',
   standalone: true,
+  imports: [CostBadgeComponent],
   template: `
     <div
       class="flex items-center gap-1.5 px-3 py-1.5 border-b border-base-content/10 overflow-x-auto text-[10px]"
@@ -44,7 +46,7 @@ import { ModelStateService } from '@ptah-extension/core';
         class="inline-flex items-center gap-0.5 bg-success/10 border border-success/20 rounded px-1 py-0.5 whitespace-nowrap"
       >
         <span class="text-base-content-muted">Cost</span>
-        <span class="text-success tabular-nums">{{ formattedCost() }}</span>
+        <ptah-cost-badge [cost]="summary().totalCost" />
       </span>
       @if (agentCount() > 0) {
         <span
@@ -80,7 +82,7 @@ export class CompactSessionStatsComponent {
     contextPercent: number;
   } | null>(null);
 
-  private readonly summary = computed(() => {
+  protected readonly summary = computed(() => {
     const preloaded = this.preloadedStats();
     if (preloaded) {
       return {
@@ -108,12 +110,6 @@ export class CompactSessionStatsComponent {
     const t = this.summary().totalTokens;
     const total = t.input + (t.cacheRead ?? 0) + t.output;
     return this.formatTokens(total);
-  });
-
-  readonly formattedCost = computed(() => {
-    const cost = this.summary().totalCost;
-    if (cost === null) return '—';
-    return cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`;
   });
 
   readonly agentCount = computed(() => this.summary().agentCount);
