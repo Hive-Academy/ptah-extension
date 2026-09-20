@@ -21,6 +21,7 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '../di/tokens';
 import type { SessionMcpStatusCallbackRegistry } from './session-mcp-status-callback-registry';
+import type { SessionIdResolvedCallbackRegistry } from './session-id-resolved-callback-registry';
 
 export interface McpServerBackoffRecord {
   readonly serverName: string;
@@ -45,6 +46,16 @@ export const DEFAULT_INITIAL_BACKOFF_MS = 60_000;
 export const DEFAULT_MAX_BACKOFF_MS = 1_800_000;
 export const DEFAULT_BACKOFF_FACTOR = 2;
 export const DEFAULT_MAX_TRACKED_SERVERS = 100;
+const KEYLESS_DEDUP_WINDOW_MS = 10_000;
+
+interface StderrSessionState {
+  buffer: string;
+}
+
+interface PendingInitFailure {
+  readonly serverName: string;
+  readonly failedAt: number;
+}
 
 /**
  * Regex to detect connection failure / timeout notices in CLI stderr.
@@ -60,7 +71,12 @@ export class McpServerBackoffService {
   private readonly maxBackoffMs: number;
   private readonly backoffFactor: number;
   private readonly maxTrackedServers: number;
-  private stderrBuffer = '';
+  private readonly stderrSessions = new Map<string, StderrSessionState>();
+  private readonly routingKeyBySdkSessionId = new Map<string, string>();
+  private readonly pendingInitFailures = new Map<
+    string,
+    PendingInitFailure[]
+  >();
   private static readonly MAX_STDERR_BUFFER_LEN = 16_384;
 
   constructor(
@@ -70,6 +86,10 @@ export class McpServerBackoffService {
     })
     private readonly mcpStatus?: SessionMcpStatusCallbackRegistry,
     options?: McpServerBackoffOptions,
+    @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY, {
+      isOptional: true,
+    })
+    sessionIdResolved?: SessionIdResolvedCallbackRegistry,
   ) {
     this.initialBackoffMs =
       options?.initialBackoffMs ?? DEFAULT_INITIAL_BACKOFF_MS;
@@ -81,9 +101,15 @@ export class McpServerBackoffService {
     if (this.mcpStatus) {
       this.mcpStatus.register((event) => {
         if (event.kind === 'servers') {
+          const attemptKey = this.resolveInitAttemptKey(event.sessionId);
           for (const server of event.servers) {
             if (server.status === 'failed') {
-              this.recordFailure(server.name, Date.now(), event.sessionId);
+              const failedAt = Date.now();
+              if (attemptKey !== undefined) {
+                this.recordFailure(server.name, failedAt, attemptKey);
+              } else {
+                this.queueInitFailure(event.sessionId, server.name, failedAt);
+              }
             } else if (server.status === 'connected') {
               this.recordSuccess(server.name);
             }
@@ -91,6 +117,16 @@ export class McpServerBackoffService {
         }
       });
     }
+
+    sessionIdResolved?.register(({ tabId, realSessionId }) => {
+      const routingKey = tabId ?? realSessionId;
+      if (!this.stderrSessions.has(routingKey)) {
+        this.pendingInitFailures.delete(realSessionId);
+        return;
+      }
+      this.routingKeyBySdkSessionId.set(realSessionId, routingKey);
+      this.flushPendingInitFailures(realSessionId, routingKey);
+    });
   }
 
   /**
@@ -107,9 +143,12 @@ export class McpServerBackoffService {
     if (!trimmed) return now;
 
     const existing = this.records.get(trimmed);
-    const isSameAttempt =
-      (attemptKey !== undefined && existing?.lastAttemptKey === attemptKey) ||
-      (existing !== undefined && now - existing.lastFailedAt < 10_000);
+    const bothReportsHaveKeys =
+      attemptKey !== undefined && existing?.lastAttemptKey !== undefined;
+    const isSameAttempt = bothReportsHaveKeys
+      ? existing.lastAttemptKey === attemptKey
+      : existing !== undefined &&
+        now - existing.lastFailedAt < KEYLESS_DEDUP_WINDOW_MS;
 
     if (isSameAttempt && existing) {
       return existing.backoffUntil;
@@ -159,8 +198,38 @@ export class McpServerBackoffService {
   }
 
   /**
+   * Register the routing key whose stderr stream will be inspected.
+   * The abort signal is the session-lifecycle disposal seam: once aborted, its
+   * partial buffer and UUID alias are released. A state identity guard prevents
+   * a late abort from an older query clearing a replacement with the same key.
+   */
+  trackStderrSession(sessionKey: string, signal: AbortSignal): void {
+    const trimmed = sessionKey.trim();
+    if (!trimmed) return;
+
+    const state: StderrSessionState = { buffer: '' };
+    this.stderrSessions.set(trimmed, state);
+    const release = (): void => {
+      if (this.stderrSessions.get(trimmed) !== state) return;
+      this.stderrSessions.delete(trimmed);
+      for (const [sdkSessionId, routingKey] of this.routingKeyBySdkSessionId) {
+        if (routingKey === trimmed || sdkSessionId === trimmed) {
+          this.routingKeyBySdkSessionId.delete(sdkSessionId);
+          this.pendingInitFailures.delete(sdkSessionId);
+        }
+      }
+    };
+
+    if (signal.aborted) {
+      release();
+    } else {
+      signal.addEventListener('abort', release, { once: true });
+    }
+  }
+
+  /**
    * Inspect stderr stream chunks from CLI for connection failure patterns (e.g. CONNECT_TIMEOUT).
-   * Buffers incomplete trailing text across chunk boundaries and scans all matches.
+   * Buffers incomplete trailing text per registered session and scans all matches.
    * Records failures for all detected servers and returns the first detected server name (or null).
    */
   checkStderrForFailure(
@@ -170,9 +239,12 @@ export class McpServerBackoffService {
   ): string | null {
     if (!data) return null;
 
-    this.stderrBuffer += data;
-    if (this.stderrBuffer.length > McpServerBackoffService.MAX_STDERR_BUFFER_LEN) {
-      this.stderrBuffer = this.stderrBuffer.slice(
+    const state = attemptKey
+      ? this.stderrSessions.get(attemptKey.trim())
+      : undefined;
+    let buffer = (state?.buffer ?? '') + data;
+    if (buffer.length > McpServerBackoffService.MAX_STDERR_BUFFER_LEN) {
+      buffer = buffer.slice(
         -McpServerBackoffService.MAX_STDERR_BUFFER_LEN,
       );
     }
@@ -182,7 +254,7 @@ export class McpServerBackoffService {
     let firstMatchedServer: string | null = null;
     let lastMatchEnd = 0;
 
-    while ((match = pattern.exec(this.stderrBuffer)) !== null) {
+    while ((match = pattern.exec(buffer)) !== null) {
       const serverName = match[1];
       if (!firstMatchedServer) {
         firstMatchedServer = serverName;
@@ -191,13 +263,15 @@ export class McpServerBackoffService {
       lastMatchEnd = pattern.lastIndex;
     }
 
-    const lastNewlineIdx = this.stderrBuffer.lastIndexOf('\n');
-    if (lastNewlineIdx !== -1) {
-      this.stderrBuffer = this.stderrBuffer.slice(lastNewlineIdx + 1);
-    } else if (lastMatchEnd > 0) {
-      this.stderrBuffer = this.stderrBuffer.slice(lastMatchEnd);
-    } else if (this.stderrBuffer.length > 2048) {
-      this.stderrBuffer = this.stderrBuffer.slice(-512);
+    const lastNewlineIdx = buffer.lastIndexOf('\n');
+    const consumedThrough = Math.max(lastNewlineIdx + 1, lastMatchEnd);
+    if (consumedThrough > 0) {
+      buffer = buffer.slice(consumedThrough);
+    } else if (buffer.length > 2048) {
+      buffer = buffer.slice(-512);
+    }
+    if (state) {
+      state.buffer = buffer;
     }
 
     return firstMatchedServer;
@@ -241,7 +315,9 @@ export class McpServerBackoffService {
       this.records.delete(serverName.trim());
     } else {
       this.records.clear();
-      this.stderrBuffer = '';
+      this.stderrSessions.clear();
+      this.routingKeyBySdkSessionId.clear();
+      this.pendingInitFailures.clear();
     }
   }
 
@@ -250,6 +326,44 @@ export class McpServerBackoffService {
    */
   get size(): number {
     return this.records.size;
+  }
+
+  private resolveInitAttemptKey(sdkSessionId: string): string | undefined {
+    return (
+      this.routingKeyBySdkSessionId.get(sdkSessionId) ??
+      (this.stderrSessions.has(sdkSessionId) ? sdkSessionId : undefined)
+    );
+  }
+
+  private queueInitFailure(
+    sdkSessionId: string,
+    serverName: string,
+    failedAt: number,
+  ): void {
+    if (
+      !this.pendingInitFailures.has(sdkSessionId) &&
+      this.pendingInitFailures.size >= this.maxTrackedServers
+    ) {
+      const oldestKey = this.pendingInitFailures.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.pendingInitFailures.delete(oldestKey);
+      }
+    }
+    const pending = this.pendingInitFailures.get(sdkSessionId) ?? [];
+    pending.push({ serverName, failedAt });
+    this.pendingInitFailures.set(sdkSessionId, pending);
+  }
+
+  private flushPendingInitFailures(
+    sdkSessionId: string,
+    attemptKey: string,
+  ): void {
+    const pending = this.pendingInitFailures.get(sdkSessionId);
+    if (!pending) return;
+    this.pendingInitFailures.delete(sdkSessionId);
+    for (const failure of pending) {
+      this.recordFailure(failure.serverName, failure.failedAt, attemptKey);
+    }
   }
 
   private pruneIfOversized(): void {

@@ -914,6 +914,19 @@ export class SdkQueryOptionsBuilder {
       );
     }
 
+    const configuredMcpServers = this.mergeMcpOverride(
+      // Same `routingId` the permission callback above is keyed on, and the
+      // same precedence `SessionQueryExecutor` uses for its registry key.
+      this.buildMcpServers(mcpServerRunning, routingId),
+      mcpServersOverride,
+    );
+    if (routingId) {
+      this.mcpBackoffService?.trackStderrSession(
+        routingId,
+        abortController.signal,
+      );
+    }
+
     return {
       prompt: userMessageStream,
       options: {
@@ -944,12 +957,7 @@ export class SdkQueryOptionsBuilder {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
-        mcpServers: this.mergeMcpOverride(
-          // Same `routingId` the permission callback above is keyed on, and the
-          // same precedence `SessionQueryExecutor` uses for its registry key.
-          this.buildMcpServers(mcpServerRunning, routingId),
-          mcpServersOverride,
-        ),
+        mcpServers: configuredMcpServers,
         permissionMode,
         allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
         canUseTool: canUseToolCallback,
@@ -992,11 +1000,10 @@ export class SdkQueryOptionsBuilder {
             : {}),
         } as Record<string, string | undefined>,
         stderr: (data: string) => {
-          const noticeSessionId = sessionIdResolver?.() ?? routingId;
           this.mcpBackoffService?.checkStderrForFailure(
             data,
             Date.now(),
-            noticeSessionId,
+            routingId,
           );
           // stderr is for logging/observability only. Stuck-session detection
           // is handled by the no-activity watchdog (NoActivityWatchdog),
@@ -1011,6 +1018,7 @@ export class SdkQueryOptionsBuilder {
           // channel is correct here in a way it is not for `turn_state`. See
           // `SessionMcpStatusCallbackRegistry`'s file header.
           const notice = classifyCliNotice(data);
+          const noticeSessionId = sessionIdResolver?.() ?? routingId;
           if (notice && noticeSessionId) {
             // The SDK UUID once it exists, else the routing id the webview
             // already knows. The consumer re-keys on
