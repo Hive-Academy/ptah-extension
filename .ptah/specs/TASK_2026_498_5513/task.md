@@ -3,10 +3,11 @@ status: in_progress
 type: devops
 title: Systematic npm and Nx dependency migration
 description: >-
-  Bring all 153 outdated npm packages to their latest versions in ordered waves,
-  following Nx and npm migration practice. Includes Nx 23, Angular 22, NestJS 12,
-  Electron 44, Tailwind 4 with daisyui 5, and TypeScript 7. Also lifts the two
-  deliberate pins on @anthropic-ai/claude-agent-sdk and zod.
+  Bring the outdated npm packages to their latest reachable versions in ordered
+  waves, following Nx and npm migration practice. Includes Nx 23, Angular 22,
+  TypeScript 6, ESLint 10, Electron 44, and Tailwind 4 with daisyui 5. Also lifts
+  the two deliberate pins on @anthropic-ai/claude-agent-sdk and zod. Four targets
+  are measured as unreachable and are excluded with evidence.
 ---
 
 # Dependency migration
@@ -14,20 +15,34 @@ description: >-
 153 packages are outdated. 63 updates are inside the current semver range. 90 need
 a major version jump.
 
-The migration runs in six waves. Each wave ends with `lint:all`, `typecheck:all`,
-`test:all` and one commit. A failing wave stops the chain.
+The migration runs in eight waves. Each wave ends with `lint`, `typecheck`, `test`
+across all projects, and one commit. A failing wave stops the chain.
 
-| Wave | Content                                                                  | Risk   |
-| ---- | ------------------------------------------------------------------------ | ------ |
-| 0    | Baseline: branch, green build, lockfile snapshot                         | none   |
-| 1    | 63 in-range updates                                                      | low    |
-| 2    | Nx 22.6.5 -> latest 22.x -> 23.2.1, and Angular 21 -> 22 in the same hop | medium |
-| 3    | TypeScript 5.9.3 -> 6.0.x, plus the Angular satellite libraries          | medium |
-| 4    | NestJS 12, Prisma, Sentry 10, WorkOS 10 (license server)                 | medium |
-| 5    | Electron 44, Tailwind 4 + daisyui 5, ESLint 10                           | high   |
-| 6    | Pin lift: agent SDK 0.3.278, zod 4.6.5, overrides block                  | high   |
+| Wave | Content                                                                | Risk   |
+| ---- | ---------------------------------------------------------------------- | ------ |
+| 0    | Baseline: branch, green build, lockfile snapshot                       | none   |
+| 1    | 63 in-range updates                                                    | low    |
+| 2    | Nx 22.6.5 -> latest 22.x -> 23.2.1, Angular 21 -> 22, TypeScript 6.0.x | medium |
+| 3    | Angular satellites: angular-eslint, jest-preset-angular, ngx-\*        | medium |
+| 4    | ESLint 10, Prisma 7.10.0, WorkOS 10, ~25 smaller majors                | medium |
+| 5    | Electron 44 and the better-sqlite3 ABI rebuild (143 -> 149)            | high   |
+| 6    | Tailwind 4 and daisyui 5. Its own pull request.                        | high   |
+| 7    | Pin lift: agent SDK 0.3.278, zod 4.6.5, overrides cleanup              | high   |
 
-User decisions on 2026-09-21: full scope, all waves. Both pins move.
+Baseline on 2026-09-21, commit d5d1a6bd7: `nx run-many -t typecheck test lint --all`
+reported `Successfully ran targets typecheck, test, lint for 97 projects and 41 tasks
+they depend on`. Any later failure belongs to this migration.
+
+User decisions on 2026-09-21: full scope, all waves. Both pins move. No release
+candidates on the license server.
+
+## Follow-up tasks to open when this one closes
+
+1. NestJS 12 with `@sentry/nestjs` 11, once Sentry 11 leaves release candidate.
+2. `@huggingface/transformers` 4.x. It needs the `onnxruntime-node` pin to move from
+   1.24.3 to 1.30.0, a rewrite of `patch-transformers-onnx-dep.js`, and an async
+   refactor of `kokoro-pipeline.ts` where `toWav()` becomes `toBlob()`.
+3. TypeScript 7, once Angular and Nx support it.
 
 ## Measured constraint: TypeScript 7 is out of reach
 
