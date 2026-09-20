@@ -1,4 +1,9 @@
-import { execFile } from 'node:child_process';
+// `node:child_process` is loaded lazily, inside the Windows branch, and must
+// NOT become a top-level import. This module is exported from the platform-core
+// barrel, so a static import pulls child_process and its module graph into every
+// consumer of that barrel — measured at roughly 9 MB of heap, enough on its own
+// to push `electron-state-storage-worker-runtime.error-paths.spec.ts` past its
+// 64 MiB budget. POSIX never needs it at all.
 
 /** Grace period for SIGTERM before SIGKILL escalation. */
 export const PROCESS_TREE_KILL_GRACE_MS = 5_000;
@@ -45,6 +50,7 @@ export async function killProcessTree(
 ): Promise<void> {
   if (process.platform === 'win32') {
     try {
+      const { execFile } = await import('node:child_process');
       await new Promise<void>((resolve, reject) => {
         execFile(
           resolveTaskkill(),
