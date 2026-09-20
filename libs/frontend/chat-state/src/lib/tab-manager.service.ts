@@ -57,6 +57,21 @@ import {
 
 export type { LiveModelStatsPayload, PreloadedStatsPayload };
 
+export type TerminalTurnClassification = 'success' | 'error';
+
+export interface TerminalTurnPulse {
+  readonly seq: number;
+  readonly tabId: string;
+  readonly sessionId: string;
+  readonly workspacePath: string;
+  readonly revision: number;
+  readonly phase: 'idle' | 'failed';
+  readonly terminalReason: SdkTerminalReason | null;
+  readonly classification: TerminalTurnClassification;
+  readonly title: string;
+  readonly occurredAt: number;
+}
+
 /**
  * Payload emitted on the `closedTab` signal whenever a tab is closed.
  *
@@ -149,6 +164,10 @@ export class TabManagerService {
 
   private readonly _tabs = signal<TabState[]>([]);
   private readonly _activeTabId = signal<string | null>(null);
+  private readonly _terminalTurnPulses = signal<readonly TerminalTurnPulse[]>(
+    [],
+  );
+  private _terminalTurnPulseSeq = 0;
 
   /**
    * Spinner set — the tabs the backend `turn_state` stream says are generating.
@@ -284,6 +303,7 @@ export class TabManagerService {
 
   readonly tabs = this._tabs.asReadonly();
   readonly activeTabId = this._activeTabId.asReadonly();
+  readonly terminalTurnPulses = this._terminalTurnPulses.asReadonly();
 
   /** Read-only signal of tab IDs that are currently streaming (visual indicator only) */
   readonly streamingTabIds = this._streamingTabIds.asReadonly();
@@ -1194,11 +1214,27 @@ export class TabManagerService {
     state: SessionTurnState,
     sessionId?: string,
   ): void {
-    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
-    if (!tab) return;
+    const lookup = this.findTabByIdAcrossWorkspaces(tabId);
+    const tab = lookup?.tab;
+    if (!tab || !lookup) return;
     if (!this.acceptsTurnState(tab, sessionId, state.revision, state.phase)) {
       return;
     }
+
+    const resolvedSessionId = sessionId ?? tab.claudeSessionId ?? null;
+    const previousRevisionForSession =
+      resolvedSessionId !== null &&
+      tab.lastTurnStateSessionId === resolvedSessionId
+        ? tab.lastTurnStateRevision
+        : undefined;
+    const shouldEmitTerminalPulse =
+      resolvedSessionId !== null &&
+      (tab.status === 'streaming' ||
+        tab.status === 'awaiting-background' ||
+        tab.status === 'sleeping') &&
+      (state.phase === 'idle' || state.phase === 'failed') &&
+      (previousRevisionForSession === undefined ||
+        state.revision > previousRevisionForSession);
 
     const updates: Partial<TabState> = {
       lastTurnStateRevision: state.revision,
@@ -1242,6 +1278,32 @@ export class TabManagerService {
       this.clearAbortController(tabId);
     }
     this.updateTabInternal(tabId, updates);
+    if (shouldEmitTerminalPulse && resolvedSessionId !== null) {
+      const classification: TerminalTurnClassification =
+        state.phase === 'idle' && state.terminalReason === 'completed'
+          ? 'success'
+          : 'error';
+      this._terminalTurnPulseSeq += 1;
+      const pulse: TerminalTurnPulse = {
+        seq: this._terminalTurnPulseSeq,
+        tabId,
+        sessionId: resolvedSessionId,
+        workspacePath: lookup.workspacePath,
+        revision: state.revision,
+        phase: state.phase,
+        terminalReason: state.terminalReason ?? null,
+        classification,
+        title: tab.title,
+        occurredAt: Date.now(),
+      };
+      this._terminalTurnPulses.update((pulses) => [...pulses, pulse]);
+    }
+  }
+
+  takeTerminalTurnPulses(): readonly TerminalTurnPulse[] {
+    const pulses = this._terminalTurnPulses();
+    if (pulses.length > 0) this._terminalTurnPulses.set([]);
+    return pulses;
   }
 
   /**

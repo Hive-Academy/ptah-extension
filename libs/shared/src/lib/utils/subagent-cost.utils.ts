@@ -205,8 +205,7 @@ export function calculateSessionCostSummary(
   }
 
   return {
-    totalCost:
-      hasCostContribution && !hasUnknownCost ? totalCost : null,
+    totalCost: hasCostContribution && !hasUnknownCost ? totalCost : null,
     totalTokens: {
       input: tokensInput,
       output: tokensOutput,

@@ -116,13 +116,13 @@ Mode: enabled. The user asked for CLI lanes explicitly.
     ollama cloud  | ptah-cli | available             | provider: Ollama Cloud
     claude cli    | ptah-cli | available             | provider: Claude (Subscription)
 
-| Phase | Lane | Model | Deliverable |
-| --- | --- | --- | --- |
-| Batch A — defect 2 | codex | lane default | code + `batch-a-report.md` |
-| Batch B — defect 3 | codex, resumed | lane default | code + `batch-b-report.md` |
-| Review | antigravity | lane default | `code-logic-review.md` |
-| Codex pricing audit | ollama cloud | opus | `codex-pricing-findings.md` |
-| Batch C — review fixes | codex, resumed | lane default | code + `batch-c-report.md` |
+| Phase                  | Lane           | Model        | Deliverable                 |
+| ---------------------- | -------------- | ------------ | --------------------------- |
+| Batch A — defect 2     | codex          | lane default | code + `batch-a-report.md`  |
+| Batch B — defect 3     | codex, resumed | lane default | code + `batch-b-report.md`  |
+| Review                 | antigravity    | lane default | `code-logic-review.md`      |
+| Codex pricing audit    | ollama cloud   | opus         | `codex-pricing-findings.md` |
+| Batch C — review fixes | codex, resumed | lane default | code + `batch-c-report.md`  |
 
 Review independence holds by family: antigravity did not write the code.
 
@@ -142,7 +142,7 @@ major ones in files Batch A touched. Batch C corrects all three.
    (`session-stats-aggregator.service.ts:144-152`). Each payload of that shape
    re-added the whole session history, compounding across turns. Proof at
    `Ptah Electron-2026-09-18.log:195` — aggregate `input 42, cacheRead
-   2761872` against modelUsage `inputTokens 72, cacheReadInputTokens 4080929`.
+2761872` against modelUsage `inputTokens 72, cacheReadInputTokens 4080929`.
    Fix: the fallback is deleted; the emission guard stays.
 2. **Major.** `compact-session-activity.component.ts:254,267` tested
    `@if (entry.cost)`, so a genuine zero-cost turn hid the badge.

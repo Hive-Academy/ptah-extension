@@ -688,9 +688,7 @@ describe('StreamTransformer — usage-to-stats flow (TASK_2026_408)', () => {
     );
 
     expect(captured).toHaveLength(1);
-    expect(
-      captured[0].modelUsage?.[0].lastTurnContextTokens,
-    ).toBeUndefined();
+    expect(captured[0].modelUsage?.[0].lastTurnContextTokens).toBeUndefined();
   });
 
   it('derives identical token stats for direct Anthropic and proxied providers (usage is provider-neutral)', async () => {
@@ -793,7 +791,11 @@ describe('StreamTransformer — message_delta context tracking (TASK_2026_408 Ga
         output_tokens: 9,
         cache_read_input_tokens: 12,
       }),
-      resultMessage(MODEL, { inputTokens: 30, outputTokens: 9, cacheReadInputTokens: 12 }),
+      resultMessage(MODEL, {
+        inputTokens: 30,
+        outputTokens: 9,
+        cacheReadInputTokens: 12,
+      }),
     ]);
 
     expect(captured).toHaveLength(1);
@@ -814,7 +816,11 @@ describe('StreamTransformer — message_delta context tracking (TASK_2026_408 Ga
         output_tokens: 9,
         cache_read_input_tokens: 12,
       }),
-      resultMessage(MODEL, { inputTokens: 18, outputTokens: 9, cacheReadInputTokens: 12 }),
+      resultMessage(MODEL, {
+        inputTokens: 18,
+        outputTokens: 9,
+        cacheReadInputTokens: 12,
+      }),
     ]);
 
     expect(captured[0][0].lastTurnContextTokens).toBe(30);
@@ -830,7 +836,11 @@ describe('StreamTransformer — message_delta context tracking (TASK_2026_408 Ga
       // output count. Absent input/cache fields must retain the start's
       // 5000 + 1000 — zeroing them here is the regression this guards.
       messageDelta({ output_tokens: 9 }),
-      resultMessage(MODEL, { inputTokens: 5000, outputTokens: 9, cacheReadInputTokens: 1000 }),
+      resultMessage(MODEL, {
+        inputTokens: 5000,
+        outputTokens: 9,
+        cacheReadInputTokens: 1000,
+      }),
     ]);
 
     expect(captured[0][0].lastTurnContextTokens).toBe(6000);
@@ -870,7 +880,11 @@ describe('StreamTransformer — message_delta context tracking (TASK_2026_408 Ga
         output_tokens: 9,
         cache_read_input_tokens: 13,
       }),
-      resultMessage(MODEL, { inputTokens: 31, outputTokens: 9, cacheReadInputTokens: 13 }),
+      resultMessage(MODEL, {
+        inputTokens: 31,
+        outputTokens: 9,
+        cacheReadInputTokens: 13,
+      }),
     ]);
 
     expect(captured[0][0].lastTurnContextTokens).toBe(44);
@@ -890,7 +904,11 @@ describe('StreamTransformer — message_delta context tracking (TASK_2026_408 Ga
         input_tokens: 200,
         cache_read_input_tokens: 50,
       }),
-      resultMessage(MODEL, { inputTokens: 200, outputTokens: 5, cacheReadInputTokens: 50 }),
+      resultMessage(MODEL, {
+        inputTokens: 200,
+        outputTokens: 5,
+        cacheReadInputTokens: 50,
+      }),
     ]);
 
     expect(captured[0][0].lastTurnContextTokens).toBe(250);

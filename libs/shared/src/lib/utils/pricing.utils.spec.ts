@@ -353,7 +353,9 @@ describe('pricing.utils', () => {
 
     it('matches exactly only — a shorter registered id never answers a longer one', () => {
       const mod = freshModule();
-      mod.registerModelContextWindows([{ id: 'gpt-5', contextLength: 272_000 }]);
+      mod.registerModelContextWindows([
+        { id: 'gpt-5', contextLength: 272_000 },
+      ]);
       expect(mod.getModelContextWindow('gpt-5')).toBe(272_000);
       expect(mod.getModelContextWindow('gpt-5.6-sol')).toBe(0);
     });
@@ -377,7 +379,12 @@ describe('pricing.utils', () => {
         { id: 'ctx-nan', contextLength: Number.NaN },
         { id: 'ctx-infinite', contextLength: Number.POSITIVE_INFINITY },
       ]);
-      for (const id of ['ctx-zero', 'ctx-negative', 'ctx-nan', 'ctx-infinite']) {
+      for (const id of [
+        'ctx-zero',
+        'ctx-negative',
+        'ctx-nan',
+        'ctx-infinite',
+      ]) {
         expect(mod.getModelContextWindow(id)).toBe(0);
       }
     });

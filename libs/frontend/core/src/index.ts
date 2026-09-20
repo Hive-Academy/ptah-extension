@@ -19,6 +19,14 @@ export {
 } from './lib/tokens/file-link-opener.token';
 
 export {
+  NOTIFICATION_FOCUS_ROUTER,
+  type NotificationFocusOutcome,
+  type NotificationFocusTarget,
+  type NotificationFocusResult,
+  type NotificationFocusRouter,
+} from './lib/tokens/notification-focus-router.token';
+
+export {
   type LazyViewLoader,
   WIZARD_VIEW_COMPONENT,
   ORCHESTRA_CANVAS_COMPONENT,

@@ -2,97 +2,97 @@
 
 ## Table 1 - Authored agents
 
-| File | Name | Description | Lines |
-|---|---|---|---|
-| backend-developer.md | backend-developer | Writes and changes server-side code in this repository — services, request and message handlers, dat | 264 |
-| code-logic-reviewer.md | code-logic-reviewer | Reviews implemented work for behavioural correctness: silent failures, unhandled error paths, race c | 313 |
-| code-style-reviewer.md | code-style-reviewer | Reviews implemented work for structure and consistency with this repository: layer and import bounda | 303 |
-| devops-engineer.md | devops-engineer | Maintains this repository's build and delivery surface — its build, test, lint and packaging targets | 226 |
-| frontend-developer.md | frontend-developer | Writes and changes user-interface code in this repository — components, templates, view state, styli | 280 |
-| modernization-detector.md | modernization-detector | Scans an implemented codebase and the task folder's deliverables for modernization opportunities the | 189 |
-| project-manager.md | project-manager | Turns a request into a scoped, testable task-description.md: what is in scope, what is explicitly ou | 275 |
-| researcher-expert.md | researcher-expert | Answers a bounded technical question with cited evidence and writes research-report.md: the options, | 196 |
-| senior-tester.md | senior-tester | Writes and runs the tests that prove a task's acceptance criteria hold, then records the evidence in | 295 |
-| software-architect.md | software-architect | Designs the architecture for one task and writes implementation-plan.md: component boundaries, verif | 302 |
-| team-leader.md | team-leader | Stress-tests an implementation plan, decomposes it into file-disjoint batches in batches.md with a r | 539 |
-| technical-content-writer.md | technical-content-writer | Writes landing pages, blog posts, API and user documentation, video scripts and case studies whose e | 386 |
-| ui-ux-designer.md | ui-ux-designer | Produces design systems, section-by-section visual specifications, asset briefs and developer handof | 181 |
-| video-director.md | video-director | Marketing-video specialist for the showcase pipeline (Playwright capture, Remotion render). Authors  | 165 |
-| visual-reviewer.md | visual-reviewer | Drives a real browser against a running build to find responsive breakage, contrast and focus failur | 335 |
+| File                        | Name                     | Description                                                                                          | Lines |
+| --------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------- | ----- |
+| backend-developer.md        | backend-developer        | Writes and changes server-side code in this repository — services, request and message handlers, dat | 264   |
+| code-logic-reviewer.md      | code-logic-reviewer      | Reviews implemented work for behavioural correctness: silent failures, unhandled error paths, race c | 313   |
+| code-style-reviewer.md      | code-style-reviewer      | Reviews implemented work for structure and consistency with this repository: layer and import bounda | 303   |
+| devops-engineer.md          | devops-engineer          | Maintains this repository's build and delivery surface — its build, test, lint and packaging targets | 226   |
+| frontend-developer.md       | frontend-developer       | Writes and changes user-interface code in this repository — components, templates, view state, styli | 280   |
+| modernization-detector.md   | modernization-detector   | Scans an implemented codebase and the task folder's deliverables for modernization opportunities the | 189   |
+| project-manager.md          | project-manager          | Turns a request into a scoped, testable task-description.md: what is in scope, what is explicitly ou | 275   |
+| researcher-expert.md        | researcher-expert        | Answers a bounded technical question with cited evidence and writes research-report.md: the options, | 196   |
+| senior-tester.md            | senior-tester            | Writes and runs the tests that prove a task's acceptance criteria hold, then records the evidence in | 295   |
+| software-architect.md       | software-architect       | Designs the architecture for one task and writes implementation-plan.md: component boundaries, verif | 302   |
+| team-leader.md              | team-leader              | Stress-tests an implementation plan, decomposes it into file-disjoint batches in batches.md with a r | 539   |
+| technical-content-writer.md | technical-content-writer | Writes landing pages, blog posts, API and user documentation, video scripts and case studies whose e | 386   |
+| ui-ux-designer.md           | ui-ux-designer           | Produces design systems, section-by-section visual specifications, asset briefs and developer handof | 181   |
+| video-director.md           | video-director           | Marketing-video specialist for the showcase pipeline (Playwright capture, Remotion render). Authors  | 165   |
+| visual-reviewer.md          | visual-reviewer          | Drives a real browser against a running build to find responsive breakage, contrast and focus failur | 335   |
 
 ## Table 2 - Authored skills
 
-| Directory | Name | Description | Lines |
-|---|---|---|---|
-| agent-lanes | agent-lanes | Contract for spawning, resuming and messaging background CLI agent lanes via the ptah_agent_* tools. | 142 |
-| angular-3d-scene-crafter | angular-3d-scene-crafter | Designs Angular 3D scenes with @hive-academy/angular-3d (declarative Three.js components). Use for 3 | 658 |
-| angular-frontend-patterns | angular-frontend-patterns | Angular component and state patterns built on signals. Use when building Angular components, smart/d | 242 |
-| angular-gsap-animation-crafter | angular-gsap-animation-crafter | Designs scroll-driven Angular animations with @hive-academy/angular-gsap (GSAP, ScrollTrigger). Use  | 574 |
-| caveman | caveman | > | 88 |
-| ddd-architecture | ddd-architecture | Domain-Driven Design for complex business domains. Use when deciding whether DDD is warranted, defin | 162 |
-| extract-and-relocate-angular-component-feature | extract-and-relocate-angular-component-feature | Extract a UI feature (buttons, forms, state, methods) from one Angular component into a new self-con | 41 |
-| ffmpeg-video-analysis | ffmpeg-video-analysis | | | 412 |
-| fleet-orchestration | fleet-orchestration | Operating rules for running a multi-agent fix fleet through plan, implement, adversarial judge, and  | 155 |
-| humanize-library | humanize-library | Behavior-preserving refactor that makes an existing library, module or folder readable — small focus | 135 |
-| impeccable | impeccable | Use when the user wants to design, redesign, shape, critique, audit, polish, clarify, distill, harde | 169 |
-| nestjs-backend-patterns | nestjs-backend-patterns | NestJS backend architecture for multi-tenant SaaS. Use for third-party API providers, Prisma or ZenS | 185 |
-| nestjs-deployment | nestjs-deployment | Productionizes NestJS apps for containers. Use for multi-stage Docker builds of NestJS or Nx apps, w | 127 |
-| nx-workspace-architect | nx-workspace-architect | Nx monorepo architecture for Angular and NestJS. Use when creating a workspace, organizing or naming | 175 |
-| orchestration | orchestration | Default workflow for any engineering task (feature, bugfix, refactor, docs, research, devops, SaaS i | 101 |
-| ptah-cli-usage | ptah-cli-usage | Drives the headless Ptah CLI (@hive-academy/ptah-cli, JSON-RPC over stdio) for CI pipelines, agent-t | 240 |
-| remocn | remocn | > | 172 |
-| resilient-nestjs-patterns | resilient-nestjs-patterns | NestJS service patterns for orchestration and resilience. Use when splitting a complex service, laye | 232 |
-| saas-platform-patterns | saas-platform-patterns | SaaS monetization patterns for NestJS. Use when designing free, trial and paid tiers, license keys,  | 249 |
-| saas-workspace-initializer | saas-workspace-initializer | Bootstraps a new SaaS workspace on Nx, NestJS and Angular or React — discovery, a phased roadmap and | 192 |
-| simple-english | simple-english | | | 327 |
-| skill-creator | skill-creator | Creates or updates agent skills — instructions, references, scripts and assets. Use when the user wa | 358 |
-| technical-content-writer | technical-content-writer | Writes marketing and technical content grounded in the codebase. Use for landing page copy, blog pos | 309 |
-| tribunal | tribunal | Multi-vendor peer panel (Council, Forge, Race, Crucible) across installed CLI vendors. Use for secon | 87 |
-| typesafe-ai | typesafe-ai |  | 150 |
-| ui-ux-designer | ui-ux-designer | Turns design intent into a visual specification — brand discovery, design tokens, component and asse | 216 |
-| video-showcase | video-showcase | Records and renders narrated marketing videos from automated UI walkthroughs (Playwright capture, Re | 73 |
-| webhook-architecture | webhook-architecture | Three-layer NestJS design for inbound webhooks. Use when adding a webhook endpoint, verifying signat | 259 |
+| Directory                                      | Name                                           | Description                                                                                           | Lines |
+| ---------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----- | --- |
+| agent-lanes                                    | agent-lanes                                    | Contract for spawning, resuming and messaging background CLI agent lanes via the ptah*agent*\* tools. | 142   |
+| angular-3d-scene-crafter                       | angular-3d-scene-crafter                       | Designs Angular 3D scenes with @hive-academy/angular-3d (declarative Three.js components). Use for 3  | 658   |
+| angular-frontend-patterns                      | angular-frontend-patterns                      | Angular component and state patterns built on signals. Use when building Angular components, smart/d  | 242   |
+| angular-gsap-animation-crafter                 | angular-gsap-animation-crafter                 | Designs scroll-driven Angular animations with @hive-academy/angular-gsap (GSAP, ScrollTrigger). Use   | 574   |
+| caveman                                        | caveman                                        | >                                                                                                     | 88    |
+| ddd-architecture                               | ddd-architecture                               | Domain-Driven Design for complex business domains. Use when deciding whether DDD is warranted, defin  | 162   |
+| extract-and-relocate-angular-component-feature | extract-and-relocate-angular-component-feature | Extract a UI feature (buttons, forms, state, methods) from one Angular component into a new self-con  | 41    |
+| ffmpeg-video-analysis                          | ffmpeg-video-analysis                          |                                                                                                       |       | 412 |
+| fleet-orchestration                            | fleet-orchestration                            | Operating rules for running a multi-agent fix fleet through plan, implement, adversarial judge, and   | 155   |
+| humanize-library                               | humanize-library                               | Behavior-preserving refactor that makes an existing library, module or folder readable — small focus  | 135   |
+| impeccable                                     | impeccable                                     | Use when the user wants to design, redesign, shape, critique, audit, polish, clarify, distill, harde  | 169   |
+| nestjs-backend-patterns                        | nestjs-backend-patterns                        | NestJS backend architecture for multi-tenant SaaS. Use for third-party API providers, Prisma or ZenS  | 185   |
+| nestjs-deployment                              | nestjs-deployment                              | Productionizes NestJS apps for containers. Use for multi-stage Docker builds of NestJS or Nx apps, w  | 127   |
+| nx-workspace-architect                         | nx-workspace-architect                         | Nx monorepo architecture for Angular and NestJS. Use when creating a workspace, organizing or naming  | 175   |
+| orchestration                                  | orchestration                                  | Default workflow for any engineering task (feature, bugfix, refactor, docs, research, devops, SaaS i  | 101   |
+| ptah-cli-usage                                 | ptah-cli-usage                                 | Drives the headless Ptah CLI (@hive-academy/ptah-cli, JSON-RPC over stdio) for CI pipelines, agent-t  | 240   |
+| remocn                                         | remocn                                         | >                                                                                                     | 172   |
+| resilient-nestjs-patterns                      | resilient-nestjs-patterns                      | NestJS service patterns for orchestration and resilience. Use when splitting a complex service, laye  | 232   |
+| saas-platform-patterns                         | saas-platform-patterns                         | SaaS monetization patterns for NestJS. Use when designing free, trial and paid tiers, license keys,   | 249   |
+| saas-workspace-initializer                     | saas-workspace-initializer                     | Bootstraps a new SaaS workspace on Nx, NestJS and Angular or React — discovery, a phased roadmap and  | 192   |
+| simple-english                                 | simple-english                                 |                                                                                                       |       | 327 |
+| skill-creator                                  | skill-creator                                  | Creates or updates agent skills — instructions, references, scripts and assets. Use when the user wa  | 358   |
+| technical-content-writer                       | technical-content-writer                       | Writes marketing and technical content grounded in the codebase. Use for landing page copy, blog pos  | 309   |
+| tribunal                                       | tribunal                                       | Multi-vendor peer panel (Council, Forge, Race, Crucible) across installed CLI vendors. Use for secon  | 87    |
+| typesafe-ai                                    | typesafe-ai                                    |                                                                                                       | 150   |
+| ui-ux-designer                                 | ui-ux-designer                                 | Turns design intent into a visual specification — brand discovery, design tokens, component and asse  | 216   |
+| video-showcase                                 | video-showcase                                 | Records and renders narrated marketing videos from automated UI walkthroughs (Playwright capture, Re  | 73    |
+| webhook-architecture                           | webhook-architecture                           | Three-layer NestJS design for inbound webhooks. Use when adding a webhook endpoint, verifying signat  | 259   |
 
 ## Table 3 - Usage, all time
 
-| skill_slug | n | ok | err | first_seen | last_seen |
-|---|---|---|---|---|---|
-| backend-developer | 541 | 540 | 1 | 2026-06-28 16:18:17 UTC | 2026-09-17 15:36:17 UTC |
-| frontend-developer | 330 | 329 | 1 | 2026-06-28 16:19:58 UTC | 2026-09-17 15:28:01 UTC |
-| team-leader | 293 | 293 | 0 | 2026-07-03 23:01:47 UTC | 2026-09-17 14:34:31 UTC |
-| code-logic-reviewer | 265 | 265 | 0 | 2026-07-03 22:43:38 UTC | 2026-09-17 14:30:00 UTC |
-| workflow-subagent | 232 | 232 | 0 | 2026-07-14 00:02:43 UTC | 2026-09-09 23:42:01 UTC |
-| Explore | 195 | 195 | 0 | 2026-06-28 18:21:57 UTC | 2026-09-14 12:57:50 UTC |
-| senior-tester | 167 | 167 | 0 | 2026-07-10 00:08:18 UTC | 2026-09-16 22:48:43 UTC |
-| general-purpose | 154 | 154 | 0 | 2026-07-03 17:18:15 UTC | 2026-09-18 19:29:43 UTC |
-| unknown | 150 | 150 | 0 | 2026-06-29 18:09:56 UTC | 2026-09-18 05:18:10 UTC |
-| code-style-reviewer | 100 | 100 | 0 | 2026-07-03 22:40:03 UTC | 2026-09-17 11:19:56 UTC |
-| software-architect | 76 | 76 | 0 | 2026-06-30 13:46:04 UTC | 2026-09-18 19:36:17 UTC |
-| orchestrate | 66 | 66 | 0 | 2026-06-10 13:10:21 UTC | 2026-09-11 19:06:13 UTC |
-| researcher-expert | 52 | 52 | 0 | 2026-07-13 19:32:05 UTC | 2026-09-18 19:29:49 UTC |
-| devops-engineer | 36 | 36 | 0 | 2026-06-30 14:55:42 UTC | 2026-09-15 19:29:18 UTC |
-| technical-content-writer | 31 | 31 | 0 | 2026-07-03 22:08:10 UTC | 2026-09-12 12:33:46 UTC |
-| project-manager | 19 | 19 | 0 | 2026-06-30 13:43:05 UTC | 2026-09-12 09:51:09 UTC |
-| video-director | 19 | 19 | 0 | 2026-07-07 00:21:00 UTC | 2026-08-01 19:44:01 UTC |
-| visual-reviewer | 15 | 15 | 0 | 2026-07-11 02:02:33 UTC | 2026-08-05 09:21:20 UTC |
-| ui-ux-designer | 11 | 11 | 0 | 2026-07-03 22:20:32 UTC | 2026-09-06 18:45:23 UTC |
-| Plan | 9 | 9 | 0 | 2026-06-28 15:57:26 UTC | 2026-08-28 19:08:20 UTC |
-| agent-lanes | 9 | 9 | 0 | 2026-09-14 18:44:05 UTC | 2026-09-18 19:49:42 UTC |
-| caveman | 4 | 4 | 0 | 2026-08-03 16:17:37 UTC | 2026-08-04 12:57:57 UTC |
-| simple-english | 4 | 4 | 0 | 2026-08-04 11:32:59 UTC | 2026-08-12 14:25:59 UTC |
-| modernization-detector | 3 | 3 | 0 | 2026-07-13 02:03:05 UTC | 2026-09-07 19:47:38 UTC |
-| review | 3 | 3 | 0 | 2026-06-12 09:11:03 UTC | 2026-06-23 15:54:48 UTC |
-| orchestration | 2 | 2 | 0 | 2026-09-15 15:02:30 UTC | 2026-09-16 14:12:17 UTC |
-| tribunal | 2 | 2 | 0 | 2026-09-08 18:32:22 UTC | 2026-09-14 13:37:35 UTC |
-| code-review | 1 | 1 | 0 | 2026-09-09 14:34:47 UTC | 2026-09-09 14:34:47 UTC |
-| review-logic | 1 | 1 | 0 | 2026-08-26 01:28:44 UTC | 2026-08-26 01:28:44 UTC |
+| skill_slug               | n   | ok  | err | first_seen              | last_seen               |
+| ------------------------ | --- | --- | --- | ----------------------- | ----------------------- |
+| backend-developer        | 541 | 540 | 1   | 2026-06-28 16:18:17 UTC | 2026-09-17 15:36:17 UTC |
+| frontend-developer       | 330 | 329 | 1   | 2026-06-28 16:19:58 UTC | 2026-09-17 15:28:01 UTC |
+| team-leader              | 293 | 293 | 0   | 2026-07-03 23:01:47 UTC | 2026-09-17 14:34:31 UTC |
+| code-logic-reviewer      | 265 | 265 | 0   | 2026-07-03 22:43:38 UTC | 2026-09-17 14:30:00 UTC |
+| workflow-subagent        | 232 | 232 | 0   | 2026-07-14 00:02:43 UTC | 2026-09-09 23:42:01 UTC |
+| Explore                  | 195 | 195 | 0   | 2026-06-28 18:21:57 UTC | 2026-09-14 12:57:50 UTC |
+| senior-tester            | 167 | 167 | 0   | 2026-07-10 00:08:18 UTC | 2026-09-16 22:48:43 UTC |
+| general-purpose          | 154 | 154 | 0   | 2026-07-03 17:18:15 UTC | 2026-09-18 19:29:43 UTC |
+| unknown                  | 150 | 150 | 0   | 2026-06-29 18:09:56 UTC | 2026-09-18 05:18:10 UTC |
+| code-style-reviewer      | 100 | 100 | 0   | 2026-07-03 22:40:03 UTC | 2026-09-17 11:19:56 UTC |
+| software-architect       | 76  | 76  | 0   | 2026-06-30 13:46:04 UTC | 2026-09-18 19:36:17 UTC |
+| orchestrate              | 66  | 66  | 0   | 2026-06-10 13:10:21 UTC | 2026-09-11 19:06:13 UTC |
+| researcher-expert        | 52  | 52  | 0   | 2026-07-13 19:32:05 UTC | 2026-09-18 19:29:49 UTC |
+| devops-engineer          | 36  | 36  | 0   | 2026-06-30 14:55:42 UTC | 2026-09-15 19:29:18 UTC |
+| technical-content-writer | 31  | 31  | 0   | 2026-07-03 22:08:10 UTC | 2026-09-12 12:33:46 UTC |
+| project-manager          | 19  | 19  | 0   | 2026-06-30 13:43:05 UTC | 2026-09-12 09:51:09 UTC |
+| video-director           | 19  | 19  | 0   | 2026-07-07 00:21:00 UTC | 2026-08-01 19:44:01 UTC |
+| visual-reviewer          | 15  | 15  | 0   | 2026-07-11 02:02:33 UTC | 2026-08-05 09:21:20 UTC |
+| ui-ux-designer           | 11  | 11  | 0   | 2026-07-03 22:20:32 UTC | 2026-09-06 18:45:23 UTC |
+| Plan                     | 9   | 9   | 0   | 2026-06-28 15:57:26 UTC | 2026-08-28 19:08:20 UTC |
+| agent-lanes              | 9   | 9   | 0   | 2026-09-14 18:44:05 UTC | 2026-09-18 19:49:42 UTC |
+| caveman                  | 4   | 4   | 0   | 2026-08-03 16:17:37 UTC | 2026-08-04 12:57:57 UTC |
+| simple-english           | 4   | 4   | 0   | 2026-08-04 11:32:59 UTC | 2026-08-12 14:25:59 UTC |
+| modernization-detector   | 3   | 3   | 0   | 2026-07-13 02:03:05 UTC | 2026-09-07 19:47:38 UTC |
+| review                   | 3   | 3   | 0   | 2026-06-12 09:11:03 UTC | 2026-06-23 15:54:48 UTC |
+| orchestration            | 2   | 2   | 0   | 2026-09-15 15:02:30 UTC | 2026-09-16 14:12:17 UTC |
+| tribunal                 | 2   | 2   | 0   | 2026-09-08 18:32:22 UTC | 2026-09-14 13:37:35 UTC |
+| code-review              | 1   | 1   | 0   | 2026-09-09 14:34:47 UTC | 2026-09-09 14:34:47 UTC |
+| review-logic             | 1   | 1   | 0   | 2026-08-26 01:28:44 UTC | 2026-08-26 01:28:44 UTC |
 
 ## Table 4 - Usage by source
 
-| source | n | distinct_slugs |
-|---|---|---|
-| subagent | 2698 | 20 |
-| prompt-expansion | 92 | 9 |
+| source           | n    | distinct_slugs |
+| ---------------- | ---- | -------------- |
+| subagent         | 2698 | 20             |
+| prompt-expansion | 92   | 9              |
 
 ## Table 5 - Cross-reference
 
@@ -168,15 +168,15 @@
 
 Files in `.claude/commands/` (not joined against usage):
 
-| File | Name | Description | Lines |
-|---|---|---|---|
-| init-saas.md |  | Initialize a complete SaaS workspace with NestJS, Nx, and Angular/React — discovery-first Stage A bo | 39 |
-| initialize-workspace.md |  | Analyze codebase architecture and generate comprehensive CLAUDE.md documentation files for the proje | 111 |
-| orchestrate-help.md |  | Quick reference guide for the /orchestrate command — shows task types, workflow modes, and agent cat | 162 |
-| orchestrate.md |  | Orchestrate development workflows with specialist agents. Supports FEATURE, BUGFIX, REFACTORING, DOC | 44 |
-| review-code.md |  | Code quality review — Phase 1 of triple review protocol. Adapts to detected tech stack with best pra | 240 |
-| review-logic.md |  | Business logic review — Phase 2 of triple review protocol. Identifies dummy data, placeholders, and  | 328 |
-| review-security.md |  | Security vulnerability review — Phase 3 of triple review protocol. OWASP-based assessment across any | 354 |
+| File                    | Name | Description                                                                                          | Lines |
+| ----------------------- | ---- | ---------------------------------------------------------------------------------------------------- | ----- |
+| init-saas.md            |      | Initialize a complete SaaS workspace with NestJS, Nx, and Angular/React — discovery-first Stage A bo | 39    |
+| initialize-workspace.md |      | Analyze codebase architecture and generate comprehensive CLAUDE.md documentation files for the proje | 111   |
+| orchestrate-help.md     |      | Quick reference guide for the /orchestrate command — shows task types, workflow modes, and agent cat | 162   |
+| orchestrate.md          |      | Orchestrate development workflows with specialist agents. Supports FEATURE, BUGFIX, REFACTORING, DOC | 44    |
+| review-code.md          |      | Code quality review — Phase 1 of triple review protocol. Adapts to detected tech stack with best pra | 240   |
+| review-logic.md         |      | Business logic review — Phase 2 of triple review protocol. Identifies dummy data, placeholders, and  | 328   |
+| review-security.md      |      | Security vulnerability review — Phase 3 of triple review protocol. OWASP-based assessment across any | 354   |
 
 ## User harness
 

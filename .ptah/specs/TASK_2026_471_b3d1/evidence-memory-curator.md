@@ -8,7 +8,7 @@ one prompt-and-parse implementation that the curator port resolves to
 (`libs/backend/agent-sdk/src/lib/curator-llm-adapter`, which is where the port is
 implemented — `libs/backend/memory-curator/CLAUDE.md` "Does NOT belong: LLM calls").
 
-Each row below is a point where the system makes a *judgment* — something that could
+Each row below is a point where the system makes a _judgment_ — something that could
 in principle be a typed decision primitive rather than the mechanism it uses today.
 Every claim carries `file:line`.
 
@@ -53,7 +53,7 @@ These are the direct candidates for a System One / Jev-style typed judgment.
 - Candidate set is built by JSON-stringifying both lists into the user prompt
   (`resolve-prompt.ts:21-31`), so cost scales with draft count × related count.
 
-### 1.3 The parse layer — where the typed decision is *recovered* from text
+### 1.3 The parse layer — where the typed decision is _recovered_ from text
 
 - `libs/backend/agent-sdk/src/lib/curator-llm-adapter/sdk-internal-query.curator-llm.ts:533-546`
   (`parseDrafts`): extract the first balanced `{...}` (`extractJsonObject`,
@@ -73,7 +73,7 @@ These are the direct candidates for a System One / Jev-style typed judgment.
   was gated from curating. Observed 15 times in a few hundred log lines on one cold
   start" (`:62-65`) and that a tool-only run returning `[]` was byte-identical to an
   honest empty extraction (`:77-84`).
-- Reading the *last* assistant message rather than a concatenation is itself a fix
+- Reading the _last_ assistant message rather than a concatenation is itself a fix
   for a prompt-and-parse failure mode:
   `sdk-internal-query.curator-llm.ts:444-463` — at six turns the model's
   thinking-out-loud preceded its answer, so `extractJsonObject` parsed the wrong
@@ -84,7 +84,7 @@ These are the direct candidates for a System One / Jev-style typed judgment.
 - Model: no pinned id; the curator rides the `haiku` tier alias of the resolved
   provider (`sdk-internal-query.curator-llm.ts:161`, `:274-285`).
 - Turn budget: `CURATOR_MAX_TURNS = 6` (`sdk-internal-query.curator-llm.ts:204`);
-  an exhausted budget arrives as a *result* (`error_max_turns`), not a throw
+  an exhausted budget arrives as a _result_ (`error_max_turns`), not a throw
   (`:486-492`).
 - Calls per pass: up to 8 extract windows + 1 resolve, narrowed to 1 + 1 on a
   manual PreCompact (`memory-curator/CLAUDE.md`, "the ceiling is 9 calls per pass";
@@ -98,8 +98,8 @@ These are the direct candidates for a System One / Jev-style typed judgment.
 
 ## 2. Decision points that are today pure heuristics (no model)
 
-These are the inverse candidates: places where a cheap typed judgment could *replace
-a hand-tuned constant*, or where a model answer is currently faked by a regex.
+These are the inverse candidates: places where a cheap typed judgment could _replace
+a hand-tuned constant_, or where a model answer is currently faked by a regex.
 
 ### 2.1 "Did the user just say something worth remembering?" — a regex list
 
@@ -202,7 +202,7 @@ a hand-tuned constant*, or where a model answer is currently faked by a regex.
   (`:14`).
 - Vector search is a `MATCH` against `memory_chunks_vec` ordered by `distance ASC`
   (`memory-search.service.ts:432-437`); the returned `distance` is used only for
-  *rank order* in RRF (`:506-517`), never as a threshold — nothing in the retrieval
+  _rank order_ in RRF (`:506-517`), never as a threshold — nothing in the retrieval
   path ever compares a similarity value to a cutoff.
 - Degrade: no embedder registered (VS Code / CLI hosts) → `bm25Only`
   (`memory-search.service.ts:293-306`), and vec failure warns and falls back
@@ -242,19 +242,19 @@ a hand-tuned constant*, or where a model answer is currently faked by a regex.
 
 ## 5. Ranked candidate list for a typed-judgment primitive
 
-| # | Decision | Today | Location |
-|---|---|---|---|
-| 1 | Is this draft the same subject as memory X? | free-text `mergeTargetId`, no confidence | `resolve-prompt.ts:15,19`; applied `memory-curator.service.ts:649-664` |
-| 2 | How important is this, 0..1? | model's self-reported `salienceHint` | `extract-prompt.ts:27`; `salience-ranking.ts:13-16` |
-| 3 | Did the user signal "remember this"? | 7 regexes | `memory-trigger-config.ts:64-72` |
-| 4 | Is this durable knowledge or chit-chat? | one prompt clause | `extract-prompt.ts:28-29` |
-| 5 | Which of fact/preference/event/entity? | prompt enum | `extract-prompt.ts:14`; `curator-llm.port.ts:17` |
-| 6 | Lexical or semantic query? | `tokenCount < 4 ? 0.6 : 0.3` | `memory-search.service.ts:307-309` |
-| 7 | Which candidates actually answer the query? | already a cross-encoder rerank | `memory-search.service.ts:311-340` |
+| #   | Decision                                    | Today                                    | Location                                                               |
+| --- | ------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------- |
+| 1   | Is this draft the same subject as memory X? | free-text `mergeTargetId`, no confidence | `resolve-prompt.ts:15,19`; applied `memory-curator.service.ts:649-664` |
+| 2   | How important is this, 0..1?                | model's self-reported `salienceHint`     | `extract-prompt.ts:27`; `salience-ranking.ts:13-16`                    |
+| 3   | Did the user signal "remember this"?        | 7 regexes                                | `memory-trigger-config.ts:64-72`                                       |
+| 4   | Is this durable knowledge or chit-chat?     | one prompt clause                        | `extract-prompt.ts:28-29`                                              |
+| 5   | Which of fact/preference/event/entity?      | prompt enum                              | `extract-prompt.ts:14`; `curator-llm.port.ts:17`                       |
+| 6   | Lexical or semantic query?                  | `tokenCount < 4 ? 0.6 : 0.3`             | `memory-search.service.ts:307-309`                                     |
+| 7   | Which candidates actually answer the query? | already a cross-encoder rerank           | `memory-search.service.ts:311-340`                                     |
 
 Items 1-5 are prompt-and-parse or regex and are the real targets. Item 6 is a
 two-line constant standing in for a classification. Item 7 is already solved locally
-and is a *comparison baseline*, not a target.
+and is a _comparison baseline_, not a target.
 
 ---
 

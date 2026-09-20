@@ -17,7 +17,6 @@ Multi-session Orchestra Canvas panel. It renders a drag-and-resize Gridstack gri
 
 ## Key Files
 
-
 - `orchestra-canvas.component.ts` is the OnPush panel root. Its providers scope the store, layout, persistence, and metrics services to one canvas instance.
 - `canvas.store.ts` is the intent facade. State is partitioned by workspace and contains active-session focus, transient layout focus, revisions, lock state, and at most `MAX_CANVAS_TILES` tiles (20).
 - `canvas-layout-intent.ts` owns the `TileWidthIntent` union, 12-unit deterministic packer, preset projection, resize snapping, row-preserving reconciliation, span-aware drag projection, the 6/2 height tiers, and transient view-constraint projection.

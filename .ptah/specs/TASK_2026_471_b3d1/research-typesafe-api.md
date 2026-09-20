@@ -5,18 +5,18 @@ Everything below is drawn from those fetches (summarized by the fetch tool's mod
 
 ## Fetch status
 
-| Page | Status |
-| --- | --- |
-| https://docs.typesafe.ai/primitives.md | Fetched |
-| https://docs.typesafe.ai/primitives/choice.md | Fetched |
-| https://docs.typesafe.ai/primitives/noul.md | Fetched |
-| https://docs.typesafe.ai/primitives/score.md | Fetched |
-| https://docs.typesafe.ai/confidence.md | Fetched |
-| https://docs.typesafe.ai/api.md | Fetched |
-| https://docs.typesafe.ai/sdk/javascript.md | Fetched |
+| Page                                                                                      | Status                                                                                                                |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| https://docs.typesafe.ai/primitives.md                                                    | Fetched                                                                                                               |
+| https://docs.typesafe.ai/primitives/choice.md                                             | Fetched                                                                                                               |
+| https://docs.typesafe.ai/primitives/noul.md                                               | Fetched                                                                                                               |
+| https://docs.typesafe.ai/primitives/score.md                                              | Fetched                                                                                                               |
+| https://docs.typesafe.ai/confidence.md                                                    | Fetched                                                                                                               |
+| https://docs.typesafe.ai/api.md                                                           | Fetched                                                                                                               |
+| https://docs.typesafe.ai/sdk/javascript.md                                                | Fetched                                                                                                               |
 | https://docs.typesafe.ai/cookbooks/llm_guardrails.md (judge a candidate against criteria) | Fetched — best match found for "judge against criteria"; not a literal page named "judge cookbook". See caveat below. |
-| https://docs.typesafe.ai/cookbooks/rerank_typesafe.md (rerank/select evidence) | Fetched — direct match |
-| https://docs.typesafe.ai/cookbooks/llm-judge.md | UNFETCHED — 404, this path does not exist. Superseded by llm_guardrails.md above, found via the llms.txt index. |
+| https://docs.typesafe.ai/cookbooks/rerank_typesafe.md (rerank/select evidence)            | Fetched — direct match                                                                                                |
+| https://docs.typesafe.ai/cookbooks/llm-judge.md                                           | UNFETCHED — 404, this path does not exist. Superseded by llm_guardrails.md above, found via the llms.txt index.       |
 
 Caveat on the "judge" cookbook: the site's llms.txt index (https://docs.typesafe.ai/llms.txt) lists no page literally titled "judge". `llm_guardrails.md` was selected as the closest available match — it scores a candidate prompt/response against defined safety criteria (hazard Nouls + a harm-severity Score) and routes on the result, which is the judge-against-criteria pattern. It is safety-specific, not a general-purpose judge template. If the task needs a non-safety judge-against-rubric example, none was found in the index; the closest secondary candidate is `citation_check.md` (Choice-based verdict against a claim), also summarized below for reference. UNVERIFIED: whether a more general "judge" cookbook exists at a path not listed in llms.txt.
 
@@ -24,15 +24,16 @@ Caveat on the "judge" cookbook: the site's llms.txt index (https://docs.typesafe
 
 TypeSafe's System One API exposes three typed question primitives. All are sent together in one request against a shared `state`, enabling parallel evaluation with minimal latency cost (per docs; UNVERIFIED against a live benchmark).
 
-| Primitive | Purpose | Returns |
-| --- | --- | --- |
-| Choice | "Which of these options?" | `choice`, `probabilities`, `confidence` |
-| Score | "Which level?" | `score`, `legend`, `probabilities`, `confidence` |
-| Noul | "Is this true?" | `noul` (probability 0–1) |
+| Primitive | Purpose                   | Returns                                          |
+| --------- | ------------------------- | ------------------------------------------------ |
+| Choice    | "Which of these options?" | `choice`, `probabilities`, `confidence`          |
+| Score     | "Which level?"            | `score`, `legend`, `probabilities`, `confidence` |
+| Noul      | "Is this true?"           | `noul` (probability 0–1)                         |
 
 Every question needs: an `id` (the response key), a `type` (`choice` / `score` / `noul`), `instructions` (the question), and `criteria` (options for Choice, ordered levels for Score, optional true/false clarification for Noul).
 
 Selection guidance from the docs:
+
 - Choice — discrete options without hierarchy (routing, classification, detection).
 - Score — spectrum answers with defined levels (severity, frustration, skill).
 - Noul — clean yes/no where a probability signal matters.

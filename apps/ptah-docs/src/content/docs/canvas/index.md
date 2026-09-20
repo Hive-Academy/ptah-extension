@@ -28,9 +28,9 @@ Each tile keeps its own context window. Work in one never pollutes another.
 
 The chat area has two layout modes.
 
-| Mode       | What you see                   |
-| ---------- | ------------------------------ |
-| **Single** | One conversation, full width.  |
+| Mode       | What you see                     |
+| ---------- | -------------------------------- |
+| **Single** | One conversation, full width.    |
 | **Grid**   | The canvas — up to twenty tiles. |
 
 The desktop app starts in **grid** mode. Switch modes from the layout control in

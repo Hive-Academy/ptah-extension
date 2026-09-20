@@ -35,6 +35,7 @@ export interface AutocompleteCommandInfo {
 ## Verification
 
 Pending execution of:
+
 1. `npx nx run-many -t test -p @ptah-extension/workspace-intelligence @ptah-extension/rpc-handlers @ptah-extension/shared`
 2. `npx nx run-many -t typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/rpc-handlers @ptah-extension/shared`
 

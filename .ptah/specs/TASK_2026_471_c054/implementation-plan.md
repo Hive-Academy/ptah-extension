@@ -6,21 +6,21 @@ Yes, this feature is fully feasible and directly aligns with the repository's es
 
 ## Existing seams
 
-| Seam | file:line | What it already gives us |
-| --- | --- | --- |
-| `TaskStartService` | [`libs/frontend/tasks-ui/src/lib/services/task-start.service.ts:49-141`](../../../libs/frontend/tasks-ui/src/lib/services/task-start.service.ts#L49-L141) | Orchestration launch flow for tasks. **Pre-change state, since superseded**: it set `appState.requestChatPrompt` behind a 30s resolve guard and updated status to `in_progress` on success. This task removed both — the guard is gone and the AGENT owns the status transition. |
-| `TaskPromptBridgeService` | [`libs/frontend/chat/src/lib/services/chat-store/task-prompt-bridge.service.ts:33-90`](../../../libs/frontend/chat/src/lib/services/chat-store/task-prompt-bridge.service.ts#L33-L90) | Reactive consumer of `chatPromptRequest`; creates tabs via `TabManagerService`, switches view to chat, adopts canvas tiles in grid mode. **Pre-change state, since superseded**: it sent via `MessageSenderService`. This task replaced the send with `appState.requestComposerPrefill(...)`. |
-| `MessageSenderService` | [`libs/frontend/chat/src/lib/services/message-sender.service.ts:329-420`](../../../libs/frontend/chat/src/lib/services/message-sender.service.ts#L329-L420) | Handles `chat:start` RPC invocation, transport errors, model selection, effort level, and stream initialization. **No longer on the launch path**: Start prefills the composer, so this service runs only when the USER presses send. |
-| `PromptSuggestionsComponent` | [`libs/frontend/chat-ui/src/lib/molecules/setup-plugins/prompt-suggestions.component.ts:168-203, 342-345`](../../../libs/frontend/chat-ui/src/lib/molecules/setup-plugins/prompt-suggestions.component.ts#L168-L203) | Reference pattern for categorized prompt launches; emits `promptSelected` into chat input. |
-| `TaskCardComponent` | [`libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts:403-432, 831-836`](../../../libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts#L403-L432) | Kanban card start action UI (`onStart`, `isolate` toggle, `canStart` predicate, `busyTaskId` rendering). |
-| `TaskListComponent` | [`libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts:520-586, 953-956`](../../../libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts#L520-L586) | List view row action controls (`Start` button and `MoreVerticalIcon` dropdown with `Start isolated`). |
-| `TasksStore.applyMetadata` | [`libs/frontend/tasks-ui/src/lib/services/tasks-store.service.ts:1447-1520`](../../../libs/frontend/tasks-ui/src/lib/services/tasks-store.service.ts#L1447-L1520) | Single client mutation funnel; issues serialized `tasks:updateMetadata` RPC and reloads authoritative board state. |
-| `TasksRpcHandlers` | [`libs/backend/rpc-handlers/src/lib/handlers/tasks-rpc.handlers.ts:64-99`](../../../libs/backend/rpc-handlers/src/lib/handlers/tasks-rpc.handlers.ts#L64-L99) | `tasks:*` RPC namespace handling `tasks:board`, `tasks:get`, `tasks:getArtifact`, `tasks:updateMetadata`, and `tasks:changed` push broadcasting on file system index changes. |
-| `AutocompleteRpcHandlers` | [`libs/backend/rpc-handlers/src/lib/handlers/autocomplete-rpc.handlers.ts:43-120`](../../../libs/backend/rpc-handlers/src/lib/handlers/autocomplete-rpc.handlers.ts#L43-L120) | Exposes `autocomplete:agents` RPC method to query discovered specialist roles from `.claude/agents/*.md`. |
-| `AgentDiscoveryService` | [`libs/backend/workspace-intelligence/src/autocomplete/agent-discovery.service.ts:90-140`](../../../libs/backend/workspace-intelligence/src/autocomplete/agent-discovery.service.ts#L90-L140) | Scans workspace and user `.claude/agents/` directories, parses frontmatter metadata, and provides real-time file watching cache invalidation. |
-| `AgentRpcHandlers` | [`libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts:65-80`](../../../libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts#L65-L80) | Exposes `agent:detectClis` to check installed rival CLIs (Codex, Copilot, Cursor, Antigravity, OpenCode, Pi). |
-| `Orchestration Skill` | [`.claude/skills/orchestration/SKILL.md:41-73`](../../../.claude/skills/orchestration/SKILL.md#L41-L73) | Defines `/orchestrate TASK_YYYY_NNN` continuation conventions, Gate 0.1 CLI lane discovery, subagent role handoffs, and deliverable verification. |
-| `Lane Assignment Spec` | [`.claude/skills/orchestration/references/lane-assignment.md:1-75`](../../../.claude/skills/orchestration/references/lane-assignment.md#L1-L75) | Dictates how roles and phases map to subagents vs CLI lanes (Codex, Claude, Ollama GLM, Copilot). |
+| Seam                         | file:line                                                                                                                                                                                                            | What it already gives us                                                                                                                                                                                                                                                                      |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TaskStartService`           | [`libs/frontend/tasks-ui/src/lib/services/task-start.service.ts:49-141`](../../../libs/frontend/tasks-ui/src/lib/services/task-start.service.ts#L49-L141)                                                            | Orchestration launch flow for tasks. **Pre-change state, since superseded**: it set `appState.requestChatPrompt` behind a 30s resolve guard and updated status to `in_progress` on success. This task removed both — the guard is gone and the AGENT owns the status transition.              |
+| `TaskPromptBridgeService`    | [`libs/frontend/chat/src/lib/services/chat-store/task-prompt-bridge.service.ts:33-90`](../../../libs/frontend/chat/src/lib/services/chat-store/task-prompt-bridge.service.ts#L33-L90)                                | Reactive consumer of `chatPromptRequest`; creates tabs via `TabManagerService`, switches view to chat, adopts canvas tiles in grid mode. **Pre-change state, since superseded**: it sent via `MessageSenderService`. This task replaced the send with `appState.requestComposerPrefill(...)`. |
+| `MessageSenderService`       | [`libs/frontend/chat/src/lib/services/message-sender.service.ts:329-420`](../../../libs/frontend/chat/src/lib/services/message-sender.service.ts#L329-L420)                                                          | Handles `chat:start` RPC invocation, transport errors, model selection, effort level, and stream initialization. **No longer on the launch path**: Start prefills the composer, so this service runs only when the USER presses send.                                                         |
+| `PromptSuggestionsComponent` | [`libs/frontend/chat-ui/src/lib/molecules/setup-plugins/prompt-suggestions.component.ts:168-203, 342-345`](../../../libs/frontend/chat-ui/src/lib/molecules/setup-plugins/prompt-suggestions.component.ts#L168-L203) | Reference pattern for categorized prompt launches; emits `promptSelected` into chat input.                                                                                                                                                                                                    |
+| `TaskCardComponent`          | [`libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts:403-432, 831-836`](../../../libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts#L403-L432)                               | Kanban card start action UI (`onStart`, `isolate` toggle, `canStart` predicate, `busyTaskId` rendering).                                                                                                                                                                                      |
+| `TaskListComponent`          | [`libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts:520-586, 953-956`](../../../libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts#L520-L586)                               | List view row action controls (`Start` button and `MoreVerticalIcon` dropdown with `Start isolated`).                                                                                                                                                                                         |
+| `TasksStore.applyMetadata`   | [`libs/frontend/tasks-ui/src/lib/services/tasks-store.service.ts:1447-1520`](../../../libs/frontend/tasks-ui/src/lib/services/tasks-store.service.ts#L1447-L1520)                                                    | Single client mutation funnel; issues serialized `tasks:updateMetadata` RPC and reloads authoritative board state.                                                                                                                                                                            |
+| `TasksRpcHandlers`           | [`libs/backend/rpc-handlers/src/lib/handlers/tasks-rpc.handlers.ts:64-99`](../../../libs/backend/rpc-handlers/src/lib/handlers/tasks-rpc.handlers.ts#L64-L99)                                                        | `tasks:*` RPC namespace handling `tasks:board`, `tasks:get`, `tasks:getArtifact`, `tasks:updateMetadata`, and `tasks:changed` push broadcasting on file system index changes.                                                                                                                 |
+| `AutocompleteRpcHandlers`    | [`libs/backend/rpc-handlers/src/lib/handlers/autocomplete-rpc.handlers.ts:43-120`](../../../libs/backend/rpc-handlers/src/lib/handlers/autocomplete-rpc.handlers.ts#L43-L120)                                        | Exposes `autocomplete:agents` RPC method to query discovered specialist roles from `.claude/agents/*.md`.                                                                                                                                                                                     |
+| `AgentDiscoveryService`      | [`libs/backend/workspace-intelligence/src/autocomplete/agent-discovery.service.ts:90-140`](../../../libs/backend/workspace-intelligence/src/autocomplete/agent-discovery.service.ts#L90-L140)                        | Scans workspace and user `.claude/agents/` directories, parses frontmatter metadata, and provides real-time file watching cache invalidation.                                                                                                                                                 |
+| `AgentRpcHandlers`           | [`libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts:65-80`](../../../libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts#L65-L80)                                                        | Exposes `agent:detectClis` to check installed rival CLIs (Codex, Copilot, Cursor, Antigravity, OpenCode, Pi).                                                                                                                                                                                 |
+| `Orchestration Skill`        | [`.claude/skills/orchestration/SKILL.md:41-73`](../../../.claude/skills/orchestration/SKILL.md#L41-L73)                                                                                                              | Defines `/orchestrate TASK_YYYY_NNN` continuation conventions, Gate 0.1 CLI lane discovery, subagent role handoffs, and deliverable verification.                                                                                                                                             |
+| `Lane Assignment Spec`       | [`.claude/skills/orchestration/references/lane-assignment.md:1-75`](../../../.claude/skills/orchestration/references/lane-assignment.md#L1-L75)                                                                      | Dictates how roles and phases map to subagents vs CLI lanes (Codex, Claude, Ollama GLM, Copilot).                                                                                                                                                                                             |
 
 ## Gaps
 
@@ -43,7 +43,9 @@ Yes, this feature is fully feasible and directly aligns with the repository's es
 ## Proposed design
 
 ### 1. Agent Target Contract and Roster Resolution
+
 Define a lightweight agent target model in `libs/frontend/tasks-ui/src/lib/types/task-agent.types.ts`:
+
 ```ts
 export type AgentCategory = 'orchestrator' | 'specialist' | 'lane';
 
@@ -53,10 +55,12 @@ export interface TaskAgentTarget {
   readonly category: AgentCategory;
   readonly description?: string;
   readonly role?: string; // e.g. 'software-architect', 'backend-developer'
-  readonly cli?: string;  // e.g. 'codex', 'copilot', 'cursor'
+  readonly cli?: string; // e.g. 'codex', 'copilot', 'cursor'
 }
 ```
+
 A new `TaskAgentDiscoveryService` in `tasks-ui`:
+
 - Calls `autocomplete:agents` (`query: ''`) to discover `.claude/agents/*.md` roles (`software-architect`, `backend-developer`, `senior-tester`, `code-logic-reviewer`, `devops-engineer`, etc.).
 - Calls `agent:detectClis` to discover detected rival CLIs on the host machine.
 - Provides a computed signal `availableAgents` grouped by category:
@@ -65,7 +69,9 @@ A new `TaskAgentDiscoveryService` in `tasks-ui`:
   3. **CLI Agent Lanes** (Rival CLIs: Codex, Copilot, Cursor)
 
 ### 2. Prompt Construction (Task Body and Directives)
+
 In `TaskStartService.launchPrompt(taskId, isolate, agentTarget)`:
+
 - The task body (`task.md`, `context.md`, `batches.md`) is **not** duplicated or inlined into the client-side prompt. Inlining large markdown files into the launch string would waste prompt tokens and drift from disk.
 - Instead, following `orchestration/SKILL.md § Continuation`, the prompt references the task ID and specs folder:
   - If `category === 'orchestrator'`:
@@ -77,6 +83,7 @@ In `TaskStartService.launchPrompt(taskId, isolate, agentTarget)`:
 - If `isolate === true`, append `ISOLATION_DIRECTIVE` (requesting agent-managed git worktree isolation).
 
 ### 3. Execution Data Flow: Click to Running Agent
+
 1. **User Action**: The user clicks the "Assign to Agent" split button on a card or selects an agent from the row context menu in `task-list`.
 2. **UI Event**: Card/Row emits `startTask({ taskId, isolate, targetAgent })` up to `TasksViewComponent`.
 3. **Launch Initiation**: `TasksViewComponent.onStartTask` calls `TaskStartService.start(taskId, isolate, targetAgent)`.
@@ -96,6 +103,7 @@ In `TaskStartService.launchPrompt(taskId, isolate, agentTarget)`:
    - **The AGENT owns the status transition**, once it begins the work.
 
 ### 4. Running State and Agent Completion
+
 - **Running State Representation**:
   - `TasksStore` tracks active session associations (mapping `taskId` to `tabId` via `TabManagerService`).
   - In `in_progress` status, the card/row displays an animated pulse badge and an affordance "View session" that calls `appState.setCurrentView('chat')` with the corresponding tab activated.
@@ -106,15 +114,15 @@ In `TaskStartService.launchPrompt(taskId, isolate, agentTarget)`:
 
 ## Files to change
 
-| File | Change | Layer |
-| --- | --- | --- |
-| `libs/frontend/tasks-ui/src/lib/types/task-agent.types.ts` | CREATE: Defines `TaskAgentTarget`, `AgentCategory`, and extends `TaskStartRequest` with `targetAgent?: TaskAgentTarget`. | Frontend (`tasks-ui`) |
-| `libs/frontend/tasks-ui/src/lib/services/task-agent-discovery.service.ts` | CREATE: Injects `ClaudeRpcService`, calls `autocomplete:agents` and `agent:detectClis`, exposing signal `availableAgents`. | Frontend (`tasks-ui`) |
-| `libs/frontend/tasks-ui/src/lib/services/task-start.service.ts` | MODIFY: Updates `start()` and `launchPrompt()` to accept `targetAgent` and format agent/lane directives in the `/orchestrate` prompt. | Frontend (`tasks-ui`) |
-| `libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts` | MODIFY: Replaces solitary Start button with a split button / dropdown menu for agent selection; wires `targetAgent` emission. | Frontend (`tasks-ui`) |
-| `libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts` | MODIFY: Updates row dropdown menu (`MoreVerticalIcon`) to add an "Assign to agent..." sub-menu with available agents. | Frontend (`tasks-ui`) |
-| `libs/frontend/tasks-ui/src/lib/components/board/task-card.component.html` (or inline template) | MODIFY: Adds active session link and running indicator for `in_progress` tasks. | Frontend (`tasks-ui`) |
-| `libs/frontend/tasks-ui/src/index.ts` | MODIFY: Exports `TaskAgentDiscoveryService` and `TaskAgentTarget`. | Frontend (`tasks-ui`) |
+| File                                                                                            | Change                                                                                                                                | Layer                 |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `libs/frontend/tasks-ui/src/lib/types/task-agent.types.ts`                                      | CREATE: Defines `TaskAgentTarget`, `AgentCategory`, and extends `TaskStartRequest` with `targetAgent?: TaskAgentTarget`.              | Frontend (`tasks-ui`) |
+| `libs/frontend/tasks-ui/src/lib/services/task-agent-discovery.service.ts`                       | CREATE: Injects `ClaudeRpcService`, calls `autocomplete:agents` and `agent:detectClis`, exposing signal `availableAgents`.            | Frontend (`tasks-ui`) |
+| `libs/frontend/tasks-ui/src/lib/services/task-start.service.ts`                                 | MODIFY: Updates `start()` and `launchPrompt()` to accept `targetAgent` and format agent/lane directives in the `/orchestrate` prompt. | Frontend (`tasks-ui`) |
+| `libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts`                        | MODIFY: Replaces solitary Start button with a split button / dropdown menu for agent selection; wires `targetAgent` emission.         | Frontend (`tasks-ui`) |
+| `libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts`                        | MODIFY: Updates row dropdown menu (`MoreVerticalIcon`) to add an "Assign to agent..." sub-menu with available agents.                 | Frontend (`tasks-ui`) |
+| `libs/frontend/tasks-ui/src/lib/components/board/task-card.component.html` (or inline template) | MODIFY: Adds active session link and running indicator for `in_progress` tasks.                                                       | Frontend (`tasks-ui`) |
+| `libs/frontend/tasks-ui/src/index.ts`                                                           | MODIFY: Exports `TaskAgentDiscoveryService` and `TaskAgentTarget`.                                                                    | Frontend (`tasks-ui`) |
 
 ## Out of scope v1
 

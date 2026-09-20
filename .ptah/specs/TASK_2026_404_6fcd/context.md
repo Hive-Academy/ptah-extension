@@ -82,3 +82,53 @@ the rest cost a header strip each.
 
 The same idea already governs geometry in this library: geometry is derived and
 never stored. This work extends that idea to fidelity.
+
+## Decision record — 2026-09-19, R2 + notification-center lane
+
+The user asked whether the compacted-view and notification-sound work still
+existed. It did, as Track R items 2 and 6, unbuilt: `libs/frontend/notification-center`
+did not exist and no sound code existed anywhere in `libs/**`.
+
+Branch `feat/task-404-compact-summary-notifications`, worktree
+`.claude-worktrees/feat-task-404-compact-summary-notifications-eee138dbf59f`,
+based on `main` at `526868b8e`.
+
+Two decisions, both user-made, both fixed for this lane:
+
+1. **Scope is both pieces.** R2 (compact tile becomes a glanceable status card)
+   and R6 (notification center with bell, panel, focus routing and Web Audio
+   sound for completed turns, pending permissions and AskUserQuestion prompts).
+   They ship on one branch with file-disjoint implementer ownership.
+2. **The mute preference lives in localStorage as a UI-only setting.** This
+   answers open question 4 in `task-description.md`. There is no
+   `~/.ptah/settings.json` key, no RPC method and no backend change. The feature
+   is entirely webview-side. Do not create a second store later.
+
+Lanes: codex (architecture, then R2 implementation), ollama cloud at the opus
+tier (notification-center implementation), antigravity (logic review — a
+different family from both implementers). Revise cap: 2 rounds.
+
+### Roster change — 2026-09-19
+
+The ollama cloud lane (`pc-85830910-…`, glm-5.3:cloud) was spawned as
+Implementer A and returned exit code 0 after 223 seconds having done nothing:
+
+```
+API Error: Request rejected (429) · you have reached your weekly usage limit
+[Completed: 0 input, 0 output, $0.0000, 223.6s, 1 turns]
+```
+
+Zero tokens, no commits, no `libs/frontend/notification-center`. This is a
+**weekly** cap, not the mid-task rate limit that stopped the same lane during
+TASK_2026_451, so a resume cannot clear it today. Note the failure mode for
+later readers: the lane reports `completed` with exit code 0. Status alone is
+not evidence that work happened — check the diff.
+
+Implementer A reassigned to codex. Implementer B was already codex. Review
+stays on antigravity, which remains a different family from both implementers,
+so the cross-family review signal is preserved.
+
+Each implementer works in its own worktree rather than sharing one. Lane A must
+run `npx nx reset` after creating its `project.json`, and a reset kills the Nx
+daemon for every executor sharing that worktree. Two autonomous lanes cannot
+reliably coordinate that boundary, so the shared state was removed instead.

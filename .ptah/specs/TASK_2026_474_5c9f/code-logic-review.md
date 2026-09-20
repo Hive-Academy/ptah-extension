@@ -10,6 +10,7 @@
 ## Review Scope & Objectives
 
 Evaluation of behavioral correctness across the three targeted defects:
+
 1. Deletion of fixed magnitude ceilings in `validateStats` (`stream-transformer.ts`).
 2. Preservation of `null` pricing signal from backend transforms to UI presentation.
 3. Suppression of empty/zero-usage stats payloads on session resume.
@@ -25,7 +26,8 @@ Evaluation of behavioral correctness across the three targeted defects:
   - **Concrete input**: Turn 1 completes with unpriced model (`prevCost = null`). Turn 2 completes with priced model (`turnCost = 0.05`). `nextCost` evaluates to `(null ?? 0) + 0.05 = 0.05`.
   - **Severity**: Major
 
-*(Related pipeline context outside uncommitted diff)*:
+_(Related pipeline context outside uncommitted diff)_:
+
 - [`libs/backend/agent-sdk/src/lib/session-history-reader.service.ts#L1096`](file:///D:/projects/ptah-extension/.claude-worktrees/fix-stats-validation-ceilings-099254c3ce53/libs/backend/agent-sdk/src/lib/session-history-reader.service.ts#L1096): `(entry.costUSD ?? 0)` in history reconstruction sums priced models while treating `null` as `0`.
 - [`libs/backend/agent-sdk/src/lib/session-stats/session-usage-aggregator.ts#L205`](file:///D:/projects/ptah-extension/.claude-worktrees/fix-stats-validation-ceilings-099254c3ce53/libs/backend/agent-sdk/src/lib/session-stats/session-usage-aggregator.ts#L205): `totalCost: m.costUSD ?? 0` coerces `null` model cost to `0`.
 - [`libs/shared/src/lib/utils/subagent-cost.utils.ts#L58`](file:///D:/projects/ptah-extension/.claude-worktrees/fix-stats-validation-ceilings-099254c3ce53/libs/shared/src/lib/utils/subagent-cost.utils.ts#L58) & [#L102](file:///D:/projects/ptah-extension/.claude-worktrees/fix-stats-validation-ceilings-099254c3ce53/libs/shared/src/lib/utils/subagent-cost.utils.ts#L102): `node.cost ?? 0` coerces nullable `ExecutionNode.cost` to `0`.

@@ -81,13 +81,13 @@ rubric that already ships (`skill-judge.service.ts:124-129`, Verified — read
 directly), one per `instructions` field, with the 1-10 framing stripped because
 the levels now carry it:
 
-| Question id      | `instructions`                                                                                                                                                                 |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `novelty`        | How novel and non-obvious is this skill versus common knowledge a coding agent already has?                                                                                     |
-| `actionability`  | How directly executable are the steps — imperative, concrete and ordered?                                                                                                        |
-| `scope`          | Is the scope a single well-defined workflow, neither too broad nor a trivial one-off?                                                                                            |
-| `generalization` | Is it repo-agnostic and transferable, with no leftover workspace paths, file names or session-specific details?                                                                  |
-| `triggerClarity` | Does the description state clearly WHEN to use the skill, so another agent could decide to trigger it?                                                                          |
+| Question id      | `instructions`                                                                                                  |
+| ---------------- | --------------------------------------------------------------------------------------------------------------- |
+| `novelty`        | How novel and non-obvious is this skill versus common knowledge a coding agent already has?                     |
+| `actionability`  | How directly executable are the steps — imperative, concrete and ordered?                                       |
+| `scope`          | Is the scope a single well-defined workflow, neither too broad nor a trivial one-off?                           |
+| `generalization` | Is it repo-agnostic and transferable, with no leftover workspace paths, file names or session-specific details? |
+| `triggerClarity` | Does the description state clearly WHEN to use the skill, so another agent could decide to trigger it?          |
 
 `criteria` for each is an **ordered 5-level array**, low→high, each level written
 as a concrete situation rather than an abstract qualifier — the docs' own best
@@ -134,7 +134,7 @@ structural gain here.
 **I disagree with the evidence map here.** `evidence-skill-synthesis.md:93-95`
 claims a typed judgment removes "two of the four reason tokens (`noJson`,
 `invalidScores`) by construction". That is only true of the parse; it is not true
-of the reason *set*. `callThrew` must stay — `api.md` lists 401/422/429/529
+of the reason _set_. `callThrew` must stay — `api.md` lists 401/422/429/529
 (`research-typesafe-api.md:72`, UNVERIFIED) and all four are throws or non-answers.
 `disabled` must stay. And a calibrated probability introduces a failure mode the
 LLM path does not have: a confidently-spread distribution, which is a real
@@ -277,7 +277,7 @@ experiment passing; none should be started before both.
    is a single Noul with a rationale bolted on. Its `null`-is-not-zero contract
    (`:16`, Verified — read directly: "a `null` hold-out yields a `null`
    confidence, not a low one") maps cleanly onto abstention. Deferred for two
-   reasons: only the *comparator* is a judgment — the plan call that precedes it
+   reasons: only the _comparator_ is a judgment — the plan call that precedes it
    is generative and stays on the lane, so the saving is one call of two; and
    there is no labelled alignment data anywhere, so the threshold
    `minConfidence` (read at `skill-promotion.service.ts:441-492`, per the
@@ -302,7 +302,7 @@ experiment passing; none should be started before both.
    principle. Deferred because there is no label: nothing in the schema records
    whether a memory later mattered. `MemoryUsageRecorder` exists
    (`MEMORY_CONTRACT_TOKENS.MEMORY_USAGE_RECORDER`,
-   `memory-contracts/src/lib/tokens.ts:4`, Verified) and *could* become that
+   `memory-contracts/src/lib/tokens.ts:4`, Verified) and _could_ become that
    label; building the label is the prerequisite, and it is a separate task.
 4. **D3 / D9 generation** — not judgments. Free-form authoring. Out of scope
    permanently, not deferred.
@@ -332,12 +332,12 @@ Verified).
 
 ### The four artifacts
 
-| Artifact  | Path                                                                          | Rule                                        |
-| --------- | ----------------------------------------------------------------------------- | ------------------------------------------- |
-| Port      | `libs/backend/judgment-contracts/src/lib/typed-judgment.port.ts`               | zero runtime deps, no SDK type in any signature |
-| Token     | `libs/backend/judgment-contracts/src/lib/tokens.ts`                            | `JUDGMENT_TOKENS.TYPED_JUDGE = Symbol.for('PtahTypedJudge')` |
-| Adapter   | `libs/backend/judgment-typesafe/src/lib/typesafe-judge.adapter.ts`             | the ONLY file in the repo that may import `@typesafe-ai/sdk` |
-| Register  | `libs/backend/judgment-typesafe/src/lib/di/register.ts`                        | conditional; called from each host's activation |
+| Artifact | Path                                                               | Rule                                                         |
+| -------- | ------------------------------------------------------------------ | ------------------------------------------------------------ |
+| Port     | `libs/backend/judgment-contracts/src/lib/typed-judgment.port.ts`   | zero runtime deps, no SDK type in any signature              |
+| Token    | `libs/backend/judgment-contracts/src/lib/tokens.ts`                | `JUDGMENT_TOKENS.TYPED_JUDGE = Symbol.for('PtahTypedJudge')` |
+| Adapter  | `libs/backend/judgment-typesafe/src/lib/typesafe-judge.adapter.ts` | the ONLY file in the repo that may import `@typesafe-ai/sdk` |
+| Register | `libs/backend/judgment-typesafe/src/lib/di/register.ts`            | conditional; called from each host's activation              |
 
 ### The interface
 
@@ -478,7 +478,7 @@ UNVERIFIED). For `L` levels that is an expectation in `[0, L-1]`.
 4. **Then check that `t′` is not merely equal but better**, by the AUC test in
    `## First experiment`. Preserving throughput is a safety property, not a value
    claim. A re-derived threshold that reproduces today's promotion rate while
-   promoting a *worse* set is the most likely bad outcome of this whole proposal
+   promoting a _worse_ set is the most likely bad outcome of this whole proposal
    and is invisible to every check except an outcome label.
 
 5. **Re-derive `maxCriterionDelta` separately.** Its default is 3 with a strictly-
@@ -557,10 +557,10 @@ refuse sending their memories. Two keys, defaulting off.
   file names from your workspace, are sent to api.typesafe.ai" is not consent.
 
 **Host matrix.** All three hosts behave identically because behaviour keys on
-*registration*, not on host:
+_registration_, not on host:
 
-| Host     | Key configured | Behaviour                                          |
-| -------- | -------------- | -------------------------------------------------- |
+| Host     | Key configured | Behaviour                                           |
+| -------- | -------------- | --------------------------------------------------- |
 | VS Code  | no             | token unregistered → lane path at `:171`, unchanged |
 | VS Code  | yes + opted in | typed judge, falls back to lane on `stalled`        |
 | Electron | no             | as above                                            |
@@ -632,7 +632,7 @@ questions of A1 against `{name, description, body}`. Record per criterion:
 **The confound, stated because it will otherwise be discovered late.** Today's
 composite already gated promotion at 6.0, so the invocation label is only
 observable for rows that passed. Every AUC computed on promoted rows is
-conditional on today's judge having approved them, which biases *against*
+conditional on today's judge having approved them, which biases _against_
 today's composite showing separation (its low-scoring failures were never given
 the chance to fail visibly) and therefore flatters `j`. Two mitigations, run
 both: restrict measure 1 and 2 to the promoted subset and report them as
@@ -649,22 +649,22 @@ and the live API, by reading source or by one authenticated probe. The research
 deliverable was produced through a summarizing fetch tool and says so
 (`research-typesafe-api.md:4`).
 
-| # | Claim (currently UNVERIFIED)                                              | Source of the claim              | How to resolve                                                   |
-| - | ------------------------------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------- |
-| 1 | Score returns `score`, `probabilities`, `legend`, `confidence`             | `research-typesafe-api.md:56`    | read `typesafe-sdk-js/src/types.ts`; assert against one live call |
-| 2 | `score` = Σ(level index × probability), levels numbered from 0             | `:55-56`                         | one live call with a known-skewed input; check the arithmetic     |
-| 3 | Score `criteria` accepts 2-10 ordered levels                              | `:55`                            | send 5; send 11 and confirm the 422                               |
-| 4 | Noul carries **no** `confidence` field                                     | `:62`                            | read `types.ts`; this decides the port's nullable `confidence`    |
-| 5 | Endpoint is `POST https://api.typesafe.ai/v1/systemone`, Bearer auth       | `:68`                            | one authenticated probe                                          |
-| 6 | Model name `jev-latest`; whether a pinned dated id exists                  | `:70`, `:109`                    | ask the vendor / read `models.md`. **A floating model id is a reproducibility hazard for a calibrated threshold** — if no pin exists, `t′` must be re-derived on every model change, and that recurring cost belongs in the adopt/reject arithmetic |
-| 7 | Errors 401 / 422 / 429 / 529; SDKs retry automatically                     | `:72`                            | read `client.ts`. If retry is not automatic, the adapter owns the backoff and must reuse `agent-sdk`'s `NetworkBackoff` shape rather than invent one |
-| 8 | `usage` carries `input_tokens` / `output_tokens`                           | `:71`                            | one live call — required for the `SkillBudgetStore` ledger        |
-| 9 | Package `@typesafe-ai/sdk`, Node 20+, v0.6.0                               | `:77`, `:82`                     | `npm view`; check the published version and its license           |
-| 10 | Per-call cost; the `$0.06 / 1,200 calls` anchor                            | `:99`                            | measure it in the experiment. Do not size anything from the anchor |
-| 11 | Whether streaming / abort is supported                                     | `:83` (explicit gap)             | read `client.ts`. The port takes an `AbortSignal`; every pass in both target libraries is abortable (`evidence-memory-curator.md:234-236`) and an adapter that cannot abort violates that |
-| 12 | Data handling: retention, training use, region                             | not researched at all            | vendor terms. **Blocking for the privacy section.** Do not ship an opt-in whose copy cannot state what happens to the data |
-| 13 | `buildJudgePrompt`'s exact field set (`skill-judge.service.ts:289-312`)     | `evidence-skill-synthesis.md:65` | read it — it decides the `state` payload and its size             |
-| 14 | The composite mean and validation ranges (`:332-359`, `:345-351`)          | `evidence-skill-synthesis.md:74-78` | read them — the re-scale must land inside the existing guards   |
+| #   | Claim (currently UNVERIFIED)                                            | Source of the claim                 | How to resolve                                                                                                                                                                                                                                      |
+| --- | ----------------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Score returns `score`, `probabilities`, `legend`, `confidence`          | `research-typesafe-api.md:56`       | read `typesafe-sdk-js/src/types.ts`; assert against one live call                                                                                                                                                                                   |
+| 2   | `score` = Σ(level index × probability), levels numbered from 0          | `:55-56`                            | one live call with a known-skewed input; check the arithmetic                                                                                                                                                                                       |
+| 3   | Score `criteria` accepts 2-10 ordered levels                            | `:55`                               | send 5; send 11 and confirm the 422                                                                                                                                                                                                                 |
+| 4   | Noul carries **no** `confidence` field                                  | `:62`                               | read `types.ts`; this decides the port's nullable `confidence`                                                                                                                                                                                      |
+| 5   | Endpoint is `POST https://api.typesafe.ai/v1/systemone`, Bearer auth    | `:68`                               | one authenticated probe                                                                                                                                                                                                                             |
+| 6   | Model name `jev-latest`; whether a pinned dated id exists               | `:70`, `:109`                       | ask the vendor / read `models.md`. **A floating model id is a reproducibility hazard for a calibrated threshold** — if no pin exists, `t′` must be re-derived on every model change, and that recurring cost belongs in the adopt/reject arithmetic |
+| 7   | Errors 401 / 422 / 429 / 529; SDKs retry automatically                  | `:72`                               | read `client.ts`. If retry is not automatic, the adapter owns the backoff and must reuse `agent-sdk`'s `NetworkBackoff` shape rather than invent one                                                                                                |
+| 8   | `usage` carries `input_tokens` / `output_tokens`                        | `:71`                               | one live call — required for the `SkillBudgetStore` ledger                                                                                                                                                                                          |
+| 9   | Package `@typesafe-ai/sdk`, Node 20+, v0.6.0                            | `:77`, `:82`                        | `npm view`; check the published version and its license                                                                                                                                                                                             |
+| 10  | Per-call cost; the `$0.06 / 1,200 calls` anchor                         | `:99`                               | measure it in the experiment. Do not size anything from the anchor                                                                                                                                                                                  |
+| 11  | Whether streaming / abort is supported                                  | `:83` (explicit gap)                | read `client.ts`. The port takes an `AbortSignal`; every pass in both target libraries is abortable (`evidence-memory-curator.md:234-236`) and an adapter that cannot abort violates that                                                           |
+| 12  | Data handling: retention, training use, region                          | not researched at all               | vendor terms. **Blocking for the privacy section.** Do not ship an opt-in whose copy cannot state what happens to the data                                                                                                                          |
+| 13  | `buildJudgePrompt`'s exact field set (`skill-judge.service.ts:289-312`) | `evidence-skill-synthesis.md:65`    | read it — it decides the `state` payload and its size                                                                                                                                                                                               |
+| 14  | The composite mean and validation ranges (`:332-359`, `:345-351`)       | `evidence-skill-synthesis.md:74-78` | read them — the re-scale must land inside the existing guards                                                                                                                                                                                       |
 
 **Documentation defect, recorded and deliberately not fixed here.**
 `libs/backend/memory-curator/CLAUDE.md:79` states "dedup happens via cosine
@@ -695,7 +695,7 @@ dedup exists.
 3. **Silent scale drift into SQLite.** `judge_score` is a float 1-10 and
    `replay_confidence` is 0-1, both on the wire and rendered
    (`evidence-skill-synthesis.md:235-237`). The re-scale keeps the range; it does
-   not keep the *meaning*, and two estimators will have written to the same column
+   not keep the _meaning_, and two estimators will have written to the same column
    over a database's lifetime. Mitigation: record the estimator per row. That is a
    migration, and it should be in the first adopting batch rather than deferred —
    a mixed column with no provenance can never be re-analyzed.

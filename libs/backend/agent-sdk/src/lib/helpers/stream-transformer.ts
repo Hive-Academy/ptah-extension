@@ -198,9 +198,7 @@ function validateStats(
   // Negative and non-finite checks are deliberately the whole defence.
   if (
     stats.cost !== null &&
-    (stats.cost < 0 ||
-      isNaN(stats.cost) ||
-      !isFinite(stats.cost))
+    (stats.cost < 0 || isNaN(stats.cost) || !isFinite(stats.cost))
   ) {
     logger.warn('[StreamTransformer] Invalid cost value from SDK:', {
       cost: stats.cost,
@@ -384,7 +382,8 @@ export class StreamTransformer {
                 if (model && previous && usage) {
                   lastTurnContextByModel.set(model, {
                     input: usage.input_tokens ?? previous.input,
-                    cacheRead: usage.cache_read_input_tokens ?? previous.cacheRead,
+                    cacheRead:
+                      usage.cache_read_input_tokens ?? previous.cacheRead,
                     cacheCreation:
                       usage.cache_creation_input_tokens ??
                       previous.cacheCreation,

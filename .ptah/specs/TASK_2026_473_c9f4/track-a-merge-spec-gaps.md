@@ -21,15 +21,15 @@ rank = salience * H / (H + age)
 
 Let `δ` be the few milliseconds between capturing the fixture's `now` and the query's `Date.now()`. The derived order is:
 
-| Order | ID | Salience | Age | Score expression | Nominal score at δ = 0 |
-| --- | --- | ---: | ---: | --- | ---: |
-| 1 | `rank-1` | 1.0 | δ | `1.0H / (H + δ)` | 1.00 |
-| 2 | `rank-2` | 0.9 | δ | `0.9H / (H + δ)` | 0.90 |
-| 3 | `rank-3` | 1.0 | H + δ | `1.0H / (2H + δ)` | 0.50 |
-| 4 | `rank-4` | 0.8 | H + δ | `0.8H / (2H + δ)` | 0.40 |
-| 5 | `rank-5` | 0.9 | 2H + δ | `0.9H / (3H + δ)` | 0.30 |
-| 6 | `rank-6` | 0.5 | H + δ | `0.5H / (2H + δ)` | 0.25 |
-| 7 | `rank-7` | 0.6 | 2H + δ | `0.6H / (3H + δ)` | 0.20 |
+| Order | ID       | Salience |    Age | Score expression  | Nominal score at δ = 0 |
+| ----- | -------- | -------: | -----: | ----------------- | ---------------------: |
+| 1     | `rank-1` |      1.0 |      δ | `1.0H / (H + δ)`  |                   1.00 |
+| 2     | `rank-2` |      0.9 |      δ | `0.9H / (H + δ)`  |                   0.90 |
+| 3     | `rank-3` |      1.0 |  H + δ | `1.0H / (2H + δ)` |                   0.50 |
+| 4     | `rank-4` |      0.8 |  H + δ | `0.8H / (2H + δ)` |                   0.40 |
+| 5     | `rank-5` |      0.9 | 2H + δ | `0.9H / (3H + δ)` |                   0.30 |
+| 6     | `rank-6` |      0.5 |  H + δ | `0.5H / (2H + δ)` |                   0.25 |
+| 7     | `rank-7` |      0.6 | 2H + δ | `0.6H / (3H + δ)` |                   0.20 |
 
 Therefore the asserted capped result is exactly `rank-1`, `rank-2`, `rank-3`, `rank-4`, `rank-5`. The score gaps are much larger than the millisecond-scale `δ`, and the fifth-versus-sixth inequality remains ordered for every non-negative `δ`.
 

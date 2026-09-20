@@ -391,7 +391,10 @@ function contextWindowKeys(modelId: string): string[] {
  * table's partial matching would.
  */
 export function registerModelContextWindows(
-  entries: ReadonlyArray<{ readonly id: string; readonly contextLength: number }>,
+  entries: ReadonlyArray<{
+    readonly id: string;
+    readonly contextLength: number;
+  }>,
 ): void {
   for (const entry of entries) {
     if (!entry || typeof entry.id !== 'string' || entry.id.length === 0) {

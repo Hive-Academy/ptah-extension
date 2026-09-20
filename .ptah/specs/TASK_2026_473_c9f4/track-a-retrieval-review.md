@@ -1,10 +1,12 @@
 # Track A Retrieval Review — `TASK_2026_473_c9f4`
 
 ## Verdict
+
 ACCEPT
 
 ## Defects
-*(No verified defects found. All investigated edge cases, security vectors, degenerate inputs, deduplication keys, ranking behavior, and bounded execution paths behave correctly as designed.)*
+
+_(No verified defects found. All investigated edge cases, security vectors, degenerate inputs, deduplication keys, ranking behavior, and bounded execution paths behave correctly as designed.)_
 
 ## What I checked and found correct
 
@@ -50,12 +52,15 @@ ACCEPT
 ## Verified commands and real output
 
 ### 1. Test suite execution
+
 Command:
+
 ```powershell
 npx nx test @ptah-extension/memory-curator --skip-nx-cache
 ```
 
 Real Output:
+
 ```text
  PASS   memory-curator  libs/backend/memory-curator/src/lib/embedder/embedder-worker-client.spec.ts (8.697 s)
  PASS   memory-curator  libs/backend/memory-curator/src/lib/retention/memory-retention.service.spec.ts (9.252 s)
@@ -109,12 +114,15 @@ Ran all test suites.
 ```
 
 ### 2. Typecheck execution
+
 Command:
+
 ```powershell
 npx nx run-many -t typecheck -p @ptah-extension/memory-curator
 ```
 
 Real Output:
+
 ```text
 > nx run @ptah-extension/memory-curator:typecheck
 > tsc --noEmit --project libs/backend/memory-curator/tsconfig.lib.json
@@ -123,7 +131,9 @@ Real Output:
 ```
 
 ### 3. Read-only live database execution on 36,278 memories
+
 Executed the exact retrieval queries read-only against `%USERPROFILE%\.ptah\state\ptah.sqlite`:
+
 - **Query 1**: `"what did we decide about the judge threshold"`
   - Plan: `match: '"decide" AND "judge" AND "threshold"*'`, `fallback: '"decide" OR "judge" OR "threshold"*'`
   - Top 5 hits returned:

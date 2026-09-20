@@ -1,59 +1,40 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  input,
-  computed,
-  inject,
-} from '@angular/core';
-import type { ExecutionChatMessage } from '@ptah-extension/shared';
-import {
-  calculateSessionCostSummary,
-  resolveModelDisplayName,
-} from '@ptah-extension/shared';
-import { ModelStateService } from '@ptah-extension/core';
-import { CostBadgeComponent } from '../../atoms/cost-badge.component';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import type { CompactSummaryMetrics } from './compact-session-summary';
 
-/**
- * CompactSessionStatsComponent - Inline stats badges for compact session card.
- *
- * Shows token count, cost, agent count, and model as compact inline badges.
- *
- * Complexity Level: 1 (Molecule-level presentational)
- * Patterns: Signal inputs, computed signals, OnPush
- */
+/** Fixed-width-safe metrics footer for the compact status card. */
 @Component({
   selector: 'ptah-compact-session-stats',
   standalone: true,
-  imports: [CostBadgeComponent],
+  host: {
+    class: 'block min-w-0 overflow-hidden',
+  },
   template: `
     <div
-      class="flex items-center gap-1.5 px-3 py-1.5 border-b border-base-content/10 overflow-x-auto text-[10px]"
+      class="flex min-w-0 items-center gap-x-3 overflow-hidden px-3 py-1.5 text-[10px] text-base-content-muted"
+      aria-label="Session metrics"
     >
-      @if (modelName()) {
+      @if (metrics().model; as model) {
         <span
-          class="inline-flex items-center gap-0.5 bg-purple-600/15 border border-purple-600/25 rounded px-1 py-0.5 whitespace-nowrap"
+          class="min-w-0 truncate font-medium text-purple-400"
+          [title]="model"
         >
-          <span class="text-purple-400 font-semibold">{{ modelName() }}</span>
+          {{ model }}
         </span>
       }
-      <span
-        class="inline-flex items-center gap-0.5 bg-base-content/5 border border-base-content/10 rounded px-1 py-0.5 whitespace-nowrap"
+      <span class="shrink-0 tabular-nums"
+        >{{ formatTokens(metrics().tokens) }} tokens</span
       >
-        <span class="text-base-content-muted">Tokens</span>
-        <span class="tabular-nums">{{ formattedTokens() }}</span>
-      </span>
-      <span
-        class="inline-flex items-center gap-0.5 bg-success/10 border border-success/20 rounded px-1 py-0.5 whitespace-nowrap"
-      >
-        <span class="text-base-content-muted">Cost</span>
-        <ptah-cost-badge [cost]="summary().totalCost" />
-      </span>
-      @if (agentCount() > 0) {
-        <span
-          class="inline-flex items-center gap-0.5 bg-info/10 border border-info/20 rounded px-1 py-0.5 whitespace-nowrap"
+      <span class="shrink-0 tabular-nums">{{
+        formatCost(metrics().cost)
+      }}</span>
+      @if (metrics().agentCount > 0) {
+        <span class="shrink-0 tabular-nums"
+          >{{ metrics().agentCount }} agents</span
         >
-          <span class="text-base-content-muted">Agents</span>
-          <span class="text-info tabular-nums">{{ agentCount() }}</span>
+      }
+      @if (metrics().compactionCount > 0) {
+        <span class="ml-auto shrink-0 tabular-nums">
+          {{ metrics().compactionCount }} compacted
         </span>
       }
     </div>
@@ -61,62 +42,16 @@ import { CostBadgeComponent } from '../../atoms/cost-badge.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CompactSessionStatsComponent {
-  private readonly modelState = inject(ModelStateService);
+  readonly metrics = input.required<CompactSummaryMetrics>();
 
-  readonly messages = input.required<readonly ExecutionChatMessage[]>();
-  readonly preloadedStats = input<{
-    totalCost: number | null;
-    tokens: {
-      input: number;
-      output: number;
-      cacheRead: number;
-      cacheCreation: number;
-    };
-    messageCount: number;
-    agentSessionCount?: number;
-  } | null>(null);
-  readonly liveModelStats = input<{
-    model: string;
-    contextUsed: number;
-    contextWindow: number;
-    contextPercent: number;
-  } | null>(null);
-
-  protected readonly summary = computed(() => {
-    const preloaded = this.preloadedStats();
-    if (preloaded) {
-      return {
-        totalCost: preloaded.totalCost,
-        totalTokens: preloaded.tokens,
-        agentCount: preloaded.agentSessionCount ?? 0,
-      };
-    }
-    const calc = calculateSessionCostSummary([...this.messages()]);
-    return {
-      totalCost: calc.totalCost,
-      totalTokens: calc.totalTokens,
-      agentCount: calc.agentCount,
-    };
-  });
-
-  readonly modelName = computed(() => {
-    const stats = this.liveModelStats();
-    return stats
-      ? resolveModelDisplayName(stats.model, this.modelState.availableModels())
-      : null;
-  });
-
-  readonly formattedTokens = computed(() => {
-    const t = this.summary().totalTokens;
-    const total = t.input + (t.cacheRead ?? 0) + t.output;
-    return this.formatTokens(total);
-  });
-
-  readonly agentCount = computed(() => this.summary().agentCount);
-
-  private formatTokens(count: number): string {
+  protected formatTokens(count: number): string {
     if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
     if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
     return count.toString();
+  }
+
+  protected formatCost(cost: number | null): string {
+    if (cost === null) return 'Cost \u2014';
+    return cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`;
   }
 }

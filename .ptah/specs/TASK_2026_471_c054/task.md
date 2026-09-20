@@ -4,9 +4,9 @@ status: in_review
 type: FEATURE
 title: Refresh Get Started cards and assign tasks to agents from the board
 depends_on: []
-created: "2026-09-18T17:15:47.241Z"
-updated: "2026-09-18T17:15:47.241Z"
-description: "Replace the stale Get Started prompt cards with skill-backed content, and let the Tasks board start a task against a chosen specialist role or CLI lane."
+created: '2026-09-18T17:15:47.241Z'
+updated: '2026-09-18T17:15:47.241Z'
+description: 'Replace the stale Get Started prompt cards with skill-backed content, and let the Tasks board start a task against a chosen specialist role or CLI lane.'
 executor: frontend-developer
 estimate: M
 labels:

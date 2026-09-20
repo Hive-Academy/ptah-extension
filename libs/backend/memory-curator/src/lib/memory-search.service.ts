@@ -887,12 +887,7 @@ export class MemorySearchService implements IMemoryReader {
       }>;
     };
     try {
-      return executeFtsQueryPlan(
-        plan,
-        limit,
-        run,
-        (row) => row.memory_id,
-      );
+      return executeFtsQueryPlan(plan, limit, run, (row) => row.memory_id);
     } catch (err) {
       this.logger.warn('[memory-curator] mem:searchIndex bm25 failed', {
         error: err instanceof Error ? err.message : String(err),

@@ -12,23 +12,23 @@ assets they already wrote.
 
 Queried read-only against `~/.ptah/state/ptah.sqlite`.
 
-| Measure | Value |
-| --- | --- |
-| Candidates | 2,433 |
-| Promoted | 0 |
-| Suggestions accepted | 1 of 17 |
-| `skill_registry` rows with `clone_status='synth'` | 1 |
-| Candidates judged | 105 of 2,433 |
-| Candidates scoring at or above 6.0 | 44 |
-| Invocations of a synthesized skill | 0 |
-| Invocations of hand-authored assets | 2,790 |
+| Measure                                           | Value        |
+| ------------------------------------------------- | ------------ |
+| Candidates                                        | 2,433        |
+| Promoted                                          | 0            |
+| Suggestions accepted                              | 1 of 17      |
+| `skill_registry` rows with `clone_status='synth'` | 1            |
+| Candidates judged                                 | 105 of 2,433 |
+| Candidates scoring at or above 6.0                | 44           |
+| Invocations of a synthesized skill                | 0            |
+| Invocations of hand-authored assets               | 2,790        |
 
 Judge criterion means over the 105 scored rows:
 
-| Population | n | Composite | Generalization |
-| --- | --- | --- | --- |
-| Template fallback bodies | 60 | 2.93 | 1.33 |
-| Model-synthesized bodies | 45 | 7.28 | 6.96 |
+| Population               | n   | Composite | Generalization |
+| ------------------------ | --- | --------- | -------------- |
+| Template fallback bodies | 60  | 2.93      | 1.33           |
+| Model-synthesized bodies | 45  | 7.28      | 6.96           |
 
 ## The two root causes
 
@@ -96,14 +96,14 @@ part of this task, not a follow-up.
 
 Full detail in `.ptah/specs/TASK_2026_471_b3d1/forensics-memory-quality.md`.
 
-| Measure | Value |
-| --- | --- |
-| Memories | 36,252 |
-| Memory chunks | 38,952 |
-| Distinct subjects | 27,354 |
-| Subjects used exactly once | 23,723 (86.7 percent) |
-| Memories that ever received a merge | 620 (1.71 percent) |
-| Retrieval precision, four realistic queries | 4.5 relevant of 20 |
+| Measure                                     | Value                 |
+| ------------------------------------------- | --------------------- |
+| Memories                                    | 36,252                |
+| Memory chunks                               | 38,952                |
+| Distinct subjects                           | 27,354                |
+| Subjects used exactly once                  | 23,723 (86.7 percent) |
+| Memories that ever received a merge         | 620 (1.71 percent)    |
+| Retrieval precision, four realistic queries | 4.5 relevant of 20    |
 
 **Retrieval.** `fts-query.util.ts:35-37` joins every token with `OR` and removes
 only the four FTS5 keywords. The query "what did we decide about the judge

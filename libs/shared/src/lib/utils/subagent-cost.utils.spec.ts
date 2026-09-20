@@ -83,10 +83,7 @@ describe('subagent-cost.utils', () => {
     it('returns null when one nested node has an unknown cost', () => {
       const tree = makeNode('message', {
         cost: 1,
-        children: [
-          makeNode('agent', { cost: 2 }),
-          makeNode('tool'),
-        ],
+        children: [makeNode('agent', { cost: 2 }), makeNode('tool')],
       });
 
       expect(calculateTotalTreeCost(tree)).toBeNull();

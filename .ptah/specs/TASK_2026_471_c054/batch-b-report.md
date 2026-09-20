@@ -1,21 +1,21 @@
 ## Files changed
 
-| File | Created or modified | What it does now |
-| --- | --- | --- |
-| `libs/frontend/tasks-ui/src/lib/types/task-agent.types.ts` | Created | Defines `AgentCategory`, `TaskAgentTarget`, and the extended `TaskStartRequest` with optional `targetAgent`. |
-| `libs/frontend/tasks-ui/src/lib/services/task-agent-discovery.service.ts` | Created | Loads specialist roles and installed, enabled CLI lanes through the two existing RPC methods, caches the category-ordered roster, and falls back to Full Orchestrator on failure. |
-| `libs/frontend/tasks-ui/src/lib/services/task-agent-discovery.service.spec.ts` | Created | Covers roster mapping, installed-lane filtering, caching, resolved RPC failure, and rejected transport fallback. |
-| `libs/frontend/tasks-ui/src/lib/services/task-start.service.ts` | Modified | Accepts an optional target and constructs the exact orchestrator, specialist, or CLI-lane prompt while preserving the original no-target prompt. |
-| `libs/frontend/tasks-ui/src/lib/services/task-start.service.spec.ts` | Modified | Covers the exact specialist, lane, explicit-orchestrator, no-target, and isolation prompt behavior. |
-| `libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts` | Modified | Replaces the single Start control with a split action whose secondary button opens the category-grouped roster and emits the selected target. |
-| `libs/frontend/tasks-ui/src/lib/components/board/task-card.component.spec.ts` | Modified | Covers emitting a selected specialist target from the card assignment menu. |
-| `libs/frontend/tasks-ui/src/lib/components/board/task-column.component.ts` | Modified | Passes the discovered roster to every task card. |
-| `libs/frontend/tasks-ui/src/lib/components/board/task-board.component.ts` | Modified | Accepts and forwards the same roster used by list view. |
-| `libs/frontend/tasks-ui/src/lib/components/board/task-board.component.spec.ts` | Modified | Updates the roving-tabindex invariant for the split button's two added focusable elements. |
-| `libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts` | Modified | Adds an “Assign to agent…” submenu to each startable row's overflow menu and emits the selected target. |
-| `libs/frontend/tasks-ui/src/lib/components/board/task-list.component.spec.ts` | Modified | Covers emitting a selected CLI lane from the row assignment submenu. |
-| `libs/frontend/tasks-ui/src/lib/components/tasks-view.component.ts` | Modified | Loads the cached roster, supplies it to both interchangeable layouts, and passes the selected target into `TaskStartService`. |
-| `libs/frontend/tasks-ui/src/index.ts` | Modified | Exports the discovery service and new task-agent types. |
+| File                                                                           | Created or modified | What it does now                                                                                                                                                                  |
+| ------------------------------------------------------------------------------ | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `libs/frontend/tasks-ui/src/lib/types/task-agent.types.ts`                     | Created             | Defines `AgentCategory`, `TaskAgentTarget`, and the extended `TaskStartRequest` with optional `targetAgent`.                                                                      |
+| `libs/frontend/tasks-ui/src/lib/services/task-agent-discovery.service.ts`      | Created             | Loads specialist roles and installed, enabled CLI lanes through the two existing RPC methods, caches the category-ordered roster, and falls back to Full Orchestrator on failure. |
+| `libs/frontend/tasks-ui/src/lib/services/task-agent-discovery.service.spec.ts` | Created             | Covers roster mapping, installed-lane filtering, caching, resolved RPC failure, and rejected transport fallback.                                                                  |
+| `libs/frontend/tasks-ui/src/lib/services/task-start.service.ts`                | Modified            | Accepts an optional target and constructs the exact orchestrator, specialist, or CLI-lane prompt while preserving the original no-target prompt.                                  |
+| `libs/frontend/tasks-ui/src/lib/services/task-start.service.spec.ts`           | Modified            | Covers the exact specialist, lane, explicit-orchestrator, no-target, and isolation prompt behavior.                                                                               |
+| `libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts`       | Modified            | Replaces the single Start control with a split action whose secondary button opens the category-grouped roster and emits the selected target.                                     |
+| `libs/frontend/tasks-ui/src/lib/components/board/task-card.component.spec.ts`  | Modified            | Covers emitting a selected specialist target from the card assignment menu.                                                                                                       |
+| `libs/frontend/tasks-ui/src/lib/components/board/task-column.component.ts`     | Modified            | Passes the discovered roster to every task card.                                                                                                                                  |
+| `libs/frontend/tasks-ui/src/lib/components/board/task-board.component.ts`      | Modified            | Accepts and forwards the same roster used by list view.                                                                                                                           |
+| `libs/frontend/tasks-ui/src/lib/components/board/task-board.component.spec.ts` | Modified            | Updates the roving-tabindex invariant for the split button's two added focusable elements.                                                                                        |
+| `libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts`       | Modified            | Adds an “Assign to agent…” submenu to each startable row's overflow menu and emits the selected target.                                                                           |
+| `libs/frontend/tasks-ui/src/lib/components/board/task-list.component.spec.ts`  | Modified            | Covers emitting a selected CLI lane from the row assignment submenu.                                                                                                              |
+| `libs/frontend/tasks-ui/src/lib/components/tasks-view.component.ts`            | Modified            | Loads the cached roster, supplies it to both interchangeable layouts, and passes the selected target into `TaskStartService`.                                                     |
+| `libs/frontend/tasks-ui/src/index.ts`                                          | Modified            | Exports the discovery service and new task-agent types.                                                                                                                           |
 
 ## Prompt formats
 

@@ -1,8 +1,5 @@
 import 'reflect-metadata';
-import {
-  calculateMessageCost,
-  findModelPricing,
-} from '@ptah-extension/shared';
+import { calculateMessageCost, findModelPricing } from '@ptah-extension/shared';
 import { AssistantMessageTransformer } from './assistant-message.transformer';
 import type { TransformerState } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';

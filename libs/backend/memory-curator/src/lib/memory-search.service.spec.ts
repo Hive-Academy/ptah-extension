@@ -1036,11 +1036,7 @@ describe('MemorySearchService.searchIndex — empty query (pure-filter)', () => 
     expect(prepareMock.mock.calls[0]?.[0]).toContain(
       '604800000.0 + MAX(0, ? - m.last_used_at)',
     );
-    expect(allMock).toHaveBeenCalledWith(
-      '/ws',
-      expect.any(Number),
-      7,
-    );
+    expect(allMock).toHaveBeenCalledWith('/ws', expect.any(Number), 7);
   });
 });
 

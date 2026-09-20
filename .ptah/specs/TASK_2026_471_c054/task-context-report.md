@@ -104,13 +104,16 @@ Status: In Review · Type: FEATURE · Estimate: Medium
 Workflow documents present: Context, Implementation Plan, Batches, Code Logic Review. Furthest stage reached: Code Logic Review.
 
 ### Git
+
 Branch: feat/tasks-page-agent-assign.
 Working tree: dirty (16 changed files).
 
 ### Skills
-- agent-lanes — Contract for spawning, resuming and messaging background CLI agent lanes via the ptah_agent_* tools. Load before any ptah_agent_spawn, or when orchestration or tribunal refers here.
+
+- agent-lanes — Contract for spawning, resuming and messaging background CLI agent lanes via the ptah*agent*\* tools. Load before any ptah_agent_spawn, or when orchestration or tribunal refers here.
 
 ### Commands
+
 - review-code — Code quality review — Phase 1 of triple review protocol. Adapts to detected tech stack with best practices (40% weight).
 ```
 
@@ -127,7 +130,7 @@ Commands run in the foreground, from the worktree root.
 Run history, reported honestly:
 
 1. First test run FAILED: `Test Suites: 1 failed, 18 passed; Tests: 10
-   failed` — all in the new `task-prompt-context.service.spec.ts`. Two
+failed` — all in the new `task-prompt-context.service.spec.ts`. Two
    defects in the new spec, both mine: a one-token syntax error (a stray `)`
    in the `results` fixture closing — `});` where `};` belonged, which
    detached the tests from the describe), and one wrong expectation (the

@@ -129,8 +129,8 @@ Standalone, `ChangeDetectionStrategy.OnPush` on every component, signals +
    a COUNTER: the incoming instance's constructor runs before the outgoing
    instance's `onDestroy`, and a boolean would latch closed on a remount.
 10. **Start PREFILLS the composer and never sends, and the AGENT owns the
-   status transition.** `TaskStartService` publishes a `ChatPromptRequest`; the
-   user reviews the composer and presses send. It never writes task status —
-   the agent receiving the prompt sets it — and it makes no `tasks:updateMetadata`
-   call on launch. Do not restore either as a "missing feature"; the board
-   deliberately stopped owning task status (TASK_2026_471, Batch C).
+    status transition.** `TaskStartService` publishes a `ChatPromptRequest`; the
+    user reviews the composer and presses send. It never writes task status —
+    the agent receiving the prompt sets it — and it makes no `tasks:updateMetadata`
+    call on launch. Do not restore either as a "missing feature"; the board
+    deliberately stopped owning task status (TASK_2026_471, Batch C).

@@ -12,18 +12,18 @@ TypeSafe System One model (Jev) could replace with a typed judgment.
 Every LLM call site in the library (grep `laneRunner.run(` / `internalQuery.execute(` /
 `.judge(`, production files only):
 
-| # | Decision | Site | Answer shape | Cost |
-|---|---|---|---|---|
-| D1 | Is this session worth spending tokens on? | `skill-synthesis.service.ts:1129` (`passesPrefilter`) → `eligibility/session-work-evidence.ts:15` | boolean, **local** | 0 |
-| D2 | Did this session succeed, and what was the user actually after? | `archaeology/session-archaeologist.service.ts:383` | JSON verdict, `SESSION_VERDICT_JSON_SCHEMA` (`archaeology/session-verdict.types.ts:197`) | 1–N passes |
-| D3 | Draft a reusable skill from this trajectory | `skill-synthesizer.service.ts:179` | `{name, description, body}` (`skill-synthesizer.service.ts:68`) | 1 call |
-| D4 | Is this candidate a good skill? (5-criterion scorecard) | `skill-judge.service.ts:171` | `{novelty, actionability, scope, generalization, triggerClarity}` 1–10 (`skill-judge.service.ts:105`) | 1 call |
-| D5 | Second opinion + escalation tie-break | `gates/judge-panel.service.ts:262`, `:332`, `:512` | same scorecard shape ×2–3 | 1–3 calls |
-| D6 | Does the description actually get retrieved? | `gates/trigger-eval.service.ts:597` (probe generation only) | prompt set; scoring is **local embedder arithmetic** | 1 call |
-| D7 | Does the drafted skill reproduce a held-out session? | `gates/replay-validator.service.ts:423` (plan) + `:397` (comparator) | `{alignment: 0..1, rationale}` (`gates/replay-validator.service.ts:184`) | 2 calls |
-| D8 | Which promoted skills overlap or are stale? | `skill-curator.service.ts:288` | JSON **array** of `{type, skillIds, reason}` (`skill-curator.service.ts:127`), **no `outputSchema`** | 1 call |
-| D9 | Is this enhancement better than the current clone? | `skill-enhancer.service.ts:426` (judge) + `:832` (generation, raw `internalQuery`) | scorecard + body | 2 calls |
-| D10 | Sharpen a suggestion's trigger description | `digest/skill-gap-curator.service.ts` header §"the one LLM call" (opt-in, default off, lines 21–54) | JSON rewrite | 0–1 call |
+| #   | Decision                                                        | Site                                                                                                | Answer shape                                                                                          | Cost       |
+| --- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------- |
+| D1  | Is this session worth spending tokens on?                       | `skill-synthesis.service.ts:1129` (`passesPrefilter`) → `eligibility/session-work-evidence.ts:15`   | boolean, **local**                                                                                    | 0          |
+| D2  | Did this session succeed, and what was the user actually after? | `archaeology/session-archaeologist.service.ts:383`                                                  | JSON verdict, `SESSION_VERDICT_JSON_SCHEMA` (`archaeology/session-verdict.types.ts:197`)              | 1–N passes |
+| D3  | Draft a reusable skill from this trajectory                     | `skill-synthesizer.service.ts:179`                                                                  | `{name, description, body}` (`skill-synthesizer.service.ts:68`)                                       | 1 call     |
+| D4  | Is this candidate a good skill? (5-criterion scorecard)         | `skill-judge.service.ts:171`                                                                        | `{novelty, actionability, scope, generalization, triggerClarity}` 1–10 (`skill-judge.service.ts:105`) | 1 call     |
+| D5  | Second opinion + escalation tie-break                           | `gates/judge-panel.service.ts:262`, `:332`, `:512`                                                  | same scorecard shape ×2–3                                                                             | 1–3 calls  |
+| D6  | Does the description actually get retrieved?                    | `gates/trigger-eval.service.ts:597` (probe generation only)                                         | prompt set; scoring is **local embedder arithmetic**                                                  | 1 call     |
+| D7  | Does the drafted skill reproduce a held-out session?            | `gates/replay-validator.service.ts:423` (plan) + `:397` (comparator)                                | `{alignment: 0..1, rationale}` (`gates/replay-validator.service.ts:184`)                              | 2 calls    |
+| D8  | Which promoted skills overlap or are stale?                     | `skill-curator.service.ts:288`                                                                      | JSON **array** of `{type, skillIds, reason}` (`skill-curator.service.ts:127`), **no `outputSchema`**  | 1 call     |
+| D9  | Is this enhancement better than the current clone?              | `skill-enhancer.service.ts:426` (judge) + `:832` (generation, raw `internalQuery`)                  | scorecard + body                                                                                      | 2 calls    |
+| D10 | Sharpen a suggestion's trigger description                      | `digest/skill-gap-curator.service.ts` header §"the one LLM call" (opt-in, default off, lines 21–54) | JSON rewrite                                                                                          | 0–1 call   |
 
 Two decisions are already deliberately NOT model calls and are the design
 precedent a Jev proposal has to respect: D1 (evidence-only prefilter) and D6's
@@ -74,7 +74,7 @@ anything.
   scorecard is rejected (`skill-judge.service.ts:332-342`, `:354-359`). The
   composite is a plain mean (`:345-351`).
 - **The service reports a status and never decides**: `scored | unscored |
-  disabled` (`skill-judge.service.ts:83-90`), with four distinct reason tokens for
+disabled` (`skill-judge.service.ts:83-90`), with four distinct reason tokens for
   the failure modes (`:70-81`). `score: 10` appears nowhere — the three former
   fail-open sites now return `unscored` (`:186`, `:217`, `:227`).
 - Thresholding is the caller's, three different policies:
@@ -159,8 +159,9 @@ would need the same window-serving loop (`archaeology/transcript-window.reader.t
 ## 6. D7 and D6 — the two gates that produce numbers
 
 **Replay** (`gates/replay-validator.service.ts`):
+
 - Two calls: a plan, then a comparator constrained to `{alignment: 0..1,
-  rationale}` (`:184-190`, rubric `:221-228`, call sites `:387-407`).
+rationale}` (`:184-190`, rubric `:221-228`, call sites `:387-407`).
 - Plan-only containment: `cwd: os.homedir()`, `maxTurns: 1` (`:429-430`).
 - `null` confidence ≠ `0`: a `null` hold-out yields a `null` confidence (`:16`),
   and no hold-out means no write at all (`:466`, `:513`, `:555`).
@@ -170,6 +171,7 @@ would need the same window-serving loop (`archaeology/transcript-window.reader.t
   purpose (`:459-464`).
 
 **Trigger-eval** (`gates/trigger-eval.service.ts`):
+
 - The library's one MEASURING gate — it exists to replace the judge's
   `triggerClarity` opinion with a number (`:1-15`).
 - Exactly one lane call, for probe generation; everything after is local embedder
@@ -190,7 +192,7 @@ probe-generation side or it re-creates the second judge the gate replaced.
 ## 7. D8 — the curator overlap pass: the weakest-typed call in the library
 
 - Free-text prompt, findings shaped `{type: 'overlap'|'stale', skillIds[],
-  reason}` (`skill-curator.service.ts:127-131`, prompt `:273-284`).
+reason}` (`skill-curator.service.ts:127-131`, prompt `:273-284`).
 - **No `outputSchema` is requested, deliberately**: the answer is a JSON ARRAY and
   the runner's structured-output ladder resolves objects only, so asking for a
   schema would turn every successful array answer into a

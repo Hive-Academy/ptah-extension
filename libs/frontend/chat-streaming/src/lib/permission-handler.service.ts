@@ -61,6 +61,14 @@ export class PermissionHandlerService {
   private readonly _promptTargetTabs = new Map<string, readonly string[]>();
 
   /**
+   * Reactive invalidation seam for routing metadata stored in the two maps.
+   * Consumers read this signal inside their computed projection before calling
+   * `targetTabsFor` / `questionTargetTabsFor`.
+   */
+  private readonly _routingTargetRevision = signal(0);
+  readonly routingTargetRevision = this._routingTargetRevision.asReadonly();
+
+  /**
    * Decision broadcast.
    *
    * Bumps every time a permission decision is processed. Carries the
@@ -140,6 +148,12 @@ export class PermissionHandlerService {
         this._questionRequests.update((reqs) =>
           reqs.filter((r) => r.timeoutAt <= 0 || r.timeoutAt > now),
         );
+        let targetsChanged = false;
+        for (const id of expiredIds) {
+          targetsChanged =
+            this._questionTargetTabs.delete(id) || targetsChanged;
+        }
+        if (targetsChanged) this.bumpRoutingTargetRevision();
       }
     });
   }
@@ -314,7 +328,9 @@ export class PermissionHandlerService {
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.id !== payload.id),
     );
-    this._promptTargetTabs.delete(payload.id);
+    if (this._promptTargetTabs.delete(payload.id)) {
+      this.bumpRoutingTargetRevision();
+    }
   }
 
   /**
@@ -332,6 +348,7 @@ export class PermissionHandlerService {
   attachPromptTargets(promptId: string, tabIds: readonly string[]): void {
     if (!tabIds || tabIds.length === 0) return;
     this._promptTargetTabs.set(promptId, [...tabIds]);
+    this.bumpRoutingTargetRevision();
   }
 
   /**
@@ -376,7 +393,9 @@ export class PermissionHandlerService {
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.id !== promptId),
     );
-    this._promptTargetTabs.delete(promptId);
+    if (this._promptTargetTabs.delete(promptId)) {
+      this.bumpRoutingTargetRevision();
+    }
   }
 
   /**
@@ -411,7 +430,9 @@ export class PermissionHandlerService {
       promptId: response.id,
       decidingTabId,
     });
-    this._promptTargetTabs.delete(response.id);
+    if (this._promptTargetTabs.delete(response.id)) {
+      this.bumpRoutingTargetRevision();
+    }
     this.vscodeService.postMessage({
       type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
       response,
@@ -518,7 +539,9 @@ export class PermissionHandlerService {
       requests.filter((r) => r.id !== response.id),
     );
 
-    this._questionTargetTabs.delete(response.id);
+    if (this._questionTargetTabs.delete(response.id)) {
+      this.bumpRoutingTargetRevision();
+    }
     this.vscodeService.postMessage({
       type: MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE,
       payload: response,
@@ -541,7 +564,7 @@ export class PermissionHandlerService {
       return;
     }
     this._questionTargetTabs.set(questionId, [...tabIds]);
-    this._questionRequests.update((reqs) => reqs.slice());
+    this.bumpRoutingTargetRevision();
   }
 
   /**
@@ -584,7 +607,9 @@ export class PermissionHandlerService {
    * a no-op.
    */
   clearQuestionTargets(questionId: string): void {
-    this._questionTargetTabs.delete(questionId);
+    if (this._questionTargetTabs.delete(questionId)) {
+      this.bumpRoutingTargetRevision();
+    }
   }
 
   /**
@@ -601,7 +626,9 @@ export class PermissionHandlerService {
     this._questionRequests.update((requests) =>
       requests.filter((r) => r.id !== questionId),
     );
-    this._questionTargetTabs.delete(questionId);
+    if (this._questionTargetTabs.delete(questionId)) {
+      this.bumpRoutingTargetRevision();
+    }
   }
 
   /**
@@ -616,7 +643,9 @@ export class PermissionHandlerService {
     this._questionRequests.update((requests) =>
       requests.filter((r) => r.id !== questionId),
     );
-    this._questionTargetTabs.delete(questionId);
+    if (this._questionTargetTabs.delete(questionId)) {
+      this.bumpRoutingTargetRevision();
+    }
   }
 
   /**
@@ -670,11 +699,19 @@ export class PermissionHandlerService {
       requests.filter((r) => !owns(r)),
     );
 
+    let routingTargetsChanged = false;
     for (const id of removedIds) {
-      this._promptTargetTabs.delete(id);
+      routingTargetsChanged =
+        this._promptTargetTabs.delete(id) || routingTargetsChanged;
     }
     for (const id of removedQuestionIds) {
-      this._questionTargetTabs.delete(id);
+      routingTargetsChanged =
+        this._questionTargetTabs.delete(id) || routingTargetsChanged;
     }
+    if (routingTargetsChanged) this.bumpRoutingTargetRevision();
+  }
+
+  private bumpRoutingTargetRevision(): void {
+    this._routingTargetRevision.update((revision) => revision + 1);
   }
 }

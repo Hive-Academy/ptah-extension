@@ -154,7 +154,7 @@ diff -- libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.
 -      expect(stats.totalCost).toBe(1.25);
 +      expect(stats.totalCost).toBeNull();
      });
- 
+
 -    it('uses turn cost as new total when prev was null', () => {
 +    it('does not resurrect a null total when a later turn has known cost', () => {
 @@

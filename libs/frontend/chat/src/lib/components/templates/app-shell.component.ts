@@ -66,7 +66,10 @@ import {
   MARKETPLACE_COMPONENT,
   TRIBUNAL_COMPONENT,
   TASKS_VIEW_COMPONENT,
+  NOTIFICATION_FOCUS_ROUTER,
 } from '@ptah-extension/core';
+import { NotificationCenterComponent } from '@ptah-extension/notification-center';
+import { NotificationFocusCoordinator } from '../../services/notification-focus-coordinator.service';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import type { ViewType } from '@ptah-extension/core';
 import type { TitleOrigin } from '@ptah-extension/chat-types';
@@ -117,6 +120,13 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
     SkeletonBlockComponent,
     DashboardGridComponent,
     ThothShellComponent,
+    NotificationCenterComponent,
+  ],
+  providers: [
+    {
+      provide: NOTIFICATION_FOCUS_ROUTER,
+      useExisting: NotificationFocusCoordinator,
+    },
   ],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,

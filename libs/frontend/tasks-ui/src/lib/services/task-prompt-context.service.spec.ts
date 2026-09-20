@@ -16,7 +16,11 @@ import {
 import { TaskPromptContextService } from './task-prompt-context.service';
 
 const ok = <T>(data: T) => ({ success: true, isSuccess: () => true, data });
-const err = (error: string) => ({ success: false, isSuccess: () => false, error });
+const err = (error: string) => ({
+  success: false,
+  isSuccess: () => false,
+  error,
+});
 
 describe('TaskPromptContextService', () => {
   let service: TaskPromptContextService;
@@ -26,7 +30,9 @@ describe('TaskPromptContextService', () => {
 
   beforeEach(() => {
     rpcCall = jest.fn((method: string) =>
-      Promise.resolve(method in results ? results[method] : err('unhandled method')),
+      Promise.resolve(
+        method in results ? results[method] : err('unhandled method'),
+      ),
     );
 
     TestBed.configureTestingModule({
@@ -39,7 +45,11 @@ describe('TaskPromptContextService', () => {
         {
           provide: AppStateManager,
           useValue: {
-            workspaceInfo: signal({ path: 'D:/ws', name: 'ws', type: 'workspace' }),
+            workspaceInfo: signal({
+              path: 'D:/ws',
+              name: 'ws',
+              type: 'workspace',
+            }),
           },
         },
       ],
@@ -73,9 +83,24 @@ describe('TaskPromptContextService', () => {
       }),
       'autocomplete:commands': ok({
         commands: [
-          { name: 'compact', description: 'Host builtin', scope: 'builtin', source: 'builtin' },
-          { name: 'agent-lanes', description: 'Delegate work to CLI lanes', scope: 'plugin', source: 'skill' },
-          { name: 'review-code', description: 'Review changed code', scope: 'project', source: 'command' },
+          {
+            name: 'compact',
+            description: 'Host builtin',
+            scope: 'builtin',
+            source: 'builtin',
+          },
+          {
+            name: 'agent-lanes',
+            description: 'Delegate work to CLI lanes',
+            scope: 'plugin',
+            source: 'skill',
+          },
+          {
+            name: 'review-code',
+            description: 'Review changed code',
+            scope: 'project',
+            source: 'command',
+          },
         ] as AutocompleteCommandInfo[],
       }),
     };
@@ -93,7 +118,9 @@ describe('TaskPromptContextService', () => {
     expect(block).toContain('### Git');
     expect(block).toContain('Branch: feat/x.');
     expect(block).toContain('Working tree: clean.');
-    expect(block).toContain('Worktree for this task: D:/wt/TASK_2026_300 (branch feat/other)');
+    expect(block).toContain(
+      'Worktree for this task: D:/wt/TASK_2026_300 (branch feat/other)',
+    );
     expect(block).toContain('### Skills');
     expect(block).toContain('- agent-lanes — Delegate work to CLI lanes');
     expect(block).toContain('### Commands');
@@ -220,7 +247,10 @@ describe('TaskPromptContextService', () => {
 
     expect(rpcCall).toHaveBeenCalledWith(
       'tasks:get',
-      expect.objectContaining({ taskId: 'TASK_2026_300', workspaceRoot: 'D:/ws' }),
+      expect.objectContaining({
+        taskId: 'TASK_2026_300',
+        workspaceRoot: 'D:/ws',
+      }),
     );
     expect(rpcCall).toHaveBeenCalledWith(
       'git:info',

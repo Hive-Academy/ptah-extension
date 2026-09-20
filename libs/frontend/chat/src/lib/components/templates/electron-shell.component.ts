@@ -44,6 +44,7 @@ import {
   ElectronLayoutService,
   VSCodeService,
   AppStateManager,
+  NOTIFICATION_FOCUS_ROUTER,
 } from '@ptah-extension/core';
 import { AppShellComponent } from './app-shell.component';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
@@ -53,6 +54,8 @@ import {
   ElectronResizeHandleComponent,
   ThemeToggleComponent,
 } from '@ptah-extension/chat-ui';
+import { NotificationCenterComponent } from '@ptah-extension/notification-center';
+import { NotificationFocusCoordinator } from '../../services/notification-focus-coordinator.service';
 
 @Component({
   selector: 'ptah-electron-shell',
@@ -66,6 +69,13 @@ import {
     NgComponentOutlet,
     ThemeToggleComponent,
     LucideAngularModule,
+    NotificationCenterComponent,
+  ],
+  providers: [
+    {
+      provide: NOTIFICATION_FOCUS_ROUTER,
+      useExisting: NotificationFocusCoordinator,
+    },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
@@ -213,6 +223,7 @@ import {
         <div class="flex items-center gap-0.5 no-drag">
           <!-- Theme toggle (always available) -->
           <ptah-theme-toggle />
+          <ptah-notification-center />
         </div>
       </div>
 

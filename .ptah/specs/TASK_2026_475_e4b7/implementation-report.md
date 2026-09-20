@@ -1,6 +1,7 @@
 # TASK_2026_475_e4b7 Implementation Report: Fix Pricing Lookup Substring Matching
 
 ## Overview
+
 Fixed the pricing lookup defect in `lookupPricingEntry` (`libs/shared/src/lib/utils/pricing.utils.ts`), where bidirectional substring matching allowed distinct model variants like `gpt-5.3-codex` to match shorter registered keys like `gpt-5`, silently billing at another model's rates without triggering the unknown-model warning.
 
 ---
@@ -8,17 +9,22 @@ Fixed the pricing lookup defect in `lookupPricingEntry` (`libs/shared/src/lib/ut
 ## 1. Forward-Direction Rule & Model ID Survey
 
 ### The Defect
+
 Previously:
+
 ```typescript
 for (const [key, pricing] of Object.entries(modelPricingMap)) {
   if (normalizedId.includes(key.toLowerCase())) return pricing;
   if (key.toLowerCase().includes(normalizedId)) return pricing;
 }
 ```
+
 If `gpt-5` was in the pricing map, `gpt-5.3-codex` satisfied `normalizedId.includes('gpt-5')`. A naive segment boundary rule (splitting on `.`, `-`, `/`) also failed because `gpt-5.3-codex` starts with `gpt-5` followed by `.`, which is a segment boundary.
 
 ### Model ID Survey
+
 The following model IDs and patterns were surveyed across `DEFAULT_MODEL_PRICING` and `libs/shared/src/lib/providers/entries/`:
+
 - **`DEFAULT_MODEL_PRICING`**: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-4`, `gpt-3.5-turbo`, `local`, `:cloud`
 - **`claude-cli-provider-entry.ts`**: `claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5`
 - **`codex-provider-entry.ts`**: `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.1-codex-max`, `gpt-5.1-codex-mini`
@@ -29,11 +35,15 @@ The following model IDs and patterns were surveyed across `DEFAULT_MODEL_PRICING
 - **`pricing.utils.ts` / `formatClaudeModelDisplayName`**: `gpt-4o-2024-08-06`, `claude-opus-4-5-20251101`, stripping `/-\d{8}$/` and `/-\d{4}-\d{2}-\d{2}$/`
 
 ### The Rule
+
 A forward partial match is accepted **only** when the remainder of the model identifier (after stripping any provider prefix) matches a date-snapshot suffix:
+
 ```typescript
 const DATE_SNAPSHOT_SUFFIX = /^-(?:\d{4}-\d{2}-\d{2}|\d{8})$/;
 ```
+
 This handles:
+
 - ISO-8601 date snapshots: `-YYYY-MM-DD` (e.g. `gpt-4o-2024-08-06` -> `gpt-4o`)
 - Compact date snapshots: `-YYYYMMDD` (e.g. `claude-opus-4-5-20251101` -> `claude-opus-4-5`, `claude-sonnet-4-20250514` -> `claude-sonnet-4`, `fugu-ultra-20260615` -> `fugu-ultra`)
 - Rejects non-date suffixes: `gpt-5.3-codex` leaves remainder `.3-codex` (against `gpt-5`) or `-codex` (against `gpt-5.3`), neither of which matches `DATE_SNAPSHOT_SUFFIX`.
@@ -44,7 +54,9 @@ This handles:
 ## 2. Reverse-Direction Match Decision
 
 ### Decision: REMOVED
+
 The reverse direction (`key.toLowerCase().includes(normalizedId)`) was removed:
+
 - **Search findings**: No caller in the entire repository depends on reverse substring matching. Its only trace was a test in `pricing.utils.spec.ts:132` (`'supermodel'` resolving to `'supermodel-2099-final-edition'`).
 - **Rationale**: Reverse substring matching is unsafe and conceptually flawed. Querying a general or shorthand model ID like `supermodel` or `gpt-5` should never silently resolve to an arbitrary specialized or future edition like `supermodel-2099-final-edition` or `gpt-5.3-codex`. That would charge the user at potentially wildly divergent rates without warning.
 - **Spec update**: Updated `pricing.utils.spec.ts` to assert that `findModelPricing('supermodel')` returns `null`.
@@ -54,20 +66,21 @@ The reverse direction (`key.toLowerCase().includes(normalizedId)`) was removed:
 ## 3. Unknown-Model Warning
 
 `findModelPricing` maintains `warnedModelIds: Set<string>`:
+
 ```typescript
-  const found = lookupPricingEntry(modelId);
-  if (found) {
-    return found;
-  }
-  if (!warnedModelIds.has(modelId)) {
-    warnedModelIds.add(modelId);
-    console.warn(
-      `[Pricing] Model '${modelId}' not found in pricing map — cost will render as unavailable`,
-    );
-  }
-  return null;
+const found = lookupPricingEntry(modelId);
+if (found) {
+  return found;
+}
+if (!warnedModelIds.has(modelId)) {
+  warnedModelIds.add(modelId);
+  console.warn(`[Pricing] Model '${modelId}' not found in pricing map — cost will render as unavailable`);
+}
+return null;
 ```
+
 When `gpt-5.3-codex` is queried and only `gpt-5` is registered:
+
 1. `lookupPricingEntry('gpt-5.3-codex')` returns `null`.
 2. `warnedModelIds.has('gpt-5.3-codex')` is false.
 3. It emits the `[Pricing] Model 'gpt-5.3-codex' not found in pricing map — cost will render as unavailable` warning once.
@@ -113,13 +126,13 @@ Audited all callers of `findModelPricing` and `calculateMessageCost`:
 
 ## 5. Acceptance Criteria Checklist
 
-| Criterion | Description | Status |
-|-----------|-------------|--------|
-| 1 | `gpt-5.3-codex` returns null when only `gpt-5` is registered | PASS |
-| 2 | `gpt-4o-2024-08-06` still resolves to `gpt-4o` | PASS |
-| 3 | Reverse-direction match is either justified in comment or removed, with test updated | PASS (Removed & test updated) |
-| 4 | Newly unresolvable ID emits unknown-model warning | PASS |
-| 5 | Test, typecheck, and lint pass for every touched project | PASS (Verified below) |
+| Criterion | Description                                                                          | Status                        |
+| --------- | ------------------------------------------------------------------------------------ | ----------------------------- |
+| 1         | `gpt-5.3-codex` returns null when only `gpt-5` is registered                         | PASS                          |
+| 2         | `gpt-4o-2024-08-06` still resolves to `gpt-4o`                                       | PASS                          |
+| 3         | Reverse-direction match is either justified in comment or removed, with test updated | PASS (Removed & test updated) |
+| 4         | Newly unresolvable ID emits unknown-model warning                                    | PASS                          |
+| 5         | Test, typecheck, and lint pass for every touched project                             | PASS (Verified below)         |
 
 ---
 

@@ -33,7 +33,11 @@ async function flush(times = 16): Promise<void> {
 }
 
 const ok = <T>(data: T) => ({ success: true, isSuccess: () => true, data });
-const err = (error: string) => ({ success: false, isSuccess: () => false, error });
+const err = (error: string) => ({
+  success: false,
+  isSuccess: () => false,
+  error,
+});
 
 describe('TaskStartService', () => {
   let service: TaskStartService;
@@ -63,7 +67,11 @@ describe('TaskStartService', () => {
           provide: AppStateManager,
           useValue: {
             requestChatPrompt,
-            workspaceInfo: signal({ path: 'D:/ws', name: 'ws', type: 'workspace' }),
+            workspaceInfo: signal({
+              path: 'D:/ws',
+              name: 'ws',
+              type: 'workspace',
+            }),
           },
         },
         // The service no longer injects TasksStore. The stub stays PURELY as a
@@ -80,8 +88,14 @@ describe('TaskStartService', () => {
     await flush();
 
     // F-D1: no host-side worktree RPC, and no metadata write either.
-    expect(rpcCall).not.toHaveBeenCalledWith('git:addWorktree', expect.anything());
-    expect(rpcCall).not.toHaveBeenCalledWith('tasks:updateMetadata', expect.anything());
+    expect(rpcCall).not.toHaveBeenCalledWith(
+      'git:addWorktree',
+      expect.anything(),
+    );
+    expect(rpcCall).not.toHaveBeenCalledWith(
+      'tasks:updateMetadata',
+      expect.anything(),
+    );
     expect(requestChatPrompt).toHaveBeenCalledTimes(1);
     expect(lastPromptRequest?.prompt).toBe('/orchestrate TASK_2026_200');
     expect(lastPromptRequest?.prompt).not.toContain(ISOLATION_HINT);
@@ -100,7 +114,10 @@ describe('TaskStartService', () => {
     await flush();
 
     // The whole point of F-D1: no host-created worktree, no git write.
-    expect(rpcCall).not.toHaveBeenCalledWith('git:addWorktree', expect.anything());
+    expect(rpcCall).not.toHaveBeenCalledWith(
+      'git:addWorktree',
+      expect.anything(),
+    );
     expect(requestChatPrompt).toHaveBeenCalledTimes(1);
     expect(lastPromptRequest?.prompt).toContain('/orchestrate TASK_2026_201');
     expect(lastPromptRequest?.prompt).toContain(ISOLATION_HINT);
@@ -184,7 +201,12 @@ describe('TaskStartService', () => {
         case 'git:info':
           return Promise.resolve(
             ok({
-              branch: { branch: 'feat/tasks-page-agent-assign', upstream: null, ahead: 0, behind: 0 },
+              branch: {
+                branch: 'feat/tasks-page-agent-assign',
+                upstream: null,
+                ahead: 0,
+                behind: 0,
+              },
               files: [],
               isGitRepo: true,
             }),
@@ -207,9 +229,24 @@ describe('TaskStartService', () => {
           return Promise.resolve(
             ok({
               commands: [
-                { name: 'compact', description: 'Host builtin', scope: 'builtin', source: 'builtin' },
-                { name: 'agent-lanes', description: 'Delegate work to CLI lanes', scope: 'plugin', source: 'skill' },
-                { name: 'review-code', description: 'Review changed code', scope: 'project', source: 'command' },
+                {
+                  name: 'compact',
+                  description: 'Host builtin',
+                  scope: 'builtin',
+                  source: 'builtin',
+                },
+                {
+                  name: 'agent-lanes',
+                  description: 'Delegate work to CLI lanes',
+                  scope: 'plugin',
+                  source: 'skill',
+                },
+                {
+                  name: 'review-code',
+                  description: 'Review changed code',
+                  scope: 'project',
+                  source: 'command',
+                },
               ],
             }),
           );

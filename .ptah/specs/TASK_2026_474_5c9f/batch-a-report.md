@@ -84,7 +84,7 @@ diff --git a/libs/backend/agent-sdk/src/lib/helpers/history/session-replay.servi
 +    subscriptionCovered: false;
 +  };
  }
- 
+
  function stubModelResolver(): ModelResolverLike {
    return {
 -    resolveForPricing: jest.fn((m: string) => m || 'unknown'),

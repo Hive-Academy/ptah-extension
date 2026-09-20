@@ -9,11 +9,11 @@ file-disjoint and run in parallel in the same worktree.
 
 ## Batch 0 — registry DI fix (DONE, uncommitted on the branch)
 
-| File | Change |
-| --- | --- |
-| `libs/backend/task-specs/src/lib/registry-generator.service.ts` | `@inject(TASK_SPECS_TOKENS.TASK_SCANNER)` on the scanner parameter |
-| `libs/backend/task-specs/src/lib/task-doctor.service.ts` | `@inject(TASK_SPECS_TOKENS.TASK_WRITER)` on the writer parameter |
-| `libs/backend/task-specs/src/lib/registry-generator.service.spec.ts` | Regression test asserting the token metadata |
+| File                                                                 | Change                                                             |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `libs/backend/task-specs/src/lib/registry-generator.service.ts`      | `@inject(TASK_SPECS_TOKENS.TASK_SCANNER)` on the scanner parameter |
+| `libs/backend/task-specs/src/lib/task-doctor.service.ts`             | `@inject(TASK_SPECS_TOKENS.TASK_WRITER)` on the writer parameter   |
+| `libs/backend/task-specs/src/lib/registry-generator.service.spec.ts` | Regression test asserting the token metadata                       |
 
 Verified: 517 tests pass, lint and typecheck pass.
 

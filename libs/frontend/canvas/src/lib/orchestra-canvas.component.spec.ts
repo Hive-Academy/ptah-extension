@@ -79,6 +79,7 @@ import {
   BackOfficeActivityService,
   type ActivityItem,
   type CanvasSessionRequest,
+  type CanvasFocusRequest,
   type CanvasTabRequest,
 } from '@ptah-extension/core';
 
@@ -137,6 +138,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   let persistenceFlushMock: jest.Mock;
   let canvasSessionRequests$: WritableSignal<readonly CanvasSessionRequest[]>;
   let takeCanvasSessionRequestsMock: jest.Mock;
+  let canvasFocusRequests$: WritableSignal<readonly CanvasFocusRequest[]>;
   let canvasTabRequest$: ReturnType<typeof signal<CanvasTabRequest | null>>;
   let clearCanvasTabRequestMock: jest.Mock;
   let switchSessionMock: jest.Mock;
@@ -171,6 +173,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     hydrateWorkspaceMock = jest.fn();
     persistenceFlushMock = jest.fn();
     canvasSessionRequests$ = signal<readonly CanvasSessionRequest[]>([]);
+    canvasFocusRequests$ = signal<readonly CanvasFocusRequest[]>([]);
     takeCanvasSessionRequestsMock = jest.fn(() => {
       const requests = canvasSessionRequests$();
       if (requests.length > 0) {
@@ -188,6 +191,16 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       removedWorkspace$,
       closedTab: closedTab$,
       forceCloseTab: forceCloseTabMock,
+      findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
+        const tab = tabsSignal().find((candidate) => candidate.id === tabId);
+        return tab ? { tab, workspacePath: '/ws' } : null;
+      }),
+      findTabBySessionIdAcrossWorkspaces: jest.fn((sessionId: string) => {
+        const tab = tabsSignal().find(
+          (candidate) => candidate.claudeSessionId === sessionId,
+        );
+        return tab ? { tab, workspacePath: '/ws' } : null;
+      }),
     } as unknown as TabManagerService;
 
     canvasStoreMock = {
@@ -239,6 +252,18 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     const appStateMock = {
       canvasSessionRequests: canvasSessionRequests$,
       takeCanvasSessionRequests: takeCanvasSessionRequestsMock,
+      canvasFocusRequests: canvasFocusRequests$,
+      takeCanvasFocusRequests: jest.fn((workspacePath: string) => {
+        const matching = canvasFocusRequests$().filter(
+          (request) => request.target.workspacePath === workspacePath,
+        );
+        canvasFocusRequests$.set(
+          canvasFocusRequests$().filter(
+            (request) => request.target.workspacePath !== workspacePath,
+          ),
+        );
+        return matching;
+      }),
       newCanvasSessionRequest: signal<string | null>(null),
       canvasTabRequest: canvasTabRequest$,
       clearNewCanvasSessionRequest: jest.fn(),
@@ -458,6 +483,42 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     consoleError.mockRestore();
   });
 
+  it('acknowledges cap-reached without loading when notification focus cannot adopt', async () => {
+    const resolve = jest.fn();
+    tabsSignal.set([
+      { id: 'tab-cap', claudeSessionId: 'session-cap', name: 'capped' },
+    ]);
+    (
+      canvasStoreMock.activeWorkspacePath as unknown as WritableSignal<
+        string | null
+      >
+    ).set('/ws');
+    (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue(null);
+    const fixture = mount();
+
+    canvasFocusRequests$.set([
+      {
+        id: 1,
+        target: {
+          workspacePath: '/ws',
+          tabId: 'tab-cap',
+          sessionId: 'session-cap',
+        },
+        resolve,
+      },
+    ]);
+    flush();
+    fixture.detectChanges();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(resolve).toHaveBeenCalledWith({
+      success: false,
+      outcome: 'cap-reached',
+    });
+    expect(switchSessionMock).not.toHaveBeenCalled();
+  });
+
   it('hydrates exact existing tab ids without opening or loading sessions', () => {
     tabsSignal.set([
       { id: 'tab-1', claudeSessionId: 'session-1', name: 'one' },
@@ -591,6 +652,8 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
     const appStateMock = {
       canvasSessionRequests: signal<readonly CanvasSessionRequest[]>([]),
       takeCanvasSessionRequests: jest.fn(() => []),
+      canvasFocusRequests: signal<readonly CanvasFocusRequest[]>([]),
+      takeCanvasFocusRequests: jest.fn(() => []),
       newCanvasSessionRequest: signal<string | null>(null),
       canvasTabRequest: signal<CanvasTabRequest | null>(null),
       clearNewCanvasSessionRequest: jest.fn(),
@@ -776,6 +839,8 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
     const appStateMock = {
       canvasSessionRequests: signal<readonly CanvasSessionRequest[]>([]),
       takeCanvasSessionRequests: jest.fn(() => []),
+      canvasFocusRequests: signal<readonly CanvasFocusRequest[]>([]),
+      takeCanvasFocusRequests: jest.fn(() => []),
       newCanvasSessionRequest: signal(null),
       canvasTabRequest: signal(null),
       clearNewCanvasSessionRequest: jest.fn(),

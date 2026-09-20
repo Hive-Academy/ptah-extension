@@ -9,6 +9,7 @@
 ## 1. Executive Summary
 
 CI job "main" on PR #535 was failing at the branch coverage gate:
+
 ```
 Jest: Coverage for branches (39.92%) does not meet "global" threshold (50%)
 ```
@@ -16,6 +17,7 @@ Jest: Coverage for branches (39.92%) does not meet "global" threshold (50%)
 This occurred because `compact-session-activity.component.spec.ts` had been introduced with only a single test pinning the $0.0000 zero-cost agent badge bugfix, which pulled `compact-session-activity.component.ts` (228 total branches) into coverage measurement for the first time. With 199 of those 228 branches uncovered, the total branch coverage dropped from 55.43% (423/763) down to 39.92% (452/1132).
 
 By adding real, behavior-driven unit tests across all branch decision points of `CompactSessionActivityComponent`:
+
 - `compact-session-activity.component.ts` branch coverage increased from **12.71% (29/228)** to **86.84% (198/228)** (+169 branches covered).
 - `@ptah-extension/chat-ui` overall branch coverage increased from **39.92% (452/1132)** to **56.27% (637/1132)** (+185 branches covered), clearing the 50% global threshold with an 6.27% buffer.
 - Statements: **70.80%** (1368/1932, threshold 50%).
@@ -27,15 +29,16 @@ By adding real, behavior-driven unit tests across all branch decision points of 
 
 ## 2. Root Cause Analysis
 
-| State | Covered Branches | Total Branches | Branch Coverage % | Gate Status |
-|---|---|---|---|---|
-| Before PR #535 (main) | 423 | 763 | 55.43% | PASS |
-| PR #535 Baseline (1 test) | 452 | 1132 | 39.92% | FAIL (<50%) |
-| After Fix (Comprehensive spec) | 637 | 1132 | 56.27% | **PASS** (>=50%) |
+| State                          | Covered Branches | Total Branches | Branch Coverage % | Gate Status      |
+| ------------------------------ | ---------------- | -------------- | ----------------- | ---------------- |
+| Before PR #535 (main)          | 423              | 763            | 55.43%            | PASS             |
+| PR #535 Baseline (1 test)      | 452              | 1132           | 39.92%            | FAIL (<50%)      |
+| After Fix (Comprehensive spec) | 637              | 1132           | 56.27%            | **PASS** (>=50%) |
 
 The denominator grew by +369 because Jest collects coverage only from files executed by tests. Adding `compact-session-activity.component.spec.ts` pulled `compact-session-activity.component.ts` and its dependency tree into coverage for the first time.
 
 The file held 199 uncovered branches across:
+
 1. Agent entry status variants (`running`, `error`, `complete`), description rendering, tool count singular vs plural, and stats badges (tokens, duration, cost).
 2. Cost badge rendering: distinction between `0` (renders `$0.0000`), positive numbers (renders formatted value), and `null`/`undefined` (no badge).
 3. Tool grouping and collapse logic: threshold (6 tools) vs preview (5 tools), expand/collapse toggles, singular/plural "more tools", and error counts.
@@ -102,12 +105,14 @@ Ran all test suites.
 ### Coverage Numbers
 
 From `coverage/libs/frontend/chat-ui/index.html`:
+
 - **Statements**: 1368 / 1932 (70.80%) — required >= 50%
 - **Branches**: 637 / 1132 (56.27%) — required >= 50%
 - **Functions**: 233 / 340 (68.52%) — required >= 40%
 - **Lines**: 1244 / 1731 (71.86%) — required >= 50%
 
 For `compact-session-activity.component.ts`:
+
 - **Statements**: 259 / 270 (95.92%)
 - **Branches**: 198 / 228 (86.84%)
 - **Functions**: 30 / 30 (100%)
@@ -146,4 +151,5 @@ Linting "@ptah-extension/chat-ui"...
 
  NX   Successfully ran target lint for project @ptah-extension/chat-ui
 ```
+
 (0 errors reported)

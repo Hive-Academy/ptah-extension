@@ -10,16 +10,16 @@ The apparent premise “judge score >= 6 should promote” is not the implemente
 
 Once `evaluate()` is actually called, every condition between entry and `status='promoted'`, in code order, is:
 
-| Condition | Code | Live result for the 44 |
-| --- | --- | --- |
-| Candidate exists and is neither already promoted nor rejected | `skill-promotion.service.ts:216-225` | Pass: all 44 exist and remain `candidate`. |
-| Nearest active-skill cosine similarity is below `dedupCosineThreshold` (default 0.85) | `skill-promotion.service.ts:227-241`; exact lookup at `:634-649`; default at `skill-synthesis.service.ts:130-138` | Pass in the present DB: there are zero promoted candidate rows, hence no active candidate match. All 44 have embeddings, so this is not missing evidence. |
-| Automatic recurrence threshold: `success_count >= 3`; only after 3 distinct contexts would it halve to `ceil(3/2)=2` | `skill-promotion.service.ts:242-250`; defaults at `skill-synthesis.service.ts:130-138` | **Fail for all 44:** every `success_count` is 0 and each has only one distinct invocation context. This return occurs before either judge gate. |
-| Cluster-level dedup does not find a duplicate | `skill-promotion.service.ts:252-260` | Pass on current data for the same reason: no promoted candidate exists to be an active cluster duplicate. |
-| Judge is enabled, returns `scored`, and score is at least 6.0; `unscored` stays pending and below 6 is rejected | `skill-promotion.service.ts:541-592`; defaults at `skill-synthesis.service.ts:141-143` | Stored evidence passes for all 44 (`scored`, 6.0-8.4). However this gate is never reached automatically, and when reached it invokes the judge again rather than treating the weekly panel score as a promotion event (`skill-promotion.service.ts:548-562`). |
-| Replay is either unmeasured (`NULL`) or at least 0.5 | `skill-promotion.service.ts:469-518` | Pass: all 44 are `NULL`; `NULL` explicitly passes at line 473. |
-| Residency cap handling | `skill-promotion.service.ts:276-302`; default cap 200 at `skill-synthesis.service.ts:134` | Pass: zero promoted candidate residents, far below 200. At cap this code demotes a resident; it does not reject the incoming candidate merely for being at cap. |
-| Candidate body materializes, and the atomic transition still finds a `candidate` row | `skill-promotion.service.ts:303-347`; SQL transition at `skill-candidate.store.ts:467-540` | Not reached. All 44 have body paths and remain transition-eligible candidates; a filesystem or concurrent-write failure could still produce `write-failed`, but there is no live evidence that this is their blocker. |
+| Condition                                                                                                            | Code                                                                                                              | Live result for the 44                                                                                                                                                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidate exists and is neither already promoted nor rejected                                                        | `skill-promotion.service.ts:216-225`                                                                              | Pass: all 44 exist and remain `candidate`.                                                                                                                                                                                                                    |
+| Nearest active-skill cosine similarity is below `dedupCosineThreshold` (default 0.85)                                | `skill-promotion.service.ts:227-241`; exact lookup at `:634-649`; default at `skill-synthesis.service.ts:130-138` | Pass in the present DB: there are zero promoted candidate rows, hence no active candidate match. All 44 have embeddings, so this is not missing evidence.                                                                                                     |
+| Automatic recurrence threshold: `success_count >= 3`; only after 3 distinct contexts would it halve to `ceil(3/2)=2` | `skill-promotion.service.ts:242-250`; defaults at `skill-synthesis.service.ts:130-138`                            | **Fail for all 44:** every `success_count` is 0 and each has only one distinct invocation context. This return occurs before either judge gate.                                                                                                               |
+| Cluster-level dedup does not find a duplicate                                                                        | `skill-promotion.service.ts:252-260`                                                                              | Pass on current data for the same reason: no promoted candidate exists to be an active cluster duplicate.                                                                                                                                                     |
+| Judge is enabled, returns `scored`, and score is at least 6.0; `unscored` stays pending and below 6 is rejected      | `skill-promotion.service.ts:541-592`; defaults at `skill-synthesis.service.ts:141-143`                            | Stored evidence passes for all 44 (`scored`, 6.0-8.4). However this gate is never reached automatically, and when reached it invokes the judge again rather than treating the weekly panel score as a promotion event (`skill-promotion.service.ts:548-562`). |
+| Replay is either unmeasured (`NULL`) or at least 0.5                                                                 | `skill-promotion.service.ts:469-518`                                                                              | Pass: all 44 are `NULL`; `NULL` explicitly passes at line 473.                                                                                                                                                                                                |
+| Residency cap handling                                                                                               | `skill-promotion.service.ts:276-302`; default cap 200 at `skill-synthesis.service.ts:134`                         | Pass: zero promoted candidate residents, far below 200. At cap this code demotes a resident; it does not reject the incoming candidate merely for being at cap.                                                                                               |
+| Candidate body materializes, and the atomic transition still finds a `candidate` row                                 | `skill-promotion.service.ts:303-347`; SQL transition at `skill-candidate.store.ts:467-540`                        | Not reached. All 44 have body paths and remain transition-eligible candidates; a filesystem or concurrent-write failure could still produce `write-failed`, but there is no live evidence that this is their blocker.                                         |
 
 The decisive fact is ordering: recurrence is at `skill-promotion.service.ts:242-250`, while judging is at `:261-266`. A qualifying weekly score is neither sufficient nor even consulted until recurrence has already passed.
 
@@ -54,11 +54,11 @@ The backlog is **growing**. From September 12 through the query time on Septembe
 
 The composite is the unweighted mean of all five criteria (`skill-judge.service.ts:344-350`). Generalization is the largest drag: 3.743, 1.053 below the 4.796 composite and 2.171 below scope. The rubric is not inherently asking for something the model synthesizer never produces: its prompt explicitly requires a reusable, repo-agnostic workflow, a “Use when” trigger, imperative steps, and removal of paths and one-off details (`skill-synthesizer.service.ts:228-248`), which mirrors the judge rubric (`skill-judge.service.ts:121-132`).
 
-| Population | n | Composite | Novelty | Actionability | Scope | Generalization | Trigger clarity |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| All scored | 105 | 4.796 | 4.600 | 5.076 | 5.914 | **3.743** | 4.648 |
-| Template/trajectory fallback | 60 | 2.930 | 3.433 | 3.217 | 4.433 | **1.333** | 2.233 |
-| Model-synthesized | 45 | 7.284 | 6.156 | 7.556 | 7.889 | 6.956 | 7.867 |
+| Population                   |   n | Composite | Novelty | Actionability | Scope | Generalization | Trigger clarity |
+| ---------------------------- | --: | --------: | ------: | ------------: | ----: | -------------: | --------------: |
+| All scored                   | 105 |     4.796 |   4.600 |         5.076 | 5.914 |      **3.743** |           4.648 |
+| Template/trajectory fallback |  60 |     2.930 |   3.433 |         3.217 | 4.433 |      **1.333** |           2.233 |
+| Model-synthesized            |  45 |     7.284 |   6.156 |         7.556 | 7.889 |          6.956 |           7.867 |
 
 The distribution instead exposes a mixed-input problem. The fallback body literally embeds the normalized trajectory and says “Edit the body below to make it reusable” (`skill-synthesizer.service.ts:316-342`), while the rubric explicitly scores 1-3 for echoing a session or retaining file/session specifics (`skill-judge.service.ts:124-129`). Sixty of 105 judged bodies contain that fallback marker. The 45 model-synthesized bodies average 7.284 and 44 of all 105 pass 6.0, so the synthesizer can satisfy the rubric. Judge strictness is a secondary quality signal, not the reason qualifying candidates fail to promote.
 
@@ -211,12 +211,15 @@ FROM skill_candidates WHERE judge_status='scored';
 For the template/model rows in the criterion table, the read-only Node query was:
 
 ```js
-const rows = db.prepare(`
+const rows = db
+  .prepare(
+    `
   SELECT id, body_path, judge_score, judge_novelty, judge_actionability,
          judge_scope, judge_generalization, judge_trigger_clarity
   FROM skill_candidates WHERE judge_status='scored'
-`).all();
-const variant = fs.readFileSync(row.body_path, 'utf8')
-  .includes('## Trajectory (normalized)') ? 'template' : 'model';
+`,
+  )
+  .all();
+const variant = fs.readFileSync(row.body_path, 'utf8').includes('## Trajectory (normalized)') ? 'template' : 'model';
 // Group by variant and compute the arithmetic mean of each selected column.
 ```
