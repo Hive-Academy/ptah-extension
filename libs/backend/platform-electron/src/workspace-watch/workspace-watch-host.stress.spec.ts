@@ -135,7 +135,13 @@ describe('AC-7 — real host-kill while subscriptions are active', () => {
     expect(result.overflowA).toBe(1);
     expect(result.overflowB).toBe(1);
     expect(result.isDegraded).toBe(false);
-  }, 45_000);
+    // 90 s: sum of every generous mechanism wait the scenario can spend
+    // (fork-replacement 30 s + overflow-to-both-subscribers 15 s default +
+    // 1 s settle + resume-after-restart 30 s), plus headroom. Jest's own
+    // timeout must not fire before the scenario's own `waitFor` deadlines do
+    // (TASK_2026_489: measured ESRCH/timeout flakes on a machine running
+    // several agents' test suites concurrently — see test-report.md).
+  }, 90_000);
 
   it('repeated kills past the restart budget: degraded, overflow cadence, one DegradationReporter call, then recovers', async () => {
     const result = await runDegradedPastBudgetScenario();
