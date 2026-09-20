@@ -6,7 +6,8 @@ title: >-
   Pinned apps - store, deterministic refresh, and text delivery
 description: >-
   Let a user pin a dashboard. Store the spec and the tool call that produced
-  its data. Refresh on a schedule by running the stored tool call again
+  its data. The stored tool call holds credential references and never
+  secret values. Refresh on a schedule by running the stored tool call again
   without a model. Deliver a text summary with a deep link through the
   messaging gateway. Agent refresh is opt-in with a budget and is not the
   default.

@@ -135,7 +135,7 @@ execution-tree accumulator input. Officially supported server-side frameworks
 | Cloudflare Agents         | 🛠️ In Progress               |
 | Oracle Agent Spec         | ✅ Supported (Specification) |
 
-None of these are frameworks Ptah currently wraps (Ptah wraps
+None of these are frameworks Ptah currently wraps (see Errata E1) (Ptah wraps
 `@anthropic-ai/claude-agent-sdk`, Codex SDK, Copilot SDK directly) — CONSUME
 value is real only if/when a user wants Ptah to drive a _remote_ LangGraph/
 CrewAI/Mastra agent, which is not in Ptah's current scope per `context.md`.
@@ -438,3 +438,17 @@ a2ui-middleware,a2ui-toolkit,mcp-apps-middleware,langgraph}` (queried
 - `npm view @a2ui/{angular,web_core,lit,react}` (queried 2026-09-20)
 - `npm view @copilotkit/angular`, `npm view @threadplane/chat` (queried
   2026-09-20) — comparison data points for the Angular-client landscape
+
+## Errata (review of pull request 546)
+
+- **E1.** Section "AG-UI: consume vs expose", part (a) CONSUME, the framework table
+  and the paragraph after it.
+  The table lists "Claude Agent SDK - Supported (Community)". The next paragraph
+  says that Ptah wraps none of the listed frameworks, and the same paragraph names
+  `@anthropic-ai/claude-agent-sdk` as a direct Ptah dependency. The two statements
+  contradict each other. Correction: the table mixes two kinds of entry. The first
+  kind is remote agent frameworks (LangGraph, CrewAI, Mastra and the others). The
+  second kind is SDK adapters (`@ag-ui/claude-agent-sdk`). Ptah does wrap the
+  Claude Agent SDK. For CONSUME, only the remote frameworks are in scope. The
+  Claude Agent SDK adapter is relevant to EXPOSE only, as part (b) EXPOSE already
+  says.

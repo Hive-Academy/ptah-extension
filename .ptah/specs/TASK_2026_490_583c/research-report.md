@@ -57,7 +57,7 @@ Why it fits:
 
 - `@a2ui/angular` 0.10.7, Apache-2.0, peer `@angular/core ^21.2.5`, signals, standalone components.
 - The payload is data. The agent can only name components from a catalog that the client compiled. No sandbox is
-  necessary because nothing executes.
+  necessary because nothing executes (corrected in Revision 6).
 - The lane report says that the host can supply its own catalog. Ptah can then render with its daisyUI components.
 - A2UI is transport-agnostic. The four envelopes (`createSurface`, `updateComponents`, `updateDataModel`,
   `deleteSurface`) can go through a Ptah push message. AG-UI is not necessary.
@@ -176,7 +176,7 @@ Because of fact 1, the host role needs a Ptah-owned MCP client, separate from th
 
 - The Electron shell has no runtime CSP now. Add one before third-party HTML renders.
 - Sandboxed iframe without `allow-same-origin` for the app document. CSP from the resource `_meta.ui.csp`, restrictive
-  default when absent.
+  default when absent (corrected in Revision 6).
 - A consent policy for app-started tool calls. The specification leaves it to the host.
 - The plugin consent dialog and the permission card stay hand-built. An app or an agent must not author them.
 
@@ -380,3 +380,59 @@ Do not copy global mode tabs. Add a type to the workspace.
 - A change to the navigation touches the coding shell. The steps above limit that.
 - "Workspace" must stay one concept with a type. Do not add a second word to the interface.
 - The Schedules view and the Cron tab in Thoth must use one data source.
+
+# Revision 6 - corrections from the review of pull request 546 (2026-09-21)
+
+This revision corrects Revisions 1 to 5. It does not rewrite them. Where this revision and an earlier revision disagree,
+this revision is correct. The lane reports keep their text. Each affected lane report has an "Errata" section.
+
+## Security corrections
+
+1. Revision 1, section 3, "No sandbox is necessary because nothing executes". A fixed catalog limits component types. It
+   does not make agent-controlled values safe. It does not make the action channel safe. The declarative path needs these
+   controls:
+   - an action allowlist
+   - Zod validation of every value
+   - output escaping: no `innerHTML`, and markdown only through `libs/frontend/markdown`
+   - URL scheme limits
+   - host mediation of every action
+
+   `TASK_2026_493_9f58` must test these controls. Its `context.md` has a "Trust boundary" section.
+
+2. Revision 2, "Security work that the host role makes mandatory", "CSP from the resource `_meta.ui.csp`".
+   `_meta.ui.csp` comes from the third-party app. The host owns a baseline CSP that an app cannot relax. App metadata can
+   only add origins, and only for `connect-src` and the resource domains. Each origin must pass a host allowlist check.
+   App metadata can never add `script-src` sources, `unsafe-inline`, `unsafe-eval`, wildcards, `frame-src` or navigation.
+   The host rejects values outside the baseline. The host does not merge them. `TASK_2026_497_debb` tests this rule.
+
+## UX rule corrections
+
+3. This entry adds a rule to the "UX rules" list in Revision 5. It replaces `critique-product.md` section 5, Rule 3 (the
+   revert after 3,000 ms). A timeout means that no response arrived. It does not mean that the operation failed. A write can still commit. Each mutation that an app
+   starts carries an operation ID (an idempotency key). On timeout the UI shows a pending or unknown state and queries
+   the result again by operation ID. The UI rolls back only when cancellation or compensation is guaranteed.
+
+## Gate and table corrections
+
+4. Revision 4, sequence B, step 2 (the connection-ownership spike), and `critique-engineering.md` section 6, step 2. The model lists and calls
+   tools through the in-process SDK server. That server exposes tools only. The host lists tools with `_meta`, and lists
+   and reads resources, through the Ptah-owned client. The single-process check and the state-consistency check stay.
+   `TASK_2026_496_fc4a` has the corrected gate.
+5. `ptah-integration-seams.md` section 1. `message_complete` maps to `TEXT_MESSAGE_END` only, and `RUN_FINISHED` needs a
+   separate run-terminal signal. An encoder must synthesize `TOOL_CALL_END` before `TOOL_CALL_RESULT`.
+   `compaction_complete` has no AG-UI equivalent (`CUSTOM`), because `MESSAGES_SNAPSHOT` requires `messages`.
+
+## MCP Apps corrections (`research-mcp-apps.md`)
+
+6. The dedicated webview origin in VS Code is VS Code-specific containment. The different-origin rule for Host and
+   Sandbox applies to web hosts that use the double-iframe proxy. VS Code does not build that proxy. Its origin is not
+   evidence that the sandbox-proxy requirement is satisfied.
+7. `blob:` is not an origin-separation fix. A `blob:` URL that the host creates keeps the origin of its creator when the
+   frame has `allow-same-origin`. The candidate that gives a real distinct origin is a custom protocol with one origin
+   for each server, app and version.
+8. The text fallback for every UI-linked tool is a Ptah product requirement. It is stricter than the spec. The spec says
+   that servers SHOULD provide a text-only fallback, and that tools MUST return a meaningful content array.
+
+## Not applied
+
+Comment 9 (citation format) was not applied. The `[S#]` markers are findable as text, and several source entries hold more than one link, which a markdown reference definition cannot express.
