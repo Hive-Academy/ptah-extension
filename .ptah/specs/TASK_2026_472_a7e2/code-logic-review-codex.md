@@ -1,4 +1,4 @@
-## Verdict
+# Verdict
 
 APPROVE WITH FINDINGS — the persistent-stream change is behaviourally sound on the normal path and preserves watchdog/turn invariants, but resumed input failure is still reported as a started query and the required real-background-subagent proof is absent.
 

@@ -79,6 +79,12 @@ const FAKE_API_KEY = 'sk-ant-e2e-fake-key-not-real-do-not-call-upstream';
  * `NO_ACTIVITY_TIMEOUT_MS` (180s). Turn 1 must genuinely reach its `result`,
  * because `endInput()` fires on the first result — that IS the mechanism under
  * test, so this wait cannot be shortened.
+ *
+ * This is a CEILING, not a spend. Measured in CI run 35537910407, a `/context`
+ * turn settled in ~13.7s, far short of the envelope. Do NOT read that as
+ * confirmation that the turn did the work: that same run counted zero query
+ * starts, and the two facts have not yet been told apart. The diagnostic throw
+ * on the first assertion exists to separate them on the next run.
  */
 const FIRST_TURN_BUDGET_MS = 240_000;
 
@@ -101,6 +107,27 @@ const SECOND_QUERY_PROBE_MS = 20_000;
  */
 const QUERY_START_LINE = '[SessionLifecycle] Starting SDK query with options';
 
+/**
+ * Where that line actually lands. NOT stderr — the first version of this spec
+ * read `handle.stderr()` and counted zero occurrences in CI, because the CLI
+ * logger never writes there:
+ *
+ *   - `CliLoggerAdapter.logWithContext` always writes to the `IOutputChannel`,
+ *     which `platform-cli/src/registration.ts:91` binds to
+ *     `new CliOutputChannel('Ptah CLI', logsPath)` — a FILE stream at
+ *     `<userDataPath>/logs/Ptah CLI.log`, i.e. `$HOME/.ptah/logs/` (`:45-46`).
+ *   - It mirrors to the console only when `logToConsole` is set, which needs
+ *     `NODE_ENV=development` or `PTAH_LOG_LEVEL=debug`.
+ *   - And even then `info` goes to `console.log`, i.e. STDOUT — which in
+ *     `interact` mode is the NDJSON JSON-RPC channel. `interact.ts` installs no
+ *     console redirection, so forcing the debug level here would inject
+ *     non-JSON lines into the protocol stream. That is why this spec reads the
+ *     log file and does NOT set `PTAH_LOG_LEVEL`.
+ *
+ * The tmp HOME is per-test, so this file belongs to exactly one CLI process.
+ */
+const SESSION_LOG_REL = '.ptah/logs/Ptah CLI.log';
+
 function countOccurrences(haystack: string, needle: string): number {
   if (needle === '') return 0;
   let count = 0;
@@ -119,6 +146,14 @@ describe('slash-command session keeps its SDK input open (TASK_2026_472)', () =>
   beforeEach(async () => {
     tmp = await createTmpHome();
   });
+
+  /**
+   * The session log for THIS test's CLI process. Returns '' until the process
+   * has created the file, so a caller can poll it without special-casing the
+   * cold start.
+   */
+  const readSessionLog = async (): Promise<string> =>
+    (await tmp.readFile(SESSION_LOG_REL)) ?? '';
 
   afterEach(async () => {
     if (handle) {
@@ -149,17 +184,38 @@ describe('slash-command session keeps its SDK input open (TASK_2026_472)', () =>
     await rpc.submitTask({ task: '/context' }, FIRST_TURN_BUDGET_MS);
     await rpc.awaitTaskTerminal(FIRST_TURN_BUDGET_MS);
 
-    const afterFirstTurn = countOccurrences(cli.stderr(), QUERY_START_LINE);
-    expect(afterFirstTurn).toBe(1);
+    // The log file is an append stream, so it can lag the terminal envelope by
+    // a tick. Wait for the line rather than sampling once.
+    await waitFor(
+      async () => countOccurrences(await readSessionLog(), QUERY_START_LINE) >= 1,
+      { timeoutMs: 15_000, label: 'first SDK query start in the session log' },
+    );
+
+    const afterFirstTurn = countOccurrences(
+      await readSessionLog(),
+      QUERY_START_LINE,
+    );
+    // Thrown rather than `expect`ed so the failure carries the log that proves
+    // WHY. The first CI run of this spec counted 0 and reported only
+    // "Expected: 1, Received: 0", which named the symptom and nothing else.
+    // Reading the cause needed a separate investigation; this makes the next
+    // failure self-explaining.
+    if (afterFirstTurn !== 1) {
+      throw new Error(
+        `Expected exactly 1 SDK query start after the slash command, saw ` +
+          `${afterFirstTurn}.\nSession log tail:\n` +
+          `${(await readSessionLog()).slice(-4000)}`,
+      );
+    }
 
     // Second signal, asserted here rather than in a test of its own so that the
     // ~183s first turn is paid ONCE for this file. The two prompt-shape
     // literals below are what the executor can no longer produce. Either one in
     // this log is the raw-string path resurrected, which is the single-turn
     // flag and therefore the closed input.
-    const afterFirstTurnStderr = cli.stderr();
-    expect(afterFirstTurnStderr).not.toContain('string (slash command)');
-    expect(afterFirstTurnStderr).not.toContain('string (slash command + resume)');
+    const afterFirstTurnLog = await readSessionLog();
+    expect(afterFirstTurnLog).not.toContain('string (slash command)');
+    expect(afterFirstTurnLog).not.toContain('string (slash command + resume)');
 
     // Turn 2 — an ordinary prompt in the SAME session. On a closed input this
     // is the turn that triggers `autoResumeIfInactive` and mints a second
@@ -179,7 +235,8 @@ describe('slash-command session keeps its SDK input open (TASK_2026_472)', () =>
     // more. The polarity is inverted on purpose — waiting for the ABSENCE of
     // an event needs a bounded window, and this makes that window explicit.
     const sawSecondQuery = await waitFor(
-      () => countOccurrences(cli.stderr(), QUERY_START_LINE) >= 2,
+      async () =>
+        countOccurrences(await readSessionLog(), QUERY_START_LINE) >= 2,
       { timeoutMs: SECOND_QUERY_PROBE_MS, label: 'second SDK query start' },
     ).then(
       () => true,
@@ -187,7 +244,7 @@ describe('slash-command session keeps its SDK input open (TASK_2026_472)', () =>
     );
 
     expect(sawSecondQuery).toBe(false);
-    expect(countOccurrences(cli.stderr(), QUERY_START_LINE)).toBe(1);
+    expect(countOccurrences(await readSessionLog(), QUERY_START_LINE)).toBe(1);
   });
 
 });

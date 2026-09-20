@@ -1,3 +1,16 @@
+> **HISTORICAL RECORD, 2026-09-19.** This is the batch-1 safety stop, and every
+> claim below is scoped to batch 1 as it stood then. It is kept unedited because
+> the reasoning that led to the stop is worth preserving.
+>
+> It does NOT describe the final state of this task. Batch 1 concluded that no
+> safe fix existed, on the premise that the SDK requires a raw-string prompt to
+> parse a slash command. `experiment-slash-over-streaminput.md` later ran the
+> real SDK and disproved that premise, and the fix landed in `9cfb77c800`
+> (production changes plus two agent-SDK specs), with e2e coverage in
+> `256e2b6a2b` and `787455788a`.
+>
+> For the final state read `acceptance-evidence.md`, not this file.
+
 ## Files changed
 
 - `D:\projects\ptah-extension\.ptah\specs\TASK_2026_472_a7e2\implementation-plan.md` — records the independently confirmed mechanism, the unsafe-fix decision, blast radius, alternatives, and residual risk.
