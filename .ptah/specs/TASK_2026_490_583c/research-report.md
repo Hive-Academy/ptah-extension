@@ -209,3 +209,174 @@ Because of fact 1, the host role needs a Ptah-owned MCP client, separate from th
 - Third-party HTML is a new trust boundary for Ptah. Revision 1 had none.
 - `overrides` hides a peer conflict. It does not remove an API break. Each overridden package needs a build and a
   render test in CI.
+
+---
+
+# Revision 3 - separate page, shared actions, declarative dashboards (2026-09-20)
+
+Inputs: the user decision to put the feature on its own page, and `landscape.md`. Where Revision 2 disagrees,
+this revision applies.
+
+## Decisions
+
+1. **Separate page.** The new surface is its own page with its own logic, Electron only at first (precedent: the Thoth
+   tabs). Third-party HTML never enters the DOM of the coding chat. The page registers its own interactive surface in
+   `StreamingSurfaceRegistry`, as the harness builder does. The tool-to-component registry in the chat is no longer a
+   precondition.
+2. **Shared actions** (principle from agent-native). A capability of the new page is defined one time and registered
+   both as an RPC method for the UI and as an MCP tool for the agent. Same validation, same permission, same code.
+3. **Shared application state.** The agent on the page receives the active app, the selected record and the active view.
+4. **Declarative dashboards** (pattern from json-render). Ptah ships one generic first-party dashboard app. The agent
+   emits a JSON spec from a fixed catalog (chart, table, stat, list, form). The agent does not write HTML for this path.
+5. **Pinned apps.** A user pins an app. `cron-scheduler` refreshes it. `messaging-gateway` can deliver the result.
+6. **Charts in the coding chat** come last, through one narrow mount point, after the page proves the host.
+7. **Package compatibility** is handled with `overrides`. Each overridden package needs a build and a render test in CI.
+
+## Planned features (marketing view, not built)
+
+For all users: apps in the conversation. App studio (describe an app, the agent builds it, live preview). Pinned apps
+with scheduled refresh. Delivery to Telegram, Discord, Slack. Gallery of apps that can be copied. One-step integrations
+from the marketplace. Guided setup forms.
+
+For developers: visual answers (dependency graph, coverage, bundle size, cost). Review surfaces. Apps that use the MCP
+Apps standard and so can render in other hosts. One definition for each action. No change to the coding surface.
+
+Differentiators claimed: local-first, any model provider, agents that run without the user (schedule, gateways,
+memory, skills exist now), open standard, sandbox for each app.
+
+Recommended first release: two claims only - apps in the conversation, and visual answers.
+
+## Sequence
+
+1. Workspace migration to the latest packages (Angular 22, MCP SDK 2), as its own task.
+2. Spike: the new page in Electron, MCP Apps broker, sandboxed view, one `ext-apps` example server. Exit criteria: the
+   app renders, an app-started tool call works, the cost of the second stdio process is measured, the Electron shell
+   has a CSP.
+3. Shared action definition (RPC + MCP tool from one source).
+4. Generic dashboard app that renders JSON specs.
+5. Pinned apps with scheduled refresh.
+6. App studio and gallery.
+7. One narrow mount point in the coding chat for charts.
+
+---
+
+# Revision 4 - after the two adversarial reviews (2026-09-20)
+
+Inputs: `critique-engineering.md` (codex lane) and `critique-product.md` (antigravity lane). The orchestrator checked
+six load-bearing engineering claims in the code. All six were correct. Where Revision 3 disagrees, this revision applies.
+
+## Corrections to Revision 3
+
+1. **The dual-connection broker is rejected.** The orchestrator proposed it. It is wrong for stateful stdio servers:
+   two memories, lock and port conflicts, double OAuth refresh, double rate-limit load, and a second authorization path
+   that does not go through `canUseTool`. Replacement: a single-owner broker. Ptah owns the only upstream connection and
+   gives each server to the vendor SDK again as an in-process SDK server (`createSdkMcpServer`, `sdk.d.ts:463`,
+   `type: 'sdk'` at `:1014`, `_meta` kept at `:3212`). Later, a loopback proxy serves the other providers.
+2. **The server inventory is not complete.** `sdk-query-options-builder.ts:916` passes only the Ptah server plus
+   overrides. The SDK also loads servers from settings files (`settingSources`, `:942`), and `setMcpServers()` does not
+   affect those (`sdk.d.ts:2305`). Exclusive ownership is not proved. It is Gate 0 of the host work.
+3. **A defect exists now in Electron.** `main-window.ts:136-143` grants each permission request when the top-level
+   `webContents` id agrees. A subframe shares that id. Correct this before any iframe work. The preload exposes `vscode`
+   (generic RPC), `ptahClipboard` and `ptahDiag` (`preload.ts:23,48,60`). App HTML must never get that origin or preload.
+4. **The migration is not a precondition.** Angular 22 and MCP SDK 2 prove nothing about the broker or the sandbox. Use
+   the current versions (`ext-apps` 1.7.5 agrees with MCP SDK 1.29) and migrate as an independent task.
+5. **Pinned refresh must be deterministic by default.** The scheduler runs a model prompt or a `handler:NAME`
+   (`job-runner.ts:14,60`). A refresh re-runs a stored tool call without a model. Agent refresh is opt-in, with a budget.
+6. **Gateway delivery is text only now** (`adapter.interface.ts:107,116`: `sendMessage`, `editMessage`). The first
+   delivery format is a text summary with a deep link.
+7. **UI clicks must not go through the model.** Sort, filter and page operate in the app or call a tool directly.
+
+## Product decisions that the reviews put to the user
+
+- Audience: the product review says that "developers and everyone" is two products, and recommends one beachhead:
+  the technical operator (technical PM, DevOps, data lead, technical founder). This is a sequence decision, not a
+  rejection of the vision.
+- The loop that only Ptah has: chat query -> visual card -> pin -> scheduled refresh -> delivery to a channel.
+- App studio and public gallery: move to the end. Ship first-party templates first.
+- Known limit of local-first: a closed laptop stops the schedule. Record it. Do not design a cloud service now.
+
+## Sequence
+
+A. **Dashboard track (no third-party HTML, no broker, no migration).**
+
+1.  Versioned catalog and Zod schema (stat, line and bar chart, table, list). Atomic specs, byte and row limits, text fallback.
+2.  One MCP tool that emits a spec, and the new page that renders it with Ptah components.
+3.  Pin: store the spec and the tool call in SQLite. Deterministic refresh through a scheduler handler. Text delivery.
+4.  Measure: share of users who pin, and retention of pins after 14 days.
+
+B. **Host track, in parallel, spikes only.** 0. Correct the permission handler and add a CSP to the Electron shell. This has value without the feature.
+
+1.  Threat model and contracts (identity, caller kinds, storage, uninstall).
+2.  Connection-ownership spike: one upstream process, stable `mcp__server__tool` names, permission prompts kept.
+3.  Containment spike: custom-protocol iframe against `WebContentsView` with an ephemeral partition, with malicious fixtures.
+4.  Go or no-go. Then a vertical slice with one first-party read-only app, then third-party conformance.
+
+C. **Later:** shared actions (one Zod schema, caller-aware policy, explicit exposure), charts in the coding chat
+(reuse the declarative renderer, not third-party HTML), app studio and gallery.
+
+## Not verified by the orchestrator
+
+Competitor statements in the product review (Goose ownership and status, Retool AI, Superblocks), the quoted
+landing-page line, and all numbers in that review (price points, retention thresholds, latency figures). These are the
+judgment of the reviewer.
+
+---
+
+# Revision 5 - design direction for the shell (2026-09-20)
+
+Status: a proposal from the orchestrator. The user did not approve it. A specification from the `ui-ux-designer`
+agent must come before any code.
+
+## Facts from the current Electron shell
+
+- The top bar has 8 tabs in one row: Chat, Analytics, Thoth, Tribunal, Tasks, Setup hub, Marketplace, Settings
+  (`libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts:122-205`).
+- Without a workspace folder, the shell shows only a welcome screen (`:232-233`).
+- A workspace is a folder path. The view state, the sessions, the canvas and the tribunal have a partition for each
+  path (`libs/frontend/core/src/lib/services/app-state.service.ts:244-262`).
+
+## Problems
+
+1. The 8 tabs mix three types: work (Chat, Tribunal, Tasks), monitor (Analytics), configuration (Thoth, Setup hub,
+   Marketplace, Settings). A ninth tab makes the row worse.
+2. The folder is a precondition. A technical operator without a repository cannot continue past the welcome screen.
+
+## Proposal: the workspace type sets the mode
+
+Do not copy global mode tabs. Add a type to the workspace.
+
+|               | Code workspace                         | Space (new)                                                   |
+| ------------- | -------------------------------------- | ------------------------------------------------------------- |
+| Storage       | A repository folder                    | A folder that Ptah manages, for example `~/.ptah/spaces/<id>` |
+| First page    | Chat, as now                           | Home: a grid of pinned apps                                   |
+| Navigation    | Chat, Apps, Tasks, Tribunal, Analytics | Home, Chat, Apps, Schedules                                   |
+| Agent context | Code, git, symbols                     | Connectors, files in the space, memory                        |
+
+- A space is also a folder path, so the services that have a partition for each path operate without changes.
+- The workspace sidebar lists the two types, with an icon for the type.
+- A pin belongs to a workspace. Home is the grid of pins. The canvas already uses gridstack.
+- Configuration (Thoth, Setup hub, Marketplace, Settings) moves out of the tab row to one global area.
+- Electron only. The VS Code extension keeps one workspace and no spaces.
+
+## UX rules (from the two reviews)
+
+1. Text first. An app only when the user must filter, compare or monitor.
+2. A card in the chat is a temporary preview. "Pin to Home" makes it persistent.
+3. Sort, filter and page operate in the app and do not call the model.
+4. The app sends its selection to the host, so the agent knows what the user sees.
+5. Before the pin, show the source of the refresh, the schedule and the cost. Each tile shows "last update" and a stale banner.
+6. Tell the user that the schedule operates only while Ptah is open.
+7. Three permission levels: silent read with a log entry, staged change with a "Commit" button, destructive action
+   with a confirmation in plain language.
+
+## Steps
+
+1. Add the Apps tab and the Home page inside the current structure.
+2. Move the configuration tabs to the global area.
+3. Add spaces.
+
+## Risks
+
+- A change to the navigation touches the coding shell. The steps above limit that.
+- "Workspace" must stay one concept with a type. Do not add a second word to the interface.
+- The Schedules view and the Cron tab in Thoth must use one data source.
