@@ -90,6 +90,28 @@ describe('JsonFormatter', () => {
 });
 
 describe('HumanFormatter', () => {
+  // `shouldUseColor` consults the AMBIENT environment as well as the flag, and
+  // that is correct production behaviour — the CLI respects `NO_COLOR` and
+  // `PTAH_NO_TTY` per `apps/ptah-cli/CLAUDE.md`. It makes the colour assertion
+  // below depend on the shell that started jest, though: a harness that exports
+  // `NO_COLOR` turns this suite red for code it never touched. Isolate it.
+  const ambient = {
+    noColor: process.env['NO_COLOR'],
+    noTty: process.env['PTAH_NO_TTY'],
+  };
+
+  beforeEach(() => {
+    delete process.env['NO_COLOR'];
+    delete process.env['PTAH_NO_TTY'];
+  });
+
+  afterEach(() => {
+    if (ambient.noColor === undefined) delete process.env['NO_COLOR'];
+    else process.env['NO_COLOR'] = ambient.noColor;
+    if (ambient.noTty === undefined) delete process.env['PTAH_NO_TTY'];
+    else process.env['PTAH_NO_TTY'] = ambient.noTty;
+  });
+
   it('writes a colored notification by default', async () => {
     const cap = makeCapture();
     const fmt = new HumanFormatter(cap.writer, { noColor: false });

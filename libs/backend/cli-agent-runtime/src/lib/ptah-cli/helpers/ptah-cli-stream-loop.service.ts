@@ -23,6 +23,7 @@ import {
   isSystemInit,
   isCompactBoundary,
   isUserMessage,
+  isReplayMessage,
   isToolProgress,
   isToolUseSummary,
   isContentBlockStart,
@@ -39,6 +40,126 @@ import {
   summarizeToolInput,
   sanitizeErrorMessage,
 } from './ptah-cli-registry.utils';
+
+/**
+ * Label shown for a peer that sent no usable name of its own.
+ *
+ * `unverified peer` and not `another session`: the word carries the warning
+ * into the tile, where the only reader who can act on it is.
+ */
+const UNNAMED_PEER_LABEL = 'unverified peer';
+
+/** How much of a sender-authored name is shown. A tile is narrow. */
+const MAX_PEER_NAME_LENGTH = 48;
+
+/**
+ * A turn another session injected into this lane, as the CLI echoes it back.
+ *
+ * It arrives as a user message carrying `isReplay` AND `isSynthetic`, so
+ * `isUserMessage` (which excludes replays by design) does not match it and the
+ * `isSynthetic` drop inside the transformer would take it. The provenance stamp
+ * is therefore the discriminator — but ONLY after the message's own shape has
+ * been checked. `origin` is permitted on a result message too, and a result
+ * that took this branch would skip the usage, error and `onTurnComplete`
+ * handling below, leaving the turn's pending promise unresolved and the lane
+ * busy forever. The caller admits a user-turn shape first; this helper answers
+ * the narrower question of whether that turn came from a peer.
+ *
+ * The label is the sender's SELF-REPORTED name, never its address. Both are
+ * sender-authored and forgeable by any process running as the same user, so
+ * the name is rendered as a QUOTED value behind the word `unverified peer`:
+ * `origin.name = 'Ptah system'` must not be able to read as Ptah speaking.
+ * The name itself is flattened — quotes, newlines and control characters
+ * removed, length capped — so it cannot forge the surrounding structure
+ * either.
+ */
+function inboundPeerLabel(msg: SDKMessage): string | undefined {
+  const origin = (msg as { origin?: { kind?: string; name?: string } }).origin;
+  if (origin?.kind !== 'peer') {
+    return undefined;
+  }
+  const name = flattenPeerName(origin.name);
+  return name ? `${UNNAMED_PEER_LABEL} "${name}"` : UNNAMED_PEER_LABEL;
+}
+
+/**
+ * Reduce a sender-authored name to one short, quote-free, single-line token,
+ * or `undefined` when nothing usable survives.
+ */
+function flattenPeerName(name: string | undefined): string | undefined {
+  if (typeof name !== 'string') {
+    return undefined;
+  }
+  const flattened = name
+    // Cc covers the ASCII controls. Cf is the one that matters for spoofing:
+    // it holds the bidirectional overrides and isolates (U+202A-U+202E,
+    // U+2066-U+2069), and an unterminated RLO reorders the closing quote, the
+    // colon and the body, so sender-authored text can render AHEAD of the
+    // `unverified peer` warning. Zl and Zp are the two non-ASCII line breaks.
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, ' ')
+    // Every quote character, not only the ASCII ones. The name is rendered
+    // inside a quoted slot, and a curly or angle quote reads as a close.
+    .replace(/[\p{Pi}\p{Pf}"'`]/gu, '')
+    // The label also reaches `emitOutput`, and the raw-stdout fallback path
+    // renders that through markdown. `[Ptah Security](https://evil.test)` in a
+    // sender-authored name becomes a live link attributed to Ptah. These are
+    // the structural characters; a name legitimately needs none of them.
+    .replace(/[[\]()*_~<>|\\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (flattened.length === 0) {
+    return undefined;
+  }
+  // Count and cut by CODE POINT: a cut between the halves of a surrogate pair
+  // leaves a lone surrogate in the tile.
+  const codePoints = Array.from(flattened);
+  return codePoints.length > MAX_PEER_NAME_LENGTH
+    ? `${codePoints.slice(0, MAX_PEER_NAME_LENGTH).join('')}…`
+    : flattened;
+}
+
+/** The CLI's own envelope around a cross-session message. */
+const PEER_ENVELOPE_OPEN = /^<cross-session-message\b[^>]*>\n?/;
+const PEER_ENVELOPE_CLOSE = /\n?<\/cross-session-message>$/;
+
+/**
+ * The peer's own words, with the CLI's `<cross-session-message>` envelope
+ * stripped.
+ *
+ * The envelope repeats the sender address the label already carries, and it is
+ * markup the tile would render as text. Stripping happens ONLY when a matching
+ * opening AND closing wrapper are both present: the two halves are independent
+ * patterns, so stripping them independently would eat a legitimate body that
+ * merely ends in the literal closing tag, and would empty a body consisting of
+ * nothing else. Anything that is not a whole envelope is returned untouched —
+ * the wrapper is the vendor's shape, and losing a real message because that
+ * shape moved is worse than showing one extra line.
+ */
+function peerMessageBody(msg: SDKMessage): string {
+  const content = (msg as { message?: { content?: unknown } }).message?.content;
+  let raw = '';
+  if (typeof content === 'string') {
+    raw = content;
+  } else if (Array.isArray(content)) {
+    raw = content
+      .filter(
+        (block): block is { type: 'text'; text: string } =>
+          (block as { type?: string })?.type === 'text',
+      )
+      .map((block) => block.text)
+      .join('\n');
+  }
+  const trimmed = raw.trim();
+  const opening = PEER_ENVELOPE_OPEN.exec(trimmed);
+  if (!opening) {
+    return trimmed;
+  }
+  const withoutOpening = trimmed.slice(opening[0].length);
+  if (!PEER_ENVELOPE_CLOSE.test(withoutOpening)) {
+    return trimmed;
+  }
+  return withoutOpening.replace(PEER_ENVELOPE_CLOSE, '').trim();
+}
 
 /**
  * Configuration for PtahCliStreamLoop.
@@ -94,6 +215,36 @@ export class PtahCliStreamLoop {
     try {
       try {
         for await (const msg of sdkQuery) {
+          // SHAPE FIRST, origin second. `origin` is permitted on a result
+          // message as well as a user turn, and a result that fell into the
+          // peer branch would skip the usage, error and `onTurnComplete`
+          // handling below — leaving the turn's pending promise unresolved and
+          // the lane busy forever. This is the same admission
+          // `SdkMessageTransformer`'s peer branch uses: a user turn OR its
+          // replay, nothing else.
+          const peerLabel =
+            isUserMessage(msg) || isReplayMessage(msg)
+              ? inboundPeerLabel(msg)
+              : undefined;
+          if (peerLabel) {
+            // Surfaced BEFORE the transform branches and then `continue`d: this
+            // is not a turn the lane took, so none of the assistant/tool state
+            // below applies to it. Emitting it is the whole point — the message
+            // reaches the model either way, and without this the lane's tile is
+            // the only place an operator could have seen that it arrived.
+            const body = peerMessageBody(msg);
+            logger.info('[PtahCliStreamLoop] Inbound peer turn', {
+              agentName: this.config.agentName,
+              from: peerLabel,
+              length: body.length,
+            });
+            emitOutput(`\n**Message from \`${peerLabel}\`:** ${body}\n`);
+            emitSegment({
+              type: 'info',
+              content: `Message from ${peerLabel}: ${body}`,
+            });
+            continue;
+          }
           if (isStreamEvent(msg) || isUserMessage(msg)) {
             try {
               const flatEvents = this.streamTransformer.transform(

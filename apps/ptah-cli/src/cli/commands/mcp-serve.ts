@@ -12,12 +12,12 @@
  * Phase 2 lifecycle:
  *   1. Mint `mcp_host_session_id = ulid()` and export it via
  *      `PTAH_MCP_HOST_SESSION_ID` for downstream cost attribution (Phase 4).
- *   2. Register the `initialize` handler EAGERLY (before `withEngine`
- *      resolves) so a slow SDK bootstrap doesn't trigger the host's
+ *   2. Register the `initialize` and `tools/list` handlers EAGERLY (before
+ *      `withEngine` resolves) so a slow bootstrap doesn't trigger the host's
  *      handshake timeout — Risk Register item #4. The same `JsonRpcServer`
  *      instance is reused after `withEngine` resolves; Phase 3 will swap
  *      in the real `tools/call` dispatcher.
- *   3. Bootstrap full DI via `withEngine({ mode: 'full', requireSdk: true })`.
+ *   3. Bootstrap full DI via `withEngine({ mode: 'full', requireSdk: false })`.
  *   4. Resolve the `StdioMcpServerService`, attach the stdio transport,
  *      register `tools/list`, `tools/call`, `notifications/cancelled`.
  *   5. Emit `notifications/initialized` so the MCP host knows the surface
@@ -96,6 +96,10 @@ export interface McpServeExecuteHooks {
     logger: Logger;
     cwd: string;
     notify: (method: string, params?: unknown) => Promise<void>;
+    ensureSdk?: () => Promise<{
+      initialized: boolean;
+      errorMessage?: string;
+    }>;
   }) => ISessionSubmitHandler;
 }
 
@@ -185,7 +189,6 @@ export async function execute(
   const server = hooks.server ?? new JsonRpcServer();
 
   let cachedServerService: StdioMcpServerService | null = null;
-  let sdkReady = false;
 
   server.register('initialize', async (params: unknown): Promise<unknown> => {
     const req = buildMcpRequest(randomId(), 'initialize', params);
@@ -198,6 +201,23 @@ export async function execute(
       capabilities: { tools: {} },
       serverInfo,
     };
+  });
+
+  // The BOOTSTRAP-WINDOW answer only. A host that lists before `withEngine`
+  // resolves gets the MVP set from here; the registration below replaces this
+  // handler once the real service exists. There is deliberately no
+  // `cachedServerService` branch: while this handler is installed that field is
+  // still null, and by the time it is set this handler is gone, so the branch
+  // could never run and would read as a fallback that does something.
+  server.register('tools/list', async (params: unknown): Promise<unknown> => {
+    const allowSet =
+      opts.allowTools && opts.allowTools.length > 0
+        ? new Set(opts.allowTools)
+        : undefined;
+    const tools = buildMcpMvpTools().filter((tool) =>
+      allowSet === undefined ? true : allowSet.has(tool.name),
+    );
+    return { tools };
   });
 
   server.start(stdinReader, stdoutWriter);
@@ -231,7 +251,7 @@ export async function execute(
   let sessionSubmitDisposeAll: (() => void) | null = null;
 
   try {
-    await engine(globals, { mode: 'full', requireSdk: true }, async (ctx) => {
+    await engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
       const logger = ctx.container.resolve<Logger>(TOKENS.LOGGER);
       registerMcpStdioServices(ctx.container, logger);
 
@@ -242,7 +262,40 @@ export async function execute(
               STDIO_MCP_SERVER_TOKEN,
             );
       cachedServerService = stdioServer;
-      sdkReady = true;
+
+      let sdkInitPromise: Promise<{
+        initialized: boolean;
+        errorMessage?: string;
+      }> | null = null;
+      const ensureSdk = async (): Promise<{
+        initialized: boolean;
+        errorMessage?: string;
+      }> => {
+        if (ctx.sdkAdapter) {
+          return { initialized: true };
+        }
+        sdkInitPromise ??= (async () => {
+          try {
+            if (globals.verbose === true) {
+              process.stderr.write(
+                '[ptah-mcp] initializing SDK adapter on demand\n',
+              );
+            }
+            const res = await ctx.initializeSdk();
+            return res;
+          } catch (err) {
+            const errorMessage =
+              err instanceof Error ? err.message : String(err);
+            return { initialized: false, errorMessage };
+          }
+        })();
+        const result = await sdkInitPromise;
+        // A failure is never cached. `mcp-serve` outlives the condition that
+        // caused it: the user adds a key in Settings while the server is up,
+        // and the next tool call must be able to succeed without a restart.
+        if (!result.initialized) sdkInitPromise = null;
+        return result;
+      };
 
       const sessionSubmitHandler =
         hooks.sessionSubmitFactory !== undefined
@@ -252,6 +305,7 @@ export async function execute(
               logger,
               cwd: globals.cwd,
               notify: (method, params) => server.notify(method, params),
+              ensureSdk,
             })
           : new SessionSubmitService({
               transport: ctx.transport,
@@ -264,6 +318,7 @@ export async function execute(
                   params?: TParams,
                 ): Promise<void> => server.notify(method, params),
               },
+              ensureSdk,
             });
       stdioServer.setSessionSubmitHandler(sessionSubmitHandler);
       const maybeDisposable = sessionSubmitHandler as unknown as {
@@ -294,18 +349,12 @@ export async function execute(
       server.register(
         'tools/call',
         async (params: unknown): Promise<unknown> => {
-          if (!sdkReady) {
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: 'SDK not initialized — `ptah mcp-serve` is still bootstrapping.',
-                },
-              ],
-              isError: true,
-              structuredContent: { ptah_code: 'sdk_init_failed' },
-            };
-          }
+          // No bootstrap guard here. This registration runs AFTER the stdio
+          // service exists, so a call that reaches this handler is past the
+          // bootstrap window by construction. A call made DURING that window
+          // finds no `tools/call` handler at all and gets the JSON-RPC
+          // method-not-found answer, which is the truthful one. The flag that
+          // used to be read here could never be false at this point.
           const req = buildMcpRequest(randomId(), 'tools/call', params);
           const resp = await stdioServer.handleToolsCall(req);
           if (resp.error !== undefined) {

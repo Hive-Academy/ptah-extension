@@ -589,6 +589,33 @@ describe('Electron state worker protocol', () => {
   });
 
   describe('assertJsonCompatibleValue and bounded traversal', () => {
+    it('accepts a real ptah-cli stream event with an undefined optional property', () => {
+      const persistedItem = {
+        tag: 'streamEvent',
+        value: {
+          id: 'event-1',
+          eventType: 'text_delta',
+          timestamp: 1_726_572_382_554,
+          sessionId: 'session-1',
+          source: 'stream',
+          messageId: 'message-1',
+          delta: 'Persist this output',
+          blockIndex: 0,
+          parentToolUseId: undefined,
+        },
+      };
+
+      expect(() => assertJsonCompatibleValue(persistedItem)).not.toThrow();
+
+      const parsed = parseElectronStateWorkerRequest({
+        type: 'append-json-sequence-items',
+        operationId: 1,
+        sequenceId: SEQUENCE_ID,
+        items: [persistedItem],
+      });
+      expect(parsed).not.toHaveProperty('items.0.value.parentToolUseId');
+    });
+
     it('accepts primitives, arrays, plain objects, and null-prototype objects', () => {
       expect(() => assertJsonCompatibleValue('hello')).not.toThrow();
       expect(() => assertJsonCompatibleValue(42)).not.toThrow();
@@ -697,11 +724,24 @@ describe('Electron state worker protocol', () => {
       expect(() => assertJsonCompatibleValue(undefined)).toThrow(
         expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
           code: 'UNSUPPORTED_VALUE',
+          message:
+            'Worker message contains a non-cloneable JSON value (undefined) at $',
         }),
       );
-      expect(() => assertJsonCompatibleValue({ fn: () => 1 })).toThrow(
+      expect(() =>
+        assertJsonCompatibleValue({ value: { handler: () => 1 } }),
+      ).toThrow(
         expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
           code: 'UNSUPPORTED_VALUE',
+          message:
+            'Worker message contains a non-cloneable JSON value (function) at $.value.handler',
+        }),
+      );
+      expect(() => assertJsonCompatibleValue([undefined])).toThrow(
+        expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
+          code: 'UNSUPPORTED_VALUE',
+          message:
+            'Worker message contains a non-cloneable JSON value (undefined) at $[0]',
         }),
       );
       expect(() => assertJsonCompatibleValue(Symbol('test'))).toThrow(

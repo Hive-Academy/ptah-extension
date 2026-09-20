@@ -278,7 +278,9 @@ export class AgentReportRouter {
         windowMs: AGENT_REPORT_BURST_WINDOW_MS,
       });
     }
-    if (this.recentBodyEntries(agentId, now).some((e) => e.message === message)) {
+    if (
+      this.recentBodyEntries(agentId, now).some((e) => e.message === message)
+    ) {
       return this.refuse('duplicate-report', agentId, {
         detail: 'an identical report from this agent was delivered recently',
       });
@@ -337,8 +339,19 @@ export class AgentReportRouter {
       `agent="${escapeAttribute(agentLabel(info))}"`,
       `cli="${escapeAttribute(info.cli)}"`,
     ].join(' ');
+    // The summary is emitted only when it ADDS information. Callers that have
+    // no separate summary pass the message itself (the report RPC allows
+    // `summary === message`), and a byte-identical repeat renders the same
+    // text twice inside the envelope — the parent's model reads it twice and
+    // the parent chat shows it twice (TASK_2026_466 defect 3). Any other
+    // difference, however small, is kept: only an exact repeat is provably
+    // redundant.
     const trimmedSummary = summary?.trim();
-    const body = trimmedSummary ? `${trimmedSummary}\n\n${message}` : message;
+    const summaryAddsInformation =
+      !!trimmedSummary && trimmedSummary !== message.trim();
+    const body = summaryAddsInformation
+      ? `${trimmedSummary}\n\n${message}`
+      : message;
     return `<agent-report ${attrs}>\n${body}\n</agent-report>`;
   }
 

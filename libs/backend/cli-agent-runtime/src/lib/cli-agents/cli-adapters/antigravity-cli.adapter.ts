@@ -6,9 +6,9 @@
  * one JSON object per line, so segment parsing here is an event loop like the
  * opencode / Codex adapters — not the old plain-text heuristic classifier.
  *
- * Non-interactive run:  agy --dangerously-skip-permissions
- *                           --output-format stream-json --model <label>
- *                           --add-dir <cwd> --print "<prompt>"
+ * Multi-turn run:  agy --print= --input-format stream-json
+ *                      --output-format stream-json
+ * The prompt and every continuation are written as validated NDJSON to stdin.
  *
  * Observed stream-json schema (captured from agy 1.1.11 — see
  * `.ptah/specs/TASK_2026_199/stream-json-capture.md`). Every line is
@@ -37,9 +37,9 @@
  *   from prose (the previous behaviour) produced false positives.
  * - Lines that fail to parse as JSON fall back to being emitted verbatim as
  *   `text` (banners, crash dumps, a partial final line).
- * - `--print` (alias `--prompt`/`-p`) is a STRING flag whose value is the
- *   prompt; Go's flag parser consumes the following argv element, so it is
- *   always passed LAST with the prompt as a single argv item.
+ * - `--print` (alias `--prompt`/`-p`) is a STRING flag with an optional value.
+ *   Stream input requires an attached empty value. Shell notation is
+ *   `--print=''`; direct spawn receives the quote-free argv item `--print=`.
  * - `--dangerously-skip-permissions` maps to autoApprove; required or
  *   file-writing tool calls hang waiting for interactive approval.
  * - `--effort` takes `low|medium|high` only; other values are dropped rather
@@ -84,6 +84,7 @@ import {
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
 import { classifyCliStderr } from './cli-stderr-severity';
+import { z } from 'zod';
 
 /**
  * Print-mode wait timeout. `agy` defaults to 5m, which kills most real coding
@@ -96,56 +97,156 @@ const PRINT_TIMEOUT = '3600s';
 const AGY_EFFORTS = ['low', 'medium', 'high'] as const;
 
 /** Token/cost accounting attached to `agent_response` / `checkpoint` / `result`. */
-interface AgyUsage {
-  readonly input_tokens?: number;
-  readonly output_tokens?: number;
-  readonly thinking_tokens?: number;
-  readonly cache_read_tokens?: number;
-  readonly total_tokens?: number;
-}
+const AgyUsageSchema = z
+  .object({
+    input_tokens: z.number().optional(),
+    output_tokens: z.number().optional(),
+    thinking_tokens: z.number().optional(),
+    cache_read_tokens: z.number().optional(),
+    total_tokens: z.number().optional(),
+  })
+  .passthrough();
 
 /** Tool invocation detail. `output` is present only on the `DONE` update. */
-interface AgyToolInfo {
-  readonly name?: string;
-  readonly parameters?: Record<string, unknown>;
-  readonly output?: string;
-}
+const AgyToolInfoSchema = z
+  .object({
+    name: z.string().optional(),
+    parameters: z.record(z.string(), z.unknown()).optional(),
+    output: z.string().optional(),
+  })
+  .passthrough();
 
 /** Payload of a `step_update` event. */
-interface AgyStepUpdate {
-  readonly conversation_id?: string;
-  readonly step_index?: number;
-  readonly state?: string;
-  readonly step_type?: string;
-  readonly tool_name?: string;
-  readonly tool_info?: AgyToolInfo;
-  readonly text_delta?: string;
-  readonly duration_seconds?: number;
-  readonly usage?: AgyUsage;
-}
+const AgyStepUpdateSchema = z
+  .object({
+    conversation_id: z.string().optional(),
+    step_index: z.number().optional(),
+    state: z.string().optional(),
+    step_type: z.string(),
+    tool_name: z.string().optional(),
+    tool_info: AgyToolInfoSchema.optional(),
+    text_delta: z.string().optional(),
+    duration_seconds: z.number().optional(),
+    usage: AgyUsageSchema.optional(),
+  })
+  .passthrough();
 
 /** Payload of the terminal `result` event. */
-interface AgyResult {
-  readonly conversation_id?: string;
-  readonly status?: string;
-  readonly response?: string;
-  readonly duration_seconds?: number;
-  readonly num_turns?: number;
-  readonly usage?: AgyUsage;
-}
+const AgyResultSchema = z
+  .object({
+    conversation_id: z.string().optional(),
+    status: z.string(),
+    response: z.string().optional(),
+    duration_seconds: z.number().optional(),
+    num_turns: z.number().optional(),
+    usage: AgyUsageSchema.optional(),
+  })
+  .passthrough();
 
 /** A single line of `agy --output-format stream-json` output. */
-interface AgyEvent {
-  readonly event?: string;
-  /** Present at the TOP level of the `init` event (not nested under `init`). */
-  readonly conversation_id?: string;
-  readonly init?: {
-    readonly cwd?: string;
-    readonly tools?: readonly string[];
-    readonly permission_mode?: string;
+const AgyEventHeaderSchema = z.object({ event: z.string() }).passthrough();
+const AgyInitEventSchema = z
+  .object({
+    event: z.literal('init'),
+    conversation_id: z.string(),
+    init: z
+      .object({
+        cwd: z.string().optional(),
+        tools: z.array(z.string()).optional(),
+        permission_mode: z.string().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+const AgyStepUpdateEventSchema = z
+  .object({ event: z.literal('step_update'), step_update: AgyStepUpdateSchema })
+  .passthrough();
+const AgyResultEventSchema = z
+  .object({ event: z.literal('result'), result: AgyResultSchema })
+  .passthrough();
+const AgyInputMessageSchema = z.object({
+  event: z.literal('user'),
+  message: z.object({ content: z.string() }),
+});
+
+type AgyStepUpdate = z.infer<typeof AgyStepUpdateSchema>;
+type AgyResult = z.infer<typeof AgyResultSchema>;
+
+interface TurnDeferred {
+  readonly done: Promise<number>;
+  readonly resolve: (exitCode: number) => void;
+  settled: boolean;
+}
+
+function createTurnDeferred(): TurnDeferred {
+  let resolvePromise!: (exitCode: number) => void;
+  const deferred: TurnDeferred = {
+    done: new Promise<number>((resolve) => {
+      resolvePromise = resolve;
+    }),
+    resolve: (exitCode) => {
+      if (deferred.settled) return;
+      deferred.settled = true;
+      resolvePromise(exitCode);
+    },
+    settled: false,
   };
-  readonly step_update?: AgyStepUpdate;
-  readonly result?: AgyResult;
+  return deferred;
+}
+
+function buildAntigravityArgs(
+  options: CliCommandOptions,
+  taskPrompt: string,
+  useStreamInput: boolean,
+): string[] {
+  const args = useStreamInput
+    ? [
+        '--print=',
+        '--input-format',
+        'stream-json',
+        '--output-format',
+        'stream-json',
+      ]
+    : ['--output-format', 'stream-json'];
+  if (options.autoApprove !== false) {
+    args.push('--dangerously-skip-permissions');
+  }
+  args.push('--print-timeout', PRINT_TIMEOUT);
+  if (options.model) {
+    args.push('--model', options.model);
+  }
+  if (
+    options.reasoningEffort &&
+    (AGY_EFFORTS as readonly string[]).includes(options.reasoningEffort)
+  ) {
+    args.push('--effort', options.reasoningEffort);
+  }
+  if (options.workingDirectory) {
+    args.push('--add-dir', options.workingDirectory);
+  }
+  if (options.resumeSessionId) {
+    args.push('--conversation', options.resumeSessionId);
+  }
+  if (!useStreamInput) {
+    args.push('--print', taskPrompt);
+  }
+  return args;
+}
+
+function formatUsage(
+  usage: z.infer<typeof AgyUsageSchema>,
+): string | undefined {
+  const details: string[] = [];
+  if (usage.input_tokens !== undefined) {
+    details.push(`${usage.input_tokens} input`);
+  }
+  if (usage.output_tokens !== undefined) {
+    details.push(`${usage.output_tokens} output`);
+  }
+  if (details.length === 0 && usage.total_tokens !== undefined) {
+    details.push(`${usage.total_tokens} total`);
+  }
+  return details.length > 0 ? `Usage: ${details.join(', ')} tokens` : undefined;
 }
 
 export class AntigravityCliAdapter implements CliAdapter {
@@ -162,7 +263,13 @@ export class AntigravityCliAdapter implements CliAdapter {
    *   synchronous `CreateProcessW` that cost 300-900 ms of event-loop lag per
    *   rival-CLI launch (TASK_2026_367).
    */
-  constructor(private readonly spawner?: IProcessSpawner) {}
+  private streamJsonInputSupported: boolean | undefined;
+  private readonly streamJsonInputSupportByBinary = new Map<string, boolean>();
+
+  constructor(
+    private readonly spawner?: IProcessSpawner,
+    private readonly streamJsonProbe?: (binary: string) => Promise<boolean>,
+  ) {}
 
   async detect(): Promise<CliDetectionResult> {
     try {
@@ -180,6 +287,7 @@ export class AntigravityCliAdapter implements CliAdapter {
         undefined,
         this.spawner,
       );
+      await this.probeStreamJsonInput(binaryPath);
 
       return {
         cli: 'antigravity',
@@ -198,12 +306,62 @@ export class AntigravityCliAdapter implements CliAdapter {
   }
 
   /**
-   * One-shot `--print` per turn with stdin closed immediately: no live channel,
-   * no run-scoped abort, and the handle carries no `continue`, so there is no
-   * session to address between turns. Nothing can be delivered.
+   * The async capability probe records whether this installed `agy` supports
+   * stream-json input. A live handle also reports its own capability, which is
+   * authoritative while a lane is running.
    */
   capabilities(): AgentMessagingCapabilities {
-    return { steer: false, interrupt: false, continuation: false };
+    return {
+      steer: false,
+      interrupt: false,
+      continuation: this.streamJsonInputSupported === true,
+    };
+  }
+
+  private async probeStreamJsonInput(binary: string): Promise<boolean> {
+    const cached = this.streamJsonInputSupportByBinary.get(binary);
+    if (cached !== undefined) {
+      this.streamJsonInputSupported = cached;
+      return cached;
+    }
+    if (this.streamJsonProbe) {
+      this.streamJsonInputSupported = await this.streamJsonProbe(binary);
+      this.streamJsonInputSupportByBinary.set(
+        binary,
+        this.streamJsonInputSupported,
+      );
+      return this.streamJsonInputSupported;
+    }
+
+    this.streamJsonInputSupported = await new Promise<boolean>((resolve) => {
+      let help = '';
+      let settled = false;
+      const finish = (supported: boolean): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(supported);
+      };
+      const child = spawnCli(binary, ['--help'], { spawner: this.spawner });
+      const timer = setTimeout(() => {
+        child.kill();
+        finish(false);
+      }, 8000);
+      const capture = (data: string): void => {
+        help += stripAnsiCodes(data);
+      };
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
+      child.stdout?.on('data', capture);
+      child.stderr?.on('data', capture);
+      child.on('close', () => finish(/--input-format\b/.test(help)));
+      child.on('error', () => finish(false));
+    });
+    this.streamJsonInputSupportByBinary.set(
+      binary,
+      this.streamJsonInputSupported,
+    );
+    return this.streamJsonInputSupported;
   }
 
   parseOutput(raw: string): string {
@@ -446,31 +604,11 @@ export class AntigravityCliAdapter implements CliAdapter {
     const abortController = new AbortController();
     let capturedSessionId: string | undefined;
 
-    const args: string[] = ['--output-format', 'stream-json'];
-    if (options.autoApprove !== false) {
-      args.push('--dangerously-skip-permissions');
-    }
-    args.push('--print-timeout', PRINT_TIMEOUT);
-    if (options.model) {
-      args.push('--model', options.model);
-    }
-    if (
-      options.reasoningEffort &&
-      (AGY_EFFORTS as readonly string[]).includes(options.reasoningEffort)
-    ) {
-      args.push('--effort', options.reasoningEffort);
-    }
-    if (options.workingDirectory) {
-      args.push('--add-dir', options.workingDirectory);
-    }
-    if (options.resumeSessionId) {
-      args.push('--conversation', options.resumeSessionId);
-    }
-    // `--print` is a string flag whose value is the prompt; keep it LAST so the
-    // Go flag parser consumes the prompt (and nothing else) as its value.
-    args.push('--print', taskPrompt);
-
     const binary = options.binaryPath ?? 'agy';
+    const useStreamInput = await this.probeStreamJsonInput(binary);
+
+    const args = buildAntigravityArgs(options, taskPrompt, useStreamInput);
+
     // `agy` ships as a real `.exe` under %LOCALAPPDATA%\agy\bin, which
     // resolveDirectSpawn returns unchanged; when it is instead an npm `.cmd`
     // shim, resolveDirectSpawn points spawn at the real node entrypoint/binary
@@ -510,8 +648,62 @@ export class AntigravityCliAdapter implements CliAdapter {
     );
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
-    // Prompt is passed via argv; nothing is written to stdin.
-    child.stdin?.end();
+    let processClosed = false;
+    let stdinClosed = false;
+    let currentTurn = createTurnDeferred();
+    const firstTurn = currentTurn;
+
+    const emitAdapterError = (error: Error): void => {
+      output.emit(`\n[Antigravity CLI Error] ${error.message}\n`);
+      segment.emit({
+        type: 'error',
+        content: `Antigravity CLI Error: ${error.message}`,
+      });
+    };
+
+    child.stdin?.on?.('error', (error: Error) => {
+      stdinClosed = true;
+      currentTurn.resolve(1);
+      emitAdapterError(error);
+    });
+
+    const writeTurn = (message: string): void => {
+      const parsed = AgyInputMessageSchema.safeParse({
+        event: 'user',
+        message: { content: message },
+      });
+      if (!parsed.success) {
+        throw new Error(
+          `Refusing to send an invalid Antigravity stream-json message: ${z.prettifyError(parsed.error)}`,
+        );
+      }
+      if (processClosed || stdinClosed || !child.stdin) {
+        throw new Error('Antigravity stdin is no longer writable');
+      }
+      child.stdin.write(`${JSON.stringify(parsed.data)}\n`);
+    };
+
+    if (useStreamInput) {
+      writeTurn(taskPrompt);
+    } else {
+      // The fallback prompt is carried in argv and remains strictly one-shot.
+      child.stdin?.end();
+      stdinClosed = true;
+    }
+
+    const closeAfterSettledTurn = (settledTurn: TurnDeferred): void => {
+      setImmediate(() => {
+        if (
+          !processClosed &&
+          !stdinClosed &&
+          currentTurn === settledTurn &&
+          settledTurn.settled
+        ) {
+          child.stdin?.end();
+          stdinClosed = true;
+        }
+      });
+    };
 
     const onAbort = (): void => {
       // `pid` is known synchronously for an inline spawn and NOT for an
@@ -553,7 +745,19 @@ export class AntigravityCliAdapter implements CliAdapter {
         lineBuf = '';
       }
       for (const line of lines) {
-        this.handleLine(line, output.emit, segment.emit, setSessionId);
+        this.handleLine(
+          line,
+          output.emit,
+          segment.emit,
+          setSessionId,
+          useStreamInput
+            ? (exitCode) => {
+                const settledTurn = currentTurn;
+                settledTurn.resolve(exitCode);
+                closeAfterSettledTurn(settledTurn);
+              }
+            : undefined,
+        );
       }
     });
 
@@ -579,12 +783,24 @@ export class AntigravityCliAdapter implements CliAdapter {
 
     const done = new Promise<number>((resolve) => {
       child.on('close', (code, signal) => {
+        processClosed = true;
         abortController.signal.removeEventListener('abort', onAbort);
         if (lineBuf.trim()) {
-          this.handleLine(lineBuf, output.emit, segment.emit, setSessionId);
+          this.handleLine(
+            lineBuf,
+            output.emit,
+            segment.emit,
+            setSessionId,
+            useStreamInput
+              ? (turnCode) => currentTurn.resolve(turnCode)
+              : undefined,
+          );
           lineBuf = '';
         }
         const exitCode = code ?? (signal ? 1 : 0);
+        if (useStreamInput) {
+          currentTurn.resolve(exitCode);
+        }
         if (exitCode !== 0 && !abortController.signal.aborted) {
           segment.emit({
             type: 'error',
@@ -595,12 +811,12 @@ export class AntigravityCliAdapter implements CliAdapter {
       });
 
       child.on('error', (err) => {
+        processClosed = true;
         abortController.signal.removeEventListener('abort', onAbort);
-        output.emit(`\n[Antigravity CLI Error] ${err.message}\n`);
-        segment.emit({
-          type: 'error',
-          content: `Antigravity CLI Error: ${err.message}`,
-        });
+        if (useStreamInput) {
+          currentTurn.resolve(1);
+        }
+        emitAdapterError(err);
         resolve(1);
       });
     });
@@ -613,11 +829,33 @@ export class AntigravityCliAdapter implements CliAdapter {
 
     return {
       abort: abortController,
-      done,
+      done: useStreamInput ? firstTurn.done : done,
       onOutput: output.subscribe,
       onSegment: segment.subscribe,
       getSessionId: () => capturedSessionId,
       getPid: () => child.pid,
+      ...(useStreamInput
+        ? {
+            supportsContinuation: () => !processClosed && !stdinClosed,
+            continue: async (message: string) => {
+              if (!currentTurn.settled) {
+                throw new Error(
+                  'Antigravity is still processing the current turn',
+                );
+              }
+              const previousTurn = currentTurn;
+              const nextTurn = createTurnDeferred();
+              currentTurn = nextTurn;
+              try {
+                writeTurn(message);
+              } catch (error: unknown) {
+                currentTurn = previousTurn;
+                throw error;
+              }
+              return { done: nextTurn.done };
+            },
+          }
+        : {}),
     };
   }
 
@@ -631,13 +869,14 @@ export class AntigravityCliAdapter implements CliAdapter {
     emitOutput: (data: string) => void,
     emitSegment: (segment: CliOutputSegment) => void,
     setSessionId: (id: string | undefined) => void,
+    settleTurn?: (exitCode: number) => void,
   ): void {
     const trimmed = line.trim();
     if (!trimmed) return;
 
-    let event: AgyEvent;
+    let value: unknown;
     try {
-      event = JSON.parse(trimmed) as AgyEvent;
+      value = JSON.parse(trimmed) as unknown;
     } catch {
       // degradation-audit: optional-capability - agy prints banners and crash
       // dumps outside the JSON event stream; a non-JSON line is emitted
@@ -648,21 +887,51 @@ export class AntigravityCliAdapter implements CliAdapter {
       return;
     }
 
-    switch (event.event) {
+    const header = AgyEventHeaderSchema.safeParse(value);
+    if (!header.success) {
+      emitSegment({
+        type: 'error',
+        content: `Invalid Antigravity stream-json event: ${z.prettifyError(header.error)}`,
+      });
+      return;
+    }
+
+    switch (header.data.event) {
       case 'init':
-        // Carries the conversation id; nothing user-facing to render.
-        setSessionId(event.conversation_id);
+        this.parseKnownEvent(
+          AgyInitEventSchema,
+          value,
+          emitSegment,
+          (event) => {
+            setSessionId(event.conversation_id);
+          },
+        );
         break;
       case 'step_update':
-        if (event.step_update) {
-          setSessionId(event.step_update.conversation_id);
-          this.handleStepUpdate(event.step_update, emitOutput, emitSegment);
-        }
+        this.parseKnownEvent(
+          AgyStepUpdateEventSchema,
+          value,
+          emitSegment,
+          (event) => {
+            setSessionId(event.step_update.conversation_id);
+            this.handleStepUpdate(event.step_update, emitOutput, emitSegment);
+          },
+        );
         break;
       case 'result':
-        if (event.result) {
-          setSessionId(event.result.conversation_id);
-          this.handleResult(event.result, emitOutput, emitSegment);
+        if (
+          !this.parseKnownEvent(
+            AgyResultEventSchema,
+            value,
+            emitSegment,
+            (event) => {
+              setSessionId(event.result.conversation_id);
+              this.handleResult(event.result, emitOutput, emitSegment);
+              settleTurn?.(event.result.status === 'SUCCESS' ? 0 : 1);
+            },
+          )
+        ) {
+          settleTurn?.(1);
         }
         break;
       default:
@@ -670,6 +939,24 @@ export class AntigravityCliAdapter implements CliAdapter {
         emitSegment({ type: 'info', content: trimmed });
         break;
     }
+  }
+
+  private parseKnownEvent<T>(
+    schema: z.ZodType<T>,
+    value: unknown,
+    emitSegment: (segment: CliOutputSegment) => void,
+    consume: (event: T) => void,
+  ): boolean {
+    const parsed = schema.safeParse(value);
+    if (!parsed.success) {
+      emitSegment({
+        type: 'error',
+        content: `Invalid Antigravity stream-json event: ${z.prettifyError(parsed.error)}`,
+      });
+      return false;
+    }
+    consume(parsed.data);
+    return true;
   }
 
   /**
@@ -720,6 +1007,18 @@ export class AntigravityCliAdapter implements CliAdapter {
       emitOutput(step.text_delta);
       emitSegment({ type: 'text', content: step.text_delta });
     }
+
+    if (
+      step.step_type === 'agent_response' &&
+      step.state === 'DONE' &&
+      step.usage
+    ) {
+      const usageStr = formatUsage(step.usage);
+      if (usageStr) {
+        emitOutput(`\n[${usageStr}]\n`);
+        emitSegment({ type: 'info', content: usageStr });
+      }
+    }
   }
 
   /**
@@ -738,15 +1037,10 @@ export class AntigravityCliAdapter implements CliAdapter {
         : `Antigravity CLI finished with status ${result.status}`;
       emitOutput(`\n[Error] ${message}\n`);
       emitSegment({ type: 'error', content: message });
-      return;
     }
 
-    const usage = result.usage;
-    if (!usage) return;
-    const usageStr = `Usage: ${usage.input_tokens ?? 0} input, ${
-      usage.output_tokens ?? 0
-    } output tokens`;
-    emitOutput(`\n[${usageStr}]\n`);
-    emitSegment({ type: 'info', content: usageStr });
+    // result.usage and result.num_turns are cumulative across the whole
+    // process. Per-turn usage is emitted from the DONE agent_response step so
+    // a second result cannot double-count the first turn.
   }
 }

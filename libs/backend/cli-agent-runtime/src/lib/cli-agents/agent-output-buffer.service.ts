@@ -87,7 +87,17 @@ export class AgentOutputBuffer {
     segment: CliOutputSegment,
     onFlushDue: () => void,
   ): void {
-    this.pendingFor(agentId).segments.push(segment);
+    // The last bucket is the turn in progress. `segmentTurns` always holds at
+    // least one bucket, and every bucket except possibly the last is
+    // non-empty (`markTurnBoundary` never appends an empty one).
+    const turns = this.pendingFor(agentId).segmentTurns;
+    const currentTurn = turns.at(-1);
+    if (!currentTurn) {
+      throw new Error(
+        `AgentOutputBuffer: no open segment turn for agent ${agentId}`,
+      );
+    }
+    currentTurn.push(segment);
     if (
       tracked &&
       tracked.accumulatedSegments.length < MAX_ACCUMULATED_SEGMENTS
@@ -95,6 +105,32 @@ export class AgentOutputBuffer {
       tracked.accumulatedSegments.push(segment);
     }
     this.scheduleFlush(agentId, onFlushDue);
+  }
+
+  /**
+   * Stamp a turn boundary: segments appended after this call belong to a NEW
+   * agent turn and must never merge with the ones before it.
+   *
+   * `mergeConsecutiveTextSegments` exists because several adapters emit one
+   * text segment per token delta, and that merge is only correct WITHIN a
+   * turn. When two turns share a flush window — a queued message continues a
+   * conversation whose previous turn's tail segments are still pending — the
+   * merge used to fuse the two turns into one segment, and no consumer
+   * downstream could separate them again (TASK_2026_466 defect 5). The
+   * boundary is a bucket edge in the PENDING structure, never a segment in
+   * the stream, so nothing synthetic reaches the tile, the accumulated
+   * segments, or the persisted output.
+   *
+   * No-op when nothing is pending: the first bucket of a fresh window already
+   * starts a new turn, and an empty bucket is never created just to mark
+   * one.
+   */
+  markTurnBoundary(agentId: string): void {
+    const pending = this.pendingDeltas.get(agentId);
+    if (!pending) return;
+    const current = pending.segmentTurns.at(-1);
+    if (!current || current.length === 0) return;
+    pending.segmentTurns.push([]);
   }
 
   /**
@@ -146,8 +182,9 @@ export class AgentOutputBuffer {
 
   /**
    * Take the accumulated deltas for an agent as one `AgentOutputDelta`.
-   * Merges consecutive text segments to reduce webview overhead. Returns
-   * undefined when nothing is pending or the record is gone.
+   * Merges consecutive text segments within one turn to reduce webview
+   * overhead, and never across a turn boundary. Returns undefined when
+   * nothing is pending or the record is gone.
    */
   takeDelta(
     agentId: string,
@@ -159,7 +196,7 @@ export class AgentOutputBuffer {
       !pending ||
       (!pending.stdout &&
         !pending.stderr &&
-        pending.segments.length === 0 &&
+        pending.segmentTurns.every((turn) => turn.length === 0) &&
         pending.streamEvents.length === 0)
     )
       return undefined;
@@ -169,7 +206,13 @@ export class AgentOutputBuffer {
       return undefined;
     }
 
-    const mergedSegments = mergeConsecutiveTextSegments(pending.segments);
+    // Per-turn buckets are the whole fix for defect 5: the merge still
+    // collapses per-token deltas inside one turn, but a stamped boundary is
+    // a bucket edge it never crosses, so the two turns leave this buffer as
+    // two segments even when they shared the flush window.
+    const mergedSegments = pending.segmentTurns.flatMap((turn) =>
+      mergeConsecutiveTextSegments(turn),
+    );
 
     const delta: AgentOutputDelta = {
       agentId: AgentId.from(agentId),
@@ -183,7 +226,7 @@ export class AgentOutputBuffer {
     };
     pending.stdout = '';
     pending.stderr = '';
-    pending.segments = [];
+    pending.segmentTurns = [[]];
     pending.streamEvents = [];
 
     return delta;

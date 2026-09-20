@@ -1,6 +1,7 @@
 import {
   BUFFER_LOW_WATER_SIZE,
   MAX_BUFFER_SIZE,
+  createEmptyPendingDelta,
   trimBufferToLowWater,
 } from './agent-process-manager-helpers';
 
@@ -34,6 +35,19 @@ describe('trimBufferToLowWater', () => {
       buffer: tail,
       linesDropped: 2,
       trimmed: true,
+    });
+  });
+});
+
+describe('createEmptyPendingDelta (TASK_2026_466 defect 5)', () => {
+  it('starts with exactly one empty turn bucket', () => {
+    // The buffer treats the last bucket as the turn in progress, so an empty
+    // pending delta must hold exactly one empty bucket — never zero.
+    expect(createEmptyPendingDelta()).toEqual({
+      stdout: '',
+      stderr: '',
+      segmentTurns: [[]],
+      streamEvents: [],
     });
   });
 });

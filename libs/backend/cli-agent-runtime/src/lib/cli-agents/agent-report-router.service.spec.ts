@@ -132,6 +132,58 @@ describe('AgentReportRouter.deliver', () => {
         'agent="a &quot;quoted&quot; &amp; &lt;angled&gt; name"',
       );
     });
+
+    it('renders the body once when the summary equals the message (TASK_2026_466 defect 3)', async () => {
+      const h = createHarness();
+
+      await h.router.deliver({
+        agentId: AGENT_ID,
+        message: 'STEP2: done',
+        summary: 'STEP2: done',
+      });
+
+      const content = h.sendMessageToSession.mock.calls[0][1] as string;
+      expect(content).toBe(
+        `<agent-report agent-id="${AGENT_ID}" agent="Codex CLI" cli="codex">\n` +
+          'STEP2: done\n' +
+          '</agent-report>',
+      );
+    });
+
+    it('renders the body once when the summary differs from the message only by whitespace', async () => {
+      const h = createHarness();
+
+      await h.router.deliver({
+        agentId: AGENT_ID,
+        message: 'STEP2: done',
+        summary: '  STEP2: done  ',
+      });
+
+      const content = h.sendMessageToSession.mock.calls[0][1] as string;
+      expect(content).toBe(
+        `<agent-report agent-id="${AGENT_ID}" agent="Codex CLI" cli="codex">\n` +
+          'STEP2: done\n' +
+          '</agent-report>',
+      );
+    });
+
+    it('renders both the summary and the message when they differ (TASK_2026_466 defect 3)', async () => {
+      const h = createHarness();
+
+      await h.router.deliver({
+        agentId: AGENT_ID,
+        message: 'codex received the queued message',
+        summary: 'Queued message delivered',
+      });
+
+      const content = h.sendMessageToSession.mock.calls[0][1] as string;
+      expect(content).toBe(
+        `<agent-report agent-id="${AGENT_ID}" agent="Codex CLI" cli="codex">\n` +
+          'Queued message delivered\n\n' +
+          'codex received the queued message\n' +
+          '</agent-report>',
+      );
+    });
   });
 
   describe('refusals', () => {
@@ -153,7 +205,10 @@ describe('AgentReportRouter.deliver', () => {
       const h = createHarness();
       h.findAgentInfo.mockReturnValue(undefined);
 
-      const result = await h.router.deliver({ agentId: 'ghost', message: 'hi' });
+      const result = await h.router.deliver({
+        agentId: 'ghost',
+        message: 'hi',
+      });
 
       expect(result.reason).toBe('unattributed-caller');
       expect(h.sendMessageToSession).not.toHaveBeenCalled();
@@ -164,18 +219,29 @@ describe('AgentReportRouter.deliver', () => {
         info: createInfo({ parentSessionId: undefined }),
       });
 
-      const result = await h.router.deliver({ agentId: AGENT_ID, message: 'x' });
+      const result = await h.router.deliver({
+        agentId: AGENT_ID,
+        message: 'x',
+      });
 
-      expect(result).toEqual({ delivered: false, reason: 'no-parent-recorded' });
+      expect(result).toEqual({
+        delivered: false,
+        reason: 'no-parent-recorded',
+      });
       expect(h.sendMessageToSession).not.toHaveBeenCalled();
     });
 
     it('refuses when the recorded parent never resolved to a real session id', async () => {
       // A tab id, not a session uuid: `resolveParentSessionId` never backfilled
       // it, so there is nothing to deliver into.
-      const h = createHarness({ info: createInfo({ parentSessionId: 'tab-7' }) });
+      const h = createHarness({
+        info: createInfo({ parentSessionId: 'tab-7' }),
+      });
 
-      const result = await h.router.deliver({ agentId: AGENT_ID, message: 'x' });
+      const result = await h.router.deliver({
+        agentId: AGENT_ID,
+        message: 'x',
+      });
 
       expect(result.reason).toBe('no-parent-recorded');
     });
@@ -183,7 +249,10 @@ describe('AgentReportRouter.deliver', () => {
     it('refuses when the parent session is no longer active', async () => {
       const h = createHarness({ sessionActive: false });
 
-      const result = await h.router.deliver({ agentId: AGENT_ID, message: 'x' });
+      const result = await h.router.deliver({
+        agentId: AGENT_ID,
+        message: 'x',
+      });
 
       expect(result).toEqual({
         delivered: false,
@@ -311,7 +380,10 @@ describe('AgentReportRouter.deliver', () => {
     it('refuses with chat-runtime-unavailable when no agent adapter is registered', async () => {
       const h = createHarness({ withAdapter: false });
 
-      const result = await h.router.deliver({ agentId: AGENT_ID, message: 'x' });
+      const result = await h.router.deliver({
+        agentId: AGENT_ID,
+        message: 'x',
+      });
 
       expect(result).toEqual({
         delivered: false,
@@ -325,7 +397,10 @@ describe('AgentReportRouter.deliver', () => {
         sendImpl: () => Promise.reject(new Error('session closed mid-send')),
       });
 
-      const result = await h.router.deliver({ agentId: AGENT_ID, message: 'x' });
+      const result = await h.router.deliver({
+        agentId: AGENT_ID,
+        message: 'x',
+      });
 
       expect(result).toEqual({ delivered: false, reason: 'delivery-failed' });
       expect(h.recordAgentNote).not.toHaveBeenCalled();

@@ -165,16 +165,25 @@ export const LANDMARK_EVENT_TYPES = new Set<string>([
   'message_complete',
 ]);
 
-/** Buffered output deltas per agent, flushed every OUTPUT_FLUSH_INTERVAL */
+/**
+ * Buffered output deltas per agent, flushed every OUTPUT_FLUSH_INTERVAL.
+ *
+ * Segments are bucketed PER AGENT TURN: the first bucket is the turn in
+ * progress, and every later bucket begins at a turn boundary stamped by
+ * `AgentOutputBuffer.markTurnBoundary`. The flush-time merge runs WITHIN a
+ * bucket and never across one, so two turns that share a flush window reach
+ * the tile as two segments, never one (TASK_2026_466 defect 5).
+ */
 export interface PendingDelta {
   stdout: string;
   stderr: string;
-  segments: CliOutputSegment[];
+  /** One bucket per turn, in turn order. Always holds at least one bucket. */
+  segmentTurns: CliOutputSegment[][];
   streamEvents: FlatStreamEventUnion[];
 }
 
 export function createEmptyPendingDelta(): PendingDelta {
-  return { stdout: '', stderr: '', segments: [], streamEvents: [] };
+  return { stdout: '', stderr: '', segmentTurns: [[]], streamEvents: [] };
 }
 
 /**
@@ -293,6 +302,11 @@ export function capStreamEvents(
  * segments of the same type while preserving segment-type boundaries.
  *
  * Mergeable types: 'text', 'thinking' (both are content-only streaming types).
+ *
+ * The caller hands it ONE turn's segments — `PendingDelta.segmentTurns` buckets
+ * per turn for exactly this reason. The merge is correct within a turn and must
+ * never be fed a run that spans a turn boundary: it would fuse two turns into
+ * one segment, and no consumer downstream could separate them again.
  */
 export function mergeConsecutiveTextSegments(
   segments: CliOutputSegment[],

@@ -200,7 +200,9 @@ function createMockSessionLifecycle(): jest.Mocked<
     dispose: jest.fn(),
     endSession: jest.fn().mockResolvedValue(undefined),
     find: jest.fn().mockReturnValue(undefined),
-    bindRealSessionId: jest.fn(),
+    // The adapter announces only on a SUCCESSFUL bind outcome, so the double
+    // must report one. A test that needs a refusal overrides this.
+    bindRealSessionId: jest.fn().mockReturnValue('bound'),
     sendMessage: jest.fn().mockResolvedValue(undefined),
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
     markTurnEnded: jest.fn().mockReturnValue(true),
@@ -1534,6 +1536,7 @@ describe('SdkAgentAdapter', () => {
     interface FakeRecord {
       tabId: string;
       realSessionId: string | null;
+      ownerToken: string;
       config: { projectPath?: string };
     }
 
@@ -1554,18 +1557,32 @@ describe('SdkAgentAdapter', () => {
       const byTabId = new Map<string, FakeRecord>();
       const bySessionId = new Map<string, FakeRecord>();
       const teardownIds: string[] = [];
+      let tokenSequence = 0;
 
       h.sessionLifecycle.find.mockImplementation((id: string) =>
         asFoundRecord(byTabId.get(id) ?? bySessionId.get(id)),
       );
       h.sessionLifecycle.bindRealSessionId.mockImplementation(
-        (tabId: string, realSessionId: string) => {
+        (tabId: string, realSessionId: string, ownerToken?: string) => {
           const rec = byTabId.get(tabId);
-          if (!rec || rec.realSessionId !== null) {
-            return;
+          if (!rec) {
+            return 'no-record';
+          }
+          if (rec.realSessionId === realSessionId) {
+            return 'already-bound';
+          }
+          if (rec.realSessionId !== null) {
+            if (ownerToken === rec.ownerToken) {
+              bySessionId.delete(rec.realSessionId);
+              rec.realSessionId = realSessionId;
+              bySessionId.set(realSessionId, rec);
+              return 'rebound';
+            }
+            return 'stale-mismatch';
           }
           rec.realSessionId = realSessionId;
           bySessionId.set(realSessionId, rec);
+          return 'bound';
         },
       );
       h.sessionLifecycle.endSession.mockImplementation(async (id) => {
@@ -1582,12 +1599,19 @@ describe('SdkAgentAdapter', () => {
 
       return {
         teardownIds,
-        register(tabId: string): void {
+        register(tabId: string): string {
+          const previous = byTabId.get(tabId);
+          if (previous?.realSessionId) {
+            bySessionId.delete(previous.realSessionId);
+          }
+          const ownerToken = `owner-${tokenSequence++}`;
           byTabId.set(tabId, {
             tabId,
             realSessionId: null,
+            ownerToken,
             config: { projectPath: PROJECT_PATH },
           });
+          return ownerToken;
         },
       };
     }
@@ -1621,11 +1645,12 @@ describe('SdkAgentAdapter', () => {
       options: { prompt?: string } = { prompt: 'first turn' },
     ): Promise<void> {
       h.sessionLifecycle.executeQuery.mockImplementationOnce(async () => {
-        registry.register(TAB_ID);
+        const sessionToken = registry.register(TAB_ID);
         return {
           sdkQuery: createFakeQuery(),
           initialModel: 'claude-sonnet-4-20250514',
           abortController: new AbortController(),
+          sessionToken,
         } as ExecuteQueryResult;
       });
 
@@ -1644,7 +1669,8 @@ describe('SdkAgentAdapter', () => {
       h: AdapterHarness,
       realSessionId: string,
     ): Promise<void> {
-      const transformArg = h.streamTransformer.transform.mock.calls[0][0];
+      const transformCalls = h.streamTransformer.transform.mock.calls;
+      const transformArg = transformCalls[transformCalls.length - 1][0];
       await (
         transformArg.onSessionIdResolved as unknown as (
           tabId: string | undefined,
@@ -1769,6 +1795,110 @@ describe('SdkAgentAdapter', () => {
       expect(typeof seen[0].timestamp).toBe('number');
     });
 
+    it('announces nothing when a displaced callback reports its own id against the replacement', async () => {
+      // Defect 2 of TASK_2026_466, the user-visible half. Tab `03497c14-…` ran
+      // session `7d2539d1-…`, was restarted into `16434295-…`, and the OLD SDK
+      // process stayed alive. Hours later it emitted its own init against the
+      // same tab. The registry refused the bind, correctly — but the adapter
+      // announced the refused id anyway, so the RPC layer, the webview and the
+      // agent-process-manager remap all moved the tab back to the dead session
+      // and every live CLI agent vanished from the strip.
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const seen = captureResolved(h);
+      const singleSlot = jest.fn();
+      h.adapter.setSessionIdResolvedCallback(singleSlot);
+
+      await startSessionWithPrompt(h, registry);
+      const oldTransformArg = h.streamTransformer.transform.mock.calls[0][0];
+      const oldCallback = oldTransformArg.onSessionIdResolved as unknown as (
+        tabId: string | undefined,
+        realSessionId: string,
+      ) => Promise<void>;
+      await deliverInit(h, REAL_ID);
+      expect(singleSlot).toHaveBeenCalledTimes(1);
+      expect(seen).toHaveLength(1);
+
+      await startSessionWithPrompt(h, registry);
+      const replacementId = '16434295-0000-4000-8000-000000000000';
+      await deliverInit(h, replacementId);
+
+      // The displaced process, still streaming, reports the id it owns through
+      // the callback that captured its now-stale owner token.
+      const displacedId = '7d2539d1-0000-4000-8000-000000000000';
+      await oldCallback(TAB_ID, displacedId);
+
+      expect(singleSlot).toHaveBeenCalledTimes(2);
+      expect(singleSlot).not.toHaveBeenCalledWith(TAB_ID, displacedId);
+      expect(seen).toHaveLength(2);
+      expect(seen[1].realSessionId).toBe(replacementId);
+      expect(
+        h.metadataStore.create.mock.calls.map(([sessionId]) => sessionId),
+      ).not.toContain(displacedId);
+    });
+
+    // -----------------------------------------------------------------
+    // Review finding 3: `stale-mismatch` was the only refusal that stopped
+    // the announcement. `no-record` and `invalid` are refusals too — the
+    // registry holds no tab pointing at that session in either case — and
+    // announcing one tells RPC and webview consumers an identity that does
+    // not exist.
+    // -----------------------------------------------------------------
+
+    it('announces nothing when the tab owns NO record', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const seen = captureResolved(h);
+      const singleSlot = jest.fn();
+      h.adapter.setSessionIdResolvedCallback(singleSlot);
+
+      await startSessionWithPrompt(h, registry);
+      // The session is ended, so nothing is registered under the tab. Its SDK
+      // process then emits init late.
+      await h.sessionLifecycle.endSession(TAB_ID as SessionId);
+      await deliverInit(h, REAL_ID);
+
+      expect(singleSlot).not.toHaveBeenCalled();
+      expect(seen).toEqual([]);
+      expect(h.metadataStore.create).not.toHaveBeenCalled();
+    });
+
+    it('announces nothing when the registry calls the reported id invalid', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const seen = captureResolved(h);
+      const singleSlot = jest.fn();
+      h.adapter.setSessionIdResolvedCallback(singleSlot);
+      h.sessionLifecycle.bindRealSessionId.mockReturnValue('invalid');
+
+      await startSessionWithPrompt(h, registry);
+      await deliverInit(h, REAL_ID);
+
+      expect(singleSlot).not.toHaveBeenCalled();
+      expect(seen).toEqual([]);
+      expect(h.metadataStore.create).not.toHaveBeenCalled();
+    });
+
+    it('announces a legitimate FIRST bind exactly once', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const seen = captureResolved(h);
+      const singleSlot = jest.fn();
+      h.adapter.setSessionIdResolvedCallback(singleSlot);
+
+      await startSessionWithPrompt(h, registry);
+      await deliverInit(h, REAL_ID);
+
+      expect(singleSlot).toHaveBeenCalledTimes(1);
+      expect(singleSlot).toHaveBeenCalledWith(TAB_ID, REAL_ID);
+      expect(seen).toHaveLength(1);
+      expect(seen[0].realSessionId).toBe(REAL_ID);
+    });
+
     it('notifies the SessionIdResolved registry ALONGSIDE the single-slot setter on the resume path', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
@@ -1795,6 +1925,33 @@ describe('SdkAgentAdapter', () => {
       );
     });
 
+    it('does not touch resume metadata when the registry refuses the identity', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.bindRealSessionId.mockReturnValue('stale-mismatch');
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+        sessionToken: 'stale-owner',
+      } as ExecuteQueryResult);
+
+      await h.adapter.resumeSession(
+        REAL_ID as SessionId,
+        makeSessionConfig({ tabId: TAB_ID }),
+      );
+      await deliverInit(h, REAL_ID);
+
+      // The refusal has to be the registry's answer to THIS session's token.
+      // Without this, the test still passes if `resumeSession` drops it.
+      expect(h.sessionLifecycle.bindRealSessionId).toHaveBeenCalledWith(
+        TAB_ID,
+        REAL_ID,
+        'stale-owner',
+      );
+      expect(h.metadataStore.touch).not.toHaveBeenCalled();
+    });
+
     // Paired-isolation sibling for the two above: the §0 init-callback blank
     // refusal returns before the notify, so a blank SDK id publishes no rekey
     // signal at all — the reconciliation must never be asked to migrate onto
@@ -1808,6 +1965,31 @@ describe('SdkAgentAdapter', () => {
       await startSessionWithPrompt(h, registry);
       await deliverInit(h, '   ');
 
+      expect(seen).toEqual([]);
+    });
+
+    // The resume path reaches the same blank id from the same place, and it
+    // can run with no tabId at all — so the binding check is not there to stop
+    // it. Without its own guard, a blank id touches metadata under '' and
+    // resolves the webview to ''.
+    it('does not touch metadata or resolve on a blank resume session id', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const seen = captureResolved(h);
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+        sessionToken: 'resume-owner',
+      } as ExecuteQueryResult);
+
+      await h.adapter.resumeSession(
+        REAL_ID as SessionId,
+        makeSessionConfig({ tabId: TAB_ID }),
+      );
+      await deliverInit(h, '   ');
+
+      expect(h.metadataStore.touch).not.toHaveBeenCalled();
       expect(seen).toEqual([]);
     });
   });
