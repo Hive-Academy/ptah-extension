@@ -215,3 +215,76 @@ NX   Successfully ran target test for project @ptah-extension/agent-sdk
 This final run used process-local `NX_SKIP_NX_CACHE=true` and executed Jest rather than
 reading the prior successful result from cache. No full-workspace suite, `nx reset`,
 commit, or push was performed.
+
+## Round 3
+
+Added one builder-level regression test to
+`sdk-query-options-builder.cli-notice.spec.ts`. The test executes the real
+`SdkQueryOptionsBuilder.build()` path twice with the same `tabId` and spies on
+`McpServerBackoffService.trackStderrSession`. It asserts both calls retain the same
+routing ID (`tab-abc`) while receiving different per-launch attempt keys.
+
+### Deliberate failure check
+
+I temporarily changed the builder from:
+
+```text
+const mcpAttemptKey = routingId ? randomUUID() : undefined;
+```
+
+to the defective tab-lifetime identity:
+
+```text
+const mcpAttemptKey = routingId;
+```
+
+The required agent-sdk suite failed specifically at the new test:
+
+```text
+FAIL  sdk-query-options-builder.cli-notice.spec.ts
+SdkQueryOptionsBuilder.build — stderr publishes the CLI notice › mints a distinct attempt key for each build while preserving the routing id
+
+expect(received).not.toBe(expected) // Object.is equality
+
+Expected: not "tab-abc"
+
+  181 | expect(firstRoutingId).toBe('tab-abc');
+  182 | expect(secondRoutingId).toBe(firstRoutingId);
+> 183 | expect(secondAttemptKey).not.toBe(firstAttemptKey);
+
+Test Suites: 1 failed, 2 skipped, 111 passed, 112 of 114 total
+Tests:       1 failed, 3 skipped, 1993 passed, 1997 total
+Time:        29.27 s, estimated 40 s
+```
+
+I then restored the `randomUUID()` implementation. No production source file remains
+modified.
+
+### Final agent-sdk run
+
+Command (with process-local Nx daemon isolation and cache bypass):
+
+```text
+npx nx run-many -t test -p @ptah-extension/agent-sdk --maxWorkers=2
+```
+
+Final uncached output:
+
+```text
+NX   Running target test for project @ptah-extension/agent-sdk:
+
+- @ptah-extension/agent-sdk
+
+With additional flags:
+  --maxWorkers=2
+
+Test Suites: 2 skipped, 112 passed, 112 of 114 total
+Tests:       3 skipped, 1994 passed, 1997 total
+Snapshots:   0 total
+Time:        27.996 s
+Ran all test suites.
+
+NX   Successfully ran target test for project @ptah-extension/agent-sdk
+```
+
+No full-workspace suite, `nx reset`, commit, or push was performed.

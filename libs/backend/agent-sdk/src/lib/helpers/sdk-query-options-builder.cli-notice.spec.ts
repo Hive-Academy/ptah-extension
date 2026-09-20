@@ -32,6 +32,7 @@ const CLI_NOTICE =
 interface Harness {
   stderr: (data: string) => void;
   events: SessionMcpStatusEvent[];
+  trackStderrSession: jest.Mock;
   /** Read AFTER the stderr calls — these are getters, not snapshots. */
   errorLines: () => string[];
   warnLines: () => string[];
@@ -55,6 +56,12 @@ async function makeHarness(
       events.push(event);
     },
   } as unknown as SessionMcpStatusCallbackRegistry;
+  const trackStderrSession = jest.fn();
+  const mcpBackoff = {
+    getBackingOffServers: jest.fn().mockReturnValue([]),
+    trackStderrSession,
+    checkStderrForFailure: jest.fn(),
+  };
 
   const ctor = SdkQueryOptionsBuilder as unknown as new (
     ...args: unknown[]
@@ -98,6 +105,7 @@ async function makeHarness(
     // ordering is load-bearing: see the constructor's own comment.
     undefined,
     mcpStatus,
+    mcpBackoff,
   );
 
   const userMessageStream = (async function* () {
@@ -122,6 +130,7 @@ async function makeHarness(
   return {
     stderr: cfg.options.stderr as (data: string) => void,
     events,
+    trackStderrSession,
     errorLines: () => lines(error),
     warnLines: () => lines(warn),
     debugLines: () => lines(debug),
@@ -160,6 +169,20 @@ describe('classifyCliNotice', () => {
 });
 
 describe('SdkQueryOptionsBuilder.build — stderr publishes the CLI notice', () => {
+  it('mints a distinct attempt key for each build while preserving the routing id', async () => {
+    const first = await makeHarness({ tabId: 'tab-abc' });
+    const second = await makeHarness({ tabId: 'tab-abc' });
+
+    const [firstRoutingId, firstAttemptKey] =
+      first.trackStderrSession.mock.calls[0];
+    const [secondRoutingId, secondAttemptKey] =
+      second.trackStderrSession.mock.calls[0];
+
+    expect(firstRoutingId).toBe('tab-abc');
+    expect(secondRoutingId).toBe(firstRoutingId);
+    expect(secondAttemptKey).not.toBe(firstAttemptKey);
+  });
+
   it('publishes the notice under the routing id when no SDK UUID exists yet', async () => {
     const h = await makeHarness({ tabId: 'tab-abc' });
     h.stderr(CLI_NOTICE);
