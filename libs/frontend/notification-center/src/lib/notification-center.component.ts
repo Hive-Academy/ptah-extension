@@ -29,6 +29,7 @@ import type {
   selector: 'ptah-notification-center',
   standalone: true,
   imports: [LucideAngularModule],
+  providers: [NotificationCenterStore],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'relative inline-flex' },
   template: `
@@ -120,9 +121,10 @@ import type {
                   entry.statusText
                 }}</span>
                 <span class="block truncate text-xs">{{ entry.title }}</span>
-                <span class="block truncate text-[11px] text-base-content/60">{{
-                  entry.workspaceLabel
-                }}</span>
+                <span
+                  class="block truncate text-[11px] text-base-content-muted"
+                  >{{ entry.workspaceLabel }}</span
+                >
               </span>
             </button>
           }
@@ -133,7 +135,7 @@ import type {
               [attr.aria-label]="group.workspaceLabel"
             >
               <h3
-                class="px-1 pb-1 text-[11px] font-semibold text-base-content/60"
+                class="px-1 pb-1 text-[11px] font-semibold text-base-content-muted"
               >
                 {{ group.workspaceLabel }} · {{ group.entries.length }}
               </h3>
@@ -183,7 +185,7 @@ import type {
             store.pendingEntries().length === 0 &&
             store.completionGroups().length === 0
           ) {
-            <p class="p-6 text-center text-xs text-base-content/60">
+            <p class="p-6 text-center text-xs text-base-content-muted">
               No notifications
             </p>
           }

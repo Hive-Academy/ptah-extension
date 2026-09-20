@@ -26,7 +26,7 @@ import type {
 const LEDGER_LIMIT = 75;
 const BURST_MS = 350;
 
-@Injectable({ providedIn: 'root' })
+@Injectable()
 export class NotificationCenterStore {
   private readonly tabManager = inject(TabManagerService);
   private readonly permissionHandler = inject(PermissionHandlerService);
@@ -330,6 +330,7 @@ export class NotificationCenterStore {
     this.burstCompletionCount += completions;
     this.burstAttentionCount += attention;
     if (this.burstTimer !== null) return;
+    this._announcement.set('');
     this.burstTimer = setTimeout(() => {
       const completionCount = this.burstCompletionCount;
       const attentionCount = this.burstAttentionCount;

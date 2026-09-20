@@ -106,7 +106,27 @@ describe('NotificationCenterComponent', () => {
           useValue: { muted, setMuted: jest.fn() },
         },
       ],
-    }).compileComponents();
+    })
+      .overrideComponent(NotificationCenterComponent, {
+        set: {
+          providers: [
+            {
+              provide: NotificationCenterStore,
+              useValue: {
+                unreadCount,
+                pendingEntries,
+                completionGroups,
+                announcement,
+                activateCompletion,
+                activatePrompt,
+                markAllRead,
+                dismissCompletion,
+              },
+            },
+          ],
+        },
+      })
+      .compileComponents();
   });
 
   it('uses a real button with the exact accessible count and visual 9+ cap', () => {
