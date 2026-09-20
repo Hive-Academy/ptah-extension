@@ -266,13 +266,39 @@ async function measureTheme(
     ).toBeGreaterThan(0);
   }
 
-  const shot = await page.screenshot({ scale: 'css' });
+  const lineHeight = markers[0].height;
+  const minimumRun = Math.floor(lineHeight * 0.9);
+  let shot = await page.screenshot({ scale: 'css' });
+  let png = decodePng(shot);
+  let profile = profileColumn(png, markers);
+
+  // Monaco updates the theme class and decoration DOM before Chromium has
+  // necessarily committed the corresponding pixels. Under xvfb load that gap
+  // has produced a partially painted selected bar even though both DOM signals
+  // were already correct. Poll the thing this visual test actually needs -- a
+  // committed, legible line of marker pixels -- rather than sleeping for a
+  // guessed render delay. A genuinely unreadable marker still times out at the
+  // original 3:1 / 90%-of-line threshold.
+  await expect
+    .poll(
+      async () => {
+        shot = await page.screenshot({ scale: 'css' });
+        png = decodePng(shot);
+        profile = profileColumn(png, markers);
+        return profile.longestRun;
+      },
+      {
+        message: `[${theme.id}/${state}] waiting for Monaco's marker paint to reach the compositor`,
+        timeout: 20_000,
+      },
+    )
+    .toBeGreaterThanOrEqual(minimumRun);
+
   const file = await saveArtifact(
     testInfo,
     `glyph-margin-${theme.id}-${state}.png`,
     shot,
   );
-  const png = decodePng(shot);
 
   // A zoom on the marker column, so a human can judge legibility without
   // hunting a 3px bar in a 1200px-wide frame.
@@ -291,8 +317,6 @@ async function measureTheme(
     }),
   );
 
-  const profile = profileColumn(png, markers);
-
   report.push(`\n[${theme.id} / ${state}] monaco=${theme.monacoTheme}`);
   report.push(`  full: ${file}`);
   report.push(`  zoom: ${zoomFile}`);
@@ -308,14 +332,13 @@ async function measureTheme(
 
   // VISIBLE — an unbroken bar at least one text line tall. Anything less and a
   // user scanning the gutter has nothing to see.
-  const lineHeight = first.height;
   expect(
     profile.longestRun,
     `[${theme.id}/${state}] the glyph margin carries no marker bar: the tallest ` +
       `unbroken run of pixels reaching ${MIN_CONTRAST}:1 against the margin is ` +
       `${profile.longestRun}px, less than one ${lineHeight}px line. ` +
       `Screenshot: ${file}`,
-  ).toBeGreaterThanOrEqual(Math.floor(lineHeight * 0.9));
+  ).toBeGreaterThanOrEqual(minimumRun);
 
   // LEGIBLE — and every row that does paint clears the bar, not just the best.
   expect(
