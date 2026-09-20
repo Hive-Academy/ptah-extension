@@ -23,10 +23,31 @@ import {
   createEvent,
   killProcessTree,
 } from '@ptah-extension/platform-core';
-import { spawn, type ChildProcess } from 'child_process';
+import { existsSync } from 'node:fs';
+import { spawn, type ChildProcess } from 'node:child_process';
 import type { IOAuthUrlOpener } from '../interfaces/oauth-url-opener.interface';
 
 const CHILD_OPERATION_TIMEOUT_MS = 5_000;
+
+/**
+ * Resolve a system helper to a fixed location instead of letting the OS search
+ * `PATH`. A bare name is resolved through `PATH`, so any writable directory
+ * ahead of the real one can interpose its own executable and receive whatever
+ * we hand the child — a URL, or the clipboard payload (`typescript:S4036`).
+ *
+ * The bare name remains as a fallback: on Linux these helpers have no single
+ * fixed home across distributions, so an absolute path that does not exist must
+ * not break a working launcher.
+ */
+function resolveSystemBinary(candidates: string[], fallback: string): string {
+  return candidates.find((candidate) => existsSync(candidate)) ?? fallback;
+}
+
+function systemRoot(): string {
+  return (
+    process.env['SystemRoot'] ?? process.env['windir'] ?? String.raw`C:\Windows`
+  );
+}
 function reapAfterTimeout(child: ChildProcess): void {
   const whenSpawned = Promise.resolve(child.pid ?? null);
   void whenSpawned.then((pid) => {
@@ -53,19 +74,28 @@ export class CliUserInteraction implements IUserInteraction {
       let child: ChildProcess;
 
       if (platform === 'win32') {
-        child = spawn('cmd', ['/c', 'start', '', url], {
-          stdio: 'ignore',
-        });
+        child = spawn(
+          resolveSystemBinary(
+            [String.raw`${systemRoot()}\System32\cmd.exe`],
+            'cmd',
+          ),
+          ['/c', 'start', '', url],
+          { stdio: 'ignore' },
+        );
       } else if (platform === 'darwin') {
-        child = spawn('open', [url], {
+        child = spawn(resolveSystemBinary(['/usr/bin/open'], 'open'), [url], {
           detached: true,
           stdio: 'ignore',
         });
       } else {
-        child = spawn('xdg-open', [url], {
-          detached: true,
-          stdio: 'ignore',
-        });
+        child = spawn(
+          resolveSystemBinary(
+            ['/usr/bin/xdg-open', '/bin/xdg-open'],
+            'xdg-open',
+          ),
+          [url],
+          { detached: true, stdio: 'ignore' },
+        );
       }
 
       let settled = false;
@@ -101,17 +131,27 @@ export class CliUserInteraction implements IUserInteraction {
       const platform = process.platform;
       let command: string;
 
+      let args: string[] = [];
+
       if (platform === 'win32') {
-        command = 'clip';
+        command = resolveSystemBinary(
+          [String.raw`${systemRoot()}\System32\clip.exe`],
+          'clip',
+        );
       } else if (platform === 'darwin') {
-        command = 'pbcopy';
+        command = resolveSystemBinary(['/usr/bin/pbcopy'], 'pbcopy');
       } else {
-        command = 'xclip -selection clipboard';
+        command = resolveSystemBinary(
+          ['/usr/bin/xclip', '/bin/xclip'],
+          'xclip',
+        );
+        args = ['-selection', 'clipboard'];
       }
 
-      const child = require('child_process').spawn(command, {
+      // No `shell: true`. The arguments are passed as an array, so the
+      // clipboard payload can never be reinterpreted by a shell.
+      const child = spawn(command, args, {
         detached: process.platform !== 'win32',
-        shell: true,
         stdio: ['pipe', 'ignore', 'ignore'],
       });
       child.stdin.write(text);

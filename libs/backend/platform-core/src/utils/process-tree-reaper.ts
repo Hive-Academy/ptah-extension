@@ -20,7 +20,9 @@ const PROCESS_LIVENESS_POLL_MS = 100;
  */
 function resolveTaskkill(): string {
   const systemRoot = process.env['SystemRoot'] ?? process.env['windir'];
-  return systemRoot ? `${systemRoot}\\System32\\taskkill.exe` : 'taskkill';
+  return systemRoot
+    ? String.raw`${systemRoot}\System32\taskkill.exe`
+    : 'taskkill';
 }
 
 /**
