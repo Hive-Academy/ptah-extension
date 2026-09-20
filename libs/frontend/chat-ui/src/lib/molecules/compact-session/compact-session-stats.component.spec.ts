@@ -22,4 +22,21 @@ describe(CompactSessionStatsComponent.name, () => {
     expect(root.innerHTML).not.toContain('overflow-x-auto');
     expect(root.innerHTML).toContain('overflow-hidden');
   });
+
+  it('renders the missing-cost em dash exactly', () => {
+    TestBed.configureTestingModule({ imports: [CompactSessionStatsComponent] });
+    const fixture = TestBed.createComponent(CompactSessionStatsComponent);
+    fixture.componentRef.setInput('metrics', {
+      model: null,
+      tokens: 0,
+      cost: null,
+      agentCount: 0,
+      compactionCount: 0,
+    });
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'Cost \u2014',
+    );
+  });
 });

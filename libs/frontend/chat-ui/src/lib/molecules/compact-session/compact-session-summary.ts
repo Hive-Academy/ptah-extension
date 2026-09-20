@@ -408,7 +408,7 @@ function selectStatus(
   if (promptCount > 0)
     return { text: 'Needs input', icon: '!', tone: 'warning' };
   if (context.compaction?.inFlight) {
-    return { text: 'Compacting', icon: 'â†»', tone: 'warning' };
+    return { text: 'Compacting', icon: '\u21BB', tone: 'warning' };
   }
   const newest = items[items.length - 1];
   if (
@@ -416,33 +416,33 @@ function selectStatus(
     context.sessionStatus === 'resuming'
   ) {
     if (newest?.kind === 'agent')
-      return { text: 'Running agent', icon: 'â—†', tone: 'live' };
+      return { text: 'Running agent', icon: '\u25C6', tone: 'live' };
     if (newest?.kind === 'tool')
-      return { text: 'Using tools', icon: 'âš™', tone: 'live' };
-    return { text: 'Responding', icon: 'â€¢', tone: 'live' };
+      return { text: 'Using tools', icon: '\u2699', tone: 'live' };
+    return { text: 'Responding', icon: '\u2022', tone: 'live' };
   }
   const terminal = terminalStatus(context.terminalReason);
   if (terminal) return terminal;
   if (findNewest(items, 'error'))
-    return { text: 'Failed', icon: 'Ã—', tone: 'error' };
+    return { text: 'Failed', icon: '\u00D7', tone: 'error' };
   if (context.sessionStatus === 'fresh' || context.sessionStatus === 'draft') {
     return {
       text: context.sessionStatus === 'draft' ? 'Draft' : 'Ready',
-      icon: 'â—‹',
+      icon: '\u25CB',
       tone: 'idle',
     };
   }
-  return { text: 'Idle', icon: 'â—‹', tone: 'idle' };
+  return { text: 'Idle', icon: '\u25CB', tone: 'idle' };
 }
 
 function terminalStatus(
   reason: SdkTerminalReason | null | undefined,
 ): Pick<CompactSessionSummary['status'], 'text' | 'icon' | 'tone'> | null {
-  if (reason === undefined) return null;
+  if (reason == null) return null;
   if (reason === 'completed')
-    return { text: 'Finished', icon: 'âœ“', tone: 'success' };
+    return { text: 'Finished', icon: '\u2713', tone: 'success' };
   if (reason === 'aborted_streaming' || reason === 'aborted_tools') {
-    return { text: 'Stopped', icon: 'â– ', tone: 'warning' };
+    return { text: 'Stopped', icon: '\u25A0', tone: 'warning' };
   }
   if (
     reason === 'blocking_limit' ||

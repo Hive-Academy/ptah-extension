@@ -108,7 +108,8 @@ describe('compact-session-summary', () => {
       toolName: 'AskUserQuestion',
       questions: [
         {
-          question: 'Ø§Ø®ØªØ± Ø§Ù„Ù…Ø³Ø§Ø± ðŸš€',
+          question:
+            '\u0627\u062e\u062a\u0631 \u0627\u0644\u0645\u0633\u0627\u0631 \u{1F680}',
           header: 'Path',
           options: [],
           multiSelect: false,
@@ -131,7 +132,9 @@ describe('compact-session-summary', () => {
     );
 
     expect(summary.content.kind).toBe('question');
-    expect(summary.content.text).toBe('Ø§Ø®ØªØ± Ø§Ù„Ù…Ø³Ø§Ø± ðŸš€');
+    expect(summary.content.text).toBe(
+      '\u0627\u062e\u062a\u0631 \u0627\u0644\u0645\u0633\u0627\u0631 \u{1F680}',
+    );
     expect(summary.content.additionalPromptCount).toBe(1);
     expect(summary.status.text).toBe('Needs input');
   });
@@ -169,5 +172,22 @@ describe('compact-session-summary', () => {
     expect(
       summarizeFinalized([], context({ terminalReason })).status.text,
     ).toBe(expected);
+  });
+
+  it('keeps a null terminal reason in the idle state', () => {
+    expect(
+      summarizeFinalized([], context({ terminalReason: null })).status,
+    ).toMatchObject({ text: 'Idle', icon: '\u25CB', tone: 'idle' });
+  });
+
+  it('uses exact status glyphs for compaction and completed turns', () => {
+    expect(
+      summarizeFinalized([], context({ compaction: { inFlight: true } })).status
+        .icon,
+    ).toBe('\u21BB');
+    expect(
+      summarizeFinalized([], context({ terminalReason: 'completed' })).status
+        .icon,
+    ).toBe('\u2713');
   });
 });

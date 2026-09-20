@@ -51,7 +51,7 @@ export class CompactSessionStatsComponent {
   }
 
   protected formatCost(cost: number | null): string {
-    if (cost === null) return 'Cost â€”';
+    if (cost === null) return 'Cost \u2014';
     return cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`;
   }
 }
