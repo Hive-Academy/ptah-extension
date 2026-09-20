@@ -605,10 +605,10 @@ export class MemoryCuratorService {
     );
     const related =
       subjects.size > 0
-        ? this.store
-            .list({ workspaceRoot: input.workspaceRoot ?? null, limit: 200 })
-            .memories.filter((m) => m.subject && subjects.has(m.subject))
-            .map((m) => ({ id: m.id, subject: m.subject, content: m.content }))
+        ? this.store.findMergeCandidates(
+            [...subjects],
+            input.workspaceRoot ?? null,
+          )
         : [];
 
     let resolved: readonly ResolvedMemoryDraft[];
