@@ -67,8 +67,15 @@ export interface TerminalTurnPulse {
   readonly occurredAt: number;
 }
 
-readonly terminalTurnPulse: Signal<TerminalTurnPulse | null>;
+readonly terminalTurnPulses: Signal<readonly TerminalTurnPulse[]>;
+
+takeTerminalTurnPulses(): readonly TerminalTurnPulse[];
 ```
+
+Accepted terminal transitions are queued so completions emitted in the same
+synchronous batch remain distinct. `NotificationCenterStore` drains that queue
+through `takeTerminalTurnPulses()` instead of observing a lossy single-value
+signal.
 
 ```ts
 // PermissionHandlerService — Implementer B should consume this exact seam.

@@ -12,42 +12,42 @@ R6 separates current truth from history. Permission and AskUserQuestion requests
 
 Only Implementer A may create, modify, rewrite, or delete the files in this manifest.
 
-| Action | File | Owned change |
-| --- | --- | --- |
-| CREATE | `libs/frontend/notification-center/project.json` | Nx project named `@ptah-extension/notification-center`, tagged `scope:webview`, `type:feature`; test/lint/typecheck targets matching peer frontend libraries. |
-| CREATE | `libs/frontend/notification-center/eslint.config.mjs` | Angular standalone-component lint configuration matching `canvas`. |
-| CREATE | `libs/frontend/notification-center/jest.config.ts` | Jest preset-angular configuration. |
-| CREATE | `libs/frontend/notification-center/tsconfig.json` | Strict Angular library configuration. |
-| CREATE | `libs/frontend/notification-center/tsconfig.lib.json` | Production compilation boundary. |
-| CREATE | `libs/frontend/notification-center/tsconfig.spec.json` | Jest compilation boundary. |
-| CREATE | `libs/frontend/notification-center/src/test-setup.ts` | Angular Jest setup. |
-| CREATE | `libs/frontend/notification-center/src/index.ts` | Sole public API: component and public notification/focus-facing types only. |
-| CREATE | `libs/frontend/notification-center/src/lib/notification-center.types.ts` | Completion-ledger, derived-prompt, group, and row view-model types. |
-| CREATE | `libs/frontend/notification-center/src/lib/notification-center.store.ts` | Root-scoped projection/ledger/read/group/coalescing store; localStorage mute preference. |
-| CREATE | `libs/frontend/notification-center/src/lib/notification-center.store.spec.ts` | Pulse dedupe, bounds, grouping, prompt projection, read semantics, and storm tests. |
-| CREATE | `libs/frontend/notification-center/src/lib/notification-sound.service.ts` | Gesture-gated Web Audio oscillator/envelope, cooldown, mute, and test suppression. |
-| CREATE | `libs/frontend/notification-center/src/lib/notification-sound.service.spec.ts` | Suspended-context, gesture, cooldown, mute, and automated-test suppression tests. |
-| CREATE | `libs/frontend/notification-center/src/lib/notification-center.component.ts` | Standalone OnPush bell/panel/live-region UI. |
-| CREATE | `libs/frontend/notification-center/src/lib/notification-center.component.spec.ts` | Keyboard, focus, ARIA, exact accessible count, visual `9+`, and activation tests. |
-| CREATE | `libs/frontend/chat-state/src/lib/tab-manager.notification-pulse.spec.ts` | Accepted busy→terminal edge, cross-workspace pulse, failure classification, replay, and terminal-heal regression tests. |
-| CREATE | `libs/frontend/core/src/lib/tokens/notification-focus-router.token.ts` | `NotificationFocusTarget`, `NotificationFocusResult`, outcome union, router interface, and DI token. |
-| CREATE | `libs/frontend/chat/src/lib/services/notification-focus-coordinator.service.ts` | Shell-owned transaction coordinating view/layout, workspace switch, canvas acknowledgement, and full-view fallback. |
-| CREATE | `libs/frontend/chat/src/lib/services/notification-focus-coordinator.service.spec.ts` | Ordering and all structured outcome/fallback/race tests. |
-| CREATE | `libs/frontend/chat/src/lib/components/templates/app-shell.notification-center.spec.ts` | VS Code placement/provider wiring test. |
-| CREATE | `libs/frontend/chat/src/lib/components/templates/electron-shell.notification-center.spec.ts` | Electron global-nav placement/provider wiring test. |
-| MODIFY | `tsconfig.base.json` | Add `@ptah-extension/notification-center` → `./libs/frontend/notification-center/src/index.ts`. |
-| MODIFY | `libs/frontend/chat-state/src/lib/tab-manager.service.ts` | Publish a readonly typed terminal pulse from accepted `applyTurnState()`. |
-| MODIFY | `libs/frontend/chat-state/src/index.ts` | Type-export `TerminalTurnPulse` and its classification type. |
-| MODIFY | `libs/frontend/chat-streaming/src/lib/permission-handler.service.ts` | Make permission and question routing-target attachment reactive without duplicating request state. |
-| MODIFY | `libs/frontend/chat-streaming/src/lib/permission-handler.service.spec.ts` | Pin target-map invalidation and cleanup behavior. |
-| MODIFY | `libs/frontend/core/src/index.ts` | Export the narrow notification focus token and types. |
-| MODIFY | `libs/frontend/core/src/lib/services/app-state.service.ts` | Add the FIFO acknowledged canvas-focus bridge carrying target + structured result; do not expose `CanvasStore`. |
-| MODIFY | `libs/frontend/core/src/lib/services/app-state.service.spec.ts` | Validate FIFO, timeout/missing result, exact request removal, and structured outcomes. |
-| MODIFY | `libs/frontend/chat/src/lib/components/templates/app-shell.component.ts` | Import the notification component and provide the focus-router implementation. |
-| MODIFY | `libs/frontend/chat/src/lib/components/templates/app-shell.component.html` | Place the bell beside the VS Code theme toggle/header actions only for the non-Electron shell. |
-| MODIFY | `libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts` | Import/place the bell beside the Electron global theme toggle and provide the same router. |
-| MODIFY | `libs/frontend/canvas/src/lib/orchestra-canvas.component.ts` | Consume the structured focus request after workspace/grid mount, focus/adopt/open, acknowledge only after the tile shell render, and return an outcome. |
-| MODIFY | `libs/frontend/canvas/src/lib/orchestra-canvas.component.spec.ts` | Existing-tile, adopt, open, cap, missing, timeout, mount acknowledgement, and no-extra-load tests. |
+| Action | File                                                                                         | Owned change                                                                                                                                                  |
+| ------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CREATE | `libs/frontend/notification-center/project.json`                                             | Nx project named `@ptah-extension/notification-center`, tagged `scope:webview`, `type:feature`; test/lint/typecheck targets matching peer frontend libraries. |
+| CREATE | `libs/frontend/notification-center/eslint.config.mjs`                                        | Angular standalone-component lint configuration matching `canvas`.                                                                                            |
+| CREATE | `libs/frontend/notification-center/jest.config.ts`                                           | Jest preset-angular configuration.                                                                                                                            |
+| CREATE | `libs/frontend/notification-center/tsconfig.json`                                            | Strict Angular library configuration.                                                                                                                         |
+| CREATE | `libs/frontend/notification-center/tsconfig.lib.json`                                        | Production compilation boundary.                                                                                                                              |
+| CREATE | `libs/frontend/notification-center/tsconfig.spec.json`                                       | Jest compilation boundary.                                                                                                                                    |
+| CREATE | `libs/frontend/notification-center/src/test-setup.ts`                                        | Angular Jest setup.                                                                                                                                           |
+| CREATE | `libs/frontend/notification-center/src/index.ts`                                             | Sole public API: component and public notification/focus-facing types only.                                                                                   |
+| CREATE | `libs/frontend/notification-center/src/lib/notification-center.types.ts`                     | Completion-ledger, derived-prompt, group, and row view-model types.                                                                                           |
+| CREATE | `libs/frontend/notification-center/src/lib/notification-center.store.ts`                     | Root-scoped projection/ledger/read/group/coalescing store; localStorage mute preference.                                                                      |
+| CREATE | `libs/frontend/notification-center/src/lib/notification-center.store.spec.ts`                | Pulse dedupe, bounds, grouping, prompt projection, read semantics, and storm tests.                                                                           |
+| CREATE | `libs/frontend/notification-center/src/lib/notification-sound.service.ts`                    | Gesture-gated Web Audio oscillator/envelope, cooldown, mute, and test suppression.                                                                            |
+| CREATE | `libs/frontend/notification-center/src/lib/notification-sound.service.spec.ts`               | Suspended-context, gesture, cooldown, mute, and automated-test suppression tests.                                                                             |
+| CREATE | `libs/frontend/notification-center/src/lib/notification-center.component.ts`                 | Standalone OnPush bell/panel/live-region UI.                                                                                                                  |
+| CREATE | `libs/frontend/notification-center/src/lib/notification-center.component.spec.ts`            | Keyboard, focus, ARIA, exact accessible count, visual `9+`, and activation tests.                                                                             |
+| CREATE | `libs/frontend/chat-state/src/lib/tab-manager.notification-pulse.spec.ts`                    | Accepted busy→terminal edge, cross-workspace pulse, failure classification, replay, and terminal-heal regression tests.                                       |
+| CREATE | `libs/frontend/core/src/lib/tokens/notification-focus-router.token.ts`                       | `NotificationFocusTarget`, `NotificationFocusResult`, outcome union, router interface, and DI token.                                                          |
+| CREATE | `libs/frontend/chat/src/lib/services/notification-focus-coordinator.service.ts`              | Shell-owned transaction coordinating view/layout, workspace switch, canvas acknowledgement, and full-view fallback.                                           |
+| CREATE | `libs/frontend/chat/src/lib/services/notification-focus-coordinator.service.spec.ts`         | Ordering and all structured outcome/fallback/race tests.                                                                                                      |
+| CREATE | `libs/frontend/chat/src/lib/components/templates/app-shell.notification-center.spec.ts`      | VS Code placement/provider wiring test.                                                                                                                       |
+| CREATE | `libs/frontend/chat/src/lib/components/templates/electron-shell.notification-center.spec.ts` | Electron global-nav placement/provider wiring test.                                                                                                           |
+| MODIFY | `tsconfig.base.json`                                                                         | Add `@ptah-extension/notification-center` → `./libs/frontend/notification-center/src/index.ts`.                                                               |
+| MODIFY | `libs/frontend/chat-state/src/lib/tab-manager.service.ts`                                    | Publish a readonly typed terminal pulse from accepted `applyTurnState()`.                                                                                     |
+| MODIFY | `libs/frontend/chat-state/src/index.ts`                                                      | Type-export `TerminalTurnPulse` and its classification type.                                                                                                  |
+| MODIFY | `libs/frontend/chat-streaming/src/lib/permission-handler.service.ts`                         | Make permission and question routing-target attachment reactive without duplicating request state.                                                            |
+| MODIFY | `libs/frontend/chat-streaming/src/lib/permission-handler.service.spec.ts`                    | Pin target-map invalidation and cleanup behavior.                                                                                                             |
+| MODIFY | `libs/frontend/core/src/index.ts`                                                            | Export the narrow notification focus token and types.                                                                                                         |
+| MODIFY | `libs/frontend/core/src/lib/services/app-state.service.ts`                                   | Add the FIFO acknowledged canvas-focus bridge carrying target + structured result; do not expose `CanvasStore`.                                               |
+| MODIFY | `libs/frontend/core/src/lib/services/app-state.service.spec.ts`                              | Validate FIFO, timeout/missing result, exact request removal, and structured outcomes.                                                                        |
+| MODIFY | `libs/frontend/chat/src/lib/components/templates/app-shell.component.ts`                     | Import the notification component and provide the focus-router implementation.                                                                                |
+| MODIFY | `libs/frontend/chat/src/lib/components/templates/app-shell.component.html`                   | Place the bell beside the VS Code theme toggle/header actions only for the non-Electron shell.                                                                |
+| MODIFY | `libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts`                | Import/place the bell beside the Electron global theme toggle and provide the same router.                                                                    |
+| MODIFY | `libs/frontend/canvas/src/lib/orchestra-canvas.component.ts`                                 | Consume the structured focus request after workspace/grid mount, focus/adopt/open, acknowledge only after the tile shell render, and return an outcome.       |
+| MODIFY | `libs/frontend/canvas/src/lib/orchestra-canvas.component.spec.ts`                            | Existing-tile, adopt, open, cap, missing, timeout, mount acknowledgement, and no-extra-load tests.                                                            |
 
 The A lane intentionally does not edit any compact-session or `chat-ui` file. It publishes one cross-lane prompt-target contract: `PermissionHandlerService` must expose a readonly reactive routing revision/snapshot that changes after either `attachPromptTargets()` or `attachQuestionTargets()` and after target cleanup. This repairs the current asymmetry where question attachment republishes the request array but permission attachment only mutates a plain `Map` (`libs/frontend/chat-streaming/src/lib/permission-handler.service.ts:320-345`, `:528-545`). Implementer B may read this contract from the compact card but must not edit the service.
 
@@ -55,22 +55,22 @@ The A lane intentionally does not edit any compact-session or `chat-ui` file. It
 
 Only Implementer B may create, modify, rewrite, or delete the files in this manifest. No file intersects Implementer A's manifest.
 
-| Action | File | Owned change |
-| --- | --- | --- |
-| MODIFY | `libs/frontend/chat/src/lib/components/molecules/compact-session/compact-session-card.component.ts` | Smart per-tab orchestration: targeted prompts, identity/color/workspace, compaction state, summary inputs, and expand action; remove transcript/input/footer composition. |
-| CREATE | `libs/frontend/chat/src/lib/components/molecules/compact-session/compact-session-card.component.spec.ts` | Per-tab prompt targeting/fallback, one-frame update, compaction, identity, fixed-height, and response-routing tests. |
-| REWRITE | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-activity.component.ts` | Replace scrolling feed with the four-zone bounded status-card body; retain the existing public selector/class as the in-place replacement. |
-| CREATE | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-activity.component.spec.ts` | Four-zone rendering, precedence, no-scroll, reduced-motion, and prompt-action tests. |
-| CREATE | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-summary.ts` | Pure live and finalized adapters plus semantic-mark reducer, with a single bounded view model. |
-| CREATE | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-summary.spec.ts` | Live/finalized fixtures, coalescing, stable identities, nested agent, error, path-redaction, Unicode, and high-rate bounds. |
-| MODIFY | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-stats.component.ts` | Convert to the non-scrolling metrics footer required by the four-zone card; remove horizontal scrolling. |
-| CREATE | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-stats.component.spec.ts` | Bounded metrics and overflow assertions. |
-| DELETE | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-header.component.ts` | Canvas already owns title/mode chrome; the status line replaces this child. |
-| DELETE | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-input.component.ts` | Compact is summary-only; no mini composer. |
-| DELETE | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-text.component.ts` | Superseded by the bounded primary-content slot and otherwise unreferenced. |
-| DELETE | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-tool-row.component.ts` | Superseded by semantic pulse marks/one content slot and otherwise unreferenced. |
-| MODIFY | `libs/frontend/chat-ui/src/index.ts` | Remove deleted exports; export only the retained activity/stats components and summary types/functions needed by `chat`. |
-| MODIFY | `libs/frontend/chat/src/lib/components/index.ts` | Remove deprecated re-exports of deleted compact children. |
+| Action  | File                                                                                                     | Owned change                                                                                                                                                              |
+| ------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MODIFY  | `libs/frontend/chat/src/lib/components/molecules/compact-session/compact-session-card.component.ts`      | Smart per-tab orchestration: targeted prompts, identity/color/workspace, compaction state, summary inputs, and expand action; remove transcript/input/footer composition. |
+| CREATE  | `libs/frontend/chat/src/lib/components/molecules/compact-session/compact-session-card.component.spec.ts` | Per-tab prompt targeting/fallback, one-frame update, compaction, identity, fixed-height, and response-routing tests.                                                      |
+| REWRITE | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-activity.component.ts`          | Replace scrolling feed with the four-zone bounded status-card body; retain the existing public selector/class as the in-place replacement.                                |
+| CREATE  | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-activity.component.spec.ts`     | Four-zone rendering, precedence, no-scroll, reduced-motion, and prompt-action tests.                                                                                      |
+| CREATE  | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-summary.ts`                     | Pure live and finalized adapters plus semantic-mark reducer, with a single bounded view model.                                                                            |
+| CREATE  | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-summary.spec.ts`                | Live/finalized fixtures, coalescing, stable identities, nested agent, error, path-redaction, Unicode, and high-rate bounds.                                               |
+| MODIFY  | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-stats.component.ts`             | Convert to the non-scrolling metrics footer required by the four-zone card; remove horizontal scrolling.                                                                  |
+| CREATE  | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-stats.component.spec.ts`        | Bounded metrics and overflow assertions.                                                                                                                                  |
+| DELETE  | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-header.component.ts`            | Canvas already owns title/mode chrome; the status line replaces this child.                                                                                               |
+| DELETE  | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-input.component.ts`             | Compact is summary-only; no mini composer.                                                                                                                                |
+| DELETE  | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-text.component.ts`              | Superseded by the bounded primary-content slot and otherwise unreferenced.                                                                                                |
+| DELETE  | `libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-tool-row.component.ts`                  | Superseded by semantic pulse marks/one content slot and otherwise unreferenced.                                                                                           |
+| MODIFY  | `libs/frontend/chat-ui/src/index.ts`                                                                     | Remove deleted exports; export only the retained activity/stats components and summary types/functions needed by `chat`.                                                  |
+| MODIFY  | `libs/frontend/chat/src/lib/components/index.ts`                                                         | Remove deprecated re-exports of deleted compact children.                                                                                                                 |
 
 The canvas files belong exclusively to A for this branch. B consumes the existing canvas contract: the tile already owns title, focus ring, layout menu, and compact/full toggle (`libs/frontend/canvas/src/lib/canvas-tile.component.ts:90-106`, `:196-217`), and `TabManagerService` remains the sole view-mode authority (`libs/frontend/canvas/CLAUDE.md`, “View Modes”; current toggle writes through `TabManagerService` at `libs/frontend/chat-state/src/lib/tab-manager.service.ts:2631-2639`). B must not add view mode to `TileIntent`, canvas persistence, or layout math.
 
@@ -134,12 +134,7 @@ The metadata-first rule is load-bearing because the handler documents that raw s
 `NOTIFICATION_FOCUS_ROUTER` is a core-owned inversion token so notification-center never imports chat. Its contract is:
 
 ```ts
-type NotificationFocusOutcome =
-  | 'focused'
-  | 'adopted'
-  | 'opened'
-  | 'cap-reached'
-  | 'missing';
+type NotificationFocusOutcome = 'focused' | 'adopted' | 'opened' | 'cap-reached' | 'missing';
 
 interface NotificationFocusTarget {
   readonly workspacePath: string;
@@ -215,14 +210,14 @@ No adapter performs markdown rendering, builds a 50-entry feed, or retains unbou
 
 ## Contracts
 
-| Contract | Producer | Consumer | Required invariant |
-| --- | --- | --- | --- |
-| `TerminalTurnPulse` | A: `TabManagerService.applyTurnState()` | A: `NotificationCenterStore` | Busy→accepted idle/failed only; session+revision replay safe; background workspace metadata included; failed/non-completed idle classified error. |
-| Reactive prompt targets | A: `PermissionHandlerService` | A notification projection and B compact card | Request arrays remain source of truth; route target attachment/cleanup invalidates computeds; metadata first, session fallback only if no metadata. |
-| `NOTIFICATION_FOCUS_ROUTER` | A: chat shell provider/coordinator | A: notification component/store | One Promise returns `{success,outcome}` with `focused | adopted | opened | cap-reached | missing`; read state changes only when `success`. |
-| Canvas focus request | A: coordinator/AppState | A: mounted `OrchestraCanvasComponent` | FIFO, workspace-addressed, exactly-once acknowledgement after tile shell render; component-scoped `CanvasStore` never escapes. |
-| `CompactSessionSummary` | B: pure live/finalized adapters | B: rewritten activity/stats renderer | Four bounded zones, ≤24 semantic marks, deterministic prompt precedence, no raw transcript/scroll/input. |
-| `expandToFull` | B: compact content-slot action | Existing `ChatViewComponent` | Blocking prompt becomes actionable through the full existing UI; view mode remains owned by `TabManagerService`. |
+| Contract                    | Producer                                | Consumer                                     | Required invariant                                                                                                                                  |
+| --------------------------- | --------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TerminalTurnPulse`         | A: `TabManagerService.applyTurnState()` | A: `NotificationCenterStore`                 | Busy→accepted idle/failed only; session+revision replay safe; background workspace metadata included; failed/non-completed idle classified error.   |
+| Reactive prompt targets     | A: `PermissionHandlerService`           | A notification projection and B compact card | Request arrays remain source of truth; route target attachment/cleanup invalidates computeds; metadata first, session fallback only if no metadata. |
+| `NOTIFICATION_FOCUS_ROUTER` | A: chat shell provider/coordinator      | A: notification component/store              | One Promise returns `{success,outcome}` with `focused \| adopted \| opened \| cap-reached \| missing`; read state changes only when `success`.      |
+| Canvas focus request        | A: coordinator/AppState                 | A: mounted `OrchestraCanvasComponent`        | FIFO, workspace-addressed, exactly-once acknowledgement after tile shell render; component-scoped `CanvasStore` never escapes.                      |
+| `CompactSessionSummary`     | B: pure live/finalized adapters         | B: rewritten activity/stats renderer         | Four bounded zones, ≤24 semantic marks, deterministic prompt precedence, no raw transcript/scroll/input.                                            |
+| `expandToFull`              | B: compact content-slot action          | Existing `ChatViewComponent`                 | Blocking prompt becomes actionable through the full existing UI; view mode remains owned by `TabManagerService`.                                    |
 
 No shared file requires both implementers. The only sequencing dependency is contractual: A must publish the reactive routing revision/snapshot signature before B finalizes its import. B can build against a local typed test double until that signature lands, then consume it without editing A-owned files.
 
@@ -230,17 +225,17 @@ No shared file requires both implementers. The only sequencing dependency is con
 
 ### Implementer A — notification center
 
-| Spec | Nx project | Assertions |
-| --- | --- | --- |
-| `tab-manager.notification-pulse.spec.ts` | `@ptah-extension/chat-state` | Background workspace busy→idle emits once; same/lower replay emits none; failed is error; idle completed is success; idle abort/limit/null is error; awaiting-background/sleeping alone do not complete; terminal heal repairs state without a second pulse. |
-| `permission-handler.service.spec.ts` | `@ptah-extension/chat-streaming` | Permission and question target attachment both invalidate reactive readers; response/cleanup clears targets; session-id mismatch still resolves by router metadata. |
-| `notification-center.store.spec.ts` | `@ptah-extension/notification-center` | 75-record cap; session+revision dedupe; 350 ms workspace grouping; twelve records remain individually navigable; prompt state disappears with source; prompts are never evicted/coalesced into unreachable rows; exact unread semantics; read only on successful focus. |
-| `notification-sound.service.spec.ts` | `@ptah-extension/notification-center` | No context before gesture; suspended resume failure is silent; one envelope per burst; two-second cooldown; mute localStorage round trip; automated tests suppressed; no asset/media path. |
-| `notification-center.component.spec.ts` | `@ptah-extension/notification-center` | Real button, exact accessible count, visual `9+`, ARIA linkage/state, Enter/Space, Escape focus restoration, initial panel focus, row keyboard activation, one live-region phrase for twelve completions, text labels/reduced motion. |
-| `app-state.service.spec.ts` | `@ptah-extension/core` | Structured FIFO requests, exact resolver ownership, timeout→missing, stale request removal, all five outcomes preserved. |
-| `notification-focus-coordinator.service.spec.ts` | `@ptah-extension/chat` | Strict view→grid→workspace→canvas order; existing/adopt/open; cap fallback to full single view; missing workspace/session; failed fallback; rapid competing clicks serialize; only successful result is eligible to mark read. |
-| `app-shell.notification-center.spec.ts`, `electron-shell.notification-center.spec.ts` | `@ptah-extension/chat` | One bell in VS Code header and one in Electron global nav; no duplicate in nested Electron app shell; router provider available. |
-| `orchestra-canvas.component.spec.ts` | `@ptah-extension/canvas` | Focus existing without `session:load`; adopt existing tab; open missing tab/session; cap outcome; missing outcome; workspace mismatch ignored; acknowledgement after render/hydration; view mode/layout intent/persistence unchanged. |
+| Spec                                                                                  | Nx project                            | Assertions                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tab-manager.notification-pulse.spec.ts`                                              | `@ptah-extension/chat-state`          | Background workspace busy→idle emits once; same/lower replay emits none; failed is error; idle completed is success; idle abort/limit/null is error; awaiting-background/sleeping alone do not complete; terminal heal repairs state without a second pulse.            |
+| `permission-handler.service.spec.ts`                                                  | `@ptah-extension/chat-streaming`      | Permission and question target attachment both invalidate reactive readers; response/cleanup clears targets; session-id mismatch still resolves by router metadata.                                                                                                     |
+| `notification-center.store.spec.ts`                                                   | `@ptah-extension/notification-center` | 75-record cap; session+revision dedupe; 350 ms workspace grouping; twelve records remain individually navigable; prompt state disappears with source; prompts are never evicted/coalesced into unreachable rows; exact unread semantics; read only on successful focus. |
+| `notification-sound.service.spec.ts`                                                  | `@ptah-extension/notification-center` | No context before gesture; suspended resume failure is silent; one envelope per burst; two-second cooldown; mute localStorage round trip; automated tests suppressed; no asset/media path.                                                                              |
+| `notification-center.component.spec.ts`                                               | `@ptah-extension/notification-center` | Real button, exact accessible count, visual `9+`, ARIA linkage/state, Enter/Space, Escape focus restoration, initial panel focus, row keyboard activation, one live-region phrase for twelve completions, text labels/reduced motion.                                   |
+| `app-state.service.spec.ts`                                                           | `@ptah-extension/core`                | Structured FIFO requests, exact resolver ownership, timeout→missing, stale request removal, all five outcomes preserved.                                                                                                                                                |
+| `notification-focus-coordinator.service.spec.ts`                                      | `@ptah-extension/chat`                | Strict view→grid→workspace→canvas order; existing/adopt/open; cap fallback to full single view; missing workspace/session; failed fallback; rapid competing clicks serialize; only successful result is eligible to mark read.                                          |
+| `app-shell.notification-center.spec.ts`, `electron-shell.notification-center.spec.ts` | `@ptah-extension/chat`                | One bell in VS Code header and one in Electron global nav; no duplicate in nested Electron app shell; router provider available.                                                                                                                                        |
+| `orchestra-canvas.component.spec.ts`                                                  | `@ptah-extension/canvas`              | Focus existing without `session:load`; adopt existing tab; open missing tab/session; cap outcome; missing outcome; workspace mismatch ignored; acknowledgement after render/hydration; view mode/layout intent/persistence unchanged.                                   |
 
 Run after A's project files land and before trusting Nx's graph (do not reset while B is actively using the shared daemon):
 
@@ -253,12 +248,12 @@ The run must report six projects. Follow with the same six-project `run-many` co
 
 ### Implementer B — compact card
 
-| Spec | Nx project | Assertions |
-| --- | --- | --- |
-| `compact-session-summary.spec.ts` | `@ptah-extension/chat-ui` | Equivalent live/finalized summaries; semantic-delta coalescing; ≤24 marks; total verb fallback; errors/terminal reasons; nested agents; one prose item for summary-child fixture; Unicode and absolute-path redaction; bounded results under 50 high-rate session fixtures. |
-| `compact-session-activity.component.spec.ts` | `@ptah-extension/chat-ui` | Four zones only; deterministic question→permission→error→prose→tool→idle precedence; oldest prompt + count; no `overflow-auto`; no prompt form/markdown/transcript; accessible mark labels; reduced-motion fallback. |
-| `compact-session-stats.component.spec.ts` | `@ptah-extension/chat-ui` | Metrics remain bounded, readable, and have no horizontal scrollbar. |
-| `compact-session-card.component.spec.ts` | `@ptah-extension/chat` | Router target beats mismatched session id; no-target session fallback; surface-only target does not leak; multiple prompt FIFO; request+target appears within one RAF; compaction state/marker; stable session color/workspace label; action emits expand; no input/collapse/duplicate header/footer; fixed-height/no-inner-scroll contract. |
+| Spec                                         | Nx project                | Assertions                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `compact-session-summary.spec.ts`            | `@ptah-extension/chat-ui` | Equivalent live/finalized summaries; semantic-delta coalescing; ≤24 marks; total verb fallback; errors/terminal reasons; nested agents; one prose item for summary-child fixture; Unicode and absolute-path redaction; bounded results under 50 high-rate session fixtures.                                                                  |
+| `compact-session-activity.component.spec.ts` | `@ptah-extension/chat-ui` | Four zones only; deterministic question→permission→error→prose→tool→idle precedence; oldest prompt + count; no `overflow-auto`; no prompt form/markdown/transcript; accessible mark labels; reduced-motion fallback.                                                                                                                         |
+| `compact-session-stats.component.spec.ts`    | `@ptah-extension/chat-ui` | Metrics remain bounded, readable, and have no horizontal scrollbar.                                                                                                                                                                                                                                                                          |
+| `compact-session-card.component.spec.ts`     | `@ptah-extension/chat`    | Router target beats mismatched session id; no-target session fallback; surface-only target does not leak; multiple prompt FIFO; request+target appears within one RAF; compaction state/marker; stable session color/workspace label; action emits expand; no input/collapse/duplicate header/footer; fixed-height/no-inner-scroll contract. |
 
 Run:
 
@@ -280,18 +275,18 @@ Acceptance evidence must explicitly show: compact fixed height/no internal scrol
 
 ## Risks
 
-| Risk | Impact | Mitigation |
-| --- | --- | --- |
-| Permission target `Map` mutation is non-reactive | Bell/card can briefly or permanently use the unsafe session fallback | A makes both target attachments/cleanup publish one readonly reactive revision/snapshot and tests request-before-target ordering. |
-| Terminal-heal accepts a low/equal terminal revision | A state repair could look like a second completion | Pulse requires strict newer same-session revision even when `applyTurnState` accepts a heal; regression test separates state repair from notification history. |
-| Fan-out tabs duplicate a completion | One backend turn produces several rows/sounds | Ledger identity is session+revision; retain target tab choices inside one record/group. |
-| Workspace switch races a newly mounted canvas | Request acknowledges before the tile exists or targets the wrong workspace | Workspace-addressed FIFO request, post-switch consume, hydration/render acknowledgement, exact resolver per request. |
-| Canvas cap leaves a dead notification | User clicks but cannot reach the prompt/session | Structured `cap-reached` outcome triggers full single-session fallback; read only after fallback success. |
-| Audio autoplay restrictions | First background event before interaction is silent | Gesture-gated create/resume and documented silent fallback; never bypass browser policy. |
-| Notification storm causes repeated sound/ARIA noise | Twelve completions become disruptive | Store individual history, but coalesce only external sound/announcement for 350 ms and apply a two-second audio cooldown. |
-| Compact reducer recreates transcript cost invisibly | UI looks smaller but still walks/renders unbounded history | Pure adapters return bounded semantic output; no markdown, 50-entry feed, auto-scroll, or hidden old component; high-rate bound test. |
-| Removing compact input/header breaks non-canvas compact mode | Main single-chat compact view loses its old escape hatch | Blocking summary retains `expandToFull`; component spec mounts the existing `ChatViewComponent` contract. Deleted exports are removed only after repository-wide usage is clean. |
-| Parallel implementers collide through shared Nx daemon reset | One lane invalidates the other's active test process | A performs the required reset once at a coordinated boundary after creating `project.json`; neither lane resets while the other runs Nx. |
+| Risk                                                         | Impact                                                                     | Mitigation                                                                                                                                                                       |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Permission target `Map` mutation is non-reactive             | Bell/card can briefly or permanently use the unsafe session fallback       | A makes both target attachments/cleanup publish one readonly reactive revision/snapshot and tests request-before-target ordering.                                                |
+| Terminal-heal accepts a low/equal terminal revision          | A state repair could look like a second completion                         | Pulse requires strict newer same-session revision even when `applyTurnState` accepts a heal; regression test separates state repair from notification history.                   |
+| Fan-out tabs duplicate a completion                          | One backend turn produces several rows/sounds                              | Ledger identity is session+revision; retain target tab choices inside one record/group.                                                                                          |
+| Workspace switch races a newly mounted canvas                | Request acknowledges before the tile exists or targets the wrong workspace | Workspace-addressed FIFO request, post-switch consume, hydration/render acknowledgement, exact resolver per request.                                                             |
+| Canvas cap leaves a dead notification                        | User clicks but cannot reach the prompt/session                            | Structured `cap-reached` outcome triggers full single-session fallback; read only after fallback success.                                                                        |
+| Audio autoplay restrictions                                  | First background event before interaction is silent                        | Gesture-gated create/resume and documented silent fallback; never bypass browser policy.                                                                                         |
+| Notification storm causes repeated sound/ARIA noise          | Twelve completions become disruptive                                       | Store individual history, but coalesce only external sound/announcement for 350 ms and apply a two-second audio cooldown.                                                        |
+| Compact reducer recreates transcript cost invisibly          | UI looks smaller but still walks/renders unbounded history                 | Pure adapters return bounded semantic output; no markdown, 50-entry feed, auto-scroll, or hidden old component; high-rate bound test.                                            |
+| Removing compact input/header breaks non-canvas compact mode | Main single-chat compact view loses its old escape hatch                   | Blocking summary retains `expandToFull`; component spec mounts the existing `ChatViewComponent` contract. Deleted exports are removed only after repository-wide usage is clean. |
+| Parallel implementers collide through shared Nx daemon reset | One lane invalidates the other's active test process                       | A performs the required reset once at a coordinated boundary after creating `project.json`; neither lane resets while the other runs Nx.                                         |
 
 ## Unverified
 
