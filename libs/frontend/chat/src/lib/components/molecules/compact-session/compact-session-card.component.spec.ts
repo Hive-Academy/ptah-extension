@@ -243,6 +243,28 @@ describe(CompactSessionCardComponent.name, () => {
     expect(fixture.nativeElement.textContent).toContain('Compacting');
   });
 
+  it('does not rescan messages when an unrelated tab field changes', () => {
+    const messages: TabState['messages'] = [];
+    const fixture = render(tab({ messages }));
+    const calculatedMetrics = (
+      fixture.componentInstance as unknown as {
+        calculatedMetrics: () => unknown;
+      }
+    ).calculatedMetrics;
+    const initialMetrics = calculatedMetrics();
+
+    fixture.componentRef.setInput(
+      'tab',
+      tab({ messages, status: 'streaming' }),
+    );
+    fixture.detectChanges();
+    expect(calculatedMetrics()).toBe(initialMetrics);
+
+    fixture.componentRef.setInput('tab', tab({ messages: [...messages] }));
+    fixture.detectChanges();
+    expect(calculatedMetrics()).not.toBe(initialMetrics);
+  });
+
   it('uses stable session identity color and owning workspace label', () => {
     const first = render(tab());
     const firstDot = first.nativeElement.querySelector(

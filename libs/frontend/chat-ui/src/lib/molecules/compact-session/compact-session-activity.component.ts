@@ -36,7 +36,7 @@ import { CompactSessionStatsComponent } from './compact-session-stats.component'
         <span class="truncate text-xs font-semibold">{{
           summary().status.text
         }}</span>
-        <span class="ml-auto truncate text-[10px] text-base-content/60">
+        <span class="ml-auto truncate text-[10px] text-base-content-muted">
           {{ summary().status.workspaceLabel }}
         </span>
       </div>
@@ -69,7 +69,7 @@ import { CompactSessionStatsComponent } from './compact-session-stats.component'
         <p
           class="line-clamp-2 min-w-0 flex-1 whitespace-pre-line text-xs leading-relaxed"
           [class.text-error]="summary().content.kind === 'error'"
-          [class.text-base-content/70]="summary().content.kind !== 'error'"
+          [class.text-base-content-muted]="summary().content.kind !== 'error'"
         >
           {{ summary().content.text }}
           @if (summary().content.additionalPromptCount > 0) {

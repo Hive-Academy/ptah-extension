@@ -10,7 +10,7 @@ import type { CompactSummaryMetrics } from './compact-session-summary';
   },
   template: `
     <div
-      class="flex min-w-0 items-center gap-x-3 overflow-hidden px-3 py-1.5 text-[10px] text-base-content/60"
+      class="flex min-w-0 items-center gap-x-3 overflow-hidden px-3 py-1.5 text-[10px] text-base-content-muted"
       aria-label="Session metrics"
     >
       @if (metrics().model; as model) {

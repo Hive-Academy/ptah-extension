@@ -102,9 +102,15 @@ export class CompactSessionCardComponent {
     };
   });
 
+  private readonly messages = computed(() => this.tab().messages);
+
+  private readonly calculatedMetrics = computed(() =>
+    calculateSessionCostSummary([...this.messages()]),
+  );
+
   private readonly metrics = computed(() => {
     const tab = this.tab();
-    const calculated = calculateSessionCostSummary([...tab.messages]);
+    const calculated = this.calculatedMetrics();
     const tokens = tab.preloadedStats?.tokens ?? calculated.totalTokens;
     return {
       model: tab.liveModelStats?.model ?? tab.sessionModel ?? null,
