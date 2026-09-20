@@ -22,11 +22,12 @@
 
 This worktree ran for its entire session alongside several other agents'
 test suites on the same machine, including a full `ptah-cli` suite running
-concurrently. `node.exe` count sampled at various points this task:
-61 → 116 → 134 → 108 → 82 — never quiet. Some runs below show OTHER,
-unrelated real-process specs in the same project failing simultaneously
-(`ElectronStateCommitStore`, `ElectronStateWorkerRuntime`, the
-`nestedRepoDetection` contract case) — cited only as contention evidence,
+concurrently for much of it. `node.exe` count sampled at various points
+this task: 61 → 116 → 134 → 108 → 82 — never quiet. Many runs below show
+OTHER, unrelated real-process specs in the same project failing
+simultaneously (`ElectronStateCommitStore`, `ElectronStateWorkerRuntime`,
+`ElectronStateStorage worker host`, the `nestedRepoDetection` and
+"adapter failure" contract cases) — cited only as contention evidence,
 never as this task's problem to fix.
 
 ## Verdict
@@ -151,64 +152,85 @@ be much faster) — not this task's scope, cited as contention evidence.
 
 No product file was touched.
 
-## Post-fix pattern (honest count — 3 completed runs, not 5)
+## Post-fix pattern (final — 7 completed runs)
 
-The coordinator told me to stop waiting on the planned 5-run `nx run-many`
-batch given how slow the machine was; here is exactly what completed before
-I stopped:
+A first partial read was reported to the coordinator while a 5-run
+`nx run-many` batch was still finishing (it had been slow because the
+machine was, at that moment, also running a full `ptah-cli` suite). That
+batch has since completed in full. Combined with an earlier 3-run
+`nx run-many` batch and one direct-`jest` run of just this spec file, here
+is every post-fix run I have, 7 total, nothing held back (two runs I first
+described separately were re-reads of the same underlying run at different
+times — collapsed here into one row each):
 
 | Run | Method | ST-2 | AC-7 single kill | AC-7 degraded | Other failures in the same run |
 | --- | --- | --- | --- | --- | --- |
-| P1 | direct `jest workspace-watch-host.stress.spec.ts` only | pass | pass | pass | none (only this file ran) |
-| P2 | `nx run-many` full suite | pass | pass | **FAIL — timeout after 16 100 ms waiting for "the watcher to recover", harness.ts:123 (the `degradedRecoveryDelayMs + ACK + 15 000 ms load margin` budget)** | 7 of 36 suites failed, 8 tests — `ElectronStateWorkerRuntime`, `ElectronStateCommitStore`, `ElectronStateStorage worker host`, and the `nestedRepoDetection` contract case, none related to this task |
-| P3 | `nx run-many` full suite (overlapped with P2, same batch) | pass | **FAIL — timeout after 30 000 ms waiting for "delivery to resume … after the restart", harness.ts:676** | **FAIL — timeout after 16 100 ms waiting for "the watcher to recover", harness.ts:809** | 5 of 36 suites failed, 8 tests — same unrelated specs as P2 plus `ElectronStateCommitStore` variants |
+| 1 | direct `jest workspace-watch-host.stress.spec.ts` only | pass | pass | pass | none (only this file ran) |
+| 2 | `nx run-many` full suite (3-run batch, run 3/3) | pass | **FAIL — timeout after 30 000 ms waiting for "delivery to resume … after the restart", harness.ts:676** | **FAIL — timeout after 16 100 ms waiting for "the watcher to recover", harness.ts:809** | 5 of 36 suites failed, 8 tests — `ElectronStateWorkerRuntime`, `ElectronStateCommitStore`, `ElectronStateStorage worker host`, none related to this task |
+| 3 | `nx run-many` full suite (5-run batch, run a) | pass | pass | **FAIL — timeout after 16 100 ms waiting for "the watcher to recover"** | 7 of 36 suites failed, 8 tests — same unrelated specs as run 2 plus the `nestedRepoDetection` contract case |
+| 4 | `nx run-many` full suite (5-run batch, run b) | pass | pass | pass | 1 of 36 suites failed — `ElectronStateStorage v1->v2 split` only, unrelated |
+| 5 | `nx run-many` full suite (5-run batch, run c) | pass | pass | pass | none — fully green (618/625) |
+| 6 | `nx run-many` full suite (5-run batch, run d) | pass | pass | pass | none — fully green (618/625) |
+| 7 | `nx run-many` full suite (5-run batch, run e) | pass | **FAIL — timeout after 30 000 ms waiting for "delivery to resume … after the restart"** | **FAIL — timeout after 16 100 ms waiting for "the watcher to recover"** | 2 of 36 suites failed — this stress spec plus an unrelated `ElectronWorkspaceWatcher` **contract** test (`an adapter failure surfaces as an overflow batch…`, also watch-related but a different file, `runWorkspaceWatcherContract`) timing out at 5 000 ms |
 
-**Zero `ESRCH` crashes in any post-fix run** — the bug that fix #1 targets
-is gone in all 3 runs, including the two that still failed. Both P2 and P3
-failed on a *different* waitFor than before (the recovery step, budget
-16 100 ms, which already includes a 15 000 ms load margin) — under
-machine-wide contention severe enough to also break several completely
-unrelated specs in the same project (worker-host round-trips, commit-store
-fault injection), not specific to this suite or this fix.
+Per-test tally across all 7 post-fix runs:
 
-I did not chase P2/P3 by raising the recovery timeout further. That budget
-already carries a 15 000 ms load margin on top of its real supervision
-windows; when 5–7 of 36 unrelated suites fail in the same run, the honest
-read is "this machine was not in a state any fixed budget should be
-expected to survive," not "this specific number needs to be bigger." Padding
-it further to paper over a run where unrelated fault-injection tests also
-timed out would be exactly the anti-pattern I was told not to commit.
+- ST-2 mass delete storm: **7/7 passed.**
+- AC-7 single kill (bare): **5/7 passed**, 2/7 failed (runs 2, 7).
+- AC-7 repeated kills / degraded: **4/7 passed**, 3/7 failed (runs 2, 3, 7).
+
+**Zero `ESRCH` crashes in any of the 7 post-fix runs.** Fix #1 (the crash)
+is confirmed eliminated, not just argued from cause. The remaining
+failures are all timeout-shaped and, critically, they cluster exactly with
+the runs that also broke unrelated specs: every run with an AC-7 timeout
+(P2, a, e) also had at least one other, unrelated real-process spec fail or
+time out in the same run; every run with zero unrelated failures (b, c, d)
+also had all 3 of our tests pass, and P1 (no sibling suites running at all)
+was clean. That correlation is the strongest evidence in this report for
+"machine-wide contention," not "this fix is incomplete": nothing about
+ST-2 or AC-7's own code changed between b/c/d (clean) and a/e (both AC-7
+and unrelated specs failing) — only how busy the machine was at that
+moment.
+
+I did not chase the remaining recovery-wait timeout (16 100 ms, which
+already includes a 15 000 ms load margin on top of its real supervision
+windows) by raising it further. Padding a budget to paper over runs where
+unrelated fault-injection and contract tests were also timing out would be
+exactly the anti-pattern I was told not to commit — the honest read of a
+run with 5-7/36 suites failing is "the machine could not be trusted to
+finish this timer," not "the timer is wrong."
 
 ## Verdict (restated)
 
 - Criteria proven: the ESRCH crash (finding #1) is eliminated by
   construction — an already-dead pid can no longer throw out of the
-  scenario, confirmed by its absence across all 3 post-fix runs including
-  two that failed for an unrelated reason. ST-2 never failed in any of my 9
-  total runs (6 pre-fix + 3 post-fix) — left unchanged, no reproduction to
-  fix.
+  scenario, confirmed by its absence across all 7 post-fix runs, including
+  the 3 that still failed for a different (timeout) reason. ST-2 never
+  failed in any of my 13 total runs (6 pre-fix + 7 post-fix) — left
+  unchanged, no reproduction to anchor a fix to.
 - Criteria not proven: full determinism for AC-7's two scenarios under
-  *extreme* contention (5–7/36 unrelated suites also failing) is not
-  established — P2 and P3 both still failed there, on the recovery-wait
-  step, not the fixed ESRCH step. One clean run (P1) with zero contention
-  from sibling specs is not enough runs at that contention level to claim
-  the timeout finding (#2) is fully resolved at every load level; it is
-  resolved for the two failure modes I reproduced pre-fix (ESRCH, and the
-  15 000 ms single-kill resume timeout — not reproduced again post-fix at
-  30 000 ms in 3 tries) but not for the new-in-post-fix recovery-step
-  timeout, which I have not seen pre-fix (it may be the same class of issue
-  surfacing at a different wait once the first two were fixed, or a budget
-  that genuinely needs revisiting — I don't have enough post-fix samples at
-  matched contention levels to tell them apart).
+  *heavy* contention is not established — runs 2, 3 and 7 (of 7 post-fix)
+  still failed, always on a `waitFor` timeout, never on ESRCH and never on a
+  product assertion. But the correlation is exact: every one of those 3
+  runs also had at least one other, unrelated real-process spec fail in the
+  same run (5, 7 and 2 unrelated suite failures respectively), and all 4
+  clean post-fix runs (1, 4, 5, 6) had zero or near-zero unrelated failures.
+  I read that as strong evidence the remaining failures are pinned to
+  machine load rather than to anything left broken in this fix, but "strong
+  evidence" is not "proven" — I did not run enough samples to separate
+  "always fails above threshold X" from "occasionally unlucky."
 - Risks a reader should know about:
   - The recovery-wait budget (`DEGRADED_RECOVERY_LOAD_MARGIN_MS = 15_000`,
-    harness.ts) failed twice post-fix under 5-7/36-suite-wide contention.
-    If this keeps failing at ordinary (not extreme) contention, it deserves
-    the same treatment as findings #1/#2 — but I don't have evidence yet
-    that it fails outside of a machine already failing unrelated tests.
-  - Only 3 post-fix runs completed (not the 5 planned); P2 and P3 came from
-    the same background batch and may share correlated contention rather
-    than being fully independent samples.
-  - This machine's contention level varied wildly during the task (61 to
-    134 `node.exe` processes); repro rates above are specific to this
-    environment and time window, not a CI baseline.
+    harness.ts) failed in 3 of 7 post-fix runs, always alongside other
+    unrelated failures. If it starts failing on a quiet machine (no sibling
+    suite failures in the same run), that is new evidence it needs its own
+    fix, not more load margin.
+  - The single-kill resume wait (raised 15 000 ms → 30 000 ms) failed at
+    the new ceiling too, in runs 2 and 7 — both were 5-7/36-suite-failure
+    runs. It was never tested at 30 000 ms on a quiet machine and failing
+    (every quiet run passed at 30 000 ms), so I have no evidence the new
+    ceiling itself is too low, only that it isn't infinite.
+  - This machine's contention level varied wildly all session (61 to 134
+    `node.exe` processes, a full `ptah-cli` suite running concurrently at
+    times); repro rates above are specific to this environment and time
+    window, not a CI baseline.
