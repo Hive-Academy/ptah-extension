@@ -47,13 +47,23 @@
  * `checkpointAgents`. Acceptance item 5 (a live subagent surviving a real
  * slash-command turn) remains a separate manual check.
  *
- * No timing is asserted anywhere in this file.
+ * COST. One test, one CLI spawn, one slow turn. The whole file is deliberately
+ * a single `it` rather than two: turn 1 costs the invalid-key retry envelope
+ * (~183s) and both signals can be read from it, so splitting them would pay
+ * that envelope twice inside a 20-minute `cli-e2e.yml` job shared with fifteen
+ * other spec files. Turn 2 is submitted but never awaited to completion.
+ *
+ * No DURATION is asserted anywhere in this file. The one time bound is
+ * `SECOND_QUERY_PROBE_MS`, which is unavoidable: proving an event never
+ * happens requires a window to not see it in. It is a detection window, not a
+ * performance budget, and the spec does not fail because something was slow.
  */
 
 import {
   CliRunner,
   createTmpHome,
   InteractRpcClient,
+  waitFor,
   type RunnerHandle,
   type TmpHome,
 } from './_harness';
@@ -63,12 +73,26 @@ jest.setTimeout(600_000);
 const FAKE_API_KEY = 'sk-ant-e2e-fake-key-not-real-do-not-call-upstream';
 
 /**
- * Per-turn budget. A turn driven by an invalid key settles on the bundled CLI's
- * own retry envelope, measured at ~183s elsewhere in this suite, and nothing on
- * the Ptah side ends a silent turn before `NO_ACTIVITY_TIMEOUT_MS` (180s). Two
- * turns therefore need well clear of that, twice.
+ * Budget for turn 1 ONLY. A turn driven by an invalid key settles on the
+ * bundled CLI's own retry envelope, measured at ~183s elsewhere in this suite,
+ * and nothing on the Ptah side ends a silent turn before
+ * `NO_ACTIVITY_TIMEOUT_MS` (180s). Turn 1 must genuinely reach its `result`,
+ * because `endInput()` fires on the first result — that IS the mechanism under
+ * test, so this wait cannot be shortened.
  */
-const TURN_BUDGET_MS = 240_000;
+const FIRST_TURN_BUDGET_MS = 240_000;
+
+/**
+ * Budget for the SECOND-QUERY probe. Turn 2 is never waited on to completion,
+ * which would cost another retry envelope for no added signal.
+ * `autoResumeIfInactive` starts its replacement SDK query during the
+ * `chat:continue` preflight, before any model call — see the comment at
+ * `chat-session.service.ts` ("`autoResumeIfInactive` on an inactive session
+ * starts a full SDK query in `idle+streamInput` mode"). So on the broken path
+ * the second query-start line appears within seconds of the submit. This
+ * window only has to outlast that preflight, not the model.
+ */
+const SECOND_QUERY_PROBE_MS = 20_000;
 
 /**
  * The one production log line that names the mechanism, emitted once per SDK
@@ -105,52 +129,65 @@ describe('slash-command session keeps its SDK input open (TASK_2026_472)', () =>
   });
 
   it('serves a slash command and a following turn from ONE SDK query, never two', async () => {
-    handle = await CliRunner.spawn({
+    // `cli` is the narrowed local the assertions read; `handle` is the
+    // module-scoped optional that `afterEach` kills. Same object, but the local
+    // spares every read a non-null assertion.
+    const cli = await CliRunner.spawn({
       home: tmp,
       env: { ANTHROPIC_API_KEY: FAKE_API_KEY, PTAH_AUTO_APPROVE: 'true' },
     });
-    const rpc = new InteractRpcClient(handle);
+    handle = cli;
+    const rpc = new InteractRpcClient(cli);
 
-    // Turn 1 — the slash command. `/context` is handled inside the CLI and
-    // needs no model call, which is why an invalid key does not matter here.
-    await rpc.submitTask({ task: '/context' }, TURN_BUDGET_MS);
-    await rpc.awaitTaskComplete(TURN_BUDGET_MS).catch(() => undefined);
+    // Turn 1 — the slash command. Settle on EITHER terminal envelope: with an
+    // invalid key the turn may well end in `task.error`, and that is fine.
+    // What matters is that a `result` arrived, because that is what closes the
+    // input on the broken path. `awaitTaskTerminal` is used instead of
+    // `awaitTaskComplete(...).catch(() => undefined)` so that a turn which
+    // never settles fails the spec here, loudly, rather than letting the
+    // assertions below run on a premise that never held.
+    await rpc.submitTask({ task: '/context' }, FIRST_TURN_BUDGET_MS);
+    await rpc.awaitTaskTerminal(FIRST_TURN_BUDGET_MS);
 
-    const afterFirstTurn = countOccurrences(handle.stderr(), QUERY_START_LINE);
+    const afterFirstTurn = countOccurrences(cli.stderr(), QUERY_START_LINE);
     expect(afterFirstTurn).toBe(1);
+
+    // Second signal, asserted here rather than in a test of its own so that the
+    // ~183s first turn is paid ONCE for this file. The two prompt-shape
+    // literals below are what the executor can no longer produce. Either one in
+    // this log is the raw-string path resurrected, which is the single-turn
+    // flag and therefore the closed input.
+    const afterFirstTurnStderr = cli.stderr();
+    expect(afterFirstTurnStderr).not.toContain('string (slash command)');
+    expect(afterFirstTurnStderr).not.toContain('string (slash command + resume)');
 
     // Turn 2 — an ordinary prompt in the SAME session. On a closed input this
     // is the turn that triggers `autoResumeIfInactive` and mints a second
     // query; on an open one it is delivered into the first query's stream.
-    await rpc.submitTask({ task: 'say ping' }, TURN_BUDGET_MS);
-    await rpc.awaitTaskComplete(TURN_BUDGET_MS).catch(() => undefined);
+    // Deliberately NOT awaited to completion: the discriminating event happens
+    // in the preflight, long before the model would answer.
+    await rpc.submitTask({ task: 'say ping' }, FIRST_TURN_BUDGET_MS);
 
-    const afterSecondTurn = countOccurrences(handle.stderr(), QUERY_START_LINE);
+    // THE ASSERTION, expressed as "the failure never appears". A second start
+    // means turn 1's input closed and Ptah healed it by resuming — the defect,
+    // merely hidden. One start means the stream stayed open across the slash
+    // result, so the CLI child never saw the stdin EOF that makes Claude Code
+    // checkpoint its background agents.
+    //
+    // `waitFor` resolves as soon as a second start appears, so the broken path
+    // fails fast; the passing path costs the full probe window and nothing
+    // more. The polarity is inverted on purpose — waiting for the ABSENCE of
+    // an event needs a bounded window, and this makes that window explicit.
+    const sawSecondQuery = await waitFor(
+      () => countOccurrences(cli.stderr(), QUERY_START_LINE) >= 2,
+      { timeoutMs: SECOND_QUERY_PROBE_MS, label: 'second SDK query start' },
+    ).then(
+      () => true,
+      () => false,
+    );
 
-    // THE ASSERTION. Two starts means turn 1's input closed and Ptah healed it
-    // by resuming — the defect, merely hidden. One start means the stream
-    // stayed open across the slash result, so the CLI child never saw the
-    // stdin EOF that makes Claude Code checkpoint its background agents.
-    expect(afterSecondTurn).toBe(1);
+    expect(sawSecondQuery).toBe(false);
+    expect(countOccurrences(cli.stderr(), QUERY_START_LINE)).toBe(1);
   });
 
-  it('starts the slash-command query on the persistent stream, never on a raw string', async () => {
-    handle = await CliRunner.spawn({
-      home: tmp,
-      env: { ANTHROPIC_API_KEY: FAKE_API_KEY, PTAH_AUTO_APPROVE: 'true' },
-    });
-    const rpc = new InteractRpcClient(handle);
-
-    await rpc.submitTask({ task: '/context' }, TURN_BUDGET_MS);
-    await rpc.awaitTaskComplete(TURN_BUDGET_MS).catch(() => undefined);
-
-    const stderr = handle.stderr();
-    expect(stderr).toContain(QUERY_START_LINE);
-
-    // The two prompt shapes the executor can no longer produce. Either one in
-    // this log is the raw-string path resurrected, which is the single-turn
-    // flag and therefore the closed input.
-    expect(stderr).not.toContain('string (slash command)');
-    expect(stderr).not.toContain('string (slash command + resume)');
-  });
 });
