@@ -7,9 +7,9 @@ import {
 import { LABEL_CHIP_CLASSES, labelChipClass } from '../../task-presentation';
 import {
   TaskCardComponent,
-  type TaskStartRequest,
   type TaskStatusChange,
 } from './task-card.component';
+import type { TaskStartRequest } from '../../types/task-agent.types';
 
 function makeTask(overrides: Partial<TaskSpecSummary> = {}): TaskSpecSummary {
   return {
@@ -99,6 +99,33 @@ describe('TaskCardComponent', () => {
     startBtn.click();
 
     expect(emitted).toEqual({ taskId: 'TASK_2026_200', isolate: true });
+  });
+
+  it('emits the selected specialist from the assignment menu', () => {
+    const fixture = render(makeTask());
+    fixture.componentRef.setInput('agentTargets', [
+      {
+        id: 'specialist:frontend-developer',
+        name: 'Frontend Developer',
+        category: 'specialist',
+        description: 'Implements frontend work.',
+        role: 'frontend-developer',
+      },
+    ]);
+    fixture.detectChanges();
+    let emitted: TaskStartRequest | undefined;
+    fixture.componentInstance.startTask.subscribe((event) => (emitted = event));
+
+    fixture.nativeElement
+      .querySelector<HTMLButtonElement>('[title="Implements frontend work."]')
+      ?.click();
+
+    expect(emitted?.targetAgent).toEqual(
+      expect.objectContaining({
+        category: 'specialist',
+        role: 'frontend-developer',
+      }),
+    );
   });
 
   /**

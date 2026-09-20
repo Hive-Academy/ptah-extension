@@ -24,8 +24,8 @@ export interface AgentCostBreakdown {
   readonly toolCallId?: string;
   /** Token usage for this agent */
   readonly tokens: MessageTokenUsage;
-  /** Cost in USD */
-  readonly cost: number;
+  /** Cost in USD, or null when no pricing is known */
+  readonly cost: number | null;
   /** Nesting depth (0 = top-level agent) */
   readonly depth: number;
   /** Number of tool calls within this agent */
@@ -54,10 +54,18 @@ export interface SessionCostSummary {
  * Recursively calculate total cost from an ExecutionNode tree
  * Includes all nested agent costs
  */
-export function calculateTotalTreeCost(node: ExecutionNode): number {
-  let total = node.cost ?? 0;
+export function calculateTotalTreeCost(node: ExecutionNode): number | null {
+  if (node.cost === null || node.cost === undefined) {
+    return null;
+  }
+
+  let total = node.cost;
   for (const child of node.children) {
-    total += calculateTotalTreeCost(child);
+    const childCost = calculateTotalTreeCost(child);
+    if (childCost === null) {
+      return null;
+    }
+    total += childCost;
   }
 
   return total;
@@ -99,7 +107,7 @@ export function getAgentCostBreakdown(
       agentType: node.agentType ?? 'unknown',
       toolCallId: node.toolCallId,
       tokens: node.tokenUsage ?? { input: 0, output: 0 },
-      cost: node.cost ?? 0,
+      cost: node.cost ?? null,
       depth,
       toolCount,
     });
@@ -157,6 +165,7 @@ export function calculateSessionCostSummary(
 ): SessionCostSummary {
   let totalCost = 0;
   let hasCostContribution = false;
+  let hasUnknownCost = false;
   let totalDuration = 0;
   let messageCount = 0;
   let agentCount = 0;
@@ -176,7 +185,9 @@ export function calculateSessionCostSummary(
       tokensCacheRead += message.tokens.cacheRead ?? 0;
       tokensCacheCreation += message.tokens.cacheCreation ?? 0;
     }
-    if (message.cost !== null && message.cost !== undefined) {
+    if (message.cost === null) {
+      hasUnknownCost = true;
+    } else if (message.cost !== undefined) {
       totalCost += message.cost;
       hasCostContribution = true;
     }
@@ -187,11 +198,14 @@ export function calculateSessionCostSummary(
       const agents = getAgentCostBreakdown(message.streamingState);
       allAgentBreakdown.push(...agents);
       agentCount += countAgents(message.streamingState);
+      if (agents.some((agent) => agent.cost === null)) {
+        hasUnknownCost = true;
+      }
     }
   }
 
   return {
-    totalCost: hasCostContribution ? totalCost : null,
+    totalCost: hasCostContribution && !hasUnknownCost ? totalCost : null,
     totalTokens: {
       input: tokensInput,
       output: tokensOutput,

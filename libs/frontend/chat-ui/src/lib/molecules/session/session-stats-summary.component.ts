@@ -12,6 +12,7 @@ import {
   resolveModelDisplayName,
 } from '@ptah-extension/shared';
 import { ModelStateService } from '@ptah-extension/core';
+import { CostBadgeComponent } from '../../atoms/cost-badge.component';
 
 /**
  * Live model stats from current session
@@ -60,6 +61,7 @@ export interface ModelUsageEntry {
 @Component({
   selector: 'ptah-session-stats-summary',
   standalone: true,
+  imports: [CostBadgeComponent],
   template: `
     @if (hasStats()) {
       <div class="stats-grid" style="container-type: inline-size">
@@ -112,9 +114,7 @@ export interface ModelUsageEntry {
                 <span class="text-[10px] uppercase text-base-content-muted"
                   >Cost</span
                 >
-                <span class="text-success tabular-nums">{{
-                  formatCost(summary().totalCost)
-                }}</span>
+                <ptah-cost-badge [cost]="summary().totalCost" />
               </span>
               @if (summary().totalDuration > 0) {
                 <span
@@ -341,11 +341,7 @@ export interface ModelUsageEntry {
               >
                 Cost
               </div>
-              <div
-                class="text-sm font-semibold text-success tabular-nums leading-tight mt-0.5"
-              >
-                {{ formatCost(summary().totalCost) }}
-              </div>
+              <ptah-cost-badge [cost]="summary().totalCost" />
             </div>
 
             <!-- Duration Card (conditional) -->

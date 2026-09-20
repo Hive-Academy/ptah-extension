@@ -90,8 +90,8 @@ export interface PendingSettingsTab {
  * Request to launch a chat session seeded with an initial prompt — e.g. the
  * standalone Tasks board firing `/orchestrate <TASK_ID>`. Consumed by
  * the chat lib (a root-provided bridge service), which creates/focuses a
- * session, submits the prompt through the normal send path, then settles
- * `resolve`. Kept in `core` so `tasks-ui` never imports `chat` — the same
+ * session, prefills its composer, then settles `resolve`. Kept in `core` so
+ * `tasks-ui` never imports `chat` — the same
  * signal-bridge inversion used by {@link CanvasSessionRequest} and
  * {@link HarnessWorkflowRequest} (NFR-11 / D7).
  */
@@ -108,6 +108,13 @@ export interface ChatPromptRequest {
    * that fabricate the request shape still type-check.
    */
   resolve?: (result: { success: boolean; error?: string }) => void;
+}
+
+/** Request to prefill one chat surface's composer without sending it. */
+export interface ComposerPrefillRequest {
+  readonly seq: number;
+  readonly text: string;
+  readonly tabId: string | null;
 }
 
 /**
@@ -293,6 +300,12 @@ export class AppStateManager implements MessageHandler {
     signal<HarnessWorkflowRequest | null>(null);
   /** Signal bridge: request to launch a chat session with a seed prompt (Tasks board → orchestrate) */
   private readonly _chatPromptRequest = signal<ChatPromptRequest | null>(null);
+  /** Monotonic bridge for prefilling the composer of one chat surface. */
+  private readonly _composerPrefillRequest = signal<ComposerPrefillRequest>({
+    seq: 0,
+    text: '',
+    tabId: null,
+  });
   /**
    * One-shot request to open the Skills library filtered to diverged clones,
    * holding the workspace path it was raised FOR (`null` when none is pending).
@@ -357,6 +370,8 @@ export class AppStateManager implements MessageHandler {
   readonly harnessWorkflowRequest = this._harnessWorkflowRequest.asReadonly();
   /** Pending request to launch a chat session with a seed prompt (consumed by the chat-lib bridge) */
   readonly chatPromptRequest = this._chatPromptRequest.asReadonly();
+  /** Latest request to prefill a targeted chat composer without sending. */
+  readonly composerPrefillRequest = this._composerPrefillRequest.asReadonly();
   readonly pendingSettingsTab = this._pendingSettingsTab.asReadonly();
   /**
    * Active tab id inside the Thoth hub (memory / skills / cron / gateway),
@@ -837,12 +852,32 @@ export class AppStateManager implements MessageHandler {
   /**
    * Request that the chat lib launches a session seeded with `request.prompt`.
    * Mirrors {@link requestCanvasSession}: the chat-lib bridge consumes the
-   * signal, creates/focuses a session, submits the prompt, and settles
-   * `request.resolve`. Fire-and-forget for callers that don't need the outcome;
-   * awaiters wire a `resolve` callback (see the Tasks board Start flow).
+   * signal, creates/focuses a session, publishes a composer prefill, and
+   * settles `request.resolve`. Fire-and-forget for callers that don't need the
+   * outcome; awaiters wire a `resolve` callback (see the Tasks board Start
+   * flow).
    */
   requestChatPrompt(request: ChatPromptRequest): void {
     this._chatPromptRequest.set(request);
+  }
+
+  /** Prefill the composer belonging to `tabId` without submitting the text. */
+  requestComposerPrefill(text: string, tabId: string | null): void {
+    this._composerPrefillRequest.update((request) => ({
+      seq: request.seq + 1,
+      text,
+      tabId,
+    }));
+  }
+
+  /**
+   * Clear the composer-prefill request after the owning surface applied it.
+   * Without this the request stays in the signal forever, so a surface
+   * recreated for the same tab (a canvas tile removed and re-added) replays
+   * the stale prefill over the current draft in its constructor effect.
+   */
+  clearComposerPrefill(): void {
+    this._composerPrefillRequest.set({ seq: 0, text: '', tabId: null });
   }
 
   /**

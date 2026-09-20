@@ -71,6 +71,7 @@ import { sql as sql0042DbIntegrityCheckState } from './0042_db_integrity_check_s
 import { sql as sql0043MemoryRetention } from './0043_memory_retention';
 import { sql as sql0044MemoryLifecycle } from './0044_memory_lifecycle';
 import { sql as sql0045SkillBacklogCleanup } from './0045_skill_backlog_cleanup';
+import { sql as sql0046MemoryMergeSubjectIndex } from './0046_memory_merge_subject_index';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -340,5 +341,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 45,
     name: '0045_skill_backlog_cleanup',
     sql: sql0045SkillBacklogCleanup,
+  },
+  {
+    version: 46,
+    name: '0046_memory_merge_subject_index',
+    sql: sql0046MemoryMergeSubjectIndex,
   },
 ];

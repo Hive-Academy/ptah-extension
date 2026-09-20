@@ -61,9 +61,9 @@ describe('subagent-cost.utils', () => {
       expect(calculateTotalTreeCost(node)).toBe(0.5);
     });
 
-    it('returns 0 when cost is undefined', () => {
+    it('returns null when the root cost is unknown', () => {
       const node = makeNode('message');
-      expect(calculateTotalTreeCost(node)).toBe(0);
+      expect(calculateTotalTreeCost(node)).toBeNull();
     });
 
     it('recursively sums costs across nested children', () => {
@@ -78,6 +78,27 @@ describe('subagent-cost.utils', () => {
         ],
       });
       expect(calculateTotalTreeCost(tree)).toBe(4);
+    });
+
+    it('returns null when one nested node has an unknown cost', () => {
+      const tree = makeNode('message', {
+        cost: 1,
+        children: [makeNode('agent', { cost: 2 }), makeNode('tool')],
+      });
+
+      expect(calculateTotalTreeCost(tree)).toBeNull();
+    });
+
+    it('sums a tree with no agent nodes as before', () => {
+      const tree = makeNode('message', {
+        cost: 1,
+        children: [
+          makeNode('tool', { cost: 0.25 }),
+          makeNode('text', { cost: 0.75 }),
+        ],
+      });
+
+      expect(calculateTotalTreeCost(tree)).toBe(2);
     });
   });
 
@@ -182,12 +203,12 @@ describe('subagent-cost.utils', () => {
       });
     });
 
-    it('defaults agentType to "unknown" and tokens/cost to zero', () => {
+    it('defaults agentType to "unknown", tokens to zero, and cost to null', () => {
       const agent = makeNode('agent'); // no agentType / tokenUsage / cost
       const [entry] = getAgentCostBreakdown(agent);
       expect(entry.agentType).toBe('unknown');
       expect(entry.tokens).toEqual({ input: 0, output: 0 });
-      expect(entry.cost).toBe(0);
+      expect(entry.cost).toBeNull();
       expect(entry.toolCount).toBe(0);
     });
 
@@ -327,6 +348,19 @@ describe('subagent-cost.utils', () => {
       const summary = calculateSessionCostSummary(messages);
       expect(summary.totalCost).toBe(0);
       expect(summary.totalDuration).toBe(0);
+    });
+
+    it('returns an unknown total when an agent cost is unknown', () => {
+      const tree = makeNode('message', {
+        cost: 0.01,
+        children: [makeNode('agent')],
+      });
+      const summary = calculateSessionCostSummary([
+        makeMessage({ cost: 0.01, streamingState: tree }),
+      ]);
+
+      expect(summary.totalCost).toBeNull();
+      expect(summary.agentBreakdown[0]?.cost).toBeNull();
     });
 
     it('walks streamingState trees for agent breakdown + count', () => {

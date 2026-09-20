@@ -107,7 +107,7 @@ async function visible(loc: Locator): Promise<boolean> {
 /**
  * Close tiles left behind by previous captures. Canvas state persists in the
  * profile, so each run's `agent-N` tiles survive into the next — cluttering the
- * frame and eventually hitting the 9-tile cap, which makes createTile fail.
+ * frame and eventually hitting the tile cap, which makes createTile fail.
  * Closes ONLY tiles whose header label matches `agent-<n>` (our own artifacts);
  * anything else on the canvas is left alone. Runs before the hook beat, so the
  * lead-in trim keeps the cleanup out of the final cut.

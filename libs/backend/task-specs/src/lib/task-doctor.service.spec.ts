@@ -10,6 +10,7 @@
  *   3. `apply()` → `undo()` restores the tree byte-for-byte, deletions included.
  *   4. An unreadable contract stamp refuses to run rather than guessing.
  */
+import 'reflect-metadata';
 import * as path from 'path';
 import { createMockFileSystemProvider } from '@ptah-extension/platform-core/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -19,6 +20,7 @@ import { NoOpTaskFolderVisibility } from './task-folder-visibility.port';
 import { parseTaskFile } from './task-frontmatter';
 import { TaskWriterService } from './task-writer.service';
 import { TaskDoctorService } from './task-doctor.service';
+import { TASK_SPECS_TOKENS } from './di/tokens';
 
 function makeLogger(): Logger {
   return {
@@ -644,6 +646,34 @@ describe('TaskDoctorService.undo', () => {
     const result = await doctor.undo(ROOT);
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe('JOURNAL_NOT_FOUND');
+  });
+});
+
+/**
+ * Mirrors the same assertion in `registry-generator.service.spec.ts`.
+ *
+ * esbuild does not implement `emitDecoratorMetadata`, so the bundled
+ * Electron/VS Code hosts carry NO `design:paramtypes`. Every test above
+ * constructs the doctor by hand and would keep passing with the decorator
+ * removed, while the shipped bundle would build it with `writer === undefined`
+ * and `apply()` would throw on the first `this.writer` access. Only the
+ * explicit token survives bundling, so assert the token itself.
+ */
+describe('TaskDoctorService DI metadata', () => {
+  it('declares an explicit writer token for metadata-stripped bundles', () => {
+    const tokens = Reflect.getOwnMetadata(
+      'injectionTokens',
+      TaskDoctorService,
+    ) as Record<number, unknown> | undefined;
+
+    expect(tokens).toBeDefined();
+    const third = tokens?.[2] as { token?: unknown } | undefined;
+    const resolved =
+      third && typeof third === 'object' && 'token' in third
+        ? third.token
+        : third;
+
+    expect(resolved).toBe(TASK_SPECS_TOKENS.TASK_WRITER);
   });
 });
 

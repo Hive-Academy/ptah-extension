@@ -23,13 +23,13 @@ describe('migration 0045_skill_backlog_cleanup — registry entry', () => {
     expect(entry?.run).toBeUndefined();
   });
 
-  it('is registered exactly once, follows 44, and is the highest version', () => {
+  it('is registered exactly once and follows version 44', () => {
     expect(
       MIGRATIONS.filter((migration) => migration.version === 45),
     ).toHaveLength(1);
     const versions = MIGRATIONS.map((migration) => migration.version);
     expect(versions).toContain(44);
-    expect(Math.max(...versions)).toBe(45);
+    expect(Math.max(...versions)).toBe(46);
   });
 });
 

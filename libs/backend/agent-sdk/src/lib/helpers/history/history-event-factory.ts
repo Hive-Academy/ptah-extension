@@ -34,8 +34,8 @@ import type { ContentBlock } from './history.types';
 export interface MessageUsageData {
   /** Token counts (input/output) */
   tokenUsage?: { input: number; output: number };
-  /** Estimated cost in USD */
-  cost?: number;
+  /** Estimated cost in USD, or null when no price is known */
+  cost?: number | null;
   /** Model identifier (e.g., "claude-sonnet-4-20250514") */
   model?: string;
 }

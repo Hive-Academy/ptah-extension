@@ -174,6 +174,15 @@ export function getPricingMap(): Record<string, ModelPricing> {
 }
 
 /**
+ * Reset runtime pricing map and warned-model tracker to bundled defaults.
+ * For test isolation only.
+ */
+export function resetPricingMapForTesting(): void {
+  modelPricingMap = { ...DEFAULT_MODEL_PRICING };
+  warnedModelIds.clear();
+}
+
+/**
  * Per-call pricing context that the model id alone cannot carry.
  */
 export interface FindPricingOptions {
@@ -229,24 +238,67 @@ export function findModelPricing(modelId: string): ModelPricing | null {
 }
 
 /**
+ * Pattern for date snapshot suffixes:
+ * - ISO-8601 date: -YYYY-MM-DD (e.g. "-2024-08-06")
+ * - Compact date: -YYYYMMDD (e.g. "-20251101", "-20250514", "-20260615")
+ */
+const DATE_SNAPSHOT_SUFFIX = /^-(?:\d{4}-\d{2}-\d{2}|\d{8})$/;
+
+/**
  * Exact-then-partial lookup against the runtime map. Silent: the "unknown
  * model" warning belongs to {@link findModelPricing}, which alone knows
  * whether a miss is actually a problem.
+ *
+ * Rules:
+ * 1. Exact match against normalized modelId or prefix-stripped modelId.
+ * 2. Forward partial match for date-snapshot ids:
+ *    Querying e.g. "gpt-4o-2024-08-06" resolves to "gpt-4o", and
+ *    "claude-opus-4-5-20251101" resolves to "claude-opus-4-5".
+ *    A partial match is ONLY accepted when the remainder after the registered
+ *    key matches a date-snapshot suffix (-YYYY-MM-DD or -YYYYMMDD).
+ *    Model line variants (e.g. "gpt-5.3-codex" vs "gpt-5") are distinct models,
+ *    not snapshots, and must never match.
+ * 3. Reverse-direction match (`key.toLowerCase().includes(normalizedId)`) is
+ *    deliberately removed: querying a shorter or generic model id (e.g. "supermodel")
+ *    must never resolve to an arbitrary longer registered variant (such as
+ *    "supermodel-2099-final-edition"), which would bill at the wrong rates.
  */
 function lookupPricingEntry(modelId: string): ModelPricing | null {
   const normalizedId = modelId.toLowerCase();
   if (modelPricingMap[normalizedId]) {
     return modelPricingMap[normalizedId];
   }
+
+  const strippedId = normalizedId.includes('/')
+    ? normalizedId.slice(normalizedId.lastIndexOf('/') + 1)
+    : normalizedId;
+
+  if (strippedId !== normalizedId && modelPricingMap[strippedId]) {
+    return modelPricingMap[strippedId];
+  }
+
+  let bestMatch: ModelPricing | null = null;
+  let bestMatchKeyLength = -1;
+
   for (const [key, pricing] of Object.entries(modelPricingMap)) {
-    if (normalizedId.includes(key.toLowerCase())) {
-      return pricing;
+    const lowerKey = key.toLowerCase();
+
+    let remainder: string | null = null;
+    if (normalizedId.startsWith(lowerKey)) {
+      remainder = normalizedId.slice(lowerKey.length);
+    } else if (strippedId.startsWith(lowerKey)) {
+      remainder = strippedId.slice(lowerKey.length);
     }
-    if (key.toLowerCase().includes(normalizedId)) {
-      return pricing;
+
+    if (remainder !== null && DATE_SNAPSHOT_SUFFIX.test(remainder)) {
+      if (lowerKey.length > bestMatchKeyLength) {
+        bestMatch = pricing;
+        bestMatchKeyLength = lowerKey.length;
+      }
     }
   }
-  return null;
+
+  return bestMatch;
 }
 
 /**
@@ -339,7 +391,10 @@ function contextWindowKeys(modelId: string): string[] {
  * table's partial matching would.
  */
 export function registerModelContextWindows(
-  entries: ReadonlyArray<{ readonly id: string; readonly contextLength: number }>,
+  entries: ReadonlyArray<{
+    readonly id: string;
+    readonly contextLength: number;
+  }>,
 ): void {
   for (const entry of entries) {
     if (!entry || typeof entry.id !== 'string' || entry.id.length === 0) {

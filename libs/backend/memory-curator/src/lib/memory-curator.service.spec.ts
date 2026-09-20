@@ -56,6 +56,7 @@ function buildService(opts?: {
   } as unknown as ICompactionCallbackRegistry;
   const store = {
     list: jest.fn(() => ({ memories: [], total: 0 })),
+    findMergeCandidates: jest.fn(() => []),
     insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
     appendChunks: jest.fn().mockResolvedValue(undefined),
     getById: jest.fn(),
@@ -253,6 +254,7 @@ describe('MemoryCuratorService — placeholder skip event', () => {
     } as unknown as ICompactionCallbackRegistry;
     const store = {
       list: jest.fn(() => ({ memories: [], total: 0 })),
+      findMergeCandidates: jest.fn(() => []),
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
@@ -345,6 +347,7 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
     const insertMemoryWithChunks = jest.fn().mockResolvedValue(undefined);
     const store = {
       list: jest.fn(() => ({ memories: [], total: 0 })),
+      findMergeCandidates: jest.fn(() => []),
       insertMemoryWithChunks,
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
@@ -419,6 +422,7 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
     } as unknown as ICompactionCallbackRegistry;
     const store = {
       list: jest.fn(() => ({ memories: [], total: 0 })),
+      findMergeCandidates: jest.fn(() => []),
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
@@ -659,6 +663,7 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
     } as unknown as ICompactionCallbackRegistry;
     const store = {
       list: jest.fn(() => ({ memories: [], total: 0 })),
+      findMergeCandidates: jest.fn(() => []),
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
@@ -1282,6 +1287,7 @@ describe('MemoryCuratorService — manual PreCompact window budget', () => {
     } as unknown as ICompactionCallbackRegistry;
     const store = {
       list: jest.fn(() => ({ memories: [], total: 0 })),
+      findMergeCandidates: jest.fn(() => []),
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
@@ -1612,6 +1618,7 @@ describe('MemoryCuratorService — a pass that never read its input reports STAL
     } as unknown as ICompactionCallbackRegistry;
     const store = {
       list: jest.fn(() => ({ memories: [], total: 0 })),
+      findMergeCandidates: jest.fn(() => []),
       insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
       appendChunks: jest.fn().mockResolvedValue(undefined),
       getById: jest.fn(),
@@ -1809,6 +1816,7 @@ describe('MemoryCuratorService — userInitiated reaches every curator LLM call'
       } as unknown as ICompactionCallbackRegistry,
       {
         list: jest.fn(() => ({ memories: [], total: 0 })),
+        findMergeCandidates: jest.fn(() => []),
         insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
         appendChunks: jest.fn().mockResolvedValue(undefined),
         getById: jest.fn(),

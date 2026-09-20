@@ -65,12 +65,10 @@ test.describe('Canvas', () => {
 
     // Layout controls are disabled as inapplicable for singleton session
     await expect(
-      page
-        .locator('[data-testid="canvas-dock"]')
-        .getByRole('button', {
-          name: 'Layout controls not applicable for a single session',
-          exact: true,
-        }),
+      page.locator('[data-testid="canvas-dock"]').getByRole('button', {
+        name: 'Layout controls not applicable for a single session',
+        exact: true,
+      }),
     ).toBeDisabled();
 
     // Navigate away to a different view and back — the tile must persist.
@@ -213,19 +211,28 @@ test.describe('Canvas', () => {
     const thirdBox = await thirdHandle.boundingBox();
     if (!firstBox || !thirdBox)
       throw new Error('Canvas tile handles are not measurable');
+    const dropY = firstBox.y + firstBox.height + thirdBox.height / 2;
     await page.mouse.move(
       thirdBox.x + thirdBox.width / 2,
       thirdBox.y + thirdBox.height / 2,
     );
     await page.mouse.down();
-    await page.mouse.move(
-      // Land at grid x=2 in the next row: the tile overlaps both first-row
-      // tiles if gravity tries to lift it, so Gridstack retains the gap. Move
-      // the pointer beyond the first row to make the row transition decisive.
-      firstBox.x + firstBox.width,
-      firstBox.y + firstBox.height + thirdBox.height / 2,
-      { steps: 32 },
-    );
+    // Two legs, never one diagonal. A diagonal keeps the tile inside row one
+    // while it crosses its neighbours, and Gridstack swaps two same-size tiles
+    // on contact (`GridStackEngine.swap`). The swap leaves a hole in row one,
+    // the drop then falls into that hole instead of the new row, and the whole
+    // gesture reads as a no-op. Both outcomes were observed on one commit.
+    // Leg one leaves row one straight down, leg two travels left over the
+    // empty second row, so the tile never touches a neighbour.
+    await page.mouse.move(thirdBox.x + thirdBox.width / 2, dropY, {
+      steps: 16,
+    });
+    // Land over the first tile's own column. Gravity lifts a tile back into
+    // row one only when the full column above it is free, so a drop centred on
+    // the first tile survives a one-unit rounding error in either direction.
+    await page.mouse.move(firstBox.x + firstBox.width / 2, dropY, {
+      steps: 16,
+    });
     await page.mouse.up();
 
     await expect
@@ -540,10 +547,7 @@ test.describe('Canvas', () => {
 
     // Compact the second tile: two height units, responsive minimum width, and
     // the fourth tile rises into the hole under it.
-    await items
-      .nth(1)
-      .locator('[data-testid="tile-view-mode-toggle"]')
-      .click();
+    await items.nth(1).locator('[data-testid="tile-view-mode-toggle"]').click();
     await expect.poll(readGeometry).toEqual([
       { x: '0', y: '0', w: '4', h: '6' },
       { x: '4', y: '0', w: '4', h: '2' },
@@ -552,9 +556,7 @@ test.describe('Canvas', () => {
     ]);
 
     // A compact tile carries no resize handle.
-    const compactResizeHandles = items
-      .nth(1)
-      .locator('.ui-resizable-handle');
+    const compactResizeHandles = items.nth(1).locator('.ui-resizable-handle');
     await expect(compactResizeHandles).toHaveCount(2);
     for (let index = 0; index < 2; index += 1) {
       await expect(compactResizeHandles.nth(index)).toBeHidden();
@@ -562,10 +564,7 @@ test.describe('Canvas', () => {
 
     // Back to full: the stored third span returns untouched and the fourth
     // tile leaves the hole.
-    await items
-      .nth(1)
-      .locator('[data-testid="tile-view-mode-toggle"]')
-      .click();
+    await items.nth(1).locator('[data-testid="tile-view-mode-toggle"]').click();
     await expect.poll(readGeometry).toEqual(fullThirds);
   });
 
@@ -664,10 +663,7 @@ test.describe('Canvas', () => {
 
     // Every tile layout menu item is disabled while locked; the adjacent
     // view-mode toggle is the deliberate exception.
-    await items
-      .nth(0)
-      .locator('[data-testid="tile-layout-trigger"]')
-      .click();
+    await items.nth(0).locator('[data-testid="tile-layout-trigger"]').click();
     const menuButtons = items.nth(0).locator('[data-layout-item]');
     await expect(menuButtons).toHaveCount(6);
     for (let index = 0; index < 6; index += 1) {
@@ -685,10 +681,7 @@ test.describe('Canvas', () => {
 
     // A view-mode change on a locked grid still reflows the geometry — the
     // narrow lock exception — and never commits a store gesture.
-    await items
-      .nth(1)
-      .locator('[data-testid="tile-view-mode-toggle"]')
-      .click();
+    await items.nth(1).locator('[data-testid="tile-view-mode-toggle"]').click();
     await expect.poll(readGeometry).toEqual([
       { x: '0', y: '0', w: '4', h: '6' },
       { x: '4', y: '0', w: '4', h: '2' },
@@ -700,10 +693,7 @@ test.describe('Canvas', () => {
     );
 
     // Exiting compact restores the frozen arrangement exactly.
-    await items
-      .nth(1)
-      .locator('[data-testid="tile-view-mode-toggle"]')
-      .click();
+    await items.nth(1).locator('[data-testid="tile-view-mode-toggle"]').click();
     await expect.poll(readGeometry).toEqual(fullThirds);
     expect(await grid.getAttribute('data-canvas-gesture-commits')).toBe(
       String(commitsBefore),
@@ -735,10 +725,7 @@ test.describe('Canvas', () => {
     const items = page.locator('gridstack-item');
     await expect(items).toHaveCount(1);
 
-    await items
-      .nth(0)
-      .locator('[data-testid="tile-view-mode-toggle"]')
-      .click();
+    await items.nth(0).locator('[data-testid="tile-view-mode-toggle"]').click();
 
     // Two height units at the responsive minimum width — not the expanded
     // singleton that stretches to the whole grid.

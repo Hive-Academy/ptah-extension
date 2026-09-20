@@ -132,6 +132,7 @@ export interface CommandInfo {
   readonly description: string;
   readonly argumentHint?: string;
   readonly scope: 'builtin' | 'project' | 'user' | 'mcp' | 'plugin';
+  readonly source: 'builtin' | 'command' | 'skill';
   readonly filePath?: string;
   readonly template?: string;
   readonly allowedTools?: string[];
@@ -374,37 +375,44 @@ export class CommandDiscoveryService {
         name: 'compact',
         description: 'Compact conversation to reduce token usage',
         scope: 'builtin',
+        source: 'builtin',
       },
       {
         name: 'review',
         description: 'Code review workflow',
         scope: 'builtin',
+        source: 'builtin',
       },
       {
         name: 'memory',
         description: 'Manage long-term memory (CLAUDE.md)',
         scope: 'builtin',
+        source: 'builtin',
       },
       {
         name: 'clear',
         description: 'Clear conversation and start fresh',
         scope: 'builtin',
+        source: 'builtin',
       },
       {
         name: 'context',
         description: 'Show current context and token usage',
         scope: 'builtin',
+        source: 'builtin',
       },
       {
         name: 'cost',
         description: 'Show API cost for current session',
         scope: 'builtin',
+        source: 'builtin',
       },
       {
         name: 'deep-research',
         description: 'Deep multi-source research workflow → cited report',
         argumentHint: '<question>',
         scope: 'builtin',
+        source: 'builtin',
       },
     ];
   }
@@ -487,6 +495,7 @@ export class CommandDiscoveryService {
         description: description || 'No description',
         argumentHint: frontmatter['argument-hint'],
         scope: 'project', // Will be overridden by caller
+        source: 'command',
         filePath,
         template,
         allowedTools: frontmatter['allowed-tools']
@@ -573,6 +582,7 @@ export class CommandDiscoveryService {
                 ? description.replace(/\s+/g, ' ').trim()
                 : String(description),
             scope: 'plugin',
+            source: 'skill',
             filePath: skillMdPath,
           });
         } catch (error) {

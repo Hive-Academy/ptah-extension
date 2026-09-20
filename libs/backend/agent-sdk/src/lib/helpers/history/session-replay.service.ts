@@ -242,17 +242,16 @@ export class SessionReplayService {
           const tokenUsage = extractTokenUsage(msgUsage);
           if (tokenUsage) {
             const priced = this.modelResolver.resolveForCost(msgModel);
-            const cost =
-              calculateMessageCost(
-                priced.modelId,
-                {
-                  input: tokenUsage.input,
-                  output: tokenUsage.output,
-                  cacheHit: tokenUsage.cacheRead,
-                  cacheCreation: tokenUsage.cacheCreation,
-                },
-                priced.pricing,
-              ) ?? 0;
+            const cost = calculateMessageCost(
+              priced.modelId,
+              {
+                input: tokenUsage.input,
+                output: tokenUsage.output,
+                cacheHit: tokenUsage.cacheRead,
+                cacheCreation: tokenUsage.cacheCreation,
+              },
+              priced.pricing,
+            );
             if (!currentMessageUsage) {
               currentMessageUsage = {
                 tokenUsage: {
@@ -271,7 +270,13 @@ export class SessionReplayService {
                   (currentMessageUsage.tokenUsage?.output ?? 0) +
                   tokenUsage.output,
               };
-              currentMessageUsage.cost = (currentMessageUsage.cost ?? 0) + cost;
+              const currentCost = currentMessageUsage.cost;
+              currentMessageUsage.cost =
+                currentCost === null ||
+                currentCost === undefined ||
+                cost === null
+                  ? null
+                  : currentCost + cost;
             }
           }
         }
@@ -569,17 +574,16 @@ export class SessionReplayService {
           agentMessageUsage = {
             tokenUsage: { input: tokenUsage.input, output: tokenUsage.output },
             model: agentMsgModel || undefined,
-            cost:
-              calculateMessageCost(
-                priced.modelId,
-                {
-                  input: tokenUsage.input,
-                  output: tokenUsage.output,
-                  cacheHit: tokenUsage.cacheRead,
-                  cacheCreation: tokenUsage.cacheCreation,
-                },
-                priced.pricing,
-              ) ?? 0,
+            cost: calculateMessageCost(
+              priced.modelId,
+              {
+                input: tokenUsage.input,
+                output: tokenUsage.output,
+                cacheHit: tokenUsage.cacheRead,
+                cacheCreation: tokenUsage.cacheCreation,
+              },
+              priced.pricing,
+            ),
           };
         }
       }

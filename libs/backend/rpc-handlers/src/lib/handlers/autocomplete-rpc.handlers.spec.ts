@@ -39,6 +39,10 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
+import type {
+  AutocompleteCommandInfo,
+  AutocompleteCommandsResult,
+} from '@ptah-extension/shared';
 
 import { AutocompleteRpcHandlers } from './autocomplete-rpc.handlers';
 
@@ -259,6 +263,45 @@ describe('AutocompleteRpcHandlers', () => {
         query: 'hel',
         maxResults: 10,
       });
+    });
+
+    it('carries the source discriminator through for builtin, command, and skill entries', async () => {
+      const h = makeHarness();
+      const commands: AutocompleteCommandInfo[] = [
+        {
+          name: 'deep-research',
+          description: 'Deep multi-source research workflow',
+          scope: 'builtin',
+          source: 'builtin',
+        },
+        {
+          name: 'test-runner',
+          description: 'Run project tests',
+          scope: 'project',
+          source: 'command',
+        },
+        {
+          name: 'scene-crafter',
+          description: '3D scene crafter',
+          scope: 'plugin',
+          source: 'skill',
+        },
+      ];
+      h.commandDiscovery.searchCommands.mockResolvedValue({ commands });
+      h.handlers.register();
+
+      const result = await call<AutocompleteCommandsResult>(
+        h,
+        'autocomplete:commands',
+        { query: '' },
+      );
+
+      expect(result.commands).toEqual(commands);
+      expect(result.commands?.map((c) => c.source)).toEqual([
+        'builtin',
+        'command',
+        'skill',
+      ]);
     });
 
     it('coerces a missing query to the empty string for the downstream service', async () => {

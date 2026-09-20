@@ -200,8 +200,7 @@ export class MessageBubbleComponent {
     const summary = this.messageSummary();
     if (!summary) return false;
     return (
-      (summary.cost !== undefined && summary.cost > 0) ||
-      summary.duration !== undefined
+      this.message().tokens !== undefined || summary.duration !== undefined
     );
   });
 

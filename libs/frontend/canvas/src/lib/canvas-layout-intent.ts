@@ -1,8 +1,16 @@
 /** Gridstack column units in one rendered row. */
 export const GRID_COLUMNS = 12;
 
-/** Hard tile cap shared by the store and the persistence boundary. */
-export const MAX_CANVAS_TILES = 9;
+/**
+ * Hard tile cap shared by the store and the persistence boundary.
+ *
+ * Raised from 9 to 20 (TASK_2026_471). Columns are still capped at 3
+ * (`MAX_COLUMNS`), so the grid grows downward into more rows rather than
+ * wider. A record written at this cap is rejected by an older client, whose
+ * schema still caps at 9 — that client reports `writable: false` and declines
+ * to overwrite, so the record survives rather than being truncated.
+ */
+export const MAX_CANVAS_TILES = 20;
 
 /** Gridstack row units a full tile occupies. */
 export const FULL_TILE_HEIGHT_UNITS = 6;
@@ -47,7 +55,10 @@ export interface TileIntent {
   readonly rowBreakBefore: boolean;
 }
 
-export type CanvasLayoutPreset = 'even-grid' | 'one-plus-two' | 'focus-plus-stack';
+export type CanvasLayoutPreset =
+  | 'even-grid'
+  | 'one-plus-two'
+  | 'focus-plus-stack';
 
 /**
  * Transient height tier for one tile, derived from the owning tab's view mode
@@ -369,7 +380,10 @@ function resolvePreferredWidths(
       tierById.get(tile.tabId) === 'compact'
         ? minimum
         : effectiveUnits(tile.width, capacity);
-    if (current.length > 0 && (tile.rowBreakBefore || used + units > GRID_COLUMNS)) {
+    if (
+      current.length > 0 &&
+      (tile.rowBreakBefore || used + units > GRID_COLUMNS)
+    ) {
       flush();
     }
     current.push(tile);
@@ -398,7 +412,11 @@ function finishPreferredRow(
       explicitUnits += effectiveUnits(tile.width, capacity);
     }
   }
-  const autoUnits = apportion(autoWeights, GRID_COLUMNS - explicitUnits, minimum);
+  const autoUnits = apportion(
+    autoWeights,
+    GRID_COLUMNS - explicitUnits,
+    minimum,
+  );
   let autoIndex = 0;
   for (const tile of row) {
     if (tierById.get(tile.tabId) === 'compact') {
@@ -607,7 +625,11 @@ export function projectDragIntent(
   }
   for (let index = 0; index < observations.length; index++) {
     const a = observations[index];
-    for (let otherIndex = index + 1; otherIndex < observations.length; otherIndex++) {
+    for (
+      let otherIndex = index + 1;
+      otherIndex < observations.length;
+      otherIndex++
+    ) {
       const b = observations[otherIndex];
       if (
         a.x < b.x + b.w &&
@@ -664,7 +686,9 @@ export function projectDragIntent(
   }
 
   const count = observed.length;
-  const priorBreaks = observed.map((item) => intentOf(item.tabId).rowBreakBefore);
+  const priorBreaks = observed.map(
+    (item) => intentOf(item.tabId).rowBreakBefore,
+  );
   const observedByTabId = new Map(observed.map((item) => [item.tabId, item]));
   let bestBreaks: boolean[] | null = null;
   let bestHamming = 0;

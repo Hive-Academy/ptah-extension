@@ -78,8 +78,8 @@ export class SurfaceSessionStatsRegistry {
    * so the two surfaces cannot drift into reporting different numbers for the
    * same turn.
    *
-   * A `null` turn cost leaves the running total untouched rather than coercing
-   * to 0: an unpriced model must not silently claim a turn was free.
+   * A `null` turn cost makes the running total unknown, and a later priced
+   * turn cannot turn that partial total back into a complete figure.
    */
   record(
     sessionId: string,
@@ -99,15 +99,16 @@ export class SurfaceSessionStatsRegistry {
     this._bySession.update((prev) => {
       const existing = prev.get(sessionId);
       const totals = existing?.totals ?? EMPTY_TOTALS;
+      const prevCost = existing ? totals.totalCost : 0;
       const next = new Map(prev);
       next.set(sessionId, {
         live: turn.live ?? existing?.live ?? null,
         modelUsage: turn.modelUsage ?? existing?.modelUsage ?? null,
         totals: {
           totalCost:
-            turn.cost === null
-              ? totals.totalCost
-              : (totals.totalCost ?? 0) + turn.cost,
+            prevCost === null || turn.cost === null
+              ? null
+              : prevCost + turn.cost,
           tokens: {
             input: totals.tokens.input + turn.tokens.input,
             output: totals.tokens.output + turn.tokens.output,

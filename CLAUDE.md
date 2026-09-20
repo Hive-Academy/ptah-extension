@@ -62,7 +62,7 @@ ptah-extension/
 │   ├── markdown/                      # ★ Single XSS chokepoint (DOMPurify + marked)
 │   ├── chat/                          # Orchestrator + ChatStore facade
 │   ├── chat-{state,streaming,routing,ui,types,execution-tree}/
-│   ├── canvas/                        # Multi-tile orchestra (gridstack, 9-tile cap)
+│   ├── canvas/                        # Multi-tile orchestra (gridstack, 20-tile cap)
 │   ├── dashboard/                     # Card-driven home
 │   ├── setup-wizard/                  # 7-step premium-gated onboarding
 │   ├── harness-builder/               # Streamed harness builder

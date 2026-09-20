@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { findModelPricing } from '@ptah-extension/shared';
+import { calculateMessageCost, findModelPricing } from '@ptah-extension/shared';
 import { AssistantMessageTransformer } from './assistant-message.transformer';
 import type { TransformerState } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
@@ -115,7 +115,66 @@ describe('AssistantMessageTransformer', () => {
     const kinds = events.map((e) => e.eventType);
     expect(kinds).toEqual(['message_start', 'text_delta', 'message_complete']);
     expect((events[1] as { delta: string }).delta).toBe('hello');
+    expect(events[2]).toEqual(
+      expect.objectContaining({
+        tokenUsage: { input: 10, output: 5 },
+        cost: null,
+      }),
+    );
     expect((events[2] as { model?: string }).model).toBe('claude-opus');
+  });
+
+  it('prices cache reads and cache creation like the result stats path', () => {
+    const pricing = {
+      inputCostPerToken: 3e-6,
+      outputCostPerToken: 15e-6,
+      cacheReadCostPerToken: 0.3e-6,
+      cacheCreationCostPerToken: 3.75e-6,
+    };
+    jest.spyOn(helpers.modelResolver, 'resolveForCost').mockReturnValue({
+      modelId: 'claude-sonnet-4-6',
+      pricing,
+      subscriptionCovered: false,
+    });
+    const msg = {
+      uuid: 'u-cache',
+      message: {
+        id: 'm-cache',
+        model: 'claude-sonnet-4-6',
+        content: [{ type: 'text', text: 'cached response' }],
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 1000,
+          cache_creation_input_tokens: 400,
+        },
+        stop_reason: 'end_turn',
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-cache' as never,
+    );
+    const expectedCost = calculateMessageCost(
+      'claude-sonnet-4-6',
+      { input: 100, output: 50, cacheHit: 1000, cacheCreation: 400 },
+      pricing,
+    );
+
+    expect(events[2]).toEqual(
+      expect.objectContaining({
+        tokenUsage: {
+          input: 100,
+          output: 50,
+          cacheRead: 1000,
+          cacheCreation: 400,
+        },
+        cost: expectedCost,
+      }),
+    );
   });
 
   it('skips a message whose only content is the SDK interrupt sentinel', () => {

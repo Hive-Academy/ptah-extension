@@ -12,9 +12,12 @@ import type { TaskGraph } from '@ptah-extension/shared';
 import { TaskColumnComponent } from './task-column.component';
 import type {
   TaskSelectionToggle,
-  TaskStartRequest,
   TaskStatusChange,
 } from './task-card.component';
+import type {
+  TaskAgentTarget,
+  TaskStartRequest,
+} from '../../types/task-agent.types';
 import type {
   TaskBoardColumn,
   TaskBulkOutcome,
@@ -75,6 +78,7 @@ import { isTextEntryTarget } from '../keyboard-target';
           [pending]="pending()"
           [outcomes]="outcomes()"
           [focusedTaskId]="focusedTaskId()"
+          [agentTargets]="agentTargets()"
           (taskSelect)="onTaskSelect($event)"
           (taskToggle)="onTaskToggle($event)"
           (selectionToggle)="onSelectionToggle($event)"
@@ -103,6 +107,7 @@ export class TaskBoardComponent {
    * renders cards with neither, which is exactly the zero-metadata rendering.
    */
   public readonly graph = input<TaskGraph | null>(null);
+  public readonly agentTargets = input<readonly TaskAgentTarget[]>([]);
 
   public readonly taskSelect = output<string>();
   /** Space on the focused card (FR-C7.2). See `TaskCardComponent.toggleTask`. */

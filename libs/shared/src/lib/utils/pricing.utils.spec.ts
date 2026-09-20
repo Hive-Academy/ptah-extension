@@ -12,21 +12,16 @@ import {
   getModelPricingDescription,
   getPricingMap,
   registerProviderPricing,
+  resetPricingMapForTesting,
   resolveModelDisplayName,
   updatePricingMap,
 } from './pricing.utils';
 
 /**
- * Restore the pricing map to its bundled default between tests. The module
- * owns a private mutable copy, so we reset by re-applying the defaults on top.
- * (The internal merge is additive but re-applying defaults is a no-op since
- * the original keys were already present.)
+ * Restore the pricing map to its bundled default between tests.
  */
 function resetPricingMap(): void {
-  // Clear any dynamic entries that were added during the test by overwriting
-  // with the bundled defaults. This is sufficient because all test keys we
-  // add below use prefixes that do not collide with the bundled ones.
-  updatePricingMap({ ...DEFAULT_MODEL_PRICING });
+  resetPricingMapForTesting();
 }
 
 describe('pricing.utils', () => {
@@ -122,14 +117,40 @@ describe('pricing.utils', () => {
       expect(pricing?.inputCostPerToken).toBe(2.5e-6);
     });
 
-    it('resolves via partial match when modelId contains a known key', () => {
+    it('resolves via partial match when modelId contains a known key with a date snapshot', () => {
       const pricing = findModelPricing('gpt-4o-2024-08-06');
       expect(pricing).not.toBeNull();
       expect(pricing?.provider).toBe('openai');
       expect(pricing?.maxTokens).toBe(128_000);
     });
 
-    it('resolves via partial match when a known key contains the modelId', () => {
+    it('resolves via partial match for 8-digit compact date snapshot (e.g. claude-opus-4-5-20251101)', () => {
+      registerProviderPricing({
+        'claude-opus-4-5': {
+          inputCostPerToken: 5e-6,
+          outputCostPerToken: 25e-6,
+          provider: 'anthropic',
+        },
+      });
+      const pricing = findModelPricing('claude-opus-4-5-20251101');
+      expect(pricing).not.toBeNull();
+      expect(pricing?.provider).toBe('anthropic');
+      expect(pricing?.inputCostPerToken).toBe(5e-6);
+    });
+
+    it('returns null for gpt-5.3-codex when only gpt-5 is registered (criterion 1)', () => {
+      registerProviderPricing({
+        'gpt-5': {
+          inputCostPerToken: 1.25e-6,
+          outputCostPerToken: 10e-6,
+          provider: 'openai',
+        },
+      });
+      const pricing = findModelPricing('gpt-5.3-codex');
+      expect(pricing).toBeNull();
+    });
+
+    it('does not resolve via reverse partial match when a registered key contains the modelId (criterion 3)', () => {
       registerProviderPricing({
         'supermodel-2099-final-edition': {
           inputCostPerToken: 1e-7,
@@ -138,7 +159,22 @@ describe('pricing.utils', () => {
         },
       });
       const pricing = findModelPricing('supermodel');
-      expect(pricing?.provider).toBe('future');
+      expect(pricing).toBeNull();
+    });
+
+    it('emits unknown-model warning when a model id fails to match a different registered model (criterion 4)', () => {
+      registerProviderPricing({
+        'gpt-5': {
+          inputCostPerToken: 1.25e-6,
+          outputCostPerToken: 10e-6,
+          provider: 'openai',
+        },
+      });
+      expect(findModelPricing('gpt-5.3-codex')).toBeNull();
+      expect(console.warn).toHaveBeenCalledTimes(1);
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining('gpt-5.3-codex'),
+      );
     });
 
     it('returns null and warns once for unknown model ids', () => {
@@ -307,17 +343,19 @@ describe('pricing.utils', () => {
 
     it('registry beats a partial pricing match', () => {
       const mod = freshModule();
-      // `gpt-4o-ultra` partially matches the bundled `gpt-4o` (128k) entry.
-      expect(mod.getModelContextWindow('gpt-4o-ultra')).toBe(128_000);
+      // `gpt-4o-2024-08-06` partially matches the bundled `gpt-4o` (128k) entry.
+      expect(mod.getModelContextWindow('gpt-4o-2024-08-06')).toBe(128_000);
       mod.registerModelContextWindows([
-        { id: 'gpt-4o-ultra', contextLength: 512_000 },
+        { id: 'gpt-4o-2024-08-06', contextLength: 512_000 },
       ]);
-      expect(mod.getModelContextWindow('gpt-4o-ultra')).toBe(512_000);
+      expect(mod.getModelContextWindow('gpt-4o-2024-08-06')).toBe(512_000);
     });
 
     it('matches exactly only — a shorter registered id never answers a longer one', () => {
       const mod = freshModule();
-      mod.registerModelContextWindows([{ id: 'gpt-5', contextLength: 272_000 }]);
+      mod.registerModelContextWindows([
+        { id: 'gpt-5', contextLength: 272_000 },
+      ]);
       expect(mod.getModelContextWindow('gpt-5')).toBe(272_000);
       expect(mod.getModelContextWindow('gpt-5.6-sol')).toBe(0);
     });
@@ -341,7 +379,12 @@ describe('pricing.utils', () => {
         { id: 'ctx-nan', contextLength: Number.NaN },
         { id: 'ctx-infinite', contextLength: Number.POSITIVE_INFINITY },
       ]);
-      for (const id of ['ctx-zero', 'ctx-negative', 'ctx-nan', 'ctx-infinite']) {
+      for (const id of [
+        'ctx-zero',
+        'ctx-negative',
+        'ctx-nan',
+        'ctx-infinite',
+      ]) {
         expect(mod.getModelContextWindow(id)).toBe(0);
       }
     });

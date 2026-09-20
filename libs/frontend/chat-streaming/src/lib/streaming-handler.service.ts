@@ -516,7 +516,7 @@ export class StreamingHandlerService {
    */
   handleSessionStats(stats: {
     sessionId: string;
-    cost: number;
+    cost: number | null;
     tokens: { input: number; output: number };
     duration: number;
   }): { tabId: string; queuedContent: string | null } | null {
@@ -620,7 +620,7 @@ export class StreamingHandlerService {
   private mergeStatsOntoLastAssistant(
     tab: TabState,
     stats: {
-      cost: number;
+      cost: number | null;
       tokens: { input: number; output: number };
       duration: number;
     },

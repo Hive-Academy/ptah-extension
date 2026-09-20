@@ -59,12 +59,13 @@ describe('migration 0044_memory_lifecycle — registry and static SQL', () => {
       name: '0044_memory_lifecycle',
       sql: sql0044MemoryLifecycle,
     });
-    expect(MIGRATIONS.filter((migration) => migration.version === 44)).toHaveLength(
-      1,
-    );
+    expect(
+      MIGRATIONS.filter((migration) => migration.version === 44),
+    ).toHaveLength(1);
     // 45 since TASK_2026_461 appended 0045_skill_backlog_cleanup.
+    // 46 since TASK_2026_473 appended 0046_memory_merge_subject_index.
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      45,
+      46,
     );
     expect(entry?.vecSql).toBeUndefined();
     expect(entry?.requiresVec).toBeUndefined();
@@ -262,7 +263,9 @@ describe('migration 0044_memory_lifecycle — behaviour', () => {
     const db = openAtVersion43();
     try {
       db.exec(sql0044MemoryLifecycle);
-      const memoryIndexes = db.prepare("PRAGMA index_list('memories')").all() as Array<{
+      const memoryIndexes = db
+        .prepare("PRAGMA index_list('memories')")
+        .all() as Array<{
         name: string;
       }>;
       const corpusIndexes = db
