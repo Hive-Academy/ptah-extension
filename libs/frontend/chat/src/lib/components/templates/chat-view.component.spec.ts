@@ -23,6 +23,7 @@ import {
   Component,
   Input,
   NgModule,
+  NO_ERRORS_SCHEMA,
   ChangeDetectionStrategy,
   signal,
 } from '@angular/core';
@@ -59,7 +60,10 @@ jest.mock('ngx-markdown', () => {
 });
 
 import { TestBed } from '@angular/core/testing';
-import { ChatViewComponent } from './chat-view.component';
+import {
+  ChatViewComponent,
+  AGENT_PANEL_OVERLAY_BREAKPOINT,
+} from './chat-view.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
@@ -80,6 +84,7 @@ import {
 import {
   AgentMonitorStore,
   ExecutionTreeBuilderService,
+  type MonitoredAgent,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
@@ -88,6 +93,8 @@ import {
   SESSION_VISIBLE,
 } from '../../tokens/session-context.token';
 import { RpcResult } from '@ptah-extension/core';
+import { SidebarTabComponent } from '@ptah-extension/chat-ui';
+import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -150,6 +157,8 @@ function makeHarness(
      * of the jest stub, so drag coalescing tests can read the live signal.
      */
     realPanelResize?: boolean;
+    /** Render the production template with only overlay-relevant children. */
+    renderOverlayTemplate?: boolean;
   } = {},
 ) {
   const {
@@ -160,6 +169,7 @@ function makeHarness(
     sessionContextTabId,
     sessionVisible,
     realPanelResize = false,
+    renderOverlayTemplate = false,
   } = opts;
   const sessionVisibleSig =
     sessionVisible === undefined ? null : signal<boolean>(sessionVisible);
@@ -171,6 +181,7 @@ function makeHarness(
   const loadOlderMock = jest.fn().mockResolvedValue('prepended');
   const olderHistoryLoadingTabIds = signal<ReadonlySet<string>>(new Set());
   const suppressAnimateOnceSig = signal<boolean>(false);
+  const agentsSig = signal<MonitoredAgent[]>([]);
   const replayingTabIds = new Set<string>();
   const isReplayingMock = jest.fn((tabId: string) =>
     replayingTabIds.has(tabId),
@@ -195,8 +206,13 @@ function makeHarness(
     currentModel: signal('claude-sonnet-4-20250514'),
     sessionStatus: signal(null),
     queueRestoreContent: signal(null),
+    queuedContent: signal<string | null>(null),
     agentPanelOpen: signal(false),
+    unmatchedPermissions: signal([]),
+    questionRequests: signal([]),
     resumableSubagents: resumableSubagentsSig.asReadonly(),
+    handlePermissionResponse: jest.fn(),
+    handleQuestionResponse: jest.fn(),
     switchSession: switchSessionMock,
     upsertSessionSummary: upsertSessionSummaryMock,
     removeSessionFromList: removeSessionFromListMock,
@@ -235,7 +251,11 @@ function makeHarness(
     activeTabId: activeTabIdSig.asReadonly(),
     activeTab: activeTabMock,
     activeTabSessionId: signal<string | null>(sessionId).asReadonly(),
+    activeTabStatus: signal<string | null>(null).asReadonly(),
+    activeTabViewMode: signal<'full' | 'compact'>('full').asReadonly(),
     activeTabHasLiveSession: sessionIsActiveSig.asReadonly(),
+    pendingSessionLoad: signal<string | null>(null).asReadonly(),
+    visibleTabIds: signal<ReadonlySet<string>>(new Set()).asReadonly(),
     tabs: tabsSig.asReadonly(),
     createTab: jest.fn(),
     toggleTabViewMode: jest.fn(),
@@ -250,6 +270,7 @@ function makeHarness(
     removedWorkspace$: signal(null).asReadonly(),
     findTabByIdAcrossWorkspaces: findTabByIdAcrossWorkspacesMock,
     clearRemovedWorkspace: jest.fn(),
+    clearPendingSessionLoad: jest.fn(),
   } as unknown as TabManagerService;
 
   const vscodeStub = {
@@ -304,14 +325,31 @@ function makeHarness(
   } as unknown as CompactionLifecycleService;
 
   const agentMonitorStoreStub = {
-    agents: signal([]).asReadonly(),
+    agents: agentsSig.asReadonly(),
     agentsForSession: jest.fn(() => []),
+    activeTabAgents: signal([]).asReadonly(),
+    activeWorkflowSubagents: signal([]).asReadonly(),
+    pendingPermissions: signal([]).asReadonly(),
+    panelOpen: signal(false).asReadonly(),
+    workflowSubagentsForSession: jest.fn(() => []),
+    clearCompleted: jest.fn(),
+    clearCompletedInSession: jest.fn(),
+    clearPermission: jest.fn(),
+    closePanel: jest.fn(),
+    getSubagentTranscript: jest.fn(),
+    toggleAgentExpanded: jest.fn(),
+    tick: signal(0),
+    cliOutputDemand: signal<
+      readonly { sessionId: string; agentId: string }[]
+    >([]).asReadonly(),
+    panelOpenRequest: signal({ seq: 0, tabId: null }).asReadonly(),
   } as unknown as AgentMonitorStore;
 
   const panelResizeStub = {
     setDragging: jest.fn(),
     setCustomWidth: jest.fn(),
     customWidth: signal(null),
+    dragging: signal(false),
   } as unknown as PanelResizeService;
 
   const layoutModeSig = signal<'single' | 'grid'>('single');
@@ -321,6 +359,11 @@ function makeHarness(
   const appStateStub = {
     currentView: signal('chat'),
     layoutMode: layoutModeSig.asReadonly(),
+    composerPrefillRequest: signal({
+      seq: 0,
+      text: '',
+      tabId: null,
+    }).asReadonly(),
     requestCanvasSession: requestCanvasSessionMock,
   } as unknown as AppStateManager;
 
@@ -393,6 +436,15 @@ function makeHarness(
     ],
   });
 
+  if (renderOverlayTemplate) {
+    TestBed.overrideComponent(ChatViewComponent, {
+      set: {
+        imports: [AgentMonitorPanelComponent, SidebarTabComponent],
+        schemas: [NO_ERRORS_SCHEMA],
+      },
+    });
+  }
+
   const fixture = TestBed.createComponent(ChatViewComponent);
   const component = fixture.componentInstance;
 
@@ -431,6 +483,7 @@ function makeHarness(
     isReplayingMock,
     loadOlderMock,
     olderHistoryLoadingTabIds,
+    agentsSig,
   };
 }
 
@@ -1572,5 +1625,219 @@ describe('ChatViewComponent — panel resize coalescing and teardown (TASK_2026_
     expect(spy).not.toHaveBeenCalled();
 
     spy.mockRestore();
+  });
+});
+
+describe('agent panel narrow overlay mode', () => {
+  let h: ReturnType<typeof makeHarness>;
+  let resizeCallbacks: ResizeObserverCallback[];
+  let observeMock: jest.Mock;
+  let disconnectMock: jest.Mock;
+  let originalResizeObserver: typeof ResizeObserver | undefined;
+
+  beforeEach(() => {
+    resizeCallbacks = [];
+    observeMock = jest.fn();
+    disconnectMock = jest.fn();
+    originalResizeObserver = global.ResizeObserver;
+
+    global.ResizeObserver = jest.fn().mockImplementation((cb: ResizeObserverCallback) => {
+      resizeCallbacks.push(cb);
+      return {
+        observe: observeMock,
+        unobserve: jest.fn(),
+        disconnect: disconnectMock,
+      };
+    }) as unknown as typeof ResizeObserver;
+  });
+
+  afterEach(() => {
+    if (originalResizeObserver) {
+      global.ResizeObserver = originalResizeObserver;
+    } else {
+      delete (global as Record<string, unknown>)['ResizeObserver'];
+    }
+    h?.fixture.destroy();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  function emitHostWidth(width: number): void {
+    const entry = {
+      contentRect: { width },
+      target: h.fixture.nativeElement,
+    } as unknown as ResizeObserverEntry;
+
+    resizeCallbacks[0]([entry], {} as ResizeObserver);
+    h.fixture.detectChanges();
+  }
+
+  function panel(): HTMLElement {
+    return h.fixture.nativeElement.querySelector('ptah-agent-monitor-panel');
+  }
+
+  function sidebarTab(): HTMLElement | null {
+    return h.fixture.nativeElement.querySelector('ptah-sidebar-tab');
+  }
+
+  function resizeHandle(): HTMLElement | null {
+    return h.fixture.nativeElement.querySelector('[role="separator"]');
+  }
+
+  function openPanelFromSidebar(): void {
+    const button = h.fixture.nativeElement.querySelector(
+      'ptah-sidebar-tab button',
+    ) as HTMLButtonElement;
+    button.click();
+    h.fixture.detectChanges();
+  }
+
+  it('renders overlay chrome below 600px and wide controls at 600px in both directions', () => {
+    h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
+    h.fixture.detectChanges();
+    expect(AGENT_PANEL_OVERLAY_BREAKPOINT).toBe(600);
+    expect(observeMock).toHaveBeenCalledWith(h.fixture.nativeElement);
+
+    emitHostWidth(599);
+    openPanelFromSidebar();
+
+    expect(panel().classList.contains('absolute')).toBe(true);
+    expect(panel().classList.contains('inset-0')).toBe(true);
+    expect(panel().classList.contains('w-full')).toBe(true);
+    expect(panel().classList.contains('h-full')).toBe(true);
+    expect(panel().classList.contains('z-20')).toBe(true);
+    expect(panel().classList.contains('bg-base-200')).toBe(true);
+    expect(sidebarTab()).toBeNull();
+    expect(resizeHandle()).toBeNull();
+
+    emitHostWidth(600);
+    expect(panel().classList.contains('absolute')).toBe(false);
+    expect(sidebarTab()).not.toBeNull();
+    expect(resizeHandle()).not.toBeNull();
+
+    emitHostWidth(599);
+    expect(panel().classList.contains('absolute')).toBe(true);
+    expect(sidebarTab()).toBeNull();
+    expect(resizeHandle()).toBeNull();
+  });
+
+  it('renders an already-open panel as an overlay while its initial width is unknown', () => {
+    h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
+    h.component.toggleAgentPanel();
+    h.fixture.detectChanges();
+
+    expect(resizeCallbacks.length).toBeGreaterThan(0);
+    expect(panel().classList.contains('absolute')).toBe(true);
+    expect(panel().classList.contains('w-full')).toBe(true);
+    expect(sidebarTab()).toBeNull();
+    expect(resizeHandle()).toBeNull();
+  });
+
+  it('closes the overlay on Escape, restores tab focus, and stays closed when an agent starts running', () => {
+    h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
+    h.fixture.detectChanges();
+    emitHostWidth(500);
+    openPanelFromSidebar();
+    expect(panel().classList.contains('absolute')).toBe(true);
+    expect(
+      h.fixture.nativeElement.querySelector('button[title="Close panel"]'),
+    ).toBe(document.activeElement);
+
+    // The binding is host-scoped, not document-scoped: a canvas holds many
+    // chat tiles and Escape must close only the tile it was pressed in.
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    h.fixture.detectChanges();
+
+    expect(panel().classList.contains('absolute')).toBe(false);
+    expect(sidebarTab()).not.toBeNull();
+    expect(resizeHandle()).toBeNull();
+    expect(
+      h.fixture.nativeElement.querySelector('ptah-sidebar-tab button'),
+    ).toBe(document.activeElement);
+
+    h.agentsSig.set([
+      {
+        agentId: 'running-agent',
+        cli: 'ptah-cli',
+        task: 'test task',
+        status: 'running',
+        startedAt: Date.now(),
+        stdout: '',
+        stderr: '',
+        expanded: false,
+        segments: [],
+        streamEvents: [],
+        streamRevision: 0,
+        permissionQueue: [],
+      } as MonitoredAgent,
+    ]);
+    h.fixture.detectChanges();
+
+    expect(panel().classList.contains('absolute')).toBe(false);
+    expect(sidebarTab()).not.toBeNull();
+  });
+
+  it('keeps the overlay closed after its close button is used and an agent starts running', () => {
+    h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
+    h.fixture.detectChanges();
+    emitHostWidth(500);
+    openPanelFromSidebar();
+
+    const closeButton = h.fixture.nativeElement.querySelector(
+      'button[title="Close panel"]',
+    ) as HTMLButtonElement;
+    closeButton.click();
+    h.fixture.detectChanges();
+
+    expect(panel().classList.contains('absolute')).toBe(false);
+    expect(sidebarTab()).not.toBeNull();
+
+    h.agentsSig.set([
+      {
+        agentId: 'running-agent',
+        cli: 'ptah-cli',
+        task: 'test task',
+        status: 'running',
+        startedAt: Date.now(),
+        stdout: '',
+        stderr: '',
+        expanded: false,
+        segments: [],
+        streamEvents: [],
+        streamRevision: 0,
+        permissionQueue: [],
+      } as MonitoredAgent,
+    ]);
+    h.fixture.detectChanges();
+
+    expect(panel().classList.contains('absolute')).toBe(false);
+    expect(sidebarTab()).not.toBeNull();
+  });
+
+  it('does not close the panel on Escape when in wide mode', () => {
+    h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
+    h.fixture.detectChanges();
+    emitHostWidth(800);
+    openPanelFromSidebar();
+    expect(resizeHandle()).not.toBeNull();
+
+    h.fixture.nativeElement.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    h.fixture.detectChanges();
+
+    expect(panel().classList.contains('absolute')).toBe(false);
+    expect(sidebarTab()).not.toBeNull();
+    expect(resizeHandle()).not.toBeNull();
+  });
+
+  it('disconnects ResizeObserver on fixture destroy', () => {
+    h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
+    expect(disconnectMock).not.toHaveBeenCalled();
+
+    h.fixture.destroy();
+    expect(disconnectMock).toHaveBeenCalled();
   });
 });

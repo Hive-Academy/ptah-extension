@@ -6,6 +6,7 @@ import {
   viewChild,
   ChangeDetectionStrategy,
   effect,
+  afterRenderEffect,
   untracked,
   ElementRef,
   NgZone,
@@ -96,8 +97,20 @@ import type {
  * - Single Responsibility: Chat view display and message orchestration
  * - Composition: Uses MessageBubble, ChatInput, and ChatEmptyState components
  */
+/**
+ * Width threshold (in px) below which the agent monitor panel renders as a
+ * full-surface overlay instead of a side-by-side column.
+ */
+export const AGENT_PANEL_OVERLAY_BREAKPOINT = 600;
+
 @Component({
   selector: 'ptah-chat-view',
+  // Scoped to this host, not `document`: a canvas holds up to 20 chat tiles, and
+  // a document listener would close the overlay on every narrow tile at once.
+  // Resize-drag Escape is handled separately by the temporary document listener below.
+  host: {
+    '(keydown.escape)': 'onEscapeKey($event)',
+  },
   imports: [
     LucideAngularModule,
     ChatTranscriptComponent,
@@ -278,8 +291,85 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly PencilIcon = Pencil;
   protected readonly TrashIcon = Trash2;
 
+  private resizeObserver: ResizeObserver | null = null;
+
+  /** Host width in pixels tracked by ResizeObserver */
+  private readonly _hostWidth = signal<number>(0);
+  protected readonly hostWidth = this._hostWidth.asReadonly();
+
+  /**
+   * Whether the chat view host is narrower than the overlay breakpoint.
+   * When true and the agent panel is open, the panel renders as a full-surface overlay.
+   *
+   * A width of 0 means "not measured yet" and fails toward the overlay while the
+   * panel is open, so a tile that mounts narrow with the panel already open never
+   * shows the squeezed column. That branch assumes the width becomes known almost
+   * at once — `observeHostWidth` guarantees it by seeding a width even where
+   * `ResizeObserver` is missing, so 0 is transient and never a resting state.
+   */
+  protected readonly isOverlay = computed(() => {
+    const width = this.hostWidth();
+    return width === 0
+      ? this.agentPanelOpen()
+      : width < AGENT_PANEL_OVERLAY_BREAKPOINT;
+  });
+
   /** Local panel open/close state */
   readonly agentPanelOpen = signal(false);
+
+  private readonly agentSidebarTab = viewChild(SidebarTabComponent);
+  private restoreAgentSidebarTabFocus = false;
+
+  /**
+   * Track the host width so {@link isOverlay} can flip the agent panel between
+   * the side-by-side column and the full-surface overlay. A CSS media query
+   * would measure the window; a canvas tile is a sub-region of it.
+   */
+  private observeHostWidth(): void {
+    const initialWidth = this.hostEl.nativeElement?.clientWidth;
+    if (initialWidth && initialWidth > 0) {
+      this._hostWidth.set(initialWidth);
+    }
+
+    // Without ResizeObserver the width would stay 0 forever, and `isOverlay`
+    // would then track only the open state — a wide host would overlay. Seed the
+    // window width instead: the tile may be narrower, but the layout degrades to
+    // the pre-existing column rather than to a permanent overlay.
+    if (typeof ResizeObserver === 'undefined') {
+      if (this._hostWidth() === 0) {
+        this._hostWidth.set(window.innerWidth);
+      }
+      return;
+    }
+
+    this.resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width =
+          entry.contentRect && entry.contentRect.width > 0
+            ? entry.contentRect.width
+            : (entry.target as HTMLElement).clientWidth;
+        if (width > 0) {
+          this.ngZone.run(() => {
+            this._hostWidth.set(width);
+          });
+        }
+      }
+    });
+    this.resizeObserver.observe(this.hostEl.nativeElement);
+  }
+
+  /**
+   * Keyboard handler for Escape: closes the overlay when in narrow overlay mode.
+   * Unlike resize-drag Escape (`_onKeydown`), this stays host-scoped so only the
+   * focused tile closes. Focus is kept inside the tile when the overlay opens;
+   * Escape is only a no-op if focus is moved outside the tile by another surface.
+   */
+  protected onEscapeKey(event: Event): void {
+    if (this.isOverlay() && this.agentPanelOpen()) {
+      event.preventDefault();
+      this.closeAgentPanel();
+    }
+  }
 
   /**
    * Whether to render the background-agent tray on this surface. The main panel
@@ -330,6 +420,12 @@ export class ChatViewComponent implements OnDestroy {
     if (wasOpen) {
       this._userExplicitlyClosed = true;
     }
+  }
+
+  closeAgentPanel(): void {
+    this._userExplicitlyClosed = true;
+    this.restoreAgentSidebarTabFocus = this.isOverlay();
+    this.agentPanelOpen.set(false);
   }
 
   private resizeHandleEl: HTMLElement | null = null;
@@ -403,6 +499,7 @@ export class ChatViewComponent implements OnDestroy {
       // Fires if the handle is torn out of the DOM mid-drag (panel auto-closes).
       handle.addEventListener('lostpointercapture', this.onResizeEnd);
       window.addEventListener('blur', this._onBlur);
+      // Separate from host-scoped overlay Escape; this exists only during a resize drag.
       document.addEventListener('keydown', this._onKeydown);
     });
 
@@ -417,6 +514,8 @@ export class ChatViewComponent implements OnDestroy {
   ngOnDestroy(): void {
     this._cancelResizeFrame();
     this._cleanupResizeListeners();
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
   }
 
   private endResize(): void {
@@ -793,6 +892,21 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   constructor() {
+    this.observeHostWidth();
+
+    afterRenderEffect(() => {
+      const panelOpen = this.agentPanelOpen();
+      const sidebarTab = this.agentSidebarTab();
+      if (this.restoreAgentSidebarTabFocus && !panelOpen && sidebarTab) {
+        const button = this.hostEl.nativeElement.querySelector<HTMLButtonElement>(
+          'ptah-sidebar-tab button',
+        );
+        if (!button) return;
+        button.focus();
+        this.restoreAgentSidebarTabFocus = false;
+      }
+    });
+
     // Hydrate this surface's CLI agent cards from persisted metadata. Each
     // surface asks for its OWN session — a canvas tile is rarely the active
     // tab, and the bootstrap-time active-tab restore only ever covered one of

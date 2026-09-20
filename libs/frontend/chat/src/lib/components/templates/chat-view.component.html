@@ -1,4 +1,4 @@
-<div class="flex h-full">
+<div class="flex h-full w-full relative">
   <!-- Main chat content -->
   <div class="flex-1 flex flex-col min-w-0 relative">
     @if (resolvedViewMode() === 'compact' && resolvedActiveTab()) {
@@ -219,18 +219,20 @@
   </div>
 
   @if (!hideAgentSidebar) {
-    <!-- Agents vertical toggle tab (per-session) -->
-    <ptah-sidebar-tab
-      label="Agents"
-      side="right"
-      [isOpen]="agentPanelOpen()"
-      [badgeType]="agentBadgeType()"
-      size="sm"
-      (toggled)="toggleAgentPanel()"
-    />
+    <!-- Agents vertical toggle tab (per-session). In overlay mode, hide when open to give chat 100% width. -->
+    @if (!isOverlay() || !agentPanelOpen()) {
+      <ptah-sidebar-tab
+        label="Agents"
+        side="right"
+        [isOpen]="agentPanelOpen()"
+        [badgeType]="agentBadgeType()"
+        size="sm"
+        (toggled)="toggleAgentPanel()"
+      />
+    }
 
-    <!-- Resize handle between chat and agent panel -->
-    @if (agentPanelOpen()) {
+    <!-- Resize handle between chat and agent panel (hidden in overlay mode) -->
+    @if (agentPanelOpen() && !isOverlay()) {
       <div
         class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group touch-none"
         role="separator"
@@ -250,7 +252,8 @@
       [embeddedAgents]="sessionAgents()"
       [embeddedOpen]="agentPanelOpen()"
       [sessionId]="resolvedSessionId()"
-      (closed)="agentPanelOpen.set(false)"
+      [isOverlay]="isOverlay()"
+      (closed)="closeAgentPanel()"
     />
   }
 </div>

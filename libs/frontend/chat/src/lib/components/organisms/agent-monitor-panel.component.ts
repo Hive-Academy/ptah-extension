@@ -29,6 +29,7 @@ import {
   viewChild,
   ElementRef,
   afterNextRender,
+  afterRenderEffect,
   DestroyRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
@@ -147,6 +148,12 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
   host: {
     'data-ptah-file-links': '',
     '[attr.data-ptah-tab-id]': 'linkTabId()',
+    '[class.absolute]': 'effectiveOpen() && isOverlay()',
+    '[class.inset-0]': 'effectiveOpen() && isOverlay()',
+    '[class.w-full]': 'effectiveOpen() && isOverlay()',
+    '[class.h-full]': 'effectiveOpen() && isOverlay()',
+    '[class.z-20]': 'effectiveOpen() && isOverlay()',
+    '[class.bg-base-200]': 'effectiveOpen() && isOverlay()',
   },
   imports: [
     NgClass,
@@ -173,17 +180,20 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
   `,
   template: `
     <aside
-      class="flex flex-col bg-base-200 border-l border-base-content/5 overflow-hidden h-full"
-      [class.agent-panel-open]="effectiveOpen()"
+      class="flex flex-col border-base-content/5 overflow-hidden h-full"
+      [class.bg-base-200]="!isOverlay()"
+      [class.border-l]="!isOverlay()"
+      [class.agent-panel-open]="effectiveOpen() && !isOverlay()"
+      [class.w-full]="effectiveOpen() && isOverlay()"
       [class.w-0]="!effectiveOpen()"
       [class.transition-all]="!resizeService.dragging()"
       [class.duration-300]="!resizeService.dragging()"
-      [style.width.px]="effectiveOpen() ? resizeService.customWidth() : null"
+      [style.width.px]="effectiveOpen() && !isOverlay() ? resizeService.customWidth() : null"
     >
       <!-- Header -->
       <div
         class="flex items-center justify-between px-2.5 py-1.5 border-b border-base-content/10 flex-shrink-0"
-        style="min-width: 300px"
+        [style.min-width]="isOverlay() ? '0' : '300px'"
       >
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold">Agents</span>
@@ -206,6 +216,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
             </button>
           }
           <button
+            #closeButton
             class="btn btn-ghost btn-xs btn-square"
             title="Close panel"
             (click)="onClose()"
@@ -223,7 +234,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
       @if (totalCount() > 0) {
         <div
           class="flex flex-col border-b border-base-content/5 flex-shrink-0"
-          style="min-width: 300px"
+          [style.min-width]="isOverlay() ? '0' : '300px'"
         >
           <!-- Workflow run groups (collapsible), rendered above standalone tiles.
                Tiles come from BOTH sources: CLI MonitoredAgents that carry a run
@@ -481,6 +492,9 @@ export class AgentMonitorPanelComponent {
   /** Panel open state. When provided, panel uses this instead of global store. */
   readonly embeddedOpen = input<boolean | undefined>(undefined);
 
+  /** Whether the panel is rendering as a full-width overlay (narrow host). */
+  readonly isOverlay = input<boolean>(false);
+
   /**
    * Owning session of this panel. `null` means the GLOBAL panel (no scope, act
    * across every session). A string means a scoped surface — and `''` means a
@@ -516,6 +530,8 @@ export class AgentMonitorPanelComponent {
   private readonly _scroll = viewChild<ElementRef<HTMLElement>>('agentScroll');
   private readonly _scrollContent =
     viewChild<ElementRef<HTMLElement>>('agentScrollContent');
+  private readonly _closeButton =
+    viewChild<ElementRef<HTMLButtonElement>>('closeButton');
   private readonly destroyRef = inject(DestroyRef);
   /** Auto-follow the streaming agent output unless the user scrolled up. */
   private pinnedToBottom = true;
@@ -655,6 +671,13 @@ export class AgentMonitorPanelComponent {
   private _lastTranscriptKey: string | null = null;
 
   constructor() {
+    afterRenderEffect(() => {
+      const closeButton = this._closeButton();
+      if (this.effectiveOpen() && this.isOverlay() && closeButton) {
+        closeButton.nativeElement.focus();
+      }
+    });
+
     effect(() => {
       const keys = this._selectableKeys();
       const currentIds = new Set(keys);
