@@ -248,6 +248,35 @@ describe('persistCliSessionReference — bulk output stays out of the blob', () 
     expect(saveAgentOutput.mock.calls[0][1].streamEvents).toHaveLength(25);
   });
 
+  it('yields no own keys on the object passed to saveAgentOutput when optional fields are absent', async () => {
+    const readOutput = jest.fn().mockReturnValue({
+      stdout: 'tail of stdout',
+    });
+    const { container, addCliSession, saveAgentOutput } = harness(readOutput);
+
+    persistCliSessionReference(
+      container,
+      createMockLogger() as unknown as Logger,
+      '[test]',
+      buildInfo({
+        agentId: AGENT_ID,
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+        status: 'completed',
+      }),
+      undefined,
+    );
+
+    await Promise.resolve();
+
+    expect(saveAgentOutput).toHaveBeenCalledTimes(1);
+    const passedPayload = saveAgentOutput.mock.calls[0][1];
+    expect(Object.prototype.hasOwnProperty.call(passedPayload, 'stdout')).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(passedPayload, 'segments')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(passedPayload, 'streamEvents')).toBe(false);
+    expect(Object.keys(passedPayload)).toEqual(['stdout']);
+  });
+
   it('still persists the reference when the store predates saveAgentOutput', () => {
     const readOutput = jest.fn().mockReturnValue(buildOutput());
     const addCliSession = jest.fn().mockResolvedValue(undefined);
@@ -397,6 +426,54 @@ describe('persistCliSessionReference — bulk write gates the reference', () => 
     expect(saveAgentOutput).toHaveBeenCalledTimes(4); // 1 + 3 retries
     expect(addCliSession).not.toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalled();
+  });
+
+  it('does not retry when the bulk write fails with a deterministic serialisation error', async () => {
+    const readOutput = jest.fn().mockReturnValue({
+      stdout: 'tail',
+      segments: [{ type: 'text', content: 'segment-0' }],
+      streamEvents: [{ id: 'evt-0', eventType: 'text_delta' }],
+    });
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    const serializationError = new Error(
+      'Worker message contains a non-JSON-compatible value',
+    );
+    serializationError.name = 'ElectronStateWorkerProtocolError';
+    const saveAgentOutput = jest.fn().mockRejectedValue(serializationError);
+    const logger = createMockLogger();
+    const container = buildContainer([
+      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput }],
+      [
+        SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+        {
+          addCliSession,
+          saveAgentOutput,
+          markChildSession: jest.fn().mockResolvedValue(undefined),
+        },
+      ],
+    ]);
+
+    persistCliSessionReference(
+      container,
+      logger as unknown as Logger,
+      '[test]',
+      buildInfo({
+        agentId: AGENT_ID,
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+        status: 'completed',
+      }),
+      undefined,
+    );
+
+    await jest.advanceTimersByTimeAsync(60_000);
+
+    expect(saveAgentOutput).toHaveBeenCalledTimes(1); // not retried
+    expect(addCliSession).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to persist CLI session reference after retries'),
+      serializationError,
+    );
   });
 });
 

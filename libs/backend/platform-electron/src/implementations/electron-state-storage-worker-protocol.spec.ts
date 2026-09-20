@@ -725,7 +725,7 @@ describe('Electron state worker protocol', () => {
         expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
           code: 'UNSUPPORTED_VALUE',
           message:
-            'Worker message contains a non-cloneable JSON value (undefined) at $',
+            'Worker message contains a non-JSON-compatible value (undefined) at $',
         }),
       );
       expect(() =>
@@ -734,14 +734,14 @@ describe('Electron state worker protocol', () => {
         expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
           code: 'UNSUPPORTED_VALUE',
           message:
-            'Worker message contains a non-cloneable JSON value (function) at $.value.handler',
+            'Worker message contains a non-JSON-compatible value (function) at $.value.handler',
         }),
       );
       expect(() => assertJsonCompatibleValue([undefined])).toThrow(
         expect.objectContaining<Partial<ElectronStateWorkerProtocolError>>({
           code: 'UNSUPPORTED_VALUE',
           message:
-            'Worker message contains a non-cloneable JSON value (undefined) at $[0]',
+            'Worker message contains a non-JSON-compatible value (undefined) at $[0]',
         }),
       );
       expect(() => assertJsonCompatibleValue(Symbol('test'))).toThrow(

@@ -638,7 +638,7 @@ function unsupportedJsonValueMessage(
   value: unknown,
   path: readonly (string | number)[],
 ): string {
-  return `Worker message contains a non-cloneable JSON value (${typeof value}) at ${formatJsonPath(path)}`;
+  return `Worker message contains a non-JSON-compatible value (${typeof value}) at ${formatJsonPath(path)}`;
 }
 
 /**

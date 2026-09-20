@@ -426,9 +426,13 @@ export function persistCliSessionReference(
         metadataStore.saveAgentOutput
       ) {
         await metadataStore.saveAgentOutput(info.agentId, {
-          stdout: persistedOutput.stdout,
-          segments: persistedOutput.segments,
-          streamEvents: persistedOutput.streamEvents,
+          ...(persistedOutput.stdout ? { stdout: persistedOutput.stdout } : {}),
+          ...(persistedOutput.segments?.length
+            ? { segments: persistedOutput.segments }
+            : {}),
+          ...(persistedOutput.streamEvents?.length
+            ? { streamEvents: persistedOutput.streamEvents }
+            : {}),
         });
       }
       await metadataStore.addCliSession(parentSessionId, ref);
@@ -438,8 +442,25 @@ export function persistCliSessionReference(
       retries: 3,
       initialDelay: 1000,
       shouldRetry: (error: unknown) => {
+        if (error instanceof Error) {
+          if (
+            error.name === 'ElectronStateWorkerProtocolError' ||
+            error.message.includes('Parent session not found') ||
+            error.message.includes('Worker message') ||
+            error.message.includes('non-JSON-compatible') ||
+            error.message.includes('non-cloneable')
+          ) {
+            return false;
+          }
+        }
         const msg = error instanceof Error ? error.message : String(error);
-        return !msg.includes('Parent session not found');
+        return (
+          !msg.includes('Parent session not found') &&
+          !msg.includes('Worker message') &&
+          !msg.includes('non-JSON-compatible') &&
+          !msg.includes('non-cloneable') &&
+          !msg.includes('ElectronStateWorkerProtocolError')
+        );
       },
     })
       .then(() => {
