@@ -427,7 +427,7 @@ describe('SessionStatsAggregatorService', () => {
       );
     }
 
-    it('keeps prevCost unchanged when this turn has null cost', () => {
+    it('makes a previously known total unknown when this turn has null cost', () => {
       setupTab(1.25);
       service.handleSessionStats({
         ...baseStats,
@@ -437,17 +437,17 @@ describe('SessionStatsAggregatorService', () => {
         string,
         NonNullable<TabState['preloadedStats']>,
       ];
-      expect(stats.totalCost).toBe(1.25);
+      expect(stats.totalCost).toBeNull();
     });
 
-    it('uses turn cost as new total when prev was null', () => {
+    it('does not resurrect a null total when a later turn has known cost', () => {
       setupTab(null);
       service.handleSessionStats({ ...baseStats, cost: 0.5 });
       const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
         string,
         NonNullable<TabState['preloadedStats']>,
       ];
-      expect(stats.totalCost).toBeCloseTo(0.5);
+      expect(stats.totalCost).toBeNull();
     });
 
     it('keeps null total when both prev and turn are null', () => {

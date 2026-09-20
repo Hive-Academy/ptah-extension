@@ -335,7 +335,7 @@ function legacyHistoryMessages(
       (e) => e.eventType === 'message_complete' && e.messageId === messageId,
     ) as MessageCompleteEvent | undefined;
     let tokens: { input: number; output: number } | undefined;
-    let cost: number | undefined;
+    let cost: number | null | undefined;
     let duration: number | undefined;
 
     if (completeEvent?.tokenUsage) {

@@ -175,7 +175,7 @@ interface ValidatedStats {
 
 /**
  * Validate stats from SDK result message
- * Ensures all numeric values are within expected bounds to catch SDK bugs
+ * Rejects corrupt negative or non-finite numeric values from the SDK
  *
  * @param stats - Raw stats extracted from SDK result message
  * @param logger - Logger instance for validation warnings
@@ -191,10 +191,14 @@ function validateStats(
   },
   logger: Logger,
 ): ValidatedStats | null {
+  // Cost and token figures are cumulative per session, and duration can cover
+  // a long-running turn, so none has a fixed upper bound. Production logs
+  // recorded valid cumulative costs above $100 (up to about $356); rejecting a
+  // large value drops the whole payload and freezes the UI stats.
+  // Negative and non-finite checks are deliberately the whole defence.
   if (
     stats.cost !== null &&
     (stats.cost < 0 ||
-      stats.cost > 100 ||
       isNaN(stats.cost) ||
       !isFinite(stats.cost))
   ) {
@@ -206,11 +210,9 @@ function validateStats(
   }
   if (
     stats.tokens.input < 0 ||
-    stats.tokens.input > 1000000 ||
     isNaN(stats.tokens.input) ||
     !isFinite(stats.tokens.input) ||
     stats.tokens.output < 0 ||
-    stats.tokens.output > 1000000 ||
     isNaN(stats.tokens.output) ||
     !isFinite(stats.tokens.output)
   ) {
@@ -222,7 +224,6 @@ function validateStats(
   }
   if (
     stats.duration < 0 ||
-    stats.duration > 3600000 ||
     isNaN(stats.duration) ||
     !isFinite(stats.duration)
   ) {
@@ -536,32 +537,52 @@ export class StreamTransformer {
                 let totalCost: number | null;
                 if (isDirect) {
                   totalCost = sdkMessage.total_cost_usd;
-                } else if (modelUsageList.some((m) => m.costUSD !== null)) {
-                  totalCost = modelUsageList.reduce(
-                    (sum, m) => sum + (m.costUSD ?? 0),
-                    0,
-                  );
-                } else {
+                } else if (
+                  modelUsageList.length === 0 ||
+                  modelUsageList.some((m) => m.costUSD === null)
+                ) {
                   totalCost = null;
+                } else {
+                  totalCost = 0;
+                  for (const modelUsage of modelUsageList) {
+                    if (modelUsage.costUSD !== null) {
+                      totalCost += modelUsage.costUSD;
+                    }
+                  }
                 }
 
-                const rawStats = {
-                  sessionId: effectiveSessionId,
-                  cost: totalCost,
-                  tokens: {
-                    input: sdkMessage.usage.input_tokens,
-                    output: sdkMessage.usage.output_tokens,
-                    cacheRead: sdkMessage.usage.cache_read_input_tokens ?? 0,
-                    cacheCreation:
-                      sdkMessage.usage.cache_creation_input_tokens ?? 0,
-                  },
-                  duration: sdkMessage.duration_ms,
-                  modelUsage:
-                    modelUsageList.length > 0 ? modelUsageList : undefined,
+                const sdkTokens = {
+                  input: sdkMessage.usage.input_tokens,
+                  output: sdkMessage.usage.output_tokens,
+                  cacheRead: sdkMessage.usage.cache_read_input_tokens ?? 0,
+                  cacheCreation:
+                    sdkMessage.usage.cache_creation_input_tokens ?? 0,
                 };
-                const validatedStats = validateStats(rawStats, logger);
-                if (validatedStats) {
-                  onResultStats(validatedStats);
+                const hasNoSdkTokenUsage =
+                  sdkTokens.input === 0 &&
+                  sdkTokens.output === 0 &&
+                  sdkTokens.cacheRead === 0 &&
+                  sdkTokens.cacheCreation === 0;
+
+                // A result with neither aggregate usage nor per-model usage is
+                // a turn boundary, not a stats update. Emitting its zero values
+                // would overwrite the populated session header after resume.
+                // `sdkTokens` is a per-turn delta that consumers accumulate;
+                // `modelUsageList` is cumulative per session and must not be
+                // summed into that delta or earlier turns are counted again.
+                if (!hasNoSdkTokenUsage || modelUsageList.length > 0) {
+                  const rawStats = {
+                    sessionId: effectiveSessionId,
+                    cost: totalCost,
+                    tokens: sdkTokens,
+                    duration: sdkMessage.duration_ms,
+                    modelUsage:
+                      modelUsageList.length > 0 ? modelUsageList : undefined,
+                  };
+                  const validatedStats = validateStats(rawStats, logger);
+                  if (validatedStats) {
+                    onResultStats(validatedStats);
+                  }
                 }
               }
             }

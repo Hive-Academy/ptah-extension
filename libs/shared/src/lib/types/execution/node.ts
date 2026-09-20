@@ -191,8 +191,8 @@ export interface ExecutionNode {
   readonly duration?: number;
   /** Token usage for this node (aligned with Claude SDK) */
   readonly tokenUsage?: MessageTokenUsage;
-  /** Cost in USD calculated from token usage */
-  readonly cost?: number;
+  /** Cost in USD calculated from token usage, or null when pricing is unknown */
+  readonly cost?: number | null;
   /** Model ID used for this execution (e.g., 'claude-opus-4-5-20251101') */
   readonly model?: string;
   /** Tool execution count (for agents) */

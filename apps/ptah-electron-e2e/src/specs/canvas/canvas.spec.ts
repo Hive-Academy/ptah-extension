@@ -213,19 +213,28 @@ test.describe('Canvas', () => {
     const thirdBox = await thirdHandle.boundingBox();
     if (!firstBox || !thirdBox)
       throw new Error('Canvas tile handles are not measurable');
+    const dropY = firstBox.y + firstBox.height + thirdBox.height / 2;
     await page.mouse.move(
       thirdBox.x + thirdBox.width / 2,
       thirdBox.y + thirdBox.height / 2,
     );
     await page.mouse.down();
-    await page.mouse.move(
-      // Land at grid x=2 in the next row: the tile overlaps both first-row
-      // tiles if gravity tries to lift it, so Gridstack retains the gap. Move
-      // the pointer beyond the first row to make the row transition decisive.
-      firstBox.x + firstBox.width,
-      firstBox.y + firstBox.height + thirdBox.height / 2,
-      { steps: 32 },
-    );
+    // Two legs, never one diagonal. A diagonal keeps the tile inside row one
+    // while it crosses its neighbours, and Gridstack swaps two same-size tiles
+    // on contact (`GridStackEngine.swap`). The swap leaves a hole in row one,
+    // the drop then falls into that hole instead of the new row, and the whole
+    // gesture reads as a no-op. Both outcomes were observed on one commit.
+    // Leg one leaves row one straight down, leg two travels left over the
+    // empty second row, so the tile never touches a neighbour.
+    await page.mouse.move(thirdBox.x + thirdBox.width / 2, dropY, {
+      steps: 16,
+    });
+    // Land over the first tile's own column. Gravity lifts a tile back into
+    // row one only when the full column above it is free, so a drop centred on
+    // the first tile survives a one-unit rounding error in either direction.
+    await page.mouse.move(firstBox.x + firstBox.width / 2, dropY, {
+      steps: 16,
+    });
     await page.mouse.up();
 
     await expect

@@ -14,7 +14,7 @@ export interface MessageSummary {
   /** Total number of tool invocations */
   readonly toolCount: number;
   /** Total cost in USD (from message-level, not re-aggregated) */
-  readonly cost: number | undefined;
+  readonly cost: number | null | undefined;
   /** Total duration in ms (from message-level, not re-aggregated) */
   readonly duration: number | undefined;
 }
@@ -90,7 +90,7 @@ function walkNode(
  */
 export function extractMessageSummary(
   rootNode: ExecutionNode | null,
-  messageCost?: number,
+  messageCost?: number | null,
   messageDuration?: number,
 ): MessageSummary {
   const state = { rawText: '', files: new Set<string>(), toolCount: 0 };

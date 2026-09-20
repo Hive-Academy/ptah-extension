@@ -61,7 +61,7 @@ describe('SurfaceSessionStatsRegistry', () => {
     expect(stats?.modelUsage?.length).toBe(1);
   });
 
-  it('leaves the running total alone when a turn has no known cost', () => {
+  it('makes a previously known total unknown when a turn has no known cost', () => {
     svc.record('s1', {
       live: null,
       modelUsage: null,
@@ -75,9 +75,25 @@ describe('SurfaceSessionStatsRegistry', () => {
       tokens: { input: 1, output: 1 },
     });
 
-    // Coercing an unknown cost to 0 would claim the turn was free — the same
-    // false-free-tier bug the per-model breakdown already guards against.
-    expect(svc.peek('s1')?.totals.totalCost).toBeCloseTo(0.4);
+    expect(svc.peek('s1')?.totals.totalCost).toBeNull();
+    expect(svc.peek('s1')?.totals.messageCount).toBe(2);
+  });
+
+  it('does not resurrect a null total when a later turn has known cost', () => {
+    svc.record('s1', {
+      live: null,
+      modelUsage: null,
+      cost: null,
+      tokens: { input: 1, output: 1 },
+    });
+    svc.record('s1', {
+      live: null,
+      modelUsage: null,
+      cost: 0.4,
+      tokens: { input: 1, output: 1 },
+    });
+
+    expect(svc.peek('s1')?.totals.totalCost).toBeNull();
     expect(svc.peek('s1')?.totals.messageCount).toBe(2);
   });
 

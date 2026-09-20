@@ -125,6 +125,69 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     expect(rewind).toBeNull();
   });
 
+  it('renders cost unavailable when an assistant message has usage but no known price', () => {
+    setMessage(
+      createExecutionChatMessage({
+        id: 'msg-assistant-unpriced',
+        role: 'assistant',
+        rawContent: 'response',
+        tokens: { input: 10, output: 5 },
+        cost: null,
+      }),
+    );
+
+    expect(
+      fixture.debugElement.query(By.css('[data-testid="cost-unavailable"]')),
+    ).not.toBeNull();
+  });
+
+  it('renders a genuinely known zero cost as $0.0000', () => {
+    setMessage(
+      createExecutionChatMessage({
+        id: 'msg-assistant-free',
+        role: 'assistant',
+        rawContent: 'response',
+        tokens: { input: 10, output: 5 },
+        cost: 0,
+      }),
+    );
+
+    expect(fixture.nativeElement.textContent).toContain('$0.0000');
+    expect(fixture.nativeElement.textContent).not.toContain('cost unavailable');
+  });
+
+  it('renders no cost badge when a message has no usage', () => {
+    setMessage(
+      createExecutionChatMessage({
+        id: 'msg-user-no-usage',
+        role: 'user',
+        rawContent: 'hello',
+      }),
+    );
+
+    expect(fixture.debugElement.query(By.css('ptah-cost-badge'))).toBeNull();
+    expect(
+      fixture.debugElement.query(By.css('[data-testid="cost-unavailable"]')),
+    ).toBeNull();
+  });
+
+  it('renders no metadata footer for an unknown cost without usage or duration', () => {
+    setMessage(
+      createExecutionChatMessage({
+        id: 'msg-assistant-empty-metadata',
+        role: 'assistant',
+        rawContent: 'response',
+        cost: null,
+      }),
+    );
+
+    expect(
+      fixture.debugElement.query(
+        By.css('[data-testid="message-metadata-footer"]'),
+      ),
+    ).toBeNull();
+  });
+
   it('emits branchRequested with the message id when the branch button is clicked', () => {
     setMessage(
       createExecutionChatMessage({
