@@ -17,7 +17,6 @@ export { SidebarTabComponent } from './lib/atoms/sidebar-tab.component';
 export { SkeletonBlockComponent } from './lib/atoms/skeleton-block.component';
 export { StatusBadgeComponent } from './lib/atoms/status-badge.component';
 export { StreamingQuotesComponent } from './lib/atoms/streaming-quotes.component';
-export { StreamingTextRevealComponent } from './lib/atoms/streaming-text-reveal.component';
 export { ThemeToggleComponent } from './lib/atoms/theme-toggle.component';
 export { TokenBadgeComponent } from './lib/atoms/token-badge.component';
 export { ToolIconComponent } from './lib/atoms/tool-icon.component';

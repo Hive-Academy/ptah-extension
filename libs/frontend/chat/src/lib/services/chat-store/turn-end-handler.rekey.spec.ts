@@ -91,7 +91,6 @@ describe('TurnEndHandlerService — background agent identity re-key', () => {
   let warn: jest.SpyInstance;
 
   beforeEach(() => {
-    jest.useFakeTimers();
     const tabs = [makeTab()];
     const tabManagerMock = {
       findTabsBySessionId: jest.fn((sessionId: string) =>
@@ -122,10 +121,8 @@ describe('TurnEndHandlerService — background agent identity re-key', () => {
   });
 
   afterEach(() => {
-    store.ngOnDestroy();
     warn.mockRestore();
     TestBed.resetTestingModule();
-    jest.useRealTimers();
   });
 
   it('reaches a terminal state when the started event had no agentId', () => {

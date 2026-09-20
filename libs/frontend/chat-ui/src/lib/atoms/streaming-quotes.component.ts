@@ -1,8 +1,11 @@
 import {
   Component,
   ChangeDetectionStrategy,
-  signal,
-  OnInit,
+  inject,
+  NgZone,
+  viewChild,
+  ElementRef,
+  AfterViewInit,
   OnDestroy,
 } from '@angular/core';
 
@@ -22,9 +25,10 @@ import {
       class="flex items-center gap-1.5 text-xs text-base-content-muted italic"
     >
       <span class="opacity-60">"</span>
-      <span class="typewriter-text overflow-hidden whitespace-nowrap">{{
-        displayedText()
-      }}</span>
+      <span
+        #textElement
+        class="typewriter-text overflow-hidden whitespace-nowrap"
+      ></span>
       <span class="typing-cursor">|</span>
       <span class="opacity-60">"</span>
     </div>
@@ -56,7 +60,11 @@ import {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class StreamingQuotesComponent implements OnInit, OnDestroy {
+export class StreamingQuotesComponent implements AfterViewInit, OnDestroy {
+  private readonly ngZone = inject(NgZone);
+  private readonly textElement =
+    viewChild.required<ElementRef<HTMLSpanElement>>('textElement');
+
   private readonly quotes = [
     'Let me think about this...',
     'Analyzing the patterns...',
@@ -66,24 +74,24 @@ export class StreamingQuotesComponent implements OnInit, OnDestroy {
     'Making it perfect...',
   ];
 
-  readonly displayedText = signal('');
-
   private currentQuoteIndex = 0;
   private currentCharIndex = 0;
   private isDeleting = false;
   private typingInterval: ReturnType<typeof setInterval> | null = null;
   private pauseTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  ngOnInit(): void {
+  ngAfterViewInit(): void {
     this.startTyping();
   }
 
   ngOnDestroy(): void {
-    if (this.typingInterval) {
+    if (this.typingInterval !== null) {
       clearInterval(this.typingInterval);
+      this.typingInterval = null;
     }
-    if (this.pauseTimeout) {
+    if (this.pauseTimeout !== null) {
       clearTimeout(this.pauseTimeout);
+      this.pauseTimeout = null;
     }
   }
 
@@ -92,21 +100,18 @@ export class StreamingQuotesComponent implements OnInit, OnDestroy {
     const deleteSpeed = 30; // ms per character when deleting
     const pauseDuration = 2000; // pause before deleting
 
-    this.typingInterval = setInterval(
-      () => {
+    this.ngZone.runOutsideAngular(() => {
+      this.typingInterval = setInterval(() => {
         const currentQuote = this.quotes[this.currentQuoteIndex];
 
         if (!this.isDeleting) {
           if (this.currentCharIndex < currentQuote.length) {
             this.currentCharIndex++;
-            this.displayedText.set(
-              currentQuote.slice(0, this.currentCharIndex),
-            );
+            this.renderText(currentQuote.slice(0, this.currentCharIndex));
           } else {
-            if (this.typingInterval !== null) {
-              clearInterval(this.typingInterval);
-            }
+            this.clearTypingInterval();
             this.pauseTimeout = setTimeout(() => {
+              this.pauseTimeout = null;
               this.isDeleting = true;
               this.startTyping();
             }, pauseDuration);
@@ -114,17 +119,29 @@ export class StreamingQuotesComponent implements OnInit, OnDestroy {
         } else {
           if (this.currentCharIndex > 0) {
             this.currentCharIndex--;
-            this.displayedText.set(
-              currentQuote.slice(0, this.currentCharIndex),
-            );
+            this.renderText(currentQuote.slice(0, this.currentCharIndex));
           } else {
+            this.clearTypingInterval();
             this.isDeleting = false;
             this.currentQuoteIndex =
               (this.currentQuoteIndex + 1) % this.quotes.length;
+            this.startTyping();
           }
         }
-      },
-      this.isDeleting ? deleteSpeed : typeSpeed,
-    );
+      }, this.isDeleting ? deleteSpeed : typeSpeed);
+    });
+  }
+
+  private clearTypingInterval(): void {
+    if (this.typingInterval !== null) {
+      clearInterval(this.typingInterval);
+      this.typingInterval = null;
+    }
+  }
+
+  private renderText(text: string): void {
+    // Quotes are local constants. textContent keeps them escaped while avoiding
+    // Angular's signal scheduler and its application-level change-detection tick.
+    this.textElement().nativeElement.textContent = text;
   }
 }

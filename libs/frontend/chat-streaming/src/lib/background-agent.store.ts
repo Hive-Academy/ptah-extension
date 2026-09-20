@@ -24,7 +24,7 @@
  * across the streaming layer.
  */
 
-import { Injectable, signal, computed, OnDestroy } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
 import type {
   BackgroundAgentStartedEvent,
   BackgroundAgentCompletedEvent,
@@ -69,7 +69,7 @@ export interface BackgroundAgentEntry {
 const MAX_COMPLETED_AGENTS = 50;
 
 @Injectable({ providedIn: 'root' })
-export class BackgroundAgentStore implements OnDestroy {
+export class BackgroundAgentStore {
   private readonly _agents = signal<
     Map<BackgroundAgentId, BackgroundAgentEntry>
   >(new Map());
@@ -103,9 +103,6 @@ export class BackgroundAgentStore implements OnDestroy {
    */
   readonly revision = this._revision.asReadonly();
 
-  /** Shared tick signal incremented every 1s while agents are running. */
-  readonly tick = signal(0);
-  private _tickInterval: ReturnType<typeof setInterval> | null = null;
   readonly agents = computed(() => {
     const map = this._agents();
     return Array.from(map.values()).sort((a, b) => b.startedAt - a.startedAt);
@@ -156,35 +153,9 @@ export class BackgroundAgentStore implements OnDestroy {
     },
   );
 
-  ngOnDestroy(): void {
-    this.stopTick();
-  }
-
-  private startTick(): void {
-    if (this._tickInterval) return;
-    this._tickInterval = setInterval(() => {
-      this.tick.update((t) => t + 1);
-    }, 1000);
-  }
-
-  private stopTick(): void {
-    if (this._tickInterval) {
-      clearInterval(this._tickInterval);
-      this._tickInterval = null;
-    }
-  }
-
-  private syncTick(): void {
-    if (this.hasRunningAgents()) {
-      this.startTick();
-    } else {
-      this.stopTick();
-    }
-  }
-
   /**
    * Single write path: apply `reducer`, bump {@link revision} when it produced
-   * a genuinely new map, then resync the tick.
+   * a genuinely new map.
    *
    * The identity check is what keeps the counter honest — a reducer that
    * declines the write (a duplicate `background_agent_started` for an agent
@@ -202,7 +173,6 @@ export class BackgroundAgentStore implements OnDestroy {
     if (this._agents() !== before) {
       this._revision.update((r) => r + 1);
     }
-    this.syncTick();
   }
 
   /**

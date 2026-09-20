@@ -14,14 +14,14 @@ Reusable **presentational** (stateless) chat UI components — atoms and molecul
 
 ## Public API (from `src/index.ts`)
 
-- **15 atoms**: `CopyButtonComponent`, `CostBadgeComponent`, `DurationBadgeComponent`, `ElectronResizeHandleComponent`, `ErrorAlertComponent`, `ExpandableContentComponent`, `FilePathLinkComponent`, `SidebarTabComponent`, `StatusBadgeComponent`, `StreamingQuotesComponent`, `StreamingTextRevealComponent`, `ThemeToggleComponent`, `TokenBadgeComponent`, `ToolIconComponent`, `TypingCursorComponent` + `RESIZE_HANDLE_STYLES` constant
+- **Atoms**: `CopyButtonComponent`, `CostBadgeComponent`, `DurationBadgeComponent`, `ElectronResizeHandleComponent`, `ErrorAlertComponent`, `ExpandableContentComponent`, `FilePathLinkComponent`, `SidebarTabComponent`, `StatusBadgeComponent`, `StreamingQuotesComponent`, `ThemeToggleComponent`, `TokenBadgeComponent`, `ToolIconComponent`, `TypingCursorComponent` + `RESIZE_HANDLE_STYLES` constant
 - **Molecule groups**: `agent-card/`, `chat-input/` (`AutopilotPopoverComponent`), `compact-session/` (5 components), `notifications/` (`CompactionNotificationComponent`), `permissions/` (3 components), `session/` (`SessionCostSummaryComponent`, `SessionStatsSummaryComponent`, `TabItemComponent`), `setup-plugins/` (6 components), `tool-execution/` (6 components), plus standalone molecules: `AgentSummaryComponent`, `QuestionCardComponent`, `ThinkingBlockComponent`
 - **Utilities**: `generateAgentColor`, `generateAgentColorOklch`, `formatOklch`, `isThemeFallbackColor`, `THEME_FALLBACK_OKLCH`, `OklchColor`
 - **Types**: `RenderSegment`, `StderrSegment`, `LiveModelStats`, `ModelUsageEntry`
 
 ## Internal Structure
 
-- `src/lib/atoms/` — flat directory of 15 atomic components + `resize-handle.styles.ts` (shared CSS constant used by chat's CDK-based resize handle)
+- `src/lib/atoms/` — flat directory of atomic components + `resize-handle.styles.ts` (shared CSS constant used by chat's CDK-based resize handle)
 - `src/lib/molecules/` — molecules grouped by feature domain (agent-card, chat-input, compact-session, notifications, permissions, session, setup-plugins, tool-execution) plus standalone molecules at the root
 - `src/lib/utils/agent-color.utils.ts` — OKLCH-based agent color generation
 

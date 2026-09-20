@@ -37,7 +37,6 @@ export {
   SidebarTabComponent,
   StatusBadgeComponent,
   StreamingQuotesComponent,
-  StreamingTextRevealComponent,
   ThemeToggleComponent,
   TokenBadgeComponent,
   ToolIconComponent,
