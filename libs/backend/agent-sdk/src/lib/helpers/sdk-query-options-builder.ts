@@ -13,6 +13,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { randomUUID } from 'node:crypto';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
 import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
@@ -920,9 +921,11 @@ export class SdkQueryOptionsBuilder {
       this.buildMcpServers(mcpServerRunning, routingId),
       mcpServersOverride,
     );
-    if (routingId) {
+    const mcpAttemptKey = routingId ? randomUUID() : undefined;
+    if (routingId && mcpAttemptKey) {
       this.mcpBackoffService?.trackStderrSession(
         routingId,
+        mcpAttemptKey,
         abortController.signal,
       );
     }
@@ -1003,7 +1006,7 @@ export class SdkQueryOptionsBuilder {
           this.mcpBackoffService?.checkStderrForFailure(
             data,
             Date.now(),
-            routingId,
+            mcpAttemptKey,
           );
           // stderr is for logging/observability only. Stuck-session detection
           // is handled by the no-activity watchdog (NoActivityWatchdog),

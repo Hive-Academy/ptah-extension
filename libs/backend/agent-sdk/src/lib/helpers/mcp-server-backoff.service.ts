@@ -47,14 +47,21 @@ export const DEFAULT_MAX_BACKOFF_MS = 1_800_000;
 export const DEFAULT_BACKOFF_FACTOR = 2;
 export const DEFAULT_MAX_TRACKED_SERVERS = 100;
 const KEYLESS_DEDUP_WINDOW_MS = 10_000;
+const INIT_FAILURE_RESOLVE_TIMEOUT_MS = 1_000;
 
 interface StderrSessionState {
   buffer: string;
+  readonly routingKey: string;
 }
 
 interface PendingInitFailure {
   readonly serverName: string;
   readonly failedAt: number;
+}
+
+interface PendingInitFailureBatch {
+  readonly failures: PendingInitFailure[];
+  readonly timeout: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -72,10 +79,11 @@ export class McpServerBackoffService {
   private readonly backoffFactor: number;
   private readonly maxTrackedServers: number;
   private readonly stderrSessions = new Map<string, StderrSessionState>();
-  private readonly routingKeyBySdkSessionId = new Map<string, string>();
+  private readonly attemptKeyByRoutingKey = new Map<string, string>();
+  private readonly attemptKeyBySdkSessionId = new Map<string, string>();
   private readonly pendingInitFailures = new Map<
     string,
-    PendingInitFailure[]
+    PendingInitFailureBatch
   >();
   private static readonly MAX_STDERR_BUFFER_LEN = 16_384;
 
@@ -120,12 +128,13 @@ export class McpServerBackoffService {
 
     sessionIdResolved?.register(({ tabId, realSessionId }) => {
       const routingKey = tabId ?? realSessionId;
-      if (!this.stderrSessions.has(routingKey)) {
-        this.pendingInitFailures.delete(realSessionId);
+      const attemptKey = this.attemptKeyByRoutingKey.get(routingKey);
+      if (!attemptKey || !this.stderrSessions.has(attemptKey)) {
+        this.flushPendingInitFailures(realSessionId);
         return;
       }
-      this.routingKeyBySdkSessionId.set(realSessionId, routingKey);
-      this.flushPendingInitFailures(realSessionId, routingKey);
+      this.attemptKeyBySdkSessionId.set(realSessionId, attemptKey);
+      this.flushPendingInitFailures(realSessionId, attemptKey);
     });
   }
 
@@ -198,26 +207,37 @@ export class McpServerBackoffService {
   }
 
   /**
-   * Register the routing key whose stderr stream will be inspected.
+   * Register one launch whose stderr stream will be inspected.
    * The abort signal is the session-lifecycle disposal seam: once aborted, its
    * partial buffer and UUID alias are released. A state identity guard prevents
-   * a late abort from an older query clearing a replacement with the same key.
+   * a late abort from an older query clearing a replacement launch in the same
+   * tab.
    */
-  trackStderrSession(sessionKey: string, signal: AbortSignal): void {
-    const trimmed = sessionKey.trim();
-    if (!trimmed) return;
+  trackStderrSession(
+    routingKey: string,
+    attemptKey: string,
+    signal: AbortSignal,
+  ): void {
+    const trimmedRoutingKey = routingKey.trim();
+    const trimmedAttemptKey = attemptKey.trim();
+    if (!trimmedRoutingKey || !trimmedAttemptKey) return;
 
-    const state: StderrSessionState = { buffer: '' };
-    this.stderrSessions.set(trimmed, state);
+    const previousAttemptKey =
+      this.attemptKeyByRoutingKey.get(trimmedRoutingKey);
+    if (previousAttemptKey) {
+      this.releaseStderrSession(previousAttemptKey);
+    }
+    this.pruneStderrSessionsIfOversized();
+
+    const state: StderrSessionState = {
+      buffer: '',
+      routingKey: trimmedRoutingKey,
+    };
+    this.stderrSessions.set(trimmedAttemptKey, state);
+    this.attemptKeyByRoutingKey.set(trimmedRoutingKey, trimmedAttemptKey);
     const release = (): void => {
-      if (this.stderrSessions.get(trimmed) !== state) return;
-      this.stderrSessions.delete(trimmed);
-      for (const [sdkSessionId, routingKey] of this.routingKeyBySdkSessionId) {
-        if (routingKey === trimmed || sdkSessionId === trimmed) {
-          this.routingKeyBySdkSessionId.delete(sdkSessionId);
-          this.pendingInitFailures.delete(sdkSessionId);
-        }
-      }
+      if (this.stderrSessions.get(trimmedAttemptKey) !== state) return;
+      this.releaseStderrSession(trimmedAttemptKey);
     };
 
     if (signal.aborted) {
@@ -316,7 +336,11 @@ export class McpServerBackoffService {
     } else {
       this.records.clear();
       this.stderrSessions.clear();
-      this.routingKeyBySdkSessionId.clear();
+      this.attemptKeyByRoutingKey.clear();
+      this.attemptKeyBySdkSessionId.clear();
+      for (const pending of this.pendingInitFailures.values()) {
+        clearTimeout(pending.timeout);
+      }
       this.pendingInitFailures.clear();
     }
   }
@@ -330,8 +354,8 @@ export class McpServerBackoffService {
 
   private resolveInitAttemptKey(sdkSessionId: string): string | undefined {
     return (
-      this.routingKeyBySdkSessionId.get(sdkSessionId) ??
-      (this.stderrSessions.has(sdkSessionId) ? sdkSessionId : undefined)
+      this.attemptKeyBySdkSessionId.get(sdkSessionId) ??
+      this.attemptKeyByRoutingKey.get(sdkSessionId)
     );
   }
 
@@ -340,29 +364,59 @@ export class McpServerBackoffService {
     serverName: string,
     failedAt: number,
   ): void {
-    if (
-      !this.pendingInitFailures.has(sdkSessionId) &&
-      this.pendingInitFailures.size >= this.maxTrackedServers
-    ) {
+    let pending = this.pendingInitFailures.get(sdkSessionId);
+    if (!pending && this.pendingInitFailures.size >= this.maxTrackedServers) {
       const oldestKey = this.pendingInitFailures.keys().next().value;
       if (oldestKey !== undefined) {
-        this.pendingInitFailures.delete(oldestKey);
+        this.flushPendingInitFailures(oldestKey);
       }
     }
-    const pending = this.pendingInitFailures.get(sdkSessionId) ?? [];
-    pending.push({ serverName, failedAt });
-    this.pendingInitFailures.set(sdkSessionId, pending);
+    pending = this.pendingInitFailures.get(sdkSessionId);
+    if (!pending) {
+      const timeout = setTimeout(() => {
+        this.flushPendingInitFailures(sdkSessionId);
+      }, INIT_FAILURE_RESOLVE_TIMEOUT_MS);
+      pending = { failures: [], timeout };
+      this.pendingInitFailures.set(sdkSessionId, pending);
+    }
+    if (pending.failures.length < this.maxTrackedServers) {
+      pending.failures.push({ serverName, failedAt });
+    }
   }
 
   private flushPendingInitFailures(
     sdkSessionId: string,
-    attemptKey: string,
+    attemptKey?: string,
   ): void {
     const pending = this.pendingInitFailures.get(sdkSessionId);
     if (!pending) return;
     this.pendingInitFailures.delete(sdkSessionId);
-    for (const failure of pending) {
+    clearTimeout(pending.timeout);
+    for (const failure of pending.failures) {
       this.recordFailure(failure.serverName, failure.failedAt, attemptKey);
+    }
+  }
+
+  private pruneStderrSessionsIfOversized(): void {
+    if (this.stderrSessions.size < this.maxTrackedServers) return;
+    const oldestAttemptKey = this.stderrSessions.keys().next().value;
+    if (oldestAttemptKey !== undefined) {
+      this.releaseStderrSession(oldestAttemptKey);
+    }
+  }
+
+  private releaseStderrSession(attemptKey: string): void {
+    const state = this.stderrSessions.get(attemptKey);
+    if (!state) return;
+    this.stderrSessions.delete(attemptKey);
+    if (this.attemptKeyByRoutingKey.get(state.routingKey) === attemptKey) {
+      this.attemptKeyByRoutingKey.delete(state.routingKey);
+    }
+    for (const [sdkSessionId, mappedAttemptKey] of this
+      .attemptKeyBySdkSessionId) {
+      if (mappedAttemptKey === attemptKey) {
+        this.attemptKeyBySdkSessionId.delete(sdkSessionId);
+      }
     }
   }
 
