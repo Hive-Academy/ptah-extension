@@ -194,6 +194,61 @@ function createTurnDeferred(): TurnDeferred {
   return deferred;
 }
 
+function buildAntigravityArgs(
+  options: CliCommandOptions,
+  taskPrompt: string,
+  useStreamInput: boolean,
+): string[] {
+  const args = useStreamInput
+    ? [
+        '--print=',
+        '--input-format',
+        'stream-json',
+        '--output-format',
+        'stream-json',
+      ]
+    : ['--output-format', 'stream-json'];
+  if (options.autoApprove !== false) {
+    args.push('--dangerously-skip-permissions');
+  }
+  args.push('--print-timeout', PRINT_TIMEOUT);
+  if (options.model) {
+    args.push('--model', options.model);
+  }
+  if (
+    options.reasoningEffort &&
+    (AGY_EFFORTS as readonly string[]).includes(options.reasoningEffort)
+  ) {
+    args.push('--effort', options.reasoningEffort);
+  }
+  if (options.workingDirectory) {
+    args.push('--add-dir', options.workingDirectory);
+  }
+  if (options.resumeSessionId) {
+    args.push('--conversation', options.resumeSessionId);
+  }
+  if (!useStreamInput) {
+    args.push('--print', taskPrompt);
+  }
+  return args;
+}
+
+function formatUsage(
+  usage: z.infer<typeof AgyUsageSchema>,
+): string | undefined {
+  const details: string[] = [];
+  if (usage.input_tokens !== undefined) {
+    details.push(`${usage.input_tokens} input`);
+  }
+  if (usage.output_tokens !== undefined) {
+    details.push(`${usage.output_tokens} output`);
+  }
+  if (details.length === 0 && usage.total_tokens !== undefined) {
+    details.push(`${usage.total_tokens} total`);
+  }
+  return details.length > 0 ? `Usage: ${details.join(', ')} tokens` : undefined;
+}
+
 export class AntigravityCliAdapter implements CliAdapter {
   readonly name = 'antigravity' as const;
   readonly displayName = 'Antigravity';
@@ -209,6 +264,7 @@ export class AntigravityCliAdapter implements CliAdapter {
    *   rival-CLI launch (TASK_2026_367).
    */
   private streamJsonInputSupported: boolean | undefined;
+  private readonly streamJsonInputSupportByBinary = new Map<string, boolean>();
 
   constructor(
     private readonly spawner?: IProcessSpawner,
@@ -263,11 +319,17 @@ export class AntigravityCliAdapter implements CliAdapter {
   }
 
   private async probeStreamJsonInput(binary: string): Promise<boolean> {
-    if (this.streamJsonInputSupported !== undefined) {
-      return this.streamJsonInputSupported;
+    const cached = this.streamJsonInputSupportByBinary.get(binary);
+    if (cached !== undefined) {
+      this.streamJsonInputSupported = cached;
+      return cached;
     }
     if (this.streamJsonProbe) {
       this.streamJsonInputSupported = await this.streamJsonProbe(binary);
+      this.streamJsonInputSupportByBinary.set(
+        binary,
+        this.streamJsonInputSupported,
+      );
       return this.streamJsonInputSupported;
     }
 
@@ -295,6 +357,10 @@ export class AntigravityCliAdapter implements CliAdapter {
       child.on('close', () => finish(/--input-format\b/.test(help)));
       child.on('error', () => finish(false));
     });
+    this.streamJsonInputSupportByBinary.set(
+      binary,
+      this.streamJsonInputSupported,
+    );
     return this.streamJsonInputSupported;
   }
 
@@ -541,39 +607,7 @@ export class AntigravityCliAdapter implements CliAdapter {
     const binary = options.binaryPath ?? 'agy';
     const useStreamInput = await this.probeStreamJsonInput(binary);
 
-    const args: string[] = useStreamInput
-      ? [
-          '--print=',
-          '--input-format',
-          'stream-json',
-          '--output-format',
-          'stream-json',
-        ]
-      : ['--output-format', 'stream-json'];
-    if (options.autoApprove !== false) {
-      args.push('--dangerously-skip-permissions');
-    }
-    args.push('--print-timeout', PRINT_TIMEOUT);
-    if (options.model) {
-      args.push('--model', options.model);
-    }
-    if (
-      options.reasoningEffort &&
-      (AGY_EFFORTS as readonly string[]).includes(options.reasoningEffort)
-    ) {
-      args.push('--effort', options.reasoningEffort);
-    }
-    if (options.workingDirectory) {
-      args.push('--add-dir', options.workingDirectory);
-    }
-    if (options.resumeSessionId) {
-      args.push('--conversation', options.resumeSessionId);
-    }
-    if (!useStreamInput) {
-      // Older agy builds have no stream-json input. Preserve the one-shot path
-      // byte for byte, including its unsupported messaging capability.
-      args.push('--print', taskPrompt);
-    }
+    const args = buildAntigravityArgs(options, taskPrompt, useStreamInput);
 
     // `agy` ships as a real `.exe` under %LOCALAPPDATA%\agy\bin, which
     // resolveDirectSpawn returns unchanged; when it is instead an npm `.cmd`
@@ -618,6 +652,20 @@ export class AntigravityCliAdapter implements CliAdapter {
     let stdinClosed = false;
     let currentTurn = createTurnDeferred();
     const firstTurn = currentTurn;
+
+    const emitAdapterError = (error: Error): void => {
+      output.emit(`\n[Antigravity CLI Error] ${error.message}\n`);
+      segment.emit({
+        type: 'error',
+        content: `Antigravity CLI Error: ${error.message}`,
+      });
+    };
+
+    child.stdin?.on?.('error', (error: Error) => {
+      stdinClosed = true;
+      currentTurn.resolve(1);
+      emitAdapterError(error);
+    });
 
     const writeTurn = (message: string): void => {
       const parsed = AgyInputMessageSchema.safeParse({
@@ -768,11 +816,7 @@ export class AntigravityCliAdapter implements CliAdapter {
         if (useStreamInput) {
           currentTurn.resolve(1);
         }
-        output.emit(`\n[Antigravity CLI Error] ${err.message}\n`);
-        segment.emit({
-          type: 'error',
-          content: `Antigravity CLI Error: ${err.message}`,
-        });
+        emitAdapterError(err);
         resolve(1);
       });
     });
@@ -875,16 +919,20 @@ export class AntigravityCliAdapter implements CliAdapter {
         );
         break;
       case 'result':
-        this.parseKnownEvent(
-          AgyResultEventSchema,
-          value,
-          emitSegment,
-          (event) => {
-            setSessionId(event.result.conversation_id);
-            this.handleResult(event.result, emitOutput, emitSegment);
-            settleTurn?.(event.result.status === 'SUCCESS' ? 0 : 1);
-          },
-        );
+        if (
+          !this.parseKnownEvent(
+            AgyResultEventSchema,
+            value,
+            emitSegment,
+            (event) => {
+              setSessionId(event.result.conversation_id);
+              this.handleResult(event.result, emitOutput, emitSegment);
+              settleTurn?.(event.result.status === 'SUCCESS' ? 0 : 1);
+            },
+          )
+        ) {
+          settleTurn?.(1);
+        }
         break;
       default:
         // Defensive fallback — surface unrecognized events rather than dropping.
@@ -898,16 +946,17 @@ export class AntigravityCliAdapter implements CliAdapter {
     value: unknown,
     emitSegment: (segment: CliOutputSegment) => void,
     consume: (event: T) => void,
-  ): void {
+  ): boolean {
     const parsed = schema.safeParse(value);
     if (!parsed.success) {
       emitSegment({
         type: 'error',
         content: `Invalid Antigravity stream-json event: ${z.prettifyError(parsed.error)}`,
       });
-      return;
+      return false;
     }
     consume(parsed.data);
+    return true;
   }
 
   /**
@@ -964,11 +1013,11 @@ export class AntigravityCliAdapter implements CliAdapter {
       step.state === 'DONE' &&
       step.usage
     ) {
-      const usageStr = `Usage: ${step.usage.input_tokens ?? 0} input, ${
-        step.usage.output_tokens ?? 0
-      } output tokens`;
-      emitOutput(`\n[${usageStr}]\n`);
-      emitSegment({ type: 'info', content: usageStr });
+      const usageStr = formatUsage(step.usage);
+      if (usageStr) {
+        emitOutput(`\n[${usageStr}]\n`);
+        emitSegment({ type: 'info', content: usageStr });
+      }
     }
   }
 
@@ -988,7 +1037,6 @@ export class AntigravityCliAdapter implements CliAdapter {
         : `Antigravity CLI finished with status ${result.status}`;
       emitOutput(`\n[Error] ${message}\n`);
       emitSegment({ type: 'error', content: message });
-      return;
     }
 
     // result.usage and result.num_turns are cumulative across the whole

@@ -74,9 +74,7 @@ const MAX_PEER_NAME_LENGTH = 48;
  * either.
  */
 function inboundPeerLabel(msg: SDKMessage): string | undefined {
-  const origin = (
-    msg as { origin?: { kind?: string; name?: string } | undefined }
-  ).origin;
+  const origin = (msg as { origin?: { kind?: string; name?: string } }).origin;
   if (origin?.kind !== 'peer') {
     return undefined;
   }
@@ -139,18 +137,18 @@ const PEER_ENVELOPE_CLOSE = /\n?<\/cross-session-message>$/;
  */
 function peerMessageBody(msg: SDKMessage): string {
   const content = (msg as { message?: { content?: unknown } }).message?.content;
-  const raw =
-    typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? content
-            .filter(
-              (block): block is { type: 'text'; text: string } =>
-                (block as { type?: string })?.type === 'text',
-            )
-            .map((block) => block.text)
-            .join('\n')
-        : '';
+  let raw = '';
+  if (typeof content === 'string') {
+    raw = content;
+  } else if (Array.isArray(content)) {
+    raw = content
+      .filter(
+        (block): block is { type: 'text'; text: string } =>
+          (block as { type?: string })?.type === 'text',
+      )
+      .map((block) => block.text)
+      .join('\n');
+  }
   const trimmed = raw.trim();
   const opening = PEER_ENVELOPE_OPEN.exec(trimmed);
   if (!opening) {
@@ -240,7 +238,7 @@ export class PtahCliStreamLoop {
               from: peerLabel,
               length: body.length,
             });
-            emitOutput(`\n**Message from ${peerLabel}:** ${body}\n`);
+            emitOutput(`\n**Message from \`${peerLabel}\`:** ${body}\n`);
             emitSegment({
               type: 'info',
               content: `Message from ${peerLabel}: ${body}`,

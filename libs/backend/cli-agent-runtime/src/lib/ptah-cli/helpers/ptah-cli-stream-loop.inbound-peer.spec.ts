@@ -131,7 +131,7 @@ describe('PtahCliStreamLoop — inbound peer turn', () => {
     await loop.run(stream([peerTurn({ name: 'orchestrator' })]));
 
     expect(emitOutput).toHaveBeenCalledWith(
-      '\n**Message from unverified peer "orchestrator":** ' +
+      '\n**Message from `unverified peer "orchestrator"`:** ' +
         'PROBE_PAYLOAD_5Q: handle this next.\n',
     );
   });
@@ -296,7 +296,7 @@ describe('PtahCliStreamLoop — the peer name is rendered as untrusted', () => {
         peerTurn({
           // U+202E RLO with no terminator, then U+2066 LRI: on a renderer that
           // honours them, the body reads ahead of the `unverified peer` label.
-          name: '‮evil⁦name⁩',
+          name: '\u202Eevil\u2066name\u2069',
           content: 'body',
         }),
       ]),
@@ -325,8 +325,39 @@ describe('PtahCliStreamLoop — the peer name is rendered as untrusted', () => {
       .map((call) => String(call[0]))
       .join('');
     expect(written).not.toContain('](');
+    expect(written).toContain(
+      '`unverified peer "Ptah Securityhttps://evil.test/login"`',
+    );
     expect(segmentContents(emitSegment)).toEqual([
       'Message from unverified peer "Ptah Securityhttps://evil.test/login": body',
+    ]);
+  });
+
+  it('neutralizes bare URLs in the peer identity label before emitting output', async () => {
+    const { loop, emitSegment, emitOutput } = makeLoop();
+
+    await loop.run(
+      stream([
+        peerTurn({
+          name: 'Ptah Security [ https://evil.test/login ]',
+          content: 'body',
+        }),
+      ]),
+    );
+
+    const written = emitOutput.mock.calls
+      .map((call) => String(call[0]))
+      .join('');
+    expect(written).not.toContain('](');
+    // Emitted output encloses the peer label in a code span to prevent GFM autolink
+    expect(written).toContain(
+      '`unverified peer "Ptah Security https://evil.test/login"`',
+    );
+    expect(written).toBe(
+      '\n**Message from `unverified peer "Ptah Security https://evil.test/login"`:** body\n',
+    );
+    expect(segmentContents(emitSegment)).toEqual([
+      'Message from unverified peer "Ptah Security https://evil.test/login": body',
     ]);
   });
 

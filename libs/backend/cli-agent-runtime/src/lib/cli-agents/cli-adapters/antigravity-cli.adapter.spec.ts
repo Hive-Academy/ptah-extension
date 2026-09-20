@@ -25,12 +25,13 @@ interface FakeChildControls {
   stderr: PassThrough;
   emitClose: (code: number | null, signal?: NodeJS.Signals | null) => void;
   emitError: (err: Error) => void;
+  emitStdinError: (err: Error) => void;
   killed: boolean;
   kill: jest.Mock;
   child: EventEmitter & {
     stdout: PassThrough;
     stderr: PassThrough;
-    stdin: { end: jest.Mock; write: jest.Mock };
+    stdin: EventEmitter & { end: jest.Mock; write: jest.Mock };
     kill: jest.Mock;
     killed: boolean;
     pid: number;
@@ -50,7 +51,7 @@ function createFakeChild(): FakeChildControls {
   const emitter = new EventEmitter() as EventEmitter & {
     stdout: PassThrough;
     stderr: PassThrough;
-    stdin: { end: jest.Mock; write: jest.Mock };
+    stdin: EventEmitter & { end: jest.Mock; write: jest.Mock };
     kill: jest.Mock;
     killed: boolean;
     pid: number;
@@ -58,7 +59,10 @@ function createFakeChild(): FakeChildControls {
   };
   emitter.stdout = stdout;
   emitter.stderr = stderr;
-  emitter.stdin = { end: jest.fn(), write: jest.fn() };
+  emitter.stdin = Object.assign(new EventEmitter(), {
+    end: jest.fn(),
+    write: jest.fn(),
+  });
   emitter.pid = FAKE_PID;
   emitter.whenSpawned = Promise.resolve(FAKE_PID);
   emitter.killed = false;
@@ -72,6 +76,7 @@ function createFakeChild(): FakeChildControls {
     stderr,
     emitClose: (code, signal) => emitter.emit('close', code, signal ?? null),
     emitError: (err) => emitter.emit('error', err),
+    emitStdinError: (err) => emitter.stdin.emit('error', err),
     get killed() {
       return emitter.killed;
     },
@@ -274,6 +279,21 @@ describe('AntigravityCliAdapter', () => {
       await handle.done;
     });
 
+    it('settles the active turn when stdin emits an error', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      currentChild?.emitStdinError(new Error('write EPIPE'));
+
+      await expect(handle.done).resolves.toBe(1);
+      expect(handle.supportsContinuation?.()).toBe(false);
+      expect(segments).toContainEqual({
+        type: 'error',
+        content: 'Antigravity CLI Error: write EPIPE',
+      });
+      currentChild?.emitClose(1);
+    });
+
     it('adds --model when a model is provided', async () => {
       const handle = await adapter.runSdk({
         ...baseOptions,
@@ -352,6 +372,32 @@ describe('AntigravityCliAdapter', () => {
 
       const [binaryArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
       expect(binaryArg).toBe('C:/agy/bin/agy.exe');
+    });
+
+    it('caches stream-json support separately for each binary path', async () => {
+      const probe = jest
+        .fn<Promise<boolean>, [string]>()
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false);
+      const binaryAwareAdapter = new AntigravityCliAdapter(undefined, probe);
+
+      const supported = await binaryAwareAdapter.runSdk({
+        ...baseOptions,
+        binaryPath: 'C:/agy/new/agy.exe',
+      });
+      currentChild?.emitClose(0);
+      await supported.done;
+
+      const unsupported = await binaryAwareAdapter.runSdk({
+        ...baseOptions,
+        binaryPath: 'C:/agy/old/agy.exe',
+      });
+      expect(unsupported.continue).toBeUndefined();
+      currentChild?.emitClose(0);
+      await unsupported.done;
+
+      expect(probe).toHaveBeenNthCalledWith(1, 'C:/agy/new/agy.exe');
+      expect(probe).toHaveBeenNthCalledWith(2, 'C:/agy/old/agy.exe');
     });
   });
 
@@ -550,12 +596,14 @@ describe('AntigravityCliAdapter', () => {
       currentChild?.emitClose(0);
     });
 
-    it('rejects a known output event with a missing payload at the zod boundary', async () => {
+    it('settles a malformed terminal result with exit code 1', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
       currentChild?.stdout.write(`${JSON.stringify({ event: 'result' })}\n`);
-      currentChild?.emitClose(1);
-      await handle.done;
+
+      await expect(handle.done).resolves.toBe(1);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(currentChild?.child.stdin.end).toHaveBeenCalledTimes(1);
 
       expect(segments).toEqual(
         expect.arrayContaining([
@@ -567,6 +615,7 @@ describe('AntigravityCliAdapter', () => {
           }),
         ]),
       );
+      currentChild?.emitClose(1);
     });
 
     it('maps a tool step to a tool-call then a tool-result', async () => {
@@ -690,7 +739,27 @@ describe('AntigravityCliAdapter', () => {
       await handle.done;
 
       expect(segments).toEqual([
-        { type: 'info', content: 'Usage: 0 input, 168 output tokens' },
+        { type: 'info', content: 'Usage: 168 output tokens' },
+      ]);
+    });
+
+    it('reports total usage without inventing zero input or output tokens', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 2,
+          state: 'DONE',
+          step_type: 'agent_response',
+          usage: { total_tokens: 11867 },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(segments).toEqual([
+        { type: 'info', content: 'Usage: 11867 total tokens' },
       ]);
     });
 

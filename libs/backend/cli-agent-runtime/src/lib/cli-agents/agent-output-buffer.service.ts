@@ -91,7 +91,13 @@ export class AgentOutputBuffer {
     // least one bucket, and every bucket except possibly the last is
     // non-empty (`markTurnBoundary` never appends an empty one).
     const turns = this.pendingFor(agentId).segmentTurns;
-    turns[turns.length - 1].push(segment);
+    const currentTurn = turns.at(-1);
+    if (!currentTurn) {
+      throw new Error(
+        `AgentOutputBuffer: no open segment turn for agent ${agentId}`,
+      );
+    }
+    currentTurn.push(segment);
     if (
       tracked &&
       tracked.accumulatedSegments.length < MAX_ACCUMULATED_SEGMENTS
@@ -122,7 +128,7 @@ export class AgentOutputBuffer {
   markTurnBoundary(agentId: string): void {
     const pending = this.pendingDeltas.get(agentId);
     if (!pending) return;
-    const current = pending.segmentTurns[pending.segmentTurns.length - 1];
+    const current = pending.segmentTurns.at(-1);
     if (!current || current.length === 0) return;
     pending.segmentTurns.push([]);
   }
