@@ -255,6 +255,7 @@ export function deleteInChildProcess(targetPath: string): Promise<void> {
 export class WatchHostChildProcess implements WorkspaceWatchHostProcess {
   private readonly child: ChildProcess;
   private stderrTail = '';
+  private readonly subscribedIds = new Set<number>();
 
   constructor(bundlePath: string) {
     this.child = fork(bundlePath, [], {
@@ -262,6 +263,18 @@ export class WatchHostChildProcess implements WorkspaceWatchHostProcess {
     });
     this.child.stderr?.on('data', (chunk: Buffer) => {
       this.stderrTail = (this.stderrTail + chunk.toString()).slice(-4096);
+    });
+    this.child.on('message', (message: unknown) => {
+      if (
+        typeof message === 'object' &&
+        message !== null &&
+        'type' in message &&
+        message.type === 'subscribed' &&
+        'id' in message &&
+        typeof message.id === 'number'
+      ) {
+        this.subscribedIds.add(message.id);
+      }
     });
     // An IPC write racing a kill surfaces as 'error'; the exit follows it.
     this.child.on('error', () => undefined);
@@ -274,6 +287,10 @@ export class WatchHostChildProcess implements WorkspaceWatchHostProcess {
   /** `null` once the child has exited; otherwise `null` too (still running). */
   get exitCode(): number | null {
     return this.child.exitCode;
+  }
+
+  hasSubscriptionCount(count: number): boolean {
+    return this.subscribedIds.size >= count;
   }
 
   postMessage(message: unknown): void {
@@ -617,7 +634,10 @@ export async function runSingleKillScenario(
     subB = watcher.watch(rootB, DEFAULT_WATCH_OPTIONS, recorderB.listener);
 
     await waitFor(() => hosts.length > 0, 'the first host to fork');
-    await sleep(1_500); // let both subscriptions settle before the kill
+    await waitFor(
+      () => hosts[0]?.hasSubscriptionCount(2) === true,
+      'both initial host subscription acknowledgements',
+    );
 
     const doomedPid = hosts[0]?.pid;
     if (doomedPid === undefined) {
@@ -641,7 +661,10 @@ export async function runSingleKillScenario(
           recorderA.overflowBatches() >= 1 && recorderB.overflowBatches() >= 1,
         'both subscribers to receive the incident overflow',
       );
-      await sleep(1_000);
+      await waitFor(
+        () => hosts[1]?.hasSubscriptionCount(2) === true,
+        'both replacement host subscription acknowledgements',
+      );
     });
 
     const resumedA = path.join(rootA, 'after-kill.txt');

@@ -38,6 +38,11 @@ export interface WorkspaceWatcherContractSetup {
   ): Promise<void> | void;
   /** Awaited after `watch` so an engine that subscribes asynchronously is live. Default 0. */
   subscribeSettleMs?: number;
+  /**
+   * Deterministic readiness barrier for asynchronously subscribed adapters.
+   * Prefer this to `subscribeSettleMs` when the transport exposes an ack.
+   */
+  waitForSubscription?(): Promise<void> | void;
   /** Longest wait for an expected batch. Default 5 000 ms. */
   eventTimeoutMs?: number;
   /** How long "nothing arrives" is observed. Default 750 ms (three batch intervals). */
@@ -161,6 +166,7 @@ export function runWorkspaceWatcherContract(
         recorder.listener,
       );
       disposables.push(subscription);
+      await setup.waitForSubscription?.();
       if (setup.subscribeSettleMs) await sleep(setup.subscribeSettleMs);
       return subscription;
     };

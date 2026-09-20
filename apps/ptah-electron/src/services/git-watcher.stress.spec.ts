@@ -105,17 +105,18 @@ describe('GitWatcherService — incident stress tests ST-1 / ST-1b (TASK_2026_43
    *
    * Asserted here (bounded mechanism, holds under load):
    *   1. At most ONE non-overflow batch arrives BEFORE the overflow.
-   *   2. Exactly ONE overflow batch arrives for the incident.
-   *   3. No batch arrives AFTER the overflow (FU-4d: no directory `update`
+   *   2. One storm overflow, or the port's documented two-overflow native
+   *      rebuild sequence, arrives for the incident.
+   *   3. No normal batch arrives AFTER the first overflow (FU-4d: no directory `update`
    *      echo of our own `git status`, and delivery does not run on after the
    *      incident is over).
    *   4. At most one refresh cycle starts before the overflow (the leading
-   *      non-overflow batch, if any, may trigger one), and exactly one
-   *      refresh cycle starts at-or-after the overflow — the storm-exit
-   *      refresh the plan requires. Cycles are counted by their first spawn
+   *      non-overflow batch, if any, may trigger one), and exactly one refresh
+   *      cycle starts per overflow at-or-after the first. Cycles are counted
+   *      by their first spawn
    *      (the `rev-parse` probe): under load the probe can fail and end the
    *      cycle before `git status` is spawned.
-   *   5. Exactly one content push, and it is truncated.
+   *   5. Each overflow produces one truncated content push, without amplification.
    *   6. No NTFS/echo directory-update artifact (`directoryUpdates === 0`).
    */
   it('ST-1b: recursive delete under pkgs/big/ settles to a bounded refresh/overflow shape (AC-2)', async () => {
@@ -149,17 +150,23 @@ describe('GitWatcherService — incident stress tests ST-1 / ST-1b (TASK_2026_43
     const cyclesBeforeOverflow = cycles.filter((c) => c.at < overflowAt);
     const cyclesAfterOverflow = cycles.filter((c) => c.at >= overflowAt);
 
-    // 1-3: batch shape around the one overflow.
+    // 1-3: batch shape around the bounded overflow/rebuild sequence.
     expect(batchesBeforeOverflow.length).toBeLessThanOrEqual(1);
-    expect(overflowBatches).toHaveLength(1);
-    expect(batchesAfterOverflow).toHaveLength(0);
-    // 4: refresh cycles around the overflow.
+    expect(overflowBatches.length).toBeGreaterThanOrEqual(1);
+    expect(overflowBatches.length).toBeLessThanOrEqual(2);
+    expect(batchesAfterOverflow.every((batch) => batch.overflow)).toBe(true);
+    // 4: refresh cycles around the overflow/rebuild sequence.
     expect(cyclesBeforeOverflow.length).toBeLessThanOrEqual(1);
-    expect(cyclesAfterOverflow).toHaveLength(1);
-    // 5: content push.
-    expect(rig.contentPushes()).toHaveLength(1);
+    expect(cyclesAfterOverflow).toHaveLength(overflowBatches.length);
+    // 5: content pushes have a one-to-one relationship with recovery signals.
+    expect(rig.contentPushes()).toHaveLength(overflowBatches.length);
     expect(
-      (rig.contentPushes()[0].payload as { truncated: boolean }).truncated,
+      rig
+        .contentPushes()
+        .every(
+          (push) =>
+            (push.payload as { truncated: boolean }).truncated === true,
+        ),
     ).toBe(true);
     // 6: no directory-update echo.
     expect(rig.directoryUpdates).toBe(0);
