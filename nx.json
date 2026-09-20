@@ -1,5 +1,7 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "//parallel": "Nx defaults to 3 concurrent TASKS, and each task starts its own Jest coordinator with its own worker pool, so the two numbers MULTIPLY. Measured 2026-09-20 on a 16-core host: one `nx run-many -t test` held 3 run-executor children and ~50 jest workers at 675-1,014 MB each, saturating the machine while the developer was working in Ptah. CI is unaffected — `.github/workflows/ci.yml` passes `--parallel=3 --maxWorkers=2` explicitly and a CLI flag beats this default. See TASK_2026_486_3b7e, and TASK_2026_404_edeb for the CI half.",
+  "parallel": 2,
   "namedInputs": {
     "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [

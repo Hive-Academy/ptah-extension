@@ -148,13 +148,20 @@ jobs:
       # to the current baseline rounded down to the nearest 5. A drop below
       # the floor fails the job; specs are free to increase coverage.
       # `--maxWorkers=2`, because `--parallel=3` bounds the wrong thing. It caps
-      # Nx TASKS; each task then starts its own Jest coordinator, and no
-      # jest.config in this repo sets `maxWorkers`, so every pool defaults to
-      # `availableParallelism() - 1`. Three tasks on a runner therefore ask for
-      # three coordinators plus up to ~45 workers, under coverage
-      # instrumentation, beside the real `node` children cli-engine's auth specs
-      # spawn on purpose. That is the oversubscription behind suites running
-      # 114-250 s in CI against seconds locally (TASK_2026_404_edeb).
+      # Nx TASKS; each task then starts its own Jest coordinator with its own
+      # worker pool, so the two numbers multiply. Three tasks on a runner
+      # therefore ask for three coordinators plus up to ~45 workers, under
+      # coverage instrumentation, beside the real `node` children cli-engine's
+      # auth specs spawn on purpose. That is the oversubscription behind suites
+      # running 114-250 s in CI against seconds locally (TASK_2026_404_edeb).
+      #
+      # These two flags stay even though `jest.preset.js` now sets
+      # `maxWorkers: '50%'` and `nx.json` sets `parallel: 2` (TASK_2026_486_3b7e,
+      # which capped the LOCAL default after the same oversubscription starved a
+      # developer's machine). A CLI flag beats both, so CI keeps the values
+      # measured here rather than inheriting a default tuned for a 16-core
+      # workstation — `'50%'` of a 4-core runner would be 2 by coincidence and
+      # 1 on a 2-core runner.
       #
       # Measured on one host, warm: cli-engine coverage 16.9 s → 9.2 s at
       # `--maxWorkers=2`; agent-sdk 17.2 s → 8.1 s at `--maxWorkers=4`, and the
