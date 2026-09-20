@@ -36,6 +36,7 @@ export type RetentionStopReason =
   | 'memory-row-budget'
   | 'reclaim-budget'
   | 'reclaim-stalled'
+  | 'governor-busy'
   | 'database-busy'
   | 'auto-vacuum-not-incremental';
 

@@ -199,6 +199,21 @@ describe('CliWorkspaceWatchHostProcess stderr', () => {
 describe('CliWorkspaceWatcher supervising the real forked host', () => {
   const watchers: CliWorkspaceWatcher[] = [];
   const hosts: WorkspaceWatchHostProcess[] = [];
+  // Counted, not a boolean: the shared contract subscribes TWICE on the same
+  // host, and the protocol acks per subscription. A WeakSet would be satisfied
+  // by the first ack, so the second barrier would no-op and we would be back to
+  // the guessed sleep this replaced. `workspace-watch-host.stress.harness.ts`
+  // makes the same distinction with `hasSubscriptionCount`.
+  const subscribeAcks = new WeakMap<WorkspaceWatchHostProcess, number>();
+  const awaitedAcks = new WeakMap<WorkspaceWatchHostProcess, number>();
+
+  const awaitNextSubscription = async (label: string): Promise<void> => {
+    const host = hosts.at(-1);
+    if (host === undefined) throw new Error(`No host to await for ${label}`);
+    const expected = (awaitedAcks.get(host) ?? 0) + 1;
+    awaitedAcks.set(host, expected);
+    await waitFor(() => (subscribeAcks.get(host) ?? 0) >= expected, label);
+  };
   let bundle: CliWatchHostBundle | undefined;
 
   beforeAll(() => {
@@ -209,6 +224,16 @@ describe('CliWorkspaceWatcher supervising the real forked host', () => {
       .mockImplementation(function (this: CliWorkspaceWatchHostForker) {
         const host = fork.call(this);
         hosts.push(host);
+        host.on('message', (message: unknown) => {
+          if (
+            typeof message === 'object' &&
+            message !== null &&
+            'type' in message &&
+            message.type === 'subscribed'
+          ) {
+            subscribeAcks.set(host, (subscribeAcks.get(host) ?? 0) + 1);
+          }
+        });
         return host;
       });
   }, 120_000);
@@ -237,9 +262,12 @@ describe('CliWorkspaceWatcher supervising the real forked host', () => {
         // Wait for the supervised restart and its native re-subscribe, so the
         // contract's post-overflow write lands on a live subscription.
         await waitFor(() => hosts.length > before, 'the restarted host');
-        await sleep(1_500);
+        await awaitNextSubscription(
+          'the restarted host subscription acknowledgement',
+        );
       },
-      subscribeSettleMs: 1_500,
+      waitForSubscription: () =>
+        awaitNextSubscription('the host subscription acknowledgement'),
       cadenceToleranceMs: 30,
     },
     () => {

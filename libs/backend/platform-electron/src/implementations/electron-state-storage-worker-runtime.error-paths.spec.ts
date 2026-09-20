@@ -29,6 +29,11 @@ import type {
   JsonValue,
 } from './electron-state-storage-worker-protocol';
 
+// These are real durable-state filesystem tests. Coverage instrumentation and
+// concurrent projects can push an otherwise-correct commit past Jest's 5 s
+// unit-test default; individual long-running stress cases retain larger limits.
+jest.setTimeout(30_000);
+
 const tmpDirs: string[] = [];
 let lastV2Root = '';
 
@@ -1011,6 +1016,7 @@ describe('ElectronStateWorkerRuntime — commit reconcile or retire', () => {
       ).toMatchObject({ type: 'success' });
       expect(await currentGeneration()).toBe(3);
     },
+    30_000,
   );
 
   it('retires with a recovery reason when CURRENT cannot be read after a failed commit', async () => {
@@ -1172,8 +1178,6 @@ describe('ElectronStateWorkerRuntime — stateless projected reads', () => {
       },
       runtime,
     );
-    const heapBefore = process.memoryUsage().heapUsed;
-
     for (let index = 0; index < 1_000; index++) {
       await driver.send({ type: 'get', key: 'record', projection });
       await driver.send({
@@ -1192,9 +1196,25 @@ describe('ElectronStateWorkerRuntime — stateless projected reads', () => {
     expect(mapSizes.every((size) => size === 0)).toBe(true);
     const stats = runtime.valueCacheStats();
     expect(stats?.bytes).toBeLessThanOrEqual(stats?.maxBytes ?? 0);
-    expect(process.memoryUsage().heapUsed - heapBefore).toBeLessThan(
-      64 * 1024 * 1024,
-    );
+
+    // The Jest worker's process heap includes ts-jest, coverage and unrelated
+    // suites, so it cannot identify retention by this runtime. Prove steady
+    // state against the runtime-owned cache and cursor maps instead.
+    for (let index = 0; index < 100; index++) {
+      await driver.send({ type: 'get', key: 'record', projection });
+      await driver.send({
+        type: 'read-json-sequence',
+        key: 'list',
+        maxBytes: 1024,
+      });
+      await driver.send({ type: 'read-snapshot-page', maxBytes: 4 * 1024 });
+    }
+    expect(runtime.valueCacheStats()).toEqual(stats);
+    expect(
+      Object.values(internals)
+        .filter((value): value is Map<unknown, unknown> => value instanceof Map)
+        .every((map) => map.size === 0),
+    ).toBe(true);
   }, 180_000);
 });
 

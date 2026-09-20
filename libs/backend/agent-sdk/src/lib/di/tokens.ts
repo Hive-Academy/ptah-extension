@@ -155,6 +155,13 @@ export const SDK_TOKENS = {
     'SdkSessionMcpStatusCallbackRegistry',
   ),
   /**
+   * Tracks failed stdio/HTTP MCP servers and manages exponential back-off to prevent
+   * repeated subprocess leaks on consecutive sessions (TASK_2026_479).
+   */
+  SDK_MCP_SERVER_BACKOFF_SERVICE: Symbol.for(
+    'SdkMcpServerBackoffService',
+  ),
+  /**
    * The list of OTHER Claude Code sessions this user can reach, read from the
    * CLI's own `~/.claude/sessions` registry (TASK_2026_402, Task 10.2). Not
    * Ptah bookkeeping: Ptah does not know about sessions it did not start, and

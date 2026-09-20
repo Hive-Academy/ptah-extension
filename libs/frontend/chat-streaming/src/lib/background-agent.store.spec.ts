@@ -8,10 +8,10 @@
  * bounded agent set).
  *
  * Coverage:
- *   - onStarted: inserts a running entry and starts the 1s tick interval
+ *   - onStarted: inserts a running entry without starting a timer
  *   - onStarted is idempotent when the same agentId is already running
  *   - onProgress: appends summary and respects error status
- *   - onCompleted: updates status + cost + duration + triggers tick stop
+ *   - onCompleted: updates status + cost + duration
  *   - onCompleted for an unknown agentId inserts a synthetic entry
  *   - onStopped: marks the entry stopped (with fallback insertion)
  *   - agentsForSession filters by sessionId
@@ -29,7 +29,7 @@
  *     map, and stays put when a reducer declines the write
  *   - adoptRealAgentId re-keys a toolCallId-keyed entry onto its real agentId,
  *     keeps `toolCallId` addressable, and declines every unsafe write
- *   - ngOnDestroy stops the tick interval
+ *   - running entries do not install an unconsumed timer
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -87,20 +87,17 @@ describe('BackgroundAgentStore', () => {
   let store: BackgroundAgentStore;
 
   beforeEach(() => {
-    jest.useFakeTimers();
     TestBed.configureTestingModule({ providers: [BackgroundAgentStore] });
     store = TestBed.inject(BackgroundAgentStore);
   });
 
   afterEach(() => {
-    store.ngOnDestroy();
-    jest.clearAllTimers();
-    jest.useRealTimers();
     TestBed.resetTestingModule();
   });
 
   describe('onStarted', () => {
-    it('inserts a running entry and starts the tick interval', () => {
+    it('inserts a running entry without installing a timer', () => {
+      const intervalSpy = jest.spyOn(globalThis, 'setInterval');
       store.onStarted(startEvent());
 
       const agents = store.agents();
@@ -115,10 +112,8 @@ describe('BackgroundAgentStore', () => {
       expect(store.hasRunningAgents()).toBe(true);
       expect(store.runningCount()).toBe(1);
 
-      // Tick signal increments after 1s.
-      const before = store.tick();
-      jest.advanceTimersByTime(1000);
-      expect(store.tick()).toBe(before + 1);
+      expect(intervalSpy).not.toHaveBeenCalled();
+      intervalSpy.mockRestore();
     });
 
     it('uses toolCallId as agentId when agentId is empty (fallback path)', () => {
@@ -185,19 +180,6 @@ describe('BackgroundAgentStore', () => {
       expect(agent.result).toBe('surprise');
     });
 
-    it('stops the tick interval when no agents remain running', () => {
-      store.onStarted(startEvent({ agentId: 'a-stop', toolCallId: 'tc-stop' }));
-      // Tick is running.
-      jest.advanceTimersByTime(1000);
-      expect(store.tick()).toBeGreaterThan(0);
-
-      store.onCompleted(
-        completedEvent({ agentId: 'a-stop', toolCallId: 'tc-stop' }),
-      );
-      const tickAtCompletion = store.tick();
-      jest.advanceTimersByTime(5000);
-      expect(store.tick()).toBe(tickAtCompletion);
-    });
   });
 
   describe('onStopped', () => {
@@ -610,15 +592,4 @@ describe('BackgroundAgentStore', () => {
     });
   });
 
-  describe('ngOnDestroy', () => {
-    it('stops the tick interval', () => {
-      store.onStarted(startEvent({ agentId: 'a-live', toolCallId: 'live' }));
-      jest.advanceTimersByTime(1000);
-      const before = store.tick();
-
-      store.ngOnDestroy();
-      jest.advanceTimersByTime(5000);
-      expect(store.tick()).toBe(before);
-    });
-  });
 });

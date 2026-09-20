@@ -56,6 +56,7 @@ import {
   CompactionBoundaryGenerationRegistry,
   SessionIdResolvedCallbackRegistry,
   SessionMcpStatusCallbackRegistry,
+  McpServerBackoffService,
   SessionTurnStateRegistry,
   SessionEndCallbackRegistry,
   SessionActivityRegistry,
@@ -412,6 +413,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY,
     { useClass: SessionMcpStatusCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE,
+    { useClass: McpServerBackoffService },
     { lifecycle: Lifecycle.Singleton },
   );
 

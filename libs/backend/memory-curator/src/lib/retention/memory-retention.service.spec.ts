@@ -524,6 +524,41 @@ describe('MemoryRetentionService — gates', () => {
     expect(h.lifecycle.calls).toHaveLength(0);
   });
 
+  it('forces bounded progress after consecutive foreground-active skips', async () => {
+    const h = harness({
+      limits: { foregroundMaxConsecutiveSkips: 2 },
+      settings: { 'memory.retention.batchSize': 50 },
+    });
+    h.setForegroundMs(0);
+    h.store.processed = 100;
+
+    await expect(h.service.run(h.options)).resolves.toEqual({
+      status: 'skipped',
+      reason: 'foreground-active',
+    });
+    await expect(h.service.run(h.options)).resolves.toEqual({
+      status: 'skipped',
+      reason: 'foreground-active',
+    });
+
+    const report = await h.service.run(h.options);
+
+    expect(report).toMatchObject({
+      status: 'completed',
+      processedPurged: 100,
+      backlogRemaining: false,
+    });
+    expect(h.store.purgeCalls).toBe(2);
+    expect(h.store.skips.map((skip) => skip.reason)).toEqual([
+      'foreground-active',
+      'foreground-active',
+    ]);
+    expect(h.logger.info).toHaveBeenCalledWith(
+      '[memory-curator] forcing retention after sustained foreground activity',
+      { skippedAttempts: 2 },
+    );
+  });
+
   it('aborted', async () => {
     const h = harness();
     h.abort();
@@ -1383,7 +1418,7 @@ describe('MemoryRetentionService — background-work governor', () => {
     expect(h.store.purgeCalls).toBe(1);
   });
 
-  it('ends as partial with time-budget and backlog remaining when wait consumes the wall budget', async () => {
+  it('a governor timeout leaves budget for a batch instead of consuming the run', async () => {
     const governor = new FakeGovernor();
     governor.clear = false;
     const h = harness({ governor });
@@ -1394,25 +1429,19 @@ describe('MemoryRetentionService — background-work governor', () => {
 
     expect(governor.waiters).toHaveLength(1);
     const waitOpts = governor.waiters[0].options;
-    expect(waitOpts?.maxDeferMs).toBeDefined();
-    expect(waitOpts?.maxDeferMs).toBeLessThanOrEqual(
-      MEMORY_RETENTION_LIMITS.maxRunMs,
+    expect(waitOpts?.maxDeferMs).toBe(
+      MEMORY_RETENTION_LIMITS.governorMaxDeferMs,
     );
-    expect(waitOpts?.maxDeferMs).toBeGreaterThan(0);
-    expect(waitOpts?.maxDeferMs).not.toBe(600_000);
 
-    h.clock.t += waitOpts?.maxDeferMs ?? MEMORY_RETENTION_LIMITS.maxRunMs;
+    h.clock.t += waitOpts?.maxDeferMs ?? 0;
     governor.release('timeout');
+    governor.clear = true;
 
     const report = (await runPromise) as MemoryRetentionRunReport;
 
-    expect(report.status).toBe('partial');
-    expect(report.reason).toBe('time-budget');
-    expect(report.backlogRemaining).toBe(true);
-    expect(h.store.purgeCalls).toBe(0);
-
-    const health = h.service.storageHealth();
-    expect(health.retention.nextDueAt).toBe(h.clock.t);
+    expect(report.status).toBe('completed');
+    expect(report.processedPurged).toBe(100);
+    expect(h.store.purgeCalls).toBe(1);
   });
 
   it('cleanly stops with aborted outcome when governor aborts; earlier committed batches are preserved', async () => {
@@ -1502,14 +1531,13 @@ describe('MemoryRetentionService — background-work governor', () => {
     expect(h.store.purgeCalls).toBe(1);
   });
 
-  it('preserves governor busy state across timeouts so subsequent batches wait again', async () => {
+  it('under sustained contention runs one minimum slow batch then stops well before the wall budget', async () => {
     const governor = new FakeGovernor();
     governor.clear = false;
-    const h = harness({
-      governor,
-      settings: { 'memory.retention.batchSize': 50 },
-    });
-    h.store.processed = 100;
+    const h = harness({ governor });
+    h.store.processed = 500;
+    // The measured host reached 1,672.7 ms for one SQLite statement.
+    h.store.batchCostMs = 1_673;
 
     const runPromise = h.service.run(h.options);
     await governor.waitForWaiter();
@@ -1517,22 +1545,28 @@ describe('MemoryRetentionService — background-work governor', () => {
     expect(governor.whenClearCalls).toBe(1);
     expect(h.store.purgeCalls).toBe(0);
 
-    // Timeout first wait; budget is not exhausted, so batch 1 runs
+    h.clock.t += MEMORY_RETENTION_LIMITS.governorMaxDeferMs;
     governor.release('timeout');
-
-    // Wait for batch 2's whenClear call to register before batch 2 runs
-    await governor.waitForWaiter();
-
-    expect(governor.whenClearCalls).toBe(2);
-    expect(h.store.purgeCalls).toBe(1);
-
-    // Second wait clears; batch 2 runs and the run completes
-    governor.release('clear');
     const report = (await runPromise) as MemoryRetentionRunReport;
 
-    expect(report.status).toBe('completed');
-    expect(h.store.purgeCalls).toBe(2);
-    expect(report.processedPurged).toBe(100);
+    expect(report).toMatchObject({
+      status: 'partial',
+      reason: 'governor-busy',
+      processedPurged: MEMORY_RETENTION_LIMITS.minBatchSize,
+      backlogRemaining: true,
+    });
+    expect(governor.clear).toBe(false);
+    expect(governor.whenClearCalls).toBe(1);
+    expect(h.store.purgeCalls).toBe(1);
+    expect(h.store.processed).toBe(
+      500 - MEMORY_RETENTION_LIMITS.minBatchSize,
+    );
+    expect(report.durationMs).toBe(
+      MEMORY_RETENTION_LIMITS.governorMaxDeferMs + 1_673,
+    );
+    expect(report.durationMs).toBeLessThan(
+      MEMORY_RETENTION_LIMITS.maxRunMs,
+    );
   });
 
   it('skips governor whenClear call when deadline has already passed', async () => {

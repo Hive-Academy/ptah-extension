@@ -90,6 +90,22 @@ export const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 export const RETENTION_BOOT_DEFERRAL_MS = 10 * 60 * 1000;
 /** Matches `skillSynthesis.drain.foregroundBackoffMs`' default. */
 export const RETENTION_FOREGROUND_BACKOFF_MS = 5 * 60 * 1000;
+/**
+ * A busy governor may defer one batch for at most this long. The live failure
+ * consumed 59,997 ms of a 60,000 ms run before its first batch. The measured
+ * worst event-loop block on that host was 2,912.9 ms, so 5 seconds gives the
+ * governor another ~2.1 seconds to observe clearance while preserving 55
+ * seconds of the run wall budget. A still-busy timeout is handled separately
+ * by `RetentionRunBudget`; it never unlocks repeated full-size batches.
+ */
+export const RETENTION_GOVERNOR_MAX_DEFER_MS = 5_000;
+/**
+ * The cron ticks hourly. After two foreground deferrals, the third eligible
+ * attempt runs under the normal bounded/yielding budgets, guaranteeing backlog
+ * progress at least every three hours even when concurrent sessions never let
+ * the foreground-idle gate open naturally.
+ */
+export const RETENTION_FOREGROUND_MAX_CONSECUTIVE_SKIPS = 2;
 
 export interface MemoryRetentionLimits {
   readonly maxRowsPerRun: number;
@@ -107,6 +123,8 @@ export interface MemoryRetentionLimits {
   readonly intervalMs: number;
   readonly bootDeferralMs: number;
   readonly foregroundBackoffMs: number;
+  readonly governorMaxDeferMs: number;
+  readonly foregroundMaxConsecutiveSkips: number;
 }
 
 export const MEMORY_RETENTION_LIMITS: MemoryRetentionLimits = Object.freeze({
@@ -125,6 +143,9 @@ export const MEMORY_RETENTION_LIMITS: MemoryRetentionLimits = Object.freeze({
   intervalMs: RETENTION_INTERVAL_MS,
   bootDeferralMs: RETENTION_BOOT_DEFERRAL_MS,
   foregroundBackoffMs: RETENTION_FOREGROUND_BACKOFF_MS,
+  governorMaxDeferMs: RETENTION_GOVERNOR_MAX_DEFER_MS,
+  foregroundMaxConsecutiveSkips:
+    RETENTION_FOREGROUND_MAX_CONSECUTIVE_SKIPS,
 });
 
 /** Finite number → truncated and clamped; anything else → `fallback`. */

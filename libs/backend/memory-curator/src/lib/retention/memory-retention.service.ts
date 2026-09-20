@@ -144,6 +144,9 @@ export class MemoryRetentionService {
   /** Advisory read failures from the latest lifecycle step in this process. */
   private lifecycleReadErrors: readonly string[] = [];
 
+  /** Consecutive eligible ticks held only by foreground activity. */
+  private consecutiveForegroundSkips = 0;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -236,8 +239,20 @@ export class MemoryRetentionService {
       return this.skip('boot-deferred', startedAt);
     }
     if (options.isOnBattery()) return this.skip('on-battery', startedAt);
-    if (options.msSinceForegroundActivity() < this.limits.foregroundBackoffMs) {
-      return this.skip('foreground-active', startedAt);
+    const foregroundActive =
+      options.msSinceForegroundActivity() < this.limits.foregroundBackoffMs;
+    let allowForegroundWork = false;
+    if (foregroundActive) {
+      if (
+        this.consecutiveForegroundSkips <
+        this.limits.foregroundMaxConsecutiveSkips
+      ) {
+        this.consecutiveForegroundSkips++;
+        return this.skip('foreground-active', startedAt);
+      }
+      allowForegroundWork = true;
+    } else {
+      this.consecutiveForegroundSkips = 0;
     }
     if (options.signal.aborted) return this.skip('aborted', startedAt);
 
@@ -260,7 +275,22 @@ export class MemoryRetentionService {
       return { status: 'skipped', reason: 'not-due' };
     }
 
-    return this.execute(options, settings, now, startedAt, state);
+    if (allowForegroundWork) {
+      this.consecutiveForegroundSkips = 0;
+      this.logger.info(
+        '[memory-curator] forcing retention after sustained foreground activity',
+        { skippedAttempts: this.limits.foregroundMaxConsecutiveSkips },
+      );
+    }
+
+    return this.execute(
+      options,
+      settings,
+      now,
+      startedAt,
+      state,
+      allowForegroundWork,
+    );
   }
 
   private async execute(
@@ -269,6 +299,7 @@ export class MemoryRetentionService {
     now: () => number,
     startedAt: number,
     previous: RetentionState | null,
+    allowForegroundWork: boolean,
   ): Promise<MemoryRetentionRunReport> {
     const limits = this.limits;
     const tally: RunTally = {
@@ -289,6 +320,7 @@ export class MemoryRetentionService {
       queueBatchSize: settings.batchSize,
       archiveBatchSize: settings.batchSize,
       deleteBatchSize: limits.memoryDeleteBatchSize,
+      allowForegroundWork,
     });
     let stop: RetentionStopReason | null = null;
     let failure: RetentionStepError | Error | null = null;
@@ -320,7 +352,7 @@ export class MemoryRetentionService {
           stop = 'row-budget';
           break;
         }
-        stop = await budget.waitForGovernor();
+        stop = await budget.waitForGovernor('queue');
         if (stop) break;
         const t0 = now();
         const batch = this.store.purgeProcessedBatch(
@@ -356,7 +388,7 @@ export class MemoryRetentionService {
             stop = 'row-budget';
             break;
           }
-          stop = await budget.waitForGovernor();
+          stop = await budget.waitForGovernor('queue');
           if (stop) break;
           const t0 = now();
           const batch = this.store.quarantineStuckBatch(

@@ -291,7 +291,7 @@ describe('build() wiring', () => {
     // argument ORDER is what this guard is pinning.
     const normalized = source.replace(/\s+/g, ' ');
     expect(normalized).toContain(
-      "settings: buildFlagSettingsArg( sessionConfig, 'accept', this.logger, autoCompact, ),",
+      "settings: buildFlagSettingsArg( sessionConfig, 'accept', this.logger, autoCompact, backingOffServers, ),",
     );
     // The bare reference is what this task replaced. If it reappears on the
     // options object, the flag tier stops carrying the style.

@@ -13,6 +13,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { randomUUID } from 'node:crypto';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
 import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
@@ -60,6 +61,7 @@ import {
   classifyCliNotice,
   type SessionMcpStatusCallbackRegistry,
 } from './session-mcp-status-callback-registry';
+import type { McpServerBackoffService } from './mcp-server-backoff.service';
 import {
   CanUseTool,
   HookEvent,
@@ -371,6 +373,7 @@ export function assertSingleOutputStylePath(
 export function buildFlagSettings(
   sessionConfig?: OutputStyleActivationFields,
   autoCompact?: AutoCompactSettings,
+  disabledMcpServers?: readonly string[],
 ): Settings {
   assertSingleOutputStylePath(sessionConfig);
   const styleName = sessionConfig?.outputStyleName?.trim();
@@ -382,13 +385,28 @@ export function buildFlagSettings(
       ? { autoCompactWindow: autoCompact.autoCompactWindow }
       : {}),
   };
-  if (!styleName && Object.keys(autoCompactKeys).length === 0) {
+  const mcpDisables: {
+    disabledMcpjsonServers?: string[];
+    deniedMcpServers?: { serverName: string }[];
+  } = {};
+  if (disabledMcpServers && disabledMcpServers.length > 0) {
+    mcpDisables.disabledMcpjsonServers = [...disabledMcpServers];
+    mcpDisables.deniedMcpServers = disabledMcpServers.map((serverName) => ({
+      serverName,
+    }));
+  }
+  if (
+    !styleName &&
+    Object.keys(autoCompactKeys).length === 0 &&
+    !mcpDisables.disabledMcpjsonServers
+  ) {
     return PTAH_DISABLE_SDK_AUTO_MEMORY;
   }
   return {
     ...PTAH_DISABLE_SDK_AUTO_MEMORY,
     ...(styleName ? { outputStyle: styleName } : {}),
     ...autoCompactKeys,
+    ...mcpDisables,
   };
 }
 
@@ -439,8 +457,13 @@ export function buildFlagSettingsArg(
   crossSessionInbound?: string,
   logger?: Pick<Logger, 'warn'>,
   autoCompact?: AutoCompactSettings,
+  disabledMcpServers?: readonly string[],
 ): string {
-  const settings = buildFlagSettings(sessionConfig, autoCompact);
+  const settings = buildFlagSettings(
+    sessionConfig,
+    autoCompact,
+    disabledMcpServers,
+  );
   if (crossSessionInbound === undefined) {
     return JSON.stringify(settings);
   }
@@ -704,6 +727,10 @@ export class SdkQueryOptionsBuilder {
       isOptional: true,
     })
     private readonly mcpStatus?: SessionMcpStatusCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE, {
+      isOptional: true,
+    })
+    private readonly mcpBackoffService?: McpServerBackoffService,
   ) {}
 
   /**
@@ -884,6 +911,29 @@ export class SdkQueryOptionsBuilder {
       mcpOverrides: redactMcpOverrideMap(mcpServersOverride),
     });
 
+    const backingOffServers =
+      this.mcpBackoffService?.getBackingOffServers() ?? [];
+    if (backingOffServers.length > 0) {
+      this.logger.warn(
+        `[SdkQueryOptionsBuilder] Suppressing ${backingOffServers.length} failed MCP server(s) under back-off: ${backingOffServers.join(', ')}`,
+      );
+    }
+
+    const configuredMcpServers = this.mergeMcpOverride(
+      // Same `routingId` the permission callback above is keyed on, and the
+      // same precedence `SessionQueryExecutor` uses for its registry key.
+      this.buildMcpServers(mcpServerRunning, routingId),
+      mcpServersOverride,
+    );
+    const mcpAttemptKey = routingId ? randomUUID() : undefined;
+    if (routingId && mcpAttemptKey) {
+      this.mcpBackoffService?.trackStderrSession(
+        routingId,
+        mcpAttemptKey,
+        abortController.signal,
+      );
+    }
+
     return {
       prompt: userMessageStream,
       options: {
@@ -908,17 +958,13 @@ export class SdkQueryOptionsBuilder {
           'accept',
           this.logger,
           autoCompact,
+          backingOffServers,
         ),
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
-        mcpServers: this.mergeMcpOverride(
-          // Same `routingId` the permission callback above is keyed on, and the
-          // same precedence `SessionQueryExecutor` uses for its registry key.
-          this.buildMcpServers(mcpServerRunning, routingId),
-          mcpServersOverride,
-        ),
+        mcpServers: configuredMcpServers,
         permissionMode,
         allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
         canUseTool: canUseToolCallback,
@@ -961,6 +1007,11 @@ export class SdkQueryOptionsBuilder {
             : {}),
         } as Record<string, string | undefined>,
         stderr: (data: string) => {
+          this.mcpBackoffService?.checkStderrForFailure(
+            data,
+            Date.now(),
+            mcpAttemptKey,
+          );
           // stderr is for logging/observability only. Stuck-session detection
           // is handled by the no-activity watchdog (NoActivityWatchdog),
           // NOT by pattern-matching stderr text — no session is aborted here.
@@ -974,18 +1025,16 @@ export class SdkQueryOptionsBuilder {
           // channel is correct here in a way it is not for `turn_state`. See
           // `SessionMcpStatusCallbackRegistry`'s file header.
           const notice = classifyCliNotice(data);
-          if (notice) {
+          const noticeSessionId = sessionIdResolver?.() ?? routingId;
+          if (notice && noticeSessionId) {
             // The SDK UUID once it exists, else the routing id the webview
             // already knows. The consumer re-keys on
             // `SessionIdResolvedCallbackRegistry`, so either is routable.
-            const noticeSessionId = sessionIdResolver?.() ?? routingId;
-            if (noticeSessionId) {
-              this.mcpStatus?.notifyAll({
-                kind: 'notice',
-                sessionId: noticeSessionId,
-                notice,
-              });
-            }
+            this.mcpStatus?.notifyAll({
+              kind: 'notice',
+              sessionId: noticeSessionId,
+              notice,
+            });
           }
           if (data.includes('[ERROR]')) {
             this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
