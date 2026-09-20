@@ -20,3 +20,5 @@ tools/degradation-audit/__fixtures__/__parse-failure__/
 # the committed bytes would differ from what those writers produce and every
 # regeneration or reconcile would surface as a diff. Keep prettier off them.
 .claude/
+
+.nx/self-healing
