@@ -174,4 +174,12 @@ jobs:
       - name: Run affected tests with coverage
         run: node node_modules/nx/bin/nx.js affected -t test --coverage --parallel=3 --maxWorkers=2
 
+      # `scripts/` is not an Nx project, so the step above cannot see it and the
+      # root `jest.config.ts` (`getJestProjectsAsync()`) cannot either. Run its
+      # standalone config explicitly — `scripts/drain-observation-queue.spec.ts`
+      # covers a script that DELETES rows from the production database, and an
+      # un-run spec rots into a false green.
+      - name: Run scripts/ tests
+        run: npm run test:scripts
+
       - run: npx nx affected -t build
