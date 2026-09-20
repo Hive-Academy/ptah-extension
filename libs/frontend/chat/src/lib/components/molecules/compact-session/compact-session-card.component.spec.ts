@@ -89,7 +89,7 @@ describe(CompactSessionCardComponent.name, () => {
   const permissionHandler = {
     permissionRequests: permissions.asReadonly(),
     questionRequests: questions.asReadonly(),
-    routingRevision: routingRevision.asReadonly(),
+    routingTargetRevision: routingRevision.asReadonly(),
     targetTabsFor: (id: string) => permissionTargets.get(id) ?? [],
     questionTargetTabsFor: (id: string) => questionTargets.get(id) ?? [],
   };
