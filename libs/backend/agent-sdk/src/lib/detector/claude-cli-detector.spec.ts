@@ -239,33 +239,42 @@ describe('ClaudeCliDetector — health check', () => {
 });
 
 describe('ClaudeCliDetector — timeout', () => {
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
   it('tree-kills the child and fails the probe when it never closes', async () => {
     jest.useFakeTimers();
-    scriptChildren({ hang: true });
-
-    const detector = new ClaudeCliDetector();
-    const verified = detector.verifyInstallation({
-      path: CONFIGURED_CMD,
-      source: 'config',
+    const realPlatform = process.platform;
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      configurable: true,
     });
+    try {
+      scriptChildren({ hang: true });
 
-    // Let the promise executor run, then expire the 10s verify timeout.
-    await Promise.resolve();
-    jest.advanceTimersByTime(10_000);
+      const detector = new ClaudeCliDetector();
+      const verified = detector.verifyInstallation({
+        path: CONFIGURED_CMD,
+        source: 'config',
+      });
 
-    await expect(verified).resolves.toBe(false);
-    expect(spawnedChildren).toHaveLength(1);
-    await Promise.resolve();
-    expect(spawnedChildren[0].kill).not.toHaveBeenCalled();
-    expect(mockExecFile).toHaveBeenCalledWith(
-      'taskkill',
-      ['/pid', '4242', '/T', '/F'],
-      expect.any(Function),
-    );
+      // Let the promise executor run, then expire the 10s verify timeout.
+      await Promise.resolve();
+      jest.advanceTimersByTime(10_000);
+
+      await expect(verified).resolves.toBe(false);
+      expect(spawnedChildren).toHaveLength(1);
+      await Promise.resolve();
+      expect(spawnedChildren[0].kill).not.toHaveBeenCalled();
+      expect(mockExecFile).toHaveBeenCalledWith(
+        'taskkill',
+        ['/pid', '4242', '/T', '/F'],
+        expect.any(Function),
+      );
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
   });
 });
 

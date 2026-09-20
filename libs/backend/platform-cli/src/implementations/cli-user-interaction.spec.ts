@@ -391,8 +391,60 @@ describe('CliUserInteraction — CLI-specific behaviour', () => {
       await jest.advanceTimersByTimeAsync(5_000);
 
       expect(kill).toHaveBeenCalledWith(-31337, 'SIGTERM');
-      expect(kill).toHaveBeenCalledWith(31337, 0);
+      expect(kill).toHaveBeenCalledWith(-31337, 0);
       expect(kill).toHaveBeenCalledWith(-31337, 'SIGKILL');
+    } finally {
+      jest.restoreAllMocks();
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
+  });
+
+  it('escalates to SIGKILL if launcher leader exits but group descendants remain alive', async () => {
+    jest.useFakeTimers();
+    const realPlatform = process.platform;
+    const kill = jest
+      .spyOn(process, 'kill')
+      .mockImplementation((pid, signal) => {
+        if (signal === 0) {
+          if (pid === 31338) {
+            throw new Error('ESRCH');
+          }
+          if (pid === -31338) {
+            return true;
+          }
+        }
+        return true;
+      });
+    try {
+      Object.defineProperty(process, 'platform', {
+        value: 'linux',
+        configurable: true,
+      });
+      const cp =
+        jest.requireMock<typeof import('child_process')>('child_process');
+      const eventsModule =
+        jest.requireActual<typeof import('events')>('events');
+      (cp.spawn as jest.Mock).mockImplementationOnce(() => {
+        const child = new eventsModule.EventEmitter() as ReturnType<
+          typeof cp.spawn
+        >;
+        Object.assign(child, { pid: 31338, killed: false });
+        return child;
+      });
+
+      const result = provider.openExternal('https://example.com');
+      jest.advanceTimersByTime(5_000);
+      await expect(result).resolves.toBe(false);
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(5_000);
+
+      expect(kill).toHaveBeenCalledWith(-31338, 'SIGTERM');
+      expect(kill).toHaveBeenCalledWith(-31338, 0);
+      expect(kill).toHaveBeenCalledWith(-31338, 'SIGKILL');
     } finally {
       jest.restoreAllMocks();
       Object.defineProperty(process, 'platform', {

@@ -55,10 +55,12 @@ import type {
 import type { AgentRoleDefinition } from '@ptah-extension/shared';
 import { transformAgentBody } from '@ptah-extension/harness-sync';
 
+import { KILL_GRACE_PERIOD } from '../agent-process-manager-helpers';
 import {
   assertCommandLineWithinLimit,
   buildTaskPrompt,
   CliCommandLineTooLongError,
+  killProcessTree,
   probeCliVersion,
   renderRoleBlock,
   resolveDirectSpawn,
@@ -806,5 +808,50 @@ describe('withAsarUnpackedTwin', () => {
 
     expect(result).toEqual([unpacked]);
     expect(result[0]).not.toContain('app.asar.unpacked.unpacked');
+  });
+});
+
+describe('killProcessTree POSIX escalation', () => {
+  const realPlatform = process.platform;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    Object.defineProperty(process, 'platform', {
+      value: 'linux',
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    Object.defineProperty(process, 'platform', {
+      value: realPlatform,
+      configurable: true,
+    });
+    jest.useRealTimers();
+  });
+
+  it('escalates to SIGKILL if the leader has exited but descendants in the process group remain alive', async () => {
+    const kill = jest
+      .spyOn(process, 'kill')
+      .mockImplementation((pid, signal) => {
+        if (signal === 0) {
+          if (pid === 9090) {
+            throw new Error('ESRCH');
+          }
+          if (pid === -9090) {
+            return true;
+          }
+        }
+        return true;
+      });
+
+    const reaped = killProcessTree(9090);
+    await jest.advanceTimersByTimeAsync(KILL_GRACE_PERIOD);
+    await reaped;
+
+    expect(kill).toHaveBeenCalledWith(-9090, 'SIGTERM');
+    expect(kill).toHaveBeenCalledWith(-9090, 0);
+    expect(kill).toHaveBeenCalledWith(-9090, 'SIGKILL');
   });
 });

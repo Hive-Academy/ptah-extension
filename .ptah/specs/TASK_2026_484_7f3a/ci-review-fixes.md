@@ -213,3 +213,84 @@ Observed per-library totals:
   libs/backend/workspace-intelligence: 1 ok (baseline 1)
 ```
 Status: Exit code 0 (PASS, zero violations over baseline).
+
+## Round 2 — group polling and platform-dependent specs
+
+The implementer lane landed the code but wrote no report section. This one is
+recorded by the orchestrator from the diff and from its own verification.
+
+### Defect A — the reaper polled the leader, not the group
+
+Every POSIX reaper signalled the process group with `process.kill(-pid, sig)`
+but polled liveness with `process.kill(pid, 0)`. If the leader exited while a
+descendant was still alive in the group, the poll threw `ESRCH`, the catch
+resolved cleanup, and the descendant never received the `SIGKILL` escalation.
+The reaper reported success while leaking the exact orphan this task exists to
+prevent. Found by CodeRabbit on PR #541.
+
+The poll now probes `-pid`, and an `isEsrch` narrowing resolves ONLY on `ESRCH`.
+Any other code — `EPERM` above all, which means the group still exists but this
+process may not signal it — keeps polling and still escalates after the grace
+period. Previously every error code resolved identically.
+
+Fixed at five sites. The reviewer listed four; the fifth is the canonical
+implementation, which had the same defect and was missed:
+
+| Site |
+| --- |
+| `libs/backend/cli-agent-runtime/.../cli-adapter.utils.ts` (canonical) |
+| `libs/backend/agent-sdk/src/lib/helpers/process-tree-reaper.ts` |
+| `libs/backend/platform-cli/src/implementations/cli-user-interaction.ts` |
+| `libs/backend/rpc-handlers/src/lib/utils/skills-sh-cli.ts` |
+| `libs/backend/workspace-intelligence/src/project-analysis/toolchain-probe.ts` |
+
+Windows is untouched: `taskkill /T` already walks the tree.
+
+### Defect B — a spec that passed for the wrong reason
+
+The CI `main` job failed on `claude-cli-detector.spec.ts:264`, a test this
+branch added:
+
+```
+Expected: "taskkill", ["/pid", "4242", "/T", "/F"], Any<Function>
+Number of calls: 0
+```
+
+The spec asserted the Windows branch without overriding `process.platform`. It
+passed on a Windows developer machine and failed on the Linux runner, where the
+reaper correctly took the POSIX path. This is the same defect the reviewer
+flagged in `claude-cli-path-resolver.spec.ts` in round 1.
+
+Every spec on this branch that asserts `taskkill` now pins `process.platform`
+explicitly and restores it, so the result no longer depends on the machine it
+runs on. Verified by inspection across all eight touched specs.
+`vscode-core/src/utils/exec-git.spec.ts` also asserts `taskkill` without
+pinning, but this branch does not modify it; it is pre-existing and out of
+scope.
+
+### Orchestrator correction
+
+The lane's edit deleted `const execFileAsync = promisify(execFile);` from
+`cli-adapter.utils.ts` while inserting its helper, which broke compilation for
+every CLI adapter suite with `TS2304: Cannot find name 'execFileAsync'`. The
+line was restored. The lane did not run the verification it was asked to run.
+
+### Verification
+
+```text
+NX   Running target test for 5 projects:
+- @ptah-extension/rpc-handlers
+- @ptah-extension/platform-cli
+- @ptah-extension/cli-agent-runtime
+- @ptah-extension/agent-sdk
+- @ptah-extension/workspace-intelligence
+NX   Successfully ran target test for 5 projects
+```
+
+- `cli-agent-runtime` 953 passed, `agent-sdk` 2036, `platform-cli` 221,
+  `rpc-handlers` 3130, `workspace-intelligence` 1119. Zero failures, exit 0.
+- `typecheck` green across the same 5.
+- `degradation-audit` exit 0.
+
+These runs are on Windows. The Linux result cannot be measured here; the claim
+is only that the specs no longer branch on the host platform.

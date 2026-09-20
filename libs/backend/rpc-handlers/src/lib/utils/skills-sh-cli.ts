@@ -43,6 +43,15 @@ import { SAFE_SKILL_ID_PATTERN } from '../handlers/skills-sh-rpc.schema';
 const PROCESS_TREE_KILL_GRACE_MS = 5_000;
 const PROCESS_LIVENESS_POLL_MS = 100;
 
+function isEsrch(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (('code' in error &&
+      (error as NodeJS.ErrnoException).code === 'ESRCH') ||
+      error.message.includes('ESRCH'))
+  );
+}
+
 /**
  * Local mirror of cli-agent-runtime's process-tree reaper. Importing that
  * library's internal utility would bypass its public API; keeping this small
@@ -80,11 +89,13 @@ async function killProcessTree(pid: number): Promise<void> {
     let waited = 0;
     const poll = (): void => {
       try {
-        process.kill(pid, 0);
-        // degradation-audit: optional-capability - ESRCH means the process has already exited, which is the awaited success outcome, not a failure; resolving here is the normal fast path this poll exists for.
-      } catch {
-        resolve();
-        return;
+        process.kill(-pid, 0);
+        // degradation-audit: optional-capability - ESRCH means the process group has already exited, which is the awaited success outcome, not a failure; resolving here is the normal fast path this poll exists for.
+      } catch (error: unknown) {
+        if (isEsrch(error)) {
+          resolve();
+          return;
+        }
       }
       waited += PROCESS_LIVENESS_POLL_MS;
       if (waited >= PROCESS_TREE_KILL_GRACE_MS) {

@@ -163,7 +163,52 @@ describe('runSkillsCli', () => {
       await jest.advanceTimersByTimeAsync(5_000);
 
       expect(kill).toHaveBeenCalledWith(-2468, 'SIGTERM');
-      expect(kill).toHaveBeenCalledWith(2468, 0);
+      expect(kill).toHaveBeenCalledWith(-2468, 0);
+      expect(kill).toHaveBeenCalledWith(-2468, 'SIGKILL');
+    } finally {
+      jest.restoreAllMocks();
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
+  });
+
+  it('escalates to SIGKILL if npx process leader exits but group descendants remain alive', async () => {
+    jest.useFakeTimers();
+    const realPlatform = process.platform;
+    const kill = jest
+      .spyOn(process, 'kill')
+      .mockImplementation((pid, signal) => {
+        if (signal === 0) {
+          if (pid === 2468) {
+            throw new Error('ESRCH');
+          }
+          if (pid === -2468) {
+            return true;
+          }
+        }
+        return true;
+      });
+    try {
+      Object.defineProperty(process, 'platform', {
+        value: 'linux',
+        configurable: true,
+      });
+
+      const promise = runSkillsCli(
+        ['add', 'anthropics/skills'],
+        '/tmp/staging',
+        50,
+      );
+      jest.advanceTimersByTime(50);
+      await expect(promise).resolves.toMatchObject({ exitCode: 124 });
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(5_000);
+
+      expect(kill).toHaveBeenCalledWith(-2468, 'SIGTERM');
+      expect(kill).toHaveBeenCalledWith(-2468, 0);
       expect(kill).toHaveBeenCalledWith(-2468, 'SIGKILL');
     } finally {
       jest.restoreAllMocks();

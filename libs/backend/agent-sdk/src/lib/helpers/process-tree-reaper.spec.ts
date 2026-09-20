@@ -31,7 +31,7 @@ describe('killProcessTree POSIX escalation', () => {
     await reaped;
 
     expect(kill).toHaveBeenCalledWith(-8080, 'SIGTERM');
-    expect(kill).toHaveBeenCalledWith(8080, 0);
+    expect(kill).toHaveBeenCalledWith(-8080, 0);
     expect(kill).toHaveBeenCalledWith(-8080, 'SIGKILL');
   });
 
@@ -39,7 +39,7 @@ describe('killProcessTree POSIX escalation', () => {
     const kill = jest
       .spyOn(process, 'kill')
       .mockImplementation((pid, signal) => {
-        if (pid === 8081 && signal === 0) {
+        if ((pid === 8081 || pid === -8081) && signal === 0) {
           throw new Error('ESRCH');
         }
         return true;
@@ -52,5 +52,29 @@ describe('killProcessTree POSIX escalation', () => {
     expect(kill).toHaveBeenCalledWith(-8081, 'SIGTERM');
     expect(kill).not.toHaveBeenCalledWith(-8081, 'SIGKILL');
     expect(kill).not.toHaveBeenCalledWith(8081, 'SIGKILL');
+  });
+
+  it('escalates to SIGKILL if the leader has exited but descendants in the process group remain alive', async () => {
+    const kill = jest
+      .spyOn(process, 'kill')
+      .mockImplementation((pid, signal) => {
+        if (signal === 0) {
+          if (pid === 8082) {
+            throw new Error('ESRCH');
+          }
+          if (pid === -8082) {
+            return true;
+          }
+        }
+        return true;
+      });
+
+    const reaped = killProcessTree(8082);
+    await jest.advanceTimersByTimeAsync(PROCESS_TREE_KILL_GRACE_MS);
+    await reaped;
+
+    expect(kill).toHaveBeenCalledWith(-8082, 'SIGTERM');
+    expect(kill).toHaveBeenCalledWith(-8082, 0);
+    expect(kill).toHaveBeenCalledWith(-8082, 'SIGKILL');
   });
 });

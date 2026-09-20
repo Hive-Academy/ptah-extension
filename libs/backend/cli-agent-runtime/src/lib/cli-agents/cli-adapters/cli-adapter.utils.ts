@@ -29,6 +29,15 @@ import { KILL_GRACE_PERIOD } from '../agent-process-manager-helpers';
 
 const execFileAsync = promisify(execFile);
 
+function isEsrch(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (('code' in error &&
+      (error as NodeJS.ErrnoException).code === 'ESRCH') ||
+      error.message.includes('ESRCH'))
+  );
+}
+
 /**
  * Cross-platform best-effort process-tree kill.
  * Windows: `taskkill /T /F` walks real Win32 PID ancestry (reaches the real
@@ -71,21 +80,23 @@ export async function killProcessTree(
 
   // Poll liveness so we resolve near-instantly when the process dies (the common
   // case) instead of always blocking the full grace period. The helper only has
-  // a pid, so it can't listen on a specific child's `exit` — `process.kill(pid, 0)`
-  // is the bare-pid equivalent (throws ESRCH once the process is gone). Escalate
+  // a pid, so it can't listen on a specific child's `exit` — `process.kill(-pid, 0)`
+  // is the process-group equivalent (throws ESRCH once the group is gone). Escalate
   // to SIGKILL only if it's still alive after KILL_GRACE_PERIOD.
   await new Promise<void>((resolve) => {
     const POLL_MS = 100;
     let waited = 0;
     const tick = (): void => {
       try {
-        process.kill(pid, 0); // liveness probe — throws ESRCH once gone
+        process.kill(-pid, 0); // liveness probe — throws ESRCH once group is gone
         // degradation-audit: optional-capability - ESRCH means the process has
         // already exited, which is the awaited success outcome, not a failure;
         // resolving here is the normal fast path this poll exists for.
-      } catch {
-        resolve();
-        return;
+      } catch (error: unknown) {
+        if (isEsrch(error)) {
+          resolve();
+          return;
+        }
       }
       waited += POLL_MS;
       if (waited >= KILL_GRACE_PERIOD) {
