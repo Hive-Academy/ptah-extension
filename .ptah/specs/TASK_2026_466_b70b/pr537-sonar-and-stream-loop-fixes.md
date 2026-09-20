@@ -14,7 +14,7 @@ Tracking document for SonarQube quality-gate and review findings remediation on 
   - `U+2066` (LEFT-TO-RIGHT ISOLATE) -> `\u2066`
   - `U+2069` (POP DIRECTIONAL ISOLATE) -> `\u2069`
 - **Changes & Rationale**:
-  Replaced the literal bidirectional control characters `'‮evil⁦name⁩'` with explicit escape sequences:
+  Replaced the three literal bidirectional control characters in the peer name fixture, written here by code point rather than literally, with explicit escape sequences:
   ```ts
   name: '\u202Eevil\u2066name\u2069',
   ```

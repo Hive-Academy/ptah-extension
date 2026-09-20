@@ -122,7 +122,7 @@ The live probe (`.ptah/specs/TASK_2026_465_a25a/agy-stream-json-probe.md:92-97`)
 #### Implementation Handling
 
 - In `handleStepUpdate` ([`antigravity-cli.adapter.ts:962-973`](../../../libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/antigravity-cli.adapter.ts#L962-L973)):
-  When `step.step_type === 'agent_response'` and `step.state === 'DONE'` with `step.usage`, per-turn usage is emitted:
+  When `step.step_type === 'agent_response'` and `step.state === 'DONE'` with `step.usage`, per-turn usage is emitted. The review round on PR #537 replaced the `?? 0` defaults recorded below: absent fields are now omitted, and an event carrying only `total_tokens` reports that total (see `pr537-antigravity-adapter-fixes.md`, finding 4). The reviewed form was:
   ```ts
   const usageStr = `Usage: ${step.usage.input_tokens ?? 0} input, ${step.usage.output_tokens ?? 0} output tokens`;
   emitOutput(`\n[${usageStr}]\n`);
@@ -168,7 +168,7 @@ if (this.streamJsonInputSupported !== undefined) {
 ```
 
 ([`antigravity-cli.adapter.ts:266-268`](../../../libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/antigravity-cli.adapter.ts#L266-L268)).
-`AntigravityCliAdapter` is registered as a DI singleton. If a user upgrades `agy` while the host process (e.g., VS Code extension host or Electron app) remains running, subsequent calls to `detect()` or `runSdk()` will return the cached boolean and will not re-probe `--help` until the host process restarts. This is an acceptable, minor edge case consistent with other CLI version caching in the codebase.
+`AntigravityCliAdapter` is registered as a DI singleton. The review round on PR #537 replaced this single boolean with a cache keyed by binary path, so two different `agy` binaries no longer share one probe result (see `pr537-antigravity-adapter-fixes.md`, finding 3). The remaining edge case is unchanged: if a user upgrades `agy` while the host process remains running, later calls to `detect()` or `runSdk()` read the cached answer for that path and do not re-probe `--help` until the host restarts. This is acceptable, and consistent with other CLI version caching in the codebase.
 
 ---
 
