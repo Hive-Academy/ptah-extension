@@ -274,23 +274,21 @@ export async function execute(
         if (ctx.sdkAdapter) {
           return { initialized: true };
         }
-        if (!sdkInitPromise) {
-          sdkInitPromise = (async () => {
-            try {
-              if (globals.verbose === true) {
-                process.stderr.write(
-                  '[ptah-mcp] initializing SDK adapter on demand\n',
-                );
-              }
-              const res = await ctx.initializeSdk();
-              return res;
-            } catch (err) {
-              const errorMessage =
-                err instanceof Error ? err.message : String(err);
-              return { initialized: false, errorMessage };
+        sdkInitPromise ??= (async () => {
+          try {
+            if (globals.verbose === true) {
+              process.stderr.write(
+                '[ptah-mcp] initializing SDK adapter on demand\n',
+              );
             }
-          })();
-        }
+            const res = await ctx.initializeSdk();
+            return res;
+          } catch (err) {
+            const errorMessage =
+              err instanceof Error ? err.message : String(err);
+            return { initialized: false, errorMessage };
+          }
+        })();
         const result = await sdkInitPromise;
         // A failure is never cached. `mcp-serve` outlives the condition that
         // caused it: the user adds a key in Settings while the server is up,

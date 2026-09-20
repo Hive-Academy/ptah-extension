@@ -648,31 +648,31 @@ function unsupportedJsonValueMessage(
  * O(1) length before copying, and arrays/objects stop being traversed as soon as
  * the byte or node budget is exceeded.
  */
-export function assertElectronStateWorkerPayloadWithinBudget(
-  input: unknown,
-  maxBytes = ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
-): number {
-  const seen = new WeakSet<object>();
-  let measuredBytes = 0;
-  let visitedNodes = 0;
+class WorkerPayloadBudgetMeasurer {
+  private readonly seen = new WeakSet<object>();
+  private measuredBytes = 0;
+  private visitedNodes = 0;
 
-  const addBytes = (bytes: number): void => {
-    measuredBytes += bytes;
-    if (measuredBytes > maxBytes) {
+  constructor(private readonly maxBytes: number) {}
+
+  public measure(input: unknown): number {
+    this.visit(input, 0, []);
+    return this.measuredBytes;
+  }
+
+  private addBytes(bytes: number): void {
+    this.measuredBytes += bytes;
+    if (this.measuredBytes > this.maxBytes) {
       throw new ElectronStateWorkerProtocolError(
         'PAYLOAD_TOO_LARGE',
-        `Worker message exceeds ${maxBytes} bytes`,
+        `Worker message exceeds ${this.maxBytes} bytes`,
       );
     }
-  };
+  }
 
-  const visit = (
-    value: unknown,
-    depth: number,
-    path: readonly (string | number)[],
-  ): void => {
-    visitedNodes++;
-    if (visitedNodes > MAX_PROTOCOL_NODES) {
+  private checkNodeAndDepthLimits(depth: number): void {
+    this.visitedNodes++;
+    if (this.visitedNodes > MAX_PROTOCOL_NODES) {
       throw new ElectronStateWorkerProtocolError(
         'PAYLOAD_TOO_LARGE',
         'Worker message contains too many values',
@@ -684,15 +684,35 @@ export function assertElectronStateWorkerPayloadWithinBudget(
         `Worker message exceeds nesting depth ${MAX_PROTOCOL_DEPTH}`,
       );
     }
+  }
+
+  private visit(
+    value: unknown,
+    depth: number,
+    path: readonly (string | number)[],
+  ): void {
+    this.checkNodeAndDepthLimits(depth);
 
     if (value === null) {
-      addBytes(4);
+      this.addBytes(4);
       return;
     }
+
+    if (this.measureScalar(value, path)) {
+      return;
+    }
+
+    this.measureComposite(value as object, depth, path);
+  }
+
+  private measureScalar(
+    value: unknown,
+    path: readonly (string | number)[],
+  ): boolean {
     switch (typeof value) {
       case 'string':
-        addBytes(8 + value.length * 2);
-        return;
+        this.addBytes(8 + value.length * 2);
+        return true;
       case 'number':
         if (!Number.isFinite(value)) {
           throw new ElectronStateWorkerProtocolError(
@@ -700,37 +720,40 @@ export function assertElectronStateWorkerPayloadWithinBudget(
             `Worker message contains a non-finite number at ${formatJsonPath(path)}`,
           );
         }
-        addBytes(8);
-        return;
+        this.addBytes(8);
+        return true;
       case 'boolean':
-        addBytes(4);
-        return;
+        this.addBytes(4);
+        return true;
       case 'object':
-        break;
+        return false;
       default:
         throw new ElectronStateWorkerProtocolError(
           'UNSUPPORTED_VALUE',
           unsupportedJsonValueMessage(value, path),
         );
     }
+  }
 
-    if (seen.has(value)) {
+  private measureComposite(
+    value: object,
+    depth: number,
+    path: readonly (string | number)[],
+  ): void {
+    if (this.seen.has(value)) {
       throw new ElectronStateWorkerProtocolError(
         'UNSUPPORTED_VALUE',
         `Worker message contains a cyclic value at ${formatJsonPath(path)}`,
       );
     }
-    seen.add(value);
+    this.seen.add(value);
     try {
       if (value instanceof Uint8Array) {
-        addBytes(16 + value.byteLength);
+        this.addBytes(16 + value.byteLength);
         return;
       }
       if (Array.isArray(value)) {
-        addBytes(16);
-        for (let index = 0; index < value.length; index++) {
-          visit(value[index], depth + 1, [...path, index]);
-        }
+        this.measureArray(value, depth, path);
         return;
       }
       if (!isPlainObject(value)) {
@@ -739,21 +762,44 @@ export function assertElectronStateWorkerPayloadWithinBudget(
           `Worker message contains a non-plain object at ${formatJsonPath(path)}`,
         );
       }
-      addBytes(16);
-      for (const key in value) {
-        if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
-        const nested = (value as Record<string, unknown>)[key];
-        if (nested === undefined) continue;
-        addBytes(8 + key.length * 2);
-        visit(nested, depth + 1, [...path, key]);
-      }
+      this.measureObject(value as Record<string, unknown>, depth, path);
     } finally {
-      seen.delete(value);
+      this.seen.delete(value);
     }
-  };
+  }
 
-  visit(input, 0, []);
-  return measuredBytes;
+  private measureArray(
+    arr: readonly unknown[],
+    depth: number,
+    path: readonly (string | number)[],
+  ): void {
+    this.addBytes(16);
+    for (let index = 0; index < arr.length; index++) {
+      this.visit(arr[index], depth + 1, [...path, index]);
+    }
+  }
+
+  private measureObject(
+    obj: Record<string, unknown>,
+    depth: number,
+    path: readonly (string | number)[],
+  ): void {
+    this.addBytes(16);
+    for (const key in obj) {
+      if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
+      const nested = obj[key];
+      if (nested === undefined) continue;
+      this.addBytes(8 + key.length * 2);
+      this.visit(nested, depth + 1, [...path, key]);
+    }
+  }
+}
+
+export function assertElectronStateWorkerPayloadWithinBudget(
+  input: unknown,
+  maxBytes = ELECTRON_STATE_WORKER_MESSAGE_MAX_BYTES,
+): number {
+  return new WorkerPayloadBudgetMeasurer(maxBytes).measure(input);
 }
 
 /**
@@ -817,75 +863,117 @@ export function electronStateWorkerPayloadFits(
   }
 }
 
+class JsonCompatibilityValidator {
+  private readonly activePath = new Set<object>();
+
+  constructor(private readonly maxDepth: number) {}
+
+  public validate(input: unknown): void {
+    this.visit(input, 0, []);
+  }
+
+  private visit(
+    value: unknown,
+    depth: number,
+    path: readonly (string | number)[],
+  ): void {
+    if (depth > this.maxDepth) {
+      throw new ElectronStateWorkerProtocolError(
+        'MAX_DEPTH_EXCEEDED',
+        `Worker message exceeds nesting depth ${this.maxDepth}`,
+      );
+    }
+    if (value === null) {
+      return;
+    }
+    if (this.validateScalar(value, path)) {
+      return;
+    }
+    this.validateComposite(value as object, depth, path);
+  }
+
+  private validateScalar(
+    value: unknown,
+    path: readonly (string | number)[],
+  ): boolean {
+    switch (typeof value) {
+      case 'boolean':
+      case 'string':
+        return true;
+      case 'number':
+        if (!Number.isFinite(value)) {
+          throw new ElectronStateWorkerProtocolError(
+            'UNSUPPORTED_VALUE',
+            `Worker message contains a non-finite number at ${formatJsonPath(path)}`,
+          );
+        }
+        return true;
+      case 'object':
+        return false;
+      default:
+        throw new ElectronStateWorkerProtocolError(
+          'UNSUPPORTED_VALUE',
+          unsupportedJsonValueMessage(value, path),
+        );
+    }
+  }
+
+  private validateComposite(
+    value: object,
+    depth: number,
+    path: readonly (string | number)[],
+  ): void {
+    if (this.activePath.has(value)) {
+      throw new ElectronStateWorkerProtocolError(
+        'UNSUPPORTED_VALUE',
+        `Worker message contains a cyclic value at ${formatJsonPath(path)}`,
+      );
+    }
+    this.activePath.add(value);
+    try {
+      if (Array.isArray(value)) {
+        this.validateArray(value, depth, path);
+        return;
+      }
+      if (!isPlainObject(value)) {
+        throw new ElectronStateWorkerProtocolError(
+          'UNSUPPORTED_VALUE',
+          `Worker message contains a non-plain object at ${formatJsonPath(path)}`,
+        );
+      }
+      this.validateObject(value as Record<string, unknown>, depth, path);
+    } finally {
+      this.activePath.delete(value);
+    }
+  }
+
+  private validateArray(
+    arr: readonly unknown[],
+    depth: number,
+    path: readonly (string | number)[],
+  ): void {
+    for (let index = 0; index < arr.length; index++) {
+      this.visit(arr[index], depth + 1, [...path, index]);
+    }
+  }
+
+  private validateObject(
+    obj: Record<string, unknown>,
+    depth: number,
+    path: readonly (string | number)[],
+  ): void {
+    for (const [key, nested] of Object.entries(obj)) {
+      if (nested === undefined) continue;
+      this.visit(nested, depth + 1, [...path, key]);
+    }
+  }
+}
+
 export function assertJsonCompatibleValue(
   input: unknown,
   maxDepth = MAX_PROTOCOL_DEPTH,
 ): void {
-  const activePath = new Set<object>();
-
-  const visit = (
-    value: unknown,
-    depth: number,
-    path: readonly (string | number)[],
-  ): void => {
-    if (depth > maxDepth) {
-      throw new ElectronStateWorkerProtocolError(
-        'MAX_DEPTH_EXCEEDED',
-        `Worker message exceeds nesting depth ${maxDepth}`,
-      );
-    }
-    if (value === null || typeof value === 'boolean') {
-      return;
-    }
-    if (typeof value === 'number') {
-      if (!Number.isFinite(value)) {
-        throw new ElectronStateWorkerProtocolError(
-          'UNSUPPORTED_VALUE',
-          `Worker message contains a non-finite number at ${formatJsonPath(path)}`,
-        );
-      }
-      return;
-    }
-    if (typeof value === 'string') {
-      return;
-    }
-    if (typeof value === 'object') {
-      if (activePath.has(value)) {
-        throw new ElectronStateWorkerProtocolError(
-          'UNSUPPORTED_VALUE',
-          `Worker message contains a cyclic value at ${formatJsonPath(path)}`,
-        );
-      }
-      activePath.add(value);
-      try {
-        if (Array.isArray(value)) {
-          for (let index = 0; index < value.length; index++) {
-            visit(value[index], depth + 1, [...path, index]);
-          }
-          return;
-        }
-        if (!isPlainObject(value)) {
-          throw new ElectronStateWorkerProtocolError(
-            'UNSUPPORTED_VALUE',
-            `Worker message contains a non-plain object at ${formatJsonPath(path)}`,
-          );
-        }
-        for (const [key, nested] of Object.entries(value)) {
-          if (nested === undefined) continue;
-          visit(nested, depth + 1, [...path, key]);
-        }
-        return;
-      } finally {
-        activePath.delete(value);
-      }
-    }
-    throw new ElectronStateWorkerProtocolError(
-      'UNSUPPORTED_VALUE',
-      unsupportedJsonValueMessage(value, path),
-    );
-  };
-
-  visit(input, 0, []);
+  new JsonCompatibilityValidator(maxDepth).validate(input);
 }
 
 export function parseElectronStateWorkerRequest(
