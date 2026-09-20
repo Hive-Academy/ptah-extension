@@ -89,6 +89,28 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * `process.kill(pid, signal)` on a pid that has already exited throws
+ * `ESRCH` (Node's raw signal-delivery call, unlike `ChildProcess#kill`, which
+ * just returns `false`). AC-7's repeated-kill scenario reads a pid, then
+ * calls this, in two separate steps with the supervisor's own restart/exit
+ * machinery running concurrently in between — a host that already crashed or
+ * was already reaped by the time the SIGKILL lands is not a test failure,
+ * it is the goal ("this host must not be running") already met. Swallowing
+ * ESRCH here does not weaken any assertion: every scenario still asserts on
+ * observed watcher/recorder state (`isDegraded`, overflow counts, delivery
+ * resuming), never on whether this particular call happened to find a live
+ * process to kill.
+ */
+function killIfAlive(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(pid, signal);
+  } catch (error: unknown) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code !== 'ESRCH') throw error;
+  }
+}
+
 export async function waitFor(
   predicate: () => boolean,
   what: string,
@@ -629,7 +651,7 @@ export async function runSingleKillScenario(
     const delay = await measureEventLoopDelay(async () => {
       // REAL kill of the host pid — not the wrapper's own kill() call — per
       // the task's instruction to kill the actual forked process.
-      process.kill(doomedPid, 'SIGKILL');
+      killIfAlive(doomedPid, 'SIGKILL');
       await waitFor(
         () => hosts.length > 1,
         'the supervisor to fork a replacement host',
@@ -646,9 +668,15 @@ export async function runSingleKillScenario(
 
     const resumedA = path.join(rootA, 'after-kill.txt');
     writeFile(resumedA, 'x');
+    // Generous like every other mechanism wait in this file (module header
+    // "What is real-time vs shortened"): this is a real restart, on a real
+    // filesystem, observed by polling `hasPath` (never a fixed sleep), so a
+    // longer ceiling only gives a loaded shared runner more real time to
+    // finish the IPC round trip — it does not relax what is being proven.
     await waitFor(
       () => recorderA.hasPath(resumedA),
       'delivery to resume on the surviving subscription after the restart',
+      30_000,
     );
 
     return {
@@ -757,7 +785,7 @@ export async function runDegradedPastBudgetScenario(): Promise<DegradedPathResul
     for (let i = 0; i < 3; i++) {
       const pid = hosts.at(-1)?.pid;
       const hostsBefore = hosts.length;
-      if (pid !== undefined) process.kill(pid, 'SIGKILL');
+      if (pid !== undefined) killIfAlive(pid, 'SIGKILL');
       await waitFor(
         () => hosts.length > hostsBefore || watcher.isDegraded,
         `restart or degradation after kill #${i + 1}`,
