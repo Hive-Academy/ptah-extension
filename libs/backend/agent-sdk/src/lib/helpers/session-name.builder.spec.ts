@@ -139,16 +139,34 @@ describe('buildUniqueSuffix — allocation id', () => {
   });
 
   it('encodes the process incarnation at millisecond resolution', () => {
-    const suffix = buildUniqueSuffix(ROUTING);
-    const stamp = suffix.slice(
-      HEAD + PID_WIDTH,
-      HEAD + PID_WIDTH + HOST_START_WIDTH,
-    );
-    const encodedStart = Number.parseInt(stamp, 36);
-    const expectedStart =
-      Date.now() - process.uptime() * 1000 - HOST_START_EPOCH_MILLISECONDS;
+    // An exact assertion, not a tolerance: a one-second tolerance accepts the
+    // very implementation this field replaced, one that rounds the host start
+    // to a whole second and so repeats across a same-second restart.
+    const nowSpy = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(HOST_START_EPOCH_MILLISECONDS + 1_234_567);
+    const uptimeSpy = jest.spyOn(process, 'uptime').mockReturnValue(0.567);
 
-    expect(Math.abs(encodedStart - expectedStart)).toBeLessThan(1_000);
+    try {
+      jest.isolateModules(() => {
+        // The stamp is read once, at module load, so the module has to be
+        // loaded again under the mocked clock.
+
+        const isolated = require('./session-name.builder') as {
+          buildUniqueSuffix: (routingId: string) => string;
+        };
+        const stamp = isolated
+          .buildUniqueSuffix(ROUTING)
+          .slice(HEAD + PID_WIDTH, HEAD + PID_WIDTH + HOST_START_WIDTH);
+
+        expect(stamp).toBe(
+          (1_234_000).toString(36).padStart(HOST_START_WIDTH, '0'),
+        );
+      });
+    } finally {
+      nowSpy.mockRestore();
+      uptimeSpy.mockRestore();
+    }
   });
 
   it('keeps its counter on globalThis, so two copies of this module cannot repeat an id', () => {

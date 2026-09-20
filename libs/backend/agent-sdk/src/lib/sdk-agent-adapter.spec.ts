@@ -1942,6 +1942,13 @@ describe('SdkAgentAdapter', () => {
       );
       await deliverInit(h, REAL_ID);
 
+      // The refusal has to be the registry's answer to THIS session's token.
+      // Without this, the test still passes if `resumeSession` drops it.
+      expect(h.sessionLifecycle.bindRealSessionId).toHaveBeenCalledWith(
+        TAB_ID,
+        REAL_ID,
+        'stale-owner',
+      );
       expect(h.metadataStore.touch).not.toHaveBeenCalled();
     });
 
@@ -1958,6 +1965,31 @@ describe('SdkAgentAdapter', () => {
       await startSessionWithPrompt(h, registry);
       await deliverInit(h, '   ');
 
+      expect(seen).toEqual([]);
+    });
+
+    // The resume path reaches the same blank id from the same place, and it
+    // can run with no tabId at all — so the binding check is not there to stop
+    // it. Without its own guard, a blank id touches metadata under '' and
+    // resolves the webview to ''.
+    it('does not touch metadata or resolve on a blank resume session id', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const seen = captureResolved(h);
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+        sessionToken: 'resume-owner',
+      } as ExecuteQueryResult);
+
+      await h.adapter.resumeSession(
+        REAL_ID as SessionId,
+        makeSessionConfig({ tabId: TAB_ID }),
+      );
+      await deliverInit(h, '   ');
+
+      expect(h.metadataStore.touch).not.toHaveBeenCalled();
       expect(seen).toEqual([]);
     });
   });

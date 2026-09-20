@@ -864,6 +864,17 @@ export class SdkAgentAdapter implements IAgentAdapter {
       tabId: string | undefined,
       realSessionId: string,
     ) => {
+      // Same rule as `createSessionIdCallback`: `StreamTransformer` forwards
+      // `sdkMessage.session_id` verbatim, and a resume without a tabId reaches
+      // neither `bindRefused` nor any other check, so a blank id would touch
+      // the metadata store under '' and resolve the webview to ''.
+      if (blankToUndefined(realSessionId) === undefined) {
+        this.logger.warn(
+          `[SdkAgentAdapter] Resume reported an empty session id — skipping metadata touch and resolve notification (tabId: ${tabId})`,
+        );
+        return;
+      }
+
       if (tabId && this.bindRefused(tabId, realSessionId, sessionToken)) {
         return;
       }
