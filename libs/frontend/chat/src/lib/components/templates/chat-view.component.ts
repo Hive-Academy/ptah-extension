@@ -299,10 +299,15 @@ export class ChatViewComponent implements OnDestroy {
   /**
    * Whether the chat view host is narrower than the overlay breakpoint.
    * When true and the agent panel is open, the panel renders as a full-surface overlay.
+   *
+   * A width of 0 means "not measured yet" and fails toward the overlay while the
+   * panel is open, so a tile that mounts narrow with the panel already open never
+   * shows the squeezed column. That branch assumes the width becomes known almost
+   * at once — `observeHostWidth` guarantees it by seeding a width even where
+   * `ResizeObserver` is missing, so 0 is transient and never a resting state.
    */
   protected readonly isOverlay = computed(() => {
     const width = this.hostWidth();
-    // Unknown width fails toward overlay only while open, avoiding an initial squeezed render.
     return width === 0
       ? this.agentPanelOpen()
       : width < AGENT_PANEL_OVERLAY_BREAKPOINT;
@@ -322,7 +327,16 @@ export class ChatViewComponent implements OnDestroy {
       this._hostWidth.set(initialWidth);
     }
 
-    if (typeof ResizeObserver === 'undefined') return;
+    // Without ResizeObserver the width would stay 0 forever, and `isOverlay`
+    // would then track only the open state — a wide host would overlay. Seed the
+    // window width instead: the tile may be narrower, but the layout degrades to
+    // the pre-existing column rather than to a permanent overlay.
+    if (typeof ResizeObserver === 'undefined') {
+      if (this._hostWidth() === 0) {
+        this._hostWidth.set(window.innerWidth);
+      }
+      return;
+    }
 
     this.resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
