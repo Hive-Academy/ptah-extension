@@ -11,6 +11,11 @@ describe('NotificationFocusCoordinator', () => {
     tabId: 'tab-1',
     sessionId: 'session-1',
   };
+  const closedSessionTarget = {
+    workspacePath: '/workspace/a',
+    tabId: 'closed-tab',
+    sessionId: '00000000-0000-4000-8000-000000000001',
+  };
   const tab = { id: 'tab-1', claudeSessionId: 'session-1' };
   const order: string[] = [];
   const requestCanvasFocus = jest.fn();
@@ -62,12 +67,12 @@ describe('NotificationFocusCoordinator', () => {
     coordinator = TestBed.inject(NotificationFocusCoordinator);
   });
 
-  it('runs view, grid, workspace and acknowledged canvas focus in strict order', async () => {
+  it('switches workspace before setting view, grid, and acknowledged canvas focus', async () => {
     await expect(coordinator.focus(target)).resolves.toEqual({
       success: true,
       outcome: 'focused',
     });
-    expect(order).toEqual(['view', 'layout:grid', 'workspace', 'canvas']);
+    expect(order).toEqual(['workspace', 'view', 'layout:grid', 'canvas']);
   });
 
   it('returns missing before navigation when the target no longer resolves', async () => {
@@ -78,6 +83,21 @@ describe('NotificationFocusCoordinator', () => {
       outcome: 'missing',
     });
     expect(order).toEqual([]);
+  });
+
+  it('lets a valid closed session continue so the canvas can reopen it', async () => {
+    findByTab.mockReturnValue(null);
+    findBySession.mockReturnValue(null);
+
+    await expect(coordinator.focus(closedSessionTarget)).resolves.toEqual({
+      success: true,
+      outcome: 'focused',
+    });
+    expect(requestCanvasFocus).toHaveBeenCalledWith({
+      ...closedSessionTarget,
+      tabId: undefined,
+    });
+    expect(order).toEqual(['workspace', 'view', 'layout:grid', 'canvas']);
   });
 
   it('falls back to the full single view when the canvas cap is reached', async () => {
@@ -98,13 +118,13 @@ describe('NotificationFocusCoordinator', () => {
     const second = coordinator.focus({ ...target, tabId: 'tab-2' });
     await Promise.all([first, second]);
     expect(order).toEqual([
+      'workspace',
       'view',
       'layout:grid',
-      'workspace',
       'canvas',
+      'workspace',
       'view',
       'layout:grid',
-      'workspace',
       'canvas',
     ]);
   });

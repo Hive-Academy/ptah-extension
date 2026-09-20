@@ -85,10 +85,12 @@ describe('NotificationSoundService', () => {
   });
 
   it('stays silent when a suspended context cannot resume', async () => {
-    resume.mockRejectedValueOnce(new Error('blocked'));
+    resume.mockRejectedValue(new Error('blocked'));
     const service = create();
     await service.observeTrustedGesture();
-    expect(service.playBurst()).toBe(false);
+    expect(service.playBurst()).toBe(true);
+    await Promise.resolve();
+    expect(start).not.toHaveBeenCalled();
   });
 
   it('plays one generated envelope and applies the two-second cooldown', async () => {
@@ -97,6 +99,19 @@ describe('NotificationSoundService', () => {
     expect(service.playBurst(1000)).toBe(true);
     expect(service.playBurst(2999)).toBe(false);
     expect(service.playBurst(3000)).toBe(true);
+    expect(start).toHaveBeenCalledTimes(2);
+  });
+
+  it('resumes a context suspended after the initial gesture and then plays', async () => {
+    const service = create();
+    await service.observeTrustedGesture();
+    expect(service.playBurst(1000)).toBe(true);
+    state = 'suspended';
+
+    expect(service.playBurst(3000)).toBe(true);
+    expect(start).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    expect(resume).toHaveBeenCalledTimes(2);
     expect(start).toHaveBeenCalledTimes(2);
   });
 

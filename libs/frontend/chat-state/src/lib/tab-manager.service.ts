@@ -164,7 +164,9 @@ export class TabManagerService {
 
   private readonly _tabs = signal<TabState[]>([]);
   private readonly _activeTabId = signal<string | null>(null);
-  private readonly _terminalTurnPulse = signal<TerminalTurnPulse | null>(null);
+  private readonly _terminalTurnPulses = signal<readonly TerminalTurnPulse[]>(
+    [],
+  );
   private _terminalTurnPulseSeq = 0;
 
   /**
@@ -301,7 +303,7 @@ export class TabManagerService {
 
   readonly tabs = this._tabs.asReadonly();
   readonly activeTabId = this._activeTabId.asReadonly();
-  readonly terminalTurnPulse = this._terminalTurnPulse.asReadonly();
+  readonly terminalTurnPulses = this._terminalTurnPulses.asReadonly();
 
   /** Read-only signal of tab IDs that are currently streaming (visual indicator only) */
   readonly streamingTabIds = this._streamingTabIds.asReadonly();
@@ -1282,7 +1284,7 @@ export class TabManagerService {
           ? 'success'
           : 'error';
       this._terminalTurnPulseSeq += 1;
-      this._terminalTurnPulse.set({
+      const pulse: TerminalTurnPulse = {
         seq: this._terminalTurnPulseSeq,
         tabId,
         sessionId: resolvedSessionId,
@@ -1293,8 +1295,15 @@ export class TabManagerService {
         classification,
         title: tab.title,
         occurredAt: Date.now(),
-      });
+      };
+      this._terminalTurnPulses.update((pulses) => [...pulses, pulse]);
     }
+  }
+
+  takeTerminalTurnPulses(): readonly TerminalTurnPulse[] {
+    const pulses = this._terminalTurnPulses();
+    if (pulses.length > 0) this._terminalTurnPulses.set([]);
+    return pulses;
   }
 
   /**

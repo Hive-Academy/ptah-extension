@@ -38,7 +38,6 @@ export class NotificationCenterStore {
     [],
   );
   private readonly _announcement = signal('');
-  private lastPulseSeq = 0;
   private knownPromptIds = new Set<string>();
   private burstTimer: ReturnType<typeof setTimeout> | null = null;
   private burstCompletionCount = 0;
@@ -60,13 +59,17 @@ export class NotificationCenterStore {
     },
   );
 
-  readonly unreadCount = computed(
-    () =>
-      this.pendingEntries().filter((entry) => entry.target !== null).length +
+  readonly unreadCount = computed(() => {
+    const pendingSourceCount = new Set(
+      this.pendingEntries().map((entry) => entry.sourceId),
+    ).size;
+    return (
+      pendingSourceCount +
       this._completionEntries().filter(
         (entry) => entry.readAt === null && !entry.dismissed,
-      ).length,
-  );
+      ).length
+    );
+  });
 
   readonly completionGroups = computed<readonly CompletionNotificationGroup[]>(
     () => this.groupCompletions(this._completionEntries()),
@@ -74,11 +77,11 @@ export class NotificationCenterStore {
 
   constructor() {
     effect(() => {
-      const pulse = this.tabManager.terminalTurnPulse();
-      if (!pulse || pulse.seq <= this.lastPulseSeq) return;
-      this.lastPulseSeq = pulse.seq;
-      if (this.appendCompletion(pulse)) {
-        this.queueBurst(1, pulse.classification === 'error' ? 1 : 0);
+      if (this.tabManager.terminalTurnPulses().length === 0) return;
+      for (const pulse of this.tabManager.takeTerminalTurnPulses()) {
+        if (this.appendCompletion(pulse)) {
+          this.queueBurst(1, pulse.classification === 'error' ? 1 : 0);
+        }
       }
     });
     effect(() => {

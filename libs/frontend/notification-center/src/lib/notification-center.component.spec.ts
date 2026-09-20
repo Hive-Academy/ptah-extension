@@ -15,16 +15,64 @@ import { By } from '@angular/platform-browser';
 import { NotificationCenterComponent } from './notification-center.component';
 import { NotificationCenterStore } from './notification-center.store';
 import { NotificationSoundService } from './notification-sound.service';
+import type {
+  CompletionNotificationEntry,
+  CompletionNotificationGroup,
+  PendingNotificationEntry,
+} from './notification-center.types';
 
 describe('NotificationCenterComponent', () => {
   const unreadCount = signal(12);
-  const pendingEntries = signal<readonly never[]>([]);
-  const completionGroups = signal<readonly never[]>([]);
+  const pendingEntries = signal<readonly PendingNotificationEntry[]>([]);
+  const completionGroups = signal<readonly CompletionNotificationGroup[]>([]);
   const announcement = signal('12 sessions finished; 3 need attention');
   const activateCompletion = jest.fn();
   const activatePrompt = jest.fn();
   const markAllRead = jest.fn();
+  const dismissCompletion = jest.fn();
   const muted = signal(false);
+  const completion: CompletionNotificationEntry = {
+    kind: 'completion',
+    id: 'session-1:1',
+    revision: 1,
+    tabId: 'tab-1',
+    sessionId: 'session-1',
+    workspacePath: '/workspace/a',
+    workspaceLabel: 'a',
+    title: 'Build release',
+    sessionColor: 'oklch(70% 0.1 100)',
+    phase: 'idle',
+    terminalReason: 'completed',
+    classification: 'success',
+    occurredAt: 1,
+    readAt: null,
+    dismissed: false,
+    target: {
+      workspacePath: '/workspace/a',
+      tabId: 'tab-1',
+      sessionId: 'session-1',
+    },
+  };
+  const prompt: PendingNotificationEntry = {
+    kind: 'permission',
+    id: 'permission:p-1:tab-1',
+    sourceId: 'p-1',
+    sessionId: 'session-1',
+    workspacePath: '/workspace/a',
+    workspaceLabel: 'a',
+    title: 'Run tests',
+    statusText: 'Needs permission',
+    occurredAt: 1,
+    target: completion.target,
+    source: {
+      id: 'p-1',
+      toolName: 'Bash',
+      toolInput: {},
+      timestamp: 1,
+      description: 'Run tests',
+      timeoutAt: 0,
+    },
+  };
 
   beforeEach(async () => {
     unreadCount.set(12);
@@ -32,6 +80,11 @@ describe('NotificationCenterComponent', () => {
     completionGroups.set([]);
     announcement.set('12 sessions finished; 3 need attention');
     jest.clearAllMocks();
+    activateCompletion.mockResolvedValue({
+      success: true,
+      outcome: 'focused',
+    });
+    activatePrompt.mockResolvedValue({ success: true, outcome: 'focused' });
     await TestBed.configureTestingModule({
       imports: [NotificationCenterComponent],
       providers: [
@@ -45,6 +98,7 @@ describe('NotificationCenterComponent', () => {
             activateCompletion,
             activatePrompt,
             markAllRead,
+            dismissCompletion,
           },
         },
         {
@@ -100,4 +154,76 @@ describe('NotificationCenterComponent', () => {
       '12 sessions finished; 3 need attention',
     );
   });
+
+  it('closes the panel after successful completion and prompt activation', fakeAsync(() => {
+    completionGroups.set([
+      {
+        id: 'group-1',
+        workspacePath: '/workspace/a',
+        workspaceLabel: 'a',
+        classification: 'success',
+        occurredAt: 1,
+        entries: [completion],
+      },
+    ]);
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    fixture.debugElement
+      .query(By.css('[data-testid="notification-center-bell"]'))
+      .nativeElement.click();
+    fixture.detectChanges();
+    tick();
+    fixture.debugElement
+      .query(By.css('.notification-row'))
+      .nativeElement.click();
+    tick();
+    fixture.detectChanges();
+    expect(activateCompletion).toHaveBeenCalledWith(completion);
+    expect(fixture.debugElement.query(By.css('[role="dialog"]'))).toBeNull();
+
+    completionGroups.set([]);
+    pendingEntries.set([prompt]);
+    fixture.detectChanges();
+    fixture.debugElement
+      .query(By.css('[data-testid="notification-center-bell"]'))
+      .nativeElement.click();
+    fixture.detectChanges();
+    tick();
+    fixture.debugElement
+      .query(By.css('.notification-row'))
+      .nativeElement.click();
+    tick();
+    fixture.detectChanges();
+    expect(activatePrompt).toHaveBeenCalledWith(prompt);
+    expect(fixture.debugElement.query(By.css('[role="dialog"]'))).toBeNull();
+  }));
+
+  it('renders a keyboard-reachable dismiss control for each completion', fakeAsync(() => {
+    completionGroups.set([
+      {
+        id: 'group-1',
+        workspacePath: '/workspace/a',
+        workspaceLabel: 'a',
+        classification: 'success',
+        occurredAt: 1,
+        entries: [completion],
+      },
+    ]);
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    fixture.debugElement
+      .query(By.css('[data-testid="notification-center-bell"]'))
+      .nativeElement.click();
+    fixture.detectChanges();
+    tick();
+    const dismiss = fixture.debugElement.query(
+      By.css('[aria-label="Dismiss Build release"]'),
+    ).nativeElement as HTMLButtonElement;
+
+    expect(dismiss.tagName).toBe('BUTTON');
+    expect(dismiss.tabIndex).toBe(0);
+    dismiss.click();
+    expect(dismissCompletion).toHaveBeenCalledWith(completion.id);
+    expect(activateCompletion).not.toHaveBeenCalled();
+  }));
 });

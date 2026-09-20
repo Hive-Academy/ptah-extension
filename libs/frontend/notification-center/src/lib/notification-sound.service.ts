@@ -66,12 +66,33 @@ export class NotificationSoundService {
       !this.enabled ||
       this._muted() ||
       !context ||
-      context.state !== 'running' ||
       now - this.lastPlayedAt < COOLDOWN_MS
     ) {
       return false;
     }
+    if (context.state === 'suspended') {
+      this.lastPlayedAt = now;
+      void context
+        .resume()
+        .then(() => {
+          if (context.state === 'running' && !this._muted()) {
+            this.playEnvelope(context);
+          }
+        })
+        .catch((_error: unknown) => {
+          // degradation-audit: optional-capability - browser autoplay policy
+          // may reject a background resume; notifications remain available
+          // visually and a later burst can retry after the cooldown.
+        });
+      return true;
+    }
+    if (context.state !== 'running') return false;
     this.lastPlayedAt = now;
+    this.playEnvelope(context);
+    return true;
+  }
+
+  private playEnvelope(context: AudioContext): void {
     const oscillator = context.createOscillator();
     const gain = context.createGain();
     oscillator.type = 'sine';
@@ -87,7 +108,6 @@ export class NotificationSoundService {
     gain.connect(context.destination);
     oscillator.start(context.currentTime);
     oscillator.stop(context.currentTime + 0.17);
-    return true;
   }
 
   private readMutePreference(): boolean {

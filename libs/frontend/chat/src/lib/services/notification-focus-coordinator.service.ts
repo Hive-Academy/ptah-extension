@@ -34,15 +34,17 @@ export class NotificationFocusCoordinator implements NotificationFocusRouter {
     target: NotificationFocusTarget,
   ): Promise<NotificationFocusResult> {
     const initial = this.resolve(target);
-    if (!initial) return { success: false, outcome: 'missing' };
+    if (!initial && !SessionId.safeParse(target.sessionId)) {
+      return { success: false, outcome: 'missing' };
+    }
 
+    await this.workspaceCoordinator.switchWorkspace(target.workspacePath);
     this.appState.setCurrentView('chat');
     this.appState.setLayoutMode('grid');
-    await this.workspaceCoordinator.switchWorkspace(target.workspacePath);
     const canvasResult = await this.appState.requestCanvasFocus({
       ...target,
-      tabId: initial.tab.id,
-      sessionId: initial.tab.claudeSessionId ?? target.sessionId,
+      tabId: initial?.tab.id,
+      sessionId: initial?.tab.claudeSessionId ?? target.sessionId,
     });
     if (canvasResult.success || canvasResult.outcome !== 'cap-reached') {
       return canvasResult;

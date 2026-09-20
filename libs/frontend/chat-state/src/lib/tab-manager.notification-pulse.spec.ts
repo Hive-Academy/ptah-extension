@@ -65,7 +65,7 @@ describe('TabManagerService terminal notification pulse', () => {
     service.attachSession(tabId, sessionId);
     service.applyTurnState(tabId, turnState('generating', 1), sessionId);
     service.applyTurnState(tabId, turnState('idle', 2, 'completed'), sessionId);
-    expect(service.terminalTurnPulse()).toMatchObject({
+    expect(service.terminalTurnPulses().at(-1)).toMatchObject({
       seq: 1,
       tabId,
       sessionId,
@@ -74,7 +74,7 @@ describe('TabManagerService terminal notification pulse', () => {
       classification: 'success',
     });
     service.applyTurnState(tabId, turnState('idle', 2, 'completed'), sessionId);
-    expect(service.terminalTurnPulse()?.seq).toBe(1);
+    expect(service.terminalTurnPulses().at(-1)?.seq).toBe(1);
   });
 
   it.each([
@@ -87,7 +87,7 @@ describe('TabManagerService terminal notification pulse', () => {
     service.attachSession(tabId, sessionId);
     service.applyTurnState(tabId, turnState('generating', 1), sessionId);
     service.applyTurnState(tabId, turnState(phase, 2, reason), sessionId);
-    expect(service.terminalTurnPulse()?.classification).toBe('error');
+    expect(service.terminalTurnPulses().at(-1)?.classification).toBe('error');
   });
 
   it('does not complete on background wait or sleep alone', () => {
@@ -100,7 +100,7 @@ describe('TabManagerService terminal notification pulse', () => {
       sessionId,
     );
     service.applyTurnState(tabId, turnState('sleeping', 3), sessionId);
-    expect(service.terminalTurnPulse()).toBeNull();
+    expect(service.terminalTurnPulses()).toEqual([]);
   });
 
   it('repairs a terminal heal without manufacturing a replay notification', () => {
@@ -112,7 +112,7 @@ describe('TabManagerService terminal notification pulse', () => {
     expect(service.tabs().find((tab) => tab.id === tabId)?.status).toBe(
       'loaded',
     );
-    expect(service.terminalTurnPulse()).toBeNull();
+    expect(service.terminalTurnPulses()).toEqual([]);
   });
 
   it.each(['awaiting-background', 'sleeping'] as const)(
@@ -126,7 +126,44 @@ describe('TabManagerService terminal notification pulse', () => {
         turnState('idle', 2, 'completed'),
         sessionId,
       );
-      expect(service.terminalTurnPulse()?.classification).toBe('success');
+      expect(service.terminalTurnPulses().at(-1)?.classification).toBe(
+        'success',
+      );
     },
   );
+
+  it('queues two terminal turns completed in one synchronous batch', () => {
+    const firstSessionId = SessionId.create();
+    const secondSessionId = SessionId.create();
+    const firstTabId = service.createTab('first');
+    const secondTabId = service.createTab('second');
+    service.attachSession(firstTabId, firstSessionId);
+    service.attachSession(secondTabId, secondSessionId);
+
+    service.applyTurnState(
+      firstTabId,
+      turnState('generating', 1),
+      firstSessionId,
+    );
+    service.applyTurnState(
+      secondTabId,
+      turnState('generating', 1),
+      secondSessionId,
+    );
+    service.applyTurnState(
+      firstTabId,
+      turnState('idle', 2, 'completed'),
+      firstSessionId,
+    );
+    service.applyTurnState(
+      secondTabId,
+      turnState('idle', 2, 'completed'),
+      secondSessionId,
+    );
+
+    expect(
+      service.takeTerminalTurnPulses().map((pulse) => pulse.sessionId),
+    ).toEqual([firstSessionId, secondSessionId]);
+    expect(service.terminalTurnPulses()).toEqual([]);
+  });
 });

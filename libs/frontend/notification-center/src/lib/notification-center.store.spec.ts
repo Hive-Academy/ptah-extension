@@ -22,7 +22,7 @@ import { NotificationCenterStore } from './notification-center.store';
 import { NotificationSoundService } from './notification-sound.service';
 
 describe('NotificationCenterStore', () => {
-  const pulse = signal<TerminalTurnPulse | null>(null);
+  const pulses = signal<readonly TerminalTurnPulse[]>([]);
   const permissions = signal<PermissionRequest[]>([]);
   const questions = signal<never[]>([]);
   const routingRevision = signal(0);
@@ -37,10 +37,16 @@ describe('NotificationCenterStore', () => {
     name: 'Build release',
     claudeSessionId: 'session-1',
   };
+  const secondTab = {
+    id: 'tab-2',
+    title: 'Second build',
+    name: 'Second build',
+    claudeSessionId: 'session-2',
+  };
 
   beforeEach(() => {
     jest.useFakeTimers();
-    pulse.set(null);
+    pulses.set([]);
     permissions.set([]);
     routingRevision.set(0);
     targets.clear();
@@ -52,9 +58,20 @@ describe('NotificationCenterStore', () => {
         {
           provide: TabManagerService,
           useValue: {
-            terminalTurnPulse: pulse,
-            findTabByIdAcrossWorkspaces: (id: string) =>
-              id === tab.id ? { tab, workspacePath: '/workspace/a' } : null,
+            terminalTurnPulses: pulses,
+            takeTerminalTurnPulses: () => {
+              const queued = pulses();
+              pulses.set([]);
+              return queued;
+            },
+            findTabByIdAcrossWorkspaces: (id: string) => {
+              const found = [tab, secondTab].find(
+                (candidate) => candidate.id === id,
+              );
+              return found
+                ? { tab: found, workspacePath: '/workspace/a' }
+                : null;
+            },
             findTabBySessionIdAcrossWorkspaces: (id: string) =>
               id === tab.claudeSessionId
                 ? { tab, workspacePath: '/workspace/a' }
@@ -82,19 +99,22 @@ describe('NotificationCenterStore', () => {
   afterEach(() => jest.useRealTimers());
 
   function emit(seq: number, overrides: Partial<TerminalTurnPulse> = {}): void {
-    pulse.set({
-      seq,
-      tabId: 'tab-1',
-      sessionId: `session-${seq}`,
-      workspacePath: '/workspace/a',
-      revision: seq,
-      phase: 'idle',
-      terminalReason: 'completed',
-      classification: 'success',
-      title: `Run ${seq}`,
-      occurredAt: seq * 100,
-      ...overrides,
-    });
+    pulses.update((queued) => [
+      ...queued,
+      {
+        seq,
+        tabId: 'tab-1',
+        sessionId: `session-${seq}`,
+        workspacePath: '/workspace/a',
+        revision: seq,
+        phase: 'idle',
+        terminalReason: 'completed',
+        classification: 'success',
+        title: `Run ${seq}`,
+        occurredAt: seq * 100,
+        ...overrides,
+      },
+    ]);
     TestBed.flushEffects();
   }
 
@@ -102,19 +122,62 @@ describe('NotificationCenterStore', () => {
     for (let seq = 1; seq <= 80; seq += 1) emit(seq);
     expect(store.completionEntries()).toHaveLength(75);
     const latest = store.completionEntries().at(-1);
-    const currentPulse = pulse();
-    pulse.set(
-      latest && currentPulse
-        ? {
-            ...currentPulse,
-            seq: 81,
-            sessionId: latest.sessionId,
-            revision: latest.revision,
-          }
-        : null,
+    pulses.set(
+      latest
+        ? [
+            {
+              seq: 81,
+              tabId: latest.tabId,
+              sessionId: latest.sessionId,
+              workspacePath: latest.workspacePath,
+              revision: latest.revision,
+              phase: latest.phase,
+              terminalReason: latest.terminalReason,
+              classification: latest.classification,
+              title: latest.title,
+              occurredAt: latest.occurredAt,
+            },
+          ]
+        : [],
     );
     TestBed.flushEffects();
     expect(store.completionEntries()).toHaveLength(75);
+  });
+
+  it('records two terminal turns emitted in one synchronous batch', () => {
+    pulses.set([
+      {
+        seq: 1,
+        tabId: 'tab-1',
+        sessionId: 'session-1',
+        workspacePath: '/workspace/a',
+        revision: 1,
+        phase: 'idle',
+        terminalReason: 'completed',
+        classification: 'success',
+        title: 'Run 1',
+        occurredAt: 100,
+      },
+      {
+        seq: 2,
+        tabId: 'tab-2',
+        sessionId: 'session-2',
+        workspacePath: '/workspace/a',
+        revision: 1,
+        phase: 'idle',
+        terminalReason: 'completed',
+        classification: 'success',
+        title: 'Run 2',
+        occurredAt: 101,
+      },
+    ]);
+
+    TestBed.flushEffects();
+
+    expect(store.completionEntries().map((entry) => entry.sessionId)).toEqual([
+      'session-1',
+      'session-2',
+    ]);
   });
 
   it('groups a workspace burst without erasing individual targets', () => {
@@ -143,6 +206,45 @@ describe('NotificationCenterStore', () => {
     expect(store.pendingEntries()[0]?.target?.tabId).toBe('tab-1');
     permissions.set([]);
     expect(store.pendingEntries()).toEqual([]);
+  });
+
+  it('counts one prompt source whether its target is unavailable or fanned out', () => {
+    const request: PermissionRequest = {
+      id: 'permission-count',
+      toolName: 'Bash',
+      toolInput: {},
+      timestamp: 1,
+      description: 'Run tests',
+      timeoutAt: 0,
+    };
+    permissions.set([request]);
+    expect(store.pendingEntries()[0]?.target).toBeNull();
+    expect(store.unreadCount()).toBe(1);
+
+    targets.set(request.id, ['tab-1', 'tab-2']);
+    routingRevision.update((value) => value + 1);
+    expect(store.pendingEntries()).toHaveLength(2);
+    expect(store.unreadCount()).toBe(1);
+  });
+
+  it('does not count a dismissed completion as unread', () => {
+    emit(1);
+    const entry = store.completionEntries()[0];
+    expect(store.unreadCount()).toBe(1);
+    expect(entry).toBeDefined();
+    if (!entry) return;
+
+    store.dismissCompletion(entry.id);
+
+    expect(store.unreadCount()).toBe(0);
+  });
+
+  it('counts the same completed turn only once', () => {
+    emit(1);
+    emit(2, { sessionId: 'session-1', revision: 1 });
+
+    expect(store.completionEntries()).toHaveLength(1);
+    expect(store.unreadCount()).toBe(1);
   });
 
   it('marks completions read only after successful focus and never hides prompts', async () => {
