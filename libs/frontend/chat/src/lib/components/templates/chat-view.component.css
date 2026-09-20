@@ -1,6 +1,7 @@
 :host {
   display: block;
   height: 100%;
+  position: relative;
 }
 
 /* Custom scrollbar for message container

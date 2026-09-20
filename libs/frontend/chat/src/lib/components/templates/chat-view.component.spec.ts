@@ -59,7 +59,10 @@ jest.mock('ngx-markdown', () => {
 });
 
 import { TestBed } from '@angular/core/testing';
-import { ChatViewComponent } from './chat-view.component';
+import {
+  ChatViewComponent,
+  AGENT_PANEL_OVERLAY_BREAKPOINT,
+} from './chat-view.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
@@ -1572,5 +1575,124 @@ describe('ChatViewComponent — panel resize coalescing and teardown (TASK_2026_
     expect(spy).not.toHaveBeenCalled();
 
     spy.mockRestore();
+  });
+});
+
+describe('agent panel narrow overlay mode', () => {
+  let h: ReturnType<typeof makeHarness>;
+  let resizeCallbacks: ResizeObserverCallback[];
+  let observeMock: jest.Mock;
+  let disconnectMock: jest.Mock;
+  let originalResizeObserver: typeof ResizeObserver | undefined;
+
+  beforeEach(() => {
+    resizeCallbacks = [];
+    observeMock = jest.fn();
+    disconnectMock = jest.fn();
+    originalResizeObserver = global.ResizeObserver;
+
+    global.ResizeObserver = jest.fn().mockImplementation((cb: ResizeObserverCallback) => {
+      resizeCallbacks.push(cb);
+      return {
+        observe: observeMock,
+        unobserve: jest.fn(),
+        disconnect: disconnectMock,
+      };
+    }) as unknown as typeof ResizeObserver;
+  });
+
+  afterEach(() => {
+    if (originalResizeObserver) {
+      global.ResizeObserver = originalResizeObserver;
+    } else {
+      delete (global as Record<string, unknown>)['ResizeObserver'];
+    }
+    h?.fixture.destroy();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('turns on overlay state below the breakpoint and off at or above it', () => {
+    h = makeHarness();
+    expect(AGENT_PANEL_OVERLAY_BREAKPOINT).toBe(600);
+
+    // Below breakpoint
+    h.component.hostWidth.set(500);
+    expect(h.component.isOverlay()).toBe(true);
+
+    h.component.hostWidth.set(599);
+    expect(h.component.isOverlay()).toBe(true);
+
+    // At breakpoint
+    h.component.hostWidth.set(600);
+    expect(h.component.isOverlay()).toBe(false);
+
+    // Above breakpoint
+    h.component.hostWidth.set(800);
+    expect(h.component.isOverlay()).toBe(false);
+  });
+
+  it('observes host element with ResizeObserver and updates hostWidth and isOverlay', () => {
+    h = makeHarness();
+    expect(observeMock).toHaveBeenCalledWith(h.fixture.nativeElement);
+
+    // Simulate resize observer triggering with narrow width
+    const entryNarrow = {
+      contentRect: { width: 520 },
+      target: h.fixture.nativeElement,
+    } as unknown as ResizeObserverEntry;
+
+    resizeCallbacks[0]([entryNarrow], {} as ResizeObserver);
+    expect(h.component.hostWidth()).toBe(520);
+    expect(h.component.isOverlay()).toBe(true);
+
+    // Simulate resize observer triggering with wide width
+    const entryWide = {
+      contentRect: { width: 850 },
+      target: h.fixture.nativeElement,
+    } as unknown as ResizeObserverEntry;
+
+    resizeCallbacks[0]([entryWide], {} as ResizeObserver);
+    expect(h.component.hostWidth()).toBe(850);
+    expect(h.component.isOverlay()).toBe(false);
+  });
+
+  it('closes the overlay when Escape is pressed while in overlay mode and panel is open', () => {
+    h = makeHarness();
+    h.component.hostWidth.set(500);
+    h.component.agentPanelOpen.set(true);
+    expect(h.component.isOverlay()).toBe(true);
+    expect(h.component.agentPanelOpen()).toBe(true);
+
+    // The binding is host-scoped, not document-scoped: a canvas holds many
+    // chat tiles and Escape must close only the tile it was pressed in.
+    h.fixture.nativeElement.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+
+    expect(h.component.agentPanelOpen()).toBe(false);
+  });
+
+  it('does not close the panel on Escape when in wide mode', () => {
+    h = makeHarness();
+    h.component.hostWidth.set(800);
+    h.component.agentPanelOpen.set(true);
+    expect(h.component.isOverlay()).toBe(false);
+    expect(h.component.agentPanelOpen()).toBe(true);
+
+    h.fixture.nativeElement.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+
+    // Wide mode: panel stays open
+    expect(h.component.agentPanelOpen()).toBe(true);
+  });
+
+  it('disconnects ResizeObserver on fixture destroy', () => {
+    h = makeHarness();
+    expect(disconnectMock).not.toHaveBeenCalled();
+
+    h.fixture.destroy();
+    expect(disconnectMock).toHaveBeenCalled();
   });
 });
