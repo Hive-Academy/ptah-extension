@@ -786,7 +786,7 @@ class WorkerPayloadBudgetMeasurer {
   ): void {
     this.addBytes(16);
     for (const key in obj) {
-      if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
+      if (!Object.hasOwn(obj, key)) continue;
       const nested = obj[key];
       if (nested === undefined) continue;
       this.addBytes(8 + key.length * 2);
