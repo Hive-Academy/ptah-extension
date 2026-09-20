@@ -233,6 +233,10 @@ export type {
 } from './workspace-watch/workspace-watch-protocol';
 export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
 export {
+  PROCESS_TREE_KILL_GRACE_MS,
+  killProcessTree,
+} from './utils/process-tree-reaper';
+export {
   createExecutableEditorDefinitions,
   detectEditorTargets,
   EDITOR_DESCRIPTORS,

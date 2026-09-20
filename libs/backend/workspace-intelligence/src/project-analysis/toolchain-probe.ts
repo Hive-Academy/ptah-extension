@@ -19,7 +19,7 @@
  */
 
 import crossSpawn from 'cross-spawn';
-import { execFile } from 'node:child_process';
+import { killProcessTree } from '@ptah-extension/platform-core';
 import type {
   StackProfile,
   ToolchainProbeResult,
@@ -27,71 +27,6 @@ import type {
 
 /** Probes are one-shot version queries; a slow one is a broken one. */
 const DEFAULT_PROBE_TIMEOUT_MS = 5000;
-/** Must remain aligned with cli-agent-runtime's canonical KILL_GRACE_PERIOD. */
-const PROCESS_TREE_KILL_GRACE_MS = 5_000;
-const PROCESS_LIVENESS_POLL_MS = 100;
-
-function isEsrch(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (('code' in error &&
-      (error as NodeJS.ErrnoException).code === 'ESRCH') ||
-      error.message.includes('ESRCH'))
-  );
-}
-
-/** Boundary-local mirror of the repository process-tree reaper. */
-async function killProcessTree(pid: number): Promise<void> {
-  if (process.platform === 'win32') {
-    try {
-      await new Promise<void>((resolve) => {
-        execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () =>
-          resolve(),
-        );
-      });
-    } catch {
-      // Best effort: the probe may already have exited.
-    }
-    return;
-  }
-
-  const killGroup = (signal: NodeJS.Signals): void => {
-    try {
-      process.kill(-pid, signal);
-    } catch {
-      try {
-        process.kill(pid, signal);
-      } catch {
-        // Best effort: the probe may already have exited.
-      }
-    }
-  };
-
-  killGroup('SIGTERM');
-  await new Promise<void>((resolve) => {
-    let waited = 0;
-    const poll = (): void => {
-      try {
-        process.kill(-pid, 0);
-        // degradation-audit: optional-capability - ESRCH means the process group has already exited, which is the awaited success outcome, not a failure; resolving here is the normal fast path this poll exists for.
-      } catch (error: unknown) {
-        if (isEsrch(error)) {
-          resolve();
-          return;
-        }
-      }
-      waited += PROCESS_LIVENESS_POLL_MS;
-      if (waited >= PROCESS_TREE_KILL_GRACE_MS) {
-        killGroup('SIGKILL');
-        resolve();
-        return;
-      }
-      setTimeout(poll, PROCESS_LIVENESS_POLL_MS).unref?.();
-    };
-    setTimeout(poll, PROCESS_LIVENESS_POLL_MS).unref?.();
-  });
-}
-
 export interface ToolchainProbeOptions {
   /** Milliseconds before the probe is killed and reported not-installed. */
   readonly timeoutMs?: number;

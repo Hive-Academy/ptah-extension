@@ -26,12 +26,12 @@ import whichLib from 'which';
 import { inject, injectable } from 'tsyringe';
 import { z } from 'zod';
 import {
+  killProcessTree,
   PLATFORM_TOKENS,
   type IStateStorage,
 } from '@ptah-extension/platform-core';
 import { ClaudeCliHealth } from '@ptah-extension/shared';
 import { SdkError } from '../errors';
-import { killProcessTree } from '../helpers/process-tree-reaper';
 import { ClaudeCliPathResolver } from './claude-cli-path-resolver';
 
 export interface ClaudeInstallation {

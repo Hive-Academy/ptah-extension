@@ -36,7 +36,7 @@
  */
 
 import crossSpawn from 'cross-spawn';
-import { killProcessTree } from '../helpers/process-tree-reaper';
+import { killProcessTree } from '@ptah-extension/platform-core';
 
 const PROCESS_START_PROBE_TIMEOUT_MS = 30_000;
 

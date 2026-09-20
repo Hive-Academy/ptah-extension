@@ -48,13 +48,18 @@ jest.mock('which', () => ({
   default: { sync: (...args: unknown[]) => mockWhichSync(...args) },
 }));
 
-// The Windows tree kill spawns `taskkill` through `child_process.spawn`. Mocked
-// so a timeout or output-cap spec can never aim a real kill at a fake pid.
-const mockTreeKill = jest.fn((..._args: unknown[]) => new EventEmitter());
-jest.mock('child_process', () => ({
-  ...jest.requireActual('child_process'),
-  spawn: (...args: unknown[]) => mockTreeKill(...args),
-}));
+// Tree termination is shared by platform-core. Mock that public boundary so a
+// timeout or output-cap spec can never aim a real kill at a fake pid.
+const mockTreeKill = jest.fn().mockResolvedValue(undefined);
+jest.mock('@ptah-extension/platform-core', () => {
+  const actual = jest.requireActual<
+    typeof import('@ptah-extension/platform-core')
+  >('@ptah-extension/platform-core');
+  return {
+    ...actual,
+    killProcessTree: (...args: unknown[]) => mockTreeKill(...args),
+  };
+});
 
 // `os.setPriority` is mocked so background-priority specs never touch a real
 // process and can observe the call.
@@ -871,11 +876,7 @@ describe('git process supervision', () => {
     expect(held[0].kill).toHaveBeenCalledWith('SIGTERM');
     await drain();
     if (process.platform === 'win32') {
-      expect(mockTreeKill).toHaveBeenCalledWith(
-        'taskkill',
-        ['/F', '/T', '/PID', '4242'],
-        expect.anything(),
-      );
+      expect(mockTreeKill).toHaveBeenCalledWith(4242);
     }
 
     const second = execGit(['rev-parse', 'HEAD'], WS, BG);
@@ -1022,11 +1023,7 @@ describe('git process supervision', () => {
 
     expect(held[0].kill).toHaveBeenCalledWith('SIGTERM');
     if (process.platform === 'win32') {
-      expect(mockTreeKill).toHaveBeenCalledWith(
-        'taskkill',
-        ['/F', '/T', '/PID', '4242'],
-        expect.anything(),
-      );
+      expect(mockTreeKill).toHaveBeenCalledWith(4242);
     }
 
     const next = execGit(['status'], WS, BG);

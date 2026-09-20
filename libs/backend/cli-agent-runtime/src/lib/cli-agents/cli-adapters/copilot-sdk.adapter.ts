@@ -57,10 +57,12 @@ import {
   resolveCliPath,
   resolveDirectSpawn,
   spawnCli,
-  killProcessTree,
   createBufferedEmitter,
 } from './cli-adapter.utils';
-import type { IProcessSpawner } from '@ptah-extension/platform-core';
+import {
+  killProcessTree,
+  type IProcessSpawner,
+} from '@ptah-extension/platform-core';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
 import { classifyCliStderr } from './cli-stderr-severity';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';

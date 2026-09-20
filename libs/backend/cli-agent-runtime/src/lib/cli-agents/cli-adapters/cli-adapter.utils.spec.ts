@@ -55,12 +55,14 @@ import type {
 import type { AgentRoleDefinition } from '@ptah-extension/shared';
 import { transformAgentBody } from '@ptah-extension/harness-sync';
 
-import { KILL_GRACE_PERIOD } from '../agent-process-manager-helpers';
+import {
+  killProcessTree,
+  PROCESS_TREE_KILL_GRACE_MS as KILL_GRACE_PERIOD,
+} from '@ptah-extension/platform-core';
 import {
   assertCommandLineWithinLimit,
   buildTaskPrompt,
   CliCommandLineTooLongError,
-  killProcessTree,
   probeCliVersion,
   renderRoleBlock,
   resolveDirectSpawn,
