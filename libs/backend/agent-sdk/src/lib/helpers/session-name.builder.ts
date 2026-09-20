@@ -81,21 +81,20 @@ const ROUTING_ID_HEAD_LENGTH = 6;
 const PID_WIDTH = 7;
 
 /**
- * Base of the host-start clock, `2020-01-01T00:00:00Z` in seconds.
+ * Base of the host-start clock, `2020-01-01T00:00:00Z` in milliseconds.
  *
  * The stamp is an OFFSET from this instant, not a raw epoch, so it fits an
- * exact width for longer. Seconds, not milliseconds: the stamp separates two
- * host processes that held the same pid at different times, and a recycled pid
- * is never handed out inside the same second as its predecessor's exit.
+ * exact width for longer. Millisecond resolution prevents a host restarted in
+ * the same wall-clock second from repeating the previous incarnation field.
  */
-const HOST_START_EPOCH_SECONDS = 1_577_836_800;
+const HOST_START_EPOCH_MILLISECONDS = 1_577_836_800_000;
 
 /**
- * Base-36 width of the host-start stamp. Six characters hold 2_176_782_335
- * seconds, which runs from 2020 to 2088. Exact width for the same reason
+ * Base-36 width of the host-start stamp. Eight characters hold 2_821_109_907_455
+ * milliseconds, which runs from 2020 to 2109. Exact width for the same reason
  * `PID_WIDTH` is.
  */
-const HOST_START_WIDTH = 6;
+const HOST_START_WIDTH = 8;
 
 /** Minimum base-36 width of the per-process sequence number. */
 const SEQUENCE_WIDTH = 2;
@@ -118,23 +117,30 @@ interface AllocationState {
 
 function allocationState(): AllocationState {
   const host = globalThis as unknown as Record<symbol, AllocationState>;
-  return (host[ALLOCATION_STATE_KEY] ??= { sequence: 0 });
+  const existing = host[ALLOCATION_STATE_KEY];
+  if (existing) {
+    return existing;
+  }
+  const created = { sequence: 0 };
+  host[ALLOCATION_STATE_KEY] = created;
+  return created;
 }
 
 /**
- * The instant this host process started minting names, as an exact-width
- * base-36 offset from `HOST_START_EPOCH_SECONDS`. Read once.
+ * The instant this host process started, as an exact-width base-36 offset from
+ * `HOST_START_EPOCH_MILLISECONDS`. Read once.
  */
 const hostStartStamp = Math.max(
   0,
-  Math.floor(Date.now() / 1000) - HOST_START_EPOCH_SECONDS,
+  Math.floor(Date.now() - process.uptime() * 1000) -
+    HOST_START_EPOCH_MILLISECONDS,
 )
   .toString(36)
   .padStart(HOST_START_WIDTH, '0');
 
 /**
  * Identity of one allocation:
- * `<pid base 36, 7 wide><host start base 36, 6 wide><sequence base 36>`.
+ * `<pid base 36, 7 wide><host start base 36, 8 wide><sequence base 36>`.
  *
  * Uniqueness is DERIVED, not drawn. A random nonce cannot meet the criterion
  * this has to meet — it only makes a collision unlikely. Two live sessions are
@@ -151,10 +157,10 @@ const hostStartStamp = Math.max(
  *    them, and it is the field that covers the case this task met in the field:
  *    a named CLI child outliving the host that spawned it.
  *
- * The one residue: two hosts that start inside the same second AND are handed
- * the same pid. An operating system does not recycle a pid to a process
- * starting in the same second its predecessor exited, so this needs the system
- * clock to be moved backwards between the two starts.
+ * Millisecond process-start resolution prevents a host restarted inside the
+ * same wall-clock second from repeating the incarnation field. Reusing the
+ * complete allocation id would require the system clock to be moved to the
+ * same millisecond while the operating system also recycles the same pid.
  */
 function buildAllocationId(): string {
   const state = allocationState();

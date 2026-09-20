@@ -864,11 +864,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
       tabId: string | undefined,
       realSessionId: string,
     ) => {
-      await this.metadataStore.touch(realSessionId);
-
       if (tabId && this.bindRefused(tabId, realSessionId, sessionToken)) {
         return;
       }
+
+      await this.metadataStore.touch(realSessionId);
 
       this.callbacks.emitSessionIdResolved(tabId, realSessionId);
       // ALONGSIDE the single-slot setter above, never instead of it. Fired on
@@ -957,12 +957,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
         `[SdkAgentAdapter] Saving session metadata for ${realSessionId} (tabId: ${tabId})`,
       );
 
+      if (tabId && this.bindRefused(tabId, realSessionId, sessionToken)) {
+        return;
+      }
+
       await this.metadataStore.create(realSessionId, workspaceId, sessionName);
 
       if (tabId) {
-        if (this.bindRefused(tabId, realSessionId, sessionToken)) {
-          return;
-        }
         // The bind above is what makes `resolveActivityIds` answer with the
         // SDK UUID, so the first turn's buffered activity is published here —
         // after the bind, under the canonical id.

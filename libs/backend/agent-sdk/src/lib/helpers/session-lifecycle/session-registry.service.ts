@@ -579,7 +579,10 @@ export class SessionRegistry {
       return;
     }
     this.byTabId.delete(tabId);
-    if (previous.realSessionId !== null) {
+    if (
+      previous.realSessionId !== null &&
+      this.bySessionId.get(previous.realSessionId) === previous
+    ) {
       this.bySessionId.delete(previous.realSessionId);
     }
     this.logger.warn(

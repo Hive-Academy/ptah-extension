@@ -67,6 +67,25 @@ describe('SessionRegistry — a tab restarted into a second process', () => {
     expect(registry.getActiveSessionCount()).toBe(1);
   });
 
+  it('keeps a live session index that no longer belongs to the displaced record', () => {
+    const registry = new SessionRegistry(makeLogger());
+    const otherTab = '44444444-4444-4444-8444-444444444444';
+
+    registry.register(TAB, makeConfig(), new AbortController());
+    registry.bindRealSessionId(TAB, OLD_SESSION);
+
+    const liveOwner = registry.register(
+      otherTab,
+      makeConfig(),
+      new AbortController(),
+    );
+    registry.bindRealSessionId(otherTab, OLD_SESSION);
+
+    registry.register(TAB, makeConfig(), new AbortController());
+
+    expect(registry.find(OLD_SESSION)).toBe(liveOwner);
+  });
+
   it('lets the NEW process bind, because the fresh record starts unbound', () => {
     const registry = new SessionRegistry(makeLogger());
 

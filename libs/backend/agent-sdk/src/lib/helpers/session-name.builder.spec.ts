@@ -107,7 +107,8 @@ describe('buildUniqueSuffix — allocation id', () => {
   const ROUTING = 'abcdef01-2345-6789-abcd-ef0123456789';
   const HEAD = 6;
   const PID_WIDTH = 7;
-  const HOST_START_WIDTH = 6;
+  const HOST_START_WIDTH = 8;
+  const HOST_START_EPOCH_MILLISECONDS = 1_577_836_800_000;
 
   it('encodes the pid at an EXACT width, so the fields stay self-delimiting', () => {
     // Round-2 review finding: `padStart` gives a MINIMUM width. At six the
@@ -135,6 +136,19 @@ describe('buildUniqueSuffix — allocation id', () => {
     // Not the zero floor: that would mean the clock read before 2020 and the
     // field would separate nothing.
     expect(stamp(first)).not.toBe('0'.repeat(HOST_START_WIDTH));
+  });
+
+  it('encodes the process incarnation at millisecond resolution', () => {
+    const suffix = buildUniqueSuffix(ROUTING);
+    const stamp = suffix.slice(
+      HEAD + PID_WIDTH,
+      HEAD + PID_WIDTH + HOST_START_WIDTH,
+    );
+    const encodedStart = Number.parseInt(stamp, 36);
+    const expectedStart =
+      Date.now() - process.uptime() * 1000 - HOST_START_EPOCH_MILLISECONDS;
+
+    expect(Math.abs(encodedStart - expectedStart)).toBeLessThan(1_000);
   });
 
   it('keeps its counter on globalThis, so two copies of this module cannot repeat an id', () => {
