@@ -61,11 +61,14 @@ That is the pegged core.
 ## Scope
 
 1. Stop the change-detection amplification in `StreamingQuotesComponent`.
-   Angular signals do **not** need Zone to propagate — a signal write still
-   notifies OnPush consumers through the signal graph. Running the interval
-   outside the Angular zone should therefore remove the per-tick
-   `ApplicationRef.tick()` while keeping the animation correct. Verify that
-   claim rather than assuming it.
+   The original hypothesis — that running the interval and signal writes
+   outside `NgZone` would remove `ApplicationRef.tick()` — was verified and
+   rejected: Angular's `ChangeDetectionSchedulerImpl` still schedules
+   `ApplicationRef._tick()` for dirty signal consumers even when written outside
+   the Angular zone. The shipped fix removes the signal and template binding
+   entirely, runs the interval outside `NgZone`, and writes quote fragments
+   directly to the owned DOM element via `textContent`, avoiding change
+   detection passes completely.
 2. Fix the period bug and the dangling handle.
 3. Delete `StreamingTextRevealComponent` and its spec and barrel exports.
 4. Delete `BackgroundAgentStore.tick` and the interval that drives it, if and

@@ -564,7 +564,12 @@ export function probeWriteLock(dbPath: string): LivenessFinding[] {
   }
 }
 
-function collectLivenessFindings(
+export type LivenessChecker = (
+  dbPath: string,
+  dryRun: boolean,
+) => { blocking: LivenessFinding[]; advisory: LivenessFinding[] };
+
+export function collectLivenessFindings(
   dbPath: string,
   dryRun: boolean,
 ): { blocking: LivenessFinding[]; advisory: LivenessFinding[] } {
@@ -1014,7 +1019,10 @@ export function assertUnprocessedUnchanged(
   }
 }
 
-export async function main(argv: readonly string[]): Promise<number> {
+export async function main(
+  argv: readonly string[],
+  livenessChecker: LivenessChecker = collectLivenessFindings,
+): Promise<number> {
   const options = parseArgs(argv);
 
   if (!fs.existsSync(options.dbPath)) {
@@ -1051,7 +1059,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   // The install-wide checks run in both modes so the operator is told when the
   // figures are a live snapshot. The per-file probes run only on the
   // destructive path — see `collectLivenessFindings`.
-  const { blocking, advisory } = collectLivenessFindings(
+  const { blocking, advisory } = livenessChecker(
     options.dbPath,
     options.dryRun,
   );
@@ -1103,8 +1111,13 @@ export async function main(argv: readonly string[]): Promise<number> {
   });
 
   let interrupted = false;
+  let signalCount = 0;
   const onSignal = (): void => {
-    if (interrupted) return;
+    signalCount += 1;
+    if (signalCount > 1) {
+      console.error('\n[drain] second interrupt — exiting now.');
+      process.exit(130);
+    }
     interrupted = true;
     console.warn(
       '\n[drain] interrupt received — finishing the current batch, then stopping. Re-run to resume.',

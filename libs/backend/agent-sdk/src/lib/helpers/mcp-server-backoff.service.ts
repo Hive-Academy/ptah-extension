@@ -27,6 +27,7 @@ export interface McpServerBackoffRecord {
   readonly failureCount: number;
   readonly lastFailedAt: number;
   readonly backoffUntil: number;
+  readonly lastAttemptKey?: string;
 }
 
 export interface McpServerBackoffOptions {
@@ -59,6 +60,8 @@ export class McpServerBackoffService {
   private readonly maxBackoffMs: number;
   private readonly backoffFactor: number;
   private readonly maxTrackedServers: number;
+  private stderrBuffer = '';
+  private static readonly MAX_STDERR_BUFFER_LEN = 16_384;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -80,7 +83,7 @@ export class McpServerBackoffService {
         if (event.kind === 'servers') {
           for (const server of event.servers) {
             if (server.status === 'failed') {
-              this.recordFailure(server.name);
+              this.recordFailure(server.name, Date.now(), event.sessionId);
             } else if (server.status === 'connected') {
               this.recordSuccess(server.name);
             }
@@ -92,13 +95,26 @@ export class McpServerBackoffService {
 
   /**
    * Record a server connection/init failure and compute exponential back-off.
+   * Deduplicates failure reports for the same connection attempt.
    * Returns epoch timestamp (millis) until which the server should be suppressed.
    */
-  recordFailure(serverName: string, now: number = Date.now()): number {
+  recordFailure(
+    serverName: string,
+    now: number = Date.now(),
+    attemptKey?: string,
+  ): number {
     const trimmed = serverName.trim();
     if (!trimmed) return now;
 
     const existing = this.records.get(trimmed);
+    const isSameAttempt =
+      (attemptKey !== undefined && existing?.lastAttemptKey === attemptKey) ||
+      (existing !== undefined && now - existing.lastFailedAt < 10_000);
+
+    if (isSameAttempt && existing) {
+      return existing.backoffUntil;
+    }
+
     const failureCount = (existing?.failureCount ?? 0) + 1;
     const duration = Math.min(
       this.maxBackoffMs,
@@ -116,6 +132,7 @@ export class McpServerBackoffService {
       failureCount,
       lastFailedAt: now,
       backoffUntil,
+      ...(attemptKey ? { lastAttemptKey: attemptKey } : {}),
     };
     this.records.set(trimmed, record);
 
@@ -142,16 +159,48 @@ export class McpServerBackoffService {
   }
 
   /**
-   * Inspect stderr chunk from CLI for connection failure patterns (e.g. CONNECT_TIMEOUT).
-   * If detected, records failure and returns the server name.
+   * Inspect stderr stream chunks from CLI for connection failure patterns (e.g. CONNECT_TIMEOUT).
+   * Buffers incomplete trailing text across chunk boundaries and scans all matches.
+   * Records failures for all detected servers and returns the first detected server name (or null).
    */
-  checkStderrForFailure(data: string, now: number = Date.now()): string | null {
+  checkStderrForFailure(
+    data: string,
+    now: number = Date.now(),
+    attemptKey?: string,
+  ): string | null {
     if (!data) return null;
-    const match = data.match(STDERR_MCP_FAILURE_PATTERN);
-    if (!match) return null;
-    const serverName = match[1];
-    this.recordFailure(serverName, now);
-    return serverName;
+
+    this.stderrBuffer += data;
+    if (this.stderrBuffer.length > McpServerBackoffService.MAX_STDERR_BUFFER_LEN) {
+      this.stderrBuffer = this.stderrBuffer.slice(
+        -McpServerBackoffService.MAX_STDERR_BUFFER_LEN,
+      );
+    }
+
+    const pattern = new RegExp(STDERR_MCP_FAILURE_PATTERN.source, 'gi');
+    let match: RegExpExecArray | null;
+    let firstMatchedServer: string | null = null;
+    let lastMatchEnd = 0;
+
+    while ((match = pattern.exec(this.stderrBuffer)) !== null) {
+      const serverName = match[1];
+      if (!firstMatchedServer) {
+        firstMatchedServer = serverName;
+      }
+      this.recordFailure(serverName, now, attemptKey);
+      lastMatchEnd = pattern.lastIndex;
+    }
+
+    const lastNewlineIdx = this.stderrBuffer.lastIndexOf('\n');
+    if (lastNewlineIdx !== -1) {
+      this.stderrBuffer = this.stderrBuffer.slice(lastNewlineIdx + 1);
+    } else if (lastMatchEnd > 0) {
+      this.stderrBuffer = this.stderrBuffer.slice(lastMatchEnd);
+    } else if (this.stderrBuffer.length > 2048) {
+      this.stderrBuffer = this.stderrBuffer.slice(-512);
+    }
+
+    return firstMatchedServer;
   }
 
   /**
@@ -192,6 +241,7 @@ export class McpServerBackoffService {
       this.records.delete(serverName.trim());
     } else {
       this.records.clear();
+      this.stderrBuffer = '';
     }
   }
 

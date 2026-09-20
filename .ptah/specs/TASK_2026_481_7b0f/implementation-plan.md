@@ -167,6 +167,22 @@ budget is killed rather than left running, because a search worker that keeps a
 dead handle is a leak in a process family this repository already has a known
 fault in (TASK_2026_479, cited in `context.md:61-62`).
 
+**Concurrent-request failure settlement**: When a shared worker process is killed
+due to one request exceeding its budget or exiting unexpectedly:
+- **Exactly-once settlement**: Every active in-flight request pending in the
+  client's correlation map is immediately settled with a worker-terminated error /
+  inconclusive status, rejecting the caller's worker promise.
+- **Fallback ownership & duplicate prevention**: The originating request that
+  timed out falls back to an in-process query execution. For other in-flight
+  requests terminated by the child death, fallback ownership belongs to the
+  calling service; to prevent a thundering-herd storm of simultaneous main-thread
+  queries, in-process fallbacks must be serialized or coalesced by query key,
+  and aborted requests (`signal.aborted`) fail fast without executing fallback.
+- **Testing**: A dedicated concurrent-timeout spec must be implemented before
+  the worker path to verify that if request A times out and terminates the worker,
+  concurrent request B is cleanly settled and does not trigger duplicate fallback
+  work.
+
 ### Protocol shape
 
 Copy the **validation posture** of
@@ -190,10 +206,15 @@ the tree:
   same file's recovery-reason subsetting (`:26-45`) is the model: the worker may
   only report verdicts a worker can legitimately reach.
 
-Requests carry: `type`, `operationId`, `dbPath`, and scalar query parameters —
+Requests carry: `type`, `operationId`, `dbPath`, `writeCounter: number`
+(validated as `z.number().int().nonnegative()`), and scalar query parameters —
 `workspaceRoot: string | null`, `topK: number`, `queryEmbedding: Float32Array`
-carried as a `Uint8Array` slice, `filters` as arrays of strings. Responses carry
-flat row arrays of `null | number | string` only.
+carried as a `Uint8Array` slice, `filters` as arrays of strings. The
+`writeCounter` represents the host's write version observed when the request
+is dispatched; upon response reception, the host caches results only if the
+current write version matches `writeCounter`, preventing stale snapshot results
+from overwriting newer data. Responses carry flat row arrays of
+`null | number | string` only.
 
 ---
 
@@ -328,8 +349,11 @@ Degrade semantics, in order of preference:
    which is today's behaviour. Degrading to BM25-only would silently change
    search results based on which host you launched.
 2. **Worker spawn fails, or a request exceeds its budget, or the worker exits** →
-   settle as inconclusive, kill the child, run in process for that one call, and
-   report one degradation event. Do not permanently disable: the embedder client
+   settle all active in-flight requests as inconclusive/interrupted, terminate
+   the child, execute in-process fallback for the timed-out request, settle
+   other pending requests with explicit worker-terminated errors (allowing callers
+   to fall back sequentially without duplicate main-thread spikes), and report
+   one degradation event. Do not permanently disable: the embedder client
    already proves respawn-on-next-request is the right posture
    (`memory-curator/CLAUDE.md`).
 3. **Crash loop** → stop spawning, stay in process, one `warn`. Reuse the
@@ -350,20 +374,29 @@ cannot hide, and that is the condition under which one is acceptable.
 
 **No write moves. There is exactly one writer, and it stays where it is.**
 
-The worker opens its **own read-only connection**, the same way the integrity
-worker does (`persistence-sqlite/CLAUDE.md`: `integrity-worker.ts` "opens the
-database on its own **read-only** connection"; the backup source uses the same
-`openReadOnly`). Consequences, all of them wanted:
+The worker opens its **own read-only connection**, which is an explicit,
+documented exception to `context.md:71-72` ("All DB access goes through the
+shared connection from `persistence-sqlite`. Never open a second handle.").
+The host-level constraint forbids multiple competing connections or writers
+within the main process, but sharing a process-memory `better-sqlite3` pointer
+across separate OS process boundaries (`utilityProcess` / child process) is
+technically impossible. Like the integrity worker (`persistence-sqlite/CLAUDE.md`:
+`integrity-worker.ts` "opens the database on its own **read-only** connection")
+and backup worker, the search worker follows an approved read-only exception:
 
-- A second *writer* would invite `SQLITE_BUSY` against the main connection and
-  would break the "single shared connection" rule stated in both
-  `persistence-sqlite/CLAUDE.md` and `memory-curator/CLAUDE.md`. Read-only
-  sidesteps this entirely; it is not a mitigation, it is a structural exclusion.
-- A read-only connection cannot checkpoint on close, which is why the backup path
-  needs a separate `openForValidation`
-  (`persistence-sqlite/CLAUDE.md`, staging bullet). For a search worker this does
-  not matter — it never writes and never needs to checkpoint. Do not add a
+- **Strict read-only handle**: The connection is opened with `readonly: true`.
+  A second *writer* would invite `SQLITE_BUSY` against the main connection and
+  break write integrity; read-only sidesteps this entirely as a structural
+  exclusion.
+- **No checkpoints**: A read-only connection cannot checkpoint on close, which
+  is why the backup path needs a separate `openForValidation`
+  (`persistence-sqlite/CLAUDE.md`, staging bullet). For a search worker this
+  does not matter — it never writes and never needs to checkpoint. Do not add a
   write-mode open "for symmetry".
+- **Clean lifecycle & shutdown**: The read-only connection is opened lazily upon
+  worker start, held for multiplexed read queries, and explicitly closed
+  synchronously on worker shutdown (`SIGTERM`, idle timeout, or abort),
+  leaving no lingering handles or lock leaks.
 - **Read-your-writes is weakened, and this must be stated rather than assumed.**
   In WAL mode a reader on a separate connection sees a committed snapshot; a
   write committed on the main connection microseconds before the worker's query

@@ -992,7 +992,12 @@ export class SdkQueryOptionsBuilder {
             : {}),
         } as Record<string, string | undefined>,
         stderr: (data: string) => {
-          this.mcpBackoffService?.checkStderrForFailure(data);
+          const noticeSessionId = sessionIdResolver?.() ?? routingId;
+          this.mcpBackoffService?.checkStderrForFailure(
+            data,
+            Date.now(),
+            noticeSessionId,
+          );
           // stderr is for logging/observability only. Stuck-session detection
           // is handled by the no-activity watchdog (NoActivityWatchdog),
           // NOT by pattern-matching stderr text — no session is aborted here.
@@ -1006,18 +1011,15 @@ export class SdkQueryOptionsBuilder {
           // channel is correct here in a way it is not for `turn_state`. See
           // `SessionMcpStatusCallbackRegistry`'s file header.
           const notice = classifyCliNotice(data);
-          if (notice) {
+          if (notice && noticeSessionId) {
             // The SDK UUID once it exists, else the routing id the webview
             // already knows. The consumer re-keys on
             // `SessionIdResolvedCallbackRegistry`, so either is routable.
-            const noticeSessionId = sessionIdResolver?.() ?? routingId;
-            if (noticeSessionId) {
-              this.mcpStatus?.notifyAll({
-                kind: 'notice',
-                sessionId: noticeSessionId,
-                notice,
-              });
-            }
+            this.mcpStatus?.notifyAll({
+              kind: 'notice',
+              sessionId: noticeSessionId,
+              notice,
+            });
           }
           if (data.includes('[ERROR]')) {
             this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);

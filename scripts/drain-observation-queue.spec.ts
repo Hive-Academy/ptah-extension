@@ -483,7 +483,11 @@ describe('main (destructive path, fixture database)', () => {
     const { dbPath } = seedStandardFixture();
     assertIsFixture(dbPath);
 
-    const exitCode = await main(['--db', dbPath, '--batch-size', '2']);
+    const noFindingsLiveness = () => ({ blocking: [], advisory: [] });
+    const exitCode = await main(
+      ['--db', dbPath, '--batch-size', '2'],
+      noFindingsLiveness,
+    );
     expect(exitCode).toBe(0);
 
     const backupDir = path.join(path.dirname(dbPath), 'backups');
@@ -501,7 +505,11 @@ describe('main (destructive path, fixture database)', () => {
     const { dbPath } = seedStandardFixture();
     assertIsFixture(dbPath);
 
-    const exitCode = await main(['--db', dbPath, '--dry-run']);
+    const noFindingsLiveness = () => ({ blocking: [], advisory: [] });
+    const exitCode = await main(
+      ['--db', dbPath, '--dry-run'],
+      noFindingsLiveness,
+    );
     expect(exitCode).toBe(0);
     expect(fs.existsSync(path.join(path.dirname(dbPath), 'backups'))).toBe(
       false,

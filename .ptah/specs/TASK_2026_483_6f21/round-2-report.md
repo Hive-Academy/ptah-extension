@@ -263,7 +263,7 @@ The full test suite was **not** run, per the constraint. CI owns it.
 
 Scope: judge round 2's item 7 and its CI gap. One source file changed, one spec
 extended, one config created, two configuration files touched. Nothing else in
-the script was edited â€” the six passing points are byte-for-byte as round 2 left
+the script was edited — the six passing points are byte-for-byte as round 2 left
 them apart from the `inspectProcesses` call sites named below.
 
 ### 1. `targetsLiveDatabase` now resolves the real path on BOTH sides
@@ -304,7 +304,7 @@ every install-wide finding is blocking.
 
 Consequence worth naming: on a host with no `~/.ptah/state/ptah.sqlite` (a fresh
 CI runner), the live side is unresolvable, so EVERY target classifies as live.
-That is the intended reading â€” with no install to compare against, refuse to
+That is the intended reading — with no install to compare against, refuse to
 grant anything the weaker treatment. On Linux CI the install-wide checks return
 empty (`findLockfiles` finds no `~/.config/Ptah/lockfile`, `inspectProcesses`
 returns `[]` off win32), so nothing is blocked spuriously.
@@ -313,13 +313,13 @@ returns `[]` off win32), so nothing is blocked spuriously.
 
 `inspectProcessesOrReport` is gone. Both call sites now call `inspectProcesses()`
 directly, so a process-inspection failure throws out of `main` on every target,
-live or not â€” exactly as round 1 credited it.
+live or not — exactly as round 1 credited it.
 
 I did not keep the advisory branch, so no justifying paragraph is owed. The
 reasoning for deleting it: the only thing it bought was tolerance of an
 intermittent host condition (a `node.exe` whose `CommandLine` CIM cannot read,
 which makes `findPtahProcesses` throw). I measured that condition on this host
-during this round â€” `Get-CimInstance Win32_Process` returned 344 processes and
+during this round — `Get-CimInstance Win32_Process` returned 344 processes and
 **zero** `node.exe` with a null `CommandLine`. It is transient environmental
 noise, not a standing property, and the judge is right that a test-environment
 problem does not get solved in production code that deletes ~149,000 rows. With
@@ -327,22 +327,22 @@ item 1 fixed the live path is identified correctly, so the branch also no longer
 has the one target class that made it look defensible.
 
 What is preserved: the live/non-live CLASSIFICATION of findings (blocking vs
-advisory) is untouched â€” that is what judge item 4 passed. Only the swallowing of
+advisory) is untouched — that is what judge item 4 passed. Only the swallowing of
 a failure-to-check is removed.
 
 ### 3. `scripts/` now runs in CI
 
-- **CREATED** `scripts/jest.config.ts` â€” `displayName: 'scripts'`, the repo
+- **CREATED** `scripts/jest.config.ts` — `displayName: 'scripts'`, the repo
   `../jest.preset.js`, `ts-jest` against `scripts/tsconfig.json`,
   `testTimeout: 120_000` and **`maxWorkers: 1`**. Serial is the right setting for
   a suite where every spec creates a real WAL-mode SQLite file, takes an online
   backup of it and holds a second connection on `BEGIN IMMEDIATE`; it also
   matches the `maxWorkers: 1` the two `apps/ptah-cli` harness configs already pin
   for the same class of reason.
-- **MODIFIED** `package.json` â€” added
+- **MODIFIED** `package.json` — added
   `"test:scripts": "jest --config=scripts/jest.config.ts"`, next to the existing
   `test:native` / `test:e2e` standalone-runner scripts.
-- **MODIFIED** `.github/workflows/ci.yml` â€” a `Run scripts/ tests` step running
+- **MODIFIED** `.github/workflows/ci.yml` — a `Run scripts/ tests` step running
   `npm run test:scripts`, immediately after the affected-tests step. Without it
   the npm script exists but CI still runs none of these specs.
 
@@ -367,16 +367,16 @@ than by guessing:
 `scripts/drain-observation-queue.spec.ts`, new `describe('targetsLiveDatabase')`:
 
 1. **`sees through a junction/symlink: an alias of the live path IS the live
-   database`** â€” creates a real directory alias (`fs.symlinkSync(..., 'junction')`
+   database`** — creates a real directory alias (`fs.symlinkSync(..., 'junction')`
    on Windows, `'dir'` elsewhere) over a fixture directory. A junction needs no
    elevation and no Developer Mode, so nothing is skipped and nothing is
-   conditional. It first asserts the two spellings are LEXICALLY distinct â€” the
-   comparison the old code made â€” so the test genuinely can fail, then asserts
+   conditional. It first asserts the two spellings are LEXICALLY distinct — the
+   comparison the old code made — so the test genuinely can fail, then asserts
    `targetsLiveDatabase(alias, real) === true`.
-2. **`is not constant: a different real file is not the live database`** â€” the
+2. **`is not constant: a different real file is not the live database`** — the
    control. Two distinct real fixtures compare `false`, which is what stops test 1
    passing against a function that returns `true` unconditionally.
-3. **`fails closed: an unresolvable path on either side counts as live`** â€”
+3. **`fails closed: an unresolvable path on either side counts as live`** —
    asserts `true` with the target missing AND `true` with the live side missing.
 
 Both fixture paths go through the existing `assertIsFixture` guard, so neither

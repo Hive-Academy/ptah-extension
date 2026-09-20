@@ -304,10 +304,14 @@ the remaining life of the renderer.** A crashed CLI agent, a dropped
 all produce this. It is a real defect.
 
 **But it is not the reported symptom.** Two 1 Hz signal writes cannot peg a core.
-Each `tick.update` schedules one CD pass per second. Even if every consumer of
-`tick` is expensive, 1 Hz × 7 sessions is 7 CD passes per second — visible in a
-profile as a sparse comb, nowhere near saturation. Fix it, but do not expect it
-to move the CPU number. **Confirmed as a bug, refuted as the cause.**
+Each `tick.update` schedules one CD pass per second. Because both stores are
+`providedIn: 'root'`, there is only 1 singleton instance of each store (2 ticker
+instances total across the root injector, producing at most 2 CD passes per
+second; the earlier 1 Hz × 7 sessions = 7 CD passes arithmetic was unverified
+hypothetical scaling assuming per-session store instances). Even at 2 to 7 CD
+passes per second, this is visible in a profile as a sparse comb, nowhere near
+saturation. Fix it, but do not expect it to move the CPU number. **Confirmed as
+a bug, refuted as the cause.**
 
 ---
 
