@@ -45,6 +45,21 @@ function message(root: ExecutionNode): ExecutionChatMessage {
   };
 }
 
+function summarizeToolOutput(output: string): string {
+  const state = createEmptyStreamingState();
+  state.events.set('result', {
+    id: 'result',
+    eventType: 'tool_result',
+    timestamp: 1,
+    messageId: 'message',
+    toolCallId: 'tool',
+    output,
+    isError: false,
+  });
+
+  return summarizeLive(state, context()).content.text;
+}
+
 describe('compact-session-summary', () => {
   it('coalesces live semantic updates by stable identity and bounds marks at 24', () => {
     const state = createEmptyStreamingState();
@@ -100,6 +115,26 @@ describe('compact-session-summary', () => {
     expect(summary.content.text).toContain('token.txt');
     expect(summary.content.text).not.toContain('Users');
     expect(summary.content.text).not.toContain('alice');
+  });
+
+  it('redacts Windows and POSIX absolute paths without changing plain text', () => {
+    expect(
+      summarizeToolOutput('Opened D:\\projects\\private\\report.txt'),
+    ).toBe('Opened report.txt');
+    expect(summarizeToolOutput('Opened /home/alice/private/report.txt')).toBe(
+      'Opened report.txt',
+    );
+    expect(summarizeToolOutput('No absolute path here')).toBe(
+      'No absolute path here',
+    );
+  });
+
+  it('rejects a long non-matching Windows path candidate in under one second', () => {
+    const subject = `C:\\${'\\'.repeat(200)}`;
+    const startedAt = performance.now();
+
+    expect(summarizeToolOutput(subject)).toBe(subject);
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
   });
 
   it('preserves Unicode and gives questions precedence over permissions and errors', () => {

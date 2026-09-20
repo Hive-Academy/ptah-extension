@@ -538,8 +538,8 @@ function redactAbsolutePaths(value: string, workspacePath: string): string {
     result = result.replaceAll(workspace, workspaceLabel(workspace));
   }
   return result
-    .replace(/\b[A-Za-z]:[\\/](?:[^\s"'`]+[\\/])*([^\s\\/"'`]+)/g, '$1')
-    .replace(/\/(?:Users|home)\/[^\s/]+\/(?:[^\s"'`]+\/)*([^\s/"'`]+)/g, '$1');
+    .replace(/\b[A-Za-z]:[\\/](?:[^\s\\/"'`]+[\\/])*([^\s\\/"'`]+)/g, '$1')
+    .replace(/\/(?:Users|home)\/[^\s/]+\/(?:[^\s/"'`]+\/)*([^\s/"'`]+)/g, '$1');
 }
 
 function workspaceLabel(path: string): string {
