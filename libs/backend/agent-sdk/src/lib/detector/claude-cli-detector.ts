@@ -31,6 +31,7 @@ import {
 } from '@ptah-extension/platform-core';
 import { ClaudeCliHealth } from '@ptah-extension/shared';
 import { SdkError } from '../errors';
+import { killProcessTree } from '../helpers/process-tree-reaper';
 import { ClaudeCliPathResolver } from './claude-cli-path-resolver';
 
 export interface ClaudeInstallation {
@@ -705,6 +706,7 @@ export class ClaudeCliDetector {
       const { timeout = 30000 } = options;
 
       const child = crossSpawn(command, args, {
+        detached: os.platform() !== 'win32',
         stdio: 'pipe',
         windowsHide: true,
       });
@@ -716,7 +718,12 @@ export class ClaudeCliDetector {
       const timeoutId = setTimeout(() => {
         if (!finished) {
           finished = true;
-          child.kill();
+          const whenSpawned = Promise.resolve(child.pid ?? null);
+          void whenSpawned.then((pid) => {
+            if (pid && !child.killed) {
+              void killProcessTree(pid);
+            }
+          });
           resolve({
             success: false,
             stdout: '',

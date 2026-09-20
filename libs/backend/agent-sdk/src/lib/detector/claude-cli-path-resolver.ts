@@ -10,6 +10,9 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { killProcessTree } from '../helpers/process-tree-reaper';
+
+const COMMAND_PATH_TIMEOUT_MS = 30_000;
 
 export interface ResolvedClaudeCliPath {
   /** Resolved path to cli.js that can be executed with node */
@@ -220,11 +223,19 @@ export class ClaudeCliPathResolver {
       const command = isWindows ? 'where' : 'which';
 
       const child = spawn(command, [commandName], {
+        detached: !isWindows,
         stdio: 'pipe',
         shell: false,
       });
 
       let stdout = '';
+      let settled = false;
+      const finish = (result: string | null): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
 
       child.stdout?.on('data', (data: Buffer) => {
         stdout += data.toString();
@@ -233,15 +244,26 @@ export class ClaudeCliPathResolver {
       child.on('close', (code: number) => {
         if (code === 0) {
           const paths = stdout.trim().split(/\r?\n/);
-          resolve(paths[0]?.trim() || null);
+          finish(paths[0]?.trim() || null);
         } else {
-          resolve(null);
+          finish(null);
         }
       });
 
       child.on('error', () => {
-        resolve(null);
+        finish(null);
       });
+
+      const timer = setTimeout(() => {
+        const whenSpawned = Promise.resolve(child.pid ?? null);
+        void whenSpawned.then((pid) => {
+          if (pid && !child.killed) {
+            void killProcessTree(pid);
+          }
+        });
+        finish(null);
+      }, COMMAND_PATH_TIMEOUT_MS);
+      timer.unref?.();
     });
   }
 

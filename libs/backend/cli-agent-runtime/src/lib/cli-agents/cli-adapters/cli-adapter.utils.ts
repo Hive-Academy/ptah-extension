@@ -443,10 +443,14 @@ export function probeCliVersion(
 ): Promise<string | undefined> {
   return new Promise((resolve) => {
     let stdout = '';
-    const child = spawnCli(binary, args, { spawner });
+    const child = spawnCli(binary, args, { spawner, detached: true });
 
     const timer = setTimeout(() => {
-      child.kill();
+      void child.whenSpawned.then((pid) => {
+        if (pid && !child.killed) {
+          void killProcessTree(pid);
+        }
+      });
       resolve(undefined);
     }, timeoutMs);
 

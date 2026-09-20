@@ -16,6 +16,14 @@
 import 'reflect-metadata';
 import { EventEmitter } from 'events';
 
+const mockExecFile = jest.fn((...args: unknown[]) =>
+  (args.at(-1) as (error: null, stdout: string, stderr: string) => void)(
+    null,
+    '',
+    '',
+  ),
+);
+
 jest.mock('cross-spawn', () => ({ __esModule: true, default: jest.fn() }));
 jest.mock('which', () => ({ __esModule: true, default: jest.fn() }));
 
@@ -24,6 +32,7 @@ jest.mock('which', () => ({ __esModule: true, default: jest.fn() }));
 // test machine.
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
+  execFile: (...args: unknown[]) => mockExecFile(...args),
   spawn: jest.fn(() => {
     throw new Error('child_process.spawn must not be used by the detector');
   }),
@@ -72,6 +81,8 @@ const VERSION_LINE = '2.1.247 (Claude Code)';
 
 /** Minimal stand-in for the pieces of `ChildProcess` the detector touches. */
 class FakeChild extends EventEmitter {
+  readonly pid = 4242;
+  readonly killed = false;
   readonly stdout = new EventEmitter();
   readonly stderr = new EventEmitter();
   readonly kill = jest.fn();
@@ -232,7 +243,7 @@ describe('ClaudeCliDetector — timeout', () => {
     jest.useRealTimers();
   });
 
-  it('kills the child and fails the probe when it never closes', async () => {
+  it('tree-kills the child and fails the probe when it never closes', async () => {
     jest.useFakeTimers();
     scriptChildren({ hang: true });
 
@@ -248,7 +259,13 @@ describe('ClaudeCliDetector — timeout', () => {
 
     await expect(verified).resolves.toBe(false);
     expect(spawnedChildren).toHaveLength(1);
-    expect(spawnedChildren[0].kill).toHaveBeenCalled();
+    await Promise.resolve();
+    expect(spawnedChildren[0].kill).not.toHaveBeenCalled();
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'taskkill',
+      ['/pid', '4242', '/T', '/F'],
+      expect.any(Function),
+    );
   });
 });
 

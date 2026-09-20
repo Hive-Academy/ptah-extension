@@ -36,6 +36,9 @@
  */
 
 import crossSpawn from 'cross-spawn';
+import { killProcessTree } from '../helpers/process-tree-reaper';
+
+const PROCESS_START_PROBE_TIMEOUT_MS = 30_000;
 
 /**
  * Difference between the 1601-01-01 FILETIME epoch and the 1970-01-01 Unix
@@ -239,7 +242,12 @@ export class ProcessStartTimeProbe {
               ]),
             )
           : parsePosixProbeOutput(
-              await this.run('ps', ['-o', 'pid=,lstart=', '-p', unique.join(',')]),
+              await this.run('ps', [
+                '-o',
+                'pid=,lstart=',
+                '-p',
+                unique.join(','),
+              ]),
             );
 
       const result = new Map<number, number | null>();
@@ -261,22 +269,42 @@ function hasPosixPs(platform: string): boolean {
 }
 
 /** Default runner: `cross-spawn`, argument list, never a shell. */
-function runCommand(
-  command: string,
-  args: readonly string[],
-): Promise<string> {
+function runCommand(command: string, args: readonly string[]): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const child = crossSpawn(command, [...args], {
+      detached: process.platform !== 'win32',
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'ignore'],
     });
 
     let stdout = '';
+    let settled = false;
+    const finish = (result: string, error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) {
+        reject(error);
+      } else {
+        resolve(result);
+      }
+    };
     child.stdout?.setEncoding('utf8');
     child.stdout?.on('data', (chunk: string) => {
       stdout += chunk;
     });
-    child.on('error', reject);
-    child.on('close', () => resolve(stdout));
+    child.on('error', (error: Error) => finish('', error));
+    child.on('close', () => finish(stdout));
+
+    const timer = setTimeout(() => {
+      const whenSpawned = Promise.resolve(child.pid ?? null);
+      void whenSpawned.then((pid) => {
+        if (pid && !child.killed) {
+          void killProcessTree(pid);
+        }
+      });
+      finish('', new Error('Process start-time probe timed out'));
+    }, PROCESS_START_PROBE_TIMEOUT_MS);
+    timer.unref?.();
   });
 }

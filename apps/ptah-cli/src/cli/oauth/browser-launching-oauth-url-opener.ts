@@ -8,7 +8,12 @@ type SpawnLike = (
   command: string,
   args: readonly string[],
   options: SpawnOptions,
-) => { unref(): void };
+) => SpawnedBrowserProcess;
+
+interface SpawnedBrowserProcess {
+  unref(): void;
+  once(event: 'close' | 'error', listener: () => void): void;
+}
 
 export interface BrowserLaunchingOAuthUrlOpenerOptions {
   stderrOpener?: IOAuthUrlOpener;
@@ -24,6 +29,7 @@ export class BrowserLaunchingOAuthUrlOpener implements IOAuthUrlOpener {
   private readonly spawner: SpawnLike;
   private readonly env: NodeJS.ProcessEnv;
   private readonly isTTY: boolean;
+  private readonly browserProcesses = new Set<SpawnedBrowserProcess>();
 
   constructor(options: BrowserLaunchingOAuthUrlOpenerOptions = {}) {
     this.stderrOpener = options.stderrOpener ?? new StderrOAuthUrlOpener();
@@ -50,6 +56,12 @@ export class BrowserLaunchingOAuthUrlOpener implements IOAuthUrlOpener {
         detached: true,
         stdio: 'ignore',
       });
+      this.browserProcesses.add(child);
+      const release = (): void => {
+        this.browserProcesses.delete(child);
+      };
+      child.once('close', release);
+      child.once('error', release);
       child.unref();
       return { opened: true };
     } catch {

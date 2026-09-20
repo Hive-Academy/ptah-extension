@@ -19,6 +19,7 @@
  */
 
 import crossSpawn from 'cross-spawn';
+import { execFile } from 'node:child_process';
 import type {
   StackProfile,
   ToolchainProbeResult,
@@ -26,6 +27,58 @@ import type {
 
 /** Probes are one-shot version queries; a slow one is a broken one. */
 const DEFAULT_PROBE_TIMEOUT_MS = 5000;
+/** Must remain aligned with cli-agent-runtime's canonical KILL_GRACE_PERIOD. */
+const PROCESS_TREE_KILL_GRACE_MS = 5_000;
+const PROCESS_LIVENESS_POLL_MS = 100;
+
+/** Boundary-local mirror of the repository process-tree reaper. */
+async function killProcessTree(pid: number): Promise<void> {
+  if (process.platform === 'win32') {
+    try {
+      await new Promise<void>((resolve) => {
+        execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () =>
+          resolve(),
+        );
+      });
+    } catch {
+      // Best effort: the probe may already have exited.
+    }
+    return;
+  }
+
+  const killGroup = (signal: NodeJS.Signals): void => {
+    try {
+      process.kill(-pid, signal);
+    } catch {
+      try {
+        process.kill(pid, signal);
+      } catch {
+        // Best effort: the probe may already have exited.
+      }
+    }
+  };
+
+  killGroup('SIGTERM');
+  await new Promise<void>((resolve) => {
+    let waited = 0;
+    const poll = (): void => {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        resolve();
+        return;
+      }
+      waited += PROCESS_LIVENESS_POLL_MS;
+      if (waited >= PROCESS_TREE_KILL_GRACE_MS) {
+        killGroup('SIGKILL');
+        resolve();
+        return;
+      }
+      setTimeout(poll, PROCESS_LIVENESS_POLL_MS).unref?.();
+    };
+    setTimeout(poll, PROCESS_LIVENESS_POLL_MS).unref?.();
+  });
+}
 
 export interface ToolchainProbeOptions {
   /** Milliseconds before the probe is killed and reported not-installed. */
@@ -113,6 +166,7 @@ function runProbe(
     let child: ReturnType<typeof crossSpawn>;
     try {
       child = crossSpawn(binary, args, {
+        detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
       });
@@ -126,7 +180,12 @@ function runProbe(
     }
 
     const timer = setTimeout(() => {
-      child.kill();
+      const whenSpawned = Promise.resolve(child.pid ?? null);
+      void whenSpawned.then((pid) => {
+        if (pid && !child.killed) {
+          void killProcessTree(pid);
+        }
+      });
       finish(false);
     }, timeoutMs);
     timer.unref?.();
