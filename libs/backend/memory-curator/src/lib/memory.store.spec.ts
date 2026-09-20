@@ -1255,6 +1255,28 @@ describe('MemoryStore — empty sessionId normalises to NULL (TASK_2026_295)', (
   });
 });
 
+describe('MemoryStore subject normalization', () => {
+  it('trims a subject before binding the memory insert', async () => {
+    const { stub, runMock } = makeDb();
+    const store = makeStore(stub);
+
+    await store.insertMemoryWithChunks(
+      {
+        tier: 'core',
+        kind: 'fact',
+        content: 'subject normalization',
+        workspaceRoot: '/ws/A',
+        subject: '  padded-subject  ',
+      },
+      [],
+    );
+
+    expect(runMock.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ subject: 'padded-subject' }),
+    );
+  });
+});
+
 describe('MemoryStore ranking and explicit use on real SQLite', () => {
   const opener = requireSqliteOpener();
   let raw: RawDb;
@@ -1846,9 +1868,15 @@ describe('MemoryStore.findMergeCandidates — TASK_2026_473 Track A', () => {
     seed('padded-row', 'padded-subject', '/ws');
 
     expect(
-      store
-        .findMergeCandidates(['  padded-subject  '], '/ws')
-        .map((r) => r.id),
+      store.findMergeCandidates(['  padded-subject  '], '/ws').map((r) => r.id),
     ).toEqual(['padded-row']);
+  });
+
+  it('matches a legacy stored subject with surrounding whitespace', () => {
+    seed('legacy-padded-row', '  padded-subject  ', '/ws');
+
+    expect(
+      store.findMergeCandidates(['padded-subject'], '/ws').map((r) => r.id),
+    ).toEqual(['legacy-padded-row']);
   });
 });

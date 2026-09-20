@@ -202,7 +202,10 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
       workspace_root: insert.workspaceRoot ?? null,
       tier: insert.tier,
       kind: insert.kind,
-      subject: insert.subject ?? null,
+      // Subject equality is the curator's merge identity. Normalize it at the
+      // write boundary so future rows cannot become unreachable solely because
+      // an extractor returned surrounding whitespace.
+      subject: blankToNull(insert.subject),
       content: insert.content,
       source_message_ids: sourceJson,
       salience: insert.salience ?? 0,
@@ -370,12 +373,12 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
            SELECT m.id AS id,
                   m.subject AS subject,
                   m.content AS content,
-                  LOWER(m.subject) AS subject_key,
+                   TRIM(LOWER(m.subject)) AS subject_key,
                   ${salienceRankExpression('?')} AS rank_score
            FROM memories m
            WHERE m.workspace_root IS ?
              AND m.subject IS NOT NULL
-             AND LOWER(m.subject) IN (${placeholders})
+              AND TRIM(LOWER(m.subject)) IN (${placeholders})
          ), ranked AS (
            SELECT id,
                   subject,

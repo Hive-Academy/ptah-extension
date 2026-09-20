@@ -50,6 +50,15 @@ telemetry bullet). Nothing labels a correct `mergeTargetId`, a correct
 where no outcome label exists means swapping one unfalsifiable opinion for
 another and paying a network round trip for it.
 
+**Invocation telemetry is a behavioral proxy, not a correctness label.**
+`skill_invocation_events` records that a skill ran after the existing promotion
+gate let it through. It does not record that the skill was right, useful, or
+triggered at the correct moment, and it cannot record anything at all about a
+skill the gate never promoted. A judge scored against it therefore measures
+exposure and the current gate, not judgment quality. Any conclusion drawn from
+it must be stated as "predicts invocation", and a claim about correctness needs
+an independent label a person assigns.
+
 ---
 
 ## Adopt

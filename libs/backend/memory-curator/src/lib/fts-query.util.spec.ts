@@ -146,7 +146,9 @@ describe('buildFtsQueryPlan', () => {
 
   it('keeps the OR form over the raw tokens when the query is only stopwords', () => {
     const plan = buildFtsQueryPlan('what did we do about it');
-    expect(plan.match).toBe('"what" OR "did" OR "we" OR "do" OR "about" OR "it"*');
+    expect(plan.match).toBe(
+      '"what" OR "did" OR "we" OR "do" OR "about" OR "it"*',
+    );
     expect(plan.fallbackMatch).toBeNull();
   });
 
@@ -154,6 +156,13 @@ describe('buildFtsQueryPlan', () => {
     const plan = buildFtsQueryPlan('what is commitlint');
     expect(plan.match).toBe('"commitlint"*');
     expect(plan.fallbackMatch).toBeNull();
+  });
+
+  it('keeps a snake_case identifier as one quoted query phrase', () => {
+    expect(buildFtsQueryPlan('memory_chunks_fts')).toEqual({
+      match: '"memory_chunks_fts"*',
+      fallbackMatch: null,
+    });
   });
 
   it('offers no fallback for an empty query', () => {

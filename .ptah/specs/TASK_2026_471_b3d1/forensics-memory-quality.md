@@ -78,7 +78,7 @@ The `subject` column does not act as an index key. Instead, it has collapsed int
   - `agent-sdk`: 49 rows
 
 ### Root Cause in Code
-In [`libs/backend/memory-curator/src/lib/curator-llm/extract-prompt.ts:25`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/curator-llm/extract-prompt.ts#L25):
+In [`libs/backend/memory-curator/src/lib/curator-llm/extract-prompt.ts:25`](../../../libs/backend/memory-curator/src/lib/curator-llm/extract-prompt.ts):
 ```typescript
 - "subject": a normalized lowercase key (e.g., "auth-service", "ptah") or null.
 ```
@@ -108,7 +108,7 @@ Under `ptah-video-studio` (246 rows), totally unrelated technical domains are lu
 The merge pipeline is almost entirely inert. Out of 36,252 rows, **only 620 memories (1.71%) have ever received a merge** (`chunk_count > 1`). Exactly 35,632 memories (98.29%) remain singletons.
 
 ### Root Cause 1: The 200-Memory Recency Window Trap
-In [`libs/backend/memory-curator/src/lib/memory-curator.service.ts:608-612`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/memory-curator.service.ts#L608-L612):
+In [`libs/backend/memory-curator/src/lib/memory-curator.service.ts:608-612`](../../../libs/backend/memory-curator/src/lib/memory-curator.service.ts):
 ```typescript
     const related =
       subjects.size > 0
@@ -118,22 +118,26 @@ In [`libs/backend/memory-curator/src/lib/memory-curator.service.ts:608-612`](fil
             .map((m) => ({ id: m.id, subject: m.subject, content: m.content }))
         : [];
 ```
-`this.store.list({ limit: 200 })` is defined in [`libs/backend/memory-curator/src/lib/memory.store.ts:366-367`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/memory.store.ts#L366-L367) as:
+`this.store.list({ limit: 200 })` is defined in [`libs/backend/memory-curator/src/lib/memory.store.ts:366-367`](../../../libs/backend/memory-curator/src/lib/memory.store.ts) as:
 ```typescript
 SELECT m.* FROM memories m ${whereSql} ${salienceRankOrderBy('@rankNow')} LIMIT @__limit OFFSET @__offset
 ```
-`salienceRankOrderBy` decays score exponentially by age: `604800000 / (604800000 + ageMs)` ([`libs/backend/memory-curator/src/lib/salience-ranking.ts:34-36`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/salience-ranking.ts#L34-L36)). Consequently:
-1. `store.list({ limit: 200 })` retrieves only the **top 200 most recent rows** in the workspace.
+`salienceRankOrderBy` decays score exponentially by age: `604800000 / (604800000 + ageMs)` ([`libs/backend/memory-curator/src/lib/salience-ranking.ts:34-36`](../../../libs/backend/memory-curator/src/lib/salience-ranking.ts)). Consequently:
+1. `store.list({ limit: 200 })` retrieves only the **top 200 rows by the ranking expression** in
+   the workspace. That expression combines stored salience, age decay, hits and pinning, so it is
+   not a pure recency order. It behaves close to one here because salience is clustered above 0.70
+   for 85.5 percent of rows (see "Salience distribution"), which leaves age decay as the term with
+   real variance.
 2. In a workspace with ~36,000 memories, **99.45% of existing memories are never fetched**.
 3. If an existing memory with subject `commitlint-scope-enum` is older than a few days, it is completely absent from the 200 rows fetched.
-4. `related` evaluates to `[]`. The LLM receives `Existing: []` in [`libs/backend/memory-curator/src/lib/curator-llm/resolve-prompt.ts:30`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/curator-llm/resolve-prompt.ts#L30) and cannot merge.
+4. `related` evaluates to `[]`. The LLM receives `Existing: []` in [`libs/backend/memory-curator/src/lib/curator-llm/resolve-prompt.ts:30`](../../../libs/backend/memory-curator/src/lib/curator-llm/resolve-prompt.ts) and cannot merge.
 
 ### Root Cause 2: Exact String Matching vs Case-Insensitive Prompt
-In [`memory-curator.service.ts:610`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/memory-curator.service.ts#L610):
+In [`memory-curator.service.ts:610`](../../../libs/backend/memory-curator/src/lib/memory-curator.service.ts):
 ```typescript
 .filter((m) => m.subject && subjects.has(m.subject))
 ```
-`subjects.has()` is an exact, case-sensitive JavaScript `Set` lookup. Yet the curator prompt in [`resolve-prompt.ts:19`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/curator-llm/resolve-prompt.ts#L19) states:
+`subjects.has()` is an exact, case-sensitive JavaScript `Set` lookup. Yet the curator prompt in [`resolve-prompt.ts:19`](../../../libs/backend/memory-curator/src/lib/curator-llm/resolve-prompt.ts) states:
 > *"Prefer mergeTargetId when subjects match (case-insensitive). If unsure, set null."*
 Any minor variation in casing, hyphens, or terminology blocks the candidate in TypeScript before the LLM ever sees it.
 
@@ -157,9 +161,9 @@ Because extraction has no canonical vocabulary, topics fracture into dozens of n
 
 ## Retrieval, judged
 
-The retrieval engine is implemented in [`libs/backend/memory-curator/src/lib/memory-search.service.ts:280-366`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/memory-search.service.ts#L280-L366). In the CLI and VS Code extension runtimes, `workerClient` is null ([`memory-search.service.ts:374-376`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/memory-search.service.ts#L374-L376); [`libs/backend/memory-curator/src/lib/di/register.ts:58`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/di/register.ts#L58)), degrading search to BM25-only.
+The retrieval engine is implemented in [`libs/backend/memory-curator/src/lib/memory-search.service.ts:280-366`](../../../libs/backend/memory-curator/src/lib/memory-search.service.ts). In the CLI and VS Code extension runtimes, `workerClient` is null ([`memory-search.service.ts:374-376`](../../../libs/backend/memory-curator/src/lib/memory-search.service.ts); [`libs/backend/memory-curator/src/lib/di/register.ts:58`](../../../libs/backend/memory-curator/src/lib/di/register.ts)), degrading search to BM25-only.
 
-BM25 query generation in [`libs/backend/memory-curator/src/lib/fts-query.util.ts:26-38`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/fts-query.util.ts#L26-L38):
+BM25 query generation in [`libs/backend/memory-curator/src/lib/fts-query.util.ts:26-38`](../../../libs/backend/memory-curator/src/lib/fts-query.util.ts):
 1. Does not strip common English stopwords (`what`, `did`, `we`, `do`, `how`, `why`, `the`, `about`).
 2. Joins all tokens with `OR`: `tokens.map(...).join(' OR ')`.
 3. In a 38,952-chunk FTS index, virtually every chunk matches `"the"`, `"we"`, or `"what"`.
@@ -260,7 +264,7 @@ Out of 20 top-5 results across the 4 queries, **only 4.5 hits were relevant (22.
 
 ## Salience distribution
 
-`salience` is written once on insert from the LLM's `salienceHint` ([`extract-prompt.ts:27`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/curator-llm/extract-prompt.ts#L27); [`memory-curator.service.ts:665-668`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/memory-curator.service.ts#L665-L668)).
+`salience` is written once on insert from the LLM's `salienceHint` ([`extract-prompt.ts:27`](../../../libs/backend/memory-curator/src/lib/curator-llm/extract-prompt.ts); [`memory-curator.service.ts:665-668`](../../../libs/backend/memory-curator/src/lib/memory-curator.service.ts)).
 
 ### Measured Distribution
 - **Total rows**: 36,252
@@ -277,7 +281,7 @@ Out of 20 top-5 results across the 4 queries, **only 4.5 hits were relevant (22.
 - **High-salience skew**: **85.54% of all rows (31,010)** have `salience >= 0.70`. Only 3.66% (1,326 rows) have `salience < 0.50`.
 
 ### Mathematical Impact on Ranking
-In [`libs/backend/memory-curator/src/lib/salience-ranking.ts:21-27, 34-36`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/salience-ranking.ts#L21-L27):
+In [`libs/backend/memory-curator/src/lib/salience-ranking.ts:21-27, 34-36`](../../../libs/backend/memory-curator/src/lib/salience-ranking.ts):
 ```sql
 ORDER BY (m.salience * (604800000.0 / (604800000.0 + MAX(0, ? - m.last_used_at))) + 0.3 * m.hits / (m.hits + 3.0) + m.pinned) DESC, m.id DESC
 ```
@@ -288,7 +292,7 @@ The ranking expression built on `salience` is **decorative**. It functions almos
 ## Smallest change with the largest effect
 
 ### The Single Smallest Change with Largest Effect: Stopword Pruning & AND-Joined FTS Query
-**File**: [`libs/backend/memory-curator/src/lib/fts-query.util.ts:26-38`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/fts-query.util.ts#L26-L38)
+**File**: [`libs/backend/memory-curator/src/lib/fts-query.util.ts:26-38`](../../../libs/backend/memory-curator/src/lib/fts-query.util.ts)
 
 Currently, `escapeFtsQuery` splits the query, leaves conversational filler (`what`, `did`, `we`, `do`, `how`, `why`, `the`, `is`, `about`), and joins all tokens with `OR`:
 ```typescript
@@ -309,7 +313,13 @@ Currently, `escapeFtsQuery` splits the query, leaves conversational filler (`wha
 2. Join content terms with `AND` (with fallback to `OR` only if `AND` yields zero rows).
 
 #### Proof of Impact on Live Data:
-Running Query 1 with this fix (`"judge" AND "threshold"*`) against the exact same uncleaned live database transforms the results from 0% relevance to **5/5 pure signal**:
+Running Query 1 with this fix (`"judge" AND "threshold"*`) against the same uncleaned live database transforms the results from 0% relevance to **5/5 pure signal**.
+
+**This 5/5 is a narrowed AND-only experiment, not the shipped result.** It drops `decide` by hand
+and keeps two terms. The implementation that shipped (TASK_2026_473 Track A, recorded at the end of
+this report) keeps every content term, so Query 1 builds `"decide" AND "judge" AND "threshold"*`,
+which matches no chunk, and the page comes from the `OR` fallback. Query 1 scores **4/5** as
+shipped. The five rows below are the narrowed measurement:
 1. **Rank 1** (`skill-promotion-threshold`): *"Skill promotion uses the configured successesToPromote threshold unless a candidate has at least generalizationContextThreshold distinct contexts..."*
 2. **Rank 2** (`skill-synthesis`): *"Industry consensus (ACE 2025, SkillTTA, Trace2Skill, Voyager) is to cluster trajectories and use LLM-driven incremental curation — NOT heuristic/arithmetic gating. Single-session judging in isolation causes 'sequential overfitting'..."*
 3. **Rank 3** (`p3-batch-1-committed`): *"Includes enhance() pipeline: collect signal → generate candidate → judge gate... 24h per-slug cooldown + 5-invocation min threshold."*
@@ -317,7 +327,7 @@ Running Query 1 with this fix (`"judge" AND "threshold"*`) against the exact sam
 5. **Rank 5** (`p3_auto_enhance`): *"gates on judge... 24h cooldown + invocation threshold + CuratorRateLimitService cap..."*
 
 ### The Write-Side Fix: Uncapping Merge Candidate Retrieval
-**File**: [`libs/backend/memory-curator/src/lib/memory-curator.service.ts:608-612`](file:///D:/projects/ptah-extension/libs/backend/memory-curator/src/lib/memory-curator.service.ts#L608-L612)
+**File**: [`libs/backend/memory-curator/src/lib/memory-curator.service.ts:608-612`](../../../libs/backend/memory-curator/src/lib/memory-curator.service.ts)
 
 Replace the in-memory `store.list({ limit: 200 }).filter(...)` with a targeted SQL query:
 ```typescript
@@ -329,7 +339,10 @@ This single change eliminates the 200-row recency horizon and allows newly extra
 
 ### The Corpus Cleanup Prerequisite
 Code fixes alone will not resolve the storage bloat:
-1. **Purge all 5,691 rows of `kind = 'event'`**: Events are 100% ephemeral work logs, dead PR states, and subagent rosters.
+1. **Purge the 5,691 rows of `kind = 'event'`, but verify before you delete.** All 15 sampled
+   event rows were ephemeral work logs, dead PR states and subagent rosters. Fifteen rows do not
+   prove the remaining 5,676 are safe to delete. Classify the full population first, or quarantine
+   the rows reversibly and keep a backup of the database file, before any delete runs.
 2. **Purge task worktree rows**: Query `WHERE subject LIKE 'task-2026-%' OR content LIKE '%worktrees%'`.
 3. **Deduplicate commitlint scopes**: Deduplicate the 222 verbatim copies of `.commitlintrc.json` scopes into a single canonical architectural memory.
 

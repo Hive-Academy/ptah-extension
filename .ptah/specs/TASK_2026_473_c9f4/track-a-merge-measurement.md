@@ -1,5 +1,15 @@
 # Track A merge-candidate measurement
 
+> **These NEW figures are PRE-FINAL and are kept as the record of why the query changed again.**
+> They measure the first version of `findMergeCandidates`, which applied the per-subject cap in
+> TypeScript over one shared 200-row ranked scan. Section 1 below shows what that cost: nine busy
+> subjects took 198 of the 200 scan positions and `ptah-tui` received 2 candidates instead of 5.
+> The shipped query puts the cap inside the SQL with `ROW_NUMBER() OVER (PARTITION BY ...)` and has
+> no internal scan horizon. It returns 5 candidates for every one of the ten subjects, 50 in total.
+> See `track-a-merge-fairness.md` for the final query, its SQL and its measurement.
+>
+> The OLD column and sections 2 to 5 are unaffected by that change and still stand.
+
 Measured at **2026-09-19 15:04:41.322 UTC** against `C:\Users\abdal\.ptah\state\ptah.sqlite`, opened with `better-sqlite3` using `{ readonly: true, fileMustExist: true }`.
 
 The measured workspace root is **`D:\projects\ptah-extension`** because it is the Ptah repository root and, at 35,255 rows, is by far the largest relevant root in the live database. It contains 35,222 rows with a subject and 26,503 distinct subjects. Its rows span 2026-06-05 09:49:58.056 UTC through 2026-09-19 14:15:12.267 UTC. The database also contains other project and worktree roots, but they were excluded by the same `workspace_root IS ?` predicate used by both paths.
