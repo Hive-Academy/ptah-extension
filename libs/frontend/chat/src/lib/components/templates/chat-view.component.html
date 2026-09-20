@@ -254,12 +254,6 @@
       [sessionId]="resolvedSessionId()"
       [isOverlay]="isOverlay()"
       (closed)="agentPanelOpen.set(false)"
-      [class.absolute]="isOverlay() && agentPanelOpen()"
-      [class.inset-0]="isOverlay() && agentPanelOpen()"
-      [class.w-full]="isOverlay() && agentPanelOpen()"
-      [class.h-full]="isOverlay() && agentPanelOpen()"
-      [class.z-20]="isOverlay() && agentPanelOpen()"
-      [class.bg-base-200]="isOverlay() && agentPanelOpen()"
     />
   }
 </div>

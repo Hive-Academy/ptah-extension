@@ -106,6 +106,7 @@ export const AGENT_PANEL_OVERLAY_BREAKPOINT = 600;
   selector: 'ptah-chat-view',
   // Scoped to this host, not `document`: a canvas holds up to 20 chat tiles, and
   // a document listener would close the overlay on every narrow tile at once.
+  // Resize-drag Escape is handled separately by the temporary document listener below.
   host: {
     '(keydown.escape)': 'onEscapeKey($event)',
   },
@@ -292,15 +293,19 @@ export class ChatViewComponent implements OnDestroy {
   private resizeObserver: ResizeObserver | null = null;
 
   /** Host width in pixels tracked by ResizeObserver */
-  readonly hostWidth = signal<number>(0);
+  private readonly _hostWidth = signal<number>(0);
+  protected readonly hostWidth = this._hostWidth.asReadonly();
 
   /**
    * Whether the chat view host is narrower than the overlay breakpoint.
    * When true and the agent panel is open, the panel renders as a full-surface overlay.
    */
-  readonly isOverlay = computed(() => {
+  protected readonly isOverlay = computed(() => {
     const width = this.hostWidth();
-    return width > 0 && width < AGENT_PANEL_OVERLAY_BREAKPOINT;
+    // Unknown width fails toward overlay only while open, avoiding an initial squeezed render.
+    return width === 0
+      ? this.agentPanelOpen()
+      : width < AGENT_PANEL_OVERLAY_BREAKPOINT;
   });
 
   /** Local panel open/close state */
@@ -314,7 +319,7 @@ export class ChatViewComponent implements OnDestroy {
   private observeHostWidth(): void {
     const initialWidth = this.hostEl.nativeElement?.clientWidth;
     if (initialWidth && initialWidth > 0) {
-      this.hostWidth.set(initialWidth);
+      this._hostWidth.set(initialWidth);
     }
 
     if (typeof ResizeObserver === 'undefined') return;
@@ -327,7 +332,7 @@ export class ChatViewComponent implements OnDestroy {
             : (entry.target as HTMLElement).clientWidth;
         if (width > 0) {
           this.ngZone.run(() => {
-            this.hostWidth.set(width);
+            this._hostWidth.set(width);
           });
         }
       }
@@ -337,6 +342,8 @@ export class ChatViewComponent implements OnDestroy {
 
   /**
    * Keyboard handler for Escape: closes the overlay when in narrow overlay mode.
+   * Unlike resize-drag Escape (`_onKeydown`), this stays host-scoped so only the
+   * focused tile closes; when focus is on `<body>`, Escape is intentionally a no-op.
    */
   protected onEscapeKey(event: Event): void {
     if (this.isOverlay() && this.agentPanelOpen()) {
@@ -467,6 +474,7 @@ export class ChatViewComponent implements OnDestroy {
       // Fires if the handle is torn out of the DOM mid-drag (panel auto-closes).
       handle.addEventListener('lostpointercapture', this.onResizeEnd);
       window.addEventListener('blur', this._onBlur);
+      // Separate from host-scoped overlay Escape; this exists only during a resize drag.
       document.addEventListener('keydown', this._onKeydown);
     });
 

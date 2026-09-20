@@ -147,6 +147,12 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
   host: {
     'data-ptah-file-links': '',
     '[attr.data-ptah-tab-id]': 'linkTabId()',
+    '[class.absolute]': 'effectiveOpen() && isOverlay()',
+    '[class.inset-0]': 'effectiveOpen() && isOverlay()',
+    '[class.w-full]': 'effectiveOpen() && isOverlay()',
+    '[class.h-full]': 'effectiveOpen() && isOverlay()',
+    '[class.z-20]': 'effectiveOpen() && isOverlay()',
+    '[class.bg-base-200]': 'effectiveOpen() && isOverlay()',
   },
   imports: [
     NgClass,
@@ -173,7 +179,8 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
   `,
   template: `
     <aside
-      class="flex flex-col bg-base-200 border-base-content/5 overflow-hidden h-full"
+      class="flex flex-col border-base-content/5 overflow-hidden h-full"
+      [class.bg-base-200]="!isOverlay()"
       [class.border-l]="!isOverlay()"
       [class.agent-panel-open]="effectiveOpen() && !isOverlay()"
       [class.w-full]="effectiveOpen() && isOverlay()"
