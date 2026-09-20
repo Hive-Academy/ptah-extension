@@ -1019,18 +1019,12 @@ export function assertUnprocessedUnchanged(
   }
 }
 
-export async function main(
-  argv: readonly string[],
-  livenessChecker: LivenessChecker = collectLivenessFindings,
-): Promise<number> {
-  const options = parseArgs(argv);
-
-  if (!fs.existsSync(options.dbPath)) {
-    throw new Error(`Database not found: ${options.dbPath}`);
-  }
-
-  const cutoffMs = Date.now() - options.processedDays * MILLISECONDS_PER_DAY;
-
+/**
+ * The opening banner: which file, which cutoff, and which of the two modes is
+ * about to run. The dry-run text is deliberately long because it is the one
+ * place the operator is told exactly which probes a read-only run skips.
+ */
+function printRunBanner(options: Options, cutoffMs: number): void {
   console.log(`[drain] database    : ${options.dbPath}`);
   console.log(
     `[drain] cutoff      : processed_at < ${formatTimestamp(cutoffMs)} (${options.processedDays} days)`,
@@ -1055,15 +1049,23 @@ export async function main(
   } else {
     console.log('[drain] mode        : DESTRUCTIVE');
   }
+}
 
-  // The install-wide checks run in both modes so the operator is told when the
-  // figures are a live snapshot. The per-file probes run only on the
-  // destructive path — see `collectLivenessFindings`.
-  const { blocking, advisory } = livenessChecker(
-    options.dbPath,
-    options.dryRun,
-  );
-
+/**
+ * Prints what the pre-flight interlocks found and decides whether the run may
+ * continue. Returns an exit code when the run must stop, `undefined` when it
+ * may proceed — the destructive path refuses on any blocking finding, the dry
+ * run reports the same findings and carries on because its only handle is
+ * read-only.
+ *
+ * This runs BEFORE the database is opened, and nothing here relaxes a check:
+ * the classification it prints was already decided by `collectLivenessFindings`.
+ */
+function reportLivenessFindings(
+  options: Options,
+  blocking: readonly LivenessFinding[],
+  advisory: readonly LivenessFinding[],
+): number | undefined {
   if (advisory.length > 0) {
     console.warn(
       `\n[drain] NOTE — a Ptah install is running, but ${options.dbPath}`,
@@ -1104,6 +1106,169 @@ export async function main(
       '[drain] The destructive path would have REFUSED to run in this state.',
     );
   }
+
+  return undefined;
+}
+
+/**
+ * The whole of the dry-run path: report what a destructive run WOULD do, and
+ * return. It is reached before `createBackup`, and the connection it reports on
+ * was opened read-only, so nothing downstream of its `return` is reachable on a
+ * dry run.
+ */
+function reportDryRunProjection(
+  options: Options,
+  beforeQueue: QueueStats,
+  beforePages: PageStats,
+): number {
+  console.log(
+    `\n[drain] DRY RUN — no write reached the database; the connection above was\n[drain] opened read-only. ${formatCount(
+      beforeQueue.eligible,
+    )} rows would be deleted in ${formatCount(
+      Math.ceil(beforeQueue.eligible / options.batchSize),
+    )} batches of ${formatCount(options.batchSize)}.`,
+  );
+  if (beforePages.autoVacuumMode === AUTO_VACUUM_INCREMENTAL) {
+    console.log(
+      `[drain] DRY RUN — incremental reclaim IS available; ${formatCount(
+        beforePages.freelistCount,
+      )} pages (${formatMegabytes(
+        beforePages.freelistCount * beforePages.pageSize,
+      )}) are already free before any delete.`,
+    );
+  } else {
+    console.log(
+      `[drain] DRY RUN — incremental reclaim is NOT available (auto_vacuum = ${beforePages.autoVacuumMode}); the file would not shrink.`,
+    );
+  }
+  return 0;
+}
+
+interface DestructiveRunContext {
+  readonly db: SqliteDatabase;
+  readonly options: Options;
+  readonly cutoffMs: number;
+  readonly beforeQueue: QueueStats;
+  readonly beforePages: PageStats;
+  readonly beforeBytes: number;
+  readonly isInterrupted: () => boolean;
+}
+
+/**
+ * The whole of the destructive path, in the order the interlocks require:
+ * backup (unless `--force`) → verify (inside `createBackup`) →
+ * `recheckBeforeDelete` → first DELETE → reclaim → checkpoint → after-report →
+ * invariant assertion. Nothing in this function may be reordered; each step is
+ * a precondition of the one below it.
+ *
+ * The caller owns the connection and the signal handlers, so their cleanup
+ * stays in `main`'s `finally` and is unaffected by any `return` taken here.
+ */
+async function runDestructiveDrain(
+  context: DestructiveRunContext,
+): Promise<number> {
+  const {
+    db,
+    options,
+    cutoffMs,
+    beforeQueue,
+    beforePages,
+    beforeBytes,
+    isInterrupted,
+  } = context;
+
+  if (options.force) {
+    console.warn(
+      '\n[drain] --force: skipping the backup at the operator’s explicit request.',
+    );
+  } else {
+    await createBackup(db, options.dbPath);
+  }
+
+  // TOCTOU: the checks above ran before a backup that takes minutes on a
+  // 1.2 GB file. Re-run them here, with nothing between this point and the
+  // first DELETE.
+  const reblocking = recheckBeforeDelete(options.dbPath);
+  if (reblocking.length > 0) {
+    console.error(
+      '\n[drain] REFUSING TO DELETE — the database came into use during the backup:',
+    );
+    for (const finding of reblocking) {
+      console.error(`  - [${finding.kind}] ${finding.detail}`);
+    }
+    console.error(
+      '[drain] No rows were deleted. The backup that was just taken is intact.',
+    );
+    return 1;
+  }
+
+  console.log('');
+  const result = drainBatches(db, options, cutoffMs, isInterrupted);
+  console.log(
+    `[drain] deleted ${formatCount(result.deleted)} rows in ${formatCount(result.batches)} batches${
+      result.interrupted ? ' (INTERRUPTED — re-run to resume)' : ''
+    }`,
+  );
+
+  const reclaim = reclaimPages(db, options.reclaimStepPages, isInterrupted);
+  if (!reclaim.available) {
+    console.warn(`[drain] page reclaim unavailable: ${reclaim.reason}`);
+  } else {
+    console.log(
+      `[drain] reclaimed ${formatCount(reclaim.pagesReclaimed)} pages (${formatMegabytes(
+        reclaim.pagesReclaimed * beforePages.pageSize,
+      )})`,
+    );
+  }
+
+  db.pragma('wal_checkpoint(TRUNCATE)');
+
+  const afterQueue = readQueueStats(db, cutoffMs);
+  const afterPages = readPageStats(db);
+  const afterBytes = fileSizeBytes(options.dbPath);
+  reportStats('AFTER', afterQueue, afterPages, afterBytes);
+  console.log(
+    `\n[drain] rows removed      : ${formatCount(beforeQueue.total - afterQueue.total)}`,
+  );
+  console.log(
+    `[drain] unprocessed rows  : ${formatCount(beforeQueue.unprocessed)} before, ${formatCount(
+      afterQueue.unprocessed,
+    )} after (must be unchanged)`,
+  );
+  console.log(
+    `[drain] file size         : ${formatMegabytes(beforeBytes)} → ${formatMegabytes(
+      afterBytes,
+    )} (freed ${formatMegabytes(beforeBytes - afterBytes)})`,
+  );
+
+  assertUnprocessedUnchanged(beforeQueue.unprocessed, afterQueue.unprocessed);
+  return result.interrupted ? 2 : 0;
+}
+
+export async function main(
+  argv: readonly string[],
+  livenessChecker: LivenessChecker = collectLivenessFindings,
+): Promise<number> {
+  const options = parseArgs(argv);
+
+  if (!fs.existsSync(options.dbPath)) {
+    throw new Error(`Database not found: ${options.dbPath}`);
+  }
+
+  const cutoffMs = Date.now() - options.processedDays * MILLISECONDS_PER_DAY;
+
+  printRunBanner(options, cutoffMs);
+
+  // The install-wide checks run in both modes so the operator is told when the
+  // figures are a live snapshot. The per-file probes run only on the
+  // destructive path — see `collectLivenessFindings`.
+  const { blocking, advisory } = livenessChecker(
+    options.dbPath,
+    options.dryRun,
+  );
+
+  const refusal = reportLivenessFindings(options, blocking, advisory);
+  if (refusal !== undefined) return refusal;
 
   const db = openDatabase(options.dbPath, {
     readonly: options.dryRun,
@@ -1148,99 +1313,18 @@ export async function main(
     );
 
     if (options.dryRun) {
-      console.log(
-        `\n[drain] DRY RUN — no write reached the database; the connection above was\n[drain] opened read-only. ${formatCount(
-          beforeQueue.eligible,
-        )} rows would be deleted in ${formatCount(
-          Math.ceil(beforeQueue.eligible / options.batchSize),
-        )} batches of ${formatCount(options.batchSize)}.`,
-      );
-      if (beforePages.autoVacuumMode === AUTO_VACUUM_INCREMENTAL) {
-        console.log(
-          `[drain] DRY RUN — incremental reclaim IS available; ${formatCount(
-            beforePages.freelistCount,
-          )} pages (${formatMegabytes(
-            beforePages.freelistCount * beforePages.pageSize,
-          )}) are already free before any delete.`,
-        );
-      } else {
-        console.log(
-          `[drain] DRY RUN — incremental reclaim is NOT available (auto_vacuum = ${beforePages.autoVacuumMode}); the file would not shrink.`,
-        );
-      }
-      return 0;
+      return reportDryRunProjection(options, beforeQueue, beforePages);
     }
 
-    if (options.force) {
-      console.warn(
-        '\n[drain] --force: skipping the backup at the operator\u2019s explicit request.',
-      );
-    } else {
-      await createBackup(db, options.dbPath);
-    }
-
-    // TOCTOU: the checks above ran before a backup that takes minutes on a
-    // 1.2 GB file. Re-run them here, with nothing between this point and the
-    // first DELETE.
-    const reblocking = recheckBeforeDelete(options.dbPath);
-    if (reblocking.length > 0) {
-      console.error(
-        '\n[drain] REFUSING TO DELETE — the database came into use during the backup:',
-      );
-      for (const finding of reblocking) {
-        console.error(`  - [${finding.kind}] ${finding.detail}`);
-      }
-      console.error(
-        '[drain] No rows were deleted. The backup that was just taken is intact.',
-      );
-      return 1;
-    }
-
-    console.log('');
-    const result = drainBatches(db, options, cutoffMs, () => interrupted);
-    console.log(
-      `[drain] deleted ${formatCount(result.deleted)} rows in ${formatCount(result.batches)} batches${
-        result.interrupted ? ' (INTERRUPTED — re-run to resume)' : ''
-      }`,
-    );
-
-    const reclaim = reclaimPages(
+    return await runDestructiveDrain({
       db,
-      options.reclaimStepPages,
-      () => interrupted,
-    );
-    if (!reclaim.available) {
-      console.warn(`[drain] page reclaim unavailable: ${reclaim.reason}`);
-    } else {
-      console.log(
-        `[drain] reclaimed ${formatCount(reclaim.pagesReclaimed)} pages (${formatMegabytes(
-          reclaim.pagesReclaimed * beforePages.pageSize,
-        )})`,
-      );
-    }
-
-    db.pragma('wal_checkpoint(TRUNCATE)');
-
-    const afterQueue = readQueueStats(db, cutoffMs);
-    const afterPages = readPageStats(db);
-    const afterBytes = fileSizeBytes(options.dbPath);
-    reportStats('AFTER', afterQueue, afterPages, afterBytes);
-    console.log(
-      `\n[drain] rows removed      : ${formatCount(beforeQueue.total - afterQueue.total)}`,
-    );
-    console.log(
-      `[drain] unprocessed rows  : ${formatCount(beforeQueue.unprocessed)} before, ${formatCount(
-        afterQueue.unprocessed,
-      )} after (must be unchanged)`,
-    );
-    console.log(
-      `[drain] file size         : ${formatMegabytes(beforeBytes)} → ${formatMegabytes(
-        afterBytes,
-      )} (freed ${formatMegabytes(beforeBytes - afterBytes)})`,
-    );
-
-    assertUnprocessedUnchanged(beforeQueue.unprocessed, afterQueue.unprocessed);
-    return result.interrupted ? 2 : 0;
+      options,
+      cutoffMs,
+      beforeQueue,
+      beforePages,
+      beforeBytes,
+      isInterrupted: () => interrupted,
+    });
   } finally {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
