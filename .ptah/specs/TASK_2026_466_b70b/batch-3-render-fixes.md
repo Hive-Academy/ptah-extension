@@ -18,8 +18,8 @@ message differ, the envelope is returned unchanged.
 
 **Acceptance verification:**
 
-| Case                                  | Spec                               | Location |
-| ------------------------------------- | ---------------------------------- | -------- |
+| Case                                  | Spec                               |
+| ------------------------------------- | ---------------------------------- |
 | `summary === message` renders once    | `agent-report.utils.spec.ts`       |
 | `summary !== message` renders both    | `agent-report.utils.spec.ts`       |
 | Component-level duplicate suppression | `message-bubble.component.spec.ts` |
@@ -42,8 +42,8 @@ rendered block. Existing CSS spacing then provides the visual separation:
 
 **Acceptance verification:**
 
-| Case                                                                     | Spec                                         | Location |
-| ------------------------------------------------------------------------ | -------------------------------------------- | -------- |
+| Case                                                                     | Spec                                         |
+| ------------------------------------------------------------------------ | -------------------------------------------- |
 | Consecutive text segments stay separate nodes                            | `agent-monitor-tree-builder.service.spec.ts` |
 | Consecutive thinking segments stay separate nodes                        | `agent-monitor-tree-builder.service.spec.ts` |
 | Agent card renders consecutive text segments as separate markdown blocks | `agent-card-truncation.spec.ts`              |

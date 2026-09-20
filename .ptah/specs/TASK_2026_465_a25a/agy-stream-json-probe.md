@@ -102,8 +102,8 @@ What this establishes, and it is the whole basis of Phase A:
 1. **One process serves many turns.** Both turns ran in one `agy`, and the
    second needed no respawn and no `--conversation`.
 2. **The conversation is continuous.** One `conversation_id` across both, and
-   turn 2's `input_tokens` (11,841) exceeds turn 1's (11,731) by roughly the
-   size of turn 1's exchange, so the history is carried.
+   turn 2's `total_tokens` (11,867) exceeds turn 1's (11,767), showing that
+   the history is carried.
 3. **The mode is `queue-next-turn`, not `steer`.** agy consumed the second line
    only after turn 1 reached its `result`. Nothing reached the model mid-turn.
    This matches what `--help` says and is now measured.

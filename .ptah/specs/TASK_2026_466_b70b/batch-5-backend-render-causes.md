@@ -213,10 +213,10 @@ npx nx typecheck @ptah-extension/cli-agent-runtime
 
 ## Open risks
 
-- **The boundary stamp is not wired.** The `## Cross-boundary change needed`
-  section names the exact call site; until it lands, no runtime caller stamps a
-  boundary and the fusion window on the ptah-cli mailbox path remains open. The
-  mechanism and its specs are in place and verifiable now.
+- **End-to-end boundary stamp coverage is unproven.** `AgentProcessManager.continueConversation`
+  now invokes `this.outputBuffer.markTurnBoundary(agentId)` before `sdkHandle.continue(message)`,
+  closing the fusion window in the runtime. Full end-to-end coverage across a live host
+  interaction remains unproven.
 - **Codex's own tile fusion may have a second cause in the frontend.** On codex
   `handleExit` already drains the buffer between turns, so the backend window
   cannot fuse them; the observed codex tile repro likely also involves the

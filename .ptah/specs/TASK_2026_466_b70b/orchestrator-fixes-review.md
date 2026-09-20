@@ -9,11 +9,11 @@ Test results: **62 test suites passed (62 total)**, **938 tests passed, 1 skippe
 
 ## Executive Summary & Verdicts
 
-| Fix         | Scope                                         | Verdict             | Summary                                                                                                                                                                                                                                                                                               |
-| ----------- | --------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Fix A**   | Turn boundary stamp in `continueConversation` | `accept`            | `AgentProcessManager.continueConversation` is the single convergence point for live process turn restarts. The stamp before `sdkHandle.continue(message)` ensures isolation across all continuation modes without race conditions.                                                                    |
-| **Fix B**   | Peer name sanitization in `flattenPeerName`   | `accept with fixes` | Unicode directionality controls (bidi overrides/isolates in `\p{Cf}`) and non-ASCII line breaks (`\p{Zl}\p{Zp}`) are stripped, and code-point truncation prevents surrogate splitting. Minor fixes recommended for Unicode curly/angle quote stripping and markdown delimiter escaping in raw stdout. |
-| **Overall** | Combined review of orchestrator changes       | `accept with fixes` | Both fixes resolve their respective review findings. Fix A is complete and robust; Fix B resolves the high-severity bidi spoofing flaw while having minor residual cosmetic edges in raw stdout markdown scenarios.                                                                                   |
+| Fix         | Scope                                         | Verdict  | Summary                                                                                                                                                                                                                                                  |
+| ----------- | --------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Fix A**   | Turn boundary stamp in `continueConversation` | `accept` | `AgentProcessManager.continueConversation` is the single convergence point for live process turn restarts. The stamp before `sdkHandle.continue(message)` ensures isolation across all continuation modes without race conditions.                       |
+| **Fix B**   | Peer name sanitization in `flattenPeerName`   | `accept` | Unicode directionality controls (bidi overrides/isolates in `\p{Cf}`), non-ASCII line breaks (`\p{Zl}\p{Zp}`), Unicode quotes (`\p{Pi}\p{Pf}`), and Markdown structural characters are stripped, and code-point truncation prevents surrogate splitting. |
+| **Overall** | Combined review of orchestrator changes       | `accept` | Both fixes resolve their respective review findings and are complete and robust.                                                                                                                                                                         |
 
 ---
 
@@ -158,6 +158,7 @@ Evaluating `origin.name` against `flattenPeerName`:
 There are two distinct output emissions in `ptah-cli-stream-loop.service.ts:235-240`:
 
 1. **`emitSegment` (Structured Segment)**:
+
    ```ts
    emitSegment({
      type: 'info',
@@ -174,7 +175,9 @@ There are two distinct output emissions in `ptah-cli-stream-loop.service.ts:235-
      }
      ```
    - **This is rendered strictly as PLAIN TEXT.** Angular's `{{ segment.content }}` binding inside `<pre>` performs text interpolation with full HTML escaping. Markdown syntax is not evaluated. Links, markdown formatting, or HTML tags cannot execute or render.
+
 2. **`emitOutput` (Raw stdout stream)**:
+
    ```ts
    emitOutput(`\n**Message from ${peerLabel}:** ${body}\n`);
    ```
@@ -220,10 +223,9 @@ There are two distinct output emissions in `ptah-cli-stream-loop.service.ts:235-
 
 ## Recommendations for Future Hardening
 
-1. **Strip Unicode Quotes in `flattenPeerName`**:
-   In `libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-stream-loop.service.ts:102`, expand the quote stripping regex to include Unicode quotation marks:
-   ```ts
-   .replace(/["'`“”‘’«»„‟‹›]/gu, '')
-   ```
-2. **Escape Markdown Delimiters in `peerLabel`**:
-   In `emitOutput` (`ptah-cli-stream-loop.service.ts:235`), escape markdown link delimiters (`[` and `]`) in `peerLabel` so that fallback stdout markdown rendering cannot produce active hyperlinks.
+The recommendations below are resolved and historical in the shipped implementation:
+
+1. **Strip Unicode Quotes in `flattenPeerName` (Resolved / Historical)**:
+   Unicode quotation marks (`[\p{Pi}\p{Pf}"'`]`) are stripped in `libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-stream-loop.service.ts:104`. Tested in `ptah-cli-stream-loop.inbound-peer.spec.ts:333`.
+2. **Escape Markdown Delimiters in `peerLabel` (Resolved / Historical)**:
+   Markdown structural characters (`[[\]()*_~<>|\\]`) are stripped in `ptah-cli-stream-loop.service.ts:109`, preventing active hyperlink creation in fallback raw stdout markdown rendering. Tested in `ptah-cli-stream-loop.inbound-peer.spec.ts:310`.
