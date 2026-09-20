@@ -10,6 +10,7 @@
  */
 
 import { BrowserLaunchingOAuthUrlOpener } from './browser-launching-oauth-url-opener.js';
+import { EventEmitter } from 'node:events';
 
 const URL = 'https://github.com/login/device';
 
@@ -23,9 +24,12 @@ function makeOpener(platform: NodeJS.Platform): {
   opener: BrowserLaunchingOAuthUrlOpener;
   calls: SpawnCall[];
   unref: jest.Mock;
+  child: EventEmitter;
 } {
   const calls: SpawnCall[] = [];
   const unref = jest.fn();
+  const child = new EventEmitter();
+  Object.assign(child, { unref });
   const opener = new BrowserLaunchingOAuthUrlOpener({
     platform,
     isTTY: true,
@@ -39,10 +43,10 @@ function makeOpener(platform: NodeJS.Platform): {
         args,
         options: options as unknown as Record<string, unknown>,
       });
-      return { unref };
+      return child as EventEmitter & { unref(): void };
     },
   });
-  return { opener, calls, unref };
+  return { opener, calls, unref, child };
 }
 
 describe('BrowserLaunchingOAuthUrlOpener', () => {
@@ -130,5 +134,33 @@ describe('BrowserLaunchingOAuthUrlOpener', () => {
     await expect(
       opener.openOAuthUrl({ provider: 'claude', verificationUri: URL }),
     ).resolves.toEqual({ opened: false });
+  });
+
+  it('retains the detached child handle until the launcher closes', async () => {
+    const { opener, child } = makeOpener('win32');
+
+    await opener.openOAuthUrl({ provider: 'claude', verificationUri: URL });
+
+    const retained = (
+      opener as unknown as { browserProcesses: Set<unknown> }
+    ).browserProcesses;
+    expect(retained.has(child)).toBe(true);
+    child.emit('close');
+    expect(retained.has(child)).toBe(false);
+  });
+
+  it('reaps tracked launcher processes and clears tracking on dispose', async () => {
+    const { opener, child } = makeOpener('win32');
+    const kill = jest.fn();
+    Object.assign(child, { kill });
+
+    await opener.openOAuthUrl({ provider: 'claude', verificationUri: URL });
+
+    opener.dispose();
+    expect(kill).toHaveBeenCalled();
+    const retained = (
+      opener as unknown as { browserProcesses: Set<unknown> }
+    ).browserProcesses;
+    expect(retained.size).toBe(0);
   });
 });

@@ -89,8 +89,15 @@ jest.mock('./cli-adapter.utils', () => {
     spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
     resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
     probeCliVersion: (...args: unknown[]) => mockProbeCliVersion(...args),
-    // Abort handlers tree-kill the child by PID. Mock it so the test never
-    // issues a real process.kill(-pid) group-kill against the runner.
+  };
+});
+
+jest.mock('@ptah-extension/platform-core', () => {
+  const actual = jest.requireActual<
+    typeof import('@ptah-extension/platform-core')
+  >('@ptah-extension/platform-core');
+  return {
+    ...actual,
     killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
   };
 });

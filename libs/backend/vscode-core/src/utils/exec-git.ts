@@ -1,8 +1,10 @@
 import crossSpawn from 'cross-spawn';
-import { spawn } from 'child_process';
 import * as os from 'os';
 import which from 'which';
-import type { IProcessSpawner } from '@ptah-extension/platform-core';
+import {
+  killProcessTree,
+  type IProcessSpawner,
+} from '@ptah-extension/platform-core';
 import type { Logger } from '../logging';
 
 export const DEFAULT_GIT_TIMEOUT_MS = 10_000;
@@ -538,23 +540,6 @@ function spawnGitChild(
   };
 }
 
-function killProcessTree(pid: number | undefined): void {
-  if (pid === undefined) return;
-  if (process.platform === 'win32') {
-    try {
-      const killer = spawn('taskkill', ['/F', '/T', '/PID', String(pid)], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      killer.on('error', () => {
-        /* taskkill not available; child.kill above is best-effort */
-      });
-    } catch {
-      /* swallow — child.kill() was already attempted by caller */
-    }
-  }
-}
-
 /** Best-effort below-normal OS priority for a background git child. */
 function lowerProcessPriority(pid: number | undefined, exited: boolean): void {
   // A child already seen to close is skipped, so its pid is never touched.
@@ -659,7 +644,7 @@ function runGitChild(
       // Off-thread the pid is not known synchronously, so the tree kill waits
       // for it rather than reading a field that would still be `undefined`.
       void child.whenSpawned.then((pid) => {
-        if (!exited) killProcessTree(pid);
+        if (!exited && pid !== undefined) void killProcessTree(pid);
       });
       armReleaseGrace(() => {
         if (!child.isKilled()) child.kill('SIGKILL');

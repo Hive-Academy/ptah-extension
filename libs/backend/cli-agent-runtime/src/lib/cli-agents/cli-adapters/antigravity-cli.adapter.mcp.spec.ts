@@ -47,7 +47,16 @@ jest.mock('./cli-adapter.utils', () => {
     resolveCliPath: () => Promise.resolve('agy'),
     resolveDirectSpawn: () =>
       Promise.resolve({ command: 'agy', prefixArgs: [] }),
-    killProcessTree: jest.fn(),
+  };
+});
+
+jest.mock('@ptah-extension/platform-core', () => {
+  const actual = jest.requireActual<
+    typeof import('@ptah-extension/platform-core')
+  >('@ptah-extension/platform-core');
+  return {
+    ...actual,
+    killProcessTree: jest.fn().mockResolvedValue(undefined),
   };
 });
 

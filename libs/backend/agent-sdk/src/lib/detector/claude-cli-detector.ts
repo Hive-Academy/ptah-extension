@@ -26,6 +26,7 @@ import whichLib from 'which';
 import { inject, injectable } from 'tsyringe';
 import { z } from 'zod';
 import {
+  killProcessTree,
   PLATFORM_TOKENS,
   type IStateStorage,
 } from '@ptah-extension/platform-core';
@@ -705,6 +706,7 @@ export class ClaudeCliDetector {
       const { timeout = 30000 } = options;
 
       const child = crossSpawn(command, args, {
+        detached: os.platform() !== 'win32',
         stdio: 'pipe',
         windowsHide: true,
       });
@@ -716,7 +718,12 @@ export class ClaudeCliDetector {
       const timeoutId = setTimeout(() => {
         if (!finished) {
           finished = true;
-          child.kill();
+          const whenSpawned = Promise.resolve(child.pid ?? null);
+          void whenSpawned.then((pid) => {
+            if (pid && !child.killed) {
+              void killProcessTree(pid);
+            }
+          });
           resolve({
             success: false,
             stdout: '',

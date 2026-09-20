@@ -50,9 +50,6 @@ export const BUFFER_LOW_WATER_SIZE = Math.floor(MAX_BUFFER_SIZE * 0.75);
  */
 export const DEFAULT_INACTIVITY_TIMEOUT = 60 * 60 * 1000;
 
-/** Grace period for SIGTERM before SIGKILL: 5 seconds */
-export const KILL_GRACE_PERIOD = 5000;
-
 /** TTL for completed agents before cleanup from map: 30 minutes */
 export const COMPLETED_AGENT_TTL = 30 * 60 * 1000;
 

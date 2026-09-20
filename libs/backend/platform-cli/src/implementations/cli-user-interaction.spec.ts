@@ -26,13 +26,16 @@ import 'reflect-metadata';
 interface MockSpawnCall {
   cmd: string;
   args: readonly string[];
+  options?: Record<string, unknown>;
 }
 
 declare global {
   var __mockSpawnCalls: MockSpawnCall[];
+  var __mockExecFileCalls: Array<{ command: string; args: readonly string[] }>;
 }
 
 globalThis.__mockSpawnCalls = [];
+globalThis.__mockExecFileCalls = [];
 
 jest.mock('child_process', () => {
   const actual =
@@ -49,12 +52,18 @@ jest.mock('child_process', () => {
     typeof eventsModule.EventEmitter
   > & {
     stdin: { write(data: string): void; end(): void };
+    pid: number;
+    killed: boolean;
   } {
     const emitter = new EventEmitterCtor() as InstanceType<
       typeof eventsModule.EventEmitter
     > & {
       stdin: { write(data: string): void; end(): void };
+      pid: number;
+      killed: boolean;
     };
+    emitter.pid = 4242;
+    emitter.killed = false;
     emitter.stdin = {
       write: () => undefined,
       end: () => undefined,
@@ -67,9 +76,22 @@ jest.mock('child_process', () => {
     ...actual,
     spawn: jest.fn((cmd: string, ...rest: unknown[]) => {
       const args = Array.isArray(rest[0]) ? (rest[0] as string[]) : [];
-      globalThis.__mockSpawnCalls.push({ cmd, args });
+      const options = (Array.isArray(rest[0]) ? rest[1] : rest[0]) as
+        | Record<string, unknown>
+        | undefined;
+      globalThis.__mockSpawnCalls.push({ cmd, args, options });
       return createStubChildProcess();
     }),
+    execFile: jest.fn(
+      (
+        command: string,
+        args: readonly string[],
+        callback: (error: null, stdout: string, stderr: string) => void,
+      ) => {
+        globalThis.__mockExecFileCalls.push({ command, args });
+        callback(null, '', '');
+      },
+    ),
   };
 });
 
@@ -83,6 +105,7 @@ import { CliUserInteraction } from './cli-user-interaction';
 
 beforeEach(() => {
   globalThis.__mockSpawnCalls.length = 0;
+  globalThis.__mockExecFileCalls.length = 0;
 });
 
 runUserInteractionContract('CliUserInteraction', () => {
@@ -258,5 +281,177 @@ describe('CliUserInteraction — CLI-specific behaviour', () => {
     });
 
     await expect(provider.writeToClipboard('text')).resolves.toBeUndefined();
+  });
+
+  it('tree-kills a browser launcher that exceeds the operation timeout', async () => {
+    jest.useFakeTimers();
+    const realPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', {
+        value: 'win32',
+        configurable: true,
+      });
+      const cp =
+        jest.requireMock<typeof import('child_process')>('child_process');
+      const eventsModule =
+        jest.requireActual<typeof import('events')>('events');
+      (cp.spawn as jest.Mock).mockImplementationOnce(() => {
+        const child = new eventsModule.EventEmitter() as ReturnType<
+          typeof cp.spawn
+        >;
+        Object.assign(child, { pid: 31337, killed: false });
+        return child;
+      });
+
+      const result = provider.openExternal('https://example.com');
+      jest.advanceTimersByTime(5_000);
+
+      await expect(result).resolves.toBe(false);
+      await Promise.resolve();
+      expect(globalThis.__mockExecFileCalls).toContainEqual({
+        command: expect.stringContaining('taskkill'),
+        args: ['/pid', '31337', '/T', '/F'],
+      });
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
+  });
+
+  it('tree-kills a clipboard helper that exceeds the operation timeout', async () => {
+    jest.useFakeTimers();
+    const realPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', {
+        value: 'win32',
+        configurable: true,
+      });
+      const cp =
+        jest.requireMock<typeof import('child_process')>('child_process');
+      const eventsModule =
+        jest.requireActual<typeof import('events')>('events');
+      (cp.spawn as jest.Mock).mockImplementationOnce(() => {
+        const child = new eventsModule.EventEmitter() as ReturnType<
+          typeof cp.spawn
+        >;
+        Object.assign(child, {
+          pid: 27182,
+          killed: false,
+          stdin: { write: jest.fn(), end: jest.fn() },
+        });
+        return child;
+      });
+
+      const result = provider.writeToClipboard('payload');
+      jest.advanceTimersByTime(5_000);
+
+      await expect(result).resolves.toBeUndefined();
+      await Promise.resolve();
+      expect(globalThis.__mockExecFileCalls).toContainEqual({
+        command: expect.stringContaining('taskkill'),
+        args: ['/pid', '27182', '/T', '/F'],
+      });
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
+  });
+
+  it('escalates to SIGKILL when a POSIX launcher survives SIGTERM', async () => {
+    jest.useFakeTimers();
+    const realPlatform = process.platform;
+    const kill = jest.spyOn(process, 'kill').mockReturnValue(true);
+    try {
+      Object.defineProperty(process, 'platform', {
+        value: 'linux',
+        configurable: true,
+      });
+      const cp =
+        jest.requireMock<typeof import('child_process')>('child_process');
+      const eventsModule =
+        jest.requireActual<typeof import('events')>('events');
+      (cp.spawn as jest.Mock).mockImplementationOnce(() => {
+        const child = new eventsModule.EventEmitter() as ReturnType<
+          typeof cp.spawn
+        >;
+        Object.assign(child, { pid: 31337, killed: false });
+        return child;
+      });
+
+      const result = provider.openExternal('https://example.com');
+      jest.advanceTimersByTime(5_000);
+      await expect(result).resolves.toBe(false);
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(5_000);
+
+      expect(kill).toHaveBeenCalledWith(-31337, 'SIGTERM');
+      expect(kill).toHaveBeenCalledWith(-31337, 0);
+      expect(kill).toHaveBeenCalledWith(-31337, 'SIGKILL');
+    } finally {
+      jest.restoreAllMocks();
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
+  });
+
+  it('escalates to SIGKILL if launcher leader exits but group descendants remain alive', async () => {
+    jest.useFakeTimers();
+    const realPlatform = process.platform;
+    const kill = jest
+      .spyOn(process, 'kill')
+      .mockImplementation((pid, signal) => {
+        if (signal === 0) {
+          if (pid === 31338) {
+            throw new Error('ESRCH');
+          }
+          if (pid === -31338) {
+            return true;
+          }
+        }
+        return true;
+      });
+    try {
+      Object.defineProperty(process, 'platform', {
+        value: 'linux',
+        configurable: true,
+      });
+      const cp =
+        jest.requireMock<typeof import('child_process')>('child_process');
+      const eventsModule =
+        jest.requireActual<typeof import('events')>('events');
+      (cp.spawn as jest.Mock).mockImplementationOnce(() => {
+        const child = new eventsModule.EventEmitter() as ReturnType<
+          typeof cp.spawn
+        >;
+        Object.assign(child, { pid: 31338, killed: false });
+        return child;
+      });
+
+      const result = provider.openExternal('https://example.com');
+      jest.advanceTimersByTime(5_000);
+      await expect(result).resolves.toBe(false);
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(5_000);
+
+      expect(kill).toHaveBeenCalledWith(-31338, 'SIGTERM');
+      expect(kill).toHaveBeenCalledWith(-31338, 0);
+      expect(kill).toHaveBeenCalledWith(-31338, 'SIGKILL');
+    } finally {
+      jest.restoreAllMocks();
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
   });
 });

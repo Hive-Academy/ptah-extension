@@ -33,6 +33,7 @@
  */
 
 import crossSpawn from 'cross-spawn';
+import { killProcessTree } from '@ptah-extension/platform-core';
 
 import { isSafePathToken, parseSourceSlug } from '@ptah-extension/shared';
 
@@ -97,6 +98,7 @@ export function runSkillsCli(
 
     const child = crossSpawn('npx', ['skills', ...args], {
       cwd: cwd || undefined,
+      detached: process.platform !== 'win32',
       env: {
         ...process.env,
         FORCE_COLOR: '0',
@@ -134,7 +136,12 @@ export function runSkillsCli(
     });
 
     const timer = setTimeout(() => {
-      child.kill('SIGTERM');
+      const whenSpawned = Promise.resolve(child.pid ?? null);
+      void whenSpawned.then((pid) => {
+        if (pid && !child.killed) {
+          void killProcessTree(pid);
+        }
+      });
       settle({
         stdout,
         stderr: `CLI timed out after ${timeout}ms`,

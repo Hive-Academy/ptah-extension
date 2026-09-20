@@ -593,14 +593,18 @@ async function runCopilotLogin(
         ));
     const opener = new BrowserLaunchingOAuthUrlOpener();
 
-    const result = await headless({
-      provider: 'copilot',
-      copilotAuth,
-      opener,
-      formatter,
-      processRef: hooks.processRef,
-    });
-    return result.exitCode;
+    try {
+      const result = await headless({
+        provider: 'copilot',
+        copilotAuth,
+        opener,
+        formatter,
+        processRef: hooks.processRef,
+      });
+      return result.exitCode;
+    } finally {
+      opener.dispose();
+    }
   });
 }
 

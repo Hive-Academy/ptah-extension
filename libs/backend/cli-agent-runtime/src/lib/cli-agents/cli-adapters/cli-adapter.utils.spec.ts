@@ -22,6 +22,19 @@ jest.mock('cross-spawn', () => ({
   default: (...args: unknown[]) => mockCrossSpawn(...args),
 }));
 
+const mockExecFile = jest.fn(
+  (...args: unknown[]) =>
+    (args.at(-1) as (error: null, stdout: string, stderr: string) => void)(
+      null,
+      '',
+      '',
+    ),
+);
+jest.mock('child_process', () => ({
+  ...jest.requireActual('child_process'),
+  execFile: (...args: unknown[]) => mockExecFile(...args),
+}));
+
 const mockReadFile = jest.fn();
 jest.mock('fs/promises', () => ({
   readFile: (...args: unknown[]) => mockReadFile(...args),
@@ -43,6 +56,10 @@ import type { AgentRoleDefinition } from '@ptah-extension/shared';
 import { transformAgentBody } from '@ptah-extension/harness-sync';
 
 import {
+  killProcessTree,
+  PROCESS_TREE_KILL_GRACE_MS as KILL_GRACE_PERIOD,
+} from '@ptah-extension/platform-core';
+import {
   assertCommandLineWithinLimit,
   buildTaskPrompt,
   CliCommandLineTooLongError,
@@ -58,6 +75,9 @@ interface FakeChild {
   emit: (event: string, ...args: unknown[]) => boolean;
   on: (event: string, listener: (...args: unknown[]) => void) => unknown;
   kill: jest.Mock;
+  pid: number;
+  killed: boolean;
+  whenSpawned: Promise<number | null>;
 }
 
 function createFakeChild(): FakeChild & EventEmitter {
@@ -67,6 +87,9 @@ function createFakeChild(): FakeChild & EventEmitter {
   });
   child.stdout = stdout;
   child.kill = jest.fn();
+  child.pid = 8675;
+  child.killed = false;
+  child.whenSpawned = Promise.resolve(child.pid);
   return child;
 }
 
@@ -526,15 +549,33 @@ describe('probeCliVersion', () => {
 
   it('kills the child and resolves undefined when a spawner probe times out', async () => {
     jest.useFakeTimers();
-    const { spawner, handles } = createFakeSpawner();
+    const realPlatform = process.platform;
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      configurable: true,
+    });
+    try {
+      const { spawner, handles, requests } = createFakeSpawner();
 
-    const probe = probeCliVersion('agy', ['--version'], 50, spawner);
-    jest.advanceTimersByTime(51);
-    handles[0].emit('close', null);
+      const probe = probeCliVersion('agy', ['--version'], 50, spawner);
+      jest.advanceTimersByTime(51);
 
-    await expect(probe).resolves.toBeUndefined();
-    expect(handles[0].kill).toHaveBeenCalled();
-    jest.useRealTimers();
+      await expect(probe).resolves.toBeUndefined();
+      await Promise.resolve();
+      expect(handles[0].kill).not.toHaveBeenCalled();
+      expect(requests[0].detached).toBe(false);
+      expect(mockExecFile).toHaveBeenCalledWith(
+        expect.stringContaining('taskkill'),
+        ['/pid', '8675', '/T', '/F'],
+        expect.any(Function),
+      );
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
   });
 
   it('routes the spawn through cross-spawn (not child_process.execFile)', async () => {
@@ -604,19 +645,33 @@ describe('probeCliVersion', () => {
 
   it('kills the child and resolves undefined when the probe times out', async () => {
     jest.useFakeTimers();
-    const child = createFakeChild();
-    mockCrossSpawn.mockReturnValueOnce(child);
+    const realPlatform = process.platform;
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      configurable: true,
+    });
+    try {
+      const child = createFakeChild();
+      mockCrossSpawn.mockReturnValueOnce(child);
 
-    const probe = probeCliVersion('/usr/local/bin/hung-cli', ['--version'], 50);
-    // Advance past the timeout without emitting stdout or close.
-    jest.advanceTimersByTime(51);
-    // The probe's timeout handler kills the child, which would normally cause
-    // a 'close' to fire. Simulate that to let the promise settle deterministically.
-    child.emit('close', null);
-
-    await expect(probe).resolves.toBeUndefined();
-    expect(child.kill).toHaveBeenCalled();
-    jest.useRealTimers();
+      const probe = probeCliVersion('/usr/local/bin/hung-cli', ['--version'], 50);
+      // Advance past the timeout without emitting stdout or close.
+      jest.advanceTimersByTime(51);
+      await expect(probe).resolves.toBeUndefined();
+      await Promise.resolve();
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(mockExecFile).toHaveBeenCalledWith(
+        expect.stringContaining('taskkill'),
+        ['/pid', '8675', '/T', '/F'],
+        expect.any(Function),
+      );
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
   });
 
   it('forwards a custom args array to cross-spawn', async () => {
@@ -755,5 +810,50 @@ describe('withAsarUnpackedTwin', () => {
 
     expect(result).toEqual([unpacked]);
     expect(result[0]).not.toContain('app.asar.unpacked.unpacked');
+  });
+});
+
+describe('killProcessTree POSIX escalation', () => {
+  const realPlatform = process.platform;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    Object.defineProperty(process, 'platform', {
+      value: 'linux',
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    Object.defineProperty(process, 'platform', {
+      value: realPlatform,
+      configurable: true,
+    });
+    jest.useRealTimers();
+  });
+
+  it('escalates to SIGKILL if the leader has exited but descendants in the process group remain alive', async () => {
+    const kill = jest
+      .spyOn(process, 'kill')
+      .mockImplementation((pid, signal) => {
+        if (signal === 0) {
+          if (pid === 9090) {
+            throw new Error('ESRCH');
+          }
+          if (pid === -9090) {
+            return true;
+          }
+        }
+        return true;
+      });
+
+    const reaped = killProcessTree(9090);
+    await jest.advanceTimersByTimeAsync(KILL_GRACE_PERIOD);
+    await reaped;
+
+    expect(kill).toHaveBeenCalledWith(-9090, 'SIGTERM');
+    expect(kill).toHaveBeenCalledWith(-9090, 0);
+    expect(kill).toHaveBeenCalledWith(-9090, 'SIGKILL');
   });
 });

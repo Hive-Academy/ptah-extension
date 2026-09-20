@@ -34,6 +34,7 @@ import type {
   CliSessionReference,
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
+import { killProcessTree } from '@ptah-extension/platform-core';
 import { CliDetectionService } from './cli-detection.service';
 import {
   AgentMessageError,
@@ -43,7 +44,6 @@ import type {
   CliCommandOptions,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
-import { killProcessTree } from './cli-adapters/cli-adapter.utils';
 import {
   DEFAULT_INACTIVITY_TIMEOUT,
   COMPLETED_AGENT_TTL,

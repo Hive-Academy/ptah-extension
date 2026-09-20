@@ -19,6 +19,7 @@
  */
 
 import crossSpawn from 'cross-spawn';
+import { killProcessTree } from '@ptah-extension/platform-core';
 import type {
   StackProfile,
   ToolchainProbeResult,
@@ -26,7 +27,6 @@ import type {
 
 /** Probes are one-shot version queries; a slow one is a broken one. */
 const DEFAULT_PROBE_TIMEOUT_MS = 5000;
-
 export interface ToolchainProbeOptions {
   /** Milliseconds before the probe is killed and reported not-installed. */
   readonly timeoutMs?: number;
@@ -113,6 +113,7 @@ function runProbe(
     let child: ReturnType<typeof crossSpawn>;
     try {
       child = crossSpawn(binary, args, {
+        detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
       });
@@ -126,7 +127,12 @@ function runProbe(
     }
 
     const timer = setTimeout(() => {
-      child.kill();
+      const whenSpawned = Promise.resolve(child.pid ?? null);
+      void whenSpawned.then((pid) => {
+        if (pid && !child.killed) {
+          void killProcessTree(pid);
+        }
+      });
       finish(false);
     }, timeoutMs);
     timer.unref?.();

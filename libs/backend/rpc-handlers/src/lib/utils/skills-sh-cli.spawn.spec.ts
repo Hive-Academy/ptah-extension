@@ -16,6 +16,18 @@
 
 import { EventEmitter } from 'events';
 
+const mockExecFile = jest.fn((...args: unknown[]) =>
+  (args.at(-1) as (error: null, stdout: string, stderr: string) => void)(
+    null,
+    '',
+    '',
+  ),
+);
+jest.mock('node:child_process', () => ({
+  ...jest.requireActual('node:child_process'),
+  execFile: (...args: unknown[]) => mockExecFile(...args),
+}));
+
 jest.mock('cross-spawn', () => ({ __esModule: true, default: jest.fn() }));
 
 import crossSpawn from 'cross-spawn';
@@ -25,6 +37,8 @@ import { runSkillsCli } from './skills-sh-cli';
 const crossSpawnMock = crossSpawn as unknown as jest.Mock;
 
 class FakeChild extends EventEmitter {
+  readonly pid = 2468;
+  readonly killed = false;
   readonly stdout = new EventEmitter() as EventEmitter & {
     setEncoding: jest.Mock;
   };
@@ -93,9 +107,14 @@ describe('runSkillsCli', () => {
     });
   });
 
-  it('SIGTERMs the child and reports exit 124 on timeout', async () => {
+  it('tree-kills the spawned npx process and reports exit 124 on timeout', async () => {
     jest.useFakeTimers();
+    const realPlatform = process.platform;
     try {
+      Object.defineProperty(process, 'platform', {
+        value: 'win32',
+        configurable: true,
+      });
       const promise = runSkillsCli(
         ['add', 'anthropics/skills'],
         'C:\\staging',
@@ -108,8 +127,95 @@ describe('runSkillsCli', () => {
         stderr: 'CLI timed out after 50ms',
         exitCode: 124,
       });
-      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+      await Promise.resolve();
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(mockExecFile).toHaveBeenCalledWith(
+        expect.stringContaining('taskkill'),
+        ['/pid', '2468', '/T', '/F'],
+        expect.any(Function),
+      );
     } finally {
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
+  });
+
+  it('escalates to SIGKILL when a POSIX npx process survives SIGTERM', async () => {
+    jest.useFakeTimers();
+    const realPlatform = process.platform;
+    const kill = jest.spyOn(process, 'kill').mockReturnValue(true);
+    try {
+      Object.defineProperty(process, 'platform', {
+        value: 'linux',
+        configurable: true,
+      });
+      const promise = runSkillsCli(
+        ['add', 'anthropics/skills'],
+        '/tmp/staging',
+        50,
+      );
+      jest.advanceTimersByTime(50);
+      await expect(promise).resolves.toMatchObject({ exitCode: 124 });
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(5_000);
+
+      expect(kill).toHaveBeenCalledWith(-2468, 'SIGTERM');
+      expect(kill).toHaveBeenCalledWith(-2468, 0);
+      expect(kill).toHaveBeenCalledWith(-2468, 'SIGKILL');
+    } finally {
+      jest.restoreAllMocks();
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
+  });
+
+  it('escalates to SIGKILL if npx process leader exits but group descendants remain alive', async () => {
+    jest.useFakeTimers();
+    const realPlatform = process.platform;
+    const kill = jest
+      .spyOn(process, 'kill')
+      .mockImplementation((pid, signal) => {
+        if (signal === 0) {
+          if (pid === 2468) {
+            throw new Error('ESRCH');
+          }
+          if (pid === -2468) {
+            return true;
+          }
+        }
+        return true;
+      });
+    try {
+      Object.defineProperty(process, 'platform', {
+        value: 'linux',
+        configurable: true,
+      });
+
+      const promise = runSkillsCli(
+        ['add', 'anthropics/skills'],
+        '/tmp/staging',
+        50,
+      );
+      jest.advanceTimersByTime(50);
+      await expect(promise).resolves.toMatchObject({ exitCode: 124 });
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(5_000);
+
+      expect(kill).toHaveBeenCalledWith(-2468, 'SIGTERM');
+      expect(kill).toHaveBeenCalledWith(-2468, 0);
+      expect(kill).toHaveBeenCalledWith(-2468, 'SIGKILL');
+    } finally {
+      jest.restoreAllMocks();
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
       jest.useRealTimers();
     }
   });

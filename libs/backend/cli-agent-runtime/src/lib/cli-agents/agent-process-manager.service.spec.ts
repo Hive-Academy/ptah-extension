@@ -84,6 +84,7 @@ jest.mock('@ptah-extension/platform-core', () => {
       WORKSPACE_PROVIDER: Symbol('WORKSPACE_PROVIDER'),
       MCP_SERVER_STATUS: Symbol('MCP_SERVER_STATUS'),
     },
+    killProcessTree: jest.fn().mockResolvedValue(undefined),
   };
 });
 
