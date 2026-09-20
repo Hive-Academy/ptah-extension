@@ -38,6 +38,7 @@ export async function killProcessTree(pid: number): Promise<void> {
     const poll = (): void => {
       try {
         process.kill(pid, 0);
+        // degradation-audit: optional-capability - ESRCH means the process has already exited, which is the awaited success outcome, not a failure; resolving here is the normal fast path this poll exists for.
       } catch {
         resolve();
         return;

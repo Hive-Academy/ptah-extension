@@ -550,25 +550,28 @@ describe('probeCliVersion', () => {
       value: 'win32',
       configurable: true,
     });
-    const { spawner, handles, requests } = createFakeSpawner();
+    try {
+      const { spawner, handles, requests } = createFakeSpawner();
 
-    const probe = probeCliVersion('agy', ['--version'], 50, spawner);
-    jest.advanceTimersByTime(51);
+      const probe = probeCliVersion('agy', ['--version'], 50, spawner);
+      jest.advanceTimersByTime(51);
 
-    await expect(probe).resolves.toBeUndefined();
-    await Promise.resolve();
-    expect(handles[0].kill).not.toHaveBeenCalled();
-    expect(requests[0].detached).toBe(false);
-    expect(mockExecFile).toHaveBeenCalledWith(
-      'taskkill',
-      ['/pid', '8675', '/T', '/F'],
-      expect.any(Function),
-    );
-    Object.defineProperty(process, 'platform', {
-      value: realPlatform,
-      configurable: true,
-    });
-    jest.useRealTimers();
+      await expect(probe).resolves.toBeUndefined();
+      await Promise.resolve();
+      expect(handles[0].kill).not.toHaveBeenCalled();
+      expect(requests[0].detached).toBe(false);
+      expect(mockExecFile).toHaveBeenCalledWith(
+        'taskkill',
+        ['/pid', '8675', '/T', '/F'],
+        expect.any(Function),
+      );
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
   });
 
   it('routes the spawn through cross-spawn (not child_process.execFile)', async () => {
@@ -643,25 +646,28 @@ describe('probeCliVersion', () => {
       value: 'win32',
       configurable: true,
     });
-    const child = createFakeChild();
-    mockCrossSpawn.mockReturnValueOnce(child);
+    try {
+      const child = createFakeChild();
+      mockCrossSpawn.mockReturnValueOnce(child);
 
-    const probe = probeCliVersion('/usr/local/bin/hung-cli', ['--version'], 50);
-    // Advance past the timeout without emitting stdout or close.
-    jest.advanceTimersByTime(51);
-    await expect(probe).resolves.toBeUndefined();
-    await Promise.resolve();
-    expect(child.kill).not.toHaveBeenCalled();
-    expect(mockExecFile).toHaveBeenCalledWith(
-      'taskkill',
-      ['/pid', '8675', '/T', '/F'],
-      expect.any(Function),
-    );
-    Object.defineProperty(process, 'platform', {
-      value: realPlatform,
-      configurable: true,
-    });
-    jest.useRealTimers();
+      const probe = probeCliVersion('/usr/local/bin/hung-cli', ['--version'], 50);
+      // Advance past the timeout without emitting stdout or close.
+      jest.advanceTimersByTime(51);
+      await expect(probe).resolves.toBeUndefined();
+      await Promise.resolve();
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(mockExecFile).toHaveBeenCalledWith(
+        'taskkill',
+        ['/pid', '8675', '/T', '/F'],
+        expect.any(Function),
+      );
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      });
+      jest.useRealTimers();
+    }
   });
 
   it('forwards a custom args array to cross-spawn', async () => {

@@ -13,6 +13,7 @@ type SpawnLike = (
 interface SpawnedBrowserProcess {
   unref(): void;
   once(event: 'close' | 'error', listener: () => void): void;
+  kill?(signal?: NodeJS.Signals): boolean;
 }
 
 export interface BrowserLaunchingOAuthUrlOpenerOptions {
@@ -67,6 +68,20 @@ export class BrowserLaunchingOAuthUrlOpener implements IOAuthUrlOpener {
     } catch {
       return { opened: false };
     }
+  }
+
+  /**
+   * Reaps any lingering browser launcher processes on shutdown.
+   */
+  dispose(): void {
+    for (const child of this.browserProcesses) {
+      try {
+        child.kill?.();
+      } catch {
+        // Best effort: launcher already exited.
+      }
+    }
+    this.browserProcesses.clear();
   }
 
   /**

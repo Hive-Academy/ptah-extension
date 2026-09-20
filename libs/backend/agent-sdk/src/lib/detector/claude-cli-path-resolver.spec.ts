@@ -33,6 +33,22 @@ class HangingChild extends EventEmitter {
 }
 
 describe('ClaudeCliPathResolver process cleanup', () => {
+  const realPlatform = process.platform;
+
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', {
+      value: realPlatform,
+      configurable: true,
+    });
+  });
+
   it('bounds a wedged where.exe lookup and reaps its process tree', async () => {
     jest.useFakeTimers();
     try {

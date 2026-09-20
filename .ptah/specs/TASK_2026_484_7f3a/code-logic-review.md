@@ -1,6 +1,16 @@
-# Adversarial Behavioural Review — TASK_2026_484
+# Historical Archive: Round 1 Behavioral Review (SUPERSEDED)
 
-**Verdict: FAIL**
+> [!NOTE]
+> **Status**: SUPERSEDED by Round 3.
+> This document records the initial Round 1 adversarial behavioural review findings (`Verdict: FAIL`).
+> These findings were addressed and resolved in **Round 3**, with the implementation fixes and verification results recorded in [`implementation-report.md`](./implementation-report.md#round-3--review-defects).
+> This document is retained intact as an accurate historical audit trail and does not reflect current repository state.
+
+---
+
+# Adversarial Behavioural Review — TASK_2026_484 (Round 1 — Historical)
+
+**Verdict: FAIL (Round 1 Historical Record — Resolved in Round 3)**
 
 Scope reviewed in full: `skills-sh-cli.ts`, `cli-user-interaction.ts`,
 `browser-launching-oauth-url-opener.ts`, `cli-adapter.utils.ts` (original

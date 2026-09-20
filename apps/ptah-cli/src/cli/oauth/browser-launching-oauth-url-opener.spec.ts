@@ -148,4 +148,19 @@ describe('BrowserLaunchingOAuthUrlOpener', () => {
     child.emit('close');
     expect(retained.has(child)).toBe(false);
   });
+
+  it('reaps tracked launcher processes and clears tracking on dispose', async () => {
+    const { opener, child } = makeOpener('win32');
+    const kill = jest.fn();
+    Object.assign(child, { kill });
+
+    await opener.openOAuthUrl({ provider: 'claude', verificationUri: URL });
+
+    opener.dispose();
+    expect(kill).toHaveBeenCalled();
+    const retained = (
+      opener as unknown as { browserProcesses: Set<unknown> }
+    ).browserProcesses;
+    expect(retained.size).toBe(0);
+  });
 });
