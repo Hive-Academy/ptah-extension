@@ -53,6 +53,7 @@ import type {
 } from '@ptah-extension/platform-core';
 
 import type { AgentRoleDefinition } from '@ptah-extension/shared';
+import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import { transformAgentBody } from '@ptah-extension/harness-sync';
 
 import {
@@ -134,8 +135,7 @@ describe('buildTaskPrompt', () => {
     const tail =
       `${toolPolicy}\n\nShip it.` +
       '\n\nFocus on these files:\n- src/a.ts' +
-      '\n\nWrite deliverable files to: /tf' +
-      '\nUse convention: /tf/agent-output-{agentId}.md for main deliverable.';
+      '\n\nWrite deliverable files to: /tf';
     const base = {
       task: 'Ship it.',
       workingDirectory: '/ws',
@@ -182,6 +182,106 @@ describe('buildTaskPrompt', () => {
       expect(() => buildTaskPrompt({ ...base, role })).toThrow(
         'without the CLI',
       );
+    });
+  });
+
+  describe('deliverable filename (TASK_2026_477)', () => {
+    const base = {
+      task: 'Ship it.',
+      workingDirectory: '/ws',
+      taskFolder: '/tf',
+    };
+
+    it('substitutes the real agent id', () => {
+      expect(buildTaskPrompt({ ...base, agentId: 'agent-42' })).toContain(
+        '/tf/agent-output-agent-42.md',
+      );
+    });
+
+    it('never emits an unsubstituted placeholder', () => {
+      const withId = buildTaskPrompt({ ...base, agentId: 'agent-42' });
+      const withoutId = buildTaskPrompt(base);
+
+      expect(withId).not.toContain('{agentId}');
+      expect(withoutId).not.toContain('{agentId}');
+    });
+
+    it('omits the convention line when no agent id is known', () => {
+      expect(buildTaskPrompt(base)).not.toContain('agent-output-');
+    });
+
+    it('subordinates the convention to a filename named in the task', () => {
+      expect(buildTaskPrompt({ ...base, agentId: 'agent-42' })).toContain(
+        'If the task above names no deliverable file',
+      );
+    });
+  });
+
+  describe('two-way messaging guidance (TASK_2026_477)', () => {
+    const base = {
+      task: 'Ship it.',
+      workingDirectory: '/ws',
+      agentId: 'agent-42',
+      mcpPort: 41739,
+    };
+
+    it('names the child-side report tool', () => {
+      const prompt = buildTaskPrompt(base);
+
+      expect(prompt).toContain('`ptah_agent_report`');
+      expect(prompt).toContain('It takes no agent id.');
+      expect(prompt).toContain('`delivered: false`');
+    });
+
+    it('tells the agent to read the returned delivery mode', () => {
+      expect(buildTaskPrompt(base)).toContain(
+        'returns the mode it used. Read that returned mode; do not assume one.',
+      );
+    });
+
+    it('describes no delivery mode as available', () => {
+      const prompt = buildTaskPrompt(base);
+
+      for (const mode of [
+        'steer',
+        'interrupt-resume',
+        'queue-next-turn',
+        'unsupported',
+      ]) {
+        expect(prompt).not.toContain(mode);
+      }
+    });
+
+    it('names no vendor', () => {
+      const prompt = buildTaskPrompt(base).toLowerCase();
+
+      for (const vendor of SYSTEM_CLI_TYPES) {
+        expect(prompt).not.toMatch(new RegExp(`\\b${vendor}\\b`));
+      }
+    });
+
+    it('is omitted without an MCP port, because the tools do not exist', () => {
+      expect(buildTaskPrompt({ ...base, mcpPort: undefined })).not.toContain(
+        'ptah_agent_report',
+      );
+    });
+
+    it('is omitted without an agent id, because a report cannot be attributed', () => {
+      expect(buildTaskPrompt({ ...base, agentId: undefined })).not.toContain(
+        'ptah_agent_report',
+      );
+    });
+
+    it('costs the measured number of bytes on the command line', () => {
+      const withGuidance = buildTaskPrompt(base);
+      const withoutGuidance = buildTaskPrompt({ ...base, mcpPort: undefined });
+      const added =
+        Buffer.byteLength(withGuidance, 'utf8') -
+        Buffer.byteLength(withoutGuidance, 'utf8');
+
+      // Recorded, not a ceiling to grow into. The child prompt is argv on the
+      // task-prompt adapters and the Windows `.cmd` fallback limit is 8,191.
+      expect(added).toBe(826);
     });
   });
 });
