@@ -84,6 +84,7 @@ import {
 import {
   AgentMonitorStore,
   ExecutionTreeBuilderService,
+  type MonitoredAgent,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
@@ -180,6 +181,7 @@ function makeHarness(
   const loadOlderMock = jest.fn().mockResolvedValue('prepended');
   const olderHistoryLoadingTabIds = signal<ReadonlySet<string>>(new Set());
   const suppressAnimateOnceSig = signal<boolean>(false);
+  const agentsSig = signal<MonitoredAgent[]>([]);
   const replayingTabIds = new Set<string>();
   const isReplayingMock = jest.fn((tabId: string) =>
     replayingTabIds.has(tabId),
@@ -323,7 +325,7 @@ function makeHarness(
   } as unknown as CompactionLifecycleService;
 
   const agentMonitorStoreStub = {
-    agents: signal([]).asReadonly(),
+    agents: agentsSig.asReadonly(),
     agentsForSession: jest.fn(() => []),
     activeTabAgents: signal([]).asReadonly(),
     activeWorkflowSubagents: signal([]).asReadonly(),
@@ -336,6 +338,7 @@ function makeHarness(
     closePanel: jest.fn(),
     getSubagentTranscript: jest.fn(),
     toggleAgentExpanded: jest.fn(),
+    tick: signal(0),
     cliOutputDemand: signal<
       readonly { sessionId: string; agentId: string }[]
     >([]).asReadonly(),
@@ -480,6 +483,7 @@ function makeHarness(
     isReplayingMock,
     loadOlderMock,
     olderHistoryLoadingTabIds,
+    agentsSig,
   };
 }
 
@@ -1729,16 +1733,19 @@ describe('agent panel narrow overlay mode', () => {
     expect(resizeHandle()).toBeNull();
   });
 
-  it('closes the overlay when Escape is pressed while in overlay mode and panel is open', () => {
+  it('closes the overlay on Escape, restores tab focus, and stays closed when an agent starts running', () => {
     h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
     h.fixture.detectChanges();
     emitHostWidth(500);
     openPanelFromSidebar();
     expect(panel().classList.contains('absolute')).toBe(true);
+    expect(
+      h.fixture.nativeElement.querySelector('button[title="Close panel"]'),
+    ).toBe(document.activeElement);
 
     // The binding is host-scoped, not document-scoped: a canvas holds many
     // chat tiles and Escape must close only the tile it was pressed in.
-    h.fixture.nativeElement.dispatchEvent(
+    document.activeElement?.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
     );
     h.fixture.detectChanges();
@@ -1746,6 +1753,67 @@ describe('agent panel narrow overlay mode', () => {
     expect(panel().classList.contains('absolute')).toBe(false);
     expect(sidebarTab()).not.toBeNull();
     expect(resizeHandle()).toBeNull();
+    expect(
+      h.fixture.nativeElement.querySelector('ptah-sidebar-tab button'),
+    ).toBe(document.activeElement);
+
+    h.agentsSig.set([
+      {
+        agentId: 'running-agent',
+        cli: 'ptah-cli',
+        task: 'test task',
+        status: 'running',
+        startedAt: Date.now(),
+        stdout: '',
+        stderr: '',
+        expanded: false,
+        segments: [],
+        streamEvents: [],
+        streamRevision: 0,
+        permissionQueue: [],
+      } as MonitoredAgent,
+    ]);
+    h.fixture.detectChanges();
+
+    expect(panel().classList.contains('absolute')).toBe(false);
+    expect(sidebarTab()).not.toBeNull();
+  });
+
+  it('keeps the overlay closed after its close button is used and an agent starts running', () => {
+    h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
+    h.fixture.detectChanges();
+    emitHostWidth(500);
+    openPanelFromSidebar();
+
+    const closeButton = h.fixture.nativeElement.querySelector(
+      'button[title="Close panel"]',
+    ) as HTMLButtonElement;
+    closeButton.click();
+    h.fixture.detectChanges();
+
+    expect(panel().classList.contains('absolute')).toBe(false);
+    expect(sidebarTab()).not.toBeNull();
+
+    h.agentsSig.set([
+      {
+        agentId: 'running-agent',
+        cli: 'ptah-cli',
+        task: 'test task',
+        status: 'running',
+        startedAt: Date.now(),
+        stdout: '',
+        stderr: '',
+        expanded: false,
+        segments: [],
+        streamEvents: [],
+        streamRevision: 0,
+        permissionQueue: [],
+      } as MonitoredAgent,
+    ]);
+    h.fixture.detectChanges();
+
+    expect(panel().classList.contains('absolute')).toBe(false);
+    expect(sidebarTab()).not.toBeNull();
   });
 
   it('does not close the panel on Escape when in wide mode', () => {

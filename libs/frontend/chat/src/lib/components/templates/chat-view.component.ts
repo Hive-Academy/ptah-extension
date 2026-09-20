@@ -6,6 +6,7 @@ import {
   viewChild,
   ChangeDetectionStrategy,
   effect,
+  afterRenderEffect,
   untracked,
   ElementRef,
   NgZone,
@@ -316,6 +317,9 @@ export class ChatViewComponent implements OnDestroy {
   /** Local panel open/close state */
   readonly agentPanelOpen = signal(false);
 
+  private readonly agentSidebarTab = viewChild(SidebarTabComponent);
+  private restoreAgentSidebarTabFocus = false;
+
   /**
    * Track the host width so {@link isOverlay} can flip the agent panel between
    * the side-by-side column and the full-surface overlay. A CSS media query
@@ -357,12 +361,13 @@ export class ChatViewComponent implements OnDestroy {
   /**
    * Keyboard handler for Escape: closes the overlay when in narrow overlay mode.
    * Unlike resize-drag Escape (`_onKeydown`), this stays host-scoped so only the
-   * focused tile closes; when focus is on `<body>`, Escape is intentionally a no-op.
+   * focused tile closes. Focus is kept inside the tile when the overlay opens;
+   * Escape is only a no-op if focus is moved outside the tile by another surface.
    */
   protected onEscapeKey(event: Event): void {
     if (this.isOverlay() && this.agentPanelOpen()) {
       event.preventDefault();
-      this.agentPanelOpen.set(false);
+      this.closeAgentPanel();
     }
   }
 
@@ -415,6 +420,12 @@ export class ChatViewComponent implements OnDestroy {
     if (wasOpen) {
       this._userExplicitlyClosed = true;
     }
+  }
+
+  closeAgentPanel(): void {
+    this._userExplicitlyClosed = true;
+    this.restoreAgentSidebarTabFocus = this.isOverlay();
+    this.agentPanelOpen.set(false);
   }
 
   private resizeHandleEl: HTMLElement | null = null;
@@ -882,6 +893,19 @@ export class ChatViewComponent implements OnDestroy {
 
   constructor() {
     this.observeHostWidth();
+
+    afterRenderEffect(() => {
+      const panelOpen = this.agentPanelOpen();
+      const sidebarTab = this.agentSidebarTab();
+      if (this.restoreAgentSidebarTabFocus && !panelOpen && sidebarTab) {
+        const button = this.hostEl.nativeElement.querySelector<HTMLButtonElement>(
+          'ptah-sidebar-tab button',
+        );
+        if (!button) return;
+        button.focus();
+        this.restoreAgentSidebarTabFocus = false;
+      }
+    });
 
     // Hydrate this surface's CLI agent cards from persisted metadata. Each
     // surface asks for its OWN session — a canvas tile is rarely the active

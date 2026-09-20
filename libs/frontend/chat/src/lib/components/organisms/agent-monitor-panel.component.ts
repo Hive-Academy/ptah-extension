@@ -29,6 +29,7 @@ import {
   viewChild,
   ElementRef,
   afterNextRender,
+  afterRenderEffect,
   DestroyRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
@@ -215,6 +216,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
             </button>
           }
           <button
+            #closeButton
             class="btn btn-ghost btn-xs btn-square"
             title="Close panel"
             (click)="onClose()"
@@ -528,6 +530,8 @@ export class AgentMonitorPanelComponent {
   private readonly _scroll = viewChild<ElementRef<HTMLElement>>('agentScroll');
   private readonly _scrollContent =
     viewChild<ElementRef<HTMLElement>>('agentScrollContent');
+  private readonly _closeButton =
+    viewChild<ElementRef<HTMLButtonElement>>('closeButton');
   private readonly destroyRef = inject(DestroyRef);
   /** Auto-follow the streaming agent output unless the user scrolled up. */
   private pinnedToBottom = true;
@@ -667,6 +671,13 @@ export class AgentMonitorPanelComponent {
   private _lastTranscriptKey: string | null = null;
 
   constructor() {
+    afterRenderEffect(() => {
+      const closeButton = this._closeButton();
+      if (this.effectiveOpen() && this.isOverlay() && closeButton) {
+        closeButton.nativeElement.focus();
+      }
+    });
+
     effect(() => {
       const keys = this._selectableKeys();
       const currentIds = new Set(keys);

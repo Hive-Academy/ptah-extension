@@ -12,6 +12,13 @@ import type {
   MonitoredAgent,
   SubagentRecord,
 } from '@ptah-extension/chat-streaming';
+import { signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import { VSCodeService } from '@ptah-extension/core';
+import { PanelResizeService } from '../../services/panel-resize.service';
+import { AgentMonitorPanelComponent } from './agent-monitor-panel.component';
 import { groupAgentsByWorkflowRun } from './agent-monitor-panel.grouping';
 
 /** Minimal MonitoredAgent factory — the grouping only reads a few fields. */
@@ -219,5 +226,83 @@ describe('groupAgentsByWorkflowRun — SubagentRecords', () => {
 
     expect(groups).toHaveLength(1);
     expect(standalone.map((r) => r.parentToolUseId)).toEqual(['t1']);
+  });
+});
+
+describe('AgentMonitorPanelComponent — overlay focus', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [AgentMonitorPanelComponent],
+      providers: [
+        {
+          provide: AgentMonitorStore,
+          useValue: {
+            activeWorkflowSubagents: signal([]),
+            workflowSubagentsForSession: jest.fn(() => []),
+            activeTabAgents: signal([]),
+            pendingPermissions: signal([]),
+            panelOpen: signal(false),
+            closePanel: jest.fn(),
+          },
+        },
+        {
+          provide: VSCodeService,
+          useValue: {
+            config: signal({ panelId: '', workspaceRoot: '/tmp' }),
+            postMessage: jest.fn(),
+          },
+        },
+        {
+          provide: TabManagerService,
+          useValue: { findTabBySessionIdAcrossWorkspaces: jest.fn(() => null) },
+        },
+        {
+          provide: PanelResizeService,
+          useValue: {
+            customWidth: signal<number | null>(320),
+            dragging: signal(false),
+          },
+        },
+      ],
+    });
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function createPanel(isOverlay: boolean) {
+    const fixture = TestBed.createComponent(AgentMonitorPanelComponent);
+    fixture.componentRef.setInput('embeddedAgents', []);
+    fixture.componentRef.setInput('embeddedOpen', false);
+    fixture.componentRef.setInput('sessionId', 'session-1');
+    fixture.componentRef.setInput('isOverlay', isOverlay);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('moves focus to the close control when the overlay opens', () => {
+    const fixture = createPanel(true);
+    const closeButton = fixture.nativeElement.querySelector(
+      'button[title="Close panel"]',
+    ) as HTMLButtonElement;
+
+    fixture.componentRef.setInput('embeddedOpen', true);
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(closeButton);
+  });
+
+  it('does not move focus when the panel opens in wide mode', () => {
+    const fixture = createPanel(false);
+    const closeButton = fixture.nativeElement.querySelector(
+      'button[title="Close panel"]',
+    ) as HTMLButtonElement;
+    const focusSpy = jest.spyOn(closeButton, 'focus');
+
+    fixture.componentRef.setInput('embeddedOpen', true);
+    fixture.detectChanges();
+
+    expect(focusSpy).not.toHaveBeenCalled();
   });
 });
