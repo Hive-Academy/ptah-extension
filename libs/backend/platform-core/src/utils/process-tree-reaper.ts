@@ -6,6 +6,19 @@ export const PROCESS_TREE_KILL_GRACE_MS = 5_000;
 const PROCESS_LIVENESS_POLL_MS = 100;
 
 /**
+ * Resolve `taskkill` from `%SystemRoot%\System32` rather than letting Windows
+ * search `PATH`. A bare name is resolved through `PATH`, so any writable
+ * directory ahead of System32 can interpose its own `taskkill.exe` and receive
+ * a forced tree kill (`typescript:S4036`). `SystemRoot` is set on every
+ * supported Windows host; the bare name remains as a fallback for an
+ * environment that has unset it.
+ */
+function resolveTaskkill(): string {
+  const systemRoot = process.env['SystemRoot'] ?? process.env['windir'];
+  return systemRoot ? `${systemRoot}\\System32\\taskkill.exe` : 'taskkill';
+}
+
+/**
  * Only ESRCH proves the group is gone. EPERM means it still exists but this
  * process may not signal it, which must not end the poll.
  */
@@ -34,7 +47,7 @@ export async function killProcessTree(
     try {
       await new Promise<void>((resolve, reject) => {
         execFile(
-          'taskkill',
+          resolveTaskkill(),
           ['/pid', String(pid), '/T', '/F'],
           (error: Error | null) => (error ? reject(error) : resolve()),
         );

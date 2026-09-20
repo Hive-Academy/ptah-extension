@@ -130,7 +130,7 @@ describe('runSkillsCli', () => {
       await Promise.resolve();
       expect(child.kill).not.toHaveBeenCalled();
       expect(mockExecFile).toHaveBeenCalledWith(
-        'taskkill',
+        expect.stringContaining('taskkill'),
         ['/pid', '2468', '/T', '/F'],
         expect.any(Function),
       );

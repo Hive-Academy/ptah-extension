@@ -309,7 +309,7 @@ describe('CliUserInteraction — CLI-specific behaviour', () => {
       await expect(result).resolves.toBe(false);
       await Promise.resolve();
       expect(globalThis.__mockExecFileCalls).toContainEqual({
-        command: 'taskkill',
+        command: expect.stringContaining('taskkill'),
         args: ['/pid', '31337', '/T', '/F'],
       });
     } finally {
@@ -351,7 +351,7 @@ describe('CliUserInteraction — CLI-specific behaviour', () => {
       await expect(result).resolves.toBeUndefined();
       await Promise.resolve();
       expect(globalThis.__mockExecFileCalls).toContainEqual({
-        command: 'taskkill',
+        command: expect.stringContaining('taskkill'),
         args: ['/pid', '27182', '/T', '/F'],
       });
     } finally {

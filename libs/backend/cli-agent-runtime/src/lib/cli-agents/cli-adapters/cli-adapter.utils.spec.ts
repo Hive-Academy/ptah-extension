@@ -565,7 +565,7 @@ describe('probeCliVersion', () => {
       expect(handles[0].kill).not.toHaveBeenCalled();
       expect(requests[0].detached).toBe(false);
       expect(mockExecFile).toHaveBeenCalledWith(
-        'taskkill',
+        expect.stringContaining('taskkill'),
         ['/pid', '8675', '/T', '/F'],
         expect.any(Function),
       );
@@ -661,7 +661,7 @@ describe('probeCliVersion', () => {
       await Promise.resolve();
       expect(child.kill).not.toHaveBeenCalled();
       expect(mockExecFile).toHaveBeenCalledWith(
-        'taskkill',
+        expect.stringContaining('taskkill'),
         ['/pid', '8675', '/T', '/F'],
         expect.any(Function),
       );

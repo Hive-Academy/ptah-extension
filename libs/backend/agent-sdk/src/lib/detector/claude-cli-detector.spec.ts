@@ -264,7 +264,7 @@ describe('ClaudeCliDetector — timeout', () => {
       await Promise.resolve();
       expect(spawnedChildren[0].kill).not.toHaveBeenCalled();
       expect(mockExecFile).toHaveBeenCalledWith(
-        'taskkill',
+        expect.stringContaining('taskkill'),
         ['/pid', '4242', '/T', '/F'],
         expect.any(Function),
       );

@@ -15,10 +15,18 @@ import {
 
 describe('killProcessTree', () => {
   const realPlatform = process.platform;
+  const realSystemRoot = process.env['SystemRoot'];
+  const realWindir = process.env['windir'];
 
   afterEach(() => {
     jest.restoreAllMocks();
     mockExecFile.mockClear();
+    // Restored explicitly: these drive the Windows binary path, so leaving one
+    // set would make a later test depend on the host that ran it.
+    if (realSystemRoot === undefined) delete process.env['SystemRoot'];
+    else process.env['SystemRoot'] = realSystemRoot;
+    if (realWindir === undefined) delete process.env['windir'];
+    else process.env['windir'] = realWindir;
     Object.defineProperty(process, 'platform', {
       value: realPlatform,
       configurable: true,
@@ -26,11 +34,31 @@ describe('killProcessTree', () => {
     jest.useRealTimers();
   });
 
-  it('uses taskkill /T /F on Windows', async () => {
+  it('uses taskkill /T /F on Windows, resolved under System32', async () => {
     Object.defineProperty(process, 'platform', {
       value: 'win32',
       configurable: true,
     });
+    process.env['SystemRoot'] = 'C:\\Windows';
+
+    await killProcessTree(4242);
+
+    // Absolute, so a writable directory earlier in PATH cannot interpose its
+    // own taskkill.exe and receive a forced tree kill (S4036).
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'C:\\Windows\\System32\\taskkill.exe',
+      ['/pid', '4242', '/T', '/F'],
+      expect.any(Function),
+    );
+  });
+
+  it('falls back to the bare name when SystemRoot is unset', async () => {
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      configurable: true,
+    });
+    delete process.env['SystemRoot'];
+    delete process.env['windir'];
 
     await killProcessTree(4242);
 

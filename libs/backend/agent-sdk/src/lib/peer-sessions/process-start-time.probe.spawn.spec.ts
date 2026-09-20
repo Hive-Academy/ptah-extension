@@ -50,7 +50,7 @@ describe('ProcessStartTimeProbe process cleanup', () => {
       await Promise.resolve();
       expect(child.kill).not.toHaveBeenCalled();
       expect(mockExecFile).toHaveBeenCalledWith(
-        'taskkill',
+        expect.stringContaining('taskkill'),
         ['/pid', '7171', '/T', '/F'],
         expect.any(Function),
       );

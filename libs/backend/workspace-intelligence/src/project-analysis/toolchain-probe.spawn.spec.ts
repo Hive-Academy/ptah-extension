@@ -54,7 +54,7 @@ describe('probeStackToolchain process cleanup', () => {
       await Promise.resolve();
       expect(child.kill).not.toHaveBeenCalled();
       expect(mockExecFile).toHaveBeenCalledWith(
-        'taskkill',
+        expect.stringContaining('taskkill'),
         ['/pid', '5150', '/T', '/F'],
         expect.any(Function),
       );
