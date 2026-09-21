@@ -6,7 +6,12 @@ const { installPermissionPolicy } = require(
 );
 const { pathToFileURL } = require('node:url');
 
-app.setPath('userData', path.join(root, 'profile'));
+// S8707: `root` is process.argv[2], which Sonar treats as possibly
+// LLM-supplied. It is not. This file is a test fixture that ships in no
+// build; shell-csp.spec.ts is its only caller and passes a temp directory it
+// created itself with mkdtempSync. There is no path to reach this argument
+// with attacker or model input, so there is nothing to sanitize.
+app.setPath('userData', path.join(root, 'profile')); // NOSONAR
 app.commandLine.appendSwitch('use-fake-device-for-media-stream');
 app
   .whenReady()
@@ -22,7 +27,10 @@ app
     });
     const document = path.join(root, 'index.html');
     installPermissionPolicy(win.webContents, pathToFileURL(document).href);
-    await win.loadFile(document);
+    // S8707: same reason as the setPath above — `document` derives from
+    // process.argv[2], which only shell-csp.spec.ts supplies, as a temp
+    // directory it created. Never LLM input, never shipped.
+    await win.loadFile(document); // NOSONAR
     const result = await win.webContents.executeJavaScript(
       'window.securityProbe',
     );

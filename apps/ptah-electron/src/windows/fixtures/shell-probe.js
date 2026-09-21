@@ -34,7 +34,12 @@ window.securityProbe = (async () => {
     });
   }
   await probeImage('https://ptah-csp-probe.invalid/icon.png');
-  await probeImage('http://ptah-csp-probe.invalid/icon.png');
+  // S5332: the insecure scheme is the POINT. This pair is a negative control —
+  // shell-csp.spec.ts asserts the https host loads and requires an img-src
+  // violation for the http one. `.invalid` is reserved by RFC 6761 and never
+  // resolves, so no request leaves the machine. Changing this to https deletes
+  // the control and silently weakens the test it exists to serve.
+  await probeImage('http://ptah-csp-probe.invalid/icon.png'); // NOSONAR
 
   let microphone = false;
   let microphoneError;

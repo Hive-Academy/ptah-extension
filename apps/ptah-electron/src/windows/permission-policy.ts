@@ -85,7 +85,12 @@ function parseTrustedUrl(value: string): URL | undefined {
       ? url
       : undefined;
   } catch {
-    // Malformed permission subjects fail closed.
+    // degradation-audit: optional-capability - parsing an arbitrary permission
+    // subject as a URL is allowed to fail. `undefined` is the DENY answer, not
+    // a swallowed error: every caller treats it as "not the trusted origin",
+    // so a malformed subject fails closed. Reporting it would be noise, and
+    // rethrowing would turn a denial into a crash in Electron's permission
+    // callback, where an exception is the one outcome that must never happen.
     return undefined;
   }
 }

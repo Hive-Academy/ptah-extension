@@ -81,8 +81,17 @@ function copyRecursive(src, dst) {
 const INLINE_SCRIPT_PREFIX = 'inline-';
 // Consumes the newline the insertion below puts BEFORE the tag, so stripping
 // and re-inserting lands on exactly the same bytes.
+//
+// Both leading quantifiers are BOUNDED rather than open (S8786). `[ \t]*`
+// followed by a literal `<` rescans every whitespace run once per starting
+// offset, which is quadratic in the size of the document — and this runs over
+// the whole built renderer HTML. The bounds are far above anything the build
+// emits: indentation here is 4 spaces and the tag is written with a single
+// space before `http-equiv`. `[^>]*` is left open on purpose, because a CSP
+// `content` attribute is legitimately long and a negated class followed by
+// its own terminator cannot backtrack.
 const CSP_META =
-  /\n?[ \t]*<meta\s+http-equiv="Content-Security-Policy"[^>]*>/gi;
+  /\n?[ \t]{0,32}<meta\s{1,16}http-equiv="Content-Security-Policy"[^>]*>/gi;
 
 /**
  * @param {string} html
