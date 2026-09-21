@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 type: devops
 title: >-
   Restore Windows Electron packaging after the dependency migration
