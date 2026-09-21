@@ -45,9 +45,14 @@
  *
  *   - `shutdown()` sends `session.shutdown` and races the child's `exit`
  *     event against a 6s deadline. On timeout, escalates to `kill()`.
- *   - `kill()` uses the `tree-kill` package (already in workspace
- *     `package-lock.json`) so child + descendants are reaped on POSIX
- *     and Windows alike.
+ *   - `kill()` uses the `tree-kill` package so child + descendants are reaped
+ *     on POSIX and Windows alike. It is a DECLARED devDependency. This comment
+ *     used to say it was "already in workspace `package-lock.json`", which is
+ *     how the dependency stayed undeclared: it arrived transitively, nothing
+ *     pinned it, and the npm migration that removed its former parent took it
+ *     out of the tree. All 14 CLI e2e suites then failed to even load with
+ *     `Cannot find module 'tree-kill'`. Presence in a lockfile is not a
+ *     declaration.
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
