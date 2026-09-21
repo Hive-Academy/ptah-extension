@@ -19,7 +19,7 @@ arrives by default, not by choice. Ptah does not set this option today.
 
 | Item                             | Value                                                             |
 | -------------------------------- | ----------------------------------------------------------------- |
-| Worktree                         | `D:\projects\ptah-extension\.claude-worktrees\lane-b-spikes`      |
+| Worktree                         | `<repo-root>` (branch `lane-b/task-496-497-spikes`) |
 | Branch                           | `lane-b/task-496-497-spikes`                                       |
 | `@anthropic-ai/claude-agent-sdk` | 0.3.278 (the root `package.json:101` pin)                          |
 | `@modelcontextprotocol/sdk`      | 1.30.0, resolved from the root `package.json:111` range `^1.29.0`  |

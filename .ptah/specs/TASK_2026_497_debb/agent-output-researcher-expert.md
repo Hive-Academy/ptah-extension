@@ -1,7 +1,7 @@
 # Agent Output - Researcher Expert: TASK_2026_497_debb
 
 See the complete primary deliverable at:
-[containment-comparison.md](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/containment-comparison.md)
+[containment-comparison.md](.ptah/specs/TASK_2026_497_debb/containment-comparison.md)
 
 ## Summary of Completed Preparation
 
@@ -10,7 +10,7 @@ See the complete primary deliverable at:
    - Every cell is backed by verified code/documentation citations or explicitly marked as `[MEASURE IN SPIKE]`.
 
 2. **Attack Fixture Corpus (17 Files)**:
-   - Located at [.ptah/specs/TASK_2026_497_debb/fixtures/](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/).
+   - Located at [.ptah/specs/TASK_2026_497_debb/fixtures/](.ptah/specs/TASK_2026_497_debb/fixtures/).
    - Covers: top-level navigation, window.open, form target navigation, parent/opener traversal, cross-origin storage access, network exfiltration, metadata CSP injection, wildcard origin injection, permission requests, and resource exhaustion / postMessage flooding.
    - Includes dedicated assertion fixtures for all 7 Electron isolation controls.
 

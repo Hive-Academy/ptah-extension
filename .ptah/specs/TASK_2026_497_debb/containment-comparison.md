@@ -3,19 +3,19 @@
 > **TASK_2026_497_debb Spike Preparation**  
 > **Status**: Backlog / Prepared (Pre-Spike Complete)  
 > **Target Branch**: `lane-b/task-496-497-spikes`  
-> **Parent Research**: [TASK_2026_490_583c/research-report.md](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_490_583c/research-report.md) (Revisions 4 & 6), [research-mcp-apps.md](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_490_583c/research-mcp-apps.md)  
-> **Dependencies**: Blocked on [TASK_2026_491_e0da](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_491_e0da/task.md)
+> **Parent Research**: [TASK_2026_490_583c/research-report.md](.ptah/specs/TASK_2026_490_583c/research-report.md) (Revisions 4 & 6), [research-mcp-apps.md](.ptah/specs/TASK_2026_490_583c/research-mcp-apps.md)  
+> **Dependencies**: Blocked on [TASK_2026_491_e0da](.ptah/specs/TASK_2026_491_e0da/task.md)
 
 ---
 
 ## 1. Scope Limitation & Dependency on TASK_2026_491_e0da
 
 ### Current Blockers
-This task ([`TASK_2026_497_debb`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/task.md)) evaluates the containment strategy for untrusted third-party Model Context Protocol (MCP) App HTML inside Ptah's Electron desktop application.
+This task ([`TASK_2026_497_debb`](.ptah/specs/TASK_2026_497_debb/task.md)) evaluates the containment strategy for untrusted third-party Model Context Protocol (MCP) App HTML inside Ptah's Electron desktop application.
 
-Full end-to-end execution of this spike is **strictly blocked on [TASK_2026_491_e0da](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_491_e0da/task.md)**, which is concurrently implemented in an independent worktree:
-1. **Defective Session Permission Handlers**: In [`apps/ptah-electron/src/windows/main-window.ts:136-143`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/apps/ptah-electron/src/windows/main-window.ts#L136-L143), `setPermissionRequestHandler` and `setPermissionCheckHandler` validate requests solely via `contents.id === mainWindow.webContents.id`. Because child iframes share the top-level `webContents.id`, any subframe currently inherits full main-frame permissions. TASK_2026_491_e0da replaces this with an origin-aware, main-frame-aware policy where untrusted origins are categorically denied.
-2. **Missing Shell Content-Security-Policy**: The Electron shell currently loads without an active runtime CSP ([`TASK_2026_491_e0da/context.md:12`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_491_e0da/context.md#L12)). Running an iframe spike before the shell has a restrictive CSP (specifically `frame-src` and `connect-src` restrictions) would produce invalid security baselines.
+Full end-to-end execution of this spike is **strictly blocked on [TASK_2026_491_e0da](.ptah/specs/TASK_2026_491_e0da/task.md)**, which is concurrently implemented in an independent worktree:
+1. **Defective Session Permission Handlers**: In [`apps/ptah-electron/src/windows/main-window.ts:136-143`](apps/ptah-electron/src/windows/main-window.ts#L136-L143), `setPermissionRequestHandler` and `setPermissionCheckHandler` validate requests solely via `contents.id === mainWindow.webContents.id`. Because child iframes share the top-level `webContents.id`, any subframe currently inherits full main-frame permissions. TASK_2026_491_e0da replaces this with an origin-aware, main-frame-aware policy where untrusted origins are categorically denied.
+2. **Missing Shell Content-Security-Policy**: The Electron shell currently loads without an active runtime CSP ([`TASK_2026_491_e0da/context.md:12`](.ptah/specs/TASK_2026_491_e0da/context.md#L12)). Running an iframe spike before the shell has a restrictive CSP (specifically `frame-src` and `connect-src` restrictions) would produce invalid security baselines.
 
 ### Scope Delivered Here
 Per explicit scope boundaries, this deliverable touches **no Electron product code** (preserving all code in `apps/` and `libs/`) and does not execute the live containment spike. Instead, this phase delivers:
@@ -41,7 +41,7 @@ Once `TASK_2026_491_e0da` merges into `origin/main` (or the integration branch):
 > **Which is the correct container for third-party MCP App HTML in Electron: an `iframe` served over a custom protocol, or a `WebContentsView` with an ephemeral partition and no preload?**
 
 ### Why `blob:` is Rejected
-As established in [`research-mcp-apps.md` (Errata E2)](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_490_583c/research-mcp-apps.md#L256) and [`research-report.md` (Revision 6, Item 7)](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_490_583c/research-report.md#L430):
+As established in [`research-mcp-apps.md` (Errata E2)](.ptah/specs/TASK_2026_490_583c/research-mcp-apps.md#L256) and [`research-report.md` (Revision 6, Item 7)](.ptah/specs/TASK_2026_490_583c/research-report.md#L430):
 - A `blob:` URL created by the host application retains the origin of its creator when the sandboxed iframe includes `allow-same-origin`.
 - If `allow-same-origin` is omitted, the `blob:` URL inherits an opaque origin (`null`), which breaks standard web storage, web workers, and the MCP Apps specification's sandbox-proxy relay requirement (`apps.mdx:475` requires `allow-scripts allow-same-origin`).
 - Therefore, `blob:` cannot provide genuine cross-origin security separation and is discarded.
@@ -84,9 +84,9 @@ The table below contrasts the two candidate containers. Every cell is either a *
 | **Cross-App Isolation** | **Logical SOP Isolation**. By default, child iframes in a BrowserWindow run inside the **same renderer process** (same PID) and share the main-thread event loop. | **Process-Level Isolation**. Each WebContentsView runs in a dedicated Chromium renderer process (distinct OS PID). | Verified: Electron Process Model docs. `[MEASURE IN SPIKE]`: Verify if Chromium Site Isolation (`--site-per-process`) allocates separate PIDs for `ptah-mcp` iframes. |
 | **Storage & Cookie Partitioning** | **Shared Session Storage Jar**. Storage (localStorage, IndexedDB) is origin-partitioned by SOP, but shares the main window's single `session` profile on disk. No ephemeral sub-partitioning natively exists. | **Ephemeral In-Memory Partitioning**. Configured via `webPreferences.partition: 'ephemeral:<id>'`. All storage and cookies live only in RAM and vanish on teardown. | Verified: Electron Session API (`session.fromPartition`); Chromium storage model. |
 | **CSP Enforceability by Host** | **Host Injects Headers & Element CSP**. Host serves HTML via `protocol.handle` and sets `Content-Security-Policy` response headers. Shell CSP must allow `frame-src ptah-mcp:`. | **Host Injects Headers Directly**. Host injects CSP via protocol handler or `webRequest.onHeadersReceived`. Shell CSP does not need `frame-src` modification. | Verified: Electron `protocol.handle` and `webRequest.onHeadersReceived` API. |
-| **Can App Metadata Relax CSP?** | **NO**. Host validates `_meta.ui.csp` against strict allowlist. App can only add approved `connect-src` / `resourceDomains`. Cannot add `script-src`, `unsafe-inline`, `unsafe-eval`, or `frame-src`. | **NO**. Identical host compiler and validation gate apply before document load. | Verified: [TASK_2026_490_583c/research-report.md:402-406](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_490_583c/research-report.md#L402-L406); [TASK_2026_497_debb/context.md:46-48](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/context.md#L46-L48). |
-| **Navigation & Window-Open Control** | **DOM Sandbox + Event Cancellation**. Sandbox omits `allow-top-navigation` and `allow-popups`. In-frame navigation emits `will-frame-navigate` on parent `webContents`. | **Direct Main-Process Handlers**. Intercepted at native layer via `webContents.on('will-navigate', ...)` and `webContents.setWindowOpenHandler(() => ({ action: 'deny' }))`. | Verified: MDN HTMLIFrameElement sandbox; [apps/ptah-electron/src/windows/main-window.ts:70-82](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/apps/ptah-electron/src/windows/main-window.ts#L70-L82). |
-| **Permission-Handler Reach** | **Filtered Shared Handler**. Uses the shell session's `setPermissionRequestHandler`. Dependent on TASK_2026_491_e0da filtering `details.requestingUrl` and `details.isMainFrame: false`. | **Structural Hard Denial**. Handlers are attached directly to the ephemeral `session` partition: unconditionally returns `callback(false)` / `false`. No URL parsing required. | Verified: Electron `session.setPermissionRequestHandler` API; [TASK_2026_491_e0da/context.md:21-43](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_491_e0da/context.md#L21-L43). |
+| **Can App Metadata Relax CSP?** | **NO**. Host validates `_meta.ui.csp` against strict allowlist. App can only add approved `connect-src` / `resourceDomains`. Cannot add `script-src`, `unsafe-inline`, `unsafe-eval`, or `frame-src`. | **NO**. Identical host compiler and validation gate apply before document load. | Verified: [TASK_2026_490_583c/research-report.md:402-406](.ptah/specs/TASK_2026_490_583c/research-report.md#L402-L406); [TASK_2026_497_debb/context.md:46-48](.ptah/specs/TASK_2026_497_debb/context.md#L46-L48). |
+| **Navigation & Window-Open Control** | **DOM Sandbox + Event Cancellation**. Sandbox omits `allow-top-navigation` and `allow-popups`. In-frame navigation emits `will-frame-navigate` on parent `webContents`. | **Direct Main-Process Handlers**. Intercepted at native layer via `webContents.on('will-navigate', ...)` and `webContents.setWindowOpenHandler(() => ({ action: 'deny' }))`. | Verified: MDN HTMLIFrameElement sandbox; [apps/ptah-electron/src/windows/main-window.ts:70-82](apps/ptah-electron/src/windows/main-window.ts#L70-L82). |
+| **Permission-Handler Reach** | **Filtered Shared Handler**. Uses the shell session's `setPermissionRequestHandler`. Dependent on TASK_2026_491_e0da filtering `details.requestingUrl` and `details.isMainFrame: false`. | **Structural Hard Denial**. Handlers are attached directly to the ephemeral `session` partition: unconditionally returns `callback(false)` / `false`. No URL parsing required. | Verified: Electron `session.setPermissionRequestHandler` API; [TASK_2026_491_e0da/context.md:21-43](.ptah/specs/TASK_2026_491_e0da/context.md#L21-L43). |
 | **DevTools & Debuggability** | **Integrated DevTools**. Inspectable directly inside the main window DevTools tree as a DOM node. Single console, network tab, and debugger view. | **Detached Multi-Window DevTools**. Cannot inspect from main window DOM. Requires spawning separate DevTools instance via `view.webContents.openDevTools({ mode: 'detach' })`. | Verified: Chrome DevTools Protocol / Electron WebContents API. |
 | **Host-Mediated postMessage Cost** | **Zero Main-Process IPC Overhead**. Communicates via in-renderer `window.postMessage` / `MessageChannel`. Host Angular service validates messages directly in renderer. | **Multi-Hop IPC Overhead**. No direct DOM `postMessage`. Messages must travel: View -> Main Process IPC -> Host Angular Renderer, serializing payloads twice. | `[MEASURE IN SPIKE]`: Measure round-trip message latency (microseconds vs. milliseconds) and maximum message throughput. |
 | **Lifecycle & Teardown Cost** | **Trivial DOM Lifecycle**. Removing `<iframe *ngIf>` cleans up context immediately. Resizing, z-index, scrolling, and CSS Flex/Grid are native and synchronized. | **Complex Native View Lifecycle**. OS-level native window overlay (`addChildView`). Does not respect DOM z-index (renders over modals). Requires manual IPC bounding rect updates. | Verified: Electron Web Embeds tutorial (`docs/tutorial/web-embeds.md`). `[MEASURE IN SPIKE]`: Measure resize/scroll lag and visual tearing. |
@@ -95,7 +95,7 @@ The table below contrasts the two candidate containers. Every cell is either a *
 
 ## 4. Attack Fixture Corpus Specification
 
-All fixtures are self-contained HTML files located under [`.ptah/specs/TASK_2026_497_debb/fixtures/`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/). Each file executes an inert test and publishes results to `window.__testResult`.
+All fixtures are self-contained HTML files located under [`.ptah/specs/TASK_2026_497_debb/fixtures/`](.ptah/specs/TASK_2026_497_debb/fixtures/). Each file executes an inert test and publishes results to `window.__testResult`.
 
 ### Corpus Directory
 ```text
@@ -123,16 +123,16 @@ All fixtures are self-contained HTML files located under [`.ptah/specs/TASK_2026
 
 | Fixture File | Attack Technique | Responsible Security Control | Expected Outcome & Assertion |
 | :--- | :--- | :--- | :--- |
-| [`nav-top-level.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/nav-top-level.html) | `window.top.location = '...'` | Iframe sandbox (omit `allow-top-navigation`) + Electron `will-navigate` | Throws `SecurityError` DOMException or navigation cancelled. Top frame unchanged. |
-| [`window-open.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/window-open.html) | `window.open(...)` & `<a target="_blank">` | `setWindowOpenHandler` denial + omit `allow-popups` | Returns `null`/undefined; no new `BrowserWindow` or `webContents` created. |
-| [`form-target-nav.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/form-target-nav.html) | Form submit with `target="_top"` | Sandbox + CSP `form-action 'none'` or `'self'` | Form submission fails; CSP violation logged; parent frame unnavigated. |
-| [`parent-opener-access.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/parent-opener-access.html) | Reading `parent.document`, `parent.vscode` | Same-Origin Policy (distinct origin) / no parent in WebContentsView | Throws `SecurityError` cross-origin DOMException; zero host symbols leaked. |
-| [`cross-origin-storage-read.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/cross-origin-storage-read.html) | Querying `localStorage`, IndexedDB for foreign app keys | SOP partition per origin + ephemeral session | Probing foreign keys returns `null`; databases empty; storage isolated. |
-| [`network-exfiltration.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/network-exfiltration.html) | `fetch`, `XHR`, `Image`, `WebSocket` to unlisted host | Host-enforced CSP (`default-src 'none'`, `connect-src 'none'`) | All requests reject with `TypeError` / CSP violations; zero egress. |
-| [`metadata-inject-csp.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/metadata-inject-csp.html) | Injects `script-src https://...`, `frame-src *`, `unsafe-eval` | Host CSP compiler rejects unauthorized directives | Host enforces baseline CSP. Remote script and `eval()` fail with CSP violation. |
-| [`metadata-wildcard-origin.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/metadata-wildcard-origin.html) | Declares `connectDomains: ["*"]` | Host metadata validation drops wildcards | Metadata validation fails; CSP falls back to restrictive baseline (`connect-src 'none'`). |
-| [`permission-request.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/permission-request.html) | `getUserMedia`, `geolocation`, `clipboard.readText` | Origin-aware session permission handlers (TASK_2026_491) | Promises reject with `NotAllowedError` / `PERMISSION_DENIED`. |
-| [`resource-exhaustion.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/resource-exhaustion.html) | 1,000 rapid postMessages with 512B payload | Host Zod-validated rate limiter & message watchdog | Flooded messages dropped past threshold; host event loop remains responsive. |
+| [`nav-top-level.html`](.ptah/specs/TASK_2026_497_debb/fixtures/nav-top-level.html) | `window.top.location = '...'` | Iframe sandbox (omit `allow-top-navigation`) + Electron `will-navigate` | Throws `SecurityError` DOMException or navigation cancelled. Top frame unchanged. |
+| [`window-open.html`](.ptah/specs/TASK_2026_497_debb/fixtures/window-open.html) | `window.open(...)` & `<a target="_blank">` | `setWindowOpenHandler` denial + omit `allow-popups` | Returns `null`/undefined; no new `BrowserWindow` or `webContents` created. |
+| [`form-target-nav.html`](.ptah/specs/TASK_2026_497_debb/fixtures/form-target-nav.html) | Form submit with `target="_top"` | Sandbox + CSP `form-action 'none'` or `'self'` | Form submission fails; CSP violation logged; parent frame unnavigated. |
+| [`parent-opener-access.html`](.ptah/specs/TASK_2026_497_debb/fixtures/parent-opener-access.html) | Reading `parent.document`, `parent.vscode` | Same-Origin Policy (distinct origin) / no parent in WebContentsView | Throws `SecurityError` cross-origin DOMException; zero host symbols leaked. |
+| [`cross-origin-storage-read.html`](.ptah/specs/TASK_2026_497_debb/fixtures/cross-origin-storage-read.html) | Querying `localStorage`, IndexedDB for foreign app keys | SOP partition per origin + ephemeral session | Probing foreign keys returns `null`; databases empty; storage isolated. |
+| [`network-exfiltration.html`](.ptah/specs/TASK_2026_497_debb/fixtures/network-exfiltration.html) | `fetch`, `XHR`, `Image`, `WebSocket` to unlisted host | Host-enforced CSP (`default-src 'none'`, `connect-src 'none'`) | All requests reject with `TypeError` / CSP violations; zero egress. |
+| [`metadata-inject-csp.html`](.ptah/specs/TASK_2026_497_debb/fixtures/metadata-inject-csp.html) | Injects `script-src https://...`, `frame-src *`, `unsafe-eval` | Host CSP compiler rejects unauthorized directives | Host enforces baseline CSP. Remote script and `eval()` fail with CSP violation. |
+| [`metadata-wildcard-origin.html`](.ptah/specs/TASK_2026_497_debb/fixtures/metadata-wildcard-origin.html) | Declares `connectDomains: ["*"]` | Host metadata validation drops wildcards | Metadata validation fails; CSP falls back to restrictive baseline (`connect-src 'none'`). |
+| [`permission-request.html`](.ptah/specs/TASK_2026_497_debb/fixtures/permission-request.html) | `getUserMedia`, `geolocation`, `clipboard.readText` | Origin-aware session permission handlers (TASK_2026_491) | Promises reject with `NotAllowedError` / `PERMISSION_DENIED`. |
+| [`resource-exhaustion.html`](.ptah/specs/TASK_2026_497_debb/fixtures/resource-exhaustion.html) | 1,000 rapid postMessages with 512B payload | Host Zod-validated rate limiter & message watchdog | Flooded messages dropped past threshold; host event loop remains responsive. |
 
 ---
 
@@ -156,7 +156,7 @@ const mcpAppWebPreferences: Electron.WebPreferences = {
 
 ### Control 1: `nodeIntegration: false`
 - **Configuration**: `nodeIntegration: false` in `webPreferences`.
-- **Fixture**: [`iso-node-integration-false.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/iso-node-integration-false.html)
+- **Fixture**: [`iso-node-integration-false.html`](.ptah/specs/TASK_2026_497_debb/fixtures/iso-node-integration-false.html)
 - **Assertion**:
   ```typescript
   expect(await view.webContents.executeJavaScript('typeof require')).toBe('undefined');
@@ -166,7 +166,7 @@ const mcpAppWebPreferences: Electron.WebPreferences = {
 
 ### Control 2: `contextIsolation: true`
 - **Configuration**: `contextIsolation: true` in `webPreferences`.
-- **Fixture**: [`iso-context-isolation-true.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/iso-context-isolation-true.html)
+- **Fixture**: [`iso-context-isolation-true.html`](.ptah/specs/TASK_2026_497_debb/fixtures/iso-context-isolation-true.html)
 - **Assertion**:
   ```typescript
   expect(await view.webContents.executeJavaScript('window.vscode')).toBeUndefined();
@@ -177,7 +177,7 @@ const mcpAppWebPreferences: Electron.WebPreferences = {
 
 ### Control 3: `sandbox: true`
 - **Configuration**: `sandbox: true` in `webPreferences`.
-- **Fixture**: [`iso-sandbox-true.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/iso-sandbox-true.html)
+- **Fixture**: [`iso-sandbox-true.html`](.ptah/specs/TASK_2026_497_debb/fixtures/iso-sandbox-true.html)
 - **Assertion**:
   ```typescript
   // Assert native bindings are unexposed and renderer runs in sandboxed utility process
@@ -186,7 +186,7 @@ const mcpAppWebPreferences: Electron.WebPreferences = {
 
 ### Control 4: `webSecurity: true`
 - **Configuration**: `webSecurity: true` in `webPreferences`.
-- **Fixture**: [`iso-web-security-true.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/iso-web-security-true.html)
+- **Fixture**: [`iso-web-security-true.html`](.ptah/specs/TASK_2026_497_debb/fixtures/iso-web-security-true.html)
 - **Assertion**:
   ```typescript
   const fileFetchResult = await view.webContents.executeJavaScript(`
@@ -204,7 +204,7 @@ const mcpAppWebPreferences: Electron.WebPreferences = {
     }
   });
   ```
-- **Fixture**: [`iso-will-navigate.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/iso-will-navigate.html)
+- **Fixture**: [`iso-will-navigate.html`](.ptah/specs/TASK_2026_497_debb/fixtures/iso-will-navigate.html)
 - **Assertion**:
   ```typescript
   const initialUrl = view.webContents.getURL();
@@ -220,7 +220,7 @@ const mcpAppWebPreferences: Electron.WebPreferences = {
     return { action: 'deny' };
   });
   ```
-- **Fixture**: [`iso-window-open-handler.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/iso-window-open-handler.html)
+- **Fixture**: [`iso-window-open-handler.html`](.ptah/specs/TASK_2026_497_debb/fixtures/iso-window-open-handler.html)
 - **Assertion**:
   ```typescript
   const windowCountBefore = BrowserWindow.getAllWindows().length;
@@ -241,7 +241,7 @@ const mcpAppWebPreferences: Electron.WebPreferences = {
     return false;
   });
   ```
-- **Fixture**: [`iso-permission-denial.html`](file:///D:/projects/ptah-extension/.claude-worktrees/lane-b-spikes/.ptah/specs/TASK_2026_497_debb/fixtures/iso-permission-denial.html)
+- **Fixture**: [`iso-permission-denial.html`](.ptah/specs/TASK_2026_497_debb/fixtures/iso-permission-denial.html)
 - **Assertion**:
   ```typescript
   const micResult = await view.webContents.executeJavaScript(`
