@@ -47,4 +47,19 @@ if (typeof vm.SourceTextModule?.prototype?.hasAsyncGraph !== 'function') {
   );
 }
 
-module.exports = require('../../jest.preset.js');
+/**
+ * Every setting that all `libs/api/*` projects share lives here; each
+ * `jest.config.cts` keeps only what genuinely differs (`displayName` and
+ * `coverageDirectory`). `<rootDir>` below resolves per consuming project,
+ * not to this preset's own directory — Jest merges the preset into the
+ * project config and the project's rootDir wins, so ts-jest reads
+ * `<project>/tsconfig.spec.json`, never `libs/api/tsconfig.spec.json`.
+ */
+module.exports = {
+  ...require('../../jest.preset.js'),
+  testEnvironment: 'node',
+  transform: {
+    '^.+\\.[tj]s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
+  },
+  moduleFileExtensions: ['ts', 'js', 'html'],
+};
