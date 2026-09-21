@@ -8,9 +8,16 @@
  * Codex adapter's structured mapping than to Antigravity's heuristic classifier.
  *
  * Non-interactive run:  opencode run --format json --auto --model <provider/model>
- *                                   --dir <cwd> [--session <id>] "<prompt>"
+ *                                   [--session <id>] "<prompt>"
  *
  * Notes:
+ * - **The working directory is the spawn's `cwd`, and there is no flag for it.**
+ *   This used to pass `--dir <cwd>`; opencode 2.0.11 rejects that with
+ *   `Unrecognized flag: --dir in command opencode run` and exits 1, so EVERY
+ *   lane failed at spawn with no output. The flag was redundant anyway — the
+ *   spawn already sets `cwd` — and `opencode run` honours it: measured on
+ *   2.0.11, a run started from this worktree reported that worktree as its
+ *   directory. Pinned by a spec asserting `--dir` never appears in argv.
  * - `run`'s prompt is a POSITIONAL arg (not a Go-style trailing string flag),
  *   so it is passed LAST but ordering is less brittle than Antigravity's.
  * - `--auto` maps to autoApprove: it auto-approves the two permission gaps
@@ -420,9 +427,8 @@ export class OpencodeCliAdapter implements CliAdapter {
     if (options.model) {
       args.push('--model', options.model);
     }
-    if (options.workingDirectory) {
-      args.push('--dir', options.workingDirectory);
-    }
+    // No working-directory flag: `opencode run` takes it from the spawn's cwd,
+    // which is set below. See the note at the top of this file.
     if (options.resumeSessionId) {
       args.push('--session', options.resumeSessionId);
     }
