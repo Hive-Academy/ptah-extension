@@ -69,6 +69,7 @@
       "continuous": true,
       "executor": "@angular/build:dev-server",
       "options": {
+        "port": 4200,
         "proxyConfig": "apps/ptah-landing-page/proxy.conf.json"
       },
       "configurations": {
