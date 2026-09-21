@@ -13,10 +13,12 @@ describe('TabManagerService terminal notification pulse', () => {
     phase: SessionTurnState['phase'],
     revision: number,
     terminalReason: SessionTurnState['terminalReason'] = null,
+    lastAssistantMessage: SessionTurnState['lastAssistantMessage'] = null,
   ): SessionTurnState => ({
     phase,
     revision,
     terminalReason,
+    lastAssistantMessage,
     backgroundTasks: [],
     sessionCrons: [],
     timestamp: revision,
@@ -75,6 +77,20 @@ describe('TabManagerService terminal notification pulse', () => {
     });
     service.applyTurnState(tabId, turnState('idle', 2, 'completed'), sessionId);
     expect(service.terminalTurnPulses().at(-1)?.seq).toBe(1);
+  });
+
+  it('carries the last assistant message onto the pulse', () => {
+    const tabId = service.createTab('recap');
+    service.attachSession(tabId, sessionId);
+    service.applyTurnState(tabId, turnState('generating', 1), sessionId);
+    service.applyTurnState(
+      tabId,
+      turnState('idle', 2, 'completed', 'All done.'),
+      sessionId,
+    );
+    expect(service.terminalTurnPulses().at(-1)?.lastAssistantMessage).toBe(
+      'All done.',
+    );
   });
 
   it.each([

@@ -1,10 +1,14 @@
 import 'reflect-metadata';
+import { TURN_RECAP_MAX_CHARS } from '@ptah-extension/shared';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 import { StopFailureHookHandler } from './stop-failure-hook-handler';
 import { SdkAdapterEvents } from './sdk-adapter-events.service';
-import { SessionTurnStateRegistry } from './session-turn-state.registry';
+import {
+  SessionTurnStateRegistry,
+  toTurnStateEvent,
+} from './session-turn-state.registry';
 
 function makeLogger(): jest.Mocked<Logger> {
   return {
@@ -302,6 +306,51 @@ describe('StopFailureHookHandler', () => {
 });
 
 describe('StopFailureHookHandler - SessionTurnStateRegistry snapshot (TASK_2026_360)', () => {
+  it.each([
+    undefined,
+    '',
+    'Partial.',
+    'x'.repeat(TURN_RECAP_MAX_CHARS),
+    'x'.repeat(TURN_RECAP_MAX_CHARS + 50),
+  ])(
+    'bounds the recap before recording the failure snapshot (%#)',
+    async (message) => {
+      const turnState = new SessionTurnStateRegistry();
+      const record = jest.spyOn(turnState, 'recordFailure');
+      const handler = new StopFailureHookHandler(
+        makeLogger(),
+        undefined,
+        turnState,
+      );
+      const fn = getHookCallback(handler, 'sess-1', '/workspace');
+      await fn(
+        {
+          hook_event_name: 'StopFailure',
+          session_id: 'sess-1',
+          transcript_path: '/transcript.jsonl',
+          cwd: '/workspace',
+          error: 'rate_limit',
+          last_assistant_message: message,
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      const expected = message?.slice(0, TURN_RECAP_MAX_CHARS) ?? null;
+      expect(record).toHaveBeenCalledWith(
+        'sess-1',
+        expect.objectContaining({
+          lastAssistantMessage: expected,
+        }),
+      );
+      const state = turnState.settleTurn('sess-1', 'api_error');
+      expect(state.lastAssistantMessage).toBe(expected);
+      expect(toTurnStateEvent('sess-1', state).lastAssistantMessage).toBe(
+        expected,
+      );
+    },
+  );
+
   it('records the failure without changing the phase, so result settles to failed', async () => {
     const logger = makeLogger();
     const turnState = new SessionTurnStateRegistry();
@@ -315,7 +364,7 @@ describe('StopFailureHookHandler - SessionTurnStateRegistry snapshot (TASK_2026_
         session_id: 'sess-1',
         cwd: '/workspace',
         error: 'rate_limit',
-        terminal_reason: 'model_error',
+        last_assistant_message: 'Partial response.',
       } as unknown as HookInput,
       undefined,
       { signal: new AbortController().signal },
@@ -326,7 +375,8 @@ describe('StopFailureHookHandler - SessionTurnStateRegistry snapshot (TASK_2026_
     expect(turnState.settleTurn('sess-1')).toMatchObject({
       phase: 'failed',
       error: 'rate_limit',
-      terminalReason: 'model_error',
+      terminalReason: null,
+      lastAssistantMessage: 'Partial response.',
     });
   });
 

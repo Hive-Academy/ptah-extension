@@ -29,6 +29,14 @@ export interface CompactSemanticMark {
   readonly kind: CompactSemanticMarkKind;
   readonly tone: CompactSummaryStatusTone;
   readonly label: string;
+  /** Event time (ms since epoch), used to order and time-stamp the feed row. */
+  readonly timestamp: number;
+  /**
+   * The detail behind `label` (e.g. `Exit code 1: 3 test suites failed`, a
+   * compaction token delta). Already path-redacted by the item builders.
+   * Undefined when a mark has no extra detail beyond its label.
+   */
+  readonly text?: string;
 }
 
 export interface CompactSummaryContent {
@@ -323,7 +331,14 @@ function buildSummary(
   const marks = [...items, ...promptMarks, ...compactionMarks]
     .sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id))
     .slice(-MAX_MARKS)
-    .map(({ id, kind, tone, label }) => ({ id, kind, tone, label }));
+    .map(({ id, kind, tone, label, timestamp, text }) => ({
+      id,
+      kind,
+      tone,
+      label,
+      timestamp,
+      text,
+    }));
 
   const content = selectContent(questions, permissions, items, context);
   const status = selectStatus(

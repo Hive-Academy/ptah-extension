@@ -43,6 +43,8 @@ describe('NotificationCenterComponent', () => {
     sessionColor: 'oklch(70% 0.1 100)',
     phase: 'idle',
     terminalReason: 'completed',
+    lastAssistantMessage: null,
+    outcomeLabel: 'Finished',
     classification: 'success',
     occurredAt: 1,
     readAt: null,
@@ -245,5 +247,96 @@ describe('NotificationCenterComponent', () => {
     dismiss.click();
     expect(dismissCompletion).toHaveBeenCalledWith(completion.id);
     expect(activateCompletion).not.toHaveBeenCalled();
+  }));
+
+  it('renders the outcome label instead of a bare Failed/Finished string', fakeAsync(() => {
+    completionGroups.set([
+      {
+        id: 'group-1',
+        workspacePath: '/workspace/a',
+        workspaceLabel: 'a',
+        classification: 'error',
+        occurredAt: 1,
+        entries: [{ ...completion, outcomeLabel: 'Hit the turn limit' }],
+      },
+    ]);
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    fixture.debugElement
+      .query(By.css('[data-testid="notification-center-bell"]'))
+      .nativeElement.click();
+    fixture.detectChanges();
+    tick();
+    const row = fixture.debugElement.query(By.css('.notification-row'));
+    expect(row.nativeElement.textContent).toContain('Hit the turn limit');
+    expect(row.nativeElement.textContent).not.toContain('Failed');
+  }));
+
+  it('renders the recap under the session name, and nothing when it is null', fakeAsync(() => {
+    completionGroups.set([
+      {
+        id: 'group-1',
+        workspacePath: '/workspace/a',
+        workspaceLabel: 'a',
+        classification: 'success',
+        occurredAt: 1,
+        entries: [{ ...completion, lastAssistantMessage: 'All done.' }],
+      },
+    ]);
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    fixture.debugElement
+      .query(By.css('[data-testid="notification-center-bell"]'))
+      .nativeElement.click();
+    fixture.detectChanges();
+    tick();
+    let row = fixture.debugElement.query(By.css('.notification-row'));
+    expect(row.nativeElement.textContent).toContain('All done.');
+
+    completionGroups.set([
+      {
+        id: 'group-1',
+        workspacePath: '/workspace/a',
+        workspaceLabel: 'a',
+        classification: 'success',
+        occurredAt: 1,
+        entries: [{ ...completion, lastAssistantMessage: null }],
+      },
+    ]);
+    fixture.detectChanges();
+    row = fixture.debugElement.query(By.css('.notification-row'));
+    expect(row.nativeElement.textContent).not.toContain('All done.');
+  }));
+
+  it('presents the session name as a link-styled, keyboard-reachable affordance that activates the focus router', fakeAsync(() => {
+    completionGroups.set([
+      {
+        id: 'group-1',
+        workspacePath: '/workspace/a',
+        workspaceLabel: 'a',
+        classification: 'success',
+        occurredAt: 1,
+        entries: [completion],
+      },
+    ]);
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    fixture.debugElement
+      .query(By.css('[data-testid="notification-center-bell"]'))
+      .nativeElement.click();
+    fixture.detectChanges();
+    tick();
+    const row = fixture.debugElement.query(
+      By.css('.notification-row'),
+    ).nativeElement as HTMLButtonElement;
+    expect(row.getAttribute('aria-label')).toBe('Open session Build release');
+    const sessionName = fixture.debugElement.query(By.css('.link'));
+    expect(sessionName.nativeElement.textContent.trim()).toBe(
+      'Build release',
+    );
+    row.click();
+    tick();
+    fixture.detectChanges();
+    expect(activateCompletion).toHaveBeenCalledWith(completion);
   }));
 });

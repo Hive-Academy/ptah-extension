@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Variant 1: Horizontal Ticker Marquee</title>
+  <style>
+    /* Reset & Base Setup */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg-page: #14161a;
+      --base-100: #1a1d23;
+      --base-200: #21252b;
+      --base-300: #2a2f37;
+      --base-content: #c8cdd5;
+      --base-content-muted: #7b8494;
+      --primary: #7c6cf7;
+      --primary-dim: rgba(124, 108, 247, 0.15);
+      --success: #34b981;
+      --success-dim: rgba(52, 185, 129, 0.15);
+      --warning: #f0b429;
+      --warning-dim: rgba(240, 180, 41, 0.15);
+      --error: #ef4b5a;
+      --error-dim: rgba(239, 75, 90, 0.15);
+      --model-purple: #c084fc;
+      --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+      --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-page);
+      color: var(--base-content);
+      font-family: var(--font-ui);
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 36px;
+      min-width: 960px;
+    }
+
+    .proto-header {
+      width: 880px;
+      border-bottom: 1px solid var(--base-300);
+      padding-bottom: 12px;
+    }
+
+    .proto-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--base-content);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font-mono);
+      letter-spacing: -0.01em;
+    }
+
+    .proto-desc {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--base-content-muted);
+      line-height: 1.5;
+    }
+
+    /* Section & Captions */
+    .mockup-section {
+      width: 880px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .caption-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--base-content-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .caption-badge {
+      color: var(--primary);
+      font-weight: 700;
+    }
+
+    /* Tile Chassis */
+    .tile {
+      width: 880px;
+      background-color: var(--base-200);
+      border: 1px solid var(--base-300);
+      border-radius: 8px;
+      overflow: hidden;
+      display: grid;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      position: relative;
+    }
+
+    .tile-compact {
+      height: 232px;
+      grid-template-rows: 34px 34px 1fr 28px;
+    }
+
+    .tile-tall {
+      height: 472px;
+      grid-template-rows: 34px 34px 1fr 28px;
+    }
+
+    /* Zone 1: Status Header (34px) */
+    .zone-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 12px;
+      background-color: var(--base-200);
+      border-bottom: 1px solid var(--base-300);
+      font-size: 12px;
+    }
+
+    .session-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background-color: var(--primary);
+      box-shadow: 0 0 6px var(--primary);
+      flex-shrink: 0;
+    }
+
+    .status-text {
+      font-weight: 600;
+      color: var(--base-content);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-icon {
+      font-size: 12px;
+    }
+
+    .tone-badge-live {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background-color: var(--primary-dim);
+      color: var(--primary);
+      border: 1px solid rgba(124, 108, 247, 0.3);
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .workspace-label {
+      font-size: 11px;
+      color: var(--base-content-muted);
+      margin-left: auto;
+      font-family: var(--font-mono);
+    }
+
+    /* Height-Tier Toggle Component */
+    .tier-toggle {
+      display: inline-flex;
+      align-items: center;
+      background-color: var(--base-100);
+      border: 1px solid var(--base-300);
+      border-radius: 4px;
+      padding: 2px;
+      gap: 2px;
+      margin-left: 12px;
+    }
+
+    .tier-btn {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 3px;
+      border: none;
+      background: transparent;
+      color: var(--base-content-muted);
+      cursor: pointer;
+      line-height: 1.2;
+    }
+
+    .tier-btn.active {
+      background-color: var(--base-300);
+      color: var(--base-content);
+    }
+
+    .btn-fullview {
+      font-family: var(--font-ui);
+      font-size: 11px;
+      font-weight: 500;
+      background: transparent;
+      color: var(--base-content-muted);
+      border: 1px solid var(--base-300);
+      border-radius: 4px;
+      padding: 2px 8px;
+      margin-left: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn-fullview:hover {
+      background-color: var(--base-300);
+      color: var(--base-content);
+    }
+
+    /* Zone 2: Retro Ticker Ribbon (34px) */
+    .zone-ticker {
+      display: flex;
+      align-items: center;
+      height: 34px;
+      background: linear-gradient(180deg, #181b20 0%, #15181d 100%);
+      border-bottom: 1px solid var(--base-300);
+      overflow: hidden;
+      position: relative;
+      user-select: none;
+    }
+
+    /* Scanlines over ticker */
+    .zone-ticker::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.25) 0px,
+        rgba(0, 0, 0, 0.25) 1px,
+        transparent 1px,
+        transparent 2px
+      );
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .ticker-lead-badge {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background-color: var(--base-300);
+      color: var(--primary);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 0 10px;
+      height: 100%;
+      border-right: 1px solid var(--base-300);
+      z-index: 4;
+      letter-spacing: 0.05em;
+    }
+
+    .ticker-lead-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: var(--primary);
+      animation: pulse-dot 1.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.3; transform: scale(0.7); }
+    }
+
+    .ticker-viewport {
+      flex: 1;
+      overflow: hidden;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      position: relative;
+      cursor: default;
+    }
+
+    .ticker-track {
+      display: inline-flex;
+      align-items: center;
+      white-space: nowrap;
+      animation: ticker-slide 32s linear infinite;
+      will-change: transform;
+    }
+
+    .zone-ticker:hover .ticker-track {
+      animation-play-state: paused;
+    }
+
+    @keyframes ticker-slide {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    .ticker-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 0 14px;
+      color: var(--base-content);
+    }
+
+    .ticker-item:hover {
+      background-color: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+    }
+
+    .item-time {
+      font-size: 10px;
+      color: var(--base-content-muted);
+    }
+
+    .item-divider {
+      color: var(--base-300);
+      font-size: 10px;
+      margin-left: 8px;
+    }
+
+    /* Accessible Tone Indicators (Glyph + Prefix) */
+    .tone-glyph {
+      font-weight: 700;
+      font-size: 11px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .tone-glyph.error {
+      color: var(--error);
+      background-color: var(--error-dim);
+      border: 1px solid rgba(239, 75, 90, 0.3);
+    }
+
+    .tone-glyph.warning {
+      color: var(--warning);
+      background-color: var(--warning-dim);
+      border: 1px solid rgba(240, 180, 41, 0.3);
+    }
+
+    .tone-glyph.success {
+      color: var(--success);
+      background-color: var(--success-dim);
+      border: 1px solid rgba(52, 185, 129, 0.3);
+    }
+
+    .tone-glyph.live {
+      color: var(--primary);
+      background-color: var(--primary-dim);
+      border: 1px solid rgba(124, 108, 247, 0.3);
+    }
+
+    .ticker-hover-notice {
+      flex-shrink: 0;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--base-content-muted);
+      padding: 0 8px;
+      background-color: var(--base-100);
+      height: 100%;
+      display: flex;
+      align-items: center;
+      border-left: 1px solid var(--base-300);
+      z-index: 4;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Zone 3: Main Body Content */
+    .zone-content-compact {
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow: hidden;
+      background: #1e2228;
+    }
+
+    .live-callout-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background-color: rgba(26, 29, 35, 0.85);
+      border: 1px solid var(--base-300);
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .live-callout-tag {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--primary);
+      letter-spacing: 0.05em;
+    }
+
+    .live-callout-msg {
+      color: var(--base-content);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    .recap-prose-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .recap-prose-text {
+      flex: 1;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--base-content);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .btn-action {
+      flex-shrink: 0;
+      background-color: var(--primary);
+      color: #ffffff;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn-action:hover {
+      opacity: 0.9;
+    }
+
+    /* Zone 3 in Tall (472px) */
+    .zone-content-tall {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      overflow: hidden;
+      background: #1e2228;
+    }
+
+    .tall-left-deck {
+      border-right: 1px solid var(--base-300);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background-color: rgba(26, 29, 35, 0.4);
+    }
+
+    .tall-right-tape {
+      padding: 12px 14px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .panel-subtitle {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--base-content-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .tape-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      background-color: rgba(26, 29, 35, 0.6);
+      border: 1px solid rgba(42, 47, 55, 0.6);
+    }
+
+    .tape-row.active {
+      border-color: rgba(124, 108, 247, 0.4);
+      background-color: rgba(124, 108, 247, 0.08);
+    }
+
+    .tape-time {
+      font-size: 10px;
+      color: var(--base-content-muted);
+      flex-shrink: 0;
+      width: 52px;
+    }
+
+    .tape-label {
+      flex: 1;
+      color: var(--base-content);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tape-cursor {
+      display: inline-block;
+      width: 6px;
+      height: 12px;
+      background-color: var(--primary);
+      vertical-align: middle;
+      margin-left: 4px;
+      animation: blink 1s step-start infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    /* Zone 4: Metrics Footer (28px) */
+    .zone-metrics {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 12px;
+      background-color: var(--base-100);
+      border-top: 1px solid var(--base-300);
+      font-size: 10px;
+      color: var(--base-content-muted);
+      font-family: var(--font-mono);
+    }
+
+    .metric-model {
+      color: var(--model-purple);
+      font-weight: 600;
+    }
+
+    .metric-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .metric-right {
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="proto-header">
+    <div class="proto-title">
+      <span>VARIANT 1: HORIZONTAL TICKER MARQUEE</span>
+      <span class="tone-badge-live">● RETRO WIRE</span>
+    </div>
+    <p class="proto-desc">
+      A single-line retro newsbar marquee streaming background activity horizontally, paired with an active event readout.
+      Hovering over the tape pauses motion for reading. Demonstrates both 232px (Compact 2U) and 472px (Compact-Tall 4U) heights.
+    </p>
+  </header>
+
+  <!-- ==================== 1. COMPACT VIEW (232px) ==================== -->
+  <section class="mockup-section">
+    <div class="caption-bar">
+      <span class="caption-title">1. COMPACT TILE — 232px HEIGHT (2 UNITS)</span>
+      <span>Width: 880px &bull; Tier: Compact</span>
+    </div>
+
+    <div class="tile tile-compact">
+      <!-- Zone 1: Status Row -->
+      <div class="zone-status">
+        <span class="session-dot" title="Session active"></span>
+        <span class="status-icon">⚙</span>
+        <span class="status-text">Using tools</span>
+        <span class="tone-badge-live">▶ RUN</span>
+
+        <span class="workspace-label">ptah-extension</span>
+
+        <div class="tier-toggle" aria-label="Height tier toggle">
+          <button class="tier-btn active">2U</button>
+          <button class="tier-btn">4U</button>
+        </div>
+
+        <button class="btn-fullview">↗ Full</button>
+      </div>
+
+      <!-- Zone 2: Retro Marquee Ticker -->
+      <div class="zone-ticker" title="Hover to pause ticker motion">
+        <div class="ticker-lead-badge">
+          <span class="ticker-lead-dot"></span>
+          <span>NEWS WIRE</span>
+        </div>
+
+        <div class="ticker-viewport">
+          <div class="ticker-track">
+            <!-- First copy of items for seamless loop -->
+            <div class="ticker-item">
+              <span class="item-time">17:24:02</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Reading tab-manager.service.ts</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:08</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Editing session-turn-state.registry.ts</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:19</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Running npx nx run-many -t test -p @ptah-extension/agent-sdk</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:35</span>
+              <span class="tone-glyph success">✓ AGENT</span>
+              <span>Agent started: backend-developer</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:41</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Searching terminalReason</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:50</span>
+              <span class="tone-glyph error">✖ ERR</span>
+              <span>bash failed</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:02</span>
+              <span class="tone-glyph success">✓ AGENT</span>
+              <span>Agent completed: code-logic-reviewer</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:15</span>
+              <span class="tone-glyph warning">▲ COMPACT</span>
+              <span>Context compaction completed</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:22</span>
+              <span class="tone-glyph live">▶ LIVE</span>
+              <span>Turn completed</span>
+              <span class="item-divider">│</span>
+            </div>
+
+            <!-- Duplicate copy for seamless infinite loop -->
+            <div class="ticker-item">
+              <span class="item-time">17:24:02</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Reading tab-manager.service.ts</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:08</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Editing session-turn-state.registry.ts</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:19</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Running npx nx run-many -t test -p @ptah-extension/agent-sdk</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:35</span>
+              <span class="tone-glyph success">✓ AGENT</span>
+              <span>Agent started: backend-developer</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:41</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Searching terminalReason</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:50</span>
+              <span class="tone-glyph error">✖ ERR</span>
+              <span>bash failed</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:02</span>
+              <span class="tone-glyph success">✓ AGENT</span>
+              <span>Agent completed: code-logic-reviewer</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:15</span>
+              <span class="tone-glyph warning">▲ COMPACT</span>
+              <span>Context compaction completed</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:22</span>
+              <span class="tone-glyph live">▶ LIVE</span>
+              <span>Turn completed</span>
+              <span class="item-divider">│</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ticker-hover-notice">Hover to Pause</div>
+      </div>
+
+      <!-- Zone 3: Active Item Readout & Recap -->
+      <div class="zone-content-compact">
+        <div class="live-callout-bar">
+          <span class="live-callout-tag">LAST ACTION [17:25:22]</span>
+          <span class="tone-glyph live">▶ RUN</span>
+          <span class="live-callout-msg">Turn completed: Verified session-turn-state tests passing</span>
+        </div>
+
+        <div class="recap-prose-row">
+          <div class="recap-prose-text">
+            Decision noted: last assistant message + human-readable outcome. Narrowed terminalReason from SDK result message and verified settleTurn commits completed status.
+          </div>
+          <button class="btn-action">Open full view</button>
+        </div>
+      </div>
+
+      <!-- Zone 4: Metrics Footer -->
+      <div class="zone-metrics">
+        <span class="metric-model">claude-3-7-sonnet</span>
+        <span class="metric-item">3.1M tokens</span>
+        <span class="metric-item">$3.14</span>
+        <span class="metric-item">2 agents</span>
+        <span class="metric-right">1 compacted</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ==================== 2. COMPACT-TALL VIEW (472px) ==================== -->
+  <section class="mockup-section">
+    <div class="caption-bar">
+      <span class="caption-title">2. COMPACT-TALL TILE — 472px HEIGHT (4 UNITS)</span>
+      <span>Width: 880px &bull; Tier: Compact-Tall</span>
+    </div>
+
+    <div class="tile tile-tall">
+      <!-- Zone 1: Status Row -->
+      <div class="zone-status">
+        <span class="session-dot" title="Session active"></span>
+        <span class="status-icon">⚙</span>
+        <span class="status-text">Using tools</span>
+        <span class="tone-badge-live">▶ RUN</span>
+
+        <span class="workspace-label">ptah-extension</span>
+
+        <div class="tier-toggle" aria-label="Height tier toggle">
+          <button class="tier-btn">2U</button>
+          <button class="tier-btn active">4U</button>
+        </div>
+
+        <button class="btn-fullview">↗ Full</button>
+      </div>
+
+      <!-- Zone 2: Retro Marquee Ticker -->
+      <div class="zone-ticker" title="Hover to pause ticker motion">
+        <div class="ticker-lead-badge">
+          <span class="ticker-lead-dot"></span>
+          <span>NEWS WIRE</span>
+        </div>
+
+        <div class="ticker-viewport">
+          <div class="ticker-track">
+            <!-- Duplicated marquee items -->
+            <div class="ticker-item">
+              <span class="item-time">17:24:02</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Reading tab-manager.service.ts</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:08</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Editing session-turn-state.registry.ts</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:19</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Running npx nx run-many -t test -p @ptah-extension/agent-sdk</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:35</span>
+              <span class="tone-glyph success">✓ AGENT</span>
+              <span>Agent started: backend-developer</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:41</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Searching terminalReason</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:50</span>
+              <span class="tone-glyph error">✖ ERR</span>
+              <span>bash failed</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:02</span>
+              <span class="tone-glyph success">✓ AGENT</span>
+              <span>Agent completed: code-logic-reviewer</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:15</span>
+              <span class="tone-glyph warning">▲ COMPACT</span>
+              <span>Context compaction completed</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:22</span>
+              <span class="tone-glyph live">▶ LIVE</span>
+              <span>Turn completed</span>
+              <span class="item-divider">│</span>
+            </div>
+
+            <!-- Loop copy -->
+            <div class="ticker-item">
+              <span class="item-time">17:24:02</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Reading tab-manager.service.ts</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:08</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Editing session-turn-state.registry.ts</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:19</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Running npx nx run-many -t test -p @ptah-extension/agent-sdk</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:35</span>
+              <span class="tone-glyph success">✓ AGENT</span>
+              <span>Agent started: backend-developer</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:41</span>
+              <span class="tone-glyph success">✓ OK</span>
+              <span>Searching terminalReason</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:24:50</span>
+              <span class="tone-glyph error">✖ ERR</span>
+              <span>bash failed</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:02</span>
+              <span class="tone-glyph success">✓ AGENT</span>
+              <span>Agent completed: code-logic-reviewer</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:15</span>
+              <span class="tone-glyph warning">▲ COMPACT</span>
+              <span>Context compaction completed</span>
+              <span class="item-divider">│</span>
+            </div>
+            <div class="ticker-item">
+              <span class="item-time">17:25:22</span>
+              <span class="tone-glyph live">▶ LIVE</span>
+              <span>Turn completed</span>
+              <span class="item-divider">│</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ticker-hover-notice">Hover to Pause</div>
+      </div>
+
+      <!-- Zone 3: Expanded Dual Inspector for Tall View -->
+      <div class="zone-content-tall">
+        <!-- Left Deck: Assistant Focus & Outcome -->
+        <div class="tall-left-deck">
+          <div class="panel-subtitle">
+            <span>ASSISTANT SYNTHESIS</span>
+            <span class="tone-glyph success">FINISHED</span>
+          </div>
+
+          <p style="font-size: 12px; line-height: 1.5; color: var(--base-content);">
+            Decision noted: last assistant message + human-readable outcome.
+            The test suite in agent-sdk failed initially due to null terminalReason narrow.
+            Applied the result-message extraction fix and settled with completed status.
+          </p>
+
+          <div style="margin-top: auto; display: flex; flex-direction: column; gap: 8px;">
+            <div style="font-size: 11px; font-family: var(--font-mono); color: var(--base-content-muted);">
+              <div>Active Agent: <strong style="color: var(--base-content);">backend-developer</strong></div>
+              <div>Outcome: <strong style="color: var(--success);">completed (turn 4 settled)</strong></div>
+            </div>
+            <button class="btn-action" style="justify-content: center; width: 100%; padding: 6px;">
+              Open full view
+            </button>
+          </div>
+        </div>
+
+        <!-- Right Deck: Teletype Tape Buffer History -->
+        <div class="tall-right-tape">
+          <div class="panel-subtitle" style="margin-bottom: 4px;">
+            <span>TELETYPE WIRE BUFFER (9 ITEMS)</span>
+            <span>CHRONOLOGICAL</span>
+          </div>
+
+          <div class="tape-row">
+            <span class="tape-time">17:24:02</span>
+            <span class="tone-glyph success">✓ TOOL</span>
+            <span class="tape-label">Reading tab-manager.service.ts</span>
+          </div>
+          <div class="tape-row">
+            <span class="tape-time">17:24:08</span>
+            <span class="tone-glyph success">✓ TOOL</span>
+            <span class="tape-label">Editing session-turn-state.registry.ts</span>
+          </div>
+          <div class="tape-row">
+            <span class="tape-time">17:24:19</span>
+            <span class="tone-glyph success">✓ TOOL</span>
+            <span class="tape-label">Running npx nx run-many -t test -p @ptah-extension/agent-sdk</span>
+          </div>
+          <div class="tape-row">
+            <span class="tape-time">17:24:35</span>
+            <span class="tone-glyph success">✓ AGENT</span>
+            <span class="tape-label">Agent started: backend-developer</span>
+          </div>
+          <div class="tape-row">
+            <span class="tape-time">17:24:41</span>
+            <span class="tone-glyph success">✓ TOOL</span>
+            <span class="tape-label">Searching terminalReason</span>
+          </div>
+          <div class="tape-row" style="border-color: rgba(239, 75, 90, 0.4); background: rgba(239, 75, 90, 0.08);">
+            <span class="tape-time">17:24:50</span>
+            <span class="tone-glyph error">✖ TERM</span>
+            <span class="tape-label">bash failed — Exit code 1: 3 test suites failed</span>
+          </div>
+          <div class="tape-row">
+            <span class="tape-time">17:25:02</span>
+            <span class="tone-glyph success">✓ AGENT</span>
+            <span class="tape-label">Agent completed: code-logic-reviewer</span>
+          </div>
+          <div class="tape-row" style="border-color: rgba(240, 180, 41, 0.4); background: rgba(240, 180, 41, 0.08);">
+            <span class="tape-time">17:25:15</span>
+            <span class="tone-glyph warning">▲ COMP</span>
+            <span class="tape-label">Context compaction completed (saved 42k tokens)</span>
+          </div>
+          <div class="tape-row active">
+            <span class="tape-time">17:25:22</span>
+            <span class="tone-glyph live">▶ PROSE</span>
+            <span class="tape-label">Turn completed<span class="tape-cursor"></span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zone 4: Metrics Footer -->
+      <div class="zone-metrics">
+        <span class="metric-model">claude-3-7-sonnet</span>
+        <span class="metric-item">3.1M tokens</span>
+        <span class="metric-item">$3.14</span>
+        <span class="metric-item">2 agents</span>
+        <span class="metric-right">1 compacted</span>
+      </div>
+    </div>
+  </section>
+
+</body>
+</html>

@@ -1,11 +1,15 @@
 import 'reflect-metadata';
+import { TURN_RECAP_MAX_CHARS } from '@ptah-extension/shared';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 import { StopCallbackRegistry } from './stop-callback-registry';
 import { StopHookHandler } from './stop-hook-handler';
 import { SdkAdapterEvents } from './sdk-adapter-events.service';
-import { SessionTurnStateRegistry } from './session-turn-state.registry';
+import {
+  SessionTurnStateRegistry,
+  toTurnStateEvent,
+} from './session-turn-state.registry';
 
 function makeLogger(): jest.Mocked<Logger> {
   return {
@@ -291,7 +295,7 @@ describe('StopHookHandler', () => {
       );
     });
 
-    it('propagates terminal_reason when SDK provides one (forward-compat)', async () => {
+    it('does not infer a terminal reason from an unsupported hook field', async () => {
       const logger = makeLogger();
       const registry = new StopCallbackRegistry(logger);
       const events = new SdkAdapterEvents(logger);
@@ -310,7 +314,7 @@ describe('StopHookHandler', () => {
 
       expect(busListener).toHaveBeenCalledWith(
         expect.objectContaining({
-          terminalReason: 'aborted_streaming',
+          terminalReason: null,
         }),
       );
     });
@@ -434,6 +438,53 @@ describe('StopHookHandler', () => {
 });
 
 describe('StopHookHandler - SessionTurnStateRegistry snapshot (TASK_2026_360)', () => {
+  it.each([
+    undefined,
+    '',
+    'Done.',
+    'x'.repeat(TURN_RECAP_MAX_CHARS),
+    'x'.repeat(TURN_RECAP_MAX_CHARS + 50),
+  ])(
+    'bounds the recap before recording the Stop snapshot (%#)',
+    async (message) => {
+      const logger = makeLogger();
+      const turnState = new SessionTurnStateRegistry();
+      const record = jest.spyOn(turnState, 'recordStop');
+      const handler = new StopHookHandler(
+        logger,
+        new StopCallbackRegistry(logger),
+        undefined,
+        turnState,
+      );
+      const fn = getHookCallback(handler, 'sess-1', '/workspace');
+      await fn(
+        {
+          hook_event_name: 'Stop',
+          session_id: 'sess-1',
+          transcript_path: '/transcript.jsonl',
+          cwd: '/workspace',
+          stop_hook_active: false,
+          last_assistant_message: message,
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      const expected = message?.slice(0, TURN_RECAP_MAX_CHARS) ?? null;
+      expect(record).toHaveBeenCalledWith(
+        'sess-1',
+        expect.objectContaining({
+          lastAssistantMessage: expected,
+        }),
+      );
+      const state = turnState.settleTurn('sess-1', 'completed');
+      expect(state.lastAssistantMessage).toBe(expected);
+      expect(toTurnStateEvent('sess-1', state).lastAssistantMessage).toBe(
+        expected,
+      );
+    },
+  );
+
   const TASK = {
     id: 't1',
     type: 'subagent',
@@ -462,7 +513,7 @@ describe('StopHookHandler - SessionTurnStateRegistry snapshot (TASK_2026_360)', 
         cwd: '/workspace',
         background_tasks: [TASK],
         session_crons: [CRON],
-        terminal_reason: 'completed',
+        last_assistant_message: 'Finished the work.',
       } as unknown as HookInput,
       undefined,
       { signal: new AbortController().signal },
@@ -474,7 +525,8 @@ describe('StopHookHandler - SessionTurnStateRegistry snapshot (TASK_2026_360)', 
       phase: 'awaiting-background',
       backgroundTasks: [TASK],
       sessionCrons: [CRON],
-      terminalReason: 'completed',
+      terminalReason: null,
+      lastAssistantMessage: 'Finished the work.',
     });
   });
 

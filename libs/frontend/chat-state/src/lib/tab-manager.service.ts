@@ -24,6 +24,7 @@ import {
   SessionTurnState,
   SessionTurnPhase,
   isTerminalTurnPhase,
+  assertNever,
   GatewayPlatformId,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
@@ -67,6 +68,7 @@ export interface TerminalTurnPulse {
   readonly revision: number;
   readonly phase: 'idle' | 'failed';
   readonly terminalReason: SdkTerminalReason | null;
+  readonly lastAssistantMessage: string | null;
   readonly classification: TerminalTurnClassification;
   readonly title: string;
   readonly occurredAt: number;
@@ -1292,6 +1294,7 @@ export class TabManagerService {
         revision: state.revision,
         phase: state.phase,
         terminalReason: state.terminalReason ?? null,
+        lastAssistantMessage: state.lastAssistantMessage ?? null,
         classification,
         title: tab.title,
         occurredAt: Date.now(),
@@ -2690,15 +2693,33 @@ export class TabManagerService {
   }
 
   /**
-   * Toggle a tab's view mode between 'full' and 'compact'.
+   * Cycle a tab's view mode: full, compact, compact tall, then full.
    * Each tab independently controls its view mode.
    */
   toggleTabViewMode(tabId: string): void {
     const tab = this._tabs().find((t) => t.id === tabId);
     if (!tab) return;
-    const newMode: TabViewMode =
-      (tab.viewMode ?? 'full') === 'full' ? 'compact' : 'full';
-    this.updateTabInternal(tabId, { viewMode: newMode });
+    const mode = tab.viewMode ?? 'full';
+    switch (mode) {
+      case 'full':
+        this.setViewMode(tabId, 'compact');
+        return;
+      case 'compact':
+        this.setViewMode(tabId, 'compact-tall');
+        return;
+      case 'compact-tall':
+        this.setViewMode(tabId, 'full');
+        return;
+      default:
+        assertNever(mode);
+    }
+  }
+
+  /** Select a tab's view mode without cycling through the other tiers. */
+  setViewMode(tabId: string, mode: TabViewMode): void {
+    const tab = this._tabs().find((t) => t.id === tabId);
+    if (!tab || (tab.viewMode ?? 'full') === mode) return;
+    this.updateTabInternal(tabId, { viewMode: mode });
   }
 
   /**

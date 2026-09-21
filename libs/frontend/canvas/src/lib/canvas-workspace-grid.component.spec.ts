@@ -1,3 +1,4 @@
+import type { TabViewMode } from '@ptah-extension/chat-types';
 /**
  * CanvasWorkspaceGridComponent — one-way projection and gesture translation.
  *
@@ -204,7 +205,7 @@ describe('CanvasWorkspaceGridComponent', () => {
   let grid: FakeGrid;
   /** Writable `tabs` signal behind the tab-manager fake, seeded by `mount`. */
   let tabsSignal: ReturnType<
-    typeof signal<Array<{ id: string; viewMode?: 'compact' | 'full'; title?: string }>>
+    typeof signal<Array<{ id: string; viewMode?: TabViewMode; title?: string }>>
   >;
 
   const flush = (): void => {
@@ -237,7 +238,7 @@ describe('CanvasWorkspaceGridComponent', () => {
     originalRaf = globalThis.requestAnimationFrame;
     originalCancelRaf = globalThis.cancelAnimationFrame;
 
-    tabsSignal = signal<Array<{ id: string; viewMode?: 'compact' | 'full'; title?: string }>>([]);
+    tabsSignal = signal<Array<{ id: string; viewMode?: TabViewMode; title?: string }>>([]);
 
     globalThis.ResizeObserver = class {
       constructor(cb: ObserverCallback) {
@@ -384,7 +385,7 @@ describe('CanvasWorkspaceGridComponent', () => {
   /** Flip one mounted tab's view mode and settle the reactive graph. */
   const setViewMode = (
     tabId: string,
-    viewMode: 'compact' | 'full' | undefined,
+    viewMode: TabViewMode | undefined,
   ): void => {
     tabsSignal.set(
       tabsSignal().map((tab) => (tab.id === tabId ? { ...tab, viewMode } : tab)),
@@ -446,6 +447,39 @@ describe('CanvasWorkspaceGridComponent', () => {
   });
 
   describe('view-mode tiers', () => {
+    it('reflows between compact tiers while locked and cancels an earlier gesture', () => {
+      mount(['t1', 't2', 't3', 't4']);
+      setAllSpansToThirds(['t1', 't2', 't3', 't4']);
+      setViewMode('t2', 'compact');
+      const fingerprint = fixture.componentInstance.viewFingerprint();
+      const intentBefore = store.tiles();
+      const revision = store.workspaceRevision(WORKSPACE);
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      setViewMode('t2', 'compact-tall');
+      expect(fixture.componentInstance.viewFingerprint()).not.toBe(fingerprint);
+      expect((fixture.componentInstance as unknown as { _gesture: unknown })._gesture).toBeNull();
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6], ['t2', 4, 0, 4, 3],
+        ['t3', 8, 0, 4, 6], ['t4', 4, 3, 4, 6],
+      ]);
+      fixture.componentRef.setInput('locked', true);
+      flush();
+      grid.load.mockClear();
+      setViewMode('t2', 'compact');
+      expect(grid.load).toHaveBeenCalledTimes(1);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6], ['t2', 4, 0, 4, 2],
+        ['t3', 8, 0, 4, 6], ['t4', 4, 2, 4, 6],
+      ]);
+      expect(store.tiles()).toEqual(intentBefore);
+      expect(store.workspaceRevision(WORKSPACE)).toBe(revision);
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+    });
+
     it('ignores unrelated tab-state writes that keep the constraints equal', () => {
       mount(['t1', 't2']);
       grid.load.mockClear();
@@ -511,11 +545,11 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(store.workspaceRevision(WORKSPACE)).toBe(revision);
     });
 
-    it('keeps a compact node movable but not resizable, in options and on the engine', () => {
+    it.each(['compact', 'compact-tall'] as const)('keeps a %s node movable but not resizable, in options and on the engine', (mode) => {
       mount(['t1', 't2', 't3']);
       grid.movable.mockClear();
       grid.resizable.mockClear();
-      setViewMode('t2', 'compact');
+      setViewMode('t2', mode);
 
       const nodeOf = (id: string) => {
         const node = grid.engine.nodes.find((candidate) => candidate.id === id);
@@ -1179,6 +1213,26 @@ describe('CanvasWorkspaceGridComponent', () => {
           '--ptah-compact-singleton-height',
         ),
       ).toMatch(/^\d+px$/);
+    });
+
+    it('sizes a compact tall singleton to three cells and expands only during layout focus', () => {
+      mount(['tab-1']);
+      setViewMode('tab-1', 'compact');
+      const gridstackEl = fixture.debugElement.query(By.css('gridstack')).nativeElement as HTMLElement;
+      const height = () => parseFloat(gridstackEl.style.getPropertyValue('--ptah-compact-singleton-height'));
+      const shortHeight = height();
+      setViewMode('tab-1', 'compact-tall');
+      expect(height()).toBe(shortHeight * 1.5);
+      expect(gridstackEl.classList).not.toContain('singleton-expanded');
+      expect(grid.engine.nodes[0]).toMatchObject({ w: 4, h: 3 });
+      store.toggleLayoutFocus(WORKSPACE, 'tab-1');
+      flush();
+      expect(gridstackEl.classList).toContain('singleton-expanded');
+      expect(grid.engine.nodes[0]).toMatchObject({ w: 12, h: 6 });
+      store.toggleLayoutFocus(WORKSPACE, 'tab-1');
+      flush();
+      expect(height()).toBe(shortHeight * 1.5);
+      expect(gridstackEl.classList).not.toContain('singleton-expanded');
     });
 
     it('freezes compact singleton height while locked and follows height when unlocked', () => {

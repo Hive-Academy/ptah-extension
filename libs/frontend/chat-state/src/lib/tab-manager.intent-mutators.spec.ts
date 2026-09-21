@@ -957,11 +957,13 @@ describe('TabManagerService — intent-named mutators', () => {
   });
 
   describe('view mode + draft helpers', () => {
-    it('toggleTabViewMode flips between full and compact', () => {
+    it('toggleTabViewMode cycles through full, compact and compact tall', () => {
       const id = service.createTab('view');
       expect(service.getTabViewMode(id)).toBe('full');
       service.toggleTabViewMode(id);
       expect(service.getTabViewMode(id)).toBe('compact');
+      service.toggleTabViewMode(id);
+      expect(service.getTabViewMode(id)).toBe('compact-tall');
       service.toggleTabViewMode(id);
       expect(service.getTabViewMode(id)).toBe('full');
     });

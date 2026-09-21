@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Variant 2: Stacked Terminal Log</title>
+  <style>
+    /* Reset & Base Setup */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg-page: #14161a;
+      --base-100: #1a1d23;
+      --base-200: #21252b;
+      --base-300: #2a2f37;
+      --base-content: #c8cdd5;
+      --base-content-muted: #7b8494;
+      --primary: #7c6cf7;
+      --primary-dim: rgba(124, 108, 247, 0.15);
+      --success: #34b981;
+      --success-dim: rgba(52, 185, 129, 0.15);
+      --warning: #f0b429;
+      --warning-dim: rgba(240, 180, 41, 0.15);
+      --error: #ef4b5a;
+      --error-dim: rgba(239, 75, 90, 0.15);
+      --model-purple: #c084fc;
+      --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+      --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-page);
+      color: var(--base-content);
+      font-family: var(--font-ui);
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 36px;
+      min-width: 960px;
+    }
+
+    .proto-header {
+      width: 880px;
+      border-bottom: 1px solid var(--base-300);
+      padding-bottom: 12px;
+    }
+
+    .proto-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--base-content);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font-mono);
+      letter-spacing: -0.01em;
+    }
+
+    .proto-desc {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--base-content-muted);
+      line-height: 1.5;
+    }
+
+    .mockup-section {
+      width: 880px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .caption-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--base-content-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .caption-title {
+      font-weight: 700;
+      color: var(--base-content);
+    }
+
+    /* Tile Chassis */
+    .tile {
+      width: 880px;
+      background-color: var(--base-200);
+      border: 1px solid var(--base-300);
+      border-radius: 8px;
+      overflow: hidden;
+      display: grid;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      position: relative;
+    }
+
+    .tile-compact {
+      height: 232px;
+      grid-template-rows: 34px 1fr 28px;
+    }
+
+    .tile-tall {
+      height: 472px;
+      grid-template-rows: 34px 1fr 28px;
+    }
+
+    /* Zone 1: Status Header (34px) */
+    .zone-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 12px;
+      background-color: var(--base-200);
+      border-bottom: 1px solid var(--base-300);
+      font-size: 12px;
+    }
+
+    .session-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background-color: var(--primary);
+      box-shadow: 0 0 6px var(--primary);
+      flex-shrink: 0;
+    }
+
+    .status-text {
+      font-weight: 600;
+      color: var(--base-content);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tone-badge-live {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background-color: var(--primary-dim);
+      color: var(--primary);
+      border: 1px solid rgba(124, 108, 247, 0.3);
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .workspace-label {
+      font-size: 11px;
+      color: var(--base-content-muted);
+      margin-left: auto;
+      font-family: var(--font-mono);
+    }
+
+    /* Height-Tier Toggle */
+    .tier-toggle {
+      display: inline-flex;
+      align-items: center;
+      background-color: var(--base-100);
+      border: 1px solid var(--base-300);
+      border-radius: 4px;
+      padding: 2px;
+      gap: 2px;
+      margin-left: 12px;
+    }
+
+    .tier-btn {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 3px;
+      border: none;
+      background: transparent;
+      color: var(--base-content-muted);
+      cursor: pointer;
+      line-height: 1.2;
+    }
+
+    .tier-btn.active {
+      background-color: var(--base-300);
+      color: var(--base-content);
+    }
+
+    .btn-fullview {
+      font-family: var(--font-ui);
+      font-size: 11px;
+      font-weight: 500;
+      background: transparent;
+      color: var(--base-content-muted);
+      border: 1px solid var(--base-300);
+      border-radius: 4px;
+      padding: 2px 8px;
+      margin-left: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn-fullview:hover {
+      background-color: var(--base-300);
+      color: var(--base-content);
+    }
+
+    /* Zone 2: Stacked Log Body */
+    .zone-log {
+      display: flex;
+      flex-direction: column;
+      background-color: #171a1f;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Subtle CRT scanline effect */
+    .zone-log::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.18) 0px,
+        rgba(0, 0, 0, 0.18) 1px,
+        transparent 1px,
+        transparent 2px
+      );
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .log-filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 12px;
+      background-color: rgba(26, 29, 35, 0.95);
+      border-bottom: 1px solid var(--base-300);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--base-content-muted);
+      z-index: 3;
+    }
+
+    .filter-tags {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .filter-tag {
+      padding: 1px 5px;
+      border-radius: 3px;
+      border: 1px solid var(--base-300);
+      background: transparent;
+      color: var(--base-content-muted);
+      cursor: pointer;
+      font-size: 9px;
+    }
+
+    .filter-tag.active {
+      background-color: var(--base-300);
+      color: var(--base-content);
+    }
+
+    .log-stream-compact {
+      display: flex;
+      flex-direction: column;
+      padding: 4px 0;
+      overflow: hidden;
+      z-index: 3;
+    }
+
+    .log-stream-tall {
+      display: flex;
+      flex-direction: column;
+      padding: 6px 0;
+      overflow-y: auto;
+      z-index: 3;
+      gap: 1px;
+    }
+
+    .log-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 3px 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.4;
+      transition: background-color 0.1s ease;
+      cursor: default;
+    }
+
+    .log-row:hover {
+      background-color: rgba(255, 255, 255, 0.04);
+    }
+
+    .log-row.live-head {
+      background-color: rgba(124, 108, 247, 0.08);
+      border-left: 2px solid var(--primary);
+    }
+
+    .log-row.error-head {
+      background-color: rgba(239, 75, 90, 0.08);
+      border-left: 2px solid var(--error);
+    }
+
+    .log-row.warn-head {
+      background-color: rgba(240, 180, 41, 0.08);
+      border-left: 2px solid var(--warning);
+    }
+
+    .log-time {
+      font-size: 10px;
+      color: var(--base-content-muted);
+      width: 52px;
+      flex-shrink: 0;
+    }
+
+    /* Distinct accessible badges (glyph + code) */
+    .kind-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 3px;
+      letter-spacing: 0.03em;
+      flex-shrink: 0;
+      width: 68px;
+      justify-content: center;
+    }
+
+    .kind-pill.tool {
+      color: #93c5fd;
+      background-color: rgba(147, 197, 253, 0.12);
+      border: 1px solid rgba(147, 197, 253, 0.25);
+    }
+
+    .kind-pill.agent {
+      color: #a78bfa;
+      background-color: rgba(167, 139, 250, 0.12);
+      border: 1px solid rgba(167, 139, 250, 0.25);
+    }
+
+    .kind-pill.term {
+      color: var(--error);
+      background-color: var(--error-dim);
+      border: 1px solid rgba(239, 75, 90, 0.3);
+    }
+
+    .kind-pill.compact {
+      color: var(--warning);
+      background-color: var(--warning-dim);
+      border: 1px solid rgba(240, 180, 41, 0.3);
+    }
+
+    .kind-pill.prose {
+      color: var(--primary);
+      background-color: var(--primary-dim);
+      border: 1px solid rgba(124, 108, 247, 0.3);
+    }
+
+    .log-msg {
+      color: var(--base-content);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+
+    .log-extra {
+      font-size: 10px;
+      color: var(--base-content-muted);
+      margin-left: 8px;
+    }
+
+    .log-subdetail {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 1px 12px 3px 74px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--base-content-muted);
+      line-height: 1.3;
+    }
+
+    .subdetail-glyph {
+      color: var(--base-content-muted);
+      font-size: 11px;
+    }
+
+    .blinking-cursor {
+      display: inline-block;
+      width: 6px;
+      height: 12px;
+      background-color: var(--primary);
+      margin-left: 4px;
+      vertical-align: middle;
+      animation: blink 1s step-start infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    /* Zone 3: Metrics Footer (28px) */
+    .zone-metrics {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 12px;
+      background-color: var(--base-100);
+      border-top: 1px solid var(--base-300);
+      font-size: 10px;
+      color: var(--base-content-muted);
+      font-family: var(--font-mono);
+    }
+
+    .metric-model {
+      color: var(--model-purple);
+      font-weight: 600;
+    }
+
+    .metric-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .metric-right {
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="proto-header">
+    <div class="proto-title">
+      <span>VARIANT 2: STACKED TERMINAL LOG</span>
+      <span class="tone-badge-live">● TELETYPE STREAM</span>
+    </div>
+    <p class="proto-desc">
+      A structured vertical teletype terminal stream. Prioritizes immediate readability and scanability:
+      monospace timestamps in a fixed gutter, accessible dual-coded badges (glyph + kind code), and scanline texture.
+    </p>
+  </header>
+
+  <!-- ==================== 1. COMPACT VIEW (232px) ==================== -->
+  <section class="mockup-section">
+    <div class="caption-bar">
+      <span class="caption-title">1. COMPACT TILE — 232px HEIGHT (2 UNITS)</span>
+      <span>Width: 880px &bull; Fits 5 Most Recent Events</span>
+    </div>
+
+    <div class="tile tile-compact">
+      <!-- Zone 1: Status Row -->
+      <div class="zone-status">
+        <span class="session-dot" title="Session active"></span>
+        <span class="status-icon">⚙</span>
+        <span class="status-text">Using tools</span>
+        <span class="tone-badge-live">▶ RUN</span>
+
+        <span class="workspace-label">ptah-extension</span>
+
+        <div class="tier-toggle" aria-label="Height tier toggle">
+          <button class="tier-btn active">2U</button>
+          <button class="tier-btn">4U</button>
+        </div>
+
+        <button class="btn-fullview">↗ Full</button>
+      </div>
+
+      <!-- Zone 2: Stacked Log Body (170px) -->
+      <div class="zone-log">
+        <div class="log-filter-bar">
+          <span>TELETAPE BUFFER // RECENT 5 OF 9</span>
+          <div class="filter-tags">
+            <span class="filter-tag active">ALL (9)</span>
+            <span class="filter-tag" style="color: var(--error); border-color: rgba(239, 75, 90, 0.4);">ERR (1)</span>
+            <span class="filter-tag" style="color: var(--warning); border-color: rgba(240, 180, 41, 0.4);">WARN (1)</span>
+            <span class="filter-tag">AUTO-SCROLL: ON</span>
+          </div>
+        </div>
+
+        <div class="log-stream-compact">
+          <!-- Row 1: Active In-Flight -->
+          <div class="log-row live-head">
+            <span class="log-time">17:25:22</span>
+            <span class="kind-pill prose">▶ PROSE</span>
+            <span class="log-msg">Turn completed: verified fix in session-turn-state<span class="blinking-cursor"></span></span>
+          </div>
+
+          <!-- Row 2: Warning/Compaction -->
+          <div class="log-row warn-head">
+            <span class="log-time">17:25:15</span>
+            <span class="kind-pill compact">▲ COMP</span>
+            <span class="log-msg">Context compaction completed</span>
+            <span class="log-extra">saved 42k tokens (pre: 118k, post: 76k)</span>
+          </div>
+
+          <!-- Row 3: Agent Completed -->
+          <div class="log-row">
+            <span class="log-time">17:25:02</span>
+            <span class="kind-pill agent">✓ AGENT</span>
+            <span class="log-msg">Agent completed: code-logic-reviewer</span>
+          </div>
+
+          <!-- Row 4: Error in Terminal -->
+          <div class="log-row error-head">
+            <span class="log-time">17:24:50</span>
+            <span class="kind-pill term">✖ TERM</span>
+            <span class="log-msg" style="color: var(--error);">bash failed</span>
+            <span class="log-extra" style="color: #f87171;">exit code 1: 3 test suites failed</span>
+          </div>
+
+          <!-- Row 5: Tool Search -->
+          <div class="log-row">
+            <span class="log-time">17:24:41</span>
+            <span class="kind-pill tool">✓ TOOL</span>
+            <span class="log-msg">Searching terminalReason</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zone 3: Metrics Footer -->
+      <div class="zone-metrics">
+        <span class="metric-model">claude-3-7-sonnet</span>
+        <span class="metric-item">3.1M tokens</span>
+        <span class="metric-item">$3.14</span>
+        <span class="metric-item">2 agents</span>
+        <span class="metric-right">1 compacted</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ==================== 2. COMPACT-TALL VIEW (472px) ==================== -->
+  <section class="mockup-section">
+    <div class="caption-bar">
+      <span class="caption-title">2. COMPACT-TALL TILE — 472px HEIGHT (4 UNITS)</span>
+      <span>Width: 880px &bull; Full 9-Event Audit Trail & Telemetry</span>
+    </div>
+
+    <div class="tile tile-tall">
+      <!-- Zone 1: Status Row -->
+      <div class="zone-status">
+        <span class="session-dot" title="Session active"></span>
+        <span class="status-icon">⚙</span>
+        <span class="status-text">Using tools</span>
+        <span class="tone-badge-live">▶ RUN</span>
+
+        <span class="workspace-label">ptah-extension</span>
+
+        <div class="tier-toggle" aria-label="Height tier toggle">
+          <button class="tier-btn">2U</button>
+          <button class="tier-btn active">4U</button>
+        </div>
+
+        <button class="btn-fullview">↗ Full</button>
+      </div>
+
+      <!-- Zone 2: Expanded Log Body (410px) -->
+      <div class="zone-log">
+        <div class="log-filter-bar">
+          <span>TELETAPE RUNNER CONSOLE // FULL SESSION RECORD</span>
+          <div class="filter-tags">
+            <span class="filter-tag active">ALL (9)</span>
+            <span class="filter-tag" style="color: var(--error); border-color: rgba(239, 75, 90, 0.4);">ERR (1)</span>
+            <span class="filter-tag" style="color: var(--warning); border-color: rgba(240, 180, 41, 0.4);">WARN (1)</span>
+            <span class="filter-tag">AGENTS (2)</span>
+            <span class="filter-tag">TOOLS (4)</span>
+          </div>
+        </div>
+
+        <div class="log-stream-tall">
+          <!-- Item 1 -->
+          <div class="log-row">
+            <span class="log-time">17:24:02</span>
+            <span class="kind-pill tool">✓ TOOL</span>
+            <span class="log-msg">Reading tab-manager.service.ts</span>
+          </div>
+
+          <!-- Item 2 -->
+          <div class="log-row">
+            <span class="log-time">17:24:08</span>
+            <span class="kind-pill tool">✓ TOOL</span>
+            <span class="log-msg">Editing session-turn-state.registry.ts</span>
+          </div>
+
+          <!-- Item 3 -->
+          <div class="log-row">
+            <span class="log-time">17:24:19</span>
+            <span class="kind-pill tool">✓ TOOL</span>
+            <span class="log-msg">Running npx nx run-many -t test -p @ptah-extension/agent-sdk</span>
+          </div>
+
+          <!-- Item 4 -->
+          <div class="log-row">
+            <span class="log-time">17:24:35</span>
+            <span class="kind-pill agent">✓ AGENT</span>
+            <span class="log-msg">Agent started: backend-developer</span>
+          </div>
+
+          <!-- Item 5 -->
+          <div class="log-row">
+            <span class="log-time">17:24:41</span>
+            <span class="kind-pill tool">✓ TOOL</span>
+            <span class="log-msg">Searching terminalReason</span>
+          </div>
+
+          <!-- Item 6: Error with multi-line detail trace -->
+          <div class="log-row error-head">
+            <span class="log-time">17:24:50</span>
+            <span class="kind-pill term">✖ TERM</span>
+            <span class="log-msg" style="color: var(--error); font-weight: 600;">bash failed</span>
+          </div>
+          <div class="log-subdetail">
+            <span class="subdetail-glyph">└─</span>
+            <span style="color: #f87171;">Exit code 1: 3 test suites failed in @ptah-extension/agent-sdk (terminalReason is null)</span>
+          </div>
+
+          <!-- Item 7 -->
+          <div class="log-row">
+            <span class="log-time">17:25:02</span>
+            <span class="kind-pill agent">✓ AGENT</span>
+            <span class="log-msg">Agent completed: code-logic-reviewer</span>
+          </div>
+
+          <!-- Item 8: Compaction with subdetail -->
+          <div class="log-row warn-head">
+            <span class="log-time">17:25:15</span>
+            <span class="kind-pill compact">▲ COMP</span>
+            <span class="log-msg" style="color: var(--warning); font-weight: 600;">Context compaction completed</span>
+          </div>
+          <div class="log-subdetail">
+            <span class="subdetail-glyph">└─</span>
+            <span>Pre-tokens: 118,490 &bull; Post-tokens: 76,210 &bull; Delta: -42,280 tokens (-35.6%)</span>
+          </div>
+
+          <!-- Item 9: Final Turn -->
+          <div class="log-row live-head">
+            <span class="log-time">17:25:22</span>
+            <span class="kind-pill prose">▶ PROSE</span>
+            <span class="log-msg">Turn completed: settled with terminalReason = completed<span class="blinking-cursor"></span></span>
+          </div>
+
+          <!-- Bottom prompt bar -->
+          <div style="margin-top: 10px; padding: 6px 12px; background: rgba(0,0,0,0.3); border-top: 1px dashed var(--base-300); font-family: var(--font-mono); font-size: 11px; color: var(--base-content-muted); display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <span style="color: var(--primary);">ptah-runtime</span>:<span style="color: #93c5fd;">~/agent-sdk</span>$
+              <span style="color: var(--base-content);">ready for next prompt</span>
+              <span class="blinking-cursor" style="background-color: var(--base-content-muted);"></span>
+            </div>
+            <button class="btn-fullview" style="font-size: 10px; padding: 2px 6px;">Copy Log</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zone 3: Metrics Footer -->
+      <div class="zone-metrics">
+        <span class="metric-model">claude-3-7-sonnet</span>
+        <span class="metric-item">3.1M tokens</span>
+        <span class="metric-item">$3.14</span>
+        <span class="metric-item">2 agents</span>
+        <span class="metric-right">1 compacted</span>
+      </div>
+    </div>
+  </section>
+
+</body>
+</html>

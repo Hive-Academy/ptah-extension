@@ -111,6 +111,7 @@ describe('NotificationCenterComponent injector topology', () => {
       revision: 1,
       phase: 'idle',
       terminalReason: 'completed',
+      lastAssistantMessage: null,
       classification: 'success',
       title: `Run ${seq}`,
       occurredAt: seq * 1000,

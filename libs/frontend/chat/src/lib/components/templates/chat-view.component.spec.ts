@@ -81,6 +81,7 @@ import {
   TabSessionBinding,
   ConfirmationDialogService,
 } from '@ptah-extension/chat-state';
+import type { TabViewMode } from '@ptah-extension/chat-types';
 import {
   AgentMonitorStore,
   ExecutionTreeBuilderService,
@@ -159,6 +160,14 @@ function makeHarness(
     realPanelResize?: boolean;
     /** Render the production template with only overlay-relevant children. */
     renderOverlayTemplate?: boolean;
+    /**
+     * Render the production template with `CompactSessionCardComponent`
+     * swapped out (via `NO_ERRORS_SCHEMA`) so the compact-mode `@if` gate can
+     * be exercised without wiring that component's own DI graph.
+     */
+    renderCompactTemplate?: boolean;
+    /** Initial `activeTabViewMode` stub value. Defaults to 'full'. */
+    activeTabViewMode?: TabViewMode;
   } = {},
 ) {
   const {
@@ -170,6 +179,8 @@ function makeHarness(
     sessionVisible,
     realPanelResize = false,
     renderOverlayTemplate = false,
+    renderCompactTemplate = false,
+    activeTabViewMode = 'full',
   } = opts;
   const sessionVisibleSig =
     sessionVisible === undefined ? null : signal<boolean>(sessionVisible);
@@ -252,7 +263,7 @@ function makeHarness(
     activeTab: activeTabMock,
     activeTabSessionId: signal<string | null>(sessionId).asReadonly(),
     activeTabStatus: signal<string | null>(null).asReadonly(),
-    activeTabViewMode: signal<'full' | 'compact'>('full').asReadonly(),
+    activeTabViewMode: signal<TabViewMode>(activeTabViewMode).asReadonly(),
     activeTabHasLiveSession: sessionIsActiveSig.asReadonly(),
     pendingSessionLoad: signal<string | null>(null).asReadonly(),
     visibleTabIds: signal<ReadonlySet<string>>(new Set()).asReadonly(),
@@ -440,6 +451,15 @@ function makeHarness(
     TestBed.overrideComponent(ChatViewComponent, {
       set: {
         imports: [AgentMonitorPanelComponent, SidebarTabComponent],
+        schemas: [NO_ERRORS_SCHEMA],
+      },
+    });
+  }
+
+  if (renderCompactTemplate) {
+    TestBed.overrideComponent(ChatViewComponent, {
+      set: {
+        imports: [],
         schemas: [NO_ERRORS_SCHEMA],
       },
     });
@@ -1839,5 +1859,52 @@ describe('agent panel narrow overlay mode', () => {
 
     h.fixture.destroy();
     expect(disconnectMock).toHaveBeenCalled();
+  });
+});
+
+describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('renders the compact card for the literal "compact" tier', () => {
+    const { fixture } = makeHarness({
+      activeTabViewMode: 'compact',
+      renderCompactTemplate: true,
+    });
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-compact-session-card'),
+    ).not.toBeNull();
+  });
+
+  it('renders the compact card for "compact-tall" too, not just the literal "compact"', () => {
+    const { fixture } = makeHarness({
+      activeTabViewMode: 'compact-tall',
+      renderCompactTemplate: true,
+    });
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-compact-session-card'),
+    ).not.toBeNull();
+    // Falling through to the full view would render the input area instead.
+    expect(
+      fixture.nativeElement.querySelector('ptah-chat-input'),
+    ).toBeNull();
+  });
+
+  it('renders the full view (not the compact card) for "full"', () => {
+    const { fixture } = makeHarness({
+      activeTabViewMode: 'full',
+      renderCompactTemplate: true,
+    });
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-compact-session-card'),
+    ).toBeNull();
   });
 });

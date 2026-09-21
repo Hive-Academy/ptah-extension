@@ -29,6 +29,7 @@ import {
 } from '@ptah-extension/chat-state';
 import { EffortStateService, ModelStateService } from '@ptah-extension/core';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { isCompactViewMode } from '@ptah-extension/chat-types';
 import { TribunalStateService } from '../services/tribunal-state.service';
 
 @Component({
@@ -173,7 +174,7 @@ export class ConductorTileComponent implements OnInit, OnDestroy {
 
   protected readonly isCompactMode = computed(() => {
     const tabId = this.tribunalState.correlationId();
-    return tabId ? this.tabManager.getTabViewMode(tabId) === 'compact' : false;
+    return tabId ? isCompactViewMode(this.tabManager.getTabViewMode(tabId)) : false;
   });
 
   private readonly _freezeEffort = effect(() => {

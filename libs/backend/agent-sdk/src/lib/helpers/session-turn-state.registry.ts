@@ -106,12 +106,14 @@ export interface TurnStopSnapshot {
   readonly backgroundTasks: readonly SdkBackgroundTaskSummary[];
   readonly sessionCrons: readonly SdkSessionCronSummary[];
   readonly terminalReason: SdkTerminalReason | null;
+  readonly lastAssistantMessage?: string | null;
 }
 
 /** What the `StopFailure` hook reports; consumed at `settleTurn`. */
 export interface TurnFailureSnapshot {
   readonly error: SdkAssistantMessageError;
   readonly terminalReason: SdkTerminalReason | null;
+  readonly lastAssistantMessage?: string | null;
 }
 
 interface TurnRecord {
@@ -235,6 +237,7 @@ export function toTurnStateEvent(
     backgroundTasks: state.backgroundTasks,
     sessionCrons: state.sessionCrons,
     terminalReason: state.terminalReason,
+    lastAssistantMessage: state.lastAssistantMessage ?? null,
     ...(state.error !== undefined ? { error: state.error } : {}),
   };
 }
@@ -346,7 +349,10 @@ export class SessionTurnStateRegistry {
    * `result` message — the turn boundary on the stream. Derives the terminal
    * phase from the snapshots, consumes them, and re-arms the generating dedupe.
    */
-  settleTurn(sessionId: string): SessionTurnState {
+  settleTurn(
+    sessionId: string,
+    terminalReason?: SdkTerminalReason | null,
+  ): SessionTurnState {
     const record = this.ensure(sessionId);
     const stop = record.stopSnapshot;
     const failure = record.failure;
@@ -369,7 +375,15 @@ export class SessionTurnStateRegistry {
       phase,
       backgroundTasks,
       sessionCrons,
-      terminalReason: failure?.terminalReason ?? stop?.terminalReason ?? null,
+      // The SDK reports the outcome on `result`, not on either Stop hook.
+      // Keep snapshot fallbacks for callers that settle without a result.
+      terminalReason:
+        terminalReason ??
+        failure?.terminalReason ??
+        stop?.terminalReason ??
+        null,
+      lastAssistantMessage:
+        failure?.lastAssistantMessage ?? stop?.lastAssistantMessage ?? null,
       ...(failure ? { error: failure.error } : {}),
     });
     this.notifyGeneratingChange();
@@ -407,6 +421,7 @@ export class SessionTurnStateRegistry {
       backgroundTasks: [...backgroundTasks],
       sessionCrons: current.sessionCrons,
       terminalReason: current.terminalReason,
+      lastAssistantMessage: current.lastAssistantMessage ?? null,
       ...(current.error !== undefined ? { error: current.error } : {}),
     });
   }
@@ -576,6 +591,8 @@ export class SessionTurnStateRegistry {
     draft: TurnStateDraft,
   ): SessionTurnState {
     const next: SessionTurnState = {
+      // A new turn or forced idle must never retain the previous turn's recap.
+      lastAssistantMessage: null,
       ...draft,
       revision: record.state.revision + 1,
       timestamp: Date.now(),

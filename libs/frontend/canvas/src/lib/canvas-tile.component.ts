@@ -25,6 +25,7 @@ import {
 } from '@ptah-extension/chat';
 import { EffortStateService, ModelStateService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
+import { isCompactViewMode, type TabViewMode } from '@ptah-extension/chat-types';
 import {
   LucideAngularModule,
   Minimize2,
@@ -55,6 +56,18 @@ const SPAN_OPTIONS: ReadonlyArray<{
 ];
 
 const MENU_NAVIGATION_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);
+
+const VIEW_MODE_OPTIONS: ReadonlyArray<{ mode: TabViewMode; label: string }> = [
+  { mode: 'full', label: 'Full' },
+  { mode: 'compact', label: 'Compact' },
+  { mode: 'compact-tall', label: 'Compact tall' },
+];
+
+const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
+  full: 'Switch to compact view',
+  compact: 'Switch to compact tall view',
+  'compact-tall': 'Switch to full view',
+};
 
 /**
  * CanvasTileComponent — renders a single chat session tile within the Orchestra Canvas.
@@ -191,6 +204,24 @@ const MENU_NAVIGATION_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);
             >
               {{ rowBreakBefore() ? 'Join previous row' : 'Start new row' }}
             </button>
+            <div class="h-px bg-base-content/10 my-1" role="separator"></div>
+            <div role="group" aria-label="Tile height" class="flex flex-col">
+              @for (option of viewModeOptions; track option.mode) {
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  tabindex="-1"
+                  data-layout-item
+                  [attr.data-view-mode]="option.mode"
+                  [attr.aria-checked]="viewMode() === option.mode"
+                  [attr.aria-label]="'Set tile height to ' + option.label"
+                  class="btn btn-ghost btn-xs justify-start font-normal"
+                  (click)="requestViewMode(option.mode)"
+                >
+                  {{ option.label }}
+                </button>
+              }
+            </div>
           </div>
         </ptah-native-popover>
         <!-- View-mode toggle: header-drag pointer isolation matches the layout
@@ -202,12 +233,8 @@ const MENU_NAVIGATION_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);
           (mousedown)="$event.stopPropagation()"
           (pointerdown)="$event.stopPropagation()"
           (touchstart)="$event.stopPropagation()"
-          [title]="
-            isCompactMode() ? 'Switch to full view' : 'Switch to compact view'
-          "
-          [attr.aria-label]="
-            isCompactMode() ? 'Switch to full view' : 'Switch to compact view'
-          "
+          [title]="nextViewModeLabel()"
+          [attr.aria-label]="nextViewModeLabel()"
           data-testid="tile-view-mode-toggle"
         >
           <lucide-angular
@@ -305,6 +332,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
     viewChild<ElementRef<HTMLElement>>('layoutMenu');
   readonly layoutMenuOpen = signal(false);
   protected readonly spanOptions = SPAN_OPTIONS;
+  protected readonly viewModeOptions = VIEW_MODE_OPTIONS;
 
   private readonly tabManager = inject(TabManagerService);
   private readonly effortState = inject(EffortStateService);
@@ -385,9 +413,13 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
     return tab?.title || tab?.name || `Tab ${this.tabId().slice(0, 8)}`;
   });
 
-  /** Whether this tile is in compact view mode. */
-  readonly isCompactMode = computed(
-    () => this.tabManager.getTabViewMode(this.tabId()) === 'compact',
+  readonly viewMode = computed(
+    () => this.tabManager.getTabViewMode(this.tabId()),
+  );
+  /** Both compact tiers use the condensed card. */
+  readonly isCompactMode = computed(() => isCompactViewMode(this.viewMode()));
+  protected readonly nextViewModeLabel = computed(
+    () => NEXT_VIEW_MODE_LABEL[this.viewMode()],
   );
 
   ngOnInit(): void {
@@ -419,7 +451,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Toggles compact/full view mode for this tile. View mode stays owned by
+   * Cycles the three view modes for this tile. View mode stays owned by
    * `TabManagerService`; canvas only projects it. Stops propagation to avoid
    * triggering onTileClick / Gridstack drag, and stays available under layout
    * lock because it is not a layout-intent mutation.
@@ -449,6 +481,12 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
 
   protected closeLayoutMenu(): void {
     this.layoutMenuOpen.set(false);
+  }
+
+  /** View mode remains available while layout intent is locked. */
+  protected requestViewMode(mode: TabViewMode): void {
+    this.tabManager.setViewMode(this.tabId(), mode);
+    this.closeLayoutMenu();
   }
 
   /** Selection closes the menu; the popover restores focus to the trigger. */

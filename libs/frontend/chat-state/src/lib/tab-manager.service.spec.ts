@@ -62,6 +62,30 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
     service = TestBed.inject(TabManagerService);
   });
 
+  it('cycles view modes through full, compact, compact tall, and full independently per tab', () => {
+    const tabId = service.createTab('cycling');
+    const otherId = service.createTab('unchanged');
+    expect(service.getTabViewMode(tabId)).toBe('full');
+    for (const mode of ['compact', 'compact-tall', 'full']) {
+      service.toggleTabViewMode(tabId);
+      expect(service.getTabViewMode(tabId)).toBe(mode);
+      expect(service.getTabViewMode(otherId)).toBe('full');
+    }
+  });
+
+  it('selects a view mode directly and ignores repeated selections or missing tabs', () => {
+    const tabId = service.createTab('direct selection');
+    service.setViewMode(tabId, 'compact-tall');
+    expect(service.getTabViewMode(tabId)).toBe('compact-tall');
+    const selected = service.tabs();
+    service.setViewMode(tabId, 'compact-tall');
+    service.setViewMode('missing-tab', 'compact');
+    service.toggleTabViewMode('missing-tab');
+    expect(service.tabs()).toBe(selected);
+    service.toggleTabViewMode(tabId);
+    expect(service.getTabViewMode(tabId)).toBe('full');
+  });
+
   it('aborts the in-flight controller when closeTab() runs while streaming', async () => {
     const tabId = service.createTab('streaming tab');
     const signal = service.createAbortController(tabId);

@@ -26,7 +26,6 @@ import {
   projectDragIntent,
   snapSpan,
   viewConstraintsFingerprint,
-  type TileHeightTier,
   type TilePositionObservation,
   type TileSpan,
   type TileViewConstraint,
@@ -34,6 +33,7 @@ import {
 } from './canvas-layout-intent';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { TabManagerService } from '@ptah-extension/chat';
+import { isCompactViewMode } from '@ptah-extension/chat-types';
 
 /** Which gesture just ended, latched before Gridstack's `change` fires. */
 type GestureKind = 'drag' | 'resize';
@@ -147,7 +147,7 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
       }
 
       /* Only a full or layout-focused singleton fills the canvas; a compact
-         singleton keeps its projected h = 2 instead of stretching. */
+         singleton keeps its projected tier height instead of stretching. */
       gridstack.singleton-expanded > gridstack-item {
         top: 0 !important;
         left: 0 !important;
@@ -155,7 +155,7 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
         height: 100% !important;
       }
 
-      /* Gridstack 12's calculated h=2 inline style is not resolved by the
+      /* Gridstack 12's calculated compact inline height is not resolved by the
          Electron renderer, leaving the item at its content-driven full height.
          Publish the already-computed pixel height as a calculation-free CSS
          variable for the only non-expanded singleton tier. */
@@ -228,10 +228,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         .sort((a, b) => a.order - b.order || a.tabId.localeCompare(b.tabId))
         .map((tile): TileViewConstraint => ({
           tabId: tile.tabId,
-          heightTier:
-            (byId.get(tile.tabId)?.viewMode ?? 'full') === 'compact'
-              ? ('compact' as TileHeightTier)
-              : ('full' as TileHeightTier),
+          heightTier: byId.get(tile.tabId)?.viewMode ?? 'full',
         }));
     },
     {
@@ -254,7 +251,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     () =>
       new Set(
         this.viewConstraints()
-          .filter((constraint) => constraint.heightTier === 'compact')
+          .filter((constraint) => isCompactViewMode(constraint.heightTier))
           .map((constraint) => constraint.tabId),
       ),
   );
@@ -264,7 +261,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     if (!this.isSingleton()) return false;
     if (this.layoutFocusTabId() !== null) return true;
     const constraints = this.viewConstraints();
-    return !(constraints.length === 1 && constraints[0].heightTier === 'compact');
+    return !(constraints.length === 1 && isCompactViewMode(constraints[0].heightTier));
   });
 
   /** Responsive column capacity; spans promote against it at render time. */
@@ -302,7 +299,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       this.viewConstraints(),
       measurements,
     );
-    return `${layout.cellHeight * 2}px`;
+    return `${layout.cellHeight * (layout.tiles[0]?.h ?? 0)}px`;
   });
 
   private readonly creationOptions = new Map<string, GridStackWidget>();
