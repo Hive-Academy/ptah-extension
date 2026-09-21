@@ -82,16 +82,23 @@ const INLINE_SCRIPT_PREFIX = 'inline-';
 // Consumes the newline the insertion below puts BEFORE the tag, so stripping
 // and re-inserting lands on exactly the same bytes.
 //
-// Both leading quantifiers are BOUNDED rather than open (S8786). `[ \t]*`
-// followed by a literal `<` rescans every whitespace run once per starting
-// offset, which is quadratic in the size of the document — and this runs over
-// the whole built renderer HTML. The bounds are far above anything the build
-// emits: indentation here is 4 spaces and the tag is written with a single
-// space before `http-equiv`. `[^>]*` is left open on purpose, because a CSP
-// `content` attribute is legitimately long and a negated class followed by
-// its own terminator cannot backtrack.
-const CSP_META =
-  /\n?[ \t]{0,32}<meta\s{1,16}http-equiv="Content-Security-Policy"[^>]*>/gi;
+// Matched in TWO steps on purpose. `[ \t]*` in front of a literal `<` rescans
+// every whitespace run once per starting offset — quadratic over the whole
+// built renderer HTML, which is what S8786 flagged. Bounding it fixes that.
+// The attribute test is then a SEPARATE pattern rather than `[^>]*http-equiv`
+// inside the same one, because a negated class in front of a literal it can
+// also match is the very backtracking shape being avoided. Finding whole
+// `<meta>` tags is unambiguous, and the attribute test runs once per tag
+// against a short string. `[^>]*` stays open: a CSP `content` attribute is
+// legitimately long, and a negated class before its own terminator cannot
+// backtrack.
+const META_TAG = /\n?[ \t]{0,32}<meta\b[^>]*>/gi;
+// Attribute order is NOT fixed and the quotes may be single, double or absent.
+// Anchoring on `http-equiv` being the first attribute let a reordered tag
+// survive, and a surviving `default-src 'none'` intersects with the policy
+// written below — Chromium enforces the intersection, which blocks the lifted
+// `./inline-*.js` scripts and the renderer never starts.
+const CSP_ATTR = /\bhttp-equiv\s*=\s*['"]?Content-Security-Policy['"]?/i;
 
 /**
  * @param {string} html
@@ -106,7 +113,9 @@ function secureRendererHtml(html) {
   // Normalize CRLF as the HTML parser does, then drop any CSP meta a previous
   // run left behind. Without that removal a second run emits two conflicting
   // policies and the browser enforces the intersection.
-  const normalized = html.replace(/\r\n?/g, '\n').replace(CSP_META, '');
+  const normalized = html
+    .replace(/\r\n?/g, '\n')
+    .replace(META_TAG, (tag) => (CSP_ATTR.test(tag) ? '' : tag));
   const scripts = [];
   const withoutInlineScripts = normalized.replace(
     /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi,
