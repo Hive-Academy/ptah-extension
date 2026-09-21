@@ -1,0 +1,4 @@
+{"ts":1790001228214,"event":"initialize","session":"36e3654f-b87e-413e-b476-8977be4bad93","pid":42532,"role":"broker-owned"}
+{"ts":1790001228215,"event":"tools/list","session":"36e3654f-b87e-413e-b476-8977be4bad93","pid":42532,"role":"broker-owned"}
+{"ts":1790001240568,"event":"tools/call","session":"36e3654f-b87e-413e-b476-8977be4bad93","pid":42532,"role":"broker-owned","tool":"spike_remember"}
+{"ts":1790001243197,"event":"close","session":"36e3654f-b87e-413e-b476-8977be4bad93","pid":42532,"role":"broker-owned","reason":"stdin-end"}

@@ -1,0 +1,12 @@
+{"ts":1790001278570,"event":"initialize","session":"c9a84812-1503-4168-80ac-7168eea79a39","pid":30796,"role":"broker-owned"}
+{"ts":1790001278572,"event":"tools/list","session":"c9a84812-1503-4168-80ac-7168eea79a39","pid":30796,"role":"broker-owned"}
+{"ts":1790001296559,"event":"initialize","session":"e5504643-7308-400b-8391-e52ca6fec9f8","pid":19488,"role":"settings-file"}
+{"ts":1790001296712,"event":"tools/list","session":"e5504643-7308-400b-8391-e52ca6fec9f8","pid":19488,"role":"settings-file"}
+{"ts":1790001296713,"event":"resources/list","session":"e5504643-7308-400b-8391-e52ca6fec9f8","pid":19488,"role":"settings-file"}
+{"ts":1790001302794,"event":"tools/call","session":"c9a84812-1503-4168-80ac-7168eea79a39","pid":30796,"role":"broker-owned","tool":"spike_remember"}
+{"ts":1790001305162,"event":"close","session":"e5504643-7308-400b-8391-e52ca6fec9f8","pid":19488,"role":"settings-file","reason":"stdin-end"}
+{"ts":1790001306792,"event":"close","session":"c9a84812-1503-4168-80ac-7168eea79a39","pid":30796,"role":"broker-owned","reason":"stdin-end"}
+{"ts":1790001307672,"event":"initialize","session":"1a4b0443-698b-48fe-9036-372c7b36f85f","pid":21664,"role":"broker-owned"}
+{"ts":1790001307673,"event":"tools/list","session":"1a4b0443-698b-48fe-9036-372c7b36f85f","pid":21664,"role":"broker-owned"}
+{"ts":1790001328791,"event":"tools/call","session":"1a4b0443-698b-48fe-9036-372c7b36f85f","pid":21664,"role":"broker-owned","tool":"spike_remember"}
+{"ts":1790001331262,"event":"close","session":"1a4b0443-698b-48fe-9036-372c7b36f85f","pid":21664,"role":"broker-owned","reason":"stdin-end"}
