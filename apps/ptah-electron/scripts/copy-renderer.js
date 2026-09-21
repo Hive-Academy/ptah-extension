@@ -18,6 +18,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createHash } = require('node:crypto');
 
 const SOURCE = path.resolve(
   __dirname,
@@ -70,22 +71,61 @@ function copyRecursive(src, dst) {
   }
 }
 
+function secureRendererHtml(html) {
+  if (typeof html !== 'string' || !/<head\s*>/i.test(html)) {
+    throw new Error('Renderer must be an HTML document with a head');
+  }
+  // Only packaged, build-owned inline scripts (currently the pre-paint theme
+  // bootstrap) get hashes. Runtime/user content never passes through here.
+  // Normalize CRLF as the HTML parser does before computing CSP hashes.
+  const normalized = html.replace(/\r\n?/g, '\n');
+  const hashes = Array.from(
+    normalized.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi),
+  )
+    .filter((match) => !/\bsrc\s*=/i.test(match[1]))
+    .map(
+      (match) =>
+        `'sha256-${createHash('sha256').update(match[2]).digest('base64')}'`,
+    );
+  // file: responses cannot deliver HTTP headers. Meta is parsed BEFORE any
+  // resource or script. frame-ancestors is ignored in meta and intentionally
+  // absent; frame-src blocks shell children, and the navigation guard stays.
+  // Source inventory: local Angular/Monaco scripts, styles and fonts; Angular
+  // component styles and UI style attributes need inline CSS. styles.css imports
+  // fonts.googleapis.com, whose fonts come from fonts.gstatic.com. Attachments
+  // use data/blob images; local-tts-panel uses blob audio; Monaco uses workers.
+  // Renderer network calls go over preload RPC: connect-src needs only local
+  // resources, never backend provider URLs. Arbitrary remote images are denied.
+  // No embedding protection is claimed for this meta policy: frame-ancestors
+  // would require a response header and a different document delivery scheme.
+  const policy = [
+    "default-src 'none'",
+    `script-src 'self' ${hashes.join(' ')}`.trim(),
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "img-src 'self' data: blob:",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "connect-src 'self'",
+    "media-src 'self' blob:",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-src 'none'",
+    "form-action 'none'",
+  ].join('; ');
+  // Replace <base href="/"> or <base href="/"/> with <base href="./"> for Electron file:// loading
+  return normalized
+    .replace(/<base href="\/"\s*\/?>/i, '<base href="./">')
+    .replace(
+      /<head\s*>/i,
+      `<head>\n<meta http-equiv="Content-Security-Policy" content="${policy}">`,
+    );
+}
+
 function patchIndexHtml(logPrefix) {
   const indexPath = path.join(DEST, 'index.html');
   const html = fs.readFileSync(indexPath, 'utf8');
-
-  // Replace <base href="/"> or <base href="/"/> with <base href="./"> for Electron file:// loading
-  // Angular CLI may output self-closing tags or standard tags depending on build config
-  const patched = html.replace(/<base href="\/"\s*\/?>/i, '<base href="./">');
-
-  if (patched !== html) {
-    fs.writeFileSync(indexPath, patched, 'utf8');
-    console.log(`${logPrefix} Patched index.html: base href="/" -> "./"`);
-  } else {
-    console.log(
-      `${logPrefix} index.html base href already correct or not found`,
-    );
-  }
+  fs.writeFileSync(indexPath, secureRendererHtml(html), 'utf8');
+  console.log(`${logPrefix} Patched index.html: relative base and shell CSP`);
 }
 
 /**
@@ -112,7 +152,7 @@ function syncRenderer({ clean = true, logPrefix = '[copy-renderer]' } = {}) {
   patchIndexHtml(logPrefix);
 }
 
-module.exports = { syncRenderer, SOURCE, DEST };
+module.exports = { syncRenderer, secureRendererHtml, SOURCE, DEST };
 
 if (require.main === module) {
   try {

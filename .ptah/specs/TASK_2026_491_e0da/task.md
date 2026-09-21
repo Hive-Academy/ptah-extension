@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_491_e0da
-status: backlog
+status: in_progress
 type: BUGFIX
 title: >-
   Make the Electron permission handler origin-aware and add a CSP to the shell
