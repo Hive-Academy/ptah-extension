@@ -47,6 +47,7 @@ describe('migration 0041_skill_md_migration_state — registry entry', () => {
     expect(MIGRATIONS.map((m) => m.version)).toContain(40);
   });
 
+  // TASK_2026_511 appends migration 47; keep the registry ratchet current.
   it('is the highest bundled version', () => {
     // Migrations are forward-only and APPENDED, never inserted. This assertion
     // tracks the current highest version and moves forward with every appended
@@ -57,7 +58,7 @@ describe('migration 0041_skill_md_migration_state — registry entry', () => {
     // 44 since TASK_2026_443 appended 0044_memory_lifecycle.
     // 45 since TASK_2026_461 appended 0045_skill_backlog_cleanup.
     // 46 since TASK_2026_473 appended 0046_memory_merge_subject_index.
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(46);
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(47);
   });
 });
 

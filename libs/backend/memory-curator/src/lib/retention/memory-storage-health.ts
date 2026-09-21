@@ -3,6 +3,7 @@ import type { SqlitePageReclaimer } from '@ptah-extension/persistence-sqlite';
 import type {
   MemoryRetentionRunDto,
   MemoryStorageHealthDto,
+  RetentionHealthVerdict,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
@@ -12,6 +13,10 @@ import {
 } from './memory-lifecycle-config';
 import {
   DAY_MS,
+  RETENTION_HEALTH_MIN_ATTEMPTS,
+  RETENTION_HEALTH_MIN_AGE_MS,
+  RETENTION_HEALTH_STALL_MS,
+  RETENTION_HEALTH_STALL_PENDING_ROWS,
   type MemoryRetentionSettings,
 } from './memory-retention-config';
 import type {
@@ -20,6 +25,42 @@ import type {
 } from './observation-retention.store';
 
 const AUTO_VACUUM_INCREMENTAL = 2;
+
+export type { RetentionHealthVerdict } from '@ptah-extension/shared';
+
+/** Pure verdict: null state means no row yet; undefined means the read failed. */
+export function computeRetentionHealthVerdict(
+  enabled: boolean,
+  state:
+    | Pick<
+        RetentionState,
+        | 'lastCompletedAt'
+        | 'attemptCount'
+        | 'firstAttemptAt'
+        | 'backlogRemaining'
+      >
+    | null
+    | undefined,
+  now: number,
+  pendingRows: number | null,
+): RetentionHealthVerdict {
+  if (!enabled) return 'disabled';
+  if (state === undefined) return 'unknown';
+  if (state === null) return 'healthy';
+  if (state.lastCompletedAt === null) {
+    return state.attemptCount >= RETENTION_HEALTH_MIN_ATTEMPTS &&
+      state.firstAttemptAt !== null &&
+      Math.max(0, now - state.firstAttemptAt) > RETENTION_HEALTH_MIN_AGE_MS
+      ? 'never-completed'
+      : 'healthy';
+  }
+  return (state.backlogRemaining ||
+    (pendingRows !== null &&
+      pendingRows > RETENTION_HEALTH_STALL_PENDING_ROWS)) &&
+    Math.max(0, now - state.lastCompletedAt) > RETENTION_HEALTH_STALL_MS
+    ? 'stalled'
+    : 'healthy';
+}
 const RUN_OUTCOMES: ReadonlySet<string> = new Set([
   'completed',
   'partial',
@@ -87,7 +128,7 @@ export function readMemoryStorageHealth(input: {
     Date.now() - input.settings.stuckDays * DAY_MS,
   );
   readErrors.push(...live.readErrors, ...input.lifecycleReadErrors);
-  let state: RetentionState | null = null;
+  let state: RetentionState | null | undefined;
   try {
     state = input.store.readState();
   } catch (error: unknown) {
@@ -135,6 +176,12 @@ export function readMemoryStorageHealth(input: {
       quarantineLedgerRows: live.quarantineLedgerRows,
     },
     retention: {
+      healthVerdict: computeRetentionHealthVerdict(
+        input.settings.enabled,
+        state,
+        Date.now(),
+        live.pendingRows,
+      ),
       enabled: input.settings.enabled,
       processedDays: input.settings.processedDays,
       stuckDays: input.settings.stuckDays,

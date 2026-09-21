@@ -74,6 +74,8 @@ Re-exports `ICuratorLLM`, `ExtractedMemoryDraft`, `ResolvedMemoryDraft` from `me
 
 ## Guidelines
 
+- **Retention health is computed, never persisted** (TASK_2026_511): the five verdicts are disabled (highest priority), unknown (state read failed), never-completed (at least 72 eligible attempts and first attempt older than 72 hours), stalled (completion older than seven days and either stored backlog or more than 10,000 live pending rows), and healthy. Only finished runs and foreground-active skips count; disabled resets attempt_count to zero and first_attempt_at to null. Boot-deferred, on-battery, already-running and aborted skips preserve history without counting; not-due and persistence-unavailable write nothing. Negative ages clamp to zero. Diagnostics emit no health-verdict warning and retain existing settings warnings. Write paths warn once per unhealthy verdict until a healthy verdict clears suppression, allowing a relapse to warn again. The existing panel shows the two fault banners; unknown uses readErrors without a banner.
+
 - All DB access via the shared connection from `persistence-sqlite` — never open new handles.
 - `MemoryWriterAdapter.upsert` keys by stable `(fingerprint, subject)` identity — preserve this invariant.
 - Curator runs are idempotent; dedup happens via cosine similarity (`SkillClusterDedup` pattern is not used here). Stored salience is written only on insert; all recency and reuse effects belong to the query-time ranking expression in `salience-ranking.ts`.
