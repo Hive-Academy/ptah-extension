@@ -30,7 +30,7 @@ describe('migration 0046_memory_merge_subject_index', () => {
       MIGRATIONS.filter((migration) => migration.version === 46),
     ).toHaveLength(1);
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      46,
+      47,
     );
     expect(sql0046MemoryMergeSubjectIndex).not.toContain('${');
   });

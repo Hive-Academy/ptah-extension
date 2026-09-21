@@ -71,7 +71,19 @@ import {
   type RetentionState,
 } from './observation-retention.store';
 import { RetentionRunBudget } from './retention-run-budget';
-import { readMemoryStorageHealth } from './memory-storage-health';
+import {
+  computeRetentionHealthVerdict,
+  readMemoryStorageHealth,
+  type RetentionHealthVerdict,
+} from './memory-storage-health';
+
+/** Shared by service instances; a healthy verdict starts a new warning episode. */
+const warnedHealthVerdicts = new Set<RetentionHealthVerdict>();
+
+/** Reset warning episodes on recovery; exported for isolated tests, not the lib barrel. */
+export function resetRetentionHealthWarnings(): void {
+  warnedHealthVerdicts.clear();
+}
 
 /** `PRAGMA auto_vacuum` value meaning INCREMENTAL. */
 const AUTO_VACUUM_INCREMENTAL = 2;
@@ -175,8 +187,8 @@ export class MemoryRetentionService {
   ): Promise<MemoryRetentionReport> {
     const now = options.now ?? Date.now;
     const settings = this.readSettings();
-    if (!settings.enabled) return this.skip('disabled', now());
-    if (this.running) return this.skip('already-running', now());
+    if (!settings.enabled) return this.skip('disabled', now(), settings);
+    if (this.running) return this.skip('already-running', now(), settings);
 
     this.running = true;
     const startedAt = now();
@@ -236,9 +248,10 @@ export class MemoryRetentionService {
     startedAt: number,
   ): Promise<MemoryRetentionReport> {
     if (startedAt - this.startedAt < this.limits.bootDeferralMs) {
-      return this.skip('boot-deferred', startedAt);
+      return this.skip('boot-deferred', startedAt, settings);
     }
-    if (options.isOnBattery()) return this.skip('on-battery', startedAt);
+    if (options.isOnBattery())
+      return this.skip('on-battery', startedAt, settings);
     const foregroundActive =
       options.msSinceForegroundActivity() < this.limits.foregroundBackoffMs;
     let allowForegroundWork = false;
@@ -248,13 +261,14 @@ export class MemoryRetentionService {
         this.limits.foregroundMaxConsecutiveSkips
       ) {
         this.consecutiveForegroundSkips++;
-        return this.skip('foreground-active', startedAt);
+        return this.skip('foreground-active', startedAt, settings);
       }
       allowForegroundWork = true;
     } else {
       this.consecutiveForegroundSkips = 0;
     }
-    if (options.signal.aborted) return this.skip('aborted', startedAt);
+    if (options.signal.aborted)
+      return this.skip('aborted', startedAt, settings);
 
     try {
       if (!this.sqlite.db) {
@@ -666,6 +680,7 @@ export class MemoryRetentionService {
         lifecycleNote: report.lifecycleNote,
         preview: lifecycleResult.preview,
       });
+      this.warnRetentionHealth(settings, finishedAt);
     } catch (error: unknown) {
       this.logger.warn('[memory-curator] retention run record not written', {
         error: sanitizeRetentionError(errorText(error)),
@@ -676,9 +691,11 @@ export class MemoryRetentionService {
   private skip(
     reason: RetentionSkipReason,
     atMs: number,
+    settings: MemoryRetentionSettings,
   ): MemoryRetentionReport {
     try {
-      this.store.writeSkip(atMs, reason);
+      this.store.writeSkip(atMs, reason, reason === 'foreground-active');
+      this.warnRetentionHealth(settings, atMs);
     } catch (error: unknown) {
       this.logger.debug('[memory-curator] retention skip not recorded', {
         reason,
@@ -686,6 +703,46 @@ export class MemoryRetentionService {
       });
     }
     return { status: 'skipped', reason };
+  }
+
+  private warnRetentionHealth(
+    settings: MemoryRetentionSettings,
+    atMs: number,
+  ): void {
+    try {
+      const state = this.store.readState();
+      // Only previously completed, backlog-free records need the live fallback.
+      const pendingRows =
+        settings.enabled &&
+        state?.lastCompletedAt != null &&
+        !state.backlogRemaining
+          ? this.store.readLiveStorage(atMs - settings.stuckDays * DAY_MS)
+              .pendingRows
+          : null;
+      const verdict = computeRetentionHealthVerdict(
+        settings.enabled,
+        state,
+        atMs,
+        pendingRows,
+      );
+      if (verdict === 'healthy') resetRetentionHealthWarnings();
+      if (
+        (verdict !== 'never-completed' && verdict !== 'stalled') ||
+        warnedHealthVerdicts.has(verdict)
+      )
+        return;
+      warnedHealthVerdicts.add(verdict);
+      this.logger.warn('[memory-curator] retention health warning', {
+        verdict,
+        attemptCount: state?.attemptCount ?? 0,
+        firstAttemptAt: state?.firstAttemptAt ?? null,
+      });
+    } catch (error: unknown) {
+      // Advisory health reads must not change an already persisted run's outcome.
+      this.logger.debug('[memory-curator] retention health unreadable', {
+        error: errorText(error),
+      });
+    }
   }
 
   private readSettings(): MemoryRetentionSettings {

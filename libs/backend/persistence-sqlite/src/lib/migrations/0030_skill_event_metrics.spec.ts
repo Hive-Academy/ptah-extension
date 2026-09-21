@@ -18,6 +18,7 @@ describe('migration 0030_skill_event_metrics — registry entry', () => {
     expect(entry?.run).toBeUndefined();
   });
 
+  // TASK_2026_511 appends migration 47; keep the registry ratchet current.
   it('is the highest version (appended, not inserted)', () => {
     // Bumped to 41 when TASK_2026_331 B4 appended
     // 0042_db_integrity_check_state (41 for TASK_2026_331 B4's
@@ -33,7 +34,7 @@ describe('migration 0030_skill_event_metrics — registry entry', () => {
     // 45 since TASK_2026_461 appended 0045_skill_backlog_cleanup.
     const maxVersion = Math.max(...MIGRATIONS.map((m) => m.version));
     // 46 since TASK_2026_473 appended 0046_memory_merge_subject_index.
-    expect(maxVersion).toBe(46);
+    expect(maxVersion).toBe(47);
   });
 });
 

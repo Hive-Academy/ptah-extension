@@ -36,6 +36,7 @@ describe('MemoryDiagnosticsRpcService', () => {
       quarantineLedgerRows: 0,
     },
     retention: {
+      healthVerdict: 'healthy' as const,
       enabled: true,
       processedDays: 14,
       stuckDays: 30,

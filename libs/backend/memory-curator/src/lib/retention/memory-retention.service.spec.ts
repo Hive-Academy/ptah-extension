@@ -22,6 +22,7 @@ import type {
 import {
   MemoryRetentionService,
   sanitizeRetentionError,
+  resetRetentionHealthWarnings,
 } from './memory-retention.service';
 import {
   MEMORY_RETENTION_DEFAULTS,
@@ -49,6 +50,8 @@ import {
   type RetentionRunRecord,
   type RetentionState,
 } from './observation-retention.store';
+
+beforeEach(() => resetRetentionHealthWarnings());
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -151,6 +154,8 @@ class FakeStore {
     this.calls.push('writeRun');
     this.runs.push(record);
     this.state = state({
+      attemptCount: (this.state?.attemptCount ?? 0) + 1,
+      firstAttemptAt: this.state?.firstAttemptAt ?? record.startedAt,
       lastStartedAt: record.startedAt,
       lastFinishedAt: record.finishedAt,
       lastOutcome: record.outcome,
@@ -163,7 +168,8 @@ class FakeStore {
       freedBytes: record.freedBytes,
       pagesReclaimed: record.pagesReclaimed,
       backlogRemaining: record.backlogRemaining,
-      lastCompletedAt: record.completedAt,
+      lastCompletedAt:
+        record.completedAt ?? this.state?.lastCompletedAt ?? null,
       processedRowsAfter: record.processedRowsAfter,
       avgProcessedRowBytes: record.avgProcessedRowBytes,
       memoriesArchived: record.memoriesArchived,
@@ -189,9 +195,22 @@ class FakeStore {
     });
   }
 
-  writeSkip(at: number, reason: string): void {
+  writeSkip(at: number, reason: string, countsAsAttempt: boolean): void {
     this.calls.push('writeSkip');
     this.skips.push({ at, reason });
+    this.state = state({
+      ...this.state,
+      attemptCount:
+        reason === 'disabled'
+          ? 0
+          : (this.state?.attemptCount ?? 0) + (countsAsAttempt ? 1 : 0),
+      firstAttemptAt:
+        reason === 'disabled'
+          ? null
+          : (this.state?.firstAttemptAt ?? (countsAsAttempt ? at : null)),
+      lastSkippedAt: at,
+      lastSkipReason: reason,
+    });
   }
 }
 
@@ -266,6 +285,8 @@ class FakeLifecycle {
 
 function state(overrides: Partial<RetentionState> = {}): RetentionState {
   return {
+    attemptCount: 0,
+    firstAttemptAt: null,
     lastStartedAt: null,
     lastFinishedAt: null,
     lastOutcome: null,
@@ -478,6 +499,193 @@ describe('memory retention settings', () => {
   });
 });
 
+describe('MemoryRetentionService — health warnings', () => {
+  const warning = '[memory-curator] retention health warning';
+
+  it('does not warn for healthy or disabled, or count ticks that write nothing', async () => {
+    const healthy = harness();
+    await healthy.service.run(healthy.options);
+    expect(healthy.store.state?.attemptCount).toBe(1);
+    expect(healthy.logger.warn).not.toHaveBeenCalledWith(
+      warning,
+      expect.anything(),
+    );
+    const before = healthy.store.state;
+    await expect(healthy.service.run(healthy.options)).resolves.toEqual({
+      status: 'skipped',
+      reason: 'not-due',
+    });
+    expect(healthy.store.state).toBe(before);
+    const unavailable = harness({ dbThrows: true });
+    await expect(unavailable.service.run(unavailable.options)).resolves.toEqual(
+      { status: 'skipped', reason: 'persistence-unavailable' },
+    );
+    expect(unavailable.store.state).toBeNull();
+    expect(unavailable.store.runs).toHaveLength(0);
+    expect(unavailable.store.skips).toHaveLength(0);
+    const disabled = harness({
+      settings: { 'memory.retention.enabled': false },
+    });
+    disabled.store.state = state({ attemptCount: 100, firstAttemptAt: 0 });
+    await disabled.service.run(disabled.options);
+    expect(disabled.store.state?.attemptCount).toBe(0);
+    expect(disabled.store.state?.firstAttemptAt).toBeNull();
+    expect(disabled.service.storageHealth().retention.healthVerdict).toBe(
+      'disabled',
+    );
+    expect(disabled.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('counts foreground starvation and suppresses repeated warnings across instances', async () => {
+    const h = harness({ limits: { maxRowsPerRun: 1 } });
+    const firstAttemptAt = h.clock.t - 4 * DAY;
+    h.store.state = state({ attemptCount: 71, firstAttemptAt });
+    h.setForegroundMs(0);
+    await h.service.run(h.options);
+    expect(h.logger.warn).toHaveBeenCalledWith(warning, {
+      verdict: 'never-completed',
+      attemptCount: 72,
+      firstAttemptAt,
+    });
+    await h.service.run(h.options);
+    h.setForegroundMs(Infinity);
+    h.store.processed = 10;
+    await expect(h.service.run(h.options)).resolves.toMatchObject({
+      status: 'partial',
+    });
+    expect(h.logger.warn).toHaveBeenCalledTimes(1);
+    expect(h.service.storageHealth().retention.healthVerdict).toBe(
+      'never-completed',
+    );
+    expect(h.logger.warn).toHaveBeenCalledTimes(1);
+    const replacement = harness();
+    replacement.store.state = state({ attemptCount: 100, firstAttemptAt });
+    replacement.setForegroundMs(0);
+    await replacement.service.run(replacement.options);
+    expect(replacement.logger.warn).not.toHaveBeenCalledWith(
+      warning,
+      expect.anything(),
+    );
+  });
+
+  it('warns again for the same stalled verdict after recovery', async () => {
+    const h = harness();
+    h.store.state = state({
+      lastCompletedAt: h.clock.t - 8 * DAY,
+      backlogRemaining: true,
+    });
+    h.setBattery(true);
+    await h.service.run(h.options);
+    await h.service.run(h.options);
+    expect(h.logger.warn).toHaveBeenCalledTimes(1);
+    h.setBattery(false);
+    await expect(h.service.run(h.options)).resolves.toMatchObject({
+      status: 'completed',
+    });
+    h.clock.t += 8 * DAY;
+    h.store.pendingRows = 10_001;
+    h.setBattery(true);
+    await h.service.run(h.options);
+    await h.service.run(h.options);
+    expect(h.logger.warn).toHaveBeenCalledTimes(2);
+    expect(h.logger.warn).toHaveBeenLastCalledWith(
+      warning,
+      expect.objectContaining({ verdict: 'stalled' }),
+    );
+  });
+
+  it('detects live pending backlog after one completed run and only deferrals', async () => {
+    const h = harness();
+    await h.service.run(h.options);
+    h.clock.t += 8 * DAY;
+    h.store.pendingRows = 10_001;
+    h.setBattery(true);
+    await h.service.run(h.options);
+    expect(h.store.state?.backlogRemaining).toBe(false);
+    expect(h.store.state?.attemptCount).toBe(1);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      warning,
+      expect.objectContaining({ verdict: 'stalled' }),
+    );
+    // Diagnostics uses its real clock, so make the stored completion old there too.
+    h.store.state = state({
+      ...h.store.state,
+      lastCompletedAt: Date.now() - 8 * DAY,
+    });
+    expect(h.service.storageHealth().retention.healthVerdict).toBe('stalled');
+    h.store.pendingRows = null;
+    expect(h.service.storageHealth().retention.healthVerdict).toBe('healthy');
+  });
+
+  it('does not accrue attempts during three days on battery or while disabled', async () => {
+    const settings = { 'memory.retention.enabled': true };
+    const h = harness({ settings });
+    h.setBattery(true);
+    for (let i = 0; i < 80; i++) {
+      await h.service.run(h.options);
+      h.clock.t += HOUR;
+    }
+    expect(h.store.state).toMatchObject({
+      attemptCount: 0,
+      firstAttemptAt: null,
+    });
+    expect(h.service.storageHealth().retention.healthVerdict).toBe('healthy');
+    h.store.state = state({
+      attemptCount: 80,
+      firstAttemptAt: h.clock.t - 4 * DAY,
+    });
+    settings['memory.retention.enabled'] = false;
+    for (let i = 0; i < 80; i++) {
+      await h.service.run(h.options);
+      h.clock.t += HOUR;
+    }
+    settings['memory.retention.enabled'] = true;
+    expect(h.service.storageHealth().retention.healthVerdict).toBe('healthy');
+    expect(h.store.state).toMatchObject({
+      attemptCount: 0,
+      firstAttemptAt: null,
+    });
+    h.setBattery(false);
+    h.setForegroundMs(0);
+    await h.service.run(h.options);
+    expect(h.store.state).toMatchObject({
+      attemptCount: 1,
+      firstAttemptAt: h.clock.t,
+    });
+    expect(h.logger.warn).not.toHaveBeenCalledWith(warning, expect.anything());
+  });
+
+  it('preserves lifecycle settings warnings without logging the health verdict on reads', () => {
+    const workspace = makeWorkspace();
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, fallback: unknown) => {
+        if (key.startsWith('memory.lifecycle.')) throw new Error('unreadable');
+        return fallback;
+      },
+    );
+    const h = harness({ workspace });
+    h.store.state = state({ attemptCount: 100, firstAttemptAt: 0 });
+    expect(h.service.storageHealth().readErrors).toContain(
+      'lifecycleSettings: unreadable',
+    );
+    expect(h.service.storageHealth().retention.healthVerdict).toBe(
+      'never-completed',
+    );
+    expect(h.logger.warn).toHaveBeenCalledTimes(2);
+    expect(h.logger.warn).toHaveBeenNthCalledWith(
+      1,
+      '[memory-curator] lifecycle settings unreadable',
+      { error: 'unreadable' },
+    );
+    expect(h.logger.warn).toHaveBeenNthCalledWith(
+      2,
+      '[memory-curator] lifecycle settings unreadable',
+      { error: 'unreadable' },
+    );
+    expect(h.logger.warn).not.toHaveBeenCalledWith(warning, expect.anything());
+  });
+});
+
 describe('MemoryRetentionService — gates', () => {
   it('disabled → skipped/disabled, recorded, no row work', async () => {
     const h = harness({ settings: { 'memory.retention.enabled': false } });
@@ -486,7 +694,7 @@ describe('MemoryRetentionService — gates', () => {
       status: 'skipped',
       reason: 'disabled',
     });
-    expect(h.log).toEqual(['writeSkip']);
+    expect(h.log).toEqual(['writeSkip', 'readState']);
     expect(h.store.skips[0].reason).toBe('disabled');
     expect(h.lifecycle.calls).toHaveLength(0);
   });
@@ -498,7 +706,7 @@ describe('MemoryRetentionService — gates', () => {
       status: 'skipped',
       reason: 'boot-deferred',
     });
-    expect(h.log).toEqual(['writeSkip']);
+    expect(h.log).toEqual(['writeSkip', 'readState']);
     expect(h.lifecycle.calls).toHaveLength(0);
   });
 
@@ -509,7 +717,7 @@ describe('MemoryRetentionService — gates', () => {
       status: 'skipped',
       reason: 'on-battery',
     });
-    expect(h.log).toEqual(['writeSkip']);
+    expect(h.log).toEqual(['writeSkip', 'readState']);
     expect(h.lifecycle.calls).toHaveLength(0);
   });
 
@@ -520,7 +728,7 @@ describe('MemoryRetentionService — gates', () => {
       status: 'skipped',
       reason: 'foreground-active',
     });
-    expect(h.log).toEqual(['writeSkip']);
+    expect(h.log).toEqual(['writeSkip', 'readState']);
     expect(h.lifecycle.calls).toHaveLength(0);
   });
 
@@ -650,6 +858,7 @@ describe('MemoryRetentionService — run', () => {
       'reclaim',
       'checkpoint',
       'writeRun',
+      'readState',
     ]);
     expect(h.store.purgeLimits).toEqual([500, 500, 500]);
     const record = h.store.runs[0];
@@ -1149,6 +1358,7 @@ describe('MemoryRetentionService — storageHealth', () => {
         quarantineLedgerRows: 4,
       },
       retention: {
+        healthVerdict: 'healthy',
         enabled: true,
         processedDays: 7,
         stuckDays: 14,
@@ -1211,6 +1421,7 @@ describe('MemoryRetentionService — storageHealth', () => {
       throw new Error('no such table: memory_retention_state');
     };
     const health = h.service.storageHealth();
+    expect(health.retention.healthVerdict).toBe('unknown');
     expect(health.dbBytes).toBeNull();
     expect(health.reclaimableBytes).toBeNull();
     expect(health.autoVacuumIncremental).toBeNull();
@@ -1558,15 +1769,11 @@ describe('MemoryRetentionService — background-work governor', () => {
     expect(governor.clear).toBe(false);
     expect(governor.whenClearCalls).toBe(1);
     expect(h.store.purgeCalls).toBe(1);
-    expect(h.store.processed).toBe(
-      500 - MEMORY_RETENTION_LIMITS.minBatchSize,
-    );
+    expect(h.store.processed).toBe(500 - MEMORY_RETENTION_LIMITS.minBatchSize);
     expect(report.durationMs).toBe(
       MEMORY_RETENTION_LIMITS.governorMaxDeferMs + 1_673,
     );
-    expect(report.durationMs).toBeLessThan(
-      MEMORY_RETENTION_LIMITS.maxRunMs,
-    );
+    expect(report.durationMs).toBeLessThan(MEMORY_RETENTION_LIMITS.maxRunMs);
   });
 
   it('skips governor whenClear call when deadline has already passed', async () => {

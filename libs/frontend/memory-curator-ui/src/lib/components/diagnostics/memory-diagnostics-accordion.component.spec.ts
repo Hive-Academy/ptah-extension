@@ -149,6 +149,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
         quarantineLedgerRows: 7,
       },
       retention: {
+        healthVerdict: 'healthy',
         enabled: true,
         processedDays: 14,
         stuckDays: 30,

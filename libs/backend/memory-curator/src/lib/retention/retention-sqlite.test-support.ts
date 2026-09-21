@@ -217,8 +217,8 @@ export function openRetentionTestDb(
     loadVec(raw);
   }
   const versions = options.memorySchema
-    ? [2, 7, 10, 15, 16, 17, 18, 19, 43, 44]
-    : [16, 43];
+    ? [2, 7, 10, 15, 16, 17, 18, 19, 43, 44, 47]
+    : [16, 43, 47];
   for (const version of versions) {
     const migration = MIGRATIONS.find((item) => item.version === version);
     if (migration?.sql) raw.exec(migrationSql(version));

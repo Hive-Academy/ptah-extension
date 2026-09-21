@@ -52,6 +52,7 @@ describe('MemoryDiagnosticsStateService', () => {
       quarantineLedgerRows: 7,
     },
     retention: {
+      healthVerdict: 'healthy' as const,
       enabled: true,
       processedDays: 14,
       stuckDays: 30,
