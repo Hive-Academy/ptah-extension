@@ -308,10 +308,27 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     this._isConfigComplete.set(complete);
   }
 
+  /**
+   * Merge one partial proposal into the draft.
+   *
+   * `proposeConfig` is documented to the authoring agent as "send only the
+   * fields you have settled", so every branch here MUST preserve the siblings
+   * the update did not mention. Three did not, and each lost a decision the
+   * user had already approved with no rejected call to reveal it
+   * (TASK_2026_514): `name` had no branch at all and fell back to the
+   * workspace name at Apply; `mcp` was assigned wholesale, so a later
+   * `enabledTools`-only call erased the servers; and `selectedSkillRefs` was
+   * overwritten by the empty array the boundary normalizer emits whenever
+   * either skill field is touched, which strips the origin
+   * `harness:apply` needs to install a skills.sh skill.
+   */
   public applyConfigUpdates(updates: Partial<HarnessConfig>): void {
     this._config.update((cfg) => {
       const merged = { ...cfg };
 
+      if (updates.name) {
+        merged.name = updates.name;
+      }
       if (updates.persona) {
         merged.persona = {
           ...cfg.persona,
@@ -336,11 +353,14 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
             updates.skills.selectedSkills ?? cfg.skills?.selectedSkills ?? [],
           // Carried alongside the ids so `harness:apply` can install the
           // skills.sh entries — dropping this would strip the origin the
-          // installer needs.
-          selectedSkillRefs:
-            updates.skills.selectedSkillRefs ??
-            cfg.skills?.selectedSkillRefs ??
-            [],
+          // installer needs. An EMPTY array is treated as "not supplied":
+          // the boundary normalizer emits both keys whenever either is
+          // touched, so a call that sends only `selectedSkills` arrives with
+          // `selectedSkillRefs: []` and would otherwise erase the origins.
+          // Clearing every ref is not expressible here, and never was.
+          selectedSkillRefs: updates.skills.selectedSkillRefs?.length
+            ? updates.skills.selectedSkillRefs
+            : (cfg.skills?.selectedSkillRefs ?? []),
           createdSkills:
             updates.skills.createdSkills ?? cfg.skills?.createdSkills ?? [],
         };
@@ -352,7 +372,13 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
         } as typeof cfg.prompt;
       }
       if (updates.mcp) {
-        merged.mcp = updates.mcp;
+        merged.mcp = {
+          servers: updates.mcp.servers ?? cfg.mcp?.servers ?? [],
+          enabledTools: {
+            ...(cfg.mcp?.enabledTools ?? {}),
+            ...(updates.mcp.enabledTools ?? {}),
+          },
+        };
       }
       if (updates.claudeMd) {
         merged.claudeMd = {

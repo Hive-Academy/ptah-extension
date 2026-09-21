@@ -91,6 +91,11 @@ HANDING BACK TO THE USER:
     a structured harness config to review. Call it repeatedly with partial
     updates as decisions firm up, then once with isConfigComplete=true. Do NOT
     write the proposal to a file instead — the surface never sees it there.
+    Four fields are objects keyed by name, NOT lists:
+      agents.enabledAgents       {"<agent-id>": {"enabled": true}}
+      mcp.enabledTools           {"<server-name>": ["<tool-name>"]}
+      prompt.enhancedSections    {"<section-title>": "<markdown body>"}
+      claudeMd.customSections    {"<section-title>": "<markdown body>"}
 
 - installMcpServer(serverName, config, serverKey?, targets?) - Writes a transport
     config to the target files. Defaults to ['claude','vscode'].`,

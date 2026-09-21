@@ -15,7 +15,10 @@ import { existsSync } from 'fs';
 import { mkdir, writeFile, readFile } from 'fs/promises';
 import * as os from 'os';
 import { z } from 'zod';
-import { HarnessConfigUpdatesSchema } from '@ptah-extension/shared/schemas';
+import {
+  HarnessConfigUpdatesSchema,
+  formatHarnessConfigIssue,
+} from '@ptah-extension/shared/schemas';
 import {
   HARNESS_DEFAULT_MCP_TARGETS,
   HARNESS_PLUGIN_ID_PREFIX,
@@ -938,7 +941,7 @@ export function buildHarnessNamespace(
       const parsed = HarnessConfigUpdatesSchema.safeParse(configUpdates);
       if (!parsed.success) {
         const issues = parsed.error.issues
-          .map((i) => `${i.path.join('.')}: ${i.message}`)
+          .map((i) => formatHarnessConfigIssue(i.path.join('.'), i.message))
           .join('; ');
         throw new Error(`Invalid configUpdates: ${issues}`);
       }
