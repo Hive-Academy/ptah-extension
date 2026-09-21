@@ -125,6 +125,13 @@ export interface MemoryLifecyclePreviewDto {
   readonly overCap: number;
 }
 
+export type RetentionHealthVerdict =
+  | 'disabled'
+  | 'never-completed'
+  | 'stalled'
+  | 'unknown'
+  | 'healthy';
+
 export interface MemoryStorageHealthDto {
   readonly dbBytes: number | null; // page_count × page_size, live
   readonly reclaimableBytes: number | null; // freelist_count × page_size, live
@@ -140,6 +147,7 @@ export interface MemoryStorageHealthDto {
     readonly quarantineLedgerRows: number | null;
   };
   readonly retention: {
+    readonly healthVerdict: RetentionHealthVerdict;
     readonly enabled: boolean;
     readonly processedDays: number;
     readonly stuckDays: number;

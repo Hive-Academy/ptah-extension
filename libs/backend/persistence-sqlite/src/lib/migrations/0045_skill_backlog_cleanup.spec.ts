@@ -29,7 +29,7 @@ describe('migration 0045_skill_backlog_cleanup — registry entry', () => {
     ).toHaveLength(1);
     const versions = MIGRATIONS.map((migration) => migration.version);
     expect(versions).toContain(44);
-    expect(Math.max(...versions)).toBe(46);
+    expect(Math.max(...versions)).toBe(47);
   });
 });
 

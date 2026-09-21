@@ -26,6 +26,7 @@ function makeStorage(
       quarantineLedgerRows: 7,
     },
     retention: {
+      healthVerdict: 'healthy',
       enabled: true,
       processedDays: 14,
       stuckDays: 30,
@@ -86,6 +87,72 @@ describe('StorageHealthPanelComponent', () => {
     const root = render(null);
     expect(root.querySelector('[data-testid="storage-empty"]')).not.toBeNull();
     expect(root.textContent ?? '').toContain('No storage data yet.');
+    expect(
+      root.querySelector('[data-testid="storage-retention-warning"]'),
+    ).toBeNull();
+  });
+
+  it.each([
+    ['never-completed', 'never completed'],
+    ['stalled', 'has stalled'],
+  ] as const)('renders the %s warning banner', (healthVerdict, text) => {
+    const storage = makeStorage();
+    const root = render({
+      ...storage,
+      retention: { ...storage.retention, healthVerdict },
+    });
+    const banner = root.querySelector(
+      '[data-testid="storage-retention-warning"]',
+    );
+    expect(normalizedText(banner)).toContain(text);
+    expect(banner?.className).toContain('border-warning/40');
+    expect(banner?.getAttribute('role')).toBe('status');
+  });
+
+  it.each(['healthy', 'disabled', 'unknown'] as const)(
+    'omits the banner for %s',
+    (healthVerdict) => {
+      const storage = makeStorage();
+      const root = render({
+        ...storage,
+        retention: { ...storage.retention, healthVerdict },
+      });
+      expect(
+        root.querySelector('[data-testid="storage-retention-warning"]'),
+      ).toBeNull();
+    },
+  );
+
+  it('updates the computed banner when the input changes or is cleared', () => {
+    const fixture = TestBed.createComponent(StorageHealthPanelComponent);
+    const storage = makeStorage();
+    const root = fixture.nativeElement as HTMLElement;
+    for (const healthVerdict of [
+      'never-completed',
+      'stalled',
+      'healthy',
+      'unknown',
+    ] as const) {
+      fixture.componentRef.setInput('storage', {
+        ...storage,
+        retention: { ...storage.retention, healthVerdict },
+      });
+      fixture.detectChanges();
+      const banner = root.querySelector(
+        '[data-testid="storage-retention-warning"]',
+      );
+      if (healthVerdict === 'healthy' || healthVerdict === 'unknown')
+        expect(banner).toBeNull();
+      else
+        expect(normalizedText(banner)).toContain(
+          healthVerdict === 'stalled' ? 'has stalled' : 'never completed',
+        );
+    }
+    fixture.componentRef.setInput('storage', null);
+    fixture.detectChanges();
+    expect(
+      root.querySelector('[data-testid="storage-retention-warning"]'),
+    ).toBeNull();
   });
 
   it('marks the section with aria-label "Storage and retention"', () => {
@@ -302,6 +369,7 @@ describe('StorageHealthPanelComponent', () => {
     const root = render(
       makeStorage({
         retention: {
+          healthVerdict: 'healthy',
           enabled: true,
           processedDays: 14,
           stuckDays: 30,
@@ -328,6 +396,7 @@ describe('StorageHealthPanelComponent', () => {
     const root = render(
       makeStorage({
         retention: {
+          healthVerdict: 'healthy',
           enabled: true,
           processedDays: 14,
           stuckDays: 30,
@@ -368,6 +437,7 @@ describe('StorageHealthPanelComponent', () => {
     const futureRoot = render(
       makeStorage({
         retention: {
+          healthVerdict: 'healthy',
           enabled: true,
           processedDays: 14,
           stuckDays: 30,

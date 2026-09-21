@@ -476,11 +476,129 @@ describe('ObservationRetentionStore (real SQLite)', () => {
       expect(store.readState()).toBeNull();
     });
 
+    it.each(['completed', 'partial', 'failed'] as const)(
+      'counts every %s record, preserving the first attempt across runs and skips',
+      (outcome) => {
+        const { store } = fresh();
+        const record = {
+          ...run,
+          outcome,
+          completedAt: outcome === 'completed' ? run.finishedAt : null,
+        };
+        store.writeRun(record);
+        expect(store.readState()).toMatchObject({
+          attemptCount: 1,
+          firstAttemptAt: NOW,
+        });
+        store.writeRun({
+          ...record,
+          startedAt: NOW + DAY,
+          finishedAt: NOW + DAY + 5,
+        });
+        store.writeSkip(NOW + 2 * DAY, 'foreground-active', true);
+        expect(store.readState()).toMatchObject({
+          attemptCount: 3,
+          firstAttemptAt: NOW,
+          lastOutcome: outcome,
+        });
+      },
+    );
+
+    it.each([
+      'disabled',
+      'already-running',
+      'boot-deferred',
+      'on-battery',
+      'aborted',
+    ])('does not count %s on a fresh state row', (reason) => {
+      const { store } = fresh();
+      for (let i = 0; i < 80; i++)
+        store.writeSkip(NOW + i * 3_600_000, reason, false);
+      expect(store.readState()).toMatchObject({
+        attemptCount: 0,
+        firstAttemptAt: null,
+        lastSkipReason: reason,
+      });
+    });
+
+    it.each(['already-running', 'boot-deferred', 'on-battery', 'aborted'])(
+      'preserves existing attempt history on %s',
+      (reason) => {
+        const { store } = fresh();
+        store.writeRun(run);
+        store.writeSkip(NOW + DAY, reason, false);
+        expect(store.readState()).toMatchObject({
+          attemptCount: 1,
+          firstAttemptAt: NOW,
+          lastCompletedAt: run.completedAt,
+          lastSkipReason: reason,
+        });
+      },
+    );
+
+    it('counts foreground starvation and preserves its first timestamp through a run', () => {
+      const { store } = fresh();
+      store.writeSkip(NOW, 'foreground-active', true);
+      store.writeSkip(NOW + DAY, 'foreground-active', true);
+      expect(store.readState()).toMatchObject({
+        attemptCount: 2,
+        firstAttemptAt: NOW,
+      });
+      store.writeRun({ ...run, startedAt: NOW + 2 * DAY });
+      expect(store.readState()).toMatchObject({
+        attemptCount: 3,
+        firstAttemptAt: NOW,
+      });
+    });
+
+    it('disabled resets attempt history and the next counted skip starts a new period', () => {
+      const { store } = fresh();
+      store.writeRun(run);
+      store.writeSkip(NOW + DAY, 'foreground-active', true);
+      store.writeSkip(NOW + 2 * DAY, 'disabled', false);
+      expect(store.readState()).toMatchObject({
+        attemptCount: 0,
+        firstAttemptAt: null,
+        lastCompletedAt: run.completedAt,
+        lastSkippedAt: NOW + 2 * DAY,
+        lastSkipReason: 'disabled',
+      });
+      store.writeSkip(NOW + 3 * DAY, 'on-battery', false);
+      expect(store.readState()).toMatchObject({
+        attemptCount: 0,
+        firstAttemptAt: null,
+      });
+      store.writeSkip(NOW + 4 * DAY, 'foreground-active', true);
+      expect(store.readState()).toMatchObject({
+        attemptCount: 1,
+        firstAttemptAt: NOW + 4 * DAY,
+      });
+    });
+
+    it.each(['skip', 'run'])(
+      'initializes a migrated row on its first %s write',
+      (kind) => {
+        const { t, store } = fresh();
+        t.raw.exec(
+          'INSERT INTO memory_retention_state (id, last_completed_at) VALUES (1, 100)',
+        );
+        if (kind === 'skip') store.writeSkip(NOW, 'foreground-active', true);
+        else store.writeRun({ ...run, completedAt: null });
+        expect(store.readState()).toMatchObject({
+          attemptCount: 1,
+          firstAttemptAt: NOW,
+          lastCompletedAt: 100,
+        });
+      },
+    );
+
     it('writeSkip preserves the last run fields', () => {
       const { store } = fresh();
       store.writeRun(run);
-      store.writeSkip(NOW + 3600_000, 'foreground-active');
+      store.writeSkip(NOW + 3600_000, 'foreground-active', true);
       expect(store.readState()).toEqual({
+        attemptCount: 2,
+        firstAttemptAt: NOW,
         lastStartedAt: NOW,
         lastFinishedAt: NOW + 5,
         lastOutcome: 'completed',
@@ -512,7 +630,7 @@ describe('ObservationRetentionStore (real SQLite)', () => {
 
     it('a skip before any run leaves zero counters and null run fields', () => {
       const { store } = fresh();
-      store.writeSkip(NOW, 'boot-deferred');
+      store.writeSkip(NOW, 'boot-deferred', false);
       expect(store.readState()).toMatchObject({
         lastOutcome: null,
         lastCompletedAt: null,

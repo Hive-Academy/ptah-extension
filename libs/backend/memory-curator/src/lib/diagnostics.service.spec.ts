@@ -26,6 +26,7 @@ const STORAGE_HEALTH: MemoryStorageHealthDto = {
     quarantineLedgerRows: 3,
   },
   retention: {
+    healthVerdict: 'healthy',
     enabled: true,
     processedDays: 30,
     stuckDays: 7,

@@ -129,7 +129,7 @@ const WRITE_RUN_SQL = `INSERT INTO memory_retention_state
    processed_rows_after, avg_processed_row_bytes, memories_archived,
    memories_deleted, memories_evicted, lifecycle_note, preview_measured_at,
    preview_for_run_at, preview_archive_eligible, preview_delete_eligible,
-   preview_over_cap)
+   preview_over_cap, attempt_count, first_attempt_at)
 VALUES
   (1, @startedAt, @finishedAt, @outcome, @reason, @error,
    @durationMs, @processedPurged, @stuckQuarantined, @ledgerPruned,
@@ -137,8 +137,10 @@ VALUES
    @processedRowsAfter, @avgProcessedRowBytes, @memoriesArchived,
    @memoriesDeleted, @memoriesEvicted, @lifecycleNote, @previewMeasuredAt,
    @previewForRunAt, @previewArchiveEligible, @previewDeleteEligible,
-   @previewOverCap)
+   @previewOverCap, 1, @startedAt)
 ON CONFLICT(id) DO UPDATE SET
+  attempt_count           = attempt_count + 1,
+  first_attempt_at        = COALESCE(first_attempt_at, excluded.first_attempt_at),
   last_started_at         = excluded.last_started_at,
   last_finished_at        = excluded.last_finished_at,
   last_outcome            = excluded.last_outcome,
@@ -164,9 +166,13 @@ ON CONFLICT(id) DO UPDATE SET
   preview_delete_eligible  = COALESCE(excluded.preview_delete_eligible, preview_delete_eligible),
   preview_over_cap         = COALESCE(excluded.preview_over_cap, preview_over_cap)`;
 
-const WRITE_SKIP_SQL = `INSERT INTO memory_retention_state (id, last_skipped_at, last_skip_reason)
-VALUES (1, @at, @reason)
+const WRITE_SKIP_SQL = `INSERT INTO memory_retention_state
+  (id, last_skipped_at, last_skip_reason, attempt_count, first_attempt_at)
+VALUES (1, @at, @reason, @counts, CASE WHEN @counts = 1 THEN @at ELSE NULL END)
 ON CONFLICT(id) DO UPDATE SET
+  attempt_count   = CASE WHEN @reason = 'disabled' THEN 0 ELSE attempt_count + @counts END,
+  first_attempt_at = CASE WHEN @reason = 'disabled' THEN NULL
+                         ELSE COALESCE(first_attempt_at, excluded.first_attempt_at) END,
   last_skipped_at  = excluded.last_skipped_at,
   last_skip_reason = excluded.last_skip_reason`;
 
@@ -241,6 +247,8 @@ export interface LiveStorageReading {
 
 /** The `memory_retention_state` row, camel-cased. */
 export interface RetentionState {
+  readonly attemptCount: number;
+  readonly firstAttemptAt: number | null;
   readonly lastStartedAt: number | null;
   readonly lastFinishedAt: number | null;
   readonly lastOutcome: string | null;
@@ -302,6 +310,8 @@ export interface RetentionRunRecord {
 }
 
 interface StateDbRow {
+  attempt_count: number;
+  first_attempt_at: number | null;
   last_started_at: number | null;
   last_finished_at: number | null;
   last_outcome: string | null;
@@ -385,8 +395,7 @@ export class ObservationRetentionStore {
       let sessionsVisited = 0;
       while (ids.length < limit && sessionsVisited < limit) {
         const next = this.statement(db, NEXT_SESSION_SQL).get({ after }) as
-          | { session_id: string }
-          | undefined;
+          { session_id: string } | undefined;
         if (next === undefined) {
           exhausted = true;
           break;
@@ -498,8 +507,7 @@ export class ObservationRetentionStore {
 
     const pending = read('pending', () => {
       const row = this.statement(db, PENDING_SUMMARY_SQL).get() as
-        | { n: number; oldest: number | null }
-        | undefined;
+        { n: number; oldest: number | null } | undefined;
       return {
         rows: Number(row?.n ?? 0),
         oldest: toNumberOrNull(row?.oldest),
@@ -510,8 +518,7 @@ export class ObservationRetentionStore {
       if (pending.rows <= PENDING_BYTES_MAX_ROWS) {
         pendingBytes = read('pendingBytes', () => {
           const row = this.statement(db, PENDING_BYTES_SQL).get() as
-            | { bytes: number }
-            | undefined;
+            { bytes: number } | undefined;
           return Number(row?.bytes ?? 0);
         });
       } else {
@@ -528,8 +535,7 @@ export class ObservationRetentionStore {
     });
     const quarantineLedgerRows = read('quarantineLedger', () => {
       const row = this.statement(db, LEDGER_COUNT_SQL).get() as
-        | { n: number }
-        | undefined;
+        { n: number } | undefined;
       return Number(row?.n ?? 0);
     });
 
@@ -547,8 +553,7 @@ export class ObservationRetentionStore {
   countTotalRows(): number {
     const db = this.connection.db;
     const row = this.statement(db, TOTAL_ROWS_SQL).get() as
-      | { n: number }
-      | undefined;
+      { n: number } | undefined;
     return Number(row?.n ?? 0);
   }
 
@@ -556,10 +561,11 @@ export class ObservationRetentionStore {
   readState(): RetentionState | null {
     const db = this.connection.db;
     const row = this.statement(db, READ_STATE_SQL).get() as
-      | StateDbRow
-      | undefined;
+      StateDbRow | undefined;
     if (row === undefined) return null;
     return {
+      attemptCount: Number(row.attempt_count),
+      firstAttemptAt: toNumberOrNull(row.first_attempt_at),
       lastStartedAt: toNumberOrNull(row.last_started_at),
       lastFinishedAt: toNumberOrNull(row.last_finished_at),
       lastOutcome: row.last_outcome,
@@ -620,10 +626,14 @@ export class ObservationRetentionStore {
     });
   }
 
-  /** Record a closed gate. Touches ONLY `last_skipped_at` and `last_skip_reason`. */
-  writeSkip(atMs: number, reason: string): void {
+  /** Count only eligible starvation; disabled resets history. Run fields stay intact. */
+  writeSkip(atMs: number, reason: string, countsAsAttempt: boolean): void {
     const db = this.connection.db;
-    this.statement(db, WRITE_SKIP_SQL).run({ at: atMs, reason });
+    this.statement(db, WRITE_SKIP_SQL).run({
+      at: atMs,
+      reason,
+      counts: countsAsAttempt && reason !== 'disabled' ? 1 : 0,
+    });
   }
 
   /**

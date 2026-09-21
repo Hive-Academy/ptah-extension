@@ -134,6 +134,15 @@ const RUN_TONE: Record<MemoryRetentionRunDto['outcome'], NativeCardTone> = {
       </header>
 
       @if (vm(); as v) {
+        @if (retentionWarning(); as warning) {
+          <div
+            class="rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-base-content"
+            role="status"
+            data-testid="storage-retention-warning"
+          >
+            {{ warning }}
+          </div>
+        }
         <div class="grid gap-2 sm:grid-cols-2">
           <ptah-native-card [spine]="true" density="compact">
             <div card-header class="text-xs font-medium">Database size</div>
@@ -299,6 +308,17 @@ const RUN_TONE: Record<MemoryRetentionRunDto['outcome'], NativeCardTone> = {
 })
 export class StorageHealthPanelComponent {
   public readonly storage = input<MemoryStorageHealthDto | null>(null);
+
+  protected readonly retentionWarning = computed(() => {
+    switch (this.storage()?.retention.healthVerdict) {
+      case 'never-completed':
+        return 'Memory retention has never completed despite repeated attempts over more than three days.';
+      case 'stalled':
+        return 'Memory retention has stalled: no completed run in over seven days, and a backlog remains.';
+      default:
+        return null;
+    }
+  });
 
   /**
    * Clock for relative-time rendering, bound by the accordion's shared `now`

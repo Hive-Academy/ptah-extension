@@ -49,6 +49,7 @@ describe('migration 0039_reap_orphaned_queue_rows — registry entry', () => {
     expect(entry?.run).toBeUndefined();
   });
 
+  // TASK_2026_511 appends migration 47; keep the registry ratchet current.
   it('is the highest bundled version', () => {
     // Bumped to 42 when TASK_2026_380 B1 appended
     // 0042_db_integrity_check_state (41 for TASK_2026_331 B4's
@@ -60,7 +61,7 @@ describe('migration 0039_reap_orphaned_queue_rows — registry entry', () => {
     // 44 since TASK_2026_443 appended 0044_memory_lifecycle.
     // 45 since TASK_2026_461 appended 0045_skill_backlog_cleanup.
     // 46 since TASK_2026_473 appended 0046_memory_merge_subject_index.
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(46);
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(47);
   });
 
   it('contains no id-shape predicate — a tabId is a UUID v4', () => {

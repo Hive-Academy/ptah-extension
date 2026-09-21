@@ -51,6 +51,18 @@ export interface MemoryRetentionSettings {
 
 export const DAY_MS = 86_400_000;
 
+/**
+ * Three days of hourly cron ticks. Both the count and age bounds must pass:
+ * fresh installs and machines that were asleep must not raise a false alarm.
+ */
+export const RETENTION_HEALTH_MIN_ATTEMPTS = 72;
+/** Three elapsed days prevent a burst of recorded attempts from alarming early. */
+export const RETENTION_HEALTH_MIN_AGE_MS = 72 * 60 * 60 * 1000;
+/** A week without completion is a fault when stored or live backlog indicates work. */
+export const RETENTION_HEALTH_STALL_MS = 7 * DAY_MS;
+/** A substantial live queue detects starvation even after a previously clean run. */
+export const RETENTION_HEALTH_STALL_PENDING_ROWS = 10_000;
+
 /** Both row steps combined, per run. */
 export const RETENTION_MAX_ROWS_PER_RUN = 50_000;
 /** Archive, age-delete and cap-eviction rows combined, per run. */
