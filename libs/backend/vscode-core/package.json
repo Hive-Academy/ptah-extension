@@ -21,7 +21,7 @@
     "tsyringe": "^4.10.0",
     "@ptah-extension/platform-core": "0.0.1",
     "@ptah-extension/shared": "0.0.1",
-    "@sentry/node": "^9.27.0",
+    "@sentry/node": "^10.75.0",
     "@types/vscode": "^1.103.0",
     "eventemitter3": "^5.0.1",
     "which": "^7.0.0",

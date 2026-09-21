@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import sanitizeHtml = require('sanitize-html');
+import sanitizeHtml from 'sanitize-html';
 import { injectCampaignFooter } from '../utils/footer-injector';
 
 @Injectable()

@@ -6,10 +6,12 @@
   "tags": ["scope:api", "type:feature"],
   "targets": {
     "test": {
-      "executor": "@nx/jest:jest",
+      "executor": "nx:run-commands",
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "jestConfig": "libs/api/billing/jest.config.cts"
+        "//": "NestJS 12 is ESM-only while these specs compile to CommonJS. Jest needs vm.SourceTextModule to require() an ESM package, and that only exists under --experimental-vm-modules. Scoped per project, NOT workspace-wide: the same flag makes Jest load @angular/core as a real ES module where `module` is undefined, breaking every jest-preset-angular suite.",
+        "command": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --config libs/api/billing/jest.config.cts",
+        "cwd": "{workspaceRoot}"
       }
     },
     "typecheck": {

@@ -165,4 +165,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 # bug — the bug was the unpinned CLI above, and the exact pins fix it at source.
 # The outage was invisible because nothing probed the deployed URL, which the
 # deploy-server.yml smoke check and uptime-probe.yml now cover.
-CMD ["sh", "-c", "npx prisma migrate deploy && node main.cjs"]
+# `main.js`, not `main.cjs`. The bundle is ESM since TASK_2026_499 and the
+# generated package.json carries `"type": "module"`, so the plain `.js`
+# extension resolves as ESM. NestJS 12 ships `type: module`, which is what
+# required the switch.
+CMD ["sh", "-c", "npx prisma migrate deploy && node main.js"]

@@ -17,7 +17,7 @@ import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import * as bodyParser from 'body-parser';
 import { AppModule } from './app/app.module';
-import cookieParser = require('cookie-parser');
+import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const isProduction = process.env['NODE_ENV'] === 'production';
