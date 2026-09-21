@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: in_review
 type: devops
 title: Move the web product to ESM and upgrade to NestJS 12
 description: >-
@@ -83,6 +83,54 @@ GHSA-g8qq-57p8-ggw5). It was unreachable because 2.17.6 moved `htmlparser2` to
 and the advisory closes. Do NOT override `htmlparser2` back to 10: sanitize-html
 is a security control, and running a sanitizer against a different parser than it
 was written for invites a parsing differential, which is a bypass vector.
+
+## The ESM flag is PER PROJECT, never workspace-wide
+
+NestJS 12 being ESM-only breaks every api suite, because a CommonJS test cannot
+`require()` an ESM package. Jest 30 gates that on one capability:
+
+```
+supportsSyncEvaluate =
+  typeof vm.SourceTextModule?.prototype.hasAsyncGraph === 'function'
+```
+
+`vm.SourceTextModule` only exists under `--experimental-vm-modules`.
+
+Putting that flag in the root npm scripts fixed the api libs and broke ELEVEN
+Angular ones:
+
+```
+ReferenceError: module is not defined
+  at node_modules/@angular/core/fesm2022/core.mjs:1:1
+  at jest-preset-angular/setup-env/zone/index.js
+```
+
+With the flag on, Jest loads `@angular/core` as a real ES module, where `module`
+is undefined. The two halves of this monorepo want opposite things from it. Each
+NestJS project therefore carries the flag in its own `test` target and the
+Angular libs keep the plain executor. Do not "simplify" this back to a global.
+
+Two routes that do NOT work, both measured:
+
+- `.env` cannot supply it. Jest runs in-process and `NODE_OPTIONS` is read at
+  process start.
+- `transformIgnorePatterns` over `@nestjs/*`: ts-jest transforms
+  `@nestjs/common/index.js` but not what it pulls in, and the same error
+  reappears at `utils/load-package.util.js`.
+
+## Follow-ups
+
+1. Confirm Sentry's AUTOMATIC HTTP instrumentation still patches NestJS 12.
+   `sentry.module.spec.ts` covers the exception-filter path only. Auto-instrumented
+   request spans are a separate mechanism and would fail by losing tracing rather
+   than error reports, so a green test suite does not cover it. Check on staging.
+2. Move to `@sentry/nestjs` 11 and drop the override once 11 is stable. The
+   override is a stopgap; Sentry 11 declares `^12.0.0` properly.
+3. `cross-env` is declared at 7.0.3, the version already installed. Latest is
+   10.1.0. Lift it in its own change so the bump is verified rather than smuggled.
+4. `@nx/jest:jest` is deprecated and removed in Nx 24. The 16 NestJS projects now
+   use `nx:run-commands`; the rest still use the executor and will need
+   `nx g @nx/jest:convert-to-inferred`.
 
 ## Order
 
