@@ -100,11 +100,22 @@ jobs:
       # published on the runner's localhost. Without it, `localhost` inside the
       # container is the container itself and the migration step hangs.
       #
-      # DATABASE_URL is the only variable required to boot: `PrismaService`
-      # throws without it, and nothing else in the app validates env at startup
-      # (no ConfigModule validationSchema). Secrets are deliberately NOT passed
-      # — this job proves the image boots and serves, not that any third-party
-      # integration is configured.
+      # DATABASE_URL is NOT the only variable required to boot. There is no
+      # `ConfigModule` validationSchema, so nothing declares the startup
+      # contract in one place, but six variables are load-bearing and five of
+      # them fail AFTER the migrations run, which reads like a healthy image:
+      #
+      #   WORKOS_API_KEY            workos.provider.ts — factory throws
+      #   RESEND_API_KEY            resend.provider.ts — factory throws
+      #   PADDLE_API_KEY            paddle.provider.ts — factory throws
+      #   JWT_SECRET                identity.module.ts — JwtModule factory throws
+      #   UNSUBSCRIBE_TOKEN_SECRET  onModuleInit, and it must be >= 32 bytes
+      #
+      # The values below are PLACEHOLDERS and must stay placeholders. This job
+      # proves the image boots and serves. It does not prove that any
+      # third-party integration is configured, and it must never hold a real
+      # secret: `docker inspect` output and container logs are public on a
+      # pull-request run.
       - name: Boot the image
         run: |
           docker run -d \
@@ -112,6 +123,12 @@ jobs:
             --network host \
             -e DATABASE_URL="postgresql://ptah:ptah_ci_password@localhost:5432/ptah_db" \
             -e NODE_ENV=production \
+            -e JWT_SECRET="ci-placeholder-jwt-secret" \
+            -e WORKOS_API_KEY="sk_test_ci_placeholder" \
+            -e WORKOS_CLIENT_ID="client_ci_placeholder" \
+            -e RESEND_API_KEY="re_ci_placeholder" \
+            -e PADDLE_API_KEY="pdl_ci_placeholder" \
+            -e UNSUBSCRIBE_TOKEN_SECRET="ci-placeholder-unsubscribe-secret-32-bytes-long" \
             ptah-license-server:ci
 
       # The image's own HEALTHCHECK has a 30s start period and a 30s interval,
@@ -124,8 +141,15 @@ jobs:
             status="$(docker inspect --format '{{.State.Health.Status}}' license-server-ci 2>/dev/null || echo missing)"
             running="$(docker inspect --format '{{.State.Running}}' license-server-ci 2>/dev/null || echo false)"
 
+            # Print the exit state before failing. A bare "it exited" cannot be
+            # diagnosed: 137 with OOMKilled=true is memory, 1 is a throw whose
+            # output may not have flushed, and 0 is an empty event loop — the
+            # missing-HTTP-driver shape this job was written to catch.
             if [ "$running" != "true" ]; then
               echo "::error::Container exited before becoming healthy."
+              docker inspect \
+                --format 'exitCode={{.State.ExitCode}} oomKilled={{.State.OOMKilled}} error={{.State.Error}}' \
+                license-server-ci || true
               exit 1
             fi
 
