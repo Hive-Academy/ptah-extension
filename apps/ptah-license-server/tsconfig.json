@@ -11,7 +11,7 @@
     }
   ],
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "esnext",
     "moduleResolution": "node",
     "forceConsistentCasingInFileNames": true,
     "strict": true,
@@ -19,6 +19,7 @@
     "noImplicitOverride": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "noPropertyAccessFromIndexSignature": true
+    "noPropertyAccessFromIndexSignature": true,
+    "ignoreDeprecations": "6.0"
   }
 }

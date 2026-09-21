@@ -24,7 +24,7 @@ import type { ConfigManager, Logger } from '@ptah-extension/vscode-core';
 import { SdkQueryOptionsBuilder } from './sdk-query-options-builder';
 import { CompactionConfigProvider } from './compaction-config-provider';
 
-const PINNED_SDK_VERSION = '0.3.150';
+const PINNED_SDK_VERSION = '0.3.278';
 
 // The probe payload (system prompts across 7 cases routinely exceed 100 KB
 // combined) is read from stdin, never argv or env — both are capped by the

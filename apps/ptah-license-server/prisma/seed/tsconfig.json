@@ -21,7 +21,9 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
-    "types": ["node"]
+    "types": ["node"],
+    "noUncheckedSideEffectImports": false,
+    "ignoreDeprecations": "6.0"
   },
   "include": ["./**/*.ts"],
   "exclude": ["./**/*.spec.ts"]

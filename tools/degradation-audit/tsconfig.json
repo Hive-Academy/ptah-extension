@@ -11,7 +11,11 @@
     "resolveJsonModule": true,
     "moduleResolution": "node",
     "experimentalDecorators": true,
-    "noEmit": true
+    "noEmit": true,
+    "noUncheckedSideEffectImports": false,
+    "types": ["*"],
+    "ignoreDeprecations": "6.0",
+    "rootDir": "."
   },
   "include": ["./check-degradation.ts"],
   "exclude": ["node_modules", "__fixtures__"]

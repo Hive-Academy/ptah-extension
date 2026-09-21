@@ -4,6 +4,12 @@ import { ExtractedDraftSchema } from './extract.schema';
 
 const mergeTargetId = z
   .union([z.string(), z.null(), z.undefined()])
+  // `.optional()` must come BEFORE `.transform()`. In zod 4.6.5 a transformed
+  // field is required for KEY PRESENCE even when its inner union accepts
+  // `undefined`: an explicit `undefined` parses, an absent key fails with
+  // `expected "nonoptional"`. Without this the curator silently rejects every
+  // draft the model returns without a `mergeTargetId` key.
+  .optional()
   .transform((v) => (typeof v === 'string' && v.trim() ? v.trim() : null));
 
 export const ResolvedDraftSchema = z

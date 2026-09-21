@@ -46,7 +46,9 @@ export default [
       // Component Lifecycle & Architecture
       '@angular-eslint/contextual-lifecycle': 'error',
       '@angular-eslint/no-empty-lifecycle-method': 'error',
-      '@angular-eslint/no-conflicting-lifecycle': 'error',
+      // no-conflicting-lifecycle was removed in angular-eslint 22. Referencing
+      // a rule the plugin no longer defines is a hard ESLint failure, not a
+      // warning, so it must be deleted rather than set to 'off'.
       '@angular-eslint/use-lifecycle-interface': 'error',
       '@angular-eslint/no-attribute-decorator': 'error',
       // TypeScript Enhancement

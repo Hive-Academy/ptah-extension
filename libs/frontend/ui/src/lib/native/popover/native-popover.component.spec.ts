@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Placement } from '@floating-ui/dom';
 import * as FloatingDom from '@floating-ui/dom';
@@ -16,6 +16,7 @@ jest.mock('@floating-ui/dom', () => {
 @Component({
   standalone: true,
   imports: [NativePopoverComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <ptah-native-popover
       [isOpen]="isOpen()"

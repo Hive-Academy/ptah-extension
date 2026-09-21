@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
 import { BulkRebaseConfirmComponent } from './bulk-rebase-confirm.component';
@@ -11,6 +11,7 @@ import { BulkRebaseConfirmComponent } from './bulk-rebase-confirm.component';
 @Component({
   standalone: true,
   imports: [BulkRebaseConfirmComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <button type="button" data-testid="opener" (click)="open.set(true)">
       Rebase all diverged

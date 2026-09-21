@@ -4,6 +4,7 @@ import {
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
 import { SessionVerdictStore } from '../archaeology/session-verdict.store';
 import { hasSessionWorkEvidence } from '../eligibility/session-work-evidence';
 import { ForegroundActivityTracker } from '../queue/foreground-activity.tracker';
@@ -80,13 +81,42 @@ export class SkillBacklogCleanupService {
    */
   private readonly evaluationFailures = new Map<string, number>();
 
+  /**
+   * EVERY parameter carries an explicit `@inject`, and that is not style.
+   *
+   * `emitDecoratorMetadata` is false in `tsconfig.base.json`, and esbuild does
+   * not implement it at all, so the Electron and CLI bundles contain zero
+   * `design:paramtypes`. tsyringe therefore cannot infer a parameter from its
+   * TYPE — an undecorated position is simply a hole, and the container happily
+   * constructs the class with `undefined` in it. No error is raised at
+   * registration or at resolve.
+   *
+   * Six of these eight were undecorated. The service resolved, and then died
+   * on its first real tick with `Cannot read properties of undefined (reading
+   * 'readState')`, which the cron layer flattened to `unexpected-error`.
+   * Backlog cleanup had never once run in the packaged app.
+   *
+   * The unit tests did not catch it: `tsconfig.spec.json` sets
+   * `emitDecoratorMetadata: true`, so ts-jest supplies the metadata that the
+   * production bundler cannot. Tests resolve real collaborators by type while
+   * production gets `undefined`. Do not trust a green spec here.
+   */
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_STORE)
     private readonly store: SkillBacklogCleanupStore,
+    @inject(SKILL_SYNTHESIS_TOKENS.SESSION_VERDICT_STORE)
     private readonly verdicts: SessionVerdictStore,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE)
     private readonly queue: SkillQueueStore,
+    // No symbol token exists for these two; they are registered as class
+    // tokens (`registerSingleton(TrajectoryExtractor)`), so the class IS the
+    // token and resolves the same singleton.
+    @inject(TrajectoryExtractor)
     private readonly extractor: TrajectoryExtractor,
+    @inject(SessionTranscriptLocator)
     private readonly transcriptLocator: SessionTranscriptLocator,
+    @inject(SKILL_SYNTHESIS_TOKENS.FOREGROUND_ACTIVITY_TRACKER)
     private readonly foreground: ForegroundActivityTracker,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,

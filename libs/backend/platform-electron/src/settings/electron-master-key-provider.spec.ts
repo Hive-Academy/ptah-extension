@@ -415,7 +415,6 @@ describe('C4 — writeKeyRefSync: synchronously writes key ref to disk', () => {
   });
 
   it('creates the key ref file atomically with correct fields', () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { writeKeyRefSync } = require('./electron-master-key-provider');
     const keyRefPath = path.join(tmpDir, 'master-key-ref.json');
     const ref = {
@@ -432,7 +431,6 @@ describe('C4 — writeKeyRefSync: synchronously writes key ref to disk', () => {
   });
 
   it('creates parent directories if they do not exist', () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { writeKeyRefSync } = require('./electron-master-key-provider');
     const subDir = path.join(tmpDir, 'nested', 'subdir');
     const keyRefPath = path.join(subDir, 'master-key-ref.json');
@@ -446,7 +444,6 @@ describe('C4 — writeKeyRefSync: synchronously writes key ref to disk', () => {
   });
 
   it('overwrites an existing key ref file', () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { writeKeyRefSync } = require('./electron-master-key-provider');
     const keyRefPath = path.join(tmpDir, 'master-key-ref.json');
     fs.writeFileSync(

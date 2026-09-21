@@ -11,7 +11,8 @@
     "noFallthroughCasesInSwitch": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "lib": ["es2022", "dom"]
+    "lib": ["es2022", "dom"],
+    "ignoreDeprecations": "6.0"
   },
   "files": [],
   "include": [],

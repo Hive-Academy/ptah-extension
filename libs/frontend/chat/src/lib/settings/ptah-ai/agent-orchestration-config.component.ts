@@ -189,7 +189,9 @@ import type {
                 type="range"
                 min="1"
                 max="20"
-                [value]="agentConfig()?.maxConcurrentAgents"
+                [value]="
+                  $safeNavigationMigration(agentConfig()?.maxConcurrentAgents)
+                "
                 (change)="onMaxConcurrentChange($event)"
                 class="range range-xs range-secondary"
               />

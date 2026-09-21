@@ -1,0 +1,199 @@
+# License Server Production Image — PR guard
+#
+# WHY THIS EXISTS
+#
+# The production image was built in exactly ONE place, `deploy-server.yml`,
+# which triggers only on `push: release/server` and `workflow_dispatch`. It was
+# never built on a pull request. So every defect in the production dependency
+# path reached production before anyone saw it, and the first symptom was a
+# dead deploy.
+#
+# That is not hypothetical. Three such defects were found by hand on
+# 2026-09-21, all of them invisible to the whole PR suite:
+#
+#   1. `npm ci` on the generated manifest failed with ERESOLVE. Nx's
+#      `generatePackageJson` drops any root `overrides` entry whose key is also
+#      a direct dependency, and `@sentry/nestjs` is one, so the override that
+#      forces it onto NestJS 12 was silently absent.
+#   2. The `prisma` CLI was pinned at 7.7.0 while the generated manifest
+#      carried `@prisma/client` 7.10.0. The Dockerfile's own comment already
+#      warned that a split between them breaks the container before the app
+#      boots.
+#   3. `@nestjs/platform-express` was missing entirely. `NestFactory.create`
+#      selects its HTTP driver by dynamic peer resolution, so nothing imports
+#      it statically and `generatePackageJson` cannot see it. The container
+#      completed its startup path and then died with
+#      `No driver (HTTP) has been selected`.
+#
+# Note the shape of those three: one fails at IMAGE BUILD, two fail only at
+# RUNTIME. A guard that merely builds the image would have caught one of three.
+# This job therefore builds the image AND boots it AND probes it.
+#
+# WHAT WOULD MAKE THIS GUARD VACUOUS
+#
+# Asserting on the HTTP status alone. The container reported `Up` for the
+# entire period in which it had never started, and a degraded boot can still
+# answer 200. The probe below asserts on the BODY — `"status":"ok"` and
+# `"database":"connected"` — so a server that came up without its database
+# fails here rather than passing.
+
+name: License Server Image
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      # The app, its domain libs, and anything that moves the dependency graph
+      # the generated manifest is derived from.
+      - 'apps/ptah-license-server/**'
+      - 'libs/api/**'
+      - 'libs/api-contracts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/license-server-image.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: license-server-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Build and boot the production image
+    runs-on: ubuntu-latest
+    # The multi-stage build runs a full `npm ci` twice (builder + deps). 30m is
+    # headroom, not an expectation; the measured build is well under 10m.
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ptah
+          POSTGRES_PASSWORD: ptah_ci_password
+          POSTGRES_DB: ptah_db
+        ports:
+          - '5432:5432'
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # This is the exact command `deploy-server.yml` runs. Keep them identical:
+      # a guard that builds a different image proves nothing about the deploy.
+      - name: Build the production image
+        run: |
+          docker build \
+            -f apps/ptah-license-server/Dockerfile \
+            -t ptah-license-server:ci \
+            .
+
+      # `--network host` so the container reaches the postgres SERVICE, which is
+      # published on the runner's localhost. Without it, `localhost` inside the
+      # container is the container itself and the migration step hangs.
+      #
+      # DATABASE_URL is NOT the only variable required to boot. There is no
+      # `ConfigModule` validationSchema, so nothing declares the startup
+      # contract in one place, but six variables are load-bearing and five of
+      # them fail AFTER the migrations run, which reads like a healthy image:
+      #
+      #   WORKOS_API_KEY            workos.provider.ts — factory throws
+      #   RESEND_API_KEY            resend.provider.ts — factory throws
+      #   PADDLE_API_KEY            paddle.provider.ts — factory throws
+      #   JWT_SECRET                identity.module.ts — JwtModule factory throws
+      #   UNSUBSCRIBE_TOKEN_SECRET  onModuleInit, and it must be >= 32 bytes
+      #
+      # The values below are PLACEHOLDERS and must stay placeholders. This job
+      # proves the image boots and serves. It does not prove that any
+      # third-party integration is configured, and it must never hold a real
+      # secret: `docker inspect` output and container logs are public on a
+      # pull-request run.
+      - name: Boot the image
+        run: |
+          docker run -d \
+            --name license-server-ci \
+            --network host \
+            -e DATABASE_URL="postgresql://ptah:ptah_ci_password@localhost:5432/ptah_db" \
+            -e NODE_ENV=production \
+            -e JWT_SECRET="ci-placeholder-jwt-secret" \
+            -e WORKOS_API_KEY="sk_test_ci_placeholder" \
+            -e WORKOS_CLIENT_ID="client_ci_placeholder" \
+            -e RESEND_API_KEY="re_ci_placeholder" \
+            -e PADDLE_API_KEY="pdl_ci_placeholder" \
+            -e UNSUBSCRIBE_TOKEN_SECRET="ci-placeholder-unsubscribe-secret-32-bytes-long" \
+            ptah-license-server:ci
+
+      # The image's own HEALTHCHECK has a 30s start period and a 30s interval,
+      # so the first verdict lands around 30-60s. Poll the docker-reported
+      # health rather than sleeping a fixed amount, and fail on `unhealthy` or
+      # on the container exiting rather than waiting out the full timeout.
+      - name: Wait for the container to report healthy
+        run: |
+          for i in $(seq 1 60); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' license-server-ci 2>/dev/null || echo missing)"
+            running="$(docker inspect --format '{{.State.Running}}' license-server-ci 2>/dev/null || echo false)"
+
+            # Print the exit state before failing. A bare "it exited" cannot be
+            # diagnosed: 137 with OOMKilled=true is memory, 1 is a throw whose
+            # output may not have flushed, and 0 is an empty event loop — the
+            # missing-HTTP-driver shape this job was written to catch.
+            if [ "$running" != "true" ]; then
+              echo "::error::Container exited before becoming healthy."
+              docker inspect \
+                --format 'exitCode={{.State.ExitCode}} oomKilled={{.State.OOMKilled}} error={{.State.Error}}' \
+                license-server-ci || true
+              exit 1
+            fi
+
+            case "$status" in
+              healthy)
+                echo "healthy after ~$((i * 5))s"
+                exit 0
+                ;;
+              unhealthy)
+                echo "::error::Container reported unhealthy."
+                exit 1
+                ;;
+            esac
+
+            sleep 5
+          done
+
+          echo "::error::Timed out waiting for the container to report healthy."
+          exit 1
+
+      # Assert on the BODY, not the status code. A 200 alone would let a server
+      # that booted without its database pass this guard.
+      - name: Probe /api/health
+        run: |
+          body="$(curl -sS --max-time 15 http://localhost:3000/api/health)"
+          echo "$body"
+
+          echo "$body" | grep -q '"status":"ok"' || {
+            echo "::error::health endpoint did not report status ok"
+            exit 1
+          }
+          echo "$body" | grep -q '"database":"connected"' || {
+            echo "::error::health endpoint did not report database connected"
+            exit 1
+          }
+
+      # The interesting failures are all in the logs: ERESOLVE at build, the
+      # Prisma client/CLI split at `migrate deploy`, and the missing HTTP driver
+      # right after Nest finishes wiring. Print them so the failure is readable
+      # without a local reproduction.
+      - name: Container logs
+        if: always()
+        run: docker logs license-server-ci || true
+
+      - name: Tear down
+        if: always()
+        run: docker rm -f license-server-ci || true

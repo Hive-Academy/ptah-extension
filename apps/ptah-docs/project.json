@@ -40,7 +40,10 @@
       "continuous": true,
       "options": {
         "cwd": "apps/ptah-docs",
-        "command": "astro dev"
+        "command": "astro dev",
+        "env": {
+          "ASTRO_DEV_BACKGROUND": "false"
+        }
       }
     },
     "serve": {
@@ -48,7 +51,10 @@
       "continuous": true,
       "options": {
         "cwd": "apps/ptah-docs",
-        "command": "astro dev"
+        "command": "astro dev",
+        "env": {
+          "ASTRO_DEV_BACKGROUND": "false"
+        }
       }
     },
     "preview": {

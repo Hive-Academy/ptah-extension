@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -65,7 +65,7 @@ describe('PacksPage (R5.1, R5.5, R5.7, RISK-AQ, NFR-U)', () => {
     await TestBed.configureTestingModule({
       imports: [PacksPage],
       providers: [
-        provideHttpClient(),
+        provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter([]),
       ],

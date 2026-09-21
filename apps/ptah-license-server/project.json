@@ -13,10 +13,15 @@
         "outputPath": "dist/apps/ptah-license-server",
         "main": "apps/ptah-license-server/src/main.ts",
         "tsConfig": "apps/ptah-license-server/tsconfig.app.json",
-        "format": ["cjs"],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
+        "esbuildOptions": {
+          "banner": {
+            "js": "import { createRequire } from 'node:module'; import { fileURLToPath as __esm_fileURLToPath } from 'node:url'; import { dirname as __esm_dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = __esm_fileURLToPath(import.meta.url); const __dirname = __esm_dirname(__filename);"
+          }
+        },
         "generatePackageJson": true,
         "thirdParty": false,
         "external": [
@@ -129,17 +134,12 @@
       }
     },
     "test": {
-      "executor": "@nx/jest:jest",
+      "executor": "nx:run-commands",
+      "//": "NestJS 12 is ESM-only while these specs compile to CommonJS. Jest needs vm.SourceTextModule to require() an ESM package, and that only exists under --experimental-vm-modules. Scoped per project, NOT workspace-wide: the same flag makes Jest load @angular/core as a real ES module where `module` is undefined, breaking every jest-preset-angular suite.",
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "jestConfig": "apps/ptah-license-server/jest.config.ts",
-        "passWithNoTests": true
-      },
-      "configurations": {
-        "ci": {
-          "ci": true,
-          "codeCoverage": true
-        }
+        "command": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --config apps/ptah-license-server/jest.config.ts",
+        "cwd": "{workspaceRoot}"
       }
     },
     "typecheck": {

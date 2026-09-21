@@ -74,6 +74,7 @@ import { SESSION_CONTEXT } from '../../tokens/session-context.token';
 @Component({
   selector: 'ptah-message-bubble',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class MessageBubbleStub {
@@ -90,6 +91,7 @@ class MessageBubbleStub {
 @Component({
   selector: 'ptah-chat-empty-state',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class EmptyStateStub {

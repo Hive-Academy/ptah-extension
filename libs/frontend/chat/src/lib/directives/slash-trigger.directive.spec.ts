@@ -11,7 +11,7 @@
  * - @ in input no longer disables slash trigger (they operate independently)
  */
 
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, fakeAsync, tick, flush } from '@angular/core/testing';
 import {
   SlashTriggerDirective,
@@ -27,6 +27,7 @@ import {
     (slashClosed)="onClosed()"
     (slashQueryChanged)="onQueryChanged($event)"
   ></textarea>`,
+  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [SlashTriggerDirective],
 })
 class TestHostComponent {

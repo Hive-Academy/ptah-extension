@@ -16,7 +16,12 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { Component, computed, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { provideMarkdown } from 'ngx-markdown';
 import { AgentCardOutputComponent } from '@ptah-extension/chat-ui';
 import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
@@ -38,6 +43,7 @@ import {
 @Component({
   standalone: true,
   imports: [AgentCardOutputComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `<ptah-agent-card-output
     [segments]="segments()"
     [stderrSegments]="stderrSegments()"

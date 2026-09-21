@@ -55,8 +55,13 @@ export interface SdkSessionCronSummary {
 }
 
 /**
- * Structural mirror of the SDK's 12-variant `TerminalReason` union
- * (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:5687`).
+ * Structural mirror of the SDK's 19-variant `TerminalReason` union
+ * (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`).
+ *
+ * The SDK widened this from 12 to 19 members between 0.3.150 and 0.3.278.
+ * Widen this union, `SdkTerminalReasonSchema` and the parser's literal list
+ * together — a member present in one and missing from another is a payload
+ * that type-checks and then fails validation at runtime.
  */
 export type SdkTerminalReason =
   | 'blocking_limit'
@@ -64,12 +69,19 @@ export type SdkTerminalReason =
   | 'prompt_too_long'
   | 'image_error'
   | 'model_error'
+  | 'api_error'
+  | 'malformed_tool_use_exhausted'
   | 'aborted_streaming'
   | 'aborted_tools'
   | 'stop_hook_prevented'
   | 'hook_stopped'
   | 'tool_deferred'
+  | 'tool_deferred_unavailable'
   | 'max_turns'
+  | 'background_requested'
+  | 'budget_exhausted'
+  | 'structured_output_retry_exhausted'
+  | 'turn_setup_failed'
   | 'completed';
 
 /**
@@ -79,13 +91,17 @@ export type SdkTerminalReason =
 export type SdkAssistantMessageError =
   | 'authentication_failed'
   | 'oauth_org_not_allowed'
+  | 'account_on_hold'
+  | 'verification_required'
   | 'billing_error'
   | 'rate_limit'
+  | 'overloaded'
   | 'invalid_request'
   | 'model_not_found'
   | 'server_error'
   | 'unknown'
-  | 'max_output_tokens';
+  | 'max_output_tokens'
+  | 'cloud_credential_error';
 
 /**
  * Wire payload for `MESSAGE_TYPES.SESSION_TURN_ENDED`

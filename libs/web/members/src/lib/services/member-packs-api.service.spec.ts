@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -57,7 +57,7 @@ describe('MemberPacksApiService (R5.1, R5.3, NFR-S1, NFR-S5)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(withXhr()), provideHttpClientTesting()],
     });
     service = TestBed.inject(MemberPacksApiService);
     http = TestBed.inject(HttpTestingController);
@@ -207,16 +207,14 @@ describe('MemberPacksApiService (R5.1, R5.3, NFR-S1, NFR-S5)', () => {
       // A whole-shape assertion rather than one absence, so a field added to
       // the member contract is a diff a reviewer reads rather than a discovery.
       const promise = firstValueFrom(service.list());
-      http
-        .expectOne(PACKS)
-        .flush([
-          {
-            ...labelledPack(),
-            notes: 'x',
-            createdBy: 'y',
-            memberVisible: true,
-          },
-        ]);
+      http.expectOne(PACKS).flush([
+        {
+          ...labelledPack(),
+          notes: 'x',
+          createdBy: 'y',
+          memberVisible: true,
+        },
+      ]);
 
       return promise.then(([pack]) => {
         expect(Object.keys(pack).sort()).toEqual([

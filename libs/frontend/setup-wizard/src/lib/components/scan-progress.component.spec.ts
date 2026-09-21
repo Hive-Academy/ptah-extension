@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type {
   AgentRecommendation,
@@ -25,6 +25,7 @@ import { AnalysisActivityIndicatorComponent } from './analysis-activity-indicato
 @Component({
   selector: 'ptah-analysis-transcript',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class StubAnalysisTranscriptComponent {}
@@ -38,6 +39,7 @@ class StubAnalysisTranscriptComponent {}
 @Component({
   selector: 'ptah-analysis-activity-indicator',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class StubAnalysisActivityIndicatorComponent {}

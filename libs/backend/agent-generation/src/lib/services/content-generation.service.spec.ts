@@ -888,7 +888,6 @@ Content
         frameworks: [
           {
             toString: () => {
-              // eslint-disable-next-line no-throw-literal
               throw 'string-throw';
             },
           } as never,

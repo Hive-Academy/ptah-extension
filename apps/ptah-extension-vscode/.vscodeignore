@@ -32,14 +32,14 @@ CLAUDE.md
 
 # OS files
 .DS_Store
-Thumbs.db
+**/Thumbs.db
 
 # Source maps (not needed for production)
 **/*.map
 
 # Misc
-*.vsix
-*.log
+**/*.vsix
+**/*.log
 
 # No node_modules needed - all dependencies bundled into main.mjs, WASM files copied as assets
 **/node_modules/**
@@ -58,8 +58,12 @@ Thumbs.db
 # Harness preset seed artifacts — Electron/CLI-imported, not VSIX assets (may name CLI vendors)
 **/assets/harnesses/**
 
-# License file — triggers marketplace scanner
-LICENSE.md
+# License file — triggers marketplace scanner.
+# `**/` is load-bearing: a bare filename pattern matches at the package ROOT only,
+# so a LICENSE.md copied into any subdirectory shipped inside the VSIX. Measured
+# 2026-09-21 with `vsce ls` on both 3.9.2 and 4.0.0 — both included nested/LICENSE.md.
+# A marketplace rejection burns the extension ID permanently.
+**/LICENSE.md
 
 # Docs site — separate Astro/Starlight app, never bundled into the extension
 **/apps/ptah-docs/**

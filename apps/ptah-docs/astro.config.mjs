@@ -35,11 +35,11 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Getting Started',
-          autogenerate: { directory: 'getting-started' },
+          items: [{ autogenerate: { directory: 'getting-started' } }],
         },
         {
           label: 'Chat',
-          autogenerate: { directory: 'chat' },
+          items: [{ autogenerate: { directory: 'chat' } }],
         },
         {
           label: 'Orchestra Canvas',
@@ -47,11 +47,11 @@ export default defineConfig({
         },
         {
           label: 'Providers',
-          autogenerate: { directory: 'providers' },
+          items: [{ autogenerate: { directory: 'providers' } }],
         },
         {
           label: 'Agents',
-          autogenerate: { directory: 'agents' },
+          items: [{ autogenerate: { directory: 'agents' } }],
         },
         {
           label: 'Setup',
@@ -64,11 +64,11 @@ export default defineConfig({
         },
         {
           label: 'Sessions',
-          autogenerate: { directory: 'sessions' },
+          items: [{ autogenerate: { directory: 'sessions' } }],
         },
         {
           label: 'Workspace',
-          autogenerate: { directory: 'workspace' },
+          items: [{ autogenerate: { directory: 'workspace' } }],
         },
         {
           label: 'Memory',
@@ -129,7 +129,7 @@ export default defineConfig({
         },
         {
           label: 'Git & Version Control',
-          autogenerate: { directory: 'git' },
+          items: [{ autogenerate: { directory: 'git' } }],
         },
         {
           label: 'Marketplace',

@@ -244,3 +244,4 @@ tools/video-editor/projects/*/graphics/**/node_modules/
 # Delete this whole block to opt out, or set harness.manageGitignore to false.
 .github/skills/
 # ptah:harness:end
+.ptah/specs/**/*.log

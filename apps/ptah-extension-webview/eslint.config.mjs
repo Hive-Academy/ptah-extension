@@ -33,7 +33,7 @@ export default [
       // Component Lifecycle & Architecture
       '@angular-eslint/contextual-lifecycle': 'error',
       '@angular-eslint/no-empty-lifecycle-method': 'error',
-      '@angular-eslint/no-conflicting-lifecycle': 'error',
+
       '@angular-eslint/use-lifecycle-interface': 'error',
       '@angular-eslint/no-attribute-decorator': 'error',
       // TypeScript Enhancement

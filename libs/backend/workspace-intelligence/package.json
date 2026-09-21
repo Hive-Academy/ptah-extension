@@ -13,8 +13,8 @@
     "tsyringe": "*",
     "@ptah-extension/vscode-core": "*",
     "gray-matter": "*",
-    "web-tree-sitter": "^0.26.8",
+    "web-tree-sitter": "^0.27.0",
     "@ptah-extension/memory-contracts": "*",
-    "typescript": "^5.9.0"
+    "typescript": "6.0.3"
   }
 }

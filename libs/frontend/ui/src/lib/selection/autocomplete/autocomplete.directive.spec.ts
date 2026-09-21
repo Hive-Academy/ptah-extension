@@ -1,10 +1,16 @@
-import { Component, ElementRef, ViewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  ViewChild,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { AutocompleteDirective } from './autocomplete.directive';
 
 @Component({
   standalone: true,
   imports: [AutocompleteDirective],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <input type="text" autocompleteInput placeholder="Type to search..." />
   `,

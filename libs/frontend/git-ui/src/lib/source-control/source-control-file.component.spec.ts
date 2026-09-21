@@ -16,7 +16,7 @@
  * independent of propagation suppression.
  */
 
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type { GitFileStatus } from '@ptah-extension/shared';
 import type { OpenDiffRequest } from '../types/diff-tab.types';
@@ -28,6 +28,7 @@ const INTERACTIVE = 'a[href], button, input, select, textarea, [tabindex]';
 @Component({
   standalone: true,
   imports: [SourceControlFileComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div role="list" aria-label="Test files">
       <ptah-source-control-file

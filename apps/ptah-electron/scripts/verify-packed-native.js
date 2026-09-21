@@ -61,6 +61,7 @@ const ELECTRON_ABI_FALLBACK = {
   41: 145,
   42: 146,
   43: 148,
+  44: 149,
 };
 
 function getElectronVersion() {

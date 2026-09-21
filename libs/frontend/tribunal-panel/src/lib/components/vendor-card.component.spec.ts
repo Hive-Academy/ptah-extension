@@ -29,6 +29,7 @@ class AgentMonitorPanelStubComponent {
 @Component({
   standalone: true,
   imports: [VendorCardComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `<ptah-vendor-card
     [lane]="lane"
     [tribunalSessionId]="sessionId"

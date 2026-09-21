@@ -1,5 +1,5 @@
 import { provideLocationMocks } from '@angular/common/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -90,7 +90,7 @@ describe('MemberGuard guards /members from app.routes.ts (R9.5)', () => {
 
     TestBed.configureTestingModule({
       providers: [
-        provideHttpClient(),
+        provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter(APP_SHAPED_ROUTES),
         provideLocationMocks(),

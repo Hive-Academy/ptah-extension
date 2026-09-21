@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -81,7 +81,7 @@ describe('AccountPage (R9.6, R9.7, NFR-U1–U5)', () => {
     TestBed.configureTestingModule({
       imports: [AccountPage],
       providers: [
-        provideHttpClient(),
+        provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter([]),
       ],

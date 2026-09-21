@@ -22,7 +22,14 @@ jest.mock('@ptah-extension/markdown', () => ({
   ).MarkdownBlockComponent,
 }));
 
-import { Component, computed, input, output, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  input,
+  output,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import type { GitFileStatus } from '@ptah-extension/shared';
@@ -137,12 +144,18 @@ function makeTab(filePath: string, fileName: string): EditorTab {
   return { filePath, fileName, content: '', isDirty: false };
 }
 
-@Component({ selector: 'ptah-git-dock-header', standalone: true, template: '' })
+@Component({
+  selector: 'ptah-git-dock-header',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
+  template: '',
+})
 class GitDockHeaderStubComponent {}
 
 @Component({
   selector: 'ptah-source-control-panel',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class SourceControlPanelStubComponent {
@@ -157,19 +170,26 @@ class SourceControlPanelStubComponent {
 @Component({
   selector: 'ptah-git-review-toolbar',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class GitReviewToolbarStubComponent {}
 @Component({
   selector: 'ptah-git-review-panel',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class GitReviewPanelStubComponent {
   readonly workspaceRoot = input.required<string>();
 }
 
-@Component({ selector: 'ptah-diff-view', standalone: true, template: '' })
+@Component({
+  selector: 'ptah-diff-view',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
+  template: '',
+})
 class DiffViewStubComponent {
   readonly diffTab = input.required<EditorTab>();
   readonly openDiffKeys = input.required<readonly string[]>();
@@ -177,7 +197,12 @@ class DiffViewStubComponent {
   readonly retryRequested = output<string>();
 }
 
-@Component({ selector: 'ptah-file-view', standalone: true, template: '' })
+@Component({
+  selector: 'ptah-file-view',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
+  template: '',
+})
 class FileViewStubComponent {
   readonly tab = input.required<EditorTab>();
   readonly editorTargets = input.required<readonly never[]>();

@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { DropdownComponent } from './dropdown.component';
 import { ConnectedPosition } from '@angular/cdk/overlay';
 import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
@@ -11,6 +11,7 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
 @Component({
   standalone: true,
   imports: [DropdownComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <ptah-dropdown
       [isOpen]="isOpen()"

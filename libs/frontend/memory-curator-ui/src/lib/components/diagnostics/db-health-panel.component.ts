@@ -233,7 +233,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
             [class.badge-error]="
               !embedderReady() &&
               !embedderDownloading() &&
-              embedderStatus()?.error !== undefined
+              $safeNavigationMigration(embedderStatus()?.error) !== undefined
             "
             [class.badge-ghost]="
               !embedderReady() &&

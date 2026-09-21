@@ -70,6 +70,17 @@ RUN apk add --no-cache openssl libc6-compat
 COPY --from=builder /app/dist/apps/ptah-license-server/package.json ./
 COPY --from=builder /app/dist/apps/ptah-license-server/package-lock.json ./
 
+# Re-inject the @sentry/nestjs peer override that generatePackageJson drops.
+# Nx omits any root `overrides` entry whose key is also a direct dependency of
+# the generated manifest (npm EOVERRIDE caution), and @sentry/nestjs is a direct
+# dependency because project.json keeps it external. Without the override,
+# `npm ci` below fails with ERESOLVE: @sentry/nestjs@10.75.0 declares peers
+# `@nestjs/common@^8 || ^9 || ^10 || ^11` while this manifest pins 12.0.3.
+# This mirrors the root package.json override exactly; the `$` references
+# resolve against THIS manifest's own @nestjs/* pins. Verified 2026-09-21:
+# npm ci against the emitted pair fails without it and succeeds with it.
+RUN node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json","utf8"));p.overrides=Object.assign({},p.overrides,{"@sentry/nestjs":{"@nestjs/common":"$@nestjs/common","@nestjs/core":"$@nestjs/core"}});fs.writeFileSync("package.json",JSON.stringify(p,null,2));'
+
 # Install that generated set EXACTLY — direct and transitive. This is the whole
 # dependency tree for the app, versioned by the build rather than by hand.
 #
@@ -91,21 +102,31 @@ COPY --from=builder /app/dist/apps/ptah-license-server/package-lock.json ./
 # connection failed. Nothing here needs a postinstall.
 RUN npm ci --omit=dev --ignore-scripts
 
-# The one package the generated manifest cannot carry. `generatePackageJson`
-# emits root `dependencies` only, and the prisma CLI is a devDependency — as it
-# should be, since it is a tool rather than something main.cjs imports. But the
-# CMD below runs `npx prisma migrate deploy`, so the image needs it.
+# The packages the generated manifest cannot carry:
 #
-# EXACT VERSION ON PURPOSE — DO NOT LOOSEN. The CLI must stay equal to
-# `@prisma/client` in the generated manifest (7.7.0); a major split between them
-# breaks the container before the app boots, which is what happened on
-# 2026-09-04. `--no-save` keeps the generated manifest authoritative.
+# 1. `prisma` — `generatePackageJson` emits root `dependencies` only, and the
+#    CLI is a devDependency, as it should be since it is a tool rather than
+#    something main.js imports. But the CMD below runs `npx prisma migrate
+#    deploy`, so the image needs it. EXACT VERSION ON PURPOSE — DO NOT LOOSEN.
+#    The CLI must stay equal to `@prisma/client` in the generated manifest
+#    (7.10.0); a major split between them breaks the container before the app
+#    boots, which is what happened on 2026-09-04. `--no-save` keeps the
+#    generated manifest authoritative.
+#
+# 2. `@nestjs/platform-express` — `NestFactory.create` selects the HTTP driver
+#    by dynamic peer resolution (PackageLoader), so no source file imports it
+#    and `generatePackageJson` cannot emit it; the emitted manifest carries
+#    `express` but not the driver that wraps it. Without it the app completes
+#    its startup path and then dies with `No driver (HTTP) has been selected`
+#    — measured 2026-09-21 on the image built from the emitted pair. Same
+#    exact-version rule: pinned equal to `@nestjs/core` in the generated
+#    manifest (12.0.3).
 #
 # Three further packages used to be named here — @workos-inc/node,
 # @nestjs/config and @nestjs/jwt. They were missing from the generated manifest
 # only because they were misfiled under root `devDependencies` despite being
 # runtime imports. Fixed at the source in package.json, so Nx now emits them.
-RUN npm install --omit=dev --no-save --ignore-scripts prisma@7.7.0
+RUN npm install --omit=dev --no-save --ignore-scripts prisma@7.10.0 @nestjs/platform-express@12.0.3
 
 # -----------------------------------------------------------------------------
 # Stage 3: Production - Minimal runtime image
@@ -165,4 +186,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 # bug — the bug was the unpinned CLI above, and the exact pins fix it at source.
 # The outage was invisible because nothing probed the deployed URL, which the
 # deploy-server.yml smoke check and uptime-probe.yml now cover.
-CMD ["sh", "-c", "npx prisma migrate deploy && node main.cjs"]
+# `main.js`, not `main.cjs`. The bundle is ESM since TASK_2026_499 and the
+# generated package.json carries `"type": "module"`, so the plain `.js`
+# extension resolves as ESM. NestJS 12 ships `type: module`, which is what
+# required the switch.
+CMD ["sh", "-c", "npx prisma migrate deploy && node main.js"]

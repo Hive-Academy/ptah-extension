@@ -18,7 +18,14 @@
  *   3. targets attached on the PERMISSION map only -> excluded (cross-wire guard)
  */
 
-import { Component, EventEmitter, Input, Output, signal } from '@angular/core';
+import {
+  Component,
+  EventEmitter,
+  Input,
+  Output,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 
 // `@ptah-extension/chat` transitively pulls in `ngx-markdown` -> `marked`, which
 // ships ESM-only and dies in Jest's CJS loader. Same stub pattern as
@@ -92,6 +99,7 @@ import { HarnessBuilderViewComponent } from './harness-builder-view.component';
 @Component({
   selector: 'ptah-execution-node',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class StubExecutionNodeComponent {
@@ -104,6 +112,7 @@ class StubExecutionNodeComponent {
 @Component({
   selector: 'ptah-permission-request-card',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class StubPermissionRequestCardComponent {
@@ -115,6 +124,7 @@ class StubPermissionRequestCardComponent {
 @Component({
   selector: 'ptah-question-card',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class StubQuestionCardComponent {
@@ -126,6 +136,7 @@ class StubQuestionCardComponent {
 @Component({
   selector: 'ptah-harness-config-preview',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class StubHarnessConfigPreviewComponent {}

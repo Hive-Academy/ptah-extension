@@ -75,7 +75,11 @@ export interface Query {
   next(): Promise<IteratorResult<SDKMessage, void>>;
   return?(value?: void): Promise<IteratorResult<SDKMessage, void>>;
   throw?(e?: unknown): Promise<IteratorResult<SDKMessage, void>>;
-  interrupt(): Promise<void>;
+  // SDK 0.3.278 changed this from `Promise<void>` to
+  // `Promise<SDKControlInterruptResponse | undefined>`. This interface is a
+  // structural mirror kept deliberately free of SDK imports, so it widens to
+  // `unknown` rather than naming the SDK type. Callers here ignore the value.
+  interrupt(): Promise<unknown>;
   setPermissionMode(mode: string): Promise<void>;
   setModel(model?: string): Promise<void>;
   applyFlagSettings(settings: { effortLevel?: FlagEffortLevel }): Promise<void>;

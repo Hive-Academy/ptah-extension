@@ -11,7 +11,8 @@
     "experimentalDecorators": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "strict": true
+    "strict": true,
+    "ignoreDeprecations": "6.0"
   },
   "include": [
     "jest.setup.ts",

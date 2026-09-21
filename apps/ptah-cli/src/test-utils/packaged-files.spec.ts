@@ -187,10 +187,12 @@ describe('publish-cli.yml build sequence', () => {
     // -> manifest copy) that actually produces every bundle in the right
     // order. `restore-cli-manifest` is that graph; requiring the workflow to
     // call it directly is the fix.
-    // The publish job calls it through the local binary, not `npx`
-    // (SonarCloud githubactions:S6505 / S8543).
+    // The publish job uses npm's local binary shim rather than `npx`, which can
+    // install a package on demand and run lifecycle scripts (SonarCloud
+    // githubactions:S6505 / S8543). It must not reach into Nx package internals:
+    // Nx 23 removed `nx/bin/nx.js`, while the generated shim follows `bin`.
     expect(publishWorkflow).toContain(
-      'node node_modules/nx/bin/nx.js run ptah-cli:restore-cli-manifest',
+      'node_modules/.bin/nx run ptah-cli:restore-cli-manifest',
     );
   });
 });

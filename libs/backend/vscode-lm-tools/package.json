@@ -15,7 +15,7 @@
     "@ptah-extension/workspace-intelligence": "0.0.1",
     "@ptah-extension/cli-agent-runtime": "0.0.1",
     "json2md": "^2.0.1",
-    "minimatch": "10.2.4",
+    "minimatch": "10.2.6",
     "exa-js": "^2.10.2",
     "@tavily/core": "^0.7.2",
     "chrome-launcher": "^1.2.1",

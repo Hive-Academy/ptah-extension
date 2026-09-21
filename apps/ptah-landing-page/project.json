@@ -14,6 +14,7 @@
         "browser": "apps/ptah-landing-page/src/main.ts",
         "server": "apps/ptah-landing-page/src/main.server.ts",
         "outputMode": "static",
+        "externalDependencies": ["marked-katex-extension"],
         "polyfills": ["zone.js"],
         "tsConfig": "apps/ptah-landing-page/tsconfig.app.json",
         "assets": [
@@ -69,6 +70,7 @@
       "continuous": true,
       "executor": "@angular/build:dev-server",
       "options": {
+        "port": 4200,
         "proxyConfig": "apps/ptah-landing-page/proxy.conf.json"
       },
       "configurations": {

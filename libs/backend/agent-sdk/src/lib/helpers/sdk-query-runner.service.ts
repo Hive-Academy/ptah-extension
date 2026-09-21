@@ -273,6 +273,8 @@ export class SdkQueryRunner {
       !Array.isArray(options.systemPrompt)
         ? options.systemPrompt
         : undefined;
+    const systemPromptAppend =
+      systemPromptObj?.type === 'preset' ? systemPromptObj.append : undefined;
 
     this.logger.info(`${SERVICE_TAG} SDK options built — launching query`, {
       model: input.model,
@@ -282,8 +284,10 @@ export class SdkQueryRunner {
       mcpServerUrls: Object.entries(options.mcpServers ?? {}).map(
         ([name, cfg]) => `${name}=${(cfg as { url?: string }).url ?? 'N/A'}`,
       ),
-      hasSystemPromptAppend: !!systemPromptObj?.append,
-      systemPromptAppendLength: systemPromptObj?.append?.length ?? 0,
+      // SDK 0.3.278 made `systemPrompt` a union: only the `preset` branch
+      // carries `append`. The `custom` branch has a `prompt` instead.
+      hasSystemPromptAppend: !!systemPromptAppend,
+      systemPromptAppendLength: systemPromptAppend?.length ?? 0,
       hasPathToExecutable: !!options.pathToClaudeCodeExecutable,
       pathToExecutable: options.pathToClaudeCodeExecutable ?? 'SDK_DEFAULT',
       pluginCount: options.plugins?.length ?? 0,

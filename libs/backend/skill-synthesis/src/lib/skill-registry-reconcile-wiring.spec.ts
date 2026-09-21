@@ -15,7 +15,7 @@ const sql0023 = MIGRATIONS.find((m) => m.version === 23)?.sql ?? '';
 
 interface BetterSqliteDb {
   exec(sql: string): void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   prepare(sql: string): {
     run(...args: any[]): any;
     get(...args: any[]): any;
@@ -26,7 +26,6 @@ interface BetterSqliteDb {
 
 let nativeAvailable = false;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const DB = require('better-sqlite3') as new (path: string) => {
     close(): void;
   };
@@ -39,7 +38,6 @@ try {
 
 const maybe = nativeAvailable ? describe : describe.skip;
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const DatabaseCtor = nativeAvailable
   ? (require('better-sqlite3') as new (path: string) => BetterSqliteDb)
   : null;

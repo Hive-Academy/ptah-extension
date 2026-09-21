@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -27,7 +27,7 @@ describe('MemberLiveApiService', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(withXhr()), provideHttpClientTesting()],
     });
     service = TestBed.inject(MemberLiveApiService);
     http = TestBed.inject(HttpTestingController);
@@ -67,12 +67,10 @@ describe('MemberLiveApiService', () => {
       // field the server sends and may NEVER declare one the server does not
       // (RISK-C) — and it is why B13 follows B12 rather than running beside it.
       const promise = firstValueFrom(service.read());
-      http
-        .expectOne(LIVE)
-        .flush({
-          ...memberLiveResponse(),
-          somethingNew: 'from a later server',
-        });
+      http.expectOne(LIVE).flush({
+        ...memberLiveResponse(),
+        somethingNew: 'from a later server',
+      });
 
       const result = await promise;
       expect('somethingNew' in result).toBe(false);
@@ -92,13 +90,11 @@ describe('MemberLiveApiService', () => {
 
     it('rejects an item whose `state` is outside the three-value union', async () => {
       const promise = firstValueFrom(service.read());
-      http
-        .expectOne(LIVE)
-        .flush(
-          memberLiveResponse({
-            upcoming: [{ ...liveFeedItem(), state: 'soon' }],
-          }),
-        );
+      http.expectOne(LIVE).flush(
+        memberLiveResponse({
+          upcoming: [{ ...liveFeedItem(), state: 'soon' }],
+        }),
+      );
 
       await expect(promise).rejects.toThrow(/GET \/members\/live/);
     });

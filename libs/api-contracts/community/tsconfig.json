@@ -13,7 +13,8 @@
     "noFallthroughCasesInSwitch": true,
     "noPropertyAccessFromIndexSignature": true,
     "forceConsistentCasingInFileNames": true,
-    "importHelpers": true
+    "importHelpers": true,
+    "ignoreDeprecations": "6.0"
   },
   "files": [],
   "include": [],

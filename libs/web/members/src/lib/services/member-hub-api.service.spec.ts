@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -57,7 +57,7 @@ describe('MemberHubApiService', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(withXhr()), provideHttpClientTesting()],
     });
     httpMock = TestBed.inject(HttpTestingController);
     api = TestBed.inject(MemberHubApiService);
@@ -123,7 +123,7 @@ describe('HubPage — exactly one data request on initial render (R6.2)', () => 
       // does not instantiate without it. An empty route table is enough — this
       // spec never navigates.
       providers: [
-        provideHttpClient(),
+        provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter([]),
       ],

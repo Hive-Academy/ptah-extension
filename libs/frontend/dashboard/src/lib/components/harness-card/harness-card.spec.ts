@@ -23,7 +23,7 @@
  */
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import {
   AppStateManager,
   ClaudeRpcService,
@@ -49,6 +49,7 @@ import { HarnessCardComponent } from './harness-card.component';
 @Component({
   selector: 'ptah-analytics-card',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class StubAnalyticsCardComponent {}
@@ -56,6 +57,7 @@ class StubAnalyticsCardComponent {}
 @Component({
   selector: 'ptah-builders-card',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class StubBuildersCardComponent {}

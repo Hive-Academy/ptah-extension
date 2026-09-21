@@ -1,5 +1,6 @@
 import nx from '@nx/eslint-plugin';
 import baseConfig from '../../../eslint.config.mjs';
+import specChangeDetection from '../../../eslint.spec-change-detection.mjs';
 
 export default [
   ...baseConfig,
@@ -26,4 +27,5 @@ export default [
       ],
     },
   },
+  specChangeDetection,
 ];

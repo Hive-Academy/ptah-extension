@@ -1,4 +1,10 @@
-import { Component, TemplateRef, ViewChild, signal } from '@angular/core';
+import {
+  Component,
+  TemplateRef,
+  ViewChild,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import * as FloatingDom from '@floating-ui/dom';
 import { NativeAutocompleteComponent } from './native-autocomplete.component';
@@ -20,6 +26,7 @@ interface TestSuggestion {
 @Component({
   standalone: true,
   imports: [NativeAutocompleteComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <ptah-native-autocomplete
       [suggestions]="suggestions()"

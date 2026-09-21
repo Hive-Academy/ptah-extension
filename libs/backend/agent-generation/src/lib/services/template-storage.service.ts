@@ -91,6 +91,18 @@ export class TemplateStorageService implements ITemplateStorageService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    // `@inject` is REQUIRED even though the live path never uses it. The
+    // production bundlers emit no `design:paramtypes` (emitDecoratorMetadata
+    // is off, and esbuild ignores it regardless), so an undecorated position
+    // is a hole tsyringe fills with `undefined` — silently. Today this class
+    // is only ever built by the factory in `di/register.ts`, which passes a
+    // resolver explicitly, so the hole is unreachable. But the class is
+    // exported from the library's public index, so any consumer calling
+    // `container.resolve(TemplateStorageService)` would get `undefined` here
+    // and crash later inside `resolve()`. Decorating it costs nothing and
+    // removes the trap. `TemplatePartialResolver` is `@injectable()` with a
+    // fully decorated constructor, so the class token resolves cleanly.
+    @inject(TemplatePartialResolver)
     private readonly partialResolver: TemplatePartialResolver,
     templatesPath?: string,
   ) {
@@ -392,8 +404,7 @@ export class TemplateStorageService implements ITemplateStorageService {
         frontmatter['version'] = frontmatter['templateVersion'];
       }
       const rules = frontmatter['applicabilityRules'] as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
       if (rules) {
         if (!Array.isArray(rules['frameworks'])) {
           rules['frameworks'] = [];
