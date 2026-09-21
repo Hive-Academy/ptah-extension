@@ -34,6 +34,20 @@ function asLogger(mock: MockLogger): Logger {
   return mock as unknown as Logger;
 }
 
+/**
+ * The interactive path takes an iterable prompt and never a string — a string
+ * is what makes the SDK mark the query single-turn and close its input on the
+ * first `result` (TASK_2026_472). These specs care about the runner's launch
+ * seam, not about the prompt's contents, so an empty iterable is enough.
+ */
+function emptyPrompt(): AsyncIterable<SDKUserMessage> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      // yields nothing
+    },
+  };
+}
+
 function createFakeQuery(tag = 'fake'): Query & { close: jest.Mock } {
   const gen = createFakeAsyncGenerator<SDKMessage>([]);
   return {
@@ -368,7 +382,7 @@ describe('SdkQueryRunner', () => {
 
       const result = h.runner.invokeWithLoadedQuery(
         h.queryFn as unknown as QueryFunction,
-        'prompt-z',
+        emptyPrompt(),
         {} as SdkQueryOptions,
       );
 
@@ -466,7 +480,7 @@ describe('SdkQueryRunner', () => {
 
       const result = await h.runner.runInteractive({
         mode: 'interactive',
-        prompt: 'interactive-prompt',
+        prompt: emptyPrompt(),
         options: {} as SdkQueryOptions,
       });
 
@@ -796,7 +810,7 @@ describe('SdkQueryRunner', () => {
 
       h.runner.invokeWithLoadedQuery(
         h.queryFn as unknown as QueryFunction,
-        'prompt',
+        emptyPrompt(),
         options,
       );
 
@@ -818,7 +832,7 @@ describe('SdkQueryRunner', () => {
 
       h.runner.invokeWithLoadedQuery(
         h.queryFn as unknown as QueryFunction,
-        'prompt',
+        emptyPrompt(),
         options,
       );
 
@@ -843,7 +857,7 @@ describe('SdkQueryRunner', () => {
 
       h.runner.invokeWithLoadedQuery(
         h.queryFn as unknown as QueryFunction,
-        'prompt',
+        emptyPrompt(),
         {} as SdkQueryOptions,
       );
 

@@ -6,10 +6,9 @@
  *   - creates the AbortController (the load-bearing identity preserved end-to-
  *     end through registration, queryFn options, and the returned result),
  *   - pre-registers the session via Registry,
- *   - detects slash commands (with the attachment-bypass invariant first),
- *   - seeds the message queue for non-slash-command initial prompts,
+ *   - seeds the message queue with the initial prompt,
  *   - calls SdkModuleLoader → SdkQueryOptionsBuilder → SDK queryFn,
- *   - connects streamInput ONLY when `isResume && !isSlashCommand`,
+ *   - connects streamInput when `isResume`,
  *   - records the resulting SDK Query on the Registry,
  *   - rolls back the orphan registration on init failure (Registry.removeSessionOnly).
  *
@@ -31,7 +30,6 @@ import {
 import type { SdkModuleLoader } from '../sdk-module-loader';
 import type { SdkQueryOptionsBuilder } from '../sdk-query-options-builder';
 import type { SdkMessageFactory } from '../sdk-message-factory';
-import { SlashCommandInterceptor } from '../slash-command-interceptor';
 import type {
   ExecuteQueryConfig,
   ExecuteQueryResult,
@@ -126,12 +124,12 @@ export class SessionQueryExecutor {
       knownRealSessionId,
     );
     const initialContent = initialPrompt?.content.trim() || '';
-    const hasAttachments =
-      (initialPrompt?.files && initialPrompt.files.length > 0) ||
-      (initialPrompt?.images && initialPrompt.images.length > 0);
-    const isSlashCommand =
-      SlashCommandInterceptor.isSlashCommand(initialContent) && !hasAttachments;
-    if (initialContent && !isSlashCommand) {
+    // Every prompt is queued the same way — a slash command is NOT special-
+    // cased, and attachments ride this same queue. A raw string prompt is what
+    // sets the SDK's `isSingleUserTurn` and closes the input on the first
+    // `result`; see the `slash-command-interceptor.ts` header for why that was
+    // believed to be required and why it is not (TASK_2026_472).
+    if (initialContent) {
       const sdkUserMessage = await this.messageFactory.createUserMessage({
         content: initialPrompt!.content, // eslint-disable-line @typescript-eslint/no-non-null-assertion
         sessionId,
@@ -223,13 +221,21 @@ export class SessionQueryExecutor {
     // taken here and the pump's first yield releases it. Without it the
     // watchdog fired exactly 180 s after every `result` and marked every
     // running subagent interrupted (2026-08-31 log, session 314c9c90: result
-    // 00:37:02Z → kill 00:40:02Z; TASK_2026_363). A slash-command string
-    // prompt never goes through the pump, so no idle hold is taken and the
-    // watchdog arms on `start()` as before.
+    // 00:37:02Z → kill 00:40:02Z; TASK_2026_363).
     rec.activityHold = activityWatchdog;
     // A queued initial prompt is startup work, NOT between-turn idle. Bound
     // even a CLI that never pulls its input iterator. Empty resumes may idle.
-    if (!isSlashCommand && !initialContent) {
+    //
+    // A slash-command prompt is queued content like any other since
+    // TASK_2026_472, so it takes no idle hold here and the watchdog still arms
+    // on `start()`. What moved is the OTHER end of the accounting: the pump now
+    // yields the command, so `markTurnStarted` runs and `markTurnEnded` re-takes
+    // the idle hold on the `result`. Before the change the slash string never
+    // reached the pump, `turnInFlight` stayed false, and `markTurnEnded` skipped
+    // the re-hold — harmless only because the query was already closing. A
+    // persistent slash session without that re-hold would be aborted after 180 s
+    // of healthy idle time.
+    if (!initialContent) {
       activityWatchdog.endTurn();
       activityWatchdog.hold();
     }
@@ -302,22 +308,13 @@ export class SessionQueryExecutor {
         sessionIdResolver: () => rec.realSessionId ?? undefined,
       });
       const isResume = !!resumeSessionId;
-      let effectivePrompt: string | AsyncIterable<SDKUserMessage>;
-      let promptMode: string;
-
-      if (isSlashCommand) {
-        effectivePrompt = initialContent;
-        promptMode = isResume
-          ? 'string (slash command + resume)'
-          : 'string (slash command)';
-      } else if (isResume) {
-        effectivePrompt =
-          this.streamPump.createIdlePromptStream(abortController);
-        promptMode = 'idle+streamInput';
-      } else {
-        effectivePrompt = queryOptions.prompt;
-        promptMode = 'iterable';
-      }
+      // Never a raw string. A string prompt is what sets the SDK's
+      // `isSingleUserTurn`, and that flag closes the transport input on the
+      // first `result` — see the TASK_2026_472 note above.
+      const effectivePrompt: AsyncIterable<SDKUserMessage> = isResume
+        ? this.streamPump.createIdlePromptStream(abortController)
+        : queryOptions.prompt;
+      const promptMode = isResume ? 'idle+streamInput' : 'iterable';
 
       this.logger.info('[SessionLifecycle] Starting SDK query with options', {
         model: queryOptions.options.model,
@@ -325,7 +322,6 @@ export class SessionQueryExecutor {
         permissionMode: queryOptions.options.permissionMode,
         maxTurns: queryOptions.options.maxTurns,
         isResume,
-        isSlashCommand,
         promptMode,
       });
       const runResult = this.queryRunner.invokeWithLoadedQuery(
@@ -336,11 +332,14 @@ export class SessionQueryExecutor {
       const sdkQuery: Query = runResult.sdkQuery;
       const initialModel = queryOptions.options.model ?? '';
       rec.currentModel = initialModel;
-      if (isResume && !isSlashCommand) {
-        sdkQuery.streamInput(userMessageStream).catch((err) => {
-          this.logger.warn('[SessionLifecycle] streamInput error', {
-            error: err instanceof Error ? err.message : String(err),
-          });
+      if (isResume) {
+        sdkQuery.streamInput(userMessageStream).catch((err: unknown) => {
+          this.onInputChannelFailed(
+            err,
+            sessionId as string,
+            rec.tabId,
+            abortController,
+          );
         });
         this.logger.info(
           `[SessionLifecycle] Connected streamInput for session: ${sessionId} (${promptMode})`,
@@ -374,6 +373,75 @@ export class SessionQueryExecutor {
         err instanceof Error ? err : new Error(String(err)),
       );
       throw err;
+    }
+  }
+
+  /**
+   * End a session whose SDK input channel died.
+   *
+   * On the resumed path `streamInput(userMessageStream)` is the session's ONLY
+   * delivery channel — the query itself was started with an idle iterable that
+   * never yields. If that promise rejects, nothing the user types, and no slash
+   * command, can ever reach the CLI again.
+   *
+   * This used to be a `logger.warn` and nothing else, so `executeQuery` still
+   * returned a query and the RPC layer still reported the session as started.
+   * The session then sat inert until the no-activity watchdog aborted it 180 s
+   * later — a real failure reported as a timeout, three minutes late
+   * (TASK_2026_472, codex logic review F1).
+   *
+   * A rejection here is always abnormal, never teardown. The SDK's own
+   * `streamInput` catch rethrows only NON-abort errors (`catch(Q){if(!(Q
+   * instanceof W6))throw Q}`, sdk.mjs 0.3.150, where `W6` is its abort error
+   * class), so an aborted session resolves instead of rejecting. The two
+   * reachable rejections are `ProcessTransport is not ready for writing` and
+   * `Cannot write to terminated process` — the second fires when the CLI child
+   * dies mid-session, which is exactly the case that must not be swallowed.
+   *
+   * Ordering and wording copy the watchdog's abort policy above, for the same
+   * two reasons: resolve pending permissions BEFORE the abort tears the stream
+   * down so an in-flight `can_use_tool` cannot wedge the UI, and keep the words
+   * "abort" and "cancel" out of the message, because `StreamTransformer`
+   * classifies those as benign user aborts and suppresses them. The underlying
+   * error goes to the log, never into the abort reason, so a provider message
+   * that happens to contain "abort" cannot silence a real failure.
+   */
+  private onInputChannelFailed(
+    err: unknown,
+    sessionId: string,
+    tabId: string,
+    abortController: AbortController,
+  ): void {
+    if (abortController.signal.aborted) {
+      return;
+    }
+    this.logger.error(
+      `[SessionLifecycle] Session ${sessionId} lost its SDK input channel; ` +
+        `no further message can be delivered`,
+      err instanceof Error ? err : new Error(String(err)),
+    );
+    try {
+      this.permissionHandler.cleanupPendingPermissions(tabId);
+    } catch (cleanupErr: unknown) {
+      this.logger.warn(
+        '[SessionLifecycle] Failed to clean up pending permissions on input-channel failure',
+        cleanupErr instanceof Error
+          ? cleanupErr
+          : new Error(String(cleanupErr)),
+      );
+    }
+    try {
+      abortController.abort(
+        new Error(
+          'The session lost its connection to the provider and can no longer ' +
+            'receive messages. Stopping for recovery — start a new message to retry.',
+        ),
+      );
+    } catch (abortErr: unknown) {
+      this.logger.warn(
+        '[SessionLifecycle] Failed to stop session on input-channel failure',
+        abortErr instanceof Error ? abortErr : new Error(String(abortErr)),
+      );
     }
   }
 
