@@ -445,6 +445,148 @@ describe('HarnessBuilderStateService', () => {
   // intent analysis, loading state). Kept minimal — extensive coverage
   // belongs in a dedicated suite.
   // ===========================================================================
+  /**
+   * `proposeConfig` is documented to the authoring agent as an incremental
+   * partial update, so a later call must never erase a decision an earlier one
+   * recorded. Three branches did erase one, silently, with no rejected call to
+   * reveal it (TASK_2026_514).
+   */
+  describe('applyConfigUpdates — partial merges preserve siblings', () => {
+    it('records the proposed harness name', () => {
+      service.applyConfigUpdates({ name: 'Website manager' });
+      expect(service.config().name).toBe('Website manager');
+    });
+
+    it('keeps servers when a later call sends only enabledTools', () => {
+      service.applyConfigUpdates({
+        mcp: {
+          servers: [
+            {
+              name: 'firecrawl',
+              url: 'https://example.test/mcp',
+              enabled: true,
+            },
+          ],
+          enabledTools: {},
+        },
+      });
+      service.applyConfigUpdates({
+        mcp: { enabledTools: { firecrawl: ['firecrawl_scrape'] } },
+      });
+
+      const mcp = service.config().mcp;
+      expect(mcp?.servers.map((s) => s.name)).toEqual(['firecrawl']);
+      expect(mcp?.enabledTools).toEqual({ firecrawl: ['firecrawl_scrape'] });
+    });
+
+    it('keeps skill refs when a later call sends only selectedSkills', () => {
+      service.applyConfigUpdates({
+        skills: {
+          selectedSkills: ['review'],
+          selectedSkillRefs: [
+            {
+              skillId: 'review',
+              source: 'skills.sh',
+              installSource: 'owner/repo',
+            },
+          ],
+          createdSkills: [],
+        },
+      });
+      // The boundary normalizer emits BOTH keys whenever either is touched, so
+      // this is what a selectedSkills-only proposal actually arrives as.
+      service.applyConfigUpdates({
+        skills: { selectedSkills: ['review'], selectedSkillRefs: [] },
+      });
+
+      expect(service.config().skills?.selectedSkillRefs).toEqual([
+        { skillId: 'review', source: 'skills.sh', installSource: 'owner/repo' },
+      ]);
+    });
+
+    it('prunes the ref for a skill removed from selectedSkills', () => {
+      service.applyConfigUpdates({
+        skills: {
+          selectedSkills: ['review', 'triage'],
+          selectedSkillRefs: [
+            {
+              skillId: 'review',
+              source: 'skills.sh',
+              installSource: 'owner/repo',
+            },
+            {
+              skillId: 'triage',
+              source: 'skills.sh',
+              installSource: 'owner/other',
+            },
+          ],
+          createdSkills: [],
+        },
+      });
+      // `triage` is dropped from the selection with no refs supplied — the
+      // boundary normalizer's `selectedSkillRefs: []` for a selection-only call.
+      service.applyConfigUpdates({
+        skills: { selectedSkills: ['review'], selectedSkillRefs: [] },
+      });
+
+      expect(service.config().skills?.selectedSkillRefs).toEqual([
+        { skillId: 'review', source: 'skills.sh', installSource: 'owner/repo' },
+      ]);
+    });
+
+    it('merges incoming refs over retained ones instead of replacing the list', () => {
+      service.applyConfigUpdates({
+        skills: {
+          selectedSkills: ['review', 'triage'],
+          selectedSkillRefs: [
+            {
+              skillId: 'review',
+              source: 'skills.sh',
+              installSource: 'owner/repo',
+            },
+            {
+              skillId: 'triage',
+              source: 'skills.sh',
+              installSource: 'owner/other',
+            },
+          ],
+          createdSkills: [],
+        },
+      });
+      // A refs-only update touching ONE of the two selected skills. Replacing
+      // the array wholesale would drop `triage`'s origin, and `harness:apply`
+      // would then fail to install a skill the user never touched.
+      service.applyConfigUpdates({
+        skills: {
+          selectedSkillRefs: [
+            {
+              skillId: 'review',
+              source: 'skills.sh',
+              installSource: 'owner/moved',
+            },
+          ],
+        },
+      });
+
+      expect(service.config().skills?.selectedSkillRefs).toEqual([
+        {
+          skillId: 'review',
+          source: 'skills.sh',
+          installSource: 'owner/moved',
+        },
+        {
+          skillId: 'triage',
+          source: 'skills.sh',
+          installSource: 'owner/other',
+        },
+      ]);
+      expect(service.config().skills?.selectedSkills).toEqual([
+        'review',
+        'triage',
+      ]);
+    });
+  });
+
   describe('Conversation Messages', () => {
     it('addConversationMessage appends to the list', () => {
       const msg = {

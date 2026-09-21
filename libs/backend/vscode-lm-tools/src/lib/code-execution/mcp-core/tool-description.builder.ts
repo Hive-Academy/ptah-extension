@@ -1501,7 +1501,9 @@ export function buildHarnessInstallMcpTool(): MCPToolDefinition {
           type: 'object',
           description:
             'Transport config. stdio: {"type":"stdio","command":"npx","args":["-y","pkg"],"env":{}}. ' +
-            'Remote: {"type":"http"|"sse","url":"https://...","headers":{}}.',
+            'Remote: {"type":"http"|"sse","url":"https://...","headers":{}}. ' +
+            '"env" and "headers" are string-to-STRING maps — a numeric value such as {"PORT":3000} ' +
+            'is rejected, send {"PORT":"3000"}. "command" and "url" must be non-empty.',
         },
         serverKey: {
           type: 'string',
@@ -1510,6 +1512,7 @@ export function buildHarnessInstallMcpTool(): MCPToolDefinition {
         },
         targets: {
           type: 'array',
+          minItems: 1,
           items: {
             type: 'string',
             enum: [
@@ -1522,7 +1525,8 @@ export function buildHarnessInstallMcpTool(): MCPToolDefinition {
             ],
           },
           description:
-            'Optional install targets. Defaults to ["claude","vscode"].',
+            'Optional install targets. Defaults to ["claude","vscode"]. An EMPTY array is rejected ' +
+            '— omit the key to take the default.',
         },
       },
       required: ['serverName', 'config'],
@@ -1552,7 +1556,17 @@ export function buildHarnessProposeConfigTool(): MCPToolDefinition {
       'name, persona {label, description, goals[], templateId?}, agents {enabledAgents, ' +
       'harnessSubagents[]}, skills {selectedSkills[], selectedSkillRefs[], createdSkills[]}, ' +
       'prompt {systemPrompt, enhancedSections}, mcp {servers[], enabledTools}, claudeMd ' +
-      '{generateProjectClaudeMd, customSections, previewContent}. A skill ref is ' +
+      '{generateProjectClaudeMd, customSections, previewContent}. FOUR of those are objects ' +
+      'keyed by name, not lists: agents.enabledAgents is {"<agent-id>": {"enabled": true}}, ' +
+      'mcp.enabledTools is {"<server-name>": ["<tool-name>"]}, and prompt.enhancedSections and ' +
+      'claudeMd.customSections are {"<section-title>": "<markdown body>"}. List ELEMENTS are ' +
+      'validated too, so send them complete: a harnessSubagents entry is {id, name, description, ' +
+      'role, tools: ["<tool-name>"], executionMode: "background"|"on-demand"|"scheduled", ' +
+      'instructions, triggers?} — note "tools" is an ARRAY, a comma-joined string is rejected; a ' +
+      'createdSkills entry is {name, description, content, allowedTools?} and the body key is ' +
+      '"content", not "instructions"; an mcp.servers entry is {name, url, enabled?, description?, ' +
+      'config?, serverKey?, installTargets?} where config is the same transport object ' +
+      'ptah_harness_install_mcp_server takes. A skill ref is ' +
       '{skillId, source?: "local"|"skills.sh", installSource?} — copy installSource verbatim from ' +
       'the ptah_harness_search_skills result so Apply can install it. Unknown keys are rejected: ' +
       'the error names the offending path, so fix and re-send rather than writing the config to a ' +

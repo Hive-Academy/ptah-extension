@@ -308,10 +308,27 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     this._isConfigComplete.set(complete);
   }
 
+  /**
+   * Merge one partial proposal into the draft.
+   *
+   * `proposeConfig` is documented to the authoring agent as "send only the
+   * fields you have settled", so every branch here MUST preserve the siblings
+   * the update did not mention. Three did not, and each lost a decision the
+   * user had already approved with no rejected call to reveal it
+   * (TASK_2026_514): `name` had no branch at all and fell back to the
+   * workspace name at Apply; `mcp` was assigned wholesale, so a later
+   * `enabledTools`-only call erased the servers; and `selectedSkillRefs` was
+   * overwritten by the empty array the boundary normalizer emits whenever
+   * either skill field is touched, which strips the origin
+   * `harness:apply` needs to install a skills.sh skill.
+   */
   public applyConfigUpdates(updates: Partial<HarnessConfig>): void {
     this._config.update((cfg) => {
       const merged = { ...cfg };
 
+      if (updates.name) {
+        merged.name = updates.name;
+      }
       if (updates.persona) {
         merged.persona = {
           ...cfg.persona,
@@ -331,16 +348,38 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
         };
       }
       if (updates.skills) {
+        const nextSelectedSkills =
+          updates.skills.selectedSkills ?? cfg.skills?.selectedSkills ?? [];
+        // Refs that survive this update: everything already stored, minus any
+        // whose skill just left the selection. Pruning only when
+        // `selectedSkills` was actually supplied keeps a refs-only update from
+        // silently rewriting the selection.
+        const retainedRefs = (cfg.skills?.selectedSkillRefs ?? []).filter(
+          (ref) =>
+            updates.skills?.selectedSkills === undefined ||
+            nextSelectedSkills.includes(ref.skillId),
+        );
+        // Incoming refs are MERGED over the retained ones by skillId, not
+        // swapped in wholesale. A caller that sends refs for two of five
+        // retained skills means "update these two", and replacing the array
+        // would drop the origins of the other three — `harness:apply` would
+        // then fail to install skills the user never touched.
+        const mergedRefsById = new Map(
+          retainedRefs.map((ref) => [ref.skillId, ref]),
+        );
+        for (const ref of updates.skills.selectedSkillRefs ?? []) {
+          mergedRefsById.set(ref.skillId, ref);
+        }
         merged.skills = {
-          selectedSkills:
-            updates.skills.selectedSkills ?? cfg.skills?.selectedSkills ?? [],
+          selectedSkills: nextSelectedSkills,
           // Carried alongside the ids so `harness:apply` can install the
           // skills.sh entries — dropping this would strip the origin the
-          // installer needs.
-          selectedSkillRefs:
-            updates.skills.selectedSkillRefs ??
-            cfg.skills?.selectedSkillRefs ??
-            [],
+          // installer needs. An EMPTY array is treated as "not supplied":
+          // the boundary normalizer emits both keys whenever either is
+          // touched, so a call that sends only `selectedSkills` arrives with
+          // `selectedSkillRefs: []` and would otherwise erase the origins.
+          // Clearing every ref is not expressible here, and never was.
+          selectedSkillRefs: [...mergedRefsById.values()],
           createdSkills:
             updates.skills.createdSkills ?? cfg.skills?.createdSkills ?? [],
         };
@@ -352,7 +391,13 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
         } as typeof cfg.prompt;
       }
       if (updates.mcp) {
-        merged.mcp = updates.mcp;
+        merged.mcp = {
+          servers: updates.mcp.servers ?? cfg.mcp?.servers ?? [],
+          enabledTools: {
+            ...(cfg.mcp?.enabledTools ?? {}),
+            ...(updates.mcp.enabledTools ?? {}),
+          },
+        };
       }
       if (updates.claudeMd) {
         merged.claudeMd = {
