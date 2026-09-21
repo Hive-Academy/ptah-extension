@@ -57,10 +57,24 @@ jobs:
         os: [ubuntu-latest]
         node-version: ['24']
     runs-on: ${{ matrix.os }}
-    # Matches the other E2E jobs' headroom. The restore-cli-manifest chain
-    # (34 tasks) plus the full jest e2e harness overruns 10m on a cold
-    # node_modules / Nx cache even though the specs themselves pass quickly.
-    timeout-minutes: 20
+    # The old comment here claimed "the specs themselves pass quickly". They do
+    # not, and 20m left about one minute of headroom. Measured 2026-09-21 on
+    # ubuntu-latest, two runs with identical results (73 passed / 79 total):
+    #
+    #   main   run 35556783097  cache HIT   install 0s      done at 18m56s  PASS
+    #   PR 548 run 35582338248  cache MISS  install 1m51s   killed at 20m11s
+    #
+    # The PR run's TEST phase was the faster of the two (15m17s vs 15m50s); the
+    # whole difference was the node_modules cache miss. Any change to
+    # package-lock.json invalidates that key, so every dependency PR pays ~2
+    # extra minutes and a job with one minute of slack fails on arithmetic
+    # rather than on a defect. That is what happened here.
+    #
+    # The suite is genuinely long: headless-task ~390s,
+    # slash-command-session-persistence ~219s and once-flag ~185s are ~13m of
+    # the ~15m on their own. 35m covers a cold cache with real margin and still
+    # catches a runaway. electron-e2e already sits at 45m.
+    timeout-minutes: 35
     defaults:
       run:
         # Use bash on both Linux and Windows (Git Bash) so step scripts behave
