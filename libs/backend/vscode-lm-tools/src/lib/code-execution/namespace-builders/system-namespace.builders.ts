@@ -91,11 +91,18 @@ HANDING BACK TO THE USER:
     a structured harness config to review. Call it repeatedly with partial
     updates as decisions firm up, then once with isConfigComplete=true. Do NOT
     write the proposal to a file instead — the surface never sees it there.
-    Four fields are objects keyed by name, NOT lists:
+    Four fields are objects keyed by name, NOT keyless lists:
       agents.enabledAgents       {"<agent-id>": {"enabled": true}}
+                                  also accepted: ["<agent-id>"]
       mcp.enabledTools           {"<server-name>": ["<tool-name>"]}
+                                  also accepted: [{"name": "<server-name>", "tools": ["<tool-name>"]}]
       prompt.enhancedSections    {"<section-title>": "<markdown body>"}
+                                  also accepted: [{"title": "<section-title>", "content": "<markdown body>"}]
       claudeMd.customSections    {"<section-title>": "<markdown body>"}
+                                  also accepted: [{"title": "<section-title>", "content": "<markdown body>"}]
+    A list whose entries carry no key (e.g. ["scrape", "crawl"] for
+    enabledTools) is still refused — the container shape is negotiable, the
+    key is not.
 
 - installMcpServer(serverName, config, serverKey?, targets?) - Writes a transport
     config to the target files. Defaults to ['claude','vscode'].`,

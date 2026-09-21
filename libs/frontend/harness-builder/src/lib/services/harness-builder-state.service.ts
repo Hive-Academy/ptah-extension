@@ -357,10 +357,17 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
           // the boundary normalizer emits both keys whenever either is
           // touched, so a call that sends only `selectedSkills` arrives with
           // `selectedSkillRefs: []` and would otherwise erase the origins.
-          // Clearing every ref is not expressible here, and never was.
+          // Clearing every ref is not expressible here, and never was. When
+          // `selectedSkills` itself changed, prune refs for ids that dropped
+          // out of the selection — otherwise a removed skill's ref survives
+          // and `harness:apply` installs a skill the user just deselected.
           selectedSkillRefs: updates.skills.selectedSkillRefs?.length
             ? updates.skills.selectedSkillRefs
-            : (cfg.skills?.selectedSkillRefs ?? []),
+            : updates.skills.selectedSkills !== undefined
+              ? (cfg.skills?.selectedSkillRefs ?? []).filter((ref) =>
+                  updates.skills?.selectedSkills?.includes(ref.skillId),
+                )
+              : (cfg.skills?.selectedSkillRefs ?? []),
           createdSkills:
             updates.skills.createdSkills ?? cfg.skills?.createdSkills ?? [],
         };

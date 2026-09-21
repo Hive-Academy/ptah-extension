@@ -272,6 +272,27 @@ describe('HarnessConfigUpdatesSchema — record fields sent as lists', () => {
     ).toBe(false);
   });
 
+  it('refuses two list entries whose trimmed keys collide instead of overwriting', () => {
+    expect(
+      HarnessConfigUpdatesSchema.safeParse({
+        mcp: {
+          enabledTools: [
+            { name: 'srv', tools: ['a'] },
+            { name: ' srv ', tools: ['b'] },
+          ],
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects "no" instead of silently enabling the entry', () => {
+    expect(
+      HarnessConfigUpdatesSchema.safeParse({
+        agents: { enabledAgents: [{ agentId: 'reviewer', enabled: 'no' }] },
+      }).success,
+    ).toBe(false);
+  });
+
   it('reads an enabled flag the agent wrote as a string or a number', () => {
     const parsed = HarnessConfigUpdatesSchema.parse({
       agents: {
@@ -435,6 +456,12 @@ describe('HarnessConfigUpdatesSchema — unknown keys', () => {
     expect(
       HarnessConfigUpdatesSchema.safeParse({ systemPrompt: 'hello' }).success,
     ).toBe(false);
+  });
+
+  it('formats a root-level issue without a leading empty-path separator', () => {
+    expect(formatHarnessConfigIssue('', 'Unrecognized key(s)')).toBe(
+      'Unrecognized key(s)',
+    );
   });
 
   it('still strips the retired skill-ref scope key', () => {

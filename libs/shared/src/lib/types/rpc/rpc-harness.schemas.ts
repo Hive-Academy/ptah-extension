@@ -116,7 +116,12 @@ function foldListIntoRecord(
 
     const value = valueOf(fields);
     if (value === undefined) return input;
-    record[key.trim()] = value;
+    const normalizedKey = key.trim();
+    // Two entries whose keys differ only by whitespace (`"srv"` vs `" srv "`)
+    // normalize to the same key. Silently keeping the second would drop the
+    // first entry's configuration with no error to reveal it.
+    if (Object.hasOwn(record, normalizedKey)) return input;
+    record[normalizedKey] = value;
   }
   return record;
 }
@@ -146,12 +151,22 @@ function isPoisonKey(key: string): boolean {
  * falsy value turns the entry off — but `"false"` and `0` are explicit, and a
  * bare `!== false` test read both as enabled and silently re-enabled an agent
  * the design had disabled.
+ *
+ * Only a recognized token is coerced. Anything else (`"no"`, `{}`, `[]`) is
+ * passed through unchanged so the downstream `z.boolean()` rejects it, rather
+ * than being read as truthy and silently enabling the entry.
  */
-function readEnabledFlag(value: unknown): boolean {
+function readEnabledFlag(value: unknown): unknown {
   if (value === undefined) return true;
   if (value === false || value === null || value === 0) return false;
-  if (typeof value === 'string') return value.trim().toLowerCase() !== 'false';
-  return value !== false;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return true;
+  return value;
 }
 
 const SECTION_KEY_FIELDS = ['title', 'heading', 'name', 'key', 'id'] as const;
@@ -244,9 +259,11 @@ export function formatHarnessConfigIssue(
   const hint =
     HARNESS_RECORD_FIELD_HINTS[path] ??
     HARNESS_RECORD_FIELD_HINTS[path.replace(/\.\d+(?=\.|$)/g, '[]')];
-  return hint === undefined
-    ? `${path}: ${message}`
-    : `${path}: ${message} — ${hint}`;
+  // A strict top-level error (an unrecognized key at the schema root) has an
+  // empty path. `${path}: ${message}` would print a leading `: ` with
+  // nothing before it.
+  const located = path.length === 0 ? message : `${path}: ${message}`;
+  return hint === undefined ? located : `${located} — ${hint}`;
 }
 
 /**

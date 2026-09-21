@@ -503,6 +503,36 @@ describe('HarnessBuilderStateService', () => {
         { skillId: 'review', source: 'skills.sh', installSource: 'owner/repo' },
       ]);
     });
+
+    it('prunes the ref for a skill removed from selectedSkills', () => {
+      service.applyConfigUpdates({
+        skills: {
+          selectedSkills: ['review', 'triage'],
+          selectedSkillRefs: [
+            {
+              skillId: 'review',
+              source: 'skills.sh',
+              installSource: 'owner/repo',
+            },
+            {
+              skillId: 'triage',
+              source: 'skills.sh',
+              installSource: 'owner/other',
+            },
+          ],
+          createdSkills: [],
+        },
+      });
+      // `triage` is dropped from the selection with no refs supplied — the
+      // boundary normalizer's `selectedSkillRefs: []` for a selection-only call.
+      service.applyConfigUpdates({
+        skills: { selectedSkills: ['review'], selectedSkillRefs: [] },
+      });
+
+      expect(service.config().skills?.selectedSkillRefs).toEqual([
+        { skillId: 'review', source: 'skills.sh', installSource: 'owner/repo' },
+      ]);
+    });
   });
 
   describe('Conversation Messages', () => {
