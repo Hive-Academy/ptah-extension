@@ -122,6 +122,28 @@ describe('NotificationCenterStore', () => {
     TestBed.flushEffects();
   }
 
+  // `tab.title` is mutable: a fresh tab is 'New Chat' until an auto title is
+  // derived, and a user can rename it afterwards. The pulse can only carry the
+  // title as it stood at turn end, so the card must resolve the live one or it
+  // will disagree with the tile it exists to open.
+  it('renders the session title as it stands now, not as the pulse snapshotted it', () => {
+    // The pulse carries 'New Chat' — the title as it stood when the turn
+    // ended, before the auto title landed. The tab is 'Build release' now.
+    // Pre-fix the card kept the snapshot and disagreed with its own tile.
+    emit(1, { title: 'New Chat' });
+
+    expect(store.completionGroups()[0].entries[0].title).toBe('Build release');
+  });
+
+  it('keeps the snapshotted title once the tab is gone', () => {
+    emit(1, { tabId: 'tab-closed', title: 'Closed session' });
+    const entry = store
+      .completionGroups()
+      .flatMap((group) => group.entries)
+      .find((candidate) => candidate.revision === 1);
+    expect(entry?.title).toBe('Closed session');
+  });
+
   it('deduplicates session+revision and bounds completion history to 75', () => {
     for (let seq = 1; seq <= 80; seq += 1) emit(seq);
     expect(store.completionEntries()).toHaveLength(75);

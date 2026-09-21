@@ -335,6 +335,37 @@ export class NotificationCenterStore {
     };
   }
 
+  /**
+   * The session's title as it stands NOW, not as it stood when the turn ended.
+   *
+   * `tab.title` is mutable. A new tab starts at `'New Chat'`
+   * (`titleOrigin: 'default'`), is upgraded to an `'auto'` title derived from
+   * the session name or the first user message, and can later be renamed by
+   * the user. `appendCompletion` can only snapshot whatever the pulse carried,
+   * so a card minted before the auto title landed kept `'New Chat'` for the
+   * life of the ledger, and a renamed session disagreed with its own tile
+   * forever — the card is the affordance for opening that tile, so the two
+   * names disagreeing is the one thing it cannot afford.
+   *
+   * Resolving here rather than in `appendCompletion` is what makes it live:
+   * `completionGroups` is a computed and the lookup reads the tabs signal, so
+   * a rename repaints every card for that session.
+   *
+   * Falls back to the snapshot once the tab is gone. A closed session's card
+   * keeps the name it had rather than losing its label entirely. The entry
+   * object is returned unchanged when the title already matches, so an
+   * unaffected row keeps its identity for `track`.
+   */
+  private withCurrentTitle(
+    entry: CompletionNotificationEntry,
+  ): CompletionNotificationEntry {
+    const current = this.tabManager.findTabByIdAcrossWorkspaces(entry.tabId)
+      ?.tab.title;
+    return current && current !== entry.title
+      ? { ...entry, title: current }
+      : entry;
+  }
+
   private groupCompletions(
     entries: readonly CompletionNotificationEntry[],
   ): readonly CompletionNotificationGroup[] {
@@ -343,7 +374,7 @@ export class NotificationCenterStore {
     for (const entry of entries) {
       if (entry.dismissed) continue;
       const workspaceEntries = byWorkspace.get(entry.workspacePath) ?? [];
-      workspaceEntries.push(entry);
+      workspaceEntries.push(this.withCurrentTitle(entry));
       byWorkspace.set(entry.workspacePath, workspaceEntries);
     }
     for (const workspaceEntries of byWorkspace.values()) {
