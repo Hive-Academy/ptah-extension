@@ -16,7 +16,7 @@ Found via `ptah_search_files "**/package.json"`.
 - `apps/ptah-tui/package.json`
 - `apps/ptah-video-studio/package.json`
 
-**Backend libs (23)** — `libs/backend/{agent-generation,agent-sdk,auth-providers,auth-providers-tokens,cli-agent-runtime,cli-engine,gateway-chat-bridge,memory-contracts,platform-core,plugin-marketplace,rpc-handlers,settings-core,voice-contracts,voice-providers,vscode-core,vscode-lm-tools,workspace-intelligence}/package.json` (17 listed explicitly by the search; the remaining backend libs in the repo have no `package.json` of their own or were not matched — see §2 note).
+**Backend libs (17 manifests across 29 backend libs)** — `libs/backend/{agent-generation,agent-sdk,auth-providers,auth-providers-tokens,cli-agent-runtime,cli-engine,gateway-chat-bridge,memory-contracts,platform-core,plugin-marketplace,rpc-handlers,settings-core,voice-contracts,voice-providers,vscode-core,vscode-lm-tools,workspace-intelligence}/package.json` (17 manifests in total; the remaining 12 backend libs in the repo have no nested `package.json` of their own — see §2 note).
 
 **Frontend libs (7)** — `libs/frontend/{core,markdown,tribunal-panel,ui,webview-e2e-harness}/package.json`
 

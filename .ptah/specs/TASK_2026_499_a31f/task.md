@@ -4,10 +4,10 @@ type: devops
 title: Move the web product to ESM and upgrade to NestJS 12
 description: >-
   Convert libs/api and apps/ptah-license-server from CommonJS to ESM, then take
-  NestJS 12 and the Sentry upgrade it unblocks. The ESM move is not a cleanup
-  that happens to be nice. NestJS 12 ships type module, so ESM is a hard
-  prerequisite. The same move unblocks sanitize-html 2.17.7, whose fix was
-  unreachable while the consumer compiled to CommonJS.
+  NestJS 12 and the Sentry upgrade it unblocks. While Node 24 supports CJS
+  consumers of ESM packages via require(esm), this repo couples the moves to
+  satisfy TypeScript compilation, Jest test constraints, and sanitize-html
+  2.17.7, whose fix was unreachable while compiling to CommonJS.
 ---
 
 # ESM + NestJS 12
@@ -32,8 +32,10 @@ NestJS 12 family is ESM-only:
 already accepts `^12.0.0`, and an ESM app may import a CommonJS package. It is
 not a blocker.
 
-So NestJS 12 cannot be taken while `libs/api/**` compiles to CommonJS. The ESM
-migration is the prerequisite, not a parallel improvement.
+While NestJS 12 supports CommonJS consumers on Node 20.19+/22.12+/24.x via
+`require(esm)`, this monorepo couples the ESM migration to the upgrade because
+of repository and tooling constraints: TypeScript `import = require` syntax,
+Jest test suite requirements, and unblocking `sanitize-html@2.17.7`.
 
 ## Measured scope
 
