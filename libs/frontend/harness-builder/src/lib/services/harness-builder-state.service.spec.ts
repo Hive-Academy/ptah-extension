@@ -533,6 +533,58 @@ describe('HarnessBuilderStateService', () => {
         { skillId: 'review', source: 'skills.sh', installSource: 'owner/repo' },
       ]);
     });
+
+    it('merges incoming refs over retained ones instead of replacing the list', () => {
+      service.applyConfigUpdates({
+        skills: {
+          selectedSkills: ['review', 'triage'],
+          selectedSkillRefs: [
+            {
+              skillId: 'review',
+              source: 'skills.sh',
+              installSource: 'owner/repo',
+            },
+            {
+              skillId: 'triage',
+              source: 'skills.sh',
+              installSource: 'owner/other',
+            },
+          ],
+          createdSkills: [],
+        },
+      });
+      // A refs-only update touching ONE of the two selected skills. Replacing
+      // the array wholesale would drop `triage`'s origin, and `harness:apply`
+      // would then fail to install a skill the user never touched.
+      service.applyConfigUpdates({
+        skills: {
+          selectedSkillRefs: [
+            {
+              skillId: 'review',
+              source: 'skills.sh',
+              installSource: 'owner/moved',
+            },
+          ],
+        },
+      });
+
+      expect(service.config().skills?.selectedSkillRefs).toEqual([
+        {
+          skillId: 'review',
+          source: 'skills.sh',
+          installSource: 'owner/moved',
+        },
+        {
+          skillId: 'triage',
+          source: 'skills.sh',
+          installSource: 'owner/other',
+        },
+      ]);
+      expect(service.config().skills?.selectedSkills).toEqual([
+        'review',
+        'triage',
+      ]);
+    });
   });
 
   describe('Conversation Messages', () => {

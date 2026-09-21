@@ -28,7 +28,7 @@ only") and are not covered here.
      `triage` ref survived) and passes after. The fix filters the retained refs to
      `skillId`s still present in the new `selectedSkills`, but only when
      `selectedSkills` was itself part of the update — the existing test `keeps skill
-     refs when a later call sends only selectedSkills` (unchanged selection) still
+refs when a later call sends only selectedSkills` (unchanged selection) still
      passes, since the kept skill's own ref is not filtered out.
 
 3. **`libs/shared/src/lib/types/rpc/rpc-harness.schemas.ts:119`**
@@ -38,7 +38,7 @@ only") and are not covered here.
    - Verdict: **FIXED**
    - I checked the engineer-supplied context first: it defends returning the untouched
      `input` on an UNKEYABLE entry (line 115, `if (key === undefined || isPoisonKey(key))
-     return input`) as deliberate, so Zod produces its own error instead of a
+return input`) as deliberate, so Zod produces its own error instead of a
      half-built record. That is a different line and a different case from CodeRabbit's
      claim, which is about two KEYABLE entries whose normalized keys collide. I checked
      the existing tests (`trims the key it takes from a list entry`, and the whole
@@ -58,13 +58,13 @@ only") and are not covered here.
      the converted value — an unrecognized `enabled` value is silently read as enabled.
    - Verdict: **FIXED**
    - Verified: the old `typeof value === 'string' ? value.trim().toLowerCase() !==
-     'false' : value !== false` branch returns `true` for `"no"`, and for a non-string,
+'false' : value !== false` branch returns `true` for `"no"`, and for a non-string,
      non-`false`/`null`/`0` value such as `{}` or `[]`. Added the test
      `rejects "no" instead of silently enabling the entry`, which failed before the fix
      (`success: true`) and passes after. The fix recognizes only `"true"`/`"false"`
      (trimmed, case-insensitive) as explicit string tokens, keeps the existing
      number/boolean truthy path (`typeof value === 'number' || typeof value ===
-     'boolean'` → `true`, so the pinned `0`/`'false'`/`'true'` cases in
+'boolean'` → `true`, so the pinned `0`/`'false'`/`'true'` cases in
      `reads an enabled flag the agent wrote as a string or a number` are unaffected),
      and passes every other value straight through so `AgentOverrideInputSchema`'s
      `enabled: z.boolean()` rejects it.
@@ -75,12 +75,10 @@ only") and are not covered here.
      nothing before it.
    - Verdict: **FIXED**
    - Confirmed directly against the code (`hint === undefined ? \`${path}: ${message}\`
-     : ...` with no empty-path guard). Added the test
-     `formats a root-level issue without a leading empty-path separator`, which failed
-     before the fix (`": Unrecognized key(s)"`) and passes after (`"Unrecognized
+     : ...`with no empty-path guard). Added the test`formats a root-level issue without a leading empty-path separator`, which failed
+before the fix (`": Unrecognized key(s)"`) and passes after (`"Unrecognized
      key(s)"`). The hinted branch (non-empty path) is untouched, so
-     `names the wanted shape in the message for a refused record field` and
-     `refuses a subagent whose tools is a comma-joined string` still pass.
+`names the wanted shape in the message for a refused record field`and`refuses a subagent whose tools is a comma-joined string` still pass.
 
 ## Verification
 
@@ -158,3 +156,22 @@ Files checked:
 - `libs/frontend/harness-builder/src/lib/services/harness-builder-state.service.ts`
 - `libs/frontend/harness-builder/src/lib/services/harness-builder-state.service.spec.ts`
 - `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts`
+
+---
+
+## Follow-up round (CodeRabbit re-review of the fix)
+
+6. **`libs/frontend/harness-builder/src/lib/services/harness-builder-state.service.ts:368`**
+   - CodeRabbit's claim: the first fix prunes correctly but still REPLACES the
+     ref list whenever incoming refs are non-empty, so a refs-only update
+     touching some of the retained skills drops the origins of the rest.
+   - Verdict: **FIXED**
+   - Evidence: the claim held against the code as written — `updates.skills
+.selectedSkillRefs?.length` short-circuited to the incoming array
+     wholesale. Retained refs are now filtered to the new selection and the
+     incoming refs are merged over them by `skillId`, so incoming wins per
+     skill without discarding untouched ones. Added
+     `merges incoming refs over retained ones instead of replacing the list`,
+     which fails before the change (`triage` lost) and passes after. The
+     earlier prune test is unchanged and still passes, so the empty-array
+     "not supplied" contract is intact.

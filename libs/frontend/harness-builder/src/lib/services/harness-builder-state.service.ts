@@ -348,26 +348,38 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
         };
       }
       if (updates.skills) {
+        const nextSelectedSkills =
+          updates.skills.selectedSkills ?? cfg.skills?.selectedSkills ?? [];
+        // Refs that survive this update: everything already stored, minus any
+        // whose skill just left the selection. Pruning only when
+        // `selectedSkills` was actually supplied keeps a refs-only update from
+        // silently rewriting the selection.
+        const retainedRefs = (cfg.skills?.selectedSkillRefs ?? []).filter(
+          (ref) =>
+            updates.skills?.selectedSkills === undefined ||
+            nextSelectedSkills.includes(ref.skillId),
+        );
+        // Incoming refs are MERGED over the retained ones by skillId, not
+        // swapped in wholesale. A caller that sends refs for two of five
+        // retained skills means "update these two", and replacing the array
+        // would drop the origins of the other three — `harness:apply` would
+        // then fail to install skills the user never touched.
+        const mergedRefsById = new Map(
+          retainedRefs.map((ref) => [ref.skillId, ref]),
+        );
+        for (const ref of updates.skills.selectedSkillRefs ?? []) {
+          mergedRefsById.set(ref.skillId, ref);
+        }
         merged.skills = {
-          selectedSkills:
-            updates.skills.selectedSkills ?? cfg.skills?.selectedSkills ?? [],
+          selectedSkills: nextSelectedSkills,
           // Carried alongside the ids so `harness:apply` can install the
           // skills.sh entries — dropping this would strip the origin the
           // installer needs. An EMPTY array is treated as "not supplied":
           // the boundary normalizer emits both keys whenever either is
           // touched, so a call that sends only `selectedSkills` arrives with
           // `selectedSkillRefs: []` and would otherwise erase the origins.
-          // Clearing every ref is not expressible here, and never was. When
-          // `selectedSkills` itself changed, prune refs for ids that dropped
-          // out of the selection — otherwise a removed skill's ref survives
-          // and `harness:apply` installs a skill the user just deselected.
-          selectedSkillRefs: updates.skills.selectedSkillRefs?.length
-            ? updates.skills.selectedSkillRefs
-            : updates.skills.selectedSkills !== undefined
-              ? (cfg.skills?.selectedSkillRefs ?? []).filter((ref) =>
-                  updates.skills?.selectedSkills?.includes(ref.skillId),
-                )
-              : (cfg.skills?.selectedSkillRefs ?? []),
+          // Clearing every ref is not expressible here, and never was.
+          selectedSkillRefs: [...mergedRefsById.values()],
           createdSkills:
             updates.skills.createdSkills ?? cfg.skills?.createdSkills ?? [],
         };
