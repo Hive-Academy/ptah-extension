@@ -4,14 +4,15 @@
  *
  * Post-package gate. Inspects the better-sqlite3 binary that electron-builder
  * actually placed inside the packaged app (dist/release/<platform>-unpacked or
- * <ProductName>.app) and fails the build unless it is the Electron-ABI binary.
+ * <ProductName>.app) and fails unless the target Electron can load it and run
+ * a real SQLite query.
  *
- * Two independent checks (passing EITHER is sufficient):
- *   1. sha256 of the packed binary == sha256 of the root node_modules binary
- *      (which the pre-pack rebuild-native step compiled for the Electron ABI).
- *      This is reader-independent and also proves electron-builder packed from
- *      the rebuilt root node_modules rather than a stale fresh install.
- *   2. The NODE_MODULE_VERSION marker in the packed binary == the Electron ABI.
+ * Both checks are required:
+ *   1. sha256 of the packed runtime binary == sha256 of the root runtime
+ *      binary promoted by rebuild-native. This proves electron-builder packed
+ *      the source rebuild rather than the original npm prebuild.
+ *   2. Electron itself loads the packed package with that nativeBinding and
+ *      executes a query while reporting the expected NODE_MODULE_VERSION.
  *
  * Failing loudly here is the safety net behind Sentry 124004638 — it converts
  * a silent "ships, then crashes every DB feature on first run" into a red CI.
@@ -35,52 +36,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { pathToFileURL } = require('url');
+const {
+  ROOT,
+  getElectronVersion,
+  getElectronAbi,
+  getPrebuildTarget,
+  resolveBetterSqliteRuntimeAddon,
+  probeAddonWithElectron: probeNativeAddonWithElectron,
+} = require('./lib/native-addon');
 
-const ROOT = path.resolve(__dirname, '../../..');
 const RELEASE_DIR = path.join(ROOT, 'dist', 'release');
-const ADDON_SUFFIX = path.join(
-  'better-sqlite3',
-  'build',
-  'Release',
-  'better_sqlite3.node',
-);
-
-const ELECTRON_ABI_FALLBACK = {
-  30: 123,
-  31: 125,
-  32: 128,
-  33: 130,
-  34: 132,
-  35: 133,
-  36: 135,
-  37: 136,
-  38: 139,
-  39: 140,
-  40: 143,
-  41: 145,
-  42: 146,
-  43: 148,
-  44: 149,
-};
-
-function getElectronVersion() {
-  const epkg = path.join(ROOT, 'node_modules', 'electron', 'package.json');
-  return JSON.parse(fs.readFileSync(epkg, 'utf8')).version;
-}
-
-async function getElectronAbi(electronVersion) {
-  try {
-    const nodeAbi = await import(
-      pathToFileURL(path.join(ROOT, 'node_modules', 'node-abi', 'index.js'))
-        .href
-    );
-    return Number(nodeAbi.getAbi(electronVersion, 'electron'));
-  } catch {
-    const major = Number(String(electronVersion).split('.')[0]);
-    return ELECTRON_ABI_FALLBACK[major] ?? null;
-  }
-}
 
 function sha256(file) {
   return crypto
@@ -98,6 +63,21 @@ function readNativeAbi(file) {
     /* fall through */
   }
   return null;
+}
+
+/** Load a package/addon pair under Electron with strict ABI validation. */
+function probeAddonWithElectron(
+  packageRoot,
+  addonPath,
+  electronVersion,
+  expectedAbi,
+) {
+  return probeNativeAddonWithElectron(
+    packageRoot,
+    addonPath,
+    electronVersion,
+    expectedAbi,
+  );
 }
 
 /**
@@ -208,11 +188,57 @@ async function verifyPackedParcelWatcher() {
   }
 }
 
-(async () => {
+/** Validate one packed addon, logging success or returning its failure message. */
+function validatePackedAddon(
+  file,
+  addonRelative,
+  rootHash,
+  electronVersion,
+  expectedAbi,
+) {
+  const rel = path.relative(RELEASE_DIR, file);
+  const hash = sha256(file);
+  const abi = readNativeAbi(file);
+  const packageRoot = path.resolve(
+    file,
+    ...addonRelative.split(path.sep).map(() => '..'),
+  );
+
+  if (hash !== rootHash) {
+    return (
+      `${rel}: packed ABI ${abi ?? 'unknown'} / sha256 ${hash.slice(0, 12)} ` +
+      `does NOT match the rebuilt runtime binary (${rootHash.slice(0, 12)}).`
+    );
+  }
+
+  let probe;
+  try {
+    probe = probeAddonWithElectron(
+      packageRoot,
+      file,
+      electronVersion,
+      expectedAbi,
+    );
+  } catch (err) {
+    return (
+      `${rel}: hash matches the rebuilt binary, but Electron load/query failed: ` +
+      `${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+  console.log(
+    `[verify] OK  ${rel} (marker ABI ${abi ?? 'N-API'}, runtime ABI ` +
+      `${probe.modules}, N-API ${probe.napi}, matches rebuilt binary, ` +
+      `SQLite ${probe.sqlite})`,
+  );
+  return null;
+}
+
+/** Verify packed native addons and report packaging failures. */
+async function main() {
   const electronVersion = getElectronVersion();
   const expectedAbi = await getElectronAbi(electronVersion);
 
-  const rootAddon = path.join(ROOT, 'node_modules', ADDON_SUFFIX);
+  const rootAddon = resolveBetterSqliteRuntimeAddon();
   if (!fs.existsSync(rootAddon)) {
     throw new Error(
       `Reference binary missing: ${rootAddon}. Run rebuild-native before packaging.`,
@@ -220,20 +246,31 @@ async function verifyPackedParcelWatcher() {
   }
   const rootHash = sha256(rootAddon);
   const rootAbi = readNativeAbi(rootAddon);
+  const rootPackage = path.join(ROOT, 'node_modules', 'better-sqlite3');
+  const rootProbe = probeAddonWithElectron(
+    rootPackage,
+    rootAddon,
+    electronVersion,
+    expectedAbi,
+  );
   console.log(
     `[verify] Electron ${electronVersion} (ABI ${expectedAbi ?? '?'}); ` +
-      `root better-sqlite3 ABI ${rootAbi ?? 'unknown'} sha256 ${rootHash.slice(0, 12)}`,
+      `root better-sqlite3 ${path.relative(rootPackage, rootAddon)} ` +
+      `(marker ABI ${rootAbi ?? 'N-API'}, runtime ABI ${rootProbe.modules}, ` +
+      `N-API ${rootProbe.napi}) sha256 ${rootHash.slice(0, 12)}`,
   );
 
   if (!fs.existsSync(RELEASE_DIR)) {
     throw new Error(`No packaged output found at ${RELEASE_DIR}`);
   }
 
+  const addonRelative = path.relative(rootPackage, rootAddon);
+  const addonSuffix = path.join('better-sqlite3', addonRelative);
   const packed = [];
-  findPackedFiles(RELEASE_DIR, ADDON_SUFFIX, packed);
+  findPackedFiles(RELEASE_DIR, addonSuffix, packed);
   if (packed.length === 0) {
     throw new Error(
-      `No packed better_sqlite3.node found under ${RELEASE_DIR}. ` +
+      `No packed better-sqlite3 runtime binary (${addonRelative}) found under ${RELEASE_DIR}. ` +
         `The binary may be trapped inside app.asar (asarUnpack not applied) — ` +
         `it would crash on first DB access.`,
     );
@@ -241,24 +278,14 @@ async function verifyPackedParcelWatcher() {
 
   const failures = [];
   for (const file of packed) {
-    const rel = path.relative(RELEASE_DIR, file);
-    const hash = sha256(file);
-    const abi = readNativeAbi(file);
-    const hashMatch = hash === rootHash;
-    const abiMatch = expectedAbi != null && abi === expectedAbi;
-
-    if (hashMatch || abiMatch) {
-      console.log(
-        `[verify] OK  ${rel} (ABI ${abi ?? '?'}, ` +
-          `${hashMatch ? 'matches rebuilt binary' : 'ABI matches Electron'})`,
-      );
-    } else {
-      failures.push(
-        `${rel}: packed ABI ${abi ?? 'unknown'} / sha256 ${hash.slice(0, 12)} ` +
-          `does NOT match Electron ABI ${expectedAbi ?? '?'} nor the rebuilt ` +
-          `binary (${rootHash.slice(0, 12)}).`,
-      );
-    }
+    const failure = validatePackedAddon(
+      file,
+      addonRelative,
+      rootHash,
+      electronVersion,
+      expectedAbi,
+    );
+    if (failure) failures.push(failure);
   }
 
   if (failures.length > 0) {
@@ -269,22 +296,35 @@ async function verifyPackedParcelWatcher() {
     for (const f of failures) console.error(`   - ${f}`);
     console.error(
       `\n   Fix: ensure \`node apps/ptah-electron/scripts/rebuild-native.js\` ` +
-        `runs (electron-rebuild --build-from-source) immediately before electron-builder.\n`,
+        `runs (forced source build + promotion to the loader path) immediately ` +
+        `before electron-builder.\n`,
     );
     process.exit(1);
   }
 
   console.log(
-    `\n✅ All ${packed.length} packed better-sqlite3 binar${packed.length === 1 ? 'y' : 'ies'} carry the Electron ${expectedAbi ?? ''} ABI.`,
+    `\n✅ All ${packed.length} packed better-sqlite3 binar${packed.length === 1 ? 'y' : 'ies'} match the source rebuild and execute under Electron ABI ${expectedAbi}.`,
   );
 
   await verifyPackedParcelWatcher();
   console.log(
     `\n✅ @parcel/watcher requires and subscribes from the packed tree.`,
   );
-})().catch((err) => {
+}
+
+function handleFailure(err) {
   console.error(
     `[error] verify-packed-native failed: ${err instanceof Error ? err.message : String(err)}`,
   );
   process.exit(1);
-});
+}
+
+if (require.main === module) main().catch(handleFailure);
+
+module.exports = {
+  getPrebuildTarget,
+  resolveBetterSqliteRuntimeAddon,
+  findPackedFiles,
+  probeAddonWithElectron,
+  main,
+};
