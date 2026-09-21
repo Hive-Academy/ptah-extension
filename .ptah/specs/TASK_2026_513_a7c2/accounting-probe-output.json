@@ -1,0 +1,11 @@
+﻿{
+  "kind": "SYNTHETIC: chosen fixtures, no session, no agents, not original payloads",
+  "sourcePath": "D:/projects/ptah-extension/libs/shared/src/lib/utils/subagent-cost.utils.ts",
+  "headerTokens": 3800000,
+  "headerCost": 2.55,
+  "headerDurationMs": 361000,
+  "footerTokens": 3100,
+  "footerCost": 1.44,
+  "footerDurationMs": 67000,
+  "agentCount": 0
+}
