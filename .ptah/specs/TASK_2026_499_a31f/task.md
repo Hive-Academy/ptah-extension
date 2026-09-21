@@ -122,6 +122,11 @@ Two routes that do NOT work, both measured:
 
 ## Follow-ups
 
+Filed on 2026-09-21: item 1 is `TASK_2026_502_c4d2`, item 2 is
+`TASK_2026_507_9c06`, item 3 is `TASK_2026_508_e5b1`, and item 4 is
+`TASK_2026_509_2f47`. The non-functional `prune` targets are
+`TASK_2026_500_7a1c`.
+
 1. Confirm Sentry's AUTOMATIC HTTP instrumentation still patches NestJS 12.
    `sentry.module.spec.ts` covers the exception-filter path only. Auto-instrumented
    request spans are a separate mechanism and would fail by losing tracing rather

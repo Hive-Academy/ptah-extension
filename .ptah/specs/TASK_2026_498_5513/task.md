@@ -38,6 +38,11 @@ candidates on the license server.
 
 ## Follow-up tasks to open when this one closes
 
+Filed on 2026-09-21: item 1 is `TASK_2026_507_9c06`, item 7 is
+`TASK_2026_504_b25e`, item 8 is `TASK_2026_505_1d73`, and wave 6 (Tailwind 4
+and daisyUI 5) is `TASK_2026_506_4a8f`. Items 2, 3, 4, 5, 6 and 9 have no task
+folder yet.
+
 1. NestJS 12 with `@sentry/nestjs` 11, once Sentry 11 leaves release candidate.
 2. `@huggingface/transformers` 4.x. It needs the `onnxruntime-node` pin to move from
    1.24.3 to 1.30.0, a rewrite of `patch-transformers-onnx-dep.js`, and an async
