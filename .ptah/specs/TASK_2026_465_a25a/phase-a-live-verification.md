@@ -1,62 +1,129 @@
-# Phase A live verification — attempted, blocked on a stale host
+# Phase A live verification — done
 
-Date 2026-09-20. Machine: `agy` 1.2.7, Windows 11.
+Two sittings. The first was blocked; the second closed all three criteria. Both
+are recorded, because the block was a real condition and not a mistake to hide.
 
-## What was attempted
+## Sitting 1, 2026-09-20 — blocked on a stale host
 
-Confirm end to end that `ptah_agent_message` to a running antigravity lane
-returns `queue-next-turn`, that `ptah_agent_list` agrees, and that the lane
-still reaches `completed`.
+`ptah_agent_list` reported antigravity `messaging: none`. The landed code cannot
+produce that answer on this machine: `AntigravityCliAdapter.detect` awaits
+`probeStreamJsonInput` and reports `bestMessagingCapability(this.capabilities())`,
+`capabilities()` returns `continuation: this.streamJsonInputSupported === true`,
+and `bestMessagingCapability` maps `continuation` to `queue`. Run by hand against
+the installed binary:
 
-## What the live host reports
+```
+agy --version              → 1.2.7
+agy --help                 → 3,263 bytes
+match /--input-format\b/   → True
+```
 
-`ptah_agent_list` on the running host:
+The capability was present in the binary, so a host carrying Phase A would have
+answered `queue`. The running extension host predated the PR #537 merge. No live
+reading was taken from it, because every reading would have described the
+pre-Phase-A build.
 
-| Agent | Status | Capability |
+## Sitting 2, 2026-09-21 — the host was rebuilt, and it passes
+
+`ptah_agent_list` now reports:
+
+```
+| antigravity | cli | installed | messaging: queue, role delivery: preamble/task-prompt |
+```
+
+### The three criteria
+
+| # | Criterion | Observed |
 | --- | --- | --- |
-| antigravity | installed | **messaging: none** |
+| 1 | `ptah_agent_message` to a running antigravity lane returns `queue-next-turn`, and the message runs as the next turn in the same conversation | **Yes**, both halves — see below |
+| 2 | The `ptah_agent_list` capability cell matches the mode returned | **Yes** — cell reads `queue`, call returned `queue-next-turn` |
+| 3 | The lane still reaches `completed` and its output is readable with `ptah_agent_read` | **Yes** — `completed`, exit code 0, output readable |
 
-On the landed code that answer is not reachable. `AntigravityCliAdapter.detect`
-awaits `probeStreamJsonInput` and then reports
-`bestMessagingCapability(this.capabilities())`; `capabilities()` returns
-`continuation: this.streamJsonInputSupported === true`, and
-`bestMessagingCapability` maps `continuation` to `queue`.
+### The run
 
-## The probe, run by hand against the installed binary
+Lane `fa290ef9-d261-40dd-8d80-5cc9182f6ed8`, antigravity, task: write a
+five-line note about mid-turn delivery, deliverable first, no shell commands.
 
-The probe is `agy --help` tested against `/--input-format\b/`
-(`antigravity-cli.adapter.ts:357`). Run directly:
+While it was `running`, `ptah_agent_message` answered:
 
 ```
-agy --version        → 1.2.7
-agy --help           → 3,263 bytes
-match /--input-format\b/ → True
+Mode: queue-next-turn
+Detail: The agent is mid-turn and antigravity cannot be interrupted or steered,
+        so the message is queued at position 1 and will be delivered as a new
+        turn when the current one ends.
 ```
 
-The help text reads:
+**The mode alone is not proof of delivery.** It is computed from capabilities at
+send time, and a lane that dies before its turn settles would report the same
+mode and receive nothing — which is exactly what happened on the first attempt
+this sitting (lane `45e10907`, killed by a vendor-side
+`Eligibility check failed: UNAVAILABLE (code 503)` before its first turn ended).
+So the message carried a sentinel: add a sixth line beginning
+`QUEUED_MESSAGE_ARRIVED`.
+
+The delivered file ended:
 
 ```
---input-format   Input format for print mode (text, stream-json). stream-json
-                 reads one NDJSON message per line from stdin and runs a turn
-                 for each; it requires --output-format stream-json
+5. Multiple queued messages run sequentially within a single continuous process
+   and conversation, and the process exits only after stdin closes and the final
+   queued line settles.
+6. QUEUED_MESSAGE_ARRIVED: This instruction reached me after my first turn had
+   already started.
 ```
 
-So the capability the adapter probes for IS present on this machine's `agy`,
-and a host carrying the Phase A code would report `queue`, not `none`.
+and the lane's own last words were:
 
-## Conclusion
+```
+WROTE: …\phase-a-lane-note.md
+Updated the deliverable to six numbered lines including acknowledgment of the
+mid-turn queued message.
+```
 
-The running Ptah host predates the PR #537 merge. Every live observation taken
-from it would describe the pre-Phase-A build, which is why none was taken. This
-is a stale-host block, not a defect in the landed code.
+Five lines were on disk before the message was sent and six after, in one
+conversation, with no respawn. That is the second half of criterion 1 measured
+rather than inferred.
 
-**To unblock**: rebuild and restart the host from `main` at or after
-`32f28f79d`, then repeat the three observations above. Nothing in the code
-needs to change first.
+## The reverse direction, checked at the same time
 
-## Unchanged, and still unknown
+Not a Phase A criterion, but it is the other half of the mechanism and it had
+never been observed live either. Lane
+`97a93f30-a103-4edf-be16-06aa415aac21` (ptah-cli, Claude provider, haiku) was
+told to call `ptah_agent_report` twice. Both answered:
 
-The `--input-format` version floor. 1.2.7 has it; the first version that did is
-not established here, and that is exactly why the adapter probes the binary
-instead of comparing version strings. Do not replace the probe with a version
-check on the strength of this one data point.
+```
+{"delivered": true, "parent_session": "59ad12f2-c53b-48e9-92db-b2923f3acf0d"}
+```
+
+`parent_session` is the orchestrating session's own id, so attribution through
+the `/agent/{id}` URL segment worked end to end. The lane also listed the seven
+`ptah_agent_*` tools it could see, confirming Ptah's MCP server reached a
+ptah-cli child.
+
+**One thing to be honest about**: both reports came back `delivered: true`, but
+nothing surfaced in the parent session's visible transcript while they were
+running. Delivery was confirmed by the tool's own answer, not by the parent
+seeing the text. Whether a delivered report is meant to become visible to the
+parent agent mid-run is a separate question this run does not answer.
+
+## A defect found by running it
+
+The opencode lane spawned in the same sitting (`e92ab7d8`) failed instantly:
+
+```
+[stderr] ERROR Unrecognized flag: --dir in command opencode run
+```
+
+`opencode run` has no `--dir` on 2.0.11, so every opencode lane died at spawn.
+The adapter's unit tests could not catch it — they assert the argv Ptah builds
+and never ask the binary whether it accepts it. Fixed on this branch by removing
+the flag: the spawn already passes `cwd`, and `opencode run` honours it
+(measured). **That fix is not in the running host**, so an opencode lane stays
+unusable until the host is rebuilt again.
+
+## Still open, and not closable from here
+
+TASK_2026_477 acceptance criteria 1 and 2 — that a spawned agent reports
+*without being told how in the task text*. The lane above was told explicitly, so
+it proves the report PATH, not the guidance. `TWO_WAY_MESSAGING_GUIDANCE` is
+unmerged, so the running host builds its child prompts without it. Those two
+criteria need this branch merged and the host rebuilt once more.
