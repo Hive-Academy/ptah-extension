@@ -20,8 +20,30 @@ const project = JSON.parse(
 const rootPackage = JSON.parse(
   readFileSync(join(__dirname, '..', '..', '..', '..', 'package.json'), 'utf8'),
 );
+const rootLockfile = JSON.parse(
+  readFileSync(
+    join(__dirname, '..', '..', '..', '..', 'package-lock.json'),
+    'utf8',
+  ),
+);
 
 describe('local-production packaging configuration', () => {
+  it('pins the Windows-tested electron-builder release in the manifest and lockfile', () => {
+    const expectedVersion = '26.16.1';
+    expect(rootPackage.devDependencies['electron-builder']).toBe(
+      expectedVersion,
+    );
+    expect(rootLockfile.packages[''].devDependencies['electron-builder']).toBe(
+      expectedVersion,
+    );
+    expect(rootLockfile.packages['node_modules/electron-builder'].version).toBe(
+      expectedVersion,
+    );
+    expect(rootLockfile.packages['node_modules/app-builder-lib'].version).toBe(
+      expectedVersion,
+    );
+  });
+
   it('validates the merged unsigned overlay against the installed builder schema', async () => {
     const previous = process.env['PTAH_LOCAL_PRODUCTION_GIT_SHA'];
     let overlay: Configuration = {};
