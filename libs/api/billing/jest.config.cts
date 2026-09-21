@@ -1,6 +1,6 @@
 module.exports = {
   displayName: 'api-billing',
-  preset: '../../../jest.preset.js',
+  preset: '../jest.api-preset.cjs',
   testEnvironment: 'node',
   transform: {
     '^.+\\.[tj]s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
