@@ -1,11 +1,12 @@
 import { BrowserWindow, Menu, screen, shell } from 'electron';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import {
   isSafeExternalUrl,
   isSameDocumentNavigation,
 } from './navigation-policy';
+import { installPermissionPolicy } from './permission-policy';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -132,15 +133,10 @@ export function createMainWindow(
 
   installNavigationGuard(mainWindow);
 
-  const windowSession = mainWindow.webContents.session;
-  windowSession.setPermissionRequestHandler(
-    (contents, _permission, callback) => {
-      callback(contents.id === mainWindow.webContents.id);
-    },
+  installPermissionPolicy(
+    mainWindow.webContents,
+    pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href,
   );
-  windowSession.setPermissionCheckHandler((contents, _permission) => {
-    return contents === null || contents.id === mainWindow.webContents.id;
-  });
 
   mainWindow.webContents.on('context-menu', (_event, params) => {
     const menuItems: Electron.MenuItemConstructorOptions[] = [];
