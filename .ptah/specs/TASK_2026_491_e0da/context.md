@@ -50,7 +50,7 @@ The model is the VS Code policy at `apps/ptah-extension-vscode/src/services/webv
 | `default-src` | `'none'`. This is the fallback for each directive that the policy does not name         |
 | `script-src`  | explicit. The shell origin. Inline script only with a nonce or a hash. No `unsafe-eval` |
 | `style-src`   | explicit. The shell origin plus the sources that the shell uses now                     |
-| `img-src`     | explicit                                                                                |
+| `img-src`     | explicit, plus the `https:` scheme-source (amended — see rule 5)                        |
 | `font-src`    | explicit                                                                                |
 | `connect-src` | explicit. Only the endpoints that the shell calls now                                   |
 | `object-src`  | `'none'`                                                                                |
@@ -64,6 +64,21 @@ Rules:
 2. No `unsafe-eval`. No `unsafe-inline` for scripts.
 3. Delivery. The implementer must decide and document the delivery method. The first option is a response header, set through `session.webRequest.onHeadersReceived` or through the custom protocol handler. The second option is a `<meta>` tag in the shell document. `frame-ancestors` does not work in a `<meta>` tag. If the policy needs `frame-ancestors`, use a response header.
 4. A test reads the effective policy from the loaded shell document or from the response and asserts each directive in the table. A second test asserts that an `eval` call and an inline script without a nonce fail.
+5. `img-src` is amended (TASK_2026_491, after the security review). The original
+   table said "explicit" and rule 1 said "no wildcard sources". Applied to
+   `img-src` that was wrong, and the first implementation shipped
+   `img-src 'self' data: blob:`, which breaks two shipped surfaces. Marketplace
+   card icons come from a third-party registry entry
+   (`smithery-surface.component.ts`, `iconSrc`), and assistant markdown may
+   contain any remote image, which the DOMPurify preset deliberately permits
+   (`provide-markdown-rendering.ts`). Neither has a host set that is knowable at
+   build time, so a host allowlist would be a guess that fails in the field.
+   The value is `img-src 'self' https: data: blob:`. `https:` is a
+   scheme-source, not a wildcard host: `http:` documents stay denied, and an
+   image source cannot execute script. It is also exactly what the VS Code
+   webview already ships (`webview-html-generator.ts:270`), so the two hosts
+   stay in step. No other directive takes a scheme-source, and rule 1 still
+   holds for all of them.
 
 ## Source
 

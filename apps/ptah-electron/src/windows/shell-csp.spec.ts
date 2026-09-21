@@ -7,12 +7,14 @@ import {
   copyFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { createHash } from 'node:crypto';
 import { buildSync } from 'esbuild';
 
 // Exercise the same patcher used by copy-renderer, copy-renderer-dev and the watcher.
 const { secureRendererHtml } = require('../../scripts/copy-renderer.js') as {
-  secureRendererHtml: (html: string) => string;
+  secureRendererHtml: (html: string) => {
+    html: string;
+    scripts: Array<{ fileName: string; content: string }>;
+  };
 };
 const root = resolve(__dirname, '../../../..');
 const source = readFileSync(
@@ -24,11 +26,18 @@ describe('effective Electron shell CSP', () => {
   let directory: string;
   let result: {
     policy: string;
+    metaCount: number;
     evalBlocked: boolean;
-    inlineBlocked: boolean;
+    inlineExecuted: boolean;
+    violations: Array<{ directive: string; blockedURI: string }>;
     theme: string;
     microphone: boolean;
     microphoneError?: string;
+    camera: boolean;
+    cameraError?: string;
+    clipboardWriteState: string;
+    microphoneState: string;
+    cameraState: string;
   };
 
   beforeAll(async () => {
@@ -36,7 +45,16 @@ describe('effective Electron shell CSP', () => {
     const html = source
       .replace('<head>', '<head><script src="./seed.js"></script>')
       .replace('</body>', '<script src="./probe.js"></script></body>');
-    writeFileSync(join(directory, 'index.html'), secureRendererHtml(html));
+    // Patch TWICE. The second pass must be a no-op: it is the packaging path
+    // running against an already-patched document.
+    const once = secureRendererHtml(html);
+    const twice = secureRendererHtml(once.html);
+    expect(twice.html).toBe(once.html);
+    expect(twice.scripts).toEqual([]);
+    writeFileSync(join(directory, 'index.html'), twice.html);
+    for (const script of once.scripts) {
+      writeFileSync(join(directory, script.fileName), script.content);
+    }
     writeFileSync(
       join(directory, 'seed.js'),
       "window.vscode = { getState: () => ({ theme: 'anubis-light' }) };",
@@ -80,7 +98,7 @@ describe('effective Electron shell CSP', () => {
       const timer = setTimeout(() => {
         child.kill();
         reject(new Error(`Electron security probe timed out: ${stderr}`));
-      }, 30_000);
+      }, 40_000);
       child.stdout.on('data', (data: Buffer) => {
         stdout += data.toString();
       });
@@ -103,7 +121,7 @@ describe('effective Electron shell CSP', () => {
       .find((value) => value.startsWith('SHELL_SECURITY_RESULT:'));
     if (!line) throw new Error(`No Electron security result: ${output}`);
     result = JSON.parse(line.slice('SHELL_SECURITY_RESULT:'.length));
-  }, 40_000);
+  }, 60_000);
 
   afterAll(() => {
     if (!directory) return;
@@ -125,20 +143,18 @@ describe('effective Electron shell CSP', () => {
         return [name, values];
       }),
     );
-    const script = /<script>([\s\S]*?)<\/script>/.exec(source)?.[1];
-    if (script === undefined) throw new Error('Shell theme bootstrap is missing');
-    const hash = createHash('sha256')
-      .update(script.replace(/\r\n?/g, '\n'))
-      .digest('base64');
     expect(directives).toEqual({
       'default-src': ["'none'"],
-      'script-src': ["'self'", `'sha256-${hash}'`],
+      // No hash and no nonce: every inline script is lifted to its own file.
+      'script-src': ["'self'"],
       'style-src': [
         "'self'",
         "'unsafe-inline'",
         'https://fonts.googleapis.com',
       ],
-      'img-src': ["'self'", 'data:', 'blob:'],
+      // https: keeps remote marketplace icons and remote markdown images
+      // loading. See copy-renderer.js and context.md, "Shell CSP".
+      'img-src': ["'self'", 'https:', 'data:', 'blob:'],
       'font-src': ["'self'", 'https://fonts.gstatic.com', 'data:'],
       'connect-src': ["'self'"],
       'media-src': ["'self'", 'blob:'],
@@ -150,10 +166,27 @@ describe('effective Electron shell CSP', () => {
     });
   });
 
+  it('emits exactly one policy even after a second patch pass', () => {
+    expect(result.metaCount).toBe(1);
+  });
+
   it('blocks eval and an unhashed inline script while allowing the theme bootstrap', () => {
     expect(result.evalBlocked).toBe(true);
-    expect(result.inlineBlocked).toBe(true);
+    expect(result.inlineExecuted).toBe(false);
+    // Anchor the block on a real CSP violation, not on the script merely
+    // failing to run for some other reason.
+    expect(
+      result.violations.some((entry) => entry.directive === 'script-src-elem'),
+    ).toBe(true);
     expect(result.theme).toBe('anubis-light');
+  });
+
+  it('allows an https image and blocks an http one', () => {
+    const blocked = result.violations.filter(
+      (entry) => entry.directive === 'img-src',
+    );
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0].blockedURI).toContain('http://ptah-csp-probe.invalid');
   });
 
   it('preserves audio-only voice capture through the real Electron handlers', () => {
@@ -161,5 +194,21 @@ describe('effective Electron shell CSP', () => {
       microphone: result.microphone,
       error: result.microphoneError,
     }).toEqual({ microphone: true, error: undefined });
+  });
+
+  it('denies camera capture through the real Electron handlers', () => {
+    expect(result.camera).toBe(false);
+  });
+
+  it('reports the state a real permission query asks for', () => {
+    expect({
+      microphone: result.microphoneState,
+      camera: result.cameraState,
+      clipboardWrite: result.clipboardWriteState,
+    }).toEqual({
+      microphone: 'granted',
+      camera: 'denied',
+      clipboardWrite: 'granted',
+    });
   });
 });
