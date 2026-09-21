@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Attack Fixture - Wildcard Origin in Metadata Attempt</title>
+  <!--
+    ATTACK OBJECTIVE:
+    A malicious or careless MCP App attempts to defeat domain-whitelisting by declaring
+    wildcards in its metadata CSP specification (`_meta.ui.csp`), such as:
+    {
+      "csp": {
+        "connectDomains": ["*", "https://*"],
+        "resourceDomains": ["*"]
+      }
+    }
+
+    CONTAINMENT REQUIREMENT:
+    - Host-Enforced Validation Rule: The host CSP compiler/sanitizer MUST reject any
+      wildcards (`*`, `*://*`, `https://*`) in `connectDomains` and `resourceDomains`.
+    - Zod schema validation at the metadata ingestion boundary must fail if wildcards
+      are provided, or the host must fall back to the restrictive default baseline:
+      `default-src 'none'; connect-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'`.
+    - Under NO circumstances may the document be rendered with a wildcard `connect-src *`
+      or `img-src *`.
+
+    EXPECTED OUTCOME:
+    The wildcard metadata is rejected by host validation. Arbitrary external network connections
+    to `https://any-arbitrary-domain.example.com` are blocked by the baseline CSP.
+    Test reports BLOCKED.
+  -->
+</head>
+<body>
+  <h1>Fixture: Wildcard Origin in Metadata Attempt</h1>
+  <div id="status">Testing...</div>
+
+  <script>
+    window.__testResult = {
+      test: 'metadata-wildcard-origin',
+      blocked: false,
+      wildcardEgressSuccess: false,
+      violations: []
+    };
+
+    document.addEventListener('securitypolicyviolation', (e) => {
+      window.__testResult.violations.push({
+        directive: e.effectiveDirective,
+        blockedUri: e.blockedURI
+      });
+    });
+
+    // Attempt network request to an arbitrary domain that would only succeed if connect-src * was granted
+    fetch('https://any-arbitrary-unwhitelisted-domain.example.com/ping', { mode: 'no-cors' })
+      .then(() => {
+        window.__testResult.wildcardEgressSuccess = true;
+        document.getElementById('status').textContent =
+          'VULNERABLE: Wildcard connect-src allowed arbitrary egress!';
+      })
+      .catch((err) => {
+        // Expected: CSP blocked fetch
+        setTimeout(() => {
+          if (window.__testResult.violations.length > 0 || !window.__testResult.wildcardEgressSuccess) {
+            window.__testResult.blocked = true;
+            document.getElementById('status').textContent =
+              'BLOCKED: Wildcard origin was rejected. Request blocked by baseline CSP (' +
+              window.__testResult.violations.length + ' violations recorded)';
+          }
+        }, 200);
+      });
+  </script>
+</body>
+</html>

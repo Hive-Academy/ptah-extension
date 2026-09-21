@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Isolation Setting Assertion - setWindowOpenHandler Denial</title>
+  <!--
+    CONTROL UNDER TEST:
+    webContents.setWindowOpenHandler(({ url }) => ({ action: 'deny' }))
+
+    OBJECTIVE:
+    Assert that any attempt by the guest frame or view to spawn auxiliary windows, popups,
+    or new tabs is categorically intercepted and denied by Electron's window open handler.
+
+    MECHANISM & PROBES:
+    1. Call window.open('https://example.com/popup', '_blank')
+    2. Dispatch click on <a href="https://example.com" target="_blank">
+
+    HOW IT IS ASSERTED:
+    When `setWindowOpenHandler` returns `{ action: 'deny' }`, Electron cancels creation
+    of the new BrowserWindow and returns `null` to the calling JavaScript context.
+    The test asserts that window.open returns null, and no new webContents ID is registered.
+  -->
+</head>
+<body>
+  <h1>Isolation Control: setWindowOpenHandler = deny</h1>
+  <div id="status">Evaluating window.open denial...</div>
+
+  <script>
+    window.__testResult = {
+      control: 'setWindowOpenHandler denial',
+      passed: false,
+      popupReturnVal: null
+    };
+
+    try {
+      const handle = window.open('https://example.com/test-window', '_blank');
+      window.__testResult.popupReturnVal = handle;
+
+      if (handle === null || handle === undefined) {
+        window.__testResult.passed = true;
+        document.getElementById('status').textContent =
+          'PASSED: setWindowOpenHandler returned { action: "deny" }. window.open returned null.';
+      } else {
+        window.__testResult.passed = false;
+        document.getElementById('status').textContent =
+          'FAILED: window.open returned a window handle. Popup creation was not denied.';
+      }
+    } catch (e) {
+      // In sandboxed frames without allow-popups, browser throws or returns null
+      window.__testResult.passed = true;
+      document.getElementById('status').textContent =
+        'PASSED: Popup creation blocked with error: ' + e.message;
+    }
+  </script>
+</body>
+</html>

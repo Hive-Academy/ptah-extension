@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Attack Fixture - Permission Request Attempt (Camera, Mic, Geolocation, Clipboard)</title>
+  <!--
+    ATTACK OBJECTIVE:
+    An untrusted MCP App attempts to invoke sensitive device sensors, media streams,
+    geolocation coordinates, or clipboard contents via browser permission APIs.
+
+    MECHANISM:
+    1. navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    2. navigator.geolocation.getCurrentPosition(...)
+    3. navigator.clipboard.readText()
+    4. Notification.requestPermission()
+
+    CONTAINMENT REQUIREMENT:
+    - For iframe: The iframe element MUST NOT include `allow="camera; microphone; geolocation; clipboard-read"`.
+      Chromium feature policy blocks these capabilities immediately.
+    - For Electron Host: Session permission handlers implemented in TASK_2026_491_e0da:
+      `session.setPermissionRequestHandler((contents, permission, callback, details) => { ... })`
+      `session.setPermissionCheckHandler((contents, permission, details) => { ... })`
+      MUST deny every request originating from any third-party app origin (or subframe).
+    - For WebContentsView: The dedicated session partition must unconditionally deny all permissions.
+
+    EXPECTED OUTCOME:
+    All permission requests fail immediately. getUserMedia rejects with NotAllowedError /
+    DOMException. getCurrentPosition invokes error callback with PERMISSION_DENIED (code 1).
+    Clipboard read rejects with NotAllowedError. Notifications return 'denied'.
+    Test reports BLOCKED.
+  -->
+</head>
+<body>
+  <h1>Fixture: Permission Request Attempt</h1>
+  <div id="status">Testing...</div>
+
+  <script>
+    window.__testResult = {
+      test: 'permission-request',
+      blocked: false,
+      denials: [],
+      grants: [],
+      errors: []
+    };
+
+    let pendingTests = 4;
+
+    function finishOne() {
+      pendingTests--;
+      if (pendingTests <= 0) {
+        if (window.__testResult.grants.length === 0) {
+          window.__testResult.blocked = true;
+          document.getElementById('status').textContent =
+            'BLOCKED: All sensitive permissions denied (' +
+            window.__testResult.denials.join(', ') + ')';
+        } else {
+          window.__testResult.blocked = false;
+          document.getElementById('status').textContent =
+            'VULNERABLE: Granted sensitive permissions: ' +
+            window.__testResult.grants.join(', ');
+        }
+      }
+    }
+
+    // 1. Camera / Microphone
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          // Clean up tracks
+          stream.getTracks().forEach(t => t.stop());
+          window.__testResult.grants.push('media (camera/mic)');
+          finishOne();
+        })
+        .catch((err) => {
+          window.__testResult.denials.push('media (' + err.name + ')');
+          finishOne();
+        });
+    } else {
+      window.__testResult.denials.push('media (unavailable)');
+      finishOne();
+    }
+
+    // 2. Geolocation
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          window.__testResult.grants.push('geolocation');
+          finishOne();
+        },
+        (err) => {
+          window.__testResult.denials.push('geolocation (code ' + err.code + ')');
+          finishOne();
+        },
+        { timeout: 2000 }
+      );
+    } else {
+      window.__testResult.denials.push('geolocation (unavailable)');
+      finishOne();
+    }
+
+    // 3. Clipboard Read
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText()
+        .then((text) => {
+          window.__testResult.grants.push('clipboard-read');
+          finishOne();
+        })
+        .catch((err) => {
+          window.__testResult.denials.push('clipboard (' + err.name + ')');
+          finishOne();
+        });
+    } else {
+      window.__testResult.denials.push('clipboard (unavailable)');
+      finishOne();
+    }
+
+    // 4. Notifications
+    if (window.Notification) {
+      try {
+        Notification.requestPermission().then((perm) => {
+          if (perm === 'granted') {
+            window.__testResult.grants.push('notifications');
+          } else {
+            window.__testResult.denials.push('notifications (' + perm + ')');
+          }
+          finishOne();
+        }).catch((err) => {
+          window.__testResult.denials.push('notifications (' + err.name + ')');
+          finishOne();
+        });
+      } catch (e) {
+        window.__testResult.denials.push('notifications (' + e.message + ')');
+        finishOne();
+      }
+    } else {
+      window.__testResult.denials.push('notifications (unavailable)');
+      finishOne();
+    }
+  </script>
+</body>
+</html>

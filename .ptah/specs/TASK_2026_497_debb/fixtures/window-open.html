@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Attack Fixture - Window Open / Popup Attempt</title>
+  <!--
+    ATTACK OBJECTIVE:
+    An untrusted MCP App attempts to bypass container boundaries by spawning new windows,
+    popups, or auxiliary browser tabs via window.open() or link clicks with target="_blank".
+
+    MECHANISM:
+    1. window.open('https://malicious.example.com', '_blank')
+    2. Synthetic click on <a href="https://malicious.example.com" target="_blank">
+    3. window.open('about:blank', 'auxiliary')
+
+    CONTAINMENT REQUIREMENT:
+    - For iframe: sandbox attribute MUST NOT include 'allow-popups' or 'allow-popups-to-escape-sandbox'.
+      Browser will block window.open() and return null, or throw an error.
+    - For WebContentsView & Electron Host: Host MUST register a window open handler:
+      `webContents.setWindowOpenHandler(({ url }) => { return { action: 'deny' }; })`
+      which unconditionally blocks new window creation.
+    - Any attempt to open new windows must neither create a BrowserWindow nor open arbitrary URLs.
+
+    EXPECTED OUTCOME:
+    window.open returns null or undefined. The synthetic link click does not spawn a new window.
+    The Electron main process logs denial if intercepted. Test reports BLOCKED.
+  -->
+</head>
+<body>
+  <h1>Fixture: Window Open / Popup Attempt</h1>
+  <div id="status">Testing...</div>
+  <a id="test-link" href="https://malicious.example.com/popup" target="_blank" rel="noopener">Target Link</a>
+
+  <script>
+    window.__testResult = {
+      test: 'window-open',
+      blocked: false,
+      popupResult: null,
+      error: null
+    };
+
+    try {
+      // Attempt 1: Direct window.open call
+      const popup = window.open('https://malicious.example.com/popup', '_blank', 'width=500,height=500');
+      window.__testResult.popupResult = popup;
+
+      if (popup === null || popup === undefined) {
+        window.__testResult.blocked = true;
+        document.getElementById('status').textContent = 'BLOCKED: window.open returned null/undefined';
+      } else {
+        // If an object is returned, check if it's closed or accessible
+        if (popup.closed) {
+          window.__testResult.blocked = true;
+          document.getElementById('status').textContent = 'BLOCKED: Popup immediately closed';
+        } else {
+          document.getElementById('status').textContent = 'VULNERABLE: Popup window was successfully opened';
+        }
+      }
+    } catch (e) {
+      window.__testResult.blocked = true;
+      window.__testResult.error = e.name + ': ' + e.message;
+      document.getElementById('status').textContent = 'BLOCKED: ' + window.__testResult.error;
+    }
+
+    // Attempt 2: Synthetic click on target="_blank" link
+    try {
+      const link = document.getElementById('test-link');
+      const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+      const allowed = link.dispatchEvent(clickEvent);
+      // In sandboxed frame without allow-popups, event may dispatch but popup is suppressed
+    } catch (e) {
+      // Ignored if handled by sandbox
+    }
+  </script>
+</body>
+</html>

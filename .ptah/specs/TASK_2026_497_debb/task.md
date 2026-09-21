@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_497_debb
-status: backlog
+status: in_progress
 type: RESEARCH
 title: >-
   Spike - containment of app HTML in Electron

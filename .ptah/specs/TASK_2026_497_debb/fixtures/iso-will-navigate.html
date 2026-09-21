@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Isolation Setting Assertion - will-navigate Block</title>
+  <!--
+    CONTROL UNDER TEST:
+    will-navigate / will-frame-navigate cancellation in Electron main process
+
+    OBJECTIVE:
+    Assert that any navigation initiated by the guest document to an undeclared, external,
+    or different-origin URL is intercepted by the host's `will-navigate` event listener
+    and cancelled (`event.preventDefault()`).
+
+    MECHANISM & PROBES:
+    1. Click on a link with href="https://external-untrusted.example.com"
+    2. Programmatic navigation: window.location.href = "https://external-untrusted.example.com"
+
+    HOW IT IS ASSERTED:
+    The main process listens to `webContents.on('will-navigate', (event, url) => { ... })`.
+    Unless `url` is a same-document hash navigation, `event.preventDefault()` must be called.
+    The test asserts that after attempting navigation, the frame or view remains on its initial
+    URL and did not unload or replace the container document.
+  -->
+</head>
+<body>
+  <h1>Isolation Control: will-navigate Block</h1>
+  <div id="status">Evaluating will-navigate cancellation...</div>
+  <a id="nav-link" href="https://external-untrusted.example.com/dest">Navigate Out</a>
+
+  <script>
+    window.__testResult = {
+      control: 'will-navigate block',
+      passed: false,
+      initialUrl: window.location.href,
+      attemptedNavigation: false
+    };
+
+    // Trigger navigation after brief delay
+    setTimeout(() => {
+      window.__testResult.attemptedNavigation = true;
+      try {
+        window.location.href = 'https://external-untrusted.example.com/dest';
+      } catch (e) {
+        // May throw in sandboxed frames
+      }
+
+      // After a short timeout, verify if the frame is still alive on the original URL
+      setTimeout(() => {
+        if (window.location.href === window.__testResult.initialUrl) {
+          window.__testResult.passed = true;
+          document.getElementById('status').textContent =
+            'PASSED: Navigation was intercepted and cancelled. Document remained at initial URL.';
+        } else {
+          window.__testResult.passed = false;
+          document.getElementById('status').textContent =
+            'FAILED: Frame navigated to ' + window.location.href;
+        }
+      }, 500);
+    }, 200);
+  </script>
+</body>
+</html>
