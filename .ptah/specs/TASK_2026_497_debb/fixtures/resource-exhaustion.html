@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Attack Fixture - Resource Exhaustion / Denial of Service Attempt</title>
+  <!--
+    ATTACK OBJECTIVE:
+    A malicious or malfunctioning MCP App attempts a Denial of Service (DoS) attack
+    to freeze the host application, saturate the postMessage/IPC bridge, or crash the renderer
+    via high-frequency message flooding, rapid DOM allocation, or heavy CPU consumption.
+
+    MECHANISM:
+    1. Message Flood: Rapid loop emitting thousands of postMessages to window.parent per second.
+    2. Memory allocation burst: Allocating large typed arrays / memory chunks.
+    3. CPU tight loop / event-loop starvation.
+
+    CONTAINMENT REQUIREMENT:
+    - Host Message Rate Limiter: The host bridge MUST enforce a rate limit and byte limit
+      on incoming JSON-RPC postMessages (e.g. 50 messages/sec, 64KB max per message).
+      Violations must drop messages and optionally trigger view teardown.
+    - Process Isolation:
+      * For custom-protocol iframe: An unhandled crash in the shared renderer will crash the
+        host Angular shell. The spike MUST measure whether Chromium Site Isolation isolates
+        the custom protocol origin into an independent renderer process.
+      * For WebContentsView: Operates in a separate renderer process by construction. A crash
+        fires `render-process-gone` on the WebContentsView without crashing the host BrowserWindow.
+    - Host watchdog must detect unresponsive views and enforce teardown without data loss in the host.
+
+    EXPECTED OUTCOME:
+    Host rate limiter drops flooded messages and flags the offending view. Host UI remains
+    responsive. If the view terminates or crashes, host catches the crash event gracefully.
+    Test reports BLOCKED (flood contained) or measures process blast radius.
+  -->
+</head>
+<body>
+  <h1>Fixture: Resource Exhaustion / Flood Attempt</h1>
+  <div id="status">Testing message flood containment...</div>
+
+  <script>
+    window.__testResult = {
+      test: 'resource-exhaustion',
+      messagesSent: 0,
+      floodDetectedByHost: false,
+      completedWithoutHostCrash: false
+    };
+
+    // Attempt a controlled high-frequency postMessage burst (1,000 messages)
+    const BURST_COUNT = 1000;
+    let sent = 0;
+
+    const floodInterval = setInterval(() => {
+      for (let i = 0; i < 50; i++) {
+        if (sent >= BURST_COUNT) {
+          clearInterval(floodInterval);
+          window.__testResult.messagesSent = sent;
+          window.__testResult.completedWithoutHostCrash = true;
+          document.getElementById('status').textContent =
+            'COMPLETED: Dispatched ' + sent + ' messages in burst. Host rate-limiting/watchdog should throttle.';
+          return;
+        }
+
+        const msg = {
+          jsonrpc: '2.0',
+          method: 'ui/notifications/tool-input',
+          params: { floodIndex: sent, payload: 'A'.repeat(512) }
+        };
+
+        try {
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage(msg, '*');
+          }
+        } catch (e) {
+          // Message send failed
+        }
+        sent++;
+      }
+    }, 10);
+  </script>
+</body>
+</html>

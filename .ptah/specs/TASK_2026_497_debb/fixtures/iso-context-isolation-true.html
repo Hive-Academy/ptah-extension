@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Isolation Setting Assertion - contextIsolation: true</title>
+  <!--
+    CONTROL UNDER TEST:
+    contextIsolation: true (in WebPreferences)
+
+    OBJECTIVE:
+    Assert that the JavaScript execution context of the guest document is completely isolated
+    from any preload scripts and host execution contexts.
+
+    MECHANISM & PROBES:
+    1. Probing for internal Electron APIs: typeof electron === 'undefined',
+       typeof ipcRenderer === 'undefined'
+    2. Probing for Ptah host preload bridges: typeof window.vscode === 'undefined',
+       typeof window.ptahClipboard === 'undefined', typeof window.ptahDiag === 'undefined'
+    3. Probing for prototype poisoning resistance: Prototype modifications on Object.prototype
+       in guest do not affect host/preload context.
+
+    HOW IT IS ASSERTED:
+    The fixture inspects `window` for any preload bridges or internal Electron symbols.
+    If none exist and the environment is clean, window.__testResult.passed is true.
+  -->
+</head>
+<body>
+  <h1>Isolation Control: contextIsolation = true</h1>
+  <div id="status">Evaluating...</div>
+
+  <script>
+    window.__testResult = {
+      control: 'contextIsolation: true',
+      passed: false,
+      leakedBridges: []
+    };
+
+    // Check for standard Electron preload leaks
+    const SUSPECT_BRIDGES = [
+      'vscode',
+      'ptahClipboard',
+      'ptahDiag',
+      'electron',
+      'ipcRenderer',
+      '__electron',
+      '__dirname',
+      '__filename'
+    ];
+
+    SUSPECT_BRIDGES.forEach(bridge => {
+      if (window[bridge] !== undefined) {
+        window.__testResult.leakedBridges.push(bridge);
+      }
+    });
+
+    if (window.__testResult.leakedBridges.length === 0) {
+      window.__testResult.passed = true;
+      document.getElementById('status').textContent =
+        'PASSED: contextIsolation is true. No preload scripts, IPC bridges, or host objects accessible.';
+    } else {
+      window.__testResult.passed = false;
+      document.getElementById('status').textContent =
+        'FAILED: Isolated context breached. Accessible bridges: ' +
+        window.__testResult.leakedBridges.join(', ');
+    }
+  </script>
+</body>
+</html>

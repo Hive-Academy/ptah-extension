@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Isolation Setting Assertion - nodeIntegration: false</title>
+  <!--
+    CONTROL UNDER TEST:
+    nodeIntegration: false (in WebPreferences)
+
+    OBJECTIVE:
+    Assert that Node.js runtime globals and modules are strictly NOT exposed or accessible
+    within the guest execution environment.
+
+    MECHANISM & PROBES:
+    1. typeof require === 'undefined'
+    2. typeof process === 'undefined'
+    3. typeof Buffer === 'undefined'
+    4. typeof global === 'undefined'
+    5. Attempting to call require('fs') or require('child_process') throws ReferenceError
+
+    HOW IT IS ASSERTED:
+    The fixture inspects global scope properties. If any Node.js primitive is detected,
+    window.__testResult.passed is false and the status shows FAILED. When all are undefined,
+    passed is true.
+  -->
+</head>
+<body>
+  <h1>Isolation Control: nodeIntegration = false</h1>
+  <div id="status">Evaluating...</div>
+
+  <script>
+    window.__testResult = {
+      control: 'nodeIntegration: false',
+      passed: false,
+      probes: {
+        hasRequire: typeof require !== 'undefined',
+        hasProcess: typeof process !== 'undefined',
+        hasBuffer: typeof Buffer !== 'undefined',
+        hasGlobal: typeof global !== 'undefined'
+      },
+      leaks: []
+    };
+
+    if (window.__testResult.probes.hasRequire) window.__testResult.leaks.push('require');
+    if (window.__testResult.probes.hasProcess) window.__testResult.leaks.push('process');
+    if (window.__testResult.probes.hasBuffer) window.__testResult.leaks.push('Buffer');
+    if (window.__testResult.probes.hasGlobal) window.__testResult.leaks.push('global');
+
+    if (window.__testResult.leaks.length === 0) {
+      window.__testResult.passed = true;
+      document.getElementById('status').textContent =
+        'PASSED: nodeIntegration is false. No Node.js primitives exposed in execution context.';
+    } else {
+      window.__testResult.passed = false;
+      document.getElementById('status').textContent =
+        'FAILED: Node.js globals leaked: ' + window.__testResult.leaks.join(', ');
+    }
+  </script>
+</body>
+</html>

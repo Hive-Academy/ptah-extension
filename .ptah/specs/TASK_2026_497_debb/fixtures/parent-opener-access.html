@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Attack Fixture - Parent and Opener Access Attempt</title>
+  <!--
+    ATTACK OBJECTIVE:
+    An untrusted MCP App attempts to inspect, read, or manipulate the parent host frame
+    or opener window, targeting sensitive host DOM nodes, tokens, or Electron preload
+    bridges (e.g. `window.parent.vscode`, `window.parent.ptahClipboard`, `window.parent.ptahDiag`).
+
+    MECHANISM:
+    1. Read `window.parent.document` (DOM inspection, token theft)
+    2. Read `window.parent.vscode` / `window.parent.electron` (RPC / IPC bridge hijack)
+    3. Modify `window.parent.location` or invoke methods on parent
+    4. Access `window.opener.document` or `window.opener.location`
+
+    CONTAINMENT REQUIREMENT:
+    - Origin separation: The MCP App document MUST run on a distinct origin
+      (e.g. `ptah-mcp://srv-1.app-1.v1/`).
+    - Cross-Origin Isolation: Under Chromium Same-Origin Policy (SOP), cross-origin script
+      access to parent properties (other than limited window proxy properties like postMessage)
+      MUST throw a SecurityError DOMException.
+    - Preload objects in host context MUST NOT be attached to guest window or exposed across
+      origin boundary.
+    - WebContentsView: Has no parent or opener DOM window reference in its browsing context
+      hierarchy (`window.parent === window`), completely cutting off DOM traversal.
+
+    EXPECTED OUTCOME:
+    Attempts to read properties of parent.document or parent.vscode throw SecurityError
+    DOMException (for iframe) or parent is self (for WebContentsView). Opener is null/inaccessible.
+    No host DOM or preload API is revealed. Test reports BLOCKED.
+  -->
+</head>
+<body>
+  <h1>Fixture: Parent and Opener Access Attempt</h1>
+  <div id="status">Testing...</div>
+
+  <script>
+    window.__testResult = {
+      test: 'parent-opener-access',
+      blocked: false,
+      leakedProperties: [],
+      errors: []
+    };
+
+    let parentAccessBlocked = false;
+    let openerAccessBlocked = false;
+
+    // Check parent window
+    if (window.parent && window.parent !== window) {
+      // Test 1: Access parent document
+      try {
+        const parentDoc = window.parent.document;
+        // If we reach here, we leaked parent document!
+        window.__testResult.leakedProperties.push('parent.document');
+      } catch (e) {
+        window.__testResult.errors.push('parent.document: ' + e.name);
+      }
+
+      // Test 2: Access parent preload bridges
+      try {
+        const vscodeBridge = window.parent.vscode;
+        if (vscodeBridge !== undefined) {
+          window.__testResult.leakedProperties.push('parent.vscode');
+        }
+      } catch (e) {
+        window.__testResult.errors.push('parent.vscode: ' + e.name);
+      }
+
+      try {
+        const diagBridge = window.parent.ptahDiag;
+        if (diagBridge !== undefined) {
+          window.__testResult.leakedProperties.push('parent.ptahDiag');
+        }
+      } catch (e) {
+        window.__testResult.errors.push('parent.ptahDiag: ' + e.name);
+      }
+
+      parentAccessBlocked = (window.__testResult.leakedProperties.length === 0);
+    } else {
+      // In WebContentsView, window.parent is window itself
+      parentAccessBlocked = true;
+      window.__testResult.errors.push('parent is self (isolated WebContentsView)');
+    }
+
+    // Check opener window
+    if (window.opener) {
+      try {
+        const openerDoc = window.opener.document;
+        window.__testResult.leakedProperties.push('opener.document');
+      } catch (e) {
+        window.__testResult.errors.push('opener.document: ' + e.name);
+        openerAccessBlocked = true;
+      }
+    } else {
+      openerAccessBlocked = true;
+      window.__testResult.errors.push('window.opener is null');
+    }
+
+    if (parentAccessBlocked && openerAccessBlocked) {
+      window.__testResult.blocked = true;
+      document.getElementById('status').textContent = 'BLOCKED: All parent/opener cross-origin accesses threw SecurityError or were isolated';
+    } else {
+      window.__testResult.blocked = false;
+      document.getElementById('status').textContent = 'VULNERABLE: Leaked ' + window.__testResult.leakedProperties.join(', ');
+    }
+  </script>
+</body>
+</html>

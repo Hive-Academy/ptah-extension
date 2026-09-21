@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Attack Fixture - Top-Level Navigation Attempt</title>
+  <!--
+    ATTACK OBJECTIVE:
+    An untrusted MCP App attempts to hijack or redirect the host Electron application
+    by re-navigating the top-level browsing context (window.top / window.parent).
+
+    MECHANISM:
+    Executes top-level navigation via:
+    1. window.top.location = 'https://malicious.example.com'
+    2. window.top.location.href = 'https://malicious.example.com'
+    3. window.parent.location.assign('https://malicious.example.com')
+
+    CONTAINMENT REQUIREMENT:
+    - For iframe: sandbox attribute MUST NOT include 'allow-top-navigation' or
+      'allow-top-navigation-by-user-activation'. The browser must throw a DOMException
+      or silently block cross-origin top navigation.
+    - For WebContentsView: Navigation must be intercepted and blocked by the main process
+      via `webContents.on('will-navigate', (event) => event.preventDefault())` and
+      `will-frame-navigate`.
+    - Host application window MUST remain intact at its trusted origin.
+
+    EXPECTED OUTCOME:
+    Top-level window is NOT navigated. Accessing window.top.location either throws a
+    SecurityError DOMException (cross-origin iframe) or the navigation is cancelled
+    by the will-navigate guard. The test reports BLOCKED.
+  -->
+</head>
+<body>
+  <h1>Fixture: Top-Level Navigation Attempt</h1>
+  <div id="status">Testing...</div>
+
+  <script>
+    window.__testResult = {
+      test: 'top-level-navigation',
+      blocked: false,
+      error: null,
+      attemptedUrl: 'https://malicious.example.com/exploit'
+    };
+
+    try {
+      // Attempt 1: Direct property assignment
+      window.top.location = window.__testResult.attemptedUrl;
+      // If execution continues here without error in same-origin sandbox, check if top actually changed
+      document.getElementById('status').textContent = 'VULNERABLE: window.top.location assigned without error';
+    } catch (e) {
+      // Expected in properly sandboxed cross-origin iframe: DOMException SecurityError
+      window.__testResult.blocked = true;
+      window.__testResult.error = e.name + ': ' + e.message;
+      document.getElementById('status').textContent = 'BLOCKED: ' + window.__testResult.error;
+    }
+
+    try {
+      // Attempt 2: Via parent.location.replace
+      if (window.parent && window.parent !== window) {
+        window.parent.location.replace(window.__testResult.attemptedUrl);
+      }
+    } catch (e) {
+      window.__testResult.blocked = true;
+      window.__testResult.error = e.name + ': ' + e.message;
+    }
+  </script>
+</body>
+</html>

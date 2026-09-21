@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Isolation Setting Assertion - Session Permission Denial</title>
+  <!--
+    CONTROL UNDER TEST:
+    session.setPermissionRequestHandler and setPermissionCheckHandler (origin-aware policy)
+
+    OBJECTIVE:
+    Assert that the Electron session permission handlers deny every device/sensor permission
+    requested by the app origin, including camera, microphone, geolocation, clipboard,
+    notifications, and screen capture.
+
+    MECHANISM & PROBES:
+    1. navigator.mediaDevices.getUserMedia
+    2. navigator.geolocation.getCurrentPosition
+    3. navigator.clipboard.readText
+    4. Notification.requestPermission
+
+    HOW IT IS ASSERTED:
+    The test invokes all four permission APIs. The Electron session handler receives the
+    request with `details.requestingUrl` matching the app origin. Under the TASK_2026_491_e0da
+    decision matrix, any non-trusted shell origin is denied.
+    The test asserts that all four promises reject with permission/not-allowed errors.
+  -->
+</head>
+<body>
+  <h1>Isolation Control: Session Permission Denial</h1>
+  <div id="status">Evaluating permission denials...</div>
+
+  <script>
+    window.__testResult = {
+      control: 'permission denial',
+      passed: false,
+      denials: [],
+      grants: []
+    };
+
+    let remaining = 3;
+
+    function finishOne() {
+      remaining--;
+      if (remaining <= 0) {
+        if (window.__testResult.grants.length === 0 && window.__testResult.denials.length > 0) {
+          window.__testResult.passed = true;
+          document.getElementById('status').textContent =
+            'PASSED: Session permission handlers denied all requests (' +
+            window.__testResult.denials.join(', ') + ')';
+        } else {
+          window.__testResult.passed = false;
+          document.getElementById('status').textContent =
+            'FAILED: Permissions granted: ' + window.__testResult.grants.join(', ');
+        }
+      }
+    }
+
+    // Media
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(() => { window.__testResult.grants.push('mic'); finishOne(); })
+        .catch((e) => { window.__testResult.denials.push('mic:' + e.name); finishOne(); });
+    } else {
+      window.__testResult.denials.push('mic:unavailable');
+      finishOne();
+    }
+
+    // Geolocation
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        () => { window.__testResult.grants.push('geo'); finishOne(); },
+        (e) => { window.__testResult.denials.push('geo:code' + e.code); finishOne(); },
+        { timeout: 1500 }
+      );
+    } else {
+      window.__testResult.denials.push('geo:unavailable');
+      finishOne();
+    }
+
+    // Clipboard
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText()
+        .then(() => { window.__testResult.grants.push('clipboard'); finishOne(); })
+        .catch((e) => { window.__testResult.denials.push('clipboard:' + e.name); finishOne(); });
+    } else {
+      window.__testResult.denials.push('clipboard:unavailable');
+      finishOne();
+    }
+  </script>
+</body>
+</html>

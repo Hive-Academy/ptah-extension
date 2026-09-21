@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Attack Fixture - Cross-Origin Storage Read Attempt</title>
+  <!--
+    ATTACK OBJECTIVE:
+    An untrusted MCP App attempts to read or mutate client-side storage (localStorage,
+    sessionStorage, IndexedDB, cookies) belonging to another app origin (e.g. Server B, App B,
+    or a different version of the same app) or the host Electron application.
+
+    MECHANISM:
+    1. Read local storage keys expecting another app's tokens: localStorage.getItem('auth_token')
+    2. Attempt to open IndexedDB databases belonging to another app/server namespace
+    3. Attempt to read document.cookie for another domain/app
+    4. Attempt to access StorageManager across origin partition
+
+    CONTAINMENT REQUIREMENT:
+    - Origin Granularity: Each app MUST have a unique origin (e.g. `ptah-mcp://serverA.app1.v1/`).
+    - Under Chromium SOP, localStorage, sessionStorage, and IndexedDB are strictly partitioned
+      by (scheme, host, port). One origin CANNOT enumerate or access databases or storage of
+      another origin.
+    - For WebContentsView: Ephemeral in-memory partition (`partition: 'ephemeral:...'`) ensures
+      a completely isolated, transient storage jar that does not share storage files or memory
+      with any other partition or the host.
+
+    EXPECTED OUTCOME:
+    Storage operations are isolated to the app's own origin/partition. Probing for foreign keys
+    returns null or creates isolated, empty local databases. No cross-app or host storage data
+    can be read. Test reports BLOCKED.
+  -->
+</head>
+<body>
+  <h1>Fixture: Cross-Origin Storage Read Attempt</h1>
+  <div id="status">Testing...</div>
+
+  <script>
+    window.__testResult = {
+      test: 'cross-origin-storage-read',
+      blocked: false,
+      leakedData: [],
+      currentOrigin: window.location.origin
+    };
+
+    // Simulated secret that another app or host might have stored
+    const TARGET_FOREIGN_KEYS = [
+      'ptah_workspace_token',
+      'claude_auth_token',
+      'mcp_server_secret',
+      'user_credentials'
+    ];
+
+    let leakFound = false;
+
+    // 1. Probe localStorage
+    try {
+      TARGET_FOREIGN_KEYS.forEach(key => {
+        const val = localStorage.getItem(key);
+        if (val !== null) {
+          leakFound = true;
+          window.__testResult.leakedData.push('localStorage:' + key);
+        }
+      });
+    } catch (e) {
+      // In opaque origin, localStorage may throw SecurityError
+    }
+
+    // 2. Probe document.cookie
+    try {
+      if (document.cookie && document.cookie.length > 0) {
+        leakFound = true;
+        window.__testResult.leakedData.push('cookie:' + document.cookie);
+      }
+    } catch (e) {
+      // Cookies not supported or blocked
+    }
+
+    // 3. Probe IndexedDB for foreign databases
+    if (window.indexedDB && window.indexedDB.databases) {
+      window.indexedDB.databases().then(dbs => {
+        const foreignDbs = dbs.filter(db => db.name && (db.name.includes('ptah-host') || db.name.includes('other-server')));
+        if (foreignDbs.length > 0) {
+          leakFound = true;
+          window.__testResult.leakedData.push('indexedDB:' + foreignDbs.map(d => d.name).join(','));
+        }
+        finishTest();
+      }).catch(() => {
+        finishTest();
+      });
+    } else {
+      finishTest();
+    }
+
+    function finishTest() {
+      if (!leakFound) {
+        window.__testResult.blocked = true;
+        document.getElementById('status').textContent = 'BLOCKED: No cross-origin or foreign storage keys accessible. Storage is isolated to ' + window.__testResult.currentOrigin;
+      } else {
+        window.__testResult.blocked = false;
+        document.getElementById('status').textContent = 'VULNERABLE: Found accessible foreign data: ' + window.__testResult.leakedData.join(', ');
+      }
+    }
+  </script>
+</body>
+</html>

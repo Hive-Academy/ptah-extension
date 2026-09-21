@@ -54,3 +54,7 @@ Fixture requirement: metadata that asks for an extra `script-src` source, a `fra
 ## Source
 
 `.ptah/specs/TASK_2026_490_583c/critique-engineering.md` section 2. `.ptah/specs/TASK_2026_490_583c/research-mcp-apps.md`, host duties checklist.
+
+## Preparation done
+
+Pre-spike comparison criteria, attack fixture corpus (17 files), and isolation settings specification prepared at [containment-comparison.md](./containment-comparison.md).
