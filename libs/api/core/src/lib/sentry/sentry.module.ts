@@ -16,8 +16,14 @@ import {
 } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import * as Sentry from '@sentry/nestjs';
-
-import SentrySetup = require('@sentry/nestjs/setup');
+// Named imports, not `import ... = require(...)`. That construct has no ESM
+// equivalent, and `libs/api/**` must compile to ESM because NestJS 12 ships
+// `type: module`. `@sentry/nestjs/setup` publishes a real ESM build with these
+// two named exports, so nothing here depends on interop.
+import {
+  SentryGlobalFilter,
+  SentryModule as SentrySetupModule,
+} from '@sentry/nestjs/setup';
 
 @Injectable()
 class SentryShutdownService implements OnApplicationShutdown {
@@ -27,11 +33,11 @@ class SentryShutdownService implements OnApplicationShutdown {
 }
 
 @Module({
-  imports: [SentrySetup.SentryModule.forRoot()],
+  imports: [SentrySetupModule.forRoot()],
   providers: [
     {
       provide: APP_FILTER,
-      useClass: SentrySetup.SentryGlobalFilter,
+      useClass: SentryGlobalFilter,
     },
     SentryShutdownService,
   ],
