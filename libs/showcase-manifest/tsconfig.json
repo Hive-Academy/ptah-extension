@@ -2,5 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "files": [],
   "include": [],
-  "references": [{ "path": "./tsconfig.lib.json" }]
+  "references": [
+    {
+      "path": "./tsconfig.lib.json"
+    }
+  ],
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0"
+  }
 }

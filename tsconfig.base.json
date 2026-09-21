@@ -225,7 +225,10 @@
       "@ptah-contracts/community": [
         "./libs/api-contracts/community/src/index.ts"
       ]
-    }
+    },
+    "strict": false,
+    "noUncheckedSideEffectImports": false,
+    "types": ["*"]
   },
   "exclude": ["node_modules", "tmp"]
 }

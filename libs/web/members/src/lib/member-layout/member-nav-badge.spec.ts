@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -36,7 +36,7 @@ describe('the member nav unread badge (R9.3, R10.4, RISK-AN)', () => {
       await TestBed.configureTestingModule({
         imports: [MemberLayout],
         providers: [
-          provideHttpClient(),
+          provideHttpClient(withXhr()),
           provideHttpClientTesting(),
           provideRouter([]),
           // Provided as the `/members` route provides it — one instance for

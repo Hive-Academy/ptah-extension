@@ -1,11 +1,21 @@
-import { Component, input, output } from '@angular/core';
+import {
+  Component,
+  input,
+  output,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { LucideAngularModule } from 'lucide-angular';
 import { TribunalWizardComponent } from './tribunal-wizard.component';
 import type { TribunalMove, VendorLane } from '../types/tribunal-ui.types';
 
-@Component({ selector: 'ptah-step-pick-move', standalone: true, template: '' })
+@Component({
+  selector: 'ptah-step-pick-move',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
+  template: '',
+})
 class StepPickMoveStub {
   readonly selected = input<TribunalMove>('council');
   readonly moveSelected = output<TribunalMove>();
@@ -14,6 +24,7 @@ class StepPickMoveStub {
 @Component({
   selector: 'ptah-step-panel-preview',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class StepPanelPreviewStub {
@@ -22,7 +33,12 @@ class StepPanelPreviewStub {
   readonly lanesChanged = output<readonly VendorLane[]>();
 }
 
-@Component({ selector: 'ptah-step-run', standalone: true, template: '' })
+@Component({
+  selector: 'ptah-step-run',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
+  template: '',
+})
 class StepRunStub {
   readonly move = input<TribunalMove>('council');
   readonly lanes = input<readonly VendorLane[]>([]);
@@ -34,6 +50,7 @@ class StepRunStub {
 @Component({
   selector: 'ptah-step-role-roster',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class StepRoleRosterStub {
@@ -45,6 +62,7 @@ class StepRoleRosterStub {
 @Component({
   selector: 'ptah-step-crucible-rubric',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 class StepCrucibleRubricStub {

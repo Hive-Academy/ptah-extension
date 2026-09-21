@@ -1,9 +1,16 @@
-import { Component, signal, viewChild, ElementRef } from '@angular/core';
+import {
+  Component,
+  signal,
+  viewChild,
+  ElementRef,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
 
 @Component({
   imports: [TranscriptPrependAnchorDirective],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div
       #root

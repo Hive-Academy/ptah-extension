@@ -35,7 +35,6 @@ interface BetterSqliteDb {
 
 let nativeAvailable = false;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const DB = require('better-sqlite3') as new (path: string) => {
     close(): void;
   };
@@ -48,7 +47,6 @@ try {
 
 const maybe = nativeAvailable ? it : it.skip;
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const DatabaseCtor = nativeAvailable
   ? (require('better-sqlite3') as new (path: string) => BetterSqliteDb)
   : null;

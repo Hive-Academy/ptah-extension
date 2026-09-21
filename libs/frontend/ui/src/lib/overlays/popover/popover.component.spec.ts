@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { PopoverComponent } from './popover.component';
 
 /**
@@ -8,6 +8,7 @@ import { PopoverComponent } from './popover.component';
 @Component({
   standalone: true,
   imports: [PopoverComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <ptah-popover
       [isOpen]="isOpen()"

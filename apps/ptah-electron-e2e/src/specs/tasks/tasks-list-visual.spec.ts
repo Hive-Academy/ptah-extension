@@ -373,7 +373,7 @@ test.describe('Tasks list layout (visual + measured)', () => {
 
     const cardHeight = cardBox?.height ?? 0;
     const rowHeight = rowBox?.height ?? 0;
-    // eslint-disable-next-line no-console
+
     console.log(
       `[tasks-list] card=${cardHeight.toFixed(1)}px row=${rowHeight.toFixed(1)}px ratio=${(cardHeight / rowHeight).toFixed(2)}x`,
     );
@@ -449,7 +449,7 @@ test.describe('Tasks list layout (visual + measured)', () => {
       .locator('[data-testid="task-row"]')
       .evaluateAll((rows) => rows.map((r) => r.getBoundingClientRect().height));
     const tallest = Math.max(...rowHeights);
-    // eslint-disable-next-line no-console
+
     console.log(
       `[tasks-list] rows=${rowHeights.length} tallest=${tallest.toFixed(1)}px`,
     );
@@ -514,7 +514,7 @@ test.describe('Tasks list layout (visual + measured)', () => {
 
     const scrollerTop = scrollerBox?.y ?? 0;
     const groupTop = groupBox?.y ?? -1;
-    // eslint-disable-next-line no-console
+
     console.log(
       `[tasks-list] scrollTop=${scrolled} containerTop=${scrollerTop.toFixed(1)} groupHeaderTop=${groupTop.toFixed(1)}`,
     );
@@ -590,7 +590,7 @@ test.describe('Tasks list layout (visual + measured)', () => {
     const widthBefore = listBefore?.width ?? 0;
     const widthAfter = listAfter?.width ?? 0;
     const detailWidth = detail?.width ?? 0;
-    // eslint-disable-next-line no-console
+
     console.log(
       `[tasks-list] listWidth ${widthBefore.toFixed(0)} -> ${widthAfter.toFixed(0)}, detail=${detailWidth.toFixed(0)}`,
     );

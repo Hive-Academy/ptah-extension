@@ -15,6 +15,6 @@
     "gray-matter": "*",
     "web-tree-sitter": "^0.26.8",
     "@ptah-extension/memory-contracts": "*",
-    "typescript": "^5.9.0"
+    "typescript": "6.0.3"
   }
 }

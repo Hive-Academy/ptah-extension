@@ -55,6 +55,7 @@ function makeSourceControlStub() {
 @Component({
   standalone: true,
   imports: [SourceControlPanelComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `<ptah-source-control-panel
     [files]="files()"
     [statusUnavailable]="statusUnavailable()"

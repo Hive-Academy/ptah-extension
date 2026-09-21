@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { NativeCardComponent, NativeCardTone } from './native-card.component';
@@ -6,6 +6,7 @@ import { NativeCardComponent, NativeCardTone } from './native-card.component';
 @Component({
   standalone: true,
   imports: [NativeCardComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <ptah-native-card
       [tone]="tone()"

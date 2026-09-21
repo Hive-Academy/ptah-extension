@@ -111,10 +111,7 @@ async function buildAnalyticsFixture(): Promise<Fixture> {
     if (i < SUBAGENT_COUNT) {
       const subDir = path.join(dir, sessionId, 'subagents');
       await fs.mkdir(subDir, { recursive: true });
-      const subLines = [
-        userLine(sessionId),
-        usageLine(sessionId, 's0', 3, 10),
-      ];
+      const subLines = [userLine(sessionId), usageLine(sessionId, 's0', 3, 10)];
       await fs.writeFile(
         path.join(subDir, 'agent-one.jsonl'),
         `${subLines.join('\n')}\n`,
@@ -153,7 +150,10 @@ perfDescribe(
       logger = createMockLogger();
       jsonl = new JsonlReaderService(logger as unknown as Logger);
       jest.spyOn(jsonl, 'findSessionsDirectory').mockResolvedValue(fixture.dir);
-      reader = new SessionStatsReaderService(logger as unknown as Logger, jsonl);
+      reader = new SessionStatsReaderService(
+        logger as unknown as Logger,
+        jsonl,
+      );
     });
 
     it(
@@ -220,7 +220,6 @@ perfDescribe(
         // JSONL projector at all.
         expect(projectSpy).not.toHaveBeenCalled();
 
-        // eslint-disable-next-line no-console
         console.log(
           '[perf] 200-session/20-id-page fixture:',
           JSON.stringify({

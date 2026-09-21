@@ -6,7 +6,8 @@
     "target": "ES2022",
     "outDir": "../../dist/out-tsc",
     "types": ["node"],
-    "strict": true
+    "strict": true,
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src/preload.ts"]
 }

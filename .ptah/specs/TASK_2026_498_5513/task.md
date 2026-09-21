@@ -43,6 +43,23 @@ candidates on the license server.
    1.24.3 to 1.30.0, a rewrite of `patch-transformers-onnx-dep.js`, and an async
    refactor of `kokoro-pipeline.ts` where `toWav()` becomes `toBlob()`.
 3. TypeScript 7, once Angular and Nx support it.
+4. npm 12. It blocks dependency install scripts by default, and 27 packages here
+   need them, including `better-sqlite3`, which compiles from source. The work is
+   to build the `allowScripts` allowlist and verify the native rebuild chain.
+   `lockfileVersion` does not change, so there is no cross-version risk.
+5. Decide whether the webview root component should be `OnPush`. The Angular 22
+   `change-detection-eager` codemod wrote `Eager` into 30 files that omitted
+   `changeDetection`. 28 are `.spec.ts` inline test fixtures and one is a
+   `testing/` harness, where `Eager` is correct: under `OnPush` a test that
+   assigns a component property directly stops re-rendering. Exactly one is
+   production code, `apps/ptah-extension-webview/src/app/app.ts`. That app's own
+   eslint config already sets `prefer-on-push-component-change-detection` to
+   `off`, so nothing fails. Flipping the app shell's change detection is a
+   behavioral change and does not belong in a dependency migration.
+6. Consider enabling `strict` across the workspace. TypeScript 6 makes `strict`
+   the default, and the Nx codemod wrote `"strict": false` into
+   `tsconfig.base.json` to preserve behavior. Only 15 of 97 projects opt into
+   strict themselves.
 
 ## Measured constraint: TypeScript 7 is out of reach
 

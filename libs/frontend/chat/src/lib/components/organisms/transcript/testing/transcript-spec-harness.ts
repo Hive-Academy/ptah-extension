@@ -1,4 +1,10 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import {
+  Component,
+  EventEmitter,
+  Input,
+  Output,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -15,6 +21,7 @@ import { ChatTranscriptComponent } from '../chat-transcript.component';
 @Component({
   selector: 'ptah-message-bubble',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 export class TranscriptMessageBubbleStub {
@@ -31,6 +38,7 @@ export class TranscriptMessageBubbleStub {
 @Component({
   selector: 'ptah-chat-empty-state',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: '',
 })
 export class TranscriptEmptyStateStub {

@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -42,7 +42,7 @@ describe('NotificationsPage (R10.3, R10.4, R9.7, NFR-S2, ASSUMPTION-28)', () => 
     await TestBed.configureTestingModule({
       imports: [NotificationsPage],
       providers: [
-        provideHttpClient(),
+        provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter([]),
         // Provided HERE, at the TestBed root, exactly as the `/members` route

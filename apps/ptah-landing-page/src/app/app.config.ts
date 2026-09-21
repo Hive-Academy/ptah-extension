@@ -1,4 +1,8 @@
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import {
+  provideHttpClient,
+  withInterceptors,
+  withXhr,
+} from '@angular/common/http';
 import {
   APP_INITIALIZER,
   ApplicationConfig,
@@ -8,6 +12,7 @@ import {
 import {
   provideClientHydration,
   withEventReplay,
+  withNoIncrementalHydration,
 } from '@angular/platform-browser';
 import { provideRouter, withInMemoryScrolling } from '@angular/router';
 import { provideGsap } from '@hive-academy/angular-gsap';
@@ -36,8 +41,8 @@ export const appConfig: ApplicationConfig = {
         scrollPositionRestoration: 'enabled',
       }),
     ),
-    provideClientHydration(withEventReplay()),
-    provideHttpClient(withInterceptors([apiInterceptor])),
+    provideClientHydration(withEventReplay(), withNoIncrementalHydration()),
+    provideHttpClient(withXhr(), withInterceptors([apiInterceptor])),
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideMarkdownRendering({ extensions: 'basic' }),

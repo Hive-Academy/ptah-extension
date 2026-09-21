@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -60,7 +60,7 @@ describe('MemberNotificationsStore (R10.4, R10.5, RISK-AM/AO/AP)', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
-        provideHttpClient(),
+        provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter([]),
       ],
@@ -825,16 +825,14 @@ describe('MemberNotificationsStore (R10.4, R10.5, RISK-AM/AO/AP)', () => {
       http.expectOne(UNREAD_COUNT).flush({ unreadCount: 3 });
 
       store.refresh();
-      http
-        .expectOne(NOTIFICATIONS)
-        .flush(
-          notificationPage([
-            memberNotification({
-              id: 'n1',
-              readAt: '2026-08-10T00:00:00.000Z',
-            }),
-          ]),
-        );
+      http.expectOne(NOTIFICATIONS).flush(
+        notificationPage([
+          memberNotification({
+            id: 'n1',
+            readAt: '2026-08-10T00:00:00.000Z',
+          }),
+        ]),
+      );
 
       store.markRead('n1');
 
@@ -985,21 +983,19 @@ describe('MemberNotificationsStore (R10.4, R10.5, RISK-AM/AO/AP)', () => {
     it('already-read rows are dropped — they were never in the count', () => {
       const store = makeStore();
       store.refresh();
-      http
-        .expectOne(NOTIFICATIONS)
-        .flush(
-          notificationPage(
-            [
-              memberNotification({ id: 'n1' }),
-              memberNotification({
-                id: 'n2',
-                readAt: '2026-08-01T00:00:00.000Z',
-              }),
-              memberNotification({ id: 'n3' }),
-            ],
-            { total: 3 },
-          ),
-        );
+      http.expectOne(NOTIFICATIONS).flush(
+        notificationPage(
+          [
+            memberNotification({ id: 'n1' }),
+            memberNotification({
+              id: 'n2',
+              readAt: '2026-08-01T00:00:00.000Z',
+            }),
+            memberNotification({ id: 'n3' }),
+          ],
+          { total: 3 },
+        ),
+      );
 
       store.markSelectedRead(['n1', 'n2']);
 

@@ -10,7 +10,11 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "moduleResolution": "node",
-    "noEmit": true
+    "noEmit": true,
+    "noUncheckedSideEffectImports": false,
+    "types": ["*"],
+    "ignoreDeprecations": "6.0",
+    "rootDir": "."
   },
   "include": ["./extract-domain.ts"],
   "exclude": ["node_modules"]

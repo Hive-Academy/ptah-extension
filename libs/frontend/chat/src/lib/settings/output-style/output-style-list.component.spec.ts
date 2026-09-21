@@ -21,7 +21,7 @@
  *      empty, because a parse failure would have put the file in that list.
  */
 
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type {
   ActiveOutputStyleState,
@@ -64,6 +64,7 @@ const NO_SELECTION: ActiveOutputStyleState = {
 @Component({
   standalone: true,
   imports: [OutputStyleListComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <ptah-output-style-list
       [styles]="styles()"

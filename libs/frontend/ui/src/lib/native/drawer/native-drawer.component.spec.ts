@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import {
@@ -9,6 +9,7 @@ import {
 @Component({
   standalone: true,
   imports: [NativeDrawerComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <button type="button" id="opener" (click)="isOpen.set(true)">Open</button>
     <ptah-native-drawer

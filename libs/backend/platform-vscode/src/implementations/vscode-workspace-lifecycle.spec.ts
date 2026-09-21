@@ -10,8 +10,6 @@ import 'reflect-metadata';
 import { __resetVscodeTestDouble, __vscodeState } from '../../__mocks__/vscode';
 import { VscodeWorkspaceLifecycleProvider } from './vscode-workspace-lifecycle-provider';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 // ---------------------------------------------------------------------------
 // Per-test state reset
 // ---------------------------------------------------------------------------

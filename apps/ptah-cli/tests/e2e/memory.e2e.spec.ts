@@ -26,7 +26,6 @@ interface SqliteDb {
   close(): void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const openDatabase = require('better-sqlite3') as new (
   path: string,
   opts?: Record<string, unknown>,

@@ -12,7 +12,7 @@
  * - enabled input controls emission
  */
 
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, fakeAsync, tick, flush } from '@angular/core/testing';
 import { AtTriggerDirective, AtTriggerEvent } from './at-trigger.directive';
 
@@ -25,6 +25,7 @@ import { AtTriggerDirective, AtTriggerEvent } from './at-trigger.directive';
     (atClosed)="onClosed()"
     (atQueryChanged)="onQueryChanged($event)"
   ></textarea>`,
+  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [AtTriggerDirective],
 })
 class TestHostComponent {

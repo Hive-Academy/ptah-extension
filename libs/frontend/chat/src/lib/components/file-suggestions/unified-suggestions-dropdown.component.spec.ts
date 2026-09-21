@@ -1,4 +1,10 @@
-import { Component, ElementRef, ViewChild, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  ViewChild,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { File } from 'lucide-angular';
 import * as FloatingDom from '@floating-ui/dom';
@@ -30,6 +36,7 @@ function fileSuggestion(path: string, name: string): SuggestionItem {
 @Component({
   standalone: true,
   imports: [UnifiedSuggestionsDropdownComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <ptah-unified-suggestions-dropdown
       [overlayOrigin]="overlayOrigin"

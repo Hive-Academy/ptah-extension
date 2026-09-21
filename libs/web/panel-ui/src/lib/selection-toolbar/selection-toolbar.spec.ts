@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
 import { SelectionToolbar } from './selection-toolbar';
@@ -22,6 +22,7 @@ import { SelectionToolbar } from './selection-toolbar';
 @Component({
   standalone: true,
   imports: [SelectionToolbar],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <ptah-selection-toolbar
       [count]="count()"

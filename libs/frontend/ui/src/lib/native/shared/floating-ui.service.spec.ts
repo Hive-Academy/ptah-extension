@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import * as FloatingDom from '@floating-ui/dom';
 import { FloatingUIService } from './floating-ui.service';
@@ -15,6 +15,7 @@ jest.mock('@floating-ui/dom', () => {
 @Component({
   standalone: true,
   template: '<div></div>',
+  changeDetection: ChangeDetectionStrategy.Eager,
   providers: [FloatingUIService],
 })
 class HostComponent {

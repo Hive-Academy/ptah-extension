@@ -111,7 +111,7 @@ const MAX_MARKDOWN_PREVIEW_BYTES = 512 * 1024;
                 mode="full"
                 [targets]="editorTargets()"
                 [path]="current.absolutePath"
-                [line]="current.reveal?.line"
+                [line]="$safeNavigationMigration(current.reveal?.line)"
                 [root]="current.workspaceRoot ?? ''"
                 (open)="requestExternalConfirmation($event)"
               />

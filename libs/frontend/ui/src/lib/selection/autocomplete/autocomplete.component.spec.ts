@@ -1,5 +1,11 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Component, TemplateRef, ViewChild, signal } from '@angular/core';
+import {
+  Component,
+  TemplateRef,
+  ViewChild,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { AutocompleteComponent } from './autocomplete.component';
 import { OverlayModule } from '@angular/cdk/overlay';
 
@@ -12,6 +18,7 @@ interface TestSuggestion {
 @Component({
   standalone: true,
   imports: [AutocompleteComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <ptah-autocomplete
       [suggestions]="suggestions()"

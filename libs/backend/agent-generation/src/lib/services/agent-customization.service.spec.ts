@@ -84,7 +84,7 @@ function makeFailingStream(error: Error): AsyncIterable<unknown> {
   return {
     [Symbol.asyncIterator]: async function* () {
       throw error;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
       yield undefined as never;
     },
   } as AsyncIterable<unknown>;

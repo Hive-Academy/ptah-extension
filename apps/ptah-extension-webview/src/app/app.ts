@@ -5,6 +5,7 @@ import {
   signal,
   computed,
   inject,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 import { Subject } from 'rxjs';
 import { LucideAngularModule, AlertCircle } from 'lucide-angular';
@@ -35,6 +36,7 @@ import { StreamRouter } from '@ptah-extension/chat-routing';
     LucideAngularModule,
   ],
   templateUrl: './app.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrls: ['./app.css'],
 })
 export class App implements OnInit, OnDestroy {
