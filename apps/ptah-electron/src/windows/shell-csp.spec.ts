@@ -63,6 +63,10 @@ describe('effective Electron shell CSP', () => {
       join(__dirname, 'fixtures/shell-probe.js'),
       join(directory, 'probe.js'),
     );
+    copyFileSync(
+      join(__dirname, 'fixtures/shell-security.cjs'),
+      join(directory, 'shell-security.cjs'),
+    );
     buildSync({
       entryPoints: [join(__dirname, 'permission-policy.ts')],
       outfile: join(directory, 'permission-policy.cjs'),
@@ -81,7 +85,7 @@ describe('effective Electron shell CSP', () => {
     // Match electron-e2e.yml: a hidden Electron window still needs X on Linux.
     // Never skip this security test when no display is attached.
     const headlessLinux = process.platform === 'linux' && !env['DISPLAY'];
-    const args = [join(__dirname, 'fixtures/shell-security.cjs'), directory];
+    const args = [join(directory, 'shell-security.cjs')];
     if (env['CI']) args.push('--no-sandbox', '--disable-dev-shm-usage');
     const output = await new Promise<string>((resolveOutput, reject) => {
       const child = spawn(

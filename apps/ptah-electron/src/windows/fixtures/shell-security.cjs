@@ -1,6 +1,8 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('node:path');
-const root = process.argv[2];
+// The spec copies this entrypoint beside its generated assets. No CLI path
+// can redirect the profile, policy module, or document outside that fixture.
+const root = __dirname;
 const { installPermissionPolicy } = require(
   path.join(root, 'permission-policy.cjs'),
 );

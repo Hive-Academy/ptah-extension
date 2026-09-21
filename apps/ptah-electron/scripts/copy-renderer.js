@@ -81,8 +81,10 @@ function copyRecursive(src, dst) {
 const INLINE_SCRIPT_PREFIX = 'inline-';
 // Consumes the newline the insertion below puts BEFORE the tag, so stripping
 // and re-inserting lands on exactly the same bytes.
+// Anchor indentation to that newline; an unanchored whitespace prefix retries
+// every suffix of a long space run when no meta tag follows (quadratic work).
 const CSP_META =
-  /\n?[ \t]*<meta\s+http-equiv="Content-Security-Policy"[^>]*>/gi;
+  /(?:\n[ \t]*)?<meta\s+http-equiv="Content-Security-Policy"[^>]*>/gi;
 
 /**
  * @param {string} html

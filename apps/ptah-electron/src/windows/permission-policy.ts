@@ -85,7 +85,8 @@ function parseTrustedUrl(value: string): URL | undefined {
       ? url
       : undefined;
   } catch {
-    // Malformed permission subjects fail closed.
+    // degradation-audit: optional-capability - Returning undefined marks a malformed
+    // URL as untrusted so both permission handlers deny access instead of granting.
     return undefined;
   }
 }

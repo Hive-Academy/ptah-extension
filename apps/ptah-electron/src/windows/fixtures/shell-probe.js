@@ -34,7 +34,9 @@ window.securityProbe = (async () => {
     });
   }
   await probeImage('https://ptah-csp-probe.invalid/icon.png');
-  await probeImage('http://ptah-csp-probe.invalid/icon.png');
+  // S5332: deliberate negative CSP test; shell-csp.spec.ts requires an img-src
+  // violation for this reserved .invalid URL. HTTPS would erase that control.
+  await probeImage('http://ptah-csp-probe.invalid/icon.png'); // NOSONAR
 
   let microphone = false;
   let microphoneError;
