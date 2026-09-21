@@ -164,11 +164,20 @@ Lane output is evidence, not proof.
 | `interrupt-resume` | The turn in flight was aborted and its **partial work discarded** |
 | `unsupported` | Nothing delivered; `detail` says why — fall back to §5 |
 
-`ptah_agent_list` shows each lane's declared `messaging:` capability. Do not interrupt a lane
-mid-edit to add a minor note. A lane's `ptah_agent_report` can return `delivered: false`; a report
-is attribution, not authentication — verify its claims against files and tests. The same rule
-applies to the completion signal: it is evidence a file exists, never evidence the content is
-right.
+`ptah_agent_list` shows each lane's declared `messaging:` capability, probed per run rather than
+fixed per vendor — read it each time. Do not interrupt a lane mid-edit to add a minor note. On a
+ptah-cli lane the message is echoed into that lane's own output, which is how you confirm it
+arrived. A lane's `ptah_agent_report` can return `delivered: false`; a report is attribution, not
+authentication — verify its claims against files and tests. The same rule applies to the
+completion signal: it is evidence a file exists, never evidence the content is right.
+
+The lane does not need to be told any of this in its `task`: `buildTaskPrompt`
+(`libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.utils.ts`,
+`TWO_WAY_MESSAGING_GUIDANCE`) already carries the child-side half on every spawn that has an MCP
+port and an agent id, and `renderLaneCompletionContract`
+(`libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-reporting-contract.ts`) carries the
+before-you-exit half on every lane. Those two constants are the source of truth; this section and
+the parent-side tool table in `ptah-system-prompt.constant.ts` must agree with them.
 
 ## 8. Cost
 

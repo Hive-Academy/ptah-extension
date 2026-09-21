@@ -180,3 +180,104 @@ New tests:
 - **The Ptah CLI branch's appended prompt was not observed on a live spawn.**
   The builder spec pins that the registry receives `task + contract`, but no
   real Ptah CLI agent was started.
+
+## Merge with main
+
+`origin/main` moved on while this branch was open and GitHub reported PR #555
+`CONFLICTING`. `origin/main` was MERGED in (not rebased — the branch is
+published). The overlapping work on main is TASK_2026_477,
+`feat(cli-agent-runtime): tell a spawned agent how two-way messaging works`
+(`ee25e0867`), which changed the same three surfaces this task changed: the
+child prompt builder, the parent-side tool table, and the `agent-lanes` skill.
+
+The two intents are complementary, not contradictory, so BOTH were kept.
+
+### `libs/backend/vscode-lm-tools/.../ptah-system-prompt.constant.ts`
+
+- **From main**: the longer `ptah_agent_message` row — a capability is probed
+  from the installed binary at spawn time, so `ptah_agent_list` is read per run,
+  and a message to a Ptah CLI lane is echoed into that lane's own output.
+- **From this branch**: the `ptah_agent_report` row's "including once before it
+  exits to name what it produced" clause, and the `<agent-lane-completed>`
+  push-signal paragraph.
+- **Merged**: main's `ptah_agent_message` row verbatim, and main's
+  `ptah_agent_report` row with this branch's clause folded into it.
+- The push-signal paragraph now sits BELOW the last table row, not between
+  rows. That is CodeRabbit's comment on line 235 and it was right: the blank
+  line above the paragraph terminated the markdown table, so the
+  `ptah_agent_stop` and `ptah_agent_list` rows rendered as literal pipe text in
+  a prompt every session receives.
+
+### `.claude/skills/agent-lanes/SKILL.md`
+
+- **From main**: the `messaging:` capability is probed per run rather than fixed
+  per vendor; a message to a ptah-cli lane is echoed into that lane's output;
+  and the paragraph naming `TWO_WAY_MESSAGING_GUIDANCE` as the source of truth
+  that this section must agree with.
+- **From this branch**: "the same rule applies to the completion signal: it is
+  evidence a file exists, never evidence the content is right."
+- **Added on top**: the source-of-truth paragraph now names
+  `renderLaneCompletionContract` (`lane-reporting-contract.ts`) alongside
+  `TWO_WAY_MESSAGING_GUIDANCE`, because after this merge the child prompt has
+  TWO constant-owned halves, not one, and a paragraph naming only one of them
+  would send a reader to the wrong file.
+- `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/agent-lanes/SKILL.md`
+  is an exact mirror of the `.claude` copy (identical blob at the merge base).
+  Main updated only the `.claude` copy, so the mirror was re-synced here.
+
+### `cli-adapter.utils.ts` (auto-merged, verified by hand)
+
+Both sides' appends survived and the order is deliberate: task folder line →
+main's `agent-output-<agentId>.md` line (only with an `agentId`) → main's
+`TWO_WAY_MESSAGING_GUIDANCE` (only with an `agentId` AND an `mcpPort`) → this
+branch's `renderLaneCompletionContract` (unconditional, last, so it is the
+closest instruction to the lane's final message).
+
+### `cli-adapter.utils.spec.ts`
+
+- The `tail` constant took MAIN's version of the deliverable lines — main
+  DELETED the old `Use convention: /tf/agent-output-{agentId}.md` line, which
+  this branch had only reformatted. Main's deletion was kept and this branch's
+  contract assertion was appended after it.
+- Two of main's tests were ADAPTED rather than deleted. Both probed for
+  `ptah_agent_report` to assert that `TWO_WAY_MESSAGING_GUIDANCE` is omitted
+  without an `mcpPort` or without an `agentId`. After this merge the lane
+  completion contract names that tool on EVERY prompt, so the probe could no
+  longer tell the two blocks apart and both tests failed for the wrong reason.
+  The probe is now `Two-way messaging:`, the guidance block's own opening line.
+  Main's intent — the block is gated on both fields — is unchanged and still
+  pinned.
+- Main's 826-byte cost test still passes unchanged: both sides of its
+  subtraction now carry the completion contract, so the delta is still the
+  guidance block alone.
+
+### `libs/backend/cli-agent-runtime/CLAUDE.md`
+
+Auto-merged; both sides' bullets are present and were read to confirm no claim
+of one contradicts the other.
+
+### Verification after the merge
+
+- `npx nx run-many -t test -p @ptah-extension/shared @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools` — 3/3 passed.
+- `npx nx run-many -t lint typecheck -p @ptah-extension/shared @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools` — 6/6 passed.
+- `npx nx run-many -t typecheck -p @ptah-extension/rpc-handlers @ptah-extension/cli-engine ptah-extension-vscode ptah-electron ptah-cli` — 5/5 passed.
+- `npx tsx scripts/validate-orchestration-skill.ts` — 8 files, 0 errors, 0 warnings.
+
+Main also carried Nx 23.2.1, Angular 22, TypeScript 6 and Electron 44
+(`8d3e01581`, `3f627bb88`). Nothing in this task needed a change for them.
+
+### CodeRabbit comment declined
+
+`agent-process-manager.service.ts:1229` asked for the completion signal to be
+moved AFTER `await killProcess()`. Declined, with the reasoning recorded on the
+PR thread: `verdictOf` returns `failed` for every status other than
+`completed`, and `stop()` / `handleTimeout()` both stamp their terminal status
+BEFORE signalling, so on exactly those two paths the deliverable check cannot
+change the verdict. The duplicate-signal half of the claim does not hold
+either — `signal()` calls `remember(key)` synchronously before its first
+`await`, so the follow-on `handleExit` signal is refused as `already-signalled`.
+The suggested fix would reintroduce the failure the ordering exists to prevent:
+on the PID-less SDK branch `killProcess` ends in `waitForSdkSettle`, so an
+adapter whose `done` never settles would delay the signal by the full settle
+ceiling, and the timeout path was written before the kill precisely so that
+such an adapter cannot swallow it.

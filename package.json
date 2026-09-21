@@ -254,7 +254,7 @@
     "cross-env": "^7.0.3",
     "daisyui": "^4.12.24",
     "electron": "^44.4.3",
-    "electron-builder": "^26.8.1",
+    "electron-builder": "26.16.1",
     "esbuild": "^0.28.2",
     "eslint": "^10.11.0",
     "gsap": "^3.14.2",

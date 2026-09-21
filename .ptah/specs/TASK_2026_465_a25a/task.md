@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_465_a25a
-status: backlog
+status: in_review
 type: FEATURE
 title: >-
   Antigravity lane accepts queued messages via stream-json input; probe opencode serve

@@ -219,7 +219,7 @@ describe('OpencodeCliAdapter', () => {
   describe('runSdk() — argument construction', () => {
     const baseOptions = { task: 'Do the thing', workingDirectory: '/proj' };
 
-    it('spawns run --format json with --auto, --dir, and the prompt LAST', async () => {
+    it('spawns run --format json with --auto and the prompt LAST', async () => {
       const handle = await adapter.runSdk(baseOptions);
       collect(handle);
       currentChild?.emitClose(0);
@@ -232,8 +232,29 @@ describe('OpencodeCliAdapter', () => {
       expect(binaryArg).toBe('opencode');
       expect(argsArg.slice(0, 3)).toEqual(['run', '--format', 'json']);
       expect(argsArg).toContain('--auto');
-      expect(argsArg[argsArg.indexOf('--dir') + 1]).toBe('/proj');
       expect(argsArg[argsArg.length - 1]).toContain('Do the thing');
+    });
+
+    /**
+     * `opencode run` has no working-directory flag. Passing `--dir` made
+     * opencode 2.0.11 exit 1 with `Unrecognized flag: --dir in command
+     * opencode run` before producing a single line of output, so every lane
+     * failed at spawn. The directory travels as the spawn's `cwd` instead,
+     * which `run` honours.
+     */
+    it('passes the working directory as cwd and never as a --dir flag', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const [, argsArg, spawnOptions] = mockSpawnCli.mock.calls[0] as [
+        string,
+        string[],
+        { cwd?: string },
+      ];
+      expect(argsArg).not.toContain('--dir');
+      expect(spawnOptions.cwd).toBe('/proj');
     });
 
     it('adds --model when a model is provided', async () => {
