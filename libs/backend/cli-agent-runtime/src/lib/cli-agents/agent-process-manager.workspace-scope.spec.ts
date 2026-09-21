@@ -72,6 +72,15 @@ function makeManager(options: {
       options.resolver ?? null,
     ),
     new AgentOutputBuffer(logger as unknown as Args[0]),
+    // No completion signal in these tests: the notifier's own spec covers the
+    // signal, and a stub keeps a lane teardown here from reaching for a chat
+    // session (TASK_2026_515).
+    {
+      signal: jest.fn(async () => ({
+        delivered: false,
+        reason: 'chat-runtime-unavailable',
+      })),
+    } as unknown as Args[7],
   );
 }
 

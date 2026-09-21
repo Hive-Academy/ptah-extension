@@ -305,6 +305,11 @@ export class AgentReportRouter {
 
     this.remember(agentId, { at: now, message });
 
+    // Counted only on a DELIVERED report, so the completion signal's
+    // `reportsDelivered` means "the spawning session heard from this lane",
+    // never "the lane tried" (TASK_2026_515).
+    this.agents.markReportDelivered(agentId);
+
     // Written ONLY here, after the delivery succeeded, so the tile can never
     // show a report the parent did not receive (Req 6.4).
     this.agents.recordAgentNote(agentId, {

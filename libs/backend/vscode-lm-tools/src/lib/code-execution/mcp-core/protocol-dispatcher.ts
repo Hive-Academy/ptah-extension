@@ -764,6 +764,7 @@ async function handleIndividualTool(
             timeout: spawnArgs.timeout,
             files: spawnArgs.files,
             taskFolder: spawnArgs.taskFolder,
+            deliverables: spawnArgs.deliverables,
             model: spawnArgs.model,
             modelTier,
             resumeSessionId: spawnArgs.resume_session_id,

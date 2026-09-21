@@ -60,6 +60,12 @@ export interface TrackedAgent {
    */
   pendingMessages: string[];
   /**
+   * How many `ptah_agent_report` bodies this lane delivered. Carried on the
+   * completion signal so the orchestrator can tell a lane that accounted for
+   * itself from one that exited without a word (TASK_2026_515).
+   */
+  reportsDelivered: number;
+  /**
    * Set only by {@link AgentProcessManager.restoreAgents}: this record was
    * rebuilt from persisted session state, not from a run this host supervised.
    * Its output is readable; nothing about it is live.

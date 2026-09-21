@@ -69,6 +69,7 @@ import {
   spawnCli,
   withAsarUnpackedTwin,
 } from './cli-adapter.utils';
+import { renderLaneCompletionContract } from '../lane-reporting-contract';
 
 interface FakeChild {
   stdout: EventEmitter & { setEncoding: jest.Mock };
@@ -103,7 +104,10 @@ describe('buildTaskPrompt', () => {
       workingDirectory: 'D:\\workspace',
     });
 
-    expect(prompt).toBe(`${toolPolicy}\n\nImplement the requested change.`);
+    expect(prompt).toBe(
+      `${toolPolicy}\n\nImplement the requested change.\n\n` +
+        renderLaneCompletionContract({}),
+    );
   });
 
   it('includes the policy exactly once independently of system guidance', () => {
@@ -135,7 +139,8 @@ describe('buildTaskPrompt', () => {
       `${toolPolicy}\n\nShip it.` +
       '\n\nFocus on these files:\n- src/a.ts' +
       '\n\nWrite deliverable files to: /tf' +
-      '\nUse convention: /tf/agent-output-{agentId}.md for main deliverable.';
+      '\nUse convention: /tf/agent-output-{agentId}.md for main deliverable.' +
+      `\n\n${renderLaneCompletionContract({ taskFolder: '/tf' })}`;
     const base = {
       task: 'Ship it.',
       workingDirectory: '/ws',
@@ -176,6 +181,17 @@ describe('buildTaskPrompt', () => {
 
     it('omits the role when an adapter strips it for another channel', () => {
       expect(buildTaskPrompt({ ...base, role: undefined })).toBe(tail);
+    });
+
+    it('names every declared deliverable in the completion contract', () => {
+      const prompt = buildTaskPrompt(
+        { ...base, deliverables: ['/tf/report.md', '/tf/notes.md'] },
+        'pi',
+      );
+
+      expect(prompt).toContain('- /tf/report.md');
+      expect(prompt).toContain('- /tf/notes.md');
+      expect(prompt).toContain('ptah_agent_report');
     });
 
     it('refuses to render a role without knowing the CLI', () => {

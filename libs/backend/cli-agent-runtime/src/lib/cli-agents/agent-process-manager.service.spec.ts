@@ -345,6 +345,8 @@ function createMockSentryService(): Record<string, jest.Mock> {
 interface ManagerHarness {
   manager: AgentProcessManager;
   outputBuffer: AgentOutputBuffer;
+  /** The stubbed lane completion notifier (TASK_2026_515). */
+  laneCompletion: { signal: jest.Mock };
 }
 
 function createManager(deps: {
@@ -368,6 +370,12 @@ function createManager(deps: {
     deps.mcpServerStatus,
   );
   const outputBuffer = new AgentOutputBuffer(deps.logger);
+  const laneCompletion = {
+    signal: jest.fn(async () => ({
+      delivered: false,
+      reason: 'chat-runtime-unavailable',
+    })),
+  };
   const manager = new AgentProcessManager(
     deps.logger,
     deps.cliDetection,
@@ -376,13 +384,18 @@ function createManager(deps: {
     new AgentMessageRouter(deps.logger, deps.cliDetection),
     spawnEnvironment,
     outputBuffer,
+    // Stubbed: the signal's own content is pinned by
+    // `lane-completion-notifier.service.spec.ts`. What these tests own is that
+    // every terminal path calls it (TASK_2026_515).
+    laneCompletion as unknown as ManagerArgs[7],
   );
-  return { manager, outputBuffer };
+  return { manager, outputBuffer, laneCompletion };
 }
 
 describe('AgentProcessManager - SDK Execution Path', () => {
   let manager: AgentProcessManager;
   let outputBuffer: AgentOutputBuffer;
+  let laneCompletion: { signal: jest.Mock };
   let logger: jest.Mocked<Logger>;
   let sdkControls: MockSdkHandleControls;
   let sdkAdapter: jest.Mocked<CliAdapter>;
@@ -403,7 +416,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     reasoningEffortGet = jest.fn(() => '');
     getMcpPort = jest.fn<number | null, []>(() => null);
-    ({ manager, outputBuffer } = createManager({
+    ({ manager, outputBuffer, laneCompletion } = createManager({
       logger,
       cliDetection,
       workspaceProvider: createMockWorkspaceProvider(),
@@ -916,6 +929,122 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         'status',
         'running',
       );
+    });
+  });
+
+  // TASK_2026_515: the orchestrator hears from a lane on EVERY ending. A path
+  // that forgets this call puts the session back to polling with no notice.
+  describe('lane completion signal', () => {
+    it('signals a normal completion with the terminal status', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(laneCompletion.signal).toHaveBeenCalledTimes(1);
+      const [info, context] = laneCompletion.signal.mock.calls[0];
+      expect(info).toMatchObject({
+        agentId: result.agentId,
+        status: 'completed',
+        exitCode: 0,
+      });
+      expect(context).toEqual({ reportsDelivered: 0 });
+    });
+
+    it('signals a failure', async () => {
+      await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      sdkControls.resolve(1);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(laneCompletion.signal).toHaveBeenCalledTimes(1);
+      expect(laneCompletion.signal.mock.calls[0][0]).toMatchObject({
+        status: 'failed',
+        exitCode: 1,
+      });
+    });
+
+    it('signals a timeout without waiting for the abort to settle', async () => {
+      await manager.spawn({
+        task: 'Slow task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        timeout: 5000,
+      });
+
+      jest.advanceTimersByTime(6000);
+      await Promise.resolve();
+
+      expect(laneCompletion.signal).toHaveBeenCalled();
+      expect(laneCompletion.signal.mock.calls[0][0]).toMatchObject({
+        status: 'timeout',
+      });
+    });
+
+    it('signals a stop', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      // `stop()` waits for the kill to settle, so pump the fake clock past
+      // that window the way the `stop()` tests above do.
+      const stopped = manager.stop(result.agentId);
+      jest.advanceTimersByTime(600);
+      await stopped;
+
+      expect(laneCompletion.signal).toHaveBeenCalled();
+      expect(laneCompletion.signal.mock.calls[0][0]).toMatchObject({
+        status: 'stopped',
+      });
+    });
+
+    it('carries the declared deliverables onto the record', async () => {
+      await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        taskFolder: '.ptah/specs/TASK_X',
+        deliverables: ['report.md'],
+      });
+
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(laneCompletion.signal.mock.calls[0][0]).toMatchObject({
+        taskFolder: '.ptah/specs/TASK_X',
+        deliverables: ['report.md'],
+      });
+    });
+
+    it('counts a delivered report for the signal', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      manager.markReportDelivered(result.agentId);
+      manager.markReportDelivered(result.agentId);
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(laneCompletion.signal.mock.calls[0][1]).toEqual({
+        reportsDelivered: 2,
+      });
     });
   });
 

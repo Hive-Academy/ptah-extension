@@ -13,6 +13,7 @@
 import type { AgentNamespace } from '../types';
 import {
   PTAH_CLI_ROLE_DELIVERY,
+  renderLaneCompletionContract,
   type AgentProcessManager,
   type AgentReportDelivery,
   type CliDetectionService,
@@ -211,9 +212,20 @@ export function buildAgentNamespace(
         // both is what lets the child's `/agent/{id}` segment be true.
         const agentId = agentProcessManager.reserveAgentId();
 
+        // A Ptah CLI lane's task string goes to the SDK verbatim and never
+        // passes through `buildTaskPrompt`, so the completion contract is
+        // rendered here from the SAME function the rival-CLI adapters use
+        // (TASK_2026_515). Two call sites, one text.
+        const ptahCliTask =
+          `${request.task}\n\n` +
+          renderLaneCompletionContract({
+            taskFolder: request.taskFolder,
+            deliverables: request.deliverables,
+          });
+
         const result = await registry.spawnAgent(
           request.ptahCliId,
-          request.task,
+          ptahCliTask,
           {
             projectGuidance,
             workingDirectory,
@@ -235,10 +247,15 @@ export function buildAgentNamespace(
         const spawnResult = await agentProcessManager.spawnFromSdkHandle(
           result.handle,
           {
+            // The RECORD keeps the task the caller gave, not the prompt the
+            // lane was handed: the tile, the persisted session reference and
+            // the completion signal's headline all read this field, and the
+            // appended contract is plumbing rather than the task.
             task: request.task,
             cli: 'ptah-cli',
             workingDirectory,
             taskFolder: request.taskFolder,
+            deliverables: request.deliverables,
             parentSessionId: activeSessionId,
             ptahCliName: result.agentName,
             ptahCliId: request.ptahCliId,

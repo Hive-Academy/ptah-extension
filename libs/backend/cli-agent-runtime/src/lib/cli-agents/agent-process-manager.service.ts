@@ -56,6 +56,7 @@ import {
   capStreamEvents,
 } from './agent-process-manager-helpers';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
+import { LaneCompletionNotifier } from './lane-completion-notifier.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
 import type { TrackedAgent } from './tracked-agent';
 
@@ -159,6 +160,15 @@ export class AgentProcessManager {
     private readonly spawnEnvironment: AgentSpawnEnvironment,
     @inject(AgentOutputBuffer)
     private readonly outputBuffer: AgentOutputBuffer,
+    /**
+     * Pushes one completion signal per terminal transition into the session
+     * that spawned the lane (TASK_2026_515). The manager owns the terminal
+     * paths, so it is the only place that can see all of them; the notifier
+     * owns everything about the signal itself, including its own duplicate
+     * guard, so each terminal path calls it unconditionally.
+     */
+    @inject(LaneCompletionNotifier)
+    private readonly laneCompletion: LaneCompletionNotifier,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -296,6 +306,7 @@ export class AgentProcessManager {
       task: request.task,
       workingDirectory,
       taskFolder: request.taskFolder,
+      deliverables: request.deliverables,
       status: 'running',
       startedAt,
       parentSessionId: request.parentSessionId,
@@ -327,6 +338,7 @@ export class AgentProcessManager {
       workingDirectory,
       files: request.files,
       taskFolder: request.taskFolder,
+      deliverables: request.deliverables,
       model: resolvedModel,
       binaryPath,
       mcpPort,
@@ -370,6 +382,12 @@ export class AgentProcessManager {
       cli: CliType;
       workingDirectory: string;
       taskFolder?: string;
+      /**
+       * Files the lane must write. Carried onto the record so the completion
+       * signal can check them (TASK_2026_515). The Ptah CLI path reaches this
+       * method instead of `doSpawnSdk`, so it needs its own passage for them.
+       */
+      deliverables?: readonly string[];
       parentSessionId?: string;
       ptahCliName?: string;
       ptahCliId?: string;
@@ -408,6 +426,7 @@ export class AgentProcessManager {
         task: meta.task,
         workingDirectory: meta.workingDirectory,
         taskFolder: meta.taskFolder,
+        deliverables: meta.deliverables,
         status: 'running',
         startedAt,
         parentSessionId: meta.parentSessionId,
@@ -491,6 +510,7 @@ export class AgentProcessManager {
       accumulatedStreamEvents: [],
       streamCapLogged: false,
       pendingMessages: [],
+      reportsDelivered: 0,
     };
 
     this.agents.set(agentId, tracked);
@@ -695,6 +715,7 @@ export class AgentProcessManager {
         accumulatedStreamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
         streamCapLogged: false,
         pendingMessages: [],
+        reportsDelivered: 0,
         restored: true,
       });
 
@@ -841,6 +862,22 @@ export class AgentProcessManager {
     this.outputBuffer.appendSegment(agentId, tracked, segment, () => {
       this.flushDelta(agentId);
     });
+  }
+
+  /**
+   * Count one DELIVERED `ptah_agent_report` against this agent
+   * (TASK_2026_515). Called by {@link AgentReportRouter} after a delivery it
+   * made, so the completion signal can tell a lane that accounted for itself
+   * from one that exited without a word.
+   *
+   * Unknown agent is a silent no-op, for the same reason
+   * {@link recordAgentNote} is: the caller already resolved the record, so it
+   * disappearing in between is a lifecycle race, not a failure to report.
+   */
+  markReportDelivered(agentId: string): void {
+    const tracked = this.agents.get(agentId);
+    if (!tracked) return;
+    tracked.reportsDelivered++;
   }
 
   /**
@@ -1175,14 +1212,21 @@ export class AgentProcessManager {
       return tracked.info;
     }
 
-    await this.killProcess(tracked);
-    tracked.subprocessReleased = true;
-    this.clearIdleRelease(tracked);
+    // Stamped BEFORE the kill, not after. The kill makes the handle settle,
+    // which runs `handleExit` — and that path reads `status === 'running'` and
+    // would relabel a user-requested stop as `failed`, both on the record and
+    // on the completion signal it pushes first. Stamping the terminal status
+    // here makes `handleExit` take its no-op branch and keeps the ONE signal
+    // for this ending honest (TASK_2026_515).
     tracked.info = {
       ...tracked.info,
       status: 'stopped',
       completedAt: new Date().toISOString(),
     };
+    this.signalLaneCompletion(tracked);
+    await this.killProcess(tracked);
+    tracked.subprocessReleased = true;
+    this.clearIdleRelease(tracked);
     clearTimeout(tracked.timeoutHandle);
     this.flushDelta(agentId);
     this.outputBuffer.discard(agentId);
@@ -1417,6 +1461,12 @@ export class AgentProcessManager {
       status: 'timeout',
       completedAt: new Date().toISOString(),
     };
+    // BEFORE the kill, not after: on the SDK path the kill is an abort whose
+    // `done` promise is what reaches `handleExit`, and an adapter that never
+    // settles it would leave the timeout unsignalled — the exact silence this
+    // signal exists to end. `handleExit` stamps the same `completedAt`, so the
+    // notifier's duplicate guard collapses the two into one signal.
+    this.signalLaneCompletion(tracked);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
     this.clearIdleRelease(tracked);
@@ -1552,6 +1602,7 @@ export class AgentProcessManager {
         completedAt: new Date().toISOString(),
       };
     }
+    this.signalLaneCompletion(tracked);
     this.flushDelta(agentId);
     this.outputBuffer.discard(agentId);
 
@@ -1582,6 +1633,23 @@ export class AgentProcessManager {
     // will not refuse it as `busy`. One entry per settle — the turn this
     // starts settles again and drains the next.
     void this.messageRouter.flushPending(agentId, tracked, this);
+  }
+
+  /**
+   * Push this lane's completion signal to the session that spawned it
+   * (TASK_2026_515).
+   *
+   * Fire and forget, and deliberately so: a lane's teardown must not wait on a
+   * chat session, and the notifier already reports every refusal at `warn`
+   * rather than throwing. Called from EVERY terminal path — exit, timeout and
+   * stop — with the duplicate guard living in the notifier, which keys on the
+   * record's `completedAt` and therefore signals a continued lane's second
+   * ending as the new event it is.
+   */
+  private signalLaneCompletion(tracked: TrackedAgent): void {
+    const info = { ...tracked.info };
+    const reportsDelivered = tracked.reportsDelivered;
+    void this.laneCompletion.signal(info, { reportsDelivered });
   }
 
   /**

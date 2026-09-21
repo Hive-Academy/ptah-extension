@@ -41,6 +41,12 @@ export type {
   AgentReportInput,
   AgentReportRefusalReason,
 } from './agent-report-router.service';
+export { LaneCompletionNotifier } from './lane-completion-notifier.service';
+export type { LaneCompletionContext } from './lane-completion-notifier.service';
+export {
+  renderLaneCompletionContract,
+  type LaneCompletionContractInput,
+} from './lane-reporting-contract';
 export * from './cli-adapters';
 export {
   createContainerHarnessCliDetector,

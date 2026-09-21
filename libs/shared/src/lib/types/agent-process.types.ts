@@ -144,6 +144,12 @@ export interface AgentProcessInfo {
   readonly roleDelivery?: AgentRoleDelivery;
   /** Adapter channel that carried the role (only set when `role` is set). */
   readonly roleChannel?: AgentRoleChannel;
+  /**
+   * Deliverable paths the spawner declared for this lane, as given on the
+   * spawn request. Kept on the record because the completion signal is built
+   * after the process is gone and the request object is not reachable there.
+   */
+  readonly deliverables?: readonly string[];
 }
 
 export interface SpawnAgentRequest {
@@ -164,6 +170,18 @@ export interface SpawnAgentRequest {
   readonly files?: string[];
   /** Task-tracking folder for shared workspace */
   readonly taskFolder?: string;
+  /**
+   * The files this lane MUST write before it exits. A relative entry is
+   * resolved against `taskFolder` when one is given, otherwise against
+   * `workingDirectory`.
+   *
+   * Two things depend on it, and both are the point of declaring it:
+   * the lane is told to write exactly these paths (the prompt contract), and
+   * {@link LaneCompletionSignal} reports whether each one exists once the lane
+   * is gone. Without it a completion signal can only say the process exited,
+   * which is the failure mode TASK_2026_515 was filed for.
+   */
+  readonly deliverables?: readonly string[];
   /** Model identifier for CLI agents (e.g., 'claude-sonnet-4.6'). Passed as --model flag. */
   readonly model?: string;
   /** Resume a previous CLI session by its CLI-native session ID */
@@ -369,4 +387,104 @@ export interface CliSessionReference {
   /** Real SDK session UUID. Enables the SessionImporterService to cross-reference
    *  JSONL files against known child sessions and skip re-importing them. */
   readonly sdkSessionId?: string;
+}
+
+/* ---------------------------------------------------------------------------
+ * Lane completion signal (TASK_2026_515)
+ *
+ * A lane spawned through `ptah_agent_spawn` used to end in silence: the
+ * orchestrator either polled `ptah_agent_status` in a loop or waited with no
+ * information at all. These types describe the signal the agent process
+ * manager pushes into the spawning session when a lane reaches a terminal
+ * status.
+ *
+ * The signal deliberately carries MORE than the process outcome. An exit code
+ * of 0 with no deliverable written is the exact failure the task was filed
+ * for, so the verdict is derived from the declared deliverables as well as the
+ * status.
+ * ------------------------------------------------------------------------- */
+
+/** One declared deliverable, as observed on disk after the lane finished. */
+export interface LaneDeliverableCheck {
+  /** Absolute path the check was made against. */
+  readonly path: string;
+  readonly exists: boolean;
+  /** Size in bytes. Present only when the file exists. */
+  readonly bytes?: number;
+  /**
+   * True when the file was written after the lane started, so an artifact left
+   * behind by an earlier run is not read as this lane's work. Absent when the
+   * modification time could not be read.
+   */
+  readonly writtenAfterSpawn?: boolean;
+}
+
+/**
+ * What the orchestrator should conclude about the lane.
+ *
+ * - `delivered` — terminal status `completed` AND every declared deliverable
+ *   exists.
+ * - `no-deliverable` — terminal status `completed` but at least one declared
+ *   deliverable is missing or empty. The lane exited cleanly without doing the
+ *   work it was given.
+ * - `unverified` — terminal status `completed` and nothing was declared, so
+ *   there is nothing to check. Read the output before you trust it.
+ * - `failed` — any other terminal status (`failed`, `timeout`, `stopped`).
+ */
+export type LaneCompletionVerdict =
+  | 'delivered'
+  | 'no-deliverable'
+  | 'unverified'
+  | 'failed';
+
+/** The payload pushed to the session that spawned the lane. */
+export interface LaneCompletionSignal {
+  readonly agentId: string;
+  readonly cli: CliType;
+  /** The label a person recognizes the lane by. */
+  readonly agentLabel: string;
+  /** Workspace role the lane ran as, when it was spawned with one. */
+  readonly role?: string;
+  /** Terminal status. Never `running`. */
+  readonly status: AgentStatus;
+  readonly exitCode?: number;
+  readonly startedAt: string;
+  readonly completedAt: string;
+  readonly durationMs: number;
+  readonly taskFolder?: string;
+  /** First line of the task the lane was given, for recognition only. */
+  readonly taskHeadline: string;
+  readonly deliverables: readonly LaneDeliverableCheck[];
+  readonly verdict: LaneCompletionVerdict;
+  /**
+   * How many `ptah_agent_report` bodies this lane delivered before it exited.
+   * `0` means the lane never reported, so the only account of its work is its
+   * output buffer and whatever it wrote to disk.
+   */
+  readonly reportsDelivered: number;
+  /** CLI-native session id, when the adapter reported one. Enables a resume. */
+  readonly cliSessionId?: string;
+}
+
+/** Why a completion signal was not delivered. */
+export type LaneCompletionRefusalReason =
+  /** The lane was spawned with no parent session recorded. */
+  | 'no-parent-recorded'
+  /** The parent session is recorded but is no longer live in this host. */
+  | 'parent-session-not-active'
+  /** No chat runtime is registered in this host. */
+  | 'chat-runtime-unavailable'
+  /** The chat runtime rejected the injected turn. */
+  | 'delivery-failed'
+  /** A signal for this same terminal transition was already delivered. */
+  | 'already-signalled';
+
+export interface LaneCompletionDelivery {
+  readonly delivered: boolean;
+  /** Present exactly when `delivered` is false. */
+  readonly reason?: LaneCompletionRefusalReason;
+  /** The session the signal reached. Present only on a delivery. */
+  readonly parentSessionId?: string;
+  /** The signal that was built, delivered or not. Absent only for a duplicate. */
+  readonly signal?: LaneCompletionSignal;
 }
