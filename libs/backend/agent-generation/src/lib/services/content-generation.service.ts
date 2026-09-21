@@ -145,9 +145,30 @@ export class ContentGenerationService implements IContentGenerationService {
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpServerStatus: IMcpServerStatus | null = null,
     // Last, and defaulted, so the seventeen existing three-argument
-    // constructions in the spec keep compiling. tsyringe still resolves the
-    // registered `@injectable()` class from `design:paramtypes`; the default
-    // only applies to a hand-rolled `new`.
+    // constructions in the spec keep compiling.
+    //
+    // The `@inject` is REQUIRED and this comment used to say the opposite —
+    // that "tsyringe still resolves the registered `@injectable()` class from
+    // `design:paramtypes`; the default only applies to a hand-rolled `new`".
+    // That is false in the shipped app. `emitDecoratorMetadata` is off in
+    // tsconfig.base.json and esbuild does not implement it, so the Electron
+    // and CLI bundles carry no `design:paramtypes` at all. An undecorated
+    // position receives `undefined`, JavaScript then applies the default, and
+    // the container's registered instance is never consulted.
+    //
+    // That was not merely untidy. The default runs `new
+    // GeneratedSectionValidator()` with NO argument, so its own optional
+    // `FILE_SYSTEM_PROVIDER` stayed `null` and `checkCitedPaths` lost its disk
+    // probe (`canCheckByDisk === false`) in every packaged build. The probe is
+    // what lets a path the model genuinely opened pass when the analysis index
+    // does not happen to list it, so without it those sections were rejected
+    // and shipped the authored fallback instead — the exact regression the
+    // validator's own docs describe as already fixed.
+    //
+    // Specs are no guide here: tsconfig.spec.json sets
+    // `emitDecoratorMetadata: true`, so ts-jest injects a real validator while
+    // production did not.
+    @inject(GeneratedSectionValidator)
     private readonly sectionValidator: GeneratedSectionValidator = new GeneratedSectionValidator(),
   ) {}
 
