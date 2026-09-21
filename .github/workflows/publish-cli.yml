@@ -346,12 +346,13 @@ jobs:
       # `dependsOn` graph is already correct; the per-target `outputs` are now
       # also scoped to their own file (Batch 10 fix), so this is safe under a
       # cache hit either way.
-      # Invoked through the local nx binary rather than `npx`, which can
-      # install a package on demand and run its lifecycle scripts
-      # (githubactions:S6505, S8543 — cwe:494, cwe:829), as ci.yml's
-      # degradation-audit step does. Pre-existing `npx` lines are untouched.
+      # Use npm's local binary shim rather than `npx`, which can install a
+      # package on demand and run its lifecycle scripts (githubactions:S6505,
+      # S8543 — cwe:494, cwe:829). Do not reach into Nx package internals:
+      # Nx 23 removed `nx/bin/nx.js`, while this install-generated shim follows
+      # the package's current `bin` field.
       - name: Build (restore-cli-manifest — main.mjs, tui.mjs, embedder-worker.mjs, integrity-worker.mjs, workspace-watch-host.mjs, wasm, manifest)
-        run: node node_modules/nx/bin/nx.js run ptah-cli:restore-cli-manifest
+        run: node_modules/.bin/nx run ptah-cli:restore-cli-manifest
 
       - name: Verify dist contents
         run: |
