@@ -62,6 +62,46 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
     service = TestBed.inject(TabManagerService);
   });
 
+  // The header's one-click affordance is binary and its round-trip is
+  // load-bearing: two clicks must land back where they started. A three-way
+  // cycle put the second click on compact-tall, so a tile the user expected
+  // back at full height rendered at 3 units (canvas.spec.ts:481).
+  it('toggles full and compact independently per tab, without cycling', () => {
+    const tabId = service.createTab('toggling');
+    const otherId = service.createTab('unchanged');
+    expect(service.getTabViewMode(tabId)).toBe('full');
+
+    service.toggleTabViewMode(tabId);
+    expect(service.getTabViewMode(tabId)).toBe('compact');
+    expect(service.getTabViewMode(otherId)).toBe('full');
+
+    service.toggleTabViewMode(tabId);
+    expect(service.getTabViewMode(tabId)).toBe('full');
+    expect(service.getTabViewMode(otherId)).toBe('full');
+  });
+
+  it('returns a compact-tall tab to full on toggle, since the toggle asks "not full"', () => {
+    const tabId = service.createTab('tall');
+    service.setViewMode(tabId, 'compact-tall');
+
+    service.toggleTabViewMode(tabId);
+
+    expect(service.getTabViewMode(tabId)).toBe('full');
+  });
+
+  it('selects a view mode directly and ignores repeated selections or missing tabs', () => {
+    const tabId = service.createTab('direct selection');
+    service.setViewMode(tabId, 'compact-tall');
+    expect(service.getTabViewMode(tabId)).toBe('compact-tall');
+    const selected = service.tabs();
+    service.setViewMode(tabId, 'compact-tall');
+    service.setViewMode('missing-tab', 'compact');
+    service.toggleTabViewMode('missing-tab');
+    expect(service.tabs()).toBe(selected);
+    service.toggleTabViewMode(tabId);
+    expect(service.getTabViewMode(tabId)).toBe('full');
+  });
+
   it('aborts the in-flight controller when closeTab() runs while streaming', async () => {
     const tabId = service.createTab('streaming tab');
     const signal = service.createAbortController(tabId);

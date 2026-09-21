@@ -1,16 +1,14 @@
 import { injectable, inject } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { TURN_RECAP_MAX_CHARS } from '@ptah-extension/shared';
 import type {
   HookCallbackMatcher,
   HookEvent,
   HookJSONOutput,
   HookInput,
 } from '../types/sdk-types/claude-sdk.types';
-import {
-  isStopFailureHook,
-  narrowTerminalReason,
-} from '../types/sdk-types/claude-sdk.types';
+import { isStopFailureHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
 import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
@@ -59,7 +57,8 @@ export class StopFailureHookHandler {
                   sessionId,
                 );
                 const resolvedCwd = resolveHookCwd(input.cwd, cwd);
-                const terminalReason = narrowTerminalReason(input);
+                // Only the stream's result carries the SDK's terminal reason.
+                const terminalReason = null;
 
                 if (!resolvedSessionId || !resolvedCwd) {
                   this.logger.warn(
@@ -78,6 +77,12 @@ export class StopFailureHookHandler {
                 turnState?.recordFailure(resolvedSessionId, {
                   error: input.error,
                   terminalReason,
+                  // Bound the snapshot before it can enter the chunk stream.
+                  lastAssistantMessage:
+                    input.last_assistant_message?.slice(
+                      0,
+                      TURN_RECAP_MAX_CHARS,
+                    ) ?? null,
                 });
 
                 if (!sdkAdapterEvents) {

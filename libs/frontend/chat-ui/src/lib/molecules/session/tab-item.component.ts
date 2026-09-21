@@ -12,7 +12,7 @@ import {
   Maximize2,
   Moon,
 } from 'lucide-angular';
-import { TabState } from '@ptah-extension/chat-types';
+import { isCompactViewMode, TabState } from '@ptah-extension/chat-types';
 
 /**
  * Subset of session liveness surfaced as a tab dot. Mirrors
@@ -115,8 +115,8 @@ export class TabItemComponent {
   readonly MaximizeIcon = Maximize2;
   readonly MoonIcon = Moon;
 
-  readonly isCompactMode = computed(
-    () => (this.tab().viewMode ?? 'full') === 'compact',
+  readonly isCompactMode = computed(() =>
+    isCompactViewMode(this.tab().viewMode),
   );
 
   readonly isAwaitingBackground = computed(

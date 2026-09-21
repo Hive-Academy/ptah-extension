@@ -426,8 +426,36 @@ function cascadeCleanForEvictedEvent(
  * View mode for a tab - controls how the session is rendered.
  * 'full' = standard chat view with full message list and input
  * 'compact' = condensed card view with activity feed and mini input
+ * 'compact-tall' = the same card, given more rows of activity feed
+ *
+ * The two compact modes differ ONLY in height. They share the card, the
+ * responsive minimum width, and the rule that a compact tile is never
+ * resizable — its width is derived from the viewport's capacity rather than
+ * stored, so a resize handle would write a span the user cannot see until
+ * returning to full mode (`canvas-workspace-grid.component.ts`).
+ *
+ * A consumer branching on this union therefore almost always wants "is this a
+ * compact mode", not "is this exactly 'compact'". Use {@link isCompactViewMode};
+ * a bare `=== 'compact'` test silently treats a compact-tall tile as full
+ * (TASK_2026_512).
  */
-export type TabViewMode = 'full' | 'compact';
+export type TabViewMode = 'full' | 'compact' | 'compact-tall';
+
+/**
+ * True for every compact mode, whatever its height.
+ *
+ * This lives here rather than in `canvas` because the consumers sit on both
+ * sides of that dependency edge — `chat-view` decides whether to render the
+ * compact card at all, `tab-item` draws the tab affordance, `conductor-tile`
+ * reads it for the tribunal, and canvas projects geometry from it. `chat-types`
+ * is the one lib all four may import.
+ *
+ * Height is deliberately NOT derived here: grid units are canvas's concern and
+ * mean nothing to the card. Canvas keeps its own `heightUnitsFor`.
+ */
+export function isCompactViewMode(mode: TabViewMode | undefined): boolean {
+  return mode === 'compact' || mode === 'compact-tall';
+}
 
 /** Ownership of a tab's current session title. */
 export type TitleOrigin = 'default' | 'auto' | 'user' | 'history';

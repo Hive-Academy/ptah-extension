@@ -11,6 +11,7 @@ import type { SdkBackgroundTaskSummary } from '@ptah-extension/shared';
 import { ResultMessageTransformer } from './result-message.transformer';
 import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 import type { TransformerHelpers } from './transformer-helpers';
+import type { SDKResultMessage } from '../types/sdk-types/claude-sdk.types';
 
 const SESSION = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const TASK: SdkBackgroundTaskSummary = {
@@ -42,7 +43,7 @@ function makeHelpers(registry: SessionTurnStateRegistry): TransformerHelpers {
   } as unknown as TransformerHelpers;
 }
 
-const RESULT = { type: 'result', subtype: 'success' } as never;
+const RESULT = { type: 'result', subtype: 'success' } as SDKResultMessage;
 
 describe('ResultMessageTransformer', () => {
   let registry: SessionTurnStateRegistry;
@@ -67,6 +68,58 @@ describe('ResultMessageTransformer', () => {
     expect(events[0]).toMatchObject({
       sessionId: SESSION,
       messageId: `turn-state-${SESSION}`,
+    });
+  });
+
+  it('settles completed from the result message without a Stop snapshot', () => {
+    registry.markGenerating(SESSION);
+    const [event] = transformer.transform(
+      { ...RESULT, terminal_reason: 'completed' } satisfies SDKResultMessage,
+      helpers,
+      SESSION as never,
+    );
+    expect(registry.get(SESSION)).toMatchObject({
+      phase: 'idle',
+      terminalReason: 'completed',
+    });
+    expect(event).toMatchObject({ terminalReason: 'completed' });
+  });
+
+  it('uses the result reason over the Stop snapshot and carries its recap', () => {
+    registry.recordStop(SESSION, {
+      backgroundTasks: [],
+      sessionCrons: [],
+      terminalReason: 'aborted_streaming',
+      lastAssistantMessage: 'Implemented the fix.',
+    });
+    const [event] = transformer.transform(
+      { ...RESULT, terminal_reason: 'completed' } satisfies SDKResultMessage,
+      helpers,
+      SESSION as never,
+    );
+    expect(event).toMatchObject({
+      terminalReason: 'completed',
+      lastAssistantMessage: 'Implemented the fix.',
+    });
+  });
+
+  it('settles an error result with its authoritative reason and failure recap', () => {
+    registry.recordFailure(SESSION, {
+      error: 'rate_limit',
+      terminalReason: 'model_error',
+      lastAssistantMessage: 'Partial response.',
+    });
+    const result: SDKResultMessage = {
+      ...RESULT,
+      subtype: 'error_during_execution',
+      errors: ['Rate limited'],
+      terminal_reason: 'api_error',
+    };
+    const [event] = transformer.transform(result, helpers, SESSION as never);
+    expect(event).toMatchObject({
+      phase: 'failed',
+      terminalReason: 'api_error',
+      lastAssistantMessage: 'Partial response.',
     });
   });
 
@@ -117,7 +170,12 @@ describe('ResultMessageTransformer', () => {
   it('settles to idle when no Stop hook fired for the turn', () => {
     registry.markGenerating(SESSION);
     const [event] = transformer.transform(RESULT, helpers, SESSION as never);
-    expect(event).toMatchObject({ phase: 'idle', terminalReason: null });
+    expect(event).toMatchObject({
+      phase: 'idle',
+      terminalReason: null,
+      lastAssistantMessage: null,
+    });
+    expect(registry.get(SESSION)?.terminalReason).toBeNull();
   });
 
   it('bumps the revision past the generating state', () => {

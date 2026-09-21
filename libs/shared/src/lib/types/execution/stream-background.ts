@@ -265,13 +265,43 @@ export interface SessionTurnState {
   readonly backgroundTasks: readonly SdkBackgroundTaskSummary[];
   /** Session crons (ScheduleWakeup / loop) the SDK reported at the last snapshot */
   readonly sessionCrons: readonly SdkSessionCronSummary[];
-  /** Why the turn ended; null while generating or when the SDK gave no reason */
+  /**
+   * Why the turn ended; null while generating or when the SDK gave no reason.
+   *
+   * The SDK carries this on the `result` MESSAGE (`SDKResultMessage`), not on
+   * the `Stop` hook payload — `StopHookInput` has no such field and never had
+   * one. Reading it off the hook input yields `undefined` on every turn, which
+   * is how the Notification Center came to label every finished session
+   * "Failed": its success test is `phase === 'idle' && terminalReason ===
+   * 'completed'`, and the right-hand side was structurally unreachable
+   * (TASK_2026_512).
+   */
   readonly terminalReason: SdkTerminalReason | null;
+  /**
+   * Text of the last assistant message of the turn, truncated by the producer
+   * to `TURN_RECAP_MAX_CHARS`. The `Stop` hook delivers it as
+   * `last_assistant_message` so a consumer does not have to read and parse the
+   * transcript. Null while generating, and on any terminal path with no Stop
+   * snapshot (stream error, abort, `forceIdle`).
+   *
+   * Presentation only — it is a recap line on a notification card, never an
+   * input to a decision.
+   */
+  readonly lastAssistantMessage?: string | null;
   /** Set only for phase 'failed'. */
   readonly error?: SdkAssistantMessageError;
   /** When this state was derived (Unix epoch ms) */
   readonly timestamp: number;
 }
+
+/**
+ * Producer-side truncation bound for {@link SessionTurnState.lastAssistantMessage}.
+ *
+ * Applied where the Stop snapshot is taken, so an unbounded assistant message
+ * never reaches the chunk stream, the webview, or the notification ledger —
+ * which holds up to 75 entries for the life of the window.
+ */
+export const TURN_RECAP_MAX_CHARS = 280;
 
 /**
  * Turn state event — delivered IN the chunk stream so it can neither overtake

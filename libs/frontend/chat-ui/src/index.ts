@@ -42,7 +42,10 @@ export { SubagentTranscriptViewerComponent } from './lib/molecules/subagent-tran
 export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
-export { CompactSessionActivityComponent } from './lib/molecules/compact-session/compact-session-activity.component';
+export {
+  CompactSessionActivityComponent,
+  type CompactActivityTier,
+} from './lib/molecules/compact-session/compact-session-activity.component';
 export { CompactSessionStatsComponent } from './lib/molecules/compact-session/compact-session-stats.component';
 export {
   summarizeFinalized,

@@ -281,6 +281,24 @@ describe(CompactSessionCardComponent.name, () => {
     ).toBe(firstColor);
   });
 
+  it('resolves the activity tier from the tab view mode', () => {
+    const compactFixture = render(tab({ viewMode: 'compact' }));
+    const tallFixture = render(tab({ id: 'tab-2', viewMode: 'compact-tall' }));
+
+    expect(
+      (
+        compactFixture.componentInstance as unknown as {
+          tier: () => string;
+        }
+      ).tier(),
+    ).toBe('compact');
+    expect(
+      (
+        tallFixture.componentInstance as unknown as { tier: () => string }
+      ).tier(),
+    ).toBe('compact-tall');
+  });
+
   it('emits expand and keeps the fixed-height summary-only contract', () => {
     const request = question();
     questions.set([request]);

@@ -19,6 +19,8 @@ export interface CompletionNotificationEntry {
   readonly sessionColor: string;
   readonly phase: 'idle' | 'failed';
   readonly terminalReason: SdkTerminalReason | null;
+  readonly lastAssistantMessage: string | null;
+  readonly outcomeLabel: string;
   readonly classification: NotificationClassification;
   readonly occurredAt: number;
   readonly readAt: number | null;

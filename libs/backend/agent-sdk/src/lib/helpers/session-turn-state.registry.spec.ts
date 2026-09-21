@@ -101,6 +101,41 @@ describe('SessionTurnStateRegistry', () => {
   });
 
   describe('settleTurn', () => {
+    it('prefers the failure recap and consumes it before the next turn', () => {
+      registry.recordStop(SESSION, {
+        backgroundTasks: [],
+        sessionCrons: [],
+        terminalReason: null,
+        lastAssistantMessage: 'Stop recap',
+      });
+      registry.recordFailure(SESSION, {
+        error: 'unknown',
+        terminalReason: null,
+        lastAssistantMessage: 'Failure recap',
+      });
+      expect(registry.settleTurn(SESSION).lastAssistantMessage).toBe(
+        'Failure recap',
+      );
+      expect(registry.markGenerating(SESSION)?.lastAssistantMessage).toBeNull();
+      expect(registry.settleTurn(SESSION).lastAssistantMessage).toBeNull();
+    });
+
+    it('falls back to the Stop recap when failure has no message', () => {
+      registry.recordStop(SESSION, {
+        backgroundTasks: [],
+        sessionCrons: [],
+        terminalReason: null,
+        lastAssistantMessage: 'Stop recap',
+      });
+      registry.recordFailure(SESSION, {
+        error: 'unknown',
+        terminalReason: null,
+      });
+      expect(registry.settleTurn(SESSION).lastAssistantMessage).toBe(
+        'Stop recap',
+      );
+    });
+
     it.each([
       ['idle', [], [], undefined],
       ['awaiting-background', [task('t1')], [], undefined],
@@ -162,6 +197,21 @@ describe('SessionTurnStateRegistry', () => {
   });
 
   describe('applySnapshot', () => {
+    it('preserves the settled recap when the last background task finishes', () => {
+      registry.recordStop(SESSION, {
+        backgroundTasks: [task('t1')],
+        sessionCrons: [],
+        terminalReason: null,
+        lastAssistantMessage: 'Work delegated.',
+      });
+      registry.settleTurn(SESSION, 'completed');
+      expect(registry.applySnapshot(SESSION, [])).toMatchObject({
+        phase: 'idle',
+        terminalReason: 'completed',
+        lastAssistantMessage: 'Work delegated.',
+      });
+    });
+
     it('returns null for a session the registry has never seen', () => {
       expect(registry.applySnapshot(SESSION, [])).toBeNull();
       expect(registry.get(SESSION)).toBeUndefined();
@@ -254,8 +304,28 @@ describe('SessionTurnStateRegistry', () => {
       expect(registry.settleTurn(SESSION).phase).toBe('idle');
     });
 
-    it('defaults the terminal reason to null', () => {
-      expect(registry.forceIdle(SESSION).terminalReason).toBeNull();
+    it('defaults both outcome fields to null and discards pending recaps', () => {
+      registry.recordStop(SESSION, {
+        backgroundTasks: [],
+        sessionCrons: [],
+        terminalReason: 'completed',
+        lastAssistantMessage: 'Stop recap',
+      });
+      registry.recordFailure(SESSION, {
+        error: 'unknown',
+        terminalReason: 'model_error',
+        lastAssistantMessage: 'Failure recap',
+      });
+      const state = registry.forceIdle(SESSION);
+      expect(state).toMatchObject({
+        terminalReason: null,
+        lastAssistantMessage: null,
+      });
+      expect(toTurnStateEvent(SESSION, state)).toMatchObject({
+        terminalReason: null,
+        lastAssistantMessage: null,
+      });
+      expect(registry.settleTurn(SESSION).lastAssistantMessage).toBeNull();
     });
   });
 

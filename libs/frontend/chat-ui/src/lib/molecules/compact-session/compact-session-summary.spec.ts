@@ -215,6 +215,55 @@ describe('compact-session-summary', () => {
     ).toMatchObject({ text: 'Idle', icon: '\u25CB', tone: 'idle' });
   });
 
+  it('retains timestamp and text on marks, not just id/kind/tone/label', () => {
+    const state = createEmptyStreamingState();
+    state.events.set('tool', {
+      id: 'tool',
+      eventType: 'tool_start',
+      timestamp: 1234,
+      messageId: 'message',
+      toolCallId: 'call',
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+      isTaskTool: false,
+    });
+    state.events.set('result', {
+      id: 'result',
+      eventType: 'tool_result',
+      timestamp: 5678,
+      messageId: 'message',
+      toolCallId: 'call',
+      output: 'Exit code 1: 3 test suites failed',
+      isError: true,
+    });
+
+    const summary = summarizeLive(state, context());
+    const mark = summary.marks.find((m) => m.id === 'tool:call');
+
+    expect(mark?.timestamp).toBe(5678);
+    expect(mark?.text).toBe('Exit code 1: 3 test suites failed');
+  });
+
+  it('leaves text undefined on a mark with no detail beyond its label', () => {
+    const summary = summarizeLive(
+      (() => {
+        const state = createEmptyStreamingState();
+        state.events.set('complete', {
+          id: 'complete',
+          eventType: 'message_complete',
+          timestamp: 42,
+          messageId: 'message',
+        });
+        return state;
+      })(),
+      context(),
+    );
+    const mark = summary.marks.find((m) => m.id === 'terminal:message');
+
+    expect(mark?.timestamp).toBe(42);
+    expect(mark?.text).toBeUndefined();
+  });
+
   it('uses exact status glyphs for compaction and completed turns', () => {
     expect(
       summarizeFinalized([], context({ compaction: { inFlight: true } })).status

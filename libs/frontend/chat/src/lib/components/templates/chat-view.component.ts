@@ -67,6 +67,7 @@ import {
   AuthStateService,
   RpcResult,
 } from '@ptah-extension/core';
+import { isCompactViewMode } from '@ptah-extension/chat-types';
 import { SessionId } from '@ptah-extension/shared';
 import type {
   ChatSessionSummary,
@@ -651,9 +652,10 @@ export class ChatViewComponent implements OnDestroy {
    * transcript freezes; when the token is absent (tribunal conductor, tests) the
    * tile is treated as always showing.
    *
-   * NOTE: compact view mode (`resolvedViewMode() === 'compact'`) destroys the
-   * keep-alive region via the template `@if/@else`; a main-panel compact toggle
-   * is rare and simply rebuilds on return. Accepted, not fixed (plan risk 6).
+   * NOTE: a compact view mode (`isCompactViewMode(resolvedViewMode())`)
+   * destroys the keep-alive region via the template `@if/@else`; a main-panel
+   * compact toggle is rare and simply rebuilds on return. Accepted, not fixed
+   * (plan risk 6).
    */
   readonly mainPanelShowing = computed(() =>
     this._sessionContext
@@ -713,9 +715,14 @@ export class ChatViewComponent implements OnDestroy {
     return this._tabManager.tabs().find((t) => t.id === tabId) ?? null;
   });
 
+  /** Exposed for the template's `@if (isCompactViewMode(resolvedViewMode()))` gate. */
+  protected readonly isCompactViewMode = isCompactViewMode;
+
   /**
-   * Resolved view mode: 'full' or 'compact', scoped to tile or active tab.
-   * When compact, the chat view renders a CompactSessionCard instead of the full message list.
+   * Resolved view mode: 'full', 'compact', or 'compact-tall', scoped to tile
+   * or active tab. For any compact mode, the chat view renders a
+   * CompactSessionCard instead of the full message list — see
+   * {@link isCompactViewMode}.
    */
   readonly resolvedViewMode = computed(() => {
     const ctx = this._sessionContext;

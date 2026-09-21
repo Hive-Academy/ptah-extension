@@ -9,6 +9,7 @@ import {
   TabState,
   SessionStatus,
   TabViewMode,
+  isCompactViewMode,
   StreamingState,
   SendMessageOptions,
   type TitleOrigin,
@@ -67,6 +68,7 @@ export interface TerminalTurnPulse {
   readonly revision: number;
   readonly phase: 'idle' | 'failed';
   readonly terminalReason: SdkTerminalReason | null;
+  readonly lastAssistantMessage: string | null;
   readonly classification: TerminalTurnClassification;
   readonly title: string;
   readonly occurredAt: number;
@@ -1292,6 +1294,7 @@ export class TabManagerService {
         revision: state.revision,
         phase: state.phase,
         terminalReason: state.terminalReason ?? null,
+        lastAssistantMessage: state.lastAssistantMessage ?? null,
         classification,
         title: tab.title,
         occurredAt: Date.now(),
@@ -2690,15 +2693,33 @@ export class TabManagerService {
   }
 
   /**
-   * Toggle a tab's view mode between 'full' and 'compact'.
-   * Each tab independently controls its view mode.
+   * Toggle a tab between full and compact. Each tab controls its own mode.
+   *
+   * Deliberately BINARY, and deliberately not a three-way cycle through
+   * `compact-tall`. This is the tile header's one-click affordance, and its
+   * round-trip is load-bearing: two clicks must return the tile to where it
+   * started. Cycling made the second click land on `compact-tall`, so a tile
+   * the user expected back at full height rendered at 3 units instead of 6 —
+   * caught by `canvas.spec.ts:481` (TASK_2026_512).
+   *
+   * Either compact tier returns to full, because "not full" is the question
+   * this affordance asks. A caller that wants a specific tier calls
+   * {@link setViewMode}; the tile header's menu already offers all three.
    */
   toggleTabViewMode(tabId: string): void {
     const tab = this._tabs().find((t) => t.id === tabId);
     if (!tab) return;
-    const newMode: TabViewMode =
-      (tab.viewMode ?? 'full') === 'full' ? 'compact' : 'full';
-    this.updateTabInternal(tabId, { viewMode: newMode });
+    this.setViewMode(
+      tabId,
+      isCompactViewMode(tab.viewMode) ? 'full' : 'compact',
+    );
+  }
+
+  /** Select a tab's view mode without cycling through the other tiers. */
+  setViewMode(tabId: string, mode: TabViewMode): void {
+    const tab = this._tabs().find((t) => t.id === tabId);
+    if (!tab || (tab.viewMode ?? 'full') === mode) return;
+    this.updateTabInternal(tabId, { viewMode: mode });
   }
 
   /**

@@ -10,6 +10,7 @@ import {
   CompactSessionActivityComponent,
   summarizeFinalized,
   summarizeLive,
+  type CompactActivityTier,
   type CompactSessionSummary,
   type CompactSummaryContext,
 } from '@ptah-extension/chat-ui';
@@ -45,6 +46,7 @@ import {
       <ptah-compact-session-activity
         class="h-full"
         [summary]="summary()"
+        [tier]="tier()"
         (openFullView)="expandToFull.emit()"
       />
     </div>
@@ -59,6 +61,11 @@ export class CompactSessionCardComponent {
 
   readonly tab = input.required<TabState>();
   readonly expandToFull = output<void>();
+
+  /** The card has one height tier for every non-compact-tall mode: 'compact'. */
+  readonly tier = computed<CompactActivityTier>(() =>
+    this.tab().viewMode === 'compact-tall' ? 'compact-tall' : 'compact',
+  );
 
   private readonly routingRevision = computed(() =>
     this.permissionHandler.routingTargetRevision(),

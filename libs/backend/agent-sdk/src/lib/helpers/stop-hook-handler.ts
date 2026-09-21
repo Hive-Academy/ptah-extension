@@ -1,16 +1,14 @@
 import { injectable, inject } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { TURN_RECAP_MAX_CHARS } from '@ptah-extension/shared';
 import type {
   HookCallbackMatcher,
   HookEvent,
   HookJSONOutput,
   HookInput,
 } from '../types/sdk-types/claude-sdk.types';
-import {
-  isStopHook,
-  narrowTerminalReason,
-} from '../types/sdk-types/claude-sdk.types';
+import { isStopHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
 import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import { StopCallbackRegistry } from './stop-callback-registry';
@@ -55,7 +53,8 @@ export class StopHookHandler {
                 const resolvedCwd = resolveHookCwd(input.cwd, cwd);
                 const backgroundTasks = input.background_tasks ?? [];
                 const sessionCrons = input.session_crons ?? [];
-                const terminalReason = narrowTerminalReason(input);
+                // Only the stream's result carries the SDK's terminal reason.
+                const terminalReason = null;
 
                 // The guard sits ahead of BOTH fan-outs on purpose. It used to
                 // gate only the bus emit, so a Stop with no resolvable id still
@@ -91,6 +90,12 @@ export class StopHookHandler {
                   backgroundTasks,
                   sessionCrons,
                   terminalReason,
+                  // Bound the snapshot before it can enter the chunk stream.
+                  lastAssistantMessage:
+                    input.last_assistant_message?.slice(
+                      0,
+                      TURN_RECAP_MAX_CHARS,
+                    ) ?? null,
                 });
 
                 if (!sdkAdapterEvents) {

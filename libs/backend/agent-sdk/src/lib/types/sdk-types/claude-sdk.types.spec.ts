@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import type { HookInput } from './claude-sdk.types';
+import type { HookInput, SDKResultMessage } from './claude-sdk.types';
 import {
   isSubagentStartHook,
   isSubagentStopHook,
@@ -18,7 +18,27 @@ import {
   isTaskCreatedHook,
   isTaskCompletedHook,
   isTeammateIdleHook,
+  narrowTerminalReason,
 } from './claude-sdk.types';
+
+describe('narrowTerminalReason', () => {
+  it.each([
+    ['success', 'completed'],
+    ['error_during_execution', 'api_error'],
+  ] as const)('reads the outcome from a %s result', (subtype, reason) => {
+    const message = {
+      type: 'result',
+      subtype,
+      terminal_reason: reason,
+    } as SDKResultMessage;
+    expect(narrowTerminalReason(message)).toBe(reason);
+  });
+
+  it('returns null when an older producer omits the reason', () => {
+    const message = { type: 'result', subtype: 'success' } as SDKResultMessage;
+    expect(narrowTerminalReason(message)).toBeNull();
+  });
+});
 
 /**
  * Truth-table coverage for every `is<Event>Hook` type guard exported from

@@ -620,17 +620,16 @@ export function isTeammateIdleHook(
 }
 
 /**
- * Extracts `terminal_reason` from a hook input via structural narrowing.
+ * Reads the outcome from a narrowed result message.
  *
- * SDK 0.3.150 does not expose `terminal_reason` on the typed hook input
- * interfaces today; this helper extracts it via an intersection cast typed
- * against `TerminalReason`. Drop the cast when the SDK exposes the field on
- * `BaseHookInput` (forward-compat consolidation per code-style review §6).
+ * SDK 0.3.278 declares `terminal_reason` on both result variants, not on
+ * BaseHookInput, StopHookInput or StopFailureHookInput. It is optional because
+ * older producers and synthetic results may omit the outcome.
  */
-export function narrowTerminalReason(input: HookInput): TerminalReason | null {
-  const candidate = (input as { terminal_reason?: TerminalReason })
-    .terminal_reason;
-  return candidate ?? null;
+export function narrowTerminalReason(
+  message: SDKResultMessage,
+): TerminalReason | null {
+  return message.terminal_reason ?? null;
 }
 
 export type FlatStreamEventType =

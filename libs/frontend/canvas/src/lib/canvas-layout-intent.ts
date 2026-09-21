@@ -1,3 +1,6 @@
+import { isCompactViewMode } from '@ptah-extension/chat-types';
+import { assertNever } from '@ptah-extension/shared';
+
 /** Gridstack column units in one rendered row. */
 export const GRID_COLUMNS = 12;
 
@@ -17,6 +20,9 @@ export const FULL_TILE_HEIGHT_UNITS = 6;
 
 /** Gridstack row units a compact tile occupies. */
 export const COMPACT_TILE_HEIGHT_UNITS = 2;
+
+/** Gridstack row units a compact tall tile occupies. */
+export const COMPACT_TALL_TILE_HEIGHT_UNITS = 3;
 
 export const TILE_SPANS = ['third', 'half', 'two-thirds', 'full'] as const;
 export type TileSpan = (typeof TILE_SPANS)[number];
@@ -64,7 +70,21 @@ export type CanvasLayoutPreset =
  * Transient height tier for one tile, derived from the owning tab's view mode
  * in `TabManagerService`. Never stored in `TileIntent` or persistence.
  */
-export type TileHeightTier = 'full' | 'compact';
+export type TileHeightTier = 'full' | 'compact' | 'compact-tall';
+
+/** Exact height for each transient tier; layout focus overrides this to full. */
+export function heightUnitsFor(tier: TileHeightTier): number {
+  switch (tier) {
+    case 'full':
+      return FULL_TILE_HEIGHT_UNITS;
+    case 'compact':
+      return COMPACT_TILE_HEIGHT_UNITS;
+    case 'compact-tall':
+      return COMPACT_TALL_TILE_HEIGHT_UNITS;
+    default:
+      return assertNever(tier);
+  }
+}
 
 /** One tile's transient view constraint: id and height tier only. */
 export interface TileViewConstraint {
@@ -377,7 +397,7 @@ function resolvePreferredWidths(
       continue;
     }
     const units =
-      tierById.get(tile.tabId) === 'compact'
+      isCompactViewMode(tierById.get(tile.tabId))
         ? minimum
         : effectiveUnits(tile.width, capacity);
     if (
@@ -404,7 +424,7 @@ function finishPreferredRow(
   const autoWeights: number[] = [];
   let explicitUnits = 0;
   for (const tile of row) {
-    if (tierById.get(tile.tabId) === 'compact') {
+    if (isCompactViewMode(tierById.get(tile.tabId))) {
       explicitUnits += minimum;
     } else if (tile.width.kind === 'auto') {
       autoWeights.push(normalizeWeight(tile.width.weight));
@@ -419,7 +439,7 @@ function finishPreferredRow(
   );
   let autoIndex = 0;
   for (const tile of row) {
-    if (tierById.get(tile.tabId) === 'compact') {
+    if (isCompactViewMode(tierById.get(tile.tabId))) {
       widths.set(tile.tabId, minimum);
     } else if (tile.width.kind === 'auto') {
       widths.set(tile.tabId, autoUnits[autoIndex++]);
@@ -477,8 +497,9 @@ export function projectTileGeometry(
     if (tile.rowBreakBefore) {
       readingFloorY = Math.max(readingFloorY, ...skyline);
     }
-    const compact = tierById.get(tile.tabId) === 'compact';
-    const h = compact ? COMPACT_TILE_HEIGHT_UNITS : FULL_TILE_HEIGHT_UNITS;
+    const tier = tierById.get(tile.tabId) ?? 'full';
+    const compact = isCompactViewMode(tier);
+    const h = heightUnitsFor(tier);
     let candidates: readonly number[];
     if (compact) {
       candidates = [minimum];
@@ -599,9 +620,7 @@ export function projectDragIntent(
 
   const tierById = new Map(viewConstraints.map((c) => [c.tabId, c.heightTier]));
   const expectedHeightOf = (tabId: string): number =>
-    tierById.get(tabId) === 'compact'
-      ? COMPACT_TILE_HEIGHT_UNITS
-      : FULL_TILE_HEIGHT_UNITS;
+    heightUnitsFor(tierById.get(tabId) ?? 'full');
 
   const seen = new Set<string>();
   for (const observation of observations) {
@@ -721,7 +740,7 @@ export function projectDragIntent(
       const horizontalPositionIsTransient =
         geometry.tabId === draggedId ||
         (intentOf(geometry.tabId).width.kind === 'auto' &&
-          tierById.get(geometry.tabId) !== 'compact');
+          !isCompactViewMode(tierById.get(geometry.tabId)));
       if (
         !horizontalPositionIsTransient &&
         (item.x !== geometry.x || item.w !== geometry.w)

@@ -12,9 +12,11 @@ import {
   type NotificationFocusTarget,
 } from '@ptah-extension/core';
 import { generateAgentColor } from '@ptah-extension/chat-ui';
+import { assertNever } from '@ptah-extension/shared';
 import type {
   AskUserQuestionRequest,
   PermissionRequest,
+  SdkTerminalReason,
 } from '@ptah-extension/shared';
 import { NotificationSoundService } from './notification-sound.service';
 import type {
@@ -25,6 +27,63 @@ import type {
 
 const LEDGER_LIMIT = 75;
 const BURST_MS = 350;
+
+/**
+ * Human-readable rendering of `SdkTerminalReason`, exhaustive over the SDK's
+ * 19-member union. `assertNever` on the default branch turns a new SDK
+ * member into a compile error instead of a silent "Failed" fallback
+ * (TASK_2026_512).
+ *
+ * `phase` breaks the tie when the SDK gave no reason. `terminal_reason` is
+ * optional on the result message — older producers and synthetic results omit
+ * it — so a turn that a `StopFailure` hook already marked `failed` can still
+ * settle with a null reason. Reading the reason alone would then caption a red
+ * error row "Finished (unknown outcome)", which is the same class of defect
+ * this task exists to fix, one field over.
+ */
+export function deriveOutcomeLabel(
+  reason: SdkTerminalReason | null,
+  phase: 'idle' | 'failed',
+): string {
+  if (reason === null) {
+    return phase === 'failed' ? 'Failed' : 'Finished (unknown outcome)';
+  }
+  switch (reason) {
+    case 'completed':
+      return 'Finished';
+    case 'max_turns':
+      return 'Hit the turn limit';
+    case 'budget_exhausted':
+      return 'Out of budget';
+    case 'blocking_limit':
+    case 'rapid_refill_breaker':
+      return 'Rate limited';
+    case 'api_error':
+    case 'model_error':
+    case 'image_error':
+      return 'Provider error';
+    case 'prompt_too_long':
+      return 'Prompt too long';
+    case 'aborted_streaming':
+    case 'aborted_tools':
+      return 'Stopped';
+    case 'stop_hook_prevented':
+    case 'hook_stopped':
+      return 'Stopped by a hook';
+    case 'tool_deferred':
+    case 'tool_deferred_unavailable':
+      return 'Waiting on a tool';
+    case 'background_requested':
+      return 'Moved to the background';
+    case 'malformed_tool_use_exhausted':
+    case 'structured_output_retry_exhausted':
+      return 'Gave up retrying';
+    case 'turn_setup_failed':
+      return 'Could not start';
+    default:
+      return assertNever(reason);
+  }
+}
 
 @Injectable()
 export class NotificationCenterStore {
@@ -164,6 +223,8 @@ export class NotificationCenterStore {
       sessionColor: generateAgentColor(pulse.sessionId),
       phase: pulse.phase,
       terminalReason: pulse.terminalReason,
+      lastAssistantMessage: pulse.lastAssistantMessage,
+      outcomeLabel: deriveOutcomeLabel(pulse.terminalReason, pulse.phase),
       classification: pulse.classification,
       occurredAt: pulse.occurredAt,
       readAt: null,
@@ -274,6 +335,37 @@ export class NotificationCenterStore {
     };
   }
 
+  /**
+   * The session's title as it stands NOW, not as it stood when the turn ended.
+   *
+   * `tab.title` is mutable. A new tab starts at `'New Chat'`
+   * (`titleOrigin: 'default'`), is upgraded to an `'auto'` title derived from
+   * the session name or the first user message, and can later be renamed by
+   * the user. `appendCompletion` can only snapshot whatever the pulse carried,
+   * so a card minted before the auto title landed kept `'New Chat'` for the
+   * life of the ledger, and a renamed session disagreed with its own tile
+   * forever — the card is the affordance for opening that tile, so the two
+   * names disagreeing is the one thing it cannot afford.
+   *
+   * Resolving here rather than in `appendCompletion` is what makes it live:
+   * `completionGroups` is a computed and the lookup reads the tabs signal, so
+   * a rename repaints every card for that session.
+   *
+   * Falls back to the snapshot once the tab is gone. A closed session's card
+   * keeps the name it had rather than losing its label entirely. The entry
+   * object is returned unchanged when the title already matches, so an
+   * unaffected row keeps its identity for `track`.
+   */
+  private withCurrentTitle(
+    entry: CompletionNotificationEntry,
+  ): CompletionNotificationEntry {
+    const current = this.tabManager.findTabByIdAcrossWorkspaces(entry.tabId)
+      ?.tab.title;
+    return current && current !== entry.title
+      ? { ...entry, title: current }
+      : entry;
+  }
+
   private groupCompletions(
     entries: readonly CompletionNotificationEntry[],
   ): readonly CompletionNotificationGroup[] {
@@ -282,7 +374,7 @@ export class NotificationCenterStore {
     for (const entry of entries) {
       if (entry.dismissed) continue;
       const workspaceEntries = byWorkspace.get(entry.workspacePath) ?? [];
-      workspaceEntries.push(entry);
+      workspaceEntries.push(this.withCurrentTitle(entry));
       byWorkspace.set(entry.workspacePath, workspaceEntries);
     }
     for (const workspaceEntries of byWorkspace.values()) {

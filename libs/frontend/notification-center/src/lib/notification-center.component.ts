@@ -145,6 +145,7 @@ import type {
                     type="button"
                     class="notification-row flex min-w-0 flex-1 items-start gap-2 rounded-md p-2 text-left hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     [class.opacity-60]="entry.readAt !== null"
+                    [attr.aria-label]="'Open session ' + entry.title"
                     (click)="activateCompletion(entry)"
                   >
                     <span
@@ -161,11 +162,17 @@ import type {
                     />
                     <span class="min-w-0">
                       <span class="block text-xs font-semibold">{{
-                        entry.classification === 'error' ? 'Failed' : 'Finished'
+                        entry.outcomeLabel
                       }}</span>
-                      <span class="block truncate text-xs">{{
+                      <span class="link link-hover block truncate text-xs">{{
                         entry.title
                       }}</span>
+                      @if (entry.lastAssistantMessage) {
+                        <span
+                          class="block truncate text-[11px] text-base-content-muted"
+                          >{{ entry.lastAssistantMessage }}</span
+                        >
+                      }
                     </span>
                   </button>
                   <button

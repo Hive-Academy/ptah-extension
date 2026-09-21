@@ -18,7 +18,10 @@ import {
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import { NOTIFICATION_FOCUS_ROUTER } from '@ptah-extension/core';
 import type { PermissionRequest } from '@ptah-extension/shared';
-import { NotificationCenterStore } from './notification-center.store';
+import {
+  deriveOutcomeLabel,
+  NotificationCenterStore,
+} from './notification-center.store';
 import { NotificationSoundService } from './notification-sound.service';
 
 describe('NotificationCenterStore', () => {
@@ -109,6 +112,7 @@ describe('NotificationCenterStore', () => {
         revision: seq,
         phase: 'idle',
         terminalReason: 'completed',
+        lastAssistantMessage: null,
         classification: 'success',
         title: `Run ${seq}`,
         occurredAt: seq * 100,
@@ -117,6 +121,28 @@ describe('NotificationCenterStore', () => {
     ]);
     TestBed.flushEffects();
   }
+
+  // `tab.title` is mutable: a fresh tab is 'New Chat' until an auto title is
+  // derived, and a user can rename it afterwards. The pulse can only carry the
+  // title as it stood at turn end, so the card must resolve the live one or it
+  // will disagree with the tile it exists to open.
+  it('renders the session title as it stands now, not as the pulse snapshotted it', () => {
+    // The pulse carries 'New Chat' — the title as it stood when the turn
+    // ended, before the auto title landed. The tab is 'Build release' now.
+    // Pre-fix the card kept the snapshot and disagreed with its own tile.
+    emit(1, { title: 'New Chat' });
+
+    expect(store.completionGroups()[0].entries[0].title).toBe('Build release');
+  });
+
+  it('keeps the snapshotted title once the tab is gone', () => {
+    emit(1, { tabId: 'tab-closed', title: 'Closed session' });
+    const entry = store
+      .completionGroups()
+      .flatMap((group) => group.entries)
+      .find((candidate) => candidate.revision === 1);
+    expect(entry?.title).toBe('Closed session');
+  });
 
   it('deduplicates session+revision and bounds completion history to 75', () => {
     for (let seq = 1; seq <= 80; seq += 1) emit(seq);
@@ -133,6 +159,7 @@ describe('NotificationCenterStore', () => {
               revision: latest.revision,
               phase: latest.phase,
               terminalReason: latest.terminalReason,
+              lastAssistantMessage: latest.lastAssistantMessage,
               classification: latest.classification,
               title: latest.title,
               occurredAt: latest.occurredAt,
@@ -154,6 +181,7 @@ describe('NotificationCenterStore', () => {
         revision: 1,
         phase: 'idle',
         terminalReason: 'completed',
+        lastAssistantMessage: null,
         classification: 'success',
         title: 'Run 1',
         occurredAt: 100,
@@ -166,6 +194,7 @@ describe('NotificationCenterStore', () => {
         revision: 1,
         phase: 'idle',
         terminalReason: 'completed',
+        lastAssistantMessage: null,
         classification: 'success',
         title: 'Run 2',
         occurredAt: 101,
@@ -266,5 +295,62 @@ describe('NotificationCenterStore', () => {
     jest.advanceTimersByTime(350);
     expect(store.announcement()).toBe('12 sessions finished');
     expect(playBurst).toHaveBeenCalledTimes(1);
+  });
+
+  it('carries the recap text onto the completion entry', () => {
+    emit(1, { lastAssistantMessage: 'All tests pass.' });
+    expect(store.completionEntries()[0]?.lastAssistantMessage).toBe(
+      'All tests pass.',
+    );
+  });
+
+  it('leaves the recap null when the turn state carried none', () => {
+    emit(1, { lastAssistantMessage: null });
+    expect(store.completionEntries()[0]?.lastAssistantMessage).toBeNull();
+  });
+
+  describe('deriveOutcomeLabel', () => {
+    it.each([
+      ['completed', 'Finished'],
+      ['max_turns', 'Hit the turn limit'],
+      ['budget_exhausted', 'Out of budget'],
+      ['blocking_limit', 'Rate limited'],
+      ['rapid_refill_breaker', 'Rate limited'],
+      ['api_error', 'Provider error'],
+      ['model_error', 'Provider error'],
+      ['image_error', 'Provider error'],
+      ['prompt_too_long', 'Prompt too long'],
+      ['aborted_streaming', 'Stopped'],
+      ['aborted_tools', 'Stopped'],
+      ['stop_hook_prevented', 'Stopped by a hook'],
+      ['hook_stopped', 'Stopped by a hook'],
+      ['tool_deferred', 'Waiting on a tool'],
+      ['tool_deferred_unavailable', 'Waiting on a tool'],
+      ['background_requested', 'Moved to the background'],
+      ['malformed_tool_use_exhausted', 'Gave up retrying'],
+      ['structured_output_retry_exhausted', 'Gave up retrying'],
+      ['turn_setup_failed', 'Could not start'],
+      [null, 'Finished (unknown outcome)'],
+    ] as const)('maps %s to %s', (reason, label) => {
+      expect(deriveOutcomeLabel(reason, 'idle')).toBe(label);
+    });
+
+    // `terminal_reason` is optional on the result message, so a turn the
+    // StopFailure hook already marked `failed` can settle with a null reason.
+    // Captioning that red row "Finished" is the defect this task exists to fix.
+    it('captions a failed phase with no reason as Failed, not Finished', () => {
+      expect(deriveOutcomeLabel(null, 'failed')).toBe('Failed');
+    });
+
+    it('still prefers a known reason over the phase', () => {
+      expect(deriveOutcomeLabel('api_error', 'failed')).toBe('Provider error');
+    });
+  });
+
+  it('derives the outcome label on the completion entry from the pulse reason', () => {
+    emit(1, { terminalReason: 'max_turns', classification: 'error' });
+    expect(store.completionEntries()[0]?.outcomeLabel).toBe(
+      'Hit the turn limit',
+    );
   });
 });

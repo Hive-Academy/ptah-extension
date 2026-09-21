@@ -1,6 +1,10 @@
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
+import {
+  isResultMessage,
+  narrowTerminalReason,
+} from '../types/sdk-types/claude-sdk.types';
 import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
 import type { TransformerSessionId } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
@@ -13,16 +17,22 @@ import type { TransformerHelpers } from './transformer-helpers';
  */
 export class ResultMessageTransformer {
   transform(
-    _sdkMessage: SDKMessage,
+    sdkMessage: SDKMessage,
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
     // A turn state with no session cannot be routed — skip the registry.
-    if (!sessionId) {
+    if (!sessionId || !isResultMessage(sdkMessage)) {
       return [];
     }
     return [
-      toTurnStateEvent(sessionId, helpers.turnState.settleTurn(sessionId)),
+      toTurnStateEvent(
+        sessionId,
+        helpers.turnState.settleTurn(
+          sessionId,
+          narrowTerminalReason(sdkMessage),
+        ),
+      ),
     ];
   }
 }
