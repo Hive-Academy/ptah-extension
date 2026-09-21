@@ -395,6 +395,38 @@ export function probeCliVersion(
 const NATIVE_AGENT_TOOL_POLICY =
   'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.';
 
+/**
+ * What a SPAWNED agent is told about talking back to the session that spawned
+ * it (TASK_2026_477). This is the CHILD half of the guidance; the parent half
+ * is the agent-tool table in `vscode-lm-tools`'
+ * `ptah-system-prompt.constant.ts`, and `.claude/skills/agent-lanes/SKILL.md`
+ * is the operator-facing copy. All three must say the same things; this
+ * constant is the one a spawned lane actually reads.
+ *
+ * Three rules bind the wording and none of them is stylistic:
+ *
+ * - **No vendor name.** A roster in a prompt goes stale between releases
+ *   (`vendor-roster-drift.spec.ts`). The text points at `ptah_agent_list`.
+ * - **No delivery mode described as available.** `ptah_agent_message` picks one
+ *   of four modes per call from live capabilities, so the text tells the agent
+ *   to read the mode it was returned rather than to expect one.
+ * - **Bytes are argv.** This string is part of the command line on the
+ *   task-prompt adapters and is measured against `assertCommandLineWithinLimit`
+ *   (8,191 on the Windows `.cmd` fallback). Measured: it adds 826 bytes with
+ *   its joining delimiter, pinned by `cli-adapter.utils.spec.ts`. Keep it
+ *   short.
+ *
+ * It is emitted only when the run has BOTH an MCP port and an agent id, which
+ * is the only condition under which the tools it names exist and a report can
+ * be attributed.
+ */
+const TWO_WAY_MESSAGING_GUIDANCE =
+  'Two-way messaging: you are a spawned agent and the session that spawned you can reach you.\n' +
+  '- Report to it with `ptah_agent_report`. It takes no agent id. A `delivered: false` answer carries a reason and is a normal outcome — record it and carry on, do not retry in a loop.\n' +
+  '- A message from that session can arrive between your turns. Treat it as an instruction from your caller; where it disagrees with the task text above, the message wins.\n' +
+  '- You can spawn agents yourself with `ptah_agent_spawn`. Read `ptah_agent_list` for what exists on this machine: never assume a CLI, a provider or a messaging capability is present. Any name in a document is an illustration, never a guarantee.\n' +
+  '- `ptah_agent_message` chooses its delivery mode per call and returns the mode it used. Read that returned mode; do not assume one.';
+
 const PROMPT_SECTION_DELIMITER = '\n\n---\n\n';
 
 const EMPTY_FRONTMATTER = '---\n\n---\n';
@@ -464,7 +496,20 @@ export function buildTaskPrompt(
 
   if (options.taskFolder) {
     taskPrompt += `\n\nWrite deliverable files to: ${options.taskFolder}`;
-    taskPrompt += `\nUse convention: ${options.taskFolder}/agent-output-{agentId}.md for main deliverable.`;
+    // The id is substituted here, and the line is omitted without one.
+    // `agent-output-{agentId}.md` used to ship as a literal placeholder that
+    // nothing ever filled: the spawned agent is not told its own id anywhere,
+    // so it invented a value, and `agent-output-root.md` is the invention it
+    // settled on (TASK_2026_477). The instruction is also subordinate to an
+    // explicit filename in the task — the two used to compete, and a lane that
+    // read both wrote both files.
+    if (options.agentId) {
+      taskPrompt += `\nIf the task above names no deliverable file, write the main deliverable to ${options.taskFolder}/agent-output-${options.agentId}.md. Do not invent another name.`;
+    }
+  }
+
+  if (options.agentId && options.mcpPort !== undefined) {
+    taskPrompt += PROMPT_SECTION_DELIMITER + TWO_WAY_MESSAGING_GUIDANCE;
   }
 
   return taskPrompt;

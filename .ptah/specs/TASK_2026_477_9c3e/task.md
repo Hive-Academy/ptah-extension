@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_477_9c3e
-status: backlog
+status: in_review
 type: feature
 title: >-
   Tell every agent how two-way messaging works, on both sides of the spawn
