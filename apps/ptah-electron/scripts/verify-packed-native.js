@@ -36,45 +36,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { pathToFileURL } = require('url');
+const {
+  ROOT,
+  getElectronVersion,
+  getElectronAbi,
+  getPrebuildTarget,
+  resolveBetterSqliteRuntimeAddon,
+  probeAddonWithElectron: probeNativeAddonWithElectron,
+} = require('./lib/native-addon');
 
-const ROOT = path.resolve(__dirname, '../../..');
 const RELEASE_DIR = path.join(ROOT, 'dist', 'release');
-const ELECTRON_ABI_FALLBACK = {
-  30: 123,
-  31: 125,
-  32: 128,
-  33: 130,
-  34: 132,
-  35: 133,
-  36: 135,
-  37: 136,
-  38: 139,
-  39: 140,
-  40: 143,
-  41: 145,
-  42: 146,
-  43: 148,
-  44: 149,
-};
-
-function getElectronVersion() {
-  const epkg = path.join(ROOT, 'node_modules', 'electron', 'package.json');
-  return JSON.parse(fs.readFileSync(epkg, 'utf8')).version;
-}
-
-async function getElectronAbi(electronVersion) {
-  try {
-    const nodeAbi = await import(
-      pathToFileURL(path.join(ROOT, 'node_modules', 'node-abi', 'index.js'))
-        .href
-    );
-    return Number(nodeAbi.getAbi(electronVersion, 'electron'));
-  } catch {
-    const major = Number(String(electronVersion).split('.')[0]);
-    return ELECTRON_ABI_FALLBACK[major] ?? null;
-  }
-}
 
 function sha256(file) {
   return crypto
@@ -94,87 +65,19 @@ function readNativeAbi(file) {
   return null;
 }
 
-function isLinuxMusl() {
-  if (process.platform !== 'linux') return false;
-  try {
-    return !process.report.getReport().header.glibcVersionRuntime;
-  } catch {
-    return false;
-  }
-}
-
-function getPrebuildTarget(platform = process.platform, arch = process.arch) {
-  const targetPlatform =
-    platform === 'linux' && isLinuxMusl() ? 'linuxmusl' : platform;
-  return `${targetPlatform}-${arch}`;
-}
-
-/** Return the addon path selected by better-sqlite3's default loader. */
-function resolveBetterSqliteRuntimeAddon(
-  root = ROOT,
-  platform = process.platform,
-  arch = process.arch,
-) {
-  const packageRoot = path.join(root, 'node_modules', 'better-sqlite3');
-  const prebuild = path.join(
-    packageRoot,
-    'prebuilds',
-    `${getPrebuildTarget(platform, arch)}.node`,
-  );
-  if (fs.existsSync(prebuild)) return prebuild;
-  return path.join(packageRoot, 'build', 'Release', 'better_sqlite3.node');
-}
-
-const NATIVE_PROBE_PREFIX = '__PTAH_BETTER_SQLITE3_PROBE__';
-
-/** Load a package/addon pair in Electron and execute a real SQLite query. */
+/** Load a package/addon pair under Electron with strict ABI validation. */
 function probeAddonWithElectron(
   packageRoot,
   addonPath,
   electronVersion,
   expectedAbi,
 ) {
-  const electronExecutable = require(
-    path.join(ROOT, 'node_modules', 'electron'),
+  return probeNativeAddonWithElectron(
+    packageRoot,
+    addonPath,
+    electronVersion,
+    expectedAbi,
   );
-  const probe = `
-const Database = require(process.argv[1]);
-const db = new Database(':memory:', { nativeBinding: process.argv[2] });
-try {
-  const row = db.prepare('SELECT 42 AS value, sqlite_version() AS sqlite').get();
-  process.stdout.write(${JSON.stringify(NATIVE_PROBE_PREFIX)} + JSON.stringify({
-    modules: process.versions.modules,
-    napi: process.versions.napi,
-    value: row.value,
-    sqlite: row.sqlite,
-  }));
-} finally {
-  db.close();
-}
-`;
-  const output = require('child_process').execFileSync(
-    electronExecutable,
-    ['-e', probe, packageRoot, addonPath],
-    {
-      cwd: ROOT,
-      encoding: 'utf8',
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    },
-  );
-  const marker = output.lastIndexOf(NATIVE_PROBE_PREFIX);
-  if (marker < 0) throw new Error('Electron native probe returned no result');
-  const result = JSON.parse(output.slice(marker + NATIVE_PROBE_PREFIX.length));
-  if (result.value !== 42) {
-    throw new Error(
-      'Electron native probe returned an unexpected query result',
-    );
-  }
-  if (expectedAbi == null || Number(result.modules) !== expectedAbi) {
-    throw new Error(
-      `Electron ${electronVersion} reported ABI ${result.modules}, expected ${expectedAbi ?? 'a known ABI'}`,
-    );
-  }
-  return result;
 }
 
 /**
@@ -285,6 +188,52 @@ async function verifyPackedParcelWatcher() {
   }
 }
 
+/** Validate one packed addon, logging success or returning its failure message. */
+function validatePackedAddon(
+  file,
+  addonRelative,
+  rootHash,
+  electronVersion,
+  expectedAbi,
+) {
+  const rel = path.relative(RELEASE_DIR, file);
+  const hash = sha256(file);
+  const abi = readNativeAbi(file);
+  const packageRoot = path.resolve(
+    file,
+    ...addonRelative.split(path.sep).map(() => '..'),
+  );
+
+  if (hash !== rootHash) {
+    return (
+      `${rel}: packed ABI ${abi ?? 'unknown'} / sha256 ${hash.slice(0, 12)} ` +
+      `does NOT match the rebuilt runtime binary (${rootHash.slice(0, 12)}).`
+    );
+  }
+
+  let probe;
+  try {
+    probe = probeAddonWithElectron(
+      packageRoot,
+      file,
+      electronVersion,
+      expectedAbi,
+    );
+  } catch (err) {
+    return (
+      `${rel}: hash matches the rebuilt binary, but Electron load/query failed: ` +
+      `${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+  console.log(
+    `[verify] OK  ${rel} (marker ABI ${abi ?? 'N-API'}, runtime ABI ` +
+      `${probe.modules}, N-API ${probe.napi}, matches rebuilt binary, ` +
+      `SQLite ${probe.sqlite})`,
+  );
+  return null;
+}
+
+/** Verify packed native addons and report packaging failures. */
 async function main() {
   const electronVersion = getElectronVersion();
   const expectedAbi = await getElectronAbi(electronVersion);
@@ -329,42 +278,14 @@ async function main() {
 
   const failures = [];
   for (const file of packed) {
-    const rel = path.relative(RELEASE_DIR, file);
-    const hash = sha256(file);
-    const abi = readNativeAbi(file);
-    const hashMatch = hash === rootHash;
-    const packageRoot = path.resolve(
+    const failure = validatePackedAddon(
       file,
-      ...addonRelative.split(path.sep).map(() => '..'),
+      addonRelative,
+      rootHash,
+      electronVersion,
+      expectedAbi,
     );
-
-    if (hashMatch) {
-      let probe;
-      try {
-        probe = probeAddonWithElectron(
-          packageRoot,
-          file,
-          electronVersion,
-          expectedAbi,
-        );
-      } catch (err) {
-        failures.push(
-          `${rel}: hash matches the rebuilt binary, but Electron load/query failed: ` +
-            `${err instanceof Error ? err.message : String(err)}`,
-        );
-        continue;
-      }
-      console.log(
-        `[verify] OK  ${rel} (marker ABI ${abi ?? 'N-API'}, runtime ABI ` +
-          `${probe.modules}, N-API ${probe.napi}, matches rebuilt binary, ` +
-          `SQLite ${probe.sqlite})`,
-      );
-    } else {
-      failures.push(
-        `${rel}: packed ABI ${abi ?? 'unknown'} / sha256 ${hash.slice(0, 12)} ` +
-          `does NOT match the rebuilt runtime binary (${rootHash.slice(0, 12)}).`,
-      );
-    }
+    if (failure) failures.push(failure);
   }
 
   if (failures.length > 0) {
