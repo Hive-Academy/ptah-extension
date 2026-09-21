@@ -54,14 +54,20 @@ export class SingleOwnerBroker {
   }
 
   async connect() {
-    if (this.client) throw new Error('broker already connected: refusing a second upstream transport');
+    if (this.client)
+      throw new Error(
+        'broker already connected: refusing a second upstream transport',
+      );
     const transport = new StdioClientTransport({
       command: this.spec.command,
       args: this.spec.args,
       env: { ...process.env, ...(this.spec.env ?? {}) },
       stderr: 'inherit',
     });
-    const client = new Client({ name: 'ptah-broker', version: '0.0.0' }, { capabilities: {} });
+    const client = new Client(
+      { name: 'ptah-broker', version: '0.0.0' },
+      { capabilities: {} },
+    );
     this.#record('broker.connect.start');
     await client.connect(transport);
     this.client = client;
@@ -94,17 +100,21 @@ export class SingleOwnerBroker {
 
   /** Host path: resources. The SDK gives the host no resource API at all. */
   async listResources() {
-    return (await this.client.request({ method: 'resources/list' }, z.any())).resources;
+    return (await this.client.request({ method: 'resources/list' }, z.any()))
+      .resources;
   }
 
   async readResource(uri) {
-    return await this.client.request({ method: 'resources/read', params: { uri } }, z.any());
+    return await this.client.request(
+      { method: 'resources/read', params: { uri } },
+      z.any(),
+    );
   }
 
   async callTool(name, args) {
     return await this.client.request(
       { method: 'tools/call', params: { name, arguments: args ?? {} } },
-      z.any()
+      z.any(),
     );
   }
 
@@ -124,10 +134,18 @@ export class SingleOwnerBroker {
       handler: async (args) => {
         this.#record('sdk.tool.forward', { tool: t.name });
         const result = await this.callTool(t.name, args);
-        return { content: result.content ?? [], isError: result.isError ?? false };
+        return {
+          ...result,
+          content: result.content ?? [],
+          isError: result.isError ?? false,
+        };
       },
     }));
-    return createSdkMcpServer({ name: this.spec.name, version: '0.0.0', tools });
+    return createSdkMcpServer({
+      name: this.spec.name,
+      version: '0.0.0',
+      tools,
+    });
   }
 }
 
@@ -139,11 +157,13 @@ export class SingleOwnerBroker {
  * @param {Record<string, unknown>} settingsServers servers found in settings files
  */
 export function assertNoSettingsCollision(brokerNames, settingsServers) {
-  const collisions = Object.keys(settingsServers ?? {}).filter((n) => brokerNames.includes(n));
+  const collisions = Object.keys(settingsServers ?? {}).filter((n) =>
+    brokerNames.includes(n),
+  );
   if (collisions.length > 0) {
     throw new Error(
       `MCP name collision, refusing to start: settings files declare ${collisions.join(', ')}, ` +
-        `which the broker owns. Rename the settings entry or remove it.`
+        `which the broker owns. Rename the settings entry or remove it.`,
     );
   }
 }
