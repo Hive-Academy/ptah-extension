@@ -60,3 +60,17 @@ down so the next run does better.
 4. **The 496 spike installed 268 MB of `node_modules` inside the task folder.** Untracked, and
    the spike added its own `.gitignore`, so nothing reached the index. Worth knowing before
    anyone copies the pattern.
+
+## Documentation drift, recorded without a task
+
+The root `CLAUDE.md` states **Electron 40** in its Tech Stack section, and
+`apps/ptah-electron/CLAUDE.md` repeats it, including the ABI note "Electron 40 = ABI 143".
+The installed and pinned version is **44.4.3** (`package.json:256`, `"electron": "^44.4.3"`).
+
+Found by the `TASK_2026_491_e0da` fix lane, which read Electron's own type definitions to
+rebuild its test fixtures and noticed the mismatch.
+
+No task filed: it is a one-line correction in two files. It matters more than its size suggests,
+because an agent that trusts the stated version reasons about the wrong API surface — which is
+adjacent to how the permission-handler fixtures went wrong in the first place. Correct it in the
+next change that touches either file.
