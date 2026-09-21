@@ -56,7 +56,13 @@ candidates on the license server.
    eslint config already sets `prefer-on-push-component-change-detection` to
    `off`, so nothing fails. Flipping the app shell's change detection is a
    behavioral change and does not belong in a dependency migration.
-6. Consider enabling `strict` across the workspace. TypeScript 6 makes `strict`
+6. Clear 159 ESLint 10 findings and raise both rules back to `error` in
+   `eslint.config.mjs`. ESLint 10 enables `no-useless-assignment` (105 hits, dead
+   stores) and `preserve-caught-error` (54 hits, re-throws that drop the original
+   error) in its recommended set. Neither is auto-fixable, because removing an
+   assignment or attaching a `cause` changes behavior and needs a per-site read.
+   Both are carried at `warn` for now.
+7. Consider enabling `strict` across the workspace. TypeScript 6 makes `strict`
    the default, and the Nx codemod wrote `"strict": false` into
    `tsconfig.base.json` to preserve behavior. Only 15 of 97 projects opt into
    strict themselves.

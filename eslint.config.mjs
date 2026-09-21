@@ -163,6 +163,26 @@ export default [
   ...nx.configs['flat/typescript'],
   ...nx.configs['flat/javascript'],
   {
+    // ESLint 10 turns these two on in its recommended set. Both flag real
+    // issues in this repo -- 105 dead stores and 54 re-throws that drop the
+    // original error -- but neither is a regression introduced by
+    // TASK_2026_498, and neither is auto-fixable: removing an assignment or
+    // attaching a `cause` changes behaviour and needs a per-site read.
+    // Demoted to 'warn' so the debt stays visible without a 159-site refactor
+    // riding inside a dependency migration, the same way `max-lines` is
+    // already carried at warn. Raise to 'error' when the follow-up clears them.
+    //
+    // The extension list is deliberately exhaustive. Scoped to just
+    // `**/*.{ts,tsx,js,jsx}` this silently missed `.cjs` and `.mjs`, which is
+    // where the first failure actually was
+    // (apps/ptah-cli/scripts/verify-packed-wasm.cjs).
+    files: ['**/*.{ts,tsx,cts,mts,js,jsx,cjs,mjs}'],
+    rules: {
+      'no-useless-assignment': 'warn',
+      'preserve-caught-error': 'warn',
+    },
+  },
+  {
     ignores: [
       '**/dist',
       '**/.vscode-test/**',
