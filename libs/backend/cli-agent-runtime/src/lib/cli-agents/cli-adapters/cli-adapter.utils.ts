@@ -24,6 +24,7 @@ import type {
 } from '@ptah-extension/shared';
 import { transformAgentBody } from '@ptah-extension/harness-sync';
 import type { CliCommandOptions } from './cli-adapter.interface';
+import { renderLaneCompletionContract } from '../lane-reporting-contract';
 
 /**
  * A buffer-until-first-subscriber emitter. Items emitted before any
@@ -511,6 +512,14 @@ export function buildTaskPrompt(
   if (options.agentId && options.mcpPort !== undefined) {
     taskPrompt += PROMPT_SECTION_DELIMITER + TWO_WAY_MESSAGING_GUIDANCE;
   }
+
+  // Last, so it is the closest instruction to the lane's final message
+  // (TASK_2026_515). The Ptah CLI spawn path never reaches this function and
+  // renders the same block itself — see `lane-reporting-contract.ts`.
+  taskPrompt += `\n\n${renderLaneCompletionContract({
+    taskFolder: options.taskFolder,
+    deliverables: options.deliverables,
+  })}`;
 
   return taskPrompt;
 }

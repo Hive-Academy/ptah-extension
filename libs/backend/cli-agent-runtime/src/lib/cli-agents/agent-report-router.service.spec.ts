@@ -49,6 +49,7 @@ interface Harness {
   logger: jest.Mocked<Logger>;
   findAgentInfo: jest.Mock;
   recordAgentNote: jest.Mock<void, [string, CliOutputSegment]>;
+  markReportDelivered: jest.Mock<void, [string]>;
   isSessionActive: jest.Mock;
   sendMessageToSession: jest.Mock;
 }
@@ -64,9 +65,11 @@ function createHarness(
   const logger = createLogger();
   const findAgentInfo = jest.fn(() => options.info ?? createInfo());
   const recordAgentNote = jest.fn();
+  const markReportDelivered = jest.fn();
   const manager = {
     findAgentInfo,
     recordAgentNote,
+    markReportDelivered,
   } as unknown as AgentProcessManager;
 
   const isSessionActive = jest.fn(() => options.sessionActive !== false);
@@ -83,6 +86,7 @@ function createHarness(
     logger,
     findAgentInfo,
     recordAgentNote,
+    markReportDelivered,
     isSessionActive,
     sendMessageToSession,
   };
@@ -114,6 +118,10 @@ describe('AgentReportRouter.deliver', () => {
       });
 
       expect(h.recordAgentNote).toHaveBeenCalledTimes(1);
+      // Counted for the completion signal's `reportsDelivered`, and only on a
+      // delivery (TASK_2026_515).
+      expect(h.markReportDelivered).toHaveBeenCalledTimes(1);
+      expect(h.markReportDelivered).toHaveBeenCalledWith(AGENT_ID);
       const [notedAgentId, segment] = h.recordAgentNote.mock.calls[0];
       expect(notedAgentId).toBe(AGENT_ID);
       expect(segment.type).toBe('info');

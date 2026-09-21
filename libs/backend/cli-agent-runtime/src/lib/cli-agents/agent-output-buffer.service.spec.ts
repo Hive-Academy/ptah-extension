@@ -63,6 +63,7 @@ function makeTracked(): TrackedAgent {
     accumulatedStreamEvents: [],
     streamCapLogged: false,
     pendingMessages: [],
+    reportsDelivered: 0,
   };
 }
 

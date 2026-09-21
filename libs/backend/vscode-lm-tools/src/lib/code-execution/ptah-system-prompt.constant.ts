@@ -226,9 +226,15 @@ You have access to **agent orchestration tools** that let you spawn background w
 | \`ptah_agent_status\` | Check agent progress (all or by ID) |
 | \`ptah_agent_read\` | Read agent output so far |
 | \`ptah_agent_message\` | Instruct a running agent. Returns the mode actually used (\`steer\`, \`interrupt-resume\`, \`queue-next-turn\` or \`unsupported\`) — \`interrupt-resume\` DISCARDS the interrupted turn's partial work, the other two do not. A capability can be probed from the installed binary at spawn time, so read \`ptah_agent_list\` per run rather than assuming one. On a Ptah CLI lane the message is echoed into that lane's own output, which is how you confirm it arrived |
-| \`ptah_agent_report\` | Have a SPAWNED agent report back to the session that spawned it. Takes no agent id — identity comes from how the call reached Ptah. \`delivered: false\` with a reason is a normal answer, not a bug |
+| \`ptah_agent_report\` | Have a SPAWNED agent report back to the session that spawned it, including once before it exits to name what it produced. Takes no agent id — identity comes from how the call reached Ptah. \`delivered: false\` with a reason is a normal answer, not a bug |
 | \`ptah_agent_stop\` | Stop a running agent |
 | \`ptah_agent_list\` | List all available agents and their status |
+
+A spawned agent does NOT need to be polled. When it ends, Ptah pushes an
+\`<agent-lane-completed>\` turn into the session that spawned it, carrying the
+terminal status, the exit code, the duration and — when the spawn declared
+\`deliverables\` — whether each declared file was actually written. Its
+\`verdict\` is the field to act on.
 
 ### Available Agents
 
@@ -257,9 +263,32 @@ To discover available Ptah CLI agents:
    - \`ptah_agent_spawn { task: "Write unit tests for src/utils.ts", cli: "<a cli from the list>" }\`
    - \`ptah_agent_spawn { task: "Document the API endpoints in src/routes/", ptahCliId: "<a ptahCliId from the list>" }\`
 2. **Continue**: Work on your main task
-3. **Check**: \`ptah_agent_status {}\` — check all agents at once
-4. **Read**: \`ptah_agent_read { agentId: "..." }\` — get results from each
-5. **Use**: Incorporate findings into your work
+3. **Wait for the push**: each agent sends an \`<agent-lane-completed>\` turn into
+   this session when it ends. Do NOT poll in a loop.
+4. **Judge the verdict**: \`delivered\` — read the file and verify it.
+   \`no-deliverable\` — the agent exited without writing what it was given, so
+   the task is NOT done. \`failed\` — it did not finish. \`unverified\` — nothing
+   was declared, so nothing was checked.
+5. **Read**: \`ptah_agent_read { agentId: "..." }\` — the fallback, and how you
+   see what an agent actually did. Use \`ptah_agent_status\` when no signal
+   arrived at all.
+6. **Use**: Incorporate findings into your work
+
+### Declare the deliverable
+
+Pass \`deliverables\` to \`ptah_agent_spawn\` whenever the agent owes you a file:
+
+\`\`\`
+ptah_agent_spawn {
+  task: "Review src/auth.ts. Write the findings to the deliverable.",
+  taskFolder: ".ptah/specs/TASK_2026_001",
+  deliverables: ["security-review.md"]
+}
+\`\`\`
+
+The completion signal then reports whether each file exists and is non-empty.
+Without it the signal can only say the process exited — and an agent that exits
+0 having written nothing looks exactly like a success.
 
 ## Promoted Skills — ptah.skill
 

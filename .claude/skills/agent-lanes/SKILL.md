@@ -44,6 +44,7 @@ That sample is one machine's output at one moment — yours will differ.
 | `role` | Name of a role generated for this workspace. `ptah_agent_list` lists the valid names. The spawn result reports `roleDelivery` and `roleChannel`. |
 | `workingDirectory` | Inside the workspace. A worktree path when lanes edit the same files in parallel. |
 | `taskFolder`, `files` | Where the lane writes deliverables; what it should read. |
+| `deliverables` | The files the lane MUST write. Relative to `taskFolder` when set, else to `workingDirectory`. Pass it whenever the lane owes you a file — it is what makes the completion signal (§4) able to say the work was actually done. |
 | `timeout` | Inactivity window in milliseconds: the lane is stopped after this long with no output. Default one hour, no maximum; `0` disables it. |
 | `resume_session_id` | Only per §5. |
 
@@ -58,13 +59,18 @@ A lane shares none of your context and cannot ask the user anything. Every `task
 2. **Inputs** as absolute paths (prior artifacts, files, conventions to follow).
 3. **Scope**: files it may touch; "do not modify anything else".
 4. **Deliverable**: `**Deliverable**: <absolute path>` — write the output there with a file tool.
-   When the workflow reads the answer with `ptah_agent_read` instead (a panel answer), give the
-   exact answer structure in place of a path.
+   Pass the same path in the `deliverables` parameter; the lane is then told to write it AND the
+   completion signal checks it. When the workflow reads the answer with `ptah_agent_read` instead
+   (a panel answer), give the exact answer structure in place of a path.
 5. **Reply**: `WROTE: <absolute path>` plus a one-line headline, nothing else — when there is a
    deliverable file.
-6. **Git**: never commit, push or run history-changing git — unless the workflow gives the lane its
+6. **Report before exiting**: call `ptah_agent_report` once before the final message, naming what
+   was produced, the absolute path of every file written, and anything it could not do. A lane
+   that exits silently still produces a completion signal, but the signal lists files — only the
+   lane can say what it decided and what it left undone.
+7. **Git**: never commit, push or run history-changing git — unless the workflow gives the lane its
    own throwaway worktree and says so.
-7. **Blocked**: if it cannot proceed, write the blocking questions under `## Clarifications Needed`
+8. **Blocked**: if it cannot proceed, write the blocking questions under `## Clarifications Needed`
    in the deliverable and stop.
 
 Say the output format ("markdown table", "numbered defects with `file:line`"). A lane that is not
@@ -76,13 +82,39 @@ When the work calls for a role, pass it as the `role` parameter — never paste 
 ## 4. Run
 
 ```
-spawn   ptah_agent_spawn({ task, cli | ptahCliId, … })   → agentId
-poll    ptah_agent_status({ agentId })                   until status ≠ running (every ~8s)
+spawn   ptah_agent_spawn({ task, deliverables, cli | ptahCliId, … })  → agentId
+wait    <agent-lane-completed> arrives in this session when the lane ends
 read    ptah_agent_read({ agentId })                     then Read the deliverable file
 stop    ptah_agent_stop({ agentId })                     for a lane you no longer need
 ```
 
-- Status is one of `running`, `completed`, `failed`, `timeout`, `stopped`.
+**Do not poll in a loop.** When a lane reaches a terminal status, Ptah pushes one
+`<agent-lane-completed>` turn into the session that spawned it. Spawn, get on with your own work,
+and act when it arrives. The signal carries the agent id, the lane, the terminal status, the exit
+code, the duration, the number of reports the lane sent, the CLI Session ID when there is one, and
+one line per declared deliverable.
+
+Act on its `verdict`, never on the exit code alone:
+
+| `verdict` | Meaning | Do this |
+| --- | --- | --- |
+| `delivered` | Terminal status `completed` and every declared deliverable exists and is non-empty | Read the files and verify the content (§6) |
+| `no-deliverable` | Exited cleanly WITHOUT writing every declared deliverable | Treat the task as not done. Read the output, then resume per §5 naming the missing paths. Never report the lane as complete |
+| `failed` | Terminal status `failed`, `timeout` or `stopped` | Recover per §5 |
+| `unverified` | Completed, but nothing was declared, so nothing was checked | Read the output and verify it. Declare `deliverables` next time |
+
+**Poll-based reading stays the fallback, and is still needed.** Use
+`ptah_agent_status({ agentId })` (every ~8s) and `ptah_agent_read({ agentId })` when:
+
+- no signal arrived — the signal is refused when the spawning session is no longer live, when the
+  lane was spawned with no parent session, or when this host registered no chat runtime;
+- the lane's adapter reports nothing useful, so the output is the only account of what it did
+  (`opencode` has no messaging support at all);
+- the verdict is anything other than `delivered` — the signal says WHETHER a file was written, and
+  the output says how far the lane got.
+
+Status is one of `running`, `completed`, `failed`, `timeout`, `stopped`.
+
 - **Concurrency**: at most 3 lanes in flight by default. Wider only when the workflow allows it and
   the user agreed to the added cost. Queue the rest and spawn as slots free.
 - Parallel lanes must be independent and file-disjoint, or each gets its own worktree.
@@ -97,6 +129,7 @@ No session id → that adapter is ephemeral: respawn with the context restated i
 | Situation | Action |
 | --- | --- |
 | `timeout`, or `failed` / `stopped` with partial work | Resume if possible, else respawn with a smaller task |
+| `verdict: no-deliverable` | Resume naming every missing path, and say the file was never written |
 | Completed but missed items | Resume and name what was missed |
 | Wrong approach or useless output | Respawn with a sharper prompt, or do it yourself |
 | Same lane fails twice | Drop it (say so in the summary) and reassign its work to another lane |
@@ -135,13 +168,16 @@ Lane output is evidence, not proof.
 fixed per vendor — read it each time. Do not interrupt a lane mid-edit to add a minor note. On a
 ptah-cli lane the message is echoed into that lane's own output, which is how you confirm it
 arrived. A lane's `ptah_agent_report` can return `delivered: false`; a report is attribution, not
-authentication — verify its claims against files and tests.
+authentication — verify its claims against files and tests. The same rule applies to the
+completion signal: it is evidence a file exists, never evidence the content is right.
 
 The lane does not need to be told any of this in its `task`: `buildTaskPrompt`
 (`libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.utils.ts`,
 `TWO_WAY_MESSAGING_GUIDANCE`) already carries the child-side half on every spawn that has an MCP
-port and an agent id. That constant is the source of truth; this section and the parent-side tool
-table in `ptah-system-prompt.constant.ts` must agree with it.
+port and an agent id, and `renderLaneCompletionContract`
+(`libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-reporting-contract.ts`) carries the
+before-you-exit half on every lane. Those two constants are the source of truth; this section and
+the parent-side tool table in `ptah-system-prompt.constant.ts` must agree with them.
 
 ## 8. Cost
 

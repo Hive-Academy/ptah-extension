@@ -21,6 +21,10 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
     roleDelivery: 'native',
     roleChannel: 'agent-selection',
   },
+  // Stubbed with a recognizable marker rather than the real renderer: these
+  // tests assert what the builder PASSES ON, and the contract text itself is
+  // pinned by `cli-adapter.utils.spec.ts` (TASK_2026_515).
+  renderLaneCompletionContract: jest.fn(() => 'LANE_COMPLETION_CONTRACT'),
 }));
 
 import type {
@@ -312,11 +316,20 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect(mocks.registry!.spawnAgent).toHaveBeenCalledWith(
       'agent-a',
-      'task body',
+      // The Ptah CLI lane never reaches `buildTaskPrompt`, so the builder
+      // appends the completion contract itself (TASK_2026_515).
+      'task body\n\nLANE_COMPLETION_CONTRACT',
       expect.objectContaining({
         workingDirectory: 'D:/ws',
         agentId: 'reserved-1',
       }),
+    );
+    // The RECORD keeps the caller's task, not the prompt with the contract on
+    // it: the tile, the persisted reference and the completion signal's
+    // headline all read that field.
+    expect(mocks.processManager.spawnFromSdkHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ task: 'task body' }),
     );
     // The SAME reserved id reaches the tracker, so the record and the child's
     // `/agent/{id}` URL cannot disagree.
@@ -350,7 +363,7 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect(mocks.registry!.spawnAgent).toHaveBeenCalledWith(
       'agent-a',
-      'task body',
+      expect.stringContaining('task body'),
       expect.objectContaining({
         model: 'raw-override-model',
         modelTier: 'opus',
@@ -572,7 +585,7 @@ describe('buildAgentNamespace — spawn (role)', () => {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect(mocks.registry!.spawnAgent).toHaveBeenCalledWith(
       'agent-a',
-      't',
+      expect.stringContaining('t'),
       expect.objectContaining({ role: ROLE_DEFINITION }),
     );
     const meta = mocks.processManager.spawnFromSdkHandle.mock.calls[0][1];

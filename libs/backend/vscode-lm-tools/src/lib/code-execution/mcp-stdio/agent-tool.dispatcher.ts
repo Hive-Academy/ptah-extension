@@ -255,6 +255,7 @@ export class AgentToolDispatcher {
         timeout: p.timeout,
         files: p.files,
         taskFolder: p.taskFolder,
+        deliverables: p.deliverables,
         model: p.model,
         modelTier: p.modelTier,
         resumeSessionId: p.resume_session_id,

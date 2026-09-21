@@ -26,6 +26,12 @@ export interface CliCommandOptions {
   readonly workingDirectory: string;
   readonly files?: string[];
   readonly taskFolder?: string;
+  /**
+   * Files the lane must write before it exits. Named in the prompt by
+   * `buildTaskPrompt`, and checked on disk by `LaneCompletionNotifier` once
+   * the lane ends (TASK_2026_515).
+   */
+  readonly deliverables?: readonly string[];
   /** Model identifier for SDK-based agents (e.g., 'claude-3.5-sonnet', 'gpt-4o'). Used to filter model selection. */
   readonly model?: string;
   /** Resolved absolute binary path from CLI detection. SDK adapters that spawn child processes should use this instead of bare binary names (avoids ENOENT on Windows). */

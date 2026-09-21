@@ -70,6 +70,7 @@ import {
   spawnCli,
   withAsarUnpackedTwin,
 } from './cli-adapter.utils';
+import { renderLaneCompletionContract } from '../lane-reporting-contract';
 
 interface FakeChild {
   stdout: EventEmitter & { setEncoding: jest.Mock };
@@ -104,7 +105,10 @@ describe('buildTaskPrompt', () => {
       workingDirectory: 'D:\\workspace',
     });
 
-    expect(prompt).toBe(`${toolPolicy}\n\nImplement the requested change.`);
+    expect(prompt).toBe(
+      `${toolPolicy}\n\nImplement the requested change.\n\n` +
+        renderLaneCompletionContract({}),
+    );
   });
 
   it('includes the policy exactly once independently of system guidance', () => {
@@ -135,7 +139,8 @@ describe('buildTaskPrompt', () => {
     const tail =
       `${toolPolicy}\n\nShip it.` +
       '\n\nFocus on these files:\n- src/a.ts' +
-      '\n\nWrite deliverable files to: /tf';
+      '\n\nWrite deliverable files to: /tf' +
+      `\n\n${renderLaneCompletionContract({ taskFolder: '/tf' })}`;
     const base = {
       task: 'Ship it.',
       workingDirectory: '/ws',
@@ -176,6 +181,17 @@ describe('buildTaskPrompt', () => {
 
     it('omits the role when an adapter strips it for another channel', () => {
       expect(buildTaskPrompt({ ...base, role: undefined })).toBe(tail);
+    });
+
+    it('names every declared deliverable in the completion contract', () => {
+      const prompt = buildTaskPrompt(
+        { ...base, deliverables: ['/tf/report.md', '/tf/notes.md'] },
+        'pi',
+      );
+
+      expect(prompt).toContain('- /tf/report.md');
+      expect(prompt).toContain('- /tf/notes.md');
+      expect(prompt).toContain('ptah_agent_report');
     });
 
     it('refuses to render a role without knowing the CLI', () => {
@@ -260,15 +276,18 @@ describe('buildTaskPrompt', () => {
       }
     });
 
+    // The probe is the guidance block's own opening line, not
+    // `ptah_agent_report`: the lane completion contract (TASK_2026_515) names
+    // that tool on EVERY prompt, so it can no longer tell the two apart.
     it('is omitted without an MCP port, because the tools do not exist', () => {
       expect(buildTaskPrompt({ ...base, mcpPort: undefined })).not.toContain(
-        'ptah_agent_report',
+        'Two-way messaging:',
       );
     });
 
     it('is omitted without an agent id, because a report cannot be attributed', () => {
       expect(buildTaskPrompt({ ...base, agentId: undefined })).not.toContain(
-        'ptah_agent_report',
+        'Two-way messaging:',
       );
     });
 

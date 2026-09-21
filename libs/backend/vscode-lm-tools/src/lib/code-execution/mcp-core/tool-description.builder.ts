@@ -501,7 +501,15 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
       'WHICH of either family exists on this machine is a runtime fact — call ' +
       'ptah_agent_list; do not assume a provider from any list you have read. ' +
       'The agent runs while you continue working. ' +
-      'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
+      'You do NOT need to poll: when the agent reaches a terminal status, a ' +
+      '<agent-lane-completed> turn is pushed into this session carrying its ' +
+      'status, exit code, duration and — when you declared "deliverables" — ' +
+      'whether each declared file was actually written. A verdict of ' +
+      '"no-deliverable" means the agent exited cleanly WITHOUT doing the ' +
+      'work, so declare "deliverables" on every spawn whose output is a file. ' +
+      'Use ptah_agent_status and ptah_agent_read as the fallback when no ' +
+      'signal arrives (some adapters report nothing useful, and a signal is ' +
+      'refused when this session is no longer live). ' +
       'For Ptah CLI agents, pass ptahCliId (from ptah_agent_list). ' +
       'Use modelTier to control capability level: "opus" for complex/architectural tasks, ' +
       '"sonnet" (default) for balanced work, "haiku" for fast/simple tasks. Only applies to Ptah CLI agents. ' +
@@ -556,6 +564,19 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           description:
             'Task-spec folder for shared workspace (e.g., ".ptah/specs/TASK_2026_157"). ' +
             'Agent will write deliverables here.',
+        },
+        deliverables: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'The files this agent MUST write before it exits. A relative ' +
+            'entry resolves against taskFolder when one is given, otherwise ' +
+            'against workingDirectory. Two things use it: the agent is told ' +
+            'to write exactly these paths, and the completion signal pushed ' +
+            'back to you reports whether each one exists and is non-empty. ' +
+            'Omit it and the signal can only say the process exited — an ' +
+            'agent that exits 0 having written nothing then looks like a ' +
+            'success. Declare it whenever the agent owes you a file.',
         },
         model: {
           type: 'string',
@@ -712,7 +733,11 @@ export function buildAgentReportTool(): MCPToolDefinition {
     name: 'ptah_agent_report',
     description:
       'Report back to the session that spawned you — a blocker, a finding, ' +
-      'or a question — without waiting to finish. The message appears in ' +
+      'or a question — without waiting to finish. Call it once more BEFORE ' +
+      'your final message, naming what you produced and the absolute path of ' +
+      'every file you wrote: that report is the only account of your work ' +
+      'the spawning session gets without reading your whole output. The ' +
+      'message appears in ' +
       'that session immediately and on your own agent tile. You are ' +
       'identified automatically; there is no agent id to pass and you cannot ' +
       'report on behalf of another agent. Returns "delivered": false with a ' +

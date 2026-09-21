@@ -5,6 +5,7 @@ import { CliDetectionService } from '../cli-agents/cli-detection.service';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
 import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
+import { LaneCompletionNotifier } from '../cli-agents/lane-completion-notifier.service';
 import { AgentReportRouter } from '../cli-agents/agent-report-router.service';
 import { AgentRoleResolver } from '../roles';
 import {
@@ -43,6 +44,15 @@ export function registerCliAgentRuntimeServices(
   );
   container.registerSingleton(AgentSpawnEnvironment);
   container.registerSingleton(AgentOutputBuffer);
+  // Registered by class, not by token: the only consumer is the process
+  // manager in this same lib, which injects it directly. Its optional
+  // `TOKENS.AGENT_ADAPTER` injection is safe because all three hosts call
+  // `registerSdkServices` — which registers that token — BEFORE this function
+  // (`apps/ptah-extension-vscode/src/di/phase-2-libraries.ts:149`,
+  // `apps/ptah-electron/src/di/phase-2-libraries.ts:183`,
+  // `libs/backend/cli-engine/src/lib/container.ts:629`), so nothing can
+  // construct the notifier while the adapter is still absent (TASK_2026_515).
+  container.registerSingleton(LaneCompletionNotifier);
   container.registerSingleton(
     TOKENS.AGENT_PROCESS_MANAGER,
     AgentProcessManager,

@@ -42,7 +42,8 @@ short named list:
 - `cli-agents` — `CliDetectionService`, `AgentProcessManager` (+
   `AgentContinueError`, `MIN/MAX/DEFAULT_CONCURRENT_AGENTS`, the
   `AgentRoleStamp` type), `AgentMessageError`/`AgentMessageRouter`,
-  `AgentReportRouter`, every `cli-adapters/**` export (`CliAdapter`,
+  `AgentReportRouter`, `LaneCompletionNotifier` +
+  `renderLaneCompletionContract`, every `cli-adapters/**` export (`CliAdapter`,
   `renderRoleBlock`, `assertCommandLineWithinLimit`,
   `CliCommandLineTooLongError`, `spawnCli`, …), `createHarnessCliDetector`.
 - `ptah-cli` — `PtahCliRegistry`, `PtahCliSpawnOptions`,
@@ -230,6 +231,50 @@ in `~/.codex/config.toml`; the two are not merged. Measured on a real spawn with
 a sentinel in a throwaway `CODEX_HOME` (TASK_2026_433 `test-report.md` E2/A2):
 the lane reported the sentinel absent. A role-less codex spawn sends no
 `developer_instructions`, so the user's value applies there.
+
+### Lane completion signal (TASK_2026_515)
+
+`LaneCompletionNotifier` (`cli-agents/lane-completion-notifier.service.ts`) pushes
+ONE turn into the session that spawned a lane when that lane reaches a terminal
+status. It closes the gap that made `agent-lanes` a poll loop: a lane used to end
+in silence, so the orchestrator either called `ptah_agent_status` repeatedly or
+waited with no information.
+
+- **Transport is `IAgentAdapter.sendMessageToSession`, the same one
+  `AgentReportRouter` uses.** No new port, no new RPC namespace, no dependence
+  on an open webview — the `background_agent_completed` stream event was
+  rejected for that last reason (it is keyed on a Task `toolCallId`, produced by
+  the SDK `SubagentStop` hook, and serves the webview tray). Registered in every
+  host that calls `registerCliAgentRuntimeServices`, so VS Code, Electron and the
+  CLI engine behave identically.
+- **The signal reports the WORK, not the exit.** `LaneCompletionSignal` carries a
+  `verdict` — `delivered`, `no-deliverable`, `unverified`, `failed` — derived
+  from the `deliverables` the spawn declared and observed on disk through
+  `PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER`. Exit code 0 with no deliverable
+  written is `no-deliverable`, and an existing zero-byte file counts as missing.
+- **One signal per terminal transition, keyed `${agentId}:${completedAt}`.**
+  Every terminal path calls `signalLaneCompletion` unconditionally — `handleExit`,
+  `handleTimeout` (BEFORE the kill, because an adapter that never settles `done`
+  would otherwise leave a timeout unsignalled) and `stop()`. A continued lane's
+  SECOND ending carries a new `completedAt` and is signalled as the new event it
+  is.
+- **`stop()` stamps `status: 'stopped'` BEFORE `killProcess`.** The kill settles
+  the handle, which runs `handleExit`; with the stamp after the kill, that path
+  saw `status === 'running'` and relabelled a user-requested stop as `failed`.
+- **A refusal is a normal, logged answer** — `no-parent-recorded`,
+  `parent-session-not-active`, `chat-runtime-unavailable`, `delivery-failed`,
+  `already-signalled`. It never claims a delivery it did not make, and the
+  poll-based read path stays the documented fallback for exactly those cases.
+- **`reportsDelivered` comes from `AgentProcessManager.markReportDelivered`**,
+  called by `AgentReportRouter` only after a delivery it made, so `0` means the
+  spawning session truly never heard from the lane.
+- **The lane-facing half is `lane-reporting-contract.ts`.**
+  `renderLaneCompletionContract` is one text with two call sites:
+  `buildTaskPrompt` (every rival CLI) and the `ptahCliId` branch of
+  `agent-namespace.builder.ts` (Ptah CLI lanes, whose task string goes to the SDK
+  verbatim and never reaches `buildTaskPrompt`). It names the declared
+  deliverables and tells the lane to call `ptah_agent_report` before its final
+  message.
 
 ### Facade split of `AgentProcessManager`
 
