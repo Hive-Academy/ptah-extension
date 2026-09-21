@@ -661,13 +661,27 @@ test.describe('Canvas', () => {
     }
     await page.keyboard.press('Escape');
 
-    // Every tile layout menu item is disabled while locked; the adjacent
-    // view-mode toggle is the deliberate exception.
+    // Every GEOMETRY item in the tile layout menu is disabled while locked —
+    // the four span choices, Focus and Start new row. Anything that changes
+    // only the view mode is the deliberate exception, because a view-mode
+    // change reflows without committing a gesture.
     await items.nth(0).locator('[data-testid="tile-layout-trigger"]').click();
-    const menuButtons = items.nth(0).locator('[data-layout-item]');
+    const menuButtons = items
+      .nth(0)
+      .locator('[data-layout-item]:not([data-view-mode])');
     await expect(menuButtons).toHaveCount(6);
     for (let index = 0; index < 6; index += 1) {
       await expect(menuButtons.nth(index)).toBeDisabled();
+    }
+    // The three height tiers stay live under lock, for the same reason the
+    // header toggle does. They are the menu's way of picking a specific tier,
+    // which the binary header toggle deliberately cannot do.
+    const viewModeItems = items
+      .nth(0)
+      .locator('[data-layout-item][data-view-mode]');
+    await expect(viewModeItems).toHaveCount(3);
+    for (let index = 0; index < 3; index += 1) {
+      await expect(viewModeItems.nth(index)).toBeEnabled();
     }
     const viewToggle = items
       .nth(0)

@@ -41,7 +41,10 @@ jest.mock('ngx-markdown', () => {
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { CanvasTileComponent } from './canvas-tile.component';
-import { SendToMessagingComponent, TabManagerService } from '@ptah-extension/chat';
+import {
+  SendToMessagingComponent,
+  TabManagerService,
+} from '@ptah-extension/chat';
 import { EffortStateService, ModelStateService } from '@ptah-extension/core';
 import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
 import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
@@ -445,7 +448,10 @@ describe('CanvasTileComponent layout menu contract', () => {
     registerVisibleTab: jest.fn(),
     unregisterVisibleTab: jest.fn(),
   };
-  const effort = { currentEffort: signal<string | null>(null), isLoaded: signal(false) };
+  const effort = {
+    currentEffort: signal<string | null>(null),
+    isLoaded: signal(false),
+  };
   const model = { currentModel: signal(''), isLoaded: signal(false) };
 
   beforeEach(() => {
@@ -485,7 +491,10 @@ describe('CanvasTileComponent layout menu contract', () => {
       }
     ).chatViewComponent = ChatViewStub;
     fixture.componentRef.setInput('tabId', 'tile-1');
-    fixture.componentRef.setInput('widthIntent', { kind: 'span', span: 'half' });
+    fixture.componentRef.setInput('widthIntent', {
+      kind: 'span',
+      span: 'half',
+    });
     fixture.componentRef.setInput('layoutLocked', locked);
     fixture.detectChanges();
     return fixture;
@@ -501,17 +510,34 @@ describe('CanvasTileComponent layout menu contract', () => {
     trigger.click();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role="menu"]')).not.toBeNull();
-    const radios = [...fixture.nativeElement.querySelectorAll('[data-span]')] as HTMLButtonElement[];
+    const radios = [
+      ...fixture.nativeElement.querySelectorAll('[data-span]'),
+    ] as HTMLButtonElement[];
     expect(radios.map((button) => button.dataset['span'])).toEqual([
-      'third', 'half', 'two-thirds', 'full',
+      'third',
+      'half',
+      'two-thirds',
+      'full',
     ]);
     expect(radios.map((button) => button.getAttribute('aria-label'))).toEqual([
-      'Set tile width to one third', 'Set tile width to one half',
-      'Set tile width to two thirds', 'Set tile width to full',
+      'Set tile width to one third',
+      'Set tile width to one half',
+      'Set tile width to two thirds',
+      'Set tile width to full',
     ]);
-    expect(radios.map((button) => button.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false', 'false']);
-    expect(fixture.nativeElement.querySelector('[data-layout-action="focus"]').getAttribute('aria-label')).toBe('Focus tile at full width');
-    expect(fixture.nativeElement.querySelector('[data-layout-action="row"]').getAttribute('aria-label')).toBe('Start a new row before this tile');
+    expect(radios.map((button) => button.getAttribute('aria-checked'))).toEqual(
+      ['false', 'true', 'false', 'false'],
+    );
+    expect(
+      fixture.nativeElement
+        .querySelector('[data-layout-action="focus"]')
+        .getAttribute('aria-label'),
+    ).toBe('Focus tile at full width');
+    expect(
+      fixture.nativeElement
+        .querySelector('[data-layout-action="row"]')
+        .getAttribute('aria-label'),
+    ).toBe('Start a new row before this tile');
   });
 
   it('emits span, focus and row actions and closes after selection', () => {
@@ -523,35 +549,67 @@ describe('CanvasTileComponent layout menu contract', () => {
     fixture.componentInstance.layoutFocusToggled.subscribe(focus);
     fixture.componentInstance.rowBreakToggled.subscribe(row);
     const open = (): void => {
-      fixture.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
+      fixture.nativeElement
+        .querySelector('[data-testid="tile-layout-trigger"]')
+        .click();
       fixture.detectChanges();
     };
     open();
-    (fixture.nativeElement.querySelectorAll('[data-span]')[2] as HTMLButtonElement).click();
+    (
+      fixture.nativeElement.querySelectorAll(
+        '[data-span]',
+      )[2] as HTMLButtonElement
+    ).click();
     expect(span).toHaveBeenCalledWith('two-thirds');
     open();
-    (fixture.nativeElement.querySelector('[aria-label="Focus tile at full width"]') as HTMLButtonElement).click();
+    (
+      fixture.nativeElement.querySelector(
+        '[aria-label="Focus tile at full width"]',
+      ) as HTMLButtonElement
+    ).click();
     expect(focus).toHaveBeenCalledTimes(1);
     open();
-    (fixture.nativeElement.querySelector('[aria-label="Start a new row before this tile"]') as HTMLButtonElement).click();
+    (
+      fixture.nativeElement.querySelector(
+        '[aria-label="Start a new row before this tile"]',
+      ) as HTMLButtonElement
+    ).click();
     expect(row).toHaveBeenCalledTimes(1);
   });
 
   it('cycles enabled items with arrows/Home/End and disables layout actions when locked', () => {
     const fixture = setup();
-    fixture.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
+    fixture.nativeElement
+      .querySelector('[data-testid="tile-layout-trigger"]')
+      .click();
     fixture.detectChanges();
-    const items = [...fixture.nativeElement.querySelectorAll('[data-layout-item]')] as HTMLButtonElement[];
+    const items = [
+      ...fixture.nativeElement.querySelectorAll('[data-layout-item]'),
+    ] as HTMLButtonElement[];
     items[1].focus();
-    items[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    items[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'End', bubbles: true }),
+    );
     expect(document.activeElement).toBe(items.at(-1));
-    items.at(-1)?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    items
+      .at(-1)
+      ?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+      );
     expect(document.activeElement).toBe(items[0]);
 
     const locked = setup(true);
-    locked.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
+    locked.nativeElement
+      .querySelector('[data-testid="tile-layout-trigger"]')
+      .click();
     locked.detectChanges();
-    expect([...locked.nativeElement.querySelectorAll('[data-layout-item]:not([data-view-mode])')].every((item) => (item as HTMLButtonElement).disabled)).toBe(true);
+    expect(
+      [
+        ...locked.nativeElement.querySelectorAll(
+          '[data-layout-item]:not([data-view-mode])',
+        ),
+      ].every((item) => (item as HTMLButtonElement).disabled),
+    ).toBe(true);
   });
 
   it('keeps the view-mode toggle enabled under layout lock', () => {
@@ -566,17 +624,30 @@ describe('CanvasTileComponent layout menu contract', () => {
   });
 
   it.each(['full', 'compact', 'compact-tall'] as const)(
-    'selects %s directly in the existing menu even while locked', (mode) => {
+    'selects %s directly in the existing menu even while locked',
+    (mode) => {
       const fixture = setup(true);
       const focus = jest.fn();
       fixture.componentInstance.focusRequested.subscribe(focus);
-      fixture.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
+      fixture.nativeElement
+        .querySelector('[data-testid="tile-layout-trigger"]')
+        .click();
       fixture.detectChanges();
-      const choices = Array.from(fixture.nativeElement.querySelectorAll('[data-view-mode]')) as HTMLButtonElement[];
-      expect(choices.map((choice) => choice.textContent?.trim())).toEqual(['Full', 'Compact', 'Compact tall']);
-      expect(choices.map((choice) => choice.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+      const choices = Array.from(
+        fixture.nativeElement.querySelectorAll('[data-view-mode]'),
+      ) as HTMLButtonElement[];
+      expect(choices.map((choice) => choice.textContent?.trim())).toEqual([
+        'Full',
+        'Compact',
+        'Compact tall',
+      ]);
+      expect(
+        choices.map((choice) => choice.getAttribute('aria-checked')),
+      ).toEqual(['true', 'false', 'false']);
       expect(choices.every((choice) => !choice.disabled)).toBe(true);
-      const choice = choices.find((button) => button.dataset['viewMode'] === mode);
+      const choice = choices.find(
+        (button) => button.dataset['viewMode'] === mode,
+      );
       choice?.click();
       expect(tabManager.setViewMode).toHaveBeenCalledWith('tile-1', mode);
       expect(fixture.componentInstance.layoutMenuOpen()).toBe(false);
@@ -586,13 +657,21 @@ describe('CanvasTileComponent layout menu contract', () => {
 
   it('includes height choices in keyboard navigation under layout lock', () => {
     const fixture = setup(true);
-    fixture.nativeElement.querySelector('[data-testid="tile-layout-trigger"]').click();
+    fixture.nativeElement
+      .querySelector('[data-testid="tile-layout-trigger"]')
+      .click();
     fixture.detectChanges();
-    const choices = Array.from(fixture.nativeElement.querySelectorAll('[data-view-mode]')) as HTMLButtonElement[];
+    const choices = Array.from(
+      fixture.nativeElement.querySelectorAll('[data-view-mode]'),
+    ) as HTMLButtonElement[];
     choices[0].focus();
-    choices[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    choices[0].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }),
+    );
     expect(document.activeElement).toBe(choices[2]);
-    choices[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    choices[2].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Home', bubbles: true }),
+    );
     expect(document.activeElement).toBe(choices[0]);
   });
 
@@ -611,12 +690,18 @@ describe('CanvasTileComponent layout menu contract', () => {
         compact.nativeElement
           .querySelector('[data-testid="tile-view-mode-toggle"]')
           .getAttribute('aria-label'),
-      ).toBe('Switch to compact tall view');
+      ).toBe('Switch to full view');
+      // Both compact tiers advertise the SAME return trip, because the
+      // one-click affordance is binary. Picking a specific tier belongs to
+      // the tile menu (VIEW_MODE_OPTIONS), not to this button.
       tabManager.getTabViewMode.mockReturnValue('compact-tall');
       const tall = setup();
       expect(tall.componentInstance.isCompactMode()).toBe(true);
-      expect(tall.nativeElement.querySelector('[data-testid="tile-view-mode-toggle"]').getAttribute('aria-label'))
-        .toBe('Switch to full view');
+      expect(
+        tall.nativeElement
+          .querySelector('[data-testid="tile-view-mode-toggle"]')
+          .getAttribute('aria-label'),
+      ).toBe('Switch to full view');
     } finally {
       tabManager.getTabViewMode.mockReturnValue('full');
     }
