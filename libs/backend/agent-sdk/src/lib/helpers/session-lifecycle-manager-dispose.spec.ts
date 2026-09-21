@@ -218,7 +218,11 @@ describe('SessionLifecycleManager — disposeAllSessions permission scope (TASK_
     )(
       'Bash',
       { command: 'ls' },
-      { signal: new AbortController().signal, toolUseID: 'tool-a-tab' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-a-tab',
+        requestId: 'tool-a-tab',
+      },
     );
 
     // A's CLI-path request — keyed by realSessionId only, with no tabId. This
@@ -228,7 +232,11 @@ describe('SessionLifecycleManager — disposeAllSessions permission scope (TASK_
     )(
       'Write',
       { file_path: '/tmp/a', content: 'x' },
-      { signal: new AbortController().signal, toolUseID: 'tool-a-cli' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-a-cli',
+        requestId: 'tool-a-cli',
+      },
     );
 
     // Session B belongs to a DIFFERENT window / background subagent and is NOT
@@ -241,7 +249,11 @@ describe('SessionLifecycleManager — disposeAllSessions permission scope (TASK_
     )(
       'Bash',
       { command: 'npm test' },
-      { signal: new AbortController().signal, toolUseID: 'tool-b' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-b',
+        requestId: 'tool-b',
+      },
     );
     pendingB.then(
       () => {
@@ -283,7 +295,11 @@ describe('SessionLifecycleManager — disposeAllSessions permission scope (TASK_
     )(
       'Bash',
       { command: 'ls' },
-      { signal: new AbortController().signal, toolUseID: 'tool-orphan' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-orphan',
+        requestId: 'tool-orphan',
+      },
     );
     pending.then(
       () => {

@@ -62,10 +62,51 @@ candidates on the license server.
    error) in its recommended set. Neither is auto-fixable, because removing an
    assignment or attaching a `cause` changes behavior and needs a per-site read.
    Both are carried at `warn` for now.
-7. Consider enabling `strict` across the workspace. TypeScript 6 makes `strict`
+7. `uuid` 11 -> 14. It is ESM-only from v12. `libs/shared`, `libs/backend/agent-sdk`
+   and `libs/backend/cli-agent-runtime` all build with `"format": ["cjs"]`, so a
+   transpiled `require('uuid')` fails at runtime. The remedy is to drop the
+   dependency for the native `crypto.randomUUID()` across six files. That needs a
+   check this task did not do: `crypto.randomUUID` requires a secure context in a
+   browser, and nobody verified the VS Code webview scheme qualifies. `uuid` 11 is
+   in no advisory, so there is no pressure to rush it.
+8. `gridstack` 12 -> 13. It breaks the Angular wrapper in the canvas workspace grid
+   and the tribunal page component. See `lane-wave-4d.md`.
+9. Consider enabling `strict` across the workspace. TypeScript 6 makes `strict`
    the default, and the Nx codemod wrote `"strict": false` into
    `tsconfig.base.json` to preserve behavior. Only 15 of 97 projects opt into
    strict themselves.
+
+## Measured constraint: zod 4.6.5 changed missing-key handling
+
+A transformed field is now required for KEY PRESENCE even when its inner union
+accepts `undefined`. Measured 2026-09-21 on zod 4.6.5:
+
+```
+z.union([z.string(), z.null(), z.undefined()]).transform(fn)
+  { opt: undefined }  ->  parses
+  { }                 ->  fails, expected "nonoptional"
+```
+
+The union reports `isOptional() === true` throughout, so the schema reads as
+correct while behaving otherwise. Both curator schemas parse drafts produced by a
+model, which routinely omits optional keys, so this would have silently rejected
+valid extractions in production rather than applying each transform's default.
+
+The fix is ordering: `.optional()` BEFORE `.transform()`. That keeps the
+transform running on a missing key, so the defaults (0.3 salience, `[]`, `null`
+subject) still apply. `z.unknown()`, `.transform().optional()` and `z.preprocess`
+were each measured and either failed or dropped the defaults. A repository sweep
+found the pattern in exactly two files, both fixed.
+
+## Measured: vsce 4 is safe, but `.vscodeignore` had a pre-existing leak
+
+`vsce ls` was run under 3.9.2 and 4.0.0 against a fixture carrying decoy files.
+The two versions produce identical output, so the `glob` to `tinyglobby` swap is
+a non-event here. Both versions, however, INCLUDED `nested/LICENSE.md`,
+`nested/Thumbs.db` and `nested/app.log`: a bare filename pattern matches at the
+package root only. `LICENSE.md` is the file the marketplace scanner rejects and a
+burned extension ID is permanent, so those patterns are now `**/`-prefixed. This
+was a latent defect on vsce 3, not a regression from the upgrade.
 
 ## Measured constraint: TypeScript 7 is out of reach
 

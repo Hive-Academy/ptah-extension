@@ -15,18 +15,29 @@ const TYPE_VALUES = [
   'change',
 ] as const;
 
+// Every field below puts `.optional()` BEFORE `.transform()`, and the order is
+// load-bearing. In zod 4.6.5 a transformed field is required for KEY PRESENCE
+// even when its inner union accepts `undefined`: `{ salienceHint: undefined }`
+// parses, `{}` fails with `expected "nonoptional"`. These drafts come from a
+// model that routinely omits optional keys, so without `.optional()` the
+// curator rejects valid extractions instead of applying the defaults each
+// transform encodes. `.optional()` first keeps the transform running on a
+// missing key, so the defaults (0.3 salience, `[]`, `null` subject) still apply.
 const optionalNonEmptyString = z
   .union([z.string(), z.null(), z.undefined()])
+  .optional()
   .transform((v) => (typeof v === 'string' && v.trim() ? v.trim() : undefined));
 
 const optionalSubject = z
   .union([z.string(), z.null(), z.undefined()])
+  .optional()
   .transform((v) =>
     typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : null,
   );
 
 const salienceHint = z
   .union([z.number(), z.string(), z.null(), z.undefined()])
+  .optional()
   .transform((v) => {
     const n =
       typeof v === 'number'
@@ -40,6 +51,7 @@ const salienceHint = z
 
 const stringArray = z
   .union([z.array(z.unknown()), z.null(), z.undefined()])
+  .optional()
   .transform((v) => {
     if (!Array.isArray(v)) return [] as readonly string[];
     const out: string[] = [];
@@ -54,6 +66,7 @@ const stringArray = z
 
 const memoryTypeField = z
   .union([z.string(), z.null(), z.undefined()])
+  .optional()
   .transform((v): MemoryType => {
     if (typeof v === 'string') {
       const lower = v.trim().toLowerCase();
@@ -68,6 +81,7 @@ export const ExtractedDraftSchema = z
     subject: optionalSubject,
     content: z
       .union([z.string(), z.null(), z.undefined()])
+      .optional()
       .transform((v) => (typeof v === 'string' && v.trim() ? v.trim() : '')),
     salienceHint: salienceHint,
     request: optionalNonEmptyString,

@@ -124,19 +124,27 @@ export class SessionControl {
     const current = this.registry.find(rec.tabId) === rec;
     const id = rec.realSessionId ?? rec.tabId;
     const attempt = (operation: () => void): void => {
-      try { operation(); } catch (error: unknown) {
-        this.logger.warn('[SessionLifecycle] Interrupted-query cleanup failed',
-          error instanceof Error ? error : new Error(String(error)));
+      try {
+        operation();
+      } catch (error: unknown) {
+        this.logger.warn(
+          '[SessionLifecycle] Interrupted-query cleanup failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
       }
     };
     // Shared registries are session-keyed: never clean up a replacement's
     // permissions or children. Its predecessor's controller is still ours.
     if (current) {
-      attempt(() => this.permissionHandler.cleanupPendingPermissions(rec.tabId));
+      attempt(() =>
+        this.permissionHandler.cleanupPendingPermissions(rec.tabId),
+      );
       attempt(() => this.subagentRegistry.beginSessionTeardown(id));
       attempt(() => this.subagentRegistry.markAllInterrupted(id));
     }
-    try { rec.abortController.abort(); } finally {
+    try {
+      rec.abortController.abort();
+    } finally {
       if (this.registry.find(rec.tabId) === rec) this.registry.remove(rec);
       if (current) attempt(() => this.subagentRegistry.endSessionTeardown(id));
     }
@@ -335,7 +343,10 @@ export class SessionControl {
         if (rec.query) {
           interruptPromises.push(
             Promise.race([
-              rec.query.interrupt(),
+              // SDK 0.3.278 gave `interrupt()` a return value. Teardown only
+              // needs to know that it settled, so the value is discarded here
+              // to keep the race a `Promise<void>`.
+              rec.query.interrupt().then(() => undefined),
               new Promise<void>((resolve) => setTimeout(resolve, 5000)),
             ]).catch((err) => {
               this.logger.warn(

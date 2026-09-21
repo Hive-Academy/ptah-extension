@@ -46,12 +46,19 @@ const isTerminalReason = wireLiteralUnion([
   'prompt_too_long',
   'image_error',
   'model_error',
+  'api_error',
+  'malformed_tool_use_exhausted',
   'aborted_streaming',
   'aborted_tools',
   'stop_hook_prevented',
   'hook_stopped',
   'tool_deferred',
+  'tool_deferred_unavailable',
   'max_turns',
+  'background_requested',
+  'budget_exhausted',
+  'structured_output_retry_exhausted',
+  'turn_setup_failed',
   'completed',
 ] as const) as (value: unknown) => value is SdkTerminalReason;
 
@@ -59,13 +66,17 @@ const isTerminalReason = wireLiteralUnion([
 const isAssistantMessageError = wireLiteralUnion([
   'authentication_failed',
   'oauth_org_not_allowed',
+  'account_on_hold',
+  'verification_required',
   'billing_error',
   'rate_limit',
+  'overloaded',
   'invalid_request',
   'model_not_found',
   'server_error',
   'unknown',
   'max_output_tokens',
+  'cloud_credential_error',
 ] as const) as (value: unknown) => value is SdkAssistantMessageError;
 
 /** Mirrors `<schema>.nullable()` over a literal union. */

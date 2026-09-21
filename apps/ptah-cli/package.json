@@ -49,10 +49,10 @@
     "provenance": true
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.150",
+    "@anthropic-ai/claude-agent-sdk": "0.3.278",
     "@clack/prompts": "^1.8.1",
     "@huggingface/transformers": "3.8.1",
-    "@openai/codex-sdk": "^0.147.0",
+    "@openai/codex-sdk": "^0.155.1",
     "@parcel/watcher": "2.6.0",
     "@slack/bolt": "5.1.0",
     "@tavily/core": "^0.7.2",
@@ -60,7 +60,7 @@
     "better-sqlite3": "^13.0.3",
     "bottleneck": "^2.19.5",
     "chokidar": "^5.0.0",
-    "commander": "^14.0.1",
+    "commander": "^15.0.0",
     "croner": "^10.0.1",
     "cross-spawn": "^7.0.6",
     "discord.js": "14.27.0",
@@ -86,6 +86,6 @@
     "uuid": "^11.1.0",
     "web-tree-sitter": "^0.27.0",
     "which": "^7.0.0",
-    "zod": "4.3.6"
+    "zod": "4.6.5"
   }
 }

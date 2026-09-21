@@ -116,6 +116,7 @@ describe('SdkPermissionHandler - createCallback use-case contracts', () => {
       {
         signal: ac.signal,
         toolUseID: 'tool-uc1',
+        requestId: 'tool-uc1',
       },
     );
 
@@ -151,6 +152,7 @@ describe('SdkPermissionHandler - createCallback use-case contracts', () => {
       {
         signal: ac.signal,
         toolUseID: 'tool-uc2',
+        requestId: 'tool-uc2',
       },
     );
 
@@ -181,6 +183,7 @@ describe('SdkPermissionHandler - createCallback use-case contracts', () => {
       {
         signal: ac.signal,
         toolUseID: 'tool-uc3',
+        requestId: 'tool-uc3',
       },
     );
 
@@ -223,6 +226,7 @@ describe('webviewManager.sendMessage is invoked for facade request paths', () =>
       {
         signal: ac.signal,
         toolUseID: 'tool-request-path',
+        requestId: 'tool-request-path',
       },
     );
 
@@ -259,6 +263,7 @@ describe('webviewManager.sendMessage is invoked for facade request paths', () =>
       {
         signal: ac.signal,
         toolUseID: 'tool-cli-agent-path',
+        requestId: 'tool-cli-agent-path',
       },
     );
 
@@ -303,6 +308,7 @@ describe('webviewManager.sendMessage is invoked for facade request paths', () =>
       {
         signal: ac.signal,
         toolUseID: 'tool-ask',
+        requestId: 'tool-ask',
       },
     );
 
@@ -332,6 +338,7 @@ describe('webviewManager.sendMessage is invoked for facade request paths', () =>
       {
         signal: ac.signal,
         toolUseID: 'tool-exit-plan',
+        requestId: 'tool-exit-plan',
       },
     );
 
@@ -369,6 +376,7 @@ describe('SdkPermissionHandler - PermissionRequest tabId stamping', () => {
       {
         signal: ac.signal,
         toolUseID: 'tool-use-1',
+        requestId: 'tool-use-1',
       },
     );
 
@@ -404,6 +412,7 @@ describe('SdkPermissionHandler - PermissionRequest tabId stamping', () => {
       {
         signal: ac.signal,
         toolUseID: 'tool-use-2',
+        requestId: 'tool-use-2',
       },
     );
 
@@ -433,6 +442,7 @@ describe('SdkPermissionHandler - PermissionRequest tabId stamping', () => {
       {
         signal: ac.signal,
         toolUseID: 'tool-use-3',
+        requestId: 'tool-use-3',
       },
     );
 
@@ -488,7 +498,11 @@ describe('SdkPermissionHandler - live session id resolution', () => {
     const pending = callback(
       'Bash',
       { command: 'ls' },
-      { signal: ac.signal, toolUseID: 'tool-use-live-1' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-use-live-1',
+        requestId: 'tool-use-live-1',
+      },
     );
     await flushMicrotasks();
 
@@ -529,7 +543,11 @@ describe('SdkPermissionHandler - live session id resolution', () => {
           },
         ],
       },
-      { signal: ac.signal, toolUseID: 'tool-use-live-2' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-use-live-2',
+        requestId: 'tool-use-live-2',
+      },
     );
     await flushMicrotasks();
 
@@ -570,7 +588,11 @@ describe('SdkPermissionHandler - live session id resolution', () => {
           },
         ],
       },
-      { signal: ac.signal, toolUseID: 'tool-use-live-3' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-use-live-3',
+        requestId: 'tool-use-live-3',
+      },
     );
     await flushMicrotasks();
 
@@ -598,7 +620,11 @@ describe('SdkPermissionHandler - live session id resolution', () => {
     const pending = callback(
       'Bash',
       { command: 'ls' },
-      { signal: ac.signal, toolUseID: 'tool-use-live-4' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-use-live-4',
+        requestId: 'tool-use-live-4',
+      },
     );
     await flushMicrotasks();
 
@@ -626,7 +652,11 @@ describe('SdkPermissionHandler - live session id resolution', () => {
     const pending = callback(
       'Bash',
       { command: 'ls' },
-      { signal: ac.signal, toolUseID: 'tool-use-live-5' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-use-live-5',
+        requestId: 'tool-use-live-5',
+      },
     );
     await flushMicrotasks();
 
@@ -663,6 +693,7 @@ describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
       {
         signal: new AbortController().signal,
         toolUseID: 'tool-cleanup-tab',
+        requestId: 'tool-cleanup-tab',
       },
     );
 
@@ -689,6 +720,7 @@ describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
       {
         signal: new AbortController().signal,
         toolUseID: 'tool-cleanup-session',
+        requestId: 'tool-cleanup-session',
       },
     );
 
@@ -721,6 +753,7 @@ describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
       {
         signal: new AbortController().signal,
         toolUseID: 'tool-all-interactive',
+        requestId: 'tool-all-interactive',
       },
     );
 
@@ -731,6 +764,7 @@ describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
       {
         signal: new AbortController().signal,
         toolUseID: 'tool-all-cli',
+        requestId: 'tool-all-cli',
       },
     );
 
@@ -762,6 +796,7 @@ describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
       {
         signal: new AbortController().signal,
         toolUseID: 'tool-empty-cleanup',
+        requestId: 'tool-empty-cleanup',
       },
     );
 
@@ -802,7 +837,11 @@ describe('SdkPermissionHandler - per-session level resolver', () => {
     const result = await callback(
       'Bash',
       { command: 'rm -rf /' },
-      { signal: new AbortController().signal, toolUseID: 'tool-yolo' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-yolo',
+        requestId: 'tool-yolo',
+      },
     );
 
     expect(result).toMatchObject({ behavior: 'allow' });
@@ -832,7 +871,11 @@ describe('SdkPermissionHandler - per-session level resolver', () => {
     const yoloResult = await yoloCallback(
       'Bash',
       { command: 'ls' },
-      { signal: new AbortController().signal, toolUseID: 'tool-iso-yolo' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-iso-yolo',
+        requestId: 'tool-iso-yolo',
+      },
     );
     expect(yoloResult).toMatchObject({ behavior: 'allow' });
 
@@ -840,7 +883,11 @@ describe('SdkPermissionHandler - per-session level resolver', () => {
     const askPending = askCallback(
       'Bash',
       { command: 'ls' },
-      { signal: ac.signal, toolUseID: 'tool-iso-ask' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-iso-ask',
+        requestId: 'tool-iso-ask',
+      },
     );
     await flushMicrotasks();
 
@@ -880,7 +927,11 @@ describe('SdkPermissionHandler - per-session level resolver', () => {
           },
         ],
       },
-      { signal: ac.signal, toolUseID: 'tool-yolo-ask' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-yolo-ask',
+        requestId: 'tool-yolo-ask',
+      },
     );
 
     await flushMicrotasks();
@@ -915,7 +966,11 @@ describe('SdkPermissionHandler - per-session level resolver', () => {
     const pending = callback(
       'ExitPlanMode',
       { plan: 'go' },
-      { signal: ac.signal, toolUseID: 'tool-yolo-exit-plan' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-yolo-exit-plan',
+        requestId: 'tool-yolo-exit-plan',
+      },
     );
 
     await flushMicrotasks();
@@ -943,7 +998,11 @@ describe('SdkPermissionHandler - per-session level resolver', () => {
     const result = await callback(
       'Bash',
       { command: 'ls' },
-      { signal: new AbortController().signal, toolUseID: 'tool-cli-global' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-cli-global',
+        requestId: 'tool-cli-global',
+      },
     );
 
     expect(result).toMatchObject({ behavior: 'allow' });
@@ -975,7 +1034,11 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
       const pending = callback(
         'Bash',
         { command: 'ls' },
-        { signal: ac.signal, toolUseID: 'tool-unroutable' },
+        {
+          signal: ac.signal,
+          toolUseID: 'tool-unroutable',
+          requestId: 'tool-unroutable',
+        },
       );
 
       await flushMicrotasks();
@@ -1043,7 +1106,11 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
       const pending = callback(
         'Bash',
         { command: 'ls' },
-        { signal: ac.signal, toolUseID: 'tool-cli-agent' },
+        {
+          signal: ac.signal,
+          toolUseID: 'tool-cli-agent',
+          requestId: 'tool-cli-agent',
+        },
       );
 
       await flushMicrotasks();
@@ -1117,7 +1184,11 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
       const pending = callback(
         'Bash',
         { command: 'ls' },
-        { signal: ac.signal, toolUseID: 'tool-cli-orphan' },
+        {
+          signal: ac.signal,
+          toolUseID: 'tool-cli-orphan',
+          requestId: 'tool-cli-orphan',
+        },
       );
 
       await flushMicrotasks();
@@ -1170,7 +1241,7 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
       const pending = callback(
         'Write',
         { file_path: '/tmp/a', content: 'x' },
-        { signal: ac.signal, toolUseID: 'tool-lc' },
+        { signal: ac.signal, toolUseID: 'tool-lc', requestId: 'tool-lc' },
       );
       await flushMicrotasks();
 
@@ -1220,7 +1291,7 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
     const pending = callback(
       'Bash',
       { command: 'ls' },
-      { signal: ac.signal, toolUseID: 'tool-lc2' },
+      { signal: ac.signal, toolUseID: 'tool-lc2', requestId: 'tool-lc2' },
     );
     await flushMicrotasks();
     const requestId = (
@@ -1246,7 +1317,11 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
       const pending = callback(
         'Bash',
         { command: 'ls' },
-        { signal: ac.signal, toolUseID: 'tool-routable' },
+        {
+          signal: ac.signal,
+          toolUseID: 'tool-routable',
+          requestId: 'tool-routable',
+        },
       );
 
       await flushMicrotasks();
@@ -1294,7 +1369,11 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
       const pending = callback(
         'Bash',
         { command: 'ls' },
-        { signal: ac.signal, toolUseID: 'tool-early-response' },
+        {
+          signal: ac.signal,
+          toolUseID: 'tool-early-response',
+          requestId: 'tool-early-response',
+        },
       );
 
       await flushMicrotasks();
@@ -1408,6 +1487,7 @@ describe('SdkPermissionHandler - system abort vs user deny mapping', () => {
       {
         signal: new AbortController().signal,
         toolUseID: `tool-${sent.length}`,
+        requestId: `tool-${sent.length}`,
       },
     );
   }

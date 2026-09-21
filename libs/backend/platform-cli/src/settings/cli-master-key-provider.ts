@@ -153,10 +153,19 @@ export class CliMasterKeyProvider implements IMasterKeyProvider {
  */
 async function tryLoadKeytar(): Promise<KeytarApi | null> {
   try {
+    // The specifier is held in a variable on purpose. `keytar` is an optional
+    // native module that is not a declared dependency — it used to arrive
+    // transitively through the agent SDK, and SDK 0.3.278 dropped it. A literal
+    // specifier makes TypeScript resolve the module at compile time, so the
+    // build fails on every host that does not happen to have it installed,
+    // even though this function is written to handle its absence. Declaring it
+    // is not the fix either: it needs a C++ toolchain, and a host with no OS
+    // keyring is a supported configuration that falls back to an HKDF key.
+    const keytarSpecifier = 'keytar';
     // degradation-audit: optional-capability — keytar is an optional native
     // module; absent on headless hosts with no OS keyring, and the caller falls
     // back to an HKDF-derived key.
-    const kt = await import('keytar').catch(() => null);
+    const kt = await import(keytarSpecifier).catch(() => null);
     if (!kt) return null;
     if (
       typeof kt.getPassword !== 'function' ||

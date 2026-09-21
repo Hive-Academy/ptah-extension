@@ -656,7 +656,17 @@ export class AgentRpcHandlers {
         const result = await callback(params.toolName, params.input, {
           signal: new AbortController().signal,
           toolUseID: params.toolUseId,
+          // SDK 0.3.278 made `requestId` required. On this e2e seeding path the
+          // tool-use id is the only per-request identifier available, and it is
+          // already unique per seeded permission.
+          requestId: params.toolUseId,
         });
+        // SDK 0.3.278 widened the callback's return to include `null`, meaning
+        // the handler reached no decision. Report that rather than crashing, so
+        // an e2e run that seeds an undecidable permission fails legibly.
+        if (result === null) {
+          return { success: false, error: 'permission-callback-undecided' };
+        }
         return {
           success: true,
           behavior: result.behavior,

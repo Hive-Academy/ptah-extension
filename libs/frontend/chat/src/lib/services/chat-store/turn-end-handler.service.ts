@@ -27,6 +27,12 @@ const SDK_ERROR_MESSAGES: Readonly<Record<SdkAssistantMessageError, string>> = {
   model_not_found: 'Model not found. Check your model selection in Settings.',
   server_error: 'Anthropic server error. Try again shortly.',
   max_output_tokens: 'Maximum output tokens reached.',
+  account_on_hold: 'This account is on hold. Check your Anthropic account.',
+  verification_required:
+    'Account verification is required. Complete verification in your Anthropic account.',
+  overloaded: 'Anthropic is overloaded. Try again shortly.',
+  cloud_credential_error:
+    'Cloud provider credentials were rejected. Check your Bedrock or Vertex settings.',
   unknown: 'An unknown error occurred.',
 };
 

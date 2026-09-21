@@ -41,12 +41,19 @@ export const SdkTerminalReasonSchema = z.union([
   z.literal('prompt_too_long'),
   z.literal('image_error'),
   z.literal('model_error'),
+  z.literal('api_error'),
+  z.literal('malformed_tool_use_exhausted'),
   z.literal('aborted_streaming'),
   z.literal('aborted_tools'),
   z.literal('stop_hook_prevented'),
   z.literal('hook_stopped'),
   z.literal('tool_deferred'),
+  z.literal('tool_deferred_unavailable'),
   z.literal('max_turns'),
+  z.literal('background_requested'),
+  z.literal('budget_exhausted'),
+  z.literal('structured_output_retry_exhausted'),
+  z.literal('turn_setup_failed'),
   z.literal('completed'),
 ]);
 
@@ -54,13 +61,17 @@ export const SdkTerminalReasonSchema = z.union([
 export const SdkAssistantMessageErrorSchema = z.union([
   z.literal('authentication_failed'),
   z.literal('oauth_org_not_allowed'),
+  z.literal('account_on_hold'),
+  z.literal('verification_required'),
   z.literal('billing_error'),
   z.literal('rate_limit'),
+  z.literal('overloaded'),
   z.literal('invalid_request'),
   z.literal('model_not_found'),
   z.literal('server_error'),
   z.literal('unknown'),
   z.literal('max_output_tokens'),
+  z.literal('cloud_credential_error'),
 ]);
 
 /** Zod schema for {@link SdkTurnEndedPayload}. */

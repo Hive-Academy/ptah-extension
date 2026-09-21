@@ -9,9 +9,9 @@
  *
  * Why source compile (not prebuild-install):
  *   better-sqlite3 only publishes prebuilt binaries up to electron-v136
- *   (Electron 37). This app targets Electron 40 (ABI 143), for which NO
- *   prebuilt exists — `prebuild-install --runtime electron --target 40.x`
- *   404s. The only way to obtain a NODE_MODULE_VERSION 143 binary is to
+ *   (Electron 37). This app targets Electron 44 (ABI 149), for which NO
+ *   prebuilt exists — `prebuild-install --runtime electron --target 44.x`
+ *   404s. The only way to obtain a NODE_MODULE_VERSION 149 binary is to
  *   compile it. Shipping the wrong ABI crashes every DB feature on first run
  *   (Sentry 124004638: Memory/Skills/Cron/Gateway/Corpus PERSISTENCE_UNAVAILABLE).
  *
@@ -52,6 +52,7 @@ const ELECTRON_ABI_FALLBACK = {
   41: 145,
   42: 146,
   43: 148,
+  44: 149,
 };
 
 /** Read the electron version from node_modules/electron/package.json */

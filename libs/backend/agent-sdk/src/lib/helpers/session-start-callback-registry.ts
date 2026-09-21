@@ -5,7 +5,8 @@ import {
   type CallbackRegistryCallback,
 } from './callback-registry.base';
 
-export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact';
+export type SessionStartSource =
+  'startup' | 'resume' | 'clear' | 'compact' | 'fork';
 
 export interface SessionStartPayload {
   readonly source: SessionStartSource;

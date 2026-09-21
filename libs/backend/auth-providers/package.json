@@ -13,9 +13,9 @@
     "@ptah-extension/shared": "0.0.1",
     "@ptah-extension/agent-sdk": "0.0.1",
     "@ptah-extension/auth-providers-tokens": "0.0.1",
-    "@openai/codex": "0.147.0",
+    "@openai/codex": "0.155.1",
     "axios": "^1.15.0",
-    "zod": "4.3.6",
+    "zod": "4.6.5",
     "@types/vscode": "^1.103.0"
   }
 }
