@@ -99,11 +99,28 @@ the `/agent/{id}` URL segment worked end to end. The lane also listed the seven
 `ptah_agent_*` tools it could see, confirming Ptah's MCP server reached a
 ptah-cli child.
 
-**One thing to be honest about**: both reports came back `delivered: true`, but
-nothing surfaced in the parent session's visible transcript while they were
-running. Delivery was confirmed by the tool's own answer, not by the parent
-seeing the text. Whether a delivered report is meant to become visible to the
-parent agent mid-run is a separate question this run does not answer.
+**The reports do reach the parent's transcript, and they arrive LATE.** Nothing
+appeared while the lane was running, so this record first said only that
+`delivered: true` was the tool's own answer. Then report 1 surfaced in the
+parent session verbatim —
+
+```
+<agent-report agent-id="97a93f30-…" agent="claude cli" cli="ptah-cli">
+Task 477: Two-way messaging test started
+…Step 1 - initial progress report.
+</agent-report>
+```
+
+— several minutes after the lane had already reached `completed`. Report 2
+followed the same way, in order, also post-completion, so the lag is systematic
+and not a one-off. Both reports arrive; neither arrives in time.
+
+So delivery is real and visible, but it is not a mid-run channel in practice: a
+parent watching for a progress report during the run sees nothing, and the text
+lands after the work it was reporting on is finished. Whether that lag is the router, the host's
+delivery into an active session, or the parent's own turn boundary is not
+established here. It is worth one look before anyone designs a workflow around
+a child reporting progress mid-run.
 
 ## A defect found by running it
 
