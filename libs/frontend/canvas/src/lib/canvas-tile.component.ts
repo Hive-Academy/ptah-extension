@@ -65,7 +65,9 @@ const VIEW_MODE_OPTIONS: ReadonlyArray<{ mode: TabViewMode; label: string }> = [
 
 const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
   full: 'Switch to compact view',
-  compact: 'Switch to compact tall view',
+  // The one-click affordance is binary: either compact tier returns to full.
+  // Picking a specific tier is the menu's job (`VIEW_MODE_OPTIONS`).
+  compact: 'Switch to full view',
   'compact-tall': 'Switch to full view',
 };
 

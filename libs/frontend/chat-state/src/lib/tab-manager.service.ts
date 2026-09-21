@@ -9,6 +9,7 @@ import {
   TabState,
   SessionStatus,
   TabViewMode,
+  isCompactViewMode,
   StreamingState,
   SendMessageOptions,
   type TitleOrigin,
@@ -24,7 +25,6 @@ import {
   SessionTurnState,
   SessionTurnPhase,
   isTerminalTurnPhase,
-  assertNever,
   GatewayPlatformId,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
@@ -2693,26 +2693,26 @@ export class TabManagerService {
   }
 
   /**
-   * Cycle a tab's view mode: full, compact, compact tall, then full.
-   * Each tab independently controls its view mode.
+   * Toggle a tab between full and compact. Each tab controls its own mode.
+   *
+   * Deliberately BINARY, and deliberately not a three-way cycle through
+   * `compact-tall`. This is the tile header's one-click affordance, and its
+   * round-trip is load-bearing: two clicks must return the tile to where it
+   * started. Cycling made the second click land on `compact-tall`, so a tile
+   * the user expected back at full height rendered at 3 units instead of 6 —
+   * caught by `canvas.spec.ts:481` (TASK_2026_512).
+   *
+   * Either compact tier returns to full, because "not full" is the question
+   * this affordance asks. A caller that wants a specific tier calls
+   * {@link setViewMode}; the tile header's menu already offers all three.
    */
   toggleTabViewMode(tabId: string): void {
     const tab = this._tabs().find((t) => t.id === tabId);
     if (!tab) return;
-    const mode = tab.viewMode ?? 'full';
-    switch (mode) {
-      case 'full':
-        this.setViewMode(tabId, 'compact');
-        return;
-      case 'compact':
-        this.setViewMode(tabId, 'compact-tall');
-        return;
-      case 'compact-tall':
-        this.setViewMode(tabId, 'full');
-        return;
-      default:
-        assertNever(mode);
-    }
+    this.setViewMode(
+      tabId,
+      isCompactViewMode(tab.viewMode) ? 'full' : 'compact',
+    );
   }
 
   /** Select a tab's view mode without cycling through the other tiers. */

@@ -62,15 +62,31 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
     service = TestBed.inject(TabManagerService);
   });
 
-  it('cycles view modes through full, compact, compact tall, and full independently per tab', () => {
-    const tabId = service.createTab('cycling');
+  // The header's one-click affordance is binary and its round-trip is
+  // load-bearing: two clicks must land back where they started. A three-way
+  // cycle put the second click on compact-tall, so a tile the user expected
+  // back at full height rendered at 3 units (canvas.spec.ts:481).
+  it('toggles full and compact independently per tab, without cycling', () => {
+    const tabId = service.createTab('toggling');
     const otherId = service.createTab('unchanged');
     expect(service.getTabViewMode(tabId)).toBe('full');
-    for (const mode of ['compact', 'compact-tall', 'full']) {
-      service.toggleTabViewMode(tabId);
-      expect(service.getTabViewMode(tabId)).toBe(mode);
-      expect(service.getTabViewMode(otherId)).toBe('full');
-    }
+
+    service.toggleTabViewMode(tabId);
+    expect(service.getTabViewMode(tabId)).toBe('compact');
+    expect(service.getTabViewMode(otherId)).toBe('full');
+
+    service.toggleTabViewMode(tabId);
+    expect(service.getTabViewMode(tabId)).toBe('full');
+    expect(service.getTabViewMode(otherId)).toBe('full');
+  });
+
+  it('returns a compact-tall tab to full on toggle, since the toggle asks "not full"', () => {
+    const tabId = service.createTab('tall');
+    service.setViewMode(tabId, 'compact-tall');
+
+    service.toggleTabViewMode(tabId);
+
+    expect(service.getTabViewMode(tabId)).toBe('full');
   });
 
   it('selects a view mode directly and ignores repeated selections or missing tabs', () => {
