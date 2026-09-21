@@ -13,7 +13,7 @@ Read `.ptah/specs/TASK_2026_496_fc4a/spike-report.md` before starting. The spike
 
 ## The defect
 
-```
+```text
 grep -rn "strictMcpConfig" --include=*.ts libs apps
   → no matches
 ```
@@ -54,9 +54,10 @@ better one.
 ## Acceptance criteria
 
 1. State, with evidence, whether the collision is reachable on `main` today.
-2. Set `strictMcpConfig` where the session options are built. Start from
+2. Set `strictMcpConfig: true` where the session options are built. Start from
    `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`, which already handles
-   `mcpServers` and `settingSources`. Verify the line numbers yourself; they move.
+   `mcpServers` and `settingSources`. Verify the line numbers yourself; they move. The collision
+   test in criterion 4 must exercise this exact value, not merely check that the option is set.
 3. Decide what happens to a settings-file server that the new setting excludes. Silently
    dropping a server the user configured is its own defect. Either surface it, or document why
    silence is correct.

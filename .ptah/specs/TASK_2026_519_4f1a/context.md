@@ -33,9 +33,11 @@ The four `webPreferences` flags are correct. **`partition` is absent**, so this 
 ## Why it matters
 
 1. **Shared credential and storage state.** The automation window navigates to arbitrary
-   external web pages. It shares cookies, local storage, the HTTP cache and saved credentials
-   with the trusted shell. A page loaded by automation can read state that belongs to the
-   application, and can write state the application later trusts.
+   external web pages. Because `webSecurity` stays enabled, an arbitrary external page cannot
+   directly read the shell's `localStorage` or cookies without a matching origin. The shared
+   session still means shared cookies on requests to the shell's own origins, shared
+   authentication state, shared HTTP cache behavior, and the ability to write state under an
+   application-owned origin that the shell later trusts.
 2. **The shell permission policy reaches a window it was not written for.** Permission handlers
    are installed on the shell's session. Because the automation window shares that session, its
    permission requests are evaluated by a policy whose trusted origin is the shell renderer, so
@@ -52,9 +54,11 @@ Item 2 becomes visible only once `TASK_2026_491_e0da` lands. Item 1 is true toda
    default.
 2. No storage written by the automation window is readable from the shell window, and the
    reverse. Pin this with a test, not with an assertion in prose.
-3. The automation window gets its own permission policy on its own session. Deny by default.
+3. The automation window gets its own permission policy on its own session, implemented with
+   both `setPermissionCheckHandler` and `setPermissionRequestHandler` — Electron treats these as
+   two separate hooks, and both are required for complete permission handling. Deny by default.
    Do not let it inherit the shell policy by accident, and do not leave its session without a
-   handler.
+   handler. Test both paths.
 4. A test proves the two windows do not share a session object.
 
 ## Constraints

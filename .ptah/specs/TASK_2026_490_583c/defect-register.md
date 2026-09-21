@@ -24,9 +24,11 @@ Measured against `origin/main` at `702c41413`.
 ## Findings that belong to an open task, not to a new one
 
 `TASK_2026_491_e0da` received an adversarial security review from a second vendor while its work
-was still uncommitted. **Verdict: REJECT**, 3 blocking and 4 non-blocking findings. They are
-defects in unmerged work, so they are fixed inside 491 and are not filed separately. The full
-text is `.ptah/specs/TASK_2026_491_e0da/security-review-antigravity.md`.
+was still uncommitted. **Verdict: REJECT**, 3 blocking and 4 non-blocking findings. Six of the
+seven findings are defects in unmerged work, so they are fixed inside 491 and are not filed
+separately. Finding 4 is the exception: it is a pre-existing defect on `main`, independent of 491,
+so it is tracked as `TASK_2026_519_4f1a` instead — the one authoritative location for that finding.
+The full text is `.ptah/specs/TASK_2026_491_e0da/security-review-antigravity.md`.
 
 Summary, so the register is readable without opening that file:
 

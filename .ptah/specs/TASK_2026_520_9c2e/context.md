@@ -4,7 +4,7 @@
 
 A scan of `.ptah/specs/` on `origin/main` at `702c41413` on 2026-09-21:
 
-```
+```text
 grep -rniEl "D:[/\\]projects|C:[/\\]Users|abdal" .ptah/specs/ | wc -l
   → 325
 ```
@@ -36,14 +36,18 @@ after the fact. Hand cleaning does not scale and is not reliable.
 ## Acceptance criteria
 
 1. An automated guard rejects a commit that adds an absolute workstation path or the account
-   name under `.ptah/specs/`. A pre-commit hook via `.lintstagedrc.mjs`, or a lint rule, or a CI
-   check — choose one and state why. A CI-only check still lets the path reach a public branch,
-   so prefer the hook, with CI as the backstop.
+   name under `.ptah/specs/`. Implement it as a pre-commit hook via `.lintstagedrc.mjs`, or as a
+   lint rule enforced at commit time — choose one and state why. A CI-only check still lets the
+   path reach a public branch, so the hook is mandatory. Adding a CI check in addition is
+   recommended, not required, and catches anything that reaches the branch by a path the hook
+   does not cover, such as a direct push.
 2. The guard matches the forms listed above, including the `file:///` markdown-link form, and is
    case-insensitive. Windows drive letters vary in case.
 3. The guard must not fire on a legitimate reference. `file:///C:/Windows/win.ini` appears in an
-   attack fixture in `TASK_2026_497_debb` and is a test input, not a leak. Decide how to express
-   an exemption, and document it.
+   attack fixture in `TASK_2026_497_debb` and is a test input, not a leak. Scope the exemption to
+   that fixture's path, not to the token everywhere under `.ptah/specs/`. Document the reason for
+   the exemption, and add a negative test proving the guard still catches the same token outside
+   that fixture.
 4. The 325 existing files are cleaned. Replace an absolute path with a repository-relative path
    where one exists, and with a placeholder where it does not. Do not delete the surrounding
    evidence.

@@ -5,7 +5,8 @@ type: BUGFIX
 title: >-
   Set strictMcpConfig so a settings-file server cannot start a second process
 description: >-
-  strictMcpConfig appears nowhere in the repository. The TASK_2026_496 spike
+  strictMcpConfig is absent from runtime source and supported configuration
+  files — a grep of *.ts under libs and apps finds no matches. The TASK_2026_496 spike
   proved that without it, a settings-file MCP server whose name matches a
   programmatically registered server starts a SECOND upstream process,
   silently, and takes over the name. Two processes for one stdio server means
