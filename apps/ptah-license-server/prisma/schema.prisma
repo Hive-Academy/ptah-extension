@@ -11,6 +11,28 @@ datasource db {
 generator client {
   provider = "prisma-client"
   output   = "../../../libs/api/core/src/lib/generated-prisma-client"
+  // Prisma 7.10 changed the default generated module format. Where 7.7 emitted
+  // format-neutral code, 7.10 emits an ESM-only preamble:
+  //
+  //   globalThis['__dirname'] = path.dirname(fileURLToPath(import.meta.url))
+  //
+  // `import.meta` cannot be compiled to CommonJS, so Jest is forced to
+  // evaluate client.ts as a real ES module. Every api spec that loads the REAL
+  // client (rather than the mock factory) then dies with
+  // `ReferenceError: exports is not defined` the moment prisma.service.ts
+  // requires it. Measured on CI: 6 api projects, ~15 suites.
+  //
+  // This output lands INSIDE the source tree, so it is compiled by
+  // tsconfig.spec.json, which is CommonJS and stays that way — the specs are
+  // deliberately CJS (see libs/api/jest.api-preset.cjs). Pinning the generator
+  // to cjs keeps the generated client consumable by them. The license server
+  // itself bundles to ESM and can still import CommonJS; its esbuild banner
+  // already defines __dirname, which is what the removed preamble was for.
+  //
+  // This is invisible locally until you regenerate: a stale client from 7.7
+  // keeps passing and hides the break. If you bump Prisma, regenerate and run
+  // the api suites before trusting a green local run.
+  moduleFormat = "cjs"
 }
 
 // User model - stores user information for license ownership
