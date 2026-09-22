@@ -1,3 +1,4 @@
+import type { CliOutputSegment } from '@ptah-extension/shared';
 /**
  * CodexCliAdapter Unit Tests
  *
@@ -699,6 +700,8 @@ describe('CodexCliAdapter', () => {
       const handle = await adapter.runSdk(defaultOptions);
 
       const output: string[] = [];
+      const segments: CliOutputSegment[] = [];
+      handle.onSegment?.((segment) => segments.push(segment));
       handle.onOutput((data: string) => output.push(data));
 
       const exitCode = await handle.done;
@@ -706,6 +709,11 @@ describe('CodexCliAdapter', () => {
       expect(output.join('')).toContain(
         '[Usage: 100 input (80 cached), 50 output tokens]',
       );
+      expect(segments).toContainEqual({
+        type: 'info',
+        content: 'Usage: 100 input (80 cached), 50 output tokens',
+        usage: { inputTokens: 100, outputTokens: 50 },
+      });
       expect(exitCode).toBe(0);
     });
 

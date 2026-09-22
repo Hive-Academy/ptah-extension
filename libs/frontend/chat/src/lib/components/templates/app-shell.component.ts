@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterOutlet } from '@angular/router';
 import {
   LucideAngularModule,
   CalendarDays,
@@ -39,10 +40,7 @@ import {
   SkeletonBlockComponent,
   ThemeToggleComponent,
 } from '@ptah-extension/chat-ui';
-import { SettingsComponent } from '../../settings/settings.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { DashboardGridComponent } from '@ptah-extension/dashboard';
-import { ThothShellComponent } from '@ptah-extension/thoth-shell';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
@@ -58,20 +56,14 @@ import {
   defaultSessionName,
   VSCodeService,
   ClaudeRpcService,
-  LazyViewService,
-  WIZARD_VIEW_COMPONENT,
+  DEFAULT_SURFACE_ID,
   ORCHESTRA_CANVAS_COMPONENT,
-  HARNESS_BUILDER_COMPONENT,
-  SETUP_HUB_COMPONENT,
-  MARKETPLACE_COMPONENT,
-  TRIBUNAL_COMPONENT,
-  TASKS_VIEW_COMPONENT,
   NOTIFICATION_FOCUS_ROUTER,
+  SurfaceRouterService,
 } from '@ptah-extension/core';
 import { NotificationCenterComponent } from '@ptah-extension/notification-center';
 import { NotificationFocusCoordinator } from '../../services/notification-focus-coordinator.service';
-import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
-import type { ViewType } from '@ptah-extension/core';
+import type { ChatSessionSummary } from '@ptah-extension/shared';
 import type { TitleOrigin } from '@ptah-extension/chat-types';
 
 /**
@@ -86,28 +78,31 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
  * Displays session list in sidebar with active session highlighting.
  *
  * **View Switching Architecture**:
- * - Renders ONE view at a time via @switch directive
- * - View determined by AppStateManager.currentView() signal
- * - Supported views: 'chat' (default), 'settings', 'setup-wizard'
- * - Component lifecycle managed automatically (ngOnInit/ngOnDestroy)
- * - View state persists in respective state services
+ * - Every standalone surface is a ROUTE. `<router-outlet />` at the top of the
+ *   template renders it, and the route table lives in
+ *   `apps/ptah-extension-webview/src/app/app.routes.ts` — not here, and not in
+ *   a library, because half the route components live in libraries that
+ *   `@ptah-extension/core` is imported by.
+ * - `currentView()` still answers "which surface", but it now reads the Router
+ *   through `SurfaceRouterService` instead of a signal write.
+ * - The chat and canvas content area is deliberately NOT routed: it stays
+ *   mounted and is toggled with `[class.hidden]` so `CanvasStore` and the
+ *   gridstack instance survive navigation.
  *
  * **Signal Dependencies**:
- * - currentView: AppStateManager.currentView (determines active view)
+ * - currentView: AppStateManager.currentView (Router-derived)
  * - sidebarOpen: Local signal for sidebar visibility
  * - chatStore.sessions: Session list for sidebar
  *
  * @see AppStateManager
  * @see ChatViewComponent
- * @see SettingsComponent
- * @see WizardViewComponent
  */
 @Component({
   selector: 'ptah-app-shell',
   standalone: true,
   imports: [
     ChatViewComponent,
-    SettingsComponent,
+    RouterOutlet,
     NgComponentOutlet,
     TabBarComponent,
     ConfirmationDialogComponent,
@@ -118,8 +113,6 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
     NativePopoverComponent,
     SidebarTabComponent,
     SkeletonBlockComponent,
-    DashboardGridComponent,
-    ThothShellComponent,
     NotificationCenterComponent,
   ],
   providers: [
@@ -133,22 +126,6 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
 })
 export class AppShellComponent {
   private readonly keyboardShortcuts = inject(KeyboardShortcutsService);
-
-  /**
-   * Views that render full-screen ON TOP of the shared chrome (sidebar, header, agent panel).
-   * Must be kept in sync with the @switch cases in app-shell.component.html.
-   */
-  private static readonly STANDALONE_VIEWS: readonly ViewType[] = [
-    'setup-wizard',
-    'settings',
-    'analytics',
-    'harness-builder',
-    'setup-hub',
-    'thoth',
-    'marketplace',
-    'tribunal',
-    'tasks',
-  ] as const;
 
   readonly chatStore = inject(ChatStore);
   /**
@@ -164,28 +141,28 @@ export class AppShellComponent {
   private readonly authState = inject(AuthStateService);
   private readonly confirmDialog = inject(ConfirmationDialogService);
   private readonly sessionDisplayUtils = inject(SessionDisplayUtils);
+  /**
+   * Read ONLY for `pendingSurface()` in the post-auth guard below. Every
+   * navigation this component starts still goes through
+   * `AppStateManager.setCurrentView`, so there is one write path.
+   */
+  private readonly surfaceRouter = inject(SurfaceRouterService);
   readonly currentView = this.appState.currentView;
   readonly layoutMode = this.appState.layoutMode;
 
-  /** Computed: true when the current view is a standalone view (no shared chrome) */
-  readonly isStandaloneView = computed(() =>
-    AppShellComponent.STANDALONE_VIEWS.includes(this.currentView()),
-  );
-
   /**
-   * Resolver for the deferred view tokens (TASK_2026_187).
+   * True when a standalone surface is showing, so the shared chrome is hidden.
    *
-   * **Must stay declared above every field that calls `this.lazyViews`** —
-   * Angular initialises class fields top-to-bottom (R11).
+   * This used to be a hand-maintained `STANDALONE_VIEWS` list that the class
+   * doc required be "kept in sync with the @switch cases" — a fourth copy of
+   * the surface list, next to the three `initialView` allow-lists. It is now
+   * derived: `currentView()` reads the Router, and every route except the
+   * component-less `chat` route IS a standalone surface, so there is nothing
+   * left to keep in sync.
    */
-  private readonly lazyViews = inject(LazyViewService);
-
-  /**
-   * WizardViewComponent provided via DI token — breaks circular dependency between chat and setup-wizard.
-   * Provided by the application bootstrapper (app.config.ts) so chat never imports setup-wizard directly.
-   */
-  readonly wizardComponent =
-    inject(WIZARD_VIEW_COMPONENT, { optional: true }) ?? null;
+  readonly isStandaloneView = computed(
+    () => this.currentView() !== DEFAULT_SURFACE_ID,
+  );
 
   /**
    * OrchestraCanvasComponent provided via DI token — breaks circular dependency between chat and canvas.
@@ -196,64 +173,16 @@ export class AppShellComponent {
    * measured evidence: `ElectronShellComponent` (which embeds this component)
    * forces grid mode in its constructor, so the canvas is the Electron launch
    * surface and deferring it cost 50-70 ms of startup TTI with no path on which
-   * it helped. Marketplace and tribunal remain deferred — they are not launch
-   * surfaces.
+   * it helped.
+   *
+   * This is the LAST remaining `*ngComponentOutlet` surface in this template.
+   * The five deferred ones (harness builder, setup hub, marketplace, tribunal,
+   * tasks) became `loadComponent` routes in TASK_2026_524; the canvas did not,
+   * because it must stay mounted while the user is elsewhere.
    */
   readonly orchestraCanvasComponent =
     inject(ORCHESTRA_CANVAS_COMPONENT, { optional: true }) ?? null;
 
-  /**
-   * HarnessBuilderViewComponent, resolved from a deferred loader token — breaks
-   * the circular dependency between @ptah-extension/harness-builder and
-   * @ptah-extension/chat. Loads when the harness-builder view is opened.
-   */
-  readonly harnessBuilderComponent = this.lazyViews.resolveWhen(
-    HARNESS_BUILDER_COMPONENT,
-    () => this.currentView() === 'harness-builder',
-  );
-
-  /**
-   * SetupHubComponent, resolved from a deferred loader token — breaks the
-   * circular dependency between @ptah-extension/harness-builder and
-   * @ptah-extension/chat. Loads when the setup-hub view is opened.
-   *
-   * Shares its lazy chunk with {@link harnessBuilderComponent} — both components
-   * live in the same library, so opening either view fetches the same chunk.
-   */
-  readonly setupHubComponent = this.lazyViews.resolveWhen(
-    SETUP_HUB_COMPONENT,
-    () => this.currentView() === 'setup-hub',
-  );
-
-  /**
-   * MarketplaceHubComponent, resolved from a deferred loader token — breaks the
-   * circular dependency between @ptah-extension/marketplace and
-   * @ptah-extension/chat. Loads when the marketplace view is opened.
-   */
-  readonly marketplaceComponent = this.lazyViews.resolveWhen(
-    MARKETPLACE_COMPONENT,
-    () => this.currentView() === 'marketplace',
-  );
-
-  /**
-   * TribunalPageComponent, resolved from a deferred loader token — breaks the
-   * circular dependency between @ptah-extension/tribunal-panel and
-   * @ptah-extension/chat. Loads when the tribunal view is opened.
-   */
-  readonly tribunalComponent = this.lazyViews.resolveWhen(
-    TRIBUNAL_COMPONENT,
-    () => this.currentView() === 'tribunal',
-  );
-
-  /**
-   * TasksViewComponent, resolved from a deferred loader token — breaks the
-   * circular dependency between @ptah-extension/tasks-ui and
-   * @ptah-extension/chat. Loads when the tasks view is opened.
-   */
-  readonly tasksComponent = this.lazyViews.resolveWhen(
-    TASKS_VIEW_COMPONENT,
-    () => this.currentView() === 'tasks',
-  );
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
   readonly CalendarDaysIcon = CalendarDays;
@@ -372,7 +301,18 @@ export class AppShellComponent {
         .loadAuthStatus()
         .then(() => {
           if (!this.authState.isLoaded()) return;
-          if (this.currentView() !== 'chat') return;
+          if (this.currentView() !== DEFAULT_SURFACE_ID) return;
+          // `currentView()` follows NavigationEnd, so it still reads `chat`
+          // for as long as a lazy route's chunk is loading. Click Thoth, let
+          // `loadAuthStatus()` resolve with no credentials before that chunk
+          // arrives, and the line below used to cancel the click and land the
+          // user on Settings (TASK_2026_524 revision 1, F2).
+          //
+          // The fix belongs here, at the consumer, NOT as an optimistic mirror
+          // of the view in `AppStateManager` — that mirror is the TASK_2026_317
+          // bug. `pendingSurface()` is the Router's own in-flight intent.
+          const pending = this.surfaceRouter.pendingSurface();
+          if (pending !== null && pending !== DEFAULT_SURFACE_ID) return;
           if (!this.authState.hasAnyAuth()) {
             this.appState.setCurrentView('settings');
           }

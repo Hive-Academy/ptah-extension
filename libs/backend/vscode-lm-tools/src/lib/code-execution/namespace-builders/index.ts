@@ -94,3 +94,14 @@ export {
   type HarnessMcpInstaller,
   type HarnessMcpInstallOutcome,
 } from './harness-namespace.builder';
+export {
+  buildDashboardNamespace,
+  createDashboardBroadcast,
+  type DashboardBroadcast,
+  type DashboardDeliveryOutcome,
+  type DashboardNamespace,
+  type DashboardNamespaceDependencies,
+  type DashboardProposeSpecCaller,
+  type DashboardProposeSpecOutcome,
+  type DashboardSurfaceHost,
+} from './dashboard-namespace.builder';

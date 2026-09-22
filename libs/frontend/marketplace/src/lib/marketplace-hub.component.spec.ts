@@ -16,8 +16,8 @@ import {
   AppStateManager,
   ClaudeRpcService,
   CommandDiscoveryFacade,
-  WebviewNavigationService,
 } from '@ptah-extension/core';
+import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
 import { SessionMcpStatusRegistry } from '@ptah-extension/chat-state';
 import type { InstalledMcpServer } from '@ptah-extension/shared';
 import { MarketplaceHubComponent } from './marketplace-hub.component';
@@ -118,12 +118,12 @@ describe('MarketplaceHubComponent — claude.ai connector rows', () => {
     TestBed.configureTestingModule({
       imports: [MarketplaceHubComponent],
       providers: [
+        // The real `AppStateManager` reads the current surface off the Router
+        // (TASK_2026_524), so it needs the Router wired even though nothing
+        // here navigates — the hub's only navigation is its Back button.
+        ...provideSurfaceRouterTesting(),
         AppStateManager,
         { provide: ClaudeRpcService, useValue: rpcMock },
-        {
-          provide: WebviewNavigationService,
-          useValue: { navigateToView: jest.fn() },
-        },
         {
           provide: CommandDiscoveryFacade,
           useValue: { clearCache: jest.fn() },

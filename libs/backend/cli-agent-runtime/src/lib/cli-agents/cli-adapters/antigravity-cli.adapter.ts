@@ -1018,7 +1018,15 @@ export class AntigravityCliAdapter implements CliAdapter {
       const usageStr = formatUsage(step.usage);
       if (usageStr) {
         emitOutput(`\n[${usageStr}]\n`);
-        emitSegment({ type: 'info', content: usageStr });
+        emitSegment({
+          type: 'info',
+          content: usageStr,
+          usage: {
+            inputTokens: step.usage.input_tokens,
+            outputTokens: step.usage.output_tokens,
+            totalTokens: step.usage.total_tokens,
+          },
+        });
       }
     }
   }

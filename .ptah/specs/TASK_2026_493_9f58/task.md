@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_493_9f58
-status: backlog
+status: in_review
 type: FEATURE
 title: >-
   Dashboard catalog, Zod schema, and the MCP tool that emits a spec

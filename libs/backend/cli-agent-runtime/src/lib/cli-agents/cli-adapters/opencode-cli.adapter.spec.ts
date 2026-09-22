@@ -512,6 +512,7 @@ describe('OpencodeCliAdapter', () => {
       expect(info).toHaveLength(1);
       expect(info[0].content).toContain('671 input');
       expect(info[0].content).toContain('8 output');
+      expect(info[0].usage).toEqual({ inputTokens: 671, outputTokens: 8 });
     });
 
     it('maps a top-level error event to an error segment', async () => {

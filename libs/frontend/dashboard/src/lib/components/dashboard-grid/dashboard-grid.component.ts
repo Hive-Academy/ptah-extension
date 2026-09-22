@@ -5,10 +5,7 @@ import {
   Scale,
   ChevronRight,
 } from 'lucide-angular';
-import {
-  AppStateManager,
-  WebviewNavigationService,
-} from '@ptah-extension/core';
+import { AppStateManager } from '@ptah-extension/core';
 import { AnalyticsCardComponent } from '../analytics-card/analytics-card.component';
 import { BuildersCardComponent } from '../builders-card/builders-card.component';
 import { HarnessCardComponent } from '../harness-card/harness-card.component';
@@ -48,7 +45,6 @@ import { SkillSelectionCardComponent } from '../skill-selection-card/skill-selec
 })
 export class DashboardGridComponent {
   private readonly appState = inject(AppStateManager);
-  private readonly navigation = inject(WebviewNavigationService);
 
   readonly ArrowLeftIcon = ArrowLeft;
   readonly ScaleIcon = Scale;
@@ -59,6 +55,6 @@ export class DashboardGridComponent {
   }
 
   conveneTribunal(): void {
-    void this.navigation.navigateToView('tribunal');
+    this.appState.setCurrentView('tribunal');
   }
 }

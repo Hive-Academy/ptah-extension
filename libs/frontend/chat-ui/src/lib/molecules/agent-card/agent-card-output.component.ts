@@ -36,7 +36,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
   template: `
     <div
       #outputContainer
-      class="border-t border-base-content/5 h-full overflow-y-auto"
+      [class]="embedded() ? '' : 'border-t border-base-content/5 h-full overflow-y-auto'"
     >
       <div class="p-2 space-y-1.5">
         @for (segment of segments(); track $index) {
@@ -311,6 +311,7 @@ $ {{ segment.toolName }}</pre
 })
 export class AgentCardOutputComponent {
   readonly segments = input.required<RenderSegment[]>();
+  readonly embedded = input(false);
   readonly stderrSegments = input.required<StderrSegment[]>();
   private readonly outputContainer =
     viewChild<ElementRef<HTMLDivElement>>('outputContainer');
@@ -326,6 +327,7 @@ export class AgentCardOutputComponent {
 
   constructor() {
     effect(() => {
+      if (this.embedded()) return;
       this.segments();
       this.stderrSegments();
       this.scrollTrigger();

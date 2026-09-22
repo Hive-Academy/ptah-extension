@@ -4,6 +4,12 @@ import {
   provideZoneChangeDetection,
   ErrorHandler,
 } from '@angular/core';
+import { PlatformLocation } from '@angular/common';
+import {
+  provideRouter,
+  withComponentInputBinding,
+  withDisabledInitialNavigation,
+} from '@angular/router';
 import { provideMonacoEditor } from 'ngx-monaco-editor-v2';
 import {
   VSCodeService,
@@ -16,17 +22,13 @@ import {
   ElectronLayoutService,
   BootStatusService,
   BackOfficeActivityService,
+  MemoryPlatformLocation,
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
-  WIZARD_VIEW_COMPONENT,
   ORCHESTRA_CANVAS_COMPONENT,
-  HARNESS_BUILDER_COMPONENT,
-  SETUP_HUB_COMPONENT,
-  MARKETPLACE_COMPONENT,
-  TRIBUNAL_COMPONENT,
-  TASKS_VIEW_COMPONENT,
   FILE_LINK_OPENER,
 } from '@ptah-extension/core';
+import { appRoutes } from './app.routes';
 import {
   ChatMessageHandler,
   AgentMonitorMessageHandler,
@@ -45,13 +47,12 @@ import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
 // (apps/ptah-extension-vscode/package.json:41) opens a dedicated webview panel
 // whose HTML hardcodes `initialView: 'setup-wizard'`
 // (agent-generation/.../wizard/webview-lifecycle.service.ts:153), so a fresh
-// Angular bootstrap lands straight on this component with a user waiting.
-// `WizardViewComponent` therefore stays eagerly imported here, which keeps the
-// wide barrel in the eager graph regardless of where the two services are
-// imported from — a narrow barrel would move zero bytes. Same structural
+// Angular bootstrap lands straight on that component with a user waiting.
+// `app.routes.ts` therefore binds it with a static `component:` and keeps the
+// wide barrel in the eager graph regardless of where the two services below
+// are imported from — a narrow barrel would move zero bytes. Same structural
 // no-op as the dashboard barrel dropped in Batch 3.
 import {
-  WizardViewComponent,
   provideWizardInternalState,
   SetupWizardStateService,
 } from '@ptah-extension/setup-wizard';
@@ -88,6 +89,13 @@ class WebviewErrorHandler implements ErrorHandler {
     const isError = (e: unknown): e is { name: string; message?: string } => {
       return typeof e === 'object' && e !== null && 'name' in e;
     };
+    // Kept as a tripwire, not as a workaround. Nothing in this application
+    // reaches the History API any more: `MemoryPlatformLocation` is bound at
+    // the `PlatformLocation` seam below, and `Location` forwards every state
+    // change to it. A `SecurityError` naming pushState/replaceState therefore
+    // means a third-party dependency called `history` directly — worth a
+    // warning and worth not crashing the webview over, but it is no longer an
+    // expected condition.
     if (
       isError(error) &&
       error.name === 'SecurityError' &&
@@ -95,7 +103,7 @@ class WebviewErrorHandler implements ErrorHandler {
         error.message?.includes('replaceState'))
     ) {
       console.warn(
-        'WebView: History API error detected - this should not occur with pure signal navigation',
+        'WebView: History API error detected — the app routes through MemoryPlatformLocation, so this came from outside it',
         error.message,
       );
       return;
@@ -116,6 +124,34 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     { provide: ErrorHandler, useClass: WebviewErrorHandler },
+    // THE ROUTER'S HOST SEAM — this provider is what makes routing possible in
+    // both hosts, and it is load-bearing.
+    //
+    // `BrowserPlatformLocation.pushState` forwards straight to
+    // `history.pushState` with no guard, and `withHashLocation()` is not an
+    // escape from it (`HashLocationStrategy.pushState` calls
+    // `platformLocation.pushState` too and never assigns `location.hash`). The
+    // Electron renderer loads through `mainWindow.loadFile(...)` and the HTML
+    // specification rejects a changed `file:` pathname, so a real
+    // `PlatformLocation` can raise a `SecurityError` there.
+    // `MemoryPlatformLocation` holds the logical URL, the state and the pop
+    // subscriptions itself and touches `window.history` nowhere.
+    //
+    // Binding it HERE, at the application injector, shadows the platform-level
+    // `PlatformLocation` provider for `Location`, `PathLocationStrategy` and
+    // the Router alike. Do not move it into a route's `providers`, which those
+    // root services would never see.
+    { provide: PlatformLocation, useClass: MemoryPlatformLocation },
+    // `withDisabledInitialNavigation()` is equally load-bearing: without it the
+    // Router resolves the empty URL before `App.handleInitialView` has read
+    // `window.ptahConfig.initialView`, and a panel opened on `setup-wizard`
+    // paints chat first. `App.handleInitialView` performs the one initial
+    // navigation.
+    provideRouter(
+      appRoutes,
+      withComponentInputBinding(),
+      withDisabledInitialNavigation(),
+    ),
     provideVSCodeService(),
     provideMessageRouter(),
     { provide: MESSAGE_HANDLERS, useExisting: VSCodeService, multi: true },
@@ -143,55 +179,14 @@ export const appConfig: ApplicationConfig = {
     // hold its own git-ui module cache.
     { provide: FILE_LINK_OPENER, useExisting: FileLinkRouterService },
     { provide: MARKDOWN_FILE_LINK_HANDLER, useExisting: FileLinkRouterService },
-    // EAGER on purpose (TASK_2026_187 Batch 4, R15). `ptah.setupAgents` is a VS
-    // Code activation event that opens a new panel hardcoded to
-    // `initialView: 'setup-wizard'`, so this component IS the launch surface for
-    // that panel. Do not convert this to a loader — see the import note above.
-    { provide: WIZARD_VIEW_COMPONENT, useValue: WizardViewComponent },
     // EAGER on purpose (TASK_2026_187). Deferring the canvas cost 50-70 ms of
     // Electron startup TTI, because ElectronShellComponent forces grid mode in
     // its constructor — the canvas IS the launch surface there, so there is no
-    // path on which deferring it helps. Do not convert this to a loader.
+    // path on which deferring it helps. Do not convert this to a loader, and
+    // do not turn it into a route: the canvas is kept mounted behind
+    // `[class.hidden]` so `CanvasStore` survives navigation (batch 3 replaces
+    // that with a `RouteReuseStrategy`).
     { provide: ORCHESTRA_CANVAS_COMPONENT, useValue: OrchestraCanvasComponent },
-    // Deferred surfaces (TASK_2026_187). `useValue` with an arrow function —
-    // NEVER `useFactory`, which would invoke the arrow at injection time and
-    // start every import eagerly at bootstrap. LazyViewService.resolveWhen is
-    // what decides when each arrow actually runs.
-    // Both of these resolve out of @ptah-extension/harness-builder, so ONE lazy
-    // chunk serves both views. That is expected — do not restructure to force two.
-    {
-      provide: HARNESS_BUILDER_COMPONENT,
-      useValue: () =>
-        import('@ptah-extension/harness-builder').then(
-          (m) => m.HarnessBuilderViewComponent,
-        ),
-    },
-    {
-      provide: SETUP_HUB_COMPONENT,
-      useValue: () =>
-        import('@ptah-extension/harness-builder').then(
-          (m) => m.SetupHubComponent,
-        ),
-    },
-    {
-      provide: MARKETPLACE_COMPONENT,
-      useValue: () =>
-        import('@ptah-extension/marketplace').then(
-          (m) => m.MarketplaceHubComponent,
-        ),
-    },
-    {
-      provide: TRIBUNAL_COMPONENT,
-      useValue: () =>
-        import('@ptah-extension/tribunal-panel').then(
-          (m) => m.TribunalPageComponent,
-        ),
-    },
-    {
-      provide: TASKS_VIEW_COMPONENT,
-      useValue: () =>
-        import('@ptah-extension/tasks-ui').then((m) => m.TasksViewComponent),
-    },
     { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),

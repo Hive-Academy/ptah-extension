@@ -1114,7 +1114,14 @@ export class CodexCliAdapter implements CliAdapter {
       const cached = event.usage.cached_input_tokens ?? 0;
       const usageStr = `Usage: ${event.usage.input_tokens} input (${cached} cached), ${event.usage.output_tokens} output tokens`;
       emitOutput(`\n[${usageStr}]\n`);
-      emitSegment({ type: 'info', content: usageStr });
+      emitSegment({
+        type: 'info',
+        content: usageStr,
+        usage: {
+          inputTokens: event.usage.input_tokens,
+          outputTokens: event.usage.output_tokens,
+        },
+      });
     }
   }
 

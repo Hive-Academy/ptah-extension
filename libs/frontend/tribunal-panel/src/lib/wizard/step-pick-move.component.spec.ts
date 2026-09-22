@@ -10,10 +10,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { signal, type WritableSignal } from '@angular/core';
-import {
-  ClaudeRpcService,
-  WebviewNavigationService,
-} from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import { StepPickMoveComponent } from './step-pick-move.component';
 import {
   TribunalDiscoveryService,
@@ -104,8 +101,12 @@ async function setup(
         },
       },
       {
-        provide: WebviewNavigationService,
-        useValue: { navigateToSettingsTab: jest.fn() },
+        // "Configure a provider" deep-links through
+        // `AppStateManager.openSettingsTab` now (TASK_2026_524 deleted
+        // `WebviewNavigationService`). Stubbed rather than real so this suite
+        // never needs the Router that the real `currentView` reads.
+        provide: AppStateManager,
+        useValue: { openSettingsTab: jest.fn() },
       },
       { provide: ClaudeRpcService, useValue: { call: rpcCall } },
     ],
