@@ -202,3 +202,91 @@ export interface AuthGetScopeResult {
 export interface AuthClearWorkspaceOverrideResult {
   success: boolean;
 }
+
+/**
+ * Why a draft connection probe (`auth:verifyDraftConnection`) failed.
+ *
+ * One-to-one with the setup wizard's "Probe failure copy by reason" table: the
+ * frontend selects copy from a data map keyed by this union and never parses a
+ * message string. `null` on the wire only when the outcome is `verified`.
+ *
+ * Values are assigned by a fixed precedence table (ten rules, evaluated in
+ * order — see `classifyDraftProbeFailure` in
+ * `libs/backend/auth-providers/.../draft-verification.service.ts`). A probe
+ * that matches several rules reports the FIRST matching one, so the order of
+ * that table is behaviour, not presentation.
+ */
+export type ProbeFailureReason =
+  | 'credential-rejected' // 401
+  | 'permission-denied' // 403
+  | 'unreachable' // DNS, refused, reset
+  | 'timeout'
+  | 'rate-limited' // 429
+  | 'quota-exhausted'
+  | 'model-unavailable'
+  | 'cancelled'
+  | 'unclassified';
+
+/** Parameters for auth:verifyDraftConnection RPC method */
+export interface AuthVerifyDraftConnectionParams {
+  /**
+   * Client-generated probe identifier. Echoed back verbatim so the frontend can
+   * discard results from superseded probes (a stale result whose `probeId` does
+   * not match the latest issued id is dropped, not rendered).
+   */
+  probeId: string;
+  /** Provider registry id, or the draft custom entry's id. */
+  providerId: string;
+  /** The connection mode the wizard step is configuring. */
+  authMode:
+    | 'apiKey'
+    | 'oauth'
+    | 'cli'
+    | 'local-native'
+    | 'local-proxy'
+    | 'custom';
+  /**
+   * TRANSIENT: the draft credential, held in memory only for the duration of
+   * this probe. It is never written to `~/.ptah/settings.json` or the
+   * encrypted secrets file, never echoed back, and dropped when the probe
+   * completes, is cancelled, or expires.
+   */
+  credential?: { kind: 'apiKey'; value: string };
+  /** Base URL for local and custom providers. */
+  baseUrl?: string;
+  /** Model to probe with; the provider's default tier when absent. */
+  model?: string;
+  /** Probe timeout in milliseconds; clamped server-side. */
+  timeoutMs?: number;
+}
+
+/**
+ * Response from auth:verifyDraftConnection RPC method.
+ *
+ * SECURITY: `detail` is a sanitized diagnostic string. It never contains the
+ * credential, an `Authorization` header, or a full request URL, and it never
+ * echoes a raw provider error message.
+ */
+export interface AuthVerifyDraftConnectionResult {
+  probeId: string;
+  outcome: 'verified' | 'failed' | 'cancelled';
+  /** `null` only when `outcome` is `'verified'`. */
+  reason: ProbeFailureReason | null;
+  detail: string | null;
+  /** Wall-clock cost of the probe; `null` when it never started. */
+  latencyMs: number | null;
+  /** The model the probe ran with, when one was known. */
+  modelUsed: string | null;
+  /** ISO 8601 timestamp of the completed check. */
+  checkedAt: string;
+}
+
+/** Parameters for auth:cancelDraftVerification RPC method */
+export interface AuthCancelDraftVerificationParams {
+  probeId: string;
+}
+
+/** Response from auth:cancelDraftVerification RPC method */
+export interface AuthCancelDraftVerificationResult {
+  cancelled: boolean;
+}

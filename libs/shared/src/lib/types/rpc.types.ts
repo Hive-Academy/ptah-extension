@@ -137,6 +137,10 @@ import type {
   AuthCodexLoginResponse,
   AuthGetScopeResult,
   AuthClearWorkspaceOverrideResult,
+  AuthVerifyDraftConnectionParams,
+  AuthVerifyDraftConnectionResult,
+  AuthCancelDraftVerificationParams,
+  AuthCancelDraftVerificationResult,
 } from './rpc/rpc-auth.types';
 
 import type {
@@ -824,6 +828,14 @@ export interface RpcMethodRegistry {
   'auth:clearWorkspaceOverride': {
     params: Record<string, never>;
     result: AuthClearWorkspaceOverrideResult;
+  };
+  'auth:verifyDraftConnection': {
+    params: AuthVerifyDraftConnectionParams;
+    result: AuthVerifyDraftConnectionResult;
+  };
+  'auth:cancelDraftVerification': {
+    params: AuthCancelDraftVerificationParams;
+    result: AuthCancelDraftVerificationResult;
   };
   'setup-status:get-status': {
     params: SetupStatusGetParams;
@@ -3438,6 +3450,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:codexLogin': true,
   'auth:getScope': true,
   'auth:clearWorkspaceOverride': true,
+  'auth:verifyDraftConnection': true,
+  'auth:cancelDraftVerification': true,
   'setup-status:get-status': true,
   'setup-wizard:launch': true,
   'wizard:deep-analyze': true,

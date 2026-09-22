@@ -34,6 +34,7 @@ import type { SdkAdapterEvents } from '@ptah-extension/agent-sdk';
 import {
   ProviderModelsService,
   ActiveProviderResolver,
+  DraftVerificationService,
   AUTH_PROVIDERS_TOKENS,
 } from '@ptah-extension/auth-providers';
 import type {
@@ -56,6 +57,10 @@ import {
 import type {
   AuthGetScopeResult,
   AuthClearWorkspaceOverrideResult,
+  AuthVerifyDraftConnectionParams,
+  AuthVerifyDraftConnectionResult,
+  AuthCancelDraftVerificationParams,
+  AuthCancelDraftVerificationResult,
 } from '@ptah-extension/shared';
 import { AuthSettingsSchema } from './auth-rpc.schema';
 import type { RpcMethodName } from '@ptah-extension/shared';
@@ -175,6 +180,8 @@ export class AuthRpcHandlers {
     'auth:getApiKeyStatus',
     'auth:getScope',
     'auth:clearWorkspaceOverride',
+    'auth:verifyDraftConnection',
+    'auth:cancelDraftVerification',
   ] as const satisfies readonly RpcMethodName[];
 
   /**
@@ -259,6 +266,8 @@ export class AuthRpcHandlers {
     private readonly sentryService: SentryService,
     @inject(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER)
     private readonly scopeResolver: WorkspaceScopeResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_DRAFT_VERIFICATION)
+    private readonly draftVerification: DraftVerificationService,
     /**
      * Optional: absent in unit harnesses and in any host that has not wired a
      * webview manager. Used only to broadcast interactive-login progress
@@ -293,6 +302,8 @@ export class AuthRpcHandlers {
     this.registerGetApiKeyStatus();
     this.registerGetScope();
     this.registerClearWorkspaceOverride();
+    this.registerVerifyDraftConnection();
+    this.registerCancelDraftVerification();
 
     // An external `codex login` changes the answer without going through any
     // method here, so the TTL is the only thing that would eventually notice.
@@ -315,6 +326,8 @@ export class AuthRpcHandlers {
         'auth:getApiKeyStatus',
         'auth:getScope',
         'auth:clearWorkspaceOverride',
+        'auth:verifyDraftConnection',
+        'auth:cancelDraftVerification',
       ],
     });
   }
@@ -1320,6 +1333,68 @@ export class AuthRpcHandlers {
         throw error;
       }
     });
+  }
+
+  /**
+   * auth:verifyDraftConnection - Probe a draft connection BEFORE it is saved.
+   *
+   * Delegates to `DraftVerificationService.verify`, which exercises the DRAFT
+   * (via `ProviderAuthResolver.buildDraftOverride`) and never the persisted
+   * route, writes nothing to disk, and returns a sanitized diagnostic. The
+   * draft credential is transient: it is passed through this handler to the
+   * service and is never logged, echoed back, or persisted here.
+   */
+  private registerVerifyDraftConnection(): void {
+    this.rpcHandler.registerMethod<
+      AuthVerifyDraftConnectionParams,
+      AuthVerifyDraftConnectionResult
+    >(
+      'auth:verifyDraftConnection',
+      async (params: AuthVerifyDraftConnectionParams) => {
+        try {
+          this.logger.debug('RPC: auth:verifyDraftConnection called');
+          return await this.draftVerification.verify(params);
+        } catch (error) {
+          this.logger.error(
+            'RPC: auth:verifyDraftConnection failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AuthRpcHandlers.registerVerifyDraftConnection' },
+          );
+          throw error;
+        }
+      },
+    );
+  }
+
+  /**
+   * auth:cancelDraftVerification - Abort an in-flight draft probe by id.
+   *
+   * Infallible by design: an unknown or already-settled `probeId` answers
+   * `{ cancelled: false }` rather than throwing, because the frontend issues
+   * cancel on a fire-and-forget basis (the transport carries no per-request
+   * cancel token) and must not surface an error for a benign race.
+   */
+  private registerCancelDraftVerification(): void {
+    this.rpcHandler.registerMethod<
+      AuthCancelDraftVerificationParams,
+      AuthCancelDraftVerificationResult
+    >(
+      'auth:cancelDraftVerification',
+      async (params: AuthCancelDraftVerificationParams) => {
+        try {
+          return await this.draftVerification.cancel(params);
+        } catch (error) {
+          this.logger.warn(
+            'RPC: auth:cancelDraftVerification failed (non-fatal)',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return { cancelled: false };
+        }
+      },
+    );
   }
 
   /**

@@ -28,6 +28,7 @@ import { OpenRouterTranslationProxy } from '../providers/openrouter';
 import { LmStudioTranslationProxy } from '../providers/local';
 import { CuratorProxyManager } from '../auth/curator-proxy-manager';
 import { ProviderAuthResolver } from '../auth/provider-auth-resolver';
+import { DraftVerificationService } from '../auth/draft-verification.service';
 import { providerQuotaStore } from '../auth/provider-quota.store';
 
 export function registerAuthProvidersServices(
@@ -101,6 +102,31 @@ export function registerAuthProvidersServices(
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER,
     { useClass: AuthManager },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_DRAFT_VERIFICATION,
+    { useClass: DraftVerificationService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  // `SDK_PROVIDER_AUTH_RESOLVER` is registered here as well as in
+  // `registerCuratorAuthServices`, because the curator registration is
+  // best-effort. Every host reaches it — VS Code through
+  // `phase-2-libraries.ts` → `registerThothLibraries` → this file's
+  // `register-thoth-libraries.ts:115` — but that call sits inside a try block
+  // whose catch logs "Memory curator registration skipped (non-fatal)". Any
+  // earlier failure in that block silently skips the registration, and
+  // `DraftVerificationService` injects the resolver HARD, so a skipped
+  // registration takes the whole auth RPC family down with it.
+  //
+  // Registering the same class against the same `Symbol.for(...)` token twice
+  // is a no-op in effect: identical `useClass`, identical lifecycle.
+  //
+  // Do not delete this on the grounds that the curator path already covers it.
+  // It covers it only when nothing above it threw.
+  container.register(
+    SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER,
+    { useClass: ProviderAuthResolver },
     { lifecycle: Lifecycle.Singleton },
   );
 
