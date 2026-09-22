@@ -195,6 +195,42 @@ describe('plugin catalog panel — per-workspace skill selection', () => {
     expect(setCall?.params).toEqual({ mode: 'all' });
   });
 
+  it('keeps the plugin list when the host answers plugins:get-config with {}', async () => {
+    // A partial config record — the e2e harness answers `{}` — must read as
+    // "nothing opted in", never throw in `deriveSelection` and land the panel
+    // in its error branch with the catalogue cleared.
+    setResponder('plugins:list-available', () =>
+      ok({
+        plugins: [
+          {
+            id: 'ptah-core',
+            name: 'Ptah Core',
+            description: 'A bundled plugin.',
+            category: 'core-tools',
+            skillCount: 3,
+            commandCount: 1,
+            isDefault: true,
+          },
+        ],
+      }),
+    );
+    setResponder('plugins:get-config', () => ok({}));
+
+    const fixture = await mount();
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(fixture.componentInstance.error()).toBeNull();
+    expect(fixture.componentInstance.isLoading()).toBe(false);
+    expect(fixture.componentInstance.availablePlugins().map((p) => p.id)).toEqual(
+      ['ptah-core'],
+    );
+    // The list is on screen, not merely in state.
+    expect(
+      host.querySelector('input[aria-label="Enable Ptah Core"]'),
+    ).not.toBeNull();
+    expect(host.querySelector('.text-error')).toBeNull();
+  });
+
   it('never records an untouched derived "all" as a choice', async () => {
     setResponder('harness:get-skill-selection', () =>
       ok(

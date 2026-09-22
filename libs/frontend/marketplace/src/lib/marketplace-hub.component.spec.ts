@@ -307,6 +307,25 @@ describe('MarketplaceHubComponent', () => {
       ).toBeNull();
     });
 
+    it('mounts the Skills chips and unmounts the Apps ones when the Skills tab is clicked', async () => {
+      await createComponent();
+
+      const skillsTab = tabs().find(
+        (t) => t.textContent?.trim() === 'Skills',
+      ) as HTMLButtonElement;
+      skillsTab.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(
+        hostElement.querySelector('[data-testid="skills-chips"]'),
+      ).toBeTruthy();
+      expect(
+        hostElement.querySelector('[data-testid="apps-chips"]'),
+      ).toBeNull();
+    });
+
     it('swaps the mounted surface when a chip is clicked', async () => {
       await createComponent();
       expect(installedRows()).toHaveLength(0);

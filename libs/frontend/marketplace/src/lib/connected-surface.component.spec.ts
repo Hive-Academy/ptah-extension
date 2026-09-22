@@ -332,6 +332,27 @@ describe('ConnectedSurfaceComponent', () => {
     expect(titlesIn('apps')).toEqual(['ptah', 'Gmail']);
   });
 
+  it('re-derives the Apps rows when the connectorServers input changes', async () => {
+    responders.set('mcpDirectory:listInstalled', () =>
+      ok({ servers: [diskServer('ptah')] }),
+    );
+
+    await create();
+
+    calls.length = 0;
+    // A new connector appears; one whose serverKey is already installed does
+    // not duplicate.
+    fixture.componentRef.setInput('connectorServers', [
+      connectorRow('Gmail'),
+      connectorRow('ptah'),
+    ]);
+    await settle();
+
+    expect(titlesIn('apps')).toEqual(['ptah', 'Gmail']);
+    // Re-derived from the signals, not re-read from the backend.
+    expect(methodsCalled()).not.toContain('mcpDirectory:listInstalled');
+  });
+
   it('gives a removal-blocked row no button and says why', async () => {
     await create([connectorRow('Canva')]);
 

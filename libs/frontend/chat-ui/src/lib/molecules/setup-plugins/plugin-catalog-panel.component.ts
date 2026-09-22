@@ -1076,8 +1076,12 @@ export class PluginCatalogPanelComponent implements OnInit {
     config: PluginConfigState | null,
   ): void {
     if (config !== null) {
+      // `enabledPluginIds` is optional-chained because a host can answer
+      // `plugins:get-config` with a partial record — the e2e harness does —
+      // and an undefined allowlist must read as "nothing opted in", not
+      // throw inside `deriveSelection` and clear the catalogue.
       this.selectedIds.set(
-        this.deriveSelection(plugins, config.enabledPluginIds, [
+        this.deriveSelection(plugins, config.enabledPluginIds ?? [], [
           ...(config.disabledPluginIds ?? []),
         ]),
       );

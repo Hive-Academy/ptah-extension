@@ -307,7 +307,35 @@ export class ConnectedSurfaceComponent implements OnInit {
   protected readonly pendingId = signal<string | null>(null);
 
   private readonly appsLoad = signal<GroupLoad>(LOADING);
-  private readonly appGroups = signal<readonly InstalledServerGroup[]>([]);
+  /**
+   * The installed read `mcpDirectory:listInstalled` last answered with, or
+   * `null` before one arrives (and after either Apps error path resets it).
+   */
+  private readonly installedServers = signal<readonly InstalledMcpServer[] | null>(
+    null,
+  );
+  /**
+   * The Apps groups, derived from BOTH inputs: the installed read above AND
+   * the `connectorServers` input. A `computed` rather than a written signal so
+   * a hub that re-reads the session's connectors after this surface loaded
+   * re-derives the rows without a new `listInstalled` round trip.
+   */
+  private readonly appGroups = computed<readonly InstalledServerGroup[]>(() => {
+    const installed = this.installedServers();
+    if (installed === null) return [];
+    // Re-derive the connector rows against THIS read's keys rather than
+    // trusting the hub's: `groupInstalledServers` keys on origin AND server
+    // key, so a connector that also reaches us from disk would otherwise
+    // render twice under two origins with two different Remove buttons.
+    const entries: SessionMcpServerEntry[] = this.connectorServers().map(
+      (row) => ({ name: row.serverKey, status: 'connected' }),
+    );
+    const connectors = toConnectorRows(
+      entries,
+      installed.map((server) => server.serverKey),
+    );
+    return groupInstalledServers([...installed, ...connectors]);
+  });
   /** `group.key` → live state text, from the two decoration reads. */
   private readonly appStatuses = signal<ReadonlyMap<string, string>>(new Map());
 
@@ -466,7 +494,7 @@ export class ConnectedSurfaceComponent implements OnInit {
       const result = await this.rpc.call('mcpDirectory:listInstalled', {});
       if (this.isStale('apps', gen)) return;
       if (!result.isSuccess()) {
-        this.appGroups.set([]);
+        this.installedServers.set(null);
         this.appsLoad.set({
           state: 'error',
           error: result.error ?? 'Could not read installed MCP servers.',
@@ -474,27 +502,17 @@ export class ConnectedSurfaceComponent implements OnInit {
         return;
       }
       const installed = result.data.servers;
-      // Re-derive the connector rows against THIS read's keys rather than
-      // trusting the hub's: `groupInstalledServers` keys on origin AND server
-      // key, so a connector that also reaches us from disk would otherwise
-      // render twice under two origins with two different Remove buttons.
-      const entries: SessionMcpServerEntry[] = this.connectorServers().map(
-        (row) => ({ name: row.serverKey, status: 'connected' }),
-      );
-      const connectors = toConnectorRows(
-        entries,
-        installed.map((server) => server.serverKey),
-      );
-      const groups = groupInstalledServers([...installed, ...connectors]);
-      this.appGroups.set(groups);
+      // Publishing the read is enough: `appGroups` re-derives from it AND from
+      // `connectorServers`, so both a Retry and a later input change land.
+      this.installedServers.set(installed);
       this.appStatuses.set(new Map());
       this.appsLoad.set({ state: 'ready' });
-      void this.decorateAppStatuses(groups);
+      void this.decorateAppStatuses(installed);
     } catch (error) {
       // degradation-audit: reported — the failure is rendered inline as the
       // group's error state with a Retry button.
       if (this.isStale('apps', gen)) return;
-      this.appGroups.set([]);
+      this.installedServers.set(null);
       this.appsLoad.set({
         state: 'error',
         error: messageOf(error, 'Could not read installed MCP servers.'),
@@ -614,10 +632,19 @@ export class ConnectedSurfaceComponent implements OnInit {
    * Every read here is optional: a failure costs a badge, never a row and never
    * the group's `state`. Nothing here can add or remove a row, so it cannot
    * duplicate anything `listInstalled` already returned.
+   *
+   * The staleness check is against the `installed` read these statuses were
+   * started for, NOT against the rendered groups: `appGroups` is a computed
+   * over `connectorServers` as well, so it re-derives into a new array the
+   * moment that input changes, and an identity check against it would drop
+   * valid statuses for every input change that happened mid-flight. The group
+   * keys stay stable (`origin + ' ' + serverKey`), so statuses published here
+   * still line up with a re-derived group list.
    */
   private async decorateAppStatuses(
-    groups: readonly InstalledServerGroup[],
+    installed: readonly InstalledMcpServer[],
   ): Promise<void> {
+    const groups = this.appGroups();
     const statuses = new Map<string, string>();
 
     const smithery = groups.filter((g) => g.origin === 'smithery');
@@ -656,8 +683,9 @@ export class ConnectedSurfaceComponent implements OnInit {
     );
 
     if (this.destroyed) return;
-    // Only publish if the groups we decorated are still the rendered ones.
-    if (this.appGroups() !== groups) return;
+    // Only publish if the installed read these statuses describe is still the
+    // current one. See the method doc for why this is not a groups check.
+    if (this.installedServers() !== installed) return;
     this.appStatuses.set(statuses);
   }
 

@@ -120,7 +120,19 @@ const SKILL_SELECTION_READ_TIMEOUT_MS = 10_000;
     }
 
     @if (pickerOpen()) {
-      <dialog class="modal modal-open" aria-label="Configure Ptah Skills">
+      <!--
+        The class-driven modal-open pattern, not showModal(): the dialog is
+        never a native top layer here, so role="dialog" + aria-modal say
+        what the element cannot say for itself, and Escape is bound on
+        the document because a non-native dialog receives no native Escape.
+      -->
+      <dialog
+        class="modal modal-open"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Configure Ptah Skills"
+        (document:keydown.escape)="onPickerEscape()"
+      >
         <div class="modal-box max-w-2xl relative">
           <button
             class="btn btn-sm btn-circle btn-ghost absolute right-3 top-3"
@@ -206,6 +218,19 @@ export class SkillSelectionCardComponent implements OnInit {
   protected onPickerClosed(): void {
     this.pickerOpen.set(false);
     void this.refresh();
+  }
+
+  /**
+   * Escape closes the picker — and only the picker.
+   *
+   * The class-driven pattern keeps the `<dialog>` non-native, so no Escape
+   * arrives on its own; the document-scoped binding above routes it here. A
+   * no-op while the picker is closed, because a document-scoped listener fires
+   * for every Escape in the dashboard and re-reading the selection on each one
+   * would turn an unrelated keypress into an RPC.
+   */
+  protected onPickerEscape(): void {
+    if (this.pickerOpen()) this.onPickerClosed();
   }
 
   /**

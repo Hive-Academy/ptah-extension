@@ -276,6 +276,34 @@ describe('dashboard skill-selection card', () => {
         fixture.destroy();
       }
     });
+
+    it('closes on Escape pressed anywhere in the document, and is a no-op while closed', async () => {
+      const escape = (): void =>
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape' }),
+        );
+
+      // Open: one Escape closes the picker and re-reads the selection.
+      const fixture = await openPicker();
+      const host = fixture.nativeElement as HTMLElement;
+      escape();
+      await settle(fixture);
+
+      expect(host.querySelector('dialog.modal')).toBeNull();
+      expect(
+        calls.some((c) => c.method === 'harness:get-skill-selection'),
+      ).toBe(true);
+
+      // Closed: a second Escape does nothing — no re-read, no state change.
+      calls.length = 0;
+      escape();
+      await settle(fixture);
+
+      expect(host.querySelector('dialog.modal')).toBeNull();
+      expect(calls).toHaveLength(0);
+
+      fixture.destroy();
+    });
   });
 
   describe('a transport failure', () => {
