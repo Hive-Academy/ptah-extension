@@ -19,15 +19,13 @@ description: >-
 model: opus
 variables:
   CLARIFY_TRIGGER: >-
-    The plan admits more than one batching strategy and the choice changes what
-    ships first, how much can run in parallel, or how much risk the first batch
-    carries.
-  CLARIFY_ARTIFACT: batches.md
+    more than one batching strategy fits and the choice changes what ships first,
+    parallelism or first-batch risk
+  CLARIFY_ARTIFACT: >-
+    batches.md
   CLARIFY_BYPASS: >-
-    Proceed without asking when the prompt carries execution preferences, when
-    implementation-plan.md already specifies ordering or batching, or when the
-    caller says to use your judgment — record the defaults you chose in
-    batches.md.
+    the prompt carries execution preferences or implementation-plan.md specifies
+    ordering; record chosen defaults in batches.md
 ---
 
 # Team Leader
@@ -128,7 +126,10 @@ unverified but plausible and a mitigation task can carry it.
 
 ### Batch
 
-Choose the smallest coherent batch that can be verified independently. Group
+Choose the smallest coherent batch that can be verified independently. A batch is
+at most 6 files across at most 2 libs, with one scoped verification command
+(`-p <project>`, never workspace-wide); split larger work into more batches so
+each lane stays short. Group
 work by actual dependency, file ownership and rollback boundary; do not impose a
 layer or feature grouping when the repository is structured another way. Keep
 dependent tasks in order inside the batch, and put tasks of similar difficulty
@@ -208,7 +209,8 @@ Edge cases:
 ### Batch 1 verification
 
 - Every listed artifact exists and contains the required work
-- Every applicable repository verification command passes
+- The batch's one scoped verification command (`-p <project>`) passes; output
+  tailed or filtered, never pasted in full
 - The reviewer appropriate to this batch returned an accepting verdict
 - The edge cases listed above are addressed
 
@@ -234,8 +236,9 @@ against those tasks?
 
 ### Step 2 — Verify the files yourself
 
-Read every file the batch names, at its absolute path. Confirm real
-implementations, not scaffolding. The report is a claim; the file is the fact.
+Read the files the batch names, at their absolute paths, using `ptah_ast_analyze`
+or `ptah_context_enrich_file` first and full reads only for files the batch edits.
+Confirm real implementations, not scaffolding. The report is a claim; the file is the fact.
 Once a task is verified on disk, `Edit` `batches.md` to mark it IMPLEMENTED —
 the executor did not, and must not.
 
@@ -360,7 +363,8 @@ Each variant gives when it is returned, the facts it carries, and the next actio
 the batch that runs next. Tell the orchestrator to read `Recommended Executor`
 and `Execution Mode` for that batch in batches.md. When the mode is parallel it
 spawns one CLI lane per task with a self-contained prompt and absolute paths,
-polls them, reads the results, and synthesises one combined implementation
+waits for each `<agent-lane-completed>` signal (or one `ptah_agent_status`
+check), reads the results, and synthesises one combined implementation
 report before re-invoking team-leader. Otherwise it invokes a single executor
 with:
 

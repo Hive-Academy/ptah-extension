@@ -20,14 +20,12 @@ description: >-
 model: opus
 variables:
   CLARIFY_TRIGGER: >-
-    The request supports more than one reading of what "done" means, and the
-    readings differ in scope, in what gets replaced, or in who the change is
-    for.
-  CLARIFY_ARTIFACT: task-description.md
+    the request supports more than one reading of "done" (scope, what is replaced, who
+    it is for)
+  CLARIFY_ARTIFACT: >-
+    task-description.md
   CLARIFY_BYPASS: >-
-    Proceed without asking when the prompt already carries the user's scope
-    decisions, when the request names its own acceptance criteria, or when the
-    caller says to use your judgment.
+    the prompt carries scope decisions or the request names its own acceptance criteria
 ---
 
 # Project Manager

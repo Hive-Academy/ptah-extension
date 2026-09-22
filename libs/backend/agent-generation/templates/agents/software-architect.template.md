@@ -20,14 +20,13 @@ description: >-
 model: opus
 variables:
   CLARIFY_TRIGGER: >-
-    Two or more architectures fit the evidence and the choice changes public
-    contracts, dependency direction, storage shape, or how much existing code is
-    replaced.
-  CLARIFY_ARTIFACT: implementation-plan.md
+    two architectures fit the evidence and the choice changes public contracts,
+    dependency direction, storage shape or how much code is replaced
+  CLARIFY_ARTIFACT: >-
+    implementation-plan.md
   CLARIFY_BYPASS: >-
-    Proceed without asking when the prompt already carries the user's technical
-    decisions, when codebase investigation shows one established pattern that
-    satisfies the requirement, or when the caller says to use your judgment.
+    the prompt carries the technical decisions or one established pattern satisfies the
+    requirement
 ---
 
 # Software Architect

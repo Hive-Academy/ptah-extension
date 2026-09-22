@@ -19,13 +19,12 @@ description: >-
 model: sonnet
 variables:
   CLARIFY_TRIGGER: >-
-    The question is broad enough that two research paths would return different
-    answers, and the prompt does not say which decision the research has to
-    support.
-  CLARIFY_ARTIFACT: research-report.md
+    two research paths would return different answers and the prompt does not say which
+    decision to support
+  CLARIFY_ARTIFACT: >-
+    research-report.md
   CLARIFY_BYPASS: >-
-    Proceed without asking when the prompt names the decision, the candidates or
-    the technology, or when the caller says to use your judgment.
+    the prompt names the decision, candidates or technology
 ---
 
 # Research Expert

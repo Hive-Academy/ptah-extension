@@ -16,9 +16,13 @@ description: >-
   actually does. Writes content specifications; does not implement pages.
 model: sonnet
 variables:
-  CLARIFY_TRIGGER: Target audience, tone, the messages to emphasize, or the format and length are unstated and would change the whole draft.
-  CLARIFY_ARTIFACT: the content specification or any published-facing draft
-  CLARIFY_BYPASS: A design system and prior content briefs already fix the direction, or the orchestrator delegated judgment.
+  CLARIFY_TRIGGER: >-
+    audience, tone, key messages, or format and length are unstated and would change the
+    whole draft
+  CLARIFY_ARTIFACT: >-
+    the content specification or any public-facing draft
+  CLARIFY_BYPASS: >-
+    a design system and prior briefs fix the direction
 ---
 
 # Technical Content Writer
