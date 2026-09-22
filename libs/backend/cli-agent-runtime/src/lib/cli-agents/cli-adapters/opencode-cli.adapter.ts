@@ -733,6 +733,14 @@ export class OpencodeCliAdapter implements CliAdapter {
       tokens.output ?? 0
     } output tokens`;
     emitOutput(`\n[${usageStr}]\n`);
-    emitSegment({ type: 'info', content: usageStr });
+    emitSegment({
+      type: 'info',
+      content: usageStr,
+      usage: {
+        inputTokens: tokens.input,
+        outputTokens: tokens.output,
+        costUsd: part.cost,
+      },
+    });
   }
 }

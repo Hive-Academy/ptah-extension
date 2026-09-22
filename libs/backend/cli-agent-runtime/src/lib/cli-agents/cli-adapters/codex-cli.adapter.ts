@@ -1110,7 +1110,14 @@ export class CodexCliAdapter implements CliAdapter {
     if (event.usage) {
       const usageStr = `Usage: ${event.usage.input_tokens} input, ${event.usage.output_tokens} output tokens`;
       emitOutput(`\n[${usageStr}]\n`);
-      emitSegment({ type: 'info', content: usageStr });
+      emitSegment({
+        type: 'info',
+        content: usageStr,
+        usage: {
+          inputTokens: event.usage.input_tokens,
+          outputTokens: event.usage.output_tokens,
+        },
+      });
     }
   }
 

@@ -746,7 +746,11 @@ describe('AntigravityCliAdapter', () => {
       await handle.done;
 
       expect(segments).toEqual([
-        { type: 'info', content: 'Usage: 168 output tokens' },
+        {
+          type: 'info',
+          content: 'Usage: 168 output tokens',
+          usage: { outputTokens: 168 },
+        },
       ]);
     });
 
@@ -766,7 +770,11 @@ describe('AntigravityCliAdapter', () => {
       await handle.done;
 
       expect(segments).toEqual([
-        { type: 'info', content: 'Usage: 11867 total tokens' },
+        {
+          type: 'info',
+          content: 'Usage: 11867 total tokens',
+          usage: { totalTokens: 11867 },
+        },
       ]);
     });
 
