@@ -334,6 +334,14 @@ export type CliOutputSegmentType =
 export interface CliOutputSegment {
   readonly type: CliOutputSegmentType;
   readonly content: string;
+  readonly usage?: {
+    readonly model?: string;
+    readonly inputTokens?: number;
+    readonly outputTokens?: number;
+    readonly totalTokens?: number;
+    readonly costUsd?: number;
+    readonly durationMs?: number;
+  };
   /** Tool name (for tool-call, tool-result, tool-result-error) */
   readonly toolName?: string;
   /** Summarized tool arguments (for tool-call) */
