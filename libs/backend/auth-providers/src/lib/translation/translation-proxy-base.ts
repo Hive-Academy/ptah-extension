@@ -3,9 +3,9 @@
  *
  * Abstract base class for local HTTP proxy servers that translate between
  * the Anthropic Messages API (used by Claude Agent SDK) and the OpenAI
- * Chat Completions API (used by Copilot, Codex, and other providers).
+ * Chat Completions and Responses APIs, or relay native Messages unchanged.
  *
- * The SDK sends Anthropic-format requests to this proxy, which:
+ * For translated lanes, the SDK sends Anthropic-format requests and the proxy:
  * 1. Translates the request to OpenAI format
  * 2. Forwards to the upstream API with proper auth headers
  * 3. Translates the OpenAI streaming response back to Anthropic format
@@ -25,6 +25,7 @@
 
 import * as http from 'http';
 import * as https from 'https';
+import { z } from 'zod';
 import { Logger } from '@ptah-extension/vscode-core';
 import type {
   ITranslationProxy,
@@ -59,7 +60,23 @@ export interface TranslationProxyConfig {
   completionsPath: string;
   /** Path for the upstream responses endpoint (e.g., '/responses', '/v1/responses'). Defaults to '/responses'. */
   responsesPath?: string;
+  /** Native providers retain their versioned base when this suffix is appended. */
+  messagesPath?: string;
 }
+
+// Native providers can add fields and block types without a translator release.
+const messagesEnvelopeSchema = z.object({
+  model: z.string().refine((model) => model.trim().length > 0),
+  max_tokens: z.number().int().positive(),
+  messages: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.union([
+      z.string(),
+      z.array(z.object({ type: z.string() }).passthrough()),
+    ]),
+  }).passthrough()),
+  stream: z.boolean().optional(),
+}).passthrough();
 
 export interface ProxyPhaseTimingRecord {
   requestId: string;
@@ -332,25 +349,25 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     );
   }
 
-  /**
-   * Handle POST /v1/messages:
-   * 1. Parse Anthropic request body
-   * 2. Determine API endpoint (Chat Completions vs Responses API)
-   * 3. Translate to appropriate OpenAI format
-   * 4. Forward to upstream API with auth headers
-   * 5. Translate response back to Anthropic format
-   */
+  /** Native messages branch before translation so provider-specific fields survive. */
   private async handleMessages(
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): Promise<void> {
     const requestReceivedAt = this.timing.now();
     const requestId = this.generateRequestId();
-    let anthropicRequest: AnthropicMessagesRequest;
+    let body: string;
+    let envelope: z.infer<typeof messagesEnvelopeSchema>;
     try {
-      const body = await readBody(req);
-      anthropicRequest = JSON.parse(body);
-    } catch (err) {
+      body = await readBody(req);
+      const parsed: unknown = JSON.parse(body);
+      const result = messagesEnvelopeSchema.safeParse(parsed);
+      if (!result.success) {
+        sendErrorResponse(res, 400, 'invalid_request_error', 'Invalid Messages request: expected a nonempty model, positive max_tokens and messages array');
+        return;
+      }
+      envelope = result.data;
+    } catch (err: unknown) {
       const message =
         err instanceof Error && err.message.includes('exceeds')
           ? err.message
@@ -360,22 +377,53 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       sendErrorResponse(res, status, 'invalid_request_error', message);
       return;
     }
-    anthropicRequest.model = this.normalizeModelId(anthropicRequest.model);
+    const suppliedModel = envelope.model;
+    envelope.model = this.normalizeModelId(suppliedModel);
     const requestTiming: RequestTimingContext = {
       requestReceivedAt,
       requestParsedAt: this.timing.now(),
     };
 
-    const useResponsesApi = this.shouldUseResponsesApi(anthropicRequest.model);
+    const protocol = this.resolveUpstreamProtocol(envelope.model);
+    if (protocol === undefined) {
+      sendErrorResponse(res, 400, 'invalid_request_error',
+        `Model '${envelope.model}' is not supported by ${this.config.name} in this Ptah version. Choose a listed model or update Ptah.`);
+      return;
+    }
 
     this.logger.debug(
-      `${this.logPrefix} [${requestId}] Translating request for model: ${anthropicRequest.model}, ` +
-        `stream: ${!!anthropicRequest.stream}, messages: ${
-          anthropicRequest.messages?.length ?? 0
-        }, api: ${useResponsesApi ? 'responses' : 'completions'}`,
+      `${this.logPrefix} [${requestId}] Forwarding request for model: ${envelope.model}, ` +
+        `stream: ${!!envelope.stream}, messages: ${envelope.messages.length}, api: ${protocol}`,
     );
 
-    if (useResponsesApi) {
+    if (protocol === 'messages') {
+      const version = req.headers['anthropic-version'];
+      if (typeof version !== 'string' || !version.trim()) {
+        sendErrorResponse(res, 400, 'invalid_request_error', 'Native Messages requires the anthropic-version header');
+        return;
+      }
+      const protocolHeaders: Record<string, string> = { 'anthropic-version': version };
+      const beta = req.headers['anthropic-beta'];
+      if (typeof beta === 'string') protocolHeaders['anthropic-beta'] = beta;
+      // Keep concrete-model bytes intact; alias normalization changes only model.
+      const nativeBody = suppliedModel === envelope.model ? body : JSON.stringify({
+        ...JSON.parse(body) as Record<string, unknown>, model: envelope.model,
+      });
+      try {
+        await this.forwardToMessagesApi(nativeBody, envelope, protocolHeaders, res, requestId, false, requestTiming);
+      } catch (error: unknown) {
+        this.logger.error(`${this.logPrefix} [${requestId}] Native forwarding failed: ${error instanceof Error ? error.message : String(error)}`);
+        if (!res.headersSent) {
+          sendErrorResponse(res, 500, 'api_error', `Failed to communicate with ${this.config.name} API`);
+        } else {
+          res.destroy();
+        }
+      }
+      return;
+    }
+
+    const anthropicRequest = envelope as AnthropicMessagesRequest;
+    if (protocol === 'responses') {
       const responsesRequest = translateAnthropicToResponses(anthropicRequest, {
         modelPrefix: this.config.modelPrefix,
       });
@@ -389,7 +437,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           false,
           requestTiming,
         );
-      } catch (error) {
+      } catch (error: unknown) {
         if (!res.headersSent) {
           this.logger.error(
             `${
@@ -420,7 +468,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           false,
           requestTiming,
         );
-      } catch (error) {
+      } catch (error: unknown) {
         if (!res.headersSent) {
           this.logger.error(
             `${this.logPrefix} [${requestId}] Forward failed: ${
@@ -448,14 +496,63 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   }
 
   /**
-   * Determine whether a model should use the Responses API (/responses)
-   * instead of Chat Completions (/chat/completions).
-   *
-   * Default: returns false (Chat Completions only).
-   * Subclasses that support dual-endpoint routing should override.
+   * A provider can refuse a model without opening an upstream connection.
+   * Existing OpenAI-compatible gateways default to Chat Completions.
    */
-  protected shouldUseResponsesApi(_modelId: string): boolean {
-    return false;
+  protected resolveUpstreamProtocol(
+    _modelId: string,
+  ): 'messages' | 'chat/completions' | 'responses' | undefined {
+    return 'chat/completions';
+  }
+
+  protected getAuthFailureMessage(): string {
+    return `${this.config.name} token refresh failed. Please re-authenticate.`;
+  }
+
+  protected getUpstreamErrorMessage(status: number, body: string): string {
+    return `${this.config.name} API error (${status}): ${body.substring(0, 200)}`;
+  }
+
+  private async forwardToMessagesApi(
+    requestBody: string,
+    originalRequest: Pick<AnthropicMessagesRequest, 'model' | 'stream'>,
+    protocolHeaders: Record<string, string>,
+    res: http.ServerResponse,
+    requestId: string,
+    isRetry: boolean,
+    timing: RequestTimingContext,
+  ): Promise<void> {
+    return this.forwardToApi({
+      requestBody,
+      originalRequest,
+      protocolHeaders,
+      path: this.config.messagesPath ?? '/messages',
+      res, requestId, isRetry, timing,
+      apiLabel: 'Messages API',
+      onStreamingSuccess: (upstream, client) => this.relayNativeResponse(upstream, client),
+      onNonStreamingSuccess: (upstream, client) => this.relayNativeResponse(upstream, client),
+      retryFn: (retry) => this.forwardToMessagesApi(
+        requestBody, originalRequest, protocolHeaders, res, requestId, retry, timing,
+      ),
+    });
+  }
+
+  /** pipe preserves bytes and applies backpressure to both JSON and SSE. */
+  private relayNativeResponse(upstream: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const headers: http.OutgoingHttpHeaders = {};
+      for (const name of ['content-type', 'cache-control', 'request-id']) {
+        const value = upstream.headers[name];
+        if (value !== undefined) headers[name] = value;
+      }
+      upstream.once('error', reject);
+      upstream.once('close', () => {
+        if (!upstream.complete) reject(new Error('Native upstream response closed before completion'));
+      });
+      upstream.once('end', resolve);
+      res.writeHead(upstream.statusCode ?? 200, headers);
+      upstream.pipe(res);
+    });
   }
 
   protected requiresResponsesStream(_target: URL): boolean {
@@ -567,15 +664,16 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   }
 
   /**
-   * Shared forwarding logic for both Chat Completions and Responses API paths.
+   * Shared forwarding lifecycle for native Messages, Chat and Responses.
    * Handles auth, 401 retry, 429 rate limit, error status codes, timeout,
    * and dispatches to the appropriate streaming/non-streaming success handler.
    */
   private async forwardToApi(params: {
     requestBody: string;
+    protocolHeaders?: Record<string, string>;
     endpoint?: string;
     path: string;
-    originalRequest: AnthropicMessagesRequest;
+    originalRequest: Pick<AnthropicMessagesRequest, 'model' | 'stream'>;
     res: http.ServerResponse;
     requestId: string;
     isRetry: boolean;
@@ -587,7 +685,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       requestId: string,
       onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void,
       onTranslationError: () => void,
-    ) => void;
+    ) => void | Promise<void>;
     onNonStreamingSuccess: (
       proxyRes: http.IncomingMessage,
       res: http.ServerResponse,
@@ -683,11 +781,22 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           method: 'POST',
           timeout: this.getUpstreamTimeoutMs(), // production default remains 10 minutes
           headers: {
+            ...params.protocolHeaders,
             ...headers,
             'Content-Length': Buffer.byteLength(requestBody).toString(),
           },
         },
         (proxyRes) => {
+          const failResponse = (error: unknown) => {
+            finishTiming('invalid-response');
+            if (res.headersSent) res.destroy();
+            proxyRes.destroy();
+            reject(error);
+          };
+          proxyRes.once('error', failResponse);
+          proxyRes.once('close', () => {
+            if (!proxyRes.complete) failResponse(new Error('Upstream response closed before completion'));
+          });
           timingRecord.upstreamResponseAt = this.timing.now();
           proxyRes.on('data', (chunk: Buffer | string) => {
             timingRecord.firstByteAt ??= this.timing.now();
@@ -711,7 +820,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
                     res,
                     401,
                     'authentication_error',
-                    `${this.config.name} token refresh failed. Please re-authenticate.`,
+                    this.getAuthFailureMessage(),
                   );
                   resolve();
                 }
@@ -766,21 +875,15 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             proxyRes.on('end', () => {
               finishTiming('upstream-error');
               const errorBody = Buffer.concat(chunks).toString('utf8');
+              const errorMessage = this.getUpstreamErrorMessage(statusCode, errorBody);
               this.logger.error(
-                `${this.logPrefix} [${requestId}] ${
-                  this.config.name
-                } ${apiLabel} error ${statusCode}: ${errorBody.substring(
-                  0,
-                  500,
-                )}`,
+                `${this.logPrefix} [${requestId}] ${errorMessage}`,
               );
               sendErrorResponse(
                 res,
                 statusCode,
                 'api_error',
-                `${
-                  this.config.name
-                } API error (${statusCode}): ${errorBody.substring(0, 200)}`,
+                errorMessage,
               );
               resolve();
             });
@@ -791,38 +894,24 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           // what lets a subscription that refilled early be used immediately;
           // waiting out the full cooldown would gate a provider that works.
           this.noteUpstreamQuota(false);
-          if (originalRequest.stream) {
-            let translationFailed = false;
-            onStreamingSuccess(
+          let translationFailed = false;
+          const complete = () => {
+            finishTiming(translationFailed ? 'invalid-response' : 'success');
+            resolve();
+          };
+          try {
+            const handler = originalRequest.stream ? onStreamingSuccess : onNonStreamingSuccess;
+            const completion = handler(
               proxyRes, res, originalRequest.model, requestId, captureUsage,
               () => { translationFailed = true; },
             );
-            proxyRes.on('end', () => {
-              finishTiming(translationFailed ? 'invalid-response' : 'success');
-              resolve();
-            });
-            proxyRes.on('error', (err) => {
-              finishTiming('network-error');
-              reject(err);
-            });
-          } else {
-            let translationFailed = false;
-            onNonStreamingSuccess(
-              proxyRes,
-              res,
-              originalRequest.model,
-              requestId,
-              captureUsage,
-              () => { translationFailed = true; },
-            )
-              .then(() => {
-                finishTiming(translationFailed ? 'invalid-response' : 'success');
-                resolve();
-              })
-              .catch((error: unknown) => {
-                finishTiming('invalid-response');
-                reject(error);
-              });
+            if (completion) {
+              completion.then(complete).catch(failResponse);
+            } else {
+              proxyRes.once('end', complete);
+            }
+          } catch (error: unknown) {
+            failResponse(error);
           }
         },
       );
@@ -840,6 +929,8 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             'api_error',
             `${this.config.name} API request timed out`,
           );
+        } else {
+          res.destroy();
         }
         resolve();
       });
