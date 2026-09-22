@@ -1,6 +1,8 @@
 export * from './lib/services';
+export * from './lib/services/providers-settings-state.service';
 export { PeerSessionFacade } from './lib/services/peer-session.facade';
 export { LogLevel, type LoggingConfig } from './lib/services/logging.service';
+
 export {
   SESSION_DATA_PROVIDER,
   type ISessionDataProvider,

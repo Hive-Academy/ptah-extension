@@ -23,6 +23,7 @@ import type {
   SkillSynthesisCandidateScope,
   SkillSynthesisCandidateSummary,
   SkillSynthesisSettingsDto,
+  SkillSynthesisSettingsWriteDto,
   SkillSynthesisRunCuratorResult,
 } from '@ptah-extension/shared';
 
@@ -52,11 +53,7 @@ import {
 type ActionKind = 'promote' | 'reject';
 
 type SkillSubView =
-  | 'candidates'
-  | 'suggestions'
-  | 'activity'
-  | 'clones'
-  | 'settings';
+  'candidates' | 'suggestions' | 'activity' | 'clones' | 'settings';
 
 interface ActionDialogState {
   readonly kind: ActionKind;
@@ -1329,10 +1326,10 @@ export function skillSettingsDtoToForm(
  */
 export function skillSettingsFormToDto(
   value: SkillSettingsFormValue,
-): SkillSynthesisSettingsDto {
+): Partial<SkillSynthesisSettingsWriteDto> {
   const { drain, budget, ...flat } = value;
   return {
-    ...(flat as unknown as SkillSynthesisSettingsDto),
+    ...(flat as Partial<SkillSynthesisSettingsWriteDto>),
     'drain.cronExpr': drain.cronExpr,
     'drain.nightlyCronExpr': drain.nightlyCronExpr,
     'drain.weeklyCronExpr': drain.weeklyCronExpr,

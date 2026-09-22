@@ -2712,6 +2712,13 @@ export interface SkillSynthesisSettingsDto {
   judgeEnabled: boolean;
   minJudgeScore: number;
   judgeModel: string;
+  judgeProvider: string;
+  enhanceTimeoutMs: {
+    value: number;
+    default: number;
+    min: number;
+    max: number;
+  };
   maxPinnedSkills: number;
   curatorEnabled: boolean;
   curatorIntervalHours: number;
@@ -2744,8 +2751,13 @@ export interface SkillSynthesisGetSettingsResult {
   settings: SkillSynthesisSettingsDto;
 }
 
+export type SkillSynthesisSettingsWriteDto = Omit<
+  SkillSynthesisSettingsDto,
+  'enhanceTimeoutMs'
+> & { enhanceTimeoutMs: number };
+
 export interface SkillSynthesisUpdateSettingsParams {
-  settings: Partial<SkillSynthesisSettingsDto>;
+  settings: Partial<SkillSynthesisSettingsWriteDto>;
 }
 export interface SkillSynthesisUpdateSettingsResult {
   updated: boolean;
