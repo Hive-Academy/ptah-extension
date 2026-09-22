@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_512_feaa
-status: in_progress
+status: done
 type: bugfix
 title: Notification Center labels every finished session "Failed"
 description: >-

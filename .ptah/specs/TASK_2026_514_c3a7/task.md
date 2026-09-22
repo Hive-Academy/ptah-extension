@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: bugfix
 title: Harness builder — proposeConfig rejects record fields sent as lists
 description: >-

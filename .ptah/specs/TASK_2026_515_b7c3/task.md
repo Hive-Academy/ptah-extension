@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_515_b7c3
-status: in_review
+status: done
 type: FEATURE
 title: >-
   Push a completion signal from a CLI agent lane to the orchestrator session

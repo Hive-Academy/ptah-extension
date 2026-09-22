@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_490_583c
-status: in_review
+status: done
 type: RESEARCH
 title: >-
   Generative UI for Ptah - CopilotKit Angular, AG-UI, A2UI and MCP Apps
