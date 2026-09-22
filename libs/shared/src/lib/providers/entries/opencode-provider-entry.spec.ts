@@ -357,7 +357,10 @@ describe('OpenCode Provider Entries', () => {
         ).toBe(true);
         expect(model.name).toBe(model.id);
         expect(model.contextLength).toBe(0);
-        expect(model.supportsToolUse).toBe(false);
+        // Measured, not assumed: all 103 models on GET /api/model reported
+        // capabilities.tools true. A false here empties the list for any
+        // caller passing toolUseOnly.
+        expect(model.supportsToolUse).toBe(true);
         expect(model.inputCostPerToken).toBeUndefined();
         expect(model.outputCostPerToken).toBeUndefined();
       }
@@ -374,7 +377,10 @@ describe('OpenCode Provider Entries', () => {
         ).toBe(true);
         expect(model.name).toBe(model.id);
         expect(model.contextLength).toBe(0);
-        expect(model.supportsToolUse).toBe(false);
+        // Measured, not assumed: all 103 models on GET /api/model reported
+        // capabilities.tools true. A false here empties the list for any
+        // caller passing toolUseOnly.
+        expect(model.supportsToolUse).toBe(true);
         expect(model.inputCostPerToken).toBeUndefined();
         expect(model.outputCostPerToken).toBeUndefined();
       }

@@ -42,6 +42,8 @@ import type {
 } from '@ptah-extension/shared';
 import {
   setCustomProviderEntries,
+  getAnthropicProvider,
+  getProviderAuthEnvVar,
   clearCustomProviderEntries,
 } from '@ptah-extension/shared';
 import {
@@ -62,6 +64,7 @@ import type { ITranslationProxy } from '../../translation';
 import type { ProviderModelsService } from '../../provider-models.service';
 import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../../providers/openrouter';
 import { SAKANA_PROXY_TOKEN_PLACEHOLDER } from '../../providers/sakana';
+import { OPENCODE_PROXY_TOKEN_PLACEHOLDER } from '../../providers/opencode';
 import { CUSTOM_PROXY_TOKEN_PLACEHOLDER } from '../../providers/custom';
 
 // ---------------------------------------------------------------------------
@@ -194,6 +197,8 @@ interface Harness {
   providerModels: jest.Mocked<ProviderModelsSurface>;
   openRouterProxy: jest.Mocked<ITranslationProxy>;
   sakanaProxy: jest.Mocked<ITranslationProxy>;
+  zenProxy: jest.Mocked<ITranslationProxy>;
+  goProxy: jest.Mocked<ITranslationProxy>;
   authEnv: AuthEnv;
 }
 
@@ -213,6 +218,8 @@ function makeStrategy(
   const providerModels = createMockProviderModels();
   const openRouterProxy = createMockProxy();
   const sakanaProxy = createMockProxy();
+  const zenProxy = createMockProxy();
+  const goProxy = createMockProxy();
   const sentry = createMockSentryService();
   const authEnv: AuthEnv = {};
 
@@ -222,8 +229,28 @@ function makeStrategy(
     authSecrets as unknown as IAuthSecretsService,
     providerModels as unknown as ProviderModelsService,
     authEnv,
-    openRouterProxy,
-    sakanaProxy,
+    [
+      {
+        providerId: 'openrouter',
+        proxy: openRouterProxy,
+        placeholder: OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+      },
+      {
+        providerId: 'sakana',
+        proxy: sakanaProxy,
+        placeholder: SAKANA_PROXY_TOKEN_PLACEHOLDER,
+      },
+      {
+        providerId: 'opencode-zen',
+        proxy: zenProxy,
+        placeholder: OPENCODE_PROXY_TOKEN_PLACEHOLDER,
+      },
+      {
+        providerId: 'opencode-go',
+        proxy: goProxy,
+        placeholder: OPENCODE_PROXY_TOKEN_PLACEHOLDER,
+      },
+    ],
     sentry as unknown as SentryService,
   );
 
@@ -235,11 +262,138 @@ function makeStrategy(
     providerModels,
     openRouterProxy,
     sakanaProxy,
+    zenProxy,
+    goProxy,
     authEnv,
   };
 }
 
 describe('ApiKeyStrategy', () => {
+  describe('existing provider regression pins', () => {
+    it.each(['openrouter', 'sakana'] as const)(
+      '%s retains its singleton proxy and placeholder',
+      async (providerId) => {
+        const h = makeStrategy({
+          providerKeys: { [providerId]: 'stored-key' },
+        });
+        const proxy =
+          providerId === 'openrouter' ? h.openRouterProxy : h.sakanaProxy;
+        proxy.start.mockResolvedValue({
+          port: 3456,
+          url: 'http://127.0.0.1:3456',
+        });
+        expect(
+          (await h.strategy.configure(makeContext(providerId, h.authEnv)))
+            .configured,
+        ).toBe(true);
+        expect(proxy.start).toHaveBeenCalledTimes(1);
+        expect(h.authEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:3456');
+        expect(h.authEnv.ANTHROPIC_AUTH_TOKEN).toBe(
+          providerId === 'openrouter'
+            ? OPENROUTER_PROXY_TOKEN_PLACEHOLDER
+            : SAKANA_PROXY_TOKEN_PLACEHOLDER,
+        );
+        expect(h.authEnv.ANTHROPIC_API_KEY).toBe('');
+        expect(h.providerModels.switchActiveProvider).toHaveBeenCalledWith(
+          providerId,
+          { apiKey: 'stored-key' },
+        );
+        expect(h.zenProxy.start).not.toHaveBeenCalled();
+        expect(h.goProxy.start).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['moonshot', 'z-ai', 'requesty'] as const)(
+      '%s retains native passthrough and starts no proxy',
+      async (providerId) => {
+        const h = makeStrategy({
+          providerKeys: { [providerId]: 'stored-key' },
+        });
+        expect(getAnthropicProvider(providerId)?.requiresProxy).not.toBe(true);
+        expect(
+          (await h.strategy.configure(makeContext(providerId, h.authEnv)))
+            .configured,
+        ).toBe(true);
+        expect(h.authEnv.ANTHROPIC_BASE_URL).toBe(
+          getAnthropicProvider(providerId)?.baseUrl,
+        );
+        expect(h.authEnv[getProviderAuthEnvVar(providerId)]).toBe('stored-key');
+        for (const proxy of [
+          h.openRouterProxy,
+          h.sakanaProxy,
+          h.zenProxy,
+          h.goProxy,
+        ]) {
+          expect(proxy.start).not.toHaveBeenCalled();
+        }
+        expect(mockCustomProxyFactory).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  it.each(['opencode-zen', 'opencode-go'] as const)(
+    '%s uses only its own binding and secret',
+    async (providerId) => {
+      const h = makeStrategy({ providerKeys: { [providerId]: ' own-key ' } });
+      const proxy = providerId === 'opencode-zen' ? h.zenProxy : h.goProxy;
+      proxy.start.mockResolvedValue({
+        port: 3457,
+        url: 'http://127.0.0.1:3457',
+      });
+      expect(
+        (await h.strategy.configure(makeContext(providerId, h.authEnv)))
+          .configured,
+      ).toBe(true);
+      expect(h.authEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:3457');
+      expect(h.authEnv.ANTHROPIC_AUTH_TOKEN).toBe(
+        OPENCODE_PROXY_TOKEN_PLACEHOLDER,
+      );
+      expect(h.authEnv.ANTHROPIC_API_KEY).toBe('');
+      expect(h.authSecrets.getProviderKey).toHaveBeenCalledWith(providerId);
+      expect(h.providerModels.switchActiveProvider).toHaveBeenCalledWith(
+        providerId,
+        { apiKey: 'own-key' },
+      );
+    },
+  );
+
+  it.each(['opencode-zen', 'opencode-go'] as const)(
+    '%s cannot use the other subscription key',
+    async (providerId) => {
+      const other =
+        providerId === 'opencode-zen' ? 'opencode-go' : 'opencode-zen';
+      const h = makeStrategy({ providerKeys: { [other]: 'other-key' } });
+      const result = await h.strategy.configure(
+        makeContext(providerId, h.authEnv),
+      );
+      expect(result.configured).toBe(false);
+      expect(result.errorMessage).toBe(
+        `No ${getAnthropicProvider(providerId)?.name} API key configured. Add one in Settings.`,
+      );
+      expect(h.zenProxy.start).not.toHaveBeenCalled();
+      expect(h.goProxy.start).not.toHaveBeenCalled();
+      expect(h.authEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+    },
+  );
+
+  it('switches Zen to Go and tears down only owned running proxies', async () => {
+    const h = makeStrategy({ providerKeys: { 'opencode-go': 'go-key' } });
+    h.zenProxy.isRunning.mockReturnValue(true);
+    h.goProxy.start.mockResolvedValue({
+      port: 3458,
+      url: 'http://127.0.0.1:3458',
+    });
+    await h.strategy.configure(makeContext('opencode-go', h.authEnv));
+    expect(h.zenProxy.stop).toHaveBeenCalledTimes(1);
+    expect(h.goProxy.stop).not.toHaveBeenCalled();
+    expect(h.openRouterProxy.stop).not.toHaveBeenCalled();
+    expect(h.sakanaProxy.stop).not.toHaveBeenCalled();
+    h.zenProxy.isRunning.mockReturnValue(false);
+    h.goProxy.isRunning.mockReturnValue(true);
+    await h.strategy.teardown();
+    expect(h.goProxy.stop).toHaveBeenCalledTimes(1);
+  });
+
   beforeEach(() => {
     // mockReset (not clear) so a queued mockImplementationOnce can never leak
     // from a test that did not consume it into the next one.

@@ -58,9 +58,26 @@ export const OPENCODE_GO_DEFAULT_TIERS = {
 /**
  * Build static models for an OpenCode subscription from its route table.
  *
- * Context length and tool use are set to unverified defaults (0 and false)
- * until independent capability evidence exists. Cost fields are intentionally
- * omitted so `seedStaticModelPricing` never seeds unverified prices.
+ * `supportsToolUse: true` is MEASURED, not assumed. The opencode background
+ * service was probed at `GET /api/model` on 2026-09-22 (opencode 2.0.12) and
+ * every one of the 103 models it reported carried `capabilities.tools: true`
+ * — both subscriptions, all three protocols. `false` was the actively harmful
+ * value: `fetchModels(..., toolUseOnly)` filters on this flag, so a `false`
+ * here empties the OpenCode list entirely on any surface that asks for
+ * tool-capable models, which for a coding-agent gateway is every model it
+ * sells. No in-repo caller passes `toolUseOnly: true` today, so this was
+ * latent rather than live — but it is still the wrong answer.
+ *
+ * `contextLength: 0` stays as the unverified default, deliberately. The probe
+ * reports real per-model windows (128K to 1.05M), but only for the subset this
+ * account can reach, and neither entry declares a `modelsEndpoint` to correct
+ * a guess later. Zero is safe rather than wrong: `registerModelContextWindows`
+ * skips any entry `<= 0` (`pricing.utils.ts:404`), so these models are treated
+ * as "window unknown" instead of "window zero". Populating it needs the full
+ * 97-model table, which is follow-up work.
+ *
+ * Cost fields are intentionally omitted so `seedStaticModelPricing` never
+ * seeds unverified prices.
  */
 function buildOpenCodeStaticModels(
   providerId: OpenCodeProviderId,
@@ -70,9 +87,9 @@ function buildOpenCodeStaticModels(
   return Object.keys(routes).map((id) => ({
     id,
     name: id,
-    description: `${id} via OpenCode ${subscriptionLabel} (unverified capability metadata)`,
+    description: `${id} via OpenCode ${subscriptionLabel}`,
     contextLength: 0,
-    supportsToolUse: false,
+    supportsToolUse: true,
   }));
 }
 

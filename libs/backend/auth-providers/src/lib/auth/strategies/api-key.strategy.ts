@@ -29,6 +29,7 @@ import type { SentryService } from '@ptah-extension/vscode-core';
 import type { AuthEnv, AnthropicProvider } from '@ptah-extension/shared';
 import type {
   IAuthStrategy,
+  ApiKeyProxyBinding,
   AuthConfigureResult,
   AuthConfigureContext,
 } from '../auth-strategy.types';
@@ -36,6 +37,7 @@ import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
 import type { ProviderModelsService } from '../../provider-models.service';
 import {
   isCustomProviderId,
+  isOpenCodeProviderId,
   getAnthropicProvider,
   getProviderBaseUrl,
   getProviderAuthEnvVar,
@@ -43,15 +45,10 @@ import {
   ANTHROPIC_DIRECT_PROVIDER_ID,
 } from '@ptah-extension/shared';
 import type { ITranslationProxy } from '../../translation';
-import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../../providers/openrouter';
-import { SAKANA_PROXY_TOKEN_PLACEHOLDER } from '../../providers/sakana';
 import {
   createCustomOpenAiProxy,
   CUSTOM_PROXY_TOKEN_PLACEHOLDER,
 } from '../../providers/custom';
-
-/** Provider ID for OpenRouter — matches ANTHROPIC_PROVIDERS registry entry */
-const OPENROUTER_PROVIDER_ID = 'openrouter';
 
 /**
  * Outcome of resolving a proxy instance for a `requiresProxy` provider.
@@ -88,10 +85,8 @@ export class ApiKeyStrategy implements IAuthStrategy {
     private readonly providerModels: ProviderModelsService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_PROXY)
-    private readonly openRouterProxy: ITranslationProxy,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_SAKANA_PROXY)
-    private readonly sakanaProxy: ITranslationProxy,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_API_KEY_PROXY_BINDINGS)
+    private readonly builtInProxyProviders: readonly ApiKeyProxyBinding[],
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
@@ -103,31 +98,6 @@ export class ApiKeyStrategy implements IAuthStrategy {
    * provider reuses its already-listening proxy instead of leaking a new one.
    */
   private readonly customProxies = new Map<string, CustomProxyEntry>();
-
-  /**
-   * Translation proxy + placeholder token for each BUILT-IN apiKey provider
-   * that requires a local proxy (`requiresProxy: true`). These are DI
-   * singletons; user-defined entries are resolved separately in
-   * {@link resolveProxyForProvider}.
-   */
-  private get builtInProxyProviders(): ReadonlyArray<{
-    providerId: string;
-    proxy: ITranslationProxy;
-    placeholder: string;
-  }> {
-    return [
-      {
-        providerId: OPENROUTER_PROVIDER_ID,
-        proxy: this.openRouterProxy,
-        placeholder: OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
-      },
-      {
-        providerId: 'sakana',
-        proxy: this.sakanaProxy,
-        placeholder: SAKANA_PROXY_TOKEN_PLACEHOLDER,
-      },
-    ];
-  }
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
     const { providerId, authEnv, envSnapshot } = context;
@@ -203,6 +173,12 @@ export class ApiKeyStrategy implements IAuthStrategy {
     // strategy (Copilot/Codex -> OAuthProxyStrategy, LM Studio ->
     // LocalProxyStrategy), so return undefined and let the caller fall through
     // exactly as it did before this path existed.
+    if (isOpenCodeProviderId(providerId)) {
+      return {
+        kind: 'unavailable',
+        errorMessage: `${this.providerDisplayName(providerId)} translation proxy is unavailable. Try restarting.`,
+      };
+    }
     if (!isCustomProviderId(providerId)) {
       return undefined;
     }
@@ -385,7 +361,9 @@ export class ApiKeyStrategy implements IAuthStrategy {
       return {
         configured: false,
         details: [],
-        errorMessage: `No ${providerName} API key configured. Add one in Settings, or choose a different provider.`,
+        errorMessage: isOpenCodeProviderId(providerId)
+          ? `No ${providerName} API key configured. Add one in Settings.`
+          : `No ${providerName} API key configured. Add one in Settings, or choose a different provider.`,
       };
     }
 
@@ -428,7 +406,7 @@ export class ApiKeyStrategy implements IAuthStrategy {
           `[${this.name}] ${providerName} translation proxy started at ${proxyUrl}`,
         );
       }
-    } catch (error) {
+    } catch (error: unknown) {
       this.sentryService.captureException(
         error instanceof Error ? error : new Error(String(error)),
         {

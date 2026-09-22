@@ -44,7 +44,14 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { AnthropicProvider } from '@ptah-extension/shared';
-import { isCustomProviderId } from '@ptah-extension/shared';
+import {
+  isCustomProviderId,
+  isOpenCodeProviderId,
+} from '@ptah-extension/shared';
+import {
+  createOpenCodeProxyForKey,
+  OPENCODE_PROXY_TOKEN_PLACEHOLDER,
+} from '../providers/opencode';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ITranslationProxy } from '../translation';
 import {
@@ -159,19 +166,21 @@ export class ProviderProxyPool {
     // Resolve the credential fingerprint up front so a changed Sakana key or a
     // re-pointed custom entry invalidates the cached entry BEFORE we decide to
     // reuse it.
-    let sakanaKey: string | undefined;
+    let keyBoundApiKey: string | undefined;
     let customBaseUrl: string | undefined;
     let credentialKey = CONSTANT_CREDENTIAL_KEY;
-    if (providerId === 'sakana') {
-      sakanaKey = (await this.authSecrets.getProviderKey('sakana'))?.trim();
-      if (!sakanaKey) {
+    if (providerId === 'sakana' || isOpenCodeProviderId(providerId)) {
+      keyBoundApiKey = (
+        await this.authSecrets.getProviderKey(providerId)
+      )?.trim();
+      if (!keyBoundApiKey) {
         this.logger.warn(
-          '[ProviderProxyPool] Sakana selected for workspace but no API key is stored — declining isolated proxy (workspace falls back to global auth).',
+          `[ProviderProxyPool] ${provider.name} selected for workspace but no API key is stored - declining isolated proxy (workspace falls back to global auth).`,
           { workspacePath },
         );
         return undefined;
       }
-      credentialKey = `sakana:${sakanaKey}`;
+      credentialKey = `${providerId}:${keyBoundApiKey}`;
     } else if (isCustomProviderId(providerId)) {
       customBaseUrl = this.resolveCustomProviderBaseUrl(providerId, provider);
       if (!customBaseUrl) {
@@ -202,7 +211,7 @@ export class ProviderProxyPool {
     const created = await this.createProxy(
       providerId,
       provider,
-      sakanaKey,
+      keyBoundApiKey,
       customBaseUrl,
     );
     if (!created) {
@@ -244,7 +253,7 @@ export class ProviderProxyPool {
   private async createProxy(
     providerId: string,
     provider: AnthropicProvider,
-    sakanaKey: string | undefined,
+    keyBoundApiKey: string | undefined,
     customBaseUrl: string | undefined,
   ): Promise<{ proxy: ITranslationProxy; authToken: string } | undefined> {
     switch (providerId) {
@@ -271,13 +280,25 @@ export class ProviderProxyPool {
           authToken: OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
         };
       }
+      case 'opencode-zen':
+      case 'opencode-go': {
+        if (!keyBoundApiKey) return undefined;
+        return {
+          proxy: createOpenCodeProxyForKey(
+            providerId,
+            keyBoundApiKey,
+            this.logger,
+          ),
+          authToken: OPENCODE_PROXY_TOKEN_PLACEHOLDER,
+        };
+      }
       case 'sakana': {
-        if (!sakanaKey) {
+        if (!keyBoundApiKey) {
           // Guarded in acquire(); defensive only.
           return undefined;
         }
         return {
-          proxy: createSakanaProxyForKey(sakanaKey, this.logger),
+          proxy: createSakanaProxyForKey(keyBoundApiKey, this.logger),
           authToken: SAKANA_PROXY_TOKEN_PLACEHOLDER,
         };
       }
