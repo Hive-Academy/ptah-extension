@@ -38,13 +38,13 @@ Findings on self-assessed files are explicitly marked as `[Same-Author]` to ensu
 ### Serious Issues
 
 #### 1. Positional Constructor Parameter Bloat in `AuthRpcHandlers` (18 Parameters)
-- **File:** [`libs/backend/rpc-handlers/src/lib/handlers/auth-rpc.handlers.ts:228-274`](file:///D:/projects/ptah-extension/.claude-worktrees/task-523-group-d/libs/backend/rpc-handlers/src/lib/handlers/auth-rpc.handlers.ts#L228-L274)
+- **File:** [`libs/backend/rpc-handlers/src/lib/handlers/auth-rpc.handlers.ts:228-274`](libs/backend/rpc-handlers/src/lib/handlers/auth-rpc.handlers.ts#L228-L274)
 - **Problem:** The `AuthRpcHandlers` constructor accepts 18 positional dependencies. During merge operations on this branch, inserting `draftVerification` at position 15 broke downstream unit harnesses that instantiate the class positionally. This directly violates the repository architectural guardrail: *"a constructor past ~8 deps means the cut was wrong"*.
-- **Impact:** Positional instantiation in unit tests ([`auth-rpc.handlers.spec.ts:422-442`](file:///D:/projects/ptah-extension/.claude-worktrees/task-523-group-d/libs/backend/rpc-handlers/src/lib/handlers/auth-rpc.handlers.spec.ts#L422-L442)) requires 18 manual arguments cast with `as unknown as ...`. A future insertion or swap between two structurally compatible or cast types will compile without error and fail silently at runtime.
+- **Impact:** Positional instantiation in unit tests ([`auth-rpc.handlers.spec.ts:422-442`](libs/backend/rpc-handlers/src/lib/handlers/auth-rpc.handlers.spec.ts#L422-L442)) requires 18 manual arguments cast with `as unknown as ...`. A future insertion or swap between two structurally compatible or cast types will compile without error and fail silently at runtime.
 - **Fix:** Split `AuthRpcHandlers` along domain concerns into focused sub-handlers (e.g. `AuthStatusRpcHandlers`, `AuthOAuthRpcHandlers`, `AuthDraftVerificationRpcHandlers`, `AuthSettingsRpcHandlers`) each registering their own subset of the 16 RPC methods with <= 5 dependencies. For test harnesses, provide a typed builder factory `createAuthRpcHandlers(overrides?: Partial<AuthRpcDeps>)` to insulate tests from positional changes.
 
 #### 2. Handler-to-Handler Direct Coupling: `ConfigScopeRpcHandlers` Injects Concrete `AuthRpcHandlers`
-- **File:** [`libs/backend/rpc-handlers/src/lib/handlers/config-scope-rpc.handlers.ts:73, 143`](file:///D:/projects/ptah-extension/.claude-worktrees/task-523-group-d/libs/backend/rpc-handlers/src/lib/handlers/config-scope-rpc.handlers.ts#L73)
+- **File:** [`libs/backend/rpc-handlers/src/lib/handlers/config-scope-rpc.handlers.ts:73, 143`](libs/backend/rpc-handlers/src/lib/handlers/config-scope-rpc.handlers.ts#L73)
 - **Problem:** `ConfigScopeRpcHandlers` injects the entire concrete `AuthRpcHandlers` class solely to invoke `this.authHandlers.invalidateAuthStatusCache()` during scope override clears:
   ```ts
   73:  @inject(AuthRpcHandlers) private readonly authHandlers: AuthRpcHandlers,
@@ -55,13 +55,13 @@ Findings on self-assessed files are explicitly marked as `[Same-Author]` to ensu
 - **Recommendation:** Decouple auth status cache invalidation into an event on `SdkAdapterEvents` (e.g. `emitAuthSettingsChanged()`) or introduce a narrow DI token `IAuthCacheInvalidator` / `AuthStatusCacheCoordinator` that both handlers share.
 
 #### 3. Monolithic Component Scope in `ProviderSetupWizardComponent` (2,254 lines)
-- **File:** [`libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:1-2254`](file:///D:/projects/ptah-extension/.claude-worktrees/task-523-group-d/libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts#L1-L2254)
+- **File:** [`libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:1-2254`](libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts#L1-L2254)
 - **Problem:** At 2,254 lines, the wizard exceeds the repository's 700-line soft ceiling by more than 3x and triggers ESLint `max-lines` warnings (`File has too many lines (1973). Maximum allowed is 700`). The file mixes ~1,040 lines of inline template (lines 300–1338) with a 915-line component class containing the 5-step draft state machine, probe cancellation timers, OAuth polling, diagnostics translation, and commit assembly.
 - **Tradeoff:** Keeping the entire wizard in a single file avoids multi-file wiring overhead, but impairs readability, increases merge conflict surface, and slows Angular template diagnostics.
 - **Recommendation:** Apply the repository facade rule: (1) extract the inline template into `provider-setup-wizard.component.html` (saving ~1,040 lines in the `.ts` file); (2) extract `ProviderWizardDraftService` as an injected collaborator to manage the draft signals, probe timer, cancellation tokens, and commit payload assembly; and (3) extract `ProviderProbeVerificationViewComponent` for the Verify step (state machine, diagnostics disclosure, retry controls). See Agenda Item 1 for full specification.
 
 #### 4. Broad Multi-Domain Orchestration in `ProvidersSettingsStateService` (1,134 lines)
-- **File:** [`libs/frontend/core/src/lib/services/providers-settings-state.service.ts:1-1134`](file:///D:/projects/ptah-extension/.claude-worktrees/task-523-group-d/libs/frontend/core/src/lib/services/providers-settings-state.service.ts#L1-L1134)
+- **File:** [`libs/frontend/core/src/lib/services/providers-settings-state.service.ts:1-1134`](libs/frontend/core/src/lib/services/providers-settings-state.service.ts#L1-L1134)
 - **Problem:** The service exceeds the 700-line ceiling (1,134 lines) and manages state, caching, refresh logic, and mutations across six distinct domains: active route resolution, memory curation, skill lanes, judging/enhancement, CLI agent CRUD, and multi-RPC commit execution with rollback/unconfirmed tracking.
 - **Tradeoff:** Consolidating state into one service gives `ProvidersSettingsComponent` a single facade, but concentrates too much implementation logic inside one class.
 - **Recommendation:** Preserve `ProvidersSettingsStateService` as the public facade and DI token, but extract: (1) `ProvidersSettingsCommitCoordinator` (~260 lines, handling `runCommit`, multi-RPC sequencing, and partial/unconfirmed error states), and (2) `ProvidersExternalAuthCoordinator` (~150 lines, handling Copilot/Codex interactive sign-in and CLI detection). See Agenda Item 4.
@@ -71,19 +71,19 @@ Findings on self-assessed files are explicitly marked as `[Same-Author]` to ensu
 ### Minor Issues
 
 #### 5. Continued Deepening of `vscode-core` Logger Token in New Backend Service
-- **File:** [`libs/backend/auth-providers/src/lib/auth/draft-verification.service.ts:41, 131`](file:///D:/projects/ptah-extension/.claude-worktrees/task-523-group-d/libs/backend/auth-providers/src/lib/auth/draft-verification.service.ts#L41)
+- **File:** [`libs/backend/auth-providers/src/lib/auth/draft-verification.service.ts:41, 131`](libs/backend/auth-providers/src/lib/auth/draft-verification.service.ts#L41)
 - **Problem:** The newly introduced `DraftVerificationService` imports `TOKENS` from `@ptah-extension/vscode-core` and injects `@inject(TOKENS.LOGGER) private readonly logger: Logger`.
 - **Impact:** While `auth-providers` already transitively depended on `vscode-core`, adding new usages of `TOKENS.LOGGER` deepens the known logging leak that prevents deleting `vscode-shim.ts` in standalone CLI and Electron runtimes. The repository architecture guide explicitly notes: *"Do not deepen this: new backend libs must log through the PLATFORM_TOKENS.OUTPUT_CHANNEL / IOutputChannel port, already registered in all three adapters."*
 - **Fix:** In future refactoring, inject `IOutputChannel` from `@ptah-extension/platform-core` via `PLATFORM_TOKENS.OUTPUT_CHANNEL`.
 
 #### 6. [Same-Author] Inline Template Bloat in `ProviderConnectionCardComponent` (823 lines)
-- **File:** [`libs/frontend/chat/src/lib/settings/providers/provider-connection-card.component.ts:90-429`](file:///D:/projects/ptah-extension/.claude-worktrees/task-523-group-d/libs/frontend/chat/src/lib/settings/providers/provider-connection-card.component.ts#L90-L429)
+- **File:** [`libs/frontend/chat/src/lib/settings/providers/provider-connection-card.component.ts:90-429`](libs/frontend/chat/src/lib/settings/providers/provider-connection-card.component.ts#L90-L429)
 - **Problem:** The component is 823 lines, exceeding the 700-line soft ceiling. Of those, 340 lines are inline HTML template containing extensive SVG/icon templates, card tone/spine styling, and 10 visual state badges.
 - **Impact:** Large inline template clutters component logic and triggers soft max-lines warnings.
 - **Fix:** Extract lines 90–429 to `provider-connection-card.component.html`, reducing the TypeScript class file to ~390 lines.
 
 #### 7. Unused Variables and Dead Assignments in RPC Handlers
-- **File:** [`libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts:40, 1979`](file:///D:/projects/ptah-extension/.claude-worktrees/task-523-group-d/libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts#L40)
+- **File:** [`libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts:40, 1979`](libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts#L40)
 - **Problem:** ESLint flags `'SkillStatus' is defined but never used` (line 40) and `The value assigned to 'historyCount' is not used in subsequent statements` (line 1979).
 - **Impact:** Adds diagnostic noise to CI lint runs.
 - **Fix:** Remove the unused import and discard or prefix the unused assignment with `_`.

@@ -2,11 +2,11 @@ import { ChangeDetectionStrategy, Component, input, output, signal } from '@angu
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import {
-  ProvidersSettingsStateService, type ProvidersSettingsSection, type ProvidersEffectiveRoute,
+  ClaudeRpcService, RpcResult, ProvidersSettingsStateService, type ProvidersSettingsSection, type ProvidersEffectiveRoute,
   type ProvidersSettingsCommit, type ProvidersConnection, type ProvidersExternalAuth,
 } from '@ptah-extension/core';
 import type { AuthVerifyDraftConnectionResult, ConfigGetScopesResult, SettingScope } from '@ptah-extension/shared';
-import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
+import { PROVIDER_MODELS_LOADER, ProviderModelPickerComponent } from '@ptah-extension/ui';
 import { ProvidersSettingsComponent } from './providers-settings.component';
 import { ProviderConsumerAssignmentsComponent, type BackgroundConsumerId } from './provider-consumer-assignments.component';
 import {
@@ -112,11 +112,13 @@ describe('ProvidersSettingsComponent', () => {
   let fixture: ComponentFixture<ProvidersSettingsComponent>;
   let state: StateStub;
   let element: HTMLElement;
+  const listModels = jest.fn(async () => new RpcResult(true, { models: [{ id: 'catalog-model', name: 'Catalogue model' }] }));
   beforeEach(async () => {
     state = new StateStub();
+    listModels.mockClear();
     await TestBed.configureTestingModule({ imports: [ProvidersSettingsComponent], providers: [
       { provide: ProvidersSettingsStateService, useValue: state },
-      { provide: PROVIDER_MODELS_LOADER, useValue: { loadModels: async () => [] } },
+      { provide: ClaudeRpcService, useValue: { call: listModels } },
     ] }).overrideComponent(ProvidersSettingsComponent, {
       remove: { imports: [ProviderConsumerAssignmentsComponent, ProviderSetupWizardComponent] },
       add: { imports: [ConsumerStub, WizardStub] },
@@ -135,6 +137,18 @@ describe('ProvidersSettingsComponent', () => {
     return Array.from(element.querySelectorAll('[data-testid="status-badge"]')).filter((node) => node.textContent?.includes('Active for main agent'));
   }
   function wizard(): WizardStub { return fixture.debugElement.query(By.directive(WizardStub)).injector.get(WizardStub); }
+
+  it('renders the real main model picker using only the page-owned loader provider', async () => {
+    state.route.set(ready(route));
+    await render();
+    button('Edit model').click();
+    await render();
+    const picker = fixture.debugElement.query(By.directive(ProviderModelPickerComponent));
+    expect(picker).not.toBeNull();
+    expect(picker.injector.get(PROVIDER_MODELS_LOADER)).toBe(fixture.debugElement.injector.get(PROVIDER_MODELS_LOADER));
+    expect(listModels).toHaveBeenCalledWith('provider:listModels', { providerId: 'first' });
+    expect(picker.nativeElement.textContent).toContain('Catalogue model');
+  });
 
   it('does not render an active provider while the route is unloaded or loading', async () => {
     await render(); expect(activeBadges()).toHaveLength(0);

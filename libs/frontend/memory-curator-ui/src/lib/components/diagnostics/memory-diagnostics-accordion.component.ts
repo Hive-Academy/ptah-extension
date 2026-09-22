@@ -139,7 +139,7 @@ import { EventFeedComponent } from './event-feed.component';
       @if (triggers(); as t) {
         <section aria-label="Curator model" class="p-3 space-y-2">
           <h3>Curator model</h3>
-          <p>{{ t.curatorProvider || 'Follows main agent' }} ? {{ t.curatorModel || (t.curatorProvider ? 'Provider haiku tier' : resolvedCuratorModel()) }}</p>
+          <p>{{ t.curatorProvider || 'Follows main agent' }} → {{ t.curatorModel || (t.curatorProvider ? 'Provider haiku tier' : resolvedCuratorModel()) }}</p>
           <button type="button" class="btn btn-outline min-h-9 focus-visible:outline-2" (click)="manageCurator()">Manage in Providers</button>
         </section>
       }

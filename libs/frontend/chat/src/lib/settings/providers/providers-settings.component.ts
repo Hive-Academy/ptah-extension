@@ -6,8 +6,9 @@ import {
   ProvidersSettingsStateService, type ProvidersConnection, type ProvidersEditContext,
   type ProvidersExternalAuthAction,
 } from '@ptah-extension/core';
-import { NativeCardComponent, ProviderModelPickerComponent } from '@ptah-extension/ui';
+import { NativeCardComponent, ProviderModelPickerComponent, PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import type { SettingScope, EffortLevel, AuthVerifyDraftConnectionParams, AuthCancelDraftVerificationParams } from '@ptah-extension/shared';
+import { ProvidersModelsLoader } from './providers-models-loader.service';
 import { SettingScopeRowComponent } from './setting-scope-row.component';
 import { ProviderConnectionCardComponent, type ProviderConnectionCardStatus } from './provider-connection-card.component';
 import {
@@ -29,6 +30,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
 /** Unmounted page composition. All host access and persistence belong to the injected state owner. */
 @Component({
   selector: 'ptah-providers-settings',
+  providers: [{ provide: PROVIDER_MODELS_LOADER, useClass: ProvidersModelsLoader }],
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [PtahCliConfigComponent, NativeCardComponent, ProviderModelPickerComponent, SettingScopeRowComponent,
@@ -159,7 +161,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
           @for (connection of connections(); track connection.id) {
             <ptah-provider-connection-card [providerId]="connection.id" [providerName]="connection.name" [authModality]="connection.authMode"
               [sourceLabel]="connection.hasKey ? 'Credential: stored on this machine' : null"
-              [status]="connectionStatus(connection)" [isActive]="activeId() === connection.id" [positiveProbeEvidence]="activeId() === connection.id"
+              [status]="connectionStatus(connection)" [isActive]="activeId() === connection.id" [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
               [isBlocked]="isBlocked(connection.id)" [canActivateMain]="!saving() && state.route().status === 'ready'" [canManage]="canStartSetup() && connection.id !== 'anthropic'"
               (changeMainProviderRequested)="requestFocus('connections')" (activateMainRequested)="beginActivation(connection.id)"
               (manageRequested)="openWizard(connection.id)" (setupRequested)="openWizard(connection.id)"
@@ -369,7 +371,14 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     });
   }
   ngOnInit(): void { void this.state.open(); }
-  ngOnDestroy(): void { if (this.wizardOpen()) void this.state.cancelVerification().catch(() => undefined); }
+  ngOnDestroy(): void {
+    if (this.wizardOpen()) {
+      void this.state.cancelVerification().catch((error: unknown) => {
+        const errorType = error instanceof Error ? error.constructor.name : typeof error;
+        console.error('[ProvidersSettingsComponent] Cancel verification on destroy failed:', errorType);
+      });
+    }
+  }
   protected inputValue(event: Event): string { return (event.target as HTMLInputElement).value; }
   protected setTarget(event: Event): void {
     const value = this.inputValue(event);
@@ -391,6 +400,13 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     if (this.activeId() === entry.id) return 'active';
     if (this.state.route().status !== 'ready') return this.state.route().status === 'loading' ? 'checking' : 'check-unavailable';
     return this.state.route().data?.providers.find((provider) => provider.id === entry.id)?.status ?? 'not-checked';
+  }
+  /** Per-provider probe verdict from the effective route. */
+  protected hasProbeEvidence(id: string): boolean {
+    const route = this.state.route();
+    if (route.status !== 'ready') return false;
+    const status = route.data?.providers.find((provider) => provider.id === id)?.status;
+    return status === 'connected' || status === 'reachable';
   }
   protected isBlocked(id: string): boolean { return this.state.route().status === 'ready' && this.state.route().data?.driverProviderId === id && !this.state.route().data?.ready; }
   protected requestFocus(target: ProvidersSettingsFocusTarget): void {
@@ -439,7 +455,10 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.wizardOpen.set(false);
     this.wizardContext.set(null);
     this.feedback.set(this.wizardCommitState() === 'saved' ? 'Connection settings saved.' : 'Setup closed. External sign-in, if completed, remains available.');
-    void this.state.cancelVerification().catch(() => undefined);
+    void this.state.cancelVerification().catch((error: unknown) => {
+      const errorType = error instanceof Error ? error.constructor.name : typeof error;
+      console.error('[ProvidersSettingsComponent] Cancel verification on wizard close failed:', errorType);
+    });
     this.returnFocus?.focus();
   }
   protected externalAction(providerId: string | null, action: ProvidersExternalAuthAction): void { void this.state.performExternalAuth(providerId, action); }

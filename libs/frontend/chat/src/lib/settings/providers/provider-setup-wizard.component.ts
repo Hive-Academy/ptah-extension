@@ -2013,7 +2013,10 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this.stopElapsedTimer();
     this._elapsedSeconds.set(0);
     if (wasChecking && probeId) {
-      void this.cancelDraftVerification()({ probeId }).catch(() => undefined);
+      void this.cancelDraftVerification()({ probeId }).catch((error: unknown) => {
+        const errorType = error instanceof Error ? error.constructor.name : typeof error;
+        console.error('[ProviderSetupWizardComponent] Cancel draft verification failed:', errorType);
+      });
     }
   }
 
@@ -2071,7 +2074,10 @@ export class ProviderSetupWizardComponent implements OnDestroy {
           this._probeState.set('cancelled');
         }
       })
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        const errorType = error instanceof Error ? error.constructor.name : typeof error;
+        console.error('[ProviderSetupWizardComponent] Cancel probe failed:', errorType);
+      });
   }
 
   private buildProbeParams(probeId: string): AuthVerifyDraftConnectionParams {

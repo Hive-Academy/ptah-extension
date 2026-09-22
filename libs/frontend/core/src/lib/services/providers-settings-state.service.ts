@@ -1121,13 +1121,16 @@ export class ProvidersSettingsStateService {
     if (!result.isSuccess()) throw new Error('Settings request failed');
     return result.data;
   }
-  private async abortProbe(probeId: string): Promise<boolean> {
+  /** Best-effort abort. A failure cannot publish a stale result: generations are re-checked. */
+  private async abortProbe(probeId: string): Promise<void> {
     try {
       await this.require('auth:cancelDraftVerification', { probeId });
-      return true;
     } catch (error: unknown) {
-      void error;
-      return false;
+      // `require()` throws a fixed message, so no credential is logged.
+      console.warn(
+        '[ProvidersSettingsStateService] Draft verification abort failed:',
+        error,
+      );
     }
   }
 }

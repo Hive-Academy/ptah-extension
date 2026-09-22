@@ -33,6 +33,7 @@ import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
+  AuthRpcHandlers,
   SetupRpcHandlers,
   registerSharedRpcHandlers,
   resolveRpcHandlerPlan,
@@ -168,6 +169,14 @@ function buildMinimalContainer(): DependencyContainer {
       resolveActiveAuth: jest.fn(() => ({ authMethod: 'claudeCli' })),
       resolveThirdPartyProviderId: jest.fn(() => 'anthropic'),
     },
+  });
+
+  // ConfigScopeRpcHandlers is in EXPECTED_RESOLVABLE. Its peer's full auth
+  // graph is covered by auth-providers' registration regression test.
+  c.registerInstance(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, {});
+  c.registerInstance(SDK_TOKENS.SDK_AGENT_ADAPTER, {});
+  c.register<Pick<AuthRpcHandlers, 'invalidateAuthStatusCache'>>(AuthRpcHandlers, {
+    useValue: { invalidateAuthStatusCache: jest.fn() },
   });
 
   registerSharedRpcHandlers(c);

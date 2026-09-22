@@ -495,6 +495,7 @@ export class ProviderConsumerAssignmentsComponent {
     effect(() => {
       const deepLinkId = this.initialEditingConsumerId();
       if (deepLinkId && deepLinkId !== this.appliedDeepLinkId) {
+        if (!this.rows().find((row) => row.id === deepLinkId)?.loaded) return;
         this.appliedDeepLinkId = deepLinkId;
         this.toggleEdit(deepLinkId);
       }

@@ -1337,18 +1337,15 @@ export class SkillSynthesisService {
         SETTINGS_DEFAULTS.judgeProvider ?? '',
       ),
       enhanceTimeoutMs: (() => {
-        const raw = Number(
-          get(
-            'skillSynthesis.enhanceTimeoutMs',
-            SETTINGS_DEFAULTS.enhanceTimeoutMs ?? ENHANCE_TIMEOUT_DEFAULT_MS,
-          ),
-        );
-        return Number.isFinite(raw)
+        const fallback =
+          SETTINGS_DEFAULTS.enhanceTimeoutMs ?? ENHANCE_TIMEOUT_DEFAULT_MS;
+        const raw = get<unknown>('skillSynthesis.enhanceTimeoutMs', fallback);
+        return typeof raw === 'number' && Number.isFinite(raw)
           ? Math.min(
               Math.max(raw, ENHANCE_TIMEOUT_MIN_MS),
               ENHANCE_TIMEOUT_MAX_MS,
             )
-          : (SETTINGS_DEFAULTS.enhanceTimeoutMs ?? ENHANCE_TIMEOUT_DEFAULT_MS);
+          : fallback;
       })(),
       maxPinnedSkills: get(
         'skillSynthesis.maxPinnedSkills',
