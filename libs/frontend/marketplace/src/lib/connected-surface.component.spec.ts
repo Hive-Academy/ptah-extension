@@ -289,8 +289,8 @@ describe('ConnectedSurfaceComponent', () => {
     expect(titlesIn('marketplaces')).toEqual(['Alpha']);
     // No surface-wide banner: the three healthy groups keep their own state.
     expect(
-      host.querySelectorAll('[data-testid^="connected-error-"]').length,
-    ).toBe(1);
+      host.querySelectorAll('[data-testid^="connected-error-"]'),
+    ).toHaveLength(1);
   });
 
   it('retries only the failed group', async () => {
@@ -386,9 +386,8 @@ describe('ConnectedSurfaceComponent', () => {
       group('apps').querySelector('[data-testid="connected-error-apps"]'),
     ).toBeNull();
     expect(
-      group('apps').querySelectorAll('[data-testid="connected-row-status"]')
-        .length,
-    ).toBe(0);
+      group('apps').querySelectorAll('[data-testid="connected-row-status"]'),
+    ).toHaveLength(0);
   });
 
   describe('removal routing', () => {

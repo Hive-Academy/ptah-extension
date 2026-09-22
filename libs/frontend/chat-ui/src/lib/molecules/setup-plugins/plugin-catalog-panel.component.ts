@@ -24,6 +24,7 @@ import {
   type HarnessSetSkillSelectionParams,
   type HarnessSkillCandidate,
   type HarnessSkillSyncMode,
+  type PluginConfigState,
   type PluginInfo,
   type PluginSkillEntry,
 } from '@ptah-extension/shared';
@@ -106,7 +107,7 @@ function skillSelectionKey(
   if (mode === 'all') {
     return 'all';
   }
-  return `selected|${[...slugs].sort().join(',')}`;
+  return `selected|${[...slugs].sort((a, b) => a.localeCompare(b)).join(',')}`;
 }
 
 /**
@@ -1070,6 +1071,23 @@ export class PluginCatalogPanelComponent implements OnInit {
     return selection;
   }
 
+  private applyCatalogConfig(
+    plugins: PluginInfo[],
+    config: PluginConfigState | null,
+  ): void {
+    if (config !== null) {
+      this.selectedIds.set(
+        this.deriveSelection(plugins, config.enabledPluginIds, [
+          ...(config.disabledPluginIds ?? []),
+        ]),
+      );
+      this.disabledSkillIds.set(new Set(config.disabledSkillIds ?? []));
+    } else {
+      this.selectedIds.set(new Set());
+      this.disabledSkillIds.set(new Set());
+    }
+  }
+
   /**
    * Load available plugins and current configuration from backend.
    * Called from `ngOnInit`, and by the error retry button.
@@ -1115,18 +1133,7 @@ export class PluginCatalogPanelComponent implements OnInit {
       const plugins: PluginInfo[] = [...this.catalog.plugins()];
       this.availablePlugins.set(plugins);
 
-      const config = this.catalog.config();
-      if (config !== null) {
-        this.selectedIds.set(
-          this.deriveSelection(plugins, config.enabledPluginIds, [
-            ...(config.disabledPluginIds ?? []),
-          ]),
-        );
-        this.disabledSkillIds.set(new Set(config.disabledSkillIds ?? []));
-      } else {
-        this.selectedIds.set(new Set());
-        this.disabledSkillIds.set(new Set());
-      }
+      this.applyCatalogConfig(plugins, this.catalog.config());
 
       if (plugins.length > 0) {
         try {

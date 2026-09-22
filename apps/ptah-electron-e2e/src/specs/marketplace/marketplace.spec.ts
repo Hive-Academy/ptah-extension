@@ -25,7 +25,7 @@ test.describe('Marketplace (lazy route, TASK_2026_524)', () => {
 
     await expect(page.locator('ptah-marketplace-hub')).toBeVisible();
     await expect(
-      page.getByRole('heading', { name: 'Marketplace' }),
+      page.getByRole('heading', { name: 'Marketplace', exact: true }),
     ).toBeVisible();
 
     // A visible hub already proves the outlet swapped. This is the extra,

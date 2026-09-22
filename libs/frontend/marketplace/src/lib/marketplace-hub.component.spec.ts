@@ -309,7 +309,7 @@ describe('MarketplaceHubComponent', () => {
 
     it('swaps the mounted surface when a chip is clicked', async () => {
       await createComponent();
-      expect(installedRows().length).toBe(0);
+      expect(installedRows()).toHaveLength(0);
 
       const connectorsChip = Array.from(
         hostElement.querySelectorAll<HTMLButtonElement>(

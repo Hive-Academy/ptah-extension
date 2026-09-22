@@ -143,9 +143,19 @@ export class PluginCatalogService {
   /** How many plugins the host offers, enabled or not. */
   readonly pluginTotal = computed(() => this.plugins().length);
 
-  /** Whether the user has opted any plugin in at all. */
+  /**
+   * Whether the user has opted any plugin in at all.
+   *
+   * `enabledPluginIds` is optional-chained as well as `config()`: a host that
+   * answers `plugins:get-config` with a partial record (the e2e harness does)
+   * must read as "nothing opted in", never throw. This computed is evaluated
+   * inside change detection on every chat welcome screen (TASK_2026_524), and
+   * a throw there aborts the render cycle of whatever else is being created
+   * in the same pass — on the canvas that left a new tile unregistered with
+   * the grid and stacked on top of its neighbour.
+   */
   readonly hasEnabledPlugins = computed(
-    () => (this.config()?.enabledPluginIds.length ?? 0) > 0,
+    () => (this.config()?.enabledPluginIds?.length ?? 0) > 0,
   );
 
   /**

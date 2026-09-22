@@ -55,33 +55,39 @@ export async function removeInstalledGroup(
     }
 
     case 'ptah-managed':
-    case 'direct': {
-      const result = await rpc.call('mcpDirectory:uninstall', {
-        serverKey: group.serverKey,
-        targets: group.targets,
-        ...(group.removal === 'direct' ? { force: true } : {}),
-      });
-      if (!result.isSuccess()) {
-        return result.error ?? `Could not remove "${group.serverKey}".`;
-      }
-      const failures = result.data.results.filter((r) => !r.success);
-      if (failures.length > 0) {
-        return `Could not remove "${group.serverKey}" from: ${failures
-          .map(
-            (r) =>
-              `${mcpTargetLabel(r.target)} (${r.error ?? 'unknown error'})`,
-          )
-          .join(', ')}`;
-      }
-      // A backend that reports zero results removed nothing. Saying so beats
-      // reloading an identical list and letting the user guess.
-      if (result.data.results.length === 0) {
-        return `Nothing was removed for "${group.serverKey}".`;
-      }
-      return null;
-    }
+    case 'direct':
+      return removeManaged(rpc, group);
 
     default:
       return null;
   }
+}
+
+async function removeManaged(
+  rpc: ClaudeRpcService,
+  group: InstalledServerGroup,
+): Promise<string | null> {
+  const result = await rpc.call('mcpDirectory:uninstall', {
+    serverKey: group.serverKey,
+    targets: group.targets,
+    ...(group.removal === 'direct' ? { force: true } : {}),
+  });
+  if (!result.isSuccess()) {
+    return result.error ?? `Could not remove "${group.serverKey}".`;
+  }
+  const failures = result.data.results.filter((r) => !r.success);
+  if (failures.length > 0) {
+    return `Could not remove "${group.serverKey}" from: ${failures
+      .map(
+        (r) =>
+          `${mcpTargetLabel(r.target)} (${r.error ?? 'unknown error'})`,
+      )
+      .join(', ')}`;
+  }
+  // A backend that reports zero results removed nothing. Saying so beats
+  // reloading an identical list and letting the user guess.
+  if (result.data.results.length === 0) {
+    return `Nothing was removed for "${group.serverKey}".`;
+  }
+  return null;
 }

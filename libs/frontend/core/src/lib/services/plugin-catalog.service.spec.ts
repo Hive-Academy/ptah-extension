@@ -162,6 +162,29 @@ describe('PluginCatalogService — one read per view', () => {
     expect(service.hasEnabledPlugins()).toBe(true);
   });
 
+  it('reads a partial config record as "nothing opted in" instead of throwing', async () => {
+    // The e2e harness answers `plugins:get-config` with `{}`. This computed
+    // runs inside change detection on every chat welcome screen, and a throw
+    // there aborted the render pass that was registering a new canvas tile
+    // with the grid (PR #569 electron-e2e failures).
+    const call = jest.fn(async (method: string) => {
+      if (method === 'plugins:list-available') {
+        return rpcSuccess({ plugins: PLUGINS });
+      }
+      if (method === 'plugins:get-config') {
+        return rpcSuccess({} as never);
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const service = makeService({ call });
+
+    await service.ensureLoaded();
+
+    expect(() => service.hasEnabledPlugins()).not.toThrow();
+    expect(service.hasEnabledPlugins()).toBe(false);
+    expect(() => service.enabledCount()).not.toThrow();
+  });
+
   it('drops an opt-out plugin from the count once it is denied', async () => {
     const rpc = makeRpc({
       enabledPluginIds: ['ptah-core'],
