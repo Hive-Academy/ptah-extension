@@ -91,6 +91,9 @@
       "@ptah-extension/tasks-ui/services": [
         "./libs/frontend/tasks-ui/src/services.ts"
       ],
+      "@ptah-extension/core/routing": [
+        "./libs/frontend/core/src/lib/routing/index.ts"
+      ],
       "@ptah-extension/core/testing": [
         "./libs/frontend/core/src/testing/index.ts"
       ],
