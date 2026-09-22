@@ -269,7 +269,7 @@ describe('AgentMonitorTreeBuilderService', () => {
       expect(tree[0].status).toBe('error');
     });
 
-    it('converts orphan tool-result segments into standalone text nodes', () => {
+    it('converts orphan tool-result segments into standalone tool nodes', () => {
       const segments: CliOutputSegment[] = [
         {
           type: 'tool-result',
@@ -279,19 +279,85 @@ describe('AgentMonitorTreeBuilderService', () => {
       ];
       const tree = service.buildTreeFromSegments('agent-1', segments);
       expect(tree).toHaveLength(1);
-      expect(tree[0].type).toBe('text');
-      expect(tree[0].content).toBe('no tool');
+      expect(tree[0]).toMatchObject({
+        id: 'seg-orphan-0',
+        type: 'tool',
+        status: 'complete',
+        toolName: 'Tool result',
+        toolOutput: 'no tool',
+        content: null,
+      });
+      expect(tree[0].toolInput).toBeUndefined();
     });
 
-    it('renders error segments as text with error field', () => {
+    it.each([
+      'tool-result',
+      'tool-result-error',
+      'command',
+      'file-change',
+    ] as const)('keeps orphan %s HTML in tool output', (type) => {
+      const content = '```html\n<div class="fixed inset-0 z-50">x</div>\n```';
+      const segments: CliOutputSegment[] = [
+        { type: 'text', content: 'Before' },
+        { type, toolCallId: 'unmatched', toolName: 'Read', content },
+        { type: 'text', content: 'After' },
+      ];
+      const tree = service.buildTreeFromSegments('agent-1', segments);
+
+      expect(tree).toHaveLength(3);
+      expect(tree[1]).toMatchObject({
+        id: 'seg-orphan-1',
+        type: 'tool',
+        status: type === 'tool-result-error' ? 'error' : 'complete',
+        toolName: 'Read',
+        toolOutput: content,
+        content: null,
+      });
+      expect(tree[1].toolInput).toBeUndefined();
+      expect(tree[0].content).toBe('Before');
+      expect(tree[2].content).toBe('After');
+    });
+
+    it.each([
+      ['command', 'Command'],
+      ['file-change', 'File change'],
+      ['tool-result', 'Tool result'],
+      ['tool-result-error', 'Tool result'],
+    ] as const)('labels unnamed orphan %s segments', (type, toolName) => {
+      const tree = service.buildTreeFromSegments('agent-1', [
+        { type, content: 'data' },
+      ]);
+      expect(tree[0].toolName).toBe(toolName);
+    });
+
+    it('renders error segments as fenced text with error field', () => {
       const segments: CliOutputSegment[] = [
         { type: 'error', content: 'boom' } as CliOutputSegment,
       ];
       const tree = service.buildTreeFromSegments('agent-1', segments);
       expect(tree).toHaveLength(1);
       expect(tree[0].error).toBe('boom');
-      expect(tree[0].content).toBe('boom');
+      expect(tree[0].content).toBe('```text\nboom\n```');
     });
+
+    it.each(['error', 'info'] as const)(
+      'fences markup and backticks in %s segments without changing identity or status',
+      (type) => {
+        const content = '```html\n<div class="fixed">x</div>\n```';
+        const tree = service.buildTreeFromSegments('agent-1', [
+          { type: 'text', content: '**Model prose**' },
+          { type, content },
+        ]);
+        expect(tree[0].content).toBe('**Model prose**');
+        expect(tree[1]).toMatchObject({
+          id: `seg-${type}-1`,
+          type: 'text',
+          status: 'complete',
+          content: '````text\n' + content + '\n````',
+        });
+        expect(tree[1].error).toBe(type === 'error' ? content : undefined);
+      },
+    );
 
     it('normalizes `path` → `file_path` for read/write tools', () => {
       const segments: CliOutputSegment[] = [

@@ -17,6 +17,7 @@
  */
 
 import { Injectable } from '@angular/core';
+import { fenceCodeBlock } from '@ptah-extension/chat-ui';
 import type {
   ExecutionNode,
   FlatStreamEventUnion,
@@ -327,9 +328,18 @@ export class AgentMonitorTreeBuilderService {
             nodes.push(
               createExecutionNode({
                 id: `seg-orphan-${i}`,
-                type: 'text',
-                status: 'complete',
-                content: segment.content,
+                type: 'tool',
+                status:
+                  segment.type === 'tool-result-error' ? 'error' : 'complete',
+                toolName:
+                  segment.toolName ||
+                  (segment.type === 'command'
+                    ? 'Command'
+                    : segment.type === 'file-change'
+                      ? 'File change'
+                      : 'Tool result'),
+                toolOutput: segment.content,
+                content: null,
               }),
             );
           }
@@ -344,7 +354,7 @@ export class AgentMonitorTreeBuilderService {
               id: `seg-error-${i}`,
               type: 'text',
               status: 'complete',
-              content: segment.content,
+              content: fenceCodeBlock(segment.content, 'text'),
               error: segment.content,
             }),
           );
@@ -359,7 +369,7 @@ export class AgentMonitorTreeBuilderService {
               id: `seg-info-${i}`,
               type: 'text',
               status: 'complete',
-              content: segment.content,
+              content: fenceCodeBlock(segment.content, 'text'),
             }),
           );
           break;

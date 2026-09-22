@@ -59,6 +59,25 @@ describe('ToolInputDisplayComponent — retention marker', () => {
     fixture = TestBed.createComponent(ToolInputDisplayComponent);
   });
 
+  it.each(['/tmp/source.ts', undefined])(
+    'contains fenced HTML in expanded Write input with path %s',
+    async (filePath) => {
+      const content =
+        'a'.repeat(201) + '\n```html\n<div class="fixed">x</div>\n```';
+      fixture.componentInstance.isInputCollapsed.set(false);
+      fixture.componentInstance.isContentExpanded.set(true);
+      const host = render({
+        toolName: 'Write',
+        toolInput: filePath ? { file_path: filePath, content } : { content },
+      });
+      await fixture.whenStable();
+
+      expect(host.querySelectorAll('pre code')).toHaveLength(1);
+      expect(host.querySelector('pre code')?.textContent).toBe(content + '\n');
+      expect(host.querySelector('div.fixed')).toBeNull();
+    },
+  );
+
   describe('no retention field', () => {
     it('renders no marker and leaves the input section untouched', () => {
       const host = render({ toolInput: { command: 'ls -la' } });

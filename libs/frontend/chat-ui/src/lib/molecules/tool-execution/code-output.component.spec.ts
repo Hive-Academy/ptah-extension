@@ -4,9 +4,8 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 import { CodeOutputComponent } from './code-output.component';
 
 /**
- * These cases pin the language-detection pipeline behind `formattedOutput()`,
- * not the markdown rendering — but the template instantiates `<markdown>`, so
- * `provideMarkdown()` has to be present for the fixture to come up at all.
+ * These cases pin language detection and code-fence containment, including
+ * rendered output through the real markdown component.
  */
 describe('CodeOutputComponent — output language detection', () => {
   let fixture: ComponentFixture<CodeOutputComponent>;
@@ -72,5 +71,49 @@ describe('CodeOutputComponent — output language detection', () => {
       });
     }).not.toThrow();
     expect(formatted).toContain('```bash');
+  });
+
+  it.each([0, 1, 2, 3, 6])(
+    'uses a fence longer than an inner run of %i backticks',
+    (length) => {
+      const inner = '`'.repeat(length);
+      const output = `before ${inner} after`;
+      const fence = '`'.repeat(Math.max(3, length + 1));
+
+      expect(outputFor({ toolName: 'Tool', toolOutput: output })).toBe(
+        `${fence}text\n${output}\n${fence}`,
+      );
+    },
+  );
+
+  it('keeps fenced HTML in one code block without tool input', async () => {
+    const output = '```html\n<div class="fixed inset-0 z-50">x</div>\n```';
+    const formatted = outputFor({ toolName: 'Read', toolOutput: output });
+    expect(formatted).toBe('````text\n' + output + '\n````');
+
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelectorAll('pre code')).toHaveLength(1);
+    expect(host.querySelector('pre code')?.textContent).toBe(output + '\n');
+    expect(host.querySelector('div.fixed')).toBeNull();
+  });
+
+  it('uses the longest backtick run even when a shorter fence appears first', () => {
+    const output = '```html\n<div>x</div>\n```\n``````';
+    expect(outputFor({ toolName: 'Bash', toolOutput: output })).toBe(
+      '```````bash\n' + output + '\n```````',
+    );
+  });
+
+  it('leaves markdown file output unfenced', () => {
+    const output = '# Notes\n```html\n<div>x</div>\n```';
+    expect(
+      outputFor({
+        toolName: 'Read',
+        toolInput: { file_path: '/tmp/notes.md' },
+        toolOutput: output,
+      }),
+    ).toBe(output);
   });
 });

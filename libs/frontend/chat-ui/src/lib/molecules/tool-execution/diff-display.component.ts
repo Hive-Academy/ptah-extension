@@ -5,6 +5,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import { fenceCodeBlock } from './code-fence';
 import { LucideAngularModule, FileEdit, CheckCircle } from 'lucide-angular';
 import { FilePathLinkComponent } from '../../atoms/file-path-link.component';
 import type { EditToolInput } from '@ptah-extension/shared';
@@ -127,7 +128,7 @@ export class DiffDisplayComponent {
     const oldStr = input.old_string || '';
     const newStr = input.new_string || '';
     const diffLines = this.generateUnifiedDiff(oldStr, newStr);
-    return '```diff\n' + diffLines + '\n```';
+    return fenceCodeBlock(diffLines, 'diff');
   });
 
   /**
