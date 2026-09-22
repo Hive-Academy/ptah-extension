@@ -78,6 +78,9 @@ import { AnalysisStorageService } from '../analysis-storage.service';
 import {
   MultiPhaseAnalysisService,
   PER_PHASE_TIMEOUT_MS,
+  PHASE_MAX_AGENT_TURNS,
+  DEFAULT_MAX_AGENT_TURNS,
+  SUBSTANTIAL_PHASE_FILE_MIN_BYTES,
 } from './multi-phase-analysis.service';
 import {
   PHASE_CONFIGS,
@@ -107,6 +110,11 @@ const errorResult = (): SdkMessage => ({
   type: 'result',
   subtype: 'error_during_execution',
   errors: ['model exploded'],
+});
+const maxTurnsResult = (): SdkMessage => ({
+  type: 'result',
+  subtype: 'error_max_turns',
+  errors: ['maximum turns exceeded'],
 });
 
 function abortError(reason: unknown): Error {
@@ -155,7 +163,10 @@ describe('MultiPhaseAnalysisService', () => {
   let service: MultiPhaseAnalysisService;
   let scenarios: Scenario[];
   let execute: jest.Mock<
-    (config: { abortController: AbortController }) => Promise<{
+    (config: {
+      abortController: AbortController;
+      maxTurns?: number;
+    }) => Promise<{
       stream: AsyncIterable<SdkMessage>;
       close: () => void;
       abort: () => void;
@@ -194,7 +205,11 @@ describe('MultiPhaseAnalysisService', () => {
     storage = new AnalysisStorageService(logger as never, fs);
     scenarios = [];
     closeFn = jest.fn();
-    execute = jest.fn(async (config: { abortController: AbortController }) => {
+    execute = jest.fn(
+      async (config: {
+        abortController: AbortController;
+        maxTurns?: number;
+      }) => {
       const scenario = scenarios.shift();
       if (!scenario) throw new Error('No scenario left for execute()');
       return {
@@ -690,5 +705,130 @@ describe('MultiPhaseAnalysisService', () => {
     expect(last.phaseStatuses.every((s) => s.status === 'completed')).toBe(
       true,
     );
+  });
+
+  it('executes quality-audit with higher maxTurns (120) and other phases with 50', async () => {
+    scenarios = FILES.map((file) => agentWritesFile(file));
+
+    const result = await service.analyzeWorkspace(WORKSPACE, {
+      mcpServerRunning: true,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute.mock.calls[0][0].maxTurns).toBe(
+      PHASE_MAX_AGENT_TURNS['project-profile'],
+    );
+    expect(execute.mock.calls[1][0].maxTurns).toBe(
+      PHASE_MAX_AGENT_TURNS['architecture-assessment'],
+    );
+    expect(execute.mock.calls[2][0].maxTurns).toBe(
+      PHASE_MAX_AGENT_TURNS['quality-audit'],
+    );
+    expect(execute.mock.calls[2][0].maxTurns).toBe(120);
+    expect(execute.mock.calls[3][0].maxTurns).toBe(
+      PHASE_MAX_AGENT_TURNS['elevation-plan'],
+    );
+    expect(execute.mock.calls[3][0].maxTurns).toBe(DEFAULT_MAX_AGENT_TURNS);
+  });
+
+  it('records a phase as completed when error_max_turns occurs with substantial UTF-8 content', async () => {
+    // 415 ASCII characters + 38 CJK 3-byte characters = 453 code units, 529 UTF-8 bytes.
+    // This specifically verifies Buffer.byteLength is used instead of string.length.
+    const baseAscii =
+      '# Phase 3: Quality Audit Report\n' +
+      '## Framework Compliance\n' +
+      '- Angular 22 standalone components validated across all webview libraries.\n' +
+      '- OnPush change detection applied consistently.\n' +
+      '## Type Safety Assessment\n' +
+      '- Strict null checks active, zero unsafe type assertions detected in main paths.\n' +
+      '## Security & Error Boundaries\n' +
+      '- DOMPurify sanitization active, no raw innerHTML usage found in components.\n' +
+      '## Preliminary Findings\n';
+    const cjkSection =
+      '【品質監査詳細】検証済みコンポーネントおよびサービス群の品質基準適合状況確認。';
+    const substantialAuditContent = baseAscii + cjkSection;
+
+    expect(substantialAuditContent.length).toBeLessThan(
+      SUBSTANTIAL_PHASE_FILE_MIN_BYTES,
+    );
+    expect(
+      Buffer.byteLength(substantialAuditContent, 'utf8'),
+    ).toBeGreaterThanOrEqual(SUBSTANTIAL_PHASE_FILE_MIN_BYTES);
+
+    scenarios = [
+      agentWritesFile(FILES[0]),
+      agentWritesFile(FILES[1]),
+      streamOf(
+        [
+          assistant('One sentence captured text.'),
+          maxTurnsResult(),
+        ],
+        () =>
+          storage.writePhaseFile(
+            SLUG_DIR,
+            FILES[2],
+            substantialAuditContent,
+          ),
+      ),
+      agentWritesFile(FILES[3]),
+    ];
+
+    const result = await service.analyzeWorkspace(WORKSPACE, {
+      mcpServerRunning: true,
+    });
+
+    expect(result.isOk()).toBe(true);
+    const phase = result.value?.phases['quality-audit'];
+    expect(phase?.status).toBe('completed');
+    const diskContent = await fs.readFile(join(SLUG_DIR, FILES[2]));
+    expect(diskContent).toBe(substantialAuditContent);
+    expect(diskContent).not.toContain('One sentence captured text.');
+    expect(
+      logger.warn.mock.calls.some(
+        ([msg]) =>
+          typeof msg === 'string' &&
+          msg.includes('hit max turns cap') &&
+          msg.includes('recording as completed with partial document'),
+      ),
+    ).toBe(true);
+  });
+
+  it('marks phase failed and writes diagnostic text when error_max_turns occurs with insubstantial content', async () => {
+    const insubstantialContent = '# Phase 3: Quality Audit\nSkeleton only.';
+    const diagnosticText = 'Short diagnostic text from assistant turns.';
+
+    expect(
+      Buffer.byteLength(insubstantialContent, 'utf8'),
+    ).toBeLessThan(SUBSTANTIAL_PHASE_FILE_MIN_BYTES);
+
+    scenarios = [
+      agentWritesFile(FILES[0]),
+      agentWritesFile(FILES[1]),
+      streamOf(
+        [
+          assistant(diagnosticText),
+          maxTurnsResult(),
+        ],
+        () =>
+          storage.writePhaseFile(
+            SLUG_DIR,
+            FILES[2],
+            insubstantialContent,
+          ),
+      ),
+      agentWritesFile(FILES[3]),
+    ];
+
+    const result = await service.analyzeWorkspace(WORKSPACE, {
+      mcpServerRunning: true,
+    });
+
+    const phase = result.value?.phases['quality-audit'];
+    expect(phase?.status).toBe('failed');
+    expect(phase?.error).toContain('error_max_turns');
+    const diskContent = await fs.readFile(join(SLUG_DIR, FILES[2]));
+    expect(diskContent).toBe(diagnosticText);
+    expect(result.value?.lifecycle).toBe('failed');
   });
 });
