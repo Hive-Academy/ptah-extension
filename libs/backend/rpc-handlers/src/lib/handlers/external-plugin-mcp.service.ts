@@ -117,6 +117,7 @@ const DETECTED_TARGETS: readonly McpInstallTarget[] = [
   'copilot',
   'cursor',
   'antigravity',
+  'opencode',
 ];
 
 /**

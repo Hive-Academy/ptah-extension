@@ -61,7 +61,15 @@ export const UninstallMcpSchema = z.object({
   serverKey: z.string().min(1),
   targets: z
     .array(
-      z.enum(['vscode', 'claude', 'cursor', 'copilot', 'codex', 'antigravity']),
+      z.enum([
+        'vscode',
+        'claude',
+        'cursor',
+        'copilot',
+        'codex',
+        'antigravity',
+        'opencode',
+      ]),
     )
     .optional(),
   force: z.boolean().optional().default(false),

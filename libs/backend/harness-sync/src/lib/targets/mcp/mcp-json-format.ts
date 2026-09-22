@@ -24,28 +24,71 @@ export const DEFAULT_URL_KEY = 'url';
 export const ANTIGRAVITY_URL_KEY = 'serverUrl';
 
 /**
+ * How an entry's fields are spelled.
+ *
+ * `standard` covers Claude, Cursor, VS Code and Antigravity: a transport is
+ * `stdio`/`http`/`sse`, a command is a string with separate `args`, and the
+ * environment is `env`.
+ *
+ * `opencode` is a genuinely different dialect rather than one more key rename,
+ * which is why it earns a name instead of a third option flag. Verified against
+ * the published schema (https://opencode.ai/config.json, `McpLocalConfig` /
+ * `McpRemoteConfig`, both `additionalProperties: false`):
+ *
+ * - the transport discriminant is `remote` or `local`, and it is REQUIRED;
+ * - a local server's `command` is a single ARRAY holding the executable and its
+ *   arguments — there is no `args` key at all;
+ * - the environment is `environment`, not `env`.
+ *
+ * Writing standard spellings into `opencode.json` produces an entry that fails
+ * the schema on three counts at once, so the dialect is not optional polish.
+ */
+export type McpJsonDialect = 'standard' | 'opencode';
+
+/**
  * Serialize a transport config into the shape a config file expects.
  *
  * `includeType` is per-target and not cosmetic: VS Code uses `type` to pick a
  * transport, while Claude, Cursor and Copilot infer it from the presence of
  * `command` versus `url` and treat an unexpected key as a schema error.
+ * OpenCode ignores the flag — its `type` is mandatory (see
+ * {@link McpJsonDialect}).
  *
  * `urlKey` is the second per-target divergence: Antigravity spells the remote
  * endpoint `serverUrl`. Writing `url` there produces an entry `agy` parses
  * without an endpoint and silently never connects.
+ *
+ * `enabled` is deliberately never emitted. It defaults to true in every dialect
+ * that has it, and writing it would put a key in the file that `hashMcpConfig`
+ * does not model — the entry would then read back differently from how it was
+ * written and be rewritten on every pass.
  */
 export function configToJson(
   config: McpServerConfig,
   includeType: boolean,
   urlKey: string = DEFAULT_URL_KEY,
+  dialect: McpJsonDialect = 'standard',
 ): Record<string, unknown> {
   const json: Record<string, unknown> = {};
-  if (includeType) json['type'] = config.type;
+  const opencode = dialect === 'opencode';
+  const envKey = opencode ? 'environment' : 'env';
+
+  if (opencode) {
+    json['type'] = config.type === 'stdio' ? 'local' : 'remote';
+  } else if (includeType) {
+    json['type'] = config.type;
+  }
 
   switch (config.type) {
     case 'stdio':
-      json['command'] = config.command;
-      if (config.args !== undefined && config.args.length > 0) {
+      json['command'] = opencode
+        ? [config.command, ...(config.args ?? [])]
+        : config.command;
+      if (
+        !opencode &&
+        config.args !== undefined &&
+        config.args.length > 0
+      ) {
         json['args'] = config.args;
       }
       break;
@@ -62,7 +105,7 @@ export function configToJson(
   }
 
   if (config.env !== undefined && Object.keys(config.env).length > 0) {
-    json['env'] = config.env;
+    json[envKey] = config.env;
   }
   return json;
 }
@@ -78,17 +121,20 @@ export function configToJson(
 export function jsonToConfig(raw: Record<string, unknown>): McpServerConfig {
   const declaredType = raw['type'];
   const type =
-    typeof declaredType === 'string' ? declaredType : inferTransportType(raw);
-  const env = asStringRecord(raw['env']);
+    typeof declaredType === 'string'
+      ? normalizeDeclaredType(declaredType, raw)
+      : inferTransportType(raw);
+  // OpenCode spells it `environment`; every other dialect spells it `env`.
+  // Accepted unconditionally for the same reason both URL keys are: one reader
+  // serves every dialect, and no config file uses both spellings.
+  const env = asStringRecord(raw['env'] ?? raw['environment']);
 
   if (type === 'stdio') {
-    const args = raw['args'];
+    const command = readCommand(raw);
     return {
       type: 'stdio',
-      command: typeof raw['command'] === 'string' ? raw['command'] : '',
-      ...(Array.isArray(args)
-        ? { args: args.filter((a): a is string => typeof a === 'string') }
-        : {}),
+      command: command.command,
+      ...(command.args === undefined ? {} : { args: command.args }),
       ...(env === undefined ? {} : { env }),
     };
   }
@@ -99,6 +145,54 @@ export function jsonToConfig(raw: Record<string, unknown>): McpServerConfig {
     url: readUrl(raw) ?? '',
     ...(headers === undefined ? {} : { headers }),
     ...(env === undefined ? {} : { env }),
+  };
+}
+
+/**
+ * Map a declared discriminant onto this module's vocabulary.
+ *
+ * OpenCode's `local`/`remote` are the same two transports under different
+ * names. `remote` has to fall through to {@link inferTransportType} rather than
+ * becoming `http` outright: a `/sse` endpoint installed as `sse` would
+ * otherwise read back as `http`, hash differently from the config it was
+ * written from, and be rewritten on every single pass — the same trap
+ * documented on Antigravity's `serverUrl` below.
+ */
+function normalizeDeclaredType(
+  declared: string,
+  raw: Record<string, unknown>,
+): string {
+  if (declared === 'local') return 'stdio';
+  if (declared === 'remote') return inferTransportType(raw);
+  return declared;
+}
+
+/**
+ * A stdio entry's executable and arguments, from either spelling.
+ *
+ * OpenCode packs both into one `command` array and has no `args` key; every
+ * other dialect uses a `command` string beside an `args` array. An empty array
+ * yields an empty command, matching the missing-key behaviour.
+ */
+function readCommand(raw: Record<string, unknown>): {
+  command: string;
+  args?: string[];
+} {
+  const command = raw['command'];
+  if (Array.isArray(command)) {
+    const parts = command.filter((a): a is string => typeof a === 'string');
+    return {
+      command: parts[0] ?? '',
+      ...(parts.length > 1 ? { args: parts.slice(1) } : {}),
+    };
+  }
+
+  const args = raw['args'];
+  return {
+    command: typeof command === 'string' ? command : '',
+    ...(Array.isArray(args)
+      ? { args: args.filter((a): a is string => typeof a === 'string') }
+      : {}),
   };
 }
 

@@ -80,6 +80,7 @@ const TARGET_LABELS: Readonly<Record<HarnessTargetId, string>> = {
   copilot: 'Copilot',
   cursor: 'Cursor',
   antigravity: 'Antigravity',
+  opencode: 'OpenCode',
   vscode: 'VS Code',
 };
 
