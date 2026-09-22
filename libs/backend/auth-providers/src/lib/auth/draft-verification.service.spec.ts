@@ -565,4 +565,18 @@ describe('DraftVerificationService.verify — a failed probe writes nothing (pin
       cancelled: false,
     });
   });
+
+  it('rejects with explicit validation error when baseUrl is defined but not a string', async () => {
+    const harness = createServiceHarness();
+    const params = {
+      probeId: 'probe-bad-baseurl',
+      providerId: 'ollama',
+      authMode: 'local-native',
+      baseUrl: 12345 as unknown as string,
+    } as unknown as AuthVerifyDraftConnectionParams;
+
+    await expect(harness.service.verify(params)).rejects.toThrow(
+      'auth:verifyDraftConnection: baseUrl must be a string',
+    );
+  });
 });

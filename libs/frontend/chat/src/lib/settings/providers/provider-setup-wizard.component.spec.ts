@@ -531,6 +531,45 @@ describe('ProviderSetupWizardComponent', () => {
       );
     });
 
+    it('settles probe to retryable failed state and stops elapsed timer when cancellation dispatch rejects', async () => {
+      jest.useFakeTimers();
+      const verify =
+        jest.fn<Promise<AuthVerifyDraftConnectionResult>, [AuthVerifyDraftConnectionParams]>(
+          () => new Promise(() => undefined),
+        );
+      const cancel =
+        jest.fn<Promise<AuthCancelDraftVerificationResult>, [AuthCancelDraftVerificationParams]>(
+          () => Promise.reject(new Error('RPC cancel failed')),
+        );
+      const fixture = createComponent({}, verify, cancel);
+      selectProvider(fixture, 'requesty');
+      click(fixture, 'wizard-continue');
+      typeInto(fixture, 'wizard-api-key', 'sk-test-123');
+      click(fixture, 'wizard-continue');
+      click(fixture, 'wizard-verify-start');
+      expect(query(fixture, 'wizard-verify-checking')).not.toBeNull();
+      jest.advanceTimersByTime(2000);
+      fixture.detectChanges();
+      expect(query(fixture, 'wizard-verify-elapsed')?.textContent).toContain('2 s elapsed');
+
+      click(fixture, 'wizard-verify-cancel');
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      expect(query(fixture, 'wizard-verify-checking')).toBeNull();
+      expect(query(fixture, 'wizard-verify-failure')).not.toBeNull();
+      expect(query(fixture, 'wizard-verify-cancelled')).toBeNull();
+
+      // Advancing timers further does not increment elapsed time (timer was stopped)
+      jest.advanceTimersByTime(2000);
+      fixture.detectChanges();
+
+      // Retry is enabled: clicking retry starts a new probe
+      click(fixture, 'wizard-verify-retry');
+      fixture.detectChanges();
+      expect(verify).toHaveBeenCalledTimes(2);
+    });
+
     it('unlocks Continue on a verified result and shows the checked meta', async () => {
       const verify = verifyEcho();
       const fixture = createComponent({}, verify);

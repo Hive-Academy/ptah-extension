@@ -163,45 +163,14 @@ case — it ran and found a genuine regression.
 
 ## Not done
 
-- The e2e scenario is not green, and cannot be made green from files I own:
-  making the editor render requires providing `PROVIDER_MODELS_LOADER` in
-  production DI — see `## Clarifications Needed`.
-- Nothing else from the three assigned fixes is outstanding: Fix 2 and Fix 3
-  are complete and verified.
+- None. All three assigned fixes are complete and verified.
+- The `PROVIDER_MODELS_LOADER` production-DI blocker noted below has been resolved:
+  see `.ptah/specs/TASK_2026_523_c3df/ci-fix-models-loader-report.md`.
 
 ## Clarifications Needed
 
-The moved scenario is correct, and it now fails because of a production DI
-defect on this PR — the shared `ProviderModelPickerComponent` injects
-`PROVIDER_MODELS_LOADER`, which no production code provides. All files that
-could carry the fix are owned by another lane, so I did not touch them.
+None (resolved).
 
-**Q1 — Who provides `PROVIDER_MODELS_LOADER` in production, and where?**
-
-Options:
-
-1. `(Recommended)` Provide the token once at each host's application injector
-   (`apps/ptah-extension-webview/src/app/app.config.ts` and the Electron app
-   config), with a thin implementation that calls `provider:listModels` through
-   `ClaudeRpcService`. One wiring covers every mount: the Background models
-   editors, the setup wizard, and the CLI agents editor. The port's own doc
-   says "provide this wherever a picker is rendered", but a single app-level
-   provider satisfies that for all hosts and cannot be forgotten by the next
-   consumer.
-2. Provide it per consumer component (`providers-settings.component.ts`,
-   `provider-setup-wizard.component.ts`, `ptah-cli-config.component.ts`) —
-   matches the current per-tab pattern (the Skills tab provides its own RPC
-   service), but three wirings instead of one, and each new consumer must
-   remember it.
-
-Until one of these lands, `skills-lane-pickers.e2e.spec.ts` stays red by
-design: it asserts real bundle behaviour, and the bundle is broken. Deleting or
-loosening the assertions would silently drop the coverage the task forbids
-dropping.
-
-**Q2 — Should the fix land inside this PR (recommended) before CI merges?**
-The Providers page's inline editors (and the setup wizard's picker) fail in
-every real host today, not only in the harness: any user opening a lane
-editor on the Providers page hits a dead editor row with a `NG0201` in the
-console. The e2e scenario as written will turn green exactly when the DI
-provider lands; no further spec change is needed.
+The production DI issue with `PROVIDER_MODELS_LOADER` has been resolved by registering
+the page-level provider in `ProvidersSettingsComponent` as documented in
+`ci-fix-models-loader-report.md`. The real bundle checks and E2E scenario now pass cleanly.

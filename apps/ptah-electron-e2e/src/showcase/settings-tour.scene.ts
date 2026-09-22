@@ -6,8 +6,8 @@ import type { Locator, Page } from '@playwright/test';
  * P3.x — "Tune Ptah to your stack" (Settings surface tour).
  *
  * A calm, confident pan across the desktop app's Settings surface: the four
- * settings tabs (Providers / Authentication, Agent Orchestration, Pro Features,
- * Search & Voice), the data-portability controls, and the global top-bar
+ * settings tabs (Providers, Agent Orchestration, Advanced, Search & Voice),
+ * the data-portability controls, and the global top-bar
  * affordances (Notifications + the live theme switcher). This is a SCENE, not a
  * test — it asserts almost nothing and is tuned for how it looks on camera.
  *
@@ -31,21 +31,27 @@ import type { Locator, Page } from '@playwright/test';
  * Selector notes (verified against the live shell):
  * - Top nav is a `role="tab"` tablist; `Settings` selects the surface.
  * - `Change theme` + `Notifications` are top-bar buttons (stable aria-labels).
- * - Settings chrome: `ptah-settings`, `[data-testid="settings-section-auth"]`,
- *   `[data-testid="settings-back"]`, and the web-search provider select
+ * - Settings chrome: `ptah-settings`, `ptah-providers-settings` (the default
+ *   tab, id `claude-auth`, renders the consolidated Providers page whose
+ *   "Your connections" section carries `#providers-connections-heading` and
+ *   `[data-testid="provider-connection-card"]`), `[data-testid="settings-back"]`,
+ *   and the web-search provider select
  *   `[data-testid="settings-toggle-web-search-provider"]` (see
  *   `src/specs/settings/settings.spec.ts`). The four tabs are addressed by
- *   their visible label text.
+ *   their visible label text — the third tab's label is "Advanced", not
+ *   "Pro Features".
  */
 
 /**
  * The four settings tabs, in tour order. Script lines 3..6 in
  * `scripts/settings-tour.json` narrate them — one line per tab, same order.
+ * The first tab (id `claude-auth`) renders the consolidated Providers page;
+ * the third tab's visible label is "Advanced".
  */
 const TAB_LABELS: readonly string[] = [
   'Providers',
   'Agent Orchestration',
-  'Pro Features',
+  'Advanced',
   'Search & Voice',
 ];
 
@@ -207,13 +213,23 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
   // WARMUP — one line of context before the tour starts.
   await director.say(1);
 
-  // Open on the Authentication section — the heart of the Providers tab.
-  const authSection = page.locator('[data-testid="settings-section-auth"]');
+  // Open on the connection list — the heart of the consolidated Providers tab.
+  // The `claude-auth` tab id is retained but now renders
+  // `ptah-providers-settings`, whose "Your connections" section replaced the
+  // old authentication editor. Spotlight a concrete connection card when the
+  // profile has one; otherwise the section heading is the anchor.
+  const connectionsHeading = page.locator('#providers-connections-heading');
+  const firstCard = page
+    .locator('[data-testid="provider-connection-card"]')
+    .first();
+  const spotlightTarget = (await firstCard.isVisible().catch(() => false))
+    ? firstCard
+    : connectionsHeading;
   await director.say(2, {
-    target: authSection,
+    target: spotlightTarget,
     during: async () => {
-      if (await authSection.isVisible().catch(() => false)) {
-        await director.spotlight(authSection, 1800);
+      if (await spotlightTarget.isVisible().catch(() => false)) {
+        await director.spotlight(spotlightTarget, 1800);
       }
     },
   });
@@ -243,10 +259,10 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
     });
   }
 
-  // Pop back to the Providers tab and spotlight the data-portability controls —
-  // export/import settings live at the top of the surface.
+  // Pop back to the Advanced tab and spotlight the data-portability controls —
+  // export/import settings live in that tab's block.
   await clickFirstVisible(director, [
-    page.getByRole('button', { name: 'Providers' }),
+    page.getByRole('button', { name: 'Advanced' }),
   ]);
   await director.hold(400);
   await director.scrollThrough(page.locator('ptah-settings'), {

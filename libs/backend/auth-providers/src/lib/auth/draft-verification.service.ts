@@ -461,6 +461,9 @@ export class DraftVerificationService {
     if (params.model !== undefined && typeof params.model !== 'string') {
       throw new Error('auth:verifyDraftConnection: model must be a string');
     }
+    if (params.baseUrl !== undefined && typeof params.baseUrl !== 'string') {
+      throw new Error('auth:verifyDraftConnection: baseUrl must be a string');
+    }
 
     const draft: DraftConnectionInput = {
       providerId,

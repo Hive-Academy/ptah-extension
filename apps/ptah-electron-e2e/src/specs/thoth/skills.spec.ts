@@ -108,7 +108,84 @@ const LANES_FIXTURE = {
   },
 };
 
-const LANE_IDS = ['archaeologist', 'synthesis', 'judge', 'replay'] as const;
+/**
+ * The six `BackgroundConsumerId` rows of the Providers page's Background
+ * models section (`provider-consumer-assignments.component.ts`).
+ */
+const CONSUMER_ROW_IDS = [
+  'memory-curator',
+  'archaeologist',
+  'synthesis',
+  'judge',
+  'replay',
+  'judging-enhancement',
+] as const;
+
+/** `auth:getEffectiveRoute` result — the Providers page's first eager read. */
+const ROUTE_FIXTURE = {
+  route: 'api-key',
+  ready: true,
+  blockers: [],
+  driverProviderId: 'moonshot',
+  resolvedAuthModality: 'api-key',
+  resolvedModel: { kind: 'tier', tier: 'sonnet' },
+  storedAuthMethodDiagnostic: null,
+  storedAuthMethodScope: 'global',
+  providers: [{ id: 'moonshot', type: 'apiKey', status: 'connected' }],
+  lastSuccessfulProbeAt: '2026-01-01T00:00:00.000Z',
+  lastFailedProbeAt: null,
+  probedAt: '2026-01-01T00:00:00.000Z',
+  fromCache: false,
+};
+
+/**
+ * `config:getScopes` result. No per-key provenance entries: the scope rows
+ * fall back to the documented `mixed` display, which no assertion here
+ * depends on.
+ */
+const SCOPES_FIXTURE = {
+  activePath: 'C:\\ptah-e2e-ws',
+  entries: [],
+};
+
+/** `AgentOrchestrationConfig` with every scalar on its documented default. */
+const AGENT_CONFIG_FIXTURE = {
+  detectedClis: [],
+  preferredAgentOrder: [],
+  maxConcurrentAgents: 3,
+  codexModel: '',
+  copilotModel: '',
+  cursorModel: '',
+  cursorApiKeyConfigured: false,
+  codexReasoningEffort: '',
+  copilotReasoningEffort: '',
+  codexAutoApprove: true,
+  copilotAutoApprove: true,
+  mcpPort: 51_820,
+  disabledClis: [],
+  disabledMcpNamespaces: [],
+  browserAllowLocalhost: false,
+  workflowsDisabled: false,
+};
+
+/** `providerId` -> models resolver, evaluated in the main process as `new Function`. */
+const LIST_MODELS_RESOLVER = `(params) => {
+  if (params && params.providerId === 'moonshot') {
+    return {
+      models: [{
+        id: 'kimi-k2', name: 'Kimi K2', description: 'Moonshot Kimi K2',
+        contextLength: 200000, supportsToolUse: true
+      }],
+      totalCount: 1, isStatic: true
+    };
+  }
+  return { models: [], totalCount: 0, isStatic: true };
+}`;
+
+/** Connection discovery probes every `isLocal` registry entry for a saved URL. */
+const EMPTY_BASE_URL_RESOLVER = `() => ({ baseUrl: null, defaultBaseUrl: null })`;
+/** …and every `nativeAuth` registry entry for saved tier mappings. */
+const EMPTY_TIERS_RESOLVER = `() => ({ sonnet: null, opus: null, haiku: null })`;
 
 test.describe('Thoth — Skills tab', () => {
   test('candidate table + stats render', async ({ ui }) => {
@@ -248,16 +325,30 @@ test.describe('Thoth — Skills tab', () => {
   });
 
   /**
-   * P1-9 part (c) — Electron half. Proves the shared
-   * `ProviderModelPickerComponent` (extracted from the deleted
-   * `curator-model-picker.component.ts` fork into `libs/frontend/ui`,
-   * batches B1.9/B1.10) mounts four times inside
-   * `SkillSettingsPanelComponent`'s Lanes section, enumerates the provider
-   * registry, and — the exact defect commit 9e42f9c81 fixed — renders a
-   * pinned lane's provider AND model as pinned rather than falling back to
-   * "Active provider (default)".
+   * P1-9 part (c) — Electron half, MOVED to the Providers page (TASK_2026_523,
+   * plan Decision 9 row 6). The four lane pickers were REMOVED from
+   * `SkillSettingsPanelComponent` ("REMOVE the four picker mounts. Unrelated
+   * synthesis policy stays."); lane provider/model selection moved to the
+   * Providers settings page's "Background models" section
+   * (`ProviderConsumerAssignmentsComponent`, which mounts the same
+   * `ProviderModelPickerComponent` extracted into `libs/frontend/ui` — the
+   * component this test always really tested, batches B1.9/B1.10). The
+   * skills panel now owns one thing per lane: a "Manage <lane> in Providers"
+   * deep-link button (`AppStateManager.requestSettingsTab({ tab: 'providers',
+   * section })` + `setCurrentView('settings')`, `skill-settings-panel.
+   * component.ts:421-424`). So this test drives the real user path:
+   * thoth > Skills > Settings, click "Manage synthesis in Providers", land on
+   * the Providers page, and assert the picker there — enumeration over the
+   * merged registry, the pinned synthesis lane showing ITS provider/model
+   * (the exact defect commit 9e42f9c81 fixed: a lone `[value]` on the
+   * `<select>` without `[selected]` on the `@for` options silently renders a
+   * pinned lane as "Active provider (default)"), and an untouched lane showing
+   * the documented inherit default. Mirrors the committed webview version
+   * (`libs/frontend/webview-e2e-harness/src/lib/scenarios/thoth/
+   * skills-lane-pickers.e2e.spec.ts`), adapted to this harness's
+   * `ui.openTab` / `ui.mockRpc` driver.
    */
-  test('Settings lane pickers render, enumerate providers, and a pinned lane renders pinned', async ({
+  test('Skills deep-link opens the Providers page where the shared picker enumerates providers and a pinned lane renders pinned', async ({
     ui,
   }) => {
     await ui.mockRpc({
@@ -271,18 +362,34 @@ test.describe('Thoth — Skills tab', () => {
       },
       'skillSynthesis:getSettings': { settings: SETTINGS_FIXTURE },
       'skillSynthesis:getLanes': { lanes: LANES_FIXTURE },
-      'provider:listModels': `(params) => {
-        if (params && params.providerId === 'moonshot') {
-          return {
-            models: [{
-              id: 'kimi-k2', name: 'Kimi K2', description: 'Moonshot Kimi K2',
-              contextLength: 200000, supportsToolUse: true
-            }],
-            totalCount: 1, isStatic: true
-          };
-        }
-        return { models: [], totalCount: 0, isStatic: true };
-      }`,
+      // Everything `ProvidersSettingsStateService.refresh()` fans out over
+      // when the Providers page opens. A section left unanswered still gets
+      // the fake listener's namespace default (empty arrays), which does not
+      // satisfy shapes like `settings:get` — so every read is mocked here and
+      // the rows render loaded. `toggleEdit` refuses to open an editor for a
+      // not-loaded row.
+      'auth:getEffectiveRoute': ROUTE_FIXTURE,
+      'config:getScopes': SCOPES_FIXTURE,
+      'config:model-get': { model: 'kimi-k2' },
+      // `undefined` does not survive the JSON round-trip; a null effort
+      // renders as "Provider default", which is what the fixture wants.
+      'config:effort-get': { effort: null },
+      'ptahCli:list': { agents: [] },
+      'settings:get': { success: true, value: [] },
+      'agent:getConfig': AGENT_CONFIG_FIXTURE,
+      'auth:getApiKeyStatus': { providers: [] },
+      'auth:getAuthStatus': {
+        hasApiKey: true,
+        hasOpenRouterKey: false,
+        hasAnyProviderKey: true,
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'moonshot',
+        availableProviders: [],
+      },
+      'provider:listCustomEntries': { entries: [] },
+      'llm:getProviderBaseUrl': EMPTY_BASE_URL_RESOLVER,
+      'provider:getModelTiers': EMPTY_TIERS_RESOLVER,
+      'provider:listModels': LIST_MODELS_RESOLVER,
     });
 
     await ui.openTab('skills');
@@ -290,28 +397,64 @@ test.describe('Thoth — Skills tab', () => {
 
     await page.locator('[data-testid="skills-subview-settings"]').click();
 
-    const pickers = page.locator('[data-testid="skills-lane-picker"]');
-    await expect(pickers).toHaveCount(4);
+    // Decision 9 row 6: the pickers are gone from the skills panel. What
+    // remains per lane is the deep-link button into the Providers page —
+    // assert the panel no longer mounts a picker and still offers the link.
+    const panel = page.locator('ptah-skill-settings-panel');
+    await expect(panel.locator('ptah-provider-model-picker')).toHaveCount(0);
+    const lanesSection = page.locator('[data-testid="skills-lanes-section"]');
+    await expect(lanesSection).toBeVisible();
+    const manageSynthesis = lanesSection.getByRole('button', {
+      name: 'Manage synthesis in Providers',
+    });
+    await expect(manageSynthesis).toBeVisible();
+    await manageSynthesis.click();
 
-    for (const laneId of LANE_IDS) {
-      const picker = page.locator(
-        `[data-testid="skills-lane-picker"][data-lane="${laneId}"]`,
-      );
-      await expect(picker).toHaveCount(1);
-      // Enumeration: the registry's provider list is offered on every lane,
-      // not just the pinned one.
+    // The deep-link routes to the settings view; the Providers tab is its
+    // default tab. Wait for the Background models section to be LOADED (a
+    // row's summary only renders once its section read landed), because
+    // `toggleEdit` refuses to open an editor for a not-loaded row.
+    const assignments = page.locator(
+      '[data-testid="provider-consumer-assignments"]',
+    );
+    await assignments.waitFor({ state: 'visible' });
+    for (const rowId of CONSUMER_ROW_IDS) {
       await expect(
-        picker
-          .locator('[data-testid="provider-model-picker-provider"]')
-          .locator('option[value="moonshot"]'),
-      ).toHaveText('Moonshot (Kimi)');
+        page.locator(`[data-testid="consumer-row-${rowId}"]`),
+      ).toHaveCount(1);
     }
+    await expect(
+      page.locator('[data-testid="consumer-summary-synthesis"]'),
+    ).toBeVisible();
+
+    // The deep-link's auto-open effect is one-shot and races the lanes read
+    // (`appliedDeepLinkId` is set even when `toggleEdit` bails), so open the
+    // editor explicitly when the deep-link lost that race.
+    const synthesisEditor = page.locator(
+      '[data-testid="consumer-editor-synthesis"]',
+    );
+    if (!(await synthesisEditor.isVisible())) {
+      await page.locator('[data-testid="consumer-edit-synthesis"]').click();
+    }
+    await synthesisEditor.waitFor({ state: 'visible' });
+
+    // The shared `ProviderModelPickerComponent` (batches B1.9/B1.10) mounts
+    // inside the Electron renderer on the Providers page, enumerating the
+    // merged registry.
+    const synthesisPicker = page.locator(
+      '[data-testid="consumer-editor-synthesis"] ptah-provider-model-picker',
+    );
+    await expect(
+      synthesisEditor.locator('[data-testid="picker-synthesis"]'),
+    ).toHaveCount(1);
+    await expect(
+      synthesisPicker
+        .locator('[data-testid="provider-model-picker-provider"]')
+        .locator('option[value="moonshot"]'),
+    ).toHaveText('Moonshot (Kimi)');
 
     // The regressed case: a pinned lane must show ITS provider/model, not the
     // inherit sentinel.
-    const synthesisPicker = page.locator(
-      '[data-testid="skills-lane-picker"][data-lane="synthesis"]',
-    );
     await expect(
       synthesisPicker.locator('[data-testid="provider-model-picker-provider"]'),
     ).toHaveValue('moonshot');
@@ -320,8 +463,9 @@ test.describe('Thoth — Skills tab', () => {
     ).toHaveValue('kimi-k2');
 
     // An untouched lane still shows the documented default: inherit.
+    await page.locator('[data-testid="consumer-edit-judge"]').click();
     const judgePicker = page.locator(
-      '[data-testid="skills-lane-picker"][data-lane="judge"]',
+      '[data-testid="consumer-editor-judge"] ptah-provider-model-picker',
     );
     await expect(
       judgePicker.locator('[data-testid="provider-model-picker-provider"]'),

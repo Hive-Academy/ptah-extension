@@ -78,12 +78,12 @@ Implementation of `ProviderConnectionCardComponent` and its colocated specificat
 | `check-unavailable` (also `skipped`) | `tone="neutral"`, `spine=false`, `AlertCircle`, badge **Check unavailable** | `Could not check this connection. Retry.` | `Retry`, `Manage` | `row 10 [check-unavailable]: renders AlertCircle, Check unavailable badge, exact copy, and Retry button` |
 
 ### Core Safety Rules Pinned by Specs
-- **Status is never shown as Connected without positive evidence**:
+- **Status resolution and probe evidence rules**:
   - Raw status `'unknown'` maps to `'not-checked'` ("Connection has not been verified.").
   - Raw status `'skipped'` maps to `'check-unavailable'` ("Could not check this connection. Retry.").
   - Raw status `'missing'` maps to `'not-configured'`.
-  - Candidate status `'connected'` with `positiveProbeEvidence: false` downgrades to `'not-checked'`.
-  - Candidate status `'reachable'` without positive probe evidence downgrades to `'not-checked'`.
+  - Candidate status `'connected'` with `positiveProbeEvidence: false` downgrades to `'not-checked'` (explicit `false` rejects; `null`/unspecified preserves raw connected status).
+  - Candidate status `'reachable'` requires explicit positive probe evidence (`positiveProbeEvidence === true`), otherwise downgrading to `'not-checked'`.
 - **Blocked main route invariant**:
   - An active route that is blocked or failing displays **Main agent · Needs attention** and its failure badge, with a warning spine. It is NEVER shown with the healthy **Active for main agent** badge.
 - **Diagnostic secrecy**:

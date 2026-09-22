@@ -530,7 +530,9 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
       const values: AuthEnv = {
         ANTHROPIC_BASE_URL: baseUrl,
         ...this.buildTierValues(providerId, 'mainAgent'),
-        ...(draft.credential?.value.trim() ? { ANTHROPIC_API_KEY: draft.credential.value.trim() } : {}),
+        ...(draft.credential?.value.trim()
+          ? { [getProviderAuthEnvVar(providerId)]: draft.credential.value.trim() }
+          : {}),
       };
       return { env: this.buildLaneEnv(values), baseUrl };
     }

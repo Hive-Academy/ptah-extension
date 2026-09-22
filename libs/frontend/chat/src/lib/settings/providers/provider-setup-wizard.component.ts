@@ -2069,6 +2069,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     void this.cancelDraftVerification()({ probeId })
       .then((result) => {
         if (result.cancelled && this._probeState() === 'checking' && this._probeId() === probeId) {
+          this.stopElapsedTimer();
           this.probeSettled = true;
           this._probeResult.set(null);
           this._probeState.set('cancelled');
@@ -2077,6 +2078,20 @@ export class ProviderSetupWizardComponent implements OnDestroy {
       .catch((error: unknown) => {
         const errorType = error instanceof Error ? error.constructor.name : typeof error;
         console.error('[ProviderSetupWizardComponent] Cancel probe failed:', errorType);
+        if (this._probeState() === 'checking' && this._probeId() === probeId) {
+          this.stopElapsedTimer();
+          this.probeSettled = true;
+          this._probeResult.set({
+            probeId,
+            outcome: 'failed',
+            reason: 'unclassified',
+            detail: null,
+            latencyMs: null,
+            modelUsed: null,
+            checkedAt: new Date().toISOString(),
+          });
+          this._probeState.set('failed');
+        }
       });
   }
 
