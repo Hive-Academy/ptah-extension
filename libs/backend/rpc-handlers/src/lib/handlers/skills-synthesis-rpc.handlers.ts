@@ -562,7 +562,7 @@ export class SkillsSynthesisRpcHandlers {
       try {
         const parsed = UpdateSkillSynthesisSettingsParamsSchema.parse(params);
         const entries = Object.entries(parsed.settings) as Array<
-          [keyof SkillSynthesisSettingsDto, unknown]
+          [string, unknown]
         >;
         const curatorAffected =
           'curatorEnabled' in parsed.settings ||

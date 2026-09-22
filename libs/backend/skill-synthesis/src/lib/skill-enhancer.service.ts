@@ -5,6 +5,9 @@ import { readFile } from 'node:fs/promises';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
+  ENHANCE_TIMEOUT_DEFAULT_MS,
+  ENHANCE_TIMEOUT_MAX_MS,
+  ENHANCE_TIMEOUT_MIN_MS,
   PLATFORM_TOKENS,
   resolveMcpSessionWiring,
   type IMcpServerStatus,
@@ -46,7 +49,10 @@ import {
 } from './skill-registry.store';
 import { SkillJudgeService } from './skill-judge.service';
 import { TrajectoryExtractor } from './trajectory-extractor';
-import { resolveJudgeModel } from './model-resolver';
+import { PROVIDER_AUTH_RESOLVER_TOKEN } from './di/tokens';
+import type { ILaneAuthResolver } from './lanes/lane-auth-resolver.port';
+import type { LaneAuthOverride } from './lanes/lane.types';
+import { resolveLaneModel } from './lanes/lane-resolver.service';
 import {
   SKILL_REPROPAGATION_TOKEN,
   type SkillRepropagationPort,
@@ -57,8 +63,6 @@ import {
 } from './spec-findings.port';
 import type { SkillScorecardService } from './skill-scorecard.service';
 import type { AgentScorecard } from '@ptah-extension/shared';
-
-const ENHANCE_TIMEOUT_MS = 30_000;
 /**
  * `generateCandidate`'s answer when the provider never answered, or a
  * background call was held by its open network back-off (TASK_2026_437 C14 f).
@@ -274,6 +278,12 @@ export class SkillEnhancerService {
      */
     @inject(SKILL_SYNTHESIS_TOKENS.NETWORK_BACKOFF, { isOptional: true })
     private readonly networkBackoffs: ProviderNetworkBackoffs | null = null,
+    /**
+     * Optional and LAST so positional construction in the specs keeps
+     * compiling. Absent ⇒ ride the active provider.
+     */
+    @inject(PROVIDER_AUTH_RESOLVER_TOKEN, { isOptional: true })
+    private readonly authResolver: ILaneAuthResolver | null = null,
   ) {}
 
   /**
@@ -779,10 +789,56 @@ export class SkillEnhancerService {
     const stats = this.candidates.getInvocationStats(slug);
     const trajectorySignal = await this.collectTrajectorySignal(slug, cwd);
     const specFindings = await this.collectSpecFindings(slug);
-    const model = resolveJudgeModel(
-      settings.judgeModel,
+    const configuredTimeout = this.workspaceProvider.getConfiguration<number>(
+      'ptah',
+      'skillSynthesis.enhanceTimeoutMs',
+    );
+    const rawTimeout = Number(configuredTimeout);
+    const timeoutMs = Number.isFinite(rawTimeout)
+      ? Math.min(
+          Math.max(rawTimeout, ENHANCE_TIMEOUT_MIN_MS),
+          ENHANCE_TIMEOUT_MAX_MS,
+        )
+      : ENHANCE_TIMEOUT_DEFAULT_MS;
+
+    const judgeProvider = (settings.judgeProvider ?? '').trim();
+    const judgeModel = settings.judgeModel;
+    const model = resolveLaneModel(
+      {
+        id: 'judge',
+        provider: judgeProvider,
+        model: judgeModel === 'inherit' ? '' : judgeModel,
+        defaultTier: 'haiku',
+        structuredOutput: 'sdk',
+        toolUse: 'none',
+        timeoutMs,
+        maxInputChars: 0,
+        maxPasses: 1,
+      },
+      'inherit',
       this.workspaceProvider,
     );
+
+    let authOverride: LaneAuthOverride | undefined;
+    if (judgeProvider && this.authResolver) {
+      try {
+        const resolvedAuth = await this.authResolver.resolve(
+          judgeProvider,
+          'lane',
+        );
+        authOverride = resolvedAuth ?? undefined;
+      } catch (error: unknown) {
+        this.logger.warn(
+          '[skill-enhancer] provider auth resolution failed; provider unreachable',
+          {
+            slug,
+            provider: judgeProvider || '(active)',
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+        return PROVIDER_UNREACHABLE;
+      }
+    }
 
     const artifactLabel =
       kind === 'agent'
@@ -824,10 +880,7 @@ export class SkillEnhancerService {
     const prompt = promptLines.join('\n');
 
     const abortController = new AbortController();
-    const timeoutHandle = setTimeout(
-      () => abortController.abort(),
-      ENHANCE_TIMEOUT_MS,
-    );
+    const timeoutHandle = setTimeout(() => abortController.abort(), timeoutMs);
     try {
       const handle = await this.internalQuery.execute({
         cwd,
@@ -837,6 +890,7 @@ export class SkillEnhancerService {
         maxTurns: 1,
         lane,
         abortController,
+        auth: authOverride,
       });
       let collected = '';
       const network = new QueryNetworkObserver();

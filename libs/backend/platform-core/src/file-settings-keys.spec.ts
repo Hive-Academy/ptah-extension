@@ -1,4 +1,7 @@
 import {
+  ENHANCE_TIMEOUT_DEFAULT_MS,
+  ENHANCE_TIMEOUT_MAX_MS,
+  ENHANCE_TIMEOUT_MIN_MS,
   FILE_BASED_SETTINGS_KEYS,
   FILE_BASED_SETTINGS_DEFAULTS,
   isFileBasedSettingKey,
@@ -615,6 +618,35 @@ describe('isFileBasedSettingKey', () => {
         'skillSynthesis.replayValidation.enabled',
         'skillSynthesis.triggerEval.enabled',
       ]);
+    });
+  });
+
+  describe('skillSynthesis judge and enhancement keys (TASK_2026_523)', () => {
+    it('registers judgeProvider and enhanceTimeoutMs in FILE_BASED_SETTINGS_KEYS', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('skillSynthesis.judgeProvider')).toBe(
+        true,
+      );
+      expect(
+        FILE_BASED_SETTINGS_KEYS.has('skillSynthesis.enhanceTimeoutMs'),
+      ).toBe(true);
+    });
+
+    it('defines correct defaults in FILE_BASED_SETTINGS_DEFAULTS and aligns with ENHANCE_TIMEOUT_* constants', () => {
+      expect(FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.judgeProvider']).toBe(
+        '',
+      );
+      expect(
+        FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.enhanceTimeoutMs'],
+      ).toBe(ENHANCE_TIMEOUT_DEFAULT_MS);
+      expect(ENHANCE_TIMEOUT_DEFAULT_MS).toBe(120_000);
+      expect(ENHANCE_TIMEOUT_MIN_MS).toBe(15_000);
+      expect(ENHANCE_TIMEOUT_MAX_MS).toBe(600_000);
+      expect(ENHANCE_TIMEOUT_MIN_MS).toBeLessThanOrEqual(
+        ENHANCE_TIMEOUT_DEFAULT_MS,
+      );
+      expect(ENHANCE_TIMEOUT_DEFAULT_MS).toBeLessThanOrEqual(
+        ENHANCE_TIMEOUT_MAX_MS,
+      );
     });
   });
 
