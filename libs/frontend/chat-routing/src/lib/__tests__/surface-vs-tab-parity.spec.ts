@@ -58,7 +58,10 @@ import type {
 import { StreamRouter } from '../stream-router.service';
 import { StreamingSurfaceRegistry } from '../streaming-surface-registry.service';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
-import { createMockRpcService } from '@ptah-extension/core/testing';
+import {
+  createMockRpcService,
+  provideSurfaceActiveTesting,
+} from '@ptah-extension/core/testing';
 
 // ---------- Helpers --------------------------------------------------------
 
@@ -314,6 +317,14 @@ describe('Surface-vs-Tab parity (TASK_2026_107 Phase 5)', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
+        // `BatchedUpdateService` sits on the router's injection path
+        // (StreamRouter -> StreamingAccumulatorCore -> BatchedUpdateService)
+        // and injects SURFACE_ACTIVE non-optionally, so the token has to be
+        // bound here. `true` is the right value for a parity spec: it asserts
+        // that both paths accumulate the SAME state, which is only observable
+        // once the flush actually reaches TabManager. Binding `false` would
+        // defer every flush and the parity assertions would read empty state.
+        provideSurfaceActiveTesting(),
         { provide: TabManagerService, useValue: tabManager },
         { provide: PermissionHandlerService, useValue: permissionHandler },
         { provide: StreamingHandlerService, useValue: streamingHandler },
