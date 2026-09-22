@@ -10,15 +10,18 @@
  *    `dashboard:spec-proposed` payload, and it sits in the main
  *    `@ptah-extension/shared` barrel, which must stay `zod`-free (see
  *    `src/schemas.ts`).
- * 2. `tsconfig.base.json` sets `"strict": false`, and twenty backend libs —
- *    `settings-core`, `cli-agent-runtime`, `task-specs` and others — never
- *    override it. Under `strictNullChecks: false` every key of a zod object
- *    infers as OPTIONAL, because `undefined` is assignable to every type. A
- *    zod-inferred type reached from the main barrel therefore fails to
- *    typecheck in those projects, and it fails inside `libs/shared`'s own
- *    source rather than at the import site. `@ptah-extension/settings-core:typecheck`
- *    caught exactly this. Plain interfaces are strictness-independent, so the
- *    barrel exports these and the inference stays behind the entry point.
+ * 2. `tsconfig.base.json` sets `"strict": false`, and four backend libs —
+ *    `settings-core`, `memory-contracts`, `voice-contracts` and
+ *    `auth-providers-tokens` — never override it. Under
+ *    `strictNullChecks: false` every key of a zod object infers as OPTIONAL,
+ *    because `undefined` is assignable to every type. A zod-inferred type
+ *    reached from the main barrel therefore fails to typecheck in those
+ *    projects, and it fails inside `libs/shared`'s own source rather than at
+ *    the import site. The settings-core typecheck target caught exactly this.
+ *    Plain interfaces are strictness-independent, so the barrel exports these
+ *    and the inference stays behind the entry point. TASK_2026_528_5d1e
+ *    tracks turning strict on in those four libs, which would retire this
+ *    whole constraint.
  *
  * `dashboard-spec.schemas.ts` binds every schema to the type here with
  * `satisfies z.ZodType<…>`. Read the header of that file for the exact scope of

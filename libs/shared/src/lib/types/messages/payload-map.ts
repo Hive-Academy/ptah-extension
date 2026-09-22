@@ -225,10 +225,10 @@ export interface HarnessConfigProposedPayload {
  * `DashboardSpecEnvelope` comes from `mcp-apps-contracts/dashboard-spec.types.ts`,
  * which imports no zod — deliberately NOT from `dashboard-spec.schemas.ts`. An
  * `import type` from the schemas module would be erased at runtime but would
- * still pull that file into every consumer's TYPE program, including the twenty
+ * still pull that file into every consumer's TYPE program, including the four
  * backend libs that inherit `"strict": false` from `tsconfig.base.json`; under
  * `strictNullChecks: false` every zod-inferred key becomes optional and the
- * contract fails to compile there. `@ptah-extension/settings-core:typecheck`
+ * contract fails to compile there. The settings-core typecheck target
  * demonstrated it. Plain interfaces are strictness-independent.
  */
 export interface DashboardSpecProposedPayload {
