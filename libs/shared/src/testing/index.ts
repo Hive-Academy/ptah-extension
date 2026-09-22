@@ -30,6 +30,18 @@ export {
   resetCorrelationIdCounter,
   type MakeCorrelationIdOptions,
 } from './fixtures/correlation-id';
+export {
+  dashboardJsonBytes,
+  makeChart,
+  makeDashboardSpec,
+  makeDashboardSpecOfExactBytes,
+  makeList,
+  makeNestedStats,
+  makeStat,
+  makeStatPairs,
+  makeStats,
+  makeTable,
+} from './fixtures/dashboard-spec';
 export { freezeTime, type FrozenClock } from './time/freeze-time';
 export {
   expectNormalizedPath,

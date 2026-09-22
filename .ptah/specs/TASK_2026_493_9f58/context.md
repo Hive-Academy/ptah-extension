@@ -58,6 +58,24 @@ A fixed catalog limits component types. It does not make agent-controlled values
 - Text that allows markdown goes through `libs/frontend/markdown`. No second parser.
 - New libs need the two Nx tag axes. Proposed names and tags are in `.ptah/specs/TASK_2026_490_583c/critique-engineering.md` section 3.
 
+## Decisions from review
+
+Decisions taken during revision round 1. They bind TASK_2026_494 as well as this task.
+
+1. **A spec with no `sessionId` produces the plain-text tool result and renders nowhere.** Absence keeps meaning "not mine" — never "the active session". Rendering an
+   unattributed spec into whatever conversation the user happens to have open would let an anonymous MCP caller inject a surface into it, which is a trust-boundary
+   failure and not a convenience. The producer side is already built this way (`payload-map.ts`, `DashboardSpecProposedPayload.sessionId` is optional and documented);
+   this decision makes it deliberate rather than emergent. **TASK_2026_494 needs a test asserting that a spec with no `sessionId` renders nowhere.**
+
+2. **Text is plain, and there is no markdown in the contract.** `format: 'markdown'` was removed in revision 1 after review proved it was a second URL channel that
+   bypassed the scheme allowlist at line 44 above: the markdown chokepoint's sanitizer is a deny-list that permits `http:` and `data:`, so a markdown image URL reached a
+   consumer without ever being scheme-checked. A link belongs in a `dashboard.open-url` action. Restoring markdown needs a URL policy the chokepoint can actually enforce
+   AND a new `catalogVersion` — see the comment on `DASHBOARD_TEXT_FORMATS`.
+
+3. **A delivery failure is not a success.** The MCP tool distinguishes three answers: validation rejection (nothing dispatched), delivery failure to an attached surface
+   (`isError`, and the caller is told how many surfaces did receive it), and success. A host with **no** surface at all remains a success — that is the deliberate
+   text-fallback path for the CLI and for headless callers, not a failed delivery.
+
 ## Source
 
 `.ptah/specs/TASK_2026_490_583c/research-report.md` Revision 4, Track A. `.ptah/specs/TASK_2026_490_583c/critique-engineering.md` section 5.

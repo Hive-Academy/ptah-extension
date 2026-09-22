@@ -87,9 +87,16 @@ import {
   buildTaskListTool,
   buildTaskCheckTool,
 } from './tool-description.builder';
+import {
+  DASHBOARD_PROPOSE_SPEC_TOOL_NAME,
+  buildDashboardProposeSpecTool,
+} from './dashboard-propose-spec.tool';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
-import { runWithMcpRequestContext } from './mcp-request-context';
+import {
+  getCallerSessionId,
+  runWithMcpRequestContext,
+} from './mcp-request-context';
 import {
   formatWorkspaceAnalysis,
   formatSearchFiles,
@@ -287,6 +294,13 @@ function handleToolsList(
     buildTaskGetTool(),
     buildTaskListTool(),
     buildTaskCheckTool(),
+    // Always-on for the same reason as the task tools, and with no namespace
+    // toggle (TASK_2026_493_9f58): the tool's success result is a plain-text
+    // rendering of the dashboard, so it is the answer on a host with no
+    // dashboard page rather than a dead end. An agent that cannot rely on it
+    // being present writes a markdown table instead — the exact improvisation
+    // `ptah_harness_propose_config` was added to remove.
+    buildDashboardProposeSpecTool(),
     ...(deps.hasIDECapabilities === true && !disabled.has('ide')
       ? [
           buildLspReferencesTool(),
@@ -1600,6 +1614,47 @@ async function handleIndividualTool(
           }),
           deps,
         );
+      }
+
+      case DASHBOARD_PROPOSE_SPEC_TOOL_NAME: {
+        // `spec` is forwarded UNTOUCHED. The dispatcher deliberately does not
+        // pre-check its shape — not even that it is an object — because every
+        // such check would be a second, weaker copy of the zod contract, and a
+        // near-miss rejected here would report a worse reason than the one the
+        // validator produces. See `validateDashboardSpec`.
+        const { spec } = args as { spec?: unknown };
+
+        const outcome = await ptahAPI.dashboard.proposeSpec(spec, {
+          sessionId: getCallerSessionId(),
+          toolCallId: request.id.toString(),
+        });
+
+        // A validation rejection is an `isError` tool result carrying the
+        // plain-text reason, and NO push message was sent — the namespace
+        // guarantees the ordering (validate, then dispatch), not this branch.
+        if (outcome.status === 'rejected') {
+          return toolErrorResponse(request, outcome.reason);
+        }
+
+        // A DELIVERY failure is a different answer from a validation rejection
+        // and must not be reported as success (TASK_2026_493 revision 1,
+        // finding 2). It still carries the dashboard text, because losing the
+        // content over a transport problem helps nobody, and the reason says
+        // how many surfaces did receive it — one of them may already be on
+        // screen.
+        if (outcome.status === 'delivery-failed') {
+          return toolErrorResponse(
+            request,
+            `${outcome.reason}\n\n${outcome.text}`,
+          );
+        }
+
+        // Success content is the plain-text dashboard, not JSON: the hosts
+        // without a dashboard page need to be able to SHOW this, and the UI
+        // never parses it — it reads `dashboard:spec-proposed` instead
+        // (`context.md`, "Transport contract"). A host with NO surface at all
+        // reaches here too, and deliberately so.
+        return createToolSuccessResponse(request, outcome.text, deps);
       }
 
       case 'ptah_ast_analyze': {

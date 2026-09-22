@@ -42,7 +42,7 @@
     "docs/migration.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12"
   },
   "publishConfig": {
     "access": "public",

@@ -163,6 +163,18 @@ export const MESSAGE_TYPES = {
   HARNESS_OPEN_WORKFLOW: 'harness:open-workflow',
   /** Backend → Frontend: agent proposed harness config updates via the proposeConfig MCP tool. */
   HARNESS_CONFIG_PROPOSED: 'harness:config-proposed',
+  /**
+   * Backend → Frontend: an agent proposed a declarative dashboard spec via the
+   * `ptah_dashboard_propose_spec` MCP tool (TASK_2026_493_9f58).
+   *
+   * Named after `HARNESS_CONFIG_PROPOSED`, and the same one-way push: the spec
+   * on this message has ALREADY passed `validateDashboardSpec` at the MCP
+   * boundary, and it is always a whole spec — there is no partial or
+   * incremental form of this message, so a renderer never has to decide
+   * whether it has enough of a spec to draw. The UI must read the spec from
+   * this payload and must never parse the tool's text content.
+   */
+  DASHBOARD_SPEC_PROPOSED: 'dashboard:spec-proposed',
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
   ASK_USER_QUESTION_AUTO_RESOLVED: 'ask-user-question:auto-resolved',
