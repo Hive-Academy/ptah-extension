@@ -36,6 +36,11 @@ const KIND_LABEL: Record<CompactSemanticMarkKind, string> = {
   terminal: 'TERM',
 };
 
+/** Input bound for conversion; tool output can be very large. */
+const DETAIL_SOURCE_LIMIT = 4000;
+/** The detail line is one visually truncated line, so 600 plain chars is plenty. */
+const DETAIL_TEXT_LIMIT = 600;
+
 /**
  * Tone is dual-coded: every badge pairs this glyph with a colour class so
  * tone reads correctly without colour vision.
@@ -604,7 +609,9 @@ export class CompactSessionActivityComponent {
       mark,
       label: stripMarkdownToPlainText(mark.label),
       detail: mark.text
-        ? stripMarkdownToPlainText(mark.text.slice(0, 600))
+        ? stripMarkdownToPlainText(
+            mark.text.slice(0, DETAIL_SOURCE_LIMIT),
+          ).slice(0, DETAIL_TEXT_LIMIT)
         : null,
     })),
   );
@@ -621,9 +628,10 @@ export class CompactSessionActivityComponent {
   readonly activeAgentName = computed<string>(() => {
     const mark = this.latestAgentMark();
     if (!mark) return 'assistant';
-    const match = mark.label.match(/Agent (?:started|completed):\s*(.+)/i);
+    const label = stripMarkdownToPlainText(mark.label);
+    const match = label.match(/Agent (?:started|completed):\s*(.+)/i);
     if (match) return match[1].trim();
-    return mark.label || 'assistant';
+    return label || 'assistant';
   });
 
   readonly lastErrorLabel = computed<string | null>(() => {

@@ -464,4 +464,49 @@ describe(CompactSessionActivityComponent.name, () => {
     expect(terminalFooter?.textContent).toContain('ready');
     expect(terminalFooter?.textContent).toContain('2 events');
   });
+
+  it('strips markdown from an agent label before parsing the agent name', () => {
+    const fixture = render(
+      summary({
+        marks: [
+          mark({
+            id: 'ag:md',
+            kind: 'agent',
+            tone: 'success',
+            label: 'Agent started: **backend-developer**',
+          }),
+        ],
+      }),
+    );
+
+    expect(fixture.componentInstance.activeAgentName()).toBe(
+      'backend-developer',
+    );
+    const agentContext =
+      fixture.nativeElement.querySelector('.cs-agent-context');
+    expect(agentContext?.textContent).toContain('backend-developer');
+    expect(agentContext?.textContent).not.toContain('**');
+  });
+
+  it('converts a bounded markdown prefix to plain text before truncating the detail line', () => {
+    const longCode = 'x'.repeat(700);
+    const fixture = render(
+      summary({
+        marks: [
+          mark({
+            id: 'tool:long',
+            kind: 'tool',
+            tone: 'success',
+            label: 'Long output',
+            text: '```ts\n' + longCode + '\n```',
+          }),
+        ],
+      }),
+    );
+    const detailText = fixture.componentInstance.feedRows()[0].detail ?? '';
+
+    expect(detailText).not.toContain('`');
+    expect(detailText.length).toBeLessThanOrEqual(600);
+    expect(detailText).toContain('x');
+  });
 });

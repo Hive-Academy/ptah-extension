@@ -1,3 +1,14 @@
+---
+id: TASK_2026_531_compact
+status: in_review
+type: feature
+title: Compact session view — markdown, size-adaptive card and layout menu
+description: >-
+  Render markdown in the compact card recap, show plain text in the feed, let
+  the card fill every tile size, and group the tile layout menu into width,
+  height and arrange. Follow-up to TASK_2026_512_feaa. PR #577.
+---
+
 # TASK_2026_531 — Compact session view: elevation pass
 
 Follow-up to TASK_2026_512_feaa (compact tile redesign). The shipped compact
