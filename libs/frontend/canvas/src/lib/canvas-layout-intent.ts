@@ -367,9 +367,11 @@ function apportion(
 }
 
 /**
- * Preferred width of every tile under the existing row packing, with compact
- * tiles as fixed participants at the responsive minimum and excluded from
- * auto-weight remainder sharing. Row membership follows `rowBreakBefore`,
+ * Preferred width of every tile under the existing row packing. A compact
+ * tile keeps an explicit span; a compact auto tile is a fixed participant at
+ * the responsive minimum, excluded from auto-weight remainder sharing
+ * (`effectiveUnits` already maps auto to that minimum). Row membership
+ * follows `rowBreakBefore`,
  * span overflow and the layout-focus flush, exactly as `packRows`.
  */
 function resolvePreferredWidths(
@@ -396,10 +398,7 @@ function resolvePreferredWidths(
       widths.set(tile.tabId, GRID_COLUMNS);
       continue;
     }
-    const units =
-      isCompactViewMode(tierById.get(tile.tabId))
-        ? minimum
-        : effectiveUnits(tile.width, capacity);
+    const units = effectiveUnits(tile.width, capacity);
     if (
       current.length > 0 &&
       (tile.rowBreakBefore || used + units > GRID_COLUMNS)
@@ -424,12 +423,12 @@ function finishPreferredRow(
   const autoWeights: number[] = [];
   let explicitUnits = 0;
   for (const tile of row) {
-    if (isCompactViewMode(tierById.get(tile.tabId))) {
-      explicitUnits += minimum;
-    } else if (tile.width.kind === 'auto') {
-      autoWeights.push(normalizeWeight(tile.width.weight));
-    } else {
+    if (tile.width.kind === 'span') {
       explicitUnits += effectiveUnits(tile.width, capacity);
+    } else if (isCompactViewMode(tierById.get(tile.tabId))) {
+      explicitUnits += minimum;
+    } else {
+      autoWeights.push(normalizeWeight(tile.width.weight));
     }
   }
   const autoUnits = apportion(
@@ -439,12 +438,12 @@ function finishPreferredRow(
   );
   let autoIndex = 0;
   for (const tile of row) {
-    if (isCompactViewMode(tierById.get(tile.tabId))) {
-      widths.set(tile.tabId, minimum);
-    } else if (tile.width.kind === 'auto') {
-      widths.set(tile.tabId, autoUnits[autoIndex++]);
-    } else {
+    if (tile.width.kind === 'span') {
       widths.set(tile.tabId, effectiveUnits(tile.width, capacity));
+    } else if (isCompactViewMode(tierById.get(tile.tabId))) {
+      widths.set(tile.tabId, minimum);
+    } else {
+      widths.set(tile.tabId, autoUnits[autoIndex++]);
     }
   }
 }
@@ -501,10 +500,10 @@ export function projectTileGeometry(
     const compact = isCompactViewMode(tier);
     const h = heightUnitsFor(tier);
     let candidates: readonly number[];
-    if (compact) {
-      candidates = [minimum];
-    } else if (tile.width.kind === 'span') {
+    if (tile.width.kind === 'span') {
       candidates = [effectiveUnits(tile.width, capacity)];
+    } else if (compact) {
+      candidates = [minimum];
     } else {
       const preferredWidth = preferred.get(tile.tabId) ?? minimum;
       const contraction: number[] = [];

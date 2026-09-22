@@ -136,8 +136,8 @@ describe('CanvasLayoutService', () => {
     ]);
   });
 
-  it('projects compact widths responsively without mutating the stored span', () => {
-    const intent = [tile('A', 0, width('full'))];
+  it('projects auto compact widths responsively without mutating the stored intent', () => {
+    const intent = [tile('A', 0)];
     const before = JSON.stringify(intent);
     measure(1464);
     expect(service.computeLayout(intent, null, compact('A')).tiles[0].w).toBe(4);

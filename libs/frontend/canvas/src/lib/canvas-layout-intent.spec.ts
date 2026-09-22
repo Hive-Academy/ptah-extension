@@ -143,7 +143,7 @@ describe('canvas layout intent', () => {
 
   it('packs three height tiers into the skyline and fills the two-unit hole first', () => {
     const intent = tiles([
-      ['A', span('full')], ['B', auto()], ['C', span('third')],
+      ['A', auto()], ['B', auto()], ['C', span('third')],
       ['D', span('third')], ['E', span('third')],
     ]);
     const constraints: TileViewConstraints = [
@@ -159,8 +159,8 @@ describe('canvas layout intent', () => {
     expect(JSON.stringify(intent)).toBe(before);
   });
 
-  it('projects compact tall at responsive minimum widths and restores the stored span', () => {
-    const intent = tiles([['A', span('full')]]);
+  it('projects an auto compact tall tile at responsive minimum widths', () => {
+    const intent = tiles([['A', auto()]]);
     const constraints: TileViewConstraints = [{ tabId: 'A', heightTier: 'compact-tall' }];
     expect(boxes(intent, 3, null, constraints)).toEqual([['A', 0, 0, 4, 3]]);
     expect(boxes(intent, 2, null, constraints)).toEqual([['A', 0, 0, 6, 3]]);
@@ -182,8 +182,8 @@ describe('canvas layout intent', () => {
     ), 'A', 3, constraints)).toBeNull();
   });
 
-  it('projects a compact tile to the responsive minimum width and two-unit height', () => {
-    const intent = tiles([['A', span('full')]]);
+  it('projects an auto compact tile to the responsive minimum width and two-unit height', () => {
+    const intent = tiles([['A', auto()]]);
     const before = JSON.stringify(intent);
     expect(boxes(intent, 3, null, compactConstraint('A'))).toEqual([['A', 0, 0, 4, 2]]);
     expect(boxes(intent, 2, null, compactConstraint('A'))).toEqual([['A', 0, 0, 6, 2]]);
@@ -205,14 +205,22 @@ describe('canvas layout intent', () => {
     expect(extentOf(intent, 3, constraints)).toBe(8);
   });
 
-  it('ignores a compact tile stored span and keeps the skyline to eight units', () => {
+  it('keeps an explicit span on a compact tile at the compact height', () => {
+    const constraints = compactConstraint('A');
+    expect(boxes(tiles([['A', span('half')]]), 3, null, constraints)).toEqual([['A', 0, 0, 6, 2]]);
+    expect(boxes(tiles([['A', span('full')]]), 3, null, constraints)).toEqual([['A', 0, 0, 12, 2]]);
+    // The responsive minimum still promotes a narrow span.
+    expect(boxes(tiles([['A', span('third')]]), 2, null, constraints)).toEqual([['A', 0, 0, 6, 2]]);
+  });
+
+  it('keeps a compact tile stored span and fills under it', () => {
     const intent = tiles([
       ['A', span('half')], ['B', span('half')], ['C', span('third')],
     ]);
     const constraints = compactConstraint('B');
     expect(boxes(intent, 3, null, constraints)).toEqual([
       ['A', 0, 0, 6, 6],
-      ['B', 6, 0, 4, 2],
+      ['B', 6, 0, 6, 2],
       ['C', 6, 2, 4, 6],
     ]);
     expect(extentOf(intent, 3, constraints)).toBe(8);
