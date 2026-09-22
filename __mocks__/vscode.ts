@@ -6,6 +6,15 @@
 export const Uri = {
   file: (path: string) => ({ fsPath: path, path }),
   parse: (value: string) => ({ fsPath: value, path: value }),
+  /**
+   * Additive gap fill: `WebviewHtmlGenerator.getAssetUris` calls this, so any
+   * spec exercising webview HTML generation threw `Uri.joinPath is not a
+   * function` before it could assert anything.
+   */
+  joinPath: (base: { path: string }, ...segments: string[]) => {
+    const path = [base.path.replace(/\/$/, ''), ...segments].join('/');
+    return { fsPath: path, path, toString: () => path };
+  },
 };
 
 export const workspace = {
@@ -26,7 +35,21 @@ export const window = {
   showInformationMessage: () => Promise.resolve(),
   showWarningMessage: () => Promise.resolve(),
   showErrorMessage: () => Promise.resolve(),
+  /**
+   * Additive gap fill, same reason as `Uri.joinPath`. `Dark` (2) matches
+   * `ColorThemeKind.Dark`, which is the branch the webview HTML generator's
+   * theme handling treats as the default.
+   */
+  activeColorTheme: { kind: 2 },
 };
+
+/** Additive gap fill: mirrors the real `vscode.ColorThemeKind` enum values. */
+export const ColorThemeKind = {
+  Light: 1,
+  Dark: 2,
+  HighContrast: 3,
+  HighContrastLight: 4,
+} as const;
 
 export const commands = {
   registerCommand: () => ({ dispose: () => {} }),

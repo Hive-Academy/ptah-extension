@@ -40,7 +40,14 @@ import {
  * SettingsComponent - Main settings page container
  *
  * Complexity Level: 2 (Container with visibility logic based on auth status)
- * Patterns: Signal-based navigation, conditional rendering
+ * Patterns: conditional rendering
+ *
+ * Reached as the `settings` ROUTE (`apps/ptah-extension-webview/src/app/app.routes.ts`),
+ * eagerly rather than lazily: `initialView: 'settings'` is startup-reachable
+ * and the boot auth check navigates here when no credential is configured.
+ * Its own "back" button goes through `AppStateManager.setCurrentView('chat')`,
+ * which is a Router navigation (TASK_2026_524 batch 1 — the old
+ * "signal-based navigation" this comment described is gone).
  *
  * Responsibilities:
  * - Display settings page header with back navigation

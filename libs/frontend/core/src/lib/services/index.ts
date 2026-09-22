@@ -5,7 +5,6 @@ export {
   type WebviewConfig,
 } from './vscode.service';
 export * from './app-state.service';
-export * from './webview-navigation.service';
 export {
   ThemeService,
   type ThemeName,
@@ -51,7 +50,6 @@ export {
   yieldToMacrotask,
   type MacrotaskHandle,
 } from './macrotask-scheduler';
-export { LazyViewService } from './lazy-view.service';
 export { BootStatusService } from './boot-status.service';
 export {
   BackOfficeActivityService,

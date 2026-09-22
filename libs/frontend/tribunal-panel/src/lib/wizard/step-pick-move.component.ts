@@ -17,10 +17,7 @@ import {
   Settings,
   TriangleAlert,
 } from 'lucide-angular';
-import {
-  ClaudeRpcService,
-  WebviewNavigationService,
-} from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import { TribunalDiscoveryService } from '../services/tribunal-discovery.service';
 import type { TribunalMove } from '../types/tribunal-ui.types';
 
@@ -183,7 +180,7 @@ export class StepPickMoveComponent {
   readonly moveSelected = output<TribunalMove>();
 
   private readonly discovery = inject(TribunalDiscoveryService);
-  private readonly navigation = inject(WebviewNavigationService);
+  private readonly appState = inject(AppStateManager);
   private readonly rpc = inject(ClaudeRpcService);
 
   protected readonly pluginId = TRIBUNAL_PLUGIN_ID;
@@ -288,7 +285,7 @@ export class StepPickMoveComponent {
   }
 
   protected openProviderSettings(): void {
-    void this.navigation.navigateToSettingsTab('orchestration');
+    this.appState.openSettingsTab('orchestration');
   }
 
   /**

@@ -35,10 +35,7 @@ import {
 } from '@ptah-extension/chat-ui';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
-import {
-  WebviewNavigationService,
-  AppStateManager,
-} from '@ptah-extension/core';
+import { AppStateManager } from '@ptah-extension/core';
 import type {
   ExecutionNode,
   PermissionResponse,
@@ -479,7 +476,6 @@ export class HarnessBuilderViewComponent implements OnInit {
   protected readonly state = inject(HarnessBuilderStateService);
   private readonly rpc = inject(HarnessRpcService);
   protected readonly workflow = inject(HarnessWorkflowService);
-  private readonly navigation = inject(WebviewNavigationService);
   private readonly appState = inject(AppStateManager);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly permissionHandler = inject(PermissionHandlerService);
@@ -720,7 +716,7 @@ export class HarnessBuilderViewComponent implements OnInit {
    * not a decision to abandon a running agent — only "Start over" is.
    */
   protected leaveBuilder(): void {
-    this.navigation.navigateToView('chat');
+    this.appState.setCurrentView('chat');
   }
 
   /** Discard the workflow. Confirms whenever there is something to lose. */
@@ -762,7 +758,7 @@ export class HarnessBuilderViewComponent implements OnInit {
   private async performStartOver(): Promise<void> {
     await this.workflow.abortAndDispose();
     this.state.reset();
-    this.navigation.navigateToView('setup-hub');
+    this.appState.setCurrentView('setup-hub');
   }
 
   protected onKeydown(event: KeyboardEvent): void {

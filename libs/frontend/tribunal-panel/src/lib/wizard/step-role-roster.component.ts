@@ -14,7 +14,7 @@ import {
   TriangleAlert,
   Info,
 } from 'lucide-angular';
-import { WebviewNavigationService } from '@ptah-extension/core';
+import { AppStateManager } from '@ptah-extension/core';
 import {
   TribunalDiscoveryService,
   type DiscoveredVendor,
@@ -238,7 +238,7 @@ export class StepRoleRosterComponent {
   readonly lanesChanged = output<readonly VendorLane[]>();
 
   private readonly discovery = inject(TribunalDiscoveryService);
-  private readonly navigation = inject(WebviewNavigationService);
+  private readonly appState = inject(AppStateManager);
 
   protected readonly RefreshIcon = RefreshCw;
   protected readonly SettingsIcon = Settings;
@@ -287,7 +287,7 @@ export class StepRoleRosterComponent {
   }
 
   protected openProviderSettings(): void {
-    void this.navigation.navigateToSettingsTab('orchestration');
+    this.appState.openSettingsTab('orchestration');
   }
 
   protected async onVendorChange(role: LaneRole, event: Event): Promise<void> {

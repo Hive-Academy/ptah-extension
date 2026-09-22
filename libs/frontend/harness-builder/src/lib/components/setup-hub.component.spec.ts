@@ -14,10 +14,8 @@
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import {
-  ClaudeRpcService,
-  WebviewNavigationService,
-} from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
+import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
 import { STACK_PROFILES, getStackProfile } from '@ptah-extension/shared';
 import type { NewProjectIntake } from '@ptah-extension/shared';
 import { HarnessRpcService } from '../services/harness-rpc.service';
@@ -35,7 +33,13 @@ describe('SetupHubComponent — New Project intake', () => {
   let fixture: ComponentFixture<SetupHubComponent>;
   let harnessRpc: { startNewProject: jest.Mock };
   let workflow: WorkflowStub;
-  let navigation: { navigateToView: jest.Mock };
+  /**
+   * The REAL state manager over the testing Router (TASK_2026_524): the hub
+   * navigates with `setCurrentView`, and the Router — not a signal write — is
+   * what answers `currentView()` afterwards, so the resume spec can assert
+   * where it landed instead of that a stub was called.
+   */
+  let appState: AppStateManager;
 
   function el(testId: string): HTMLElement | null {
     return fixture.nativeElement.querySelector(`[data-testid="${testId}"]`);
@@ -83,11 +87,11 @@ describe('SetupHubComponent — New Project intake', () => {
       viewMode: signal('configure-harness'),
       abortAndDispose: jest.fn().mockResolvedValue(undefined),
     };
-    navigation = { navigateToView: jest.fn().mockResolvedValue(undefined) };
 
     TestBed.configureTestingModule({
       imports: [SetupHubComponent],
       providers: [
+        ...provideSurfaceRouterTesting(),
         {
           provide: ClaudeRpcService,
           useValue: {
@@ -103,10 +107,10 @@ describe('SetupHubComponent — New Project intake', () => {
         },
         { provide: HarnessRpcService, useValue: harnessRpc },
         { provide: HarnessWorkflowService, useValue: workflow },
-        { provide: WebviewNavigationService, useValue: navigation },
       ],
     });
 
+    appState = TestBed.inject(AppStateManager);
     fixture = TestBed.createComponent(SetupHubComponent);
     // ngOnInit fires the status/presets RPCs; the cards only render once the
     // first load has resolved.
@@ -326,7 +330,7 @@ describe('SetupHubComponent — New Project intake', () => {
 
   // ---- resume state --------------------------------------------------------
 
-  it('offers Resume instead of Start while a New Project run is active', () => {
+  it('offers Resume instead of Start while a New Project run is active', async () => {
     workflow.isActive.set(true);
     workflow.viewMode.set('new-project');
     fixture.detectChanges();
@@ -335,7 +339,11 @@ describe('SetupHubComponent — New Project intake', () => {
     expect(el('new-project-start')).toBeNull();
 
     click('new-project-resume');
-    expect(navigation.navigateToView).toHaveBeenCalledWith('harness-builder');
+    // Resuming is a Router navigation, so it settles asynchronously — the
+    // surface only moves once it completes.
+    await fixture.whenStable();
+
+    expect(appState.currentView()).toBe('harness-builder');
     expect(harnessRpc.startNewProject).not.toHaveBeenCalled();
   });
 

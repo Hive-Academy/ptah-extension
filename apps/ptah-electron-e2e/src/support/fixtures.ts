@@ -7,6 +7,7 @@ import type { EditorDetectTargetsResult } from '@ptah-extension/shared';
 import { launchPtah } from './electron-launcher';
 import { RpcBridge } from './rpc-bridge';
 import { UiDriver } from './ui-driver';
+import { captureRendererConsoleErrors } from './renderer-console-errors';
 
 const NO_EDITOR_TARGETS = {
   success: true,
@@ -38,9 +39,20 @@ export interface PtahFixtures {
   ui: UiDriver;
   /** Captured stdout+stderr lines from the Electron main process. */
   mainProcessOutput: MainProcessOutput;
+  /** Renderer console errors captured before the test starts navigating. */
+  rendererConsoleErrors: string[];
 }
 
 export const test = base.extend<PtahFixtures>({
+  rendererConsoleErrors: async ({ mainWindow }, use) => {
+    const capture = captureRendererConsoleErrors(mainWindow);
+    try {
+      await use(capture.lines);
+    } finally {
+      capture.dispose();
+    }
+  },
+
   // eslint-disable-next-line no-empty-pattern
   electronApp: async ({}, use) => {
     const app = await launchPtah();
