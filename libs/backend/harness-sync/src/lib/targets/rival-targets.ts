@@ -1,5 +1,5 @@
 /**
- * The five non-Claude harness targets, as configurations of one engine.
+ * The six non-Claude harness targets, as configurations of one engine.
  *
  * Each entry below is the complete answer to "where does this tool look for its
  * harness, and what can it accept". They are deliberately data, not classes:
@@ -14,6 +14,7 @@
  * | copilot     | `{ws}/.github/skills`   | **unsupported**         | `{ws}/.github/agents/*.agent.md` | `~/.copilot/mcp-config.json` |
  * | cursor      | `{ws}/.cursor/skills`   | `{ws}/.cursor/commands` | `{ws}/.cursor/agents/*.md`    | `{ws}/.cursor/mcp.json`      |
  * | antigravity | `{ws}/.agents/skills`   | **unsupported**         | **unsupported**               | `~/.gemini/config/mcp_config.json` |
+ * | opencode    | **unsupported**         | **unsupported**         | `{ws}/.opencode/agent/*.md`   | `{ws}/opencode.json`         |
  * | vscode      | **unsupported**         | **unsupported**         | **unsupported**               | `{ws}/.vscode/mcp.json`      |
  *
  * ### Why the `unsupported` cells are unsupported
@@ -30,6 +31,18 @@
  *   reports `unsupported` and the health surface says so out loud rather than
  *   showing agents permanently missing. (MCP is NOT in this list any more — see
  *   the two-writer section below.)
+ * - **OpenCode skills.** Not a gap and not a missing capability: OpenCode
+ *   discovers skills from `{ws}/.claude/skills` and `{ws}/.agents/skills` on
+ *   its own, and both are directories Ptah already fills for OTHER targets. A
+ *   third co-owner of `.agents/skills` would duplicate every skill for no
+ *   behavioural change, so this target writes none and health reports no gap
+ *   where none exists. Verified by probe: the 2026-09-22 OpenCode session saw
+ *   every Ptah skill and none of its subagents.
+ * - **OpenCode commands.** OpenCode does have a command concept
+ *   (`Config.command`, `GET /api/command`), but its project-level discovery
+ *   rules were not established by the probe that motivated this target. Left
+ *   `unsupported` rather than guessed at — declaring a directory OpenCode may
+ *   not read is exactly the failure the Codex `commands` row records.
  * - **VS Code skills/commands/agents.** VS Code is an editor, not a CLI agent
  *   harness. It appears here solely because `.vscode/mcp.json` is a real MCP
  *   surface the install RPC has always offered.
@@ -65,6 +78,7 @@ import { createMcpFacet } from './mcp/mcp-facet.registry';
 import { CodexAgentTransformer } from './transformers/codex-agent-transformer';
 import { CopilotAgentTransformer } from './transformers/copilot-agent-transformer';
 import { CursorAgentTransformer } from './transformers/cursor-agent-transformer';
+import { OpencodeAgentTransformer } from './transformers/opencode-agent-transformer';
 import { WorkspaceHarnessTarget } from './workspace-target';
 
 /** Prefixes of the home-directory copies the pre-reconciler pipeline left behind. */
@@ -163,6 +177,27 @@ export function createAntigravityTarget(deps: RivalTargetDeps): IHarnessTarget {
   });
 }
 
+/**
+ * OpenCode (`opencode` v2), added because a live probe found Ptah's 15
+ * subagents reaching every rival CLI except this one.
+ *
+ * Skills and MCP already arrived by other routes — OpenCode discovers
+ * `.claude/skills` and `.agents/skills` itself, and the spawn adapter hands it
+ * Ptah's own server through `OPENCODE_CONFIG_CONTENT` — so agents were the
+ * whole gap, and the MCP facet here is what makes a server the USER installs
+ * persist beyond a single Ptah-spawned session.
+ */
+export function createOpencodeTarget(deps: RivalTargetDeps): IHarnessTarget {
+  return new WorkspaceHarnessTarget({
+    id: 'opencode',
+    facets: facets({ agents: 'supported', mcp: 'supported' }),
+    manifestStore: deps.manifestStore,
+    detector: deps.detector,
+    agentTransformer: new OpencodeAgentTransformer(),
+    mcpFacet: createMcpFacet('opencode', facetOptions(deps)),
+  });
+}
+
 export function createVscodeMcpTarget(deps: RivalTargetDeps): IHarnessTarget {
   return new WorkspaceHarnessTarget({
     id: 'vscode',
@@ -183,6 +218,7 @@ export function createRivalTargets(deps: RivalTargetDeps): IHarnessTarget[] {
     createCopilotTarget(deps),
     createCursorTarget(deps),
     createAntigravityTarget(deps),
+    createOpencodeTarget(deps),
     createVscodeMcpTarget(deps),
   ];
 }

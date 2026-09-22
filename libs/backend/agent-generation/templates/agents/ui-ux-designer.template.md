@@ -17,9 +17,13 @@ description: >-
   technical-content-writer and frontend-developer, not after them.
 model: sonnet
 variables:
-  CLARIFY_TRIGGER: Visual style, layout direction, brand tone, or animation appetite is undefined and the choice would set the whole specification.
-  CLARIFY_ARTIFACT: a visual design specification or a new design system
-  CLARIFY_BYPASS: A design system already exists, the prompt carries design-discovery answers, or the orchestrator delegated judgment.
+  CLARIFY_TRIGGER: >-
+    visual style, layout direction, brand tone or animation appetite is undefined and
+    would set the whole specification
+  CLARIFY_ARTIFACT: >-
+    a visual design specification or new design system
+  CLARIFY_BYPASS: >-
+    a design system exists or the prompt carries discovery answers
 ---
 
 # UI/UX Designer

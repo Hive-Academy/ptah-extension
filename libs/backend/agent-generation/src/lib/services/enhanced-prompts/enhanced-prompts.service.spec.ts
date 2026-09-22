@@ -487,6 +487,36 @@ describe('EnhancedPromptsService', () => {
       const r = await service.getProjectGuidanceContent(testWorkspacePath);
       expect(r).toBe('## Project-Specific Guidance\n\nbody');
     });
+
+    // This string is prepended to every CLI spawn and resent on every tool
+    // call of that lane, so an unbounded workspace analysis must not reach it.
+    it('caps oversized guidance at 4,000 bytes, cutting on a section boundary', async () => {
+      const section = (n: number): string =>
+        `### Section ${n}\n\n${'x'.repeat(500)}\n\n`;
+      const generatedPrompt =
+        'preamble\n## Project-Specific Guidance\n\n' +
+        Array.from({ length: 20 }, (_, i) => section(i)).join('');
+
+      mocks.context.globalState.get.mockReturnValue({
+        enabled: true,
+        generatedPrompt,
+        generatedAt: null,
+        detectedStack: null,
+        configHash: null,
+        workspacePath: testWorkspacePath,
+      });
+
+      const r = await service.getProjectGuidanceContent(testWorkspacePath);
+
+      expect(r).not.toBeNull();
+      expect(Buffer.byteLength(r as string, 'utf8')).toBeLessThanOrEqual(4000);
+      expect(r).toContain('## Project-Specific Guidance');
+      expect(r).toContain(
+        '[Project guidance truncated at 4,000 bytes to keep the spawn prompt small.]',
+      );
+      // Cut on a heading, so the retained tail is a whole section.
+      expect(r).toMatch(/x{500}\n\n\[Project guidance truncated/);
+    });
   });
 
   describe('runWizard', () => {

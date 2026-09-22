@@ -33,6 +33,7 @@ const ALL_TARGETS: McpInstallTarget[] = [
   'copilot',
   'codex',
   'antigravity',
+  'opencode',
 ];
 
 /**

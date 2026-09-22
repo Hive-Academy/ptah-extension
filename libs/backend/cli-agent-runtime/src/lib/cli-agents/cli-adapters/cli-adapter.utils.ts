@@ -393,8 +393,26 @@ export function probeCliVersion(
   });
 }
 
+/**
+ * The vendor-independent policy every spawned lane reads first.
+ *
+ * The second half is a COST policy, and it is here rather than in a role file
+ * because every vendor resends the entire thread on every tool call: cost is
+ * requests × context, so the two things that actually move the bill are the
+ * number of tool calls and the size of what each one returns. Measured drivers
+ * (`.ptah/specs/TASK_PROMPT_EFFICIENCY/audit.md` §0): polling loops were 29% of
+ * all requests and shell output alone put 56 MB into contexts over seven days.
+ *
+ * Bytes are argv here too — see the note on `TWO_WAY_MESSAGING_GUIDANCE` below.
+ * Keep this whole constant under ~1 KB.
+ */
 const NATIVE_AGENT_TOOL_POLICY =
-  'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.';
+  'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.\n' +
+  'Cost policy — every tool call resends the whole thread, so finish in as few calls as possible:\n' +
+  '- Verify only the projects you changed (`-p <project>`); never a workspace-wide test, lint or build.\n' +
+  '- Keep tool output small: filter or tail command output, never paste a full test or build log into the thread, and never re-run a failed suite just to re-read its output.\n' +
+  '- For a long command: run it once in the foreground with a long timeout, or in the background with ONE completion check. Never a wait/status loop.\n' +
+  '- Prefer AST/summary tools and targeted reads over whole-file reads.';
 
 /**
  * What a SPAWNED agent is told about talking back to the session that spawned
@@ -437,6 +455,7 @@ const ROLE_TRANSFORM_TARGETS: ReadonlySet<CliType> = new Set<CliTarget>([
   'copilot',
   'cursor',
   'antigravity',
+  'opencode',
 ]);
 
 function isRoleTransformTarget(cli: CliType): cli is CliTarget {

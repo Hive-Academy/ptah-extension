@@ -691,7 +691,7 @@ describe('CodexCliAdapter', () => {
           type: 'turn.completed',
           usage: {
             input_tokens: 100,
-            cached_input_tokens: 0,
+            cached_input_tokens: 80,
             output_tokens: 50,
           },
         },
@@ -706,10 +706,12 @@ describe('CodexCliAdapter', () => {
 
       const exitCode = await handle.done;
 
-      expect(output.join('')).toContain('[Usage: 100 input, 50 output tokens]');
+      expect(output.join('')).toContain(
+        '[Usage: 100 input (80 cached), 50 output tokens]',
+      );
       expect(segments).toContainEqual({
         type: 'info',
-        content: 'Usage: 100 input, 50 output tokens',
+        content: 'Usage: 100 input (80 cached), 50 output tokens',
         usage: { inputTokens: 100, outputTokens: 50 },
       });
       expect(exitCode).toBe(0);
@@ -892,7 +894,9 @@ describe('CodexCliAdapter', () => {
 
       expect(await settleWithin(handle.done)).toBe(0);
       expect(source.wasReturned()).toBe(true);
-      expect(output.join('')).toContain('[Usage: 10 input, 5 output tokens]');
+      expect(output.join('')).toContain(
+        '[Usage: 10 input (0 cached), 5 output tokens]',
+      );
       expect(handle.getSessionId?.()).toBe('thread-1');
     });
 

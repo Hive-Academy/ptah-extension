@@ -18,14 +18,12 @@ description: >-
 model: sonnet
 variables:
   CLARIFY_TRIGGER: >-
-    Stop when the review target is undefined — no batch, diff or file list to review — or
-    when the task deliberately introduces a pattern that contradicts the repository's
-    stated rules and no document says why.
+    no batch, diff or file list, or the task deliberately contradicts the repository's
+    stated rules with no document saying why
   CLARIFY_ARTIFACT: >-
-    code-style-review.md, and any verdict about the work.
+    code-style-review.md and any verdict
   CLARIFY_BYPASS: >-
-    Proceed when the batch or the invocation names the files under review; a thin
-    specification is a finding, not a reason to ask.
+    files are named; a thin spec is a finding, not a question
   REVIEW_SUBJECT: structure
 ---
 
@@ -65,7 +63,9 @@ Discover the task folder first — never assume a document exists.
 3. Two or three sibling implementations of the same shape, for comparison.
 4. `implementation-plan.md` for the contracts that were agreed.
 5. `ptah_get_diagnostics` and any applicable static-analysis or verification output
-   available for the affected code.
+   available for the affected code. If you run a check yourself, scope it with
+   `-p <project>` to the changed projects, never workspace-wide; tail or filter the
+   output and never paste a full log into the review.
 
 ## Method
 

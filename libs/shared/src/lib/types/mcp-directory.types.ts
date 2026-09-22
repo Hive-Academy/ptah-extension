@@ -18,6 +18,10 @@
  *  - codex:       ~/.codex/config.toml           (user-global, TOML `[mcp_servers.<name>]`)
  *  - antigravity: ~/.gemini/config/mcp_config.json (user-global, root key: "mcpServers",
  *                 remote servers keyed `serverUrl` rather than `url`)
+ *  - opencode:    opencode.json                   (workspace, root key: "mcp",
+ *                 entries carry a REQUIRED `type` of "remote"/"local", a local
+ *                 server's command is one array, and the environment is
+ *                 `environment` — see `mcp-json-format.ts`'s `opencode` dialect)
  *
  * Codex joined in TASK_2026_278 Batch 2. It was the one CLI Ptah could spawn
  * but never configure: `.mcp.json` is not a file Codex reads, so every server
@@ -35,7 +39,8 @@ export type McpInstallTarget =
   | 'cursor'
   | 'copilot'
   | 'codex'
-  | 'antigravity';
+  | 'antigravity'
+  | 'opencode';
 
 /** Base fields shared by all transport types */
 interface McpServerConfigBase {

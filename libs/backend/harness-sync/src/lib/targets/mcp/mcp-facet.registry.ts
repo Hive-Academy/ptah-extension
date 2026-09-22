@@ -28,6 +28,7 @@ export const MCP_FACET_TARGETS: readonly McpInstallTarget[] = [
   'codex',
   'copilot',
   'cursor',
+  'opencode',
   'vscode',
 ];
 
@@ -78,6 +79,25 @@ export function createMcpFacet(
         segments: ['.cursor', 'mcp.json'],
         rootKey: 'mcpServers',
         includeType: false,
+      });
+    case 'opencode':
+      return new JsonMcpFacet({
+        target: 'opencode',
+        mcpTarget: 'opencode',
+        scope: 'workspace',
+        segments: ['opencode.json'],
+        // The flat `mcp` map, not the nested `mcp.servers` one. Both are
+        // accepted by opencode v2.0.12 (verified live: the flat form is
+        // normalized INTO the nested one at load), but the flat form is the
+        // only one the published schema at https://opencode.ai/config.json
+        // documents, and it is already the shape Ptah's own spawn path writes
+        // into `OPENCODE_CONFIG_CONTENT`. Two Ptah writers agreeing on one
+        // shape is worth more here than matching an internal representation.
+        rootKey: 'mcp',
+        // `type` is REQUIRED by opencode's schema, and its values are its own
+        // (`remote`/`local`) — which is what the dialect supplies.
+        includeType: true,
+        dialect: 'opencode',
       });
     case 'vscode':
       return new JsonMcpFacet({

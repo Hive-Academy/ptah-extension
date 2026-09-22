@@ -1009,7 +1009,7 @@ const ROLE_PARTIALS: Readonly<Record<string, readonly SharedBlockId[]>> = {
   'researcher-expert': [TOOLING, TASK_SPEC, CLARIFY, DELEGATE],
   'senior-tester': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
   'software-architect': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
-  'team-leader': [TOOLING, TASK_SPEC, CLARIFY, REPLACE],
+  'team-leader': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
   'technical-content-writer': [TOOLING, TASK_SPEC, CLARIFY, DELEGATE],
   'ui-ux-designer': [TOOLING, TASK_SPEC, CLARIFY, REPLACE],
   'video-director': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
@@ -1017,10 +1017,6 @@ const ROLE_PARTIALS: Readonly<Record<string, readonly SharedBlockId[]>> = {
 };
 
 const NON_DELEGATING_ROLES: ReadonlyArray<{ role: string; why: string }> = [
-  {
-    role: 'team-leader',
-    why: 'Advisory by contract: it recommends CLI lanes and never spawns one, so a spawn loop in its prompt contradicts its own boundary.',
-  },
   {
     role: 'visual-reviewer',
     why: 'Its evidence is a live browser session. A CLI lane has no browser, so a delegated finding carries no screenshot.',

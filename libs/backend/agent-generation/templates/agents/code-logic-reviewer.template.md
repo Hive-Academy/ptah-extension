@@ -18,15 +18,12 @@ description: >-
 model: sonnet
 variables:
   CLARIFY_TRIGGER: >-
-    Stop when the review target is undefined — no batch, diff or file list to review, or
-    a requirements document that contradicts the implementation so completely that the
-    intended behaviour cannot be determined from the repository.
+    no batch, diff or file list, or requirements contradict the implementation so
+    completely that intended behaviour cannot be determined
   CLARIFY_ARTIFACT: >-
-    code-logic-review.md, and any verdict about the work.
+    code-logic-review.md and any verdict
   CLARIFY_BYPASS: >-
-    Proceed when the batch or the invocation names the files under review and the task
-    documents state the intended behaviour, even if that behaviour is only partly
-    specified — record the gap as a finding rather than asking.
+    files are named and behaviour is stated even partly; record gaps as findings
   REVIEW_SUBJECT: logic
 ---
 
@@ -66,7 +63,9 @@ Discover the task folder first — never assume a document exists.
    covering code under review — for the invariants that area promises.
 6. `ptah_get_diagnostics` and whatever verification evidence exists for the changed
    paths. A passing check that does not exercise the new behaviour is not evidence for
-   that behaviour.
+   that behaviour. If you run a check yourself, scope it with `-p <project>` to the
+   changed projects, never workspace-wide; tail or filter the output and never paste a
+   full log into the review.
 
 ## Method
 

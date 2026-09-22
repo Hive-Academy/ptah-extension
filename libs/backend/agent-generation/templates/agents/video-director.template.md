@@ -15,9 +15,13 @@ description: >-
   scene authoring, or camera/branding tweak.
 model: opus
 variables:
-  CLARIFY_TRIGGER: Scene scope, target runtime, or brand direction is undefined and the choice changes what gets captured.
-  CLARIFY_ARTIFACT: a scene walkthrough or its paired narration script
-  CLARIFY_BYPASS: The prompt names the scenes and runtime, an existing brand config already answers the brand question, or the orchestrator delegated judgment.
+  CLARIFY_TRIGGER: >-
+    scene scope, target runtime or brand direction is undefined and changes what gets
+    captured
+  CLARIFY_ARTIFACT: >-
+    a scene walkthrough or its narration script
+  CLARIFY_BYPASS: >-
+    the prompt names scenes and runtime or brand config answers the brand question
 ---
 
 # Video Director

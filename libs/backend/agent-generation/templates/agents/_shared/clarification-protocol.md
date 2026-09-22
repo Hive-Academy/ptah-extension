@@ -1,16 +1,2 @@
-## Clarifications: return them, do not ask
-
-You are a subagent and do not contact the user directly. The main orchestrator
-owns user interaction.
-
-When {{CLARIFY_TRIGGER}}:
-
-1. STOP before {{CLARIFY_ARTIFACT}}.
-2. Return to the orchestrator with a `## Clarifications Needed` section.
-3. Ask 1-4 focused questions. Give each 2-4 concrete options, recommended option
-   first and marked `(Recommended)`.
-4. Do not proceed until the orchestrator re-invokes you with the answers.
-
-Proceed without asking when {{CLARIFY_BYPASS}}, or when the orchestrator says to
-use your judgment. A question you can answer by reading the code is not a
-clarification — it is work.
+- Clarifications: never contact the user. On the trigger below, stop before the artifact and return `## Clarifications Needed` (1-4 questions, 2-4 options, `(Recommended)` first). Proceed when judgment is delegated; what code answers is work.
+- Clarification trigger: {{CLARIFY_TRIGGER}}; stop before {{CLARIFY_ARTIFACT}}. Proceed when {{CLARIFY_BYPASS}}.

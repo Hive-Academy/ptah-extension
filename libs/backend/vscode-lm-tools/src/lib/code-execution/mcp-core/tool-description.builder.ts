@@ -1522,6 +1522,7 @@ export function buildHarnessInstallMcpTool(): MCPToolDefinition {
               'copilot',
               'codex',
               'antigravity',
+              'opencode',
             ],
           },
           description:

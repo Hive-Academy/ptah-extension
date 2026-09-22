@@ -16,9 +16,14 @@ description: >-
   be gathered into one actionable list. Detects and reports; never edits code.
 model: sonnet
 variables:
-  CLARIFY_TRIGGER: Scan scope, priority focus, or risk appetite is unstated and would change which opportunities are reported.
-  CLARIFY_ARTIFACT: the future-enhancements.md report
-  CLARIFY_BYPASS: The prompt names the scope and priorities, or the orchestrator delegated judgment — then scan the whole codebase and report everything found.
+  CLARIFY_TRIGGER: >-
+    scan scope, priority focus or risk appetite is unstated and would change what is
+    reported
+  CLARIFY_ARTIFACT: >-
+    future-enhancements.md
+  CLARIFY_BYPASS: >-
+    the prompt names scope and priorities; then scan the whole codebase and report
+    everything
 ---
 
 # Modernization Detector

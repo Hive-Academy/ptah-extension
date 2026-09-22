@@ -139,6 +139,7 @@ export {
   createCodexTarget,
   createCopilotTarget,
   createCursorTarget,
+  createOpencodeTarget,
   createRivalTargets,
   createVscodeMcpTarget,
   LEGACY_HOME_PREFIXES,
@@ -153,6 +154,7 @@ export type {
 export { CodexAgentTransformer } from './lib/targets/transformers/codex-agent-transformer';
 export { CopilotAgentTransformer } from './lib/targets/transformers/copilot-agent-transformer';
 export { CursorAgentTransformer } from './lib/targets/transformers/cursor-agent-transformer';
+export { OpencodeAgentTransformer } from './lib/targets/transformers/opencode-agent-transformer';
 export {
   extractFrontmatterDescription,
   resolveAgentDescription,
@@ -213,6 +215,7 @@ export {
   jsonToConfig,
   ANTIGRAVITY_URL_KEY,
   DEFAULT_URL_KEY,
+  type McpJsonDialect,
 } from './lib/targets/mcp/mcp-json-format';
 
 // Sources.
@@ -328,6 +331,7 @@ export {
   copilotTargetFactory,
   cursorTargetFactory,
   antigravityTargetFactory,
+  opencodeTargetFactory,
   vscodeMcpTargetFactory,
   ALL_HARNESS_TARGET_FACTORIES,
   type HarnessSyncRegistrationOptions,

@@ -73,6 +73,7 @@ const HARNESS_TARGET_IDS: ReadonlySet<string> = new Set<HarnessTargetId>([
   'copilot',
   'cursor',
   'antigravity',
+  'opencode',
   'vscode',
 ]);
 
