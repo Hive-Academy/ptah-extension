@@ -20,30 +20,19 @@ import {
   AgentMonitorStore,
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
+import { CliAgentOutputComponent } from './cli-agent-output.component';
 import { AgentCardHeaderComponent } from './agent-card-header.component';
-import { AgentCardOutputComponent } from '@ptah-extension/chat-ui';
-import { PtahCliOutputComponent } from './ptah-cli-output.component';
-import { CopilotOutputComponent } from './copilot-output.component';
-import { CodexOutputComponent } from './codex-output.component';
 import {
   formatElapsed,
   parseAgentOutput,
   parseStderr,
-  mergeConsecutiveTextSegments,
 } from './agent-card.utils';
 import type { RenderSegment } from '@ptah-extension/chat-ui';
 
 @Component({
   selector: 'ptah-agent-card',
   standalone: true,
-  imports: [
-    SlicePipe,
-    AgentCardHeaderComponent,
-    AgentCardOutputComponent,
-    PtahCliOutputComponent,
-    CopilotOutputComponent,
-    CodexOutputComponent,
-  ],
+  imports: [SlicePipe, AgentCardHeaderComponent, CliAgentOutputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -88,60 +77,26 @@ import type { RenderSegment } from '@ptah-extension/chat-ui';
           </div>
         </details>
 
-        <!-- Output: per-CLI rendering pipeline -->
+        <!-- Output -->
         @if (
           agent().stdout ||
           agent().stderr ||
           agent().segments.length > 0 ||
           agent().streamEvents.length > 0
         ) {
-          @switch (agent().cli) {
-            @case ('ptah-cli') {
-              @if (agent().streamEvents.length > 0) {
-                <ptah-ptah-cli-output
-                  class="block flex-1 min-h-0 overflow-hidden"
-                  [agentId]="agent().agentId"
-                  [streamEvents]="agent().streamEvents"
-                  [streamRevision]="agent().streamRevision"
-                  [isStreaming]="agent().status === 'running'"
-                  [scrollTrigger]="scrollTrigger()"
-                />
-              } @else {
-                <ptah-agent-card-output
-                  class="block flex-1 min-h-0 overflow-hidden"
-                  [segments]="parsedOutput()"
-                  [stderrSegments]="parsedStderr()"
-                  [scrollTrigger]="scrollTrigger()"
-                />
-              }
-            }
-            @case ('copilot') {
-              <ptah-copilot-output
-                class="block flex-1 min-h-0 overflow-hidden"
-                [agentId]="agent().agentId"
-                [segments]="agent().segments"
-                [isStreaming]="agent().status === 'running'"
-                [scrollTrigger]="scrollTrigger()"
-              />
-            }
-            @case ('codex') {
-              <ptah-codex-output
-                class="block flex-1 min-h-0 overflow-hidden"
-                [agentId]="agent().agentId"
-                [segments]="agent().segments"
-                [isStreaming]="agent().status === 'running'"
-                [scrollTrigger]="scrollTrigger()"
-              />
-            }
-            @default {
-              <ptah-agent-card-output
-                class="block flex-1 min-h-0 overflow-hidden"
-                [segments]="parsedOutput()"
-                [stderrSegments]="parsedStderr()"
-                [scrollTrigger]="scrollTrigger()"
-              />
-            }
-          }
+          <ptah-cli-agent-output
+            class="block flex-1 min-h-0 overflow-hidden"
+            [agentId]="agent().agentId"
+            [segments]="agent().segments"
+            [stdoutSegments]="parsedOutput()"
+            [streamEvents]="agent().streamEvents"
+            [streamRevision]="agent().streamRevision"
+            [stderrSegments]="parsedStderr()"
+            [isStreaming]="agent().status === 'running'"
+            [scrollTrigger]="scrollTrigger()"
+            [(rawStdoutOpen)]="rawStdoutOpen"
+            [(rawStdoutAutoCollapsed)]="rawStdoutAutoCollapsed"
+          />
         }
       }
     </div>
@@ -157,6 +112,12 @@ export class AgentCardComponent {
   readonly isStopping = signal(false);
   readonly isResuming = signal(false);
 
+  /** Raw stdout disclosure state. Held here rather than in the output component
+   *  because `@if (agent().expanded)` unmounts that component on card collapse,
+   *  which would discard a disclosure the user had opened. */
+  readonly rawStdoutOpen = signal(true);
+  readonly rawStdoutAutoCollapsed = signal(false);
+
   /**
    * Elapsed time display derived from the store's shared tick signal.
    * No per-card setInterval — the store drives a single 1s timer.
@@ -171,19 +132,10 @@ export class AgentCardComponent {
     return formatElapsed(Date.now() - a.startedAt);
   });
 
-  /**
-   * Parse agent output into structured segments for formatted rendering.
-   * Used by the default fallback path (all CLI-specific components use ExecutionNodeComponent directly).
-   * Prefers structured segments when available, falls back to regex parsing of raw stdout.
-   */
+  /** Keep raw stdout available alongside structured output. */
   readonly parsedOutput = computed((): RenderSegment[] => {
-    const agent = this.agent();
-    if (agent.segments.length > 0) {
-      return mergeConsecutiveTextSegments(agent.segments);
-    }
-    const stdout = agent.stdout;
-    if (!stdout) return [];
-    return parseAgentOutput(stdout);
+    const stdout = this.agent().stdout;
+    return stdout ? parseAgentOutput(stdout) : [];
   });
 
   /**

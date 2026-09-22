@@ -323,7 +323,7 @@ describe('AgentMonitorTreeBuilderService', () => {
       expect(input['file_path']).toBeUndefined();
     });
 
-    it('memoizes by segment length', () => {
+    it('memoizes unchanged segment arrays', () => {
       const segments: CliOutputSegment[] = [
         { type: 'text', content: 'cached' } as CliOutputSegment,
       ];

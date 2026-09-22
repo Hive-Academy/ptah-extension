@@ -1,29 +1,6 @@
-/**
- * Stats Bar Utilities
- *
- * Shared stats formatting and extraction for CLI agent output components.
- *
- * Provides:
- * - CliAgentStats interface (unified stats type for all CLI agents)
- * - formatTokens / formatDuration display helpers
- * - extractCodexStats — parses "Usage: N input, M output tokens" (accumulates multi-turn)
- * - extractCopilotStats — parses "Usage: {model}, {in} input, {out} output, ${cost}, {dur}s"
- */
-
 import type { CliOutputSegment } from '@ptah-extension/shared';
 
-/** Minimal segment shape required by stats extraction (satisfied by CliOutputSegment) */
-export type StatsSegment = Pick<CliOutputSegment, 'type' | 'content'>;
-
-/** Extracted statistics from CLI agent info segments (unified type for all CLI agents) */
-export interface CliAgentStats {
-  readonly model?: string;
-  readonly inputTokens?: number;
-  readonly outputTokens?: number;
-  readonly durationMs?: number;
-  /** Formatted cost string (e.g., "$1.0000") — only Copilot provides this */
-  readonly cost?: string;
-}
+export type CliAgentStats = NonNullable<CliOutputSegment['usage']>;
 
 /**
  * Format a token count for compact display.
@@ -53,104 +30,37 @@ export function formatDuration(ms: number): string {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
-/**
- * Check if a segment is a usage/stats segment that should be shown
- * in the stats bar instead of the execution tree.
- */
-export function isUsageSegment(segment: StatsSegment): boolean {
-  return segment.type === 'info' && segment.content.startsWith('Usage:');
+export function isUsageSegment(segment: CliOutputSegment): boolean {
+  return segment.type === 'info' && segment.usage !== undefined;
 }
 
-/**
- * Extract statistics from Codex info-type segments.
- *
- * Codex emits usage as: "Usage: N input, M output tokens" (one per turn.completed).
- * Accumulates token counts across all matching segments (multi-turn support).
- */
-export function extractCodexStats(
-  infoSegments: readonly StatsSegment[],
+/** Sum per-turn tokens; keep the latest reported model, cost and duration. */
+export function extractCliAgentStats(
+  segments: readonly CliOutputSegment[],
 ): CliAgentStats | null {
-  if (infoSegments.length === 0) return null;
-
-  let totalInput = 0;
-  let totalOutput = 0;
+  let stats: CliAgentStats = {};
   let found = false;
-
-  for (const seg of infoSegments) {
-    const content = seg.content;
-    if (!content) continue;
-    const match = content.match(/(\d[\d,]*)\s*input.*?(\d[\d,]*)\s*output/i);
-    if (match) {
-      totalInput += parseInt(match[1].replace(/,/g, ''), 10);
-      totalOutput += parseInt(match[2].replace(/,/g, ''), 10);
-      found = true;
-    }
+  for (const { usage } of segments) {
+    if (!usage || !Object.values(usage).some((value) => value !== undefined))
+      continue;
+    found = true;
+    stats = {
+      model: usage.model ?? stats.model,
+      inputTokens:
+        usage.inputTokens === undefined
+          ? stats.inputTokens
+          : (stats.inputTokens ?? 0) + usage.inputTokens,
+      outputTokens:
+        usage.outputTokens === undefined
+          ? stats.outputTokens
+          : (stats.outputTokens ?? 0) + usage.outputTokens,
+      totalTokens:
+        usage.totalTokens === undefined
+          ? stats.totalTokens
+          : (stats.totalTokens ?? 0) + usage.totalTokens,
+      costUsd: usage.costUsd ?? stats.costUsd,
+      durationMs: usage.durationMs ?? stats.durationMs,
+    };
   }
-
-  return found ? { inputTokens: totalInput, outputTokens: totalOutput } : null;
-}
-
-/**
- * Extract statistics from Copilot info-type segments.
- *
- * Copilot emits usage in two known formats:
- * 1. "Usage: claude-sonnet-4, 1234 input, 567 output, $0.012, 3.5s"
- * 2. "Usage: model: gpt-5.3-codex, 80903 input, 4645 output, $1.0000, 64.6s"
- *
- * Accumulates token counts across all matching segments (multi-turn support).
- * Model and duration use the latest match.
- */
-export function extractCopilotStats(
-  infoSegments: readonly StatsSegment[],
-): CliAgentStats | null {
-  if (infoSegments.length === 0) return null;
-
-  let totalInput = 0;
-  let totalOutput = 0;
-  let model: string | undefined;
-  let durationMs: number | undefined;
-  let costStr: string | undefined;
-  let found = false;
-
-  for (const seg of infoSegments) {
-    const content = seg.content;
-    if (!content || !content.startsWith('Usage:')) continue;
-    const inputMatch = content.match(/(\d[\d,]*)\s*input/i);
-    const outputMatch = content.match(/(\d[\d,]*)\s*output/i);
-    if (inputMatch && outputMatch) {
-      totalInput += parseInt(inputMatch[1].replace(/,/g, ''), 10);
-      totalOutput += parseInt(outputMatch[1].replace(/,/g, ''), 10);
-      found = true;
-    }
-    const modelPrefixMatch = content.match(/Usage:\s*model:\s*([^,]+)/i);
-    if (modelPrefixMatch) {
-      model = modelPrefixMatch[1].trim();
-    } else {
-      const firstFieldMatch = content.match(/Usage:\s*([^,]+)/i);
-      if (firstFieldMatch) {
-        const field = firstFieldMatch[1].trim();
-        if (!/^\d/.test(field)) {
-          model = field;
-        }
-      }
-    }
-    const costMatch = content.match(/\$(\d+\.\d+)/);
-    if (costMatch) {
-      costStr = `$${costMatch[1]}`;
-    }
-    const durMatch = content.match(/(\d+(?:\.\d+)?)s\s*$/);
-    if (durMatch) {
-      durationMs = Math.round(parseFloat(durMatch[1]) * 1000);
-    }
-  }
-
-  if (!found) return null;
-
-  return {
-    model,
-    inputTokens: totalInput,
-    outputTokens: totalOutput,
-    durationMs,
-    cost: costStr,
-  };
+  return found ? stats : null;
 }
