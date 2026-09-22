@@ -25,12 +25,18 @@ import {
 } from '@ptah-extension/chat';
 import { EffortStateService, ModelStateService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { isCompactViewMode, type TabViewMode } from '@ptah-extension/chat-types';
+import {
+  isCompactViewMode,
+  type TabViewMode,
+} from '@ptah-extension/chat-types';
 import {
   LucideAngularModule,
   Minimize2,
   Maximize2,
   Ellipsis,
+  Scan,
+  CornerDownLeft,
+  Check,
 } from 'lucide-angular';
 import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
 import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
@@ -42,25 +48,29 @@ import {
 
 const SPAN_OPTIONS: ReadonlyArray<{
   readonly span: TileSpan;
-  readonly text: string;
+  readonly short: string;
   readonly label: string;
 }> = [
-  { span: 'third', text: '1/3 width', label: 'Set tile width to one third' },
-  { span: 'half', text: '1/2 width', label: 'Set tile width to one half' },
+  { span: 'third', short: '⅓', label: 'Set tile width to one third' },
+  { span: 'half', short: '½', label: 'Set tile width to one half' },
   {
     span: 'two-thirds',
-    text: '2/3 width',
+    short: '⅔',
     label: 'Set tile width to two thirds',
   },
-  { span: 'full', text: 'Full width', label: 'Set tile width to full' },
+  { span: 'full', short: 'Full', label: 'Set tile width to full' },
 ];
 
 const MENU_NAVIGATION_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);
 
-const VIEW_MODE_OPTIONS: ReadonlyArray<{ mode: TabViewMode; label: string }> = [
-  { mode: 'full', label: 'Full' },
-  { mode: 'compact', label: 'Compact' },
-  { mode: 'compact-tall', label: 'Compact tall' },
+const VIEW_MODE_OPTIONS: ReadonlyArray<{
+  readonly mode: TabViewMode;
+  readonly short: string;
+  readonly label: string;
+}> = [
+  { mode: 'full', short: 'Full', label: 'Full' },
+  { mode: 'compact', short: 'Compact', label: 'Compact' },
+  { mode: 'compact-tall', short: 'Tall', label: 'Compact tall' },
 ];
 
 const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
@@ -153,76 +163,127 @@ const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
             #layoutMenu
             content
             role="menu"
-            class="p-1 flex flex-col min-w-44 text-xs"
+            class="p-2 flex flex-col gap-1.5 w-56 text-xs"
             [attr.aria-label]="'Layout for ' + tabLabel()"
             (keydown)="onLayoutMenuKeydown($event)"
           >
-            @for (option of spanOptions; track option.span) {
+            <!-- WIDTH: segmented control over the four stored spans -->
+            <div
+              role="group"
+              aria-label="Tile width"
+              class="flex flex-col gap-1"
+            >
+              <span
+                class="text-[10px] uppercase tracking-wide text-base-content-muted px-1"
+                >Width</span
+              >
+              @if (layoutLocked()) {
+                <span
+                  data-testid="layout-locked-hint"
+                  class="text-base-content-muted px-1"
+                  >Layout locked</span
+                >
+              }
+              <div class="join w-full" data-layout-group="width">
+                @for (option of spanOptions; track option.span) {
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    tabindex="-1"
+                    data-layout-item
+                    class="join-item btn btn-ghost btn-xs flex-1 font-normal px-0"
+                    [class.btn-active]="isSpanChecked(option.span)"
+                    [class.text-primary]="isSpanChecked(option.span)"
+                    [attr.data-span]="option.span"
+                    [attr.aria-checked]="isSpanChecked(option.span)"
+                    [attr.aria-label]="option.label"
+                    [disabled]="layoutLocked()"
+                    (click)="requestSpan(option.span)"
+                  >
+                    {{ option.short }}
+                  </button>
+                }
+              </div>
+            </div>
+            <!-- HEIGHT: segmented control over the three view modes -->
+            <div
+              role="group"
+              aria-label="Tile height"
+              class="flex flex-col gap-1"
+            >
+              <span
+                class="text-[10px] uppercase tracking-wide text-base-content-muted px-1"
+                >Height</span
+              >
+              <div class="join w-full" data-layout-group="height">
+                @for (option of viewModeOptions; track option.mode) {
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    tabindex="-1"
+                    data-layout-item
+                    class="join-item btn btn-ghost btn-xs flex-1 font-normal px-0"
+                    [class.btn-active]="viewMode() === option.mode"
+                    [class.text-primary]="viewMode() === option.mode"
+                    [attr.data-view-mode]="option.mode"
+                    [attr.aria-checked]="viewMode() === option.mode"
+                    [attr.aria-label]="'Set tile height to ' + option.label"
+                    (click)="requestViewMode(option.mode)"
+                  >
+                    {{ option.short }}
+                  </button>
+                }
+              </div>
+            </div>
+            <!-- ARRANGE: focus and row placement -->
+            <div role="group" aria-label="Arrange" class="flex flex-col gap-1">
+              <span
+                class="text-[10px] uppercase tracking-wide text-base-content-muted px-1"
+                >Arrange</span
+              >
               <button
                 type="button"
-                role="menuitemradio"
+                role="menuitem"
                 tabindex="-1"
                 data-layout-item
+                data-layout-action="focus"
                 class="btn btn-ghost btn-xs justify-start font-normal"
-                [attr.data-span]="option.span"
-                [attr.aria-checked]="isSpanChecked(option.span)"
-                [attr.aria-label]="option.label"
+                [class.btn-active]="layoutFocused()"
+                [attr.aria-label]="
+                  layoutFocused()
+                    ? 'Exit tile focus'
+                    : 'Focus tile at full width'
+                "
                 [disabled]="layoutLocked()"
-                (click)="requestSpan(option.span)"
+                (click)="requestLayoutFocus()"
               >
-                {{ option.text }}
+                <lucide-angular
+                  [img]="layoutFocused() ? CheckIcon : ScanIcon"
+                  class="w-3 h-3 shrink-0"
+                />
+                {{ layoutFocused() ? 'Exit focus' : 'Focus' }}
               </button>
-            }
-            <div class="h-px bg-base-content/10 my-1" role="separator"></div>
-            <button
-              type="button"
-              role="menuitem"
-              tabindex="-1"
-              data-layout-item
-              data-layout-action="focus"
-              class="btn btn-ghost btn-xs justify-start font-normal"
-              [attr.aria-label]="
-                layoutFocused() ? 'Exit tile focus' : 'Focus tile at full width'
-              "
-              [disabled]="layoutLocked()"
-              (click)="requestLayoutFocus()"
-            >
-              {{ layoutFocused() ? 'Exit focus' : 'Focus' }}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              tabindex="-1"
-              data-layout-item
-              data-layout-action="row"
-              class="btn btn-ghost btn-xs justify-start font-normal"
-              [attr.aria-label]="
-                rowBreakBefore()
-                  ? 'Join the previous row'
-                  : 'Start a new row before this tile'
-              "
-              [disabled]="layoutLocked() || firstInOrder()"
-              (click)="requestRowBreak()"
-            >
-              {{ rowBreakBefore() ? 'Join previous row' : 'Start new row' }}
-            </button>
-            <div class="h-px bg-base-content/10 my-1" role="separator"></div>
-            <div role="group" aria-label="Tile height" class="flex flex-col">
-              @for (option of viewModeOptions; track option.mode) {
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  tabindex="-1"
-                  data-layout-item
-                  [attr.data-view-mode]="option.mode"
-                  [attr.aria-checked]="viewMode() === option.mode"
-                  [attr.aria-label]="'Set tile height to ' + option.label"
-                  class="btn btn-ghost btn-xs justify-start font-normal"
-                  (click)="requestViewMode(option.mode)"
-                >
-                  {{ option.label }}
-                </button>
-              }
+              <button
+                type="button"
+                role="menuitem"
+                tabindex="-1"
+                data-layout-item
+                data-layout-action="row"
+                class="btn btn-ghost btn-xs justify-start font-normal"
+                [attr.aria-label]="
+                  rowBreakBefore()
+                    ? 'Join the previous row'
+                    : 'Start a new row before this tile'
+                "
+                [disabled]="layoutLocked() || firstInOrder()"
+                (click)="requestRowBreak()"
+              >
+                <lucide-angular
+                  [img]="CornerDownLeftIcon"
+                  class="w-3 h-3 shrink-0"
+                />
+                {{ rowBreakBefore() ? 'Join previous row' : 'Start new row' }}
+              </button>
             </div>
           </div>
         </ptah-native-popover>
@@ -404,6 +465,9 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   readonly MinimizeIcon = Minimize2;
   readonly MaximizeIcon = Maximize2;
   readonly EllipsisIcon = Ellipsis;
+  readonly ScanIcon = Scan;
+  readonly CornerDownLeftIcon = CornerDownLeft;
+  readonly CheckIcon = Check;
 
   /**
    * Display label for the tile header.
@@ -415,8 +479,8 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
     return tab?.title || tab?.name || `Tab ${this.tabId().slice(0, 8)}`;
   });
 
-  readonly viewMode = computed(
-    () => this.tabManager.getTabViewMode(this.tabId()),
+  readonly viewMode = computed(() =>
+    this.tabManager.getTabViewMode(this.tabId()),
   );
   /** Both compact tiers use the condensed card. */
   readonly isCompactMode = computed(() => isCompactViewMode(this.viewMode()));
@@ -521,6 +585,10 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
 
   /** Up/Down cycle through enabled items; Home/End jump to first/last. */
   protected onLayoutMenuKeydown(event: KeyboardEvent): void {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      this.moveWithinSegmentedGroup(event);
+      return;
+    }
     if (!MENU_NAVIGATION_KEYS.has(event.key)) return;
     const items = this.enabledLayoutItems();
     if (items.length === 0) return;
@@ -542,6 +610,27 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
       default:
         next = current <= 0 ? last : current - 1;
     }
+    items[next].focus();
+  }
+
+  /**
+   * Left/Right move within the segmented group the focused item belongs to,
+   * wrapping at the group edges. Items outside a segmented group (Arrange)
+   * ignore the horizontal arrows.
+   */
+  private moveWithinSegmentedGroup(event: KeyboardEvent): void {
+    const active = document.activeElement as HTMLElement | null;
+    const group = active?.closest('[data-layout-group]');
+    if (!group) return;
+    const items = Array.from(
+      group.querySelectorAll<HTMLButtonElement>('button[data-layout-item]'),
+    ).filter((item) => !item.disabled);
+    if (items.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const current = items.findIndex((item) => item === document.activeElement);
+    const offset = event.key === 'ArrowRight' ? 1 : -1;
+    const next = (current + offset + items.length) % items.length;
     items[next].focus();
   }
 
