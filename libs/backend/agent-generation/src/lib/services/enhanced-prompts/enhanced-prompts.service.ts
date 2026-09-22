@@ -396,13 +396,24 @@ export class EnhancedPromptsService {
             if (lang) detectedLangs.add(lang);
           }
 
+          // Monorepo tools usually live in devDependencies (nx is a devDependency
+          // in most Nx workspaces). Match the exact package name or its scope so
+          // unrelated packages (onnx, next, nx-cloud) do not trigger detection.
+          const isMonorepoTool = (name: string): boolean =>
+            name === 'nx' ||
+            name === 'lerna' ||
+            name === 'turbo' ||
+            name.startsWith('@nx/') ||
+            name.startsWith('@nrwl/') ||
+            name.startsWith('@turbo/');
+
           analysis = {
             projectType: String(projectInfo.type),
             framework: wsInfo?.frameworks?.[0],
-            isMonorepo: projectInfo.dependencies.some(
-              (d) =>
-                d.includes('nx') || d.includes('lerna') || d.includes('turbo'),
-            ),
+            isMonorepo: [
+              ...projectInfo.dependencies,
+              ...projectInfo.devDependencies,
+            ].some(isMonorepoTool),
             monorepoType: undefined,
             dependencies: projectInfo.dependencies,
             devDependencies: projectInfo.devDependencies,

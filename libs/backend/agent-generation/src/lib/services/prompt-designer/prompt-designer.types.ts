@@ -135,80 +135,26 @@ export interface PromptDesignerOutput {
 }
 
 /**
- * Zod schema for validating LLM response structure
- *
- * Used with getStructuredCompletion for type-safe generation.
+ * Total token budget validateOutput accepts when quality guidance is present.
  */
-export const PromptDesignerResponseSchema = z.object({
-  projectContext: z
-    .string()
-    .describe(
-      'Brief description of what this project is and its key technologies (under 400 tokens)',
-    ),
-
-  frameworkGuidelines: z
-    .string()
-    .describe(
-      'Specific patterns and best practices for the detected frameworks (under 500 tokens)',
-    ),
-
-  codingStandards: z
-    .string()
-    .describe(
-      'SOLID principles, naming conventions, error handling derived from the project (under 400 tokens)',
-    ),
-
-  architectureNotes: z
-    .string()
-    .describe(
-      'Library boundaries, dependency rules, import patterns, key abstractions (under 400 tokens)',
-    ),
-
-  /**
-   * Quality-specific guidance based on detected code issues.
-   */
-  qualityGuidance: z
-    .string()
-    .optional()
-    .describe(
-      'Quality-specific guidance based on detected code issues such as anti-patterns, missing error handling, or architecture violations (under 300 tokens)',
-    ),
-});
-
-export type PromptDesignerResponse = z.infer<
-  typeof PromptDesignerResponseSchema
->;
-
-/**
- * Generation status for UI feedback
- */
-export type PromptGenerationStatus =
-  | 'idle'
-  | 'analyzing'
-  | 'generating'
-  | 'complete'
-  | 'error'
-  | 'fallback';
-
-/**
- * Event emitted during prompt generation for progress tracking
- */
-export interface PromptGenerationProgress {
-  status: PromptGenerationStatus;
-  message: string;
-  progress?: number; // 0-100
-  error?: string;
-}
+export const VALIDATOR_TOTAL_TOKENS_WITH_QUALITY = 2300;
 
 /**
  * Configuration for the Prompt Designer Agent
  */
 export interface PromptDesignerConfig {
-  /** Maximum tokens for the entire generated prompt (default: 1600) */
+  /** Maximum tokens for the entire generated prompt (default: 1800) */
   maxTotalTokens: number;
 
   /** Maximum tokens per section (default: 400) */
   maxSectionTokens: number;
+
+  /**
+   * Maximum tokens for the architecture notes section. Architecture notes
+   * carry the boundary and isolation rules, so they get more room than the
+   * other sections. Defaults to 1.5x `maxSectionTokens` when not set.
+   */
+  maxArchitectureNotesTokens?: number;
 
   /** Temperature for LLM generation (default: 0.3 for consistency) */
   temperature: number;
@@ -224,12 +170,129 @@ export interface PromptDesignerConfig {
  * Default configuration values
  */
 export const DEFAULT_PROMPT_DESIGNER_CONFIG: PromptDesignerConfig = {
-  maxTotalTokens: 1600,
+  maxTotalTokens: 1800,
   maxSectionTokens: 400,
   temperature: 0.3,
   includeCodeSamples: true,
   maxSampleFiles: 5,
 };
+
+/**
+ * Effective per-section and total token budgets derived from a
+ * PromptDesignerConfig. Generation prompts, the output schema and budget
+ * enforcement all read these numbers, so the LLM is instructed with the
+ * same budgets that are actually enforced.
+ */
+export interface PromptBudgets {
+  /** Budget for projectContext, frameworkGuidelines and codingStandards */
+  maxSectionTokens: number;
+
+  /** Budget for architectureNotes (1.5x maxSectionTokens by default) */
+  maxArchitectureNotesTokens: number;
+
+  /**
+   * Budget for qualityGuidance. Equals maxSectionTokens unless three section
+   * maxima plus architectureNotes plus qualityGuidance would exceed the
+   * validator's total budget, in which case it falls back to the headroom
+   * the validator assumes (2300 - 2000 = 300).
+   */
+  maxQualityGuidanceTokens: number;
+
+  /** Stated total budget for the generated output */
+  maxTotalTokens: number;
+}
+
+/**
+ * Derive the effective budgets from a configuration.
+ */
+export function deriveEffectiveBudgets(
+  config: PromptDesignerConfig,
+): PromptBudgets {
+  const maxSectionTokens = config.maxSectionTokens;
+  const maxArchitectureNotesTokens =
+    config.maxArchitectureNotesTokens ?? Math.round(maxSectionTokens * 1.5);
+  const maxQualityGuidanceTokens =
+    3 * maxSectionTokens + maxArchitectureNotesTokens + maxSectionTokens <=
+    VALIDATOR_TOTAL_TOKENS_WITH_QUALITY
+      ? maxSectionTokens
+      : 300;
+  return {
+    maxSectionTokens,
+    maxArchitectureNotesTokens,
+    maxQualityGuidanceTokens,
+    maxTotalTokens: config.maxTotalTokens,
+  };
+}
+
+/**
+ * Effective budgets for the default configuration.
+ */
+export const DEFAULT_PROMPT_BUDGETS: PromptBudgets = deriveEffectiveBudgets(
+  DEFAULT_PROMPT_DESIGNER_CONFIG,
+);
+
+/**
+ * Zod schema for validating LLM response structure
+ *
+ * Used with getStructuredCompletion for type-safe generation. The budget
+ * numbers in the descriptions follow DEFAULT_PROMPT_BUDGETS so the LLM is
+ * told the same budgets that enforceTokenBudgets enforces.
+ */
+export const PromptDesignerResponseSchema = z.object({
+  projectContext: z
+    .string()
+    .describe(
+      `Brief description of what this project is and its key technologies (under ${DEFAULT_PROMPT_BUDGETS.maxSectionTokens} tokens)`,
+    ),
+
+  frameworkGuidelines: z
+    .string()
+    .describe(
+      `Specific patterns and best practices for the detected frameworks (under ${DEFAULT_PROMPT_BUDGETS.maxSectionTokens} tokens)`,
+    ),
+
+  codingStandards: z
+    .string()
+    .describe(
+      `SOLID principles, naming conventions, error handling derived from the project (under ${DEFAULT_PROMPT_BUDGETS.maxSectionTokens} tokens)`,
+    ),
+
+  architectureNotes: z
+    .string()
+    .describe(
+      `Library boundaries, dependency rules, import patterns, key abstractions (under ${DEFAULT_PROMPT_BUDGETS.maxArchitectureNotesTokens} tokens)`,
+    ),
+
+  /**
+   * Quality-specific guidance based on detected code issues.
+   */
+  qualityGuidance: z
+    .string()
+    .optional()
+    .describe(
+      `Quality-specific guidance based on detected code issues such as anti-patterns, missing error handling, or architecture violations (under ${DEFAULT_PROMPT_BUDGETS.maxQualityGuidanceTokens} tokens)`,
+    ),
+});
+
+export type PromptDesignerResponse = z.infer<
+  typeof PromptDesignerResponseSchema
+>;
+
+/**
+ * Generation status for UI feedback
+ */
+export type PromptGenerationStatus =
+  'idle' | 'analyzing' | 'generating' | 'complete' | 'error' | 'fallback';
+
+/**
+ * Event emitted during prompt generation for progress tracking
+ */
+export interface PromptGenerationProgress {
+  status: PromptGenerationStatus;
+  message: string;
+  progress?: number; // 0-100
+  error?: string;
+}
 
 /**
  * Cached prompt generation result

@@ -158,6 +158,49 @@ describe('ProjectDetectorService', () => {
       expect(result).toBe(ProjectType.Angular);
     });
 
+    it('should let angular.json win over react in package.json dependencies', async () => {
+      mockFileSystem.readDirectory.mockResolvedValue([
+        { name: 'package.json', type: FileType.File },
+        { name: 'angular.json', type: FileType.File },
+        { name: 'nx.json', type: FileType.File },
+        { name: 'src', type: FileType.Directory },
+      ]);
+      mockFileSystem.readFile.mockResolvedValue(
+        JSON.stringify({
+          name: 'nx-workspace',
+          devDependencies: {
+            react: '^18.0.0',
+            '@angular/core': '^18.0.0',
+            ink: '^5.0.0',
+          },
+        })
+      );
+
+      const result = await service.detectProjectType('/workspace');
+
+      expect(result).toBe(ProjectType.Angular);
+    });
+
+    it('should still detect React from package.json devDependencies when no angular.json exists', async () => {
+      mockFileSystem.readDirectory.mockResolvedValue([
+        { name: 'package.json', type: FileType.File },
+        { name: 'src', type: FileType.Directory },
+      ]);
+      mockFileSystem.readFile.mockResolvedValue(
+        JSON.stringify({
+          name: 'react-app',
+          devDependencies: {
+            react: '^18.0.0',
+            '@angular/core': '^18.0.0',
+          },
+        })
+      );
+
+      const result = await service.detectProjectType('/workspace');
+
+      expect(result).toBe(ProjectType.React);
+    });
+
     it('should detect Python project from requirements.txt', async () => {
       mockFileSystem.readDirectory.mockResolvedValue([
         { name: 'requirements.txt', type: FileType.File },
