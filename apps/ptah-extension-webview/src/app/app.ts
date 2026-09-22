@@ -13,9 +13,9 @@ import { LucideAngularModule, AlertCircle } from 'lucide-angular';
 import {
   AppStateManager,
   BootStatusService,
+  SurfaceRouterService,
+  surfaceNavigationLanded,
   VSCodeService,
-  WebviewNavigationService,
-  ViewType,
 } from '@ptah-extension/core';
 
 import {
@@ -53,7 +53,7 @@ export class App implements OnInit, OnDestroy {
    * it did before this service existed.
    */
   public readonly bootStatus = inject(BootStatusService);
-  private readonly navigationService = inject(WebviewNavigationService);
+  private readonly surfaceRouter = inject(SurfaceRouterService);
   private readonly _streamRouter = inject(StreamRouter);
   public readonly isElectron = signal(this.vscodeService.isElectron);
   private readonly initializationStatus = signal<
@@ -107,50 +107,44 @@ export class App implements OnInit, OnDestroy {
     this.appState.setConnected(false);
   }
 
-  public async onViewChanged(view: ViewType): Promise<void> {
-    const success = await this.navigationService.navigateToView(view);
-
-    if (!success) {
-      console.error(`Ptah App - Navigation to ${view} failed`);
-      this.appState.handleError(`Failed to navigate to ${view}`);
-    }
-  }
-
+  /**
+   * The application's ONE initial navigation.
+   *
+   * `provideRouter` runs with `withDisabledInitialNavigation()`, so nothing has
+   * navigated when this is called — that is deliberate. Without it the Router
+   * resolves the empty URL first and a panel opened on `setup-wizard` paints
+   * chat before it, which is a visible flash on a surface the user is waiting
+   * for.
+   *
+   * **Window augmentation.** The host injects the deep link before Angular
+   * bootstraps: `panel.webview.html` carries `ptahConfig.initialView`, and
+   * `window.initialView` is the DevTools override for the same thing (set it in
+   * the console before bootstrap to force a surface). This is the only place
+   * either is read — `AppStateManager.initializeState` used to read them too,
+   * and the two paths could disagree.
+   *
+   * There is no allow-list here any more. `normalizeInitialView` validates
+   * against `SURFACE_ROUTE_IDS`, the same list `app.routes.ts` is built from,
+   * so an unknown or missing value falls back to `chat` and the route table is
+   * the only thing that has to be kept in step.
+   */
   private async handleInitialView(): Promise<void> {
-    const ptahConfig = (
-      window as unknown as { ptahConfig?: { initialView?: string } }
-    ).ptahConfig;
-    const rawInitialView = ptahConfig?.initialView;
-    const VALID_VIEWS: ViewType[] = [
-      'chat',
-      'command-builder',
-      'analytics',
-      'context-tree',
-      'settings',
-      'setup-wizard',
-      'orchestra-canvas',
-      'tribunal',
-    ];
-    const isValidView =
-      rawInitialView && VALID_VIEWS.includes(rawInitialView as ViewType);
-    const targetView: ViewType = isValidView
-      ? (rawInitialView as ViewType)
-      : 'chat';
+    const hostWindow = window as unknown as {
+      initialView?: string;
+      ptahConfig?: { initialView?: string };
+    };
+    const rawInitialView =
+      hostWindow.initialView ?? hostWindow.ptahConfig?.initialView;
+    const targetView = this.appState.normalizeInitialView(rawInitialView);
 
-    if (rawInitialView && !isValidView) {
+    const result = await this.surfaceRouter.navigateToSurface(targetView);
+    if (!surfaceNavigationLanded(result)) {
+      // `already-there` is a success, so it is not reported: nothing has
+      // navigated yet under `withDisabledInitialNavigation()`, but a route
+      // whose path equals the Router's starting URL would legitimately skip.
       console.warn(
-        `Invalid initialView "${rawInitialView}" in ptahConfig. Valid values are: ${VALID_VIEWS.join(
-          ', ',
-        )}. Defaulting to 'chat'.`,
+        `Initial navigation to ${targetView} did not land: ${result}`,
       );
-    }
-
-    const success = await this.navigationService.navigateToView(targetView);
-    if (!success) {
-      console.warn(
-        `Initial navigation to ${targetView} failed, using fallback`,
-      );
-      this.appState.setCurrentView(targetView);
     }
   }
 }

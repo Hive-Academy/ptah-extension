@@ -24,11 +24,7 @@
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import {
-  AppStateManager,
-  ClaudeRpcService,
-  WebviewNavigationService,
-} from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
 import { HarnessHealthBadgeComponent } from '@ptah-extension/marketplace';
 import {
@@ -134,8 +130,13 @@ function blockedHealth(n: number, extra = 0): HarnessHealth {
 
 describe('dashboard harness card', () => {
   const rpcMock = { call: jest.fn() };
+  /**
+   * The grid's chrome ("Back", "Convene a tribunal") switches surface through
+   * `AppStateManager.setCurrentView`, which TASK_2026_524 turned into a Router
+   * navigation. Stubbed rather than real so this suite never has to wire the
+   * Router to render a card that does not navigate.
+   */
   const appStateMock = { setCurrentView: jest.fn() };
-  const navigationMock = { navigateToView: jest.fn().mockResolvedValue(true) };
 
   let store: HarnessHealthStore;
 
@@ -195,7 +196,6 @@ describe('dashboard harness card', () => {
       providers: [
         { provide: ClaudeRpcService, useValue: rpcMock },
         { provide: AppStateManager, useValue: appStateMock },
-        { provide: WebviewNavigationService, useValue: navigationMock },
       ],
     });
     // Before the first `inject`, which instantiates the module and locks

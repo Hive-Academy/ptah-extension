@@ -8,127 +8,40 @@
 
 <!--
   Layout Architecture:
-  - Standalone views (setup-wizard, settings, analytics) render ON TOP via @switch
-  - Shared chrome (sidebar, header, agent panel) is ALWAYS rendered but hidden when standalone view is active
-  - Canvas state persists across standalone view navigation (components are hidden, not destroyed)
+  - Standalone surfaces render ON TOP, through the router outlet below. The
+    route table lives in apps/ptah-extension-webview/src/app/app.routes.ts.
+  - Shared chrome (sidebar, header, agent panel) is ALWAYS rendered but hidden
+    when a standalone surface is active
+  - Canvas state persists across standalone navigation (the canvas is hidden,
+    not destroyed — see the content area at the bottom of this file)
   - Content area switches between canvas grid and single chat via layoutMode signal
 -->
 
-<!-- 1. Standalone views — rendered ON TOP when active -->
-@switch (currentView()) {
-  <!-- Setup Wizard: Full-width, standalone layout (injected via DI token to break circular dep) -->
-  @case ('setup-wizard') {
-    <div class="h-full w-full">
-      @if (wizardComponent) {
-        <ng-container *ngComponentOutlet="wizardComponent" />
-      } @else {
-        <div class="flex items-center justify-center h-full">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-      }
-    </div>
-  }
+<!--
+  1. Standalone surfaces — rendered ON TOP when active.
 
-  <!-- Settings: Full-width, standalone layout -->
-  @case ('settings') {
-    <div class="h-full w-full">
-      <ptah-settings />
-    </div>
-  }
+  This replaces nine near-identical `@case` blocks, each an
+  `*ngComponentOutlet` over a DI token plus its own hand-written spinner
+  `@else` branch (TASK_2026_524). The route's `loadComponent` does the
+  deferral, the outlet does the rendering, and neither needs a spinner because
+  a lazy route swaps views only once its chunk has arrived.
 
-  <!-- Analytics: Full-width dashboard layout (no sidebar) -->
-  @case ('analytics') {
-    <div class="h-full w-full overflow-y-auto">
-      <ptah-dashboard-grid />
-    </div>
-  }
+  The `chat` route is component-less, so on chat this outlet renders nothing
+  and the shared chrome below is what shows.
 
-  <!-- Harness Builder: Full-width setup wizard (injected via DI token to break circular dep) -->
-  @case ('harness-builder') {
-    <div class="h-full w-full">
-      @if (harnessBuilderComponent(); as cmp) {
-        <ng-container *ngComponentOutlet="cmp" />
-      } @else {
-        <div class="flex items-center justify-center h-full">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-      }
-    </div>
-  }
-
-  <!-- Setup Hub: Unified configuration dashboard (injected via DI token to break circular dep) -->
-  @case ('setup-hub') {
-    <div class="h-full w-full">
-      @if (setupHubComponent(); as cmp) {
-        <ng-container *ngComponentOutlet="cmp" />
-      } @else {
-        <div class="flex items-center justify-center h-full">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-      }
-    </div>
-  }
-
-  <!-- Thoth: Memory / Skills / Cron / Gateway hub (Electron-only; VS Code shows placeholder) -->
-  <!--
-    @defer cuts the static template edge to ThothShellComponent, which in turn
-    pulls memory-curator-ui, skill-synthesis-ui, cron-scheduler-ui and
-    messaging-gateway-ui via its own imports: array. 'thoth' is NOT reachable as
-    a startup view (it is absent from the initialView allow-lists in
-    app.ts and webview-html-generator.ts), so this is never the launch surface
-    and deferring it cannot regress startup TTI (TASK_2026_187, R15).
-  -->
-  @case ('thoth') {
-    <div class="h-full w-full">
-      @defer (on immediate) {
-        <ptah-thoth-shell />
-      } @placeholder {
-        <div class="flex items-center justify-center h-full">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-      }
-    </div>
-  }
-
-  <!-- Marketplace: Skills + MCP provider hub (injected via DI token to break circular dep) -->
-  @case ('marketplace') {
-    <div class="h-full w-full">
-      @if (marketplaceComponent(); as cmp) {
-        <ng-container *ngComponentOutlet="cmp" />
-      } @else {
-        <div class="flex items-center justify-center h-full">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-      }
-    </div>
-  }
-
-  <!-- Tribunal: multi-vendor peer-panel view (injected via DI token to break circular dep) -->
-  @case ('tribunal') {
-    <div class="h-full w-full">
-      @if (tribunalComponent(); as cmp) {
-        <ng-container *ngComponentOutlet="cmp" />
-      } @else {
-        <div class="flex items-center justify-center h-full">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-      }
-    </div>
-  }
-
-  <!-- Tasks: standalone .ptah/specs board (injected via DI token to break circular dep) -->
-  @case ('tasks') {
-    <div class="h-full w-full">
-      @if (tasksComponent(); as cmp) {
-        <ng-container *ngComponentOutlet="cmp" />
-      } @else {
-        <div class="flex items-center justify-center h-full">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-      }
-    </div>
-  }
-}
+  The wrapper is the sizing box the nine `@case` blocks each carried
+  (`h-full w-full`, plus `overflow-y-auto` for the dashboard). A routed
+  component is inserted as a SIBLING of `<router-outlet />` inside this div, so
+  the box has to exist here rather than on the outlet element. It is hidden
+  rather than left empty on chat: an empty `h-full` box would claim the whole
+  viewport and push the shared chrome out of it.
+-->
+<div
+  class="h-full w-full overflow-y-auto"
+  [class.hidden]="!isStandaloneView()"
+>
+  <router-outlet />
+</div>
 
 <!-- 2. Shared chrome — ALWAYS rendered, hidden when standalone view is active -->
 <!-- Uses [class.hidden] (CSS display:none) so canvas tiles survive navigation to settings/analytics -->

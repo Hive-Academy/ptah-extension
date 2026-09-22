@@ -21,6 +21,7 @@ import type {
   StructuralSummaryResult,
 } from '@ptah-extension/workspace-intelligence';
 import type { HarnessNamespace } from './namespace-builders/harness-namespace.builder';
+import type { DashboardNamespace } from './namespace-builders/dashboard-namespace.builder';
 import type { SkillNamespace } from './namespace-builders/skill-namespace.builder';
 import type { MemoryNamespace } from './namespace-builders/memory-namespace.builder';
 import type { CorpusNamespace } from './namespace-builders/corpus-namespace.builder';
@@ -95,6 +96,13 @@ export interface PtahAPI {
     }>;
   };
   harness?: HarnessNamespace;
+  /**
+   * Declarative dashboard specs (TASK_2026_493_9f58). NON-optional: its one
+   * tool always returns a meaningful plain-text rendering, so it is useful on
+   * a host with no dashboard page (the CLI, VS Code) and there is no host on
+   * which it has to degrade. Its only collaborator is a broadcast callback.
+   */
+  dashboard: DashboardNamespace;
   memory?: MemoryNamespace;
   corpus?: CorpusNamespace;
   code?: CodeNamespace;

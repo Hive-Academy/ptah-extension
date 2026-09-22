@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_492_0bcc
-status: backlog
+status: in_review
 type: CREATIVE
 title: >-
   Shell design specification for apps - workspace types, Home grid, pin flow,

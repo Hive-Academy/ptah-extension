@@ -11,10 +11,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { signal } from '@angular/core';
-import {
-  EffortStateService,
-  WebviewNavigationService,
-} from '@ptah-extension/core';
+import { AppStateManager, EffortStateService } from '@ptah-extension/core';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
 import { StepPanelPreviewComponent } from './step-panel-preview.component';
 import {
@@ -118,8 +115,12 @@ describe('StepPanelPreviewComponent — per-lane model options', () => {
       providers: [
         { provide: TribunalDiscoveryService, useValue: discovery },
         {
-          provide: WebviewNavigationService,
-          useValue: { navigateToSettingsTab: jest.fn() },
+          // The "Configure" affordance deep-links through
+          // `AppStateManager.openSettingsTab` now (TASK_2026_524 deleted
+          // `WebviewNavigationService`). Stubbed rather than real so this suite
+          // never needs the Router that the real `currentView` reads.
+          provide: AppStateManager,
+          useValue: { openSettingsTab: jest.fn() },
         },
         {
           provide: EffortStateService,

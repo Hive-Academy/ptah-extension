@@ -2,7 +2,12 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { MESSAGE_TYPES, type WorkspaceInfo } from '@ptah-extension/shared';
+import {
+  ACCEPTED_INITIAL_VIEWS,
+  isAcceptedInitialView,
+  MESSAGE_TYPES,
+  type WorkspaceInfo,
+} from '@ptah-extension/shared';
 
 /**
  * Options for generating webview HTML content
@@ -103,18 +108,27 @@ export class WebviewHtmlGenerator {
     initialSessionId?: string,
     initialSessionName?: string,
   ): string {
-    const VALID_VIEWS = [
-      'chat',
-      'command-builder',
-      'analytics',
-      'context-tree',
-      'settings',
-      'setup-wizard',
-    ];
-
-    if (initialView && !VALID_VIEWS.includes(initialView)) {
+    // Validated against the SHARED contract, not a local list. This used to be
+    // a hand-written array of six ids — `chat`, `command-builder`, `analytics`,
+    // `context-tree`, `settings`, `setup-wizard` — and it had drifted badly:
+    //
+    //   - `ptah.openOrchestraCanvas` (`src/core/ptah-extension.ts:143`) passes
+    //     `initialView: 'orchestra-canvas'`, which the list REJECTED. The throw
+    //     below is caught by `generateAngularWebviewContent`, which substitutes
+    //     `generateFallbackHtml`, so that command rendered an empty panel. This
+    //     was broken before TASK_2026_524 touched anything.
+    //   - it rejected every surface added since (`harness-builder`,
+    //     `setup-hub`, `thoth`, `marketplace`, `tribunal`, `tasks`).
+    //   - it still accepted `command-builder` and `context-tree`, which have no
+    //     render branch in the app at all.
+    //
+    // `ACCEPTED_INITIAL_VIEWS` lives in `@ptah-extension/shared` — the one
+    // sanctioned bridge — precisely so this host-side check and the renderer's
+    // route table cannot disagree again. This file is extension-host code and
+    // must not import `@ptah-extension/core`.
+    if (initialView && !isAcceptedInitialView(initialView)) {
       throw new Error(
-        `Invalid initialView: "${initialView}". Valid values are: ${VALID_VIEWS.join(
+        `Invalid initialView: "${initialView}". Valid values are: ${ACCEPTED_INITIAL_VIEWS.join(
           ', ',
         )}`,
       );
@@ -281,6 +295,19 @@ export class WebviewHtmlGenerator {
   /**
    * Fallback HTML generation if reading index.html fails
    * FIXED: Remove polyfills.js reference as Angular 20+ doesn't generate it
+   *
+   * The root element is `<ptah-root>`, NOT `<app-root>`. `App` declares
+   * `selector: 'ptah-root'` (`apps/ptah-extension-webview/src/app/app.ts`) and
+   * that is what `src/index.html` mounts. With `app-root` here this document
+   * loaded the bundle and then rendered nothing at all — which is how a
+   * rejected `initialView` surfaced as a silently empty panel instead of an
+   * error, because `generateAngularWebviewContent` catches the validation
+   * throw and substitutes this document (TASK_2026_524 revision 1, F4).
+   *
+   * It also drops `initialView`: the integration script that would carry it is
+   * commented out below and the caller does not pass it. That is acceptable
+   * only because this path is now unreachable for a valid view — the
+   * allow-list is the shared one.
    */
   private generateFallbackHtml(
     webview: vscode.Webview,
@@ -316,8 +343,8 @@ export class WebviewHtmlGenerator {
         </style>
       </head>
       <body class="vscode-body ${this.getThemeClass(theme)}">
-        <!-- Angular App Root -->
-        <app-root></app-root>
+        <!-- Angular App Root - ptah-root, not app-root. See the note above generateFallbackHtml. -->
+        <ptah-root></ptah-root>
 
         <!-- VS Code Integration Script
         <script nonce="${nonce}">

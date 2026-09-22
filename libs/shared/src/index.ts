@@ -19,12 +19,19 @@ export * from './lib/types/sdk-hook.types';
 export * from './lib/types/sdk-hook.parsers';
 export * from './lib/types/subagent-registry.types';
 export * from './lib/types/webview-ui.types';
+export * from './lib/types/webview-surface.types';
 export * from './lib/types/model-autopilot.types';
 export * from './lib/types/agent-process.types';
 export * from './lib/types/cli-skill-sync.types';
 export * from './lib/types/auth-env.types';
 export * from './lib/types/auth-strategy.types';
 export * from './lib/types/provider-profile.types';
+// The declarative dashboard contract's PLAIN types (TASK_2026_493_9f58). Same
+// split as `provider-profile.types` above: the zod schemas that validate these
+// live behind `@ptah-extension/shared/mcp-apps-contracts`, so this barrel stays
+// zod-free and the contract compiles in the backend libs that inherit
+// `"strict": false` from `tsconfig.base.json`.
+export * from './mcp-apps-contracts/dashboard-spec.types';
 export * from './lib/types/ptah-cli.types';
 export * from './lib/types/agent-permission.types';
 export * from './lib/types/mcp-directory.types';

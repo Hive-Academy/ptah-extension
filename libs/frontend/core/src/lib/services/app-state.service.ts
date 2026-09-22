@@ -4,7 +4,14 @@
  * Keeping essential navigation and loading state.
  */
 
-import { Injectable, signal, computed } from '@angular/core';
+import {
+  Injectable,
+  signal,
+  computed,
+  effect,
+  inject,
+  untracked,
+} from '@angular/core';
 import {
   SessionId,
   WorkspaceInfo,
@@ -16,21 +23,24 @@ import type {
   NotificationFocusResult,
   NotificationFocusTarget,
 } from '../tokens/notification-focus-router.token';
+import {
+  SurfaceRouterService,
+  surfaceNavigationLanded,
+  type SurfaceNavigationResult,
+} from '../routing/surface-router.service';
+import {
+  DEFAULT_SURFACE_ID,
+  isAcceptedInitialView,
+  isSurfaceRouteId,
+  type ViewType,
+} from '../routing/surface-routes';
 
-export type ViewType =
-  | 'chat'
-  | 'command-builder'
-  | 'analytics'
-  | 'context-tree'
-  | 'settings'
-  | 'setup-wizard'
-  | 'orchestra-canvas'
-  | 'harness-builder'
-  | 'setup-hub'
-  | 'thoth'
-  | 'marketplace'
-  | 'tribunal'
-  | 'tasks';
+/**
+ * Re-exported from `../routing/surface-routes`, where it now lives beside
+ * `SURFACE_ROUTE_IDS` — the one list of route ids it enumerates. Every caller
+ * keeps importing it from here (or from the `@ptah-extension/core` barrel).
+ */
+export type { ViewType };
 
 /**
  * Active tab id within the Thoth hub. Mirrors the union exported from
@@ -179,10 +189,19 @@ export interface AppState {
 const IMPLICIT_WORKSPACE_PATH = '';
 
 /**
- * Which surface a single workspace is looking at, and where inside that
- * surface. `currentView` and `openViews` move together: closing the active
- * view tab falls back to chat, so splitting them across a partitioned and an
- * unpartitioned store would let the two disagree per workspace.
+ * Which surface a single workspace was last looking at, and where inside that
+ * surface.
+ *
+ * `currentView` here is a **memory, not the live truth** — the Router owns the
+ * live surface and {@link AppStateManager.currentView} reads it from
+ * {@link SurfaceRouterService}. This field records the last surface the
+ * workspace settled on so {@link AppStateManager.switchWorkspace} can navigate
+ * back to it, which is the per-workspace behaviour TASK_2026_195 added.
+ *
+ * Every write to it is gated on {@link AppStateManager._settlementOwner}: a
+ * settled surface may only be stamped onto the workspace that owns it, never
+ * onto whichever workspace happens to be active when the write runs
+ * (TASK_2026_524 revision 1, F1).
  *
  * `thothActiveTab` and `marketplaceActiveProvider` are the same kind of
  * pointer one level down — which tab of the `'thoth'` view, which provider of
@@ -215,28 +234,32 @@ const DEFAULT_VIEW_SLICE: ViewSlice = {
  */
 @Injectable({ providedIn: 'root' })
 export class AppStateManager implements MessageHandler {
+  /**
+   * The Router, read and written as a surface id. Declared first because
+   * {@link currentView} and the constructor effect both depend on it and
+   * Angular initialises class fields top-to-bottom.
+   */
+  private readonly surfaceRouter = inject(SurfaceRouterService);
+
   readonly handledMessageTypes = [MESSAGE_TYPES.SWITCH_VIEW] as const;
 
+  /**
+   * `MESSAGE_TYPES.SWITCH_VIEW` — the host's way to command a view change from
+   * outside Angular (`IPlatformCommands.focusChat()` depends on it). The wire
+   * contract is unchanged; only the receiver is, because the Router now owns
+   * the surface.
+   *
+   * The allow-list this used to carry (13 entries, disagreeing with the 8 in
+   * `App.handleInitialView`) is gone: the route table is the allow-list, read
+   * through {@link isSurfaceRouteId}. `orchestra-canvas` is accepted as well
+   * because it is still a legal legacy value that {@link normalizeView} maps
+   * onto the chat surface.
+   */
   handleMessage(message: { type: string; payload?: unknown }): void {
     const payload = message.payload as { view?: string } | undefined;
     const view = payload?.view;
-    const validViews: ViewType[] = [
-      'chat',
-      'command-builder',
-      'analytics',
-      'context-tree',
-      'settings',
-      'setup-wizard',
-      'orchestra-canvas',
-      'harness-builder',
-      'setup-hub',
-      'thoth',
-      'marketplace',
-      'tribunal',
-      'tasks',
-    ];
-    if (view && validViews.includes(view as ViewType)) {
-      this.handleViewSwitch(view as ViewType);
+    if (isAcceptedInitialView(view)) {
+      this.handleViewSwitch(view);
     } else {
       console.warn(
         `[AppStateManager] switchView received with invalid or missing view: ${view}`,
@@ -331,8 +354,107 @@ export class AppStateManager implements MessageHandler {
    */
   private readonly _thothFirstRunDismissed = signal<boolean>(false);
 
+  /**
+   * The workspace whose surface memory the globally settled surface currently
+   * belongs to, or `null` when it belongs to nobody.
+   *
+   * This is the ownership token that {@link recordSettledSurface} checks, and
+   * it exists because the displayed surface and the active workspace are not
+   * the same fact. It is `null`:
+   *
+   * - between {@link switchWorkspace} and the settlement of the restore
+   *   navigation that switch started — during that window the surface on
+   *   screen still belongs to the OUTGOING workspace, so stamping it against
+   *   the incoming one made B remember A's surface (revision 1, F1);
+   * - after {@link removeWorkspaceState} removed the ACTIVE workspace — a
+   *   deleted slice must not be resurrected by a later settlement, and
+   *   `updateActiveViewSlice` re-creates a missing slice by design. Revoking
+   *   ownership is what makes removal stick, rather than teaching every write
+   *   path about removal.
+   */
+  private _settlementOwner: string | null = IMPLICIT_WORKSPACE_PATH;
+
+  /**
+   * Monotonic id of the most recent navigation this service started.
+   *
+   * A settlement whose generation is no longer the current one has been
+   * superseded: a newer request is in flight and will record its own outcome.
+   * Without this, A→B→A leaves B's in-flight restore free to record against A
+   * when it eventually lands.
+   */
+  private _navigationGeneration = 0;
+
   constructor() {
     this.initializeState();
+
+    // Follow the Router, for every surface change this service did NOT start:
+    // `App.handleInitialView`'s initial navigation,
+    // `HarnessWorkflowMessageHandler`, and `Location.back()` / `.forward()`.
+    // Navigations this service starts record through `requestSurface`, which
+    // carries its own workspace and generation.
+    //
+    // The workspace path is read through `untracked` deliberately: tracking it
+    // would re-run this effect on a workspace switch and stamp the OUTGOING
+    // workspace's surface onto the incoming one.
+    effect(() => {
+      const surface = this.surfaceRouter.currentSurface();
+      untracked(() => {
+        const owner = this._activeWorkspacePath();
+        // Only the owner may be stamped. While a workspace switch is in
+        // flight, or after the active workspace was closed, nobody owns the
+        // displayed surface and this settlement is dropped.
+        if (this._settlementOwner !== owner) return;
+        this.openViewInActiveSlice(surface);
+      });
+    });
+  }
+
+  /**
+   * Start a surface navigation that belongs to the active workspace, and
+   * record its outcome only if that ownership still holds when it settles.
+   *
+   * Every write path in this service goes through here, so there is one place
+   * that decides what "this workspace reached that surface" means.
+   */
+  private requestSurface(surface: ViewType): void {
+    const generation = ++this._navigationGeneration;
+    const workspacePath = this._activeWorkspacePath();
+
+    void this.surfaceRouter
+      .navigateToSurface(surface)
+      .then((result) =>
+        this.recordSettledSurface(generation, workspacePath, surface, result),
+      );
+  }
+
+  /**
+   * Record a settled surface against the workspace that asked for it — or drop
+   * the write.
+   *
+   * Four ways a write is dropped, each of which was a reproduced defect or the
+   * hazard behind one:
+   *   1. the navigation did not land (cancelled, or a failed lazy chunk);
+   *   2. a newer navigation superseded it;
+   *   3. the workspace that asked is no longer the active one;
+   *   4. that workspace no longer owns the displayed surface — it was closed,
+   *      or a switch away from it is still in flight.
+   */
+  private recordSettledSurface(
+    generation: number,
+    workspacePath: string,
+    surface: ViewType,
+    result: SurfaceNavigationResult,
+  ): void {
+    if (!surfaceNavigationLanded(result)) return;
+    if (generation !== this._navigationGeneration) return;
+    if (workspacePath !== this._activeWorkspacePath()) return;
+
+    // The requester is the active workspace and its navigation landed, so it
+    // owns the displayed surface from here on — including when this is the
+    // restore navigation `switchWorkspace` started, which is what re-grants
+    // ownership after a switch.
+    this._settlementOwner = workspacePath;
+    this.openViewInActiveSlice(surface);
   }
 
   /**
@@ -347,9 +469,17 @@ export class AppStateManager implements MessageHandler {
     }
     return view;
   }
-  /** Active view of the active workspace. */
-  readonly currentView = computed<ViewType>(
-    () => this.activeViewSlice().currentView,
+
+  /**
+   * The surface currently addressed, read from the Router.
+   *
+   * Kept as `currentView` because it has many consumers (the Electron navbar's
+   * tab-active bindings, `AppShellComponent.isStandaloneView`, every
+   * `openX()` guard) and all of them want the same answer. What changed is who
+   * decides it: the Router, not a signal write.
+   */
+  readonly currentView = computed<ViewType>(() =>
+    this.surfaceRouter.currentSurface(),
   );
   readonly isLoading = this._isLoading.asReadonly();
   readonly statusMessage = this._statusMessage.asReadonly();
@@ -407,25 +537,14 @@ export class AppStateManager implements MessageHandler {
    *
    * **Window Augmentation for Debugging:**
    * The extension backend can inject initial state into the webview by augmenting
-   * the window object before the Angular app bootstraps. This is useful for:
-   * - Setting initial view based on command context (e.g., open wizard directly)
-   * - Debugging webview initialization in VS Code DevTools
-   * - Testing different initial states during development
+   * the window object before the Angular app bootstraps. This reads the
+   * workspace identity and the persisted UI preferences from it.
    *
-   * **Usage in Extension:**
-   * ```typescript
-   * panel.webview.html = generateHtml({
-   *   workspaceInfo: {...},
-   *   initialView: 'setup-wizard' // Sets window.initialView before app loads
-   * });
-   * ```
-   *
-   * **DevTools Debugging:**
-   * You can inspect/modify window.initialView in Chrome DevTools before app loads:
-   * ```javascript
-   * // In VS Code DevTools console (before app bootstrap)
-   * window.initialView = 'analytics'; // Force initial view
-   * ```
+   * `initialView` is deliberately NOT read here. It is a *navigation* input, and
+   * the Router owns navigation: `App.handleInitialView` reads it once and seeds
+   * the first navigation, under `withDisabledInitialNavigation()` so the Router
+   * cannot resolve an empty URL before the host deep link is read. Reading it
+   * here as well would be a second entry point racing the first.
    *
    * **Production Warning:**
    * This pattern is safe for production as it only reads from window during
@@ -436,9 +555,7 @@ export class AppStateManager implements MessageHandler {
    */
   private initializeState(): void {
     const windowWithState = window as Window & {
-      initialView?: ViewType;
       ptahConfig?: {
-        initialView?: string;
         workspaceRoot?: string;
         workspaceName?: string;
       };
@@ -458,13 +575,7 @@ export class AppStateManager implements MessageHandler {
       });
     }
 
-    let initialView =
-      windowWithState.initialView ||
-      (windowWithState.ptahConfig?.initialView as ViewType) ||
-      'chat';
-    let savedLayoutMode: LayoutMode | null = null;
-
-    savedLayoutMode = localStorage.getItem(
+    const savedLayoutMode = localStorage.getItem(
       'ptah-layout-mode',
     ) as LayoutMode | null;
     if (savedLayoutMode === 'single' || savedLayoutMode === 'grid') {
@@ -486,9 +597,28 @@ export class AppStateManager implements MessageHandler {
     } else if (newValue === 'true') {
       this._thothFirstRunDismissed.set(true);
     }
-    initialView = this.normalizeView(initialView);
+  }
 
-    this.openViewInActiveSlice(initialView);
+  /**
+   * Resolve a host-supplied `initialView` to a surface that actually has a
+   * route. Called once, from `App.handleInitialView`.
+   *
+   * There is no allow-list here: {@link isSurfaceRouteId} reads the same id
+   * list the route table is built from. The only special case is the legacy
+   * `orchestra-canvas` value, which {@link normalizeView} maps onto the chat
+   * surface AND forces grid layout for — dropping that would land a host that
+   * still sends it on single-chat instead of the canvas.
+   */
+  normalizeInitialView(raw: string | undefined): ViewType {
+    const candidate =
+      raw === 'orchestra-canvas' ? this.normalizeView('orchestra-canvas') : raw;
+    if (isSurfaceRouteId(candidate)) return candidate;
+    if (raw !== undefined && raw !== '') {
+      console.warn(
+        `[AppStateManager] Unknown initialView "${raw}" — falling back to "${DEFAULT_SURFACE_ID}".`,
+      );
+    }
+    return DEFAULT_SURFACE_ID;
   }
 
   /**
@@ -531,22 +661,59 @@ export class AppStateManager implements MessageHandler {
     const previousPath = this._activeWorkspacePath();
     if (previousPath === newPath) return;
 
+    // Stamp the OUTGOING workspace's surface synchronously before switching —
+    // but ONLY if that workspace still owns the displayed surface. The
+    // constructor effect normally records it, and an effect is coalesced by
+    // change detection, so it may not have flushed since the last navigation
+    // while this method reads the slice back a few lines later.
+    //
+    // The ownership test is what makes the stamp correct rather than merely
+    // timely (revision 1, F1). Without it:
+    //   - A→B→A stamped the surface still on screen (A's) onto B, because B's
+    //     own restore had not settled;
+    //   - closing the active workspace and then switching away re-created the
+    //     slice that was just deleted, so reopening it restored a surface that
+    //     was supposed to be gone.
+    if (this._settlementOwner === previousPath) {
+      this.openViewInActiveSlice(this.currentView());
+    }
+
+    // Nobody owns the displayed surface until the restore navigation below
+    // lands. `recordSettledSurface` re-grants ownership to `newPath` then.
+    this._settlementOwner = null;
     this._activeWorkspacePath.set(newPath);
 
-    if (this._viewSlices().has(newPath)) return;
+    if (!this._viewSlices().has(newPath)) {
+      // First real workspace after bootstrap: migrate the sentinel slice rather
+      // than seed a default one, so the surface the user reached before the
+      // initial workspace:switch RPC settled is not discarded.
+      const bootstrapSlice =
+        previousPath === IMPLICIT_WORKSPACE_PATH
+          ? this._viewSlices().get(IMPLICIT_WORKSPACE_PATH)
+          : undefined;
+      if (bootstrapSlice) {
+        this._viewSlices.update((slices) => {
+          const next = new Map(slices);
+          next.set(newPath, bootstrapSlice);
+          next.delete(IMPLICIT_WORKSPACE_PATH);
+          return next;
+        });
+      }
+    }
 
-    // First real workspace after bootstrap: migrate the sentinel slice rather
-    // than seed a default one, so an `initialView` (or a view the user opened
-    // before the initial workspace:switch RPC settled) is not discarded.
-    if (previousPath !== IMPLICIT_WORKSPACE_PATH) return;
-    const bootstrapSlice = this._viewSlices().get(IMPLICIT_WORKSPACE_PATH);
-    if (!bootstrapSlice) return;
-    this._viewSlices.update((slices) => {
-      const next = new Map(slices);
-      next.set(newPath, bootstrapSlice);
-      next.delete(IMPLICIT_WORKSPACE_PATH);
-      return next;
-    });
+    // The surface is the Router's, so restoring a workspace's surface is a
+    // navigation, not a signal write. A never-visited workspace has no slice
+    // and lands on chat rather than inheriting the previous workspace's
+    // surface rendered against the new workspace's — now empty — state.
+    //
+    // If this navigation does NOT land, `recordSettledSurface` drops the write
+    // and `_settlementOwner` stays `null`: the new workspace is active with
+    // the previous workspace's surface still on screen, and a later switch
+    // away will refuse to stamp it. That is the honest outcome — the wrong
+    // behaviour would be to record a surface this workspace never reached.
+    this.requestSurface(
+      this._viewSlices().get(newPath)?.currentView ?? DEFAULT_SURFACE_ID,
+    );
   }
 
   /**
@@ -562,11 +729,31 @@ export class AppStateManager implements MessageHandler {
       next.delete(workspacePath);
       return next;
     });
+
+    // Revoke ownership when the workspace being closed is the ACTIVE one.
+    // `ElectronLayoutService` runs this cleanup BEFORE it switches away
+    // (`electron-layout.service.ts:371-374`), so without this the synchronous
+    // stamp in `switchWorkspace` — or a late settlement — re-created the slice
+    // that was just deleted, and reopening the workspace restored the surface
+    // it was closed on (revision 1, F1). `updateActiveViewSlice` seeds a
+    // missing slice by design, so removal has to invalidate later writes
+    // rather than rely on them noticing the absence.
+    if (workspacePath === this._activeWorkspacePath()) {
+      this._settlementOwner = null;
+    }
   }
 
+  /**
+   * Switch surface. Delegates to the Router, which is the owner.
+   *
+   * Stays `void` on purpose: every one of its ~20 callers is a click handler or
+   * an effect that cannot act on a failed navigation. The one caller that can —
+   * `App.handleInitialView` — goes through
+   * {@link SurfaceRouterService.navigateToSurface} directly and reports it.
+   */
   setCurrentView(view: ViewType): void {
     if (this.canSwitchViews()) {
-      this.openViewInActiveSlice(this.normalizeView(view));
+      this.requestSurface(this.normalizeView(view));
     }
   }
 
@@ -574,19 +761,17 @@ export class AppStateManager implements MessageHandler {
   closeView(view: ViewType): void {
     if (view === 'chat') return;
     this.updateActiveViewSlice((slice) => {
-      if (!slice.openViews.has(view)) {
-        return slice.currentView === view
-          ? { ...slice, currentView: 'chat' }
-          : slice;
-      }
+      if (!slice.openViews.has(view)) return slice;
       const openViews = new Set(slice.openViews);
       openViews.delete(view);
-      return {
-        ...slice,
-        currentView: slice.currentView === view ? 'chat' : slice.currentView,
-        openViews,
-      };
+      return { ...slice, openViews };
     });
+    // Closing the surface you are looking at means leaving it, and leaving is
+    // a navigation. The slice's `currentView` memory is not written here — the
+    // constructor effect records chat once the navigation settles.
+    if (this.currentView() === view) {
+      this.requestSurface(DEFAULT_SURFACE_ID);
+    }
   }
 
   setLoading(loading: boolean): void {
@@ -617,11 +802,7 @@ export class AppStateManager implements MessageHandler {
   }): void {
     if (data.workspaceInfo) this.setWorkspaceInfo(data.workspaceInfo);
     if (data.currentView) {
-      const normalized = this.normalizeView(data.currentView);
-      this.updateActiveViewSlice((slice) => ({
-        ...slice,
-        currentView: normalized,
-      }));
+      this.requestSurface(this.normalizeView(data.currentView));
     }
     this.setConnected(true);
   }
@@ -629,7 +810,7 @@ export class AppStateManager implements MessageHandler {
   handleViewSwitch(view: ViewType): void {
     if (!this.canSwitchViews()) return;
 
-    this.openViewInActiveSlice(this.normalizeView(view));
+    this.requestSurface(this.normalizeView(view));
   }
 
   handleError(error: string): void {
@@ -851,6 +1032,13 @@ export class AppStateManager implements MessageHandler {
     this._harnessWorkflowRequest.set(req);
   }
 
+  /** Invalidate a request only while it still owns the pending workflow. */
+  clearHarnessWorkflowRequest(request: HarnessWorkflowRequest): void {
+    if (this._harnessWorkflowRequest() === request) {
+      this._harnessWorkflowRequest.set(null);
+    }
+  }
+
   /**
    * Request that the chat lib launches a session seeded with `request.prompt`.
    * Mirrors {@link requestCanvasSession}: the chat-lib bridge consumes the
@@ -907,6 +1095,22 @@ export class AppStateManager implements MessageHandler {
 
   requestSettingsTab(target: PendingSettingsTab): void {
     this._pendingSettingsTab.set(target);
+  }
+
+  /**
+   * Open Settings already pointed at `tab`.
+   *
+   * Replaces `WebviewNavigationService.navigateToSettingsTab`, which was the
+   * only reason three Tribunal wizard steps injected that service. Guarded
+   * before the request is raised — the same shape as
+   * {@link openSkillsDivergedClones} — so a switch dropped while disconnected
+   * or loading cannot leave a pending tab request that fires later against
+   * whatever surface the user reached next.
+   */
+  openSettingsTab(tab: SettingsTabId, providerId?: string): void {
+    if (!this.canSwitchViews()) return;
+    this.requestSettingsTab({ tab, providerId });
+    this.setCurrentView('settings');
   }
 
   consumePendingSettingsTab(): PendingSettingsTab | null {

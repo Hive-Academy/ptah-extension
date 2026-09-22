@@ -15,7 +15,7 @@ import {
   ArrowLeft,
 } from 'lucide-angular';
 import {
-  WebviewNavigationService,
+  AppStateManager,
   CommandDiscoveryFacade,
   ClaudeRpcService,
 } from '@ptah-extension/core';
@@ -63,7 +63,7 @@ const MCP_REGISTRY_PROVIDER_ID = 'official-mcp';
   templateUrl: './marketplace-hub.component.html',
 })
 export class MarketplaceHubComponent {
-  private readonly navigation = inject(WebviewNavigationService);
+  private readonly appState = inject(AppStateManager);
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
   private readonly state = inject(MarketplaceStateService);
   private readonly rpcService = inject(ClaudeRpcService);
@@ -163,7 +163,7 @@ export class MarketplaceHubComponent {
   }
 
   public goBack(): void {
-    this.navigation.navigateToView('chat');
+    this.appState.setCurrentView('chat');
   }
 
   /**

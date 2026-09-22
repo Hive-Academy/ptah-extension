@@ -42,8 +42,37 @@ ORCHESTRATION: ptah.orchestration.* (workflow state management)
 AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, message, report)
 MEMORY/CORPUS: ptah.memory.* (search/list memories), ptah.corpus.* (build/list/rebuild/prime knowledge boards)
 HARNESS: ptah.harness.* (skill + MCP discovery, install, and proposeConfig)
+DASHBOARD: ptah.dashboard.* (propose a declarative dashboard spec to the surface)
 
 Use ptah.help('namespace') for details on any namespace.`,
+
+  dashboard: `ptah.dashboard - Declarative dashboards
+
+Also exposed as the MCP tool ptah_dashboard_propose_spec, which is the surface to
+prefer: its input schema is generated from the zod contract, so it teaches you the
+exact shape and the current limits. The two surfaces are the same one method.
+
+- proposeSpec(spec, { sessionId?, toolCallId }) - Validate a spec and push it to
+    the surface. Returns { status: 'accepted', specId, revision, bytes, text } or
+    { status: 'rejected', reason }.
+
+You emit JSON from a FIXED catalog and never write HTML. Component kinds: stat,
+line-chart, bar-chart, table, list. Envelope: { schemaVersion, catalogVersion,
+specId, revision, generatedAt, title, components }.
+
+Validation is ALL-OR-NOTHING. An unknown schemaVersion, an unknown catalogVersion,
+an unknown component kind, a duplicate component id or any breached budget rejects
+the WHOLE spec and nothing reaches the UI — there is no partial render and no
+best-effort fallback to a half spec. The rejection reason names the offending path.
+
+Two things a spec may NOT do, by construction rather than by convention: name a
+tool or an RPC method (an action is an id from a fixed allowlist, and the HOST
+decides what it means), and carry a non-https URL (javascript:, data:, file: and
+http: are rejected).
+
+On success you get the dashboard back as plain text. That text is also the whole
+answer on a host with no dashboard page, and the UI never parses it — it reads the
+'dashboard:spec-proposed' push message instead.`,
 
   harness: `ptah.harness - Harness Builder (skills, MCP servers, config)
 

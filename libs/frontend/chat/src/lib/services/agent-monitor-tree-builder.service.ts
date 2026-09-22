@@ -39,9 +39,10 @@ const MAX_DEPTH = 10;
 
 /**
  * Memoization cache entry for the segment tree builder.
- * Keyed by segment count -- invalidates when new segments arrive.
+ * Store updates replace the segment array, including coalesced text updates.
  */
 interface TreeCache {
+  segments: readonly CliOutputSegment[];
   count: number;
   tree: ExecutionNode[];
 }
@@ -136,12 +137,20 @@ export class AgentMonitorTreeBuilderService {
     segments: readonly CliOutputSegment[],
   ): ExecutionNode[] {
     const cached = this.segmentCacheMap.get(agentId);
-    if (cached && cached.count === segments.length) {
+    if (
+      cached &&
+      cached.segments === segments &&
+      cached.count === segments.length
+    ) {
       return cached.tree;
     }
 
     const tree = this.buildTreeFromSegmentsInternal(segments);
-    this.segmentCacheMap.set(agentId, { count: segments.length, tree });
+    this.segmentCacheMap.set(agentId, {
+      segments,
+      count: segments.length,
+      tree,
+    });
     return tree;
   }
 

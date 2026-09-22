@@ -38,10 +38,7 @@ import {
   X,
   PlayCircle,
 } from 'lucide-angular';
-import {
-  ClaudeRpcService,
-  WebviewNavigationService,
-} from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import type {
   SetupStatusGetResponse,
   HarnessPreset,
@@ -1143,7 +1140,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
 export class SetupHubComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly harnessRpc = inject(HarnessRpcService);
-  private readonly navigation = inject(WebviewNavigationService);
+  private readonly appState = inject(AppStateManager);
   private readonly workflow = inject(HarnessWorkflowService);
   protected readonly SearchIcon = Search;
   protected readonly WrenchIcon = Wrench;
@@ -1296,15 +1293,15 @@ export class SetupHubComponent implements OnInit {
   }
 
   openSetupWizard(): void {
-    this.navigation.navigateToView('setup-wizard');
+    this.appState.setCurrentView('setup-wizard');
   }
 
   openHarnessBuilder(): void {
-    this.navigation.navigateToView('harness-builder');
+    this.appState.setCurrentView('harness-builder');
   }
 
   conveneTribunal(): void {
-    this.navigation.navigateToView('tribunal');
+    this.appState.setCurrentView('tribunal');
   }
 
   /** Card body click: resume when one is running, otherwise collect intake. */
@@ -1317,7 +1314,7 @@ export class SetupHubComponent implements OnInit {
   }
 
   resumeNewProject(): void {
-    this.navigation.navigateToView('harness-builder');
+    this.appState.setCurrentView('harness-builder');
   }
 
   openIntake(): void {
@@ -1462,6 +1459,6 @@ export class SetupHubComponent implements OnInit {
   }
 
   goBack(): void {
-    this.navigation.navigateToView('chat');
+    this.appState.setCurrentView('chat');
   }
 }

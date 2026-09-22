@@ -8,8 +8,9 @@ import type { UiDriver } from '../../support/ui-driver';
  * (`@ptah-extension/tasks-ui/services`) and `HarnessWorkflowMessageHandler`
  * (`@ptah-extension/harness-builder/services`). Both must stay constructed
  * and receiving at bootstrap now that `TasksViewComponent` /
- * `HarnessBuilderViewComponent` / `SetupHubComponent` are behind
- * `LazyViewService.resolveWhen` loaders instead of static imports.
+ * `HarnessBuilderViewComponent` / `SetupHubComponent` are behind lazy
+ * `loadComponent` ROUTES instead of static imports (TASK_2026_524 batch 1;
+ * previously behind `LazyViewService.resolveWhen` loaders).
  *
  * `apps/ptah-extension-webview/src/app/unit5-message-routing.spec.ts`
  * (Jest, developer's own artifact — batch-4-report.md §8) proves this at the
