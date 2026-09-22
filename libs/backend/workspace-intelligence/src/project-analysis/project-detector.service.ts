@@ -77,10 +77,18 @@ export class ProjectDetectorService {
    * Detects project type for a specific workspace folder.
    *
    * Detection strategy:
-   * 1. Check for package.json and analyze dependencies (Node.js ecosystem)
-   * 2. Check for language-specific files (Python, Java, Rust, Go, etc.)
-   * 3. Check for framework-specific configuration files
-   * 4. Default to 'general' if no specific type detected
+   * 1. Check for framework configuration files (angular.json) — a file-based
+   *    framework signal wins over dependency analysis, so an Nx workspace
+   *    that also ships React tooling as devDependencies is still reported by
+   *    its workspace-level config
+   * 2. Check for package.json and analyze dependencies (Node.js ecosystem)
+   * 3. Check for language-specific files (Python, Java, Rust, Go, etc.)
+   * 4. Check for other framework-specific configuration files
+   * 5. Default to 'general' if no specific type detected
+   *
+   * `nx.json` alone does not decide a type: it signals that a workspace-level
+   * config (such as angular.json) names the framework, so it has no branch
+   * here and dependency detection does not override it.
    *
    * @param workspacePath - Path of workspace folder to analyze
    * @returns Detected project type (never throws, defaults to 'general')
@@ -89,6 +97,9 @@ export class ProjectDetectorService {
     try {
       const entries = await this.fileSystem.readDirectory(workspacePath);
       const fileNames = new Set(entries.map((entry) => entry.name));
+      if (fileNames.has('angular.json')) {
+        return ProjectType.Angular;
+      }
       if (matchesStackProfile(NODE_TS_PROFILE, fileNames)) {
         const nodeType = await this.detectNodeProjectType(workspacePath);
         if (nodeType !== ProjectType.Node) {
@@ -118,9 +129,6 @@ export class ProjectDetectorService {
       }
       if (fileNames.has('Gemfile')) {
         return ProjectType.Ruby;
-      }
-      if (fileNames.has('angular.json')) {
-        return ProjectType.Angular;
       }
       if (fileNames.has('nuxt.config.js') || fileNames.has('nuxt.config.ts')) {
         return ProjectType.Vue; // Nuxt is Vue-based

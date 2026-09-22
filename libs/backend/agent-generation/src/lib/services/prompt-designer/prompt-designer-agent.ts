@@ -26,10 +26,12 @@ import {
   type PromptDesignerConfig,
   type PromptGenerationProgress,
   type PromptDesignerResponse,
+  type PromptBudgets,
   DEFAULT_PROMPT_DESIGNER_CONFIG,
+  deriveEffectiveBudgets,
 } from './prompt-designer.types';
 import {
-  PROMPT_DESIGNER_SYSTEM_PROMPT,
+  buildSystemPrompt,
   buildGenerationUserPrompt,
   buildFallbackGuidance,
   buildQualityContextPrompt,
@@ -39,6 +41,7 @@ import {
   validateOutput,
   formatAsPromptSection,
   truncateToTokenBudget,
+  estimateTokens,
 } from './response-parser';
 
 /**
@@ -104,10 +107,12 @@ export class PromptDesignerAgent {
         ? buildQualityContextPrompt(qualityAssessment, prescriptiveGuidance)
         : undefined);
 
-    const systemPrompt = PROMPT_DESIGNER_SYSTEM_PROMPT;
+    const budgets = this.getEffectiveBudgets();
+    const systemPrompt = buildSystemPrompt(budgets);
     const userPrompt = buildGenerationUserPrompt(
       input,
       effectiveQualityContext,
+      budgets,
     );
     const outputSchema = this.buildJsonSchema();
 
@@ -185,45 +190,92 @@ export class PromptDesignerAgent {
   }
 
   /**
+   * Effective per-section and total budgets for the current configuration.
+   *
+   * Generation prompts, the output schema and budget enforcement all use
+   * these numbers, so the LLM is instructed with the budgets that are
+   * actually enforced.
+   */
+  private getEffectiveBudgets(): PromptBudgets {
+    return deriveEffectiveBudgets(this.config);
+  }
+
+  /**
    * Enforce token budgets on each section
+   *
+   * Truncates sections above their budgets, then recounts every section from
+   * the final text. The reported total is the true sum of those counts, so
+   * validateOutput always sees honest numbers.
    */
   enforceTokenBudgets(output: PromptDesignerOutput): PromptDesignerOutput {
-    const maxSection = this.config.maxSectionTokens;
-    if (output.tokenBreakdown.projectContext > maxSection) {
+    const {
+      maxSectionTokens,
+      maxArchitectureNotesTokens,
+      maxQualityGuidanceTokens,
+    } = this.getEffectiveBudgets();
+
+    if (output.tokenBreakdown.projectContext > maxSectionTokens) {
       output.projectContext = truncateToTokenBudget(
         output.projectContext,
-        maxSection,
+        maxSectionTokens,
         output.tokenBreakdown.projectContext,
       );
     }
 
-    if (output.tokenBreakdown.frameworkGuidelines > maxSection) {
+    if (output.tokenBreakdown.frameworkGuidelines > maxSectionTokens) {
       output.frameworkGuidelines = truncateToTokenBudget(
         output.frameworkGuidelines,
-        maxSection,
+        maxSectionTokens,
         output.tokenBreakdown.frameworkGuidelines,
       );
     }
 
-    if (output.tokenBreakdown.codingStandards > maxSection) {
+    if (output.tokenBreakdown.codingStandards > maxSectionTokens) {
       output.codingStandards = truncateToTokenBudget(
         output.codingStandards,
-        maxSection,
+        maxSectionTokens,
         output.tokenBreakdown.codingStandards,
       );
     }
 
-    if (output.tokenBreakdown.architectureNotes > maxSection) {
+    if (output.tokenBreakdown.architectureNotes > maxArchitectureNotesTokens) {
       output.architectureNotes = truncateToTokenBudget(
         output.architectureNotes,
-        maxSection,
+        maxArchitectureNotesTokens,
         output.tokenBreakdown.architectureNotes,
       );
     }
-    output.totalTokens = Math.min(
-      output.totalTokens,
-      this.config.maxTotalTokens,
-    );
+
+    if (output.qualityGuidance !== undefined) {
+      const qualityTokens =
+        output.tokenBreakdown.qualityGuidance ??
+        estimateTokens(output.qualityGuidance);
+      if (qualityTokens > maxQualityGuidanceTokens) {
+        output.qualityGuidance = truncateToTokenBudget(
+          output.qualityGuidance,
+          maxQualityGuidanceTokens,
+          qualityTokens,
+        );
+      }
+    }
+
+    // Recount every section from the final text: the reported counts must
+    // match the content that is actually kept.
+    output.tokenBreakdown = {
+      projectContext: estimateTokens(output.projectContext),
+      frameworkGuidelines: estimateTokens(output.frameworkGuidelines),
+      codingStandards: estimateTokens(output.codingStandards),
+      architectureNotes: estimateTokens(output.architectureNotes),
+      ...(output.qualityGuidance !== undefined
+        ? { qualityGuidance: estimateTokens(output.qualityGuidance) }
+        : {}),
+    };
+    output.totalTokens =
+      output.tokenBreakdown.projectContext +
+      output.tokenBreakdown.frameworkGuidelines +
+      output.tokenBreakdown.codingStandards +
+      output.tokenBreakdown.architectureNotes +
+      (output.tokenBreakdown.qualityGuidance ?? 0);
 
     return output;
   }
@@ -292,36 +344,38 @@ export class PromptDesignerAgent {
    * Build JSON Schema from PromptDesignerResponseSchema for SDK outputFormat.
    *
    * Converts the Zod schema to a JSON Schema object that the SDK can use
-   * to constrain the agent's output format.
+   * to constrain the agent's output format. The budget numbers in the
+   * descriptions follow the effective budgets, so they stay in sync with
+   * enforceTokenBudgets.
    */
   private buildJsonSchema(): Record<string, unknown> {
+    const {
+      maxSectionTokens,
+      maxArchitectureNotesTokens,
+      maxQualityGuidanceTokens,
+    } = this.getEffectiveBudgets();
     return {
       type: 'object',
       properties: {
         projectContext: {
           type: 'string',
-          description:
-            'Brief description of what this project is and its key technologies (under 400 tokens)',
+          description: `Brief description of what this project is and its key technologies (under ${maxSectionTokens} tokens)`,
         },
         frameworkGuidelines: {
           type: 'string',
-          description:
-            'Specific patterns and best practices for the detected frameworks (under 500 tokens)',
+          description: `Specific patterns and best practices for the detected frameworks (under ${maxSectionTokens} tokens)`,
         },
         codingStandards: {
           type: 'string',
-          description:
-            'SOLID principles, naming conventions, error handling derived from the project (under 400 tokens)',
+          description: `SOLID principles, naming conventions, error handling derived from the project (under ${maxSectionTokens} tokens)`,
         },
         architectureNotes: {
           type: 'string',
-          description:
-            'Library boundaries, dependency rules, import patterns, key abstractions (under 400 tokens)',
+          description: `Library boundaries, dependency rules, import patterns, key abstractions (under ${maxArchitectureNotesTokens} tokens)`,
         },
         qualityGuidance: {
           type: 'string',
-          description:
-            'Quality-specific guidance based on detected code issues (under 300 tokens)',
+          description: `Quality-specific guidance based on detected code issues (under ${maxQualityGuidanceTokens} tokens)`,
         },
       },
       required: [

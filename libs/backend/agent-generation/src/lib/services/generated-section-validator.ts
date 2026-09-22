@@ -135,14 +135,27 @@ const PATH_CHARS = /^[@\w.\-*/\\]+$/;
 /** A trailing `.ts`, `.json`, `.mjs` — one to eight alphanumerics after a dot. */
 const HAS_EXTENSION = /\.[A-Za-z][A-Za-z0-9]{0,7}$/;
 
+/** Single-segment identifiers are ambiguous; only file suffixes count there. */
+const FILE_EXTENSION =
+  /\.(?:[cm]?[jt]sx?|jsonc?|ya?ml|html?|css|scss|sass|less|mdx?|sql|prisma|toml|ini|cfg|conf|xml|svg|png|jpe?g|webp|gif|sh|ps1|bat|cmd|py|rb|go|rs|java|kt|cs|cpp|h|vue|svelte|txt|csv|lock|wasm)$/i;
+const SEARCH_EXCLUDES = ['**/node_modules/**', '**/dist/**', '**/.git/**'];
+const CONVENTION_STEMS = new Set([
+  'kebab-case',
+  'camelcase',
+  'snake_case',
+  'pascalcase',
+  'upper_snake_case',
+  'screaming_snake_case',
+]);
+
 /**
  * Rejects LLM section text that states facts instead of conventions.
  *
- * Stateless and side-effect free apart from the optional disk probe, so a caller
- * may reuse one instance across every template in a wizard run.
+ * Disk results are cached by root and citation for one wizard run.
  */
 @injectable()
 export class GeneratedSectionValidator {
+  private readonly diskLookups = new Map<string, Promise<boolean>>();
   constructor(
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { isOptional: true })
     private readonly fileSystem: IFileSystemProvider | null = null,
@@ -329,12 +342,21 @@ export class GeneratedSectionValidator {
 
     const star = lower.indexOf('*');
     if (star >= 0) {
-      const prefix = lower.slice(0, star).replace(/\/+$/, '');
-      return prefix.length > 0 && known.has(prefix);
+      const prefix = this.globDirectory(lower);
+      if (prefix) return this.isKnownPath(prefix, known);
+      const suffix = lower.slice(star + 1);
+      return (
+        suffix.length > 0 && [...known].some((entry) => entry.endsWith(suffix))
+      );
     }
 
     for (const entry of known) {
-      if (entry.startsWith(`${lower}/`)) return true;
+      if (
+        entry.startsWith(`${lower}/`) ||
+        entry.endsWith(`/${lower}`) ||
+        entry.includes(`/${lower}/`)
+      )
+        return true;
     }
     return false;
   }
@@ -349,12 +371,50 @@ export class GeneratedSectionValidator {
    */
   private async existsOnDisk(raw: string, rootPath: string): Promise<boolean> {
     if (!this.fileSystem) return false;
-    const relative = this.resolveInsideRoot(raw.split('*')[0], rootPath);
+    const relative = this.resolveInsideRoot(raw, rootPath);
     if (!relative) return false;
+    const directory = /[/\\]$/.test(raw);
+    const key = `${rootPath}\n${relative}${directory ? '/' : ''}`;
+    let lookup = this.diskLookups.get(key);
+    if (!lookup) {
+      lookup = this.probeDisk(relative, rootPath, directory);
+      this.diskLookups.set(key, lookup);
+    }
+    return lookup;
+  }
+
+  /** The directory before the first wildcard, not a partial filename. */
+  private globDirectory(pattern: string): string {
+    const fixed = pattern.slice(0, pattern.indexOf('*'));
+    return fixed.slice(0, fixed.lastIndexOf('/') + 1).replace(/\/+$/, '');
+  }
+
+  private async probeDisk(
+    relative: string,
+    rootPath: string,
+    directory: boolean,
+  ): Promise<boolean> {
+    if (!this.fileSystem) return false;
     const root = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
     try {
-      return await this.fileSystem.exists(`${root}/${relative}`);
-    } catch {
+      const glob = relative.includes('*');
+      if (!glob && (await this.fileSystem.exists(`${root}/${relative}`)))
+        return true;
+      const pattern = glob
+        ? relative.startsWith('**')
+          ? relative
+          : `**/${relative}`
+        : `**/${relative}${directory ? '/**/*' : ''}`;
+      const matches = await this.fileSystem.findFiles(
+        pattern,
+        SEARCH_EXCLUDES,
+        1,
+        rootPath,
+      );
+      return matches.some(
+        (match) => this.resolveInsideRoot(match, rootPath) !== null,
+      );
+    } catch (error: unknown) {
       // degradation-audit: optional-capability - this is a best-effort "does
       // this path exist" probe (doc comment above says "Never throws"); a probe
       // failure is treated the same as "not found", which correctly flags the
@@ -419,10 +479,6 @@ export class GeneratedSectionValidator {
    * so two segments are enough there — `libs/core` in backticks is a directory
    * reference and nothing else. Bare prose needs harder evidence: an extension,
    * a glob, or three or more segments, so `and/or` stays prose.
-   *
-   * Under-detection is the safe direction in prose and over-detection is the
-   * safe direction in a code span: a missed token is a citation nobody checked,
-   * while a false positive costs one section its generated text.
    */
   private extractPathCandidates(text: string): string[] {
     const found: string[] = [];
@@ -435,7 +491,7 @@ export class GeneratedSectionValidator {
     for (const match of text.matchAll(CODE_SPAN)) {
       consider(match[1], false);
     }
-    for (const token of text.split(/\s+/)) {
+    for (const token of text.replace(CODE_SPAN, ' ').split(/\s+/)) {
       consider(token, true);
     }
     return [...new Set(found)];
@@ -454,13 +510,17 @@ export class GeneratedSectionValidator {
     if (!PATH_CHARS.test(token)) return false;
 
     const unified = token.replace(/\\/g, '/');
+    if (/^@[^/]+\//.test(unified) || /\/\d+(?:\/|$)/.test(unified))
+      return false;
     const segments = unified.split('/').filter(Boolean);
     if (segments.length === 0) return false;
 
     if (segments.length === 1) {
+      const stem = segments[0].replace(HAS_EXTENSION, '').toLowerCase();
+      if (CONVENTION_STEMS.has(stem)) return false;
       // A bare filename counts only with an extension — `package.json` is a
       // citation, `OnPush` is an identifier.
-      return HAS_EXTENSION.test(segments[0]) && unified.includes('.');
+      return FILE_EXTENSION.test(segments[0]);
     }
     if (unified.includes('*')) return true;
     if (segments.some((segment) => HAS_EXTENSION.test(segment))) return true;

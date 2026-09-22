@@ -11,18 +11,24 @@
  * dynamically based on what it discovers — no pre-built dictionaries.
  */
 
-import type { PromptDesignerInput } from './prompt-designer.types';
+import {
+  DEFAULT_PROMPT_BUDGETS,
+  type PromptDesignerInput,
+  type PromptBudgets,
+} from './prompt-designer.types';
 import type {
   QualityAssessment,
   PrescriptiveGuidance,
 } from '@ptah-extension/shared';
 
 /**
- * System prompt for the Prompt Designer Agent
+ * System prompt base for the Prompt Designer Agent
  *
- * This establishes the agent's role and output expectations.
+ * This establishes the agent's role and output expectations. The Token
+ * Budget section is appended by buildSystemPrompt from the effective
+ * budgets, so the numbers always follow the configuration.
  */
-export const PROMPT_DESIGNER_SYSTEM_PROMPT = `You are a Prompt Designer Agent. Your task is to generate concise, actionable guidance for an AI assistant that will help developers in a specific project.
+const PROMPT_DESIGNER_SYSTEM_PROMPT_BASE = `You are a Prompt Designer Agent. Your task is to generate concise, actionable guidance for an AI assistant that will help developers in a specific project.
 
 CRITICAL CONSTRAINTS:
 - Do NOT attempt to call any tools or explore the filesystem.
@@ -45,12 +51,33 @@ You analyze project metadata (type, framework, dependencies) and generate tailor
 - Use imperative language ("Use...", "Follow...", "Prefer...").
 - Reference specific frameworks, libraries, and patterns from the project.
 - If the project uses TypeScript, emphasize type safety.
-- If it's a monorepo, emphasize library boundaries.
+- If it's a monorepo, emphasize library boundaries.`;
+
+/**
+ * Build the full system prompt with a Token Budget section derived from
+ * the effective budgets.
+ *
+ * @param budgets - Effective budgets from deriveEffectiveBudgets
+ * @returns The system prompt string
+ */
+export function buildSystemPrompt(budgets: PromptBudgets): string {
+  return `${PROMPT_DESIGNER_SYSTEM_PROMPT_BASE}
 
 ## Token Budget
 
-Each section must stay under 400 tokens. Total output should be under 1600 tokens.
+Each section must stay under ${budgets.maxSectionTokens} tokens, except Architecture Notes, which may use up to ${budgets.maxArchitectureNotesTokens} tokens. The four required sections together should stay under ${budgets.maxTotalTokens} tokens; an optional Quality Guidance section may add up to ${budgets.maxQualityGuidanceTokens} tokens on top.
 Prioritize the most impactful guidance over comprehensive coverage.`;
+}
+
+/**
+ * System prompt for the default configuration
+ *
+ * Kept as a named export for callers that want the default-budget prompt
+ * without a PromptDesignerConfig. buildSystemPrompt derives it.
+ */
+export const PROMPT_DESIGNER_SYSTEM_PROMPT = buildSystemPrompt(
+  DEFAULT_PROMPT_BUDGETS,
+);
 
 /**
  * Build quality context section for inclusion in generation prompts.
@@ -160,14 +187,25 @@ export function buildQualityContextPrompt(
  *
  * @param input - Project analysis data
  * @param qualityContext - Optional quality context section (from buildQualityContextPrompt)
+ * @param budgets - Optional effective budgets (from deriveEffectiveBudgets);
+ *   the default configuration budgets are used when not given
  * @returns User prompt string
  */
 export function buildGenerationUserPrompt(
   input: PromptDesignerInput,
   qualityContext?: string,
+  budgets?: PromptBudgets,
 ): string {
   const dependencyList = input.dependencies.slice(0, 20).join(', ');
   const devDependencyList = input.devDependencies.slice(0, 15).join(', ');
+  const maxSectionTokens =
+    budgets?.maxSectionTokens ?? DEFAULT_PROMPT_BUDGETS.maxSectionTokens;
+  const maxQualityGuidanceTokens =
+    budgets?.maxQualityGuidanceTokens ??
+    DEFAULT_PROMPT_BUDGETS.maxQualityGuidanceTokens;
+  const maxArchitectureNotesTokens =
+    budgets?.maxArchitectureNotesTokens ??
+    DEFAULT_PROMPT_BUDGETS.maxArchitectureNotesTokens;
 
   const basePrompt = `## Project Analysis
 
@@ -195,7 +233,7 @@ ${input.sampleFilePaths.map((p) => `- ${p}`).join('\n')}`
 
 Generate guidance in these ${
     qualityContext ? 'five' : 'four'
-  } categories. Keep each section under 400 tokens.
+  } categories. Keep each section under ${maxSectionTokens} tokens, except Architecture Notes, which may use up to ${maxArchitectureNotesTokens} tokens.
 
 ### 1. Project Context
 A brief description of what this project is based on its dependencies and structure.
@@ -227,7 +265,7 @@ Include: key abstractions, import patterns, layer boundaries.`;
 ### 5. Quality Guidance (Optional)
 Based on the Code Quality Context below, provide specific guidance for addressing the detected issues.
 Focus on: preventing anti-patterns, improving error handling, maintaining code quality.
-Keep this section under 300 tokens.
+Keep this section under ${maxQualityGuidanceTokens} tokens.
 
 ${qualityContext}`;
   }
