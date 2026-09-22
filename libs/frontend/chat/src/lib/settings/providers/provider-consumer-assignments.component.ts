@@ -729,7 +729,7 @@ export class ProviderConsumerAssignmentsComponent {
 
     await this.state.saveSettings(patch, context);
 
-    if (this.state.commit().status !== 'failed' && this.state.commit().status !== 'blocked') {
+    if (this.state.commit().status === 'saved') {
       this.assignmentSaved.emit({ id, provider: draft.provider, model: draft.model });
       this.activeEditId.set(null);
     }
@@ -768,7 +768,7 @@ export class ProviderConsumerAssignmentsComponent {
 
     await this.state.saveSettings(patch, context);
 
-    if (this.state.commit().status !== 'failed' && this.state.commit().status !== 'blocked') {
+    if (this.state.commit().status === 'saved') {
       this.timeoutSaved.emit(sec);
       this.isEditingTimeout.set(false);
     }

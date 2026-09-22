@@ -425,7 +425,8 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
           </div>
         }
 
-        @switch (step()) {
+        @if (externalMessage()) { <p role="status">{{ externalMessage() }}</p> }
+      @switch (step()) {
           @case ('provider') {
             <div data-testid="wizard-step-provider">
               <h3
@@ -636,6 +637,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
               </h3>
               @switch (authMode()) {
                 @case ('apiKey') {
+                  <p class="text-xs">Verification requires entering the credential, even when a key is already stored. Use Replace key to enter it. Nothing is saved until you confirm.</p>
                   @if (existingCredentialPresent() && !replacingKey()) {
                     <p
                       class="mt-3 text-sm text-base-content"
@@ -1189,7 +1191,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                     name="wizard-activation"
                     [checked]="activation() === 'connect-only'"
                     (change)="onActivationChange('connect-only')"
-                    data-testid="wizard-activation-connect-only"
+                    [disabled]="selectionId() === 'anthropic'" data-testid="wizard-activation-connect-only"
                   />
                   <span class="min-w-0">
                     <span class="block text-sm text-base-content">Connect only</span>
@@ -1267,6 +1269,9 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                   Done
                 </button>
               }
+              @if (selectionId() === 'anthropic') { <p>Claude API setup also selects it for the main agent. Connect only is unavailable on this host.</p> }
+              @if (contextChanged()) { <p role="alert">The workspace changed. Review the destination before saving.</p><button type="button" class="btn min-h-9" (click)="reviewContextRequested.emit()">Review current workspace</button> }
+              @if (commitDetail()) { <p role="status" class="break-words">{{ commitDetail() }}</p> }
               @if (commitState() === 'failed') {
                 <p
                   class="mt-4 text-sm text-base-content"
@@ -1310,7 +1315,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
           <button
             type="button"
             class="btn btn-primary btn-sm min-h-9 px-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-            [disabled]="commitBusy() || !modelsValid()"
+            [disabled]="commitBusy() || !modelsValid() || contextChanged()"
             (click)="onCommit()"
             data-testid="wizard-commit"
           >
@@ -1398,7 +1403,13 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   readonly commitRequested = output<ProviderWizardCommit>();
 
   /** Sign-in and CLI work the host must perform. */
-  readonly externalActionRequested = output<WizardExternalAction>();
+  readonly externalActionRequested = output<{ providerId: string; action: WizardExternalAction }>();
+  readonly providerChanged = output<string>();
+  readonly reviewContextRequested = output<void>();
+  readonly contextChanged = input(false);
+  readonly commitDetail = input('');
+  readonly externalMessage = input<string | null>(null);
+  readonly initialSetup = input<{ providerId: string; baseUrl: string | null; tiers: { sonnet: string | null; opus: string | null; haiku: string | null }; customName?: string; customProtocol?: 'openai' | 'anthropic' } | null>(null);
 
   // ------------------------------------------------------------ draft state
 
@@ -1406,6 +1417,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   private readonly _selection = signal<WizardSelection | null>(null);
   private readonly _search = signal('');
   private readonly _customName = signal('');
+  private readonly _customId = signal('');
   private readonly _customProtocol = signal<'openai' | 'anthropic' | null>(null);
   /** In-memory credential draft; rendered only through a password input. */
   private readonly _apiKeyDraft = signal('');
@@ -1498,7 +1510,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     if (selection?.kind === 'custom') {
       return this._customName().trim() || 'Custom endpoint';
     }
-    return this.selectedEntry()?.name ?? 'Connect provider';
+    return this.selectionId() === 'anthropic' ? 'Claude API' : this.selectedEntry()?.name ?? 'Connect provider';
   });
 
   protected readonly wizardTitle = computed<string>(() => 'Connect provider');
@@ -1526,12 +1538,14 @@ export class ProviderSetupWizardComponent implements OnDestroy {
           (entry) => entry.name.toLowerCase().includes(query) || entry.id.includes(query),
         )
       : all;
-    return matched.map((entry) => ({
+    const options: WizardProviderOption[] = matched.map((entry) => ({
       id: entry.id,
       name: entry.name,
       summary: authSummaryFor(entry),
       fallback: markFallbackFor(entry),
     }));
+    if (!query || 'claude api anthropic'.includes(query)) options.unshift({ id: 'anthropic', name: 'Claude API', summary: 'API key - activates the main agent', fallback: 'Bot' });
+    return options;
   });
 
   protected readonly customNameError = computed<string | null>(() => {
@@ -1587,15 +1601,16 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     if (!this.selectionValid()) return false;
     switch (this.authMode()) {
       case 'apiKey':
-        return this.existingCredentialPresent() || this._apiKeyDraft().trim().length > 0;
+        return this._apiKeyDraft().trim().length > 0;
       case 'oauth':
         return this.signInState() === 'signed-in';
       case 'cli':
-        return this.cliInstalled() === true && this.signInState() === 'signed-in';
+        return this.cliInstalled() === true;
       case 'local-native':
       case 'local-proxy':
-      case 'custom':
         return this.baseUrlError() === null;
+      case 'custom':
+        return this.baseUrlError() === null && this._apiKeyDraft().trim().length > 0;
     }
   });
 
@@ -1692,7 +1707,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     switch (this.authMode()) {
       case 'apiKey':
         if (this._apiKeyDraft().trim().length > 0) return 'Key entered for this setup';
-        return this.existingCredentialPresent() ? 'Stored key is kept' : 'No key entered';
+        return this.existingCredentialPresent() ? 'Enter the key to verify this draft' : 'No key entered';
       case 'oauth':
       case 'cli':
         return this.signInState() === 'signed-in'
@@ -1764,6 +1779,20 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   protected readonly commitBusy = computed<boolean>(() => this.commitState() === 'saving');
 
   constructor() {
+    let appliedSetup: unknown = null;
+    effect(() => {
+      const setup = this.initialSetup();
+      if (!setup || setup === appliedSetup || setup.providerId !== this.selectionId()) return;
+      appliedSetup = setup;
+      if (setup.customName && setup.customProtocol) {
+        this._selection.set({ kind: 'custom' }); this._customId.set(setup.providerId);
+        this._customName.set(setup.customName); this._customProtocol.set(setup.customProtocol);
+      }
+      if (!this._baseUrlTouched()) this._baseUrlDraft.set(setup.baseUrl ?? this.selectedEntry()?.baseUrl ?? '');
+      this._tiers.everyday.set(setup.tiers.sonnet ?? '');
+      this._tiers.complex.set(setup.tiers.opus ?? '');
+      this._tiers.fast.set(setup.tiers.haiku ?? '');
+    });
     // Reset on close; deep-link preselect on open, without displaying the step.
     effect(() => {
       const open = this.open();
@@ -1774,8 +1803,8 @@ export class ProviderSetupWizardComponent implements OnDestroy {
       const deepLink = this.deepLinkProviderId();
       if (deepLink && !this._selection()) {
         const entry = getAnthropicProvider(deepLink);
-        if (entry) {
-          this._selection.set({ kind: 'registry', id: entry.id });
+        if (entry || deepLink === 'anthropic') {
+          this.applySelection({ kind: 'registry', id: deepLink });
         }
       }
     });
@@ -1926,7 +1955,9 @@ export class ProviderSetupWizardComponent implements OnDestroy {
 
   private applySelection(selection: WizardSelection): void {
     this._selection.set(selection);
+    this.providerChanged.emit(selection.kind === 'registry' ? selection.id : '');
     this._customName.set('');
+    this._customId.set('');
     this._customProtocol.set(null);
     this._apiKeyDraft.set('');
     this._showApiKey.set(false);
@@ -1968,7 +1999,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   }
 
   protected emitExternalAction(action: WizardExternalAction): void {
-    this.externalActionRequested.emit(action);
+    this.externalActionRequested.emit({ providerId: this.verifyProviderId(), action });
   }
 
   /** Key, method, or URL change invalidates prior verification and probes. */
@@ -2066,7 +2097,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
 
   protected verifyProviderId(): string {
     const selection = this._selection();
-    if (selection?.kind === 'custom') return this._customName().trim();
+    if (selection?.kind === 'custom') return this._customId() || this._customName().trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     return this.selectionId();
   }
 
@@ -2101,11 +2132,11 @@ export class ProviderSetupWizardComponent implements OnDestroy {
       ? 'app'
       : (targets[0] ?? 'app');
     this._saveTo.set(defaultTarget);
-    this._activation.set(this.mainRouteExists() ? 'connect-only' : 'use-main-agent');
+    this._activation.set(this.selectionId() !== 'anthropic' && this.mainRouteExists() ? 'connect-only' : 'use-main-agent');
   }
 
   protected onCommit(): void {
-    if (this.commitBusy() || !this.modelsValid()) return;
+    if (this.commitBusy() || !this.modelsValid() || this.contextChanged()) return;
     this.commitRequested.emit(this.buildCommit());
   }
 
@@ -2200,6 +2231,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this._selection.set(null);
     this._search.set('');
     this._customName.set('');
+    this._customId.set('');
     this._customProtocol.set(null);
     this._apiKeyDraft.set('');
     this._showApiKey.set(false);

@@ -4,7 +4,7 @@ import {
 } from '@angular/core';
 import {
   ProvidersSettingsStateService, type ProvidersConnection, type ProvidersEditContext,
-  type ProvidersExternalAuthAction, type ProvidersSettingsPatch,
+  type ProvidersExternalAuthAction,
 } from '@ptah-extension/core';
 import { NativeCardComponent, ProviderModelPickerComponent } from '@ptah-extension/ui';
 import type { SettingScope, EffortLevel, AuthVerifyDraftConnectionParams, AuthCancelDraftVerificationParams } from '@ptah-extension/shared';
@@ -13,6 +13,7 @@ import { ProviderConnectionCardComponent, type ProviderConnectionCardStatus } fr
 import {
   ProviderSetupWizardComponent, type ProviderWizardCommit, type WizardCommitState,
 } from './provider-setup-wizard.component';
+import { PtahCliConfigComponent } from '../ptah-ai/ptah-cli-config.component';
 import {
   ProviderConsumerAssignmentsComponent, type BackgroundConsumerId,
 } from './provider-consumer-assignments.component';
@@ -20,8 +21,7 @@ import {
 export type ProvidersSettingsFocusTarget =
   | 'main-agent' | 'main-model' | 'main-effort' | 'connections' | 'background-models' | 'cli-agents' | 'more-providers'
   | BackgroundConsumerId;
-type DelegatedModelKey = 'codexModel' | 'copilotModel' | 'cursorModel' | 'antigravityModel' | 'opencodeModel' | 'piModel'
-  | 'codexReasoningEffort' | 'copilotReasoningEffort' | 'piReasoningEffort';
+
 
 const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-muted bg-base-100 text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
@@ -31,7 +31,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
   selector: 'ptah-providers-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NativeCardComponent, ProviderModelPickerComponent, SettingScopeRowComponent,
+  imports: [PtahCliConfigComponent, NativeCardComponent, ProviderModelPickerComponent, SettingScopeRowComponent,
     ProviderConnectionCardComponent, ProviderSetupWizardComponent, ProviderConsumerAssignmentsComponent],
   template: `
     <div class="h-full overflow-y-auto bg-base-100 font-sans text-sm text-base-content">
@@ -209,86 +209,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
             (setupProviderRequested)="openWizard($event)" (assignmentSaved)="state.refresh()" (timeoutSaved)="state.refreshJudging()" />
         </section>
 
-        <section aria-labelledby="providers-cli-heading" class="space-y-3">
-          <h2 id="providers-cli-heading" data-focus="cli-agents" tabindex="-1" class="text-sm font-semibold scroll-mt-4">CLI agents</h2>
-          <button type="button" [class]="control" (click)="beginCliCreate()" [disabled]="!canStartSetup()">Add CLI agent</button>
-          @if (cliCreateOpen()) {
-            <div class="rounded-md border border-base-content-muted p-3 space-y-2">
-              <label for="providers-cli-name">Agent name</label>
-              <input id="providers-cli-name" [class]="field" [value]="cliName()" (input)="cliName.set(inputValue($event))" />
-              <label for="providers-cli-provider">Provider connection</label>
-              <select id="providers-cli-provider" [class]="field" [value]="cliProvider()" (change)="cliProvider.set(inputValue($event))">
-                <option value="">Choose a provider</option>
-                @for (provider of state.connections().data ?? []; track provider.id) {
-                  @if (provider.id !== 'anthropic' && provider.id !== 'openai-codex') { <option [value]="provider.id">{{ provider.name }}</option> }
-                }
-              </select>
-              <label for="providers-cli-key">API key for this CLI instance</label>
-              <input id="providers-cli-key" type="password" autocomplete="new-password" [class]="field" [value]="cliKey()" (input)="cliKey.set(inputValue($event))" aria-describedby="providers-cli-key-help" />
-              <p id="providers-cli-key-help">Stored provider keys are not copied. Enter this instance's key for API-key providers; local or subscription connections can leave it empty. Saved globally. Codex uses the delegated CLI settings below.</p>
-              <button type="button" [class]="control" (click)="createCli()" [disabled]="!canCreateCli()">Create CLI agent</button>
-              <button type="button" [class]="control" (click)="cancelCliCreate()" [disabled]="saving()">Cancel CLI setup</button>
-            </div>
-          }
-          @if (state.cliAgents().status === 'ready' && !state.cliAgents().data?.length) { <p>No CLI agents configured.</p> }
-          @for (agent of state.cliAgents().data ?? []; track agent.id) {
-            <ptah-native-card density="compact" [clickable]="false">
-              <div class="space-y-3 min-w-0">
-                <h3 class="font-semibold break-words">{{ agent.name }} · {{ agent.providerName }}</h3>
-                <p>{{ agent.modelCount }} available models · {{ agent.enabled ? 'Enabled' : 'Disabled' }}</p>
-                @if (state.cliModels().status === 'ready') {
-                  @if (state.cliModels().data?.[agent.id]; as models) {
-                    <p class="break-all">Model: {{ models.selectedModel || 'Use provider tier mappings' }}</p>
-                    @if (cliModelDraft()?.id === agent.id) {
-                      <ptah-provider-model-picker [fixedProvider]="agent.providerId" [model]="cliModelDraft()?.model ?? ''" [label]="agent.name + ' model'"
-                        [disabled]="saving()" (selectionChange)="cliModelDraft.set({ id: agent.id, model: $event.model })" />
-                      <p>Saved globally for this CLI instance. The provider connection is unchanged.</p>
-                      <button type="button" [class]="control" (click)="saveCliModel()" [disabled]="saving()">Save {{ agent.name }} model</button>
-                      <button type="button" [class]="control" (click)="cliModelDraft.set(null)" [disabled]="saving()">Cancel {{ agent.name }} model edit</button>
-                    } @else {
-                      <button type="button" [class]="control" (click)="editCliModel(agent.id, models.selectedModel ?? '')" [disabled]="saving()">Edit {{ agent.name }} model</button>
-                    }
-                  } @else { <p>Saved model details are unavailable for this instance. Refresh settings to check again.</p> }
-                }
-                <label class="flex min-h-9 items-center gap-2">
-                  <input type="checkbox" class="toggle toggle-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-                    [checked]="agent.enabled" [disabled]="saving() || state.cliAgents().status !== 'ready'"
-                    [attr.aria-label]="'Enable ' + agent.name + ' for delegated work'" (change)="toggleCli(agent.id, $event)" />
-                  Enable {{ agent.name }} for delegated work
-                </label>
-                <button type="button" [class]="control" (click)="removeCliId.set(agent.id)" [disabled]="saving()">Remove {{ agent.name }}</button>
-                @if (removeCliId() === agent.id) {
-                  <p>Remove this CLI instance? Its provider connection will remain available.</p>
-                  <button type="button" [class]="control" (click)="removeCli(agent.id)" [disabled]="saving()">Confirm removal of {{ agent.name }}</button>
-                  <button type="button" [class]="control" (click)="removeCliId.set(null)">Cancel removal</button>
-                }
-              </div>
-            </ptah-native-card>
-          }
-          @if (state.orchestration().status === 'ready') {
-            <h3 class="font-semibold">Delegated CLI models and reasoning effort</h3>
-            @for (choice of delegatedModels; track choice.key) {
-              <div class="rounded-md border border-base-300 p-3 space-y-2">
-                <p>{{ choice.name }}: {{ state.orchestration().data?.[choice.key] || 'Provider default' }}</p>
-                <ptah-setting-scope-row [fieldName]="choice.name" [scope]="state.scopeEntry('agentOrchestration.' + choice.key)?.scope ?? null" [disabled]="true" />
-                @if (delegatedDraft()?.key === choice.key) {
-                  @if (choice.key.endsWith('Model')) {
-                    <ptah-provider-model-picker [fixedProvider]="delegatedProvider(choice.key)" [model]="delegatedDraft()?.value ?? ''" [label]="choice.name"
-                      [disabled]="saving()" (selectionChange)="delegatedDraft.set({ key: choice.key, value: $event.model })" />
-                  } @else {
-                    <label [for]="'providers-' + choice.key">{{ choice.name }}</label>
-                    <input [id]="'providers-' + choice.key" [class]="field" [value]="delegatedDraft()?.value ?? ''" (input)="setDelegatedModel(choice.key, $event)" />
-                  }
-                  <p>Leave empty to use the provider default. Saved globally for delegated work.</p>
-                  <button type="button" [class]="control" (click)="saveDelegatedModel()" [disabled]="saving()">Save {{ choice.name }}</button>
-                  <button type="button" [class]="control" (click)="delegatedDraft.set(null)" [disabled]="saving()">Cancel {{ choice.name }} edit</button>
-                } @else {
-                  <button type="button" [class]="control" (click)="editDelegatedModel(choice.key)" [disabled]="saving()">Edit {{ choice.name }}</button>
-                }
-              </div>
-            }
-          }
-        </section>
+        <ptah-cli-config [autoOpenProviderId]="requestedProviderId()" />
 
         <details #catalogDisclosure class="rounded-xl border border-base-300 bg-base-100" [open]="catalogOpen()">
           <summary data-focus="more-providers" class="min-h-9 min-w-6 p-3 font-semibold cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content">More providers</summary>
@@ -333,12 +254,15 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
       <ptah-provider-setup-wizard [open]="true" [deepLinkProviderId]="wizardProviderId()"
         [verifyDraftConnection]="verifyDraftConnection" [cancelDraftVerification]="cancelDraftVerification"
         [supportedSaveTargets]="globalTarget" [workspaceName]="workspaceName()" [mainRouteExists]="mainRouteExists()"
-        [defaultsResolvable]="false" [commitState]="wizardCommitState()"
-        (commitRequested)="commitWizard($event)" (closed)="closeWizard()" (externalActionRequested)="externalAction(null, $event)" />
+        [defaultsResolvable]="wizardDefaults()" [externalAuth]="wizardExternalAuth()" [externalMessage]="state.externalAuth().data?.message ?? null"
+        [initialSetup]="state.connectionSetup().status === 'ready' ? state.connectionSetup().data : null" [contextChanged]="wizardContextChanged()" [commitDetail]="wizardCommitDetail()"
+        (providerChanged)="selectWizardProvider($event)" (reviewContextRequested)="reviewWizardContext()" [commitState]="wizardCommitState()"
+        (commitRequested)="commitWizard($event)" (closed)="closeWizard()" (externalActionRequested)="externalAction($event.providerId, $event.action)" />
     }
   `,
 })
 export class ProvidersSettingsComponent implements OnInit, OnDestroy {
+  readonly requestedProviderId = input<string>('');
   readonly focusTarget = input<ProvidersSettingsFocusTarget | null>(null);
   protected readonly state = inject(ProvidersSettingsStateService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -356,23 +280,10 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected readonly effortDraft = signal<EffortLevel | '' | null>(null);
   protected readonly effortTarget = signal<SettingScope>('global');
   protected readonly effortLevels: readonly EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-  protected readonly delegatedDraft = signal<{ key: DelegatedModelKey; value: string } | null>(null);
-  protected readonly delegatedModels: readonly { key: DelegatedModelKey; name: string }[] = [
-    { key: 'codexModel', name: 'Codex model' }, { key: 'copilotModel', name: 'Copilot model' }, { key: 'cursorModel', name: 'Cursor model' },
-    { key: 'antigravityModel', name: 'Antigravity model' }, { key: 'opencodeModel', name: 'OpenCode model' }, { key: 'piModel', name: 'Pi model' },
-    { key: 'codexReasoningEffort', name: 'Codex reasoning effort' }, { key: 'copilotReasoningEffort', name: 'Copilot reasoning effort' },
-    { key: 'piReasoningEffort', name: 'Pi reasoning effort' },
-  ];
   protected readonly saveTarget = signal<SettingScope>('global');
   protected readonly activationId = signal<string | null>(null);
   protected readonly clearKey = signal<string | null>(null);
   protected readonly clearTarget = signal<'nearest' | 'all-above-global'>('nearest');
-  protected readonly removeCliId = signal<string | null>(null);
-  protected readonly cliCreateOpen = signal(false);
-  protected readonly cliName = signal('');
-  protected readonly cliProvider = signal('');
-  protected readonly cliKey = signal('');
-  protected readonly cliModelDraft = signal<{ id: string; model: string } | null>(null);
   protected readonly feedback = signal<string | null>(null);
   private readonly localFocus = signal<ProvidersSettingsFocusTarget | null>(null);
   private focusedTarget: ProvidersSettingsFocusTarget | null = null;
@@ -381,10 +292,23 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   private modelContext: ProvidersEditContext | null = null;
   private effortContext: ProvidersEditContext | null = null;
   private clearContext: ProvidersEditContext | null = null;
-  private delegatedContext: ProvidersEditContext | null = null;
-  private cliCreateContext: ProvidersEditContext | null = null;
-  private cliModelContext: ProvidersEditContext | null = null;
-  private wizardContext: ProvidersEditContext | null = null;
+  private readonly wizardContext = signal<ProvidersEditContext | null>(null);
+  private readonly selectedWizardProvider = signal('');
+  protected readonly wizardDefaults = computed(() => this.state.connections().data?.find((entry) => entry.id === this.selectedWizardProvider())?.defaultsResolvable ?? false);
+  protected readonly wizardExternalAuth = computed(() => {
+    const auth = this.state.externalAuth();
+    if (auth.data?.providerId !== this.selectedWizardProvider()) return { signInState: 'idle' as const, accountLabel: null, cliInstalled: null };
+    return { ...auth.data, signInState: auth.status === 'loading' ? 'in-flight' as const : auth.status === 'error' ? 'failed' as const : auth.data.signInState };
+  });
+  protected readonly wizardContextChanged = computed(() => {
+    const before = this.wizardContext(), now = this.state.reviewContext();
+    return !!before && (!now || before.scopeKey !== now.scopeKey || before.activePath !== now.activePath);
+  });
+  protected readonly wizardCommitDetail = computed(() => {
+    if (this.wizardCommitState() === 'idle') return '';
+    const result = this.state.commit();
+    return [result.saved.length ? 'Saved: ' + result.saved.join(', ') : '', result.unsaved.length ? 'Not saved: ' + result.unsaved.join(', ') : '', result.unconfirmed.length ? 'Not confirmed: ' + result.unconfirmed.join(', ') : '', result.message].filter(Boolean).join('. ');
+  });
   private returnFocus: HTMLElement | null = null;
   protected readonly saving = computed(() => this.state.commit().status === 'saving');
   protected readonly workspaceName = computed(() => this.state.scopes().data?.activePath?.split(/[\\/]/).filter(Boolean).pop() ?? null);
@@ -394,11 +318,6 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected readonly modelTargets = computed(() => this.state.mainSources().status === 'ready' ? this.state.writeScopes(this.state.mainSources().data?.model?.key ?? '') : []);
   protected readonly effortTargets = computed(() => this.state.mainSources().status === 'ready' ? this.state.writeScopes(this.state.mainSources().data?.effort?.key ?? '') : []);
   protected readonly canStartSetup = computed(() => this.state.connections().status === 'ready' && this.state.scopes().status === 'ready' && !this.saving());
-  protected readonly canCreateCli = computed(() => {
-    const provider = this.state.connections().data?.find((entry) => entry.id === this.cliProvider());
-    return !!this.cliName().trim() && !!provider && provider.id !== 'anthropic' && provider.id !== 'openai-codex' &&
-      (provider.authMode !== 'apiKey' || !!this.cliKey().trim()) && !this.saving();
-  });
   protected readonly mainRouteExists = computed(() => this.state.route().status === 'ready' && !!this.state.route().data?.driverProviderId && this.state.route().data?.route !== 'unresolved');
   protected readonly activeId = computed(() => {
     const route = this.state.route(); const id = this.state.activeProviderId();
@@ -450,7 +369,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     });
   }
   ngOnInit(): void { void this.state.open(); }
-  ngOnDestroy(): void { this.cliKey.set(''); if (this.wizardOpen()) void this.state.cancelVerification().catch(() => undefined); }
+  ngOnDestroy(): void { if (this.wizardOpen()) void this.state.cancelVerification().catch(() => undefined); }
   protected inputValue(event: Event): string { return (event.target as HTMLInputElement).value; }
   protected setTarget(event: Event): void {
     const value = this.inputValue(event);
@@ -480,7 +399,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   }
   protected openWizard(providerId: string): void {
     if (!this.canStartSetup()) return;
-    this.wizardContext = this.state.reviewContext();
+    this.wizardContext.set(this.state.reviewContext());
     this.returnFocus = this.element.nativeElement.ownerDocument.activeElement as HTMLElement | null;
     this.wizardProviderId.set(providerId);
     this.wizardCommitState.set('idle');
@@ -495,17 +414,30 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   };
   readonly cancelDraftVerification = (params: AuthCancelDraftVerificationParams) => this.state.cancelVerification(params);
   protected async commitWizard(draft: ProviderWizardCommit): Promise<void> {
-    if (!this.wizardContext || this.saving()) return;
+    const context = this.wizardContext();
+    if (!context || this.saving() || this.wizardContextChanged()) return;
     this.wizardCommitState.set('saving');
-    await this.state.connectProvider(draft, this.wizardContext);
+    await this.state.connectProvider(draft, context);
     const confirmed = this.state.commit().status === 'saved' &&
       [this.state.route(), this.state.connections(), this.state.scopes()].every((section) => section.status === 'ready');
     this.wizardCommitState.set(confirmed ? 'saved' : 'failed');
     this.feedback.set(confirmed ? 'Connection settings saved and refreshed.' : 'Some connection settings were not confirmed. Review the saved and unsaved fields below.');
   }
+  protected selectWizardProvider(providerId: string): void {
+    this.selectedWizardProvider.set(providerId);
+    if (!providerId) return;
+    void this.state.refreshConnectionSetup(providerId);
+    const connection = this.state.connections().data?.find((entry) => entry.id === providerId);
+    if (connection?.authMode === 'oauth' || connection?.authMode === 'cli') this.externalAction(providerId, 'cli-check');
+  }
+  protected async reviewWizardContext(): Promise<void> {
+    await this.state.refreshScopes();
+    this.wizardContext.set(this.state.reviewContext());
+    this.wizardCommitState.set('idle');
+  }
   protected closeWizard(): void {
     this.wizardOpen.set(false);
-    this.wizardContext = null;
+    this.wizardContext.set(null);
     this.feedback.set(this.wizardCommitState() === 'saved' ? 'Connection settings saved.' : 'Setup closed. External sign-in, if completed, remains available.');
     void this.state.cancelVerification().catch(() => undefined);
     this.returnFocus?.focus();
@@ -569,49 +501,5 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     const key = this.clearKey(); if (!key || !this.clearContext) return;
     await this.state.clearScopeOverride(key, this.clearTarget(), this.clearContext);
     if (this.state.commit().status === 'saved') this.clearKey.set(null);
-  }
-  protected async toggleCli(id: string, event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const enabled = input.checked; input.checked = !enabled;
-    await this.commitCli({ cli: [{ action: 'update', params: { id, enabled } }] });
-  }
-  protected async removeCli(id: string): Promise<void> {
-    await this.commitCli({ cli: [{ action: 'delete', params: { id } }] });
-    if (this.state.commit().status === 'saved') this.removeCliId.set(null);
-  }
-  protected beginCliCreate(): void {
-    this.cliCreateContext = this.state.reviewContext(); this.cliCreateOpen.set(true);
-  }
-  protected cancelCliCreate(): void { this.cliCreateOpen.set(false); this.cliKey.set(''); this.cliName.set(''); }
-  protected async createCli(): Promise<void> {
-    if (!this.canCreateCli() || !this.cliCreateContext) return;
-    await this.state.saveSettings({ cli: [{ action: 'create', params: {
-      name: this.cliName().trim(), providerId: this.cliProvider(), apiKey: this.cliKey(),
-    } }] }, this.cliCreateContext);
-    if (this.state.commit().status === 'saved' && this.state.cliAgents().status === 'ready') this.cancelCliCreate();
-  }
-  protected editCliModel(id: string, model: string): void {
-    this.cliModelContext = this.state.reviewContext(); this.cliModelDraft.set({ id, model });
-  }
-  protected async saveCliModel(): Promise<void> {
-    const draft = this.cliModelDraft(); if (!draft || !this.cliModelContext) return;
-    await this.state.saveSettings({ cli: [{ action: 'update', params: { id: draft.id, selectedModel: draft.model } }] }, this.cliModelContext);
-    if (this.state.commit().status === 'saved' && this.state.cliModels().status === 'ready') this.cliModelDraft.set(null);
-  }
-  protected editDelegatedModel(key: DelegatedModelKey): void {
-    this.delegatedContext = this.state.reviewContext();
-    this.delegatedDraft.set({ key, value: this.state.orchestration().data?.[key] ?? '' });
-  }
-  protected delegatedProvider(key: DelegatedModelKey): string {
-    return key === 'codexModel' ? 'openai-codex' : key === 'copilotModel' ? 'github-copilot' : key.replace(/Model$/, '');
-  }
-  protected setDelegatedModel(key: DelegatedModelKey, event: Event): void { this.delegatedDraft.set({ key, value: this.inputValue(event) }); }
-  protected async saveDelegatedModel(): Promise<void> {
-    const draft = this.delegatedDraft(); if (!draft || !this.delegatedContext) return;
-    await this.state.saveSettings({ orchestration: { [draft.key]: draft.value.trim() } }, this.delegatedContext);
-    if (this.state.commit().status === 'saved') this.delegatedDraft.set(null);
-  }
-  private async commitCli(patch: ProvidersSettingsPatch): Promise<void> {
-    const context = this.state.reviewContext(); if (context) await this.state.saveSettings(patch, context);
   }
 }

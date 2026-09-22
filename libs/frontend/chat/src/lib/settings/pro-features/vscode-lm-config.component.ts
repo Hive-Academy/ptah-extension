@@ -4,7 +4,7 @@
  * Shows VS Code LM model selection dropdown in Tab 2 (Pro Features),
  * replacing the hardcoded informational text that was in the MCP Port section.
  *
- * Extracted from LlmProvidersConfigComponent to colocate with Pro Features tab.
+ * Extracted from the former provider configuration panel to colocate with Pro Features tab.
  *
  * Complexity Level: 1 (Simple card with dropdown + service delegation)
  */

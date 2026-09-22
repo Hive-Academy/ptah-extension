@@ -872,7 +872,8 @@ describe('skill settings mappers', () => {
   });
 
   it('round-trips form-owned settings and leaves Providers-only fields untouched', () => {
-    const { judgeProvider, enhanceTimeoutMs, ...formOwned } = dto;
+    const { judgeModel, judgeProvider, enhanceTimeoutMs, ...formOwned } = dto;
+    expect(judgeModel).toBeDefined();
     expect(saveThroughForm()).toEqual(formOwned);
     expect(skillSettingsDtoToForm(dto)).toMatchObject({
       judgeProvider,

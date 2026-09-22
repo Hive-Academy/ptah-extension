@@ -1,68 +1,7 @@
-/**
- * SkillSettingsPanelComponent — lane pickers and Phase-0 background knobs.
- *
- * The load-bearing assertion in this file is the DEFAULT: no lane ships with a
- * provider preselected. That is the untouched-existing-installs guarantee — an
- * install that never opens this panel must keep resolving every lane against
- * whatever provider the host already had active.
- *
- * The component provides `PROVIDER_MODELS_LOADER` itself, as
- * `useExisting: SkillSynthesisRpcService`, so a stub for THAT service is what
- * keeps the four pickers off a message bus that does not exist under Jest.
- */
 import { TestBed } from '@angular/core/testing';
 import { FormBuilder, FormGroup } from '@angular/forms';
-import { ANTHROPIC_PROVIDERS } from '@ptah-extension/shared';
-import type {
-  SkillLaneDto,
-  SkillLaneIdDto,
-  SkillLanesDto,
-} from '@ptah-extension/shared';
-
-import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
-
-import {
-  SkillSettingsPanelComponent,
-  type SkillLaneSelectionChange,
-} from './skill-settings-panel.component';
-
-const LANE_IDS: readonly SkillLaneIdDto[] = [
-  'archaeologist',
-  'synthesis',
-  'judge',
-  'replay',
-];
-
-function lane(
-  id: SkillLaneIdDto,
-  overrides: Partial<SkillLaneDto> = {},
-): SkillLaneDto {
-  return {
-    id,
-    // `''` IS the default: inherit the active provider. Never a provider id.
-    provider: '',
-    model: '',
-    defaultTier: 'haiku',
-    structuredOutput: 'parse',
-    toolUse: 'none',
-    timeoutMs: 60_000,
-    maxInputChars: 40_000,
-    maxPasses: 1,
-    ...overrides,
-  };
-}
-
-function lanes(
-  overrides: Partial<Record<SkillLaneIdDto, Partial<SkillLaneDto>>> = {},
-): SkillLanesDto {
-  return {
-    archaeologist: lane('archaeologist', overrides.archaeologist),
-    synthesis: lane('synthesis', overrides.synthesis),
-    judge: lane('judge', overrides.judge),
-    replay: lane('replay', overrides.replay),
-  };
-}
-
+import { AppStateManager } from '@ptah-extension/core';
+import { SkillSettingsPanelComponent } from './skill-settings-panel.component';
 function settingsForm(): FormGroup {
   const fb = new FormBuilder();
   return fb.group({
@@ -78,7 +17,6 @@ function settingsForm(): FormGroup {
     prefilterMinToolUses: [2],
     judgeEnabled: [true],
     minJudgeScore: [6.0],
-    judgeModel: ['inherit'],
     maxPinnedSkills: [10],
     curatorEnabled: [true],
     curatorIntervalHours: [24],
@@ -105,211 +43,30 @@ function settingsForm(): FormGroup {
 }
 
 describe('SkillSettingsPanelComponent', () => {
-  let listModels: jest.Mock;
-
+  const navigation = { requestSettingsTab: jest.fn(), setCurrentView: jest.fn() };
   beforeEach(() => {
-    listModels = jest.fn(() =>
-      Promise.resolve({ models: [], totalCount: 0, isStatic: true }),
-    );
-    TestBed.configureTestingModule({
-      imports: [SkillSettingsPanelComponent],
-      providers: [
-        { provide: SkillSynthesisRpcService, useValue: { listModels } },
-      ],
-    });
+    jest.clearAllMocks();
+    TestBed.configureTestingModule({ imports: [SkillSettingsPanelComponent], providers: [{ provide: AppStateManager, useValue: navigation }] });
   });
-
-  function render(
-    inputs: {
-      form?: FormGroup;
-      loaded?: boolean;
-      saving?: boolean;
-      lanes?: SkillLanesDto | null;
-      isElectron?: boolean;
-    } = {},
-  ) {
+  function render(inputs: { form?: FormGroup; loaded?: boolean; saving?: boolean; isElectron?: boolean } = {}) {
     const fixture = TestBed.createComponent(SkillSettingsPanelComponent);
     fixture.componentRef.setInput('form', inputs.form ?? settingsForm());
     fixture.componentRef.setInput('loaded', inputs.loaded ?? true);
     fixture.componentRef.setInput('saving', inputs.saving ?? false);
-    fixture.componentRef.setInput(
-      'lanes',
-      'lanes' in inputs ? inputs.lanes : lanes(),
-    );
     fixture.componentRef.setInput('isElectron', inputs.isElectron ?? false);
-    fixture.detectChanges();
-    // The picker seeds its internal signals from an init `effect()`, so the
-    // first pass renders the template's initial read and the second reflects
-    // the seeded value. A real host runs many cycles; one extra here matches.
     fixture.detectChanges();
     return { fixture, el: fixture.nativeElement as HTMLElement };
   }
-
-  describe('lane pickers', () => {
-    it('renders exactly four lane pickers', () => {
-      const { el } = render();
-
-      expect(
-        el.querySelectorAll('[data-testid="skills-lane-picker"]').length,
-      ).toBe(4);
-    });
-
-    it('renders one picker per lane id, in pipeline order', () => {
-      const { el } = render();
-
-      const ids = Array.from(
-        el.querySelectorAll('[data-testid="skills-lane-picker"]'),
-      ).map((node) => node.getAttribute('data-lane'));
-
-      expect(ids).toEqual(LANE_IDS);
-    });
-
-    it('labels each lane picker with its stage name', () => {
-      const { el } = render();
-
-      const labels = Array.from(
-        el.querySelectorAll('[data-testid="provider-model-picker-label"]'),
-      ).map((node) => node.textContent?.trim());
-
-      expect(labels).toEqual([
-        'Archaeologist lane',
-        'Synthesis lane',
-        'Judge lane',
-        'Replay lane',
-      ]);
-    });
-
-    it('defaults EVERY lane to inherit — no provider is preselected', () => {
-      const { el } = render();
-
-      const selects = el.querySelectorAll<HTMLSelectElement>(
-        '[data-testid="provider-model-picker-provider"]',
-      );
-      expect(selects.length).toBe(4);
-      // `''` is the picker's inherit sentinel. A non-empty value here would
-      // mean a fresh install had silently been pinned to a provider.
-      expect(Array.from(selects).every((s) => s.value === '')).toBe(true);
-    });
-
-    it('defaults every lane MODEL to the provider fallback, not a pinned id', () => {
-      const { el } = render();
-
-      const selects = el.querySelectorAll<HTMLSelectElement>(
-        '[data-testid="provider-model-picker-model"]',
-      );
-      expect(selects.length).toBe(4);
-      expect(Array.from(selects).every((s) => s.value === '')).toBe(true);
-    });
-
-    it('states the inherit default in words as well', () => {
-      const { el } = render();
-
-      const note = el.querySelector(
-        '[data-testid="skills-lanes-inherit-note"]',
-      );
-      expect(note?.textContent ?? '').toContain('inherits the active provider');
-    });
-
-    it('names no provider id anywhere in the rendered lanes section', () => {
-      const { el } = render();
-
-      const section = el.querySelector('[data-testid="skills-lanes-section"]');
-      const optionValues = Array.from(
-        section?.querySelectorAll<HTMLOptionElement>(
-          '[data-testid="provider-model-picker-provider"] option',
-        ) ?? [],
-      ).map((o) => o.value);
-
-      // The registry supplies the option list; the panel itself contributes
-      // only the inherit sentinel.
-      expect(optionValues[0]).toBe('');
-    });
-
-    it('forwards a lane that HAS been pinned to its picker, and SHOWS it as pinned', () => {
-      // Both halves matter, and the second one used to be impossible: the
-      // shared picker bound `[value]` on the select before its `@for`
-      // materialised the options, so a pre-pinned provider was forwarded to the
-      // loader but never became the selected option — a pinned lane rendered as
-      // "Active provider (default)". Fixed in `libs/frontend/ui` by pairing
-      // `[value]` with `[selected]` on every option, and pinned there by its own
-      // specs. Asserted here too, from the consumer's side, because the loader
-      // call alone cannot tell a pinned lane from an inherited one.
-      const pinned = ANTHROPIC_PROVIDERS[0].id;
-      const { el } = render({ lanes: lanes({ judge: { provider: pinned } }) });
-
-      expect(listModels).toHaveBeenCalledWith(pinned);
-
-      const judge = el.querySelector(
-        '[data-testid="skills-lane-picker"][data-lane="judge"]',
-      );
-      const select = judge?.querySelector<HTMLSelectElement>(
-        '[data-testid="provider-model-picker-provider"]',
-      );
-      expect(select?.value).toBe(pinned);
-      expect(select?.selectedIndex).toBeGreaterThan(0);
-    });
-
-    it('emits laneChange with the lane id and the new selection', () => {
-      const { fixture, el } = render();
-      const emitted: SkillLaneSelectionChange[] = [];
-      fixture.componentInstance.laneChange.subscribe((c) => emitted.push(c));
-
-      const synthesis = el.querySelector(
-        '[data-testid="skills-lane-picker"][data-lane="synthesis"]',
-      );
-      const select = synthesis?.querySelector<HTMLSelectElement>(
-        '[data-testid="provider-model-picker-provider"]',
-      );
-      if (!select) throw new Error('synthesis provider select not found');
-      // Registry-driven, so this spec body carries no provider-id literal.
-      const chosen = ANTHROPIC_PROVIDERS[0].id;
-      select.value = chosen;
-      select.dispatchEvent(new Event('change'));
-
-      expect(emitted).toEqual([
-        { laneId: 'synthesis', provider: chosen, model: '' },
-      ]);
-    });
-
-    it('marks a tool-use-requiring lane as such on its picker', () => {
-      const { el } = render({
-        lanes: lanes({ archaeologist: { toolUse: 'required' } }),
-      });
-
-      // The picker only warns once a tool-incapable model is actually pinned,
-      // so the observable effect here is that the picker mounted at all with
-      // the flag wired — asserted through the absence of a spurious warning.
-      expect(
-        el.querySelectorAll('[data-testid="skills-lane-picker"]').length,
-      ).toBe(4);
-      expect(
-        el.querySelector(
-          '[data-testid="provider-model-picker-tooluse-warning"]',
-        ),
-      ).toBeNull();
-    });
-
-    it('shows a loading line instead of four empty pickers while lanes are null', () => {
-      const { el } = render({ lanes: null });
-
-      expect(
-        el.querySelector('[data-testid="skills-lanes-loading"]'),
-      ).not.toBeNull();
-      expect(
-        el.querySelectorAll('[data-testid="skills-lane-picker"]').length,
-      ).toBe(0);
-    });
-
-    it('loads a model catalogue through the injected port, once per lane', () => {
-      render();
-
-      expect(listModels).toHaveBeenCalledTimes(4);
-      // No provider pinned ⇒ the port is asked for the ACTIVE provider's
-      // catalogue, spelled `undefined`, never `''`.
-      expect(listModels).toHaveBeenCalledWith(undefined);
-    });
+  it('replaces every lane and judge model editor with a targeted Providers link', () => {
+    const { el } = render();
+    expect(el.querySelector('ptah-provider-model-picker')).toBeNull();
+    expect(el.querySelector('[formControlName="judgeModel"]')).toBeNull();
+    for (const target of ['archaeologist', 'synthesis', 'judge', 'replay']) {
+      const button = Array.from(el.querySelectorAll('button')).find((node) => node.textContent?.includes(`Manage ${target} in Providers`));
+      button?.click();
+      expect(navigation.requestSettingsTab).toHaveBeenLastCalledWith({ tab: 'providers', section: target });
+    }
   });
-
   describe('Phase-0 background knobs', () => {
     /**
      * Every knob, with the FORM PATH it must resolve to. That path is

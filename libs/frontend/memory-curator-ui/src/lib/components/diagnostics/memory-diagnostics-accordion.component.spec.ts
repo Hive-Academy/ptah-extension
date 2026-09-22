@@ -1,3 +1,4 @@
+import { AppStateManager, ProvidersSettingsStateService } from '@ptah-extension/core';
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import type {
@@ -86,6 +87,8 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     await TestBed.configureTestingModule({
       imports: [MemoryDiagnosticsAccordionComponent],
       providers: [
+        { provide: AppStateManager, useValue: { requestSettingsTab: jest.fn(), setCurrentView: jest.fn() } },
+        { provide: ProvidersSettingsStateService, useValue: { route: signal({ status: 'unloaded', data: null }), refreshRoute: jest.fn(async () => undefined) } },
         {
           provide: MemoryDiagnosticsStateService,
           useValue: {
@@ -463,68 +466,14 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     expect(setTriggersMock).toHaveBeenCalledWith({ maxCuratesPerHour: 120 });
   });
 
-  it('renders the SHARED provider-model picker, not a local fork', () => {
-    const fixture = TestBed.createComponent(
-      MemoryDiagnosticsAccordionComponent,
-    );
-    fixture.detectChanges();
-
+  it('keeps curator assignment read-only and links to Providers', () => {
+    const fixture = TestBed.createComponent(MemoryDiagnosticsAccordionComponent); fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('ptah-provider-model-picker')).not.toBeNull();
-
-    // The fork is DELETED, not renamed: its two selects are gone from the DOM
-    // and exactly one picker is rendered here. (The fork's own element name is
-    // deliberately not written anywhere in the tree any more, so that a
-    // repo-wide grep for it returns nothing.)
-    expect(
-      root.querySelector('[data-testid="curator-provider-select"]'),
-    ).toBeNull();
-    expect(
-      root.querySelector('[data-testid="curator-model-select"]'),
-    ).toBeNull();
-    expect(root.querySelectorAll('ptah-provider-model-picker').length).toBe(1);
-  });
-
-  it('labels the shared picker "Curator model"', () => {
-    const fixture = TestBed.createComponent(
-      MemoryDiagnosticsAccordionComponent,
-    );
-    fixture.detectChanges();
-
-    const label = (fixture.nativeElement as HTMLElement).querySelector(
-      '[data-testid="provider-model-picker-label"]',
-    );
-    expect(label?.textContent?.trim()).toBe('Curator model');
-  });
-
-  it('forwards a picker selection to setTriggers as curatorProvider/curatorModel', () => {
-    const fixture = TestBed.createComponent(
-      MemoryDiagnosticsAccordionComponent,
-    );
-    fixture.detectChanges();
-
-    const providerSelect = (fixture.nativeElement as HTMLElement).querySelector(
-      '[data-testid="provider-model-picker-provider"]',
-    ) as HTMLSelectElement;
-    providerSelect.value = 'z-ai';
-    providerSelect.dispatchEvent(new Event('change'));
-
-    expect(setTriggersMock).toHaveBeenCalledWith({
-      curatorProvider: 'z-ai',
-      curatorModel: '',
-    });
-  });
-
-  it('supplies MemoryDiagnosticsRpcService as the picker model loader', () => {
-    const fixture = TestBed.createComponent(
-      MemoryDiagnosticsAccordionComponent,
-    );
-    fixture.detectChanges();
-
-    // The picker loads its catalogue through the injected port on mount; if
-    // PROVIDER_MODELS_LOADER were not wired to this tab's RPC service the
-    // component would have failed to construct at all.
-    expect(listModelsMock).toHaveBeenCalled();
+    expect(root.querySelector('ptah-provider-model-picker')).toBeNull();
+    const link = Array.from(root.querySelectorAll('button')).find((node) => node.textContent?.includes('Manage in Providers'));
+    link?.click();
+    expect(TestBed.inject(AppStateManager).requestSettingsTab).toHaveBeenCalledWith({ tab: 'providers', section: 'memory-curator' });
+    expect(setTriggersMock).not.toHaveBeenCalled();
   });
 
   it('drops the stale "full provider routing coming soon" footer note', () => {

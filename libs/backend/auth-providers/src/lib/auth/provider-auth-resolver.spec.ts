@@ -976,3 +976,24 @@ describe('ProviderAuthResolver.resolve — the quota gate', () => {
     await expect(resolver.resolve('openai-codex')).resolves.toBeNull();
   });
 });
+
+describe('ProviderAuthResolver draft endpoints', () => {
+  it.each(['local-native', 'local-proxy'] as const)('uses the proposed %s URL without resolving the persisted endpoint', async (authMode) => {
+    const { resolver, ensureProxy } = createHarness({ activeProviderId: 'anthropic', configValues: { 'provider.lm-studio.baseUrl': 'http://old.example:1234' } });
+    const result = await resolver.buildDraftOverride({ providerId: 'lm-studio', authMode, baseUrl: 'http://new.example:4567' });
+    expect(result.baseUrl).toBe('http://new.example:4567');
+    expect(result.env.ANTHROPIC_BASE_URL).toBe('http://new.example:4567');
+    expect(ensureProxy).not.toHaveBeenCalled();
+  });
+  it('falls back to persisted native resolution when no draft URL is supplied', async () => {
+    const { resolver } = createHarness({ activeProviderId: 'anthropic', configValues: { 'provider.ollama.baseUrl': 'http://saved.example:11434' } });
+    const result = await resolver.buildDraftOverride({ providerId: 'ollama', authMode: 'local-native' });
+    expect(result.baseUrl).toBe('http://saved.example:11434');
+  });
+  it('falls back to the existing local proxy when no draft URL is supplied', async () => {
+    const { resolver, ensureProxy } = createHarness({ activeProviderId: 'anthropic' });
+    const result = await resolver.buildDraftOverride({ providerId: 'lm-studio', authMode: 'local-proxy' });
+    expect(ensureProxy).toHaveBeenCalledWith('lm-studio');
+    expect(result.baseUrl).toBe('http://127.0.0.1:51234');
+  });
+});

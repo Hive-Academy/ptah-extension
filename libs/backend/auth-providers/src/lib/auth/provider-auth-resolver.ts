@@ -523,9 +523,22 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
     // dialled — the draft names exactly one, so there is no inherit case.
     this.assertNotCoolingDown(providerId);
 
+    // Draft endpoints are per-query snapshots. Never start the persisted local
+    // proxy here: that would verify its old upstream instead of the draft.
+    if ((draft.authMode === 'local-native' || draft.authMode === 'local-proxy') && draft.baseUrl?.trim()) {
+      const baseUrl = draft.baseUrl.trim();
+      const values: AuthEnv = {
+        ANTHROPIC_BASE_URL: baseUrl,
+        ...this.buildTierValues(providerId, 'mainAgent'),
+        ...(draft.credential?.value.trim() ? { ANTHROPIC_API_KEY: draft.credential.value.trim() } : {}),
+      };
+      return { env: this.buildLaneEnv(values), baseUrl };
+    }
+
     switch (draft.authMode) {
       case 'cli':
         return this.resolveCli();
+      // OAuth has no editable draft endpoint; use its authenticated proxy.
       case 'oauth':
       case 'local-proxy':
         return this.resolveProxyProvider(providerId, 'mainAgent');

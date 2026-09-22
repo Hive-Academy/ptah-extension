@@ -10,6 +10,7 @@ import type {
 } from '@ptah-extension/shared';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
 import { ProvidersSettingsStateService, type ProvidersConnectionDraft } from './providers-settings-state.service';
+import { EffortStateService } from './effort-state.service';
 import { WorkspaceScopeService } from './workspace-scope.service';
 
 const success = <T>(data: T) => new RpcResult(true, data);
@@ -201,6 +202,56 @@ describe('ProvidersSettingsStateService', () => {
   });
   afterEach(() => TestBed.resetTestingModule());
 
+  it('rereads effective effort on open and refresh without exposing the cached value during loading', async () => {
+    handlers.set('config:effort-get', async () => success({ effort: 'low' }));
+    await service.open();
+    expect(service.effort().data?.effort).toBe('low');
+    const read = deferred<RpcResult<unknown>>();
+    handlers.set('config:effort-get', () => read.promise);
+    const refresh = service.refresh();
+    expect(service.effort()).toMatchObject({ status: 'loading', data: null });
+    read.resolve(success({ effort: 'xhigh' }));
+    await refresh;
+    expect(service.effort()).toMatchObject({ status: 'ready', data: { effort: 'xhigh' } });
+  });
+
+  it('invalidates displayed effort immediately and rereads after a runtime xhigh write settles', async () => {
+    handlers.set('config:effort-get', async () => success({ effort: 'low' }));
+    await service.open();
+    const runtime = TestBed.inject(EffortStateService);
+    await Promise.resolve();
+    const write = deferred<RpcResult<unknown>>();
+    handlers.set('config:effort-set', () => write.promise);
+    const pending = runtime.setEffort('xhigh');
+    expect(service.effort()).toMatchObject({ status: 'loading', data: null });
+    expect(service.mainSources()).toMatchObject({ status: 'loading', data: null });
+    TestBed.tick();
+    const read = deferred<RpcResult<unknown>>();
+    handlers.set('config:effort-get', () => read.promise);
+    write.resolve(success({ effort: 'xhigh' }));
+    await pending;
+    TestBed.tick();
+    expect(service.effort()).toMatchObject({ status: 'loading', data: null });
+    read.resolve(success({ effort: 'xhigh' }));
+    for (let turn = 0; turn < 8; turn++) await Promise.resolve();
+    expect(service.effort()).toMatchObject({ status: 'ready', data: { effort: 'xhigh' } });
+    expect(call).toHaveBeenCalledWith('config:effort-get', {}, undefined);
+  });
+
+  it('does not restore stale effort when readback after a runtime write fails', async () => {
+    handlers.set('config:effort-get', async () => success({ effort: 'low' }));
+    await service.open();
+    const runtime = TestBed.inject(EffortStateService);
+    await Promise.resolve();
+    handlers.set('config:effort-set', async () => success({ effort: 'xhigh' }));
+    await runtime.setEffort('xhigh');
+    handlers.set('config:effort-get', async () => { throw new Error('private host failure'); });
+    TestBed.tick();
+    for (let turn = 0; turn < 8; turn++) await Promise.resolve();
+    expect(service.effort()).toEqual({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
+    expect(service.model().status).toBe('ready');
+  });
+
   it('reads model and effort provenance from the current authentication namespace without guessing a group source', async () => {
     handlers.set('auth:getAuthStatus', async () => success({ authMethod: 'thirdParty', anthropicProviderId: 'openrouter' }));
     const modelKey = 'provider.thirdParty.openrouter.selectedModel';
@@ -240,6 +291,27 @@ describe('ProvidersSettingsStateService', () => {
     await service.verifyDraft({ probeId: 'draft-check', providerId: 'openrouter', authMode: 'apiKey' });
     return context();
   }
+
+  it('stores direct Anthropic credentials only with explicit activation and never in a provider slot', async () => {
+    const reviewed = await verifiedConnection();
+    await service.verifyDraft({ probeId: 'draft-check', providerId: 'anthropic', authMode: 'apiKey', credential: { kind: 'apiKey', value: 'private-key' } });
+    call.mockClear();
+    await service.connectProvider(connectionDraft({ providerId: 'anthropic' }), reviewed);
+    expect(service.commit().status).toBe('blocked');
+    expect(call).not.toHaveBeenCalled();
+    handlers.set('auth:saveSettings', async () => success({ success: true }));
+    await service.connectProvider(connectionDraft({ providerId: 'anthropic', activation: 'use-main-agent' }), reviewed);
+    expect(call).toHaveBeenCalledWith('auth:saveSettings', { authMethod: 'apiKey', anthropicApiKey: 'private-key', applyTo: 'global' }, undefined);
+    expect(call.mock.calls.some(([method]) => method === 'auth:setApiKey')).toBe(false);
+    expect(JSON.stringify(service.commit())).not.toContain('private-key');
+  });
+  it('reads existing connection endpoint and models without returning credentials', async () => {
+    await service.open();
+    handlers.set('llm:getProviderBaseUrl', async () => success({ baseUrl: 'http://saved.example', defaultBaseUrl: null }));
+    handlers.set('provider:getModelTiers', async () => success({ sonnet: 'saved-model', opus: null, haiku: null }));
+    await service.refreshConnectionSetup('ollama');
+    expect(service.connectionSetup().data).toEqual({ providerId: 'ollama', baseUrl: 'http://saved.example', tiers: { sonnet: 'saved-model', opus: null, haiku: null } });
+  });
 
   it('surfaces a real false cancellation acknowledgement and targets the requested probe', async () => {
     handlers.set('auth:cancelDraftVerification', async () => success({ cancelled: false }));

@@ -76,6 +76,7 @@ export interface HarnessWorkflowRequest {
 }
 
 export type SettingsTabId =
+  | 'providers'
   | 'claude-auth'
   | 'orchestration'
   | 'pro-features'
@@ -84,6 +85,7 @@ export type SettingsTabId =
 export interface PendingSettingsTab {
   tab: SettingsTabId;
   providerId?: string;
+  section?: 'main-agent' | 'main-model' | 'main-effort' | 'connections' | 'background-models' | 'cli-agents' | 'more-providers' | 'memory-curator' | 'archaeologist' | 'synthesis' | 'judge' | 'replay' | 'judging-enhancement';
 }
 
 /**

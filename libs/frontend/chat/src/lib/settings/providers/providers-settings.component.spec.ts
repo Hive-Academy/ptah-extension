@@ -37,7 +37,14 @@ class WizardStub {
   readonly commitState = input<WizardCommitState>('idle');
   readonly closed = output<void>();
   readonly commitRequested = output<ProviderWizardCommit>();
-  readonly externalActionRequested = output<WizardExternalAction>();
+  readonly externalActionRequested = output<{ providerId: string; action: WizardExternalAction }>();
+  readonly externalAuth = input<unknown>(null);
+  readonly externalMessage = input<string | null>(null);
+  readonly initialSetup = input<unknown>(null);
+  readonly contextChanged = input(false);
+  readonly commitDetail = input('');
+  readonly providerChanged = output<string>();
+  readonly reviewContextRequested = output<void>();
 }
 
 function ready<T>(data: T): ProvidersSettingsSection<T> { return { status: 'ready', data, error: null }; }
@@ -56,6 +63,11 @@ const draft: ProviderWizardCommit = { providerId: 'first', displayName: 'First',
   tiers: { everyday: 'one', complex: 'two', fast: 'three' }, saveTo: 'global', activation: 'connect-only' };
 
 class StateStub {
+  readonly connectionSetup = signal(unloaded());
+  readonly cliTest = signal(unloaded());
+  readonly refreshConnectionSetup = jest.fn(async () => undefined);
+  readonly testCliConnection = jest.fn(async () => undefined);
+  readonly saveCursorCredential = jest.fn(async () => undefined);
   readonly route = signal<ProvidersSettingsSection<ProvidersEffectiveRoute>>(unloaded());
   readonly scopes = signal<ProvidersSettingsSection<ConfigGetScopesResult>>(ready({ activePath: '/workspace', entries: [] }));
   readonly model = signal(ready({ model: 'model-a' }));
@@ -216,9 +228,9 @@ describe('ProvidersSettingsComponent', () => {
     expect(state.connectProvider).not.toHaveBeenCalled(); expect(state.cancelVerification).toHaveBeenCalled();
     expect(document.activeElement).toBe(trigger);
   });
-  it('does not guess a provider identity for an unqualified wizard login event', async () => {
-    await render(); button('Connect provider').click(); await render(); wizard().externalActionRequested.emit('sign-in');
-    expect(state.performExternalAuth).toHaveBeenCalledWith(null, 'sign-in');
+  it('forwards the wizard provider identity with its login event', async () => {
+    await render(); button('Connect provider').click(); await render(); wizard().externalActionRequested.emit({ providerId: 'github-copilot', action: 'sign-in' });
+    expect(state.performExternalAuth).toHaveBeenCalledWith('github-copilot', 'sign-in');
   });
   it('retains a masked CLI setup draft after an unconfirmed write and discards it on cancel', async () => {
     state.saveSettings.mockImplementation(async () => { state.commit.set({ ...idle, status: 'unconfirmed', unconfirmed: ['CLI instance'] }); });

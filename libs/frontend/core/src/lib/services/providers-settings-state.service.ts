@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import {
   SCOPED_SETTING_KEYS,
   getAllAnthropicProviders,
@@ -24,6 +24,7 @@ import {
   type PtahCliConfig,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
+import { EffortSettingsChangeService } from './effort-settings-change.service';
 import { WorkspaceScopeService } from './workspace-scope.service';
 
 export interface ProvidersSettingsSection<T> {
@@ -167,6 +168,10 @@ const EMPTY_COMMIT: ProvidersSettingsCommit = {
 @Injectable({ providedIn: 'root' })
 export class ProvidersSettingsStateService {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly effortChanges = inject(EffortSettingsChangeService);
+  private readonly opened = signal(false);
+  private readonly effortRevision = signal(0);
+  private readonly sourcesRevision = signal(0);
   private readonly workspace = inject(WorkspaceScopeService);
   private readonly routeStore = section<ProvidersEffectiveRoute>();
   private readonly scopesStore = section<ConfigGetScopesResult>();
@@ -202,7 +207,7 @@ export class ProvidersSettingsStateService {
   readonly route = this.view(this.routeStore);
   readonly scopes = this.view(this.scopesStore);
   readonly model = this.view(this.modelStore);
-  readonly effort = this.view(this.effortStore);
+  readonly effort = this.freshEffortView(this.effortStore, this.effortRevision);
   readonly memory = this.view(this.memoryStore);
   readonly lanes = this.view(this.lanesStore);
   readonly judging = this.view(this.judgingStore);
@@ -212,7 +217,7 @@ export class ProvidersSettingsStateService {
   readonly verification = this.view(this.probeStore);
   readonly connections = this.view(this.connectionsStore);
   readonly cliModels = this.view(this.cliModelsStore);
-  readonly mainSources = this.view(this.mainSourcesStore);
+  readonly mainSources = this.freshEffortView(this.mainSourcesStore, this.sourcesRevision);
   readonly externalAuth = this.view(this.externalAuthStore);
   readonly commit = this.commitState.asReadonly();
   /** A scalar identity makes two active badges impossible. Unknown/skipped never qualify. */
@@ -243,7 +248,19 @@ export class ProvidersSettingsStateService {
       : null;
   });
 
+  constructor() {
+    effect(() => {
+      const revision = this.effortChanges.revision();
+      if (!this.opened() || this.effortChanges.pending()) return;
+      untracked(() => {
+        if (this.effortRevision() !== revision) void this.refreshEffort();
+        if (this.sourcesRevision() !== revision) void this.refreshMainSources();
+      });
+    });
+  }
+
   async open(): Promise<void> {
+    this.opened.set(true);
     await this.refresh();
   }
   async checkConnection(): Promise<void> {
@@ -295,6 +312,34 @@ export class ProvidersSettingsStateService {
   }
 
   /** Host catalogue and stored setup facts; never use the shipped default as configuration evidence. */
+  private readonly setupStore = section<{ providerId: string; baseUrl: string | null; customName?: string; customProtocol?: 'openai' | 'anthropic'; tiers: { sonnet: string | null; opus: string | null; haiku: string | null } }>();
+  readonly connectionSetup = this.view(this.setupStore);
+  async refreshConnectionSetup(providerId: string): Promise<void> {
+    this.setupStore.value.set({ status: 'unloaded', data: null, error: null });
+    await this.read(this.setupStore, async () => {
+      const [endpoint, tiers] = await Promise.all([
+        this.require('llm:getProviderBaseUrl', { provider: providerId }),
+        this.require('provider:getModelTiers', { providerId, scope: 'cliAgent' }),
+      ]);
+      const custom = this.connections().data?.find((entry) => entry.id === providerId)?.custom
+        ? (await this.require('provider:listCustomEntries', {})).entries.find((entry) => entry.id === providerId) : undefined;
+      return { providerId, baseUrl: endpoint.baseUrl ?? endpoint.defaultBaseUrl, tiers,
+        ...(custom ? { customName: custom.name, customProtocol: custom.lane } : {}),
+      };
+    });
+  }
+
+  private readonly cliTestStore = section<{ id: string; success: boolean }>();
+  readonly cliTest = this.view(this.cliTestStore);
+  async testCliConnection(id: string): Promise<void> {
+    await this.read(this.cliTestStore, async () => ({ id, success: (await this.require('ptahCli:testConnection', { id })).success }));
+  }
+  async saveCursorCredential(apiKey: string, context: ProvidersEditContext): Promise<void> {
+    await this.runCommit([{ fields: ['Cursor credential'], write: async () => (await this.require('agent:setConfig', { cursorApiKey: apiKey })).success,
+      readBack: async () => (await this.require('agent:getConfig', undefined)).cursorApiKeyConfigured === !!apiKey.trim(),
+    }], context, () => true);
+  }
+
   async refreshConnections(): Promise<void> {
     await this.read(this.connectionsStore, async (): Promise<readonly ProvidersConnection[]> => {
       const [status, custom, auth] = await Promise.all([
@@ -325,8 +370,8 @@ export class ProvidersSettingsStateService {
             : entry.isLocal ? entry.requiresProxy ? 'local-proxy' : 'local-native' : 'apiKey',
         };
       });
-      if (auth.hasApiKey) connections.unshift({ id: 'anthropic', name: 'Claude API', authMode: 'apiKey',
-        hasKey: true, configured: true, custom: false, defaultsResolvable: false });
+      connections.unshift({ id: 'anthropic', name: 'Claude API', authMode: 'apiKey',
+        hasKey: auth.hasApiKey, configured: auth.hasApiKey, custom: false, defaultsResolvable: false });
       return connections;
     });
   }
@@ -344,7 +389,7 @@ export class ProvidersSettingsStateService {
         ...empty, message: action === 'sign-in-cancel'
           ? 'This host cannot cancel external sign-in. Close the external sign-in window to stop it.'
           : !providerId ? 'Choose the named sign-in action on the Providers page. The setup dialog does not identify the requested account.'
-          : 'This host does not expose this login action. Complete login outside Ptah, then check again.',
+          : providerId === 'claude-cli' ? 'Run claude login in your terminal, then choose Check again. If missing, install with npm install -g @anthropic-ai/claude-code.' : 'Complete login outside Ptah, then check again.',
       } });
       return;
     }
@@ -373,7 +418,7 @@ export class ProvidersSettingsStateService {
   /** Store setup without selecting it, then optionally activate only after all earlier writes succeed. */
   async connectProvider(draft: ProvidersConnectionDraft, context: ProvidersEditContext): Promise<void> {
     const probe = this.verification();
-    const invalid = draft.providerId === 'anthropic' || draft.saveTo !== 'global' || this.connections().status !== 'ready' ||
+    const invalid = (draft.providerId === 'anthropic' && draft.activation === 'connect-only') || draft.saveTo !== 'global' || this.connections().status !== 'ready' ||
       probe.status !== 'ready' || probe.data?.outcome !== 'verified' || probe.data.probeId !== draft.verified?.probeId ||
       this.verifiedProviderId !== draft.providerId;
     if (invalid) {
@@ -401,7 +446,7 @@ export class ProvidersSettingsStateService {
         return true;
       } });
     }
-    if (draft.credential?.value.trim()) {
+    if (draft.providerId !== 'anthropic' && draft.credential?.value.trim()) {
       // llm:setApiKey ALSO selects the main route. auth:setApiKey only stores the provider key.
       operations.push({ fields: ['Connection credential'], dependsOnPrevious: true,
         write: async () => (await this.require('auth:setApiKey', { provider: draft.providerId, apiKey: draft.credential?.value ?? '' })).success });
@@ -419,8 +464,8 @@ export class ProvidersSettingsStateService {
         providerId: draft.providerId, tier, modelId: model || defaults?.[tier] || '', scope: 'cliAgent',
       })).success });
     if (draft.activation === 'use-main-agent') {
-      operations.push(...this.operations({ auth: { authMethod: draft.authMode === 'cli' ? 'claudeCli' : 'thirdParty',
-        anthropicProviderId: draft.providerId, applyTo: draft.saveTo } }).map((operation) => ({ ...operation, dependsOnPrevious: true })));
+      operations.push(...this.operations({ auth: { authMethod: draft.providerId === 'anthropic' ? 'apiKey' : draft.authMode === 'cli' ? 'claudeCli' : 'thirdParty',
+        ...(draft.providerId === 'anthropic' ? { anthropicApiKey: draft.credential?.value } : { anthropicProviderId: draft.providerId }), applyTo: draft.saveTo } }).map((operation) => ({ ...operation, dependsOnPrevious: true })));
       for (const [tier, model] of tiers) operations.push({ fields: [`Main agent ${tier} model`], dependsOnPrevious: true,
         write: async () => (await this.require('provider:setModelTier', { providerId: draft.providerId, tier,
           modelId: model || defaults?.[tier] || '', scope: 'mainAgent' })).success });
@@ -465,6 +510,8 @@ export class ProvidersSettingsStateService {
     );
   }
   async refreshEffort(): Promise<void> {
+    if (this.effortChanges.pending()) return;
+    this.effortRevision.set(this.effortChanges.revision());
     await this.read(this.effortStore, () =>
       this.require('config:effort-get', {}),
     );
@@ -527,6 +574,8 @@ export class ProvidersSettingsStateService {
   }
   /** Discover the concrete provider-scoped keys; raw authentication enum values never enter render state. */
   async refreshMainSources(): Promise<void> {
+    if (this.effortChanges.pending()) return;
+    this.sourcesRevision.set(this.effortChanges.revision());
     await this.read(this.mainSourcesStore, async () => {
       const auth = await this.require('auth:getAuthStatus', {});
       if (!['apiKey', 'claudeCli', 'thirdParty'].includes(auth.authMethod)) throw new Error('Authentication source unavailable');
@@ -1014,6 +1063,17 @@ export class ProvidersSettingsStateService {
       this.scopes().status === 'ready' &&
       this.scopes().data?.activePath === context.activePath
     );
+  }
+  private freshEffortView<T>(store: SectionStore<T>, readRevision: () => number) {
+    const scoped = this.view(store);
+    return computed<ProvidersSettingsSection<T>>(() => {
+      const state = scoped();
+      if (state.status === 'unloaded') return state;
+      if (this.effortChanges.pending() || readRevision() !== this.effortChanges.revision()) {
+        return { status: 'loading', data: null, error: null };
+      }
+      return state.status === 'ready' ? state : { ...state, data: null };
+    });
   }
   private view<T>(store: SectionStore<T>) {
     return computed<ProvidersSettingsSection<T>>(() => {

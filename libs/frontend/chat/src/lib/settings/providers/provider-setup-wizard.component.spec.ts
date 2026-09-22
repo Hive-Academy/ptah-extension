@@ -321,14 +321,13 @@ describe('ProviderSetupWizardComponent', () => {
       );
     });
 
-    it('shows the stored key, offers Replace key, and keeps the setup ready', () => {
+    it('explains stored-key re-entry and keeps Continue disabled until it is entered', () => {
       const fixture = createComponent({ existingCredentialPresent: true });
-      selectProvider(fixture, 'requesty');
-      click(fixture, 'wizard-continue');
+      selectProvider(fixture, 'requesty'); click(fixture, 'wizard-continue');
       expect(query(fixture, 'wizard-key-stored')?.textContent?.trim()).toBe('Key stored');
-      expect(button(fixture, 'wizard-continue')?.disabled).toBe(false);
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(true);
       click(fixture, 'wizard-replace-key');
-      expect(query(fixture, 'wizard-api-key')).not.toBeNull();
+      typeInto(fixture, 'wizard-api-key', 'sk-reentered');
       expect(button(fixture, 'wizard-continue')?.disabled).toBe(false);
     });
 
@@ -338,7 +337,7 @@ describe('ProviderSetupWizardComponent', () => {
       click(fixture, 'wizard-continue');
       const emitted: string[] = [];
       fixture.componentInstance.externalActionRequested.subscribe((action) => {
-        emitted.push(action);
+        emitted.push(action.action);
       });
       click(fixture, 'wizard-sign-in');
       expect(emitted).toEqual(['sign-in']);
@@ -356,7 +355,7 @@ describe('ProviderSetupWizardComponent', () => {
       );
       const emitted: string[] = [];
       fixture.componentInstance.externalActionRequested.subscribe((action) => {
-        emitted.push(action);
+        emitted.push(action.action);
       });
       click(fixture, 'wizard-sign-in-cancel');
       expect(emitted).toEqual(['sign-in-cancel']);
@@ -381,7 +380,7 @@ describe('ProviderSetupWizardComponent', () => {
       expect(query(fixture, 'wizard-cli-signed-out')).not.toBeNull();
       const emitted: string[] = [];
       fixture.componentInstance.externalActionRequested.subscribe((action) => {
-        emitted.push(action);
+        emitted.push(action.action);
       });
       click(fixture, 'wizard-cli-login');
       expect(emitted).toEqual(['cli-login']);
@@ -394,7 +393,7 @@ describe('ProviderSetupWizardComponent', () => {
       expect(query(notInstalled, 'wizard-cli-not-installed')).not.toBeNull();
       const notInstalledEmitted: string[] = [];
       notInstalled.componentInstance.externalActionRequested.subscribe((action) => {
-        notInstalledEmitted.push(action);
+        notInstalledEmitted.push(action.action);
       });
       click(notInstalled, 'wizard-cli-check');
       expect(notInstalledEmitted).toEqual(['cli-check']);
@@ -482,18 +481,14 @@ describe('ProviderSetupWizardComponent', () => {
       expect(params.probeId).toMatch(/^draft-probe-\d+$/);
     });
 
-    it('sends no credential when the stored key is reused', () => {
-      const verify =
-        jest.fn<Promise<AuthVerifyDraftConnectionResult>, [AuthVerifyDraftConnectionParams]>(
-          () => new Promise(() => undefined),
-        );
+    it('requires credential re-entry instead of probing a stored key', () => {
+      const verify = verifyEcho();
       const fixture = createComponent({ existingCredentialPresent: true }, verify);
-      selectProvider(fixture, 'requesty');
-      click(fixture, 'wizard-continue');
-      click(fixture, 'wizard-continue');
-      click(fixture, 'wizard-verify-start');
-      const params = verify.mock.calls[0][0];
-      expect(params.credential).toBeUndefined();
+      selectProvider(fixture, 'requesty'); click(fixture, 'wizard-continue');
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(true);
+      expect(verify).not.toHaveBeenCalled();
+      click(fixture, 'wizard-replace-key'); typeInto(fixture, 'wizard-api-key', 'sk-reentered');
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(false);
     });
 
     it('does not probe while the user types', () => {
