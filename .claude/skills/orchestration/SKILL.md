@@ -74,10 +74,23 @@ Templates, skip conditions and rejection handling: [checkpoints.md](references/c
 ## Never
 
 - Never let an agent's claim stand in for the build: run typecheck, tests and lint before
-  reporting done.
+  reporting done — scoped to the projects changed with `-p`, output tailed; never workspace-wide.
 - Never answer an agent's `## Clarifications Needed` on the user's behalf — run Gate SR.
 - Never bypass a commit hook without the user's choice ([git-standards.md](references/git-standards.md#hook-failure-protocol)).
 - Never commit to or merge into `main` on your own.
+
+## Token economy
+
+Every tool call in any agent or lane resends its whole thread, so cost is requests × context.
+
+- Verification is scoped: `nx run-many -t <target> -p <changed projects>`, output tailed or
+  filtered to the header, failures and summary.
+- Keep tool output small: no full logs, no whole-directory listings, no `cat` of large files.
+- No polling loops: act on the completion signal; one status check at most, then wait.
+- Lanes are narrow and get their file list up front (agent-lanes §8 batch cap and tool-call
+  ceiling); a lane that explores the workspace is the expensive lane.
+- Use `ptah_ast_analyze` / `ptah_context_enrich_file` before a full `Read`; read whole files only
+  when editing them.
 
 ## References — load on demand, never all at once
 

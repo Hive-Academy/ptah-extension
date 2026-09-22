@@ -52,7 +52,7 @@ Critique the others and pressure-test yourself:
 ## Revise?           — does any critique change your position? state your final position
 ```
 
-Poll and read all critiques.
+Wait for each lane's `<agent-lane-completed>` signal (agent-lanes §4), then read all critiques.
 
 ### Step 4 — Synthesize the verdict (you)
 
