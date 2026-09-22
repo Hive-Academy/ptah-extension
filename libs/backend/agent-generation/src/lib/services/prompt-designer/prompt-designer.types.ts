@@ -214,6 +214,22 @@ export function deriveEffectiveBudgets(
   // whose per-section budget is too large is scaled down rather than rejected:
   // validateOutput only logs, so an oversized config would otherwise ship an
   // output the validator flags on every run.
+  const positiveInteger = (value: number, name: string): void => {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new RangeError(
+        `PromptDesignerConfig.${name} must be a positive number, got ${value}`,
+      );
+    }
+  };
+  positiveInteger(config.maxSectionTokens, 'maxSectionTokens');
+  positiveInteger(config.maxTotalTokens, 'maxTotalTokens');
+  if (config.maxArchitectureNotesTokens !== undefined) {
+    positiveInteger(
+      config.maxArchitectureNotesTokens,
+      'maxArchitectureNotesTokens',
+    );
+  }
+
   let maxSectionTokens = config.maxSectionTokens;
   let maxArchitectureNotesTokens =
     config.maxArchitectureNotesTokens ?? Math.round(maxSectionTokens * 1.5);
@@ -223,6 +239,11 @@ export function deriveEffectiveBudgets(
     const scale = requiredLimit / requiredTotal;
     maxSectionTokens = Math.floor(maxSectionTokens * scale);
     maxArchitectureNotesTokens = Math.floor(maxArchitectureNotesTokens * scale);
+    if (maxSectionTokens <= 0 || maxArchitectureNotesTokens <= 0) {
+      throw new RangeError(
+        `PromptDesignerConfig.maxTotalTokens (${config.maxTotalTokens}) is too small to hold the four required sections`,
+      );
+    }
   }
   const requiredWithQuality =
     3 * maxSectionTokens + maxArchitectureNotesTokens + maxSectionTokens;

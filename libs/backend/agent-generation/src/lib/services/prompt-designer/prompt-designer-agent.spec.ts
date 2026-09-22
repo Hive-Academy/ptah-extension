@@ -735,5 +735,22 @@ describe('PromptDesignerAgent', () => {
       expect(budgets.maxTotalTokens).toBe(required);
       expect(budgets.maxSectionTokens).toBeLessThan(400);
     });
+
+    it('rejects non-positive, non-finite, or unholdable budgets', () => {
+      const base = DEFAULT_PROMPT_DESIGNER_CONFIG;
+      expect(() =>
+        deriveEffectiveBudgets({ ...base, maxSectionTokens: 0 }),
+      ).toThrow(RangeError);
+      expect(() =>
+        deriveEffectiveBudgets({ ...base, maxTotalTokens: -1 }),
+      ).toThrow(RangeError);
+      expect(() =>
+        deriveEffectiveBudgets({ ...base, maxArchitectureNotesTokens: NaN }),
+      ).toThrow(RangeError);
+      // 3 * 400 + 600 = 1800 scaled to a total of 2 floors every budget to 0.
+      expect(() =>
+        deriveEffectiveBudgets({ ...base, maxTotalTokens: 2 }),
+      ).toThrow(/too small/);
+    });
   });
 });
