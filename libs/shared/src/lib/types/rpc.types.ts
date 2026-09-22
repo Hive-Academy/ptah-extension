@@ -135,6 +135,12 @@ import type {
   AuthCopilotStatusResponse,
   AuthCodexLoginParams,
   AuthCodexLoginResponse,
+  AuthGetEffectiveRouteParams,
+  AuthGetEffectiveRouteResult,
+  ConfigGetScopesParams,
+  ConfigGetScopesResult,
+  ConfigClearScopeOverrideParams,
+  ConfigClearScopeOverrideResult,
   AuthGetScopeResult,
   AuthClearWorkspaceOverrideResult,
 } from './rpc/rpc-auth.types';
@@ -816,6 +822,18 @@ export interface RpcMethodRegistry {
   'auth:codexLogin': {
     params: AuthCodexLoginParams;
     result: AuthCodexLoginResponse;
+  };
+  'auth:getEffectiveRoute': {
+    params: AuthGetEffectiveRouteParams;
+    result: AuthGetEffectiveRouteResult;
+  };
+  'config:getScopes': {
+    params: ConfigGetScopesParams;
+    result: ConfigGetScopesResult;
+  };
+  'config:clearScopeOverride': {
+    params: ConfigClearScopeOverrideParams;
+    result: ConfigClearScopeOverrideResult;
   };
   'auth:getScope': {
     params: Record<string, never>;
@@ -2212,9 +2230,7 @@ export interface SkillJudgeCriteriaDto {
  * the only reason the third call was ever paid for.
  */
 export type SkillJudgePanelRoleDto =
-  | 'panellist-a'
-  | 'panellist-b'
-  | 'escalation';
+  'panellist-a' | 'panellist-b' | 'escalation';
 
 /**
  * One panellist's answer, as the wire carries it.
@@ -2416,9 +2432,7 @@ export interface SkillSynthesisRejectByPatternResult {
 }
 
 export type SkillSynthesisSpecStatus =
-  | 'active'
-  | 'complete-unharvested'
-  | 'harvested';
+  'active' | 'complete-unharvested' | 'harvested';
 export interface SkillSynthesisSpecSummary {
   taskId: string;
   status: SkillSynthesisSpecStatus;
@@ -2470,13 +2484,7 @@ export type SkillSynthesisQueueStage =
 
 /** Every `skill_synthesis_queue.status` member (migration `0032`). */
 export type SkillSynthesisQueueStatus =
-  | 'queued'
-  | 'claimed'
-  | 'running'
-  | 'done'
-  | 'failed'
-  | 'unscored'
-  | 'skipped';
+  'queued' | 'claimed' | 'running' | 'done' | 'failed' | 'unscored' | 'skipped';
 
 /**
  * One queue row as the Activity surface sees it.
@@ -2578,10 +2586,7 @@ export interface SkillSynthesisQueueResult {
  * import list is a rename waiting to be got wrong.
  */
 export type SkillDigestItemKind =
-  | 'missed-trigger'
-  | 'friction-opportunity'
-  | 'win-rate'
-  | 'memory-signal';
+  'missed-trigger' | 'friction-opportunity' | 'win-rate' | 'memory-signal';
 
 /**
  * The receipts behind one digest item.
@@ -2825,10 +2830,7 @@ export interface SkillSynthesisUpdateSuggestionResult {
 
 export type GatewayPlatformId = 'telegram' | 'discord' | 'slack';
 export type GatewayApprovalStatus =
-  | 'pending'
-  | 'approved'
-  | 'rejected'
-  | 'revoked';
+  'pending' | 'approved' | 'rejected' | 'revoked';
 export type GatewayMessageDirection = 'inbound' | 'outbound';
 
 export interface GatewayBindingDto {
@@ -3075,8 +3077,7 @@ export interface VoiceConfigDto {
 export type VoiceGetConfigParams = Record<string, never>;
 
 export type VoiceGetConfigResult =
-  | { ok: true; config: VoiceConfigDto }
-  | { ok: false; error: string };
+  { ok: true; config: VoiceConfigDto } | { ok: false; error: string };
 
 export interface VoiceSetConfigParams {
   whisperModel: string;
@@ -3111,8 +3112,7 @@ export interface TtsConfigDto {
 export type VoiceGetTtsConfigParams = Record<string, never>;
 
 export type VoiceGetTtsConfigResult =
-  | { ok: true; config: TtsConfigDto }
-  | { ok: false; error: string };
+  { ok: true; config: TtsConfigDto } | { ok: false; error: string };
 
 export interface VoiceSetTtsConfigParams {
   voice: string;
@@ -3123,8 +3123,7 @@ export interface VoiceSetTtsConfigParams {
 }
 
 export type VoiceSetTtsConfigResult =
-  | { ok: true }
-  | { ok: false; error: string };
+  { ok: true } | { ok: false; error: string };
 
 export type VoiceDownloadTtsModelParams = Record<string, never>;
 
@@ -3220,8 +3219,7 @@ export interface VoiceProviderConfigDto {
 export type VoiceGetProviderConfigParams = Record<string, never>;
 
 export type VoiceGetProviderConfigResult =
-  | { ok: true; config: VoiceProviderConfigDto }
-  | { ok: false; error: string };
+  { ok: true; config: VoiceProviderConfigDto } | { ok: false; error: string };
 
 export interface VoiceSetProviderConfigParams {
   ttsProvider?: 'local' | 'elevenlabs';
@@ -3235,8 +3233,7 @@ export interface VoiceSetProviderConfigParams {
 }
 
 export type VoiceSetProviderConfigResult =
-  | { ok: true }
-  | { ok: false; error: string };
+  { ok: true } | { ok: false; error: string };
 
 export interface VoiceSetApiKeyParams {
   providerId: 'elevenlabs';
@@ -3253,8 +3250,7 @@ export interface VoiceTestConnectionParams {
 }
 
 export type VoiceTestConnectionResult =
-  | { ok: true }
-  | { ok: false; error: string; category?: string };
+  { ok: true } | { ok: false; error: string; category?: string };
 
 export interface ScheduledJobDto {
   id: string;
@@ -3436,6 +3432,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:copilotLogout': true,
   'auth:copilotStatus': true,
   'auth:codexLogin': true,
+  'auth:getEffectiveRoute': true,
+  'config:getScopes': true,
+  'config:clearScopeOverride': true,
   'auth:getScope': true,
   'auth:clearWorkspaceOverride': true,
   'setup-status:get-status': true,
