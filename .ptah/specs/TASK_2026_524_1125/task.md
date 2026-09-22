@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_524_1125
-status: backlog
+status: in_review
 type: REFACTORING
 title: >-
   Enable Angular Router in the shared webview behind an in-memory
