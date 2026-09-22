@@ -65,7 +65,7 @@ export function buildSystemPrompt(budgets: PromptBudgets): string {
 
 ## Token Budget
 
-Each section must stay under ${budgets.maxSectionTokens} tokens, except Architecture Notes, which may use up to ${budgets.maxArchitectureNotesTokens} tokens. Total output should be under ${budgets.maxTotalTokens} tokens.
+Each section must stay under ${budgets.maxSectionTokens} tokens, except Architecture Notes, which may use up to ${budgets.maxArchitectureNotesTokens} tokens. The four required sections together should stay under ${budgets.maxTotalTokens} tokens; an optional Quality Guidance section may add up to ${budgets.maxQualityGuidanceTokens} tokens on top.
 Prioritize the most impactful guidance over comprehensive coverage.`;
 }
 
@@ -203,6 +203,9 @@ export function buildGenerationUserPrompt(
   const maxQualityGuidanceTokens =
     budgets?.maxQualityGuidanceTokens ??
     DEFAULT_PROMPT_BUDGETS.maxQualityGuidanceTokens;
+  const maxArchitectureNotesTokens =
+    budgets?.maxArchitectureNotesTokens ??
+    DEFAULT_PROMPT_BUDGETS.maxArchitectureNotesTokens;
 
   const basePrompt = `## Project Analysis
 
@@ -230,7 +233,7 @@ ${input.sampleFilePaths.map((p) => `- ${p}`).join('\n')}`
 
 Generate guidance in these ${
     qualityContext ? 'five' : 'four'
-  } categories. Keep each section under ${maxSectionTokens} tokens.
+  } categories. Keep each section under ${maxSectionTokens} tokens, except Architecture Notes, which may use up to ${maxArchitectureNotesTokens} tokens.
 
 ### 1. Project Context
 A brief description of what this project is based on its dependencies and structure.

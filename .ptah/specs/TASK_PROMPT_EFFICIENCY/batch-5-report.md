@@ -38,7 +38,8 @@ live against the running server on 2026-09-22, and the live observations win.
 
 Ptah writes the **singular `.opencode/agent/<id>.md`**, matching S3's documented
 project default and the task's specification. A user already keeping agents in
-the plural directory is unaffected.
+the plural directory is unaffected when no duplicate agent IDs exist. Duplicate-ID
+precedence remains unverified (see section 6).
 
 **Frontmatter — verified live, three findings:**
 
@@ -152,7 +153,7 @@ Facet matrix for the new target: `agents: supported`, `mcp: supported`,
 
 ## 3. Test and lint results
 
-```
+```bash
 npx nx run-many -t test,lint -p harness-sync --output-style=static
 ```
 

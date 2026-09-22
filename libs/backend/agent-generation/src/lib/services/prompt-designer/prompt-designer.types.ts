@@ -137,6 +137,8 @@ export interface PromptDesignerOutput {
 /**
  * Total token budget validateOutput accepts when quality guidance is present.
  */
+/** validateOutput's total limit for the four required sections. */
+export const VALIDATOR_TOTAL_TOKENS = 2000;
 export const VALIDATOR_TOTAL_TOKENS_WITH_QUALITY = 2300;
 
 /**
@@ -208,19 +210,33 @@ export interface PromptBudgets {
 export function deriveEffectiveBudgets(
   config: PromptDesignerConfig,
 ): PromptBudgets {
-  const maxSectionTokens = config.maxSectionTokens;
-  const maxArchitectureNotesTokens =
+  // The four required sections must fit the validator's base limit. A config
+  // whose per-section budget is too large is scaled down rather than rejected:
+  // validateOutput only logs, so an oversized config would otherwise ship an
+  // output the validator flags on every run.
+  let maxSectionTokens = config.maxSectionTokens;
+  let maxArchitectureNotesTokens =
     config.maxArchitectureNotesTokens ?? Math.round(maxSectionTokens * 1.5);
+  const requiredTotal = 3 * maxSectionTokens + maxArchitectureNotesTokens;
+  if (requiredTotal > VALIDATOR_TOTAL_TOKENS) {
+    const scale = VALIDATOR_TOTAL_TOKENS / requiredTotal;
+    maxSectionTokens = Math.floor(maxSectionTokens * scale);
+    maxArchitectureNotesTokens = Math.floor(maxArchitectureNotesTokens * scale);
+  }
+  const requiredWithQuality =
+    3 * maxSectionTokens + maxArchitectureNotesTokens + maxSectionTokens;
   const maxQualityGuidanceTokens =
-    3 * maxSectionTokens + maxArchitectureNotesTokens + maxSectionTokens <=
-    VALIDATOR_TOTAL_TOKENS_WITH_QUALITY
+    requiredWithQuality <= VALIDATOR_TOTAL_TOKENS_WITH_QUALITY
       ? maxSectionTokens
-      : 300;
+      : VALIDATOR_TOTAL_TOKENS_WITH_QUALITY - VALIDATOR_TOTAL_TOKENS;
   return {
     maxSectionTokens,
     maxArchitectureNotesTokens,
     maxQualityGuidanceTokens,
-    maxTotalTokens: config.maxTotalTokens,
+    maxTotalTokens: Math.min(
+      config.maxTotalTokens,
+      3 * maxSectionTokens + maxArchitectureNotesTokens,
+    ),
   };
 }
 

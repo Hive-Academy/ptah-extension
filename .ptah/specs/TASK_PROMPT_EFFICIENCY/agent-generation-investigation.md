@@ -4,7 +4,7 @@ Investigated 2026-09-22 in `D:\projects\ptah-extension`. Repository source was r
 
 ## 1. Runtime template source and the user layer
 
-**The normal runtime source is `C:\Users\abdal\.ptah\templates\agents`, a downloaded content cache. It is neither the workspace template directory nor the editable user-agent layer.**
+**The normal runtime source is `<user-home>\.ptah\templates\agents`, a downloaded content cache. It is neither the workspace template directory nor the editable user-agent layer.**
 
 The complete registration and loading chain is:
 
@@ -17,7 +17,7 @@ The complete registration and loading chain is:
 
 Direct recursive byte comparison found **20/20 current checkout template/partial files identical to their runtime-cache counterparts**. Thus this machine's current cached corpus contains the same old rules as this checkout. This is an observed equality, not evidence that the wizard reads workspace source.
 
-The other directory, `C:\Users\abdal\.ptah\user\agents\ptah-extension-f3f2fa6ea9b593a6`, exists and holds generated **editable clones with origin sidecars**, used as downstream harness sources:
+The other directory, `<user-home>\.ptah\user\agents\ptah-extension-f3f2fa6ea9b593a6`, exists and holds generated **editable clones with origin sidecars**, used as downstream harness sources:
 
 - `libs/backend/agent-generation/src/lib/services/user-layer/user-layer-mirror.service.ts:276` documents the workspace scope; lines 292–298 construct the scoped agent root.
 - `libs/backend/harness-sync/src/lib/state/agent-sync-gate.ts:182` resolves the upstream agent source as `<workspace>/.claude/agents` at line 190.
@@ -32,7 +32,7 @@ It is therefore an editable downstream source/override layer for harness distrib
 Executed a one-off script outside the repository:
 
 ```powershell
-node C:/Users/abdal/AppData/Local/Temp/ptah-agent-investigate.cjs
+node <user-home>/AppData/Local/Temp/ptah-agent-investigate.cjs
 ```
 
 The script loads the actual `TemplatePartialResolver` TypeScript implementation with the installed TypeScript transpiler, real `tsyringe` decorators, real `Result`, actual `renderTaskSpecAgentBlock`, and `gray-matter`. Only the logger/token dependency is stubbed. It passes template frontmatter variables and the checkout `_shared` directory to `resolve()`.
@@ -75,9 +75,9 @@ Get-ChildItem .claude/agents/*.md | Group-Object { $_.LastWriteTime.ToString('yy
 
 | Directory | Total files | Files modified 2026-09-22 | Matching files | Latest file mtime, UTC |
 | --- | ---: | ---: | ---: | --- |
-| `C:\Users\abdal\AppData\Roaming\Code\logs` | 119 | 0 | 0 | 2026-09-21T14:00:16.592Z |
-| `C:\Users\abdal\AppData\Roaming\Code - Insiders\logs` | Directory absent | — | — | — |
-| `C:\Users\abdal\.ptah\logs` | 1 | 0 | 0 | 2026-09-19T15:08:09.526Z |
+| `<user-home>\AppData\Roaming\Code\logs` | 119 | 0 | 0 | 2026-09-21T14:00:16.592Z |
+| `<user-home>\AppData\Roaming\Code - Insiders\logs` | Directory absent | — | — | — |
+| `<user-home>\.ptah\logs` | 1 | 0 | 0 | 2026-09-19T15:08:09.526Z |
 
 There are consequently no observed run timestamps, written-file counts, warnings, or errors to quote. The agents' mtimes alone do not identify their writer or prove wizard execution.
 

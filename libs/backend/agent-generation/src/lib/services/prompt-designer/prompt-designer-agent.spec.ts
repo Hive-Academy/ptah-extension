@@ -1,9 +1,13 @@
 import 'reflect-metadata';
 import { PromptDesignerAgent } from './prompt-designer-agent';
-import type {
-  PromptDesignerInput,
-  PromptDesignerOutput,
-  PromptGenerationProgress,
+import {
+  DEFAULT_PROMPT_DESIGNER_CONFIG,
+  deriveEffectiveBudgets,
+  VALIDATOR_TOTAL_TOKENS,
+  VALIDATOR_TOTAL_TOKENS_WITH_QUALITY,
+  type PromptDesignerInput,
+  type PromptDesignerOutput,
+  type PromptGenerationProgress,
 } from './prompt-designer.types';
 
 jest.mock('./generation-prompts', () => ({
@@ -684,6 +688,38 @@ describe('PromptDesignerAgent', () => {
         200,
       );
       expect(result.projectContext).toBe('truncated to 100');
+    });
+  });
+
+  describe('deriveEffectiveBudgets', () => {
+    it('keeps the defaults inside the validator limits', () => {
+      const budgets = deriveEffectiveBudgets(DEFAULT_PROMPT_DESIGNER_CONFIG);
+      expect(budgets).toEqual({
+        maxSectionTokens: 400,
+        maxArchitectureNotesTokens: 600,
+        maxQualityGuidanceTokens: 400,
+        maxTotalTokens: 1800,
+      });
+    });
+
+    it('scales an oversized configuration down to the validator limit', () => {
+      const budgets = deriveEffectiveBudgets({
+        ...DEFAULT_PROMPT_DESIGNER_CONFIG,
+        maxSectionTokens: 500,
+        maxTotalTokens: 2600,
+      });
+      const required =
+        3 * budgets.maxSectionTokens + budgets.maxArchitectureNotesTokens;
+      expect(required).toBeLessThanOrEqual(VALIDATOR_TOTAL_TOKENS);
+      expect(required + budgets.maxQualityGuidanceTokens).toBeLessThanOrEqual(
+        VALIDATOR_TOTAL_TOKENS_WITH_QUALITY,
+      );
+      expect(budgets.maxTotalTokens).toBeLessThanOrEqual(
+        VALIDATOR_TOTAL_TOKENS,
+      );
+      expect(budgets.maxArchitectureNotesTokens).toBeGreaterThan(
+        budgets.maxSectionTokens,
+      );
     });
   });
 });

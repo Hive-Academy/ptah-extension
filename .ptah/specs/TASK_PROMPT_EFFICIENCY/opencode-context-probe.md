@@ -31,10 +31,10 @@ Single shell command output:
 
 ```text
 OPENCODE_CONFIG_CONTENT EXISTS:
-{"mcp":{"ptah":{"type":"remote","url":"http://localhost:51820/agent/31ae7da1-baad-447b-ac1e-92502b34ecbc/workspace/D%3A%5Cprojects%5Cptah-extension","enabled":true}}}
+{"mcp":{"ptah":{"type":"remote","url":"http://localhost:51820/agent/<session-id>/workspace/<workspace-path>","enabled":true}}}
 ```
 
-So `ptah` is a **remote** MCP server at `http://localhost:51820/agent/31ae7da1-baad-447b-ac1e-92502b34ecbc/workspace/...`, injected via env var by the Ptah host that spawned this session.
+So `ptah` is a **remote** MCP server at `http://localhost:51820/agent/<session-id>/workspace/...`, injected via env var by the Ptah host that spawned this session.
 
 ## 3. System / role prompt
 
@@ -59,13 +59,13 @@ EXISTS: .claude/agents
 EXISTS: .claude/skills
 ```
 
-User-level config `C:\Users\abdal\.config\opencode\opencode.jsonc` exists but is empty except `$schema`. The instruction-like content I received (project guidance, role, tool policy) came **in the prompt text itself**, not from an AGENTS.md/CLAUDE.md file.
+User-level config `<user-home>\.config\opencode\opencode.jsonc` exists but is empty except `$schema`. The instruction-like content I received (project guidance, role, tool policy) came **in the prompt text itself**, not from an AGENTS.md/CLAUDE.md file.
 
 ## 5. Skills and subagents
 
 **Skills: yes.** The harness exposes a `skill` tool and an `<available_skills>` list in my system context: `agent-lanes`, `angular-3d-scene-crafter`, `angular-frontend-patterns`, `angular-gsap-animation-crafter`, `ddd-architecture`, `execute-phase-gated-task`, `extract-and-relocate-angular-component-feature`, `fleet-orchestration`, `humanize-library`, `hyperframes`, `hyperframes-animation`, `hyperframes-audio`, `hyperframes-cli`, `hyperframes-core`, `hyperframes-creative`, `hyperframes-keyframes`, `hyperframes-registry`, `impeccable`, `media-use`, `motion-graphics`, `nestjs-backend-patterns`, `nestjs-deployment`, `nx-workspace-architect`, `opencode`, `orchestration`, `ptah-cli-usage`, `report`, `resilient-nestjs-patterns`, `saas-platform-patterns`, `saas-workspace-initializer`, `skill-creator`, `technical-content-writer`, `tribunal`, `typesafe-ai`, `ui-ux-designer`, `video-showcase`, `webhook-architecture`.
 
-**From `.claude/skills` / `.agents/skills`: yes.** Directory listing shows `.claude/skills/` and `.agents/skills/` mirror each other (same 24–25 names) — and `fleet-orchestration` exists in `.claude/skills/` but **not** in `.agents/skills/`, yet it is exposed as an available skill. That pins at least `.claude/skills/` as a live source. The `hyperframes*`, `media-use`, `motion-graphics` skills correspond to the user-level `C:\Users\abdal\.claude\skills\` and `C:\Users\abdal\.agents\skills\` directories (both exist with those 10 names).
+**From `.claude/skills` / `.agents/skills`: yes.** Directory listing shows `.claude/skills/` and `.agents/skills/` mirror each other (same 24–25 names) — and `fleet-orchestration` exists in `.claude/skills/` but **not** in `.agents/skills/`, yet it is exposed as an available skill. That pins at least `.claude/skills/` as a live source. The `hyperframes*`, `media-use`, `motion-graphics` skills correspond to the user-level `<user-home>\.claude\skills\` and `<user-home>\.agents\skills\` directories (both exist with those 10 names).
 
 **Subagents: yes, but none from `.claude/agents`.** The `subagent` tool description lists exactly two: `explore` ("Fast agent specialized for exploring codebases") and `general` ("General-purpose agent for researching complex questions"). These are built-in OpenCode agents. The repo's `.claude/agents/` contains 15 role files (`backend-developer.md`, `researcher-expert.md`, `team-leader.md`, `visual-reviewer.md`, ...) and `.codex/agents/` the same 15 as `.toml` — **none of these appear as spawnable subagents** in my session; the researcher-expert role reached me as prompt text, not as an agent definition.
 

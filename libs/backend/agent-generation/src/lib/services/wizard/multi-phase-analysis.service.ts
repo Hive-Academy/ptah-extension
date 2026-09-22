@@ -493,7 +493,14 @@ export class MultiPhaseAnalysisService {
       currentFileBytes >= SUBSTANTIAL_PHASE_FILE_MIN_BYTES;
     const isMaxTurns = outcome.error?.includes('error_max_turns') ?? false;
 
-    if (isMaxTurns && fileWrittenThisRun && hasSubstantialFile) {
+    // Only the quality-audit phase is prompted to write incrementally, so only
+    // its capped file is a partial document rather than an incomplete one.
+    if (
+      isMaxTurns &&
+      phaseId === 'quality-audit' &&
+      fileWrittenThisRun &&
+      hasSubstantialFile
+    ) {
       this.logger.warn(
         `${SERVICE_TAG} Phase ${phaseId} hit max turns cap but produced a substantial file (${currentFileBytes} bytes); recording as completed with partial document`,
         { phaseId, durationMs, bytes: currentFileBytes },
