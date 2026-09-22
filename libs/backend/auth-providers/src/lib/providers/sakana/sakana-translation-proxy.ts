@@ -104,8 +104,8 @@ export class SakanaTranslationProxy extends TranslationProxyBase {
    * Sakana v1 routes through Chat Completions (the lower-risk, fully-exercised
    * path); the Responses API is a fast-follow if needed.
    */
-  protected override shouldUseResponsesApi(_modelId: string): boolean {
-    return false;
+  protected override resolveUpstreamProtocol(_modelId: string): 'chat/completions' {
+    return 'chat/completions';
   }
 
   /**

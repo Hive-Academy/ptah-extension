@@ -31,6 +31,10 @@ import {
 import { CLAUDE_CLI_PROVIDER_ENTRY } from './entries/claude-cli-provider-entry';
 import { SAKANA_PROVIDER_ENTRY } from './entries/sakana-provider-entry';
 import { REQUESTY_PROVIDER_ENTRY } from './entries/requesty-provider-entry';
+import {
+  OPENCODE_ZEN_PROVIDER_ENTRY,
+  OPENCODE_GO_PROVIDER_ENTRY,
+} from './entries/opencode-provider-entry';
 
 /**
  * Static model definition for providers without a dynamic models API
@@ -469,6 +473,8 @@ export const ANTHROPIC_PROVIDERS = [
   CLAUDE_CLI_PROVIDER_ENTRY,
   SAKANA_PROVIDER_ENTRY,
   REQUESTY_PROVIDER_ENTRY,
+  OPENCODE_ZEN_PROVIDER_ENTRY,
+  OPENCODE_GO_PROVIDER_ENTRY,
 ] as const satisfies readonly AnthropicProvider[];
 
 /**
@@ -486,7 +492,9 @@ export type AnthropicProviderId =
   | 'lm-studio'
   | 'claude-cli'
   | 'sakana'
-  | 'requesty';
+  | 'requesty'
+  | 'opencode-zen'
+  | 'opencode-go';
 
 /** Default provider when none is configured */
 export const DEFAULT_PROVIDER_ID: AnthropicProviderId = 'openrouter';

@@ -7,7 +7,7 @@
  * Key difference from Copilot:
  * - Codex uses the Responses API (/responses) exclusively — no Chat Completions
  * - Endpoint depends on auth mode: api.openai.com (API key) vs user-configured (OAuth)
- * - completionsPath is unused because shouldUseResponsesApi always returns true
+ * - completionsPath is unused because resolveUpstreamProtocol always selects Responses
  *
  * All HTTP server logic, request/response translation, retry, and streaming
  * are handled by the base class in openai-translation/translation-proxy-base.ts.
@@ -124,11 +124,11 @@ export class CodexTranslationProxy extends TranslationProxyBase {
 
   /**
    * Codex uses the Responses API exclusively for ALL models.
-   * Unlike Copilot which splits between /chat/completions and /responses,
-   * the Codex API only exposes the /responses endpoint.
+   * The subscription endpoint requires Responses even when a model also
+   * exists on another provider that uses Chat Completions.
    */
-  protected override shouldUseResponsesApi(_modelId: string): boolean {
-    return true;
+  protected override resolveUpstreamProtocol(_modelId: string): 'responses' {
+    return 'responses';
   }
 
   /** The subscription Responses route requires SSE, independently of caller intent. */

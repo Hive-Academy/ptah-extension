@@ -13,6 +13,14 @@
  */
 
 import type { AuthEnv } from '@ptah-extension/shared';
+import type { ITranslationProxy } from '../translation';
+
+/** Registered built-in API-key proxies owned by the global strategy. */
+export interface ApiKeyProxyBinding {
+  readonly providerId: string;
+  readonly proxy: ITranslationProxy;
+  readonly placeholder: string;
+}
 
 /** Result of strategy.configure() */
 export interface AuthConfigureResult {

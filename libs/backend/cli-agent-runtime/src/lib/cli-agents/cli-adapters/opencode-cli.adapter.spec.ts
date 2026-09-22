@@ -203,16 +203,173 @@ describe('OpencodeCliAdapter', () => {
         },
         { id: 'openai/gpt-4o', name: 'openai/gpt-4o' },
       ]);
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
       const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
       expect(argsArg).toEqual(['models']);
     });
 
-    it('returns an empty list when the probe produces no output', async () => {
+    it('retries once and returns parsed model list when a cold first probe exits 0 with empty stdout', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
-      const models = adapter.listModels();
+      const modelsPromise = adapter.listModels();
+
+      // First probe: cold background service starts, exits 0 with empty stdout.
       await flush();
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
       currentChild?.emitClose(0);
-      expect(await models).toEqual([]);
+
+      // Second probe: warm server answers with model list.
+      await flush();
+      expect(mockSpawnCli).toHaveBeenCalledTimes(2);
+      currentChild?.stdout.write('anthropic/claude-sonnet-4-5\nopenai/gpt-4o\n');
+      currentChild?.emitClose(0);
+
+      const models = await modelsPromise;
+      expect(models).toEqual([
+        {
+          id: 'anthropic/claude-sonnet-4-5',
+          name: 'anthropic/claude-sonnet-4-5',
+        },
+        { id: 'openai/gpt-4o', name: 'openai/gpt-4o' },
+      ]);
+    });
+
+    it('returns an empty list when two consecutive probes produce no output without looping', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
+      const modelsPromise = adapter.listModels();
+
+      // First probe: exit 0, empty stdout
+      await flush();
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+      currentChild?.emitClose(0);
+
+      // Second probe: exit 0, empty stdout
+      await flush();
+      expect(mockSpawnCli).toHaveBeenCalledTimes(2);
+      currentChild?.emitClose(0);
+
+      const models = await modelsPromise;
+      expect(models).toEqual([]);
+      expect(mockSpawnCli).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([1, 2])('rejects partial stdout from failed attempt %i', async (attempt) => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
+      const modelsPromise = adapter.listModels();
+
+      await flush();
+      if (attempt === 2) {
+        currentChild?.emitClose(0);
+        await flush();
+      }
+      currentChild?.stdout.write('anthropic/claude-sonnet-4-5\n');
+      currentChild?.emitClose(1);
+
+      expect(await modelsPromise).toEqual([]);
+      expect(mockSpawnCli).toHaveBeenCalledTimes(attempt);
+    });
+
+    it('does not retry when the probe encounters a spawn error', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
+      const modelsPromise = adapter.listModels();
+
+      await flush();
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+      currentChild?.emitError(new Error('spawn ENOENT'));
+
+      const models = await modelsPromise;
+      expect(models).toEqual([]);
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry when the probe exits with a non-zero code', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
+      const modelsPromise = adapter.listModels();
+
+      await flush();
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+      currentChild?.emitClose(1);
+
+      const models = await modelsPromise;
+      expect(models).toEqual([]);
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('ensureTokensFresh()', () => {
+    const originalEnv = { ...process.env };
+
+    beforeEach(() => {
+      // Clear any provider API keys that might be set in the ambient environment.
+      for (const key of [
+        'ANTHROPIC_API_KEY',
+        'OPENAI_API_KEY',
+        'OPENROUTER_API_KEY',
+        'GOOGLE_GENERATIVE_AI_API_KEY',
+        'GEMINI_API_KEY',
+        'GROQ_API_KEY',
+        'MISTRAL_API_KEY',
+        'DEEPSEEK_API_KEY',
+        'XAI_API_KEY',
+      ]) {
+        delete process.env[key];
+      }
+    });
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it('returns true when opencode auth list reports stored credentials', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
+      const freshPromise = adapter.ensureTokensFresh();
+
+      await flush();
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+      const [, args] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      expect(args).toEqual(['auth', 'list']);
+
+      currentChild?.stdout.write('OpenCode  Default  stored\n');
+      currentChild?.emitClose(0);
+
+      const result = await freshPromise;
+      expect(result).toBe(true);
+    });
+
+    it('returns false when opencode auth list reports no authenticated integrations', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
+      const freshPromise = adapter.ensureTokensFresh();
+
+      await flush();
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+      currentChild?.stdout.write('No authenticated integrations\n');
+      currentChild?.emitClose(0);
+
+      const result = await freshPromise;
+      expect(result).toBe(false);
+    });
+
+    it('returns true when auth list reports no authenticated integrations but a provider env var is present', async () => {
+      process.env['ANTHROPIC_API_KEY'] = 'sk-ant-test-key';
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
+      const freshPromise = adapter.ensureTokensFresh();
+
+      await flush();
+      currentChild?.stdout.write('No authenticated integrations\n');
+      currentChild?.emitClose(0);
+
+      const result = await freshPromise;
+      expect(result).toBe(true);
+    });
+
+    it('returns false when auth list fails and no provider env var is present', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
+      const freshPromise = adapter.ensureTokensFresh();
+
+      await flush();
+      currentChild?.emitError(new Error('spawn error'));
+
+      const result = await freshPromise;
+      expect(result).toBe(false);
     });
   });
 

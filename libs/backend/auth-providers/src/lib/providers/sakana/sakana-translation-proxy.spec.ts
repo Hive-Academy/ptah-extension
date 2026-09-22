@@ -9,7 +9,7 @@
  *   - getHeaders()     → delegates to the injected auth service
  *   - onAuthFailure()  → false (user-provided key, not refreshable)
  *   - normalizeModelId → tier aliases mapped via SAKANA_DEFAULT_TIERS, else pass-through
- *   - shouldUseResponsesApi → false (Chat Completions for v1)
+ *   - resolveUpstreamProtocol -> chat/completions (Chat Completions for v1)
  *   - getStaticModels  → fugu / fugu-ultra from the registry entry
  */
 
@@ -34,8 +34,8 @@ class TestableSakanaProxy extends SakanaTranslationProxy {
   public normalizeModelIdPublic(modelId: string): string {
     return this.normalizeModelId(modelId);
   }
-  public shouldUseResponsesApiPublic(modelId: string): boolean {
-    return this.shouldUseResponsesApi(modelId);
+  public resolveUpstreamProtocolPublic(modelId: string): 'messages' | 'chat/completions' | 'responses' | undefined {
+    return this.resolveUpstreamProtocol(modelId);
   }
   public getStaticModelsPublic(): Array<{ id: string }> {
     return this.getStaticModels();
@@ -82,8 +82,8 @@ describe('SakanaTranslationProxy', () => {
 
   it('routes through Chat Completions (never the Responses API)', () => {
     const proxy = makeProxy();
-    expect(proxy.shouldUseResponsesApiPublic('fugu')).toBe(false);
-    expect(proxy.shouldUseResponsesApiPublic('fugu-ultra')).toBe(false);
+    expect(proxy.resolveUpstreamProtocolPublic('fugu')).toBe('chat/completions');
+    expect(proxy.resolveUpstreamProtocolPublic('fugu-ultra')).toBe('chat/completions');
   });
 
   describe('normalizeModelId', () => {

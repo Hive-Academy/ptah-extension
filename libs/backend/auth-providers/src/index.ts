@@ -122,6 +122,10 @@ export {
 } from './lib/providers/sakana';
 export type { ISakanaAuthService } from './lib/providers/sakana';
 export {
+  createOpenCodeProxyForKey,
+  OPENCODE_PROXY_TOKEN_PLACEHOLDER,
+} from './lib/providers/opencode';
+export {
   CustomOpenAiTranslationProxy,
   createCustomOpenAiProxy,
   normalizeOpenAiApiRoot,

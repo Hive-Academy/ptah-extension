@@ -1,16 +1,16 @@
 /**
- * TranslationProxyBase — unit specs.
+ * TranslationProxyBase â€” unit specs.
  *
  * Surface under test:
  *   - Lifecycle: `start()` binds to an OS-assigned port on 127.0.0.1,
  *     `isRunning()` flips to true, `getUrl()` returns the bound URL, and
  *     `stop()` tears down cleanly.
  *   - Routing:
- *       * GET  /health         → 200 { status: 'ok' }
- *       * GET  /v1/models      → 200 { object: 'list', data: [...] } derived
+ *       * GET  /health         â†’ 200 { status: 'ok' }
+ *       * GET  /v1/models      â†’ 200 { object: 'list', data: [...] } derived
  *                                from `getStaticModels()`.
- *       * POST /v1/messages    → delegates to the translator pipeline.
- *       * any other path       → 404 with Anthropic-shaped error body.
+ *       * POST /v1/messages    â†’ delegates to the translator pipeline.
+ *       * any other path       â†’ 404 with Anthropic-shaped error body.
  *   - Error shape: `sendErrorResponse()` always emits
  *     `{ type: 'error', error: { type, message } }` with the correct status.
  *
@@ -26,6 +26,10 @@
 import 'reflect-metadata';
 
 import * as http from 'http';
+import { CodexTranslationProxy } from '../providers/codex/codex-translation-proxy';
+import { CopilotTranslationProxy } from '../providers/copilot/copilot-translation-proxy';
+import { OpenRouterTranslationProxy } from '../providers/openrouter/openrouter-translation-proxy';
+import { LocalModelTranslationProxy } from '../providers/local/local-model-translation-proxy';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
   createMockLogger,
@@ -44,7 +48,7 @@ import {
 } from '../auth/provider-quota.store';
 
 // ---------------------------------------------------------------------------
-// Concrete subclass — stubs the 4 abstract hooks.
+// Concrete subclass â€” stubs the 4 abstract hooks.
 // ---------------------------------------------------------------------------
 
 class FakeTranslationProxy extends TranslationProxyBase {
@@ -56,11 +60,21 @@ class FakeTranslationProxy extends TranslationProxyBase {
    * subclasses' shape (id known only at construction) is exercised here too.
    */
   public providerId = 'fake-provider';
-  public useResponsesApi = false;
+  public protocol: 'messages' | 'chat/completions' | 'responses' | undefined = 'chat/completions';
   public forceResponsesStream = false;
   public upstreamTimeoutMs = 600_000;
-  protected override shouldUseResponsesApi(): boolean {
-    return this.useResponsesApi;
+  public readonly normalizeModelIdMock = jest.fn((model: string) => model);
+  protected override normalizeModelId(model: string): string {
+    return this.normalizeModelIdMock(model);
+  }
+  public override getAuthFailureMessage(): string {
+    return super.getAuthFailureMessage();
+  }
+  public override getUpstreamErrorMessage(status: number, body: string): string {
+    return super.getUpstreamErrorMessage(status, body);
+  }
+  public override resolveUpstreamProtocol(_modelId: string) {
+    return this.protocol;
   }
   protected override requiresResponsesStream(): boolean {
     return this.forceResponsesStream;
@@ -99,7 +113,7 @@ class FakeTranslationProxy extends TranslationProxyBase {
 }
 
 // ---------------------------------------------------------------------------
-// Minimal HTTP helper — makes a localhost request and collects the response.
+// Minimal HTTP helper â€” makes a localhost request and collects the response.
 // ---------------------------------------------------------------------------
 
 interface HttpResult {
@@ -110,7 +124,7 @@ interface HttpResult {
 
 function request(
   url: string,
-  opts: { method?: string; body?: string } = {},
+  opts: { method?: string; body?: string; headers?: Record<string, string> } = {},
 ): Promise<HttpResult> {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
@@ -122,6 +136,7 @@ function request(
         method: opts.method ?? 'GET',
         headers: opts.body
           ? {
+              ...opts.headers,
               'Content-Type': 'application/json',
               'Content-Length': Buffer.byteLength(opts.body).toString(),
             }
@@ -129,6 +144,7 @@ function request(
       },
       (res) => {
         const chunks: Buffer[] = [];
+        res.on('error', reject);
         res.on('data', (c: Buffer) => chunks.push(c));
         res.on('end', () =>
           resolve({
@@ -146,7 +162,7 @@ function request(
 }
 
 // ---------------------------------------------------------------------------
-// Test harness — fresh proxy per test, guaranteed cleanup.
+// Test harness â€” fresh proxy per test, guaranteed cleanup.
 // ---------------------------------------------------------------------------
 
 const DEFAULT_CONFIG: TranslationProxyConfig = {
@@ -181,7 +197,7 @@ async function startProxy(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('TranslationProxyBase — lifecycle', () => {
+describe('TranslationProxyBase â€” lifecycle', () => {
   it('start() binds to 127.0.0.1 on an OS-assigned port and marks isRunning=true', async () => {
     const h = await startProxy();
     try {
@@ -203,7 +219,7 @@ describe('TranslationProxyBase — lifecycle', () => {
     await expect(request(urlWhileUp + '/health')).rejects.toThrow();
   });
 
-  it('start() is idempotent — a second call returns the same URL without re-binding', async () => {
+  it('start() is idempotent â€” a second call returns the same URL without re-binding', async () => {
     const h = await startProxy();
     try {
       const second = await h.proxy.start();
@@ -224,7 +240,7 @@ describe('TranslationProxyBase — lifecycle', () => {
   });
 });
 
-describe('TranslationProxyBase — routing', () => {
+describe('TranslationProxyBase â€” routing', () => {
   it('GET /health responds with 200 { status: "ok" }', async () => {
     const h = await startProxy();
     try {
@@ -297,10 +313,10 @@ describe('TranslationProxyBase — routing', () => {
 // The 429 side effect (TASK_2026_306 defect B, task 2.1).
 //
 // Two halves that have to hold together:
-//   * the RESPONSE is untouched — status, headers, body and message are exactly
+//   * the RESPONSE is untouched â€” status, headers, body and message are exactly
 //     what they were before the quota store existed. `context.md` puts the 429
 //     response explicitly out of scope: it was already correct.
-//   * the SIDE EFFECT fires — a cooldown is recorded against the REGISTRY
+//   * the SIDE EFFECT fires â€” a cooldown is recorded against the REGISTRY
 //     provider id (never the `name` display label), and cleared again the
 //     moment the upstream answers.
 //
@@ -335,7 +351,7 @@ const MESSAGES_BODY = JSON.stringify({
   messages: [{ role: 'user', content: 'hi' }],
 });
 
-describe('TranslationProxyBase — Responses JSON usage', () => {
+describe('TranslationProxyBase â€” Responses JSON usage', () => {
   it('records monotonic metadata-only phases with exact request and inexact compaction correlation', async () => {
     const forbidden = ['authorization', 'header', 'prompt', 'messages', 'body', 'tool', 'secret'];
     const upstream = await startUpstream((_req, res) => {
@@ -350,7 +366,7 @@ describe('TranslationProxyBase — Responses JSON usage', () => {
       now: () => tick++,
       record: (record) => records.push(record),
     });
-    h.proxy.useResponsesApi = true;
+    h.proxy.protocol = 'responses';
     h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
     try {
       const result = await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY });
@@ -394,7 +410,7 @@ describe('TranslationProxyBase — Responses JSON usage', () => {
       now: () => 1,
       record: (record) => records.push(record),
     });
-    h.proxy.useResponsesApi = true;
+    h.proxy.protocol = 'responses';
     h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
     try {
       const result = await request(`${h.url}/v1/messages`, {
@@ -435,7 +451,7 @@ describe('TranslationProxyBase — Responses JSON usage', () => {
         output_tokens_details: { reasoning_tokens: 7 } } }));
     });
     const h = await startProxy();
-    h.proxy.useResponsesApi = true;
+    h.proxy.protocol = 'responses';
     h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
     try {
       const response = await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY });
@@ -451,7 +467,7 @@ describe('TranslationProxyBase — Responses JSON usage', () => {
   });
 });
 
-describe('TranslationProxyBase — 429 records a provider cooldown', () => {
+describe('TranslationProxyBase â€” 429 records a provider cooldown', () => {
   beforeEach(() => providerQuotaStore.clear());
   afterEach(() => providerQuotaStore.clear());
 
@@ -612,7 +628,7 @@ describe('TranslationProxyBase phase timing terminal paths', () => {
       } })}\n\ndata: [DONE]\n\n`);
     });
     const h = await timedProxy();
-    h.proxy.useResponsesApi = true;
+    h.proxy.protocol = 'responses';
     h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
     try {
       expect((await request(`${h.url}/v1/messages`, {
@@ -632,7 +648,7 @@ describe('TranslationProxyBase phase timing terminal paths', () => {
       res.end('data: {"type":"response.output_text.delta","delta":"private-upstream-value"}\n\n');
     });
     const h = await timedProxy();
-    h.proxy.useResponsesApi = true;
+    h.proxy.protocol = 'responses';
     h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
     try {
       await request(`${h.url}/v1/messages`, {
@@ -654,7 +670,7 @@ describe('TranslationProxyBase phase timing terminal paths', () => {
       } })}\n\n`);
     });
     const h = await timedProxy();
-    h.proxy.useResponsesApi = true;
+    h.proxy.protocol = 'responses';
     h.proxy.forceResponsesStream = true;
     h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
     try {
@@ -690,7 +706,7 @@ describe('TranslationProxyBase phase timing terminal paths', () => {
       res.end(wire);
     });
     const h = await timedProxy();
-    h.proxy.useResponsesApi = true;
+    h.proxy.protocol = 'responses';
     h.proxy.forceResponsesStream = true;
     h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
     try {
@@ -769,7 +785,7 @@ describe('TranslationProxyBase phase timing terminal paths', () => {
     await h.stop();
   });
 
-  it('records mid-stream cancellation exactly once', async () => {
+  it.each(['responses', 'messages'] as const)('records mid-stream cancellation exactly once for %s', async (protocol) => {
     const upstream = await startUpstream((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write('data: {"type":"response.output_text.delta","delta":"partial"}\n\n');
@@ -781,11 +797,11 @@ describe('TranslationProxyBase phase timing terminal paths', () => {
       records.push(record);
       recorded();
     } });
-    h.proxy.useResponsesApi = true;
+    h.proxy.protocol = protocol;
     h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
     const body = JSON.stringify({ ...JSON.parse(MESSAGES_BODY), stream: true });
     const client = http.request(`${h.url}/v1/messages`, { method: 'POST', headers: {
-      'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body),
+      ...NATIVE_HEADERS, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body),
     } }, (response) => response.once('data', () => response.destroy()));
     client.on('error', () => undefined);
     client.end(body);
@@ -805,7 +821,7 @@ describe('TranslationProxyBase phase timing terminal paths', () => {
     });
     const records: ProxyPhaseTimingRecord[] = [];
     const h = await startProxy(DEFAULT_CONFIG, { now: Date.now, record: (record) => records.push(record) });
-    h.proxy.useResponsesApi = true;
+    h.proxy.protocol = 'responses';
     h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
     const calls = [1, 2].map(() => request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY }));
     await ready;
@@ -819,5 +835,253 @@ describe('TranslationProxyBase phase timing terminal paths', () => {
     expect(records.every((record) => record.status === 'success')).toBe(true);
     await h.stop();
     await upstream.close();
+  });
+});
+
+
+// These probes invoke the production hook without needing unrelated auth services.
+class CodexLaneProbe extends CodexTranslationProxy {
+  static lane(model: string) { return this.prototype.resolveUpstreamProtocol(model); }
+  static forcedStream(target: URL) { return this.prototype.requiresResponsesStream(target); }
+}
+class CopilotLaneProbe extends CopilotTranslationProxy {
+  static lane(model: string) { return this.prototype.resolveUpstreamProtocol(model); }
+}
+class OpenRouterLaneProbe extends OpenRouterTranslationProxy {
+  static lane(model: string) { return this.prototype.resolveUpstreamProtocol(model); }
+}
+// Ollama and LM Studio. The only production proxy that overrides NOTHING, so
+// its lane is whatever the base default happens to be. That made it invisible
+// to the migration: the old `shouldUseResponsesApi` default was `false` and the
+// new `resolveUpstreamProtocol` default is `'chat/completions'`, which is the
+// same lane by luck rather than by contract. This pins it so a future change to
+// the default cannot silently reroute local models.
+class LocalLaneProbe extends LocalModelTranslationProxy {
+  static lane(model: string) { return this.prototype.resolveUpstreamProtocol(model); }
+}
+
+describe('existing provider protocol lanes', () => {
+  it('pins Codex to Responses for every model', () => {
+    for (const model of ['gpt-5.3-codex', 'gpt-5', 'claude-sonnet-4-6']) {
+      expect(CodexLaneProbe.lane(model)).toBe('responses');
+    }
+  });
+  it('pins Copilot to Chat Completions for every model', () => {
+    for (const model of ['gpt-5', 'claude-sonnet-4.6', 'gemini-2.5-pro']) {
+      expect(CopilotLaneProbe.lane(model)).toBe('chat/completions');
+    }
+  });
+  it('pins OpenRouter to Chat Completions for every model', () => {
+    for (const model of ['openai/gpt-5', 'anthropic/claude-sonnet-4.5']) {
+      expect(OpenRouterLaneProbe.lane(model)).toBe('chat/completions');
+    }
+  });
+  it('pins local providers (Ollama, LM Studio) to Chat Completions via the base default', () => {
+    for (const model of ['llama3.1', 'qwen2.5-coder', 'gpt-oss-20b']) {
+      expect(LocalLaneProbe.lane(model)).toBe('chat/completions');
+    }
+  });
+  it('keeps Codex forced SSE limited to the subscription Responses endpoint', () => {
+    expect(CodexLaneProbe.forcedStream(new URL('https://chatgpt.com/backend-api/codex/responses'))).toBe(true);
+    expect(CodexLaneProbe.forcedStream(new URL('https://api.openai.com/v1/responses'))).toBe(false);
+    expect(CodexLaneProbe.forcedStream(new URL('https://example.com/backend-api/codex/responses'))).toBe(false);
+  });
+});
+
+const NATIVE_HEADERS = {
+  'anthropic-version': '2023-06-01',
+  'anthropic-beta': 'prompt-caching-2024-07-31',
+};
+
+describe('TranslationProxyBase native Messages lane', () => {
+  it.each([false, true])('preserves native request and response bytes and allowlists headers (stream=%s)', async (stream) => {
+    const responseBody = stream
+      ? 'event: message_start\ndata: {"type":"message_start","message":{"usage":{"cache_read_input_tokens":9}}}\n\nevent: error\ndata: {"type":"error","error":{"type":"overloaded_error"}}\n\n'
+      : ' { "content": [{"type":"thinking","thinking":"native"},{"type":"tool_use","id":"t1","name":"lookup","input":{}}], "usage": {"cache_read_input_tokens":9} }\n';
+    let receivedBody = '';
+    let receivedHeaders: http.IncomingHttpHeaders = {};
+    let receivedPath: string | undefined;
+    const upstream = await startUpstream((req, res) => {
+      receivedHeaders = req.headers;
+      receivedPath = req.url;
+      req.on('data', (chunk: Buffer) => { receivedBody += chunk.toString('utf8'); });
+      req.on('end', () => {
+        res.writeHead(201, {
+          'content-type': stream ? 'text/event-stream' : 'application/json',
+          'cache-control': 'no-cache', 'request-id': 'native-request',
+          'x-secret': 'hidden', 'set-cookie': 'hidden=value',
+        });
+        res.write(responseBody.slice(0, 17));
+        res.end(responseBody.slice(17));
+      });
+    });
+    const h = await startProxy();
+    h.proxy.protocol = 'messages';
+    h.proxy.getApiEndpointMock.mockResolvedValue(`${upstream.origin}/zen/go/v1`);
+    const body = ` { "model": "fake-model-a", "max_tokens": 16, "stream": ${stream}, "messages": [{"role":"user","content":"hi"}], "thinking":{"type":"adaptive"}, "metadata":{"user_id":"u"}, "cache_control":{"type":"ephemeral"} }\n`;
+    try {
+      const result = await request(`${h.url}/v1/messages`, {
+        method: 'POST', body,
+        headers: { ...NATIVE_HEADERS, authorization: 'Bearer client', 'x-api-key': 'client-key', cookie: 'private=value' },
+      });
+      expect(receivedBody).toBe(body);
+      expect(receivedPath).toBe('/zen/go/v1/messages');
+      expect(receivedHeaders).toMatchObject({ ...NATIVE_HEADERS, authorization: 'Bearer fake' });
+      expect(receivedHeaders['x-api-key']).toBeUndefined();
+      expect(receivedHeaders['cookie']).toBeUndefined();
+      expect(result.status).toBe(201);
+      expect(result.body).toBe(responseBody);
+      expect(result.headers['request-id']).toBe('native-request');
+      expect(result.headers['cache-control']).toBe('no-cache');
+      expect(result.headers['set-cookie']).toBeUndefined();
+      expect(result.headers['x-secret']).toBeUndefined();
+    } finally { await h.stop(); await upstream.close(); }
+  });
+
+  it('normalizes an explicit tier alias while preserving every other native field', async () => {
+    let received: unknown;
+    let path: string | undefined;
+    const upstream = await startUpstream((req, res) => {
+      path = req.url;
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => { received = JSON.parse(Buffer.concat(chunks).toString()); res.end('{}'); });
+    });
+    const h = await startProxy({ ...DEFAULT_CONFIG, messagesPath: '/native/messages' });
+    h.proxy.protocol = 'messages';
+    h.proxy.normalizeModelIdMock.mockImplementation((model) => model === 'sonnet' ? 'native-model' : model);
+    h.proxy.getApiEndpointMock.mockResolvedValue(`${upstream.origin}/zen/v1`);
+    const body = { ...JSON.parse(MESSAGES_BODY), model: 'sonnet', future: { untouched: true }, tools: [{ type: 'native-tool', name: 'lookup' }] };
+    try {
+      expect((await request(`${h.url}/v1/messages`, { method: 'POST', body: JSON.stringify(body), headers: NATIVE_HEADERS })).status).toBe(200);
+      expect(received).toEqual({ ...body, model: 'native-model' });
+      expect(path).toBe('/zen/v1/native/messages');
+    } finally { await h.stop(); await upstream.close(); }
+  });
+
+  it.each(['null', '[]', '{}', '{"model":2}', '{"model":" "}', '{"model":"m","max_tokens":1,"messages":{}}', '{"model":"m","max_tokens":1,"messages":[null]}'])('rejects malformed envelopes before auth or upstream: %s', async (body) => {
+    const h = await startProxy();
+    h.proxy.protocol = 'messages';
+    try {
+      const result = await request(`${h.url}/v1/messages`, { method: 'POST', body, headers: NATIVE_HEADERS });
+      expect(result.status).toBe(400);
+      expect(h.proxy.normalizeModelIdMock).not.toHaveBeenCalled();
+      expect(h.proxy.getHeadersMock).not.toHaveBeenCalled();
+      expect(h.proxy.getApiEndpointMock).not.toHaveBeenCalled();
+    } finally { await h.stop(); }
+  });
+
+  it('rejects undefined lanes before auth or upstream without falling back to Chat', async () => {
+    const h = await startProxy();
+    h.proxy.protocol = undefined;
+    try {
+      const result = await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY });
+      expect(result.status).toBe(400);
+      expect(result.body).toContain('not supported');
+      expect(h.proxy.getHeadersMock).not.toHaveBeenCalled();
+      expect(h.proxy.getApiEndpointMock).not.toHaveBeenCalled();
+    } finally { await h.stop(); }
+  });
+
+  it('requires an inbound anthropic-version before auth or upstream', async () => {
+    const h = await startProxy();
+    h.proxy.protocol = 'messages';
+    try {
+      const result = await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY });
+      expect(result.status).toBe(400);
+      expect(result.body).toContain('anthropic-version');
+      expect(h.proxy.getHeadersMock).not.toHaveBeenCalled();
+      expect(h.proxy.getApiEndpointMock).not.toHaveBeenCalled();
+    } finally { await h.stop(); }
+  });
+
+  it.each([401, 403, 429, 500])('uses the shared auth, quota and sanitized error hooks for native status %s', async (status) => {
+    const upstream = await startUpstream((_req, res) => { res.writeHead(status, { 'retry-after': '2' }); res.end('private vendor diagnostic'); });
+    const h = await startProxy();
+    h.proxy.protocol = 'messages';
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    jest.spyOn(h.proxy, 'getAuthFailureMessage').mockReturnValue('Rotate the Fake key');
+    jest.spyOn(h.proxy, 'getUpstreamErrorMessage').mockReturnValue('Fake denied this request');
+    try {
+      const result = await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY, headers: NATIVE_HEADERS });
+      expect(result.status).toBe(status);
+      expect(result.body).not.toContain('private vendor diagnostic');
+      expect(JSON.stringify(h.logger.error.mock.calls)).not.toContain('private vendor diagnostic');
+      if (status === 401) { expect(result.body).toContain('Rotate the Fake key'); expect(h.proxy.onAuthFailureMock).toHaveBeenCalledTimes(1); }
+      if (status === 429) { expect(result.headers['retry-after']).toBe('2'); expect(result.body).toContain('rate_limit_error'); }
+      if (status === 403 || status === 500) expect(result.body).toContain('Fake denied this request');
+    } finally { await h.stop(); await upstream.close(); providerQuotaStore.clear(); }
+  });
+
+  it.each([false, true])('fails a truncated native response instead of completing successfully (stream=%s)', async (stream) => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(200, { 'content-type': stream ? 'text/event-stream' : 'application/json' });
+      res.write('partial');
+      setTimeout(() => res.destroy(), 20);
+    });
+    const h = await startProxy();
+    h.proxy.protocol = 'messages';
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      await expect(request(`${h.url}/v1/messages`, { method: 'POST', body: JSON.stringify({ ...JSON.parse(MESSAGES_BODY), stream }), headers: NATIVE_HEADERS })).rejects.toThrow();
+    } finally { await h.stop(); await upstream.close(); }
+  });
+
+  it('returns 504 on native upstream timeout', async () => {
+    const upstream = await startUpstream(() => undefined);
+    const h = await startProxy();
+    h.proxy.protocol = 'messages';
+    h.proxy.upstreamTimeoutMs = 20;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      const result = await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY, headers: NATIVE_HEADERS });
+      expect(result.status).toBe(504);
+    } finally { await h.stop(); await upstream.close(); }
+  });
+});
+
+
+
+describe('TranslationProxyBase request-local dispatch', () => {
+  it.each(['/zen/v1', '/zen/go/v1'])('keeps all three concurrent lanes under %s', async (basePath) => {
+    const paths: string[] = [];
+    const received: Record<string, unknown>[] = [];
+    const upstream = await startUpstream((req, res) => {
+      paths.push(req.url ?? '');
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        received.push(JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>);
+        res.setHeader('content-type', 'application/json');
+        if (req.url?.endsWith('/chat/completions')) {
+          res.end(JSON.stringify({ choices: [{ message: { content: 'chat' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+        } else if (req.url?.endsWith('/responses')) {
+          res.end(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'responses' }] }] }));
+        } else {
+          res.end('{"native":true}');
+        }
+      });
+    });
+    const h = await startProxy();
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin + basePath);
+    jest.spyOn(h.proxy, 'resolveUpstreamProtocol').mockImplementation((model) => {
+      if (model === 'native') return 'messages';
+      if (model === 'responses') return 'responses';
+      return 'chat/completions';
+    });
+    try {
+      const results = await Promise.all(['native', 'chat', 'responses'].map((model) => request(`${h.url}/v1/messages`, {
+        method: 'POST', headers: NATIVE_HEADERS,
+        body: JSON.stringify({ ...JSON.parse(MESSAGES_BODY), model }),
+      })));
+      expect(paths.sort()).toEqual(['/messages', '/chat/completions', '/responses'].map((suffix) => basePath + suffix).sort());
+      expect(results.map((result) => result.status)).toEqual([200, 200, 200]);
+      expect(results[0].body).toBe('{"native":true}');
+      expect(results[1].body).toContain('chat');
+      expect(results[2].body).toContain('responses');
+      expect(received.find((body) => body['model'] === 'chat')).toHaveProperty('messages');
+      expect(received.find((body) => body['model'] === 'responses')).toHaveProperty('input');
+      expect(received.find((body) => body['model'] === 'native')).not.toHaveProperty('input');
+    } finally { await h.stop(); await upstream.close(); }
   });
 });

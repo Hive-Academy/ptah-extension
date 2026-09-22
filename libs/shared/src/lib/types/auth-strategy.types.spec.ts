@@ -182,6 +182,13 @@ describe('resolveStrategy — live ANTHROPIC_PROVIDERS registry', () => {
     'z-ai': 'api-key', // authType undefined (defaults to key)
     sakana: 'api-key', // apiKey + requiresProxy true → proxy started inside ApiKeyStrategy
     requesty: 'api-key', // apiKey + requiresProxy FALSE → native Messages passthrough (TASK_2026_236)
+    // OpenCode Zen / Go — apiKey + requiresProxy true, the Sakana route. The
+    // proxy is NOT here to translate a single protocol: each subscription
+    // serves its models over Anthropic Messages, OpenAI chat completions AND
+    // OpenAI Responses, picked per model id, so the local proxy is what gives
+    // the SDK one stable base URL across all three (TASK_2026_526).
+    'opencode-zen': 'api-key',
+    'opencode-go': 'api-key',
     // OAuth + translation proxy — unchanged.
     'github-copilot': 'oauth-proxy',
     'openai-codex': 'oauth-proxy',
@@ -215,7 +222,7 @@ describe('resolveStrategy — live ANTHROPIC_PROVIDERS registry', () => {
     expect(nativeAuthProviders).toEqual(['claude-cli']);
   });
 
-  it('the API-key provider set is exactly {openrouter, moonshot, z-ai, sakana, requesty} — regression guard for acceptance criterion 2', () => {
+  it('the API-key provider set is exactly {openrouter, moonshot, z-ai, sakana, requesty, opencode-zen, opencode-go} — regression guard for acceptance criterion 2', () => {
     const apiKeyRouted = REGISTRY.filter(
       (p) => resolveStrategy('thirdParty', p) === 'api-key',
     )
@@ -223,6 +230,8 @@ describe('resolveStrategy — live ANTHROPIC_PROVIDERS registry', () => {
       .sort();
     expect(apiKeyRouted).toEqual([
       'moonshot',
+      'opencode-go',
+      'opencode-zen',
       'openrouter',
       'requesty',
       'sakana',
