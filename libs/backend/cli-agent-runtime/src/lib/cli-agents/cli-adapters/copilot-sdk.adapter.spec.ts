@@ -93,7 +93,10 @@ jest.mock('child_process', () => ({
   spawn: jest.fn(),
 }));
 
-import type { AgentRoleDefinition } from '@ptah-extension/shared';
+import type {
+  AgentRoleDefinition,
+  CliOutputSegment,
+} from '@ptah-extension/shared';
 import { CopilotSdkAdapter } from './copilot-sdk.adapter';
 import {
   buildTaskPrompt,
@@ -618,6 +621,8 @@ describe('CopilotSdkAdapter', () => {
       const handle = await adapter.runSdk(defaultOptions);
 
       const output: string[] = [];
+      const segments: CliOutputSegment[] = [];
+      handle.onSegment?.((segment) => segments.push(segment));
       handle.onOutput((d) => output.push(d));
 
       currentChild?.stdout.write(
@@ -628,6 +633,7 @@ describe('CopilotSdkAdapter', () => {
             inputTokens: 1000,
             outputTokens: 500,
             cost: 0.0025,
+            duration: 3500,
           },
         }) + '\n',
       );
@@ -637,6 +643,18 @@ describe('CopilotSdkAdapter', () => {
       const joined = output.join('');
       expect(joined).toContain('Usage:');
       expect(joined).toContain('claude-sonnet-4.5');
+      expect(segments).toContainEqual({
+        type: 'info',
+        content:
+          'Usage: model: claude-sonnet-4.5, 1000 input, 500 output, $0.0025, 3.5s',
+        usage: {
+          model: 'claude-sonnet-4.5',
+          inputTokens: 1000,
+          outputTokens: 500,
+          costUsd: 0.0025,
+          durationMs: 3500,
+        },
+      });
     });
 
     it('captures sessionId from result event', async () => {

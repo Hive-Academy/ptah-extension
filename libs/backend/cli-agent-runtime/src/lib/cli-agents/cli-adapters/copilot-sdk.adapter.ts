@@ -695,10 +695,24 @@ export class CopilotSdkAdapter implements CliAdapter {
         if (cost !== undefined) parts.push(`$${cost.toFixed(4)}`);
         if (duration !== undefined)
           parts.push(`${(duration / 1000).toFixed(1)}s`);
-        if (parts.length > 0) {
+        if (
+          parts.length > 0 ||
+          inputTokens !== undefined ||
+          outputTokens !== undefined
+        ) {
           const usageStr = `Usage: ${parts.join(', ')}`;
           emitOutput(`\n[${usageStr}]\n`);
-          emitSegment({ type: 'info', content: usageStr });
+          emitSegment({
+            type: 'info',
+            content: usageStr,
+            usage: {
+              model,
+              inputTokens,
+              outputTokens,
+              costUsd: cost,
+              durationMs: duration,
+            },
+          });
         }
         return undefined;
       }
