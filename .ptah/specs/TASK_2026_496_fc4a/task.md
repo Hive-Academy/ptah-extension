@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_496_fc4a
-status: in_review
+status: done
 type: RESEARCH
 title: >-
   Spike - single-owner MCP connection

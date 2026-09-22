@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: feature
 title: Memory retention health verdict and surfaced warning
 description: >-
