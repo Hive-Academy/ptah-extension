@@ -17,7 +17,7 @@ Lane A. Depends on: none.
 
 ## Constraints
 
-- Angular 21, signals, OnPush, Tailwind 3 + daisyui 4. Use the project tokens.
+- Angular 22.1.7, signals, OnPush, Tailwind 3 + daisyui 4. Use the project tokens.
 - Electron only. The VS Code extension keeps one workspace and no spaces.
 - "Workspace" stays one concept with a type. Do not add a second word to the interface.
 - The plugin consent dialog and the permission card stay hand-built.
@@ -40,8 +40,9 @@ This changes nothing in the scope above, and this task still writes no product
 code. It changes two things in how the specification must be expressed:
 
 1. Describe navigation as a set of **addressable surfaces**, each with a stable
-   id, rather than as a row of tab buttons. The ids become the route table, and
-   an id that survives a reload is what makes a session restorable.
+   id, rather than as a row of tab buttons. The ids become the route table. This
+   spec requires only that the id stays stable across releases. Where the active
+   id is persisted and how it is restored at startup are not defined here.
 2. Mark every surface that must **stay mounted** after the user navigates away.
    The chat and canvas area is already one, because its always-mounted pattern
    protects `CanvasStore`. A surface marked this way cannot sit in a plain route
