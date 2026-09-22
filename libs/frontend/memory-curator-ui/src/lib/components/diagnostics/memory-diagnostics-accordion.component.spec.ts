@@ -1,4 +1,8 @@
 import { AppStateManager, ProvidersSettingsStateService } from '@ptah-extension/core';
+import type {
+  ProvidersEffectiveRoute,
+  ProvidersSettingsSection,
+} from '@ptah-extension/core';
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import type {
@@ -13,6 +17,33 @@ import { MemoryDiagnosticsRpcService } from '../../services/memory-diagnostics-r
 
 import { MemoryDiagnosticsAccordionComponent } from './memory-diagnostics-accordion.component';
 import { StorageHealthPanelComponent } from './storage-health-panel.component';
+
+/** Hoisted so a test can drive the route the accordion reads. */
+const routeSection = signal<ProvidersSettingsSection<ProvidersEffectiveRoute>>({
+  status: 'unloaded',
+  data: null,
+  error: null,
+});
+
+function curatorRoute(
+  overrides: Partial<ProvidersEffectiveRoute>,
+): ProvidersEffectiveRoute {
+  return {
+    route: 'api-key',
+    ready: true,
+    blockers: [],
+    driverProviderId: 'first',
+    resolvedAuthModality: 'api-key',
+    resolvedModel: { kind: 'model', id: 'model-a' },
+    storedAuthMethodScope: 'global',
+    providers: [{ id: 'first', type: 'apiKey', status: 'connected' }],
+    lastSuccessfulProbeAt: '2026-09-22T10:00:00Z',
+    lastFailedProbeAt: null,
+    probedAt: '2026-09-22T10:00:00Z',
+    fromCache: false,
+    ...overrides,
+  };
+}
 
 describe('MemoryDiagnosticsAccordionComponent', () => {
   const triggers = signal<MemoryTriggersDto | null>({
@@ -60,6 +91,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     });
     lastRun.set({ at: 1_700_000_000_000, stats: { promoted: 3 } });
     recentEvents.set([]);
+    routeSection.set({ status: 'unloaded', data: null, error: null });
     dbHealth.set({
       memories: 10,
       memory_chunks: 100,
@@ -88,7 +120,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
       imports: [MemoryDiagnosticsAccordionComponent],
       providers: [
         { provide: AppStateManager, useValue: { requestSettingsTab: jest.fn(), setCurrentView: jest.fn() } },
-        { provide: ProvidersSettingsStateService, useValue: { route: signal({ status: 'unloaded', data: null }), refreshRoute: jest.fn(async () => undefined) } },
+        { provide: ProvidersSettingsStateService, useValue: { route: routeSection, refreshRoute: jest.fn(async () => undefined) } },
         {
           provide: MemoryDiagnosticsStateService,
           useValue: {
@@ -134,6 +166,34 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
       root.querySelector('[data-testid="run-curator-now"]'),
     ).not.toBeNull();
     expect(startPollingMock).toHaveBeenCalled();
+  });
+
+  it('renders each resolvedModel arm in the curator model line', () => {
+    const fixture = TestBed.createComponent(MemoryDiagnosticsAccordionComponent);
+    const root = fixture.nativeElement as HTMLElement;
+    const line = (): string =>
+      root.querySelector('section[aria-label="Curator model"]')?.textContent ?? '';
+    fixture.detectChanges();
+
+    // No route checked yet: the not-ready arm answers instead.
+    expect(line()).toContain('Main agent route not checked');
+
+    // The model arm: the concrete model id the route resolved.
+    routeSection.set({ status: 'ready', data: curatorRoute({ resolvedModel: { kind: 'model', id: 'model-a' } }), error: null });
+    fixture.detectChanges();
+    expect(line()).toContain('model-a');
+
+    // The tier arm: the tier label the route resolved.
+    routeSection.set({ status: 'ready', data: curatorRoute({ resolvedModel: { kind: 'tier', tier: 'haiku' } }), error: null });
+    fixture.detectChanges();
+    expect(line()).toContain('haiku tier');
+    expect(line()).not.toContain('model-a');
+
+    // The unresolved arm: no model decision could be made.
+    routeSection.set({ status: 'ready', data: curatorRoute({ resolvedModel: { kind: 'unresolved' } }), error: null });
+    fixture.detectChanges();
+    expect(line()).toContain('Model unresolved');
+    expect(line()).not.toContain('haiku tier');
   });
 
   it('renders the storage health panel from the state storage signal', () => {

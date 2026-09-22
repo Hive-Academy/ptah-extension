@@ -132,3 +132,42 @@ describe('resolveEffectiveAuthRoute — non-native providers are unchanged', () 
     expect(result.ready).toBe(false);
   });
 });
+
+describe('resolveEffectiveAuthRoute — raw un-normalised authMethod (pin 1)', () => {
+  /**
+   * The settings UI may hand the resolver a value exactly as the user or a
+   * legacy file stored it. `effective-route.ts` normalises with
+   * `trim().toLowerCase()` before matching, so case and whitespace must
+   * never change the verdict — and the blocker must echo the value it was
+   * actually given, not its normalised form.
+   */
+  it("normalises '  APIKEY  ' to the api-key route", () => {
+    const result = resolveEffectiveAuthRoute(
+      config({ authMethod: '  APIKEY  ' }),
+      [],
+    );
+    expect(result.route).toBe('api-key');
+    // No default provider pinned: the route falls back to the anthropic tile.
+    expect(result.driverProviderId).toBe('anthropic');
+  });
+
+  it("normalises ' OAuth ' through to the oauth-proxy route", () => {
+    const result = resolveEffectiveAuthRoute(
+      config({ authMethod: ' OAuth ', anthropicProviderId: 'github-copilot' }),
+      [{ id: 'github-copilot', type: 'oauth', status: 'connected' }],
+    );
+    expect(result.route).toBe('oauth-proxy');
+    expect(result.ready).toBe(true);
+  });
+
+  it("echoes an unrecognized raw value verbatim in the blocker", () => {
+    const result = resolveEffectiveAuthRoute(
+      config({ authMethod: '  MoonWalk  ' }),
+      [],
+    );
+    expect(result.route).toBe('unresolved');
+    expect(result.blockers).toEqual([
+      "authMethod is unset or unrecognized ('  MoonWalk  ')",
+    ]);
+  });
+});

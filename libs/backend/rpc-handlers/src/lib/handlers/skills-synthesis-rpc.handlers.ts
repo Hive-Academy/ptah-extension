@@ -106,6 +106,7 @@ import type {
   SkillSynthesisUnpinParams,
   SkillSynthesisUnpinResult,
   SkillSynthesisUpdateSettingsParams,
+  SkillSynthesisSettingsWriteDto,
   SkillSynthesisUpdateSettingsResult,
   SkillSynthesisListClonesParams,
   SkillSynthesisListClonesResult,
@@ -562,7 +563,7 @@ export class SkillsSynthesisRpcHandlers {
       try {
         const parsed = UpdateSkillSynthesisSettingsParamsSchema.parse(params);
         const entries = Object.entries(parsed.settings) as Array<
-          [string, unknown]
+          [keyof SkillSynthesisSettingsWriteDto, unknown]
         >;
         const curatorAffected =
           'curatorEnabled' in parsed.settings ||

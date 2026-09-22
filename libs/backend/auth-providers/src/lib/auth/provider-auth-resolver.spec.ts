@@ -996,4 +996,20 @@ describe('ProviderAuthResolver draft endpoints', () => {
     expect(ensureProxy).toHaveBeenCalledWith('lm-studio');
     expect(result.baseUrl).toBe('http://127.0.0.1:51234');
   });
+  it('resolves an oauth draft through the persisted proxy and never the draft URL', async () => {
+    // The draft UI lets the user type a base URL for every mode, but an oauth
+    // provider's credential lives behind the curator proxy — a draft URL
+    // would pair saved tokens with an endpoint that never issued them.
+    const { resolver, ensureProxy } = createHarness({ activeProviderId: 'anthropic' });
+    const result = await resolver.buildDraftOverride({
+      providerId: 'github-copilot',
+      authMode: 'oauth',
+      baseUrl: 'http://draft.example:9999',
+    });
+    expect(ensureProxy).toHaveBeenCalledWith('github-copilot');
+    expect(result.baseUrl).toBe('http://127.0.0.1:51234');
+    expect(result.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:51234');
+    expect(result.env.ANTHROPIC_BASE_URL).not.toBe('http://draft.example:9999');
+    expect(result.env.ANTHROPIC_AUTH_TOKEN).toBe(COPILOT_PROXY_TOKEN_PLACEHOLDER);
+  });
 });

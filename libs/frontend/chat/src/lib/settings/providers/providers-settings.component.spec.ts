@@ -158,6 +158,25 @@ describe('ProvidersSettingsComponent', () => {
     expect(element.textContent).toContain('Choose a provider to start the main agent.');
     expect(element.textContent).toContain('No connections configured.');
   });
+  it('renders each resolvedModel arm of the route switch', async () => {
+    // The model arm is the default fixture: a concrete model id.
+    state.route.set(ready(route));
+    await render();
+    expect(element.textContent).toContain('Model: model-a');
+    expect(element.textContent).not.toContain('Model tier:');
+
+    // The tier arm: a tier that only names an entry of the provider's catalogue.
+    state.route.set(ready({ ...route, resolvedModel: { kind: 'tier', tier: 'haiku' } }));
+    await render();
+    expect(element.textContent).toContain('Model tier: haiku');
+    expect(element.textContent).not.toContain('Model: model-a');
+
+    // The unresolved arm: no model decision could be made for this route.
+    state.route.set(ready({ ...route, resolvedModel: { kind: 'unresolved' } }));
+    await render();
+    expect(element.textContent).toContain('Model has not been resolved.');
+    expect(element.textContent).not.toContain('Model tier: haiku');
+  });
   it('keeps successful sections usable when another read fails and retries only that read', async () => {
     state.route.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
     await render();
