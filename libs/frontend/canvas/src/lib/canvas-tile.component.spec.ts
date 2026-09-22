@@ -746,7 +746,7 @@ describe('CanvasTileComponent layout menu contract', () => {
       fixture.nativeElement.querySelectorAll('[data-span]'),
     ) as HTMLButtonElement[];
     const activeSpans = spans.filter((button) =>
-      button.classList.contains('btn-active'),
+      button.classList.contains('btn-primary'),
     );
     expect(activeSpans.map((button) => button.dataset['span'])).toEqual([
       'half',
@@ -755,7 +755,7 @@ describe('CanvasTileComponent layout menu contract', () => {
       fixture.nativeElement.querySelectorAll('[data-view-mode]'),
     ) as HTMLButtonElement[];
     const activeHeights = heights.filter((button) =>
-      button.classList.contains('btn-active'),
+      button.classList.contains('btn-primary'),
     );
     expect(activeHeights.map((button) => button.dataset['viewMode'])).toEqual([
       'full',
