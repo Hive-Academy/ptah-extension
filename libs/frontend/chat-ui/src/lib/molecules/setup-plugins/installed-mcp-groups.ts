@@ -40,6 +40,8 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
   // Same story as Codex: `agy` reads ~/.gemini/config/mcp_config.json and
   // nothing else, so until TASK_2026_285 it could not be offered at all.
   antigravity: 'Antigravity CLI',
+  // OpenCode reads the project `opencode.json` `mcp` block (its own dialect).
+  opencode: 'OpenCode',
 };
 
 /** Display name for one install target. */

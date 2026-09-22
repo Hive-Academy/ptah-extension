@@ -105,6 +105,7 @@ export const HarnessTargetIdSchema = z.enum([
   'copilot',
   'cursor',
   'antigravity',
+  'opencode',
   'vscode',
 ]);
 
@@ -114,7 +115,7 @@ export const HarnessHealthParamsSchema = z.object({
 
 export const HarnessReconcileParamsSchema = z.object({
   mode: z.enum(['full', 'preflight']).optional(),
-  targets: z.array(HarnessTargetIdSchema).max(6).optional(),
+  targets: z.array(HarnessTargetIdSchema).max(7).optional(),
 });
 
 /**

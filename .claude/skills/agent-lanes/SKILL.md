@@ -45,7 +45,7 @@ That sample is one machine's output at one moment — yours will differ.
 | `workingDirectory` | Inside the workspace. A worktree path when lanes edit the same files in parallel. |
 | `taskFolder`, `files` | Where the lane writes deliverables; what it should read. |
 | `deliverables` | The files the lane MUST write. Relative to `taskFolder` when set, else to `workingDirectory`. Pass it whenever the lane owes you a file — it is what makes the completion signal (§4) able to say the work was actually done. |
-| `timeout` | Inactivity window in milliseconds: the lane is stopped after this long with no output. Default one hour, no maximum; `0` disables it. |
+| `timeout` | Inactivity window in milliseconds: the lane is stopped after this long with no output. Default one hour, no maximum; `0` disables it. Pass a value well under an hour (20 min, `1200000`, is a good default); a lane that needs more than that is too big — split it. |
 | `resume_session_id` | Only per §5. |
 
 A user-pinned spawn args line (lane, model) is passed through unchanged. `ptah_agent_spawn`
@@ -103,8 +103,9 @@ Act on its `verdict`, never on the exit code alone:
 | `failed` | Terminal status `failed`, `timeout` or `stopped` | Recover per §5 |
 | `unverified` | Completed, but nothing was declared, so nothing was checked | Read the output and verify it. Declare `deliverables` next time |
 
-**Poll-based reading stays the fallback, and is still needed.** Use
-`ptah_agent_status({ agentId })` (every ~8s) and `ptah_agent_read({ agentId })` when:
+**The `<agent-lane-completed>` signal is the primary wake; status checks are the fallback.** If
+you must check, make one `ptah_agent_status({ agentId })` call, then wait at least 60 s before the
+next — at most 5 checks per lane, never a loop. Use it and `ptah_agent_read({ agentId })` when:
 
 - no signal arrived — the signal is refused when the spawning session is no longer live, when the
   lane was spawned with no parent session, or when this host registered no chat runtime;
@@ -142,7 +143,7 @@ Lane output is evidence, not proof.
 | Output | Before you use it |
 | --- | --- |
 | Research, surveys, summaries | Spot-check claims against the code |
-| Scaffolding, stubs | Read it in full |
+| Scaffolding, stubs | Read it in full — only the files the lane edited |
 | Code that will ship | Review by a lane from a **different family**, or by you line by line |
 
 - **Independence**: a lane never reviews its own work. Same family on another model is allowed
@@ -151,7 +152,9 @@ Lane output is evidence, not proof.
   `file:line`. Drop any defect without a location before relaying it.
 - **Revise cap**: 2 revise rounds. Not converged → stop and finish it yourself, or report the open
   defects honestly. Announce the cap before the first round.
-- **Proof** is the project's typecheck, tests and lint. A lane's `PASS` is an opinion; run them.
+- **Proof** is the project's typecheck, tests and lint. A lane's `PASS` is an opinion; run them —
+  scoped to the projects the lane changed (`npx nx run-many -t typecheck,test,lint -p <project>`),
+  never workspace-wide. Tail or filter the output; never paste a full log into the thread.
 
 ## 7. Talk to a live lane
 
@@ -183,3 +186,14 @@ the parent-side tool table in `ptah-system-prompt.constant.ts` must agree with t
 
 Every spawn, resume, message turn and review round is a real paid call. Before spending, announce
 the lanes, the number of rounds and the resulting call count.
+
+Inside a lane, **cost ≈ requests × context**: every tool call is one request that resends the
+whole thread, so a lane's bill grows with its call count times its accumulated context. Measured
+over 7 days of Codex lanes: 68 requests per session at an average 115k-token context, 29% of
+them polling, and 1.23 billion input tokens in total.
+
+- Default ceiling: **40 tool calls per lane**. State it in `task`; a lane near it reports and stops.
+- Give the lane its file list up front (`files` plus absolute paths in `task`) so it edits instead
+  of exploring. Exploration is the calls you pay for twice — once to search, once as context.
+- A lane whose context balloons from a log or a whole-file read pays that context on every call
+  after; the scoped-verification and tail rules in §6 apply inside the lane too.

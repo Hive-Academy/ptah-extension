@@ -16,9 +16,14 @@ description: >-
   behaviour, not taste, and never edits the code it reviews.
 model: sonnet
 variables:
-  CLARIFY_TRIGGER: No URL, route or running server is identified, or the supported viewport and browser set is unstated.
-  CLARIFY_ARTIFACT: the visual-review.md report
-  CLARIFY_BYPASS: The prompt names the URL and the screens to review, or the repository has one obvious dev-server target.
+  CLARIFY_TRIGGER: >-
+    no URL, route or running server is identified, or the viewport and browser set is
+    unstated
+  CLARIFY_ARTIFACT: >-
+    visual-review.md
+  CLARIFY_BYPASS: >-
+    the prompt names the URL and screens or the repository has one obvious dev-server
+    target
   REVIEW_SUBJECT: interface
 ---
 
@@ -58,7 +63,9 @@ it examined, plus any residual uncertainty; it does not infer a defect to satisf
 
 **Build-then-serve precondition.** A screenshot of a stale bundle proves nothing. Confirm
 a server is serving the code under review: either a dev server already running the change,
-or a fresh build of the frontend followed by serving it. If neither can be established,
+or a fresh build of the frontend followed by serving it — build only the app under
+review (`-p <project>`, never workspace-wide) and tail the output rather than pasting
+it. If neither can be established,
 stop and report that instead of reviewing whatever happens to be on the port.
 
 Browser work uses Ptah's built-in browser tools — `ptah_browser_navigate`,

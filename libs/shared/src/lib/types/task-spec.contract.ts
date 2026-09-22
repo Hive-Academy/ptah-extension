@@ -526,16 +526,12 @@ function recognisedDocList(): string {
 function renderSpecialistBlock(): string {
   return `## Task specs (\`${SPEC_ROOT}/\`)
 
-- Work in the task folder you were handed. Its name, \`TASK_YYYY_NNN_xxxx\`, is the
-  canonical id. Never create, allocate or rename a task folder.
-- \`${CARRIER_FILE}\` is the machine-owned carrier: read it, never edit it.
-  \`${CONTEXT_FILE}\` holds intent. \`${BATCHES_FILE}\` holds the team-leader batch
-  breakdown; its former name \`${LEGACY_BATCHES_FILE}\` is still read.
-- State is not yours. The carrier's \`status:\` line belongs to the orchestrator,
-  project-manager and team-leader; task states in \`${BATCHES_FILE}\` belong to the
-  team-leader alone. Report what you finished, with evidence.
-- Write your deliverable under the filename your output contract names. Only
-  these are read from a task folder: ${recognisedDocList()}.
+- Folder \`TASK_YYYY_NNN_xxxx\` (name = canonical id). Never create, allocate or rename a task folder.
+- \`${CARRIER_FILE}\` is machine-owned: read it, never edit it. \`${CONTEXT_FILE}\` holds intent.
+  \`${BATCHES_FILE}\` holds the team-leader batch breakdown; its former name \`${LEGACY_BATCHES_FILE}\` is still read.
+- State is not yours: the carrier \`status:\` and task states in \`${BATCHES_FILE}\` belong to the team-leader alone
+  (status also to the orchestrator and project-manager). Report what you finished, with evidence.
+- Write only the deliverable your output contract names. Read from a task folder: ${recognisedDocList()}.
 `;
 }
 
@@ -544,33 +540,23 @@ function renderCoordinatorBlock(): string {
 
   return `## Task specs (\`${SPEC_ROOT}/\`)
 
-- One folder per task, \`TASK_YYYY_NNN_xxxx\`. **The folder name is the canonical id.**
-  A frontmatter \`id:\` that disagrees is a warning — never rename the folder to
-  match it.
-- \`${CARRIER_FILE}\` is the machine-owned carrier: frontmatter (\`status\`,
-  \`type\`, \`title\`) plus a short pointer body. A folder without it is invisible
-  to the Tasks board. Never write prose into it.
-- \`${CONTEXT_FILE}\` holds intent and narrative. \`${BATCHES_FILE}\` holds the
-  team-leader batch breakdown and is a DIFFERENT file from \`${CARRIER_FILE}\`;
-  its former name \`${LEGACY_BATCHES_FILE}\` is still read, permanently.
-- To change status, \`Edit\` exactly the \`status:\` line
-  (\`${statuses}\`). Never rewrite the carrier with \`Write\` — Ptah writes this
-  file too, and a whole-file write from a stale snapshot discards the other
-  writer's change.
-- The team-leader alone sets task states in \`${BATCHES_FILE}\`. Specialists
-  report what they finished and never edit \`${CARRIER_FILE}\` or
-  \`${BATCHES_FILE}\`; do not ask them to.
-- \`description\` (and any \`title\` containing a colon) MUST be a \`>-\` block
-  scalar. A plain YAML scalar ends at the first colon-space, so one quoted code
-  snippet makes the carrier unparseable and the task vanishes from the board.
-- Allocate a new id by scanning \`${SPEC_ROOT}\` on \`origin/main\` (run \`git fetch\`,
-  then \`git ls-tree\`), every path from \`git worktree list\`, and the local folder.
-  Take the highest \`NNN\` for the current year, add one, zero-pad to at least
-  three digits, and append an underscore plus four random lowercase hex
-  characters (\`TASK_YYYY_NNN_xxxx\`). Claim the folder with an exclusive,
-  fail-if-exists \`mkdir\`; it is the lock. Never read the id from \`registry.md\`
-  — it is generated and can be stale. Never rename an existing folder.
-- Only these documents are read from a task folder: ${recognisedDocList()}. Any
-  other name is not picked up.
+- One folder per task, \`TASK_YYYY_NNN_xxxx\`; the folder name is the canonical id. A disagreeing
+  frontmatter \`id:\` is a warning — never rename the folder to match it.
+- \`${CARRIER_FILE}\` is the machine-owned carrier: frontmatter (\`status\`, \`type\`, \`title\`) plus a
+  short pointer body, never prose. Without it the task is invisible to the board.
+- \`${CONTEXT_FILE}\` holds intent. \`${BATCHES_FILE}\` holds the team-leader batch breakdown and is a
+  DIFFERENT file from \`${CARRIER_FILE}\`; its former name \`${LEGACY_BATCHES_FILE}\` is still read.
+- To change status, \`Edit\` exactly the \`status:\` line (\`${statuses}\`). Never rewrite the carrier
+  with \`Write\` — Ptah writes it too, and a stale whole-file write discards the other writer's change.
+- The team-leader alone sets task states in \`${BATCHES_FILE}\`. Specialists never edit
+  \`${CARRIER_FILE}\` or \`${BATCHES_FILE}\`; do not ask them to.
+- \`description\` (and a \`title\` with a colon) MUST be a \`>-\` block scalar, or the carrier is
+  unparseable and the task vanishes from the board.
+- Allocate an id: scan \`${SPEC_ROOT}\` on \`origin/main\` (\`git fetch\`, \`git ls-tree\`), every path
+  from \`git worktree list\`, and the local folder; take the highest \`NNN\` for the year, add one,
+  zero-pad to at least three digits, append \`_\` plus four random lowercase hex characters
+  (\`TASK_YYYY_NNN_xxxx\`). Claim the folder with an exclusive, fail-if-exists \`mkdir\` (the lock).
+  Never read the id from \`registry.md\` (generated, can be stale). Never rename an existing folder.
+- Read from a task folder: ${recognisedDocList()}. Any other name is not picked up.
 `;
 }

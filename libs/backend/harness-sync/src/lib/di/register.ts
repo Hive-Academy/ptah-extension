@@ -55,6 +55,7 @@ import {
   createCodexTarget,
   createCopilotTarget,
   createCursorTarget,
+  createOpencodeTarget,
   createVscodeMcpTarget,
   type RivalTargetDeps,
 } from '../targets/rival-targets';
@@ -103,6 +104,7 @@ export {
   createCodexTarget as codexTargetFactory,
   createCopilotTarget as copilotTargetFactory,
   createCursorTarget as cursorTargetFactory,
+  createOpencodeTarget as opencodeTargetFactory,
   createVscodeMcpTarget as vscodeMcpTargetFactory,
 };
 
@@ -117,6 +119,7 @@ export const ALL_HARNESS_TARGET_FACTORIES: HarnessTargetFactory[] = [
   createCopilotTarget,
   createCursorTarget,
   createAntigravityTarget,
+  createOpencodeTarget,
   createVscodeMcpTarget,
 ];
 

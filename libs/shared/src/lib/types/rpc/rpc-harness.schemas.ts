@@ -341,7 +341,15 @@ const McpServerEntryInputSchema = z.object({
   serverKey: z.string().optional(),
   installTargets: z
     .array(
-      z.enum(['vscode', 'claude', 'cursor', 'copilot', 'codex', 'antigravity']),
+      z.enum([
+        'vscode',
+        'claude',
+        'cursor',
+        'copilot',
+        'codex',
+        'antigravity',
+        'opencode',
+      ]),
     )
     .optional(),
 });

@@ -94,10 +94,21 @@ export function planMcpFacet(
 
     const onDisk = actual.get(server.serverKey);
     const owned = baseEntries[relPath];
+    // What the file will read back as, not what was asked for: a dialect that
+    // cannot spell `sse` must not make the same server an update every pass.
+    const outputHash = hashMcpConfig(
+      facet.canonicalize?.(server.config) ?? server.config,
+    );
 
     if (onDisk === undefined) {
       plan.writes.push(
-        writeFor(relPath, server, 'create', /* overwritesLocalEdit */ false),
+        writeFor(
+          relPath,
+          server,
+          outputHash,
+          'create',
+          /* overwritesLocalEdit */ false,
+        ),
       );
       continue;
     }
@@ -109,11 +120,11 @@ export function planMcpFacet(
       continue;
     }
     if (entrySourceHash(owned) !== server.contentHash) {
-      plan.writes.push(writeFor(relPath, server, 'update', false));
+      plan.writes.push(writeFor(relPath, server, outputHash, 'update', false));
       continue;
     }
     if (onDisk !== owned.hash) {
-      plan.writes.push(writeFor(relPath, server, 'update', true));
+      plan.writes.push(writeFor(relPath, server, outputHash, 'update', true));
       continue;
     }
     plan.unchanged++;
@@ -168,6 +179,7 @@ export async function applyMcpFacet(
         write.hash,
         write.source,
         'mcp',
+        write.sourceHash,
       );
       if (write.overwritesLocalEdit) {
         result.overwrittenLocalEdit.push(write.relPath);
@@ -202,6 +214,7 @@ function readActual(
 function writeFor(
   relPath: string,
   server: HarnessDesiredMcpServer,
+  outputHash: string,
   reason: 'create' | 'update',
   overwritesLocalEdit: boolean,
 ): HarnessPlanWrite {
@@ -209,7 +222,11 @@ function writeFor(
     relPath,
     kind: 'mcp',
     source: server.registryName,
-    hash: server.contentHash,
+    hash: outputHash,
+    // The desired config's own hash, kept apart from the on-disk hash for the
+    // same reason skills keep theirs: a changed source must read as an update
+    // even when the dialect round trip made `hash` differ from it.
+    sourceHash: server.contentHash,
     isDirectory: false,
     reason,
     overwritesLocalEdit,

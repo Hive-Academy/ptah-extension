@@ -47,7 +47,10 @@ function readFrontmatterVariables(
  * Service for loading and managing agent templates from storage.
  *
  * Responsibilities:
- * - Load templates from extension/templates/agents/ directory
+ * - Load templates from the downloaded content cache, `~/.ptah/templates/agents/`
+ *   (filled by `ContentDownloadService` from the published content manifest;
+ *   the repository's `libs/backend/agent-generation/templates/` is the SOURCE
+ *   of that manifest, never read at runtime)
  * - Parse YAML frontmatter and markdown content
  * - Validate template structure and metadata
  * - Cache templates in memory for performance
@@ -72,7 +75,7 @@ export class TemplateStorageService implements ITemplateStorageService {
 
   /**
    * Absolute path to the templates directory.
-   * Defaults to extension/templates/agents/ if not specified.
+   * Defaults to `~/.ptah/templates/agents/`, the content-download cache.
    */
   private readonly templatesPath: string;
 

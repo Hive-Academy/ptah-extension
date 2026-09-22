@@ -84,6 +84,17 @@ const CLI_TOOL_MAPPINGS: Record<
     slashPrefix: 'agy',
     productName: 'Antigravity CLI',
   },
+  // OpenCode reuses the rival vocabulary rather than getting rules of its own:
+  // it has no interactive question tool (its `question` surface is a permission,
+  // not something an agent can call), and delegation is `opencode run --agent
+  // NAME` — verified from `opencode run --help` on v2.0.12, which documents
+  // `--agent string  Agent to use`.
+  opencode: {
+    askUser: 'ask the user directly in your response',
+    taskDelegate: 'opencode run --agent',
+    slashPrefix: 'opencode',
+    productName: 'OpenCode CLI',
+  },
 };
 
 /**

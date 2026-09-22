@@ -26,5 +26,5 @@ import type { CliType } from './agent-process.types';
  */
 export type CliTarget = Extract<
   CliType,
-  'copilot' | 'codex' | 'cursor' | 'antigravity'
+  'copilot' | 'codex' | 'cursor' | 'antigravity' | 'opencode'
 >;

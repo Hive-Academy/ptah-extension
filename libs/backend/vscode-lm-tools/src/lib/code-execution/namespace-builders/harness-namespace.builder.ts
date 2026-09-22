@@ -200,7 +200,15 @@ const McpServerConfigSchema = z.discriminatedUnion('type', [
 /** Boundary schema for the optional install-target list. */
 const McpInstallTargetsSchema = z
   .array(
-    z.enum(['vscode', 'claude', 'cursor', 'copilot', 'codex', 'antigravity']),
+    z.enum([
+      'vscode',
+      'claude',
+      'cursor',
+      'copilot',
+      'codex',
+      'antigravity',
+      'opencode',
+    ]),
   )
   .nonempty();
 

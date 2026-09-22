@@ -69,6 +69,11 @@ area. Same area runs sequential. Different areas run parallel.
 This prevents a named failure: Edit-tool conflicts and test flakes from
 concurrent edits in one working tree.
 
+Batch cap: one batch is at most 6 files across at most 2 libs, verified
+by one scoped command (`-p` on those libs only). Bigger than that is two
+batches. A long lane resends its whole context on every tool call, so
+narrow batches are cheaper than one lane that does everything.
+
 Worked example:
 
 > TASK_341 and TASK_342 both touch `agent-sdk`. Run them sequential.
@@ -112,7 +117,9 @@ filters. Zero tests run. The command exits 0. You get a green lie.
 
 Always run `npx nx run-many -t test -p <projects>`. Then READ the
 "Running target test for N projects" header. Check that N is the number
-you asked for. A misspelled project name is silently dropped.
+you asked for. A misspelled project name is silently dropped. Tail or
+filter the output (the header, failures, the summary); never put a full
+test log into context.
 
 Worked example:
 
@@ -140,15 +147,18 @@ CLI agents (codex, ollama-cloud via ptah-cli) have NO shared context.
 Prompts must be fully self-contained. Use absolute Windows paths. State
 an explicit output format.
 
-Flow: Spawn, then Poll, then Read.
+Flow: Spawn, wait for the completion signal, then Read.
 
-- `ptah_agent_spawn { task, cli, files }`
-- `ptah_agent_status { agentId }` until not running
+- `ptah_agent_spawn { task, cli, files, deliverables }`
+- Wait for `<agent-lane-completed>`; it is pushed into this session.
+  No signal → one `ptah_agent_status { agentId }` check, never a loop
+  (agent-lanes skill §4).
 - `ptah_agent_read { agentId }`
 - Max 3 concurrent CLI agents.
 
 Worked example:
 
 > Spawn codex on TASK_341 with a self-contained prompt and the absolute
-> path `D:/projects/ptah-extension/libs/backend/agent-sdk/`. Poll until
-> done. Read the output. Verify before you trust it.
+> path `D:/projects/ptah-extension/libs/backend/agent-sdk/`. Do other
+> work until the completion signal arrives. Read the output. Verify
+> before you trust it.

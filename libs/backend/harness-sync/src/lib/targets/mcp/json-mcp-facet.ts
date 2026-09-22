@@ -32,7 +32,12 @@ import { atomicWriteWithRetry } from '../../fs/atomic-write';
 import { withWindowsRetrySync } from '../../fs/windows-retry';
 import { withMcpConfigLock } from './mcp-config-lock';
 import type { IHarnessMcpFacet } from './mcp-facet.port';
-import { configToJson, DEFAULT_URL_KEY, jsonToConfig } from './mcp-json-format';
+import {
+  configToJson,
+  DEFAULT_URL_KEY,
+  jsonToConfig,
+  type McpJsonDialect,
+} from './mcp-json-format';
 
 export interface JsonMcpFacetOptions {
   target: HarnessTargetId;
@@ -54,6 +59,11 @@ export interface JsonMcpFacetOptions {
    * Antigravity, which reads `serverUrl` and ignores `url` entirely.
    */
   urlKey?: string;
+  /**
+   * How entry fields are spelled. `opencode` renames the transport, the command
+   * and the environment all at once — see {@link McpJsonDialect}.
+   */
+  dialect?: McpJsonDialect;
   /** Overridable so specs can point `home` at a temp directory. */
   homeDir?: string;
 }
@@ -80,6 +90,17 @@ export class JsonMcpFacet implements IHarnessMcpFacet {
     return join(workspaceRoot, ...this.options.segments);
   }
 
+  canonicalize(config: McpServerConfig): McpServerConfig {
+    return jsonToConfig(
+      configToJson(
+        config,
+        this.options.includeType,
+        this.options.urlKey ?? DEFAULT_URL_KEY,
+        this.options.dialect ?? 'standard',
+      ),
+    );
+  }
+
   readAll(workspaceRoot: string): Map<string, McpServerConfig> {
     const servers = new Map<string, McpServerConfig>();
     const path = this.configPath(workspaceRoot);
@@ -103,6 +124,7 @@ export class JsonMcpFacet implements IHarnessMcpFacet {
         config,
         this.options.includeType,
         this.options.urlKey ?? DEFAULT_URL_KEY,
+        this.options.dialect ?? 'standard',
       );
       return true;
     });

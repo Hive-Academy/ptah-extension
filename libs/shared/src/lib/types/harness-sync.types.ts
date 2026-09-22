@@ -23,6 +23,7 @@ export const HARNESS_TARGET_IDS = [
   'copilot',
   'cursor',
   'antigravity',
+  'opencode',
   'vscode',
 ] as const;
 

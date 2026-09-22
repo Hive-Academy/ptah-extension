@@ -63,6 +63,49 @@ import {
 } from '../../types/enhanced-prompts.types';
 import { EnhancedPromptsStateStore } from './enhanced-prompts-state-store';
 
+/**
+ * Ceiling for the project guidance prepended to EVERY CLI agent spawn.
+ *
+ * The generated prompt is unbounded — it grows with the workspace analysis —
+ * but `getProjectGuidanceContent` feeds the spawn prompt, which every vendor
+ * then resends on every tool call. 4,000 bytes is ~1,000 tokens; past that the
+ * guidance costs more than it steers (`.ptah/specs/TASK_PROMPT_EFFICIENCY/audit.md` R5).
+ */
+const PROJECT_GUIDANCE_MAX_BYTES = 4000;
+
+/** Appended in place of the dropped tail so the reader knows it is partial. */
+const PROJECT_GUIDANCE_TRUNCATION_NOTICE =
+  '\n\n[Project guidance truncated at 4,000 bytes to keep the spawn prompt small.]';
+
+/**
+ * Cut `guidance` so the returned string stays within
+ * `PROJECT_GUIDANCE_MAX_BYTES` including the notice, preferring the last
+ * section heading before the budget and falling back to the last newline, so
+ * the tail is never a half sentence.
+ */
+function capProjectGuidance(guidance: string): string {
+  if (Buffer.byteLength(guidance, 'utf8') <= PROJECT_GUIDANCE_MAX_BYTES) {
+    return guidance;
+  }
+
+  const budget =
+    PROJECT_GUIDANCE_MAX_BYTES -
+    Buffer.byteLength(PROJECT_GUIDANCE_TRUNCATION_NOTICE, 'utf8');
+
+  // A byte budget is not a character count: step back until the slice fits.
+  let end = Math.min(guidance.length, budget);
+  while (end > 0 && Buffer.byteLength(guidance.slice(0, end), 'utf8') > budget) {
+    end--;
+  }
+
+  const head = guidance.slice(0, end);
+  const sectionStart = head.lastIndexOf('\n#');
+  const boundary = sectionStart > 0 ? sectionStart : head.lastIndexOf('\n');
+  const kept = boundary > 0 ? head.slice(0, boundary) : head;
+
+  return `${kept.trimEnd()}${PROJECT_GUIDANCE_TRUNCATION_NOTICE}`;
+}
+
 /** What multi-phase enrichment actually used, recorded in the trace. */
 export interface MultiPhaseEnrichment {
   /** Absolute slug directory whose completed phases were used, or null. */
@@ -704,6 +747,9 @@ export class EnhancedPromptsService {
    * while excluding PTAH_CORE_SYSTEM_PROMPT and PTAH_SYSTEM_PROMPT which are
    * Claude-specific and not applicable to CLI agents (Codex, Copilot).
    *
+   * Capped at {@link PROJECT_GUIDANCE_MAX_BYTES}: this string is prepended to
+   * every CLI spawn and resent with every tool call of that lane.
+   *
    * @param workspacePath - Workspace to get guidance for
    * @returns Project-specific guidance content, or null if disabled/unavailable
    */
@@ -716,7 +762,7 @@ export class EnhancedPromptsService {
     const idx = state.generatedPrompt.indexOf(marker);
     if (idx === -1) return null;
 
-    return state.generatedPrompt.substring(idx).trim();
+    return capProjectGuidance(state.generatedPrompt.substring(idx).trim());
   }
 
   /**

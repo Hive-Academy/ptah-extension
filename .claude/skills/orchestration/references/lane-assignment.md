@@ -64,7 +64,10 @@ independent and file-disjoint. You spawn and merge them: [team-leader-modes.md](
 ## Assigning phases to lanes
 
 Any phase can run on a lane instead of a subagent: PM, architect, a batch, a review. When every
-phase is a lane, the whole task runs on external vendors with no subagents — a relay.
+phase is a lane, the whole task runs on external vendors with no subagents — a relay. A whole-phase
+lane still respects the batch cap (≤6 files, ≤2 libs, one scoped verification per batch) and the
+per-lane tool-call ceiling (agent-lanes §8): an implement phase larger than one batch is spawned as
+several sequential lanes, each with its own file list, not one long lane.
 
 | Phase | Deliverable | Default lane when the user names none |
 | --- | --- | --- |
