@@ -10,6 +10,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./routing": {
+      "types": "./src/lib/routing/index.ts",
+      "default": "./src/lib/routing/index.ts"
+    },
     "./testing": {
       "types": "./src/testing/index.ts",
       "default": "./src/testing/index.ts"
