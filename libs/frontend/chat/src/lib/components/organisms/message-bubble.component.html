@@ -109,7 +109,9 @@
           } @else {
             <!-- Fallback text content -->
             <markdown
-              [data]="message().rawContent || ''"
+              [data]="
+                message().rawContent || '' | surfaceMarkdown: surfaceActive()
+              "
               class="prose prose-sm max-w-none"
             />
             @if (isStreaming()) {
@@ -149,9 +151,7 @@
       </div>
 
       <!-- Center: Metadata badges (always visible when data exists) -->
-      @if (
-        message().tokens !== undefined || message().duration !== undefined
-      ) {
+      @if (message().tokens !== undefined || message().duration !== undefined) {
         <div
           data-testid="message-metadata-footer"
           class="flex gap-1.5 items-center text-base-content-muted"
@@ -248,13 +248,13 @@
         </button>
         @if (!isContinuationCollapsed()) {
           <markdown
-            [data]="userDisplayContent()"
+            [data]="userDisplayContent() | surfaceMarkdown: surfaceActive()"
             class="prose prose-sm max-w-none [&_*]:text-base-content mt-2"
           />
         }
       } @else {
         <markdown
-          [data]="userDisplayContent()"
+          [data]="userDisplayContent() | surfaceMarkdown: surfaceActive()"
           class="prose prose-sm max-w-none [&_*]:text-base-content"
         />
       }

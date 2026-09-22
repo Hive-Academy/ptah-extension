@@ -51,6 +51,7 @@ import {
 import { SessionDisplayUtils } from '../../services/session-display-utils.service';
 import {
   AppStateManager,
+  SurfaceActiveDirective,
   AuthStateService,
   BootStatusService,
   defaultSessionName,
@@ -102,6 +103,7 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
   standalone: true,
   imports: [
     ChatViewComponent,
+    SurfaceActiveDirective,
     RouterOutlet,
     NgComponentOutlet,
     TabBarComponent,

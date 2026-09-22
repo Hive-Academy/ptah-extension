@@ -10,7 +10,10 @@ import {
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
-import { createMockRpcService } from '@ptah-extension/core/testing';
+import {
+  createMockRpcService,
+  provideSurfaceActiveTesting,
+} from '@ptah-extension/core/testing';
 import { AgentCardComponent } from './agent-card.component';
 import { CliAgentOutputComponent } from './cli-agent-output.component';
 import { AgentMonitorTreeBuilderService } from '../../../services/agent-monitor-tree-builder.service';
@@ -39,6 +42,7 @@ describe('agent card unified output regressions', () => {
     TestBed.configureTestingModule({
       imports: [AgentCardComponent, CliAgentOutputComponent],
       providers: [
+        provideSurfaceActiveTesting(),
         provideMarkdown(),
         { provide: AgentMonitorStore, useValue: { tick: signal(0) } },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },

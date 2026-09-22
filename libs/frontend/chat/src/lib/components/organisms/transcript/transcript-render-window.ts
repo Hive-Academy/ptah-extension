@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, OnDestroy, signal } from '@angular/core';
 
 /**
  * Vertical `rootMargin` (px) applied to the transcript's intersection observer.
@@ -38,7 +38,7 @@ export const PLACEHOLDER_FALLBACK_PX = 120;
  * memory optimization must never be able to blank the transcript.
  */
 @Injectable()
-export class TranscriptRenderWindow {
+export class TranscriptRenderWindow implements OnDestroy {
   /**
    * False when the platform has no `IntersectionObserver`. Everything mounts —
    * the pre-windowing behaviour.
@@ -46,6 +46,7 @@ export class TranscriptRenderWindow {
   readonly supported: boolean;
 
   private observer: IntersectionObserver | null = null;
+  private root: HTMLElement | null = null;
 
   /** Registered slot element → message id. Written by the slot directive. */
   private readonly elements = new Map<HTMLElement, string>();
@@ -71,12 +72,7 @@ export class TranscriptRenderWindow {
   private readonly retained = signal<ReadonlySet<string>>(new Set<string>());
   private replayRetentionActive = false;
 
-  /**
-   * Mirrors `ChatTranscriptComponent.active()`. Under `display:none` every
-   * element reports non-intersecting; processing that would unmount a hidden
-   * tab's entire window and defeat the keep-alive the retention service exists
-   * for. Callbacks are ignored while false, matching the frozen-`vm` discipline.
-   */
+  /** Combined surface and tab activity; inactive windows retain their state. */
   private isActive = false;
 
   constructor() {
@@ -89,14 +85,56 @@ export class TranscriptRenderWindow {
    * already have registered — those are observed here.
    */
   attach(root: HTMLElement | null): void {
-    if (!this.supported || !root || this.observer) return;
-    this.observer = new IntersectionObserver(
-      (entries) => this.handleEntries(entries),
-      { root, rootMargin: `${RENDER_WINDOW_MARGIN_PX}px 0px` },
+    if (!this.supported || !root || this.root) return;
+    this.root = root;
+    this.connect();
+  }
+
+  private connect(): void {
+    if (!this.isActive || !this.root || this.observer) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // disconnect() does not invalidate callbacks already queued by the browser.
+        if (this.observer === observer) this.handleEntries(entries);
+      },
+      { root: this.root, rootMargin: `${RENDER_WINDOW_MARGIN_PX}px 0px` },
     );
-    for (const element of this.elements.keys()) {
-      this.observer.observe(element);
+    this.observer = observer;
+    this.seedMountSet();
+    for (const element of this.elements.keys()) observer.observe(element);
+  }
+
+  /**
+   * Start from the pre-pause mount window, never an empty observer snapshot.
+   * Preserve retained replay mounts and add slots now visible after activation.
+   */
+  private seedMountSet(): void {
+    const bounds = this.root?.getBoundingClientRect();
+    if (!bounds || bounds.height <= 0) return;
+    const next = new Set(this.intersecting());
+    for (const [element, id] of this.elements) {
+      const rect = element.getBoundingClientRect();
+      if (
+        rect.height > 0 &&
+        rect.bottom >= bounds.top - RENDER_WINDOW_MARGIN_PX &&
+        rect.top <= bounds.bottom + RENDER_WINDOW_MARGIN_PX
+      )
+        next.add(id);
     }
+    if (!sameSet(next, this.intersecting())) this.intersecting.set(next);
+    if (this.replayRetentionActive) {
+      const retained = new Set(this.retained());
+      for (const id of next) retained.add(id);
+      if (!sameSet(retained, this.retained())) this.retained.set(retained);
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.isActive = false;
+    this.observer?.disconnect();
+    this.observer = null;
+    this.root = null;
+    this.elements.clear();
   }
 
   /** Register (or re-key) a slot element. Idempotent for an unchanged id. */
@@ -161,9 +199,16 @@ export class TranscriptRenderWindow {
     }
   }
 
-  /** Freeze (false) or resume (true) observer processing. */
+  /** Disconnect while inactive; reconnect and seed the window on activation. */
   setActive(active: boolean): void {
+    if (this.isActive === active) return;
     this.isActive = active;
+    if (active) {
+      this.connect();
+    } else {
+      this.observer?.disconnect();
+      this.observer = null;
+    }
   }
 
   /** Whether `messageId`'s bubble should be mounted. Signal read. */

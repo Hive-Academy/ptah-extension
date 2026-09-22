@@ -10,6 +10,8 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { LucideAngularModule, Info } from 'lucide-angular';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import {
@@ -41,12 +43,7 @@ import type {
  * generic tool-call item. `null` means "fall through to the tool card".
  */
 type SdkCardKind =
-  | 'workflow'
-  | 'task'
-  | 'monitor'
-  | 'sendMessage'
-  | 'scheduleWakeup'
-  | null;
+  'workflow' | 'task' | 'monitor' | 'sendMessage' | 'scheduleWakeup' | null;
 
 /** Trailing-edge delay used when no animation frame source exists (SSR, node). */
 const FALLBACK_FRAME_MS = 50;
@@ -101,6 +98,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
   selector: 'ptah-execution-node',
   standalone: true,
   imports: [
+    SurfaceMarkdownPipe,
     MarkdownModule,
     LucideAngularModule,
     InlineAgentBubbleComponent, // Required in imports even with @defer - Angular needs to know about it
@@ -137,7 +135,9 @@ function scheduleFrame(cb: () => void): FrameHandle {
                  streams, and the exact final string the moment it settles.
                  Every value still goes through ngx-markdown, so DOMPurify
                  remains the only path AI text takes to the DOM. -->
-            <markdown [data]="renderedContent()" />
+            <markdown
+              [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+            />
           </div>
         }
       }
@@ -381,10 +381,24 @@ export class ExecutionNodeComponent {
   /** Newest content not yet published to {@link _renderedContent}. */
   private pendingContent: string | null = null;
   private pendingFrame: FrameHandle | null = null;
+  private frameGeneration = 0;
+  // Non-optional on purpose. This library is `scope:webview`, so the only host
+  // is the webview, which binds the token at the composition root, per route
+  // and through `SurfaceActiveDirective`. An optional inject would fall back to
+  // "always active" and silently never throttle — the gate would be dead with
+  // no error and no failing test.
+  protected readonly surfaceActive = inject(SURFACE_ACTIVE);
 
   constructor() {
     effect(() => {
       const content = this.node().content ?? '';
+      if (!this.surfaceActive()) {
+        this.pendingFrame?.cancel();
+        this.pendingFrame = null;
+        this.frameGeneration++;
+        this.pendingContent = content;
+        return;
+      }
 
       // Settled node (or a restored transcript): the value is final, so pay
       // the render now rather than one frame late.
@@ -395,8 +409,11 @@ export class ExecutionNodeComponent {
 
       this.pendingContent = content;
       if (this.pendingFrame) return;
+      const generation = ++this.frameGeneration;
       this.pendingFrame = scheduleFrame(() => {
+        if (generation !== this.frameGeneration) return;
         this.pendingFrame = null;
+        if (!this.surfaceActive()) return;
         const pending = this.pendingContent;
         this.pendingContent = null;
         if (pending !== null) this._renderedContent.set(pending);
@@ -404,6 +421,7 @@ export class ExecutionNodeComponent {
     });
 
     this.destroyRef.onDestroy(() => {
+      this.frameGeneration++;
       this.pendingFrame?.cancel();
       this.pendingFrame = null;
       this.pendingContent = null;
@@ -412,6 +430,7 @@ export class ExecutionNodeComponent {
 
   /** Drop any queued frame and render `content` on this tick. */
   private publishNow(content: string): void {
+    this.frameGeneration++;
     this.pendingFrame?.cancel();
     this.pendingFrame = null;
     this.pendingContent = null;

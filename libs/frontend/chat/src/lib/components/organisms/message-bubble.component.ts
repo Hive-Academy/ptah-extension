@@ -1,3 +1,4 @@
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
   Component,
   input,
@@ -9,6 +10,7 @@ import {
   inject,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import {
   LucideAngularModule,
   User,
@@ -58,6 +60,7 @@ import {
   selector: 'ptah-message-bubble',
   standalone: true,
   imports: [
+    SurfaceMarkdownPipe,
     MarkdownModule,
     ExecutionNodeComponent,
     TypingCursorComponent,
@@ -87,6 +90,8 @@ import {
   },
 })
 export class MessageBubbleComponent {
+  protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+
   /**
    * VS Code service for webview utilities
    */

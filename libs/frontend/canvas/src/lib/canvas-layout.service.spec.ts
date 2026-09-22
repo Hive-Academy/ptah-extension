@@ -1,6 +1,16 @@
+import { signal } from '@angular/core';
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { TestBed } from '@angular/core/testing';
-import { CanvasLayoutService, MAX_COLUMNS, MIN_TILE_WIDTH } from './canvas-layout.service';
-import type { TileIntent, TileViewConstraints, TileWidthIntent } from './canvas-layout-intent';
+import {
+  CanvasLayoutService,
+  MAX_COLUMNS,
+  MIN_TILE_WIDTH,
+} from './canvas-layout.service';
+import type {
+  TileIntent,
+  TileViewConstraints,
+  TileWidthIntent,
+} from './canvas-layout-intent';
 
 type ObserverCallback = (entries: ResizeObserverEntry[]) => void;
 let callback: ObserverCallback | null;
@@ -9,9 +19,19 @@ let originalRaf: typeof requestAnimationFrame;
 let originalCancel: typeof cancelAnimationFrame;
 let disconnectMock: jest.Mock;
 
-const width = (span: 'third' | 'half' | 'two-thirds' | 'full'): TileWidthIntent => ({ kind: 'span', span });
-const tile = (tabId: string, order: number, value: TileWidthIntent = { kind: 'auto', weight: 1 }, rowBreakBefore = false): TileIntent => ({
-  tabId, order, width: value, rowBreakBefore,
+const width = (
+  span: 'third' | 'half' | 'two-thirds' | 'full',
+): TileWidthIntent => ({ kind: 'span', span });
+const tile = (
+  tabId: string,
+  order: number,
+  value: TileWidthIntent = { kind: 'auto', weight: 1 },
+  rowBreakBefore = false,
+): TileIntent => ({
+  tabId,
+  order,
+  width: value,
+  rowBreakBefore,
 });
 const compactOnly = (tabIds: readonly string[]): TileViewConstraints =>
   tabIds.map((tabId) => ({ tabId, heightTier: 'compact' as const }));
@@ -20,26 +40,47 @@ const geometry = (layout: ReturnType<CanvasLayoutService['computeLayout']>) =>
   layout.tiles.map(({ tabId, x, y, w, h }) => ({ tabId, x, y, w, h }));
 
 describe('CanvasLayoutService', () => {
+  const active = signal(true);
   let service: CanvasLayoutService;
   const measure = (containerWidth: number, height = 900): void => {
-    callback?.([{ contentRect: { width: containerWidth, height } } as ResizeObserverEntry]);
+    callback?.([
+      { contentRect: { width: containerWidth, height } } as ResizeObserverEntry,
+    ]);
   };
 
   beforeEach(() => {
+    active.set(true);
     callback = null;
     originalObserver = globalThis.ResizeObserver;
     originalRaf = globalThis.requestAnimationFrame;
     originalCancel = globalThis.cancelAnimationFrame;
     disconnectMock = jest.fn();
     globalThis.ResizeObserver = class {
-      constructor(cb: ObserverCallback) { callback = cb; }
-      observe(): void { /* no-op */ }
-      unobserve(): void { /* no-op */ }
-      disconnect(): void { disconnectMock(); }
+      constructor(cb: ObserverCallback) {
+        callback = cb;
+      }
+      observe(): void {
+        /* no-op */
+      }
+      unobserve(): void {
+        /* no-op */
+      }
+      disconnect(): void {
+        disconnectMock();
+      }
     } as unknown as typeof ResizeObserver;
-    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 1; }) as typeof requestAnimationFrame;
-    globalThis.cancelAnimationFrame = (() => undefined) as typeof cancelAnimationFrame;
-    TestBed.configureTestingModule({ providers: [CanvasLayoutService] });
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    }) as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = (() =>
+      undefined) as typeof cancelAnimationFrame;
+    TestBed.configureTestingModule({
+      providers: [
+        CanvasLayoutService,
+        { provide: SURFACE_ACTIVE, useValue: active },
+      ],
+    });
     service = TestBed.inject(CanvasLayoutService);
     service.observe(document.createElement('div'));
   });
@@ -48,6 +89,58 @@ describe('CanvasLayoutService', () => {
     globalThis.ResizeObserver = originalObserver;
     globalThis.requestAnimationFrame = originalRaf;
     globalThis.cancelAnimationFrame = originalCancel;
+  });
+
+  it('preserves geometry and schedules no frames when the wrapper is inactive or observations are zero-size', () => {
+    measure(1464);
+    const pending: FrameRequestCallback[] = [];
+    const raf = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation((cb) => {
+        pending.push(cb);
+        return pending.length;
+      });
+    active.set(false);
+    TestBed.tick();
+    raf.mockClear();
+    measure(0, 0);
+    measure(1180);
+    expect(raf).not.toHaveBeenCalled();
+    expect(service.containerWidth()).toBe(1464);
+    active.set(true);
+    TestBed.tick();
+    raf.mockClear();
+    measure(0, 0);
+    expect(raf).not.toHaveBeenCalled();
+    measure(1180);
+    pending.at(-1)?.(0);
+    expect(service.containerWidth()).toBe(1180);
+    raf.mockRestore();
+  });
+
+  it('does not commit a pending frame after deactivation', () => {
+    measure(1464);
+    let pending: FrameRequestCallback | undefined;
+    globalThis.requestAnimationFrame = (cb) => {
+      pending = cb;
+      return 2;
+    };
+    measure(1180);
+    const resizeFrame = pending;
+    active.set(false);
+    TestBed.tick();
+    resizeFrame?.(0);
+    expect(service.containerWidth()).toBe(1464);
+    active.set(true);
+    TestBed.tick();
+    resizeFrame?.(0);
+    expect(service.containerWidth()).toBe(1464);
+    measure(1300);
+    const resumedFrame = pending;
+    resumedFrame?.(0);
+    expect(service.containerWidth()).toBe(1300);
+    resizeFrame?.(0);
+    expect(service.containerWidth()).toBe(1300);
   });
 
   it('derives responsive columns from minimum tile width', () => {
@@ -66,7 +159,9 @@ describe('CanvasLayoutService', () => {
       tile('D', 3, width('half')),
       tile('E', 4, width('full'), true),
     ]);
-    expect(layout.tiles.map(({ tabId, x, y, w, h }) => ({ tabId, x, y, w, h }))).toEqual([
+    expect(
+      layout.tiles.map(({ tabId, x, y, w, h }) => ({ tabId, x, y, w, h })),
+    ).toEqual([
       { tabId: 'A', x: 0, y: 0, w: 8, h: 6 },
       { tabId: 'B', x: 8, y: 0, w: 4, h: 6 },
       { tabId: 'C', x: 0, y: 6, w: 6, h: 6 },
@@ -77,7 +172,9 @@ describe('CanvasLayoutService', () => {
 
   it('fills an auto final row', () => {
     measure(1464);
-    expect(service.computeLayout([tile('A', 0), tile('B', 1)]).tiles.map((t) => t.w)).toEqual([6, 6]);
+    expect(
+      service.computeLayout([tile('A', 0), tile('B', 1)]).tiles.map((t) => t.w),
+    ).toEqual([6, 6]);
   });
 
   it('restores stored geometry after a responsive fallback', () => {
@@ -90,17 +187,29 @@ describe('CanvasLayoutService', () => {
 
   it('renders layout focus alone and restores exact prior layout on exit', () => {
     measure(1464);
-    const intent = [tile('A', 0, width('third')), tile('B', 1, width('half')), tile('C', 2, width('third'))];
+    const intent = [
+      tile('A', 0, width('third')),
+      tile('B', 1, width('half')),
+      tile('C', 2, width('third')),
+    ];
     const before = service.computeLayout(intent);
-    expect(service.computeLayout(intent, 'B').tiles.map((t) => [t.tabId, t.y, t.w])).toEqual([
-      ['A', 0, 4], ['B', 6, 12], ['C', 12, 4],
+    expect(
+      service.computeLayout(intent, 'B').tiles.map((t) => [t.tabId, t.y, t.w]),
+    ).toEqual([
+      ['A', 0, 4],
+      ['B', 6, 12],
+      ['C', 12, 4],
     ]);
     expect(service.computeLayout(intent)).toEqual(before);
   });
 
   it('renders a compact layout-focus target at twelve by six and restores it after exit', () => {
     measure(1464);
-    const intent = [tile('A', 0, width('third')), tile('B', 1, width('half')), tile('C', 2, width('third'))];
+    const intent = [
+      tile('A', 0, width('third')),
+      tile('B', 1, width('half')),
+      tile('C', 2, width('third')),
+    ];
     const before = service.computeLayout(intent, null, compact('B'));
     expect(geometry(service.computeLayout(intent, 'B', compact('B')))).toEqual([
       { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
@@ -118,18 +227,24 @@ describe('CanvasLayoutService', () => {
       tile('C', 2, width('third')),
       tile('D', 3, width('third')),
     ];
-    expect(geometry(service.computeLayout(intent, null, compact('B')))).toEqual([
-      { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
-      { tabId: 'B', x: 4, y: 0, w: 4, h: 2 },
-      { tabId: 'C', x: 8, y: 0, w: 4, h: 6 },
-      { tabId: 'D', x: 4, y: 2, w: 4, h: 6 },
-    ]);
+    expect(geometry(service.computeLayout(intent, null, compact('B')))).toEqual(
+      [
+        { tabId: 'A', x: 0, y: 0, w: 4, h: 6 },
+        { tabId: 'B', x: 4, y: 0, w: 4, h: 2 },
+        { tabId: 'C', x: 8, y: 0, w: 4, h: 6 },
+        { tabId: 'D', x: 4, y: 2, w: 4, h: 6 },
+      ],
+    );
   });
 
   it('projects an all-compact row at two units without stretching any tile', () => {
     measure(1464);
     const intent = [tile('A', 0), tile('B', 1), tile('C', 2)];
-    expect(geometry(service.computeLayout(intent, null, compactOnly(['A', 'B', 'C'])))).toEqual([
+    expect(
+      geometry(
+        service.computeLayout(intent, null, compactOnly(['A', 'B', 'C'])),
+      ),
+    ).toEqual([
       { tabId: 'A', x: 0, y: 0, w: 4, h: 2 },
       { tabId: 'B', x: 4, y: 0, w: 4, h: 2 },
       { tabId: 'C', x: 8, y: 0, w: 4, h: 2 },
@@ -140,11 +255,17 @@ describe('CanvasLayoutService', () => {
     const intent = [tile('A', 0, width('full'))];
     const before = JSON.stringify(intent);
     measure(1464);
-    expect(service.computeLayout(intent, null, compact('A')).tiles[0].w).toBe(4);
+    expect(service.computeLayout(intent, null, compact('A')).tiles[0].w).toBe(
+      4,
+    );
     measure(1180);
-    expect(service.computeLayout(intent, null, compact('A')).tiles[0].w).toBe(6);
+    expect(service.computeLayout(intent, null, compact('A')).tiles[0].w).toBe(
+      6,
+    );
     measure(480);
-    expect(service.computeLayout(intent, null, compact('A')).tiles[0].w).toBe(12);
+    expect(service.computeLayout(intent, null, compact('A')).tiles[0].w).toBe(
+      12,
+    );
     measure(1464);
     expect(service.computeLayout(intent).tiles[0].w).toBe(12);
     expect(JSON.stringify(intent)).toBe(before);
@@ -155,12 +276,20 @@ describe('CanvasLayoutService', () => {
     measure(1464, 0);
     expect(service.computeLayout([tile('A', 0)]).tiles).toEqual([]);
     measure(1464, 900);
-    expect(service.computeLayout([tile('A', 0, { kind: 'auto', weight: Number.NaN })]).tiles[0].w).toBe(12);
+    expect(
+      service.computeLayout([
+        tile('A', 0, { kind: 'auto', weight: Number.NaN }),
+      ]).tiles[0].w,
+    ).toBe(12);
   });
 
   it('keeps wrapped full-height tiles at least ninety percent of the viewport height', () => {
     measure(MIN_TILE_WIDTH, 600);
-    const layout = service.computeLayout([tile('A', 0), tile('B', 1), tile('C', 2)]);
+    const layout = service.computeLayout([
+      tile('A', 0),
+      tile('B', 1),
+      tile('C', 2),
+    ]);
     expect(layout.cellHeight).toBe(90);
     expect(layout.cellHeight * 6).toBeGreaterThanOrEqual(0.9 * 600);
   });
@@ -168,13 +297,24 @@ describe('CanvasLayoutService', () => {
   it('fits an all-compact stack to its true extent without the viewport floor', () => {
     measure(MIN_TILE_WIDTH, 600);
     const sixCompact = service.computeLayout(
-      [tile('A', 0), tile('B', 1), tile('C', 2), tile('D', 3), tile('E', 4), tile('F', 5)],
+      [
+        tile('A', 0),
+        tile('B', 1),
+        tile('C', 2),
+        tile('D', 3),
+        tile('E', 4),
+        tile('F', 5),
+      ],
       null,
       compactOnly(['A', 'B', 'C', 'D', 'E', 'F']),
     );
     expect(sixCompact.tiles.map((t) => [t.tabId, t.y, t.w, t.h])).toEqual([
-      ['A', 0, 12, 2], ['B', 2, 12, 2], ['C', 4, 12, 2],
-      ['D', 6, 12, 2], ['E', 8, 12, 2], ['F', 10, 12, 2],
+      ['A', 0, 12, 2],
+      ['B', 2, 12, 2],
+      ['C', 4, 12, 2],
+      ['D', 6, 12, 2],
+      ['E', 8, 12, 2],
+      ['F', 10, 12, 2],
     ]);
     expect(sixCompact.cellHeight).toBe(48);
     expect(sixCompact.cellHeight).toBeLessThan(90);
@@ -189,7 +329,14 @@ describe('CanvasLayoutService', () => {
     );
     expect(threeCompact.cellHeight).toBe(97);
     const sixCompact = service.computeLayout(
-      [tile('A', 0), tile('B', 1), tile('C', 2), tile('D', 3), tile('E', 4), tile('F', 5)],
+      [
+        tile('A', 0),
+        tile('B', 1),
+        tile('C', 2),
+        tile('D', 3),
+        tile('E', 4),
+        tile('F', 5),
+      ],
       null,
       compactOnly(['A', 'B', 'C', 'D', 'E', 'F']),
     );
@@ -212,8 +359,10 @@ describe('CanvasLayoutService', () => {
       return nextFrameId;
     });
     const cancelFrame = jest.fn();
-    globalThis.requestAnimationFrame = requestFrame as typeof requestAnimationFrame;
-    globalThis.cancelAnimationFrame = cancelFrame as typeof cancelAnimationFrame;
+    globalThis.requestAnimationFrame =
+      requestFrame as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame =
+      cancelFrame as typeof cancelAnimationFrame;
 
     measure(1000.9, 700.8);
     measure(1234.9, 777.8);

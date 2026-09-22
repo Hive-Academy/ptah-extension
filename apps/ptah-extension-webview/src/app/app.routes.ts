@@ -1,5 +1,9 @@
 import { Routes } from '@angular/router';
-import { DEFAULT_SURFACE_ID } from '@ptah-extension/core';
+import {
+  DEFAULT_SURFACE_ID,
+  SURFACE_ACTIVE,
+  surfaceActiveFor,
+} from '@ptah-extension/core';
 import { SettingsComponent } from '@ptah-extension/chat';
 import { DashboardGridComponent } from '@ptah-extension/dashboard';
 import { WizardViewComponent } from '@ptah-extension/setup-wizard';
@@ -60,22 +64,40 @@ export const appRoutes: Routes = [
     // same construct `apps/ptah-landing-page`'s `docs` route uses to declare a
     // reachable path that renders nothing into the outlet.
     path: 'chat',
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('chat') },
+    ],
     children: [],
   },
   {
     path: 'setup-wizard',
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('setup-wizard') },
+    ],
     component: WizardViewComponent,
   },
   {
     path: 'settings',
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('settings') },
+    ],
     component: SettingsComponent,
   },
   {
     path: 'analytics',
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('analytics') },
+    ],
     component: DashboardGridComponent,
   },
   {
     path: 'harness-builder',
+    providers: [
+      {
+        provide: SURFACE_ACTIVE,
+        useFactory: surfaceActiveFor('harness-builder'),
+      },
+    ],
     loadComponent: () =>
       import('@ptah-extension/harness-builder').then(
         (m) => m.HarnessBuilderViewComponent,
@@ -83,6 +105,9 @@ export const appRoutes: Routes = [
   },
   {
     path: 'setup-hub',
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('setup-hub') },
+    ],
     loadComponent: () =>
       import('@ptah-extension/harness-builder').then(
         (m) => m.SetupHubComponent,
@@ -90,11 +115,17 @@ export const appRoutes: Routes = [
   },
   {
     path: 'thoth',
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('thoth') },
+    ],
     loadComponent: () =>
       import('@ptah-extension/thoth-shell').then((m) => m.ThothShellComponent),
   },
   {
     path: 'marketplace',
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('marketplace') },
+    ],
     loadComponent: () =>
       import('@ptah-extension/marketplace').then(
         (m) => m.MarketplaceHubComponent,
@@ -102,6 +133,9 @@ export const appRoutes: Routes = [
   },
   {
     path: 'tribunal',
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('tribunal') },
+    ],
     loadComponent: () =>
       import('@ptah-extension/tribunal-panel').then(
         (m) => m.TribunalPageComponent,
@@ -109,6 +143,9 @@ export const appRoutes: Routes = [
   },
   {
     path: 'tasks',
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('tasks') },
+    ],
     loadComponent: () =>
       import('@ptah-extension/tasks-ui').then((m) => m.TasksViewComponent),
   },

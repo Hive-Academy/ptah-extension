@@ -1,4 +1,7 @@
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
+  signal,
+  inject,
   Component,
   ChangeDetectionStrategy,
   input,
@@ -164,7 +167,10 @@ import type { SubagentTranscriptMessage } from '@ptah-extension/shared';
                       : 'bg-base-200 border border-base-300'
                   "
                 >
-                  <ptah-markdown-block [content]="msg.text" />
+                  <ptah-markdown-block
+                    [active]="surfaceActive()"
+                    [content]="msg.text"
+                  />
                 </div>
               </div>
             }
@@ -175,6 +181,8 @@ import type { SubagentTranscriptMessage } from '@ptah-extension/shared';
   `,
 })
 export class SubagentTranscriptViewerComponent {
+  protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+
   /** Display name shown in the header (agent type / description). */
   readonly agentName = input<string>('');
   /** Normalized transcript messages in chronological order. */

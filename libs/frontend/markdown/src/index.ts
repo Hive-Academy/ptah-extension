@@ -12,3 +12,5 @@ export {
   provideMarkdownFileLinks,
   type MarkdownFileLinkHandler,
 } from './lib/markdown-file-links';
+
+export { SurfaceMarkdownPipe } from './lib/surface-markdown.pipe';

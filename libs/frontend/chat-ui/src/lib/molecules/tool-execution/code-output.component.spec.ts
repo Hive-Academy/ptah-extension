@@ -1,3 +1,4 @@
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
 import type { ExecutionNode } from '@ptah-extension/shared';
@@ -31,7 +32,7 @@ describe('CodeOutputComponent — output language detection', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [CodeOutputComponent],
-      providers: [provideMarkdown()],
+      providers: [provideSurfaceActiveTesting(), provideMarkdown()],
     }).compileComponents();
     fixture = TestBed.createComponent(CodeOutputComponent);
   });

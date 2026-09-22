@@ -4,6 +4,7 @@ import { BatchedUpdateService } from './batched-update.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { createEmptyStreamingState } from '@ptah-extension/chat-types';
 import type { StreamingState } from '@ptah-extension/chat-types';
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 
 type TabManagerSlice = Pick<
   TabManagerService,
@@ -73,6 +74,7 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
   let originalRaf: typeof requestAnimationFrame;
   let originalCancel: typeof cancelAnimationFrame;
   let visibility: VisibilityHandle;
+  const surfaceActive = signal(true);
 
   function makeState(messageId: string | null = null): StreamingState {
     const s = createEmptyStreamingState();
@@ -87,6 +89,7 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
   }
 
   beforeEach(() => {
+    surfaceActive.set(true);
     rafCallbacks = [];
     originalRaf = globalThis.requestAnimationFrame;
     originalCancel = globalThis.cancelAnimationFrame;
@@ -113,6 +116,7 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
     TestBed.configureTestingModule({
       providers: [
         BatchedUpdateService,
+        { provide: SURFACE_ACTIVE, useValue: surfaceActive },
         { provide: TabManagerService, useValue: tabManager },
       ],
     });
@@ -126,6 +130,28 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
     globalThis.cancelAnimationFrame = originalCancel;
     TestBed.resetTestingModule();
     jest.restoreAllMocks();
+  });
+
+  it('cancels the old frame and drains only the latest hidden state on activation', () => {
+    service.scheduleUpdate('tab-active', makeState('old'));
+    const staleFrame = rafCallbacks[rafCallbacks.length - 1];
+    surfaceActive.set(false);
+    TestBed.flushEffects();
+    service.scheduleUpdate('tab-active', makeState('latest'));
+    staleFrame(0);
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+    expect(service.hasPendingUpdates('tab-active')).toBe(true);
+    surfaceActive.set(true);
+    TestBed.flushEffects();
+    runRaf();
+    expect(tabManager.setStreamingState).toHaveBeenCalledTimes(1);
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
+      'tab-active',
+      expect.objectContaining({ currentMessageId: 'latest' }),
+    );
+    expect(service.hasPendingUpdates('tab-active')).toBe(false);
+    runRaf();
+    expect(tabManager.setStreamingState).toHaveBeenCalledTimes(1);
   });
 
   it('defers flush when tabId !== activeTabId (background tab)', () => {

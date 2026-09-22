@@ -351,7 +351,9 @@ describe('app.routes', () => {
     // The chat and canvas content area is NOT routed: it stays mounted behind
     // `[class.hidden]` so `CanvasStore` survives navigation.
     const chat = appRoutes.find((route) => route.path === 'chat');
-    expect(chat).toEqual({ path: 'chat', children: [] });
+    expect(chat).toMatchObject({ path: 'chat', children: [] });
+    expect(chat?.component).toBeUndefined();
+    expect(chat?.loadComponent).toBeUndefined();
   });
 
   it.each(['setup-wizard', 'settings', 'analytics'])(

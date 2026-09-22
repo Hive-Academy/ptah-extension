@@ -50,3 +50,5 @@ export {
   settleSurfaceNavigation,
   surfaceTestRoutes,
 } from './surface-router-testing';
+
+export { provideSurfaceActiveTesting } from './surface-active-testing';

@@ -26,19 +26,60 @@ import {
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type { StreamingState } from '@ptah-extension/chat-types';
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 
 @Injectable({ providedIn: 'root' })
 export class BatchedUpdateService {
   private readonly tabManager = inject(TabManagerService);
   private readonly destroyRef = inject(DestroyRef);
+  // Root-scoped ingestion serves BOTH chat layouts. The app-level provider
+  // reports whether the shared chat address is active; element providers are
+  // deliberately narrower for the individual rendered trees.
+  // Non-optional on purpose. This library is `scope:webview`, so the only host
+  // is the webview, which binds the token at the composition root. An optional
+  // inject would fall back to "always active" and silently never defer a flush
+  // — the gate would be dead with no error and no failing test.
+  private readonly surfaceActive = inject(SURFACE_ACTIVE);
 
   private pendingTabUpdates = new Map<string, StreamingState>();
   private deferredTabUpdates = new Map<string, StreamingState>();
   private pendingFlush = new Set<string>();
   private rafId: number | null = null;
+  private frameGeneration = 0;
   private visibilityListener: (() => void) | null = null;
 
   constructor() {
+    effect(() => {
+      const active = this.surfaceActive();
+      untracked(() => {
+        if (!active) {
+          this.frameGeneration++;
+          if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+          this.rafId = null;
+          for (const [tabId, state] of this.pendingTabUpdates) {
+            // Newest state wins, matching `scheduleUpdate`'s own deferral at
+            // the top of this class. The previous `if (!has(tabId))` guard
+            // meant the opposite — keep the OLDER entry, discard this one —
+            // and `StreamingState` is a whole snapshot rather than a delta, so
+            // that is content loss, not a slightly stale frame.
+            //
+            // The two maps look mutually exclusive today (`shouldDefer` is
+            // `!canFlush`, so a non-flushable tab never enters
+            // `pendingTabUpdates`, and `drainDeferred` removes a tab from
+            // `deferredTabUpdates` as soon as it can flush), so no reachable
+            // sequence was found where the guard actually bit. It is corrected
+            // anyway: the invariant is cheap to state, it cannot regress
+            // behaviour, and it stops the next change to `canFlush` turning a
+            // latent inconsistency into silent data loss.
+            this.deferredTabUpdates.set(tabId, state);
+            this.pendingFlush.add(tabId);
+          }
+          this.pendingTabUpdates.clear();
+        } else {
+          this.drainDeferred();
+        }
+      });
+    });
     if (typeof document !== 'undefined') {
       const listener = () => {
         if (document.visibilityState === 'visible') {
@@ -66,6 +107,7 @@ export class BatchedUpdateService {
     });
 
     this.destroyRef.onDestroy(() => {
+      this.frameGeneration++;
       if (this.visibilityListener && typeof document !== 'undefined') {
         document.removeEventListener(
           'visibilitychange',
@@ -84,18 +126,29 @@ export class BatchedUpdateService {
 
   scheduleUpdate(tabId: string, state: StreamingState): void {
     if (this.shouldDefer(tabId)) {
+      this.pendingTabUpdates.delete(tabId);
       this.deferredTabUpdates.set(tabId, state);
       this.pendingFlush.add(tabId);
       return;
     }
+    this.deferredTabUpdates.delete(tabId);
+    this.pendingFlush.delete(tabId);
     this.pendingTabUpdates.set(tabId, state);
     if (this.rafId === null) {
-      this.rafId = requestAnimationFrame(() => this.flushPendingUpdates());
+      this.scheduleFrame();
     }
   }
 
   private shouldDefer(tabId: string): boolean {
     return !this.canFlush(tabId);
+  }
+
+  private scheduleFrame(): void {
+    const generation = ++this.frameGeneration;
+    this.rafId = requestAnimationFrame(() => {
+      if (generation !== this.frameGeneration) return;
+      this.flushPendingUpdates();
+    });
   }
 
   /**
@@ -104,6 +157,7 @@ export class BatchedUpdateService {
    * registered (single-tab webview) — the active tab.
    */
   private canFlush(tabId: string): boolean {
+    if (!this.surfaceActive()) return false;
     if (
       typeof document !== 'undefined' &&
       document.visibilityState === 'hidden'
@@ -116,9 +170,14 @@ export class BatchedUpdateService {
     return !activeId || activeId === tabId;
   }
 
-  private flushPendingUpdates(): void {
+  private flushPendingUpdates(force = false): void {
     this.rafId = null;
     for (const [tabId, state] of this.pendingTabUpdates) {
+      if (!force && !this.canFlush(tabId)) {
+        this.deferredTabUpdates.set(tabId, state);
+        this.pendingFlush.add(tabId);
+        continue;
+      }
       this.tabManager.setStreamingState(tabId, { ...state });
     }
     this.pendingTabUpdates.clear();
@@ -140,7 +199,7 @@ export class BatchedUpdateService {
       scheduled = true;
     }
     if (scheduled && this.rafId === null) {
-      this.rafId = requestAnimationFrame(() => this.flushPendingUpdates());
+      this.scheduleFrame();
     }
   }
 
@@ -153,7 +212,7 @@ export class BatchedUpdateService {
     if (!state) return;
     this.pendingTabUpdates.set(tabId, state);
     if (this.rafId === null) {
-      this.rafId = requestAnimationFrame(() => this.flushPendingUpdates());
+      this.scheduleFrame();
     }
   }
 
@@ -179,6 +238,7 @@ export class BatchedUpdateService {
    *   draining everything there costs nothing measurable.
    */
   flushSync(originTabId?: string): void {
+    this.frameGeneration++;
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
@@ -193,7 +253,7 @@ export class BatchedUpdateService {
         this.pendingFlush.delete(tabId);
       }
     }
-    this.flushPendingUpdates();
+    this.flushPendingUpdates(true);
   }
 
   hasPendingUpdates(tabId: string): boolean {

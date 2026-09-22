@@ -1,3 +1,4 @@
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 /**
  * Agent Card Output Component
  *
@@ -6,6 +7,8 @@
  */
 
 import {
+  signal,
+  inject,
   Component,
   input,
   effect,
@@ -15,12 +18,13 @@ import {
 } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { MarkdownModule } from 'ngx-markdown';
+import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import type { RenderSegment, StderrSegment } from './agent-card.types';
 
 @Component({
   selector: 'ptah-agent-card-output',
   standalone: true,
-  imports: [MarkdownModule, NgClass],
+  imports: [SurfaceMarkdownPipe, MarkdownModule, NgClass],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // `.ptah-superpower-badge` and `.ptah-gold-border` are defined once globally
   // in apps/ptah-extension-webview/src/styles.css, keyed off the theme-aware
@@ -36,7 +40,11 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
   template: `
     <div
       #outputContainer
-      [class]="embedded() ? '' : 'border-t border-base-content/5 h-full overflow-y-auto'"
+      [class]="
+        embedded()
+          ? ''
+          : 'border-t border-base-content/5 h-full overflow-y-auto'
+      "
     >
       <div class="p-2 space-y-1.5">
         @for (segment of segments(); track $index) {
@@ -89,8 +97,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                   >
                     <pre
                       class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
-                      >{{ segment.content }}</pre
-                    >
+                      >{{ segment.content }}</pre>
                   </div>
                 }
               </div>
@@ -131,8 +138,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                   >
                     <pre
                       class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
-                      >{{ segment.content }}</pre
-                    >
+                      >{{ segment.content }}</pre>
                   </div>
                 }
               </div>
@@ -150,7 +156,11 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                   <div
                     class="px-2 py-1 max-h-32 overflow-y-auto prose prose-xs prose-invert max-w-none agent-prose"
                   >
-                    <markdown [data]="segment.content" />
+                    <markdown
+                      [data]="
+                        segment.content | surfaceMarkdown: surfaceActive()
+                      "
+                    />
                   </div>
                 }
               </div>
@@ -168,8 +178,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                   <div class="px-2 py-1 max-h-32 overflow-y-auto">
                     <pre
                       class="text-[10px] font-mono text-error/80 whitespace-pre-wrap break-words m-0 leading-relaxed"
-                      >{{ segment.content }}</pre
-                    >
+                      >{{ segment.content }}</pre>
                   </div>
                 }
               </div>
@@ -178,8 +187,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
               <div class="bg-error/10 rounded px-2 py-1 border border-error/20">
                 <pre
                   class="text-[10px] font-mono text-error whitespace-pre-wrap break-words m-0 leading-relaxed"
-                  >{{ segment.content }}</pre
-                >
+                  >{{ segment.content }}</pre>
               </div>
             }
             @case ('info') {
@@ -188,8 +196,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
               >
                 <pre
                   class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
-                  >{{ segment.content }}</pre
-                >
+                  >{{ segment.content }}</pre>
               </div>
             }
             @case ('command') {
@@ -200,8 +207,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                   <pre
                     class="text-[10px] font-mono text-neutral-content whitespace-pre-wrap break-words m-0 leading-relaxed"
                   >
-$ {{ segment.toolName }}</pre
-                  >
+$ {{ segment.toolName }}</pre>
                 </div>
                 @if (segment.content) {
                   <div
@@ -209,8 +215,7 @@ $ {{ segment.toolName }}</pre
                   >
                     <pre
                       class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
-                      >{{ segment.content }}</pre
-                    >
+                      >{{ segment.content }}</pre>
                   </div>
                 }
                 @if (segment.exitCode !== undefined && segment.exitCode !== 0) {
@@ -260,8 +265,7 @@ $ {{ segment.toolName }}</pre
                 >
                   <pre
                     class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
-                    >{{ segment.content }}</pre
-                  >
+                    >{{ segment.content }}</pre>
                 </div>
               </details>
             }
@@ -271,14 +275,15 @@ $ {{ segment.toolName }}</pre
               >
                 <pre
                   class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
-                  >{{ segment.content }}</pre
-                >
+                  >{{ segment.content }}</pre>
               </div>
             }
             @case ('text') {
               @if (segment.content.trim()) {
                 <div class="prose prose-xs prose-invert max-w-none agent-prose">
-                  <markdown [data]="segment.content" />
+                  <markdown
+                    [data]="segment.content | surfaceMarkdown: surfaceActive()"
+                  />
                 </div>
               }
             }
@@ -291,8 +296,7 @@ $ {{ segment.toolName }}</pre
             >
               <pre
                 class="text-[10px] font-mono text-error whitespace-pre-wrap break-words m-0 leading-relaxed"
-                >{{ seg.content }}</pre
-              >
+                >{{ seg.content }}</pre>
             </div>
           } @else {
             <div
@@ -300,8 +304,7 @@ $ {{ segment.toolName }}</pre
             >
               <pre
                 class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
-                >{{ seg.content }}</pre
-              >
+                >{{ seg.content }}</pre>
             </div>
           }
         }
@@ -310,6 +313,8 @@ $ {{ segment.toolName }}</pre
   `,
 })
 export class AgentCardOutputComponent {
+  protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+
   readonly segments = input.required<RenderSegment[]>();
   readonly embedded = input(false);
   readonly stderrSegments = input.required<StderrSegment[]>();

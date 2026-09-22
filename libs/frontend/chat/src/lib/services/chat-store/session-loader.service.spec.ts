@@ -20,6 +20,7 @@
  * duplicating in a unit spec.
  */
 
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
@@ -184,6 +185,7 @@ describe('SessionLoaderService', () => {
 
     TestBed.configureTestingModule({
       providers: [
+        provideSurfaceActiveTesting(),
         SessionLoaderService,
         { provide: HistoryMessageBuilder, useValue: {} },
         { provide: HistoryPagingService, useValue: historyPagingMock },
@@ -1167,6 +1169,7 @@ describe('SessionLoaderService', () => {
       TestBed.resetTestingModule();
       TestBed.configureTestingModule({
         providers: [
+          provideSurfaceActiveTesting(),
           SessionLoaderService,
           { provide: HistoryMessageBuilder, useValue: {} },
           { provide: HistoryPagingService, useValue: historyPagingMock },
@@ -1297,6 +1300,7 @@ describe('SessionLoaderService', () => {
       TestBed.resetTestingModule();
       TestBed.configureTestingModule({
         providers: [
+          provideSurfaceActiveTesting(),
           SessionLoaderService,
           { provide: HistoryMessageBuilder, useValue: {} },
           { provide: HistoryPagingService, useValue: historyPagingMock },
@@ -1378,6 +1382,7 @@ describe('SessionLoaderService', () => {
       TestBed.resetTestingModule();
       TestBed.configureTestingModule({
         providers: [
+          provideSurfaceActiveTesting(),
           SessionLoaderService,
           { provide: HistoryMessageBuilder, useValue: {} },
           { provide: HistoryPagingService, useValue: historyPagingMock },
@@ -1581,6 +1586,7 @@ describe('SessionLoaderService', () => {
       historyPagingMock.recordTail.mockClear();
       TestBed.configureTestingModule({
         providers: [
+          provideSurfaceActiveTesting(),
           SessionLoaderService,
           { provide: HistoryMessageBuilder, useValue: {} },
           { provide: HistoryPagingService, useValue: historyPagingMock },
@@ -2240,6 +2246,7 @@ describe('SessionLoaderService', () => {
       TestBed.resetTestingModule();
       TestBed.configureTestingModule({
         providers: [
+          provideSurfaceActiveTesting(),
           SessionLoaderService,
           { provide: HistoryMessageBuilder, useValue: {} },
           { provide: HistoryPagingService, useValue: historyPagingMock },
@@ -2958,6 +2965,7 @@ describe('SessionLoaderService targeted replay with the real streaming state pip
 
     TestBed.configureTestingModule({
       providers: [
+        provideSurfaceActiveTesting(),
         SessionLoaderService,
         { provide: HistoryPagingService, useValue: historyPagingMock },
         TabManagerService,

@@ -19,3 +19,6 @@ export {
   surfaceIdFromSegment,
   surfaceRoutePath,
 } from './surface-routes';
+
+export { SURFACE_ACTIVE, surfaceActiveFor } from './surface-active';
+export { SurfaceActiveDirective } from './surface-active.directive';
