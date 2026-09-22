@@ -1,7 +1,15 @@
 export { MarketplaceHubComponent } from './lib/marketplace-hub.component';
-export { ComingSoonPlaceholderComponent } from './lib/coming-soon-placeholder.component';
 export { SmitherySurfaceComponent } from './lib/smithery-surface.component';
-export { PluginsSurfaceComponent } from './lib/plugins-surface.component';
+export { ConnectedSurfaceComponent } from './lib/connected-surface.component';
+export type {
+  ConnectedGroup,
+  ConnectedGroupId,
+  ConnectedRemoveAction,
+  ConnectedRow,
+  ConnectedRowKind,
+} from './lib/connected-surface.component';
+export { AppsSectionComponent } from './lib/apps-section.component';
+export { SkillsSectionComponent } from './lib/skills-section.component';
 export { ExternalMarketplacesComponent } from './lib/external-marketplaces.component';
 export { ExternalConsentDialogComponent } from './lib/external-consent-dialog.component';
 export { ExternalPluginRowComponent } from './lib/external-plugin-row.component';
@@ -30,9 +38,11 @@ export type {
   HarnessBlockedDisclosure,
   HarnessBlockedGroup,
 } from './lib/harness/harness-health.model';
-export { MARKETPLACE_PROVIDERS } from './lib/providers.registry';
+export {
+  MARKETPLACE_SECTIONS,
+  marketplaceSourcesOf,
+} from './lib/sections.registry';
 export type {
-  MarketplaceProviderSpec,
-  MarketplaceProviderStatus,
-  MarketplaceProviderKind,
-} from './lib/provider-spec';
+  MarketplaceSectionSpec,
+  MarketplaceSourceSpec,
+} from './lib/sections.registry';

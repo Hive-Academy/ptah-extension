@@ -29,15 +29,23 @@
   The `chat` route is component-less, so on chat this outlet renders nothing
   and the shared chrome below is what shows.
 
-  The wrapper is the sizing box the nine `@case` blocks each carried
-  (`h-full w-full`, plus `overflow-y-auto` for the dashboard). A routed
-  component is inserted as a SIBLING of `<router-outlet />` inside this div, so
-  the box has to exist here rather than on the outlet element. It is hidden
-  rather than left empty on chat: an empty `h-full` box would claim the whole
-  viewport and push the shared chrome out of it.
+  The wrapper is the sizing box the nine `@case` blocks each carried:
+  `h-full w-full`, and NOTHING else. A routed component is inserted as a
+  SIBLING of `<router-outlet />` inside this div, so the box has to exist here
+  rather than on the outlet element. It is hidden rather than left empty on
+  chat: an empty `h-full` box would claim the whole viewport and push the
+  shared chrome out of it.
+
+  Do NOT add `overflow-y-auto` here. Eight of the nine `@case` blocks were
+  `h-full w-full` with no overflow; only the dashboard's added a scroll
+  container. Batch 1 briefly put it on this shared wrapper, which handed a
+  scrollbar to eight surfaces that had never had one — a surface whose content
+  grew past `h-full` would then gain an outer scrollbar instead of being
+  designed for it. A surface that needs to scroll owns that on its own host;
+  see `DashboardGridComponent`. `app-shell.outlet-wrapper.spec.ts` pins it.
 -->
 <div
-  class="h-full w-full overflow-y-auto"
+  class="h-full w-full"
   [class.hidden]="!isStandaloneView()"
 >
   <router-outlet />

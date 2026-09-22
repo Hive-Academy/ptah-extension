@@ -1,0 +1,25 @@
+{
+  "taskId": "TASK_2026_524_mkpl",
+  "round": 1,
+  "pass": true,
+  "defects": [
+    {
+      "id": 1,
+      "file": "libs/frontend/marketplace/src/lib/connected-surface.component.ts",
+      "line": 685,
+      "severity": "major",
+      "scenario": "User removes a row in the Connected view while it is mounted. `remove()` (line 685-690) calls `this.retry(groupId)` — a single-group reload — and synchronously emits `contentChanged`. The hub's `onContentChanged()` (marketplace-hub.component.ts:168-171) responds by bumping `MarketplaceStateService.refreshTrigger`, which the surface's own `refreshEffect` (connected-surface.component.ts:406-410) picks up and triggers a SECOND full four-group `loadAll()`. None of `loadApps`/`loadPlugins`/`loadCommunity`/`loadMarketplaces` (lines 444-578) guards against out-of-order completion the way `decorateAppStatuses` does (line 629, `if (this.appGroups() !== groups) return;`), so two overlapping loads of the same group can resolve in either order with no sequencing. In the common case both RPCs return the same post-removal state so no wrong data is shown, but every removal issues roughly double the RPC traffic the plan's own budget allows ('at most 4 + 1 + n(oauth) reads per load', implementation-plan.md:577), and the race window is real and untested (connected-surface.component.spec.ts's refreshTrigger case at line 553 only exercises the reload path in isolation, not the retry+refresh interaction).",
+      "fix": "Either drop the direct `this.retry(groupId)` call in `remove()` and rely solely on the `refreshTrigger` fan-out already wired for every other surface, or give each `load*` method a request-epoch token and ignore a response whose token is stale, mirroring the guard `decorateAppStatuses` already uses."
+    },
+    {
+      "id": 2,
+      "file": "libs/frontend/core/src/lib/services/plugin-catalog.service.ts",
+      "line": 22,
+      "severity": "minor",
+      "scenario": "The doc comment at lines 22-23 says, present tense, that `PluginStatusWidgetComponent` fetches on ngOnInit and `PluginBrowserModalComponent` fetches again when it opens. Both components were deleted in this same task (batch B4). A future reader of this in-scope file is misled about which components exist. B4's own report (batch-b4-report.md:212-217) flags this as the one genuinely stale leftover it could not fix because `core` was outside its batch ownership.",
+      "fix": "Update the comment to name `SkillsSectionComponent`'s header and `PluginCatalogPanelComponent` instead of the deleted widget and modal."
+    }
+  ],
+  "testsRan": "npx nx run-many -t test -p @ptah-extension/marketplace @ptah-extension/chat-ui @ptah-extension/chat @ptah-extension/core @ptah-extension/dashboard --skip-nx-cache (header 'Running target test for 5 projects' confirmed; clean re-run: 'Successfully ran target test for 5 projects', 0 failed). One earlier parallel run showed connectors-surface.component.spec.ts 'gives up after five minutes' failing on a jest timeout; re-run in isolation it passed (279/279) -- pre-existing flake in a file outside this task's scope, not a regression. npx nx run-many -t lint -p (same 5 projects) -- 'Successfully ran target lint for 5 projects', 0 errors.",
+  "mentorNote": "Traced the full plan-to-code path for the highest-risk surfaces (ConnectedSurfaceComponent's four-group aggregation, MarketplaceStateService's deep-link effect, PluginCatalogPanelComponent's load-bearing ordering, mcp-status-chip and chat-empty-state's deep links, the dashboard rehost) by reading the actual source files in full, not just the batch reports' prose. Found one genuine, evidence-backed race/inefficiency (double reload on Connected-view removal) and one stale doc comment; both are real but neither blocks any of the 7 acceptance criteria, which all check out against the code. Grepped repo-wide for leftover references to every deleted symbol (PluginBrowserModalComponent, PluginStatusWidgetComponent, PluginsSurfaceComponent, MARKETPLACE_PROVIDERS, ComingSoonPlaceholderComponent, plus their selectors) and found only past-tense prose plus the one present-tense comment already logged. No new as any/@ts-ignore/eslint-disable anywhere in the diff. Ran both test and lint myself rather than trusting the batch reports' numbers."
+}

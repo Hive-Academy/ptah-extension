@@ -10,7 +10,25 @@
  * LocalNativeStrategy, LocalProxyStrategy) depend on these tokens.
  */
 
-import { DependencyContainer, Lifecycle, instanceCachingFactory } from 'tsyringe';
+import {
+  DependencyContainer,
+  Lifecycle,
+  instanceCachingFactory,
+} from 'tsyringe';
+import {
+  Logger,
+  TOKENS,
+  type IAuthSecretsService,
+} from '@ptah-extension/vscode-core';
+import type { OpenCodeProviderId } from '@ptah-extension/shared';
+import type { ApiKeyProxyBinding } from '../auth/auth-strategy.types';
+import {
+  OpenCodeAuthService,
+  OpenCodeTranslationProxy,
+  OPENCODE_PROXY_TOKEN_PLACEHOLDER,
+} from './opencode';
+import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from './openrouter';
+import { SAKANA_PROXY_TOKEN_PLACEHOLDER } from './sakana';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import { CopilotAuthService, CopilotTranslationProxy } from './copilot';
 import {
@@ -120,5 +138,64 @@ export function registerProviders(container: DependencyContainer): void {
     AUTH_PROVIDERS_TOKENS.SDK_LM_STUDIO_PROXY,
     { useClass: LmStudioTranslationProxy },
     { lifecycle: Lifecycle.Singleton },
+  );
+  const subscriptions: ReadonlyArray<{
+    providerId: OpenCodeProviderId;
+    authToken: symbol;
+    proxyToken: symbol;
+  }> = [
+    {
+      providerId: 'opencode-zen',
+      authToken: AUTH_PROVIDERS_TOKENS.SDK_OPENCODE_ZEN_AUTH,
+      proxyToken: AUTH_PROVIDERS_TOKENS.SDK_OPENCODE_ZEN_PROXY,
+    },
+    {
+      providerId: 'opencode-go',
+      authToken: AUTH_PROVIDERS_TOKENS.SDK_OPENCODE_GO_AUTH,
+      proxyToken: AUTH_PROVIDERS_TOKENS.SDK_OPENCODE_GO_PROXY,
+    },
+  ];
+  for (const { providerId, authToken, proxyToken } of subscriptions) {
+    container.register(authToken, {
+      useFactory: instanceCachingFactory(
+        (c) =>
+          new OpenCodeAuthService(
+            providerId,
+            c.resolve<IAuthSecretsService>(TOKENS.AUTH_SECRETS_SERVICE),
+          ),
+      ),
+    });
+    container.register(proxyToken, {
+      useFactory: instanceCachingFactory(
+        (c) =>
+          new OpenCodeTranslationProxy(
+            c.resolve<Logger>(TOKENS.LOGGER),
+            providerId,
+            c.resolve<OpenCodeAuthService>(authToken),
+          ),
+      ),
+    });
+  }
+  container.register<readonly ApiKeyProxyBinding[]>(
+    AUTH_PROVIDERS_TOKENS.SDK_API_KEY_PROXY_BINDINGS,
+    {
+      useFactory: instanceCachingFactory<readonly ApiKeyProxyBinding[]>((c) => [
+        {
+          providerId: 'openrouter',
+          proxy: c.resolve(AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_PROXY),
+          placeholder: OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+        },
+        {
+          providerId: 'sakana',
+          proxy: c.resolve(AUTH_PROVIDERS_TOKENS.SDK_SAKANA_PROXY),
+          placeholder: SAKANA_PROXY_TOKEN_PLACEHOLDER,
+        },
+        ...subscriptions.map(({ providerId, proxyToken }) => ({
+          providerId,
+          proxy: c.resolve<OpenCodeTranslationProxy>(proxyToken),
+          placeholder: OPENCODE_PROXY_TOKEN_PLACEHOLDER,
+        })),
+      ]),
+    },
   );
 }

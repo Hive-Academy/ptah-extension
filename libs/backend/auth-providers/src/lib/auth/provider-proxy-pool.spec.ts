@@ -570,3 +570,52 @@ describe('ProviderProxyPool', () => {
     });
   });
 });
+
+describe('ProviderProxyPool OpenCode isolation', () => {
+  it('isolates workspace and product, reuses matching keys, and replaces only rotated credentials', async () => {
+    const { pool, authSecrets } = makePool();
+    let zenKey = 'zen-first';
+    authSecrets.getProviderKey.mockImplementation(async (id: string) =>
+      id === 'opencode-zen' ? zenKey : 'go-first',
+    );
+    const zen = customProvider('opencode-zen');
+    const go = customProvider('opencode-go');
+    try {
+      const a = await pool.acquire('/a', zen.id, zen);
+      const b = await pool.acquire('/b', zen.id, zen);
+      const g = await pool.acquire('/a', go.id, go);
+      expect(a?.authToken).toBe('opencode-proxy-token');
+      expect(new Set([a?.baseUrl, b?.baseUrl, g?.baseUrl]).size).toBe(3);
+      expect(await pool.acquire('/a', zen.id, zen)).toEqual(a);
+      zenKey = 'zen-rotated';
+      const rotated = await pool.acquire('/a', zen.id, zen);
+      expect(rotated?.baseUrl).not.toBe(a?.baseUrl);
+      expect(await pool.acquire('/a', go.id, go)).toEqual(g);
+      expect(authSecrets.getProviderKey).toHaveBeenCalledWith('opencode-zen');
+      expect(authSecrets.getProviderKey).toHaveBeenCalledWith('opencode-go');
+      await pool.disposeForScope('/a');
+      // Scope disposal keeps the other workspace alive. Restore its key so
+      // the acquire checks reuse rather than requesting a credential rotation.
+      zenKey = 'zen-first';
+      expect(await pool.acquire('/b', zen.id, zen)).toEqual(b);
+    } finally {
+      await pool.disposeAll();
+    }
+  });
+
+  it.each(['opencode-zen', 'opencode-go'] as const)(
+    '%s missing key declines to documented global auth without borrowing the other key',
+    async (id) => {
+      const { pool, authSecrets } = makePool();
+      authSecrets.getProviderKey.mockImplementation(
+        async (requested: string) => (requested === id ? '  ' : 'other-key'),
+      );
+      expect(
+        await pool.acquire('/workspace', id, customProvider(id)),
+      ).toBeUndefined();
+      expect(authSecrets.getProviderKey).toHaveBeenCalledTimes(1);
+      expect(authSecrets.getProviderKey).toHaveBeenCalledWith(id);
+      await pool.disposeAll();
+    },
+  );
+});

@@ -1,18 +1,16 @@
 import {
   Component,
-  input,
   signal,
   computed,
   inject,
   output,
-  effect,
+  OnInit,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import {
   LucideAngularModule,
   Puzzle,
   Check,
-  X,
   Search,
   Package,
   Star,
@@ -26,6 +24,7 @@ import {
   type HarnessSetSkillSelectionParams,
   type HarnessSkillCandidate,
   type HarnessSkillSyncMode,
+  type PluginConfigState,
   type PluginInfo,
   type PluginSkillEntry,
 } from '@ptah-extension/shared';
@@ -76,7 +75,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
  * Bundled and external plugins (and any legacy payload with no `source`) are
  * OPT-IN via `enabledPluginIds`.
  *
- * Delegates to the shared rule so this modal, the status widget's count and
+ * Delegates to the shared rule so this panel, the enabled count and
  * `PluginLoaderService.resolveCurrentPluginPaths` cannot drift.
  */
 function isOptOutPlugin(plugin: PluginInfo): boolean {
@@ -108,16 +107,16 @@ function skillSelectionKey(
   if (mode === 'all') {
     return 'all';
   }
-  return `selected|${[...slugs].sort().join(',')}`;
+  return `selected|${[...slugs].sort((a, b) => a.localeCompare(b)).join(',')}`;
 }
 
 /**
- * PluginBrowserModalComponent - Modal dialog for browsing and configuring plugins
+ * PluginCatalogPanelComponent - Inline panel for browsing and configuring plugins
  *
- * Patterns: Signal-based state, DaisyUI modal, computed filtering, effect for open trigger
+ * Patterns: Signal-based state, computed filtering, load on init
  *
  * Features:
- * - Loads available plugins and current config when opened
+ * - Loads available plugins and current config when it mounts
  * - Groups plugins by category (Core, Backend, Frontend)
  * - Search/filter plugins by name, description, keywords
  * - Checkbox selection with immutable Set signal updates
@@ -126,7 +125,7 @@ function skillSelectionKey(
  * - Per-workspace skill selection: all-vs-allowlist for what this project
  *   propagates into its AI tools' harness directories (TASK_2026_316)
  *
- * ### Two axes, one modal
+ * ### Two axes, one panel
  *
  * This is the only surface that speaks for both, which is why the selection
  * lives here rather than in a second picker. The plugin checkboxes decide what
@@ -135,504 +134,479 @@ function skillSelectionKey(
  * two different RPCs and neither derives the other — most of the selectable
  * slugs have no plugin above them at all.
  *
+ * ### Panel, not modal
+ *
+ * No `isOpen`, no `closed`, no dialog chrome and no Cancel: the host mounts it
+ * where it is meant to be read, so there is nothing to dismiss. The
+ * `{enabled}/{total} enabled` line that used to live in a separate status
+ * widget is part of this header now.
+ *
  * SOLID Principles:
  * - Single Responsibility: Browse and configure plugin selection
- * - Open/Closed: Inputs/outputs for parent control, closed for modification
  * - Dependency Inversion: Depends on ClaudeRpcService abstraction
  */
 @Component({
-  selector: 'ptah-plugin-browser-modal',
+  selector: 'ptah-plugin-catalog-panel',
   standalone: true,
   imports: [LucideAngularModule, NgClass],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <dialog class="modal" [class.modal-open]="isOpen()">
-      <div class="modal-box max-w-2xl">
-        <!-- Header -->
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-3">
-            <div
-              class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="PuzzleIcon"
-                class="w-5 h-5 text-primary"
-                aria-hidden="true"
-              />
-            </div>
-            <div>
-              <span class="block font-bold text-lg">Configure Ptah Skills</span>
-              <span class="block text-sm text-base-content-muted">
-                Select plugins to enhance your AI sessions
-              </span>
-            </div>
-          </div>
-          <button
-            class="btn btn-sm btn-circle btn-ghost"
-            (click)="handleClose()"
-            type="button"
-            aria-label="Close plugin browser"
-          >
-            <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
-          </button>
+    <div class="w-full">
+      <!-- Header -->
+      <div class="flex items-center gap-3 mb-4">
+        <div
+          class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0"
+        >
+          <lucide-angular
+            [img]="PuzzleIcon"
+            class="w-5 h-5 text-primary"
+            aria-hidden="true"
+          />
         </div>
-
-        <!--
-          Which of the user's skills THIS project gets (TASK_2026_316).
-
-          OUTSIDE the loading/error chain below, deliberately. This section
-          answers a per-workspace question that has nothing to do with the
-          plugin catalogue, and the dashboard's skill-selection card opens
-          this modal for it and nothing else. While it lived inside that
-          chain's else-branch, a plugin read that was slow — or that belonged
-          to another component, since the catalogue is shared — hid the one
-          control the user came for, and a plugin read that FAILED hid it for
-          good (TASK_2026_345 gate regression).
-
-          No backticks in this comment: the whole template is a template
-          literal, so one would end it mid-file.
-        -->
-        @if (skillSelectionAvailable()) {
-          <section
-            class="rounded-lg border border-base-300 bg-base-200/30 p-3 mb-4"
-            data-testid="skill-selection"
-            aria-label="Skills for this project"
+        <div class="min-w-0">
+          <span class="block font-bold text-lg">Configure Ptah Skills</span>
+          <span
+            class="block text-sm text-base-content-muted"
+            data-testid="plugin-catalog-enabled-count"
           >
-            <div class="flex items-start gap-3">
-              <div class="flex-1 min-w-0">
-                <span class="block text-sm font-medium"
-                  >Skills for this project</span
-                >
-                <span
-                  class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
-                >
-                  Which of your skills Ptah copies into this project's AI tools.
-                  Every project keeps its own answer.
-                </span>
-              </div>
-              <div
-                class="join shrink-0"
-                role="radiogroup"
-                aria-label="Skill selection mode"
-              >
-                <button
-                  class="btn btn-xs join-item"
-                  [ngClass]="
-                    skillMode() === 'all' ? 'btn-primary' : 'btn-ghost'
-                  "
-                  type="button"
-                  role="radio"
-                  [attr.aria-checked]="skillMode() === 'all'"
-                  data-testid="skill-mode-all"
-                  (click)="setSkillMode('all')"
-                >
-                  All of them
-                </button>
-                <button
-                  class="btn btn-xs join-item"
-                  [ngClass]="
-                    skillMode() === 'selected' ? 'btn-primary' : 'btn-ghost'
-                  "
-                  type="button"
-                  role="radio"
-                  [attr.aria-checked]="skillMode() === 'selected'"
-                  data-testid="skill-mode-selected"
-                  (click)="setSkillMode('selected')"
-                >
-                  Only the ones I pick
-                </button>
-              </div>
-            </div>
-
-            @if (skillMode() === 'all') {
-              @if (skillModeDerived()) {
-                <span
-                  class="block text-xs text-base-content-muted mt-2"
-                  data-testid="skill-mode-derived"
-                >
-                  This project was already receiving skills before it could be
-                  asked, so Ptah kept them all flowing. Narrow it whenever you
-                  like.
-                </span>
-              }
-            } @else {
-              <div
-                class="mt-2 max-h-40 overflow-y-auto pr-1"
-                role="group"
-                aria-label="Selectable skills"
-              >
-                @for (candidate of skillCandidates(); track candidate.slug) {
-                  <label
-                    class="flex items-start gap-2 py-1 px-1 -mx-1 rounded cursor-pointer hover:bg-base-200/60"
-                  >
-                    <input
-                      type="checkbox"
-                      class="checkbox checkbox-xs checkbox-primary mt-0.5"
-                      [checked]="isSkillSlugSelected(candidate.slug)"
-                      (change)="toggleSkillSlug(candidate.slug)"
-                      [attr.aria-label]="
-                        (isSkillSlugSelected(candidate.slug)
-                          ? 'Deselect '
-                          : 'Select ') + candidate.name
-                      "
-                    />
-                    <span class="min-w-0 flex-1">
-                      <span class="block text-xs font-medium">{{
-                        candidate.name
-                      }}</span>
-                      @if (candidate.description) {
-                        <span
-                          class="block text-xs text-base-content-muted leading-relaxed"
-                          >{{ candidate.description }}</span
-                        >
-                      }
-                    </span>
-                    @if (candidate.pluginId) {
-                      <span class="badge badge-xs badge-ghost shrink-0">{{
-                        candidate.pluginId
-                      }}</span>
-                    }
-                  </label>
-                } @empty {
-                  <span class="block text-xs text-base-content-muted py-2">
-                    No skills on this machine yet. Anything you add with the
-                    harness wizard, a marketplace or skills.sh shows up here.
-                  </span>
-                }
-              </div>
-              <span
-                class="block text-xs text-base-content-muted mt-1"
-                data-testid="skill-selection-count"
-              >
-                {{ selectedSkillSlugs().size }} of
-                {{ skillCandidates().length }} skills selected
-              </span>
-            }
-          </section>
-        }
-
-        @if (isLoading()) {
-          <!-- Loading state -->
-          <div class="flex flex-col gap-3 py-8">
-            <div class="flex justify-center">
-              <span
-                class="loading loading-spinner loading-md text-primary"
-              ></span>
-            </div>
-            <span class="block text-sm text-base-content-muted text-center">
-              Loading available plugins...
-            </span>
-          </div>
-        } @else if (error()) {
-          <!-- Error state -->
-          <div class="flex flex-col items-center gap-3 py-8">
-            <span class="text-error text-sm text-center">{{ error() }}</span>
-            <button
-              class="btn btn-sm btn-ghost"
-              (click)="loadPlugins()"
-              type="button"
-            >
-              Try Again
-            </button>
-          </div>
-        } @else {
-          <!-- Search input -->
-          <div class="relative mb-4">
-            <lucide-angular
-              [img]="SearchIcon"
-              class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content-muted"
-              aria-hidden="true"
-            />
-            <input
-              type="text"
-              class="input input-bordered input-sm w-full pl-9"
-              placeholder="Search plugins..."
-              [value]="searchQuery()"
-              (input)="onSearchInput($event)"
-              aria-label="Search plugins"
-            />
-          </div>
-
-          <!-- Plugin list grouped by category -->
-          <div
-            class="max-h-[50vh] overflow-y-auto space-y-4 pr-1"
-            role="list"
-            aria-label="Available plugins"
-          >
-            @for (group of groupedPlugins(); track group.key) {
-              <div>
-                <!-- Category header -->
-                <span
-                  class="block text-xs font-semibold uppercase tracking-wider text-base-content-muted mb-2"
-                >
-                  {{ group.label }}
-                </span>
-
-                <!-- Plugin cards -->
-                <div class="space-y-2">
-                  @for (plugin of group.plugins; track plugin.id) {
-                    <div
-                      class="rounded-lg border transition-all duration-150"
-                      [ngClass]="
-                        isSelected(plugin.id)
-                          ? 'border-primary bg-primary/5'
-                          : 'border-base-300 bg-base-200/30 hover:bg-base-200/60'
-                      "
-                      role="listitem"
-                    >
-                      <!-- Plugin header row (clickable to toggle plugin) -->
-                      <div
-                        class="flex items-start gap-3 p-3 cursor-pointer"
-                        (click)="togglePlugin(plugin.id)"
-                      >
-                        <!-- Checkbox -->
-                        <input
-                          type="checkbox"
-                          class="checkbox checkbox-primary checkbox-sm mt-0.5"
-                          [checked]="isSelected(plugin.id)"
-                          [attr.aria-label]="'Enable ' + plugin.name"
-                        />
-
-                        <!-- Plugin info -->
-                        <div class="flex-1 min-w-0">
-                          <div class="flex items-center gap-2 flex-wrap">
-                            <span class="text-sm font-medium">{{
-                              plugin.name
-                            }}</span>
-                            @if (plugin.isDefault) {
-                              <span class="badge badge-xs badge-primary gap-1">
-                                <lucide-angular
-                                  [img]="StarIcon"
-                                  class="w-2.5 h-2.5"
-                                  aria-hidden="true"
-                                />
-                                Recommended
-                              </span>
-                            }
-                            @if (plugin.source === 'harness') {
-                              <span
-                                class="badge badge-xs badge-secondary gap-1"
-                              >
-                                <lucide-angular
-                                  [img]="WandIcon"
-                                  class="w-2.5 h-2.5"
-                                  aria-hidden="true"
-                                />
-                                Yours
-                              </span>
-                            }
-                          </div>
-                          <span
-                            class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
-                          >
-                            {{ plugin.description }}
-                          </span>
-                          <!-- Badges: skill count, command count, expand chevron -->
-                          <div class="flex items-center gap-1.5 mt-1.5">
-                            @if (plugin.skillCount > 0) {
-                              <span class="badge badge-xs badge-ghost gap-1">
-                                <lucide-angular
-                                  [img]="PackageIcon"
-                                  class="w-2.5 h-2.5"
-                                  aria-hidden="true"
-                                />
-                                {{ plugin.skillCount }}
-                                skill{{ plugin.skillCount !== 1 ? 's' : '' }}
-                              </span>
-                              @if (
-                                isSelected(plugin.id) &&
-                                pluginSkills().get(plugin.id)?.length
-                              ) {
-                                <button
-                                  class="btn btn-ghost btn-xs px-1 h-5 min-h-0"
-                                  (click)="toggleExpand(plugin.id, $event)"
-                                  type="button"
-                                  [attr.aria-label]="
-                                    isPluginExpanded(plugin.id)
-                                      ? 'Collapse skill list'
-                                      : 'Expand skill list'
-                                  "
-                                  [attr.aria-expanded]="
-                                    isPluginExpanded(plugin.id)
-                                  "
-                                >
-                                  <lucide-angular
-                                    [img]="
-                                      isPluginExpanded(plugin.id)
-                                        ? ChevronDownIcon
-                                        : ChevronRightIcon
-                                    "
-                                    class="w-3 h-3"
-                                    aria-hidden="true"
-                                  />
-                                </button>
-                              }
-                            }
-                            @if (plugin.commandCount > 0) {
-                              <span class="badge badge-xs badge-ghost gap-1">
-                                {{ plugin.commandCount }}
-                                command{{
-                                  plugin.commandCount !== 1 ? 's' : ''
-                                }}
-                              </span>
-                            }
-                          </div>
-                        </div>
-
-                        <!-- Selected indicator -->
-                        @if (isSelected(plugin.id)) {
-                          <lucide-angular
-                            [img]="CheckIcon"
-                            class="w-4 h-4 text-primary shrink-0 mt-1"
-                            aria-hidden="true"
-                          />
-                        }
-                      </div>
-
-                      <!-- Expandable skill list (only when plugin is selected AND expanded) -->
-                      @if (
-                        isSelected(plugin.id) &&
-                        isPluginExpanded(plugin.id) &&
-                        pluginSkills().get(plugin.id)?.length
-                      ) {
-                        <div class="border-t border-base-300/50 mx-3 pb-3">
-                          <div
-                            class="pt-2 pl-8"
-                            role="group"
-                            [attr.aria-label]="'Skills for ' + plugin.name"
-                          >
-                            @for (
-                              skill of pluginSkills().get(plugin.id)!;
-                              track skill.skillId
-                            ) {
-                              <label
-                                class="flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200/40 rounded px-1 -mx-1"
-                                (click)="$event.stopPropagation()"
-                              >
-                                <input
-                                  type="checkbox"
-                                  class="checkbox checkbox-xs checkbox-primary"
-                                  [checked]="isSkillEnabled(skill.skillId)"
-                                  (change)="toggleSkill(skill.skillId, $event)"
-                                  [attr.aria-label]="
-                                    (isSkillEnabled(skill.skillId)
-                                      ? 'Disable '
-                                      : 'Enable ') + skill.displayName
-                                  "
-                                />
-                                <span
-                                  class="text-xs font-medium whitespace-nowrap"
-                                  >{{ skill.displayName }}</span
-                                >
-                                <span
-                                  class="text-xs text-base-content-muted truncate"
-                                  >{{ skill.description }}</span
-                                >
-                              </label>
-                            }
-                          </div>
-                        </div>
-                      }
-                    </div>
-                  }
-                </div>
-              </div>
-            } @empty {
-              <div class="text-center py-6 text-base-content-muted">
-                <span class="block text-sm">
-                  @if (searchQuery()) {
-                    No plugins match your search.
-                  } @else {
-                    No plugins available.
-                  }
-                </span>
-              </div>
-            }
-          </div>
-
-          <!-- Footer -->
-          <div class="modal-action mt-4 pt-3 border-t border-base-300">
-            <span class="text-xs text-base-content-muted flex-1">
-              {{ selectedIds().size }} of
-              {{ availablePlugins().length }} selected
-              @if (disabledSkillIds().size > 0) {
-                <span class="text-base-content-muted">
-                  &middot; {{ disabledSkillIds().size }} skill{{
-                    disabledSkillIds().size !== 1 ? 's' : ''
-                  }}
-                  disabled
-                </span>
-              }
-            </span>
-            @if (saveError()) {
-              <span class="text-error text-xs">{{ saveError() }}</span>
-            }
-            <button
-              class="btn btn-ghost btn-sm"
-              (click)="handleClose()"
-              type="button"
-            >
-              Cancel
-            </button>
-            <button
-              class="btn btn-primary btn-sm"
-              [disabled]="isSaving()"
-              (click)="saveConfiguration()"
-              type="button"
-            >
-              @if (isSaving()) {
-                <span class="loading loading-spinner loading-xs"></span>
-                Saving...
-              } @else {
-                <lucide-angular
-                  [img]="CheckIcon"
-                  class="w-4 h-4"
-                  aria-hidden="true"
-                />
-                Save Configuration
-              }
-            </button>
-          </div>
-        }
+            {{ catalog.enabledCount() }}/{{ catalog.pluginTotal() }} enabled
+          </span>
+        </div>
       </div>
 
-      <!-- Backdrop - click outside to close -->
-      <div class="modal-backdrop" (click)="handleClose()"></div>
-    </dialog>
+      <!--
+        Which of the user's skills THIS project gets (TASK_2026_316).
+
+        OUTSIDE the loading/error chain below, deliberately. This section
+        answers a per-workspace question that has nothing to do with the
+        plugin catalogue, and the dashboard's skill-selection card exists
+        for it and nothing else. While it lived inside that chain's
+        else-branch, a plugin read that was slow — or that belonged to
+        another component, since the catalogue is shared — hid the one
+        control the user came for, and a plugin read that FAILED hid it for
+        good (TASK_2026_345 gate regression).
+
+        No backticks in this comment: the whole template is a template
+        literal, so one would end it mid-file.
+      -->
+      @if (skillSelectionAvailable()) {
+        <section
+          class="rounded-lg border border-base-300 bg-base-200/30 p-3 mb-4"
+          data-testid="skill-selection"
+          aria-label="Skills for this project"
+        >
+          <div class="flex items-start gap-3">
+            <div class="flex-1 min-w-0">
+              <span class="block text-sm font-medium"
+                >Skills for this project</span
+              >
+              <span
+                class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
+              >
+                Which of your skills Ptah copies into this project's AI tools.
+                Every project keeps its own answer.
+              </span>
+            </div>
+            <div
+              class="join shrink-0"
+              role="radiogroup"
+              aria-label="Skill selection mode"
+            >
+              <button
+                class="btn btn-xs join-item"
+                [ngClass]="skillMode() === 'all' ? 'btn-primary' : 'btn-ghost'"
+                type="button"
+                role="radio"
+                [attr.aria-checked]="skillMode() === 'all'"
+                data-testid="skill-mode-all"
+                (click)="setSkillMode('all')"
+              >
+                All of them
+              </button>
+              <button
+                class="btn btn-xs join-item"
+                [ngClass]="
+                  skillMode() === 'selected' ? 'btn-primary' : 'btn-ghost'
+                "
+                type="button"
+                role="radio"
+                [attr.aria-checked]="skillMode() === 'selected'"
+                data-testid="skill-mode-selected"
+                (click)="setSkillMode('selected')"
+              >
+                Only the ones I pick
+              </button>
+            </div>
+          </div>
+
+          @if (skillMode() === 'all') {
+            @if (skillModeDerived()) {
+              <span
+                class="block text-xs text-base-content-muted mt-2"
+                data-testid="skill-mode-derived"
+              >
+                This project was already receiving skills before it could be
+                asked, so Ptah kept them all flowing. Narrow it whenever you
+                like.
+              </span>
+            }
+          } @else {
+            <div
+              class="mt-2 max-h-40 overflow-y-auto pr-1"
+              role="group"
+              aria-label="Selectable skills"
+            >
+              @for (candidate of skillCandidates(); track candidate.slug) {
+                <label
+                  class="flex items-start gap-2 py-1 px-1 -mx-1 rounded cursor-pointer hover:bg-base-200/60"
+                >
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-xs checkbox-primary mt-0.5"
+                    [checked]="isSkillSlugSelected(candidate.slug)"
+                    (change)="toggleSkillSlug(candidate.slug)"
+                    [attr.aria-label]="
+                      (isSkillSlugSelected(candidate.slug)
+                        ? 'Deselect '
+                        : 'Select ') + candidate.name
+                    "
+                  />
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-xs font-medium">{{
+                      candidate.name
+                    }}</span>
+                    @if (candidate.description) {
+                      <span
+                        class="block text-xs text-base-content-muted leading-relaxed"
+                        >{{ candidate.description }}</span
+                      >
+                    }
+                  </span>
+                  @if (candidate.pluginId) {
+                    <span class="badge badge-xs badge-ghost shrink-0">{{
+                      candidate.pluginId
+                    }}</span>
+                  }
+                </label>
+              } @empty {
+                <span class="block text-xs text-base-content-muted py-2">
+                  No skills on this machine yet. Anything you add with the
+                  harness wizard, a marketplace or skills.sh shows up here.
+                </span>
+              }
+            </div>
+            <span
+              class="block text-xs text-base-content-muted mt-1"
+              data-testid="skill-selection-count"
+            >
+              {{ selectedSkillSlugs().size }} of
+              {{ skillCandidates().length }} skills selected
+            </span>
+          }
+        </section>
+      }
+
+      @if (isLoading()) {
+        <!-- Loading state -->
+        <div class="flex flex-col gap-3 py-8">
+          <div class="flex justify-center">
+            <span
+              class="loading loading-spinner loading-md text-primary"
+            ></span>
+          </div>
+          <span class="block text-sm text-base-content-muted text-center">
+            Loading available plugins...
+          </span>
+        </div>
+      } @else if (error()) {
+        <!-- Error state -->
+        <div class="flex flex-col items-center gap-3 py-8">
+          <span class="text-error text-sm text-center">{{ error() }}</span>
+          <button
+            class="btn btn-sm btn-ghost"
+            (click)="loadPlugins()"
+            type="button"
+          >
+            Try Again
+          </button>
+        </div>
+      } @else {
+        <!-- Search input -->
+        <div class="relative mb-4">
+          <lucide-angular
+            [img]="SearchIcon"
+            class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content-muted"
+            aria-hidden="true"
+          />
+          <input
+            type="text"
+            class="input input-bordered input-sm w-full pl-9"
+            placeholder="Search plugins..."
+            [value]="searchQuery()"
+            (input)="onSearchInput($event)"
+            aria-label="Search plugins"
+          />
+        </div>
+
+        <!-- Plugin list grouped by category -->
+        <div
+          class="max-h-[50vh] overflow-y-auto space-y-4 pr-1"
+          role="list"
+          aria-label="Available plugins"
+        >
+          @for (group of groupedPlugins(); track group.key) {
+            <div>
+              <!-- Category header -->
+              <span
+                class="block text-xs font-semibold uppercase tracking-wider text-base-content-muted mb-2"
+              >
+                {{ group.label }}
+              </span>
+
+              <!-- Plugin cards -->
+              <div class="space-y-2">
+                @for (plugin of group.plugins; track plugin.id) {
+                  <div
+                    class="rounded-lg border transition-all duration-150"
+                    [ngClass]="
+                      isSelected(plugin.id)
+                        ? 'border-primary bg-primary/5'
+                        : 'border-base-300 bg-base-200/30 hover:bg-base-200/60'
+                    "
+                    role="listitem"
+                  >
+                    <!-- Plugin header row (clickable to toggle plugin) -->
+                    <div
+                      class="flex items-start gap-3 p-3 cursor-pointer"
+                      (click)="togglePlugin(plugin.id)"
+                    >
+                      <!-- Checkbox -->
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-primary checkbox-sm mt-0.5"
+                        [checked]="isSelected(plugin.id)"
+                        [attr.aria-label]="'Enable ' + plugin.name"
+                      />
+
+                      <!-- Plugin info -->
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <span class="text-sm font-medium">{{
+                            plugin.name
+                          }}</span>
+                          @if (plugin.isDefault) {
+                            <span class="badge badge-xs badge-primary gap-1">
+                              <lucide-angular
+                                [img]="StarIcon"
+                                class="w-2.5 h-2.5"
+                                aria-hidden="true"
+                              />
+                              Recommended
+                            </span>
+                          }
+                          @if (plugin.source === 'harness') {
+                            <span class="badge badge-xs badge-secondary gap-1">
+                              <lucide-angular
+                                [img]="WandIcon"
+                                class="w-2.5 h-2.5"
+                                aria-hidden="true"
+                              />
+                              Yours
+                            </span>
+                          }
+                        </div>
+                        <span
+                          class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
+                        >
+                          {{ plugin.description }}
+                        </span>
+                        <!-- Badges: skill count, command count, expand chevron -->
+                        <div class="flex items-center gap-1.5 mt-1.5">
+                          @if (plugin.skillCount > 0) {
+                            <span class="badge badge-xs badge-ghost gap-1">
+                              <lucide-angular
+                                [img]="PackageIcon"
+                                class="w-2.5 h-2.5"
+                                aria-hidden="true"
+                              />
+                              {{ plugin.skillCount }}
+                              skill{{ plugin.skillCount !== 1 ? 's' : '' }}
+                            </span>
+                            @if (
+                              isSelected(plugin.id) &&
+                              pluginSkills().get(plugin.id)?.length
+                            ) {
+                              <button
+                                class="btn btn-ghost btn-xs px-1 h-5 min-h-0"
+                                (click)="toggleExpand(plugin.id, $event)"
+                                type="button"
+                                [attr.aria-label]="
+                                  isPluginExpanded(plugin.id)
+                                    ? 'Collapse skill list'
+                                    : 'Expand skill list'
+                                "
+                                [attr.aria-expanded]="
+                                  isPluginExpanded(plugin.id)
+                                "
+                              >
+                                <lucide-angular
+                                  [img]="
+                                    isPluginExpanded(plugin.id)
+                                      ? ChevronDownIcon
+                                      : ChevronRightIcon
+                                  "
+                                  class="w-3 h-3"
+                                  aria-hidden="true"
+                                />
+                              </button>
+                            }
+                          }
+                          @if (plugin.commandCount > 0) {
+                            <span class="badge badge-xs badge-ghost gap-1">
+                              {{ plugin.commandCount }}
+                              command{{ plugin.commandCount !== 1 ? 's' : '' }}
+                            </span>
+                          }
+                        </div>
+                      </div>
+
+                      <!-- Selected indicator -->
+                      @if (isSelected(plugin.id)) {
+                        <lucide-angular
+                          [img]="CheckIcon"
+                          class="w-4 h-4 text-primary shrink-0 mt-1"
+                          aria-hidden="true"
+                        />
+                      }
+                    </div>
+
+                    <!-- Expandable skill list (only when plugin is selected AND expanded) -->
+                    @if (
+                      isSelected(plugin.id) &&
+                      isPluginExpanded(plugin.id) &&
+                      pluginSkills().get(plugin.id)?.length
+                    ) {
+                      <div class="border-t border-base-300/50 mx-3 pb-3">
+                        <div
+                          class="pt-2 pl-8"
+                          role="group"
+                          [attr.aria-label]="'Skills for ' + plugin.name"
+                        >
+                          @for (
+                            skill of pluginSkills().get(plugin.id)!;
+                            track skill.skillId
+                          ) {
+                            <label
+                              class="flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200/40 rounded px-1 -mx-1"
+                              (click)="$event.stopPropagation()"
+                            >
+                              <input
+                                type="checkbox"
+                                class="checkbox checkbox-xs checkbox-primary"
+                                [checked]="isSkillEnabled(skill.skillId)"
+                                (change)="toggleSkill(skill.skillId, $event)"
+                                [attr.aria-label]="
+                                  (isSkillEnabled(skill.skillId)
+                                    ? 'Disable '
+                                    : 'Enable ') + skill.displayName
+                                "
+                              />
+                              <span
+                                class="text-xs font-medium whitespace-nowrap"
+                                >{{ skill.displayName }}</span
+                              >
+                              <span
+                                class="text-xs text-base-content-muted truncate"
+                                >{{ skill.description }}</span
+                              >
+                            </label>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+          } @empty {
+            <div class="text-center py-6 text-base-content-muted">
+              <span class="block text-sm">
+                @if (searchQuery()) {
+                  No plugins match your search.
+                } @else {
+                  No plugins available.
+                }
+              </span>
+            </div>
+          }
+        </div>
+
+        <!-- Footer -->
+        <div class="flex items-center gap-2 mt-4 pt-3 border-t border-base-300">
+          <span class="text-xs text-base-content-muted flex-1">
+            {{ selectedIds().size }} of {{ availablePlugins().length }} selected
+            @if (disabledSkillIds().size > 0) {
+              <span class="text-base-content-muted">
+                &middot; {{ disabledSkillIds().size }} skill{{
+                  disabledSkillIds().size !== 1 ? 's' : ''
+                }}
+                disabled
+              </span>
+            }
+          </span>
+          @if (saveError()) {
+            <span class="text-error text-xs">{{ saveError() }}</span>
+          }
+          <button
+            class="btn btn-primary btn-sm"
+            data-testid="plugin-catalog-save"
+            [disabled]="isSaving()"
+            (click)="saveConfiguration()"
+            type="button"
+          >
+            @if (isSaving()) {
+              <span class="loading loading-spinner loading-xs"></span>
+              Saving...
+            } @else {
+              <lucide-angular
+                [img]="CheckIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+              Save Configuration
+            }
+          </button>
+        </div>
+      }
+    </div>
   `,
   styles: [
     `
       :host {
-        display: contents;
+        display: block;
       }
     `,
   ],
 })
-export class PluginBrowserModalComponent {
+export class PluginCatalogPanelComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
   /**
-   * The shared plugin list + config. See `loadPlugins`; the modal keeps its own
+   * The shared plugin list + config. See `loadPlugins`; the panel keeps its own
    * per-workspace skill selection and its own skill listing, which nothing else
-   * reads.
+   * reads. Protected rather than private because the header renders its
+   * `enabledCount`/`pluginTotal` directly.
    */
-  private readonly catalog = inject(PluginCatalogService);
+  protected readonly catalog = inject(PluginCatalogService);
 
   /** Lucide icon references */
   protected readonly PuzzleIcon = Puzzle;
   protected readonly CheckIcon = Check;
-  protected readonly XIcon = X;
   protected readonly SearchIcon = Search;
   protected readonly PackageIcon = Package;
   protected readonly StarIcon = Star;
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronRightIcon = ChevronRight;
   protected readonly WandIcon = Wand2;
-
-  /** Controls modal visibility (from parent) */
-  readonly isOpen = input(false);
-
-  /** Emitted when modal is closed */
-  readonly closed = output<void>();
 
   /** Emitted when configuration is saved (emits enabled plugin IDs) */
   readonly saved = output<string[]>();
@@ -768,16 +742,15 @@ export class PluginBrowserModalComponent {
     return groups;
   });
 
-  constructor() {
-    effect(() => {
-      const open = this.isOpen();
-      if (open) {
-        this.loadPlugins();
-      } else {
-        this.searchQuery.set('');
-        this.expandedPlugins.set(new Set());
-      }
-    });
+  /**
+   * A panel loads because it is on screen, not because a parent opened it.
+   *
+   * This replaces the modal's `isOpen` effect. There is no close half to
+   * mirror: nothing resets `searchQuery` or `expandedPlugins`, because the
+   * panel is destroyed rather than hidden.
+   */
+  ngOnInit(): void {
+    void this.loadPlugins();
   }
 
   /**
@@ -893,15 +866,8 @@ export class PluginBrowserModalComponent {
   }
 
   /**
-   * Close modal and emit closed event.
-   */
-  handleClose(): void {
-    this.closed.emit();
-  }
-
-  /**
    * Save the current plugin configuration via RPC.
-   * Emits saved with enabled IDs, then closes modal.
+   * Emits saved with enabled IDs.
    *
    * Harness plugins are opt-out, so an unchecked one cannot be expressed by
    * simply leaving it out of `enabledPluginIds` — the backend would rediscover
@@ -942,9 +908,9 @@ export class PluginBrowserModalComponent {
 
       if (result.isSuccess()) {
         // The shared catalog now holds the PREVIOUS config. Re-read it before
-        // anything renders from it — the status widget beside this modal reads
-        // the same signals, and leaving it stale would show the old count until
-        // the window reloaded. Awaited rather than fired: `saved` below is what
+        // anything renders from it — this panel's own header reads the same
+        // signals, and leaving it stale would show the old count until the
+        // window reloaded. Awaited rather than fired: `saved` below is what
         // parents act on, and a parent that re-reads must not race this.
         await this.catalog.refresh();
         // Second write, and only if the user moved this control. It runs after
@@ -958,16 +924,15 @@ export class PluginBrowserModalComponent {
           return;
         }
         this.saved.emit(enabledPluginIds);
-        this.closed.emit();
       } else {
         console.error(
-          '[PluginBrowserModal] Failed to save config:',
+          '[PluginCatalogPanel] Failed to save config:',
           result.error,
         );
         this.saveError.set('Failed to save configuration.');
       }
     } catch (err) {
-      console.error('[PluginBrowserModal] Error saving config:', err);
+      console.error('[PluginCatalogPanel] Error saving config:', err);
       this.saveError.set('Failed to save configuration.');
     } finally {
       this.isSaving.set(false);
@@ -1019,13 +984,13 @@ export class PluginBrowserModalComponent {
       }
 
       console.error(
-        '[PluginBrowserModal] Failed to record the skill selection:',
+        '[PluginCatalogPanel] Failed to record the skill selection:',
         result.error,
       );
       return false;
     } catch (err: unknown) {
       console.error(
-        '[PluginBrowserModal] Error recording the skill selection:',
+        '[PluginCatalogPanel] Error recording the skill selection:',
         err,
       );
       return false;
@@ -1062,7 +1027,7 @@ export class PluginBrowserModalComponent {
    * Withdraw the selection section entirely.
    *
    * For no workspace, a host that predates Batch 3, or a failed read — in every
-   * case the modal does not know the current selection, and a control seeded
+   * case the panel does not know the current selection, and a control seeded
    * with a guess would let a Save write that guess to disk.
    */
   private clearSkillSelection(): void {
@@ -1075,7 +1040,7 @@ export class PluginBrowserModalComponent {
   }
 
   /**
-   * Translate the persisted config into the modal's checkbox state.
+   * Translate the persisted config into the panel's checkbox state.
    *
    * The two activation models are collapsed into one `selectedIds` set here so
    * the template stays a plain checked/unchecked render:
@@ -1106,9 +1071,30 @@ export class PluginBrowserModalComponent {
     return selection;
   }
 
+  private applyCatalogConfig(
+    plugins: PluginInfo[],
+    config: PluginConfigState | null,
+  ): void {
+    if (config !== null) {
+      // `enabledPluginIds` is optional-chained because a host can answer
+      // `plugins:get-config` with a partial record — the e2e harness does —
+      // and an undefined allowlist must read as "nothing opted in", not
+      // throw inside `deriveSelection` and clear the catalogue.
+      this.selectedIds.set(
+        this.deriveSelection(plugins, config.enabledPluginIds ?? [], [
+          ...(config.disabledPluginIds ?? []),
+        ]),
+      );
+      this.disabledSkillIds.set(new Set(config.disabledSkillIds ?? []));
+    } else {
+      this.selectedIds.set(new Set());
+      this.disabledSkillIds.set(new Set());
+    }
+  }
+
   /**
    * Load available plugins and current configuration from backend.
-   * Called via effect when isOpen becomes true, and by error retry button.
+   * Called from `ngOnInit`, and by the error retry button.
    */
   async loadPlugins(): Promise<void> {
     this.isLoading.set(true);
@@ -1117,15 +1103,14 @@ export class PluginBrowserModalComponent {
 
     // Two reads, started together and applied INDEPENDENTLY.
     //
-    // The catalog is SHARED (TASK_2026_345). This modal is mounted beside a
-    // `PluginStatusWidgetComponent` in every view that hosts it, and both used
-    // to issue their own `plugins:list-available` + `plugins:get-config` pair —
-    // visibly, as duplicate pairs in `tmp/logs/log.log:1907-1924`.
-    // `ensureLoaded` is the first read or a no-op; `saveConfiguration` below is
-    // what makes it stale again.
+    // The catalog is SHARED (TASK_2026_345). Several surfaces read it at once
+    // and each used to issue its own `plugins:list-available` +
+    // `plugins:get-config` pair — visibly, as duplicate pairs in
+    // `tmp/logs/log.log:1907-1924`. `ensureLoaded` is the first read or a
+    // no-op; `saveConfiguration` above is what makes it stale again.
     const catalogLoad = this.catalog.ensureLoaded();
     // NOT part of the shared catalog: the skill selection is per-WORKSPACE, it
-    // has its own failure semantics, and only this modal reads it. It swallows
+    // has its own failure semantics, and only this panel reads it. It swallows
     // its own rejection rather than failing the load — a host without this
     // handler, or with no workspace open, must still be able to configure
     // plugins, and the section it feeds simply does not render.
@@ -1135,10 +1120,10 @@ export class PluginBrowserModalComponent {
 
     // Applied BEFORE the catalog is awaited, and never inside its try. These
     // two answers have nothing to do with each other: the selection is the only
-    // thing the dashboard's skill-selection card opens this modal for, and
+    // thing the dashboard's skill-selection card cares about, and
     // `ensureLoaded()` can hand back a read that a DIFFERENT component started,
     // so sequencing the selection behind it made the one control the user came
-    // for wait on a request this modal did not even issue.
+    // for wait on a request this panel did not even issue.
     const selectionResult = await selectionRead;
     if (selectionResult?.isSuccess() && selectionResult.data) {
       this.applySkillSelection(selectionResult.data);
@@ -1152,18 +1137,7 @@ export class PluginBrowserModalComponent {
       const plugins: PluginInfo[] = [...this.catalog.plugins()];
       this.availablePlugins.set(plugins);
 
-      const config = this.catalog.config();
-      if (config !== null) {
-        this.selectedIds.set(
-          this.deriveSelection(plugins, config.enabledPluginIds, [
-            ...(config.disabledPluginIds ?? []),
-          ]),
-        );
-        this.disabledSkillIds.set(new Set(config.disabledSkillIds ?? []));
-      } else {
-        this.selectedIds.set(new Set());
-        this.disabledSkillIds.set(new Set());
-      }
+      this.applyCatalogConfig(plugins, this.catalog.config());
 
       if (plugins.length > 0) {
         try {
@@ -1187,14 +1161,14 @@ export class PluginBrowserModalComponent {
           }
         } catch (skillsErr) {
           console.warn(
-            '[PluginBrowserModal] Failed to load skills (non-fatal):',
+            '[PluginCatalogPanel] Failed to load skills (non-fatal):',
             skillsErr,
           );
           this.pluginSkills.set(new Map());
         }
       }
     } catch (err) {
-      console.error('[PluginBrowserModal] Error loading plugins:', err);
+      console.error('[PluginCatalogPanel] Error loading plugins:', err);
       this.error.set('Failed to load plugins. Please try again.');
       this.availablePlugins.set([]);
       this.selectedIds.set(new Set());
@@ -1204,7 +1178,7 @@ export class PluginBrowserModalComponent {
       // applied above, by a request that succeeded; a failure on the plugin
       // side has nothing to say about which skills this project gets, and
       // discarding a good answer because an unrelated read failed is how the
-      // dashboard's card could open this modal and offer no control at all.
+      // dashboard's card could open this panel and offer no control at all.
     } finally {
       this.isLoading.set(false);
     }

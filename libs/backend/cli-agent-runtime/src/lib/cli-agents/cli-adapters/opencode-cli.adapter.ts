@@ -44,9 +44,7 @@
  * See: https://opencode.ai/docs/cli/ , https://opencode.ai/docs/config/
  */
 import { existsSync } from 'fs';
-import { readFile } from 'fs/promises';
-import { homedir } from 'os';
-import path, { join } from 'path';
+import path from 'path';
 import type {
   CliDetectionResult,
   CliOutputSegment,
@@ -306,76 +304,179 @@ export class OpencodeCliAdapter implements CliAdapter {
   }
 
   /**
-   * Run `opencode models` and capture stdout. Never throws — resolves undefined
-   * on timeout/error/no output.
+   * Execute a single CLI probe command and capture its stdout and exit outcome.
+   * Never throws — settles cleanly with status flags on timeout, error, or exit.
    */
-  private probeModels(
+  private probeCommandOnce(
     binary: string,
+    args: string[],
     timeoutMs = 8000,
-  ): Promise<string | undefined> {
+  ): Promise<{
+    readonly stdout: string;
+    readonly exitCode: number | null;
+    readonly timedOut: boolean;
+    readonly errored: boolean;
+  }> {
     return new Promise((resolve) => {
       let stdout = '';
-      const child = spawnCli(binary, ['models'], { spawner: this.spawner });
+      let settled = false;
+      const child = spawnCli(binary, args, { spawner: this.spawner });
+
+      const finish = (outcome: {
+        stdout: string;
+        exitCode: number | null;
+        timedOut: boolean;
+        errored: boolean;
+      }): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(outcome);
+      };
+
       const timer = setTimeout(() => {
         child.kill();
-        resolve(undefined);
+        finish({ stdout: '', exitCode: null, timedOut: true, errored: false });
       }, timeoutMs);
 
       child.stdout?.setEncoding('utf8');
       child.stdout?.on('data', (data: string) => {
         stdout += data;
       });
-      child.on('close', () => {
-        clearTimeout(timer);
-        resolve(stdout.trim() || undefined);
+      child.on('close', (code) => {
+        finish({
+          stdout: stdout.trim(),
+          exitCode: code,
+          timedOut: false,
+          errored: false,
+        });
       });
       child.on('error', () => {
-        clearTimeout(timer);
-        resolve(undefined);
+        finish({ stdout: '', exitCode: null, timedOut: false, errored: true });
       });
     });
   }
 
   /**
-   * Candidate `auth.json` locations, in priority order.
+   * Run `opencode models` and capture stdout. Never throws — resolves undefined
+   * on timeout/error/no output.
    *
-   * XDG data-home (`~/.local/share/opencode/`) is the documented location, but
-   * Windows path conventions for opencode's data dir are inconsistent upstream,
-   * so `%APPDATA%\opencode\` is checked as a fallback. Prefers $HOME /
-   * $USERPROFILE over os.homedir() so tests that reassign HOME are honoured.
+   * Measured 2026-09-22 on opencode 2.x (win32, TASK_2026_525):
+   * `opencode models` in v2 queries an internal background HTTP server. When that
+   * server is down (cold start), the command launches it in the background, exits
+   * 0 immediately, and prints NOTHING to stdout and nothing to stderr. The model
+   * list appears only on the next call once the background server is up:
+   *   cycle 1: first=0 lines, second=103 lines
+   *   cycle 2: first=0 lines, second=73 lines
+   *   cycle 3: first=0 lines, second=73 lines
+   *
+   * Fix: when the probe exits 0 with empty stdout, run it a second time. One
+   * retry covered every measured cycle. We explicitly keep the 8000 ms timeout per
+   * attempt, and do NOT retry on a spawn error, non-zero exit, or timeout — only on
+   * the "clean exit 0, no output" case, because that is the only signature that
+   * indicates the background server was cold.
+   *
+   * The retry is the SECOND line of defence, and both are needed. `ensureTokensFresh`
+   * below runs `opencode auth list`, which was measured to start the background
+   * server as a side effect, and `CliDetectionService.refreshCliTokens` calls it at
+   * host activation — long before anything asks for models. So in the normal boot
+   * order the server is already warm here. The retry covers the orders that are not
+   * normal: a model probe that beats activation, or a server that died mid-session.
+   * Removing either one reintroduces TASK_2026_525.
    */
-  private static authPaths(): string[] {
-    const home = process.env['HOME'] || process.env['USERPROFILE'] || homedir();
-    const paths = [join(home, '.local', 'share', 'opencode', 'auth.json')];
-    if (process.platform === 'win32') {
-      const appData = process.env['APPDATA'];
-      if (appData) {
-        paths.push(join(appData, 'opencode', 'auth.json'));
-      }
+  private async probeModels(
+    binary: string,
+    timeoutMs = 8000,
+  ): Promise<string | undefined> {
+    const first = await this.probeCommandOnce(binary, ['models'], timeoutMs);
+
+    if (
+      first.exitCode === 0 &&
+      !first.timedOut &&
+      !first.errored &&
+      first.stdout
+    ) {
+      return first.stdout;
     }
-    return paths;
+
+    const isColdDaemonStart =
+      first.exitCode === 0 &&
+      !first.timedOut &&
+      !first.errored &&
+      first.stdout === '';
+
+    if (!isColdDaemonStart) {
+      return undefined;
+    }
+
+    const second = await this.probeCommandOnce(binary, ['models'], timeoutMs);
+    if (
+      second.exitCode === 0 &&
+      !second.timedOut &&
+      !second.errored &&
+      second.stdout
+    ) {
+      return second.stdout;
+    }
+    return undefined;
+  }
+
+  /**
+   * Probe `opencode auth list` to verify if any credentials are stored.
+   * Never throws — resolves stdout or undefined on error/timeout/non-zero exit.
+   */
+  private async probeAuthList(
+    binary: string,
+    timeoutMs = 8000,
+  ): Promise<string | undefined> {
+    const outcome = await this.probeCommandOnce(
+      binary,
+      ['auth', 'list'],
+      timeoutMs,
+    );
+    if (
+      outcome.exitCode === 0 &&
+      !outcome.errored &&
+      !outcome.timedOut &&
+      outcome.stdout
+    ) {
+      return outcome.stdout;
+    }
+    return undefined;
   }
 
   /**
    * Check whether opencode credentials are available.
-   * Returns true if any auth.json parses with at least one provider entry, or a
-   * known provider API-key env var is set. No active refresh is attempted —
-   * opencode manages its own token lifecycle.
+   *
+   * opencode 2.x stores credentials in `~/.local/share/opencode/opencode.db` (SQLite)
+   * rather than the legacy `auth.json` paths (TASK_2026_525). Probes `opencode auth list`
+   * through `spawnCli` with the injected spawner.
+   *
+   * Measured output:
+   * - Signed-in account: `OpenCode  Default  stored`
+   * - No authenticated account: `No authenticated integrations`
+   *
+   * Measured twice more, and both properties matter: `opencode auth list` answers
+   * CORRECTLY with the background server stopped (exit 0, credentials reported), and
+   * it STARTS that server as a side effect. Since `refreshCliTokens` calls this at
+   * host activation, it is what leaves the server warm for `probeModels`. A future
+   * rewrite that reads the credential store directly would keep the verdict and lose
+   * the warm-up — see the note on `probeModels` before making that trade.
+   *
+   * Returns true if `opencode auth list` returns non-empty output that does not match
+   * "no authenticated integrations", or if a known provider API-key env var is set
+   * as the fallback signal.
    */
   async ensureTokensFresh(): Promise<boolean> {
-    for (const authPath of OpencodeCliAdapter.authPaths()) {
-      try {
-        const raw = await readFile(authPath, 'utf8');
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        if (
-          parsed &&
-          typeof parsed === 'object' &&
-          Object.keys(parsed).length > 0
-        ) {
-          return true;
-        }
-      } catch {
-        // Missing/malformed at this path — try the next.
+    const binaryPath = (await resolveCliPath('opencode')) ?? 'opencode';
+    const raw = await this.probeAuthList(binaryPath);
+    if (raw) {
+      const cleaned = stripAnsiCodes(raw).trim();
+      if (
+        cleaned.length > 0 &&
+        !/no authenticated integrations/i.test(cleaned)
+      ) {
+        return true;
       }
     }
     return OPENCODE_PROVIDER_ENV_KEYS.some((key) => !!process.env[key]);

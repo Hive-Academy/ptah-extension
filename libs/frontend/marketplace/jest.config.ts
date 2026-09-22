@@ -12,7 +12,7 @@ export default {
       },
     ],
   },
-  // `providers.registry.ts` pulls in `@ptah-extension/chat-ui`, which reaches
+  // The section composers pull in `@ptah-extension/chat-ui`, which reaches
   // `ngx-markdown` — ESM that jest cannot parse untransformed. Same mock +
   // transform allowance already used by dashboard, tasks-ui and thoth-shell.
   transformIgnorePatterns: [

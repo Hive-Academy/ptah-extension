@@ -1,8 +1,8 @@
 /**
- * PluginBrowserModalComponent — per-workspace skill selection (TASK_2026_316
- * Batch 4). Only the SECOND axis added by this task is pinned here: the
- * plugin-checkbox axis already has no coverage and is out of this batch's
- * scope.
+ * PluginCatalogPanelComponent — the five assertions carried over from
+ * `plugin-browser-modal.component.spec.ts` when the modal body became an
+ * inline panel (TASK_2026_524, spec 4). Only the SECOND axis is pinned here:
+ * the plugin-checkbox axis has never had coverage and is out of scope.
  *
  *   - **A user-layer slug with no plugin above it renders as ordinary.** A
  *     promoted synth skill or a `skills.sh` install has `pluginId: null`, and
@@ -10,15 +10,18 @@
  *     keyed on `available` rather than on `availablePlugins`.
  *   - **Switching to `'all'` sends `mode: 'all'`**, with no stale `slugs`.
  *   - **An untouched derived `'all'` is never recorded as a choice.**
- *     `harness:set-skill-selection` must not fire when the user saves without
- *     touching the control — that is the difference between the migration's
- *     inference and the user's decision.
+ *   - **The TASK_2026_345 gate regression**: the skill selection stands alone,
+ *     both when the catalogue fails and while it is still in flight.
+ *
+ * Two things changed in the port and nothing else: there is no `isOpen` to
+ * set — the panel loads from `ngOnInit` — and Save is found by
+ * `[data-testid="plugin-catalog-save"]` rather than by modal chrome.
  */
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { HarnessGetSkillSelectionResult } from '@ptah-extension/shared';
-import { PluginBrowserModalComponent } from './plugin-browser-modal.component';
+import { PluginCatalogPanelComponent } from './plugin-catalog-panel.component';
 
 /**
  * Minimal stand-in for the core `RpcResult` shape: `isSuccess()`, `.data`,
@@ -51,7 +54,7 @@ interface RpcCall {
   params: unknown;
 }
 
-describe('plugin browser modal — per-workspace skill selection', () => {
+describe('plugin catalog panel — per-workspace skill selection', () => {
   let calls: RpcCall[];
   let responders: Map<string, () => unknown>;
 
@@ -74,10 +77,10 @@ describe('plugin browser modal — per-workspace skill selection', () => {
    * Drain the load and render the result.
    *
    * Three passes rather than one since TASK_2026_345: the plugin list and
-   * config now arrive through `PluginCatalogService`, so `loadPlugins` awaits a
+   * config arrive through `PluginCatalogService`, so `loadPlugins` awaits a
    * shared promise which itself awaits the `Promise.all` of the two RPCs and a
    * `finally`. A single `whenStable()` settles the outermost await only and
-   * leaves the modal rendering its loading skeleton, with no Save button to
+   * leaves the panel rendering its loading skeleton, with no Save button to
    * click.
    */
   const settle = async (fixture: ComponentFixture<unknown>): Promise<void> => {
@@ -88,20 +91,19 @@ describe('plugin browser modal — per-workspace skill selection', () => {
     }
   };
 
-  /** Mount the modal already open, letting `loadPlugins` settle. */
-  const mountOpen = async (): Promise<
-    ComponentFixture<PluginBrowserModalComponent>
+  /** Mount the panel and let the `ngOnInit` load settle. No `isOpen`. */
+  const mount = async (): Promise<
+    ComponentFixture<PluginCatalogPanelComponent>
   > => {
-    const fixture = TestBed.createComponent(PluginBrowserModalComponent);
-    fixture.componentRef.setInput('isOpen', true);
+    const fixture = TestBed.createComponent(PluginCatalogPanelComponent);
     await settle(fixture);
     return fixture;
   };
 
-  /** The lone `.modal-action` primary button — "Save Configuration". */
+  /** The Save button, keyed on its own testid rather than on modal chrome. */
   const clickSave = (host: HTMLElement): void => {
     host
-      .querySelector<HTMLButtonElement>('.modal-action .btn-primary')
+      .querySelector<HTMLButtonElement>('[data-testid="plugin-catalog-save"]')
       ?.click();
   };
 
@@ -109,8 +111,8 @@ describe('plugin browser modal — per-workspace skill selection', () => {
     calls = [];
     responders = new Map();
     rpcMock.call.mockClear();
-    // Harmless empty plugin catalogue for every test here — this axis is
-    // untouched by this batch and irrelevant to what's being pinned.
+    // Harmless empty plugin catalogue for every test here — that axis is
+    // untouched by this port and irrelevant to what's being pinned.
     setResponder('plugins:list-available', () => ok({ plugins: [] }));
     setResponder('plugins:get-config', () =>
       ok({ enabledPluginIds: [], disabledPluginIds: [], disabledSkillIds: [] }),
@@ -141,7 +143,7 @@ describe('plugin browser modal — per-workspace skill selection', () => {
       ),
     );
 
-    const fixture = await mountOpen();
+    const fixture = await mount();
     const host = fixture.nativeElement as HTMLElement;
     const section = host.querySelector('[data-testid="skill-selection"]');
 
@@ -175,7 +177,7 @@ describe('plugin browser modal — per-workspace skill selection', () => {
       ok({ saved: true, mode: 'all', slugs: [], health: null, summary: {} }),
     );
 
-    const fixture = await mountOpen();
+    const fixture = await mount();
     const host = fixture.nativeElement as HTMLElement;
 
     host
@@ -193,6 +195,42 @@ describe('plugin browser modal — per-workspace skill selection', () => {
     expect(setCall?.params).toEqual({ mode: 'all' });
   });
 
+  it('keeps the plugin list when the host answers plugins:get-config with {}', async () => {
+    // A partial config record — the e2e harness answers `{}` — must read as
+    // "nothing opted in", never throw in `deriveSelection` and land the panel
+    // in its error branch with the catalogue cleared.
+    setResponder('plugins:list-available', () =>
+      ok({
+        plugins: [
+          {
+            id: 'ptah-core',
+            name: 'Ptah Core',
+            description: 'A bundled plugin.',
+            category: 'core-tools',
+            skillCount: 3,
+            commandCount: 1,
+            isDefault: true,
+          },
+        ],
+      }),
+    );
+    setResponder('plugins:get-config', () => ok({}));
+
+    const fixture = await mount();
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(fixture.componentInstance.error()).toBeNull();
+    expect(fixture.componentInstance.isLoading()).toBe(false);
+    expect(fixture.componentInstance.availablePlugins().map((p) => p.id)).toEqual(
+      ['ptah-core'],
+    );
+    // The list is on screen, not merely in state.
+    expect(
+      host.querySelector('input[aria-label="Enable Ptah Core"]'),
+    ).not.toBeNull();
+    expect(host.querySelector('.text-error')).toBeNull();
+  });
+
   it('never records an untouched derived "all" as a choice', async () => {
     setResponder('harness:get-skill-selection', () =>
       ok(
@@ -207,7 +245,7 @@ describe('plugin browser modal — per-workspace skill selection', () => {
       ),
     );
 
-    const fixture = await mountOpen();
+    const fixture = await mount();
     const host = fixture.nativeElement as HTMLElement;
 
     // Save without ever touching the mode control or ticking anything.
@@ -226,14 +264,13 @@ describe('plugin browser modal — per-workspace skill selection', () => {
  * TASK_2026_345 gate regression — the skill selection does not depend on the
  * plugin catalogue.
  *
- * The catalogue became SHARED, so `ensureLoaded()` can hand this modal a read
+ * The catalogue is SHARED, so `ensureLoaded()` can hand this panel a read
  * another component started. Sequencing the skill-selection section behind it —
  * and rendering that section inside the loading/error branch — meant the one
- * control the dashboard's skill-selection card opens this modal FOR was hidden
- * whenever the plugin side was slow, and hidden for good whenever it failed.
- * The dashboard's own spec caught it; these pin it where it belongs.
+ * control the dashboard's skill-selection card exists FOR was hidden whenever
+ * the plugin side was slow, and hidden for good whenever it failed.
  */
-describe('plugin browser modal — the skill selection stands alone', () => {
+describe('plugin catalog panel — the skill selection stands alone', () => {
   let responders: Map<string, () => unknown>;
 
   const setResponder = (method: string, factory: () => unknown): void => {
@@ -298,8 +335,7 @@ describe('plugin browser modal — the skill selection stands alone', () => {
     setResponder('plugins:list-available', () => failed('list exploded'));
     setResponder('plugins:get-config', () => failed('config exploded'));
 
-    const fixture = TestBed.createComponent(PluginBrowserModalComponent);
-    fixture.componentRef.setInput('isOpen', true);
+    const fixture = TestBed.createComponent(PluginCatalogPanelComponent);
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
@@ -310,7 +346,7 @@ describe('plugin browser modal — the skill selection stands alone', () => {
   });
 
   it('renders the selection while the plugin reads are still in flight', async () => {
-    // The latency half. `ensureLoaded()` may be waiting on a request THIS modal
+    // The latency half. `ensureLoaded()` may be waiting on a request THIS panel
     // did not issue, so the section must not sit behind it.
     const held: Array<() => void> = [];
     const hold = () =>
@@ -318,8 +354,7 @@ describe('plugin browser modal — the skill selection stands alone', () => {
     setResponder('plugins:list-available', hold);
     setResponder('plugins:get-config', hold);
 
-    const fixture = TestBed.createComponent(PluginBrowserModalComponent);
-    fixture.componentRef.setInput('isOpen', true);
+    const fixture = TestBed.createComponent(PluginCatalogPanelComponent);
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 

@@ -162,6 +162,29 @@ describe('PluginCatalogService — one read per view', () => {
     expect(service.hasEnabledPlugins()).toBe(true);
   });
 
+  it('reads a partial config record as "nothing opted in" instead of throwing', async () => {
+    // The e2e harness answers `plugins:get-config` with `{}`. This computed
+    // runs inside change detection on every chat welcome screen, and a throw
+    // there aborted the render pass that was registering a new canvas tile
+    // with the grid (PR #569 electron-e2e failures).
+    const call = jest.fn(async (method: string) => {
+      if (method === 'plugins:list-available') {
+        return rpcSuccess({ plugins: PLUGINS });
+      }
+      if (method === 'plugins:get-config') {
+        return rpcSuccess({} as never);
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const service = makeService({ call });
+
+    await service.ensureLoaded();
+
+    expect(() => service.hasEnabledPlugins()).not.toThrow();
+    expect(service.hasEnabledPlugins()).toBe(false);
+    expect(() => service.enabledCount()).not.toThrow();
+  });
+
   it('drops an opt-out plugin from the count once it is denied', async () => {
     const rpc = makeRpc({
       enabledPluginIds: ['ptah-core'],
@@ -172,6 +195,57 @@ describe('PluginCatalogService — one read per view', () => {
     await service.ensureLoaded();
 
     expect(service.enabledCount()).toBe(1);
+  });
+
+  /**
+   * TASK_2026_524 — the Connected view needs the NAMES, not just the number.
+   *
+   * The count is now `enabledPlugins().length`, so these cases also pin that
+   * the two can no longer drift apart.
+   */
+  it('lists an opt-out plugin absent from enabledPluginIds', async () => {
+    const rpc = makeRpc({ enabledPluginIds: ['ptah-core'] });
+    const service = makeService(rpc);
+
+    await service.ensureLoaded();
+
+    expect(service.enabledPlugins().map((p) => p.id)).toEqual([
+      'ptah-core',
+      'ptah-harness-notes',
+    ]);
+  });
+
+  it('omits a plugin named in disabledPluginIds, opt-out or not', async () => {
+    const rpc = makeRpc({
+      enabledPluginIds: ['ptah-core', 'ptah-angular'],
+      disabledPluginIds: ['ptah-harness-notes', 'ptah-angular'],
+    });
+    const service = makeService(rpc);
+
+    await service.ensureLoaded();
+
+    expect(service.enabledPlugins().map((p) => p.id)).toEqual(['ptah-core']);
+  });
+
+  it('keeps enabledCount equal to the length of enabledPlugins', async () => {
+    const rpc = makeRpc({
+      enabledPluginIds: ['ptah-core', 'ptah-angular'],
+      disabledPluginIds: ['ptah-harness-notes'],
+    });
+    const service = makeService(rpc);
+
+    await service.ensureLoaded();
+
+    expect(service.enabledCount()).toBe(service.enabledPlugins().length);
+    expect(service.enabledCount()).toBe(2);
+  });
+
+  it('reports no enabled plugins before a read lands', () => {
+    const rpc = makeRpc({ manual: true });
+    const service = makeService(rpc);
+
+    expect(service.enabledPlugins()).toEqual([]);
+    expect(service.enabledCount()).toBe(0);
   });
 
   it('reports loading while a read someone else started is in flight', async () => {
@@ -226,6 +300,8 @@ describe('PluginCatalogService — failure', () => {
     expect(service.config()).toBeNull();
     expect(service.error()).toBe('handler exploded');
     expect(service.enabledCount()).toBe(0);
+    // Not the whole catalog: with no config, nothing is known to be on.
+    expect(service.enabledPlugins()).toEqual([]);
     // The list still landed, so the total is real.
     expect(service.pluginTotal()).toBe(3);
   });

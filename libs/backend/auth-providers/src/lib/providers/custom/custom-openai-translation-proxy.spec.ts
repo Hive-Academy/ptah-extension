@@ -39,8 +39,8 @@ class TestableCustomProxy extends CustomOpenAiTranslationProxy {
   public normalizeModelIdPublic(modelId: string): string {
     return this.normalizeModelId(modelId);
   }
-  public shouldUseResponsesApiPublic(modelId: string): boolean {
-    return this.shouldUseResponsesApi(modelId);
+  public resolveUpstreamProtocolPublic(modelId: string): 'messages' | 'chat/completions' | 'responses' | undefined {
+    return this.resolveUpstreamProtocol(modelId);
   }
   public getStaticModelsPublic(): Array<{ id: string }> {
     return this.getStaticModels();
@@ -223,6 +223,6 @@ describe('CustomOpenAiTranslationProxy', () => {
 
   it('always routes through Chat Completions, never the Responses API', () => {
     const { proxy } = makeProxy();
-    expect(proxy.shouldUseResponsesApiPublic('gpt-4o')).toBe(false);
+    expect(proxy.resolveUpstreamProtocolPublic('gpt-4o')).toBe('chat/completions');
   });
 });

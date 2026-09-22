@@ -520,6 +520,7 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         this.agentConfig.update((c) =>
           c ? { ...c, detectedClis: result.data.clis } : c,
         );
+        await this.loadCliModels();
       } else {
         this.agentConfigError.set(result.error ?? 'Detection failed');
       }

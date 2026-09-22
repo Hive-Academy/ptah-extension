@@ -1,5 +1,6 @@
 {
   "scene": "marketplace-tour",
+  "note": "Lines are pinned 1:1 to director.say(i) in marketplace-tour.scene.ts. TASK_2026_524 removed the Composio coming-soon tile, so the old line 6 ('the shelf keeps growing — even more providers are landing soon') lost its referent and was dropped rather than left narrating dead footage; the closer moved from index 8 to index 7. Index 6 (the Pro-feature line) is spoken by no beat and was already unreferenced before that change — it is kept, not revived.",
   "lines": [
     "Every workflow eventually outgrows its tools. What if your workspace could just grow with you?",
     "This is the Marketplace inside Ptah, the AI coding orchestra — one hub for plugins, MCP servers, and skills that extend your agents. Let us look around.",
@@ -7,7 +8,6 @@
     "Need a new capability? Browse the official Model Context Protocol registry without leaving Ptah.",
     "Skip the digging. Community skills arrive hand-picked and matched to your project.",
     "Hover to size up any item — and when it fits, it is one click to install.",
-    "And the shelf keeps growing — even more providers are landing soon.",
     "The full Marketplace is a Pro feature. Upgrade any time, and all of this unlocks.",
     "So when your workflow outgrows its tools, do not switch apps. Grow Ptah instead — one click at a time."
   ]
