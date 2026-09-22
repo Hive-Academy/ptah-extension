@@ -97,7 +97,18 @@ function createFakeChild(): FakeChild & EventEmitter {
 
 describe('buildTaskPrompt', () => {
   const toolPolicy =
-    'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.';
+    'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.\n' +
+    'Cost policy — every tool call resends the whole thread, so finish in as few calls as possible:\n' +
+    '- Verify only the projects you changed (`-p <project>`); never a workspace-wide test, lint or build.\n' +
+    '- Keep tool output small: filter or tail command output, never paste a full test or build log into the thread, and never re-run a failed suite just to re-read its output.\n' +
+    '- For a long command: run it once in the foreground with a long timeout, or in the background with ONE completion check. Never a wait/status loop.\n' +
+    '- Prefer AST/summary tools and targeted reads over whole-file reads.';
+
+  it('stays within the argv budget it shares with the task text', () => {
+    // argv on the task-prompt adapters; the Windows `.cmd` fallback limit is
+    // 8,191 bytes for the WHOLE command line.
+    expect(Buffer.byteLength(toolPolicy, 'utf8')).toBeLessThan(1000);
+  });
 
   it('includes the shared native-agent policy without enhanced guidance', () => {
     const prompt = buildTaskPrompt({
@@ -322,7 +333,7 @@ describe('renderRoleBlock', () => {
   const claudeFlavouredBody =
     'Use the AskUserQuestion tool when blocked, then run /review-code.';
 
-  it.each(['codex', 'copilot', 'cursor', 'antigravity'] as const)(
+  it.each(['codex', 'copilot', 'cursor', 'antigravity', 'opencode'] as const)(
     'applies the harness transform for the %s lane',
     (cli) => {
       const rendered = renderRoleBlock(role(claudeFlavouredBody), cli);
@@ -333,7 +344,7 @@ describe('renderRoleBlock', () => {
     },
   );
 
-  it.each(['pi', 'opencode', 'ptah-cli'] as const)(
+  it.each(['pi', 'ptah-cli'] as const)(
     'leaves the body unchanged for the %s lane',
     (cli) => {
       expect(renderRoleBlock(role(claudeFlavouredBody), cli)).toBe(

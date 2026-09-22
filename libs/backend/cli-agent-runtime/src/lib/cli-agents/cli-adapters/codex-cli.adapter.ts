@@ -1108,7 +1108,11 @@ export class CodexCliAdapter implements CliAdapter {
     emitSegment: (segment: CliOutputSegment) => void,
   ): void {
     if (event.usage) {
-      const usageStr = `Usage: ${event.usage.input_tokens} input, ${event.usage.output_tokens} output tokens`;
+      // `cached_input_tokens` is the share of the input that was served from
+      // the prompt cache. Without it the input figure reads as new work every
+      // turn, which is the opposite of what a resent thread actually costs.
+      const cached = event.usage.cached_input_tokens ?? 0;
+      const usageStr = `Usage: ${event.usage.input_tokens} input (${cached} cached), ${event.usage.output_tokens} output tokens`;
       emitOutput(`\n[${usageStr}]\n`);
       emitSegment({ type: 'info', content: usageStr });
     }
