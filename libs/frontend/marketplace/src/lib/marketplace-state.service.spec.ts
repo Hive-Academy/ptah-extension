@@ -2,23 +2,37 @@
  * MarketplaceStateService specs.
  *
  * Coverage:
- *   - `select` / `clearSelection` write through to `AppStateManager`, which is
- *     the single source of truth for the selection.
- *   - Unknown provider ids degrade to the overview rather than a blank surface.
- *   - The selection does not survive a workspace switch, and returning to a
+ *   - `select` / `selectSource` write through to the right place: the SECTION
+ *     to `AppStateManager`, the chip to memory only.
+ *   - Every retired provider id — and anything else unparsable — lands on
+ *     `connected` rather than on a blank page (AC5).
+ *   - A `section:source` deep link is adopted and the stored value normalised
+ *     back to the bare section id.
+ *   - The section does not survive a workspace switch, and returning to a
  *     workspace restores it (TASK_2026_228).
  *
  * `AppStateManager` is exercised for real — it has no collaborators beyond
  * `window` and `localStorage` — so these specs assert the selection actually
  * changes rather than that a setter was called. That matters here: the bug
- * being pinned is that this service is `providedIn: 'root'` and used to
- * snapshot the app-state value once in a field initializer, so a stubbed
- * app-state would hide the very defect under test.
+ * being pinned is that this service is `providedIn: 'root'` and a snapshot
+ * taken in a field initializer would be read exactly once for the lifetime of
+ * the app, so a stubbed app-state would hide the very defect under test.
  */
 
 import { TestBed } from '@angular/core/testing';
 import { AppStateManager } from '@ptah-extension/core';
 import { MarketplaceStateService } from './marketplace-state.service';
+
+/** Every id the pre-TASK_2026_524 provider registry could have persisted. */
+const RETIRED_PROVIDER_IDS = [
+  'connectors',
+  'plugins',
+  'official-mcp',
+  'skills-sh',
+  'smithery',
+  'oauth-mcp',
+  'composio',
+];
 
 describe('MarketplaceStateService', () => {
   let service: MarketplaceStateService;
@@ -37,42 +51,42 @@ describe('MarketplaceStateService', () => {
     localStorage.clear();
   });
 
-  describe('selection', () => {
-    it('starts with no selection', () => {
-      expect(service.selectedProviderId()).toBeNull();
-      expect(service.selectedProvider()).toBeNull();
+  describe('sections', () => {
+    it('opens on Connected, which has no chips', () => {
+      expect(service.activeSection()).toBe('connected');
+      expect(service.activeSource()).toBeNull();
     });
 
-    it('select resolves the provider descriptor and persists to app state', () => {
-      service.select('skills-sh');
+    it('select persists the bare section id and opens its first chip', () => {
+      service.select('apps');
 
-      expect(service.selectedProviderId()).toBe('skills-sh');
-      expect(service.selectedProvider()?.id).toBe('skills-sh');
-      expect(appState.marketplaceActiveProvider()).toBe('skills-sh');
+      expect(service.activeSection()).toBe('apps');
+      expect(service.activeSource()).toBe('connectors');
+      expect(appState.marketplaceActiveProvider()).toBe('apps');
     });
 
-    it('clearSelection returns to the overview', () => {
-      service.select('official-mcp');
-      service.clearSelection();
+    it('select can name the chip to open on', () => {
+      service.select('skills', 'marketplaces');
 
-      expect(service.selectedProviderId()).toBeNull();
-      expect(appState.marketplaceActiveProvider()).toBeNull();
+      expect(service.activeSection()).toBe('skills');
+      expect(service.activeSource()).toBe('marketplaces');
+      // The chip is in-memory only; storage still holds the bare section.
+      expect(appState.marketplaceActiveProvider()).toBe('skills');
     });
 
-    it('ignores an id that is not in the registry', () => {
-      service.select('official-mcp');
-      service.select('not-a-real-provider');
+    it('does not carry a chip across a section change', () => {
+      service.select('skills', 'community');
+      service.select('apps');
 
-      expect(service.selectedProviderId()).toBeNull();
+      expect(service.activeSource()).toBe('connectors');
     });
 
-    it('degrades an unknown persisted id to the overview on read', () => {
-      // A provider removed from the registry between sessions, or a value
-      // written by an older build.
-      appState.setMarketplaceActiveProvider('retired-provider');
+    it('selectSource switches the chip without touching storage', () => {
+      service.select('apps');
+      service.selectSource('smithery');
 
-      expect(service.selectedProviderId()).toBeNull();
-      expect(service.selectedProvider()).toBeNull();
+      expect(service.activeSource()).toBe('smithery');
+      expect(appState.marketplaceActiveProvider()).toBe('apps');
     });
 
     it('notifyContentChanged advances the refresh trigger', () => {
@@ -83,47 +97,103 @@ describe('MarketplaceStateService', () => {
     });
   });
 
-  describe('workspace partitioning (TASK_2026_228)', () => {
-    it('does not carry the selection onto a never-visited workspace', () => {
-      appState.switchWorkspace('D:/repo/A');
-      service.select('skills-sh');
-      expect(service.selectedProviderId()).toBe('skills-sh');
+  describe('retired ids (AC5)', () => {
+    it.each(RETIRED_PROVIDER_IDS)('%s opens Connected', (retired) => {
+      appState.setMarketplaceActiveProvider(retired);
 
-      appState.switchWorkspace('D:/repo/B');
-
-      // Installed content is per-workspace, so B must open on the overview
-      // rather than on the provider A was left on.
-      expect(service.selectedProviderId()).toBeNull();
-      expect(service.selectedProvider()).toBeNull();
+      expect(service.activeSection()).toBe('connected');
+      expect(service.activeSource()).toBeNull();
     });
 
-    it('restores each workspace selection on return (A→B→A)', () => {
+    it.each(['', 'apps:', 'apps:nonsense', 'nonsense'])(
+      'degrades %p without throwing',
+      (raw) => {
+        appState.setMarketplaceActiveProvider(raw);
+
+        expect(() => service.activeSection()).not.toThrow();
+      },
+    );
+
+    it('keeps the section when only the chip is unknown', () => {
+      appState.setMarketplaceActiveProvider('apps:nonsense');
+
+      expect(service.activeSection()).toBe('apps');
+      expect(service.activeSource()).toBe('connectors');
+    });
+  });
+
+  describe('deep links', () => {
+    it('adopts a section:source link and normalises storage', () => {
+      appState.setMarketplaceActiveProvider('apps:smithery');
+      TestBed.flushEffects();
+
+      expect(service.activeSection()).toBe('apps');
+      expect(service.activeSource()).toBe('smithery');
+      expect(appState.marketplaceActiveProvider()).toBe('apps');
+    });
+
+    it('adopts a link that arrives while the service is already live', () => {
+      service.select('connected');
+      TestBed.flushEffects();
+
+      appState.setMarketplaceActiveProvider('skills:ptah-plugins');
+      TestBed.flushEffects();
+
+      expect(service.activeSection()).toBe('skills');
+      expect(service.activeSource()).toBe('ptah-plugins');
+    });
+
+    it('leaves a bare section id alone', () => {
+      appState.setMarketplaceActiveProvider('skills');
+      TestBed.flushEffects();
+
+      expect(service.activeSection()).toBe('skills');
+      expect(service.activeSource()).toBe('ptah-plugins');
+      expect(appState.marketplaceActiveProvider()).toBe('skills');
+    });
+  });
+
+  describe('workspace partitioning (TASK_2026_228)', () => {
+    it('does not carry the section onto a never-visited workspace', () => {
       appState.switchWorkspace('D:/repo/A');
-      service.select('skills-sh');
+      service.select('skills');
+      expect(service.activeSection()).toBe('skills');
 
       appState.switchWorkspace('D:/repo/B');
-      service.select('official-mcp');
 
+      // Installed content is per-workspace, so B must open on Connected rather
+      // than on the section A was left on.
+      expect(service.activeSection()).toBe('connected');
+      expect(service.activeSource()).toBeNull();
+    });
+
+    it('restores each workspace section on return (A→B→A)', () => {
       appState.switchWorkspace('D:/repo/A');
-      expect(service.selectedProviderId()).toBe('skills-sh');
+      service.select('skills');
 
       appState.switchWorkspace('D:/repo/B');
-      expect(service.selectedProviderId()).toBe('official-mcp');
+      service.select('apps');
+
+      appState.switchWorkspace('D:/repo/A');
+      expect(service.activeSection()).toBe('skills');
+
+      appState.switchWorkspace('D:/repo/B');
+      expect(service.activeSection()).toBe('apps');
     });
 
     it('tracks the active workspace even though the service is constructed once', () => {
       // The service is `providedIn: 'root'` and injected before any workspace
       // arrives. A snapshot taken at construction would be read exactly once
       // and would then never reflect a switch.
-      expect(service.selectedProviderId()).toBeNull();
+      expect(service.activeSection()).toBe('connected');
 
       appState.switchWorkspace('D:/repo/A');
-      service.select('official-mcp');
-      // A frozen construction-time snapshot would still read null here.
-      expect(service.selectedProviderId()).toBe('official-mcp');
+      service.select('apps');
+      // A frozen construction-time snapshot would still read 'connected' here.
+      expect(service.activeSection()).toBe('apps');
 
       appState.switchWorkspace('D:/repo/B');
-      expect(service.selectedProviderId()).toBeNull();
+      expect(service.activeSection()).toBe('connected');
     });
   });
 });

@@ -90,6 +90,7 @@ jest.mock('@ptah-extension/agent-sdk', () => {
 
 // Imported AFTER the mocks so the registry binds to the mocked module.
 import { PtahCliRegistry } from './ptah-cli-registry';
+import { PtahCliStreamLoop } from './helpers/ptah-cli-stream-loop.service';
 import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
 
 async function* emptyStream(): AsyncGenerator<never, void, unknown> {
@@ -98,6 +99,7 @@ async function* emptyStream(): AsyncGenerator<never, void, unknown> {
 
 interface SpawnHarness {
   registry: PtahCliRegistry;
+  logger: ReturnType<typeof createMockLogger>;
   getCapturedEnv: () => AuthEnv | undefined;
 }
 
@@ -173,7 +175,7 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
     createFakeSdkProcessSpawner(),
   );
 
-  return { registry, getCapturedEnv: () => capturedEnv };
+  return { registry, logger, getCapturedEnv: () => capturedEnv };
 }
 
 const SAKANA_CONFIG: PtahCliConfig = {
@@ -186,6 +188,10 @@ const SAKANA_CONFIG: PtahCliConfig = {
 };
 
 describe('PtahCliRegistry.spawnAgent — Sakana proxy lifecycle', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   beforeEach(() => {
     proxyStart.mockClear();
     proxyStop.mockClear();
@@ -232,4 +238,30 @@ describe('PtahCliRegistry.spawnAgent — Sakana proxy lifecycle', () => {
 
     expect(proxyStop).toHaveBeenCalledTimes(1);
   });
+
+  it.each([new Error('stream failed'), 'stream failed'])(
+    'logs a rejected stream loop, fails pending turns and stops the proxy (%p)',
+    async (error: unknown) => {
+      let rejectStream!: (reason: unknown) => void;
+      jest.spyOn(PtahCliStreamLoop.prototype, 'run').mockReturnValueOnce(
+        new Promise<number>((_resolve, reject) => {
+          rejectStream = reject;
+        }),
+      );
+      const harness = buildHarness(SAKANA_CONFIG);
+      const result = await harness.registry.spawnAgent(SAKANA_CONFIG.id, 'do work');
+      if ('status' in result) throw new Error(result.message);
+      const continuation = await result.handle.continue?.('follow-up');
+      if (!continuation) throw new Error('Expected a continuation handle');
+
+      rejectStream(error);
+
+      await expect(result.handle.done).resolves.toBe(1);
+      await expect(continuation.done).resolves.toBe(1);
+      expect(harness.logger.error).toHaveBeenCalledWith(
+        '[PtahCliRegistry] spawnAgent stream loop error: stream failed',
+      );
+      expect(proxyStop).toHaveBeenCalledTimes(1);
+    },
+  );
 });

@@ -99,8 +99,8 @@ export class OpenRouterTranslationProxy extends TranslationProxyBase {
    * models. It does not expose the newer /responses (Responses API) surface,
    * so every request routes through Chat Completions.
    */
-  protected override shouldUseResponsesApi(_modelId: string): boolean {
-    return false;
+  protected override resolveUpstreamProtocol(_modelId: string): 'chat/completions' {
+    return 'chat/completions';
   }
 
   /**

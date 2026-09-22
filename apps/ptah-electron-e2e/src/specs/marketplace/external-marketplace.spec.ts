@@ -16,15 +16,22 @@ import type { UiDriver } from '../../support/ui-driver';
  * mocked RPC + real clicks, via `UiDriver`.
  *
  * Known landmine, same class as `SetupHubComponent`'s unguarded
- * `presets().length` (see `new-project.spec.ts`): `PluginStatusWidgetComponent`
- * — mounted ABOVE the external-marketplace surface inside
- * `PluginsSurfaceComponent` — reads `listResult.data.plugins.length`
- * unguarded from `plugins:list-available`, and the driver's unmocked-method
- * fallback answers with an object that has no `plugins` key. `beforeEach`
- * below mocks both `plugins:get-config` and `plugins:list-available` with
- * their real contract shapes (`PluginConfigState`, `{ plugins: PluginInfo[] }`
- * from `rpc.types.ts`) so every test in this file exercises the external
- * marketplace surface, not that unrelated widget's crash.
+ * `presets().length` (see `new-project.spec.ts`): the Skills section header
+ * — rendered ABOVE the external-marketplace surface by
+ * `SkillsSectionComponent` — reads the plugin catalogue for its
+ * `{enabled}/{total} enabled` line, and the driver's unmocked-method fallback
+ * answers `plugins:list-available` with an object that has no `plugins` key.
+ * Each test below mocks both `plugins:get-config` and `plugins:list-available`
+ * with their real contract shapes (`PluginConfigState`,
+ * `{ plugins: PluginInfo[] }` from `rpc.types.ts`) so every test in this file
+ * exercises the external marketplace surface, not that unrelated header's
+ * crash.
+ *
+ * TASK_2026_524 replaced the seven-tile provider grid with three sections
+ * (Connected / Apps / Skills) and a per-section source chip strip, so the
+ * navigation helper below selects the Skills tab and then the Marketplaces
+ * chip. Every `external-*` testid and copy assertion is untouched — only the
+ * route to the surface moved.
  */
 
 const SOURCE = 'dotnet/skills';
@@ -70,17 +77,28 @@ function makePlan(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** The RPC shapes `PluginStatusWidgetComponent` needs to avoid the landmine. */
-const PLUGIN_STATUS_WIDGET_MOCKS = {
+/** The RPC shapes the Skills section header needs to avoid the landmine. */
+const PLUGIN_CATALOG_MOCKS = {
   'plugins:get-config': { enabledPluginIds: [], disabledPluginIds: [] },
   'plugins:list-available': { plugins: [] },
 };
 
-/** Navigate to Marketplace -> Plugins, the host of the external-marketplace surface. */
-async function openPluginsSurface(ui: UiDriver): Promise<void> {
+/**
+ * Navigate to Marketplace -> Skills -> Marketplaces, the host of the
+ * external-marketplace surface.
+ *
+ * The section strip is `NativeTabGroupComponent` (`role="tab"`), scoped to the
+ * hub because the app shell's own top nav is a tablist too. The chip strip is
+ * plain buttons carrying `data-source-id`, which is the stable handle — the
+ * visible label is the only other candidate and it collides with the surface's
+ * own copy.
+ */
+async function openSkillsMarketplaces(ui: UiDriver): Promise<void> {
   await ui.goto('marketplace');
-  await ui.page.getByRole('button', { name: 'Open Plugins' }).click();
-  await expect(ui.page.locator('ptah-plugins-surface')).toBeVisible();
+  const hub = ui.page.locator('ptah-marketplace-hub');
+  await hub.getByRole('tab', { name: 'Skills' }).click();
+  await hub.locator('[data-source-id="marketplaces"]').click();
+  await expect(ui.page.locator('ptah-external-marketplaces')).toBeVisible();
   await expect(
     ui.page.locator('[data-testid="marketplace-source"]'),
   ).toBeVisible();
@@ -99,14 +117,14 @@ test.describe('External marketplace — add by owner/repo (TASK_2026_270)', () =
     ui,
   }) => {
     await ui.mockRpc({
-      ...PLUGIN_STATUS_WIDGET_MOCKS,
+      ...PLUGIN_CATALOG_MOCKS,
       'plugins:list-marketplaces': {
         marketplaces: [],
         suggestions: [],
         installed: [],
       },
     });
-    await openPluginsSurface(ui);
+    await openSkillsMarketplaces(ui);
 
     const input = ui.page.locator('[data-testid="marketplace-source"]');
     const addButton = ui.page.locator('[data-testid="marketplace-add"]');
@@ -141,7 +159,7 @@ test.describe('External marketplace — add by owner/repo (TASK_2026_270)', () =
 test.describe('External marketplace — the two-call install protocol (TASK_2026_270)', () => {
   test.beforeEach(async ({ ui }) => {
     await ui.mockRpc({
-      ...PLUGIN_STATUS_WIDGET_MOCKS,
+      ...PLUGIN_CATALOG_MOCKS,
       'plugins:list-marketplaces': {
         marketplaces: [MARKETPLACE_FIXTURE],
         suggestions: [],
@@ -165,7 +183,7 @@ test.describe('External marketplace — the two-call install protocol (TASK_2026
         plan: makePlan(),
       },
     });
-    await openPluginsSurface(ui);
+    await openSkillsMarketplaces(ui);
     await browseMarketplace(ui);
 
     await ui.page.locator('[data-testid="external-install"]').click();
@@ -213,7 +231,7 @@ test.describe('External marketplace — the two-call install protocol (TASK_2026
         plan,
       },
     });
-    await openPluginsSurface(ui);
+    await openSkillsMarketplaces(ui);
     await browseMarketplace(ui);
 
     await ui.page.locator('[data-testid="external-install"]').click();
@@ -272,7 +290,7 @@ test.describe('External marketplace — the two-call install protocol (TASK_2026
         };
       }`,
     });
-    await openPluginsSurface(ui);
+    await openSkillsMarketplaces(ui);
     await browseMarketplace(ui);
 
     // --- Confirm path ---
@@ -301,7 +319,7 @@ test.describe('External marketplace — the two-call install protocol (TASK_2026
         plan: makePlan(),
       },
     });
-    await openPluginsSurface(ui);
+    await openSkillsMarketplaces(ui);
     await browseMarketplace(ui);
 
     await ui.page.locator('[data-testid="external-install"]').click();
@@ -361,7 +379,7 @@ test.describe('External marketplace — the two-call install protocol (TASK_2026
         };
       }`,
     });
-    await openPluginsSurface(ui);
+    await openSkillsMarketplaces(ui);
     await browseMarketplace(ui);
 
     await ui.page.locator('[data-testid="external-install"]').click();
@@ -418,7 +436,7 @@ test.describe('External marketplace — deregistering (TASK_2026_270)', () => {
       installedVersion: '1.2.0',
     });
     await ui.mockRpc({
-      ...PLUGIN_STATUS_WIDGET_MOCKS,
+      ...PLUGIN_CATALOG_MOCKS,
       'plugins:list-marketplaces': `() => {
         const removed = globalThis.__marketplaceRemoved === true;
         return {
@@ -432,7 +450,7 @@ test.describe('External marketplace — deregistering (TASK_2026_270)', () => {
         return { removed: true };
       }`,
     });
-    await openPluginsSurface(ui);
+    await openSkillsMarketplaces(ui);
 
     const installedRow = ui.page.locator(
       `[data-testid="external-installed-${PLUGIN_ID}"]`,

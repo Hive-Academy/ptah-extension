@@ -105,8 +105,8 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
    * models there results in "model_not_supported" errors. Chat Completions
    * is the known-working endpoint for all Copilot models.
    */
-  protected override shouldUseResponsesApi(_modelId: string): boolean {
-    return false;
+  protected override resolveUpstreamProtocol(_modelId: string): 'chat/completions' {
+    return 'chat/completions';
   }
 
   /**

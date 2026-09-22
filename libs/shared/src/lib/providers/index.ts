@@ -30,3 +30,17 @@ export {
   SAKANA_DEFAULT_TIERS,
 } from './entries/sakana-provider-entry';
 export { REQUESTY_PROVIDER_ENTRY } from './entries/requesty-provider-entry';
+export {
+  OPENCODE_ZEN_PROVIDER_ENTRY,
+  OPENCODE_GO_PROVIDER_ENTRY,
+  OPENCODE_ZEN_DEFAULT_TIERS,
+  OPENCODE_GO_DEFAULT_TIERS,
+} from './entries/opencode-provider-entry';
+export {
+  OPENCODE_MODEL_ROUTES,
+  isOpenCodeProviderId,
+  getOpenCodeModelProtocol,
+  type OpenCodeProviderId,
+  type OpenCodeProtocol,
+  type OpenCodeModelRoutes,
+} from './entries/opencode-model-routes';

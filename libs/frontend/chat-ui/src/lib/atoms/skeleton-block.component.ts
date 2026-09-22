@@ -9,8 +9,9 @@ import {
  * SkeletonBlockComponent — the repository's one daisyui loading-row skeleton.
  *
  * The exact "avatar + title line + subtitle line + optional trailing action"
- * markup was duplicated verbatim in `plugin-status-widget.component.ts` and
- * `setup-status-widget.component.ts`, differing only in the two line widths.
+ * markup was duplicated verbatim in `setup-status-widget.component.ts` and the
+ * since-deleted `plugin-status-widget.component.ts` (TASK_2026_524), differing
+ * only in the two line widths.
  * TASK_2026_380 needed a third and fourth copy for the boot handover
  * (session sidebar, canvas region), which is what makes one atom worth it.
  *

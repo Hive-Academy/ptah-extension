@@ -296,7 +296,7 @@ describe('McpStatusChipComponent', () => {
       await component.authorize(component.rows()[0]);
 
       expect(appStateMock.setMarketplaceActiveProvider).toHaveBeenCalledWith(
-        'smithery',
+        'apps:smithery',
       );
       expect(appStateMock.setCurrentView).toHaveBeenCalledWith('marketplace');
       expect(callsTo('mcpDirectory:openSmitherySetup')).toHaveLength(0);
@@ -346,7 +346,7 @@ describe('McpStatusChipComponent', () => {
 
       expect(callsTo('mcpDirectory:connectOAuth')).toHaveLength(0);
       expect(appStateMock.setMarketplaceActiveProvider).toHaveBeenCalledWith(
-        'connectors',
+        'apps:connectors',
       );
     });
 
@@ -360,7 +360,7 @@ describe('McpStatusChipComponent', () => {
       await component.authorize(component.rows()[0]);
 
       expect(appStateMock.setMarketplaceActiveProvider).toHaveBeenCalledWith(
-        'connectors',
+        'apps:connectors',
       );
       expect(appStateMock.setCurrentView).toHaveBeenCalledWith('marketplace');
     });

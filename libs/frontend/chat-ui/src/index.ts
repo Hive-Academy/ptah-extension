@@ -71,8 +71,13 @@ export {
 } from './lib/molecules/session/session-stats-summary.component';
 export { TabItemComponent } from './lib/molecules/session/tab-item.component';
 export { McpDirectoryBrowserComponent } from './lib/molecules/setup-plugins/mcp-directory-browser.component';
-export { PluginBrowserModalComponent } from './lib/molecules/setup-plugins/plugin-browser-modal.component';
-export { PluginStatusWidgetComponent } from './lib/molecules/setup-plugins/plugin-status-widget.component';
+export {
+  groupInstalledServers,
+  mcpTargetLabel,
+  type InstalledServerGroup,
+} from './lib/molecules/setup-plugins/installed-mcp-groups';
+export { removeInstalledGroup } from './lib/molecules/setup-plugins/installed-mcp-removal';
+export { PluginCatalogPanelComponent } from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
 export { PromptSuggestionsComponent } from './lib/molecules/setup-plugins/prompt-suggestions.component';
 export { SetupStatusWidgetComponent } from './lib/molecules/setup-plugins/setup-status-widget.component';
 export { SkillShBrowserComponent } from './lib/molecules/setup-plugins/skill-sh-browser.component';

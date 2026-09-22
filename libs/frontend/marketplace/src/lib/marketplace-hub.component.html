@@ -3,31 +3,17 @@
   <header
     class="flex items-center gap-3 px-6 py-3 border-b border-base-300 bg-base-100 shrink-0"
   >
-    @if (selectedProvider()) {
-      <button
-        class="btn btn-ghost btn-sm btn-circle"
-        (click)="backToOverview()"
-        aria-label="Back to providers"
-      >
-        <lucide-angular
-          [img]="ArrowLeftIcon"
-          class="w-4 h-4"
-          aria-hidden="true"
-        />
-      </button>
-    } @else {
-      <button
-        class="btn btn-ghost btn-sm btn-circle"
-        (click)="goBack()"
-        aria-label="Back to chat"
-      >
-        <lucide-angular
-          [img]="ArrowLeftIcon"
-          class="w-4 h-4"
-          aria-hidden="true"
-        />
-      </button>
-    }
+    <button
+      class="btn btn-ghost btn-sm btn-circle"
+      (click)="goBack()"
+      aria-label="Back to chat"
+    >
+      <lucide-angular
+        [img]="ArrowLeftIcon"
+        class="w-4 h-4"
+        aria-hidden="true"
+      />
+    </button>
     <div
       class="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center"
     >
@@ -37,101 +23,52 @@
         aria-hidden="true"
       />
     </div>
-    <h1 class="text-base font-bold text-base-content">
-      Marketplace
-      @if (selectedProvider(); as provider) {
-        <span class="text-base-content-muted font-normal">/ {{ provider.name }}</span>
-      }
-    </h1>
+    <h1 class="text-base font-bold text-base-content">Marketplace</h1>
   </header>
 
   <!-- Content -->
   <main class="flex-1 overflow-y-auto p-6">
-    @if (selectedProvider(); as provider) {
-      <!-- Selected provider content surface (only the active surface mounts) -->
-      <div class="max-w-3xl mx-auto">
-        @if (provider.status === 'coming-soon' || !provider.surface) {
-          <ptah-coming-soon-placeholder [providerName]="provider.name" />
-        } @else if (provider.surface === McpSurface) {
-          <ptah-mcp-directory-browser
-            [refreshTrigger]="refreshTrigger()"
-            [connectorServers]="connectorServers()"
-            (serverInstalled)="onContentChanged()"
-            (serverUninstalled)="onContentChanged()"
-          />
-        } @else if (provider.surface === SkillsSurface) {
-          <ptah-skill-sh-browser
-            [refreshTrigger]="refreshTrigger()"
-            (skillInstalled)="onContentChanged()"
-            (skillUninstalled)="onContentChanged()"
-          />
-        } @else if (provider.surface === OAuthSurface) {
-          <ptah-oauth-surface
-            [refreshTrigger]="refreshTrigger()"
-            (serverConnected)="onContentChanged()"
-            (serverDisconnected)="onContentChanged()"
-          />
-        } @else if (isGenericSurface(provider.surface)) {
-          <ng-container
-            *ngComponentOutlet="
-              provider.surface;
-              inputs: { refreshTrigger: refreshTrigger() }
-            "
-          />
-        }
-      </div>
-    } @else {
-      <!-- Provider overview list (no provider selected) -->
-      <div class="max-w-4xl mx-auto">
-        <p class="text-sm text-base-content-muted mb-6 leading-relaxed">
-          Browse and install skills and MCP servers from multiple providers.
-          Select a provider to get started.
-        </p>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          @for (provider of providers; track provider.id) {
-            <button
-              type="button"
-              class="text-left rounded-xl bg-base-200/60 border border-base-300/40 p-4 flex flex-col gap-3 transition-all duration-200 hover:border-base-300 hover:bg-base-200/80 disabled:opacity-50 disabled:cursor-not-allowed"
-              [disabled]="provider.status === 'coming-soon'"
-              (click)="selectProvider(provider)"
-              [attr.aria-label]="'Open ' + provider.name"
-            >
-              <div class="flex items-start justify-between w-full">
-                <div
-                  class="w-9 h-9 rounded-lg bg-base-300/50 flex items-center justify-center"
-                >
-                  <lucide-angular
-                    [img]="iconOf(provider.icon)"
-                    class="w-4 h-4 text-base-content-muted"
-                    aria-hidden="true"
-                  />
-                </div>
-                <div class="flex items-center gap-1.5">
-                  @if (provider.status === 'coming-soon') {
-                    <span
-                      class="px-2 py-0.5 rounded-full bg-base-300/60 text-[10px] font-medium text-base-content-muted"
-                    >
-                      Coming soon
-                    </span>
-                  }
-                </div>
-              </div>
-
-              <div>
-                <h2 class="text-sm font-semibold text-base-content">
-                  {{ provider.name }}
-                </h2>
-                @if (provider.tagline) {
-                  <p class="text-xs text-base-content-muted mt-1">
-                    {{ provider.tagline }}
-                  </p>
-                }
-              </div>
-            </button>
+    <div class="max-w-3xl mx-auto">
+      <ptah-native-tab-group
+        [tabs]="sectionTabs"
+        [activeId]="activeSection()"
+        ariaLabel="Marketplace sections"
+        (tabSelected)="onSection($event)"
+      >
+        <div class="pt-5">
+          @switch (activeSection()) {
+            @case ('connected') {
+              <ptah-connected-surface
+                [refreshTrigger]="refreshTrigger()"
+                [connectorServers]="connectorServers()"
+                (contentChanged)="onContentChanged()"
+                (navigateRequested)="onNavigateRequested($event)"
+              />
+            }
+            @case ('apps') {
+              @if (activeSource(); as source) {
+                <ptah-apps-section
+                  [activeSource]="source"
+                  [refreshTrigger]="refreshTrigger()"
+                  [connectorServers]="connectorServers()"
+                  (sourceSelected)="onSource($event)"
+                  (contentChanged)="onContentChanged()"
+                />
+              }
+            }
+            @case ('skills') {
+              @if (activeSource(); as source) {
+                <ptah-skills-section
+                  [activeSource]="source"
+                  [refreshTrigger]="refreshTrigger()"
+                  (sourceSelected)="onSource($event)"
+                  (contentChanged)="onContentChanged()"
+                />
+              }
+            }
           }
         </div>
-      </div>
-    }
+      </ptah-native-tab-group>
+    </div>
   </main>
 </div>

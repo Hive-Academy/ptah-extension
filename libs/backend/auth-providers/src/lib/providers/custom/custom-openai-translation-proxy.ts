@@ -24,7 +24,7 @@
  * server logic, request/response translation, retry, and streaming are handled
  * by the base class in translation/translation-proxy-base.ts.
  *
- * `normalizeModelId` and `shouldUseResponsesApi` are deliberately NOT
+ * `normalizeModelId` and `resolveUpstreamProtocol` are deliberately NOT
  * overridden: the base defaults (pass the model id through untouched, always
  * route via Chat Completions) are exactly right for an arbitrary
  * OpenAI-compatible endpoint. We cannot know a custom gateway's model aliases,

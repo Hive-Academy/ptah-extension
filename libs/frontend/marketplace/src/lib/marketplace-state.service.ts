@@ -1,66 +1,121 @@
-import { Injectable, inject, signal, computed } from '@angular/core';
-import { AppStateManager } from '@ptah-extension/core';
-import { MARKETPLACE_PROVIDERS } from './providers.registry';
-import { MarketplaceProviderSpec } from './provider-spec';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
+import {
+  AppStateManager,
+  parseMarketplaceTarget,
+  type MarketplaceSection,
+  type MarketplaceSourceId,
+} from '@ptah-extension/core';
+import { marketplaceSourcesOf } from './sections.registry';
 
 /**
- * Owns the marketplace's selected-provider selection and an in-view refresh
- * trigger. Selection lives in {@link AppStateManager} (mirroring the Thoth
- * active-tab pattern) so navigating away from and back to the Marketplace view
- * restores the user's last provider.
+ * Owns the Marketplace's active SECTION, its active SOURCE chip, and the
+ * in-view refresh trigger.
  *
- * {@link AppStateManager} is the single source of truth, read through a
- * `computed` rather than snapshotted into a local signal. This service is
- * `providedIn: 'root'`, so a snapshot taken in the field initializer would be
- * read exactly once for the lifetime of the app and the selection would then
- * survive a workspace switch even though the app-state value behind it is
- * partitioned per workspace (TASK_2026_228). Deriving also removes the
- * write-back `effect` the snapshot needed to stay in sync.
+ * ## What persists, and what does not
  *
- * The {@link refreshTrigger} signal is incremented after an install/uninstall
- * so the active surface re-loads its installed list without a full remount.
+ * Only the section id persists, through
+ * {@link AppStateManager.marketplaceActiveProvider} — the same per-workspace
+ * field the old provider selection used, with a new grammar owned by
+ * `parseMarketplaceTarget` in `@ptah-extension/core`. The source chip is
+ * deliberately in-memory: re-opening the Marketplace should land on the
+ * section the user was last working in, not on the fourth chip of it.
+ *
+ * {@link AppStateManager} stays the single source of truth, read through a
+ * `computed` rather than snapshotted. This service is `providedIn: 'root'`, so
+ * a snapshot taken in a field initializer would be read exactly once for the
+ * lifetime of the app and the section would then survive a workspace switch
+ * even though the value behind it is partitioned per workspace
+ * (TASK_2026_228).
+ *
+ * ## Deep links
+ *
+ * A caller outside this library (the MCP status chip, the chat empty state)
+ * deep-links by writing `'<section>:<source>'` into the same field and
+ * navigating. {@link consumeDeepLink} — run from a constructor `effect` — picks
+ * the source up into memory and normalizes the stored value back to the bare
+ * section id. It cannot loop: the value it writes has no separator, so the
+ * second pass finds `source === null` and stops. It is an `effect` rather than
+ * a one-shot call because the hub is kept alive across view switches, so a
+ * deep link can arrive while the hub is already mounted.
  */
 @Injectable({ providedIn: 'root' })
 export class MarketplaceStateService {
   private readonly appState = inject(AppStateManager);
 
+  /** The persisted value, decoded. Total — never throws, never null. */
+  private readonly target = computed(() =>
+    parseMarketplaceTarget(this.appState.marketplaceActiveProvider()),
+  );
+
   /**
-   * Currently selected provider id (null = no selection / show overview).
-   * Validated against the registry on read so a stale or unknown persisted id
-   * degrades to the overview rather than to a blank surface.
+   * The section currently shown. Never null: every unknown, retired or
+   * malformed persisted id decodes to `'connected'` (AC5).
    */
-  public readonly selectedProviderId = computed<string | null>(() => {
-    const id = this.appState.marketplaceActiveProvider();
-    if (!id) return null;
-    return MARKETPLACE_PROVIDERS.some((p) => p.id === id) ? id : null;
+  public readonly activeSection = computed<MarketplaceSection>(
+    () => this.target().section,
+  );
+
+  /** In-memory chip selection; `null` means "whatever the section opens on". */
+  private readonly _source = signal<MarketplaceSourceId | null>(null);
+
+  /**
+   * The chip currently shown inside {@link activeSection}.
+   *
+   * Falls back to the section's FIRST chip whenever the held chip is null or
+   * belongs to a different section, so switching sections can never leave the
+   * strip pointing at a chip the section does not have. `null` only for
+   * `connected`, which has no chips.
+   */
+  public readonly activeSource = computed<MarketplaceSourceId | null>(() => {
+    const sources = marketplaceSourcesOf(this.activeSection());
+    if (sources.length === 0) return null;
+    const held = this._source();
+    if (held !== null && sources.some((s) => s.id === held)) return held;
+    return sources[0].id;
   });
 
   private readonly _refreshTrigger = signal(0);
   /** Increment-on-change counter consumed by surfaces to reload installed state. */
   public readonly refreshTrigger = this._refreshTrigger.asReadonly();
 
-  /** Resolved descriptor for the current selection (null when none/invalid). */
-  public readonly selectedProvider = computed<MarketplaceProviderSpec | null>(
-    () => {
-      const id = this.selectedProviderId();
-      if (!id) return null;
-      return MARKETPLACE_PROVIDERS.find((p) => p.id === id) ?? null;
-    },
-  );
+  /**
+   * Adopt a `section:source` deep link written by another library.
+   *
+   * No-op when the stored value names no source, which is the steady state.
+   */
+  private readonly deepLinkEffect = effect(() => {
+    this.consumeDeepLink();
+  });
 
-  /** Select a provider by id (validated against the registry). */
-  public select(id: string): void {
-    const exists = MARKETPLACE_PROVIDERS.some((p) => p.id === id);
-    this.appState.setMarketplaceActiveProvider(exists ? id : null);
+  /** Show a section, optionally on a specific chip. */
+  public select(
+    section: MarketplaceSection,
+    source?: MarketplaceSourceId,
+  ): void {
+    this.appState.setMarketplaceActiveProvider(section);
+    this._source.set(source ?? null);
   }
 
-  /** Clear the current selection (return to the provider overview). */
-  public clearSelection(): void {
-    this.appState.setMarketplaceActiveProvider(null);
+  /** Switch the chip inside the current section. Not persisted. */
+  public selectSource(source: MarketplaceSourceId): void {
+    this._source.set(source);
   }
 
   /** Signal that installed content changed so surfaces reload in-view. */
   public notifyContentChanged(): void {
     this._refreshTrigger.update((n) => n + 1);
+  }
+
+  /**
+   * Move a `section:source` deep link out of storage and into memory.
+   *
+   * Exposed so a host can force the read outside an effect flush; the
+   * constructor effect already calls it on every change of the stored value.
+   */
+  public consumeDeepLink(): void {
+    const { section, source } = this.target();
+    if (source === null) return;
+    this._source.set(source);
+    this.appState.setMarketplaceActiveProvider(section);
   }
 }

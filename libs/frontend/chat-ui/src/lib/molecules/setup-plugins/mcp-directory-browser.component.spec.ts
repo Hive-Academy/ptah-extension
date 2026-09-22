@@ -25,7 +25,7 @@ import { McpDirectoryBrowserComponent } from './mcp-directory-browser.component'
 /**
  * Minimal stand-in for the core `RpcResult` shape: `isSuccess()`, `.data`,
  * `.error`. Mirrors the real class's truthiness rule (success AND data !==
- * undefined) — same idiom as `plugin-browser-modal.component.spec.ts`.
+ * undefined) — same idiom as `plugin-catalog-panel.component.spec.ts`.
  */
 function ok<T>(data: T) {
   return {

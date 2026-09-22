@@ -67,6 +67,11 @@ describe('resolveProviderFormKind', () => {
     // Lane-1 Anthropic passthrough (`requiresProxy: false`), but still a
     // required API key — so it takes the same form as every other keyed entry.
     requesty: 'api-key',
+    // Both OpenCode subscriptions are remote (`isLocal: false`) and carry
+    // `authType: 'apiKey'`. The local translation proxy is a transport detail
+    // the tile never shows, so the form is the plain required-key one.
+    'opencode-zen': 'api-key',
+    'opencode-go': 'api-key',
   };
 
   it('covers every registry provider (a new provider must pick a form)', () => {

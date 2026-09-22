@@ -37,6 +37,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   getAnthropicProvider,
+  isOpenCodeProviderId,
   type AnthropicProvider,
 } from '@ptah-extension/shared';
 import { AUTH_PROVIDERS_TOKENS } from './di/tokens';
@@ -241,6 +242,24 @@ export class ProviderModelsService {
     totalCount: number;
     isStatic: boolean;
   }> {
+    // The reviewed route-derived catalog is authoritative, even offline or
+    // when an older persisted/dynamic catalog contains unsupported model IDs.
+    if (isOpenCodeProviderId(providerId)) {
+      const models: ProviderModelInfo[] = (
+        getAnthropicProvider(providerId)?.staticModels ?? []
+      ).map((m) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description,
+        contextLength: m.contextLength,
+        supportsToolUse: m.supportsToolUse,
+      }));
+      return {
+        models: toolUseOnly ? models.filter((m) => m.supportsToolUse) : models,
+        totalCount: models.length,
+        isStatic: true,
+      };
+    }
     const dynamicFetcher = this.dynamicFetchers.get(providerId);
     if (dynamicFetcher) {
       try {
