@@ -3,6 +3,7 @@ import {
   AppStateManager,
   SurfaceRouterService,
   surfaceNavigationLanded,
+  type HarnessWorkflowRequest,
   type MessageHandler,
 } from '@ptah-extension/core';
 import {
@@ -97,12 +98,13 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
   }
 
   private requestAndNavigate(data: HarnessOpenWorkflowPayload): void {
-    this.appState.requestHarnessWorkflow({
+    const request: HarnessWorkflowRequest = {
       mode: data.mode,
       ...(data.seedPrompt ? { seedPrompt: data.seedPrompt } : {}),
       ...(data.intake ? { intake: data.intake } : {}),
-    });
-    this.navigateToBuilder();
+    };
+    this.appState.requestHarnessWorkflow(request);
+    this.navigateToBuilder(request);
   }
 
   /**
@@ -122,11 +124,13 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
    * one, so the user asked for something else and an error would be about a
    * request they had already replaced.
    */
-  private navigateToBuilder(): void {
+  private navigateToBuilder(request?: HarnessWorkflowRequest): void {
     void this.surfaceRouter
       .navigateToSurface('harness-builder')
       .then((result) => {
-        if (surfaceNavigationLanded(result) || result === 'cancelled') return;
+        if (surfaceNavigationLanded(result)) return;
+        if (request) this.appState.clearHarnessWorkflowRequest(request);
+        if (result === 'cancelled') return;
         console.error(
           `[HarnessWorkflowMessageHandler] navigation to harness-builder did not complete: ${result}`,
         );

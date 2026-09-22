@@ -17,7 +17,7 @@ import { test, expect } from '../../support/fixtures';
 test.describe('Marketplace (lazy route, TASK_2026_524)', () => {
   test('renders the marketplace hub after the lazy chunk resolves', async ({
     ui,
-    mainProcessOutput,
+    rendererConsoleErrors,
   }) => {
     await ui.goto('marketplace');
 
@@ -34,9 +34,11 @@ test.describe('Marketplace (lazy route, TASK_2026_524)', () => {
     // '[SurfaceRouterService] Navigation to ... failed'
     // (surface-router.service.ts), and nothing else in the app produces that
     // prefix.
-    expect(
-      mainProcessOutput.hasLine('[SurfaceRouterService] Navigation to'),
-    ).toBe(false);
+    expect(rendererConsoleErrors).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('[SurfaceRouterService] Navigation to'),
+      ]),
+    );
 
     // Confirms the mounted component is real, not a frozen shell: the
     // provider overview grid (marketplace-hub.component.html:90-107) renders

@@ -1027,6 +1027,13 @@ export class AppStateManager implements MessageHandler {
     this._harnessWorkflowRequest.set(req);
   }
 
+  /** Invalidate a request only while it still owns the pending workflow. */
+  clearHarnessWorkflowRequest(request: HarnessWorkflowRequest): void {
+    if (this._harnessWorkflowRequest() === request) {
+      this._harnessWorkflowRequest.set(null);
+    }
+  }
+
   /**
    * Request that the chat lib launches a session seeded with `request.prompt`.
    * Mirrors {@link requestCanvasSession}: the chat-lib bridge consumes the

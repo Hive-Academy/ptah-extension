@@ -53,6 +53,7 @@ import {
   THOTH_FIRST_RUN_DISMISSED_KEY,
   type AppState,
   type CanvasSessionRequest,
+  type HarnessWorkflowRequest,
   type LayoutMode,
   type ViewType,
 } from './app-state.service';
@@ -122,6 +123,43 @@ describe('AppStateManager', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     teardownGlobals();
+  });
+
+  describe('harness workflow request ownership', () => {
+    it('invalidates the pending request so it cannot be consumed later', () => {
+      const service = createService();
+      const request: HarnessWorkflowRequest = { mode: 'new-project' };
+      service.requestHarnessWorkflow(request);
+
+      service.clearHarnessWorkflowRequest(request);
+
+      expect(service.harnessWorkflowRequest()).toBeNull();
+      expect(service.consumeHarnessWorkflowRequest()).toBeNull();
+    });
+
+    it('preserves a replacement even when its payload is identical', () => {
+      const service = createService();
+      const older: HarnessWorkflowRequest = { mode: 'new-project' };
+      const newer: HarnessWorkflowRequest = { ...older };
+      service.requestHarnessWorkflow(older);
+      service.requestHarnessWorkflow(newer);
+
+      service.clearHarnessWorkflowRequest(older);
+
+      expect(service.consumeHarnessWorkflowRequest()).toBe(newer);
+      expect(service.consumeHarnessWorkflowRequest()).toBeNull();
+    });
+
+    it('does nothing when the request was already consumed', () => {
+      const service = createService();
+      const request: HarnessWorkflowRequest = { mode: 'new-project' };
+      service.requestHarnessWorkflow(request);
+      expect(service.consumeHarnessWorkflowRequest()).toBe(request);
+
+      service.clearHarnessWorkflowRequest(request);
+
+      expect(service.consumeHarnessWorkflowRequest()).toBeNull();
+    });
   });
 
   describe('initializeState from window.ptahConfig', () => {

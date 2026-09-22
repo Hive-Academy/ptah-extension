@@ -17,7 +17,11 @@
 
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import { AppStateManager, SurfaceRouterService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  SurfaceRouterService,
+  type SurfaceNavigationResult,
+} from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from './harness-builder-state.service';
 import { HarnessWorkflowService } from './harness-workflow.service';
@@ -34,7 +38,7 @@ interface WorkflowStub {
 describe('HarnessWorkflowMessageHandler — open-workflow routing', () => {
   let handler: HarnessWorkflowMessageHandler;
   let workflow: WorkflowStub;
-  let appState: { requestHarnessWorkflow: jest.Mock };
+  let appState: AppStateManager;
   /**
    * The handler navigates through `SurfaceRouterService` rather than
    * `AppStateManager.setCurrentView` (TASK_2026_524): a host push has to report
@@ -65,7 +69,6 @@ describe('HarnessWorkflowMessageHandler — open-workflow routing', () => {
       abortAndDispose: jest.fn().mockResolvedValue(undefined),
       setError: jest.fn(),
     };
-    appState = { requestHarnessWorkflow: jest.fn() };
     surfaceRouter = {
       navigateToSurface: jest.fn().mockResolvedValue('navigated'),
     };
@@ -75,12 +78,17 @@ describe('HarnessWorkflowMessageHandler — open-workflow routing', () => {
       providers: [
         HarnessWorkflowMessageHandler,
         { provide: HarnessWorkflowService, useValue: workflow },
-        { provide: AppStateManager, useValue: appState },
-        { provide: SurfaceRouterService, useValue: surfaceRouter },
+        AppStateManager,
+        {
+          provide: SurfaceRouterService,
+          useValue: { ...surfaceRouter, currentSurface: signal('chat') },
+        },
         { provide: HarnessBuilderStateService, useValue: state },
       ],
     });
 
+    appState = TestBed.inject(AppStateManager);
+    jest.spyOn(appState, 'requestHarnessWorkflow');
     handler = TestBed.inject(HarnessWorkflowMessageHandler);
   });
 
@@ -166,6 +174,7 @@ describe('HarnessWorkflowMessageHandler — open-workflow routing', () => {
     expect(workflow.setError).toHaveBeenCalledWith(
       expect.stringContaining('could not be opened'),
     );
+    expect(appState.consumeHarnessWorkflowRequest()).toBeNull();
     consoleError.mockRestore();
   });
 
@@ -208,8 +217,63 @@ describe('HarnessWorkflowMessageHandler — open-workflow routing', () => {
 
     expect(workflow.setError).not.toHaveBeenCalled();
     expect(consoleError).not.toHaveBeenCalled();
+    expect(appState.consumeHarnessWorkflowRequest()).toBeNull();
     consoleError.mockRestore();
   });
+
+  it.each(['failed', 'cancelled'] as const)(
+    'preserves a newer request when an older navigation is %s',
+    async (result) => {
+      let finishOlder!: (result: SurfaceNavigationResult) => void;
+      let finishNewer!: (result: SurfaceNavigationResult) => void;
+      surfaceRouter.navigateToSurface
+        .mockReturnValueOnce(
+          new Promise<SurfaceNavigationResult>((resolve) => {
+            finishOlder = resolve;
+          }),
+        )
+        .mockReturnValueOnce(
+          new Promise<SurfaceNavigationResult>((resolve) => {
+            finishNewer = resolve;
+          }),
+        );
+      const consoleError = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+
+      open(NEW_PROJECT_PAYLOAD);
+      const older = appState.harnessWorkflowRequest();
+      // Equal payloads are still distinct user requests: identity owns cleanup.
+      open(NEW_PROJECT_PAYLOAD);
+      const newer = appState.harnessWorkflowRequest();
+      expect(newer).not.toBe(older);
+      finishOlder(result);
+      await Promise.resolve();
+
+      expect(appState.harnessWorkflowRequest()).toBe(newer);
+      finishNewer('navigated');
+      await Promise.resolve();
+      expect(appState.consumeHarnessWorkflowRequest()).toBe(newer);
+      expect(appState.consumeHarnessWorkflowRequest()).toBeNull();
+      if (result === 'cancelled')
+        expect(workflow.setError).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    },
+  );
+
+  it.each(['navigated', 'already-there'] as const)(
+    'keeps the request consumable when navigation is %s',
+    async (result) => {
+      surfaceRouter.navigateToSurface.mockResolvedValueOnce(result);
+      open(NEW_PROJECT_PAYLOAD);
+      const request = appState.harnessWorkflowRequest();
+      await Promise.resolve();
+
+      expect(appState.consumeHarnessWorkflowRequest()).toBe(request);
+      expect(request).toEqual(NEW_PROJECT_PAYLOAD);
+      expect(workflow.setError).not.toHaveBeenCalled();
+    },
+  );
 
   it('reports an error rather than dropping a malformed payload in silence', () => {
     open({ mode: 'not-a-mode' });

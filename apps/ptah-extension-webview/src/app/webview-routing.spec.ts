@@ -157,6 +157,9 @@ describe('webview routing composition', () => {
       );
     });
 
+    // A cold Jest run (--no-cache --detectOpenHandles) measured 6.79s here,
+    // 6.70s resolving lazy routes. Allow CI headroom for those real imports
+    // without changing the project's timeout or reducing surface coverage.
     it('never calls window.history while navigating every surface', async () => {
       const surfaceRouter = TestBed.inject(SurfaceRouterService);
 
@@ -170,7 +173,7 @@ describe('webview routing composition', () => {
         expect(spy).not.toHaveBeenCalled();
         expect(name).toBeTruthy();
       }
-    });
+    }, 30_000);
   });
 
   describe('MESSAGE_TYPES.SWITCH_VIEW (acceptance: the host can still command a view)', () => {

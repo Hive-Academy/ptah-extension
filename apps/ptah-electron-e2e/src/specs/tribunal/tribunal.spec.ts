@@ -17,7 +17,7 @@ import { test, expect } from '../../support/fixtures';
 test.describe('Tribunal (lazy route, TASK_2026_524)', () => {
   test('renders the tribunal page after the lazy chunk (+ gridstack) resolves', async ({
     ui,
-    mainProcessOutput,
+    rendererConsoleErrors,
   }) => {
     await ui.goto('tribunal');
 
@@ -30,8 +30,10 @@ test.describe('Tribunal (lazy route, TASK_2026_524)', () => {
     await expect(page.locator('ptah-tribunal-empty-state')).toBeVisible();
 
     // See marketplace.spec.ts for why this prefix is the failure signal.
-    expect(
-      mainProcessOutput.hasLine('[SurfaceRouterService] Navigation to'),
-    ).toBe(false);
+    expect(rendererConsoleErrors).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('[SurfaceRouterService] Navigation to'),
+      ]),
+    );
   });
 });
