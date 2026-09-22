@@ -1,5 +1,4 @@
 export { MemoryPlatformLocation } from './memory-platform-location';
-export { SURFACE_ACTIVE, provideSurfaceActive } from './surface-active';
 export {
   SurfaceRouterService,
   surfaceNavigationLanded,
