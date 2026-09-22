@@ -1,7 +1,7 @@
 # Context — opencode model picker shows only "Default"
 
 Measured 2026-09-22 on win32. opencode **v2.0.12**, installed at
-`C:\Users\abdal\AppData\Roaming\npm\opencode`. Every statement below is observed
+`%USERPROFILE%\AppData\Roaming\npm\opencode`. Every statement below is observed
 output from this machine, not vendor documentation.
 
 This closes the open item in
@@ -60,8 +60,8 @@ two `auth.json` paths. **opencode 2.x writes neither.** Both are absent on this
 machine:
 
 ```
-C:\Users\abdal\.local\share\opencode\auth.json      -> ENOENT
-C:\Users\abdal\AppData\Roaming\opencode\auth.json   -> ENOENT
+%USERPROFILE%\.local\share\opencode\auth.json      -> ENOENT
+%USERPROFILE%\AppData\Roaming\opencode\auth.json   -> ENOENT
 ```
 
 Credentials now live in `~/.local/share/opencode/opencode.db` (SQLite), and the

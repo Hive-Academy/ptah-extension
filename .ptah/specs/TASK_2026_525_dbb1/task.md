@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_525_dbb1
-status: backlog
+status: in_review
 type: BUGFIX
 title: Fix empty opencode model list on background-service cold start
 depends_on: []

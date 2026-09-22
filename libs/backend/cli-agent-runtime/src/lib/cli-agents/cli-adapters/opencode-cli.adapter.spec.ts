@@ -252,6 +252,22 @@ describe('OpencodeCliAdapter', () => {
       expect(mockSpawnCli).toHaveBeenCalledTimes(2);
     });
 
+    it.each([1, 2])('rejects partial stdout from failed attempt %i', async (attempt) => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
+      const modelsPromise = adapter.listModels();
+
+      await flush();
+      if (attempt === 2) {
+        currentChild?.emitClose(0);
+        await flush();
+      }
+      currentChild?.stdout.write('anthropic/claude-sonnet-4-5\n');
+      currentChild?.emitClose(1);
+
+      expect(await modelsPromise).toEqual([]);
+      expect(mockSpawnCli).toHaveBeenCalledTimes(attempt);
+    });
+
     it('does not retry when the probe encounters a spawn error', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
       const modelsPromise = adapter.listModels();

@@ -906,6 +906,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               () => { translationFailed = true; },
             );
             if (completion) {
+              // degradation-audit: reported - failResponse destroys the streams and rejects the enclosing request promise; the forwarding boundary logs and sends an error response.
               completion.then(complete).catch(failResponse);
             } else {
               proxyRes.once('end', complete);

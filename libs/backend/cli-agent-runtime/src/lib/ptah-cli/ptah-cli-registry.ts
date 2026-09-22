@@ -862,15 +862,26 @@ export class PtahCliRegistry {
           }
         },
       });
-      streamLoop.run(sdkQuery).then((exitCode) => {
-        disposeCallbacks();
-        void stopProxy();
-        sessionResolvedCallbacks.length = 0;
-        while (pendingTurns.length > 0) {
-          const resolve = pendingTurns.shift();
-          resolve?.(exitCode);
-        }
-      });
+      streamLoop.run(sdkQuery)
+        .catch((error: unknown) => {
+          // The loop normally returns 1 on failure. If its error handling itself
+          // rejects, pending turns still need that verdict and proxy teardown.
+          this.logger.error(
+            `[PtahCliRegistry] spawnAgent stream loop error: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+          return 1;
+        })
+        .then((exitCode) => {
+          disposeCallbacks();
+          void stopProxy();
+          sessionResolvedCallbacks.length = 0;
+          while (pendingTurns.length > 0) {
+            const resolve = pendingTurns.shift();
+            resolve?.(exitCode);
+          }
+        });
 
       // No `getPid`, deliberately, and it is not an oversight the way it looks.
       // Every other adapter here spawns its own `child_process` and can hand the

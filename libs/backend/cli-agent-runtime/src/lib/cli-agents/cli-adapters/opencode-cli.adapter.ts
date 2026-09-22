@@ -390,7 +390,12 @@ export class OpencodeCliAdapter implements CliAdapter {
   ): Promise<string | undefined> {
     const first = await this.probeCommandOnce(binary, ['models'], timeoutMs);
 
-    if (first.stdout) {
+    if (
+      first.exitCode === 0 &&
+      !first.timedOut &&
+      !first.errored &&
+      first.stdout
+    ) {
       return first.stdout;
     }
 
@@ -405,7 +410,15 @@ export class OpencodeCliAdapter implements CliAdapter {
     }
 
     const second = await this.probeCommandOnce(binary, ['models'], timeoutMs);
-    return second.stdout || undefined;
+    if (
+      second.exitCode === 0 &&
+      !second.timedOut &&
+      !second.errored &&
+      second.stdout
+    ) {
+      return second.stdout;
+    }
+    return undefined;
   }
 
   /**

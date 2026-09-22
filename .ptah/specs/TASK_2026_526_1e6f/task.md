@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_526_1e6f
-status: backlog
+status: in_review
 type: FEATURE
 title: Add OpenCode Zen and OpenCode Go as auth providers
 depends_on: []
