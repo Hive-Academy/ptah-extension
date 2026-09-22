@@ -43,8 +43,8 @@ import {
   AuthStateService,
   ClaudeRpcService,
   VSCodeService,
-  WebviewNavigationService,
 } from '@ptah-extension/core';
+import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
 import { SettingsComponent } from './settings.component';
 
 describe('SettingsComponent deep-link', () => {
@@ -68,8 +68,10 @@ describe('SettingsComponent deep-link', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
+        // The real `AppStateManager` reads the current surface from the Router
+        // (TASK_2026_524), so it cannot be constructed without a route table.
+        ...provideSurfaceRouterTesting(),
         AppStateManager,
-        WebviewNavigationService,
         { provide: AuthStateService, useValue: authStateStub },
         { provide: VSCodeService, useValue: vscodeServiceStub },
         { provide: ClaudeRpcService, useValue: claudeRpcStub },
@@ -86,9 +88,13 @@ describe('SettingsComponent deep-link', () => {
     jest.clearAllMocks();
   });
 
-  it('navigateToSettingsTab sets the pending target', async () => {
-    const nav = TestBed.inject(WebviewNavigationService);
-    await nav.navigateToSettingsTab('orchestration');
+  it('openSettingsTab sets the pending target', () => {
+    // Replaces `WebviewNavigationService.navigateToSettingsTab`, which did the
+    // same two things: raise the pending tab, then go to the Settings surface.
+    // Only the request half is asserted here — the surface half belongs to the
+    // Router and is pinned in `libs/frontend/core`.
+    appState.openSettingsTab('orchestration');
+
     expect(appState.pendingSettingsTab()).toEqual({
       tab: 'orchestration',
       providerId: undefined,
@@ -140,8 +146,10 @@ describe('SettingsComponent security copy', () => {
   function render() {
     TestBed.configureTestingModule({
       providers: [
+        // See the note in the deep-link suite: the real `AppStateManager`
+        // resolves the current surface through the Router.
+        ...provideSurfaceRouterTesting(),
         AppStateManager,
-        WebviewNavigationService,
         { provide: AuthStateService, useValue: authStateStub },
         { provide: VSCodeService, useValue: { isElectron: false } },
         {

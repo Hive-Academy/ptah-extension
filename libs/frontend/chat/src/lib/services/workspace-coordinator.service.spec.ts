@@ -43,6 +43,12 @@ import {
   VSCodeService,
   WorkspaceScopeService,
 } from '@ptah-extension/core';
+// A DIFFERENT module from the `@ptah-extension/core` mock below, so it is not
+// affected by it.
+import {
+  provideSurfaceRouterTesting,
+  settleSurfaceNavigation as settle,
+} from '@ptah-extension/core/testing';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { SessionLivenessReconcilerService } from './chat-store/session-liveness-reconciler.service';
 import { FilePickerService } from './file-picker.service';
@@ -219,6 +225,11 @@ describe('WorkspaceCoordinatorService', () => {
         { provide: AuthStateService, useValue: authState },
         { provide: ModelStateService, useValue: modelState },
         { provide: EffortStateService, useValue: effortState },
+        // `AppStateManager.currentView` reads the Router (TASK_2026_524), and
+        // `switchWorkspace` restores a workspace's surface by navigating to
+        // it. Without the route table every such navigation fails to match and
+        // these specs would pass vacuously on 'chat'.
+        ...provideSurfaceRouterTesting(),
         AppStateManager,
       ],
     });
@@ -452,9 +463,11 @@ describe('WorkspaceCoordinatorService', () => {
     it("replaces the previous workspace's view instead of leaving it on screen", async () => {
       await service.switchWorkspace('D:/repo/A');
       appState.setCurrentView('tribunal');
+      await settle();
       expect(appState.currentView()).toBe('tribunal');
 
       await service.switchWorkspace('D:/repo/B');
+      await settle();
 
       // The reported symptom: B used to render A's tribunal surface, backed by
       // B's (empty) tribunal slice.
@@ -465,23 +478,32 @@ describe('WorkspaceCoordinatorService', () => {
     it('restores each workspace view on return (A→B→A)', async () => {
       await service.switchWorkspace('D:/repo/A');
       appState.setCurrentView('tribunal');
+      await settle();
       await service.switchWorkspace('D:/repo/B');
       appState.setCurrentView('tasks');
+      await settle();
       await service.switchWorkspace('D:/repo/A');
+      await settle();
 
       expect(appState.currentView()).toBe('tribunal');
 
       await service.switchWorkspace('D:/repo/B');
+      await settle();
       expect(appState.currentView()).toBe('tasks');
     });
 
     it('drops the view slice of a workspace that is closed', async () => {
       await service.switchWorkspace('D:/repo/A');
       appState.setCurrentView('tasks');
+      await settle();
+      // Pinned so the final 'chat' assertion cannot pass vacuously.
+      expect(appState.currentView()).toBe('tasks');
       await service.switchWorkspace('D:/repo/B');
+      await settle();
 
       await service.removeWorkspaceState('D:/repo/A');
       await service.switchWorkspace('D:/repo/A');
+      await settle();
 
       expect(appState.currentView()).toBe('chat');
     });
@@ -489,6 +511,7 @@ describe('WorkspaceCoordinatorService', () => {
     it("replaces the previous workspace's Thoth tab and marketplace provider too (TASK_2026_228)", async () => {
       await service.switchWorkspace('D:/repo/A');
       appState.setCurrentView('thoth');
+      await settle();
       appState.setThothActiveTab('gateway');
       appState.setMarketplaceActiveProvider('skills-sh');
 
@@ -881,6 +904,7 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
           provide: EffortStateService,
           useValue: { refreshEffort: jest.fn(async () => undefined) },
         },
+        ...provideSurfaceRouterTesting(),
         AppStateManager,
       ],
     });

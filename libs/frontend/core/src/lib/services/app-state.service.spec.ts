@@ -3,11 +3,15 @@
  * layout mode, canvas-session signal bridge).
  *
  * Coverage:
- *   - Constructor `initializeState` reads `window.ptahConfig` (workspace,
- *     initialView) and `localStorage` (layout mode).
- *   - `normalizeView` maps legacy 'orchestra-canvas' → 'chat' + grid layout.
- *   - `setCurrentView` / `openView` / `closeView` mutate `openViews` set and
- *     respect the `canSwitchViews` guard.
+ *   - Constructor `initializeState` reads `window.ptahConfig` (workspace) and
+ *     `localStorage` (layout mode). It deliberately does NOT read
+ *     `initialView` any more — that is navigation, and `App.handleInitialView`
+ *     owns it (TASK_2026_524).
+ *   - `normalizeInitialView` validates a host-supplied `initialView` against
+ *     the route ids and maps legacy 'orchestra-canvas' → 'chat' + grid layout.
+ *   - `setCurrentView` / `closeView` / `openSettingsTab` delegate to the
+ *     Router, mutate the `openViews` set and respect the `canSwitchViews`
+ *     guard.
  *   - `handleMessage(SWITCH_VIEW)` routes valid views to `handleViewSwitch`
  *     and warns for invalid payloads.
  *   - `setLoading` / `setStatusMessage` / `setWorkspaceInfo` / `setConnected`
@@ -25,16 +29,25 @@
  *   - Canvas session request signal-bridge methods.
  *
  * Note: `initializeState` runs in the constructor, so each spec sets up
- * `window.ptahConfig` / `window.initialView` / `localStorage` BEFORE calling
- * `createService`.
+ * `window.ptahConfig` / `localStorage` BEFORE calling `createService`.
+ *
+ * **`currentView` is Router-derived** (TASK_2026_524): it reads
+ * `SurfaceRouterService`, so every view mutation is an asynchronous
+ * navigation. Specs therefore `await settle()` after a void `setCurrentView`
+ * / `closeView` / `switchWorkspace` call, and `createService` wires the
+ * Router through `provideSurfaceRouterTesting()`. A spec that forgets the
+ * await reads the PREVIOUS surface — which is honest behaviour, not a test
+ * artifact.
  */
 
 import { TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
 import {
   MESSAGE_TYPES,
   SessionId,
   type WorkspaceInfo,
 } from '@ptah-extension/shared';
+import { SurfaceRouterService } from '../routing/surface-router.service';
 import {
   AppStateManager,
   THOTH_FIRST_RUN_DISMISSED_KEY,
@@ -43,7 +56,11 @@ import {
   type LayoutMode,
   type ViewType,
 } from './app-state.service';
-import { makeSignalStoreHarness } from '../../testing';
+import {
+  makeSignalStoreHarness,
+  provideSurfaceRouterTesting,
+  settleSurfaceNavigation as settle,
+} from '../../testing';
 
 interface AppStoreState {
   currentView: ViewType;
@@ -95,7 +112,9 @@ function teardownGlobals(): void {
 }
 
 function createService(): AppStateManager {
-  TestBed.configureTestingModule({ providers: [AppStateManager] });
+  TestBed.configureTestingModule({
+    providers: [...provideSurfaceRouterTesting(), AppStateManager],
+  });
   return TestBed.inject(AppStateManager);
 }
 
@@ -134,10 +153,18 @@ describe('AppStateManager', () => {
         path: '/tmp/demo',
         type: 'workspace',
       });
-      expect(harness.signal('currentView')).toBe('analytics');
-      expect(harness.signal('openViews')).toEqual(
-        expect.arrayContaining(['chat', 'analytics']),
-      );
+    });
+
+    it('does NOT navigate from window.ptahConfig.initialView', () => {
+      // The Router owns the initial navigation and `App.handleInitialView`
+      // seeds it, under `withDisabledInitialNavigation()`. Reading it here too
+      // would be a second entry point racing the first — which is exactly what
+      // the 8-entry and 13-entry allow-lists were.
+      setupGlobals({ ptahConfig: { initialView: 'analytics' } });
+
+      const service = createService();
+
+      expect(service.currentView()).toBe('chat');
     });
 
     it('ignores workspaceRoot values of "undefined" (string) and empty', () => {
@@ -148,37 +175,81 @@ describe('AppStateManager', () => {
       expect(service.workspaceInfo()).toBeNull();
     });
 
-    it('normalises legacy "orchestra-canvas" view → "chat" + grid layout', () => {
-      setupGlobals({
-        ptahConfig: { initialView: 'orchestra-canvas' },
-      });
-      const service = createService();
-      expect(service.currentView()).toBe('chat');
-      expect(service.layoutMode()).toBe('grid');
-    });
-
     it('restores layoutMode from localStorage', () => {
       setupGlobals({ savedLayoutMode: 'single' });
       const service = createService();
       expect(service.layoutMode()).toBe('single');
     });
+  });
 
-    it('orchestra-canvas initialView overrides the saved "single" layout → grid', () => {
-      setupGlobals({
-        ptahConfig: { initialView: 'orchestra-canvas' },
-        savedLayoutMode: 'single',
-      });
+  describe('normalizeInitialView', () => {
+    it.each([
+      'chat',
+      'setup-wizard',
+      'settings',
+      'analytics',
+      'harness-builder',
+      'setup-hub',
+      'thoth',
+      'marketplace',
+      'tribunal',
+      'tasks',
+    ] as const)('passes the routable id %s through unchanged', (view) => {
+      expect(createService().normalizeInitialView(view)).toBe(view);
+    });
+
+    it('normalises legacy "orchestra-canvas" → "chat" + grid layout', () => {
       const service = createService();
+
+      expect(service.normalizeInitialView('orchestra-canvas')).toBe('chat');
       expect(service.layoutMode()).toBe('grid');
+    });
+
+    it('orchestra-canvas overrides a saved "single" layout → grid', () => {
+      setupGlobals({ savedLayoutMode: 'single' });
+      const service = createService();
+
+      service.normalizeInitialView('orchestra-canvas');
+
+      expect(service.layoutMode()).toBe('grid');
+    });
+
+    it.each([
+      // `command-builder` and `context-tree` sat in two allow-lists and in
+      // `ViewType` with no render branch anywhere. TASK_2026_524 deleted them.
+      'command-builder',
+      'context-tree',
+      'not-a-view',
+    ])('falls back to chat and warns for "%s"', (raw) => {
+      const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+      const service = createService();
+
+      expect(service.normalizeInitialView(raw)).toBe('chat');
+      expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining(raw));
+      consoleWarn.mockRestore();
+    });
+
+    it.each([
+      ['undefined', undefined],
+      ['the empty string', ''],
+    ])('falls back to chat SILENTLY for %s', (_label, raw) => {
+      const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+      const service = createService();
+
+      expect(service.normalizeInitialView(raw)).toBe('chat');
+      // A host that sends no deep link is the normal case, not a defect.
+      expect(consoleWarn).not.toHaveBeenCalled();
+      consoleWarn.mockRestore();
     });
   });
 
   describe('view navigation', () => {
-    it('setCurrentView opens the view and adds it to openViews', () => {
+    it('setCurrentView navigates and adds the surface to openViews', async () => {
       const service = createService();
       const harness = makeSignalStoreHarness<AppStoreState>(service);
 
       service.setCurrentView('settings');
+      await settle();
 
       expect(harness.signal('currentView')).toBe('settings');
       expect(harness.signal('openViews')).toEqual(
@@ -186,43 +257,77 @@ describe('AppStateManager', () => {
       );
     });
 
-    it('closeView removes the view tab and falls back to chat when closing the active view', () => {
+    it('does not report the new surface before the navigation settles', async () => {
+      // The Router is the single owner, so there is no optimistic local write
+      // that could disagree with it — the bug (TASK_2026_317) that a private
+      // view mirror caused. The read is honest until the navigation lands.
+      const service = createService();
+
+      service.setCurrentView('settings');
+      expect(service.currentView()).toBe('chat');
+
+      await settle();
+      expect(service.currentView()).toBe('settings');
+    });
+
+    it('closeView removes the view tab and falls back to chat when closing the active view', async () => {
       const service = createService();
       service.setCurrentView('analytics');
+      await settle();
       expect(service.currentView()).toBe('analytics');
 
       service.closeView('analytics');
+      await settle();
 
       expect(service.currentView()).toBe('chat');
       expect(service.openViews()).not.toContain('analytics');
     });
 
-    it('closeView is a no-op for "chat" (chat tab is permanent)', () => {
+    it('closeView leaves the surface alone when closing a view the user is not on', async () => {
       const service = createService();
-      service.closeView('chat');
-      expect(service.openViews()).toContain('chat');
+      service.setCurrentView('analytics');
+      await settle();
+      service.setCurrentView('settings');
+      await settle();
+
+      service.closeView('analytics');
+      await settle();
+
+      expect(service.currentView()).toBe('settings');
+      expect(service.openViews()).not.toContain('analytics');
     });
 
-    it('blocks view switches while loading', () => {
+    it('closeView is a no-op for "chat" (chat tab is permanent)', async () => {
+      const service = createService();
+      service.closeView('chat');
+      await settle();
+      expect(service.openViews()).toContain('chat');
+      expect(service.currentView()).toBe('chat');
+    });
+
+    it('blocks view switches while loading', async () => {
       const service = createService();
       service.setLoading(true);
       expect(service.canSwitchViews()).toBe(false);
       service.setCurrentView('settings');
+      await settle();
       expect(service.currentView()).toBe('chat');
     });
 
-    it('blocks view switches when disconnected', () => {
+    it('blocks view switches when disconnected', async () => {
       const service = createService();
       service.setConnected(false);
       expect(service.canSwitchViews()).toBe(false);
       service.setCurrentView('settings');
+      await settle();
       expect(service.currentView()).toBe('chat');
     });
 
-    it('opens Skills with a one-shot diverged-clones request', () => {
+    it('opens Skills with a one-shot diverged-clones request', async () => {
       const service = createService();
 
       service.openSkillsDivergedClones();
+      await settle();
 
       expect(service.currentView()).toBe('thoth');
       expect(service.thothActiveTab()).toBe('skills');
@@ -230,25 +335,58 @@ describe('AppStateManager', () => {
       expect(service.consumeSkillsDivergedRequest()).toBe(false);
     });
 
-    it('drops a diverged-clones request the user left behind by switching workspace', () => {
+    it('drops a diverged-clones request the user left behind by switching workspace', async () => {
       const service = createService();
       service.switchWorkspace('C:/a');
+      await settle();
 
       service.openSkillsDivergedClones();
       service.switchWorkspace('C:/b');
+      await settle();
 
       // The divergence was workspace A's; workspace B never saw it.
       expect(service.consumeSkillsDivergedRequest()).toBe(false);
     });
 
-    it('raises no diverged-clones request while view switches are blocked', () => {
+    it('raises no diverged-clones request while view switches are blocked', async () => {
       const service = createService();
       service.setLoading(true);
 
       service.openSkillsDivergedClones();
+      await settle();
 
       expect(service.currentView()).toBe('chat');
       expect(service.consumeSkillsDivergedRequest()).toBe(false);
+    });
+  });
+
+  describe('openSettingsTab', () => {
+    it('raises the pending tab request and navigates to settings', async () => {
+      const service = createService();
+
+      service.openSettingsTab('orchestration', 'anthropic');
+      await settle();
+
+      expect(service.currentView()).toBe('settings');
+      expect(service.consumePendingSettingsTab()).toEqual({
+        tab: 'orchestration',
+        providerId: 'anthropic',
+      });
+    });
+
+    it('raises NO request when the switch is blocked', async () => {
+      // Guarded BEFORE the request, unlike the deleted
+      // `WebviewNavigationService.navigateToSettingsTab`: a request that
+      // survived a dropped switch fired later against whatever surface the
+      // user reached next.
+      const service = createService();
+      service.setLoading(true);
+
+      service.openSettingsTab('tools');
+      await settle();
+
+      expect(service.currentView()).toBe('chat');
+      expect(service.consumePendingSettingsTab()).toBeNull();
     });
   });
 
@@ -342,12 +480,13 @@ describe('AppStateManager', () => {
   });
 
   describe('aggregated handlers', () => {
-    it('handleInitialData applies workspace + view + connected', () => {
+    it('handleInitialData applies workspace + view + connected', async () => {
       const service = createService();
       service.handleInitialData({
         workspaceInfo: { name: 'w', path: '/w', type: 'workspace' },
         currentView: 'analytics',
       });
+      await settle();
 
       expect(service.workspaceInfo()?.path).toBe('/w');
       expect(service.currentView()).toBe('analytics');
@@ -360,9 +499,10 @@ describe('AppStateManager', () => {
       expect(service.statusMessage()).toBe('Error: oops');
     });
 
-    it('getStateSnapshot returns a synchronous snapshot', () => {
+    it('getStateSnapshot returns a synchronous snapshot', async () => {
       const service = createService();
       service.setCurrentView('settings');
+      await settle();
       service.setLoading(true);
       service.setStatusMessage('hello');
 
@@ -396,13 +536,17 @@ describe('AppStateManager', () => {
   });
 
   describe('per-workspace view partitioning (TASK_2026_195)', () => {
-    it('migrates the bootstrap slice onto the first real workspace so initialView survives', () => {
-      setupGlobals({ ptahConfig: { initialView: 'tribunal' } });
+    it('migrates the bootstrap slice onto the first real workspace so the surface survives', async () => {
       const service = createService();
+      // `App.handleInitialView` lands the host's deep link before the initial
+      // workspace:switch RPC settles, so the surface is recorded against the
+      // bootstrap sentinel slice.
+      service.setCurrentView('tribunal');
+      await settle();
       expect(service.currentView()).toBe('tribunal');
 
-      // The initial workspace:switch RPC settles after the shell has rendered.
       service.switchWorkspace('/ws/a');
+      await settle();
 
       expect(service.currentView()).toBe('tribunal');
       expect(service.openViews()).toEqual(
@@ -410,108 +554,272 @@ describe('AppStateManager', () => {
       );
     });
 
-    it('does NOT carry the previous workspace view onto a never-visited workspace', () => {
+    it('does NOT carry the previous workspace view onto a never-visited workspace', async () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
+      await settle();
       service.setCurrentView('tribunal');
+      await settle();
       expect(service.currentView()).toBe('tribunal');
 
       service.switchWorkspace('/ws/b');
+      await settle();
 
       expect(service.currentView()).toBe('chat');
       expect(service.openViews()).toEqual(['chat']);
     });
 
-    it('restores each workspace view on return (A→B→A)', () => {
+    it('restores each workspace view on return (A→B→A)', async () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
+      await settle();
       service.setCurrentView('tribunal');
+      await settle();
       service.switchWorkspace('/ws/b');
+      await settle();
       service.setCurrentView('tasks');
+      await settle();
 
       expect(service.currentView()).toBe('tasks');
 
       service.switchWorkspace('/ws/a');
+      await settle();
       expect(service.currentView()).toBe('tribunal');
 
       service.switchWorkspace('/ws/b');
+      await settle();
       expect(service.currentView()).toBe('tasks');
     });
 
-    it('partitions openViews, so a view opened in A is not open in B', () => {
+    it('partitions openViews, so a view opened in A is not open in B', async () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
+      await settle();
       service.setCurrentView('settings');
+      await settle();
       service.setCurrentView('analytics');
+      await settle();
       expect(service.openViews()).toEqual(
         expect.arrayContaining(['chat', 'settings', 'analytics']),
       );
 
       service.switchWorkspace('/ws/b');
+      await settle();
       expect(service.openViews()).toEqual(['chat']);
 
       service.switchWorkspace('/ws/a');
+      await settle();
       expect(service.openViews()).toEqual(
         expect.arrayContaining(['chat', 'settings', 'analytics']),
       );
     });
 
-    it('closeView only affects the active workspace slice', () => {
+    it('closeView only affects the active workspace slice', async () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
+      await settle();
       service.setCurrentView('analytics');
+      await settle();
       service.switchWorkspace('/ws/b');
+      await settle();
       service.setCurrentView('analytics');
+      await settle();
 
       service.closeView('analytics');
+      await settle();
       expect(service.currentView()).toBe('chat');
       expect(service.openViews()).not.toContain('analytics');
 
       service.switchWorkspace('/ws/a');
+      await settle();
       expect(service.currentView()).toBe('analytics');
     });
 
-    it('removeWorkspaceState drops the slice so a re-added workspace opens on chat', () => {
+    it('removeWorkspaceState drops the slice so a re-added workspace opens on chat', async () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
+      await settle();
       service.setCurrentView('tasks');
+      await settle();
       service.switchWorkspace('/ws/b');
+      await settle();
 
       service.removeWorkspaceState('/ws/a');
       service.switchWorkspace('/ws/a');
+      await settle();
 
       expect(service.currentView()).toBe('chat');
       expect(service.openViews()).toEqual(['chat']);
     });
 
-    it('switching to the already-active workspace is a no-op', () => {
+    it('switching to the already-active workspace is a no-op', async () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
+      await settle();
       service.setCurrentView('tasks');
+      await settle();
 
       service.switchWorkspace('/ws/a');
+      await settle();
 
       expect(service.currentView()).toBe('tasks');
     });
 
-    it('a blocked view switch does not seed a slice for the active workspace', () => {
+    it('a blocked view switch does not seed a slice for the active workspace', async () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
+      await settle();
       service.setLoading(true);
       service.setCurrentView('tasks');
+      await settle();
 
       expect(service.currentView()).toBe('chat');
       service.setLoading(false);
       service.switchWorkspace('/ws/b');
+      await settle();
       expect(service.currentView()).toBe('chat');
     });
 
-    it('leaves layoutMode global — Electron pins it to grid and VS Code never switches workspaces', () => {
+    /**
+     * Ownership of the settled surface (revision 1, F1).
+     *
+     * Every case here failed before `_settlementOwner` existed, because the
+     * stamp recorded the globally settled surface against whichever workspace
+     * was active when the write ran — not the workspace whose navigation
+     * produced it.
+     */
+    describe('surface memory is owned by the workspace that earned it', () => {
+      it('does not stamp the outgoing surface onto a workspace whose restore has not settled', async () => {
+        const service = createService();
+        const surfaceRouter = TestBed.inject(SurfaceRouterService);
+        service.switchWorkspace('/ws/a');
+        await settle();
+        service.setCurrentView('settings');
+        await settle();
+        service.switchWorkspace('/ws/b');
+        await settle();
+        service.setCurrentView('analytics');
+        await settle();
+        service.switchWorkspace('/ws/a');
+        await settle();
+        expect(service.currentView()).toBe('settings');
+
+        // A→B→A with B's restore still in flight. The surface on screen is
+        // A's; stamping it onto B made B remember 'settings'.
+        service.switchWorkspace('/ws/b');
+        service.switchWorkspace('/ws/a');
+        await settle();
+
+        expect(service.currentView()).toBe('settings');
+        service.switchWorkspace('/ws/b');
+        await settle();
+        expect(service.currentView()).toBe('analytics');
+        expect(surfaceRouter.currentSurface()).toBe('analytics');
+      });
+
+      it('does not resurrect a slice removed while its workspace was active', async () => {
+        const service = createService();
+        service.switchWorkspace('/ws/a');
+        await settle();
+        service.setCurrentView('analytics');
+        await settle();
+        expect(service.currentView()).toBe('analytics');
+
+        // `ElectronLayoutService` removes the closed workspace's state BEFORE
+        // it switches away, so the synchronous stamp in `switchWorkspace` ran
+        // against a slice that had just been deleted and re-created it.
+        service.removeWorkspaceState('/ws/a');
+        service.switchWorkspace('/ws/b');
+        await settle();
+        expect(service.currentView()).toBe('chat');
+
+        service.switchWorkspace('/ws/a');
+        await settle();
+
+        expect(service.currentView()).toBe('chat');
+        expect(service.openViews()).toEqual(['chat']);
+      });
+
+      it('keeps recording after a NON-active workspace is removed', async () => {
+        // Removal only revokes ownership when it hits the active workspace.
+        const service = createService();
+        service.switchWorkspace('/ws/a');
+        await settle();
+        service.setCurrentView('analytics');
+        await settle();
+        service.switchWorkspace('/ws/b');
+        await settle();
+
+        service.removeWorkspaceState('/ws/a');
+        service.setCurrentView('tasks');
+        await settle();
+
+        expect(service.currentView()).toBe('tasks');
+        expect(service.openViews()).toEqual(
+          expect.arrayContaining(['chat', 'tasks']),
+        );
+      });
+
+      it('drops a superseded navigation rather than recording it', async () => {
+        const service = createService();
+        service.switchWorkspace('/ws/a');
+        await settle();
+
+        // Two requests in one turn: only the second one's outcome is this
+        // workspace's memory.
+        service.setCurrentView('settings');
+        service.setCurrentView('tasks');
+        await settle();
+
+        expect(service.currentView()).toBe('tasks');
+        expect(service.openViews()).not.toContain('settings');
+      });
+
+      it('records nothing when a workspace restore navigation fails', async () => {
+        // Author's risk 3, now deterministic. A failed restore leaves the new
+        // workspace active with the previous surface on screen; the wrong
+        // behaviour would be to remember a surface it never reached.
+        const consoleError = jest.spyOn(console, 'error').mockImplementation();
+        const service = createService();
+        service.switchWorkspace('/ws/a');
+        await settle();
+        service.setCurrentView('analytics');
+        await settle();
+
+        const router = TestBed.inject(Router);
+        const navigateByUrl = jest
+          .spyOn(router, 'navigateByUrl')
+          .mockRejectedValue(new Error('chunk fetch failed'));
+        service.switchWorkspace('/ws/b');
+        await settle();
+
+        // Nothing landed, so the surface is still A's and B remembers nothing.
+        expect(service.currentView()).toBe('analytics');
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining('failed'),
+          'chunk fetch failed',
+        );
+
+        navigateByUrl.mockRestore();
+        // And because B never took ownership, switching away must not stamp
+        // A's surface onto it.
+        service.switchWorkspace('/ws/c');
+        await settle();
+        service.switchWorkspace('/ws/b');
+        await settle();
+
+        expect(service.currentView()).toBe('chat');
+      });
+    });
+
+    it('leaves layoutMode global — Electron pins it to grid and VS Code never switches workspaces', async () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
+      await settle();
       service.setLayoutMode('single');
 
       service.switchWorkspace('/ws/b');
+      await settle();
 
       expect(service.layoutMode()).toBe('single');
     });
@@ -561,17 +869,21 @@ describe('AppStateManager', () => {
       expect(service.marketplaceActiveProvider()).toBe('skills-sh');
     });
 
-    it('keeps the in-surface pointers independent of the view pointer in the same slice', () => {
+    it('keeps the in-surface pointers independent of the view pointer in the same slice', async () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
+      await settle();
       service.setThothActiveTab('cron');
       service.setMarketplaceActiveProvider('official-mcp');
 
-      // Widening ViewSlice means every view mutation rewrites the slice — the
-      // in-surface pointers must survive that, not be reset by it.
+      // Every navigation rewrites the slice through the constructor effect —
+      // the in-surface pointers must survive that, not be reset by it.
       service.setCurrentView('thoth');
+      await settle();
       service.setCurrentView('marketplace');
+      await settle();
       service.closeView('thoth');
+      await settle();
 
       expect(service.thothActiveTab()).toBe('cron');
       expect(service.marketplaceActiveProvider()).toBe('official-mcp');
@@ -677,13 +989,16 @@ describe('AppStateManager', () => {
     it('resolves true and clears the safety timer when the canvas accepts the request', async () => {
       jest.useFakeTimers();
       const service = createService();
+      // Wiring the Router leaves its own timers pending, so "the safety timer
+      // was cleared" is a return to THIS baseline, not an absolute zero.
+      const baselineTimers = jest.getTimerCount();
       const pending = service.requestCanvasSession(SessionId.create());
       const [request] = service.takeCanvasSessionRequests();
 
       request?.resolve?.(true);
 
       await expect(pending).resolves.toBe(true);
-      expect(jest.getTimerCount()).toBe(0);
+      expect(jest.getTimerCount()).toBe(baselineTimers);
       jest.useRealTimers();
     });
 
@@ -921,6 +1236,9 @@ describe('AppStateManager', () => {
     it('takes matching requests FIFO and preserves exact resolver ownership', async () => {
       jest.useFakeTimers();
       const service = createService();
+      // See the canvas-session bridge above: the Router's own timers are the
+      // baseline this must return to.
+      const baselineTimers = jest.getTimerCount();
       const first = service.requestCanvasFocus(target('/a'));
       const other = service.requestCanvasFocus(target('/b'));
       const second = service.requestCanvasFocus(target('/a'));
@@ -949,7 +1267,7 @@ describe('AppStateManager', () => {
         success: true,
         outcome: 'opened',
       });
-      expect(jest.getTimerCount()).toBe(0);
+      expect(jest.getTimerCount()).toBe(baselineTimers);
       jest.useRealTimers();
     });
 

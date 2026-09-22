@@ -1,10 +1,10 @@
 import { test, expect } from '../../support/fixtures';
 
 /**
- * Tasks board (TASK_2026_187 Batch 4) — `TASKS_VIEW_COMPONENT` is now a
- * lazy token (`LazyViewService.resolveWhen`, `useValue: () =>
- * import('@ptah-extension/tasks-ui')...`, batch-4-report.md §2). No e2e
- * coverage existed for the tasks board before this batch. This proves the
+ * Tasks board — a lazy ROUTE (`app.routes.ts`, `loadComponent:
+ * import('@ptah-extension/tasks-ui')`). TASK_2026_187 Batch 4 first deferred
+ * it behind the `TASKS_VIEW_COMPONENT` token (batch-4-report.md §2);
+ * TASK_2026_524 batch 1 replaced that with the route. This proves the
  * deferred surface actually resolves and the Kanban populates from real
  * data, not just that the outlet mounts.
  */

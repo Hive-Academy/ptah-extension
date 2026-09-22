@@ -66,11 +66,7 @@ import {
   createEmptyStreamingState,
   type StreamingState,
 } from '@ptah-extension/chat-types';
-import {
-  AppStateManager,
-  VSCodeService,
-  WebviewNavigationService,
-} from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import type {
   AskUserQuestionRequest,
   ExecutionNode,
@@ -238,12 +234,15 @@ describe('HarnessBuilderViewComponent — surface question routing (TASK_2026_26
           },
         },
         {
-          provide: WebviewNavigationService,
-          useValue: { navigateToView: jest.fn() },
-        },
-        {
+          // `setCurrentView` is the view's only navigation call now — leaving
+          // the builder and finishing "Start over" both go through it
+          // (TASK_2026_524 removed `WebviewNavigationService`). Stubbed rather
+          // than real so this spec keeps its Router-free TestBed.
           provide: AppStateManager,
-          useValue: { consumeHarnessWorkflowRequest: jest.fn(() => null) },
+          useValue: {
+            consumeHarnessWorkflowRequest: jest.fn(() => null),
+            setCurrentView: jest.fn(),
+          },
         },
         {
           provide: ExecutionTreeBuilderService,
@@ -575,12 +574,15 @@ describe('HarnessBuilderViewComponent — transcript ordering', () => {
           },
         },
         {
-          provide: WebviewNavigationService,
-          useValue: { navigateToView: jest.fn() },
-        },
-        {
+          // `setCurrentView` is the view's only navigation call now — leaving
+          // the builder and finishing "Start over" both go through it
+          // (TASK_2026_524 removed `WebviewNavigationService`). Stubbed rather
+          // than real so this spec keeps its Router-free TestBed.
           provide: AppStateManager,
-          useValue: { consumeHarnessWorkflowRequest: jest.fn(() => null) },
+          useValue: {
+            consumeHarnessWorkflowRequest: jest.fn(() => null),
+            setCurrentView: jest.fn(),
+          },
         },
         {
           provide: ExecutionTreeBuilderService,

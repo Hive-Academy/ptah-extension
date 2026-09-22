@@ -22,8 +22,9 @@ Findings verified by hand afterwards:
 
 1. `@angular/router` is a direct dependency at **22.1.7** (`package.json:98`).
    The installed stack is Angular 22.1.7, Nx 23.2.1, TypeScript 6.0.3,
-   Electron 44.4.3. The root `CLAUDE.md` still says Angular 21, Nx 22.6,
-   TypeScript 5.9 and Electron 40. That drift must be repaired in this task.
+   Electron 44.4.3. Every carrier and report written before commit `7917b193a`
+   says Angular 21, Nx 22.6, TypeScript 5.9 and Electron 40, because the
+   instruction files said so. Trust `package.json`, not the older prose.
 2. `BrowserPlatformLocation.pushState` forwards straight to `history.pushState`
    with no guard (`node_modules/@angular/common/fesm2022/_platform_location-chunk.mjs:100-102`).
 3. `withHashLocation()` is **not** an escape from the History API.
@@ -81,11 +82,15 @@ Findings verified by hand afterwards:
    route.
 7. The active `TabId` becomes a route parameter for the chat surface. Tab and
    session ownership stays in `TabManagerService`.
-8. Update the three places that state the old rule:
-   `libs/frontend/core/CLAUDE.md`, `apps/ptah-extension-webview/CLAUDE.md` and
-   the doc block at
-   `libs/frontend/core/src/lib/services/webview-navigation.service.ts:13-22`.
-   Also repair the version drift in the root `CLAUDE.md`.
+8. Update the one remaining place that states the old rule: the class doc block
+   at `libs/frontend/core/src/lib/services/webview-navigation.service.ts:13-22`.
+   It reads "CRITICAL: This service completely avoids Angular Router and History
+   API which are incompatible with VS Code webviews due to security
+   restrictions." The claim is false as written, and the service itself is
+   deleted by this task. Two other copies of the rule lived in
+   `libs/frontend/core/CLAUDE.md` and `apps/ptah-extension-webview/CLAUDE.md`;
+   commit `7917b193a` deleted all 66 instruction files, so those copies are
+   already gone. Do not recreate them.
 
 9. Separate the three concerns that `currentView()` collapses today. See
    "Target architecture" below. The Router owns the addressed surface, a
@@ -119,11 +124,11 @@ lever available.
 
 A surface can be in one of three conditions, and they are not the same thing.
 
-| Condition | In the DOM | In change detection | Instance and DI alive | State survives |
-|---|---|---|---|---|
-| `@switch` case not matched | no | no | no | no |
-| `[class.hidden]` (today) | yes | **yes** | yes | yes |
-| Router detached view | no | **no** | yes | yes |
+| Condition                  | In the DOM | In change detection | Instance and DI alive | State survives |
+| -------------------------- | ---------- | ------------------- | --------------------- | -------------- |
+| `@switch` case not matched | no         | no                  | no                    | no             |
+| `[class.hidden]` (today)   | yes        | **yes**             | yes                   | yes            |
+| Router detached view       | no         | **no**              | yes                   | yes            |
 
 `display: none` removes a tree from layout and paint. It does not remove it from
 Angular's view hierarchy. Under `OnPush` with signals, a hidden component is
@@ -171,11 +176,11 @@ switch re-attaches the previous workspace's canvas.
 `currentView()` answers three independent questions at once. That is why CSS
 hiding was necessary: one lever, and `@switch` welds visibility to lifecycle.
 
-| Question | Owner after this task | Owner today |
-|---|---|---|
-| Which surface is addressed | the Router URL | `currentView()` |
-| Which surface is visible | a `computed` from the URL | `currentView()` |
-| Which surface is alive | an explicit activity contract | `@switch`, implicitly |
+| Question                   | Owner after this task         | Owner today           |
+| -------------------------- | ----------------------------- | --------------------- |
+| Which surface is addressed | the Router URL                | `currentView()`       |
+| Which surface is visible   | a `computed` from the URL     | `currentView()`       |
+| Which surface is alive     | an explicit activity contract | `@switch`, implicitly |
 
 ### The activity contract
 
@@ -192,13 +197,13 @@ export const SURFACE_ACTIVE = new InjectionToken<Signal<boolean>>('SURFACE_ACTIV
 
 Consumers that must read it:
 
-| Consumer | Behavior when not active |
-|---|---|
-| transcript rAF throttle | stop scheduling frames |
-| markdown render (`marked` + DOMPurify) | hold the raw text, parse on activation |
-| `IntersectionObserver` windowing | disconnect, seed the mount set on activation |
-| gridstack | skip `layout()`, re-measure once on activation |
-| `CanvasRenderMetricsService` | already present — use it to measure the win |
+| Consumer                               | Behavior when not active                       |
+| -------------------------------------- | ---------------------------------------------- |
+| transcript rAF throttle                | stop scheduling frames                         |
+| markdown render (`marked` + DOMPurify) | hold the raw text, parse on activation         |
+| `IntersectionObserver` windowing       | disconnect, seed the mount set on activation   |
+| gridstack                              | skip `layout()`, re-measure once on activation |
+| `CanvasRenderMetricsService`           | already present — use it to measure the win    |
 
 **A detached view receives no `ngOnDestroy`.** The Router stops change
 detection, not background work. Timers, effects and RPC subscriptions keep
@@ -208,13 +213,13 @@ another.
 
 ### What the route table absorbs
 
-| Today | After |
-|---|---|
-| `@switch` with 9 near-identical `@case` blocks, each an `*ngComponentOutlet` plus a spinner `@else` (about 115 lines) | `<router-outlet />` |
-| 5 lazy-view DI tokens plus `LazyViewService.resolveWhen` | `loadComponent` per route |
-| 3 disagreeing `initialView` allow-lists (8, 13 and 13 entries) | one route table |
-| `@defer (on immediate)` for `thoth` | a lazy route, like every other |
-| `ViewSlice.thothActiveTab`, `marketplaceActiveProvider` | child routes, so sub-state is addressable and restorable |
+| Today                                                                                                                 | After                                                    |
+| --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `@switch` with 9 near-identical `@case` blocks, each an `*ngComponentOutlet` plus a spinner `@else` (about 115 lines) | `<router-outlet />`                                      |
+| 5 lazy-view DI tokens plus `LazyViewService.resolveWhen`                                                              | `loadComponent` per route                                |
+| 3 disagreeing `initialView` allow-lists (8, 13 and 13 entries)                                                        | one route table                                          |
+| `@defer (on immediate)` for `thoth`                                                                                   | a lazy route, like every other                           |
+| `ViewSlice.thothActiveTab`, `marketplaceActiveProvider`                                                               | child routes, so sub-state is addressable and restorable |
 
 Retention also becomes explicit. Today the policy is accidental: chat and canvas
 are retained forever and every other surface is destroyed at once. With
@@ -242,9 +247,15 @@ next raises the risk. Do not reorder 2 and 3.
    Marketplace provider. Persist the logical URL through `vscode.setState`, and
    add `registerWebviewPanelSerializer`.
 
-The first pull request carries batch 1 and batch 2. Batches 3 and 4 follow
-separately, because a reuse-strategy rewrite of a 719-line shell inside the same
-pull request would not be reviewable.
+The first pull request carries **batch 1 only**. Batch 2 follows next, then 3
+and 4, each in its own pull request. A reuse-strategy rewrite of a 719-line
+shell in the same pull request as the route table would not be reviewable.
+
+**Batch 1 must keep every route id in one exported constant.**
+TASK_2026_492_0bcc will remap the surfaces into two navigation sets, so the
+remap has to be a single edit. This is what makes it safe to run batch 1 and
+that design specification at the same time: batch 1 replaces the _mechanism_
+under today's ids, and 492 decides the _structure_ those ids take later.
 
 ## Out of scope
 

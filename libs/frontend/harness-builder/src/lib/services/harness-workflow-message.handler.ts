@@ -1,7 +1,8 @@
 import { Injectable, inject } from '@angular/core';
 import {
   AppStateManager,
-  WebviewNavigationService,
+  SurfaceRouterService,
+  surfaceNavigationLanded,
   type MessageHandler,
 } from '@ptah-extension/core';
 import {
@@ -15,7 +16,7 @@ import { HarnessWorkflowService } from './harness-workflow.service';
 @Injectable({ providedIn: 'root' })
 export class HarnessWorkflowMessageHandler implements MessageHandler {
   private readonly appState = inject(AppStateManager);
-  private readonly navigation = inject(WebviewNavigationService);
+  private readonly surfaceRouter = inject(SurfaceRouterService);
   private readonly state = inject(HarnessBuilderStateService);
   private readonly workflow = inject(HarnessWorkflowService);
 
@@ -104,13 +105,33 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
     this.navigateToBuilder();
   }
 
+  /**
+   * Goes through `SurfaceRouterService` rather than
+   * `AppStateManager.setCurrentView` on purpose: this is a host push, not a
+   * click, so a navigation that does not land has to be reported rather than
+   * dropped. `navigateToSurface` never rejects, so the outcome is a value here
+   * and not an unhandled rejection.
+   *
+   * `surfaceNavigationLanded` is what makes the error honest. The most common
+   * way into this method is a resume for a workflow that is ALREADY displayed,
+   * and Angular's default `onSameUrlNavigation: 'ignore'` skips that
+   * navigation — which the old boolean reported as `false`, so the user got
+   * "The harness builder could not be opened" while looking straight at it
+   * (TASK_2026_524 revision 1, F3). `already-there` is a success. A `cancelled`
+   * result is also not reported: it means a newer navigation superseded this
+   * one, so the user asked for something else and an error would be about a
+   * request they had already replaced.
+   */
   private navigateToBuilder(): void {
-    this.navigation
-      .navigateToView('harness-builder')
-      .catch((error: unknown) => {
+    void this.surfaceRouter
+      .navigateToSurface('harness-builder')
+      .then((result) => {
+        if (surfaceNavigationLanded(result) || result === 'cancelled') return;
         console.error(
-          '[HarnessWorkflowMessageHandler] navigateToView failed:',
-          error instanceof Error ? error.message : String(error),
+          `[HarnessWorkflowMessageHandler] navigation to harness-builder did not complete: ${result}`,
+        );
+        this.workflow.setError(
+          'The harness builder could not be opened, so the workflow was not shown. Try starting it again.',
         );
       });
   }

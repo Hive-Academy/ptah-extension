@@ -15,10 +15,7 @@ import {
   X,
   Info,
 } from 'lucide-angular';
-import {
-  WebviewNavigationService,
-  EffortStateService,
-} from '@ptah-extension/core';
+import { AppStateManager, EffortStateService } from '@ptah-extension/core';
 import type { EffortLevel } from '@ptah-extension/shared';
 import {
   TribunalDiscoveryService,
@@ -316,7 +313,7 @@ export class StepPanelPreviewComponent {
   readonly lanesChanged = output<readonly VendorLane[]>();
 
   private readonly discovery = inject(TribunalDiscoveryService);
-  private readonly navigation = inject(WebviewNavigationService);
+  private readonly appState = inject(AppStateManager);
   private readonly effortState = inject(EffortStateService);
 
   protected readonly RefreshIcon = RefreshCw;
@@ -414,10 +411,7 @@ export class StepPanelPreviewComponent {
   protected configure(event: Event, vendor: DiscoveredVendor): void {
     event.preventDefault();
     event.stopPropagation();
-    void this.navigation.navigateToSettingsTab(
-      'orchestration',
-      vendor.lane.providerId,
-    );
+    this.appState.openSettingsTab('orchestration', vendor.lane.providerId);
   }
 
   protected async addInstance(vendor: DiscoveredVendor): Promise<void> {

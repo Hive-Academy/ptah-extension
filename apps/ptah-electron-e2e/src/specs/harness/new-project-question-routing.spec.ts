@@ -18,8 +18,11 @@ import type { UiDriver } from '../../support/ui-driver';
  * a canvas tile is open, so there IS a stranger's tile for the card to land
  * on, and the assertion is that the ONLY card in the app is the one on the
  * workflow's own panel. Test 2 covers the third defect in the same task — a
- * stale `WebviewNavigationService` mirror made "Resume New Project" report
- * success and navigate nowhere.
+ * stale private view mirror inside the old `WebviewNavigationService` made
+ * "Resume New Project" report success and navigate nowhere. That service is
+ * deleted (TASK_2026_524 batch 1) and the Router is now the single owner of
+ * the surface, so the mirror cannot come back; this test stays as the
+ * regression gate on the behaviour.
  *
  * DELIBERATELY NOT COVERED HERE: the second defect, `NoActivityWatchdog`
  * aborting a turn parked on `canUseTool`. Its trigger is a 180 s silence and
@@ -211,10 +214,11 @@ test.describe('New Project resume navigation (TASK_2026_317)', () => {
   }) => {
     await openWorkflow(ui);
 
-    // `UiDriver.goto` pushes a `switchView` message — the same direct
-    // `setCurrentView` path that used to leave `WebviewNavigationService`'s
-    // private mirror stale, so the later `navigateToView` short-circuited
-    // against a view the app had already left.
+    // `UiDriver.goto` pushes a `switchView` message. That path used to leave
+    // the old navigation service's private view mirror stale, so its later
+    // `navigateToView` short-circuited against a view the app had already
+    // left. `switchView` still works exactly the same way over the wire —
+    // only its receiver changed (TASK_2026_524 batch 1).
     await ui.goto('setup-hub');
 
     const resume = ui.page.locator('[data-testid="new-project-resume"]');
