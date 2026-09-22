@@ -90,6 +90,17 @@ export class JsonMcpFacet implements IHarnessMcpFacet {
     return join(workspaceRoot, ...this.options.segments);
   }
 
+  canonicalize(config: McpServerConfig): McpServerConfig {
+    return jsonToConfig(
+      configToJson(
+        config,
+        this.options.includeType,
+        this.options.urlKey ?? DEFAULT_URL_KEY,
+        this.options.dialect ?? 'standard',
+      ),
+    );
+  }
+
   readAll(workspaceRoot: string): Map<string, McpServerConfig> {
     const servers = new Map<string, McpServerConfig>();
     const path = this.configPath(workspaceRoot);

@@ -118,4 +118,17 @@ export interface IHarnessMcpFacet {
 
   /** Remove one server entry. A no-op when it is already absent. */
   remove(workspaceRoot: string, serverKey: string): Promise<void>;
+
+  /**
+   * The config exactly as {@link readAll} will report it after {@link write}.
+   *
+   * A dialect can lose information on the way to disk: OpenCode and Codex
+   * spell every remote transport the same way and the reader infers `sse`
+   * from the URL, so an `sse` server on a `/mcp` endpoint reads back as
+   * `http`. The planner hashes THIS shape as the on-disk hash, so a lossy
+   * round trip compares equal on the next pass instead of being rewritten
+   * (and reported as a local edit) forever. Absent means the round trip is
+   * the identity.
+   */
+  canonicalize?(config: McpServerConfig): McpServerConfig;
 }

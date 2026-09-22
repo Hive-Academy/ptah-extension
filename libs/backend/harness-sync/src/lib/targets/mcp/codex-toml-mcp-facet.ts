@@ -110,6 +110,15 @@ export class CodexTomlMcpFacet implements IHarnessMcpFacet {
     return parseMcpServerTables(this.readFile(workspaceRoot));
   }
 
+  canonicalize(config: McpServerConfig): McpServerConfig {
+    // TOML carries no transport key; `toConfig` infers `sse` from the URL, so
+    // a round trip through the same renderer and parser is the honest answer.
+    return (
+      parseMcpServerTables(renderBlock('canonical', config)).get('canonical') ??
+      config
+    );
+  }
+
   /** Server names declared OUTSIDE any Ptah marker block. */
   foreignServerKeys(workspaceRoot = ''): Set<string> {
     const content = this.readFile(workspaceRoot);

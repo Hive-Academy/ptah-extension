@@ -271,4 +271,27 @@ describe('OpenCode MCP facet (opencode.json)', () => {
     });
     expect(servers[PTAH_SPAWN_MCP_KEY]).toBeDefined();
   });
+
+  // ---------------------------------------------------------- canonicalize
+
+  it('canonicalize reports an sse server exactly as the file reads it back', async () => {
+    // `remote` cannot spell `sse`, and the reader infers the transport from
+    // the URL, so this server reads back as `http`. The planner must hash the
+    // read-back shape or the entry is an update on every pass.
+    const facet = makeFacet();
+    const sse: McpServerConfig = {
+      type: 'sse',
+      url: 'https://example.com/events',
+    };
+    await facet.write(ws, 'events', sse);
+
+    const readBack = makeFacet().readAll(ws).get('events');
+    expect(readBack).toBeDefined();
+    expect(hashMcpConfig(readBack as McpServerConfig)).not.toBe(
+      hashMcpConfig(sse),
+    );
+    expect(hashMcpConfig(facet.canonicalize?.(sse) ?? sse)).toBe(
+      hashMcpConfig(readBack as McpServerConfig),
+    );
+  });
 });
