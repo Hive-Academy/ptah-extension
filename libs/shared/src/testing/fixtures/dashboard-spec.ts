@@ -29,7 +29,7 @@ import type {
  */
 export function dashboardJsonBytes(value: unknown): number {
   const encoded = JSON.stringify(value);
-  return Buffer.byteLength(encoded === undefined ? 'null' : encoded, 'utf8');
+  return Buffer.byteLength(encoded ?? 'null', 'utf8');
 }
 
 /** A minimal valid envelope. Override any field to break exactly one rule. */
@@ -51,7 +51,13 @@ export function makeDashboardSpec(
 export function makeStat(
   overrides: Partial<DashboardStatComponent> = {},
 ): DashboardStatComponent {
-  return { id: 'passing', kind: 'stat', title: { text: 'Passing' }, value: 42, ...overrides };
+  return {
+    id: 'passing',
+    kind: 'stat',
+    title: { text: 'Passing' },
+    value: 42,
+    ...overrides,
+  };
 }
 
 /** `count` sibling stats with distinct ids. */
@@ -85,7 +91,9 @@ export function makeStatPairs(total: number): DashboardComponent[] {
     const hasChild = index * 2 + 1 < total;
     return makeStat({
       id: `pair-${index}`,
-      ...(hasChild ? { children: [makeStat({ id: `pair-${index}-child` })] } : {}),
+      ...(hasChild
+        ? { children: [makeStat({ id: `pair-${index}-child` })] }
+        : {}),
     });
   });
 }
@@ -103,7 +111,10 @@ export function makeTable(
       label: { text: `Column ${index}` },
     })),
     rows: Array.from({ length: rowCount }, (_unused, rowIndex) =>
-      Array.from({ length: columnCount }, (_cell, cellIndex) => rowIndex * 100 + cellIndex),
+      Array.from(
+        { length: columnCount },
+        (_cell, cellIndex) => rowIndex * 100 + cellIndex,
+      ),
     ),
   };
 }
@@ -117,7 +128,12 @@ export function makeChart(perSeries: readonly number[]): DashboardComponent {
       y: pointIndex % 7,
     })),
   }));
-  return { id: 'duration', kind: 'line-chart', title: { text: 'Duration' }, series };
+  return {
+    id: 'duration',
+    kind: 'line-chart',
+    title: { text: 'Duration' },
+    series,
+  };
 }
 
 export function makeList(texts: readonly string[]): DashboardListComponent {

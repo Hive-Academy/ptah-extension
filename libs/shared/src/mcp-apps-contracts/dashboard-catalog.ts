@@ -61,8 +61,7 @@ export const DASHBOARD_COMPONENT_KINDS = [
   'list',
 ] as const;
 
-export type DashboardComponentKind =
-  (typeof DASHBOARD_COMPONENT_KINDS)[number];
+export type DashboardComponentKind = (typeof DASHBOARD_COMPONENT_KINDS)[number];
 
 /**
  * Control 1 of the trust boundary — the action allowlist.
@@ -187,8 +186,8 @@ export const DASHBOARD_TEXT_FALLBACK_MAX_TABLE_ROWS = 20;
  *    is a live `javascript:` URL that a naive `startsWith('https:')` passes.
  *    Rather than replicate that stripping, a value that is not already trimmed
  *    is simply refused.
- * 2. A relative or schemeless value. `new URL` without a base throws on it,
- *    which is the answer we want: a spec must be explicit.
+ * 2. A relative or schemeless value. `URL.canParse` without a base is false for
+ *    it, which is the answer we want: a spec must be explicit.
  * 3. Embedded credentials (`https://user:pass@host`). A spec has no business
  *    carrying a credential, and the userinfo field is a standard way to make a
  *    hostile host look like a trusted one in a rendered link.
@@ -199,16 +198,12 @@ export function isAllowedDashboardUrl(value: string): boolean {
   }
   if (value !== value.trim()) return false;
 
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    // Suppressed deliberately and completely: `new URL` throws exactly one
-    // way — the value is not an absolute URL — and that is already the
-    // answer this predicate returns. There is no diagnostic in the error
-    // worth surfacing, and re-throwing would turn a rejection into a crash.
-    return false;
-  }
+  // `URL.canParse` is the non-throwing form of the same parse. It keeps the
+  // rejection a rejection instead of routing it through an exception that this
+  // predicate would then have to swallow, which the degradation audit counts —
+  // correctly — as a silently dropped failure.
+  if (!URL.canParse(value)) return false;
+  const parsed = new URL(value);
 
   if (parsed.username.length > 0 || parsed.password.length > 0) return false;
 

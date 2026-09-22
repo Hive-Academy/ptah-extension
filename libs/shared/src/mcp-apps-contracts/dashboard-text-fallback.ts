@@ -31,7 +31,10 @@ import type {
 /** Widest a single text-table cell is printed before it is elided. */
 const MAX_CELL_WIDTH = 40;
 
-function textOf(value: DashboardRichText | undefined, fallback: string): string {
+function textOf(
+  value: DashboardRichText | undefined,
+  fallback: string,
+): string {
   const raw = value?.text.trim() ?? '';
   return raw.length > 0 ? raw : fallback;
 }
@@ -71,10 +74,11 @@ function flatten(
 function renderStat(component: DashboardComponent): string | null {
   if (component.kind !== 'stat') return null;
   const unit = component.unit === undefined ? '' : ` ${component.unit}`;
-  const delta =
-    component.delta === undefined
-      ? ''
-      : ` (${component.delta >= 0 ? '+' : ''}${component.delta})`;
+  let delta = '';
+  if (component.delta !== undefined) {
+    const sign = component.delta >= 0 ? '+' : '';
+    delta = ` (${sign}${component.delta})`;
+  }
   return `${labelOf(component)}: ${component.value}${unit}${delta}`;
 }
 
@@ -106,10 +110,15 @@ function renderTable(table: DashboardTableComponent): string {
     ),
   );
   const line = (cells: readonly string[]): string =>
-    cells.map((cell, index) => cell.padEnd(widths[index])).join(' | ').trimEnd();
+    cells
+      .map((cell, index) => cell.padEnd(widths[index]))
+      .join(' | ')
+      .trimEnd();
 
-  lines.push(`  ${line(headers)}`);
-  lines.push(`  ${widths.map((width) => '-'.repeat(width)).join('-+-')}`);
+  lines.push(
+    `  ${line(headers)}`,
+    `  ${widths.map((width) => '-'.repeat(width)).join('-+-')}`,
+  );
   for (const row of body) lines.push(`  ${line(row)}`);
 
   if (rows.length > shown.length) {

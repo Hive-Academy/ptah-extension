@@ -61,8 +61,7 @@ export interface DashboardSpecRejected {
 }
 
 export type DashboardSpecValidation =
-  | DashboardSpecAccepted
-  | DashboardSpecRejected;
+  DashboardSpecAccepted | DashboardSpecRejected;
 
 /** How many zod issues a rejection reason names before it summarises. */
 const MAX_REPORTED_ISSUES = 8;
@@ -79,13 +78,14 @@ export function formatDashboardSpecIssues(
   issues: readonly z.core.$ZodIssue[],
 ): string {
   const reported = issues.slice(0, MAX_REPORTED_ISSUES).map((issue) => {
-    const path = issue.path.map((segment) => String(segment)).join('.');
+    const path = issue.path.map(String).join('.');
     return path.length > 0 ? `${path}: ${issue.message}` : issue.message;
   });
+  const listed = reported.join('; ');
   const remainder = issues.length - reported.length;
-  return remainder > 0
-    ? `${reported.join('; ')} (+${remainder} more issue${remainder === 1 ? '' : 's'})`
-    : reported.join('; ');
+  if (remainder === 0) return listed;
+  const plural = remainder === 1 ? 'issue' : 'issues';
+  return `${listed} (+${remainder} more ${plural})`;
 }
 
 /** A `children`/`components` array on an untyped, not-yet-validated node. */

@@ -132,7 +132,7 @@ export function createDashboardBroadcast(
     const results = await Promise.all(
       surfaces.map((viewType) => host.sendMessage(viewType, type, payload)),
     );
-    const delivered = results.filter((ok) => ok).length;
+    const delivered = results.filter(Boolean).length;
 
     if (delivered === surfaces.length) {
       return { status: 'delivered', surfaces: surfaces.length };

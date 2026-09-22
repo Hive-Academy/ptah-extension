@@ -366,20 +366,19 @@ export const DashboardListComponentSchema = z
  * breaks the cycle and does the `satisfies` job of binding the schema to the
  * published type.
  */
-export const DashboardComponentSchema: z.ZodType<DashboardComponent> =
-  z
-    .discriminatedUnion('kind', [
-      DashboardStatComponentSchema,
-      DashboardLineChartComponentSchema,
-      DashboardBarChartComponentSchema,
-      DashboardTableComponentSchema,
-      DashboardListComponentSchema,
-    ])
-    // The id is load-bearing, not decoration: because this schema is recursive,
-    // `z.toJSONSchema` MUST emit it as a named definition plus a `$ref`.
-    // Without the id the generated MCP input schema names it `__schema0`, which
-    // is what an agent would then see in its tool list.
-    .meta({ id: 'DashboardComponent' });
+export const DashboardComponentSchema: z.ZodType<DashboardComponent> = z
+  .discriminatedUnion('kind', [
+    DashboardStatComponentSchema,
+    DashboardLineChartComponentSchema,
+    DashboardBarChartComponentSchema,
+    DashboardTableComponentSchema,
+    DashboardListComponentSchema,
+  ])
+  // The id is load-bearing, not decoration: because this schema is recursive,
+  // `z.toJSONSchema` MUST emit it as a named definition plus a `$ref`.
+  // Without the id the generated MCP input schema names it `__schema0`, which
+  // is what an agent would then see in its tool list.
+  .meta({ id: 'DashboardComponent' });
 
 // ---------------------------------------------------------------------------
 // Tree measurements — the budgets that a per-node refinement cannot express
@@ -480,7 +479,12 @@ export const DashboardSpecEnvelopeSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['components'],
-        message: `duplicate component id(s): ${[...duplicates].sort().join(', ')}.`,
+        // The locale is pinned: an unpinned `localeCompare` orders by the
+        // host's ICU locale, so the same spec would produce a different
+        // message on a different machine and a test could not pin it.
+        message: `duplicate component id(s): ${[...duplicates]
+          .sort((left, right) => left.localeCompare(right, 'en'))
+          .join(', ')}.`,
       });
     }
   }) satisfies z.ZodType<DashboardSpecEnvelope>;
